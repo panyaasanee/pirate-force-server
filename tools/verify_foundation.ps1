@@ -28,6 +28,8 @@ py -3 -m py_compile tools\pf_action_producer_probe.py
 Assert-NativeSuccess -ExitCode $LASTEXITCODE -Step 'action producer probe py_compile'
 py -3 -m py_compile tools\pf_action_consumer_probe.py
 Assert-NativeSuccess -ExitCode $LASTEXITCODE -Step 'action consumer probe py_compile'
+py -3 -m py_compile tools\pf_hit_result_probe.py
+Assert-NativeSuccess -ExitCode $LASTEXITCODE -Step 'hit result probe py_compile'
 py -3 -m py_compile tools\scene_db_guard.py
 Assert-NativeSuccess -ExitCode $LASTEXITCODE -Step 'database guard py_compile'
 [void][scriptblock]::Create((Get-Content -Raw tools\run_test_arena.ps1))
@@ -97,6 +99,9 @@ expected = {
     'tools/pf_action_consumer_probe.py',
     'tools/pf_action_consumer_probe_config.json',
     'tools/pf_action_consumer_probe_local_config.json',
+    'tools/pf_hit_result_probe.py',
+    'tools/pf_hit_result_probe_config.json',
+    'tools/pf_hit_result_probe_local_config.json',
     'tools/run_test_arena.ps1',
     'tools/run_scene2_load_only.ps1',
     'tools/scene_db_guard.py',

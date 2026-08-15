@@ -40,6 +40,9 @@
 !/tools/pf_action_consumer_probe.py
 !/tools/pf_action_consumer_probe_config.json
 !/tools/pf_action_consumer_probe_local_config.json
+!/tools/pf_hit_result_probe.py
+!/tools/pf_hit_result_probe_config.json
+!/tools/pf_hit_result_probe_local_config.json
 !/tools/run_test_arena.ps1
 !/tools/run_scene2_load_only.ps1
 !/tools/scene_db_guard.py
