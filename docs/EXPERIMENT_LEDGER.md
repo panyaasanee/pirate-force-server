@@ -8,6 +8,7 @@
 | FND-002 | Character lifecycle | Offline pass | Create/List/Select/StartGame share identity across actor/Avatar/ActorAttr/MovementAttr |
 | FND-003 | Restart/loopback | Offline pass | Session-bound position and identity survive DB reopen; exact projected frames round-trip locally |
 | FND-004 | Corrective audit | Offline pass | StartGame Teleport restored; malformed/replay/account/lease/migration negatives pass |
+| ARENA-001 | Test Arena P30 object spawn/target | Offline pass | Opt-in one-object packet/state boundary only; runtime acceptance, hostile-monster classification and combat are unproven |
 
 V141 artifacts:
 

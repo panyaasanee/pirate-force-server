@@ -26,6 +26,19 @@ Updated: 2026-08-15
 - Deterministic source archive verification: implemented and excluded from Git.
 - Runtime UI verification remains pending; no durable live-lifecycle claim is made.
 
+## Test Arena V1
+
+- Opt-in scenario `arena_v1_player_p30_target` is implemented and offline-tested.
+- It preserves Full Flow, then replaces only the inherited first population with
+  one test-only P30/Tornado Eagle at player-relative `+100X,+50Y`.
+- The exact target profile retains template 31, identity `0x201F`, HP 3857/3857,
+  and BasicAttr name `Tornado Eagle`.
+- Arena evidence is currently offline only. Spawn rendering, click targeting and
+  runtime health still require a GameClient acceptance run.
+- Historical runtime showed P30 with NPC/TALK-like presentation, not a proven
+  hostile monster classification. Arena V1 must not be reported as monster success.
+- Combat, AI, damage, loot, Tab selection and authentic placement are nonclaims.
+
 The legacy V141 source remains immutable and is loaded as a compatibility oracle.
 Gameplay dispatch falls through to it unchanged outside the lifecycle boundary.
 The configured server token currently identifies one local test account. Authenticated

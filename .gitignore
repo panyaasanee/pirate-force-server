@@ -12,10 +12,15 @@
 !/tests/**
 !/migrations/
 !/migrations/**
+!/scenarios/
+!/scenarios/**
 !/tools/
 /tools/*
 !/tools/build_foundation_release.py
+!/tools/PF_FAST_ENTRY_AUTOMATION.md
+!/tools/run_test_arena.ps1
 !/tools/verify_foundation.ps1
+!/tools/wait_for_pf_stage.py
 !/current/
 /current/*
 !/current/pf_login_game_server_v141.py

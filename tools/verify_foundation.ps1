@@ -1,6 +1,8 @@
 $ErrorActionPreference = 'Stop'
 py -3 -m py_compile current\pf_login_game_server_v141.py
 py -3 -m compileall -q src tests tools\build_foundation_release.py
+py -3 -m py_compile tools\wait_for_pf_stage.py
+[void][scriptblock]::Create((Get-Content -Raw tools\run_test_arena.ps1))
 py -3 current\pf_login_game_server_v141.py --self-test-only
 py -3 -m unittest discover -s tests -v
 $tracked = git ls-files
@@ -26,6 +28,7 @@ expected = {
     'current/pf_login_game_server_v141.py',
     'migrations/001_initial.sql',
     'migrations/002_character_integrity.sql',
+    'scenarios/arena_v1.json',
     'src/pirateforce_foundation/__init__.py',
     'src/pirateforce_foundation/actor_wire.py',
     'src/pirateforce_foundation/app.py',
@@ -34,8 +37,12 @@ expected = {
     'src/pirateforce_foundation/model.py',
     'src/pirateforce_foundation/repository.py',
     'src/pirateforce_foundation/runtime.py',
+    'src/pirateforce_foundation/scenario.py',
     'src/pirateforce_foundation/session.py',
     'src/pirateforce_foundation/store.py',
+    'tools/PF_FAST_ENTRY_AUTOMATION.md',
+    'tools/run_test_arena.ps1',
+    'tools/wait_for_pf_stage.py',
 }
 a, b = map(__import__('pathlib').Path, sys.argv[1:])
 assert hashlib.sha256(a.read_bytes()).digest() == hashlib.sha256(b.read_bytes()).digest()

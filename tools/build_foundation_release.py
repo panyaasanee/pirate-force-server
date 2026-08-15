@@ -1,9 +1,17 @@
-"""Build a deterministic source-only standalone release archive (generated, ignored)."""
+"""Build a deterministic source-only release archive (generated, ignored)."""
 import argparse, zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-FILES = [ROOT/'current/pf_login_game_server_v141.py', *sorted((ROOT/'src').rglob('*.py')), *sorted((ROOT/'migrations').glob('*.sql'))]
+FILES = [
+    ROOT/'current/pf_login_game_server_v141.py',
+    *sorted((ROOT/'src').rglob('*.py')),
+    *sorted((ROOT/'migrations').glob('*.sql')),
+    *sorted((ROOT/'scenarios').glob('*.json')),
+    ROOT/'tools/PF_FAST_ENTRY_AUTOMATION.md',
+    ROOT/'tools/run_test_arena.ps1',
+    ROOT/'tools/wait_for_pf_stage.py',
+]
 
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument('--output', default='release/pirateforce-foundation.zip'); args=ap.parse_args()

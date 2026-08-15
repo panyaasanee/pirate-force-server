@@ -1,12 +1,16 @@
 """Lifecycle-aware V141 state factory for the real legacy TCP listeners."""
 from .model import Position
+from .scenario import is_p30_target_observation, make_p30_target
 from .session import FoundationSession
 
-def make_state_class(legacy, lifecycle, projector):
+def make_state_class(legacy, lifecycle, projector, scenario=None):
     class PersistentGameSessionState(legacy.GameSessionState):
         def __init__(self, token: str):
             super().__init__(token)
             self.foundation = FoundationSession(lifecycle, projector, token)
+            self.arena_scenario = scenario
+            self.arena_spawned = False
+            self.arena_target_captured = False
 
         def dispatch(self, parsed):
             nested_id = parsed.nested_id
@@ -84,8 +88,51 @@ def make_state_class(legacy, lifecycle, projector):
                     )
                 return actions
 
-            actions = super().dispatch(parsed)
             durable_target = legacy.parse_v141_refresh_target_pos(parsed)
+            arena_actions = []
+            suppress_inherited_population = (
+                self.arena_scenario is not None
+                and not self.arena_spawned
+                and self.runtime_ack_sent
+                and self.teleport_sent
+                and self.foundation.selected is not None
+                and nested_id == legacy.TARGET_POS_VITAL
+            )
+            if suppress_inherited_population and (
+                durable_target is None
+                or self.foundation.selected.position.scene_id
+                != self.arena_scenario.scene_id
+            ):
+                # Before Arena population exists, TargetPos is either the exact
+                # trigger or a complete no-op.  Never let the broader frozen
+                # dispatcher retain malformed coordinates for a later frame.
+                return []
+            if (
+                self.arena_scenario is not None
+                and not self.arena_spawned
+                and self.runtime_ack_sent
+                and self.teleport_sent
+                and self.foundation.selected is not None
+                and self.foundation.selected.position.scene_id == self.arena_scenario.scene_id
+                and durable_target is not None
+            ):
+                pc, frame, target = make_p30_target(
+                    legacy, self.arena_scenario, durable_target,
+                )
+                # Commit scenario state before queueing and suppress the inherited
+                # P0/P30/P91 population branch for this opt-in session only.
+                self.arena_spawned = True
+                self.npc_spawn_sent = True
+                self.population_indices = (legacy.V112_MONSTER_INDEX,)
+                self.population_refresh_anchor = tuple(durable_target[:3])
+                self.events.append("arena_v1_p30_test_only_population_committed")
+                arena_actions = [
+                    ("ARENA_V1_P30_INITIAL", pc, frame, 0.0),
+                    ("ARENA_V1_P30_MODEL_READY_REAPPLY", pc, frame,
+                     self.arena_scenario.reapply_ms / 1000.0),
+                ]
+
+            actions = super().dispatch(parsed)
             if (
                 durable_target is not None
                 and self.foundation.selected is not None
@@ -99,5 +146,13 @@ def make_state_class(legacy, lifecycle, projector):
                 )
                 if candidate != selected.position:
                     self.foundation.checkpoint(candidate)
-            return actions
+
+            if self.arena_scenario is not None and self.arena_spawned:
+                if (
+                    is_p30_target_observation(legacy, parsed)
+                    and not self.arena_target_captured
+                ):
+                    self.arena_target_captured = True
+                    self.events.append("arena_v1_p30_target_kind2_captured_no_reply")
+            return actions + arena_actions
     return PersistentGameSessionState
