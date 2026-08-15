@@ -204,6 +204,25 @@ Updated: 2026-08-16
   ScriptB binding, vector-record contents, animation, hit/damage/HP or send a
   synthesized response. Two preceding ready-only exit-1 attempts are superseded
   timing diagnostics.
+- SCENE-012 closes the EA7D geometric-gate lane as a static proof plus an
+  instrumented operational negative, not a runtime pass. Exact code at
+  `0x44EB1D` calls `0x4758D0` with action `0xEA7D`; the EA7D path computes a
+  strict squared-distance comparison against a threshold made from an unknown
+  live object scalar plus the `0x755540` mode-0 BEHAVIOR selection. SCENE-011
+  observed natural keys 278/279 with `n_RANGE=75`, but the live scalar, object
+  identities and XYZ values at the comparison remain unknown, so no offline
+  boolean is justified. A narrowed two-hook probe emitted exact
+  `gate_enter` at live `0xD0EB1D` and then failed closed on a duplicate operator
+  gesture before any `gate_result`; probe exit was 1. The exact uninstrumented
+  TargetVital-kind1 -> EA7D -> one-shot SCENE-007 ACK control occurred earlier
+  and is not correlated to that probe event. Transport remained active through
+  the final logged heartbeat/request window before client close, and DB
+  main/WAL/SHM returned `PASS_UNCHANGED`. Do not claim gate true/false,
+  in/out-of-range, units, attack success, animation, hit, damage, HP, FightAttr,
+  AI, death, loot, skills or authentic faction. Stop adding hooks to this live
+  path. The next safe boundary is a structured offline audit for a complete
+  original/natural server-to-client combat-result envelope; zero hits remain a
+  corpus negative and do not authorize a synthesized CHitResult or attr packet.
 - The launcher starts a detached database guard. After both client and server close,
   runtime acceptance additionally requires `PASS_UNCHANGED` for the main SQLite file
   and the exact pre-run existence/hash/size state of both `-wal` and `-shm`.

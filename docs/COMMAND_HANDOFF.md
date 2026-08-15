@@ -314,6 +314,20 @@ other.
   Runtime exit was zero, stderr/stdout empty, heartbeats healthy and DB unchanged.
   Next lane must observe a natural consumer or naturally correlated CHitResult;
   do not synthesize a BEHAVIOR row or result packet.
+- SCENE-012 must be treated as a stopped runtime-instrumentation lane. Exact
+  static code proves that EA7D at `0x44EB1D` enters `0x4758D0`, combines an
+  unknown live object scalar with the mode-0 BEHAVIOR selection, squares that
+  threshold, and returns true only when it is strictly greater than live squared
+  XYZ separation. SCENE-011 supplies natural raw `n_RANGE=75` for keys 278/279,
+  but not the other live inputs, so do not compute a guessed result from server
+  coordinates. The result-only probe captured one exact callsite `gate_enter`
+  and then a duplicate-gesture error; no return event exists and exit was 1.
+  The earlier TargetVital-kind1 -> EA7D -> one-shot ACK control predates the
+  probe and must stay separate. DB remained unchanged and transport continued
+  until client close. Do not add another internal hook, send a packet or claim
+  gate result/range/attack/hit/damage. Continue with a structured offline search
+  for a complete original/natural inbound combat-result envelope; if none exists,
+  record a bounded corpus negative and require a lawful original-server capture.
 - Personal plugin `pirate-force-input-bridge` now provides bounded held keys and
   right-button drags. One-second held `E` camera rotation passed twice. Use it for
   autonomous GameClient control; this operational result does not raise any
