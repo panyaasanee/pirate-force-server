@@ -10,7 +10,7 @@
 | FND-004 | Corrective audit | Offline pass | StartGame Teleport restored; malformed/replay/account/lease/migration negatives pass |
 | FND-005 | Assisted client reconnect | Runtime pass | Arena01 Create/List/Select/StartGame and scene-1 position survive client exit/relaunch against the same running server; server-process restart is unproven |
 | ARENA-001 | Test Arena P30 object spawn/target | Runtime pass / classification negative | One P30 renders with name and HP and emits TargetVital; stable UI remains green/person/talk, so hostile relation and combat are unproven |
-| ARENA-002 | BasicAttr faction-only diagnostic | Offline candidate D | Opt-in P30 adds only proven mask `0x0400` plus serializer-ordered u32 `6`; runtime untested, with stop-on-unchanged classification rule |
+| ARENA-002 | BasicAttr faction-only diagnostic | Runtime transport pass / classification negative | Exact faction-6 initial/reapply and P30 TargetVital pass; operator-observed stable UI remains green/person/talk, so target-only faction is insufficient and the candidate is retired |
 
 V141 artifacts:
 

@@ -49,7 +49,7 @@ Updated: 2026-08-15
   hostile relation, combat, AI, damage or loot.
 - Combat, AI, damage, loot, Tab selection and authentic placement are nonclaims.
 
-## Test Arena V2 offline candidate
+## Test Arena V2 runtime diagnostic
 
 - Opt-in scenario `arena_v2_p30_basic_faction6_diagnostic` adds only the
   statically proven BasicAttr mask bit `0x0400` and its serializer-ordered u32
@@ -57,11 +57,22 @@ Updated: 2026-08-15
 - Golden comparison proves the uncompressed V2 P30 differs from V1 only in the
   two mask bytes and one tagged u32 field. V1 and no-scenario behavior remain
   unchanged.
-- Classification is D (compositional hypothesis): no runtime hostile relation,
-  cursor, combat, FightAttr, AI, damage or loot claim is made.
-- Runtime stop rule: if the stable client presentation remains green/person/talk,
-  record a faction-only negative and retire this candidate without adding guessed
-  FightAttr, AI or local-player faction fields.
+- An assisted GameClient runtime run sent the exact V2 initial packet and identical
+  three-second reapply, then captured the exact P30 TargetVital after click. The
+  run continued for more than 60 post-target heartbeats with empty stderr and no
+  bad marker.
+- The stable client presentation remained green/person/talk before and after the
+  reapply. This is an operator-observed faction-only classification negative; the
+  capture contains no screenshot file, so it is not claimed as image evidence.
+- The stop rule has been applied: this candidate is retired without adding guessed
+  FightAttr, AI, `+0x6C`, or local-player faction fields. The next evidence lane is
+  recovery of the player's actual BasicAttr faction producer/value.
+- Static tracing proves the current StartGame ActorAttr omits faction mask `0x0400`,
+  so the client retains BasicAttr faction 0. Faction 6 does not list 0 as an enemy,
+  which explains this negative. No original-server capture proves the authentic
+  player faction, so value 1 remains forbidden as a guess.
+- Hostile relation, sword cursor, combat, FightAttr, AI, damage and loot remain
+  unproven.
 
 The legacy V141 source remains immutable and is loaded as a compatibility oracle.
 Gameplay dispatch falls through to it unchanged outside the lifecycle boundary.
