@@ -114,5 +114,17 @@ class ActionAckTests(unittest.TestCase):
   baseline=load_scene_load_scenario(ROOT/"scenarios/scene2_fighting_fish_soldier_hp3857_player_faction1.json")
   self.assertEqual(baseline.position,Position(2,0,21321.0059,9227.1123,590.6788,0.0))
   self.assertEqual(baseline.remote_actor.position,Position(2,0,21421.0059,9277.1123,590.6788,0.0))
+ def test_port_royal_faction1_start_game_projection_is_allowed_end_to_end(self):
+  factory=lambda token:ReadOnlyFoundationSession(self.store,self.projector,token,self.scenario)
+  state=make_state_class(self.v,self.lifecycle,self.projector,
+   scene_load_scenario=self.scenario,session_factory=factory)("ack-user")
+  state.dispatch(self.v.parse_outer(self.v._synthetic_client_login_pc()))
+  before=self.db_guard()
+  actions=state.dispatch(self.v.parse_outer(self.v._synthetic_start_game_pc(self.character.selector)))
+  self.assertEqual([action[0] for action in actions],
+   ["SCENE2_LOAD_ONLY_SELECTED_START_GAME","SCENE2_LOAD_ONLY_TELEPORT_MARKER2_ONCE"])
+  self.assertEqual(actions[0][1:3],self.projector.start_game(
+   self.character,self.scenario.position,1))
+  self.assertEqual(self.db_guard(),before)
 
 if __name__=="__main__": unittest.main()

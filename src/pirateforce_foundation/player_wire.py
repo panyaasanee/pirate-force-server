@@ -7,8 +7,10 @@ def make_actor_attr_with_basic_faction(
     basic_faction: int,
 ) -> bytes:
     """Add only the statically proven BasicAttr 0x0400 field in wire order."""
-    if basic_faction != 1 or scene_id != 2 or scene_seq != 0:
-        raise ValueError("only the Scene2 player-faction-1 relation probe is allowed")
+    if basic_faction != 1 or scene_seq != 0 or scene_id not in (1, 2):
+        raise ValueError(
+            "only the exact Scene2 or SCENE-007 Port Royal faction-1 probe is allowed"
+        )
     basic_mask = 0x000C | 0x0100 | 0x0200 | 0x0400
     return (
         legacy.u8tag(0x0B, 1)

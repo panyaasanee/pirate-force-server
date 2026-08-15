@@ -83,7 +83,15 @@ class SceneLoadTests(unittest.TestCase):
         path=Path(self.tmp.name)/"baseline-with-relation.json"
         path.write_text(json.dumps(baseline),encoding="utf-8")
         with self.assertRaises(ValueError): load_scene_load_scenario(path)
-        for values in ((2,0,2),(1,0,1),(2,1,1)):
+        scene1=make_actor_attr_with_basic_faction(
+            self.legacy,self.character.identity_lo,self.character.identity_hi,1,0,1,
+        )
+        differences=[index for index,(left,right) in enumerate(zip(expected,scene1)) if left!=right]
+        scene_tag_at=expected.index(self.legacy.u16tag(0x12,2))
+        self.assertEqual(differences,[scene_tag_at+1])
+        self.assertEqual(scene1[scene_tag_at:scene_tag_at+3],self.legacy.u16tag(0x12,1))
+        self.assertEqual(len(scene1),len(expected))
+        for values in ((2,0,2),(1,0,2),(1,1,1),(2,1,1),(0,0,1),(3,0,1)):
             with self.assertRaises(ValueError):
                 make_actor_attr_with_basic_faction(
                     self.legacy,self.character.identity_lo,self.character.identity_hi,
