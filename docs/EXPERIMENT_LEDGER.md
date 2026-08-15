@@ -8,7 +8,8 @@
 | FND-002 | Character lifecycle | Offline pass | Create/List/Select/StartGame share identity across actor/Avatar/ActorAttr/MovementAttr |
 | FND-003 | Restart/loopback | Offline pass | Session-bound position and identity survive DB reopen; exact projected frames round-trip locally |
 | FND-004 | Corrective audit | Offline pass | StartGame Teleport restored; malformed/replay/account/lease/migration negatives pass |
-| ARENA-001 | Test Arena P30 object spawn/target | Offline pass | Opt-in one-object packet/state boundary only; runtime acceptance, hostile-monster classification and combat are unproven |
+| FND-005 | Assisted client reconnect | Runtime pass | Arena01 Create/List/Select/StartGame and scene-1 position survive client exit/relaunch against the same running server; server-process restart is unproven |
+| ARENA-001 | Test Arena P30 object spawn/target | Runtime pass / classification negative | One P30 renders with name and HP and emits TargetVital; stable UI remains green/person/talk, so hostile relation and combat are unproven |
 
 V141 artifacts:
 
@@ -17,5 +18,5 @@ V141 artifacts:
 - three-entry package SHA-256 `0572F476437E47302E3CD742239F56EFC96A90D7465F73C08EE77CB1EBAF1F00`
 
 V141 is not described as runtime-passing until its existing raw capture is audited and promoted, or a new verified run is produced.
-Foundation is not described as a durable live lifecycle until an audited UI run proves
-create, relogin, select, enter, movement checkpoint and process restart.
+Foundation is not described as a durable server lifecycle until a later audited run
+also proves server-process restart/crash recovery and the remaining state domains.
