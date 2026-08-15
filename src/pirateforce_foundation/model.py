@@ -7,6 +7,7 @@ class Position:
     x: float
     y: float
     z: float
+    heading: float = 0.0
 
 @dataclass(frozen=True)
 class Character:

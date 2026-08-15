@@ -1,5 +1,6 @@
 """Projection seam into frozen V141 serializers; no gameplay behavior is changed."""
 import importlib.util
+import struct
 import sys
 from pathlib import Path
 
@@ -24,11 +25,27 @@ class LegacyProjector:
     def create_success(self, character):
         return self.v.make_runtime_create_actor_success(character.actor_wire)
 
+    def movement_attr(self, character):
+        """Project the persisted position without changing the frozen zero-heading wire."""
+        p = character.position
+        return (
+            self.v.u8tag(0x0B, 1)
+            + bytes([0x32])
+            + struct.pack("<II", character.identity_lo & 0xFFFFFFFF,
+                          character.identity_hi & 0xFFFFFFFF)
+            + self.v.u8tag(0x0B, 0xFF)
+            + self.v.f32tag(p.x) + self.v.f32tag(p.y) + self.v.f32tag(p.z)
+            + self.v.f32tag(p.heading)
+            + self.v.u8tag(0x0B, 0)
+            + self.v.u32tag(0x26, 0)
+            + self.v.f32tag(0.0) * 3
+        )
+
     def start_game(self, character):
         p = character.position
         actor = self.v.make_actor_attr_minimal(character.identity_lo, character.identity_hi, p.scene_id, p.scene_seq)
         avatar = character.avatar_wire
-        movement = self.v.make_movement_attr_minimal(character.identity_lo, character.identity_hi, p.x, p.y, p.z)
+        movement = self.movement_attr(character)
         payload = (self.v.u8tag(0x08,character.selector)+self.v.u8tag(0x05,0)+self.v.u8tag(0x0B,2)+
                    self.v.u16tag(0x0F,3)+self.v.u16tag(0x0F,0)+self.v.u8tag(0x0B,4)+
                    self.v.u16tag(0x12,0x12AD)+actor+self.v.u16tag(0x12,0x16A0)+avatar+

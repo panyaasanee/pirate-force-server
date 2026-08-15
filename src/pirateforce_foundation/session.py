@@ -1,4 +1,6 @@
 """Transport-independent lifecycle session used by real adapters and loopback tests."""
+from dataclasses import replace
+
 class FoundationSession:
     def __init__(self, lifecycle, projector, login_name: str):
         self.lifecycle, self.projector = lifecycle, projector
@@ -17,6 +19,12 @@ class FoundationSession:
     def select_and_start(self, selector: int):
         self.selected = self.lifecycle.select(self.session_id, selector)
         return self.selected, self.projector.start_game(self.selected)
+
+    def checkpoint(self, position):
+        if self.selected is None:
+            raise RuntimeError("no selected character")
+        self.lifecycle.checkpoint(self.session_id, self.selected, position)
+        self.selected = replace(self.selected, position=position)
 
     def close(self, position=None):
         if self.selected and position:

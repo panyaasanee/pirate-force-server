@@ -27,25 +27,10 @@ Current state and evidence ceilings are in `STATUS.md` and
 
 ## Legacy history
 
-The active verified runtime checkpoint is V115 under `current\`. It preserves
-V111's stateful Adventure Key stack merge, isolates exact data-backed P30
-Tornado Eagle plus P91 Local people, positions the local actor through the
-proven StartGameRes MovementAttr path, and opens the client-data-backed Sword
-Soul shop through `TradeZoomVital 0x2A7A v2`. V115 corrects V114's one-byte
-string-tag error (`0x44` ANSI to serializer-proven `0x48` UTF-16). Read
-`reports\PF_RE_V111_to_V115_Inventory_Monster_Shop_20260814.md`.
-
-To deploy the current version into the installed game directory:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\deploy_current.ps1 -Version 115
-```
-
-Then run this file from the GameClient directory:
-
-```text
-C:\Users\Panya\Desktop\Pirate Force\GameClient\run_v115_port_royal_monster_shop_milestone.bat
-```
+V140 is the accepted runtime checkpoint. V141 is an offline characterization
+baseline with an unaudited raw capture. Historical protocol findings and their
+evidence ceilings remain in `AGENTS.md`, `handoff.txt`, and `reports/`; old deploy
+commands are intentionally not repeated here.
 
 ## Layout
 
