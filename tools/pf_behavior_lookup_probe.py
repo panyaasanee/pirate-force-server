@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checksum-guarded observe-only ACHIEVEMENT-registry lookup probe."""
+"""Checksum-guarded observe-only BEHAVIOR-registry lookup probe."""
 from __future__ import annotations
 
 import argparse
@@ -25,9 +25,9 @@ _consumer = importlib.util.module_from_spec(_consumer_spec)
 sys.modules[_consumer_spec.name] = _consumer
 _consumer_spec.loader.exec_module(_consumer)
 
-DEFAULT_CONFIG = Path(__file__).with_name("pf_achievement_lookup_probe_local_config.json")
+DEFAULT_CONFIG = Path(__file__).with_name("pf_behavior_lookup_probe_local_config.json")
 DEFAULT_CLIENT = ROOT.parent / "GameClient" / "GameClient.local.bin"
-DEFAULT_CAPTURE_ROOT = ROOT.parent / "GameClient" / "capture_achievement_lookup"
+DEFAULT_CAPTURE_ROOT = ROOT.parent / "GameClient" / "capture_behavior_lookup"
 EXACT_BINARIES = _base.EXACT_BINARIES
 EXACT_HOOKS = {
     "numeric_lookup": {
@@ -44,11 +44,11 @@ POINTER = re.compile(r"^0x[0-9a-f]+$")
 def load_config(path: Path) -> dict[str, Any]:
     data = json.loads(path.read_text(encoding="utf-8"))
     if type(data) is not dict or set(data) != {"schema", "binary", "hooks", "limits"} or data["schema"] != 1:
-        raise ValueError("invalid achievement lookup probe config root")
+        raise ValueError("invalid behavior lookup probe config root")
     if type(data["binary"]) is not dict or data["binary"] != EXACT_BINARIES.get(data["binary"].get("filename")):
         raise ValueError("binary profile differs from exact allowlist")
     if data["hooks"] != EXACT_HOOKS or data["limits"] != EXACT_LIMITS:
-        raise ValueError("achievement lookup provenance differs from exact allowlist")
+        raise ValueError("behavior lookup provenance differs from exact allowlist")
     return data
 
 
@@ -59,13 +59,13 @@ def guard_binary(path: Path, config: dict[str, Any]):
     sig = bytes.fromhex(hook["code"])
     off = pe.rva_to_offset(hook["va"] - pe.image_base)
     if raw[off : off + len(sig)] != sig:
-        raise ValueError("client code guard mismatch at numeric ACHIEVEMENT lookup")
+        raise ValueError("client code guard mismatch at numeric BEHAVIOR lookup")
     return pe
 
 
 def validate_output_path(output: Path, client: Path, config: Path, capture_root: Path = DEFAULT_CAPTURE_ROOT) -> Path:
     resolved = _base.validate_output_path(output, client, config, capture_root)
-    guarded = [Path(__file__).resolve(), Path(__file__).with_name("pf_achievement_lookup_probe_config.json").resolve(), Path(__file__).with_name("pf_achievement_lookup_probe_local_config.json").resolve()]
+    guarded = [Path(__file__).resolve(), Path(__file__).with_name("pf_behavior_lookup_probe_config.json").resolve(), Path(__file__).with_name("pf_behavior_lookup_probe_local_config.json").resolve()]
     for item in guarded:
         if resolved == item or (resolved.exists() and resolved.samefile(item)):
             raise ValueError("output aliases a guarded input")
@@ -99,12 +99,12 @@ class CaptureState:
         if not self.ready:
             raise RuntimeError("probe_ready was not observed")
         if self.require_lookup and not self.lookups:
-            raise RuntimeError("numeric achievement lookup was not observed")
+            raise RuntimeError("numeric behavior lookup was not observed")
 
 
 def validate_event(value: Any) -> dict[str, Any]:
     if type(value) is not dict or value.get("schema") != 1 or value.get("event") not in EVENTS:
-        raise ValueError("invalid achievement lookup event")
+        raise ValueError("invalid behavior lookup event")
     if type(value.get("timestamp")) is not str or not value["timestamp"]:
         raise ValueError("invalid event timestamp")
     fields = {

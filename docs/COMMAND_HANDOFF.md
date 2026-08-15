@@ -284,21 +284,24 @@ other.
   absent event as an operational negative only. Do not send a CHitResult until an
   authentic payload, natural trace or exact producer/data binding fixes every
   header/record scalar and flag.
-- SCENE-010 closes the ACHIEVEMENT-registry lookup boundary. Exact static
-  population proof identifies `ACHIEVEMENT`/`ACHIEVEMENT_TIP`, row key at entry
-  `+0x04`, `+0x28=n_LEVEL` and `+0x30=n_ITEMQUANTITY`; the earlier action-data
-  label is retired. The guarded numeric lookup probe observed key `0xEA7D`
+- SCENE-010 closes the BEHAVIOR-registry lookup boundary. Exact identity and
+  population proof follows `0x4162A0 -> 0x47BFC0 -> 0x491650`, loads table
+  `BEHAVIOR`, stores row `n_ID` at entry `+0x04`, and populates named behavior
+  fields plus the `s_HIT_KEYFRAME`/`s_HITBACK` vector at `+0xE4`. The guarded
+  numeric lookup probe observed key `0xEA7D`
   returning null twice at exact producer/control
   return `0x44E92A` and once at exact inbound ActionVital-handler return `0x7517B5`.
   The latter followed the SCENE-007 acknowledgement by 18 ms. Static control flow
-  shows that null skips one exact `n_LEVEL`-bit-7 branch but generic action
-  construction/queue remains available. The probe
+  shows that null takes the default branch but generic action construction/queue
+  remains available. The probe
   exited zero, stdout/stderr were empty, heartbeats continued until controlled
-  close and DB main/WAL/SHM were unchanged. It remains unknown why these action
-  paths query the achievement registry. Do not label the skipped branch as
-  animation, infer an action/ScriptB mapping, add a synthetic EA7D achievement
-  entry, or send CHitResult/HP/UpdateAttr/FightAttr. The next safe lane is exact
-  achievement trigger/update provenance only.
+  close and DB main/WAL/SHM were unchanged. The prior ACHIEVEMENT correction is
+  superseded: `0x705000` populates a separate singleton at `0x102DB68`, while this
+  lookup uses `0x102DAD8`. Do not infer an exact action/ScriptB row mapping, add a
+  synthetic EA7D behavior entry, or send CHitResult/HP/UpdateAttr/FightAttr. The
+  observed null is instant-scoped; `0x48D870` returning null for the same EA7D is
+  an A+C composition, not an observed CHitResult. Next safe lane: observe natural
+  BEHAVIOR population/lookup and correlate a natural CHitResult without writes.
 - Personal plugin `pirate-force-input-bridge` now provides bounded held keys and
   right-button drags. One-second held `E` camera rotation passed twice. Use it for
   autonomous GameClient control; this operational result does not raise any

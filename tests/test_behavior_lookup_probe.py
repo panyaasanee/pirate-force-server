@@ -7,18 +7,18 @@ import capstone
 import pefile
 
 ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location("pf_achievement_lookup_probe", ROOT / "tools/pf_achievement_lookup_probe.py")
+SPEC = importlib.util.spec_from_file_location("pf_behavior_lookup_probe", ROOT / "tools/pf_behavior_lookup_probe.py")
 P = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(P)
 
 
-class AchievementLookupProbeTests(unittest.TestCase):
-    def config(self, name="pf_achievement_lookup_probe_config.json"):
+class BehaviorLookupProbeTests(unittest.TestCase):
+    def config(self, name="pf_behavior_lookup_probe_config.json"):
         return P.load_config(ROOT / "tools" / name)
 
     def test_exact_profiles_and_disk_guards(self):
         original = self.config()
-        local = self.config("pf_achievement_lookup_probe_local_config.json")
+        local = self.config("pf_behavior_lookup_probe_local_config.json")
         self.assertEqual(original["hooks"], local["hooks"])
         P.guard_binary(ROOT.parent / "GameClient/GameClient.bin", original)
         P.guard_binary(ROOT.parent / "GameClient/GameClient.local.bin", local)
@@ -26,7 +26,7 @@ class AchievementLookupProbeTests(unittest.TestCase):
             P.guard_binary(ROOT.parent / "GameClient/GameClient.local.bin", original)
         with self.assertRaises(ValueError):
             P.guard_binary(ROOT.parent / "GameClient/GameClient.bin", local)
-        self.assertEqual(P.DEFAULT_CAPTURE_ROOT.name, "capture_achievement_lookup")
+        self.assertEqual(P.DEFAULT_CAPTURE_ROOT.name, "capture_behavior_lookup")
 
     def test_hook_is_instruction_aligned_and_has_no_relocations(self):
         hook = P.EXACT_HOOKS["numeric_lookup"]
@@ -46,7 +46,7 @@ class AchievementLookupProbeTests(unittest.TestCase):
             self.assertFalse(relocated.intersection(range(hook["va"], hook["va"] + len(code))))
 
     def test_config_rejects_drift(self):
-        data = json.loads((ROOT / "tools/pf_achievement_lookup_probe_config.json").read_text())
+        data = json.loads((ROOT / "tools/pf_behavior_lookup_probe_config.json").read_text())
         data["hooks"]["numeric_lookup"]["va"] += 1
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "bad.json"
@@ -92,7 +92,7 @@ class AchievementLookupProbeTests(unittest.TestCase):
         launcher = Path(P.__file__).read_text(encoding="utf-8")
         self.assertNotIn("action-data", launcher)
         self.assertNotIn("numeric action lookup", launcher)
-        source = P.make_agent_source(self.config("pf_achievement_lookup_probe_local_config.json"))
+        source = P.make_agent_source(self.config("pf_behavior_lookup_probe_local_config.json"))
         self.assertIn("onLeave(retval)", source)
         self.assertIn("numeric_lookup_result", source)
         self.assertIn("this.key=args[0].toUInt32()", source)
@@ -102,7 +102,7 @@ class AchievementLookupProbeTests(unittest.TestCase):
 
     def test_output_is_confined_and_rejects_guard_alias(self):
         client = ROOT.parent / "GameClient/GameClient.local.bin"
-        config = ROOT / "tools/pf_achievement_lookup_probe_local_config.json"
+        config = ROOT / "tools/pf_behavior_lookup_probe_local_config.json"
         safe = P.DEFAULT_CAPTURE_ROOT / "capture.jsonl"
         self.assertEqual(P.validate_output_path(safe, client, config), safe.resolve())
         with self.assertRaises(ValueError):

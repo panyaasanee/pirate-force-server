@@ -164,23 +164,30 @@ Updated: 2026-08-16
   negative, not proof that `CHitResult` is unrelated to combat. No `CHitResult`
   packet/event or CHitResult-driven HP mutation, UpdateAttr or FightAttr was
   observed or composed in this acknowledgement lane.
-- SCENE-010 closes the numeric ACHIEVEMENT-registry lookup boundary with exact
+- SCENE-010 closes the numeric BEHAVIOR-registry lookup boundary with exact
   static provenance and one checksum/code-guarded runtime trace. Registry lookup
   `0x702A10` received raw key `0xEA7D` twice from producer/control return
   `0x44E92A` and once from the inbound ActionVital-handler return `0x7517B5`; all
   three results were null in this session. The paired server trace fixes the final
   consumer lookup 18 ms after the exact SCENE-007 acknowledgement. Static control
-  flow proves that null skips one exact `n_LEVEL`-bit-7 branch while generic
-  ActionVital construction and actor queueing can still proceed. The probe emitted
+  flow proves only that null takes the default branch while generic ActionVital
+  construction and actor queueing can still proceed. The probe emitted
   229 valid events, no probe error, exited zero with empty stdout/stderr, and the
   client stayed healthy until controlled close. DB main/WAL/SHM returned
-  `PASS_UNCHANGED`. Static population proof identifies source tables `ACHIEVEMENT`
-  and `ACHIEVEMENT_TIP`: row key becomes entry `+0x04`; `+0x28` is `n_LEVEL` and
-  `+0x30` is `n_ITEMQUANTITY`. The earlier action-data label and missing-animation
-  explanation are retired. It is unknown why these action paths query the
-  achievement registry. This does not prove an action/ScriptB binding, animation,
+  `PASS_UNCHANGED`. Exact construction and population proof is
+  `0x4162A0 -> 0x47BFC0 -> 0x491650`: table `BEHAVIOR`, row `n_ID` stored at entry
+  `+0x04`, with named fields `n_AMOUNT_TARGET`, `n_RANGE`, `n_DAMAGE_AREA`,
+  `n_PROFIT`, `n_THENDO`, `n_CLASS` and parsers including `s_HIT_KEYFRAME` and
+  `s_HITBACK`; the latter populate the `+0xE4` vector consumed by reaction factory
+  `0x48D870`. The intervening ACHIEVEMENT correction is superseded: `0x705000`
+  belongs to distinct singleton `0x102DB68`, not this registry at `0x102DAD8`.
+  This does not prove an exact action/ScriptB binding, animation,
   hit/damage/HP, CHitResult ordering, AI, death, loot, skills or authentic faction.
-  Do not insert a synthetic `0xEA7D` achievement entry.
+  Do not insert a synthetic `0xEA7D` BEHAVIOR entry. The observed null applies only
+  to the three captured lookup instants. Composing that same null with the exact
+  `0x48D870` lookup/fallback path predicts a null CHitResult implementation for
+  `EA7D`, but no CHitResult invocation was observed and that composition is not a
+  runtime CHitResult fact.
 - The launcher starts a detached database guard. After both client and server close,
   runtime acceptance additionally requires `PASS_UNCHANGED` for the main SQLite file
   and the exact pre-run existence/hash/size state of both `-wal` and `-shm`.
