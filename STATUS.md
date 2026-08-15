@@ -72,8 +72,8 @@ Updated: 2026-08-15
   recovery of the player's actual BasicAttr faction producer/value.
 - Static tracing proves the current StartGame ActorAttr omits faction mask `0x0400`,
   so the client retains BasicAttr faction 0. Faction 6 does not list 0 as an enemy,
-  which explains this negative. No original-server capture proves the authentic
-  player faction, so value 1 remains forbidden as a guess.
+  which explains this negative. SCENE-005 later promotes value 1 only as a bounded,
+  table-guided emulator hypothesis; it is not an authentic player-faction claim.
 - Hostile relation, sword cursor, combat, FightAttr, AI, damage and loot remain
   unproven.
 
@@ -100,6 +100,23 @@ Updated: 2026-08-15
   controls target-selection transport for this actor. The value is a bounded
   level-27 diagnostic, not authentic MOBS34 spawn policy. Hostility, target UI,
   combat, AI, damage, death and loot remain unproven.
+- SCENE-004 repeated the SCENE-003 scenario with explicit hover refresh: move the
+  pointer off the actor, move it back onto the visible model, then click once and
+  inspect before the next action. The first click emitted a 45-byte TargetVital
+  for P60. After selection, a second off/on hover still showed the talk cursor and
+  the next click emitted a 29-byte ChooseNPC for identity `0x203D`. This rules out
+  stale-cursor and ground-click explanations for this run and proves the current
+  actor enters the client NPC-style interaction path. It does not prove authentic
+  player faction, hostile relation, attack, combat, damage, AI, death or loot. The
+  main/WAL/SHM guard passed unchanged.
+- SCENE-005 passed the relation boundary. Static parser proof identifies the
+  `FACTION` table's `n_ID` and `s_ENEMY` columns; a guarded read-only lookup matrix
+  showed current pair 0/6 is neutral and candidate 1/6 produces the opposite result
+  symmetrically. Adding only StartGame BasicAttr mask `0x0400` plus u32 candidate 1
+  made the stable P60 name/outline red, allowed Tab selection with a red target
+  panel/arrow, and emitted exact 31-byte TargetVital kind 1 for `0x203D` with no
+  ChooseNPC. DB guard passed unchanged. This proves the bounded relation composition,
+  not authentic player faction, attack, damage, AI, death or loot.
 - The launcher starts a detached database guard. After both client and server close,
   runtime acceptance additionally requires `PASS_UNCHANGED` for the main SQLite file
   and the exact pre-run existence/hash/size state of both `-wal` and `-shm`.
@@ -125,6 +142,19 @@ Updated: 2026-08-15
 - The two earlier one-line initialization failures are retained as superseded
   diagnostics for the Frida 17 API and ASLR guard fixes. Authentic player faction,
   relation-table meaning, hostile gameplay and combat remain unproven.
+- REL-002 adds a guarded read-only call of exact lookup `0x4A1D50` after proving the
+  loader consumes `FACTION.n_ID` and `FACTION.s_ENEMY`. For target 6, symmetric
+  opposite-result candidates within 0-31 are 1, 2, 3 and 18. This justifies candidate
+  1 as the first bounded runtime hypothesis without claiming original-server policy.
+
+## Local GameClient input bridge
+
+- Personal plugin `pirate-force-input-bridge` is installed and exposes bounded
+  timed key holds plus right-button drags for the single visible Pirate Force
+  window. Key/button release is guaranteed in `finally` paths.
+- A one-second held `E` action passed twice and visibly rotated the camera. The
+  bridge enabled the SCENE-004 hover-refresh run without operator camera control.
+  This is operational tooling evidence, not gameplay/protocol evidence.
 
 The legacy V141 source remains immutable and is loaded as a compatibility oracle.
 Gameplay dispatch falls through to it unchanged outside the lifecycle boundary.
