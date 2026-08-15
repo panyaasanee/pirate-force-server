@@ -21,12 +21,8 @@ class BehaviorRangeGateProbeTests(unittest.TestCase):
         base = {"schema": 1, "event": kind, "timestamp": "t"}
         common = {"thread_id": 7, "sequence": sequence, "invocation": 1}
         shapes = {
-            "gate_enter": {**common, "address": "0xd358d0", "caller": "0xd0eb22", "action": 0xEA7D},
-            "range_enter": {**common, "address": "0x1015540", "source_key": 123, "mode": 0},
-            "range_empty": {**common, "address": "0x1015558"},
-            "range_selected": {**common, "address": "0x1015604", "entry": "0x220000", "n_id": 278, "n_range": 75},
-            "range_complete": {**common, "address": "0xd35a9c", "raw_selected": 75},
-            "gate_result": {**common, "address": "0xd0eb22", "result_bool": 1, "range_count": 1},
+            "gate_enter": {**common, "address": "0xd0eb1d", "caller": "0xd0eb22", "action": 0xEA7D},
+            "gate_result": {**common, "address": "0xd0eb22", "result_bool": 1},
         }
         base.update(shapes[kind]); base.update(fields); return base
 
@@ -60,37 +56,30 @@ class BehaviorRangeGateProbeTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "provenance"): P.load_config(path)
 
     def test_exact_schema_and_bounds(self):
-        for seq, kind in enumerate(("gate_enter", "range_enter", "range_empty", "range_selected", "range_complete", "gate_result"), 1):
+        for seq, kind in enumerate(("gate_enter", "gate_result"), 1):
             P.validate_event(self.event(kind, seq))
         for broken in (
             self.event("gate_enter", 1, action=0xEA7E), self.event("gate_result", 2, result_bool=2),
-            self.event("range_selected", 2, n_range=0x80000000), self.event("range_complete", 2, raw_selected=-0x80000001),
-            self.event("range_selected", 2, entry="0x-no"), self.event("range_empty", 2, extra=1),
+            self.event("gate_enter", 1, address="0x-no"), self.event("gate_result", 2, extra=1),
+            {"schema": 1, "event": "range_enter", "timestamp": "t"},
         ):
             with self.assertRaises(ValueError): P.validate_event(broken)
 
-    def test_full_order_empty_and_fail_closed_paths(self):
-        state = P.CaptureState(require_gate=True, require_complete=True)
+    def test_result_only_order_and_require_gate(self):
+        state = P.CaptureState(require_gate=True)
         state.accept({"event": "probe_ready", "address": "0xcc0000"})
-        for event in (self.event("gate_enter", 1), self.event("range_enter", 2), self.event("range_selected", 3), self.event("range_complete", 4), self.event("gate_result", 5)):
+        for event in (self.event("gate_enter", 1), self.event("gate_result", 2)):
             state.accept(P.validate_event(event))
         state.ensure_success()
-        empty = P.CaptureState(require_gate=True)
-        empty.accept({"event": "probe_ready", "address": "0xcc0000"})
-        for event in (self.event("gate_enter", 1), self.event("range_enter", 2), self.event("range_empty", 3), self.event("gate_result", 4, range_count=0)):
-            empty.accept(P.validate_event(event))
-        empty.ensure_success()
-        strict = P.CaptureState(require_complete=True)
-        strict.accept({"event": "probe_ready", "address": "0xcc0000"})
-        for event in (self.event("gate_enter", 1), self.event("range_enter", 2), self.event("range_empty", 3), self.event("gate_result", 4, range_count=0)):
-            strict.accept(P.validate_event(event))
-        with self.assertRaisesRegex(RuntimeError, "completed range"): strict.ensure_success()
+        missing = P.CaptureState(require_gate=True)
+        missing.accept({"event": "probe_ready", "address": "0xcc0000"})
+        with self.assertRaisesRegex(RuntimeError, "result was not observed"): missing.ensure_success()
 
     def test_wrong_caller_order_timeout_late_and_incomplete_fail(self):
         wrong = P.CaptureState()
         wrong.accept({"event": "probe_ready", "address": "0xcc0000"})
         wrong.accept(P.validate_event(self.event("gate_enter", 1, caller="0xd0eb24")))
-        with self.assertRaisesRegex(RuntimeError, "caller"): wrong.ensure_success()
+        with self.assertRaisesRegex(RuntimeError, "callsite path"): wrong.ensure_success()
         incomplete = P.CaptureState()
         incomplete.accept({"event": "probe_ready", "address": "0xcc0000"})
         incomplete.accept(P.validate_event(self.event("gate_enter", 1)))
@@ -98,20 +87,28 @@ class BehaviorRangeGateProbeTests(unittest.TestCase):
         reordered = P.CaptureState()
         reordered.accept({"event": "probe_ready", "address": "0xcc0000"})
         reordered.accept(P.validate_event(self.event("gate_enter", 2)))
-        reordered.accept(P.validate_event(self.event("range_enter", 1)))
+        reordered.accept(P.validate_event(self.event("gate_result", 1)))
         with self.assertRaisesRegex(RuntimeError, "strictly increasing"): reordered.ensure_success()
+        duplicate = P.CaptureState()
+        duplicate.accept({"event": "probe_ready", "address": "0xcc0000"})
+        duplicate.accept(P.validate_event(self.event("gate_enter", 1)))
+        duplicate.accept(P.validate_event(self.event("gate_enter", 2, invocation=2)))
+        with self.assertRaisesRegex(RuntimeError, "duplicate or nested"): duplicate.ensure_success()
         late = P.CaptureState(); late.accept({"event": "probe_ready", "address": "0xcc0000"}); late.accept({"event": "probe_error", "reason": "gate correlation timeout"})
         with self.assertRaisesRegex(RuntimeError, "timeout"): late.ensure_success()
 
     def test_agent_is_observe_only_scoped_and_bounded(self):
         source = P.make_agent_source(self.config("pf_behavior_range_gate_probe_local_config.json"))
-        for required in ("at.gate_call", "at.gate_result", "this.context.ebx.toUInt32()!==0xea7d", "this.context.eax.toUInt32()&0xff", "entry.add(0x30).readS32()", "s.range.selected===null?10:s.range.selected", "at.range_post_x87_dead", "gate correlation timeout", "range_empty"):
+        for required in ("at.gate_call", "at.gate_result", "this.context.ebx.toUInt32()!==0xea7d", "this.context.eax.toUInt32()&0xff", "gate correlation timeout"):
             self.assertIn(required, source)
         self.assertEqual(self.config()["hooks"]["gate_call"]["va"], 0x44EB1D)
         self.assertEqual(self.config()["hooks"]["gate_result"]["va"], 0x44EB22)
-        self.assertEqual(self.config()["hooks"]["range_post_x87_dead"]["va"], 0x475A9C)
+        self.assertNotIn("range_function", self.config()["hooks"])
+        self.assertNotIn("range_selected", self.config()["hooks"])
+        self.assertNotIn("range_post_x87_dead", self.config()["hooks"])
         self.assertNotIn("Interceptor.attach(at.gate,", source)
         self.assertNotIn("onLeave(retval)", source)
+        self.assertNotIn("at.range_", source)
         self.assertIn("clearTimeout(existing.timer);gates.delete(tid);activeCount--;fail('duplicate gate invocation')", source)
         self.assertNotIn("at.range_complete", source)
         self.assertNotIn("at.range_post_primary", source)
@@ -120,6 +117,7 @@ class BehaviorRangeGateProbeTests(unittest.TestCase):
         for forbidden in ("Memory.write", "writeU", "writeS", "writePointer", "NativeFunction", "Interceptor.replace", "sendInput"):
             self.assertNotIn(forbidden, source)
         launcher = Path(P.__file__).read_text(encoding="utf-8")
+        self.assertNotIn("require-complete", launcher)
         self.assertIn("_consumer.finalize_capture(state, script, session)", launcher)
         self.assertNotIn("session.detach()", launcher)
 
