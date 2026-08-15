@@ -222,7 +222,7 @@ other.
 
 ## Current accepted technical frontier
 
-- `STATUS.md` and the ledger contain the full accepted record through SCENE-008.
+- `STATUS.md` and the ledger contain the full accepted record through SCENE-009.
 - Foundation lifecycle and the assisted reconnect are accepted within their
   documented ceilings.
 - Arena P30 spawn/target passed, but stable hostile-monster classification did
@@ -273,6 +273,17 @@ other.
   code with an actual client implementation or original combat provenance. Do not
   invent HP, UpdateAttr or FightAttr packets, and do not infer animation, hit,
   damage, AI, death, loot, skills or authentic faction from this inert lifecycle.
+- SCENE-009 identifies a distinct exact inbound consumer without inventing a
+  response. Static registration/serializer/handler proof fixes `CHitResult` at
+  Vital ID `0x16F7`. Its bounded reaction-implementation path requires record
+  bit0+bit3, no bit4, a resolved target and non-null factory result, then reaches
+  preparation for the target actor's `+0x40` queue. Other record fields remain
+  opaque; record `+0x08` is not proven damage. The corrected guarded probe emitted
+  only `probe_ready` during one exact hostile target -> EA7D -> SCENE-007 ACK
+  window; the server continued heartbeats and the DB stayed unchanged. Treat the
+  absent event as an operational negative only. Do not send a CHitResult until an
+  authentic payload, natural trace or exact producer/data binding fixes every
+  header/record scalar and flag.
 - Personal plugin `pirate-force-input-bridge` now provides bounded held keys and
   right-button drags. One-second held `E` camera rotation passed twice. Use it for
   autonomous GameClient control; this operational result does not raise any
@@ -280,8 +291,9 @@ other.
 
 ## Selecting the next milestone
 
-- Do not infer a new gameplay milestone from this handoff file. Confirm the user's
-  current priority, then choose the smallest evidence-backed step in roadmap order.
+- The user has explicitly delegated milestone design and set monster combat as the
+  current priority. Continue autonomously with the smallest evidence-backed step;
+  ask only when new authority, destructive action or a major roadmap change is needed.
 - Preserve frozen V141 and all currently accepted Foundation, Arena, relation, and
   Scene behavior.
 - Build a focused version only after evidence establishes one isolated delta.

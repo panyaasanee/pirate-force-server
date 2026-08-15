@@ -146,6 +146,24 @@ Updated: 2026-08-16
   empty, server heartbeats continued, and the database main/WAL/SHM guard passed
   unchanged. This proves an inert terminal consumer lifecycle, not animation,
   hit, damage, FightAttr, AI, death, loot, skills or authentic faction.
+- SCENE-009 closes the next static provenance and instrumentation-readiness gate.
+  Exact client registration, serializer and handler code identify `CHitResult`
+  Vital ID `0x16F7` as a distinct inbound result/reaction consumer. Its bounded
+  implementation lane requires record flags bit 0 and bit 3 set, bit 4 clear,
+  a resolved target and a non-null `0x48D870` result; the handler then reaches
+  the preparation boundary for the target actor's `+0x40` queue. Header
+  performer/action and the per-record target are the only fields with proven
+  semantics; the other values remain opaque, including the signed dword at record
+  `+0x08`, which is not proven damage. A checksum/code-guarded ready-only probe
+  attached after moving three Frida hooks to relocatable preparation blocks.
+  During one controlled hostile TargetVital -> `0xEA7D` ->
+  SCENE-007 acknowledgement window it emitted only `probe_ready`; no `CHitResult`
+  lifecycle was observed. Server heartbeats continued through 72, server and guard
+  stderr were empty, Chief direct UI observation found the client responsive, and
+  the database main/WAL/SHM guard passed unchanged. This absence is an operational
+  negative, not proof that `CHitResult` is unrelated to combat. No `CHitResult`
+  packet/event or CHitResult-driven HP mutation, UpdateAttr or FightAttr was
+  observed or composed in this acknowledgement lane.
 - The launcher starts a detached database guard. After both client and server close,
   runtime acceptance additionally requires `PASS_UNCHANGED` for the main SQLite file
   and the exact pre-run existence/hash/size state of both `-wal` and `-shm`.
