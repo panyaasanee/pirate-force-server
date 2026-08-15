@@ -10,11 +10,11 @@
     "size_of_image": 15233024
   },
   "hooks": {
-    "start_game_observation": {"va": 6151255, "code": "e8343d0000"},
-    "relation_entry": {"va": 4440960, "code": "6aff68186db800"},
+    "start_game_observation": {"va": 6151255, "code": "e8343d0000", "runtime_relocations": []},
+    "relation_entry": {"va": 4440960, "code": "6aff68186db800", "runtime_relocations": [{"offset": 3, "size": 4}]},
     "relation_reads": [
-      {"va": 4441549, "code": "8b4068", "register": "eax", "offset": 104, "operand": "first"},
-      {"va": 4441556, "code": "8b4968", "register": "ecx", "offset": 104, "operand": "second"}
+      {"va": 4441549, "code": "8b4068", "runtime_relocations": [], "register": "eax", "offset": 104, "operand": "first"},
+      {"va": 4441556, "code": "8b4968", "runtime_relocations": [], "register": "ecx", "offset": 104, "operand": "second"}
     ]
   }
 }

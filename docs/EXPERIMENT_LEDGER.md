@@ -11,7 +11,7 @@
 | FND-005 | Assisted client reconnect | Runtime pass | Arena01 Create/List/Select/StartGame and scene-1 position survive client exit/relaunch against the same running server; server-process restart is unproven |
 | ARENA-001 | Test Arena P30 object spawn/target | Runtime pass / classification negative | One P30 renders with name and HP and emits TargetVital; stable UI remains green/person/talk, so hostile relation and combat are unproven |
 | ARENA-002 | BasicAttr faction-only diagnostic | Runtime transport pass / classification negative | Exact faction-6 transport/TargetVital pass; stable UI stays green/person/talk, while a frame burst proves pink-red/red-outline/non-talk UI only after exit confirmation, so the candidate is retired and teardown is not hostility |
-| REL-001 | Relation comparator instrumentation | Offline diagnostic pending | Exact-client guarded, capture-only StartGame/comparator/+0x68 probe; no local/target role or relation semantics claimed |
+| REL-001 | Relation comparator instrumentation | Runtime trace pass | 1,023 stable comparisons read injected P30 operand 6 against current local/default operand 0; 16 post-exit entries bypass both reads, so teardown UI is not an observed faction mutation; authentic player faction/policy remain unknown |
 
 V141 artifacts:
 

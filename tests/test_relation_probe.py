@@ -69,8 +69,30 @@ class RelationProbeTests(unittest.TestCase):
         )
         source = PROBE.make_agent_source(config)
         self.assertNotIn("Memory.write", source)
+        self.assertNotIn("Memory.read", source)
         self.assertNotIn("NativeFunction", source)
         self.assertEqual(source.count("Interceptor.attach"), 3)
+        self.assertIn("address.readByteArray(count)", source)
+        self.assertIn("address.readPointer()", source)
+        self.assertIn("field.readU32()", source)
+
+    def test_runtime_code_guard_allows_only_exact_aslr_relocation(self):
+        config = self.config()
+        entry = config["hooks"]["relation_entry"]
+        expected = PROBE.relocated_runtime_code(entry, 0x660000, 0x400000)
+        self.assertEqual(expected.hex(), "6aff68186dde00")
+        outside_corruption = bytearray(expected)
+        outside_corruption[0] ^= 1
+        self.assertNotEqual(bytes(outside_corruption), expected)
+        relocated_corruption = bytearray(expected)
+        relocated_corruption[3] ^= 1
+        self.assertNotEqual(bytes(relocated_corruption), expected)
+        self.assertEqual(
+            PROBE.relocated_runtime_code(
+                config["hooks"]["start_game_observation"], 0x660000, 0x400000,
+            ).hex(),
+            "e8343d0000",
+        )
 
     def test_binary_guard_accepts_exact_pe_and_refuses_mismatch(self):
         with tempfile.TemporaryDirectory() as raw_root:

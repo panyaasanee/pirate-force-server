@@ -22,12 +22,17 @@ EVENT_KINDS = {
     "relation_basic_attr_read", "probe_error",
 }
 EXACT_HOOKS = {
-    "start_game_observation": {"va": 0x5DDC57, "code": "e8343d0000"},
-    "relation_entry": {"va": 0x43C380, "code": "6aff68186db800"},
+    "start_game_observation": {
+        "va": 0x5DDC57, "code": "e8343d0000", "runtime_relocations": [],
+    },
+    "relation_entry": {
+        "va": 0x43C380, "code": "6aff68186db800",
+        "runtime_relocations": [{"offset": 3, "size": 4}],
+    },
 }
 EXACT_READS = (
-    {"va": 0x43C5CD, "code": "8b4068", "register": "eax", "offset": 0x68, "operand": "first"},
-    {"va": 0x43C5D4, "code": "8b4968", "register": "ecx", "offset": 0x68, "operand": "second"},
+    {"va": 0x43C5CD, "code": "8b4068", "runtime_relocations": [], "register": "eax", "offset": 0x68, "operand": "first"},
+    {"va": 0x43C5D4, "code": "8b4968", "runtime_relocations": [], "register": "ecx", "offset": 0x68, "operand": "second"},
 )
 
 
@@ -114,7 +119,7 @@ def load_config(path: Path) -> dict[str, Any]:
         "start_game_observation", "relation_entry", "relation_reads"
     }:
         raise ValueError("probe hook config is incomplete or has unknown fields")
-    singleton_fields = {"va", "code"}
+    singleton_fields = {"va", "code", "runtime_relocations"}
     for key in ("start_game_observation", "relation_entry"):
         hook = hooks[key]
         if type(hook) is not dict or set(hook) != singleton_fields:
@@ -124,7 +129,7 @@ def load_config(path: Path) -> dict[str, Any]:
         raise ValueError("exactly two relation reads are required")
     for read in reads:
         if type(read) is not dict or set(read) != {
-            "va", "code", "register", "offset", "operand"
+            "va", "code", "runtime_relocations", "register", "offset", "operand"
         }:
             raise ValueError("invalid relation-read hook")
     if any(hooks[key] != value for key, value in EXACT_HOOKS.items()):
@@ -141,6 +146,21 @@ def load_config(path: Path) -> dict[str, Any]:
             raise ValueError("invalid hook VA or code guard")
         bytes.fromhex(hook["code"])
     return data
+
+
+def relocated_runtime_code(hook: dict[str, Any], runtime_base: int, image_base: int) -> bytes:
+    """Apply only explicitly allowlisted PE base relocations to disk code bytes."""
+    code = bytearray.fromhex(hook["code"])
+    slide = (runtime_base - image_base) & 0xFFFFFFFF
+    for relocation in hook["runtime_relocations"]:
+        if relocation != {"offset": 3, "size": 4}:
+            raise ValueError("unsupported runtime relocation descriptor")
+        offset = relocation["offset"]
+        if offset + 4 > len(code):
+            raise ValueError("runtime relocation exceeds code guard")
+        original = struct.unpack_from("<I", code, offset)[0]
+        struct.pack_into("<I", code, offset, (original + slide) & 0xFFFFFFFF)
+    return bytes(code)
 
 
 def guard_binary(path: Path, config: dict[str, Any]) -> PEInfo:
@@ -248,7 +268,7 @@ let sequence = 0;
 function now() {{ return new Date().toISOString(); }}
 function emit(event, fields) {{ send(Object.assign({{schema: 1, event, timestamp: now()}}, fields)); }}
 function hex(address, count) {{
-  const bytes = new Uint8Array(Memory.readByteArray(address, count));
+  const bytes = new Uint8Array(address.readByteArray(count));
   return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 }}
 function readable(address, count) {{
@@ -257,16 +277,30 @@ function readable(address, count) {{
   if (range === null || range.protection.indexOf('r') < 0) return false;
   return address.compare(range.base) >= 0 && address.add(count).compare(range.base.add(range.size)) <= 0;
 }}
-function safePointer(address) {{ return readable(address, Process.pointerSize) ? Memory.readPointer(address).toString() : null; }}
+function safePointer(address) {{ return readable(address, Process.pointerSize) ? address.readPointer().toString() : null; }}
+function runtimeCode(hook, slide) {{
+  const bytes = Array.from(hook.code.match(/../g), pair => parseInt(pair, 16));
+  for (const relocation of hook.runtime_relocations) {{
+    if (relocation.offset !== 3 || relocation.size !== 4 || relocation.offset + 4 > bytes.length)
+      throw new Error('unsupported runtime relocation descriptor');
+    const i = relocation.offset;
+    const original = (bytes[i] | (bytes[i + 1] << 8) | (bytes[i + 2] << 16) | (bytes[i + 3] << 24)) >>> 0;
+    const value = (original + slide) >>> 0;
+    bytes[i] = value & 0xff; bytes[i + 1] = (value >>> 8) & 0xff;
+    bytes[i + 2] = (value >>> 16) & 0xff; bytes[i + 3] = (value >>> 24) & 0xff;
+  }}
+  return bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+}}
 function install() {{
   const wanted = config.binary.filename.toLowerCase();
   const module = Process.enumerateModules().find(m => m.name.toLowerCase() === wanted);
   if (!module || module.size !== config.binary.size_of_image) throw new Error('runtime module guard mismatch');
   const base = module.base;
+  const slide = base.sub(config.binary.image_base).toUInt32();
   function addressOf(hook) {{ return base.add(hook.va - config.binary.image_base); }}
   for (const hook of [config.hooks.start_game_observation, config.hooks.relation_entry, ...config.hooks.relation_reads]) {{
     const at = addressOf(hook);
-    if (hex(at, hook.code.length / 2) !== hook.code) throw new Error('runtime code guard mismatch at ' + at);
+    if (hex(at, hook.code.length / 2) !== runtimeCode(hook, slide)) throw new Error('runtime code guard mismatch at ' + at);
   }}
   const relationSequence = new Map();
   Interceptor.attach(addressOf(config.hooks.start_game_observation), {{
@@ -296,7 +330,7 @@ function install() {{
           thread_id: this.threadId, address: this.context.pc.toString(),
           sequence: relationSequence.get(this.threadId) || 0, operand: hook.operand,
           basic_attr: baseAttr.toString(), field_address: field.toString(),
-          raw_u32: Memory.readU32(field)
+          raw_u32: field.readU32()
         }});
       }}
     }});

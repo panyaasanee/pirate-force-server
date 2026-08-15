@@ -79,12 +79,25 @@ Updated: 2026-08-15
 
 ## Relation comparator instrumentation
 
-- A capture-only Python/Frida probe is implemented offline and pending runtime.
-  It refuses mismatched binaries using the exact client SHA/size/PE/code bytes.
+- The capture-only Python/Frida probe passed an exact-client runtime trace. It
+  refuses mismatched binaries using SHA/size/PE/code guards; Frida 17 pointer-read
+  compatibility and one explicit ASLR relocation are regression-tested.
 - It observes StartGame address `0x5DDC57`, comparator entry `0x43C380`, and the
   two bounded BasicAttr `+0x68` reads without writing memory, packets, or UI.
-- Output is line-buffered JSONL. Operands remain `first`/`second`; local/target
-  identity and relation meaning are explicit nonclaims until a correlated run.
+- The authoritative JSONL has 3,087 validated events. Stable sequences 1-1023
+  each read `first=6` and `second=0` from the same two BasicAttr pointers. In this
+  controlled single-P30 run, the injected P30 value 6 correlates to `first`, while
+  the current StartGame/default value 0 correlates to `second`; this does not prove
+  an authentic player faction or original-server policy.
+- The paired server capture records the exact P30 TargetVital, reaches heartbeat
+  78, and has empty server/probe stderr plus zero audited failure markers.
+- After one exit confirmation, sequences 1024-1039 entered the comparator but
+  exited before either `+0x68` read. The shutdown-only red/outline/pointer change
+  is therefore an early-gate path that bypasses the faction comparison, not an
+  observed faction mutation or stable hostility.
+- The two earlier one-line initialization failures are retained as superseded
+  diagnostics for the Frida 17 API and ASLR guard fixes. Authentic player faction,
+  relation-table meaning, hostile gameplay and combat remain unproven.
 
 The legacy V141 source remains immutable and is loaded as a compatibility oracle.
 Gameplay dispatch falls through to it unchanged outside the lifecycle boundary.
