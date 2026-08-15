@@ -223,6 +223,25 @@ Updated: 2026-08-16
   path. The next safe boundary is a structured offline audit for a complete
   original/natural server-to-client combat-result envelope; zero hits remain a
   corpus negative and do not authorize a synthesized CHitResult or attr packet.
+- SCENE-013 closes the available structured combat-corpus audit as a capability
+  negative. A deterministic, hash-guarded parser audited 2,621 decoded frames
+  from six unique logical evidence sources spanning v74-v76 and v81-v83,
+  including one exact ZIP member. Every source is a GameClient-to-local-emulator
+  receive log; eligible original-server-to-client decoded frames are exactly
+  zero. Across all directions the target-family inventory contains five
+  TargetVital occurrences and zero ActionVital, CHitResult, CFightMsgVital,
+  CKnockdownVital, CShotMissileVital or CMissileHitResult occurrences. Because
+  there are no direction-eligible frames, this is not even a bounded absence of
+  those packet types: `bounded_target_negative=false`. The tool accepts only
+  anchored decoder output (`STRUCTURAL_IDS ... OUTER` or timestamped `RECV ...
+  ids=[...]`), ignores raw hexdumps, rejects malformed/drifted/duplicate inputs
+  and leaves evidence files read-only. This proves only that the currently
+  curated corpus cannot answer the missing inbound combat-response question.
+  It does not prove protocol absence or authorize any synthesized combat,
+  CHitResult, HP, UpdateAttr or FightAttr payload. The evidence-backed combat
+  lane now requires a lawful original server-to-client combat capture or exact
+  server-side producer; meanwhile only read-only/static preparation in other
+  roadmap lanes may continue.
 - The launcher starts a detached database guard. After both client and server close,
   runtime acceptance additionally requires `PASS_UNCHANGED` for the main SQLite file
   and the exact pre-run existence/hash/size state of both `-wal` and `-shm`.

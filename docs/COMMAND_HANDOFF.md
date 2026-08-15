@@ -328,6 +328,18 @@ other.
   gate result/range/attack/hit/damage. Continue with a structured offline search
   for a complete original/natural inbound combat-result envelope; if none exists,
   record a bounded corpus negative and require a lawful original-server capture.
+- SCENE-013 has already audited the complete curated structured evidence set that
+  can be guarded without raw-byte scanning. Six unique logical sources produced
+  2,621 decoded frames, but every source is GameClient -> local emulator and none
+  is an original server -> client capture. The generated result intentionally
+  reports `no_eligible_original_server_to_client_frames=true` and
+  `bounded_target_negative=false`. Five TargetVital IDs exist across the client
+  direction; ActionVital and the CHitResult/CFightMsg/knockdown/missile families
+  are zero in that same bounded inventory. Do not describe this as absence from
+  the protocol and do not widen the corpus with unguarded raw-byte searches.
+  Resuming the missing combat-response lane requires a lawful original inbound
+  combat capture or an exact server-side producer fixing every field. Until then,
+  continue only static/read-only preparation that does not invent combat values.
 - Personal plugin `pirate-force-input-bridge` now provides bounded held keys and
   right-button drags. One-second held `E` camera rotation passed twice. Use it for
   autonomous GameClient control; this operational result does not raise any
