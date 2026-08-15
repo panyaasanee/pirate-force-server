@@ -29,12 +29,13 @@ EXACT_HOOKS = {
     "action_producer": {
         "va": 0x44D260,
         "code": "6aff68377eb80064a1000000005083ec0c53555657a1bcb4020133c4508d4424",
+        "runtime_relocations": [{"offset": 3, "size": 4}, {"offset": 22, "size": 4}],
     },
     "candidate_branches": (
-        {"va": 0x450D79, "code": "e882a1ffff", "candidate": "branch_ea72_or_ea74", "queue_call": {"va": 0x450E1E, "code": "e8ddc91800"}},
-        {"va": 0x450F6E, "code": "e88d9fffff", "candidate": "branch_ea75", "queue_call": {"va": 0x450FE2, "code": "e819c81800"}},
+        {"va": 0x450D79, "code": "e882a1ffff", "runtime_relocations": [], "candidate": "branch_ea72_or_ea74", "queue_call": {"va": 0x450E1E, "code": "e8ddc91800", "runtime_relocations": []}},
+        {"va": 0x450F6E, "code": "e88d9fffff", "runtime_relocations": [], "candidate": "branch_ea75", "queue_call": {"va": 0x450FE2, "code": "e819c81800", "runtime_relocations": []}},
     ),
-    "action_queue": {"va": 0x5DD800, "code": "538b5c2408568bf185db747680bed000"},
+    "action_queue": {"va": 0x5DD800, "code": "538b5c2408568bf185db747680bed000", "runtime_relocations": []},
 }
 EXACT_BINARIES = {
     "GameClient.bin": {
@@ -143,6 +144,23 @@ def load_config(path: Path) -> dict[str, Any]:
             raise ValueError("invalid hook address or code")
         bytes.fromhex(hook["code"])
     return data
+
+
+def relocated_runtime_code(hook: dict[str, Any], runtime_base: int, image_base: int) -> bytes:
+    """Apply only the two exact PE HIGHLOW relocations allowlisted by config."""
+    code = bytearray.fromhex(hook["code"])
+    slide = (runtime_base - image_base) & 0xFFFFFFFF
+    allowed = {(3, 4), (22, 4)}
+    for relocation in hook["runtime_relocations"]:
+        descriptor = (relocation.get("offset"), relocation.get("size"))
+        if descriptor not in allowed:
+            raise ValueError("unsupported runtime relocation descriptor")
+        offset, size = descriptor
+        if size != 4 or offset + size > len(code):
+            raise ValueError("runtime relocation exceeds code guard")
+        original = struct.unpack_from("<I", code, offset)[0]
+        struct.pack_into("<I", code, offset, (original + slide) & 0xFFFFFFFF)
+    return bytes(code)
 
 
 def validate_runtime_options(pid: int, duration: float) -> None:
@@ -307,6 +325,18 @@ function codeHex(address, count) {{
   if (!readable(address, count)) throw new Error('unreadable code guard');
   return Array.from(new Uint8Array(address.readByteArray(count)), b => b.toString(16).padStart(2,'0')).join('');
 }}
+function runtimeCode(hook, slide) {{
+  const bytes = Array.from(hook.code.match(/../g), pair => parseInt(pair, 16));
+  for (const relocation of hook.runtime_relocations) {{
+    const allowed = (relocation.size === 4 && (relocation.offset === 3 || relocation.offset === 22));
+    if (!allowed || relocation.offset + 4 > bytes.length) throw new Error('unsupported runtime relocation descriptor');
+    const i=relocation.offset;
+    const original=(bytes[i]|(bytes[i+1]<<8)|(bytes[i+2]<<16)|(bytes[i+3]<<24))>>>0;
+    const value=(original+slide)>>>0;
+    bytes[i]=value&255; bytes[i+1]=(value>>>8)&255; bytes[i+2]=(value>>>16)&255; bytes[i+3]=(value>>>24)&255;
+  }}
+  return bytes.map(b => b.toString(16).padStart(2,'0')).join('');
+}}
 function finite3(pointer) {{
   if (!readable(pointer, 12)) return null;
   const value = [pointer.readFloat(), pointer.add(4).readFloat(), pointer.add(8).readFloat()];
@@ -316,8 +346,9 @@ function install() {{
   const module = Process.enumerateModules().find(m => m.name.toLowerCase() === config.binary.filename.toLowerCase());
   if (!module || module.size !== config.binary.size_of_image) throw new Error('runtime module guard mismatch');
   const addressOf = hook => module.base.add(hook.va - config.binary.image_base);
+  const slide = module.base.sub(config.binary.image_base).toUInt32();
   const hooks = [config.hooks.action_producer, ...config.hooks.candidate_branches, ...config.hooks.candidate_branches.map(h => h.queue_call), config.hooks.action_queue];
-  for (const hook of hooks) if (codeHex(addressOf(hook), hook.code.length / 2) !== hook.code)
+  for (const hook of hooks) if (codeHex(addressOf(hook), hook.code.length / 2) !== runtimeCode(hook, slide))
     throw new Error('runtime code guard mismatch at ' + addressOf(hook));
   function decodeObject(object) {{
     if (!readable(object, 0x4c)) return null;

@@ -12,25 +12,29 @@
   "hooks": {
     "action_producer": {
       "va": 4510304,
-      "code": "6aff68377eb80064a1000000005083ec0c53555657a1bcb4020133c4508d4424"
+      "code": "6aff68377eb80064a1000000005083ec0c53555657a1bcb4020133c4508d4424",
+      "runtime_relocations": [{"offset": 3, "size": 4}, {"offset": 22, "size": 4}]
     },
     "candidate_branches": [
       {
         "va": 4525433,
         "code": "e882a1ffff",
+        "runtime_relocations": [],
         "candidate": "branch_ea72_or_ea74",
-        "queue_call": {"va": 4525598, "code": "e8ddc91800"}
+        "queue_call": {"va": 4525598, "code": "e8ddc91800", "runtime_relocations": []}
       },
       {
         "va": 4525934,
         "code": "e88d9fffff",
+        "runtime_relocations": [],
         "candidate": "branch_ea75",
-        "queue_call": {"va": 4526050, "code": "e819c81800"}
+        "queue_call": {"va": 4526050, "code": "e819c81800", "runtime_relocations": []}
       }
     ],
     "action_queue": {
       "va": 6150144,
-      "code": "538b5c2408568bf185db747680bed000"
+      "code": "538b5c2408568bf185db747680bed000",
+      "runtime_relocations": []
     }
   }
 }

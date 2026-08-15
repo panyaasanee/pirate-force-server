@@ -102,6 +102,20 @@ class ActionProducerProbeTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "filename"):
                 PROBE.guard_binary(wrong_name, original)
 
+    def test_runtime_code_guard_applies_only_exact_aslr_relocations(self):
+        hook = self.local_config()["hooks"]["action_producer"]
+        relocated = PROBE.relocated_runtime_code(hook, 0xCC0000, 0x400000)
+        self.assertEqual(
+            relocated.hex(),
+            "6aff68377e440164a1000000005083ec0c53555657a1bcb48e0133c4508d4424",
+        )
+        queue = self.local_config()["hooks"]["action_queue"]
+        self.assertEqual(PROBE.relocated_runtime_code(queue, 0xCC0000, 0x400000), bytes.fromhex(queue["code"]))
+        bad = copy.deepcopy(queue)
+        bad["runtime_relocations"] = [{"offset": 1, "size": 4}]
+        with self.assertRaisesRegex(ValueError, "unsupported runtime relocation"):
+            PROBE.relocated_runtime_code(bad, 0xCC0000, 0x400000)
+
     def test_binary_guard_accepts_exact_synthetic_pe_and_rejects_changes(self):
         with tempfile.TemporaryDirectory() as raw_root:
             config = copy.deepcopy(self.config())
