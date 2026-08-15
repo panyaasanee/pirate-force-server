@@ -59,6 +59,17 @@ Classify every claim:
 Never promote a broad claim from a narrower test. Preserve raw bytes and separate:
 fact, inference, hypothesis, negative and superseded claim.
 
+Protocol hypotheses may be used as a bounded escape hatch when static/original
+evidence makes a candidate highly probable, the current lane is genuinely blocked,
+or the evidence cost has become disproportionate. Every guessed value must be
+labelled explicitly as a hypothesis, kept out of accepted baselines and production
+claims, and paired with a concrete proof or falsification plan and stop rule.
+Related hypotheses may accumulate across at most two or three experimental versions
+when that is necessary to keep the investigation moving. At that boundary, prove,
+retire or obtain explicit approval to extend them; do not let them silently become
+accepted behavior. This exception does not permit rewriting V141 or overstating an
+evidence grade.
+
 Important retired claims:
 
 - Quest action 1 is not an offer; it is client-local Accept_Run/tracker behavior.

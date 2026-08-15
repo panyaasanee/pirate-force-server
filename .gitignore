@@ -9,6 +9,8 @@
 !/reports/PF_FOUNDATION_ARENA_V1_RUNTIME_PASS_CLASSIFICATION_NEGATIVE_20260815.md
 !/reports/PF_RELATION_COMPARATOR_RUNTIME_TRACE_20260815.md
 !/reports/PF_RELATION_COMPARATOR_RUNTIME_TRACE_20260815.manifest
+!/reports/PF_SCENE005_FACTION1_HOSTILE_RELATION_RUNTIME_PASS_20260815.md
+!/reports/PF_SCENE005_FACTION1_HOSTILE_RELATION_RUNTIME_PASS_20260815.manifest
 !/docs/
 !/docs/**
 !/src/
@@ -25,6 +27,7 @@
 !/tools/PF_FAST_ENTRY_AUTOMATION.md
 !/tools/pf_relation_probe.py
 !/tools/pf_relation_probe_config.json
+!/tools/pf_relation_matrix_probe.py
 !/tools/run_test_arena.ps1
 !/tools/run_scene2_load_only.ps1
 !/tools/scene_db_guard.py
