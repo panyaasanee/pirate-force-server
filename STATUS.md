@@ -91,12 +91,15 @@ Updated: 2026-08-15
   soldier rendered with its exact model/name at its authentic P60 position while
   the transient test player was placed 100X/50Y away. The database main/WAL/SHM
   guard returned `PASS_UNCHANGED` after close.
-- Target selection remains open: direct clicks and Tab produced no captured
-  TargetVital. Do not claim hostility, targetability, combat, AI, damage or loot.
-- SCENE-003 is an offline-only liveness diagnostic: relative to SCENE-002 it
+- SCENE-002 target selection failed: direct clicks and Tab produced no captured
+  TargetVital while BasicAttr omitted HP and therefore left the actor at zero HP.
+- SCENE-003 runtime passed the narrow liveness gate: relative to SCENE-002 it
   changes only BasicAttr mask `0x0701` to `0x070D` and inserts current/max HP
-  `3857/3857` after the name. This is a bounded level-27 diagnostic value, not
-  authentic MOBS34 spawn policy; runtime remains pending.
+  `3857/3857` after the name. One direct click then emitted exact TargetVital
+  kind 2 and embedded ChooseNPC for P60 identity `0x203D`. This proves HP/liveness
+  controls target-selection transport for this actor. The value is a bounded
+  level-27 diagnostic, not authentic MOBS34 spawn policy. Hostility, target UI,
+  combat, AI, damage, death and loot remain unproven.
 - The launcher starts a detached database guard. After both client and server close,
   runtime acceptance additionally requires `PASS_UNCHANGED` for the main SQLite file
   and the exact pre-run existence/hash/size state of both `-wal` and `-shm`.
