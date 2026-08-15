@@ -375,6 +375,16 @@ other.
   producer. No field semantics, item/skill discriminator, persistence/reconnect
   path or StartGame state is proven. Do not synthesize the vital; resume only
   with an exact producer/submission edge or natural observe-only occurrence.
+- COMBAT-BIND-001 proves the bounded EA7D BEHAVIOR-selection ceiling. Static
+  `0x755540` mode 0 retains the first non-null `n_RANGE` and rejects later values
+  greater than or equal to the current value. With accepted SCENE-011 lookup
+  order `0,278,279` and equal raw `n_RANGE=75`, key 278 supplies 75 and key 279
+  is skipped. The selector returns only scalar 75, not the key. The inbound
+  ActionVital lookup at `0x7517A5 -> 0x702A10` separately uses object `+0x30`,
+  exact EA7D in the accepted shape. Value 2200002 has zero literal occurrence in
+  both exact client profiles and no source edge here; never call it equipped,
+  owned or weapon-bound. Stop this lane: no echoed IDs, row insertion, ActionVital
+  alteration, CHitResult/HP/FightAttr synthesis, hook expansion or packet test.
 - Personal plugin `pirate-force-input-bridge` now provides bounded held keys and
   right-button drags. One-second held `E` camera rotation passed twice. Use it for
   autonomous GameClient control; this operational result does not raise any

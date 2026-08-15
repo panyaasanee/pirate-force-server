@@ -293,6 +293,18 @@ Updated: 2026-08-16
   field meaning, item-versus-skill discriminator, save/load container or reconnect
   path is proven. StartGame remains unchanged; do not synthesize this vital or
   persist guessed hotkey state.
+- COMBAT-BIND-001 separates the EA7D geometric selector from the independent
+  inbound ActionVital lookup. Grade A static code shows `0x755540` mode 0 retains
+  the first non-null BEHAVIOR `n_RANGE`, skips later values greater than or equal
+  to it, and returns only the selected scalar. Composed with Grade C SCENE-011
+  order `0,278,279`, where both non-null entries have `n_RANGE=75`, key 278 sets
+  retained scalar 75 and equal key 279 is skipped. Only 75 survives into the
+  distance gate; no candidate key is copied downstream. Inbound `0x7517A5 ->
+  0x702A10` instead consumes ActionVital `+0x30`, exact EA7D in the accepted
+  shape. Creation value 2200002 has zero literal occurrence in either exact
+  client image and no dataflow into this chain; it is not proven equipped,
+  owned, weapon-related or a BEHAVIOR key. Do not echo IDs, alter ActionVital or
+  synthesize combat responses.
 - The launcher starts a detached database guard. After both client and server close,
   runtime acceptance additionally requires `PASS_UNCHANGED` for the main SQLite file
   and the exact pre-run existence/hash/size state of both `-wal` and `-shm`.
