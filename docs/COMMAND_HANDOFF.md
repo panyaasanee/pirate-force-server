@@ -364,6 +364,17 @@ other.
   `+0x18` as class: it is zero in the capture while the matching preset key is one.
   Preserve all Avatar bytes losslessly and opaquely. Resume only after a named-key
   setter/copy chain and matching List/StartGame consumer are exact.
+- HOTBAR-001 establishes only the exact structural codec and client-consumer
+  boundary for `SetItemOnParticularHotKeyPosVital`. Registration stores the
+  deterministic name hash `0xE0AC` at `0x10820A4`; getter `0x5E4A40` reads it.
+  Do not conflate this with `0x5E4AE0`, which is a method of the following
+  `LoginVerifyVital` vtable and reads `0x1081FC0`. The proven wire is raw
+  `(u32,i8,i8)` through codec `0x5E6DE0`; consumer `0x5EFAF0` calls client-state
+  method `0x5C5080` with logical arguments `(raw +0x14 u32, sign-extended +0x18,
+  sign-extended +0x19 - 1)`. Pool/prototype constructors do not prove a direct UI
+  producer. No field semantics, item/skill discriminator, persistence/reconnect
+  path or StartGame state is proven. Do not synthesize the vital; resume only
+  with an exact producer/submission edge or natural observe-only occurrence.
 - Personal plugin `pirate-force-input-bridge` now provides bounded held keys and
   right-button drags. One-second held `E` camera rotation passed twice. Use it for
   autonomous GameClient control; this operational result does not raise any

@@ -282,6 +282,17 @@ Updated: 2026-08-16
   preset strings. Resume only after an exact named-key-to-wire setter plus a
   corresponding List/StartGame consumer, or a natural trace designed from such a
   static boundary.
+- HOTBAR-001 proves only the structural boundary of
+  `SetItemOnParticularHotKeyPosVital`. Exact registration stores deterministic
+  class-name hash `0xE0AC` in `0x10820A4`; standalone getter `0x5E4A40` reads that
+  global and must not be confused with following-class vtable method `0x5E4AE0`.
+  Codec `0x5E6DE0` carries raw `(u32,i8,i8)` at object `+0x14/+0x18/+0x19`.
+  Consumer `0x5EFAF0` calls `0x5C5080` with logical arguments
+  `(raw +0x14 u32, sign-extended +0x18, sign-extended +0x19 - 1)` and returns
+  true. Generic pool/prototype construction is exact, but no UI producer,
+  field meaning, item-versus-skill discriminator, save/load container or reconnect
+  path is proven. StartGame remains unchanged; do not synthesize this vital or
+  persist guessed hotkey state.
 - The launcher starts a detached database guard. After both client and server close,
   runtime acceptance additionally requires `PASS_UNCHANGED` for the main SQLite file
   and the exact pre-run existence/hash/size state of both `-wal` and `-shm`.
