@@ -1,6 +1,6 @@
 # Pirate Force Server — Foundation Status
 
-Updated: 2026-08-15
+Updated: 2026-08-16
 
 ## Baselines
 
@@ -124,6 +124,19 @@ Updated: 2026-08-15
   fresh client/server session; Tab-only selection produced no ActionVital, and
   both DB guards passed unchanged. This proves the target-bound attack command,
   not a combat response, damage, hit/miss, FightAttr, AI, death or loot.
+- SCENE-007 passed the minimum no-damage server-response boundary in two fresh
+  Port Royal sessions. The opt-in harness restores the persisted player to the
+  exact V74 scene-1 start `(0,0,931)` and places P60 at the P144 beer-tray visual
+  coordinates, so both render in the default camera frame after the first movement
+  without camera rotation. After exact hostile TargetVital kind 1, each target-bound
+  `0xEA7D` request received exactly one base ActionVital response. The response
+  uses RuntimeRes v4/count 1 and omits the request's trailing TargetPos. Within its
+  echoed 64-byte ActionVital body, only the zero performer qword changes to the
+  persisted selected-player identity. Both clients remained
+  responsive, the visible player/P60 HP stayed `100/100` and `3857/3857`, stderr was
+  empty, and both database main/WAL/SHM guards returned `PASS_UNCHANGED`. A visible
+  attack animation was not confirmed; this proves response transport/acceptance
+  only, not hit, damage, FightAttr, AI, death, loot, skills or authentic faction.
 - The launcher starts a detached database guard. After both client and server close,
   runtime acceptance additionally requires `PASS_UNCHANGED` for the main SQLite file
   and the exact pre-run existence/hash/size state of both `-wal` and `-shm`.

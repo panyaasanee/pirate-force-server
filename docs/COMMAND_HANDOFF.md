@@ -1,6 +1,6 @@
 # Pirate Force Command Handoff
 
-Updated: 2026-08-15
+Updated: 2026-08-16
 
 This is the compact continuity file for a fresh Chief Architect task. Read it
 after `AGENTS.md`, `STATUS.md`, and `docs/EXPERIMENT_LEDGER.md`. Those three
@@ -222,7 +222,7 @@ other.
 
 ## Current accepted technical frontier
 
-- `STATUS.md` and the ledger contain the full accepted record through SCENE-005.
+- `STATUS.md` and the ledger contain the full accepted record through SCENE-007.
 - Foundation lifecycle and the assisted reconnect are accepted within their
   documented ceilings.
 - Arena P30 spawn/target passed, but stable hostile-monster classification did
@@ -252,8 +252,18 @@ other.
   P60 emits ActionVital `0xEA7D` through exact client producer `0x44D260` and queue
   `0x5DD800`, with target `0x203D`. Producer, queue and server wire agree in two
   fresh sessions; Tab-only is negative and DB guards pass unchanged. The next
-  dependency is the smallest no-damage server response/ack boundary. Do not infer
-  damage, hit/miss, animation acceptance, FightAttr, AI, death or loot yet.
+  dependency was the smallest no-damage server response/ack boundary.
+- SCENE-007 now passes that response boundary twice. The opt-in Port Royal harness
+  restores the V74 scene-1 player start and reuses the P144 beer-tray visual position
+  for P60, putting both in the initial camera without rotation. Each exact hostile
+  kind-1 target followed by `0xEA7D` receives one RuntimeRes v4/count-1 ActionVital
+  response and omits the request's trailing TargetPos. Within the echoed 64-byte
+  ActionVital body, only performer zero changes to the persisted selected identity.
+  Clients stay
+  responsive, visible HP remains unchanged, stderr is empty and both DB guards pass.
+  No clear attack animation was observed, so the next dependency is the smallest
+  evidence-backed downstream action/hit or damage-consumer boundary; do not invent
+  HP/FightAttr packets or infer damage, AI, death, loot, skills or authentic faction.
 - Personal plugin `pirate-force-input-bridge` now provides bounded held keys and
   right-button drags. One-second held `E` camera rotation passed twice. Use it for
   autonomous GameClient control; this operational result does not raise any
