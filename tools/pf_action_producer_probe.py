@@ -17,8 +17,8 @@ from typing import Any, BinaryIO
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_CONFIG = Path(__file__).with_name("pf_action_producer_probe_config.json")
-DEFAULT_CLIENT = ROOT.parent / "GameClient" / "GameClient.bin"
+DEFAULT_CONFIG = Path(__file__).with_name("pf_action_producer_probe_local_config.json")
+DEFAULT_CLIENT = ROOT.parent / "GameClient" / "GameClient.local.bin"
 DEFAULT_CAPTURE_ROOT = ROOT.parent / "GameClient" / "capture_action_probe"
 POINTER = re.compile(r"^0x[0-9a-f]+$")
 EVENT_KINDS = {
@@ -35,6 +35,20 @@ EXACT_HOOKS = {
         {"va": 0x450F6E, "code": "e88d9fffff", "candidate": "branch_ea75", "queue_call": {"va": 0x450FE2, "code": "e819c81800"}},
     ),
     "action_queue": {"va": 0x5DD800, "code": "538b5c2408568bf185db747680bed000"},
+}
+EXACT_BINARIES = {
+    "GameClient.bin": {
+        "filename": "GameClient.bin", "size": 14759424,
+        "sha256": "C528BF43070E2789170F41B6E3E28CCEC6B57BDC594EE73DFA061188A5D1E4BD",
+        "machine": 0x14C, "optional_magic": 0x10B,
+        "image_base": 0x400000, "size_of_image": 15233024,
+    },
+    "GameClient.local.bin": {
+        "filename": "GameClient.local.bin", "size": 14759424,
+        "sha256": "9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623",
+        "machine": 0x14C, "optional_magic": 0x10B,
+        "image_base": 0x400000, "size_of_image": 15233024,
+    },
 }
 
 
@@ -108,13 +122,15 @@ def load_config(path: Path) -> dict[str, Any]:
     if type(binary) is not dict or set(binary) != binary_fields:
         raise ValueError("invalid binary guard")
     if (
-        binary["filename"] != "GameClient.bin"
+        type(binary["filename"]) is not str
         or type(binary["sha256"]) is not str
         or not re.fullmatch(r"[0-9A-F]{64}", binary["sha256"])
         or any(type(binary[key]) is not int or binary[key] < 0 for key in binary_fields - {"filename", "sha256"})
         or binary["machine"] != 0x14C or binary["optional_magic"] != 0x10B
     ):
         raise ValueError("invalid binary guard values")
+    if binary != EXACT_BINARIES.get(binary["filename"]):
+        raise ValueError("binary profile differs from the exact allowlist")
     hooks = data["hooks"]
     if type(hooks) is not dict or set(hooks) != {"action_producer", "candidate_branches", "action_queue"}:
         raise ValueError("invalid hook config")

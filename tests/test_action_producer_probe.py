@@ -24,6 +24,9 @@ class ActionProducerProbeTests(unittest.TestCase):
     def config(self):
         return PROBE.load_config(ROOT / "tools/pf_action_producer_probe_config.json")
 
+    def local_config(self):
+        return PROBE.load_config(ROOT / "tools/pf_action_producer_probe_local_config.json")
+
     def synthetic_pe(self, root: Path, config: dict) -> Path:
         raw_size = 0x220000
         raw = bytearray(0x200 + raw_size)
@@ -53,7 +56,13 @@ class ActionProducerProbeTests(unittest.TestCase):
 
     def test_checked_in_provenance_and_observe_only_agent(self):
         config = self.config()
+        local = self.local_config()
+        self.assertEqual(PROBE.DEFAULT_CLIENT.name, "GameClient.local.bin")
+        self.assertEqual(PROBE.DEFAULT_CONFIG.name, "pf_action_producer_probe_local_config.json")
         self.assertEqual(config["binary"]["filename"], "GameClient.bin")
+        self.assertEqual(local["binary"]["filename"], "GameClient.local.bin")
+        self.assertNotEqual(config["binary"]["sha256"], local["binary"]["sha256"])
+        self.assertEqual(config["hooks"], local["hooks"])
         self.assertEqual(config["hooks"]["action_producer"]["va"], 0x44D260)
         self.assertEqual(
             [(item["candidate"], item["va"], item["queue_call"]["va"]) for item in config["hooks"]["candidate_branches"]],
@@ -75,6 +84,23 @@ class ActionProducerProbeTests(unittest.TestCase):
         self.assertIn("producerStack.get(this.threadId)", source)
         self.assertNotIn("observedActions", source)
         self.assertIn("this.context.esp.readPointer()", source)
+
+    def test_binary_profiles_are_exact_and_cannot_be_cross_paired(self):
+        original = copy.deepcopy(self.config())
+        local = copy.deepcopy(self.local_config())
+        crossed = copy.deepcopy(original)
+        crossed["binary"]["sha256"] = local["binary"]["sha256"]
+        with tempfile.TemporaryDirectory() as raw_root:
+            path = Path(raw_root) / "crossed.json"
+            path.write_text(json.dumps(crossed), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "exact allowlist"):
+                PROBE.load_config(path)
+        with tempfile.TemporaryDirectory() as raw_root:
+            path = self.synthetic_pe(Path(raw_root), original)
+            wrong_name = path.with_name("GameClient.local.bin")
+            path.rename(wrong_name)
+            with self.assertRaisesRegex(ValueError, "filename"):
+                PROBE.guard_binary(wrong_name, original)
 
     def test_binary_guard_accepts_exact_synthetic_pe_and_rejects_changes(self):
         with tempfile.TemporaryDirectory() as raw_root:

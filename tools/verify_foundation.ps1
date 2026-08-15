@@ -89,6 +89,7 @@ expected = {
     'tools/pf_relation_matrix_probe.py',
     'tools/pf_action_producer_probe.py',
     'tools/pf_action_producer_probe_config.json',
+    'tools/pf_action_producer_probe_local_config.json',
     'tools/run_test_arena.ps1',
     'tools/run_scene2_load_only.ps1',
     'tools/scene_db_guard.py',

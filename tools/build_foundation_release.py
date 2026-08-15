@@ -14,6 +14,7 @@ FILES = [
     ROOT/'tools/pf_relation_matrix_probe.py',
     ROOT/'tools/pf_action_producer_probe.py',
     ROOT/'tools/pf_action_producer_probe_config.json',
+    ROOT/'tools/pf_action_producer_probe_local_config.json',
     ROOT/'tools/run_test_arena.ps1',
     ROOT/'tools/run_scene2_load_only.ps1',
     ROOT/'tools/scene_db_guard.py',
