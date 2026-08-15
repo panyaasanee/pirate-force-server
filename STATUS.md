@@ -188,6 +188,22 @@ Updated: 2026-08-16
   `0x48D870` lookup/fallback path predicts a null CHitResult implementation for
   `EA7D`, but no CHitResult invocation was observed and that composition is not a
   runtime CHitResult fact.
+- SCENE-011 closes an instrumentation-only natural BEHAVIOR-entry checkpoint.
+  One exact guarded run emitted five non-null results and four instant-scoped
+  misses from singleton `0x102DAD8`, with shared strict sequence and no probe
+  error. Key 97 at static caller `0x48D2C8` had source-named `n_RANGE=10` and an
+  empty `+0xE4` vector. Keys 278 and 279 at static caller `0x7555D2` each repeated
+  the same exact values: `n_AMOUNT_TARGET=1`, `n_RANGE=75`,
+  `n_DAMAGE_AREA=200`, `n_PROFIT=0`, `n_THENDO=278`, `n_CLASS=0`, vector count 1.
+  Key `0xEA7D` missed twice at static caller `0x44E92A`; key 0 missed twice at
+  `0x7555D2`. All results are caller- and instant-scoped. Source property
+  `n_DAMAGE_AREA` is not observed damage or an HP claim. The paired flow sent an
+  EA7D/`0x203D` ActionVital but no TargetVital, so the strict server sent no ACK;
+  no inbound EA7D response or CHitResult was tested. Probe exit 0, empty
+  stdout/stderr, healthy heartbeat lane and DB `PASS_UNCHANGED`. Do not infer
+  ScriptB binding, vector-record contents, animation, hit/damage/HP or send a
+  synthesized response. Two preceding ready-only exit-1 attempts are superseded
+  timing diagnostics.
 - The launcher starts a detached database guard. After both client and server close,
   runtime acceptance additionally requires `PASS_UNCHANGED` for the main SQLite file
   and the exact pre-run existence/hash/size state of both `-wal` and `-shm`.

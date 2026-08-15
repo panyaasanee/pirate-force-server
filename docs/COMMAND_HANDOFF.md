@@ -302,6 +302,18 @@ other.
   observed null is instant-scoped; `0x48D870` returning null for the same EA7D is
   an A+C composition, not an observed CHitResult. Next safe lane: observe natural
   BEHAVIOR population/lookup and correlate a natural CHitResult without writes.
+- SCENE-011 observes natural BEHAVIOR entry storage without changing gameplay.
+  The accepted guarded run records key 97 non-null at static caller `0x48D2C8`,
+  keys 278/279 non-null at `0x7555D2`, EA7D null twice at `0x44E92A`, and key 0
+  null twice at `0x7555D2`. Keys 278/279 both carry only the exact source-named
+  dwords `n_AMOUNT_TARGET=1`, `n_RANGE=75`, `n_DAMAGE_AREA=200`, `n_PROFIT=0`,
+  `n_THENDO=278`, `n_CLASS=0`, with one `0x38`-stride record in the proven `+0xE4`
+  vector. Do not reinterpret `n_DAMAGE_AREA` as damage, radius units or HP change;
+  the probe did not read the vector record. The paired flow had no TargetVital,
+  therefore no strict SCENE-007 ACK, and proves no inbound response or CHitResult.
+  Runtime exit was zero, stderr/stdout empty, heartbeats healthy and DB unchanged.
+  Next lane must observe a natural consumer or naturally correlated CHitResult;
+  do not synthesize a BEHAVIOR row or result packet.
 - Personal plugin `pirate-force-input-bridge` now provides bounded held keys and
   right-button drags. One-second held `E` camera rotation passed twice. Use it for
   autonomous GameClient control; this operational result does not raise any
