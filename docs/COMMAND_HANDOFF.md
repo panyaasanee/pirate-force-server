@@ -340,6 +340,21 @@ other.
   Resuming the missing combat-response lane requires a lawful original inbound
   combat capture or an exact server-side producer fixing every field. Until then,
   continue only static/read-only preparation that does not invent combat values.
+- SKILL-001 records the first safe static preparation beyond the blocked combat
+  response lane. `TriggerCastSkillVital` is exact at class ID/hash `0x5CD2`, codec
+  `0x600A60` and consumer `0x601810`; the codec exposes only raw `(u16,u8,u32)`
+  fields. With singleton `0x1032EC4` present, the consumer prepares a possibly
+  null candidate and uses exact submission edge `0x601880 -> 0x449110`; with no
+  singleton it skips that edge, while every branch returns true.
+  A reviewed observe-only probe is committed, but it has no live result. Direct
+  xrefs expose factory/prototype paths and the virtual consumer only, not a proven
+  UI/hotkey producer. `CSkillAttr` (`0x1661`) remains optional and absent in the
+  accepted StartGame; present-empty is valid and its record payloads stay opaque.
+  LearnSkillResult population and RevertSkill key removal do not prove entitlement
+  or level semantics. `CStartCooldownVital` (`0x4DDA`) updates a separate cooldown
+  container from raw `(s16,f32)` records, with no exact key edge to either prior
+  class. Do not synthesize any of these packets/attrs. Resume only with a natural
+  observe-only occurrence or an exact named producer/data binding.
 - Personal plugin `pirate-force-input-bridge` now provides bounded held keys and
   right-button drags. One-second held `E` camera rotation passed twice. Use it for
   autonomous GameClient control; this operational result does not raise any

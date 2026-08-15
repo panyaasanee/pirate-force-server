@@ -242,6 +242,32 @@ Updated: 2026-08-16
   lane now requires a lawful original server-to-client combat capture or exact
   server-side producer; meanwhile only read-only/static preparation in other
   roadmap lanes may continue.
+- SKILL-001 establishes a static skill-protocol boundary and guarded observation
+  readiness without changing StartGame or gameplay. Exact registration, vtable
+  and codec code identify class `TriggerCastSkillVital` with deterministic class
+  ID/hash `0x5CD2`; its wire object contains only raw fields `+0x14 u16`,
+  `+0x16 u8` and `+0x18 u32`. When singleton `0x1032EC4` exists, its client
+  consumer prepares a candidate (which can be null on allocation failure) and
+  submits it through exact edge `0x601880 -> 0x449110`; the no-singleton branch
+  skips preparation/submission, and all branches converge on boolean true. No direct local
+  UI/hotkey producer was recovered and indirect production remains possible. A
+  checksum/PE/code-guarded observe-only probe for codec `0x600A60`, consumer
+  `0x601810` and that exact submission edge passed 115 offline tests and an
+  independent review; it has not been run against a live client.
+- Static state tracing keeps three separate domains distinct. `CSkillAttr`
+  (`0x1661`) is an optional ActorAttr-owned ordered container; both omission and
+  a present count-zero value are structurally accepted. Each record is only an
+  ordered u16 key plus opaque u16/u32 payloads. `CLearnSkillResultVital` replaces
+  that set from three positional vectors and `CRevertSkilltVital` removes by the
+  same key, but no field is proven to be a skill ID, level or entitlement.
+  Separately, `CStartCooldownVital` (`0x4DDA`) carries a count plus repeated raw
+  `(s16, f32)` records and updates `CCooldownAttr`; no exact dataflow binds its key
+  to `CSkillAttr` or `TriggerCastSkillVital`. Do not add an empty `CSkillAttr`, a
+  cooldown attr or any trigger packet to StartGame. No job/class mapping,
+  ownership, hotbar, resource cost, cooldown meaning, successful cast, animation,
+  attack, damage or persistence/reconnect behavior is proven. The next acceptable
+  promotion requires a natural observe-only codec/consumer occurrence or an exact
+  named producer/data binding; do not synthesize any of these protocol classes.
 - The launcher starts a detached database guard. After both client and server close,
   runtime acceptance additionally requires `PASS_UNCHANGED` for the main SQLite file
   and the exact pre-run existence/hash/size state of both `-wal` and `-shm`.
