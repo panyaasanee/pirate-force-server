@@ -105,9 +105,14 @@ class BehaviorRangeGateProbeTests(unittest.TestCase):
 
     def test_agent_is_observe_only_scoped_and_bounded(self):
         source = P.make_agent_source(self.config("pf_behavior_range_gate_probe_local_config.json"))
-        for required in ("args[3].toUInt32()===0xea7d", "this.returnAddress.equals(exactCaller)", "entry.add(0x30).readS32()", "s.range.selected===null?10:s.range.selected", "at.range_post_x87_dead", "gate correlation timeout", "range_empty"):
+        for required in ("at.gate_call", "at.gate_result", "this.context.ebx.toUInt32()!==0xea7d", "this.context.eax.toUInt32()&0xff", "entry.add(0x30).readS32()", "s.range.selected===null?10:s.range.selected", "at.range_post_x87_dead", "gate correlation timeout", "range_empty"):
             self.assertIn(required, source)
+        self.assertEqual(self.config()["hooks"]["gate_call"]["va"], 0x44EB1D)
+        self.assertEqual(self.config()["hooks"]["gate_result"]["va"], 0x44EB22)
         self.assertEqual(self.config()["hooks"]["range_post_x87_dead"]["va"], 0x475A9C)
+        self.assertNotIn("Interceptor.attach(at.gate,", source)
+        self.assertNotIn("onLeave(retval)", source)
+        self.assertIn("clearTimeout(existing.timer);gates.delete(tid);activeCount--;fail('duplicate gate invocation')", source)
         self.assertNotIn("at.range_complete", source)
         self.assertNotIn("at.range_post_primary", source)
         self.assertNotIn("at.range_post_secondary", source)
