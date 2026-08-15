@@ -1,0 +1,71 @@
+{
+    "schema": 1,
+    "sources": [
+        {
+            "logical_id": "v74",
+            "path": "evidence/v74-v76/GAME_20260813_145705_866858_59540_v74.txt",
+            "container": "plain",
+            "size": 15491737,
+            "sha256": "EAD06F6CEF4BA657D0AB20557E7E47DC7E835D10934DCAFAF9E1B9A60CDC0EFD",
+            "direction": "client_to_server",
+            "provenance": "game_client_to_local_emulator"
+        },
+        {
+            "logical_id": "v74_v76_zip_141904",
+            "path": "evidence/v74-v76/GAME_20260813_141904_956297_51493.zip",
+            "container": "zip",
+            "size": 2696711,
+            "sha256": "017E5BF7AD5DDBE3ACB387420E090BB67F8683567DA0C4A2C57D476C51BA329A",
+            "member": "GAME_20260813_141904_956297_51493.txt",
+            "member_size": 15426264,
+            "member_sha256": "820ABB21E5F611DCE9DB6E2FEC885325650BD7E3F2E65E85B358B262BFDAA953",
+            "direction": "client_to_server",
+            "provenance": "game_client_to_local_emulator"
+        },
+        {
+            "logical_id": "v76",
+            "path": "evidence/v74-v76/GAME_20260813_151540_788073_57285_v76.txt",
+            "container": "plain",
+            "size": 482135,
+            "sha256": "186AB84324BD21D2A138ADCE398F62E1D748960A83BEBDDAC1C02F42206F8A68",
+            "direction": "client_to_server",
+            "provenance": "game_client_to_local_emulator"
+        },
+        {
+            "logical_id": "v81",
+            "path": "evidence/v81-v83/GAME_20260813_194558_009761_55635.txt",
+            "container": "plain",
+            "size": 466126,
+            "sha256": "C54F7B3ED869E2D762891CCF7BB5B429466BAF06A5FCFC63C256C89E09ABC4D7",
+            "direction": "client_to_server",
+            "provenance": "game_client_to_local_emulator"
+        },
+        {
+            "logical_id": "v82",
+            "path": "evidence/v81-v83/v82_GAME_LIVE_timing_evidence.txt",
+            "container": "plain",
+            "size": 72247,
+            "sha256": "023416FDA4EF46084D1194E5FAD1B0ECB4369C8876370F78580F573F89BA4F90",
+            "direction": "client_to_server",
+            "provenance": "game_client_to_local_emulator"
+        },
+        {
+            "logical_id": "v83",
+            "path": "evidence/v81-v83/V83_GAME_LIVE.txt",
+            "container": "plain",
+            "size": 318899,
+            "sha256": "924B42EE8AC38DA5EFAC9B68B393787B7F9D00C6E4F71A6821C3C3BE1E39FA7D",
+            "direction": "client_to_server",
+            "provenance": "game_client_to_local_emulator"
+        }
+    ],
+    "targets": {
+        "5879": "CHitResult",
+        "6890": "ActionVital",
+        "6877": "TargetVital",
+        "10716": "CFightMsgVital",
+        "12579": "CKnockdownVital",
+        "15887": "CShotMissileVital",
+        "16101": "CMissileHitResult"
+    }
+}
