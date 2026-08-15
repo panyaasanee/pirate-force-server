@@ -80,10 +80,13 @@ For live polling, use `tools/wait_for_pf_stage.py`. For example:
 
 ```powershell
 python .\tools\wait_for_pf_stage.py `
-  "C:\Users\Panya\Desktop\Pirate Force\GameClient\capture_v99\GAME_LIVE.txt" `
+  "C:\Users\Panya\Desktop\Pirate Force\GameClient\capture_arena_v1_YYYYMMDD_HHMMSS" `
   character-ready --poll-ms 100
 ```
 
-Supported milestones are `connected`, `character-ready`, `start-game`,
-`teleport`, `runtime-ready`, and `population`. The tool is read-only and exits
-as soon as the corresponding decoded protocol evidence exists.
+The path may be one live log, a `capture_vNN` directory, or the outer capture
+directory printed by the Arena launcher. The waiter finds nested `GAME_LIVE`
+and `GAME_EVENTS_LIVE` files itself. Supported milestones include `connected`,
+`character-list`, `character-ready`, `create-committed`, `start-game`,
+`teleport`, `runtime-ready`, `population`, and `arena-target`. The tool is
+read-only and exits as soon as the corresponding decoded protocol evidence exists.
