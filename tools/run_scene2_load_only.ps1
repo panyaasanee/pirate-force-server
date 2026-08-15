@@ -12,10 +12,14 @@ if (-not (Test-Path -LiteralPath $scenarioPath -PathType Leaf)) { throw "Scenari
 if (-not (Test-Path -LiteralPath $databasePath -PathType Leaf)) { throw "Existing database not found: $databasePath" }
 if (-not (Test-Path -LiteralPath $client -PathType Leaf)) { throw "Client not found: $client" }
 $scenarioId = (Get-Content -Raw -LiteralPath $scenarioPath | ConvertFrom-Json).id
-if ($scenarioId -ne 'scene2_load_only_marker2') { throw "Scenario id is not in the Scene2 launcher allowlist: $scenarioId" }
+$captureLabel = switch ($scenarioId) {
+    'scene2_load_only_marker2' { 'scene2_load_only' }
+    'scene2_fighting_fish_soldier_p60' { 'scene2_fish_p60' }
+    default { throw "Scenario id is not in the Scene2 launcher allowlist: $scenarioId" }
+}
 
 $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
-$capture = Join-Path $clientRoot "capture_scene2_load_only_$stamp"
+$capture = Join-Path $clientRoot "capture_${captureLabel}_$stamp"
 New-Item -ItemType Directory -Path $capture | Out-Null
 $guardBefore = Join-Path $capture 'source_db.guard.before.json'
 $guardAfter = Join-Path $capture 'source_db.guard.after.json'

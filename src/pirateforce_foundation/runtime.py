@@ -2,6 +2,7 @@
 from .model import Position
 from .scenario import is_p30_target_observation, make_p30_target
 from .session import FoundationSession
+from .scene_object import is_scene_remote_target, make_scene_remote_actor
 
 
 def _active_arena_version(scenario) -> str:
@@ -27,6 +28,9 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # The load-only branch must never inherit V141 population.
                 self.npc_spawn_sent = True
                 self.population_indices = ()
+                if scene_load_scenario.remote_actor is not None:
+                    self.scene_remote_spawned = False
+                    self.scene_remote_target_captured = False
 
         def dispatch(self, parsed):
             nested_id = parsed.nested_id
@@ -118,6 +122,26 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 return actions
 
             durable_target = legacy.parse_v141_refresh_target_pos(parsed)
+            remote = scene_load_scenario.remote_actor if scene_load_scenario is not None else None
+            if (
+                remote is not None and not self.scene_remote_spawned
+                and self.runtime_ack_sent and self.teleport_sent
+                and self.foundation.selected is not None
+                and nested_id == legacy.TARGET_POS_VITAL
+            ):
+                if durable_target is None:
+                    return []
+                pc, frame = make_scene_remote_actor(legacy, remote)
+                self.scene_remote_spawned = True
+                self.events.append("scene2_p60_mobs34_single_committed")
+                return [("SCENE2_P60_MOBS34_SINGLE_INITIAL", pc, frame, 0.0)]
+            if remote is not None and self.scene_remote_spawned and is_scene_remote_target(
+                legacy, parsed, remote.actor_identity,
+            ):
+                if not self.scene_remote_target_captured:
+                    self.scene_remote_target_captured = True
+                    self.events.append("scene2_p60_target_kind2_captured_no_reply")
+                return []
             arena_actions = []
             suppress_inherited_population = (
                 self.arena_scenario is not None

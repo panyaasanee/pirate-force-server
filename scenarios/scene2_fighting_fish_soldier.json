@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "id": "scene2_fighting_fish_soldier_p60",
+  "test_only": true,
+  "entry": {"flow": "full_existing_character", "required_character_name": "Arena01", "scene_id": 2, "scene_seq": 0, "position": {"x": 26905, "y": 21185, "z": 1680, "heading": 0, "coordinate_provenance": "scene2_marker2", "heading_provenance": "direction8_unmapped_constructor_zero"}},
+  "persistence": "read_only_existing_character",
+  "population": "none",
+  "capabilities": ["scene_load", "spawn", "target"],
+  "nonclaims": ["scene_seq_provenance", "heading_mapping", "population", "interaction", "monster", "faction", "travel", "combat"],
+  "remote_actor": {"trigger": "first_target_pos_after_runtime_ack", "placement_index": 60, "actor_identity": "0x203D", "template_id": 34, "visual_preset": "M025_001_000_N", "name": "Fighting Fish soldier", "faction": 6, "scene_id": 2, "scene_seq": 0, "x": 21421.0059, "y": 9277.1123, "z": 590.6788, "heading": 0}
+}

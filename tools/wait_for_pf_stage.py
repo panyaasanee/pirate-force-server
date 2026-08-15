@@ -15,6 +15,7 @@ STAGES = {
     "teleport": (("SENT label=V113_TELEPORT_SCENE1_STABLE_ZERO_TARGET_ONCE",),),
     "scene2-start-game": (("SENT label=SCENE2_LOAD_ONLY_SELECTED_START_GAME",),),
     "scene2-teleport": (("SENT label=SCENE2_LOAD_ONLY_TELEPORT_MARKER2_ONCE",),),
+    "scene2-fish-p60": (("SENT label=SCENE2_P60_MOBS34_SINGLE_INITIAL",),),
     "runtime-ready": (("SENT label=RUNTIME_RES_ACK_FIRST_REQ",),),
     "population": (
         ("SENT label=ARENA_V2_P30_INITIAL",),
