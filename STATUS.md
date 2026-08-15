@@ -164,6 +164,20 @@ Updated: 2026-08-16
   negative, not proof that `CHitResult` is unrelated to combat. No `CHitResult`
   packet/event or CHitResult-driven HP mutation, UpdateAttr or FightAttr was
   observed or composed in this acknowledgement lane.
+- SCENE-010 closes the numeric action-data lookup boundary with exact static
+  provenance and one checksum/code-guarded runtime trace. Numeric manager lookup
+  `0x702A10` received raw key `0xEA7D` twice from producer/control return
+  `0x44E92A` and once from the inbound ActionVital-handler return `0x7517B5`; all
+  three results were null in this session. The paired server trace fixes the final
+  consumer lookup 18 ms after the exact SCENE-007 acknowledgement. Static control
+  flow proves that a null consumer result skips one optional entry-dependent
+  bit-7 branch while generic ActionVital construction and actor queueing can still
+  proceed, matching the SCENE-008 inert lifecycle. The probe emitted 229 valid
+  events, no probe error, exited zero with empty stdout/stderr, and the client stayed
+  healthy until controlled close. DB main/WAL/SHM returned `PASS_UNCHANGED`.
+  This does not prove the branch is animation, a ScriptB binding, absence of EA7D
+  metadata elsewhere, hit/damage/HP, CHitResult ordering, AI, death, loot, skills
+  or authentic faction. Do not insert a synthetic EA7D registry entry.
 - The launcher starts a detached database guard. After both client and server close,
   runtime acceptance additionally requires `PASS_UNCHANGED` for the main SQLite file
   and the exact pre-run existence/hash/size state of both `-wal` and `-shm`.

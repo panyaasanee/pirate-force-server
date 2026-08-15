@@ -222,7 +222,7 @@ other.
 
 ## Current accepted technical frontier
 
-- `STATUS.md` and the ledger contain the full accepted record through SCENE-009.
+- `STATUS.md` and the ledger contain the full accepted record through SCENE-010.
 - Foundation lifecycle and the assisted reconnect are accepted within their
   documented ceilings.
 - Arena P30 spawn/target passed, but stable hostile-monster classification did
@@ -284,6 +284,17 @@ other.
   absent event as an operational negative only. Do not send a CHitResult until an
   authentic payload, natural trace or exact producer/data binding fixes every
   header/record scalar and flag.
+- SCENE-010 closes the next read-only data lookup boundary. The guarded numeric
+  manager probe observed key `0xEA7D` returning null twice at exact producer/control
+  return `0x44E92A` and once at exact inbound ActionVital-handler return `0x7517B5`.
+  The latter followed the SCENE-007 acknowledgement by 18 ms. Static control flow
+  shows that null skips one optional registry-entry bit-7 branch but generic action
+  construction/queue remains available, consistent with SCENE-008. The probe
+  exited zero, stdout/stderr were empty, heartbeats continued until controlled
+  close and DB main/WAL/SHM were unchanged. Do not label the skipped branch as
+  animation, infer a ScriptB mapping, add a synthetic EA7D registry entry, or send
+  CHitResult/HP/UpdateAttr/FightAttr. The next safe lane is read-only provenance for
+  manager population/entry fields or a natural non-null ActionVital correlation.
 - Personal plugin `pirate-force-input-bridge` now provides bounded held keys and
   right-button drags. One-second held `E` camera rotation passed twice. Use it for
   autonomous GameClient control; this operational result does not raise any
