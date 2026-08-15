@@ -18,7 +18,7 @@ $stdout = Join-Path $capture 'server_console_live.out.txt'
 $stderr = Join-Path $capture 'server_console_live.err.txt'
 $env:PYTHONPATH = Join-Path $root 'src'
 $occupied = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
-    Where-Object { $_.LocalPort -in 10001, 10189 }
+    Where-Object { $_.LocalPort -in 10188, 10189 }
 if ($occupied) { throw 'Pirate Force login/game ports are already in use' }
 
 $serverArgs = @(
@@ -33,12 +33,14 @@ Set-Content -LiteralPath (Join-Path $capture 'server.pid') -Value $server.Id -En
 $deadline = [DateTime]::UtcNow.AddSeconds(15)
 do {
     if ($server.HasExited) { throw "Arena server exited before listening; inspect $stderr" }
-    $ready = Get-NetTCPConnection -State Listen -LocalPort 10001 -ErrorAction SilentlyContinue
+    $loginReady = Get-NetTCPConnection -State Listen -LocalPort 10188 -ErrorAction SilentlyContinue
+    $gameReady = Get-NetTCPConnection -State Listen -LocalPort 10189 -ErrorAction SilentlyContinue
+    $ready = $loginReady -and $gameReady
     if (-not $ready) { Start-Sleep -Milliseconds 100 }
 } while (-not $ready -and [DateTime]::UtcNow -lt $deadline)
 if (-not $ready) { throw "Arena server did not listen within 15 seconds; inspect $stderr" }
 Set-Content -LiteralPath (Join-Path $capture 'listener.pid') `
-    -Value $ready[0].OwningProcess -Encoding ascii
+    -Value $loginReady[0].OwningProcess -Encoding ascii
 Start-Process -FilePath $client -WorkingDirectory $clientRoot `
     -ArgumentList @('-launchbypatcher','-subbuildversion','132','-acc','test','-pwd','test')
 Write-Host "Test Arena capture: $capture"
