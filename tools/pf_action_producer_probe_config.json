@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "binary": {
+    "filename": "GameClient.bin",
+    "size": 14759424,
+    "sha256": "C528BF43070E2789170F41B6E3E28CCEC6B57BDC594EE73DFA061188A5D1E4BD",
+    "machine": 332,
+    "optional_magic": 267,
+    "image_base": 4194304,
+    "size_of_image": 15233024
+  },
+  "hooks": {
+    "action_producer": {
+      "va": 4510304,
+      "code": "6aff68377eb80064a1000000005083ec0c53555657a1bcb4020133c4508d4424"
+    },
+    "candidate_branches": [
+      {
+        "va": 4525433,
+        "code": "e882a1ffff",
+        "candidate": "branch_ea72_or_ea74",
+        "queue_call": {"va": 4525598, "code": "e8ddc91800"}
+      },
+      {
+        "va": 4525934,
+        "code": "e88d9fffff",
+        "candidate": "branch_ea75",
+        "queue_call": {"va": 4526050, "code": "e819c81800"}
+      }
+    ],
+    "action_queue": {
+      "va": 6150144,
+      "code": "538b5c2408568bf185db747680bed000"
+    }
+  }
+}

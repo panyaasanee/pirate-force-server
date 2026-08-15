@@ -24,6 +24,8 @@ py -3 -m py_compile tools\pf_relation_probe.py
 Assert-NativeSuccess -ExitCode $LASTEXITCODE -Step 'relation probe py_compile'
 py -3 -m py_compile tools\pf_relation_matrix_probe.py
 Assert-NativeSuccess -ExitCode $LASTEXITCODE -Step 'relation matrix probe py_compile'
+py -3 -m py_compile tools\pf_action_producer_probe.py
+Assert-NativeSuccess -ExitCode $LASTEXITCODE -Step 'action producer probe py_compile'
 py -3 -m py_compile tools\scene_db_guard.py
 Assert-NativeSuccess -ExitCode $LASTEXITCODE -Step 'database guard py_compile'
 [void][scriptblock]::Create((Get-Content -Raw tools\run_test_arena.ps1))
@@ -85,6 +87,8 @@ expected = {
     'tools/pf_relation_probe.py',
     'tools/pf_relation_probe_config.json',
     'tools/pf_relation_matrix_probe.py',
+    'tools/pf_action_producer_probe.py',
+    'tools/pf_action_producer_probe_config.json',
     'tools/run_test_arena.ps1',
     'tools/run_scene2_load_only.ps1',
     'tools/scene_db_guard.py',
