@@ -2,7 +2,9 @@
 from .model import Position
 from .scenario import is_p30_target_observation, make_p30_target
 from .session import FoundationSession
-from .scene_object import is_scene_remote_target, make_scene_remote_actor
+from .scene_object import (is_scene_remote_target, is_scene_remote_hostile_target,
+                           make_scene_remote_actor)
+from .action_ack import parse_scene006_ea7d, make_scene007_action_ack
 
 
 def _active_arena_version(scenario) -> str:
@@ -31,6 +33,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 if scene_load_scenario.remote_actor is not None:
                     self.scene_remote_spawned = False
                     self.scene_remote_target_captured = False
+                    self.scene_action_ack_sent = False
+                    self.scene_hostile_target_captured = False
 
         def dispatch(self, parsed):
             nested_id = parsed.nested_id
@@ -145,6 +149,27 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     self.scene_remote_target_captured = True
                     self.events.append("scene2_p60_target_kind2_captured_no_reply")
                 return []
+            ack = scene_load_scenario.action_ack if scene_load_scenario is not None else None
+            if (ack is not None and remote is not None and self.scene_remote_spawned
+                and is_scene_remote_hostile_target(legacy, parsed, remote.actor_identity)):
+                self.scene_hostile_target_captured = True
+                self.events.append("scene007_p60_target_kind1_captured_no_reply")
+                return []
+            if ack is not None and parsed.vital_count in (2, 6):
+                fields = parse_scene006_ea7d(legacy, parsed, ack)
+                if (
+                    fields is None or self.scene_action_ack_sent
+                    or not self.scene_remote_spawned
+                    or not self.scene_hostile_target_captured
+                    or self.foundation.selected is None
+                ):
+                    return []
+                selected = self.foundation.selected
+                performer = ((selected.identity_hi & 0xFFFFFFFF) << 32) | (selected.identity_lo & 0xFFFFFFFF)
+                pc, frame = make_scene007_action_ack(legacy, fields, performer)
+                self.scene_action_ack_sent = True
+                self.events.append("scene007_ea7d_no_damage_action_ack_sent")
+                return [("SCENE007_EA7D_ACTION_ACK_ONCE", pc, frame, 0.0)]
             arena_actions = []
             suppress_inherited_population = (
                 self.arena_scenario is not None

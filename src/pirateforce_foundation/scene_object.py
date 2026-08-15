@@ -35,3 +35,14 @@ def is_scene_remote_target(legacy, parsed, actor_identity):
         return (struct.unpack("<Q",cursor.raw8(0x32))[0]==actor_identity
             and cursor.u8(0x08)==2 and cursor.remain()==0)
     except (ValueError,struct.error): return False
+
+def is_scene_remote_hostile_target(legacy, parsed, actor_identity):
+    """SCENE-007-only exact TargetVital kind 1 gate; kind 2 stays unchanged."""
+    if not (parsed.outer_id==legacy.GSCN_RUNTIME_PROTOCOL_REQ and parsed.outer_version==0
+        and parsed.outer_mask==2 and parsed.nested_id==legacy.TARGET_VITAL
+        and parsed.nested_version==0 and parsed.vital_count==1): return False
+    try:
+        cursor=legacy.Cursor(parsed.nested_payload)
+        return (struct.unpack("<Q",cursor.raw8(0x32))[0]==actor_identity
+            and cursor.u8(0x08)==1 and cursor.remain()==0)
+    except (ValueError,struct.error): return False

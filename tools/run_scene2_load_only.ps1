@@ -17,6 +17,7 @@ $captureLabel = switch ($scenarioId) {
     'scene2_fighting_fish_soldier_p60' { 'scene2_fish_p60' }
     'scene2_fighting_fish_soldier_p60_hp3857' { 'scene2_fish_p60_hp3857' }
     'scene2_fighting_fish_soldier_p60_hp3857_player_faction1' { 'scene2_fish_p60_hp3857_player_faction1' }
+    'scene2_fighting_fish_soldier_p60_hp3857_player_faction1_ea7d_ack' { 'scene2_fish_p60_ea7d_ack' }
     default { throw "Scenario id is not in the Scene2 launcher allowlist: $scenarioId" }
 }
 

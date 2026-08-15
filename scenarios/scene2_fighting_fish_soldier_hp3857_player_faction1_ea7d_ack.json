@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "scene2_fighting_fish_soldier_p60_hp3857_player_faction1_ea7d_ack",
+  "test_only": true,
+  "entry": {"flow": "full_existing_character", "required_character_name": "Arena01", "scene_id": 2, "scene_seq": 0, "position": {"x": 21321.0059, "y": 9227.1123, "z": 590.6788, "heading": 0, "coordinate_provenance": "synthetic_p60_minus100x_minus50y_samez", "heading_provenance": "constructor_zero"}},
+  "persistence": "read_only_existing_character",
+  "population": "none",
+  "capabilities": ["scene_load", "spawn", "target", "action_ack"],
+  "nonclaims": ["scene_seq_provenance", "heading_mapping", "population", "authentic_player_faction", "attack", "travel", "combat"],
+  "remote_actor": {"trigger": "first_target_pos_after_runtime_ack", "placement_index": 60, "actor_identity": "0x203D", "template_id": 34, "visual_preset": "M025_001_000_N", "name": "Fighting Fish soldier", "faction": 6, "scene_id": 2, "scene_seq": 0, "x": 21421.0059, "y": 9277.1123, "z": 590.6788, "heading": 0, "diagnostic_current_hp": 3857, "diagnostic_max_hp": 3857, "hp_provenance": "bounded_level27_diagnostic_not_spawn_policy"},
+  "player_relation": {"basic_faction": 1, "provenance": "faction_table_relation_candidate_not_authentic_player_faction"},
+  "action_ack": {"action": "0xEA7D", "target_identity": "0x203D", "request_provenance": "scene006_exact_runtime", "response": "single_actionvital_performer_identity_only", "effects": "none"}
+}
