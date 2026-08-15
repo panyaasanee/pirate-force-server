@@ -36,6 +36,8 @@ py -3 -m py_compile tools\pf_behavior_entry_probe.py
 Assert-NativeSuccess -ExitCode $LASTEXITCODE -Step 'behavior entry probe py_compile'
 py -3 -m py_compile tools\pf_behavior_range_gate_probe.py
 Assert-NativeSuccess -ExitCode $LASTEXITCODE -Step 'behavior range gate probe py_compile'
+py -3 -m py_compile tools\pf_skill_trigger_probe.py
+Assert-NativeSuccess -ExitCode $LASTEXITCODE -Step 'skill trigger probe py_compile'
 py -3 -m py_compile tools\pf_structural_corpus_audit.py
 Assert-NativeSuccess -ExitCode $LASTEXITCODE -Step 'structural corpus audit py_compile'
 py -3 -m py_compile tools\scene_db_guard.py
@@ -119,6 +121,9 @@ expected = {
     'tools/pf_behavior_range_gate_probe.py',
     'tools/pf_behavior_range_gate_probe_config.json',
     'tools/pf_behavior_range_gate_probe_local_config.json',
+    'tools/pf_skill_trigger_probe.py',
+    'tools/pf_skill_trigger_probe_config.json',
+    'tools/pf_skill_trigger_probe_local_config.json',
     'tools/pf_structural_corpus_audit.py',
     'tools/pf_structural_corpus_audit_config.json',
     'tools/run_test_arena.ps1',

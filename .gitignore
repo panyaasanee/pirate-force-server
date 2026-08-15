@@ -65,6 +65,10 @@
 !/tools/pf_behavior_range_gate_probe_config.json
 !/tools/pf_behavior_range_gate_probe_local_config.json
 !/tests/test_behavior_range_gate_probe.py
+!/tools/pf_skill_trigger_probe.py
+!/tools/pf_skill_trigger_probe_config.json
+!/tools/pf_skill_trigger_probe_local_config.json
+!/tests/test_skill_trigger_probe.py
 !/tools/pf_structural_corpus_audit.py
 !/tools/pf_structural_corpus_audit_config.json
 !/tests/test_structural_corpus_audit.py
