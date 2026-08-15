@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "scene2_load_only_marker2",
+  "test_only": true,
+  "entry": {
+    "flow": "full_existing_character",
+    "required_character_name": "Arena01",
+    "scene_id": 2,
+    "scene_seq": 0,
+    "position": {
+      "x": 26905,
+      "y": 21185,
+      "z": 1680,
+      "heading": 0,
+      "coordinate_provenance": "scene2_marker2",
+      "heading_provenance": "direction8_unmapped_constructor_zero"
+    }
+  },
+  "persistence": "read_only_existing_character",
+  "population": "none",
+  "capabilities": ["scene_load"],
+  "nonclaims": ["scene_seq_provenance", "heading_mapping", "population", "interaction", "monster", "faction", "travel", "combat"]
+}

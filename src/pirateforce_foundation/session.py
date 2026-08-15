@@ -31,3 +31,38 @@ class FoundationSession:
             self.lifecycle.exit(self.session_id, self.selected, position)
         else:
             self.lifecycle.store.close_session(self.session_id)
+
+
+class ReadOnlyFoundationSession:
+    """Existing-character projection with no database write path."""
+    def __init__(self, store, projector, login_name: str, scenario):
+        self.store, self.projector, self.scenario = store, projector, scenario
+        self.account_id, characters = store.list_characters_for_login_read_only(login_name)
+        self.characters = [
+            character for character in characters
+            if character.name == scenario.required_character_name
+        ]
+        if len(self.characters) != 1:
+            raise KeyError(scenario.required_character_name)
+        self.selected = None
+
+    def character_list(self):
+        return self.projector.character_list(self.characters)
+
+    def create(self, _name: str, _actor_wire: bytes):
+        raise PermissionError("scene-load milestone is read-only")
+
+    def select_and_start(self, selector: int):
+        matches = [character for character in self.characters if character.selector == selector]
+        if len(matches) != 1:
+            raise KeyError(selector)
+        self.selected = matches[0]
+        return self.selected, self.projector.start_game(
+            self.selected, self.scenario.position,
+        )
+
+    def checkpoint(self, _position):
+        raise PermissionError("scene-load milestone cannot checkpoint")
+
+    def close(self, _position=None):
+        return None

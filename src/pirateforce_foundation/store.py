@@ -32,6 +32,36 @@ class SQLiteStore:
         finally:
             db.close()
 
+    @contextmanager
+    def connect_read_only(self):
+        """Open the existing database without migrations, WAL changes or commits."""
+        if self.path == ":memory:":
+            raise ValueError("read-only milestone requires an existing file database")
+        path = Path(self.path).resolve(strict=True)
+        db = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
+        db.row_factory = sqlite3.Row
+        db.execute("PRAGMA query_only=ON")
+        try:
+            yield db
+        finally:
+            db.close()
+
+    def list_characters_for_login_read_only(self, login_name: str):
+        with self.connect_read_only() as db:
+            account = db.execute(
+                "SELECT id FROM accounts WHERE login_name=?", (login_name,)
+            ).fetchone()
+            if account is None:
+                raise KeyError(login_name)
+            account_id = int(account[0])
+            rows = db.execute(
+                "SELECT c.*,p.scene_id,p.scene_seq,p.x,p.y,p.z,p.heading "
+                "FROM characters c JOIN character_positions p ON p.character_id=c.id "
+                "WHERE c.account_id=? AND c.deleted_at IS NULL ORDER BY c.selector",
+                (account_id,),
+            ).fetchall()
+        return account_id, [self._character(row) for row in rows]
+
     def migrate(self) -> None:
         with self.connect() as db:
             files = sorted(self.migrations.glob("[0-9][0-9][0-9]_*.sql"))

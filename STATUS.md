@@ -79,6 +79,19 @@ Updated: 2026-08-15
 
 ## Relation comparator instrumentation
 
+## Scene2 load-only offline candidate
+
+- Strict opt-in `scene2_load_only_marker2` projects the existing `Arena01` into
+  Scene2 marker2 at `(26905,21185,1680)` without migration, session writes,
+  checkpoints, or population. ActorAttr, MovementAttr and Teleport agree.
+- Scene sequence 0 is compositional. Direction 8 has no proven heading mapping,
+  so heading 0 is only the constructor fallback. Direct load is not travel proof.
+- Classification D; runtime is pending. Stop if the client does not load Scene2
+  coherently; do not add population, monster, faction or combat guesses.
+- The launcher starts a detached database guard. After both client and server close,
+  runtime acceptance additionally requires `PASS_UNCHANGED` for the main SQLite file
+  and the exact pre-run existence/hash/size state of both `-wal` and `-shm`.
+
 - The capture-only Python/Frida probe passed an exact-client runtime trace. It
   refuses mismatched binaries using SHA/size/PE/code guards; Frida 17 pointer-read
   compatibility and one explicit ASLR relocation are regression-tested.

@@ -12,6 +12,8 @@ FILES = [
     ROOT/'tools/pf_relation_probe.py',
     ROOT/'tools/pf_relation_probe_config.json',
     ROOT/'tools/run_test_arena.ps1',
+    ROOT/'tools/run_scene2_load_only.ps1',
+    ROOT/'tools/scene_db_guard.py',
     ROOT/'tools/wait_for_pf_stage.py',
 ]
 

@@ -60,6 +60,17 @@ class WaitForStageTests(unittest.TestCase):
                 WAITER.find_stage_line([game], "population"),
             )
 
+    def test_scene2_labels_are_distinct(self):
+        with tempfile.TemporaryDirectory() as raw:
+            game = Path(raw) / "GAME_LIVE.txt"
+            game.write_text(
+                "SENT label=SCENE2_LOAD_ONLY_SELECTED_START_GAME frame_bytes=1\n"
+                "SENT label=SCENE2_LOAD_ONLY_TELEPORT_MARKER2_ONCE frame_bytes=2\n",
+                encoding="utf-8",
+            )
+            self.assertIn("SELECTED_START_GAME", WAITER.find_stage_line([game], "scene2-start-game"))
+            self.assertIn("TELEPORT_MARKER2", WAITER.find_stage_line([game], "scene2-teleport"))
+
 
 if __name__ == "__main__":
     unittest.main()

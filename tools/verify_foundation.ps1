@@ -3,7 +3,9 @@ py -3 -m py_compile current\pf_login_game_server_v141.py
 py -3 -m compileall -q src tests tools\build_foundation_release.py
 py -3 -m py_compile tools\wait_for_pf_stage.py
 py -3 -m py_compile tools\pf_relation_probe.py
+py -3 -m py_compile tools\scene_db_guard.py
 [void][scriptblock]::Create((Get-Content -Raw tools\run_test_arena.ps1))
+[void][scriptblock]::Create((Get-Content -Raw tools\run_scene2_load_only.ps1))
 py -3 current\pf_login_game_server_v141.py --self-test-only
 py -3 -m unittest discover -s tests -v
 $tracked = git ls-files
@@ -31,6 +33,7 @@ expected = {
     'migrations/002_character_integrity.sql',
     'scenarios/arena_v1.json',
     'scenarios/arena_v2.json',
+    'scenarios/scene2_load_only.json',
     'src/pirateforce_foundation/__init__.py',
     'src/pirateforce_foundation/actor_wire.py',
     'src/pirateforce_foundation/app.py',
@@ -41,12 +44,15 @@ expected = {
     'src/pirateforce_foundation/repository.py',
     'src/pirateforce_foundation/runtime.py',
     'src/pirateforce_foundation/scenario.py',
+    'src/pirateforce_foundation/scene_load.py',
     'src/pirateforce_foundation/session.py',
     'src/pirateforce_foundation/store.py',
     'tools/PF_FAST_ENTRY_AUTOMATION.md',
     'tools/pf_relation_probe.py',
     'tools/pf_relation_probe_config.json',
     'tools/run_test_arena.ps1',
+    'tools/run_scene2_load_only.ps1',
+    'tools/scene_db_guard.py',
     'tools/wait_for_pf_stage.py',
 }
 a, b = map(__import__('pathlib').Path, sys.argv[1:])

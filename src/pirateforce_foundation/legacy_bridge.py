@@ -25,9 +25,9 @@ class LegacyProjector:
     def create_success(self, character):
         return self.v.make_runtime_create_actor_success(character.actor_wire)
 
-    def movement_attr(self, character):
+    def movement_attr(self, character, position=None):
         """Project the persisted position without changing the frozen zero-heading wire."""
-        p = character.position
+        p = position or character.position
         return (
             self.v.u8tag(0x0B, 1)
             + bytes([0x32])
@@ -41,11 +41,11 @@ class LegacyProjector:
             + self.v.f32tag(0.0) * 3
         )
 
-    def start_game(self, character):
-        p = character.position
+    def start_game(self, character, position=None):
+        p = position or character.position
         actor = self.v.make_actor_attr_minimal(character.identity_lo, character.identity_hi, p.scene_id, p.scene_seq)
         avatar = character.avatar_wire
-        movement = self.movement_attr(character)
+        movement = self.movement_attr(character, p)
         payload = (self.v.u8tag(0x08,character.selector)+self.v.u8tag(0x05,0)+self.v.u8tag(0x0B,2)+
                    self.v.u16tag(0x0F,3)+self.v.u16tag(0x0F,0)+self.v.u8tag(0x0B,4)+
                    self.v.u16tag(0x12,0x12AD)+actor+self.v.u16tag(0x12,0x16A0)+avatar+

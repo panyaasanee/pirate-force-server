@@ -9,14 +9,24 @@ def _active_arena_version(scenario) -> str:
     return "V2" if scenario.basic_faction is not None else "V1"
 
 
-def make_state_class(legacy, lifecycle, projector, scenario=None):
+def make_state_class(legacy, lifecycle, projector, scenario=None,
+                     scene_load_scenario=None, session_factory=None):
+    if scenario is not None and scene_load_scenario is not None:
+        raise ValueError("Arena and scene-load scenarios are mutually exclusive")
     class PersistentGameSessionState(legacy.GameSessionState):
         def __init__(self, token: str):
             super().__init__(token)
-            self.foundation = FoundationSession(lifecycle, projector, token)
+            self.foundation = (
+                session_factory(token) if session_factory is not None
+                else FoundationSession(lifecycle, projector, token)
+            )
             self.arena_scenario = scenario
             self.arena_spawned = False
             self.arena_target_captured = False
+            if scene_load_scenario is not None:
+                # The load-only branch must never inherit V141 population.
+                self.npc_spawn_sent = True
+                self.population_indices = ()
 
         def dispatch(self, parsed):
             nested_id = parsed.nested_id
@@ -81,15 +91,28 @@ def make_state_class(legacy, lifecycle, projector, scenario=None):
                     return []
                 self.start_game_reply_sent = True
                 self.events.append("start_game_res_scene_identity_sent")
-                actions = [("FOUNDATION_SELECTED_START_GAME", pc, frame, 0.10)]
+                load_only = scene_load_scenario is not None
+                actions = [(
+                    "SCENE2_LOAD_ONLY_SELECTED_START_GAME" if load_only
+                    else "FOUNDATION_SELECTED_START_GAME",
+                    pc, frame, 0.10,
+                )]
                 if not self.teleport_sent:
-                    tp_pc, tp_frame = legacy.make_login_teleport(1, 0)
+                    if load_only:
+                        p = scene_load_scenario.position
+                        tp_pc, tp_frame = legacy.make_login_teleport(
+                            p.scene_id, p.scene_seq, p.x, p.y, p.z,
+                        )
+                    else:
+                        tp_pc, tp_frame = legacy.make_login_teleport(1, 0)
                     actions.append((
-                        "V113_TELEPORT_SCENE1_STABLE_ZERO_TARGET_ONCE",
+                        "SCENE2_LOAD_ONLY_TELEPORT_MARKER2_ONCE" if load_only
+                        else "V113_TELEPORT_SCENE1_STABLE_ZERO_TARGET_ONCE",
                         tp_pc, tp_frame, 0.70,
                     ))
                     self.teleport_sent = True
                     self.events.append(
+                        "scene2_load_only_marker2_teleport_sent" if load_only else
                         "v135_startgame_movement_p0_minus100x_minus50y_teleport_zero_sent"
                     )
                 return actions
@@ -142,6 +165,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None):
 
             actions = super().dispatch(parsed)
             if (
+                scene_load_scenario is None
+                and
                 durable_target is not None
                 and self.foundation.selected is not None
             ):
