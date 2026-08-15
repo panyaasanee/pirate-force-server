@@ -41,7 +41,15 @@ do {
 if (-not $ready) { throw "Arena server did not listen within 15 seconds; inspect $stderr" }
 Set-Content -LiteralPath (Join-Path $capture 'listener.pid') `
     -Value $loginReady[0].OwningProcess -Encoding ascii
-Start-Process -FilePath $client -WorkingDirectory $clientRoot `
-    -ArgumentList @('-launchbypatcher','-subbuildversion','132','-acc','test','-pwd','test')
+$clientInfo = [Diagnostics.ProcessStartInfo]::new()
+$clientInfo.FileName = $client
+$clientInfo.WorkingDirectory = $clientRoot
+$clientInfo.UseShellExecute = $false
+$clientInfo.Arguments = '-launchbypatcher -subbuildversion 132 -acc test -pwd test'
+$clientProcess = [Diagnostics.Process]::Start($clientInfo)
+if (-not $clientProcess) { throw 'GameClient process could not be created' }
+Set-Content -LiteralPath (Join-Path $capture 'client.pid') `
+    -Value $clientProcess.Id -Encoding ascii
 Write-Host "Test Arena capture: $capture"
 Write-Host "Arena server PID: $($server.Id)"
+Write-Host "GameClient PID: $($clientProcess.Id)"

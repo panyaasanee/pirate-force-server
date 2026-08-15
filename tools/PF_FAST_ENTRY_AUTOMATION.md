@@ -5,9 +5,10 @@ PowerShell/UIAutomation or raw input scripts.
 
 The server's line-buffered `GAME_LIVE.txt` is the authoritative stage signal:
 
-1. After launching the client, observe its window and press `Return` as soon as
-   the server-selection screen is visible. Do not click a channel row first;
-   the existing selection is sufficient.
+1. After launching the client, observe its window and click the bottom `เข้า`
+   (Enter) button directly as soon as the server-selection screen is visible.
+   The client already has the local server and Channel 1 selected. Never click
+   either list row first unless a new observation explicitly shows no selection.
 2. Refresh immediately. If the confirmation dialog is visible, press `Return`.
 3. Poll the live log at 100-200 ms intervals until `NotifyEnterCreateActor`
    appears. This is the protocol-backed character-selection-ready signal.
@@ -55,7 +56,8 @@ client build.
 
 ## Screenshot budget
 
-- Observe the server list once, then `Return`.
+- Observe the server list once, then click `เข้า` directly. Do not spend input
+  actions re-selecting the local server or Channel 1.
 - Refresh once for the deterministic confirmation modal, then `Return`.
 - After confirming the server, satisfy the post-action refresh with a
   lightweight text-only window state. While the client is loading, use the
