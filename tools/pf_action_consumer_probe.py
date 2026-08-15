@@ -64,23 +64,29 @@ def bounded_frida_call(call,timeout:float=CLEANUP_TIMEOUT_SECONDS)->None:
  finally:timer.cancel()
 
 def cleanup_frida(script,session,timeout:float=CLEANUP_TIMEOUT_SECONDS,runner=None)->None:
- run=bounded_frida_call if runner is None else runner;failures=[]
- for name,call in (("script.unload",script.unload),("session.detach",session.detach)):
-  try:run(call,timeout)
-  except Exception as exc:failures.append(f"{name}: {exc}")
- if failures:raise RuntimeError("; ".join(failures))
+ # Session.detach is the single authoritative teardown operation: Frida destroys
+ # every script belonging to this session.  Calling Script.unload first caused a
+ # cancelled pending unload to serialize and block the following detach on 17.17.
+ del script
+ run=bounded_frida_call if runner is None else runner
+ run(session.detach,timeout)
 
 def finalize_capture(state,script,session,timeout:float=CLEANUP_TIMEOUT_SECONDS,runner=None)->None:
- failures=[]
+ failures=[];detach_timeout=None
  try:state.ensure_success()
  except Exception as exc:failures.append(str(exc))
  try:cleanup_frida(script,session,timeout,runner)
- except Exception as exc:failures.append(str(exc))
+ except TimeoutError as exc:detach_timeout=exc
+ except Exception as exc:failures.append(f"session.detach: {exc}")
  # Unload/detach may synchronously deliver a final message; recheck after cleanup.
+ time.sleep(.05)
  try:state.ensure_success()
  except Exception as exc:
   if str(exc) not in failures:failures.append(str(exc))
  if failures:raise RuntimeError("; ".join(failures))
+ # A cancelled detach is bounded and non-fatal only after both complete-state
+ # checks pass. Process disconnect then destroys this session's scripts.
+ if detach_timeout is not None:return
 
 class CaptureState(_base.CaptureState):
  ORDER=("handler","constructor_return","attach_call","actor_attach","queue_add","update_before","update_after")

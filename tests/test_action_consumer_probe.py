@@ -96,31 +96,31 @@ class ConsumerProbeTests(unittest.TestCase):
   s=P.CaptureState();s.accept({"event":"probe_ready"})
   for event in self.events():s.accept(event)
   return s
- def test_cleanup_is_ordered_bounded_and_detach_runs_after_unload_timeout(self):
+ def test_cleanup_uses_single_bounded_session_detach(self):
   calls=[]
   class Script:
    def unload(self):calls.append("unload")
   class Session:
    def detach(self):calls.append("detach")
   P.cleanup_frida(Script(),Session(),0.25,lambda call,timeout:(self.assertEqual(timeout,0.25),call()))
-  self.assertEqual(calls,["unload","detach"])
+  self.assertEqual(calls,["detach"])
   calls.clear()
   def timeout_runner(call,_timeout):
-   if call.__name__=="unload":calls.append("unload");raise TimeoutError("bounded")
-   call()
-  with self.assertRaisesRegex(RuntimeError,"script.unload: bounded"):
+   calls.append(call.__name__);raise TimeoutError("bounded")
+  with self.assertRaisesRegex(TimeoutError,"bounded"):
    P.cleanup_frida(Script(),Session(),0.25,timeout_runner)
-  self.assertEqual(calls,["unload","detach"])
+  self.assertEqual(calls,["detach"])
  def test_finalize_preserves_completed_result_but_fails_late_error(self):
   class Script:
    def unload(self):pass
   class Session:
    def detach(self):pass
   P.finalize_capture(self.completed_state(),Script(),Session(),runner=lambda call,_timeout:call())
+  P.finalize_capture(self.completed_state(),Script(),Session(),runner=lambda _call,_timeout:(_ for _ in ()).throw(TimeoutError("bounded detach")))
   state=self.completed_state()
   def late_runner(call,_timeout):
    call()
-   if call.__name__=="unload":state.accept({"event":"probe_error","reason":"late during cleanup"})
+   if call.__name__=="detach":state.accept({"event":"probe_error","reason":"late during cleanup"})
   with self.assertRaisesRegex(RuntimeError,"late during cleanup"):
    P.finalize_capture(state,Script(),Session(),runner=late_runner)
  def test_malformed_pe(self):
