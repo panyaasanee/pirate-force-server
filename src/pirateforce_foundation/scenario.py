@@ -1,9 +1,11 @@
-"""Strict, test-only scenario configuration and projection for Test Arena V1."""
+"""Strict, test-only scenario configuration and projection for Test Arena."""
 from dataclasses import dataclass
 import json
 import math
 from pathlib import Path
 import struct
+
+from .npc_wire import make_npc_attr_with_basic_faction
 
 
 @dataclass(frozen=True)
@@ -19,11 +21,16 @@ class ArenaScenario:
     dz: float
     capabilities: tuple[str, ...]
     nonclaims: tuple[str, ...]
+    basic_faction: int | None
 
 
 _TOP = {"schema", "id", "test_only", "entry", "spawn", "target", "capabilities", "nonclaims"}
 _CAPABILITIES = {"spawn", "target"}
 _NONCLAIMS = {"authentic_position", "tab", "combat", "ai", "damage", "loot"}
+_PROFILES = {
+    "arena_v1_player_p30_target": ("v119_p30", None),
+    "arena_v2_p30_basic_faction6_diagnostic": ("p30_basic_faction6_diagnostic", 6),
+}
 
 
 def load_scenario(path: str | Path) -> ArenaScenario:
@@ -34,10 +41,11 @@ def load_scenario(path: str | Path) -> ArenaScenario:
         set(data) != _TOP
         or type(data["schema"]) is not int
         or data["schema"] != 1
-        or data["id"] != "arena_v1_player_p30_target"
+        or data["id"] not in _PROFILES
         or data["test_only"] is not True
     ):
         raise ValueError("unsupported or incomplete test scenario")
+    expected_profile, basic_faction = _PROFILES[data["id"]]
     if type(data["entry"]) is not dict or (
         set(data["entry"]) != {"flow", "scene_id"}
         or data["entry"]["flow"] != "full"
@@ -68,17 +76,17 @@ def load_scenario(path: str | Path) -> ArenaScenario:
         or type(data["spawn"]["reapply_ms"]) is not int
         or target["placement_index"] != 30
         or type(target["placement_index"]) is not int
-        or target["profile"] != "v119_p30"
+        or target["profile"] != expected_profile
         or not (0 <= data["spawn"]["reapply_ms"] <= 60000)
         or caps != ("spawn", "target")
         or nonclaims != ("authentic_position", "tab", "combat", "ai", "damage", "loot")
         or not all(type(value) in (int, float) and math.isfinite(value) for value in values)
     ):
-        raise ValueError("scenario exceeds the evidence-backed V1 allowlist")
+        raise ValueError("scenario exceeds the evidence-backed Arena allowlist")
     return ArenaScenario(
         str(data["id"]), 1, data["spawn"]["trigger"],
-        int(data["spawn"]["reapply_ms"]), 30, "v119_p30",
-        *(float(value) for value in values), caps, nonclaims,
+        int(data["spawn"]["reapply_ms"]), 30, expected_profile,
+        *(float(value) for value in values), caps, nonclaims, basic_faction,
     )
 
 
@@ -91,12 +99,19 @@ def make_p30_target(legacy, scenario: ArenaScenario, player_position):
     if (idx, template_id, 0x2000 + idx + 1) != (30, 31, legacy.V112_MONSTER_ACTOR_ID):
         raise AssertionError("P30 identity/template provenance drift")
     actor_id = legacy.V112_MONSTER_ACTOR_ID
-    npc_attr = legacy.make_npc_attr(
-        template_id, actor_id, 1, 0, preset,
+    npc_kwargs = dict(
+        template_id=template_id, actor_identity=actor_id,
+        scene_id=1, scene_seq=0, visual_preset=preset,
         current_hp=legacy.V117_P30_EXACT_HP,
         max_hp=legacy.V117_P30_EXACT_HP,
         basic_name=legacy.V119_P30_TARGET_NAME,
     )
+    if scenario.basic_faction is None:
+        npc_attr = legacy.make_npc_attr(**npc_kwargs)
+    else:
+        npc_attr = make_npc_attr_with_basic_faction(
+            legacy, **npc_kwargs, basic_faction=scenario.basic_faction,
+        )
     heading = legacy._heading_to_player(target_x, target_y, x, y)
     movement = legacy.make_remote_movement_attr(
         actor_id, target_x, target_y, target_z, heading, mask=0xFF,

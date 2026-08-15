@@ -30,10 +30,12 @@ V117 measured two avoidable delays that this sequence must not repeat:
 - `runtime-ready` to the first movement-triggered population packet: 41.859
   seconds, caused by delaying the short movement key.
 
-For Test Arena V1, press the short movement key immediately after
-`runtime-ready`; `ARENA_V1_P30_INITIAL` should follow without a human-timed
-pause. The no-scenario Full Flow continues to use the legacy isolated
-P0/P30/P91 population.
+For Test Arena V1 or V2, press the short movement key immediately after
+`runtime-ready`; `ARENA_V1_P30_INITIAL` or `ARENA_V2_P30_INITIAL` should follow
+without a human-timed pause. V2 is a faction-only diagnostic: if the stable
+view remains green/person/talk, record the negative and stop without adding
+FightAttr, AI, or local-player faction guesses. The no-scenario Full Flow
+continues to use the legacy isolated P0/P30/P91 population.
 
 ## Fast Backpack PIN path (runtime-proven in V110)
 
@@ -80,7 +82,7 @@ For live polling, use `tools/wait_for_pf_stage.py`. For example:
 
 ```powershell
 python .\tools\wait_for_pf_stage.py `
-  "C:\Users\Panya\Desktop\Pirate Force\GameClient\capture_arena_v1_YYYYMMDD_HHMMSS" `
+  "C:\Users\Panya\Desktop\Pirate Force\GameClient\capture_arena_v2_YYYYMMDD_HHMMSS" `
   character-ready --poll-ms 100
 ```
 

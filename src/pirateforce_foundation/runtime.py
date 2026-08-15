@@ -3,6 +3,12 @@ from .model import Position
 from .scenario import is_p30_target_observation, make_p30_target
 from .session import FoundationSession
 
+
+def _active_arena_version(scenario) -> str:
+    """Derive a label only while an opt-in Arena branch is active."""
+    return "V2" if scenario.basic_faction is not None else "V1"
+
+
 def make_state_class(legacy, lifecycle, projector, scenario=None):
     class PersistentGameSessionState(legacy.GameSessionState):
         def __init__(self, token: str):
@@ -125,10 +131,12 @@ def make_state_class(legacy, lifecycle, projector, scenario=None):
                 self.npc_spawn_sent = True
                 self.population_indices = (legacy.V112_MONSTER_INDEX,)
                 self.population_refresh_anchor = tuple(durable_target[:3])
-                self.events.append("arena_v1_p30_test_only_population_committed")
+                arena_version = _active_arena_version(self.arena_scenario)
+                version = arena_version.lower()
+                self.events.append(f"arena_{version}_p30_test_only_population_committed")
                 arena_actions = [
-                    ("ARENA_V1_P30_INITIAL", pc, frame, 0.0),
-                    ("ARENA_V1_P30_MODEL_READY_REAPPLY", pc, frame,
+                    (f"ARENA_{arena_version}_P30_INITIAL", pc, frame, 0.0),
+                    (f"ARENA_{arena_version}_P30_MODEL_READY_REAPPLY", pc, frame,
                      self.arena_scenario.reapply_ms / 1000.0),
                 ]
 
@@ -153,6 +161,9 @@ def make_state_class(legacy, lifecycle, projector, scenario=None):
                     and not self.arena_target_captured
                 ):
                     self.arena_target_captured = True
-                    self.events.append("arena_v1_p30_target_kind2_captured_no_reply")
+                    version = _active_arena_version(self.arena_scenario).lower()
+                    self.events.append(
+                        f"arena_{version}_p30_target_kind2_captured_no_reply"
+                    )
             return actions + arena_actions
     return PersistentGameSessionState

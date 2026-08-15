@@ -48,6 +48,18 @@ class WaitForStageTests(unittest.TestCase):
             )
             self.assertIsNone(WAITER.find_stage_line([event], "arena-target"))
 
+    def test_arena_v2_population_label_passes(self):
+        with tempfile.TemporaryDirectory() as raw:
+            game = Path(raw) / "GAME_LIVE.txt"
+            game.write_text(
+                "SENT label=ARENA_V2_P30_INITIAL frame_bytes=217\n",
+                encoding="utf-8",
+            )
+            self.assertIn(
+                "ARENA_V2_P30_INITIAL",
+                WAITER.find_stage_line([game], "population"),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

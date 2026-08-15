@@ -15,6 +15,7 @@ STAGES = {
     "teleport": (("SENT label=V113_TELEPORT_SCENE1_STABLE_ZERO_TARGET_ONCE",),),
     "runtime-ready": (("SENT label=RUNTIME_RES_ACK_FIRST_REQ",),),
     "population": (
+        ("SENT label=ARENA_V2_P30_INITIAL",),
         ("SENT label=ARENA_V1_P30_INITIAL",),
         ("SENT label=V134_P0_P30_P91_ISOLATED_INITIAL_READY",),
     ),

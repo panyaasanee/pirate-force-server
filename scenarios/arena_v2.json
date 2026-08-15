@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "id": "arena_v2_p30_basic_faction6_diagnostic",
+  "test_only": true,
+  "entry": {"flow": "full", "scene_id": 1},
+  "spawn": {
+    "trigger": "first_target_pos_after_runtime_ack",
+    "reapply_ms": 3000
+  },
+  "target": {
+    "placement_index": 30,
+    "profile": "p30_basic_faction6_diagnostic",
+    "position": {"mode": "player_relative", "dx": 100, "dy": 50, "dz": 0}
+  },
+  "capabilities": ["spawn", "target"],
+  "nonclaims": ["authentic_position", "tab", "combat", "ai", "damage", "loot"]
+}

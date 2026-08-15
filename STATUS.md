@@ -49,6 +49,20 @@ Updated: 2026-08-15
   hostile relation, combat, AI, damage or loot.
 - Combat, AI, damage, loot, Tab selection and authentic placement are nonclaims.
 
+## Test Arena V2 offline candidate
+
+- Opt-in scenario `arena_v2_p30_basic_faction6_diagnostic` adds only the
+  statically proven BasicAttr mask bit `0x0400` and its serializer-ordered u32
+  value `6` to the Arena V1 P30 profile.
+- Golden comparison proves the uncompressed V2 P30 differs from V1 only in the
+  two mask bytes and one tagged u32 field. V1 and no-scenario behavior remain
+  unchanged.
+- Classification is D (compositional hypothesis): no runtime hostile relation,
+  cursor, combat, FightAttr, AI, damage or loot claim is made.
+- Runtime stop rule: if the stable client presentation remains green/person/talk,
+  record a faction-only negative and retire this candidate without adding guessed
+  FightAttr, AI or local-player faction fields.
+
 The legacy V141 source remains immutable and is loaded as a compatibility oracle.
 Gameplay dispatch falls through to it unchanged outside the lifecycle boundary.
 The configured server token currently identifies one local test account. Authenticated

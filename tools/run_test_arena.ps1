@@ -10,9 +10,15 @@ $scenarioPath = Join-Path $root $Scenario
 $databasePath = Join-Path $root $Database
 if (-not (Test-Path -LiteralPath $scenarioPath -PathType Leaf)) { throw "Scenario not found: $scenarioPath" }
 if (-not (Test-Path -LiteralPath $client -PathType Leaf)) { throw "Client not found: $client" }
+$scenarioId = (Get-Content -Raw -LiteralPath $scenarioPath | ConvertFrom-Json).id
+$captureLabel = switch ($scenarioId) {
+    'arena_v1_player_p30_target' { 'arena_v1' }
+    'arena_v2_p30_basic_faction6_diagnostic' { 'arena_v2' }
+    default { throw "Scenario id is not in the Arena launcher allowlist: $scenarioId" }
+}
 
 $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
-$capture = Join-Path $clientRoot "capture_arena_v1_$stamp"
+$capture = Join-Path $clientRoot "capture_${captureLabel}_$stamp"
 New-Item -ItemType Directory -Path $capture | Out-Null
 $stdout = Join-Path $capture 'server_console_live.out.txt'
 $stderr = Join-Path $capture 'server_console_live.err.txt'
