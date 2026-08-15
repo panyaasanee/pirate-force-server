@@ -117,6 +117,13 @@ Updated: 2026-08-15
   panel/arrow, and emitted exact 31-byte TargetVital kind 1 for `0x203D` with no
   ChooseNPC. DB guard passed unchanged. This proves the bounded relation composition,
   not authentic player faction, attack, damage, AI, death or loot.
+- SCENE-006 passed the next narrow boundary. A checksum/code-guarded observe-only
+  probe at exact producer `0x44D260` and queue `0x5DD800` showed that one
+  double-click on the selected hostile P60 produces ActionVital `0xEA7D` with
+  target identity `0x203D`. The same wire reached the server and repeated in a
+  fresh client/server session; Tab-only selection produced no ActionVital, and
+  both DB guards passed unchanged. This proves the target-bound attack command,
+  not a combat response, damage, hit/miss, FightAttr, AI, death or loot.
 - The launcher starts a detached database guard. After both client and server close,
   runtime acceptance additionally requires `PASS_UNCHANGED` for the main SQLite file
   and the exact pre-run existence/hash/size state of both `-wal` and `-shm`.

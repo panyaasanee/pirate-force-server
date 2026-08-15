@@ -248,6 +248,12 @@ other.
   kind 1 for `0x203D`, and sends no ChooseNPC. DB guard passed unchanged. The next
   dependency is the exact attack-command producer; do not infer damage or combat
   from relation selection alone.
+- SCENE-006 identifies that producer boundary: double-clicking the selected hostile
+  P60 emits ActionVital `0xEA7D` through exact client producer `0x44D260` and queue
+  `0x5DD800`, with target `0x203D`. Producer, queue and server wire agree in two
+  fresh sessions; Tab-only is negative and DB guards pass unchanged. The next
+  dependency is the smallest no-damage server response/ack boundary. Do not infer
+  damage, hit/miss, animation acceptance, FightAttr, AI, death or loot yet.
 - Personal plugin `pirate-force-input-bridge` now provides bounded held keys and
   right-button drags. One-second held `E` camera rotation passed twice. Use it for
   autonomous GameClient control; this operational result does not raise any
