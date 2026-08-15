@@ -12,7 +12,8 @@
 | ARENA-001 | Test Arena P30 object spawn/target | Runtime pass / classification negative | One P30 renders with name and HP and emits TargetVital; stable UI remains green/person/talk, so hostile relation and combat are unproven |
 | ARENA-002 | BasicAttr faction-only diagnostic | Runtime transport pass / classification negative | Exact faction-6 transport/TargetVital pass; stable UI stays green/person/talk, while a frame burst proves pink-red/red-outline/non-talk UI only after exit confirmation, so the candidate is retired and teardown is not hostility |
 | REL-001 | Relation comparator instrumentation | Runtime trace pass | 1,023 stable comparisons read injected P30 operand 6 against current local/default operand 0; 16 post-exit entries bypass both reads, so teardown UI is not an observed faction mutation; authentic player faction/policy remain unknown |
-| SCENE-001 | Scene2 marker2 load-only | Offline D candidate | Existing Arena01 is read-only projected coherently in ActorAttr/MovementAttr/Teleport at `(26905,21185,1680)`; post-close main/`-wal`/`-shm` guard is required; seq0 and heading0 are compositional, runtime/travel/population remain unproven |
+| SCENE-001 | Scene2 marker2 load-only | Runtime load pass | Existing Arena01 was read-only projected coherently in ActorAttr/MovementAttr/Teleport at `(26905,21185,1680)`; the client loaded and rendered Prison Exile Island and returned runtime-ready traffic; seq0/heading0 remain compositional |
+| SCENE-002 | Authentic MOBS34/P60 single population | Runtime render pass / target negative | Fighting Fish soldier rendered with exact name/model at authentic P60 while the test player used a labeled synthetic 100X/50Y offset; DB main/WAL/SHM stayed byte-identical; clicks/Tab produced no TargetVital, so targetability/hostility/combat remain unproven |
 
 V141 artifacts:
 
