@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Guarded observe-only probe for the SCENE-008 EA7D consumer lifecycle."""
 from __future__ import annotations
-import argparse, importlib.util, json, math, re, sys, time
+import argparse, importlib.util, json, math, re, sys, threading, time
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +11,7 @@ _base=importlib.util.module_from_spec(_spec); sys.modules[_spec.name]=_base; _sp
 DEFAULT_CONFIG=Path(__file__).with_name("pf_action_consumer_probe_local_config.json")
 DEFAULT_CLIENT=ROOT.parent/"GameClient"/"GameClient.local.bin"
 DEFAULT_CAPTURE_ROOT=ROOT.parent/"GameClient"/"capture_action_consumer"
+CLEANUP_TIMEOUT_SECONDS=2.0
 EXACT_BINARIES=_base.EXACT_BINARIES
 EXACT_HOOKS={
  "handler":{"va":0x7516E5,"code":"8bf18b461c8b4e185051e82c13cbff8b","runtime_relocations":[]},
@@ -50,6 +51,36 @@ def validate_output_path(output:Path,client:Path,config_path:Path,capture_root:P
  return resolved
 
 def validate_runtime_options(pid:int,duration:float)->None: _base.validate_runtime_options(pid,duration)
+
+def bounded_frida_call(call,timeout:float=CLEANUP_TIMEOUT_SECONDS)->None:
+ """Run one Frida async-backed synchronous API call with native cancellation."""
+ import frida
+ if not math.isfinite(timeout) or timeout<=0:raise ValueError("cleanup timeout must be finite and positive")
+ cancellable=frida.Cancellable();timer=threading.Timer(timeout,cancellable.cancel);timer.daemon=True;timer.start()
+ try:
+  with cancellable:call()
+ except frida.OperationCancelledError as exc:
+  raise TimeoutError(f"Frida cleanup exceeded {timeout:g} seconds") from exc
+ finally:timer.cancel()
+
+def cleanup_frida(script,session,timeout:float=CLEANUP_TIMEOUT_SECONDS,runner=None)->None:
+ run=bounded_frida_call if runner is None else runner;failures=[]
+ for name,call in (("script.unload",script.unload),("session.detach",session.detach)):
+  try:run(call,timeout)
+  except Exception as exc:failures.append(f"{name}: {exc}")
+ if failures:raise RuntimeError("; ".join(failures))
+
+def finalize_capture(state,script,session,timeout:float=CLEANUP_TIMEOUT_SECONDS,runner=None)->None:
+ failures=[]
+ try:state.ensure_success()
+ except Exception as exc:failures.append(str(exc))
+ try:cleanup_frida(script,session,timeout,runner)
+ except Exception as exc:failures.append(str(exc))
+ # Unload/detach may synchronously deliver a final message; recheck after cleanup.
+ try:state.ensure_success()
+ except Exception as exc:
+  if str(exc) not in failures:failures.append(str(exc))
+ if failures:raise RuntimeError("; ".join(failures))
 
 class CaptureState(_base.CaptureState):
  ORDER=("handler","constructor_return","attach_call","actor_attach","queue_add","update_before","update_after")
@@ -152,8 +183,6 @@ def main()->int:
     time.sleep(.1)
   except KeyboardInterrupt:pass
   finally:
-   time.sleep(.05)
-   try:state.ensure_success()
-   finally:script.unload();session.detach()
+   time.sleep(.05);finalize_capture(state,script,session)
  return 0
 if __name__=="__main__":raise SystemExit(main())
