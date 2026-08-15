@@ -59,6 +59,7 @@ class ReadOnlyFoundationSession:
         self.selected = matches[0]
         return self.selected, self.projector.start_game(
             self.selected, self.scenario.position,
+            self.scenario.player_basic_faction,
         )
 
     def checkpoint(self, _position):

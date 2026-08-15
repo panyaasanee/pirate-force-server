@@ -5,6 +5,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from pirateforce_foundation.legacy_bridge import LegacyProjector, load_legacy
 from pirateforce_foundation.lifecycle import CharacterLifecycle
 from pirateforce_foundation.model import Position
+from pirateforce_foundation.player_wire import make_actor_attr_with_basic_faction
 from pirateforce_foundation.runtime import make_state_class
 from pirateforce_foundation.scene_load import load_scene_load_scenario
 from pirateforce_foundation.session import FoundationSession, ReadOnlyFoundationSession
@@ -55,6 +56,39 @@ class SceneLoadTests(unittest.TestCase):
         c=self.store.list_characters(state.foundation.account_id)[0]
         actions=state.dispatch(self.legacy.parse_outer(self.legacy._synthetic_start_game_pc(c.selector)))
         self.assertEqual([a[0] for a in actions],["FOUNDATION_SELECTED_START_GAME","V113_TELEPORT_SCENE1_STABLE_ZERO_TARGET_ONCE"])
+    def test_player_faction1_relation_probe_is_explicit_and_read_only(self):
+        self.scenario=load_scene_load_scenario(
+            ROOT/"scenarios/scene2_fighting_fish_soldier_hp3857_player_faction1.json"
+        )
+        self.assertEqual(self.scenario.player_basic_faction,1)
+        before=self.digest(); state=self.state()
+        state.dispatch(self.legacy.parse_outer(self.legacy._synthetic_client_login_pc()))
+        actions=state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_start_game_pc(self.character.selector)
+        ))
+        expected=make_actor_attr_with_basic_faction(
+            self.legacy,self.character.identity_lo,self.character.identity_hi,2,0,1,
+        )
+        baseline_actor=self.legacy.make_actor_attr_minimal(
+            self.character.identity_lo,self.character.identity_hi,2,0,
+        )
+        expected_delta=(baseline_actor[:11]+self.legacy.u16tag(0x12,0x070C)+
+            baseline_actor[14:36]+self.legacy.u32tag(0x14,1)+baseline_actor[36:])
+        self.assertEqual(expected,expected_delta)
+        self.assertEqual(len(expected),len(baseline_actor)+5)
+        self.assertIn(expected,actions[0][1])
+        self.assertEqual(self.digest(),before)
+        baseline=json.loads((ROOT/"scenarios/scene2_fighting_fish_soldier_hp3857.json").read_text())
+        baseline["player_relation"]={"basic_faction":1,"provenance":"faction_table_relation_candidate_not_authentic_player_faction"}
+        path=Path(self.tmp.name)/"baseline-with-relation.json"
+        path.write_text(json.dumps(baseline),encoding="utf-8")
+        with self.assertRaises(ValueError): load_scene_load_scenario(path)
+        for values in ((2,0,2),(1,0,1),(2,1,1)):
+            with self.assertRaises(ValueError):
+                make_actor_attr_with_basic_faction(
+                    self.legacy,self.character.identity_lo,self.character.identity_hi,
+                    values[0],values[1],values[2],
+                )
     def test_modes_mutually_exclusive(self):
         with self.assertRaises(ValueError):
             make_state_class(self.legacy,self.lifecycle,self.projector,scenario=object(),scene_load_scenario=self.scenario)

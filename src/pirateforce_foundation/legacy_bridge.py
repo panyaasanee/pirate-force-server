@@ -4,6 +4,8 @@ import struct
 import sys
 from pathlib import Path
 
+from .player_wire import make_actor_attr_with_basic_faction
+
 def load_legacy(path: str | Path):
     spec = importlib.util.spec_from_file_location("pf_legacy_v141", path)
     module = importlib.util.module_from_spec(spec)
@@ -41,9 +43,18 @@ class LegacyProjector:
             + self.v.f32tag(0.0) * 3
         )
 
-    def start_game(self, character, position=None):
+    def start_game(self, character, position=None, basic_faction=None):
         p = position or character.position
-        actor = self.v.make_actor_attr_minimal(character.identity_lo, character.identity_hi, p.scene_id, p.scene_seq)
+        actor = (
+            self.v.make_actor_attr_minimal(
+                character.identity_lo, character.identity_hi, p.scene_id, p.scene_seq,
+            )
+            if basic_faction is None else
+            make_actor_attr_with_basic_faction(
+                self.v, character.identity_lo, character.identity_hi,
+                p.scene_id, p.scene_seq, basic_faction,
+            )
+        )
         avatar = character.avatar_wire
         movement = self.movement_attr(character, p)
         payload = (self.v.u8tag(0x08,character.selector)+self.v.u8tag(0x05,0)+self.v.u8tag(0x0B,2)+
