@@ -222,7 +222,7 @@ other.
 
 ## Current accepted technical frontier
 
-- `STATUS.md` and the ledger contain the full accepted record through SCENE-007.
+- `STATUS.md` and the ledger contain the full accepted record through SCENE-008.
 - Foundation lifecycle and the assisted reconnect are accepted within their
   documented ceilings.
 - Arena P30 spawn/target passed, but stable hostile-monster classification did
@@ -261,9 +261,18 @@ other.
   ActionVital body, only performer zero changes to the persisted selected identity.
   Clients stay
   responsive, visible HP remains unchanged, stderr is empty and both DB guards pass.
-  No clear attack animation was observed, so the next dependency is the smallest
-  evidence-backed downstream action/hit or damage-consumer boundary; do not invent
-  HP/FightAttr packets or infer damage, AI, death, loot, skills or authentic faction.
+  No clear attack animation was observed, so the next dependency was the smallest
+  evidence-backed downstream action-consumer boundary.
+- SCENE-008 closes that consumer boundary. A guarded observe-only trace shows the
+  exact SCENE-007 ACK reaching the ActionVital handler, constructing a generic
+  `0xEA7D`/`0x203D` action with null implementation and terminal bit `8`, entering
+  the selected actor's `+0x20` queue once, and reaching the first common update
+  return with bit `8` unchanged. The clean probe exits independently while the
+  client remains alive; server heartbeats continue and DB main/WAL/SHM remain
+  unchanged. The next evidence lane must recover a distinct server response/action
+  code with an actual client implementation or original combat provenance. Do not
+  invent HP, UpdateAttr or FightAttr packets, and do not infer animation, hit,
+  damage, AI, death, loot, skills or authentic faction from this inert lifecycle.
 - Personal plugin `pirate-force-input-bridge` now provides bounded held keys and
   right-button drags. One-second held `E` camera rotation passed twice. Use it for
   autonomous GameClient control; this operational result does not raise any

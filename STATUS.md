@@ -137,6 +137,15 @@ Updated: 2026-08-16
   empty, and both database main/WAL/SHM guards returned `PASS_UNCHANGED`. A visible
   attack animation was not confirmed; this proves response transport/acceptance
   only, not hit, damage, FightAttr, AI, death, loot, skills or authentic faction.
+- SCENE-008 passed the exact downstream consumer boundary with an observe-only,
+  checksum/code-guarded runtime trace. The SCENE-007 `0xEA7D`/`0x203D`
+  acknowledgement reached the client handler, constructed one generic action with
+  implementation pointer zero and terminal bit `8`, entered the selected actor's
+  `+0x20` queue, and reached its first common update return with bit `8` unchanged.
+  The final clean probe exited while the client remained alive, stdout/stderr were
+  empty, server heartbeats continued, and the database main/WAL/SHM guard passed
+  unchanged. This proves an inert terminal consumer lifecycle, not animation,
+  hit, damage, FightAttr, AI, death, loot, skills or authentic faction.
 - The launcher starts a detached database guard. After both client and server close,
   runtime acceptance additionally requires `PASS_UNCHANGED` for the main SQLite file
   and the exact pre-run existence/hash/size state of both `-wal` and `-shm`.
