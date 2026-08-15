@@ -33,16 +33,15 @@ EXACT_BINARIES = _base.EXACT_BINARIES
 EXACT_HOOKS = {
     "handler": {"va": 0x7507A5, "code": "8be98b451c8b4d185051e86c22cbff8b", "runtime_relocations": []},
     "target_resolved": {"va": 0x7508A9, "code": "8bf085f60f84a4030000f74610000001", "runtime_relocations": []},
-    "target_vfunc_bit0": {"va": 0x7508F7, "code": "ffd2eb1e8b01eb8ca8607416", "runtime_relocations": []},
-    "target_vfunc_bits5_6": {"va": 0x750917, "code": "ffd0837b08000f8db3000000", "runtime_relocations": []},
-    "presentation_call": {"va": 0x750DAA, "code": "e831f0ceff85db7531", "runtime_relocations": []},
+    "target_vfunc_bit0": {"va": 0x7508E3, "code": "0fb645280fb74d228b168b52305750516a008bce", "runtime_relocations": []},
+    "target_vfunc_bits5_6": {"va": 0x750903, "code": "0fb64d280fb755228b068b40305751526a008bce", "runtime_relocations": []},
+    "presentation_call": {"va": 0x750D90, "code": "8b4e080fb7561c8b4604518b0e528b551c", "runtime_relocations": []},
     "implementation_return": {"va": 0x750A5E, "code": "8bf885ff741c6a018d530c528bcee8ff", "runtime_relocations": []},
     "implementation_mark": {"va": 0x750A78, "code": "578bcee87039d3ff8b7c2414f6431c", "runtime_relocations": []},
-    "target_queue": {"va": 0x750A7B, "code": "e87039d3ff8b7c2414f6431c", "runtime_relocations": []},
     "handler_return": {"va": 0x750E95, "code": "b0018b8c248800000064890d00000000", "runtime_relocations": []},
 }
 EXACT_LIMITS = {"vital_id": 0x16F7, "timeout_ms": 2000, "max_events": 256, "max_records": 32}
-EVENTS = {"probe_ready", "hit_result", "target_resolved", "target_vfunc", "presentation", "implementation_return", "implementation_mark", "target_queue", "hit_complete", "probe_error"}
+EVENTS = {"probe_ready", "hit_result", "target_resolved", "target_vfunc_prepared", "presentation_prepared", "implementation_return", "implementation_mark", "target_queue_prepared", "hit_complete", "probe_error"}
 POINTER = re.compile(r"^0x[0-9a-f]+$")
 
 
@@ -132,11 +131,11 @@ def validate_event(value: Any) -> dict[str, Any]:
         "probe_ready": {"address"}, "probe_error": {"reason"},
         "hit_result": {"thread_id", "sequence", "address", "object", "vital_id", "performer", "field_20", "action", "field_24", "field_28", "records"},
         "target_resolved": {"thread_id", "sequence", "address", "object", "record_index", "record", "target_object"},
-        "target_vfunc": {"thread_id", "sequence", "address", "object", "record_index", "record", "target_object", "lane"},
-        "presentation": {"thread_id", "sequence", "address", "object", "record_index", "record", "presentation_value", "flags"},
+        "target_vfunc_prepared": {"thread_id", "sequence", "address", "object", "record_index", "record", "target_object", "lane"},
+        "presentation_prepared": {"thread_id", "sequence", "address", "object", "record_index", "record", "presentation_value", "flags"},
         "implementation_return": {"thread_id", "sequence", "address", "object", "record_index", "record", "implementation", "flags"},
         "implementation_mark": {"thread_id", "sequence", "address", "object", "record_index", "implementation", "flags_after"},
-        "target_queue": {"thread_id", "sequence", "address", "object", "record_index", "target_actor", "implementation", "queue_lane"},
+        "target_queue_prepared": {"thread_id", "sequence", "address", "object", "record_index", "target_actor", "implementation", "queue_lane"},
         "hit_complete": {"thread_id", "sequence", "address", "object"},
     }[value["event"]]
     if set(value) != {"schema", "event", "timestamp"} | fields:
@@ -169,7 +168,7 @@ def validate_event(value: Any) -> dict[str, Any]:
                 raise ValueError("invalid CHitResult record flags")
             if type(record["vector_raw"]) is not list or len(record["vector_raw"]) != 3 or not all(type(x) in (int, float) and math.isfinite(x) for x in record["vector_raw"] + [record["scalar_raw"]]):
                 raise ValueError("invalid CHitResult record scalars")
-    if value.get("queue_lane") not in (None, "target+0x40") or value.get("lane") not in (None, "bit0_without_bit1", "bits5_or_6"):
+    if value.get("queue_lane") not in (None, "target+0x40_prepared") or value.get("lane") not in (None, "bit0_without_bit1_prepared", "bits5_or_6_prepared"):
         raise ValueError("invalid exact lane")
     return value
 
@@ -190,12 +189,11 @@ function install(){const m=Process.enumerateModules().find(x=>x.name.toLowerCase
 Interceptor.attach(at(config.hooks.handler),{onEnter(){const o=this.context.ecx;if(!readable(o,0x40)){fail('unreadable CHitResult object');return;}const begin=o.add(0x38).readPointer(),end=o.add(0x3c).readPointer();if(end.compare(begin)<0){fail('reversed CHitResult vector');return;}const extent=end.sub(begin).toUInt32();if((extent%0x20)!==0||extent/0x20>config.limits.max_records||(!begin.isNull()&&!readable(begin,extent))){fail('invalid CHitResult vector extent');return;}const records=[];for(let i=0;i<extent/0x20;i++){const r=begin.add(i*0x20),v=[r.add(0xc).readFloat(),r.add(0x10).readFloat(),r.add(0x14).readFloat()],scalar=r.add(0x18).readFloat();if(!v.every(Number.isFinite)||!Number.isFinite(scalar)){fail('nonfinite CHitResult scalar');return;}records.push({index:i,target:qword(r),presentation_value:r.add(8).readS32(),vector_raw:v,scalar_raw:scalar,flags:r.add(0x1c).readU16()});}
 const tid=this.threadId;if(active.has(tid)){fail('overlapping CHitResult handler');return;}const s={started:Date.now(),object:o.toString(),begin,records,index:-1,record:null,target:null,implementation:null};active.set(tid,s);setTimeout(()=>{if(active.get(tid)===s){active.delete(tid);fail('handler correlation timeout');}},config.limits.timeout_ms);emit('hit_result',{thread_id:tid,sequence:++seq,address:this.context.pc.toString(),object:s.object,vital_id:config.limits.vital_id,performer:qword(o.add(0x18)),field_20:o.add(0x20).readU16(),action:o.add(0x22).readU16(),field_24:o.add(0x24).readU32(),field_28:o.add(0x28).readU8(),records});}});
 Interceptor.attach(at(config.hooks.target_resolved),{onEnter(){const s=owner(this.threadId,null);if(!s)return;const index=recordIndex(s,this.context.ebx);if(index<0){active.delete(this.threadId);fail('record pointer is outside captured vector');return;}s.record=this.context.ebx.toString();s.index=index;s.target=this.context.eax.toString();emit('target_resolved',{thread_id:this.threadId,sequence:++seq,address:this.context.pc.toString(),object:s.object,record_index:s.index,record:s.record,target_object:s.target});}});
-function vfunc(lane){return {onEnter(){const s=owner(this.threadId,this.context.ebx);if(!s)return;if(this.context.esi.toString()!==s.target){active.delete(this.threadId);fail('target object correlation mismatch');return;}emit('target_vfunc',{thread_id:this.threadId,sequence:++seq,address:this.context.pc.toString(),object:s.object,record_index:s.index,record:s.record,target_object:s.target,lane});}};}
-Interceptor.attach(at(config.hooks.target_vfunc_bit0),vfunc('bit0_without_bit1'));Interceptor.attach(at(config.hooks.target_vfunc_bits5_6),vfunc('bits5_or_6'));
+function vfunc(lane){return {onEnter(){const s=owner(this.threadId,this.context.ebx);if(!s)return;if(this.context.esi.toString()!==s.target){active.delete(this.threadId);fail('target object correlation mismatch');return;}emit('target_vfunc_prepared',{thread_id:this.threadId,sequence:++seq,address:this.context.pc.toString(),object:s.object,record_index:s.index,record:s.record,target_object:s.target,lane});}};}
+Interceptor.attach(at(config.hooks.target_vfunc_bit0),vfunc('bit0_without_bit1_prepared'));Interceptor.attach(at(config.hooks.target_vfunc_bits5_6),vfunc('bits5_or_6_prepared'));
 Interceptor.attach(at(config.hooks.implementation_return),{onEnter(){const s=owner(this.threadId,this.context.ebx);if(!s)return;const flags=this.context.ebx.add(0x1c).readU16();if((flags&1)===0||(flags&8)===0||(flags&16)!==0){fail('implementation gate mismatch');return;}s.implementation=this.context.eax.toString();emit('implementation_return',{thread_id:this.threadId,sequence:++seq,address:this.context.pc.toString(),object:s.object,record_index:s.index,record:s.record,implementation:s.implementation,flags});}});
-Interceptor.attach(at(config.hooks.implementation_mark),{onEnter(){const s=owner(this.threadId,this.context.ebx);if(!s||!s.implementation||this.context.edi.toString()!==s.implementation){fail('implementation mark correlation mismatch');return;}const flags=this.context.edi.add(0x10).readU32();if((flags&0x40000000)===0){fail('implementation mark was not observed');return;}emit('implementation_mark',{thread_id:this.threadId,sequence:++seq,address:this.context.pc.toString(),object:s.object,record_index:s.index,implementation:s.implementation,flags_after:flags});}});
-Interceptor.attach(at(config.hooks.target_queue),{onEnter(){const s=owner(this.threadId,this.context.ebx);if(!s||this.context.edi.toString()!==s.implementation){fail('target queue correlation mismatch');return;}emit('target_queue',{thread_id:this.threadId,sequence:++seq,address:this.context.pc.toString(),object:s.object,record_index:s.index,target_actor:this.context.ecx.toString(),implementation:s.implementation,queue_lane:'target+0x40'});}});
-Interceptor.attach(at(config.hooks.presentation_call),{onEnter(){const s=owner(this.threadId,null);if(!s)return;const index=recordIndex(s,this.context.esi);if(index<0){active.delete(this.threadId);fail('presentation record is outside captured vector');return;}emit('presentation',{thread_id:this.threadId,sequence:++seq,address:this.context.pc.toString(),object:s.object,record_index:index,record:this.context.esi.toString(),presentation_value:this.context.esi.add(8).readS32(),flags:this.context.esi.add(0x1c).readU16()});}});
+Interceptor.attach(at(config.hooks.implementation_mark),{onEnter(){const s=owner(this.threadId,this.context.ebx);if(!s||!s.implementation||this.context.edi.toString()!==s.implementation){fail('implementation mark correlation mismatch');return;}const flags=this.context.edi.add(0x10).readU32();if((flags&0x40000000)===0){fail('implementation mark was not observed');return;}emit('implementation_mark',{thread_id:this.threadId,sequence:++seq,address:this.context.pc.toString(),object:s.object,record_index:s.index,implementation:s.implementation,flags_after:flags});emit('target_queue_prepared',{thread_id:this.threadId,sequence:++seq,address:this.context.pc.toString(),object:s.object,record_index:s.index,target_actor:this.context.esi.toString(),implementation:s.implementation,queue_lane:'target+0x40_prepared'});}});
+Interceptor.attach(at(config.hooks.presentation_call),{onEnter(){const s=owner(this.threadId,null);if(!s)return;const index=recordIndex(s,this.context.esi);if(index<0){active.delete(this.threadId);fail('presentation record is outside captured vector');return;}emit('presentation_prepared',{thread_id:this.threadId,sequence:++seq,address:this.context.pc.toString(),object:s.object,record_index:index,record:this.context.esi.toString(),presentation_value:this.context.esi.add(8).readS32(),flags:this.context.esi.add(0x1c).readU16()});}});
 Interceptor.attach(at(config.hooks.handler_return),{onEnter(){const s=active.get(this.threadId);if(!s)return;active.delete(this.threadId);emit('hit_complete',{thread_id:this.threadId,sequence:++seq,address:this.context.pc.toString(),object:s.object});}});
 emit('probe_ready',{address:m.base.toString()});}
 try{install();}catch(e){send({schema:1,event:'probe_error',timestamp:now(),reason:String(e)});throw e;}
