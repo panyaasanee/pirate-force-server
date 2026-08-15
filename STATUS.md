@@ -42,9 +42,10 @@ Updated: 2026-08-15
   after click; more than 60 post-target runtime states continued with no error or
   disconnect marker.
 - Hostile-monster classification is a runtime negative: the ordinary stable view
-  used a green name, person target icon and talk cursor. An operator observed a
-  possible momentary red name/sword cursor during shutdown, but that is not captured
-  or reproducible yet and is treated only as a teardown/hover hypothesis.
+  used a green name, person target icon and talk cursor. A later controlled V2 exit
+  burst reproduced the shutdown-only transition: immediately after exit confirmation
+  the name became pink/red, the actor gained a red outline, and the talk cursor was
+  replaced. This confirms teardown-specific UI change, not stable hostile gameplay.
 - Arena V1 therefore proves object spawn/render/name/HP/click-target transport, not
   hostile relation, combat, AI, damage or loot.
 - Combat, AI, damage, loot, Tab selection and authentic placement are nonclaims.
@@ -62,8 +63,10 @@ Updated: 2026-08-15
   run continued for more than 60 post-target heartbeats with empty stderr and no
   bad marker.
 - The stable client presentation remained green/person/talk before and after the
-  reapply. This is an operator-observed faction-only classification negative; the
-  capture contains no screenshot file, so it is not claimed as image evidence.
+  reapply. A separate controlled exit run captured about nine frames per second and
+  reproduced a transition immediately after exit confirmation: pink/red name, red
+  actor outline and a non-talk pointer. This is screenshot evidence of shutdown
+  teardown behavior, not a stable hostile-relation pass.
 - The stop rule has been applied: this candidate is retired without adding guessed
   FightAttr, AI, `+0x6C`, or local-player faction fields. The next evidence lane is
   recovery of the player's actual BasicAttr faction producer/value.
@@ -73,6 +76,15 @@ Updated: 2026-08-15
   player faction, so value 1 remains forbidden as a guess.
 - Hostile relation, sword cursor, combat, FightAttr, AI, damage and loot remain
   unproven.
+
+## Relation comparator instrumentation
+
+- A capture-only Python/Frida probe is implemented offline and pending runtime.
+  It refuses mismatched binaries using the exact client SHA/size/PE/code bytes.
+- It observes StartGame address `0x5DDC57`, comparator entry `0x43C380`, and the
+  two bounded BasicAttr `+0x68` reads without writing memory, packets, or UI.
+- Output is line-buffered JSONL. Operands remain `first`/`second`; local/target
+  identity and relation meaning are explicit nonclaims until a correlated run.
 
 The legacy V141 source remains immutable and is loaded as a compatibility oracle.
 Gameplay dispatch falls through to it unchanged outside the lifecycle boundary.

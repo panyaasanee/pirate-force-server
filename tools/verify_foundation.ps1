@@ -2,6 +2,7 @@ $ErrorActionPreference = 'Stop'
 py -3 -m py_compile current\pf_login_game_server_v141.py
 py -3 -m compileall -q src tests tools\build_foundation_release.py
 py -3 -m py_compile tools\wait_for_pf_stage.py
+py -3 -m py_compile tools\pf_relation_probe.py
 [void][scriptblock]::Create((Get-Content -Raw tools\run_test_arena.ps1))
 py -3 current\pf_login_game_server_v141.py --self-test-only
 py -3 -m unittest discover -s tests -v
@@ -43,6 +44,8 @@ expected = {
     'src/pirateforce_foundation/session.py',
     'src/pirateforce_foundation/store.py',
     'tools/PF_FAST_ENTRY_AUTOMATION.md',
+    'tools/pf_relation_probe.py',
+    'tools/pf_relation_probe_config.json',
     'tools/run_test_arena.ps1',
     'tools/wait_for_pf_stage.py',
 }

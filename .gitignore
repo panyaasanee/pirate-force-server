@@ -21,6 +21,8 @@
 /tools/*
 !/tools/build_foundation_release.py
 !/tools/PF_FAST_ENTRY_AUTOMATION.md
+!/tools/pf_relation_probe.py
+!/tools/pf_relation_probe_config.json
 !/tools/run_test_arena.ps1
 !/tools/verify_foundation.ps1
 !/tools/wait_for_pf_stage.py

@@ -28,9 +28,22 @@ is retired under its predeclared stop rule.
 ## Classification result
 
 The stable client view remained a green overhead name, person-style target icon and
-talk cursor after the initial packet and after the reapply. This is contemporaneous
-operator observation; the capture directory contains no screenshot file, so it is
-not represented as screenshot evidence.
+talk cursor after the initial packet and after the reapply.
+
+A separate controlled shutdown run then recorded the game window at an actual rate
+of about nine frames per second. The exit window was opened once and its confirmation
+button was pressed once. The first frame after the dialog disappeared shows the
+`Tornado Eagle` label in pink/red, a red outline around the actor, and a non-talk
+pointer over its body. This reproduces the operator's earlier shutdown observation.
+The following frames retain the same shutdown image until the client closes.
+
+Frame 142 at 14.657 seconds still contains the confirmation dialog; frame 143 at
+14.712 seconds is the first post-dialog frame, with a measured transition delta of
+54 ms (the displayed timestamps are rounded). The selected frame-143 PNG SHA-256 is
+`670B45D3C70D6B7AAD361EF1BE5F0BDF0165F0DFD6016612438AE9F983DD0DAD`.
+
+This is evidence of a teardown-specific UI/relation transition, not a stable hostile
+state during gameplay. It must not be used to claim attack availability or combat.
 
 The result is therefore a runtime pass for the exact faction-only transport and a
 negative for hostile classification. Target faction alone is insufficient in the

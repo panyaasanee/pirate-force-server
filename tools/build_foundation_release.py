@@ -9,6 +9,8 @@ FILES = [
     *sorted((ROOT/'migrations').glob('*.sql')),
     *sorted((ROOT/'scenarios').glob('*.json')),
     ROOT/'tools/PF_FAST_ENTRY_AUTOMATION.md',
+    ROOT/'tools/pf_relation_probe.py',
+    ROOT/'tools/pf_relation_probe_config.json',
     ROOT/'tools/run_test_arena.ps1',
     ROOT/'tools/wait_for_pf_stage.py',
 ]

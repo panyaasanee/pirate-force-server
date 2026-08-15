@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "binary": {
+    "filename": "GameClient.local.bin",
+    "size": 14759424,
+    "sha256": "9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623",
+    "machine": 332,
+    "optional_magic": 267,
+    "image_base": 4194304,
+    "size_of_image": 15233024
+  },
+  "hooks": {
+    "start_game_observation": {"va": 6151255, "code": "e8343d0000"},
+    "relation_entry": {"va": 4440960, "code": "6aff68186db800"},
+    "relation_reads": [
+      {"va": 4441549, "code": "8b4068", "register": "eax", "offset": 104, "operand": "first"},
+      {"va": 4441556, "code": "8b4968", "register": "ecx", "offset": 104, "operand": "second"}
+    ]
+  }
+}
