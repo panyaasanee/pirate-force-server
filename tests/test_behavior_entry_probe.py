@@ -30,6 +30,15 @@ class BehaviorEntryProbeTests(unittest.TestCase):
         event.update(changes)
         return event
 
+    def miss(self, **changes):
+        event = {
+            "schema": 1, "event": "behavior_entry_miss", "timestamp": "t",
+            "thread_id": 4, "sequence": 1, "address": "0x702a10",
+            "caller": "0x75082f", "manager": "0x18edad8", "key": 0xEA7D,
+        }
+        event.update(changes)
+        return event
+
     def test_exact_profiles_disk_guards_and_hook_provenance(self):
         original = self.config()
         local = self.config("pf_behavior_entry_probe_local_config.json")
@@ -73,6 +82,7 @@ class BehaviorEntryProbeTests(unittest.TestCase):
 
     def test_exact_event_schema_and_field_bounds(self):
         self.assertEqual(P.validate_event(self.event())["event"], "behavior_entry_result")
+        self.assertEqual(P.validate_event(self.miss())["event"], "behavior_entry_miss")
         for broken in (
             self.event(n_id=7102), self.event(hit_vector_count=33),
             self.event(sequence=0), self.event(n_range=-1),
@@ -81,6 +91,9 @@ class BehaviorEntryProbeTests(unittest.TestCase):
             self.event(hit_vector_begin="0x0"), self.event(hit_vector_end="0x200070"),
             self.event(hit_vector_count=0),
         ):
+            with self.assertRaises(ValueError):
+                P.validate_event(broken)
+        for broken in (self.miss(sequence=0), self.miss(manager="0x-no"), self.miss(extra=1)):
             with self.assertRaises(ValueError):
                 P.validate_event(broken)
 
@@ -108,6 +121,20 @@ class BehaviorEntryProbeTests(unittest.TestCase):
         early.accept(P.validate_event(self.event()))
         with self.assertRaisesRegex(RuntimeError, "before probe_ready"):
             early.ensure_success()
+        miss_only = P.CaptureState(require_lookup=True)
+        miss_only.accept({"event": "probe_ready", "address": "0xcc0000"})
+        miss_only.accept(P.validate_event(self.miss(sequence=1)))
+        miss_only.ensure_success()
+        strict_entry = P.CaptureState(require_entry=True, require_lookup=True)
+        strict_entry.accept({"event": "probe_ready", "address": "0xcc0000"})
+        strict_entry.accept(P.validate_event(self.miss(sequence=1)))
+        with self.assertRaisesRegex(RuntimeError, "non-null"):
+            strict_entry.ensure_success()
+        shared = P.CaptureState(require_entry=True, require_lookup=True)
+        shared.accept({"event": "probe_ready", "address": "0xcc0000"})
+        shared.accept(P.validate_event(self.miss(sequence=1)))
+        shared.accept(P.validate_event(self.event(sequence=2)))
+        shared.ensure_success()
 
     def test_source_is_observe_only_bounded_and_named_only(self):
         source = P.make_agent_source(self.config("pf_behavior_entry_probe_local_config.json"))
@@ -117,6 +144,7 @@ class BehaviorEntryProbeTests(unittest.TestCase):
             "retval.add(0xf0).readPointer()", "retval.add(0xf4).readPointer()",
             "record_stride", "max_vector_records", "lookup key and n_ID differ",
             "this.context.ecx.equals(behaviorManager)", "manager:this.manager",
+            "behavior_entry_miss", "sequence:++sequence",
         ):
             self.assertIn(required, source)
         for forbidden in (
