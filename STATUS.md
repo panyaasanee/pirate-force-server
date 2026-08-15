@@ -268,6 +268,20 @@ Updated: 2026-08-16
   attack, damage or persistence/reconnect behavior is proven. The next acceptable
   promotion requires a natural observe-only codec/consumer occurrence or an exact
   named producer/data binding; do not synthesize any of these protocol classes.
+- JOB-001 proves the creation-preset table boundary but does not identify a
+  persistent job/class wire field. Exact client code resolves named table
+  `CHARCREATE_CLASS`; the guarded frozen table has five `n_ID` rows
+  `{1,2,4,16,32}` and named starter appearance, equipment and `s_SKILL_*`
+  columns. The exact captured CreateActor `test01` AvatarAttr numerically matches
+  row-1 chest `2300026`, leggings `2300027` and both weapon slots `2200002`, which
+  supports preset provenance only. No setter/copy chain from table `n_ID` into a
+  CreateActor, AvatarAttr or ActorAttr offset was recovered. In particular,
+  CreateActorDataEx `+0x18` is `0` in that capture while the matching preset key is
+  `1`, so it cannot be promoted as class. Keep all current Avatar fields opaque;
+  do not synthesize class values or infer skill entitlement from the table's
+  preset strings. Resume only after an exact named-key-to-wire setter plus a
+  corresponding List/StartGame consumer, or a natural trace designed from such a
+  static boundary.
 - The launcher starts a detached database guard. After both client and server close,
   runtime acceptance additionally requires `PASS_UNCHANGED` for the main SQLite file
   and the exact pre-run existence/hash/size state of both `-wal` and `-shm`.

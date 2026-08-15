@@ -355,6 +355,15 @@ other.
   container from raw `(s16,f32)` records, with no exact key edge to either prior
   class. Do not synthesize any of these packets/attrs. Resume only with a natural
   observe-only occurrence or an exact named producer/data binding.
+- JOB-001 audits the character-creation class-preset boundary without changing the
+  character model. Exact client code loads `CHARCREATE_CLASS`, whose guarded frozen
+  rows use `n_ID` keys `{1,2,4,16,32}` and contain starter appearance, equipment
+  and `s_SKILL_*` preset columns. Existing CreateActor `test01` numerically matches
+  row-1 starter chest/leggings/weapons, but no exact table-key setter reaches a
+  transported CreateActor/AvatarAttr/ActorAttr offset. Do not name CreateActorDataEx
+  `+0x18` as class: it is zero in the capture while the matching preset key is one.
+  Preserve all Avatar bytes losslessly and opaquely. Resume only after a named-key
+  setter/copy chain and matching List/StartGame consumer are exact.
 - Personal plugin `pirate-force-input-bridge` now provides bounded held keys and
   right-button drags. One-second held `E` camera rotation passed twice. Use it for
   autonomous GameClient control; this operational result does not raise any
