@@ -62,6 +62,7 @@ expected = {
     'scenarios/arena_v2.json',
     'scenarios/scene2_load_only.json',
     'scenarios/scene2_fighting_fish_soldier.json',
+    'scenarios/scene2_fighting_fish_soldier_hp3857.json',
     'src/pirateforce_foundation/__init__.py',
     'src/pirateforce_foundation/actor_wire.py',
     'src/pirateforce_foundation/app.py',

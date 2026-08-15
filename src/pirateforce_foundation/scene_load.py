@@ -16,6 +16,7 @@ class SceneRemoteActor:
     name: str
     faction: int
     position: Position
+    diagnostic_hp: int | None = None
 
 
 @dataclass(frozen=True)
@@ -39,7 +40,7 @@ def load_scene_load_scenario(path: str | Path) -> SceneLoadScenario:
     if (
         type(data["schema"]) is not int
         or data["schema"] != 1
-        or data["id"] not in {"scene2_load_only_marker2", "scene2_fighting_fish_soldier_p60"}
+        or data["id"] not in {"scene2_load_only_marker2", "scene2_fighting_fish_soldier_p60", "scene2_fighting_fish_soldier_p60_hp3857"}
         or data["test_only"] is not True
         or data["persistence"] != "read_only_existing_character"
         or data["population"] != "none"
@@ -61,7 +62,7 @@ def load_scene_load_scenario(path: str | Path) -> SceneLoadScenario:
     }:
         raise ValueError("scene-load position is incomplete or has unknown fields")
     values = (position["x"], position["y"], position["z"], position["heading"])
-    fish_profile = data["id"] == "scene2_fighting_fish_soldier_p60"
+    fish_profile = data["id"] in {"scene2_fighting_fish_soldier_p60", "scene2_fighting_fish_soldier_p60_hp3857"}
     expected_player = (
         (21321.0059, 9227.1123, 590.6788, 0)
         if fish_profile else (26905, 21185, 1680, 0)
@@ -88,7 +89,7 @@ def load_scene_load_scenario(path: str | Path) -> SceneLoadScenario:
     ):
         raise ValueError("scene-load scenario exceeds the evidence-backed allowlist")
     remote = None
-    if data["id"] == "scene2_fighting_fish_soldier_p60":
+    if fish_profile:
         actor = data.get("remote_actor")
         expected = {
             "trigger": "first_target_pos_after_runtime_ack", "placement_index": 60,
@@ -97,10 +98,15 @@ def load_scene_load_scenario(path: str | Path) -> SceneLoadScenario:
             "faction": 6, "scene_id": 2, "scene_seq": 0,
             "x": 21421.0059, "y": 9277.1123, "z": 590.6788, "heading": 0,
         }
+        diagnostic_hp = None
+        if data["id"] == "scene2_fighting_fish_soldier_p60_hp3857":
+            expected.update({"diagnostic_current_hp": 3857, "diagnostic_max_hp": 3857,
+                             "hp_provenance": "bounded_level27_diagnostic_not_spawn_policy"})
+            diagnostic_hp = 3857
         if type(actor) is not dict or actor != expected:
             raise ValueError("remote actor exceeds the exact data-backed allowlist")
         remote = SceneRemoteActor(60, 0x203D, 34, "M025_001_000_N",
-            "Fighting Fish soldier", 6, Position(2, 0, 21421.0059, 9277.1123, 590.6788, 0))
+            "Fighting Fish soldier", 6, Position(2, 0, 21421.0059, 9277.1123, 590.6788, 0), diagnostic_hp)
     elif "remote_actor" in data:
         raise ValueError("load-only scenario cannot include a remote actor")
     return SceneLoadScenario(

@@ -15,6 +15,7 @@ $scenarioId = (Get-Content -Raw -LiteralPath $scenarioPath | ConvertFrom-Json).i
 $captureLabel = switch ($scenarioId) {
     'scene2_load_only_marker2' { 'scene2_load_only' }
     'scene2_fighting_fish_soldier_p60' { 'scene2_fish_p60' }
+    'scene2_fighting_fish_soldier_p60_hp3857' { 'scene2_fish_p60_hp3857' }
     default { throw "Scenario id is not in the Scene2 launcher allowlist: $scenarioId" }
 }
 

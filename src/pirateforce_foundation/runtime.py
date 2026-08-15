@@ -134,7 +134,10 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 pc, frame = make_scene_remote_actor(legacy, remote)
                 self.scene_remote_spawned = True
                 self.events.append("scene2_p60_mobs34_single_committed")
-                return [("SCENE2_P60_MOBS34_SINGLE_INITIAL", pc, frame, 0.0)]
+                label = ("SCENE2_P60_MOBS34_HP3857_INITIAL"
+                         if remote.diagnostic_hp is not None
+                         else "SCENE2_P60_MOBS34_SINGLE_INITIAL")
+                return [(label, pc, frame, 0.0)]
             if remote is not None and self.scene_remote_spawned and is_scene_remote_target(
                 legacy, parsed, remote.actor_identity,
             ):

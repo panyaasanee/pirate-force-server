@@ -10,9 +10,15 @@ def make_scene_remote_actor(legacy, profile):
     p=profile.position
     if not all(math.isfinite(v) for v in (p.x,p.y,p.z,p.heading)):
         raise ValueError("non-finite remote actor position")
+    if profile.diagnostic_hp not in (None, 3857):
+        raise ValueError("only the bounded level-27 HP diagnostic is allowed")
     basic_mask=0x0001|0x0100|0x0200|0x0400
+    if profile.diagnostic_hp is not None:
+        basic_mask |= 0x0004|0x0008
+    hp = (legacy.u32tag(0x14, profile.diagnostic_hp) * 2
+          if profile.diagnostic_hp is not None else b"")
     npc_attr=(legacy.u8tag(0x0B,1)+legacy.qwordtag(0x32,profile.actor_identity)
-        +legacy.u16tag(0x12,basic_mask)+legacy.wstr_tag(profile.name)
+        +legacy.u16tag(0x12,basic_mask)+legacy.wstr_tag(profile.name)+hp
         +legacy.u16tag(0x12,2)+legacy.qwordtag(0x32,0)+legacy.u32tag(0x14,6)
         +legacy.u8tag(0x0B,0x05)+legacy.u16tag(0x12,34)+legacy.wstr_tag(profile.visual_preset))
     movement=legacy.make_remote_movement_attr(profile.actor_identity,p.x,p.y,p.z,p.heading,mask=0xFF)

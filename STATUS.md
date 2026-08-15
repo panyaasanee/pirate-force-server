@@ -93,6 +93,10 @@ Updated: 2026-08-15
   guard returned `PASS_UNCHANGED` after close.
 - Target selection remains open: direct clicks and Tab produced no captured
   TargetVital. Do not claim hostility, targetability, combat, AI, damage or loot.
+- SCENE-003 is an offline-only liveness diagnostic: relative to SCENE-002 it
+  changes only BasicAttr mask `0x0701` to `0x070D` and inserts current/max HP
+  `3857/3857` after the name. This is a bounded level-27 diagnostic value, not
+  authentic MOBS34 spawn policy; runtime remains pending.
 - The launcher starts a detached database guard. After both client and server close,
   runtime acceptance additionally requires `PASS_UNCHANGED` for the main SQLite file
   and the exact pre-run existence/hash/size state of both `-wal` and `-shm`.

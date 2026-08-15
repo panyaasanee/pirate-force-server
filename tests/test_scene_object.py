@@ -1,4 +1,4 @@
-import hashlib, sys, tempfile, unittest
+import hashlib, json, sys, tempfile, unittest
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]; sys.path.insert(0,str(ROOT/"src"))
 from pirateforce_foundation.legacy_bridge import LegacyProjector,load_legacy
@@ -19,6 +19,7 @@ class SceneObjectTests(unittest.TestCase):
   self.lifecycle=CharacterLifecycle(self.store,default,self.legacy.extract_avatar_attr_wire_from_actor)
   seed=FoundationSession(self.lifecycle,self.projector,"fish-user"); self.character,_=seed.create("Arena01",self.legacy.get_preset_actor_wire())
   self.scenario=load_scene_load_scenario(ROOT/"scenarios/scene2_fighting_fish_soldier.json")
+  self.hp_scenario=load_scene_load_scenario(ROOT/"scenarios/scene2_fighting_fish_soldier_hp3857.json")
  def tearDown(self): self.tmp.cleanup()
  def state(self):
   factory=lambda token:ReadOnlyFoundationSession(self.store,self.projector,token,self.scenario)
@@ -64,6 +65,29 @@ class SceneObjectTests(unittest.TestCase):
  def test_target_observation_is_no_reply_and_malformed_does_not_capture(self):
   state=self.state(); state.dispatch(self.target_pos())
   self.assertEqual(state.dispatch(self.target(trailing=b'\x00')),[]); self.assertFalse(state.scene_remote_target_captured)
+  self.assertEqual(state.dispatch(self.target()),[]); self.assertTrue(state.scene_remote_target_captured)
+ def test_hp3857_diff_is_only_mask_and_two_canonical_hp_fields(self):
+  old_pc,old_frame=make_scene_remote_actor(self.legacy,self.scenario.remote_actor)
+  new_pc,new_frame=make_scene_remote_actor(self.legacy,self.hp_scenario.remote_actor)
+  old_mask=self.legacy.u16tag(0x12,0x0701); new_mask=self.legacy.u16tag(0x12,0x070D)
+  self.assertEqual(old_pc.count(old_mask),1)
+  mask_at=old_pc.index(old_mask)
+  name=self.legacy.wstr_tag("Fighting Fish soldier")
+  name_at=old_pc.index(name,mask_at+len(old_mask)); insert_at=name_at+len(name)
+  hp=self.legacy.u32tag(0x14,3857)*2
+  expected=(old_pc[:mask_at]+new_mask+old_pc[mask_at+len(old_mask):insert_at]+hp+old_pc[insert_at:])
+  self.assertEqual(new_pc,expected); self.assertEqual(len(new_pc),len(old_pc)+10)
+  golden=json.loads((ROOT/"tests/golden/scene2_p60_hp3857.json").read_text())
+  self.assertEqual((len(new_pc),len(new_frame)),(golden["pc_length"],golden["frame_length"]))
+  self.assertEqual(hashlib.sha256(new_pc).hexdigest().upper(),golden["pc_sha256"])
+  self.assertEqual(hashlib.sha256(new_frame).hexdigest().upper(),golden["frame_sha256"])
+ def test_hp3857_runtime_label_and_target_observation_unchanged(self):
+  factory=lambda token:ReadOnlyFoundationSession(self.store,self.projector,token,self.hp_scenario)
+  state=make_state_class(self.legacy,self.lifecycle,self.projector,scene_load_scenario=self.hp_scenario,session_factory=factory)("fish-user")
+  state.dispatch(self.legacy.parse_outer(self.legacy._synthetic_client_login_pc()))
+  state.dispatch(self.legacy.parse_outer(self.legacy._synthetic_start_game_pc(self.character.selector)))
+  state.runtime_ack_sent=True; state.welcome_message_sent=True; state.current_scene_music_sent=True
+  self.assertEqual([a[0] for a in state.dispatch(self.target_pos())],["SCENE2_P60_MOBS34_HP3857_INITIAL"])
   self.assertEqual(state.dispatch(self.target()),[]); self.assertTrue(state.scene_remote_target_captured)
  def test_plain_scene2_load_remains_no_population(self):
   plain=load_scene_load_scenario(ROOT/"scenarios/scene2_load_only.json")

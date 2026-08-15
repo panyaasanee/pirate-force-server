@@ -14,6 +14,7 @@
 | REL-001 | Relation comparator instrumentation | Runtime trace pass | 1,023 stable comparisons read injected P30 operand 6 against current local/default operand 0; 16 post-exit entries bypass both reads, so teardown UI is not an observed faction mutation; authentic player faction/policy remain unknown |
 | SCENE-001 | Scene2 marker2 load-only | Runtime load pass | Existing Arena01 was read-only projected coherently in ActorAttr/MovementAttr/Teleport at `(26905,21185,1680)`; the client loaded and rendered Prison Exile Island and returned runtime-ready traffic; seq0/heading0 remain compositional |
 | SCENE-002 | Authentic MOBS34/P60 single population | Runtime render pass / target negative | Fighting Fish soldier rendered with exact name/model at authentic P60 while the test player used a labeled synthetic 100X/50Y offset; DB main/WAL/SHM stayed byte-identical; clicks/Tab produced no TargetVital, so targetability/hostility/combat remain unproven |
+| SCENE-003 | MOBS34/P60 HP liveness diagnostic | Offline D candidate | SCENE-002 plus only mask `0x0701`→`0x070D` and canonical current/max HP `3857/3857`; bounded level-27 diagnostic, not authentic spawn policy; runtime pending |
 
 V141 artifacts:
 
