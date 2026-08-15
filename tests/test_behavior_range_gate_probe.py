@@ -25,7 +25,7 @@ class BehaviorRangeGateProbeTests(unittest.TestCase):
             "range_enter": {**common, "address": "0x1015540", "source_key": 123, "mode": 0},
             "range_empty": {**common, "address": "0x1015558"},
             "range_selected": {**common, "address": "0x1015604", "entry": "0x220000", "n_id": 278, "n_range": 75},
-            "range_complete": {**common, "address": "0x101562c", "raw_selected": 75},
+            "range_complete": {**common, "address": "0xd35a9c", "raw_selected": 75},
             "gate_result": {**common, "address": "0xd0eb22", "result_bool": 1, "range_count": 1},
         }
         base.update(shapes[kind]); base.update(fields); return base
@@ -105,8 +105,13 @@ class BehaviorRangeGateProbeTests(unittest.TestCase):
 
     def test_agent_is_observe_only_scoped_and_bounded(self):
         source = P.make_agent_source(self.config("pf_behavior_range_gate_probe_local_config.json"))
-        for required in ("args[3].toUInt32()===0xea7d", "this.returnAddress.equals(exactCaller)", "entry.add(0x30).readS32()", "esp.add(0x10)", "readS32()", "gate correlation timeout", "range_empty"):
+        for required in ("args[3].toUInt32()===0xea7d", "this.returnAddress.equals(exactCaller)", "entry.add(0x30).readS32()", "s.range.selected===null?10:s.range.selected", "at.range_post_x87_dead", "gate correlation timeout", "range_empty"):
             self.assertIn(required, source)
+        self.assertEqual(self.config()["hooks"]["range_post_x87_dead"]["va"], 0x475A9C)
+        self.assertNotIn("at.range_complete", source)
+        self.assertNotIn("at.range_post_primary", source)
+        self.assertNotIn("at.range_post_secondary", source)
+        self.assertNotIn("esp.add(0x10)", source)
         for forbidden in ("Memory.write", "writeU", "writeS", "writePointer", "NativeFunction", "Interceptor.replace", "sendInput"):
             self.assertNotIn(forbidden, source)
         launcher = Path(P.__file__).read_text(encoding="utf-8")
