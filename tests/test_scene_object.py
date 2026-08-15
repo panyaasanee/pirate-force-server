@@ -31,7 +31,7 @@ class SceneObjectTests(unittest.TestCase):
   pc=(self.legacy.u16tag(0x12,self.legacy.GSCN_RUNTIME_PROTOCOL_REQ)+self.legacy.u32tag(0x14,0)
    +self.legacy.u8tag(0x08,0)+self.legacy.u8tag(0x0B,2)+self.legacy.u16tag(0x12,1)
    +self.legacy.u16tag(0x12,self.legacy.TARGET_POS_VITAL)+self.legacy.u8tag(0x0B,0)
-   +b''.join(self.legacy.f32tag(v) for v in (26905.0,21185.0,1680.0,0.0))
+   +b''.join(self.legacy.f32tag(v) for v in (21321.0059,9227.1123,590.6788,0.0))
    +self.legacy.u8tag(0x0B,1)+self.legacy.u8tag(0x0B,0))
   return self.legacy.parse_outer(pc)
  def target(self,trailing=b''):
@@ -49,6 +49,18 @@ class SceneObjectTests(unittest.TestCase):
   self.assertEqual(pc.count(self.legacy.qwordtag(0x32,0x203D)),3)
   for value in (21421.0059,9277.1123,590.6788): self.assertIn(self.legacy.f32tag(value),pc)
   self.assertEqual(state.dispatch(self.target_pos()),[]); self.assertEqual(hashlib.sha256(self.db.read_bytes()).digest(),before)
+ def test_transient_player_is_coherent_at_labeled_synthetic_offset(self):
+  p=self.scenario.position; remote=self.scenario.remote_actor.position
+  self.assertEqual((p.x,p.y,p.z,p.heading),(21321.0059,9227.1123,590.6788,0.0))
+  self.assertAlmostEqual(remote.x-p.x,100.0,places=4)
+  self.assertAlmostEqual(remote.y-p.y,50.0,places=4)
+  self.assertEqual(remote.z,p.z)
+  state_factory=lambda token:ReadOnlyFoundationSession(self.store,self.projector,token,self.scenario)
+  state=make_state_class(self.legacy,self.lifecycle,self.projector,scene_load_scenario=self.scenario,session_factory=state_factory)("fish-user")
+  state.dispatch(self.legacy.parse_outer(self.legacy._synthetic_client_login_pc()))
+  actions=state.dispatch(self.legacy.parse_outer(self.legacy._synthetic_start_game_pc(self.character.selector)))
+  self.assertEqual(actions[0][1:3],self.projector.start_game(self.character,p))
+  self.assertEqual(actions[1][1:3],self.legacy.make_login_teleport(2,0,p.x,p.y,p.z))
  def test_target_observation_is_no_reply_and_malformed_does_not_capture(self):
   state=self.state(); state.dispatch(self.target_pos())
   self.assertEqual(state.dispatch(self.target(trailing=b'\x00')),[]); self.assertFalse(state.scene_remote_target_captured)

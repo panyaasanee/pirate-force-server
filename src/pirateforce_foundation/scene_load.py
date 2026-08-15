@@ -61,6 +61,19 @@ def load_scene_load_scenario(path: str | Path) -> SceneLoadScenario:
     }:
         raise ValueError("scene-load position is incomplete or has unknown fields")
     values = (position["x"], position["y"], position["z"], position["heading"])
+    fish_profile = data["id"] == "scene2_fighting_fish_soldier_p60"
+    expected_player = (
+        (21321.0059, 9227.1123, 590.6788, 0)
+        if fish_profile else (26905, 21185, 1680, 0)
+    )
+    expected_coordinate_provenance = (
+        "synthetic_p60_minus100x_minus50y_samez"
+        if fish_profile else "scene2_marker2"
+    )
+    expected_heading_provenance = (
+        "constructor_zero" if fish_profile
+        else "direction8_unmapped_constructor_zero"
+    )
     if (
         entry["flow"] != "full_existing_character"
         or entry["required_character_name"] != "Arena01"
@@ -68,9 +81,9 @@ def load_scene_load_scenario(path: str | Path) -> SceneLoadScenario:
         or entry["scene_id"] != 2
         or type(entry["scene_seq"]) is not int
         or entry["scene_seq"] != 0
-        or values != (26905, 21185, 1680, 0)
-        or position["coordinate_provenance"] != "scene2_marker2"
-        or position["heading_provenance"] != "direction8_unmapped_constructor_zero"
+        or values != expected_player
+        or position["coordinate_provenance"] != expected_coordinate_provenance
+        or position["heading_provenance"] != expected_heading_provenance
         or not all(type(value) in (int, float) and math.isfinite(value) for value in values)
     ):
         raise ValueError("scene-load scenario exceeds the evidence-backed allowlist")

@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "scene2_fighting_fish_soldier_p60",
   "test_only": true,
-  "entry": {"flow": "full_existing_character", "required_character_name": "Arena01", "scene_id": 2, "scene_seq": 0, "position": {"x": 26905, "y": 21185, "z": 1680, "heading": 0, "coordinate_provenance": "scene2_marker2", "heading_provenance": "direction8_unmapped_constructor_zero"}},
+  "entry": {"flow": "full_existing_character", "required_character_name": "Arena01", "scene_id": 2, "scene_seq": 0, "position": {"x": 21321.0059, "y": 9227.1123, "z": 590.6788, "heading": 0, "coordinate_provenance": "synthetic_p60_minus100x_minus50y_samez", "heading_provenance": "constructor_zero"}},
   "persistence": "read_only_existing_character",
   "population": "none",
   "capabilities": ["scene_load", "spawn", "target"],
