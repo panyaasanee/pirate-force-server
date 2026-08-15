@@ -17,10 +17,10 @@ class ActionAckTests(unittest.TestCase):
   default=Position(1,0,self.v.V135_PLAYER_X,self.v.V135_PLAYER_Y,self.v.V135_PLAYER_Z)
   self.lifecycle=CharacterLifecycle(self.store,default,self.v.extract_avatar_attr_wire_from_actor)
   seed=FoundationSession(self.lifecycle,self.projector,"ack-user"); self.character,_=seed.create("Arena01",self.v.get_preset_actor_wire())
-  self.path=ROOT/"scenarios/scene2_fighting_fish_soldier_hp3857_player_faction1_ea7d_ack.json"
+  self.path=ROOT/"scenarios/port_royal_fighting_fish_soldier_hp3857_player_faction1_ea7d_ack.json"
   self.scenario=load_scene_load_scenario(self.path)
  def tearDown(self): self.tmp.cleanup()
- def request(self, action=0xEA7D,target=0x203D,performer=0,qword3=0,u32=0,heading=1.25,x=2.5,y=3.5,z=4.5,u8=0,scene=2,last=0,count=2,extra=b''):
+ def request(self, action=0xEA7D,target=0x203D,performer=0,qword3=0,u32=0,heading=1.25,x=2.5,y=3.5,z=4.5,u8=0,scene=1,last=0,count=2,extra=b''):
   body=(self.v.qwordtag(0x32,performer)+self.v.qwordtag(0x32,target)+self.v.qwordtag(0x32,qword3)
    +self.v.u32tag(0x14,action)+self.v.u32tag(0x19,u32)+b''.join(self.v.f32tag(f) for f in (heading,x,y,z))
    +self.v.u8tag(0x0B,u8)+self.v.u16tag(0x12,scene)+self.v.u8tag(0x0B,last)+extra)
@@ -68,7 +68,7 @@ class ActionAckTests(unittest.TestCase):
   at=raw.index(action_marker); raw[at:at+3]=self.v.u16tag(0x12,self.v.TARGET_POS_VITAL)
   malformed=self.v.parse_outer(bytes(raw)); self.assertEqual(self.state().dispatch(malformed),[])
  def test_rejects_wrong_fields_malformed_and_nonfinite(self):
-  cases=[{"action":0xEA7E},{"target":0x203E},{"performer":1},{"qword3":1},{"u32":1},{"u8":1},{"scene":1},{"last":1},{"heading":math.nan},{"x":math.inf},{"extra":b'\0'},{"count":1},{"count":3}]
+  cases=[{"action":0xEA7E},{"target":0x203E},{"performer":1},{"qword3":1},{"u32":1},{"u8":1},{"scene":2},{"last":1},{"heading":math.nan},{"x":math.inf},{"extra":b'\0'},{"count":1},{"count":3}]
   for kwargs in cases:
    with self.subTest(kwargs=kwargs):
     actions=self.state().dispatch(self.request(**kwargs)[0])
@@ -107,5 +107,12 @@ class ActionAckTests(unittest.TestCase):
   data=json.loads(self.path.read_text()); data["action_ack"]["action"]="0xEA7E"
   path=Path(self.tmp.name)/"bad.json"; path.write_text(json.dumps(data))
   with self.assertRaises(ValueError): load_scene_load_scenario(path)
+ def test_v74_port_royal_harness_is_exact_and_baseline_unchanged(self):
+  self.assertEqual(self.scenario.position,Position(1,0,0.0,0.0,931.0,0.0))
+  self.assertEqual(self.scenario.remote_actor.position,
+   Position(1,0,1788.796875,-1121.6756591796875,930.423583984375,0.0))
+  baseline=load_scene_load_scenario(ROOT/"scenarios/scene2_fighting_fish_soldier_hp3857_player_faction1.json")
+  self.assertEqual(baseline.position,Position(2,0,21321.0059,9227.1123,590.6788,0.0))
+  self.assertEqual(baseline.remote_actor.position,Position(2,0,21421.0059,9277.1123,590.6788,0.0))
 
 if __name__=="__main__": unittest.main()

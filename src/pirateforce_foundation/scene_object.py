@@ -2,10 +2,16 @@
 import math, struct
 
 def make_scene_remote_actor(legacy, profile):
-    if (profile.placement_index, profile.actor_identity, profile.template_id,
+    profile_key = (profile.placement_index, profile.actor_identity, profile.template_id,
         profile.visual_preset, profile.name, profile.faction,
-        profile.position.scene_id, profile.position.scene_seq) != (
-        60, 0x203D, 34, "M025_001_000_N", "Fighting Fish soldier", 6, 2, 0):
+        profile.position.scene_id, profile.position.scene_seq,
+        profile.position.x, profile.position.y, profile.position.z, profile.position.heading)
+    if profile_key not in {
+        (60, 0x203D, 34, "M025_001_000_N", "Fighting Fish soldier", 6, 2, 0,
+         21421.0059, 9277.1123, 590.6788, 0),
+        (60, 0x203D, 34, "M025_001_000_N", "Fighting Fish soldier", 6, 1, 0,
+         1788.796875, -1121.6756591796875, 930.423583984375, 0),
+    }:
         raise ValueError("unsupported Scene2 remote actor profile")
     p=profile.position
     if not all(math.isfinite(v) for v in (p.x,p.y,p.z,p.heading)):

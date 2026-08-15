@@ -8,6 +8,7 @@ import struct
 class SceneActionAck:
     action: int
     target_identity: int
+    scene_id: int
 
 
 def parse_scene006_ea7d(legacy, parsed, policy: SceneActionAck):
@@ -59,7 +60,7 @@ def parse_scene006_ea7d(legacy, parsed, policy: SceneActionAck):
         or fields["action_u32_30"] != policy.action
         or fields["field_u32_34"] != 0
         or fields["field_u8_48"] != 0
-        or fields["field_u16_4a"] != 2
+        or fields["field_u16_4a"] != policy.scene_id
         or fields["field_u8_4c"] != 0
         or not all(math.isfinite(value) for value in floats)
     ):
