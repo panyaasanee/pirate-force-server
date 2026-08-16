@@ -160,9 +160,15 @@ risk-based audit after a frozen diff, and concise evidence documentation.
   36-byte client request `(operation=4,value32=2,item_identity=1)` from the
   exact merged Backpack. In that explicit mode every ItemOperate-shaped request
   is owned, the target request is recorded once, and no response or durable/
-  in-memory Backpack mutation is allowed. Offline verification passes; the live
-  assisted run is paused at the Backpack second-password dialog because PIN
-  entry must be performed by the user. No live request/response claim is made.
+  in-memory Backpack mutation is allowed. The controlled live run captured one
+  exact request at frame 49 after a slot-0 to empty-slot-2 drag. No
+  `ItemOperateVitalRes` was emitted; the next server write was the normal
+  heartbeat, the Backpack stayed `3/40` with identity 1 quantity 2 at slot 0,
+  and the post-run SQLite oracle retained exact items `[1@0 qty2,2@1,4@3]`
+  with integrity/FK pass. Transport continued through frame 188/heartbeat 116,
+  stderr was empty, and requested shutdown emitted one stopped marker. This
+  proves the client request producer and capture-only no-reply boundary only;
+  it does not prove an authentic move response or persistence policy.
 - SECOND-PASSWORD-BYPASS-001 adds the persistent Foundation server parameter
   `--second-password-mode required|bypass`; `required` is the default and the
   option is available alongside every Foundation scenario. The first live

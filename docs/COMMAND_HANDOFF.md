@@ -368,11 +368,12 @@ name a portability, Windows-integration or final-acceptance purpose.
   Do not generalize to moves, split/drop, equipment, ownership, concurrency,
   multi-account authorization or crash recovery. No retained server exit sidecar
   exists and PTY exit was 1; do not claim a clean stop or exit 0.
-- ITEM-MOVE-CAPTURE-001 is offline-ready and deliberately response-free. It owns
-  all ItemOperate-shaped traffic only in its exact opt-in mode and records the
-  exact `(op4,value2,id1)` request once without mutating Backpack state. The live
-  client is currently at the Backpack second-password dialog; never automate PIN
-  entry. Resume the capture only after the user enters it manually and confirms.
+- ITEM-MOVE-CAPTURE-001 is now runtime-closed as a response-free request capture.
+  One merged-state drag from slot 0 to empty slot 2 emitted exact 36-byte
+  `(op4,value2,id1)` frame 49. The mode emitted no ItemOperate result; UI and the
+  post-run SQLite item rows remained `[id1 qty2 slot0,id2 slot1,id4 slot3]`,
+  transport stayed healthy and stderr was empty. Do not generalize this producer
+  fact into response, persistence, occupied-slot or authentic server policy.
 - SECOND-PASSWORD-BYPASS-001 is a persistent user-requested Foundation server
   setting: `--second-password-mode required|bypass`, defaulting to `required`
   and available with every Foundation scenario. The first runtime-ready one-shot
