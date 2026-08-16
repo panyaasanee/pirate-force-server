@@ -380,18 +380,17 @@
       "id": "HYP-PF-009",
       "kind": "protocol_hypothesis",
       "introduced_checkpoint": "SECOND-PASSWORD-BYPASS-001",
-      "exact_value_or_transform": "Only alongside the strict item-move capture scenario, emit the already accepted V110 CheckSecondPwdVital result=1/u32=0/empty-string response once immediately after the first selected runtime-ready request, without receiving or storing a credential.",
-      "scope": "second_password_bypass_v110_after_runtime_ready test-only additive capability for ITEM-MOVE-CAPTURE-001 only",
+      "exact_value_or_transform": "When the stable Foundation server parameter --second-password-mode is explicitly set to bypass, emit the already accepted V110 CheckSecondPwdVital result=1/u32=0/empty-string response once immediately after the first selected runtime-ready request, without receiving or storing a credential; required remains the default.",
+      "scope": "All Foundation server modes through the required|bypass server parameter; bypass defaults off and the frozen V141 source remains unchanged",
       "status": "active",
-      "provenance": "The 34-byte PC and 44-byte frame are exact accepted V110 bytes and the client handler maps result 1 to OK. Proactive emission before a CheckSecondPwdVital request is a new Grade D timing composition requested for the isolated local test server; no original-server policy proves that timing.",
+      "provenance": "The 34-byte PC and 44-byte frame are exact accepted V110 bytes and the client handler maps result 1 to OK. Proactive emission before a CheckSecondPwdVital request is a new Grade D timing composition. The user explicitly requested a persistent server-side on/off parameter across Foundation modes; no original-server policy proves the proactive timing.",
       "evidence_refs": [
-        "current/pf_login_game_server_v141.py",
-        "scenarios/second_password_bypass_v110.json"
+        "current/pf_login_game_server_v141.py"
       ],
-      "accepted_ceiling": "One opt-in proactive delivery of the exact accepted OK packet after runtime readiness, solely to test whether the local client skips the Backpack PIN dialog.",
+      "accepted_ceiling": "One opt-in proactive delivery of the exact accepted OK packet per selected Foundation connection after runtime readiness; required remains byte-neutral/default.",
       "evidence_gap": "No original traffic or static producer proves unsolicited delivery, and client-side bypass behavior has not yet passed runtime observation.",
       "falsification": "Retire the proactive timing if the dialog remains, the client errors/disconnects, or a lawful original trace proves a different unlock-state producer.",
-      "stop_rule": "Do not add credentials, hashes, a second timing, a second protected feature, production enablement, or client-binary patching. Stop after one controlled runtime result.",
+      "stop_rule": "Do not add credentials, hashes, a second timing, client-binary patching or implicit/default enablement. Stop after one controlled runtime result if the dialog remains or the client errors.",
       "production_allowed": false,
       "expiry": {
         "tracked_versions": ["SECOND-PASSWORD-BYPASS-001"],
@@ -400,11 +399,6 @@
       "max_versions": 3,
       "extension_approval_ref": null,
       "source_refs": [
-        {
-          "path": "scenarios/second_password_bypass_v110.json",
-          "required_markers": ["\"hypothesis_id\": \"HYP-PF-009\"", "\"production_allowed\": false", "\"proactive_second_password_ok_once\""],
-          "active_claim_marker": true
-        },
         {
           "path": "src/pirateforce_foundation/second_password_bypass.py",
           "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-009 active", "make_check_second_password_success", "SECOND_PASSWORD_OK_PC_SHA256"],
@@ -417,7 +411,7 @@
         },
         {
           "path": "src/pirateforce_foundation/app.py",
-          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-009 active", "load_second_password_bypass_scenario", "--second-password-bypass-scenario"],
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-009 active", "--second-password-mode", "SECOND_PASSWORD_MODES"],
           "active_claim_marker": true
         }
       ]

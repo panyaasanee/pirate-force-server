@@ -89,7 +89,6 @@ expected = {
     'scenarios/item_move_capture_v111_slot2.json',
     'scenarios/item_move_hypothesis_v111_slot2.json',
     'scenarios/object_population_v94.json',
-    'scenarios/second_password_bypass_v110.json',
     'scenarios/scene2_load_only.json',
     'scenarios/scene2_fighting_fish_soldier.json',
     'scenarios/scene2_fighting_fish_soldier_hp3857.json',

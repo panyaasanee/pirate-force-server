@@ -29,7 +29,7 @@ from .scene_object import (is_scene_remote_target, is_scene_remote_hostile_targe
                            make_scene_remote_actor)
 from .second_password_bypass import (
     make_proactive_second_password_ok,
-    require_second_password_bypass_scenario,
+    require_second_password_mode,
 )
 from .action_ack import parse_scene006_ea7d, make_scene007_action_ack
 
@@ -44,7 +44,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                      connection_bindings=None, population_scenario=None,
                      item_move_capture_scenario=None,
                      item_move_hypothesis_scenario=None,
-                     second_password_bypass_scenario=None):
+                     second_password_mode="required"):
     active_modes = sum(value is not None for value in (
         scenario, scene_load_scenario, population_scenario,
         item_move_capture_scenario, item_move_hypothesis_scenario,
@@ -65,14 +65,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         item_move_hypothesis_scenario = require_item_move_hypothesis_scenario(
             item_move_hypothesis_scenario
         )
-    if second_password_bypass_scenario is not None:
-        second_password_bypass_scenario = require_second_password_bypass_scenario(
-            second_password_bypass_scenario
-        )
-        if item_move_capture_scenario is None:
-            raise ValueError(
-                "second-password bypass requires item-move capture scenario"
-            )
+    second_password_mode = require_second_password_mode(second_password_mode)
     class PersistentGameSessionState(legacy.GameSessionState):
         def __init__(self, token: str):
             super().__init__(token)
@@ -588,7 +581,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
 
             actions = super().dispatch(parsed)
             if (
-                second_password_bypass_scenario is not None
+                second_password_mode == "bypass"
                 and not self.second_password_bypass_sent
                 and self.foundation.selected is not None
                 and self.teleport_sent
@@ -596,7 +589,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             ):
                 # PF-HYPOTHESIS-LEDGER: HYP-PF-009 active
                 pc, frame = make_proactive_second_password_ok(
-                    legacy, second_password_bypass_scenario,
+                    legacy, second_password_mode,
                 )
                 self.second_password_bypass_sent = True
                 self.events.append(

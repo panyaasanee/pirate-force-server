@@ -159,12 +159,14 @@ Updated: 2026-08-16
   in-memory Backpack mutation is allowed. Offline verification passes; the live
   assisted run is paused at the Backpack second-password dialog because PIN
   entry must be performed by the user. No live request/response claim is made.
-- SECOND-PASSWORD-BYPASS-001 adds one additive, test-only HYP-PF-009 switch
-  solely for ITEM-MOVE-CAPTURE-001. After the first selected runtime-ready
+- SECOND-PASSWORD-BYPASS-001 adds the persistent Foundation server parameter
+  `--second-password-mode required|bypass`; `required` is the default and the
+  option is available alongside every Foundation scenario. In `bypass` mode,
+  after the first selected runtime-ready
   request it proactively emits the already accepted V110 34-byte
   `CheckSecondPwdVital` result-OK PC/44-byte frame once, without receiving,
-  storing or synthesizing a PIN/digest. Normal sessions remain unchanged and
-  the switch cannot run without the exact capture scenario. Offline tests pass;
+  storing or synthesizing a PIN/digest. Default sessions remain unchanged.
+  Offline tests pass;
   whether unsolicited timing actually suppresses the Backpack PIN dialog is a
   pending Grade-D runtime question, not original authentication policy.
 - ITEM-MOVE-HYP-001 implements the first bounded HYP-PF-008 composition behind

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import copy
 import hashlib
-import json
 import os
 from pathlib import Path
 import subprocess
@@ -23,19 +21,17 @@ from pirateforce_foundation.lifecycle import CharacterLifecycle
 from pirateforce_foundation.model import Position
 from pirateforce_foundation.runtime import make_state_class
 from pirateforce_foundation.second_password_bypass import (
+    SECOND_PASSWORD_MODES,
     SECOND_PASSWORD_OK_FRAME_SHA256,
     SECOND_PASSWORD_OK_PC_SHA256,
-    SecondPasswordBypassScenario,
-    load_second_password_bypass_scenario,
     make_proactive_second_password_ok,
-    require_second_password_bypass_scenario,
+    require_second_password_mode,
 )
 from pirateforce_foundation.store import SQLiteStore
 
 
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 CAPTURE_PATH = ROOT / "scenarios" / "item_move_capture_v111_slot2.json"
-BYPASS_PATH = ROOT / "scenarios" / "second_password_bypass_v110.json"
 
 RUNTIME_READY_PC = bytes.fromhex(
     "12 6F 6E 14 00 00 00 00 08 00 0B 02 12 02 00 "
@@ -61,16 +57,15 @@ class SecondPasswordBypassTests(unittest.TestCase):
             self.store, default, self.legacy.extract_avatar_attr_wire_from_actor,
         )
         self.capture = load_item_move_capture_scenario(CAPTURE_PATH)
-        self.bypass = load_second_password_bypass_scenario(BYPASS_PATH)
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def _state(self, login="bypass", *, bypass=True):
+    def _state(self, login="bypass", *, mode="bypass", capture=True):
         state_type = make_state_class(
             self.legacy, self.lifecycle, self.projector,
-            item_move_capture_scenario=self.capture,
-            second_password_bypass_scenario=self.bypass if bypass else None,
+            item_move_capture_scenario=self.capture if capture else None,
+            second_password_mode=mode,
         )
         state = state_type(login)
         state.dispatch(self.legacy.parse_outer(
@@ -93,41 +88,21 @@ class SecondPasswordBypassTests(unittest.TestCase):
         )
         return state
 
-    def test_config_is_exact_test_only_and_contains_no_credential(self):
-        raw = json.loads(BYPASS_PATH.read_text(encoding="utf-8"))
-        self.assertEqual(raw["hypothesis_id"], "HYP-PF-009")
-        self.assertTrue(raw["test_only"])
-        self.assertFalse(raw["production_allowed"])
-        self.assertEqual(raw["response"]["result"], 1)
-        self.assertEqual(raw["response"]["ansi"], "")
-        serialized = json.dumps(raw, sort_keys=True).lower()
-        for forbidden in ("1234", "digest", "credential_value", "password_value"):
-            self.assertNotIn(forbidden, serialized)
+    def test_server_parameter_is_exact_default_off_and_contains_no_credential(self):
+        self.assertEqual(SECOND_PASSWORD_MODES, ("required", "bypass"))
+        self.assertEqual(require_second_password_mode("required"), "required")
+        self.assertEqual(require_second_password_mode("bypass"), "bypass")
+        for invalid in (True, 1, None, "", "disabled", "BYPASS"):
+            with self.assertRaisesRegex(ValueError, "exactly required or bypass"):
+                require_second_password_mode(invalid)
 
-        variants = []
-        value = copy.deepcopy(raw); value["schema"] = True
-        variants.append(value)
-        value = copy.deepcopy(raw); value["response"]["result"] = 2
-        variants.append(value)
-        value = copy.deepcopy(raw); value["trigger"] = "after_dialog"
-        variants.append(value)
-        value = copy.deepcopy(raw); value["extra"] = None
-        variants.append(value)
-        for ordinal, variant in enumerate(variants):
-            path = Path(self.tmp.name) / f"bad-{ordinal}.json"
-            path.write_text(json.dumps(variant), encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "exact allowlist"):
-                load_second_password_bypass_scenario(path)
-
-        with self.assertRaisesRegex(ValueError, "scenario object"):
-            require_second_password_bypass_scenario(SecondPasswordBypassScenario(
-                self.bypass.scenario_id,
-                SECOND_PASSWORD_OK_PC_SHA256.lower(),
-                SECOND_PASSWORD_OK_FRAME_SHA256,
-            ))
+        source = (ROOT / "src" / "pirateforce_foundation" /
+                  "second_password_bypass.py").read_text(encoding="utf-8").lower()
+        for forbidden in ("1234", "digest =", "credential_value", "password_value"):
+            self.assertNotIn(forbidden, source)
 
     def test_exact_ok_packet_is_hash_pinned_and_contains_no_request_digest(self):
-        pc, frame = make_proactive_second_password_ok(self.legacy, self.bypass)
+        pc, frame = make_proactive_second_password_ok(self.legacy, "bypass")
         self.assertEqual(len(pc), 34)
         self.assertEqual(len(frame), 44)
         self.assertEqual(
@@ -146,7 +121,9 @@ class SecondPasswordBypassTests(unittest.TestCase):
             return_value=(pc + b"\0", frame),
         ):
             with self.assertRaisesRegex(RuntimeError, "PC drift"):
-                make_proactive_second_password_ok(self.legacy, self.bypass)
+                make_proactive_second_password_ok(self.legacy, "bypass")
+        with self.assertRaisesRegex(ValueError, "requires bypass mode"):
+            make_proactive_second_password_ok(self.legacy, "required")
 
     def test_proactive_ok_is_once_after_runtime_ready_and_after_baseline_actions(self):
         state = self._state()
@@ -181,7 +158,7 @@ class SecondPasswordBypassTests(unittest.TestCase):
         )
 
     def test_baseline_has_no_proactive_packet_or_state_effect(self):
-        state = self._state("baseline", bypass=False)
+        state = self._state("baseline", mode="required")
         actions = state.dispatch(self.legacy.parse_outer(RUNTIME_READY_PC))
         self.assertEqual([action[0] for action in actions], [
             "RUNTIME_RES_ACK_FIRST_REQ",
@@ -193,36 +170,44 @@ class SecondPasswordBypassTests(unittest.TestCase):
             "hyp_pf_009_proactive_second_password_ok_committed", state.events,
         )
 
-    def test_bypass_requires_capture_mode_in_factory_and_cli(self):
-        with self.assertRaisesRegex(ValueError, "requires item-move capture"):
-            make_state_class(
-                self.legacy, self.lifecycle, self.projector,
-                second_password_bypass_scenario=self.bypass,
-            )
+    def test_bypass_is_available_without_capture_and_cli_default_is_required(self):
+        state = self._state("global-bypass", mode="bypass", capture=False)
+        actions = state.dispatch(self.legacy.parse_outer(RUNTIME_READY_PC))
+        self.assertIn(
+            "HYP_PF_009_PROACTIVE_SECOND_PASSWORD_OK_ONCE",
+            [action[0] for action in actions],
+        )
 
         env = os.environ.copy()
         env["PYTHONPATH"] = str(ROOT / "src")
-        result = subprocess.run(
+        required = subprocess.run(
             [
                 sys.executable, "-m", "pirateforce_foundation.app",
-                "--second-password-bypass-scenario", str(BYPASS_PATH),
                 "--db", str(self.db_path), "--self-test-only",
             ],
             cwd=ROOT, env=env, text=True, capture_output=True, check=False,
         )
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("requires --item-move-capture-scenario", result.stderr)
+        self.assertEqual(required.returncode, 0, required.stderr)
 
-        accepted = subprocess.run(
+        bypass = subprocess.run(
             [
                 sys.executable, "-m", "pirateforce_foundation.app",
-                "--item-move-capture-scenario", str(CAPTURE_PATH),
-                "--second-password-bypass-scenario", str(BYPASS_PATH),
+                "--second-password-mode", "bypass",
                 "--db", str(self.db_path), "--self-test-only",
             ],
             cwd=ROOT, env=env, text=True, capture_output=True, check=False,
         )
-        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertEqual(bypass.returncode, 0, bypass.stderr)
+
+        invalid = subprocess.run(
+            [
+                sys.executable, "-m", "pirateforce_foundation.app",
+                "--second-password-mode", "sometimes", "--self-test-only",
+            ],
+            cwd=ROOT, env=env, text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(invalid.returncode, 2)
+        self.assertIn("invalid choice", invalid.stderr)
 
     def test_v141_is_immutable(self):
         self.assertEqual(

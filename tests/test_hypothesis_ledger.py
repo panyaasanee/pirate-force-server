@@ -48,7 +48,7 @@ class HypothesisLedgerTests(unittest.TestCase):
         self.assertFalse(raw_by_id["HYP-PF-008"]["production_allowed"])
         self.assertEqual(raw_by_id["HYP-PF-009"]["status"], "active")
         self.assertIn(
-            "after the first selected runtime-ready request",
+            "--second-password-mode",
             raw_by_id["HYP-PF-009"]["exact_value_or_transform"],
         )
         self.assertEqual(raw_by_id["HYP-PF-009"]["max_versions"], 3)

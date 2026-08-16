@@ -45,12 +45,11 @@ Computer Use policy forbids automating authentication dialogs, so those input
 steps are retained as historical characterization only and must not be run by
 the agent.
 
-For ordinary runs, hand the dialog to the user. For the isolated
-ITEM-MOVE-CAPTURE-001 run only, the user-authorized
-`scenarios/second_password_bypass_v110.json` profile may instead be paired with
-the exact capture scenario. HYP-PF-009 sends the accepted V110 OK response once
-after runtime readiness without PIN input. Its proactive timing is Grade D and
-must be proved or retired after one controlled run.
+For ordinary runs, hand the dialog to the user. The Foundation server also
+provides the persistent parameter `--second-password-mode required|bypass` for
+every scenario; it defaults to `required`. Explicit `bypass` sends the accepted
+V110 OK response once after runtime readiness without PIN input. HYP-PF-009
+tracks that proactive timing as Grade D until the controlled runtime result.
 
 ## Screenshot budget
 
