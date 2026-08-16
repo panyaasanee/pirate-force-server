@@ -233,6 +233,16 @@ other.
 
 ## Current accepted technical frontier
 
+- CHARACTER-NAME-001 closes the static/offline local-player name projection.
+  Create now rejects noncanonical names and any mismatch between the supplied
+  name and exact CreateActorDataEx prefix wstring without rewriting opaque wire.
+  Create/List retain that actor wire; StartGame emits persisted `Character.name`
+  only through ActorAttr low-mask `0x01000000` at wstring `+0x164`, after the
+  existing cash field. Exact `NameBoardPlayer` update `0x5BD320` consumes that
+  field at `0x5BD4D5..0x5BD512`. Do not use BasicAttr `+0x28` for this claim;
+  it belongs to NPC/other UI lanes. Offline tests pass, but a controlled runtime
+  is still required before claiming a visible world label.
+
 - `STATUS.md` and the ledger contain the full accepted record through SCENE-010.
 - Foundation lifecycle and the assisted reconnect are accepted within their
   documented ceilings.

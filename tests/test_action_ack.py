@@ -16,7 +16,10 @@ class ActionAckTests(unittest.TestCase):
   self.v=load_legacy(ROOT/"current/pf_login_game_server_v141.py"); self.projector=LegacyProjector(self.v)
   default=Position(1,0,self.v.V135_PLAYER_X,self.v.V135_PLAYER_Y,self.v.V135_PLAYER_Z)
   self.lifecycle=CharacterLifecycle(self.store,default,self.v.extract_avatar_attr_wire_from_actor)
-  seed=FoundationSession(self.lifecycle,self.projector,"ack-user"); self.character,_=seed.create("Arena01",self.v.get_preset_actor_wire())
+  seed=FoundationSession(self.lifecycle,self.projector,"ack-user")
+  actor=self.v.get_preset_actor_wire().replace(
+   self.v.wstr_tag("test01"),self.v.wstr_tag("Arena01"),1)
+  self.character,_=seed.create("Arena01",actor)
   self.path=ROOT/"scenarios/port_royal_fighting_fish_soldier_hp3857_player_faction1_ea7d_ack.json"
   self.scenario=load_scene_load_scenario(self.path)
  def tearDown(self): self.tmp.cleanup()

@@ -17,6 +17,7 @@ from pirateforce_foundation.actor_wire import read_identity, read_selector
 from pirateforce_foundation.legacy_bridge import LegacyProjector, load_legacy
 from pirateforce_foundation.lifecycle import CharacterLifecycle
 from pirateforce_foundation.model import Position
+from pirateforce_foundation.player_wire import make_actor_attr_with_name
 from pirateforce_foundation.session import FoundationSession
 from pirateforce_foundation.store import SQLiteStore
 from pirateforce_foundation.runtime import make_state_class
@@ -37,7 +38,13 @@ class FoundationTests(unittest.TestCase):
 
     def tearDown(self): self.tmp.cleanup()
 
-    def preset(self): return self.legacy.get_preset_actor_wire()
+    def preset(self, name="test01"):
+        actor = self.legacy.get_preset_actor_wire()
+        old = self.legacy.wstr_tag("test01")
+        if name == "test01":
+            return actor
+        self.assertEqual(actor.count(old), 1)
+        return actor.replace(old, self.legacy.wstr_tag(name), 1)
 
     def test_v141_characterization_hash(self):
         self.assertEqual(hashlib.sha256(LEGACY_PATH.read_bytes()).hexdigest(), EXPECTED_V141)
@@ -57,7 +64,13 @@ class FoundationTests(unittest.TestCase):
         self.assertIn(c.avatar_wire, pc)
         self.assertIn(c.actor_wire, list_frame)
         self.assertIn(c.actor_wire, create_frame)
-        self.assertNotIn("test01".encode("utf-16le"), pc)
+        name_wire = self.legacy.wstr_tag(c.name)
+        self.assertEqual(pc.count(name_wire), 1)
+        expected_actor = make_actor_attr_with_name(
+            self.legacy, c.identity_lo, c.identity_hi,
+            c.position.scene_id, c.position.scene_seq, c.name,
+        )
+        self.assertIn(expected_actor, pc)
         self.assertTrue(start_frame)
 
     def test_character_lifecycle_golden_hashes(self):
@@ -74,7 +87,7 @@ class FoundationTests(unittest.TestCase):
 
     def test_exit_restart_load_position(self):
         s = FoundationSession(self.lifecycle, self.projector, "restart")
-        c, _ = s.create("restart", self.preset()); s.select_and_start(c.selector)
+        c, _ = s.create("restart", self.preset("restart")); s.select_and_start(c.selector)
         saved = Position(1, 0, -10001.25, -700.5, 671.0, 1.25)
         s.close(saved)
         reopened = SQLiteStore(self.db_path, ROOT / "migrations"); reopened.migrate()
@@ -88,7 +101,7 @@ class FoundationTests(unittest.TestCase):
 
     def test_zero_heading_projection_is_legacy_byte_exact(self):
         s = FoundationSession(self.lifecycle, self.projector, "zero-heading")
-        c, _ = s.create("zero-heading", self.preset())
+        c, _ = s.create("zero-heading", self.preset("zero-heading"))
         expected = self.legacy.make_movement_attr_minimal(
             c.identity_lo, c.identity_hi,
             c.position.x, c.position.y, c.position.z,
@@ -97,7 +110,7 @@ class FoundationTests(unittest.TestCase):
 
     def test_loopback_exact_frame(self):
         s = FoundationSession(self.lifecycle, self.projector, "loopback")
-        c, _ = s.create("loopback", self.preset())
+        c, _ = s.create("loopback", self.preset("loopback"))
         expected = s.character_list()[1]
         left, right = socket.socketpair()
         def server():
@@ -175,9 +188,7 @@ class FoundationTests(unittest.TestCase):
         c1, _ = one.create("test01", self.preset())
         retry, _ = one.create("test01", self.preset())
         self.assertEqual(retry.id, c1.id)
-        actor2 = self.preset().replace(
-            "test01".encode("utf-16le"), "test02".encode("utf-16le"), 1
-        )
+        actor2 = self.preset("test02")
         c2, _ = one.create("test02", actor2)
         self.assertEqual((c1.selector, c2.selector), (0, 1))
         self.assertEqual(len(one.character_list()[0]) > 0, True)
@@ -188,7 +199,7 @@ class FoundationTests(unittest.TestCase):
 
     def test_new_session_revokes_stale_position_writer(self):
         first = FoundationSession(self.lifecycle, self.projector, "lease")
-        character, _ = first.create("lease", self.preset())
+        character, _ = first.create("lease", self.preset("lease"))
         first.select_and_start(character.selector)
         second = FoundationSession(self.lifecycle, self.projector, "lease")
         second.select_and_start(character.selector)
@@ -199,7 +210,7 @@ class FoundationTests(unittest.TestCase):
 
     def test_position_rejects_nonfinite(self):
         session = FoundationSession(self.lifecycle, self.projector, "finite")
-        character, _ = session.create("finite", self.preset())
+        character, _ = session.create("finite", self.preset("finite"))
         session.select_and_start(character.selector)
         with self.assertRaises(ValueError):
             session.checkpoint(Position(1, 0, math.nan, 0.0, 0.0, 0.0))

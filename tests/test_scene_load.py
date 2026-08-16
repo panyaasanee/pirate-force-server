@@ -5,7 +5,10 @@ sys.path.insert(0, str(ROOT / "src"))
 from pirateforce_foundation.legacy_bridge import LegacyProjector, load_legacy
 from pirateforce_foundation.lifecycle import CharacterLifecycle
 from pirateforce_foundation.model import Position
-from pirateforce_foundation.player_wire import make_actor_attr_with_basic_faction
+from pirateforce_foundation.player_wire import (
+    make_actor_attr_with_basic_faction,
+    make_actor_attr_with_name,
+)
 from pirateforce_foundation.runtime import make_state_class
 from pirateforce_foundation.scene_load import load_scene_load_scenario
 from pirateforce_foundation.session import FoundationSession, ReadOnlyFoundationSession
@@ -20,7 +23,9 @@ class SceneLoadTests(unittest.TestCase):
         default=Position(1,0,self.legacy.V135_PLAYER_X,self.legacy.V135_PLAYER_Y,self.legacy.V135_PLAYER_Z)
         self.lifecycle=CharacterLifecycle(self.store,default,self.legacy.extract_avatar_attr_wire_from_actor)
         seed=FoundationSession(self.lifecycle,self.projector,"scene-user")
-        self.character,_=seed.create("Arena01",self.legacy.get_preset_actor_wire())
+        actor=self.legacy.get_preset_actor_wire().replace(
+            self.legacy.wstr_tag("test01"),self.legacy.wstr_tag("Arena01"),1)
+        self.character,_=seed.create("Arena01",actor)
         self.scenario=load_scene_load_scenario(ROOT/"scenarios/scene2_load_only.json")
     def tearDown(self): self.tmp.cleanup()
     def digest(self): return hashlib.sha256(self.db.read_bytes()).hexdigest()
@@ -44,7 +49,10 @@ class SceneLoadTests(unittest.TestCase):
         self.assertEqual([a[0] for a in actions],["SCENE2_LOAD_ONLY_SELECTED_START_GAME","SCENE2_LOAD_ONLY_TELEPORT_MARKER2_ONCE"])
         self.assertEqual(actions[0][1:3],self.projector.start_game(self.character,self.scenario.position))
         self.assertEqual(actions[1][1:3],self.legacy.make_login_teleport(2,0,26905.0,21185.0,1680.0))
-        self.assertIn(self.legacy.make_actor_attr_minimal(self.character.identity_lo,self.character.identity_hi,2,0),actions[0][1])
+        self.assertIn(make_actor_attr_with_name(
+            self.legacy,self.character.identity_lo,self.character.identity_hi,2,0,
+            self.character.name,
+        ),actions[0][1])
         self.assertIn(self.projector.movement_attr(self.character,self.scenario.position),actions[0][1])
         self.assertEqual(state.dispatch(self.legacy.parse_outer(self.legacy._V25_REAL_CREATE_PC)),[])
         self.assertEqual(self.digest(),before)
@@ -67,13 +75,17 @@ class SceneLoadTests(unittest.TestCase):
             self.legacy._synthetic_start_game_pc(self.character.selector)
         ))
         expected=make_actor_attr_with_basic_faction(
-            self.legacy,self.character.identity_lo,self.character.identity_hi,2,0,1,
+            self.legacy,self.character.identity_lo,self.character.identity_hi,2,0,
+            self.character.name,1,
         )
-        baseline_actor=self.legacy.make_actor_attr_minimal(
-            self.character.identity_lo,self.character.identity_hi,2,0,
+        baseline_actor=make_actor_attr_with_name(
+            self.legacy,self.character.identity_lo,self.character.identity_hi,2,0,
+            self.character.name,
         )
+        faction_at=14+10+3+9
         expected_delta=(baseline_actor[:11]+self.legacy.u16tag(0x12,0x070C)+
-            baseline_actor[14:36]+self.legacy.u32tag(0x14,1)+baseline_actor[36:])
+            baseline_actor[14:faction_at]+self.legacy.u32tag(0x14,1)+
+            baseline_actor[faction_at:])
         self.assertEqual(expected,expected_delta)
         self.assertEqual(len(expected),len(baseline_actor)+5)
         self.assertIn(expected,actions[0][1])
@@ -84,7 +96,8 @@ class SceneLoadTests(unittest.TestCase):
         path.write_text(json.dumps(baseline),encoding="utf-8")
         with self.assertRaises(ValueError): load_scene_load_scenario(path)
         scene1=make_actor_attr_with_basic_faction(
-            self.legacy,self.character.identity_lo,self.character.identity_hi,1,0,1,
+            self.legacy,self.character.identity_lo,self.character.identity_hi,1,0,
+            self.character.name,1,
         )
         differences=[index for index,(left,right) in enumerate(zip(expected,scene1)) if left!=right]
         scene_tag_at=expected.index(self.legacy.u16tag(0x12,2))
@@ -95,7 +108,7 @@ class SceneLoadTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 make_actor_attr_with_basic_faction(
                     self.legacy,self.character.identity_lo,self.character.identity_hi,
-                    values[0],values[1],values[2],
+                    values[0],values[1],self.character.name,values[2],
                 )
     def test_modes_mutually_exclusive(self):
         with self.assertRaises(ValueError):

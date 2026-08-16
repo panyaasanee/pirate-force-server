@@ -4,7 +4,7 @@ import struct
 import sys
 from pathlib import Path
 
-from .player_wire import make_actor_attr_with_basic_faction
+from .player_wire import make_actor_attr_with_basic_faction, make_actor_attr_with_name
 
 def load_legacy(path: str | Path):
     spec = importlib.util.spec_from_file_location("pf_legacy_v141", path)
@@ -50,13 +50,14 @@ class LegacyProjector:
         # PF-HYPOTHESIS-LEDGER: GEO-PF-003 frozen
         p = position or character.position
         actor = (
-            self.v.make_actor_attr_minimal(
-                character.identity_lo, character.identity_hi, p.scene_id, p.scene_seq,
+            make_actor_attr_with_name(
+                self.v, character.identity_lo, character.identity_hi,
+                p.scene_id, p.scene_seq, character.name,
             )
             if basic_faction is None else
             make_actor_attr_with_basic_faction(
                 self.v, character.identity_lo, character.identity_hi,
-                p.scene_id, p.scene_seq, basic_faction,
+                p.scene_id, p.scene_seq, character.name, basic_faction,
             )
         )
         avatar = character.avatar_wire

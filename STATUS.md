@@ -21,6 +21,11 @@ Updated: 2026-08-16
 - Character Create -> List -> Select -> StartGame identity continuity: implemented
   in the V141 dispatch adapter across actor, AvatarAttr, ActorAttr and MovementAttr;
   unknown job/class bytes remain opaque.
+- CHARACTER-NAME-001 adds the exact player-name projection offline. Create/List
+  preserve the canonical actor-wire name, while StartGame emits the same persisted
+  value through ActorAttr mask `0x01000000`/wstring `+0x164`, the field consumed
+  by `NameBoardPlayer`. BasicAttr remains unchanged. Live visible rendering and
+  server-process restart durability still require separate runtime proof.
 - Commit-before-reply: implemented for character creation and selection.
 - Golden/state/restart/loopback/negative/legacy-dispatch verification: implemented.
 - Deterministic source archive verification: implemented and excluded from Git.
@@ -36,7 +41,7 @@ Updated: 2026-08-16
 - A live assisted-UI run now proves Create -> commit -> List -> Select -> StartGame,
   a position checkpoint, client exit/relaunch, and reload of the same `Arena01`
   character and scene-1 position while the same server process remained running.
-  Server-process restart/crash durability, delete, world-visible player name and
+  Server-process restart/crash durability, delete, live world-visible player name and
   authenticated multi-account ownership remain unproven.
 
 ## Test Arena V1
@@ -394,5 +399,5 @@ Updated: 2026-08-16
 The legacy V141 source remains immutable and is loaded as a compatibility oracle.
 Gameplay dispatch falls through to it unchanged outside the lifecycle boundary.
 The configured server token currently identifies one local test account. Authenticated
-multi-account ownership, delete UI, world-visible character name, job/class semantics,
+multi-account ownership, delete UI, live world-visible character-name rendering, job/class semantics,
 name uniqueness policy, inventory persistence and crash-time live capture remain later gates.

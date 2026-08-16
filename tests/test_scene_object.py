@@ -17,7 +17,10 @@ class SceneObjectTests(unittest.TestCase):
   self.legacy=load_legacy(ROOT/"current/pf_login_game_server_v141.py"); self.projector=LegacyProjector(self.legacy)
   default=Position(1,0,self.legacy.V135_PLAYER_X,self.legacy.V135_PLAYER_Y,self.legacy.V135_PLAYER_Z)
   self.lifecycle=CharacterLifecycle(self.store,default,self.legacy.extract_avatar_attr_wire_from_actor)
-  seed=FoundationSession(self.lifecycle,self.projector,"fish-user"); self.character,_=seed.create("Arena01",self.legacy.get_preset_actor_wire())
+  seed=FoundationSession(self.lifecycle,self.projector,"fish-user")
+  actor=self.legacy.get_preset_actor_wire().replace(
+   self.legacy.wstr_tag("test01"),self.legacy.wstr_tag("Arena01"),1)
+  self.character,_=seed.create("Arena01",actor)
   self.scenario=load_scene_load_scenario(ROOT/"scenarios/scene2_fighting_fish_soldier.json")
   self.hp_scenario=load_scene_load_scenario(ROOT/"scenarios/scene2_fighting_fish_soldier_hp3857.json")
  def tearDown(self): self.tmp.cleanup()

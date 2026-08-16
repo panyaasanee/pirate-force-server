@@ -1,4 +1,4 @@
-from .actor_wire import bind_actor_and_avatar_identity
+from .actor_wire import bind_actor_and_avatar_identity, read_name
 from .model import Position
 import hashlib
 import unicodedata
@@ -19,6 +19,12 @@ class CharacterLifecycle:
         normalized = unicodedata.normalize("NFKC", name).strip()
         if not normalized:
             raise ValueError("empty character name")
+        if name != normalized:
+            raise ValueError(
+                "character name must already be NFKC-normalized without surrounding whitespace"
+            )
+        if read_name(submitted_wire) != name:
+            raise ValueError("character name does not match CreateActorDataEx")
         name_key = normalized.casefold()
         fingerprint = hashlib.sha256(submitted_wire).hexdigest()
 

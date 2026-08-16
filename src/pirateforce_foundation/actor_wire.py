@@ -10,6 +10,22 @@ def read_selector(actor_wire: bytes) -> int:
     read_identity(actor_wire)
     return actor_wire[10]
 
+def read_name(actor_wire: bytes) -> str:
+    """Read only the exact CreateActorDataEx prefix wstring, strictly."""
+    read_selector(actor_wire)
+    if len(actor_wire) < 16 or actor_wire[11] != 0x48:
+        raise ValueError("CreateActorDataEx name field is absent or malformed")
+    byte_length = struct.unpack_from("<I", actor_wire, 12)[0]
+    if byte_length % 2:
+        raise ValueError("CreateActorDataEx name UTF-16LE byte length must be even")
+    end = 16 + byte_length
+    if end > len(actor_wire):
+        raise ValueError("truncated CreateActorDataEx name field")
+    try:
+        return actor_wire[16:end].decode("utf-16le", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise ValueError("invalid CreateActorDataEx name UTF-16LE") from exc
+
 def bind_identity_and_selector(actor_wire: bytes, identity_lo: int, identity_hi: int, selector: int) -> bytes:
     read_identity(actor_wire)
     if not 0 <= selector <= 255:
