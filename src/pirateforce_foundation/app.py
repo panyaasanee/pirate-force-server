@@ -3,6 +3,7 @@ import argparse
 import os
 import sys
 from pathlib import Path
+from .connection import GameConnectionBindings, adapt_game_listener
 from .legacy_bridge import LegacyProjector, load_legacy
 from .lifecycle import CharacterLifecycle
 from .model import Position
@@ -52,9 +53,14 @@ def main():
         session_factory = lambda token: ReadOnlyFoundationSession(
             store, projector, token, scene_load,
         )
+    connection_bindings = GameConnectionBindings()
     legacy.GameSessionState = make_state_class(
         legacy, lifecycle, projector, scenario=scenario,
         scene_load_scenario=scene_load, session_factory=session_factory,
+        connection_bindings=connection_bindings,
+    )
+    legacy.game_listener = adapt_game_listener(
+        legacy.game_listener, connection_bindings, legacy.socket,
     )
     legacy.run_self_test = lambda verbose=True: None
     if known.capture_root:

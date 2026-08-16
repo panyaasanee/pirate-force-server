@@ -13,7 +13,8 @@ def _active_arena_version(scenario) -> str:
 
 
 def make_state_class(legacy, lifecycle, projector, scenario=None,
-                     scene_load_scenario=None, session_factory=None):
+                     scene_load_scenario=None, session_factory=None,
+                     connection_bindings=None):
     if scenario is not None and scene_load_scenario is not None:
         raise ValueError("Arena and scene-load scenarios are mutually exclusive")
     class PersistentGameSessionState(legacy.GameSessionState):
@@ -23,18 +24,32 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 session_factory(token) if session_factory is not None
                 else FoundationSession(lifecycle, projector, token)
             )
-            self.arena_scenario = scenario
-            self.arena_spawned = False
-            self.arena_target_captured = False
-            if scene_load_scenario is not None:
-                # The load-only branch must never inherit V141 population.
-                self.npc_spawn_sent = True
-                self.population_indices = ()
-                if scene_load_scenario.remote_actor is not None:
-                    self.scene_remote_spawned = False
-                    self.scene_remote_target_captured = False
-                    self.scene_action_ack_sent = False
-                    self.scene_hostile_target_captured = False
+            try:
+                self.arena_scenario = scenario
+                self.arena_spawned = False
+                self.arena_target_captured = False
+                if scene_load_scenario is not None:
+                    # The load-only branch must never inherit V141 population.
+                    self.npc_spawn_sent = True
+                    self.population_indices = ()
+                    if scene_load_scenario.remote_actor is not None:
+                        self.scene_remote_spawned = False
+                        self.scene_remote_target_captured = False
+                        self.scene_action_ack_sent = False
+                        self.scene_hostile_target_captured = False
+                if connection_bindings is not None:
+                    connection_bindings.bind(self)
+            except BaseException as error:
+                try:
+                    self.foundation.close_connection()
+                except BaseException as close_error:
+                    error.add_note(
+                        f"Foundation session cleanup also failed: {close_error!r}"
+                    )
+                raise
+
+        def close_connection(self) -> bool:
+            return self.foundation.close_connection()
 
         def dispatch(self, parsed):
             nested_id = parsed.nested_id

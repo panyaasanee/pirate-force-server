@@ -11,7 +11,17 @@ class CharacterLifecycle:
     def login(self, login_name: str):
         aid = self.store.ensure_account(login_name)
         sid = self.store.open_session(aid)
-        return aid, sid, self.store.list_characters(aid)
+        try:
+            characters = self.store.list_characters(aid)
+        except BaseException as error:
+            try:
+                self.store.close_session(sid)
+            except BaseException as close_error:
+                error.add_note(
+                    f"Foundation session cleanup also failed: {close_error!r}"
+                )
+            raise
+        return aid, sid, characters
 
     def create(self, account_id: int, name: str, submitted_wire: bytes):
         if self.avatar_extractor is None:

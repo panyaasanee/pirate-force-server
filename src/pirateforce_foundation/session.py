@@ -1,11 +1,16 @@
 """Transport-independent lifecycle session used by real adapters and loopback tests."""
 from dataclasses import replace
+import threading
 
 class FoundationSession:
     def __init__(self, lifecycle, projector, login_name: str):
         self.lifecycle, self.projector = lifecycle, projector
-        self.account_id, self.session_id, self.characters = lifecycle.login(login_name)
         self.selected = None
+        self._closed = False
+        self._close_lock = threading.RLock()
+        # Everything that can fail locally is initialized before login opens a
+        # lease.  Once login returns, only plain attribute assignment remains.
+        self.account_id, self.session_id, self.characters = lifecycle.login(login_name)
 
     def character_list(self):
         self.characters = self.lifecycle.store.list_characters(self.account_id)
@@ -27,10 +32,25 @@ class FoundationSession:
         self.selected = replace(self.selected, position=position)
 
     def close(self, position=None):
-        if self.selected and position:
-            self.lifecycle.exit(self.session_id, self.selected, position)
-        else:
+        with self._close_lock:
+            if self._closed:
+                return False
+            if self.selected and position:
+                self.lifecycle.exit(self.session_id, self.selected, position)
+                self.selected = replace(self.selected, position=position)
+            else:
+                self.lifecycle.store.close_session(self.session_id)
+            self._closed = True
+            return True
+
+    def close_connection(self) -> bool:
+        """Close this exact lease without rewriting its last position."""
+        with self._close_lock:
+            if self._closed:
+                return False
             self.lifecycle.store.close_session(self.session_id)
+            self._closed = True
+            return True
 
 
 class ReadOnlyFoundationSession:
@@ -70,4 +90,7 @@ class ReadOnlyFoundationSession:
         raise PermissionError("scene-load milestone cannot checkpoint")
 
     def close(self, _position=None):
-        return None
+        return False
+
+    def close_connection(self) -> bool:
+        return False
