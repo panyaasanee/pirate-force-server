@@ -59,6 +59,12 @@ class CharacterLifecycle:
     def checkpoint(self, session_id, character, position):
         self.store.save_position(session_id, character.id, position)
 
+    def backpack(self, session_id, character):
+        return self.store.get_backpack(session_id, character.id)
+
+    def merge_v111_stack(self, session_id, character):
+        return self.store.apply_v111_stack_merge(session_id, character.id)
+
     def exit(self, session_id, character, position):
         self.store.save_position(session_id, character.id, position)
         self.store.close_session(session_id)

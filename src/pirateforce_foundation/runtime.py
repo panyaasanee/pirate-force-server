@@ -2,6 +2,11 @@
 import math
 
 from .model import Position
+from .inventory import (
+    MERGED_V111_BACKPACK,
+    is_exact_merge_request,
+    parse_merge_candidate,
+)
 from .population import (
     build_port_royal_initial_population,
     build_port_royal_membership_transition,
@@ -73,6 +78,68 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
 
         def close_connection(self) -> bool:
             return self.foundation.close_connection()
+
+        def _sync_frozen_inventory_state(self) -> None:
+            backpack = self.foundation.backpack
+            if backpack is None:
+                return
+            item1 = next(item for item in backpack.items if item.identity == 1)
+            source = next(
+                (item for item in backpack.items if item.identity == 3), None,
+            )
+            self.item_slot = item1.slot
+            self.item_quantity = item1.quantity
+            self.stack_source_present = source is not None
+            self.stack_source_slot = (
+                legacy.V111_STACK_SOURCE_SLOT if source is None else source.slot
+            )
+
+        def _dispatch_v111_persistent_merge(self, parsed):
+            self.rx_frames += 1
+            if not is_exact_merge_request(legacy, parsed):
+                self.events.append(
+                    "foundation_v111_merge_candidate_wrong_envelope_no_reply"
+                )
+                return []
+            if (
+                self.foundation.selected is None
+                or not self.teleport_sent
+                or not self.runtime_ack_sent
+            ):
+                self.events.append(
+                    "foundation_v111_merge_wrong_sequence_no_reply"
+                )
+                return []
+            # Build the frozen exact response before opening the persistence
+            # transaction. No successful bytes are queued unless the later
+            # repository call commits the allowlisted post-state.
+            pc, frame = legacy.make_item_operate_stack_merge_success()
+            before = self.foundation.backpack
+            try:
+                applied = self.foundation.merge_v111_stack()
+            except Exception as exc:
+                if self.foundation.backpack is not before:
+                    raise RuntimeError(
+                        "repository failure changed in-memory Backpack state"
+                    ) from exc
+                self.events.append(
+                    f"foundation_v111_merge_repository_failure_no_reply_{exc!r}"
+                )
+                return []
+            self._sync_frozen_inventory_state()
+            if not applied:
+                self.events.append("foundation_v111_merge_replay_no_reply")
+                return []
+            if self.foundation.backpack != MERGED_V111_BACKPACK:
+                raise RuntimeError("committed V111 Backpack state mismatch")
+            self.stack_merge_count += 1
+            self.events.append(
+                "foundation_v111_merge_committed_before_response"
+            )
+            return [(
+                "FOUNDATION_V111_ITEM_STACK_ID3_INTO_ID1_QTY2_COMMITTED",
+                pc, frame, 0.0,
+            )]
 
         def _checkpoint_exact_target(self, target) -> None:
             x, y, z, heading, _flags, _moving = target
@@ -231,6 +298,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     _, (pc, frame) = self.foundation.select_and_start(selector)
                 except KeyError:
                     return []
+                self._sync_frozen_inventory_state()
                 self.start_game_reply_sent = True
                 self.events.append("start_game_res_scene_identity_sent")
                 load_only = scene_load_scenario is not None
@@ -259,6 +327,11 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         "v135_startgame_movement_p0_minus100x_minus50y_teleport_zero_sent"
                     )
                 return actions
+
+            if nested_id == legacy.ITEM_OPERATE_REQ_VITAL:
+                candidate = parse_merge_candidate(legacy, parsed)
+                if candidate is not None:
+                    return self._dispatch_v111_persistent_merge(parsed)
 
             durable_target = legacy.parse_v141_refresh_target_pos(parsed)
             if (

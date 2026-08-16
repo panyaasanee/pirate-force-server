@@ -6,6 +6,7 @@ class FoundationSession:
     def __init__(self, lifecycle, projector, login_name: str):
         self.lifecycle, self.projector = lifecycle, projector
         self.selected = None
+        self.backpack = None
         self._closed = False
         self._close_lock = threading.RLock()
         # Everything that can fail locally is initialized before login opens a
@@ -23,7 +24,19 @@ class FoundationSession:
 
     def select_and_start(self, selector: int):
         self.selected = self.lifecycle.select(self.session_id, selector)
-        return self.selected, self.projector.start_game(self.selected)
+        self.backpack = self.lifecycle.backpack(self.session_id, self.selected)
+        return self.selected, self.projector.start_game(
+            self.selected, backpack=self.backpack,
+        )
+
+    def merge_v111_stack(self) -> bool:
+        if self.selected is None or self.backpack is None:
+            raise RuntimeError("no selected character Backpack")
+        updated = self.lifecycle.merge_v111_stack(self.session_id, self.selected)
+        if updated is None:
+            return False
+        self.backpack = updated
+        return True
 
     def checkpoint(self, position):
         if self.selected is None:
@@ -65,6 +78,7 @@ class ReadOnlyFoundationSession:
         if len(self.characters) != 1:
             raise KeyError(scenario.required_character_name)
         self.selected = None
+        self.backpack = None
 
     def character_list(self):
         return self.projector.character_list(self.characters)
@@ -88,6 +102,9 @@ class ReadOnlyFoundationSession:
 
     def checkpoint(self, _position):
         raise PermissionError("scene-load milestone cannot checkpoint")
+
+    def merge_v111_stack(self):
+        raise PermissionError("scene-load milestone cannot mutate Backpack state")
 
     def close(self, _position=None):
         return False

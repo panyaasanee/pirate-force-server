@@ -5,6 +5,13 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
+from .inventory import (
+    BackpackState,
+    INITIAL_BACKPACK,
+    MERGED_V111_BACKPACK,
+    ItemAttrState,
+    require_known_backpack,
+)
 from .model import Character, Position
 
 def _now() -> str:
@@ -175,6 +182,7 @@ class SQLiteStore:
                 "INSERT INTO character_positions(character_id,scene_id,scene_seq,x,y,z,updated_at,heading) VALUES (?,?,?,?,?,?,?,?)",
                 (cid,pos.scene_id,pos.scene_seq,pos.x,pos.y,pos.z,_now(),pos.heading),
             )
+            self._insert_initial_backpack(db, cid, now)
         return self.get_character(cid)
 
     def list_characters(self, account_id: int):
@@ -205,6 +213,107 @@ class SQLiteStore:
             cur = db.execute("UPDATE character_positions SET scene_id=?,scene_seq=?,x=?,y=?,z=?,heading=?,updated_at=? WHERE character_id=? AND EXISTS (SELECT 1 FROM sessions WHERE id=? AND selected_character_id=? AND closed_at IS NULL)", (pos.scene_id,pos.scene_seq,pos.x,pos.y,pos.z,pos.heading,_now(),cid,sid,cid))
             if cur.rowcount != 1:
                 raise PermissionError("stale or non-owning character session")
+
+    @staticmethod
+    def _insert_initial_backpack(db, character_id: int, stamp: str) -> None:
+        state = INITIAL_BACKPACK
+        db.execute(
+            "INSERT INTO character_backpacks(character_id,base_mask,base_identity,range_mask,updated_at) "
+            "VALUES (?,?,?,?,?)",
+            (character_id, state.base_mask, state.base_identity, state.range_mask, stamp),
+        )
+        db.executemany(
+            "INSERT INTO character_backpack_items("
+            "character_id,item_identity,template_id,quantity,slot,raw_u8_38,raw_u8_39,detail_present"
+            ") VALUES (?,?,?,?,?,?,?,?)",
+            [
+                (
+                    character_id, item.identity, item.template_id,
+                    item.quantity, item.slot, item.raw_u8_38,
+                    item.raw_u8_39, item.detail_present,
+                )
+                for item in state.items
+            ],
+        )
+
+    @staticmethod
+    def _load_backpack(db, character_id: int) -> BackpackState:
+        header = db.execute(
+            "SELECT base_mask,base_identity,range_mask FROM character_backpacks "
+            "WHERE character_id=?",
+            (character_id,),
+        ).fetchone()
+        if header is None:
+            raise RuntimeError("character Backpack state is missing")
+        rows = db.execute(
+            "SELECT item_identity,template_id,quantity,slot,raw_u8_38,raw_u8_39,detail_present "
+            "FROM character_backpack_items WHERE character_id=? ORDER BY slot,item_identity",
+            (character_id,),
+        ).fetchall()
+        state = BackpackState(
+            int(header[0]), int(header[1]), int(header[2]),
+            tuple(
+                ItemAttrState(*(int(value) for value in row))
+                for row in rows
+            ),
+        )
+        return require_known_backpack(state)
+
+    @staticmethod
+    def _require_selected_session(db, sid: str, character_id: int) -> None:
+        owner = db.execute(
+            "SELECT 1 FROM sessions s JOIN characters c "
+            "ON c.id=s.selected_character_id AND c.account_id=s.account_id "
+            "AND c.deleted_at IS NULL WHERE s.id=? AND s.selected_character_id=? "
+            "AND s.closed_at IS NULL",
+            (sid, character_id),
+        ).fetchone()
+        if owner is None:
+            raise PermissionError("stale or non-owning character session")
+
+    def get_backpack(self, sid: str, character_id: int) -> BackpackState:
+        with self.connect() as db:
+            self._require_selected_session(db, sid, character_id)
+            return self._load_backpack(db, character_id)
+
+    def apply_v111_stack_merge(
+        self, sid: str, character_id: int,
+    ) -> BackpackState | None:
+        """Atomically install only the exact accepted identity3->identity1 state."""
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            self._require_selected_session(db, sid, character_id)
+            before = self._load_backpack(db, character_id)
+            if before == MERGED_V111_BACKPACK:
+                return None
+            if before != INITIAL_BACKPACK:
+                raise ValueError("Backpack is outside the exact V111 pre-state")
+            updated = db.execute(
+                "UPDATE character_backpack_items SET quantity=2 "
+                "WHERE character_id=? AND item_identity=1 AND template_id=2600001 "
+                "AND quantity=1 AND slot=0 AND raw_u8_38=0 "
+                "AND raw_u8_39=255 AND detail_present=0",
+                (character_id,),
+            )
+            if updated.rowcount != 1:
+                raise RuntimeError("exact V111 target row changed during transaction")
+            removed = db.execute(
+                "DELETE FROM character_backpack_items "
+                "WHERE character_id=? AND item_identity=3 AND template_id=2600001 "
+                "AND quantity=1 AND slot=2 AND raw_u8_38=0 "
+                "AND raw_u8_39=255 AND detail_present=0",
+                (character_id,),
+            )
+            if removed.rowcount != 1:
+                raise RuntimeError("exact V111 source row changed during transaction")
+            db.execute(
+                "UPDATE character_backpacks SET updated_at=? WHERE character_id=?",
+                (_now(), character_id),
+            )
+            after = self._load_backpack(db, character_id)
+            if after != MERGED_V111_BACKPACK:
+                raise RuntimeError("exact V111 post-state validation failed")
+            return after
 
     @staticmethod
     def _character(r):

@@ -261,10 +261,16 @@ class FoundationTests(unittest.TestCase):
                 "INSERT INTO characters VALUES (2,1,1,'old',X'03',X'04',NULL,2,0,'legacy','legacy',NULL)"
             )
             db.execute(
+                "INSERT INTO characters VALUES (3,1,2,'gone',X'05',X'06',NULL,3,0,'legacy','legacy','deleted')"
+            )
+            db.execute(
                 "INSERT INTO character_positions VALUES (1,1,0,10.0,20.0,30.0,'legacy')"
             )
             db.execute(
                 "INSERT INTO character_positions VALUES (2,1,0,40.0,50.0,60.0,'legacy')"
+            )
+            db.execute(
+                "INSERT INTO character_positions VALUES (3,1,0,70.0,80.0,90.0,'legacy')"
             )
             db.commit()
         finally:
@@ -275,16 +281,27 @@ class FoundationTests(unittest.TestCase):
             versions = db.execute(
                 "SELECT version,checksum FROM schema_migrations ORDER BY version"
             ).fetchall()
-            self.assertEqual([int(row[0]) for row in versions], [1, 2])
+            self.assertEqual([int(row[0]) for row in versions], [1, 2, 3])
             self.assertTrue(all(row[1] for row in versions))
             row = db.execute(
                 "SELECT name_key,create_fingerprint FROM characters WHERE id=1"
             ).fetchone()
             self.assertEqual(tuple(row), ("old", "legacy:1"))
             duplicate = db.execute(
-                "SELECT name,name_key FROM characters ORDER BY id"
+                "SELECT name,name_key FROM characters WHERE deleted_at IS NULL ORDER BY id"
             ).fetchall()
             self.assertEqual([tuple(row) for row in duplicate], [("old", "old"), ("old", "old")])
+            self.assertEqual(
+                db.execute("SELECT COUNT(*) FROM character_backpacks").fetchone()[0],
+                2,
+            )
+            self.assertEqual(
+                db.execute("SELECT COUNT(*) FROM character_backpack_items").fetchone()[0],
+                8,
+            )
+            self.assertIsNone(db.execute(
+                "SELECT 1 FROM character_backpacks WHERE character_id=3"
+            ).fetchone())
             self.assertEqual(
                 db.execute("SELECT heading FROM character_positions WHERE character_id=1").fetchone()[0],
                 0.0,
