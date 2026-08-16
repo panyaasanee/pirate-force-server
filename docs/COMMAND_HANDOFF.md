@@ -240,8 +240,16 @@ other.
   only through ActorAttr low-mask `0x01000000` at wstring `+0x164`, after the
   existing cash field. Exact `NameBoardPlayer` update `0x5BD320` consumes that
   field at `0x5BD4D5..0x5BD512`. Do not use BasicAttr `+0x28` for this claim;
-  it belongs to NPC/other UI lanes. Offline tests pass, but a controlled runtime
-  is still required before claiming a visible world label.
+  it belongs to NPC/other UI lanes.
+- CHARACTER-NAME-002 supplies the controlled runtime proof. Exact StartGame raw
+  bytes carry actor identity `0x10010001`, unchanged BasicAttr mask `0x070C`,
+  ActorAttr low/high masks `0x01000800/0`, mandatory bool `1`, cash `10000`, and
+  one tag-`0x48`/14-byte UTF-16LE `Arena01`. The Chief directly observed `Arena01`
+  over the selected local player in Port Royal, separate from the target panel;
+  the client remained responsive and DB guard was `PASS_UNCHANGED`. No screenshot
+  was retained, so keep the visual fact attributed to the direct UI observation.
+  This does not prove remote-player names, rename/uniqueness policy, authenticated
+  ownership, or server-process restart durability.
 
 - `STATUS.md` and the ledger contain the full accepted record through SCENE-010.
 - Foundation lifecycle and the assisted reconnect are accepted within their
