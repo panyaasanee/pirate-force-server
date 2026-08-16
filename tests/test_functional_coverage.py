@@ -343,6 +343,35 @@ class FunctionalCoverageTests(unittest.TestCase):
         error = self.reject(mutate)
         self.assertIn("test ref", str(error))
 
+    # --- ratchet: a graded claim is a watched claim ----------------------
+
+    def test_every_graded_row_carries_at_least_one_test_reference(self) -> None:
+        """A row with evidence and no test is a claim nobody watches.
+
+        The verifier only demands a test reference for ``complete``. That left
+        eight graded rows with evidence and no test at all until 2026-08-17, so
+        this ratchet pins the repaired state: any row that is not
+        ``not_started`` must name a test. Adding evidence for a new behavior
+        now costs a test in the same change.
+        """
+        unwatched = [
+            (domain["id"], cap["id"], cap["status"])
+            for domain in self.raw["domains"]
+            for cap in domain["capabilities"]
+            if cap["status"] != "not_started" and not cap["test_refs"]
+        ]
+        self.assertEqual(unwatched, [])
+
+    def test_not_started_rows_stay_empty_on_both_sides(self) -> None:
+        carrying = [
+            (domain["id"], cap["id"])
+            for domain in self.raw["domains"]
+            for cap in domain["capabilities"]
+            if cap["status"] == "not_started"
+            and (cap["evidence_refs"] or cap["test_refs"])
+        ]
+        self.assertEqual(carrying, [])
+
 
 if __name__ == "__main__":
     unittest.main()
