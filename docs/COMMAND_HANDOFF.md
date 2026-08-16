@@ -307,6 +307,20 @@ other.
   0. Keep the ceiling to stable committed data across this exact forced-loss/restart
   sequence. In-flight transactions, non-empty WAL, power loss, corruption,
   concurrency, remote/multi-account use and new gameplay remain unproven.
+- FND-010 proves one abrupt client-process loss and reconnect against the same
+  continuously running Foundation server. Exact Client A PID 7648 was force-stopped
+  once while selected generation 10 was active; the server recorded reset 10054,
+  closed only SID `80311b2e090441b68df24a770a64a665` about 650 ms after trigger
+  start, preserved the position/update timestamp, and kept exact PID 20444 plus
+  listeners 10188/10189 live. Client B then opened generation 11 without
+  CreateActor and received byte-identical 253-byte Character List and 440-byte
+  StartGame PCs preserving `Arena01`, identity, opaque blobs and movement. The
+  Chief directly observed minimap `-7292,-3187` and world name `Arena01` after
+  reconnect (operator observation; no screenshot retained). Client B exit 0 closed
+  its SID and final requested server stop exited 0. The only intermediate DB oracle
+  is `db_postkill.json`; no byte-frozen post-kill main/WAL/SHM snapshot exists.
+  Do not extend this to network partition, power loss, in-flight movement,
+  concurrent/remote clients, multi-account ownership or new gameplay.
 
 - `STATUS.md` and the ledger contain the full accepted record through SCENE-010.
 - Foundation lifecycle and the assisted reconnect are accepted within their

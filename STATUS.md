@@ -99,6 +99,20 @@ Updated: 2026-08-16
   recovery pass with a Grade E deliberate-loss trigger, not proof of in-flight
   transaction/non-empty-WAL recovery, power loss, every crash mechanism,
   concurrency, remote clients, or authenticated multi-account use.
+- FND-010 closes the complementary abrupt-client boundary against one continuously
+  running server. One validated `Stop-Process -Force` removed active Client A PID
+  7648 while selected generation-10 SID
+  `80311b2e090441b68df24a770a64a665` was open. The server observed socket reset,
+  closed that exact SID in about 650 ms without rewriting position, and remained
+  live on the same PID 20444/listeners. Client B then opened generation 11 and,
+  with zero CreateActor, received byte-identical Character List and StartGame PCs
+  preserving `Arena01`, identity, opaque blobs and the committed checkpoint. The
+  Chief directly observed minimap `-7292,-3187` and world name `Arena01` after the
+  reconnect (operator observation; no screenshot retained). Client B exit 0 closed
+  generation 11; later requested server stop exited 0. This is a Grade B
+  server-reaction/reconnect pass with a Grade E deliberate client-loss trigger,
+  not proof of network partition, power loss, intermediate DB/WAL bytes,
+  concurrency, remote clients, or authenticated multi-account use.
 
 ## Test Arena V1
 
