@@ -113,6 +113,25 @@ Updated: 2026-08-16
   server-reaction/reconnect pass with a Grade E deliberate client-loss trigger,
   not proof of network partition, power loss, intermediate DB/WAL bytes,
   concurrency, remote clients, or authenticated multi-account use.
+- OBJECT-POP-002 closes the first typed authoritative NPC-style scene-actor
+  membership runtime boundary. One exact scene-1 TargetPos emitted the nearest-20
+  initial generation and a byte-identical 3-second reapply; a forward refresh
+  retained 19 NPCAttr-only entries, admitted placement 87 with full MovementAttr
+  and omitted 82, while the reverse admitted 82 and omitted 87, restoring the
+  initial set. All four PCs/frames are byte-identical to the typed builder and
+  frozen V141 oracle. No structural DeleteActor occurred, 70 heartbeats followed
+  the reverse transition, and the final raw TargetPos XYZ/heading exactly match
+  the durable DB checkpoint. The only pre-to-final logical-row deltas are
+  generation-12 open/close and position;
+  identity, `Arena01`, opaque actor/avatar blobs, migrations, integrity and foreign
+  keys are fixed. The Chief directly observed populated radar/models, a new human
+  scene actor in the forward view, and a large Warden-style model in the reverse
+  view (operator observation; no screenshot retained). Those visual observations
+  are not bound to placement IDs and do not prove a visible despawn. This is not
+  monster/remote-player classification, authentic population policy, persisted
+  membership, combat, or another object-domain claim. Shutdown emitted one stopped
+  marker with empty stderr and no remaining listeners, but no exit-code sidecar
+  exists, so exit 0 is not claimed.
 
 ## Test Arena V1
 

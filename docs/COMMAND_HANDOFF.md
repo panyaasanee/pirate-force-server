@@ -321,8 +321,28 @@ other.
   is `db_postkill.json`; no byte-frozen post-kill main/WAL/SHM snapshot exists.
   Do not extend this to network partition, power loss, in-flight movement,
   concurrent/remote clients, multi-account ownership or new gameplay.
+- OBJECT-POP-002 proves one opt-in typed authoritative NPC-style scene-actor
+  membership sequence. The first scene-1 TargetPos emitted an exact nearest-20
+  initial population plus byte-identical 3-second reapply. The forward transition
+  admitted placement 87 with full MovementAttr, retained 19 NPCAttr-only entries
+  and omitted 82; the reverse admitted 82, omitted 87 and restored the initial set.
+  Captured PCs/frames are byte-identical to typed Foundation and frozen V141.
+  No structural DeleteActor appears, and 70 heartbeats followed the reverse. The
+  final raw TargetPos XYZ/heading exactly match the final durable position;
+  scene/sequence remain separate Position fields. Pre-to-final logical-row DB
+  changes are limited to
+  generation-12 open/close plus position, with identity, `Arena01`,
+  opaque actor/avatar blobs, migrations, integrity and FK results fixed. The Chief
+  directly observed populated radar/models, a new human scene actor forward and a
+  large Warden-style model on return (operator observation; no screenshot retained).
+  Do not bind those visuals to exact placement IDs or call omission a proven visible
+  despawn. This is not monster/remote-player classification, authentic population
+  policy, persisted membership, combat/faction, or any item/vehicle/portal claim.
+  Shutdown has one stopped marker, empty stderr and no listeners, but no retained
+  exit code; do not claim exit 0.
 
-- `STATUS.md` and the ledger contain the full accepted record through SCENE-010.
+- `STATUS.md` and the ledger contain the full accepted record through
+  OBJECT-POP-002.
 - Foundation lifecycle and the assisted reconnect are accepted within their
   documented ceilings.
 - Arena P30 spawn/target passed, but stable hostile-monster classification did
