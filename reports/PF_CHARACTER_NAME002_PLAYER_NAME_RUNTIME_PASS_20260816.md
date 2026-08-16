@@ -23,10 +23,13 @@ Capture root:
   is tag `0x48`, byte length `14`, exact UTF-16LE `Arena01`.
 - `GAME_LIVE.txt` records `RUNTIME_RES_ACK_FIRST_REQ` at
   `2026-08-16T12:00:44.897`, followed by continuing client requests/heartbeats:
-  45 heartbeat responses were emitted and the final request was received at
-  `12:01:26.850`. This label is the generic first-runtime-request acknowledgement,
-  not the SCENE-007 ActionVital acknowledgement. The raw server log ends with
-  `game client closed`.
+  45 heartbeat responses were emitted, the final request was received at
+  `12:01:26.848`, and its terminal processed state was logged at `12:01:26.850`.
+  This label is the generic first-runtime-request acknowledgement, not the
+  SCENE-007 ActionVital acknowledgement. Near its tail,
+  `server_console_live.out.txt` records `game client closed`, followed by closure
+  of the game and login log files; the raw `GAME_...txt` itself ends at the final
+  `STATE rx=39` record.
 - The Chief directly observed the `Arena01` label above the selected player in
   the Port Royal world view, separate from the target panel, and observed that
   the client remained responsive. The Chief initiated exit through the normal UI
