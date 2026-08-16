@@ -14,6 +14,10 @@ this file.
 - Do not start an adjacent investigation merely because it is interesting. It must
   unblock the current claim or be the next dependency in the roadmap.
 - Finish, retire, or record a bounded negative before moving to another milestone.
+- The user may switch between AI providers, but only one executor may write or run
+  the project at a time. The canonical ownership record is
+  `docs/AI_WORKSPACE_LEASE.json`; changing AI does not create a new clone, repo,
+  worktree, project directory, or parallel milestone.
 
 ## 2. Milestone intake
 
@@ -44,6 +48,15 @@ not let it silently become an implementation milestone.
   authoritative local release gate. Otherwise reuse the first valid result.
 - The authoritative local repository remains without a remote. Cloud work uses the
   explicitly sanitized code-only repository/environment described in the handoff.
+- Existing private sanitized repositories are
+  `panyaasanee/pirate-force-foundation-cloud` and
+  `panyaasanee/pirate-force-client-re-private`; the existing Codex environment is
+  `Pirate Force Foundation Cloud`. Reuse these only when access is authorized. Do
+  not create replacement Cloud repositories/environments merely because an AI
+  executor changed.
+- Local remains the sole authoritative runtime/evidence workspace. Cloud work must
+  be sequential with Local work and returned as an auditable sanitized patch/commit
+  before Local integration; it must not create a competing source of truth.
 - If no callable Cloud execution surface is available in the current task, do not
   simulate Cloud locally and call it Cloud. Continue only the necessary local lane
   and record the allocation limitation.
@@ -151,6 +164,12 @@ A milestone may be accepted only when:
 - proprietary artifacts remain untracked and unpublished;
 - status/ledger/handoff receive one concise final update; and
 - the next action is either a single named dependency or an explicit stop.
+
+When switching AI executors, the outgoing executor must additionally stop its owned
+processes, preserve all dirty diffs, update the transfer/current-status record, and
+set `docs/AI_WORKSPACE_LEASE.json` to `handoff_ready`. The incoming executor claims
+that same lease and continues in the same canonical paths. No two executors may run
+tests, server/client, or edit the repository concurrently.
 
 Commits should normally be one implementation checkpoint, one corrective commit
 only when needed, and one runtime evidence/docs checkpoint. Do not manufacture a

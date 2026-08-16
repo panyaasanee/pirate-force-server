@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "workspace_id": "pirate-force-command-2-canonical-local-workspace",
+  "lease_state": "handoff_ready",
+  "active_executor": null,
+  "authorized_by": "user",
+  "last_executor": "OpenAI Codex",
+  "updated_at": "2026-08-17T00:00:00+07:00",
+  "canonical_paths": {
+    "main_worktree": "C:\\Users\\Panya\\Desktop\\Pirate Force\\Pirate Force ServerProject",
+    "visible_console_worktree": "C:\\Users\\Panya\\Desktop\\Pirate Force\\Pirate Force ServerProject-console",
+    "game_client": "C:\\Users\\Panya\\Desktop\\Pirate Force\\GameClient"
+  },
+  "allowed_worktrees": [
+    "C:\\Users\\Panya\\Desktop\\Pirate Force\\Pirate Force ServerProject",
+    "C:\\Users\\Panya\\Desktop\\Pirate Force\\Pirate Force ServerProject-console"
+  ],
+  "new_clone_or_worktree_allowed": false,
+  "simultaneous_writers_allowed": false,
+  "handoff_rule": "Only the user-designated executor may change files or run tests/server/client. Before switching, stop owned processes, record Git/diff/test/runtime state, then set lease_state to handoff_ready."
+}

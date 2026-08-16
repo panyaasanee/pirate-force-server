@@ -16,6 +16,21 @@ engineering and implementation effort.
 - Never publish proprietary client binaries, decoded game data, captures or private
   screenshots. Local Git is code-only and currently has no remote.
 
+## Shared workspace ownership
+
+- This local repository and its existing `ServerProject-console` worktree are the
+  canonical workspace. Do not clone/copy the project, create another repository, or
+  add another worktree/path unless the user explicitly authorizes it.
+- The user may alternate between AI executors, but simultaneous writers/runtimes are
+  forbidden. Read and claim `docs/AI_WORKSPACE_LEASE.json` before changing files or
+  running tests/server/client. An executor that does not hold the lease is read-only.
+- Before handing work back, stop processes you opened, record Git/diff/test/runtime
+  state, and set the lease to `handoff_ready`. Never take over an `active` lease
+  without the user's confirmation that the previous executor stopped.
+- Cloud work remains a sequential sanitized lane, not a second authoritative
+  workspace. Return its reviewed patch/commit to this canonical local repository;
+  do not run overlapping Local and Cloud implementations.
+
 ## Authoritative status
 
 - Read `STATUS.md` first, then `docs/EXPERIMENT_LEDGER.md`.

@@ -214,6 +214,13 @@ reserved for proprietary evidence, Windows integration and GameClient/runtime.
 Do not repeat the same suite on both merely for reassurance. A duplicate run must
 name a portability, Windows-integration or final-acceptance purpose.
 
+For cross-provider continuation, the complete current snapshot and receiving prompt
+are `docs/AI_TRANSFER_HANDOFF_20260817.md` and
+`docs/AI_TRANSFER_PROMPT_20260817.md`. Workspace ownership is serialized through
+`docs/AI_WORKSPACE_LEASE.json`: only one user-designated executor may write or run
+the project; all executors reuse the existing main/console worktrees and GameClient
+paths, with no replacement clone/worktree/project folder.
+
 - Private GitHub repository: `panyaasanee/pirate-force-foundation-cloud`.
 - It is a sanitized code-only snapshot. It excludes the GameClient, proprietary
   decoded data, captures, databases, media, reports, backups, packages, machine

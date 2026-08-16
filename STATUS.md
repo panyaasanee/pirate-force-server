@@ -6,6 +6,10 @@ Execution is governed by `docs/WORKFLOW.md`: one active milestone, Cloud-first
 sanitized work, Local-only proprietary/runtime work, tiered verification,
 risk-based audit after a frozen diff, and concise evidence documentation.
 
+AI-provider transfer is governed by `docs/AI_TRANSFER_HANDOFF_20260817.md` and
+`docs/AI_WORKSPACE_LEASE.json`: use the existing canonical worktrees only, allow one
+active executor, and never create a competing clone/worktree/project directory.
+
 ## Baselines
 
 - V140 remains the latest runtime-proven evidence checkpoint.
