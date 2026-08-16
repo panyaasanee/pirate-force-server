@@ -375,6 +375,14 @@ other.
   state leaves slot 2 unoccupied. Use this only as client compatibility evidence.
   It does not authenticate the composed response, original-server reconnect
   ordering, or persistence policy, and it does not promote HYP-PF-008 above D.
+- ITEM-MOVE-CONSUMER-001 statically proves the response consumer clears the old
+  displayed payload by qword identity, routes by the incoming slot and clones
+  the complete incoming ItemAttr fields into the destination slot payload. It
+  does not compare old quantity or old slot and has no occupancy rejection in
+  this exact slot-widget path. With the already-proven free slot 2, no hidden
+  client-prestate gate remains for the composed quantity-2/slot-2 response.
+  Keep original-server response selection, persistence/reconnect policy and live
+  UI acceptance as missing; HYP-PF-008 remains Grade D and non-production.
 
 - `STATUS.md` and the ledger contain the full accepted record through
   ITEM-LIFECYCLE-001.

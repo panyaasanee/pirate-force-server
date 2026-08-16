@@ -176,6 +176,16 @@ Updated: 2026-08-16
   proves client compatibility/internal ordering, not original-server response,
   reconnect ordering policy, persistence, or runtime acceptance; HYP-PF-008
   remains Grade D and non-production.
+- ITEM-MOVE-CONSUMER-001 closes the hidden client-prestate question with exact
+  static proof. The ItemOperate result handler clears the displayed payload that
+  matches the incoming qword identity, routes by the incoming slot, and clones
+  the complete incoming ItemAttr identity/template/quantity/slot into the
+  destination slot object. It does not compare old quantity or old slot and has
+  no destination-occupancy rejection in that exact slot-widget lane. Composed
+  with the proven merged state and free slot 2, the quantity-2/slot-2 response
+  has no hidden consumer-side prestate gate. Original-server response selection,
+  durable/reconnect policy and live UI acceptance remain missing, so HYP-PF-008
+  stays Grade D, test-only and non-production.
 
 ## Test Arena V1
 
