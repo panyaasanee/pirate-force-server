@@ -23,7 +23,8 @@ Both exact 14,759,424-byte client profiles have identical relevant code:
   `+0x24` after identity and selector (`0x5DFF93 -> 0x89A810`; mirrored reader
   `0x5E0086 -> 0x89A880`). SelectActor consumer `0x5EFC40 -> 0x5DDD00`
   retains the full actor records.
-- ActorAttr constructor `0x464C00` constructs the wstring at `+0x164`.
+- ActorAttr constructor entry `0x464BE0` constructs the wstring at `+0x164` at
+  `0x464C84`.
   Serializer `0x466230` writes the 64-bit mask, its mandatory bool, then fields
   in ascending mask-bit order. Cash bit `0x00000800` writes qword `+0xA8` at
   `0x4663C6..0x4663DF`; name bit `0x01000000` writes wstring `+0x164` at
