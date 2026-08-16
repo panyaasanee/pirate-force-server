@@ -27,7 +27,9 @@
           "status": "runtime_pass",
           "evidence_refs": [
             "reports/PF_ITEM_MOVE_CAPTURE001_FREE_SLOT_REQUEST_RUNTIME_PASS_20260817.md",
-            "reports/PF_DEMO_FULLLOOP001_CANONICAL_PORT_ROYAL_RUNTIME_PASS_20260817.md"
+            "reports/PF_DEMO_FULLLOOP001_CANONICAL_PORT_ROYAL_RUNTIME_PASS_20260817.md",
+            "reports/PF_RE_V102_Inventory_Unlock_20260814.md",
+            "reports/PF_RE_V103_One_Item_Backpack_20260814.md"
           ],
           "test_refs": [
             "tests/test_item_lifecycle.py"
@@ -55,7 +57,8 @@
           "status": "blocked",
           "evidence_refs": [
             "reports/PF_ITEM_MOVE_CAPTURE001_FREE_SLOT_REQUEST_RUNTIME_PASS_20260817.md",
-            "reports/PF_ITEM_MOVE_CONSUMER001_RESPONSE_APPLY_STATIC_CHECKPOINT_20260816.md"
+            "reports/PF_ITEM_MOVE_CONSUMER001_RESPONSE_APPLY_STATIC_CHECKPOINT_20260816.md",
+            "reports/PF_ITEM_MOVE_ORDER001_BACKPACK_IDENTITY_ORDER_STATIC_CHECKPOINT_20260816.md"
           ],
           "test_refs": [
             "tests/test_item_move_capture.py",
@@ -79,7 +82,11 @@
           "title": "Negative paths: unknown identity, out-of-range slot, malformed, replay, session and account isolation",
           "required": true,
           "status": "in_progress",
-          "evidence_refs": [],
+          "evidence_refs": [
+            "reports/PF_RE_V104_ItemOperate_Request_Capture_20260814.md",
+            "reports/PF_RE_V105_ItemOperate_Response_Version_Boundary_20260814.md",
+            "reports/PF_RE_V106_ItemOperate_V2_Accepted_Removal_Boundary_20260814.md"
+          ],
           "test_refs": [
             "tests/test_item_move_hypothesis.py",
             "tests/test_item_move_capture.py",
@@ -305,7 +312,8 @@
           "status": "runtime_pass",
           "evidence_refs": [
             "reports/PF_OBJECT_POP002_AUTHORITATIVE_SCENE_ACTOR_RUNTIME_PASS_20260816.md",
-            "reports/PF_RE_V93_Runtime_and_V94_Local_Population_Streaming_20260814.md"
+            "reports/PF_RE_V93_Runtime_and_V94_Local_Population_Streaming_20260814.md",
+            "reports/PF_RE_V138_MARKER1_Nearest20_Population_Reapply_Pass_20260815.md"
           ],
           "test_refs": [
             "tests/test_population.py",
@@ -351,7 +359,9 @@
           "status": "runtime_pass",
           "evidence_refs": [
             "reports/PF_SCENE005_FACTION1_HOSTILE_RELATION_RUNTIME_PASS_20260815.md",
-            "reports/PF_RELATION_COMPARATOR_RUNTIME_TRACE_20260815.md"
+            "reports/PF_RELATION_COMPARATOR_RUNTIME_TRACE_20260815.md",
+            "reports/PF_RE_V132_Tab_SelectTarget_Negative_Boundary_20260815.md",
+            "reports/PF_RE_V133_P70_Relation_Display_Negative_Boundary_20260815.md"
           ],
           "test_refs": [
             "tests/test_relation_probe.py",
@@ -366,7 +376,8 @@
           "status": "runtime_pass",
           "evidence_refs": [
             "reports/PF_SCENE006_EA7D_ATTACK_COMMAND_RUNTIME_PASS_20260815.md",
-            "reports/PF_COMBAT_BIND001_EA7D_BEHAVIOR_SELECTION_STATIC_CHECKPOINT_20260816.md"
+            "reports/PF_COMBAT_BIND001_EA7D_BEHAVIOR_SELECTION_STATIC_CHECKPOINT_20260816.md",
+            "reports/PF_RE_V128_Wield_Z_ActionVital_Capture_20260814.md"
           ],
           "test_refs": [
             "tests/test_action_producer_probe.py"
@@ -687,7 +698,9 @@
           "status": "in_progress",
           "evidence_refs": [
             "reports/PF_RE_V139_P86_Interaction_Operational_Negative_20260815.md",
-            "reports/PF_RE_V140_P86_Synthetic_Harness_Interaction_Pass_20260815.md"
+            "reports/PF_RE_V140_P86_Synthetic_Harness_Interaction_Pass_20260815.md",
+            "reports/PF_RE_V134_Q3020_Conversation_Handshake_Operational_Negative_20260815.md",
+            "reports/PF_RE_V126_Failed_Operational_P91_Mistarget_20260814.md"
           ],
           "test_refs": [],
           "notes": "V139 was statically valid but operationally unreachable, and V140 passed only after an explicit synthetic harness position was substituted. That harness is a test device and is never permission to place synthetic positions in production population data."
