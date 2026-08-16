@@ -544,6 +544,7 @@
             "reports/PF_FOUNDATION_ARENA_V2_FACTION_ONLY_NEGATIVE_20260815.md"
           ],
           "test_refs": [
+            "tests/test_character_identity_binding.py",
             "tests/test_foundation.py"
           ],
           "notes": "The store implements creation with identity binding, a normalized name key, and a submitted-wire fingerprint, and it is offline-tested. No runtime pass creates a character through the client, and JOB-001 proves no persistent job/class selector has been identified in any wire record, so the creation presets cannot yet be honored."
@@ -581,6 +582,7 @@
           "status": "in_progress",
           "evidence_refs": [],
           "test_refs": [
+            "tests/test_character_identity_binding.py",
             "tests/test_foundation.py"
           ],
           "notes": "Actor and avatar wires are persisted and replayed as opaque bytes with server-side identity rebinding, which preserves appearance without decoding it. No field-level appearance model exists, so appearance cannot be edited, validated, or generated."
