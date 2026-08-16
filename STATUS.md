@@ -132,6 +132,24 @@ Updated: 2026-08-16
   membership, combat, or another object-domain claim. Shutdown emitted one stopped
   marker with empty stderr and no remaining listeners, but no exit-code sidecar
   exists, so exit 0 is not claimed.
+- ITEM-LIFECYCLE-001 closes one exact persistent Backpack transition. Round A
+  StartGame carried the accepted four-record initial Backpack once, then exact
+  V111 request `(operation=4,value32=0,item_identity=3)` committed identity 1
+  quantity 2 and removed identity 3 before the exact frozen response was sent.
+  Round B reconnected without CreateActor or ItemOperate and received an exact
+  three-record merged Backpack in StartGame. Replacing only the 159-byte initial
+  Backpack subwire with the 124-byte merged subwire produces the complete B
+  StartGame PC byte for byte; reframing that PC produces the complete B frame.
+  The pre-to-final database allowlist is
+  migration 3, the exact Backpack post-state and closed session generations
+  12/13; account, `Arena01`, selector, identity, opaque actor/avatar blobs,
+  position, older sessions, integrity and foreign keys remain fixed. The Chief
+  directly observed the Round A UI count change `4/40` to `3/40` after drag
+  (operator observation; no screenshot retained). Policy prevented entering the
+  second-password PIN in Round B, so there is no B UI count claim. This proves
+  only the exact V111 merge/reconnect projection—not generalized item moves,
+  equipment, ownership, concurrency or crash recovery. No retained server exit
+  sidecar exists and PTY exit was 1, so no clean-shutdown/exit-0 claim is added.
 
 ## Test Arena V1
 
@@ -488,5 +506,5 @@ Updated: 2026-08-16
 The legacy V141 source remains immutable and is loaded as a compatibility oracle.
 Gameplay dispatch falls through to it unchanged outside the lifecycle boundary.
 The configured server token currently identifies one local test account. Authenticated
-multi-account ownership, delete UI, live world-visible character-name rendering, job/class semantics,
-name uniqueness policy, inventory persistence and crash-time live capture remain later gates.
+multi-account ownership, delete UI, job/class semantics, name uniqueness policy,
+generalized inventory/equipment persistence and crash-time item transactions remain later gates.

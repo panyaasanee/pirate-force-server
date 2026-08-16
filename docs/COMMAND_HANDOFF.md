@@ -340,9 +340,25 @@ other.
   policy, persisted membership, combat/faction, or any item/vehicle/portal claim.
   Shutdown has one stopped marker, empty stderr and no listeners, but no retained
   exit code; do not claim exit 0.
+- ITEM-LIFECYCLE-001 proves one exact persistent V111 Backpack transition only.
+  Round A StartGame contained the four-record initial state; the exact 36-byte
+  `(op4,value0,id3)` request committed identity 1 quantity 2 and removed identity
+  3 before the frozen response was sent. Round B reconnected with no CreateActor
+  or ItemOperate and projected the exact merged three-record state. A/B Character
+  List bytes are identical, and replacing only the 159-byte initial Backpack
+  subwire with the 124-byte merged subwire produces the complete B StartGame PC;
+  reframing that PC produces the complete B frame. Final DB changes are limited
+  to migration 3, that Backpack post-state
+  and closed generations 12/13; identity, `Arena01`, opaque blobs, position and
+  older rows remain exact. The Chief directly observed Round A UI `4/40`→`3/40`
+  after drag (operator observation; no screenshot retained). Computer-use policy
+  blocked Round B PIN entry, so use raw StartGame/DB—not UI—as reconnect proof.
+  Do not generalize to moves, split/drop, equipment, ownership, concurrency,
+  multi-account authorization or crash recovery. No retained server exit sidecar
+  exists and PTY exit was 1; do not claim a clean stop or exit 0.
 
 - `STATUS.md` and the ledger contain the full accepted record through
-  OBJECT-POP-002.
+  ITEM-LIFECYCLE-001.
 - Foundation lifecycle and the assisted reconnect are accepted within their
   documented ceilings.
 - Arena P30 spawn/target passed, but stable hostile-monster classification did
