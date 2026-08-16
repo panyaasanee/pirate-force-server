@@ -48,8 +48,18 @@ Updated: 2026-08-16
 - A live assisted-UI run now proves Create -> commit -> List -> Select -> StartGame,
   a position checkpoint, client exit/relaunch, and reload of the same `Arena01`
   character and scene-1 position while the same server process remained running.
-  Server-process restart/crash durability, delete, remote-player naming and
-  authenticated multi-account ownership remain unproven.
+- FND-006 extends that boundary across one actual server-process restart. Round A
+  checkpointed `Arena01` at scene 1/seq 0, `(-9192.125,-2674.037109375,186)`,
+  heading `5.009882926940918`; after the process and listeners stopped, Round B
+  expired lease generation 6, opened generation 7, and emitted those exact values
+  in fresh Select/StartGame while preserving identity, name, and opaque actor/avatar
+  blobs. The Chief directly observed minimap `-9192,-2674` and name `Arena01` in
+  the client UI (operator observation; no screenshot retained). This is not a
+  clean-shutdown pass: Round A Ctrl+C returned tool exit 1 without a stopped
+  marker, Round B signal attempts failed, validated PID 328 required Stop-Process,
+  and generation 7 remains open. Crash durability, graceful session close, delete,
+  remote/multi-account naming, rename policy, and authenticated ownership remain
+  unproven.
 
 ## Test Arena V1
 

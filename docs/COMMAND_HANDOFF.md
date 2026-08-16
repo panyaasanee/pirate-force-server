@@ -250,6 +250,20 @@ other.
   was retained, so keep the visual fact attributed to the direct UI observation.
   This does not prove remote-player names, rename/uniqueness policy, authenticated
   ownership, or server-process restart durability.
+- FND-006 proves one bounded server-process restart. Round A started existing
+  `Arena01` at scene 1/seq 0 `(-9239.95703125,-2830.045166015625,186)`, heading 0;
+  a single click-to-move gesture produced TargetPos updates and committed final
+  checkpoint `(-9192.125,-2674.037109375,186)`, heading `5.009882926940918`.
+  After the Round-A process/listeners stopped, Round B expired lease generation 6,
+  opened generation 7, and fresh Select/StartGame emitted the exact checkpoint
+  while preserving selector 0, identity `0x10010001:0`, name `Arena01`, and opaque
+  actor/avatar blobs. The Chief directly observed minimap `-9192,-2674` and world
+  name `Arena01` in the client UI (operator observation; no screenshot retained).
+  Do not call this graceful or crash-safe: Round A Ctrl+C ended with
+  tool exit 1 and no stopped marker; Round B console-control attempts failed and
+  validated server PID 328 was terminated by Stop-Process under the stop rule;
+  generation 7 remains open. Next durability work must prove clean server shutdown
+  and session closure separately before crash recovery.
 
 - `STATUS.md` and the ledger contain the full accepted record through SCENE-010.
 - Foundation lifecycle and the assisted reconnect are accepted within their
