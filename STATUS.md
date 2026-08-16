@@ -291,6 +291,16 @@ Updated: 2026-08-16
   preset strings. Resume only after an exact named-key-to-wire setter plus a
   corresponding List/StartGame consumer, or a natural trace designed from such a
   static boundary.
+- DELETE-003 proves only the nested `DeleteActorVital` producer/submission
+  boundary. Raw operation values 1 and 2 are constructed by distinct UI paths and
+  both reach generic `0x4011A0 -> 0x5DD800`; no exact edge binds either object to
+  an outer protocol class/version/mask/count or response. An isolated `DelTst01`
+  run reached a confirmation dialog by operator observation and was cancelled
+  before the affirmative action; no screenshot was retained, all captured logs
+  contain zero `0x36DB`, and the isolated database guard is `PASS_UNCHANGED` with
+  `deleted_at=NULL`. This is no Delete request, response, refresh, or mutation
+  proof. Do not add an outer parser/response/repository delete path. Any future
+  affirmative UI delete action requires action-time confirmation.
 - HOTBAR-001 proves only the structural boundary of
   `SetItemOnParticularHotKeyPosVital`. Exact registration stores deterministic
   class-name hash `0xE0AC` in `0x10820A4`; standalone getter `0x5E4A40` reads that

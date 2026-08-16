@@ -375,6 +375,16 @@ other.
   `+0x18` as class: it is zero in the capture while the matching preset key is one.
   Preserve all Avatar bytes losslessly and opaquely. Resume only after a named-key
   setter/copy chain and matching List/StartGame consumer are exact.
+- DELETE-003 closes only the nested-object producer boundary. Exact UI paths
+  construct `DeleteActorVital` raw operation values 1 and 2 and submit both through
+  generic `0x4011A0 -> 0x5DD800`; no exact static edge proves the outer protocol
+  class/version/mask/count, response, list refresh or repository mutation. The
+  isolated `DelTst01` UI run was cancelled at the observed confirmation dialog;
+  no screenshot was retained, no `0x36DB` appears in the retained logs, and the
+  isolated main/WAL/SHM DB guard is `PASS_UNCHANGED` with `deleted_at=NULL`.
+  Treat that as a no-request/no-mutation operational negative, not a delete pass.
+  Do not name op 1/2, implement an outer parser/response/delete path, or perform a
+  final affirmative UI action without fresh action-time confirmation.
 - HOTBAR-001 establishes only the exact structural codec and client-consumer
   boundary for `SetItemOnParticularHotKeyPosVital`. Registration stores the
   deterministic name hash `0xE0AC` at `0x10820A4`; getter `0x5E4A40` reads it.
