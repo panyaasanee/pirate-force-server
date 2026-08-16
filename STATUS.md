@@ -2,6 +2,10 @@
 
 Updated: 2026-08-16
 
+Execution is governed by `docs/WORKFLOW.md`: one active milestone, Cloud-first
+sanitized work, Local-only proprietary/runtime work, tiered verification,
+risk-based audit after a frozen diff, and concise evidence documentation.
+
 ## Baselines
 
 - V140 remains the latest runtime-proven evidence checkpoint.

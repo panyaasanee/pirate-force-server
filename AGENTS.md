@@ -19,6 +19,9 @@ engineering and implementation effort.
 ## Authoritative status
 
 - Read `STATUS.md` first, then `docs/EXPERIMENT_LEDGER.md`.
+- Read and follow `docs/WORKFLOW.md`; it is the canonical execution, Cloud/local,
+  verification, audit, and documentation workflow. Older handoff prose cannot
+  override it.
 - V140 is the latest formally accepted runtime checkpoint.
 - V141 is the immutable legacy characterization source used by the modular adapter.
   It is offline self-tested; a raw capture exists but is not yet formally audited,
@@ -93,7 +96,7 @@ interaction. Passing a regression does not expand any historical evidence ceilin
 
 ## Verification
 
-Before accepting a Foundation change run:
+Before accepting a material Foundation implementation change run:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\verify_foundation.ps1
@@ -102,6 +105,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\verify_foundation.ps1
 The verifier must cover legacy self-test, modular tests, malformed/negative paths,
 migration atomicity/checksum, account/session isolation, deterministic archive,
 forbidden Git paths and diff hygiene.
+
+Use the T0-T3 tiers in `docs/WORKFLOW.md`: focused tests are the editing loop and
+the full verifier runs once after a stable implementation diff. Docs-only wording
+or evidence corrections do not require the full verifier unless they change an
+executable contract, canonical ledger, release input, or verifier.
 
 Do not combine an architecture migration with a new gameplay/protocol hypothesis.
 One milestone has one primary claim and explicit nonclaims. Commit state before
@@ -114,8 +122,9 @@ queueing a success response; set one-shot state before queueing a one-shot packe
 - Never track binaries, packages, backups, captures, databases, generated releases,
   decoded proprietary material or media.
 - Generated release artifacts are never hand-edited.
-- One implementation commit, independent audit, corrective commit, then runtime
-  result commit/tag. Do not rewrite frozen evidence history.
+- Normally use one implementation commit, one corrective commit only when a real
+  finding requires it, then one runtime-result commit/tag. Do not manufacture
+  audit/corrective cycles or rewrite frozen evidence history.
 
 ## Team and token economy
 
@@ -124,11 +133,17 @@ queueing a success response; set one-shot state before queueing a one-shot packe
 - Character Wire Audit: protocol/identity/order reviewer.
 - Persistence Design: database/transaction/crash reviewer.
 - Static RE/QA: client provenance, repository, release and documentation reviewer.
-- Use one implementer plus one independent reviewer. Add a third reviewer only for
-  high-risk cross-domain boundaries; avoid duplicate audits.
+- Keep one active milestone and one implementer. Apply the risk tiers in
+  `docs/WORKFLOW.md`: one independent reviewer is mandatory for high-risk work,
+  targeted when useful for medium risk, and unnecessary for low-risk work. Review
+  only a frozen diff; avoid duplicate or reassurance-only audits.
 - Keep mobile status updates short. Use `STATUS.md` and the experiment ledger instead
   of repeating history. Write long reports only for major runtime pass/negative
   checkpoints.
+- Default sanitized coding, portable tests, static analysis, and review to Cloud.
+  Reserve local Windows for proprietary inputs, GameClient/runtime/instrumentation,
+  Windows integration, and the final authoritative gate. Never duplicate Cloud and
+  local execution without an explicit portability or integration purpose.
 
 ## Roadmap order
 

@@ -101,6 +101,9 @@ later subsystem or reorder the production roadmap.
 
 ### Milestone contract
 
+The canonical operating procedure is `docs/WORKFLOW.md`. The checklist below is a
+summary; follow the canonical file when older narrative differs.
+
 For each milestone:
 
 1. State one primary claim and explicit nonclaims.
@@ -111,8 +114,9 @@ For each milestone:
    tests appropriate to the boundary.
 5. Run focused tests while iterating; run the full deterministic verifier once at
    the acceptance boundary.
-6. Use one independent reviewer. Add another only for a genuinely high-risk
-   protocol/persistence crossing.
+6. Apply risk-based audit: one independent reviewer after a frozen diff for
+   high-risk work, a targeted review when useful for medium risk, and self-review
+   for low-risk work. Do not review work-in-progress or run duplicate audits.
 7. Commit the implementation checkpoint before runtime testing when appropriate.
 8. Run a controlled local GameClient test for visual/runtime claims, preserve raw
    evidence and hashes, and record pass, negative, or blocker truthfully.
@@ -192,6 +196,8 @@ other.
 - Keep only one command task active locally. Use one implementer and one reviewer
   only when the task genuinely benefits from delegation; do not leave idle agents
   or duplicate audits running.
+- Keep one project milestone active. Finish, retire, or record its bounded negative
+  before opening an adjacent research lane.
 - During code work, keep GameClient and Computer Use closed. During runtime work,
   keep only GameClient, the server, a lightweight recorder, and this command task.
 - Do not interpret multiple ChatGPT/Codex processes in Task Manager as multiple
@@ -201,6 +207,12 @@ other.
   Use project status files instead of reopening or restating all history.
 
 ## Cloud/local split now established
+
+`docs/WORKFLOW.md` makes this split an acceptance gate. Cloud is the default for
+sanitized implementation, portable tests, static analysis and review; Local is
+reserved for proprietary evidence, Windows integration and GameClient/runtime.
+Do not repeat the same suite on both merely for reassurance. A duplicate run must
+name a portability, Windows-integration or final-acceptance purpose.
 
 - Private GitHub repository: `panyaasanee/pirate-force-foundation-cloud`.
 - It is a sanitized code-only snapshot. It excludes the GameClient, proprietary
@@ -611,15 +623,16 @@ other.
 
 ## Selecting the next milestone
 
-- The user has explicitly delegated milestone design and set monster combat as the
-  current priority. Continue autonomously with the smallest evidence-backed step;
+- The user has delegated milestone design and autonomous continuation toward the
+  full project roadmap. Continue with the single smallest evidence-backed dependency;
   ask only when new authority, destructive action or a major roadmap change is needed.
 - Preserve frozen V141 and all currently accepted Foundation, Arena, relation, and
   Scene behavior.
 - Build a focused version only after evidence establishes one isolated delta.
-- Run focused tests during iteration. Run `tools\verify_foundation.ps1` once before
-  accepting an implementation checkpoint, then obtain one independent audit and
-  perform a controlled local GameClient runtime test when the claim needs it.
+- Run focused tests during iteration. Run `tools\verify_foundation.ps1` once after
+  a stable material implementation diff. Obtain independent audit according to the
+  workflow risk tier, then perform controlled local GameClient runtime only when
+  the claim needs it.
 
 ## Runtime discipline learned from prior rounds
 
