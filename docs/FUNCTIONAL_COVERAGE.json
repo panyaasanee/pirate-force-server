@@ -1,0 +1,244 @@
+{
+  "schema": 1,
+  "policy": {
+    "statuses": [
+      "not_started",
+      "in_progress",
+      "blocked",
+      "runtime_pass",
+      "complete"
+    ],
+    "completion_rule": "A domain may set domain_complete=true only when every required capability is exactly 'complete'. 'runtime_pass' is a narrow controlled observation and never closes a domain by itself.",
+    "banner_rule": "Every domain publishes status_banner verbatim in STATUS.md. The banner is '<title>: INCOMPLETE' while domain_complete is false and '<title>: COMPLETE' only when it is true.",
+    "policy_text": "A narrow fixture, golden, or single controlled run proves one fact and never closes a domain function. Full stateful completion requires the client/wire path, database persistence, reconnect projection, and the negative paths together. Every handoff must name the next missing behavior for each open domain."
+  },
+  "domains": [
+    {
+      "id": "inventory",
+      "title": "Inventory",
+      "domain_complete": false,
+      "status_banner": "Inventory: INCOMPLETE",
+      "next_missing_behavior": "move_known_item_any_free_slot",
+      "capabilities": [
+        {
+          "id": "backpack_open_display",
+          "title": "Backpack open and display",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_ITEM_MOVE_CAPTURE001_FREE_SLOT_REQUEST_RUNTIME_PASS_20260817.md",
+            "reports/PF_DEMO_FULLLOOP001_CANONICAL_PORT_ROYAL_RUNTIME_PASS_20260817.md"
+          ],
+          "test_refs": [
+            "tests/test_item_lifecycle.py"
+          ],
+          "notes": "The client renders the persisted three-item Backpack as 3/40 with identities 1, 2 and 4 at slots 0, 1 and 3. This is one controlled observation of the projection, not a proof of every bag size, page, or filter."
+        },
+        {
+          "id": "persisted_projection_reconnect",
+          "title": "Persisted projection survives reconnect",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_ITEM_LIFECYCLE001_V111_STACK_MERGE_PERSISTENCE_RUNTIME_PASS_20260816.md"
+          ],
+          "test_refs": [
+            "tests/test_item_lifecycle.py",
+            "tests/test_item_order_static.py"
+          ],
+          "notes": "Persistence across one merge is runtime-proven. Identity ordering on reconnect is canonicalized client-compatible ordering, not proven original-server policy; see HYP-PF-008 provenance."
+        },
+        {
+          "id": "move_known_item_any_free_slot",
+          "title": "Move any known item to any free slot 0-39",
+          "required": true,
+          "status": "blocked",
+          "evidence_refs": [
+            "reports/PF_ITEM_MOVE_CAPTURE001_FREE_SLOT_REQUEST_RUNTIME_PASS_20260817.md",
+            "reports/PF_ITEM_MOVE_CONSUMER001_RESPONSE_APPLY_STATIC_CHECKPOINT_20260816.md"
+          ],
+          "test_refs": [
+            "tests/test_item_move_capture.py",
+            "tests/test_item_move_hypothesis.py"
+          ],
+          "notes": "Blocked on hypothesis ledger review. The exact client request producer is Grade B proven and an implementation exists as uncommitted work in progress, but HYP-PF-008 accepted_ceiling and stop_rule permit only the single opt-in identity-1 slot-0 to slot-2 composition. Generalizing to any identity and any free slot needs a ledger decision by the project owner before the work may be committed."
+        },
+        {
+          "id": "same_slot_noop",
+          "title": "Same-slot move is an exact no-op",
+          "required": true,
+          "status": "blocked",
+          "evidence_refs": [],
+          "test_refs": [
+            "tests/test_item_move_hypothesis.py"
+          ],
+          "notes": "Blocked behind the same ledger review as move_known_item_any_free_slot. No response, no write and no replay is the intended behavior; it has no runtime evidence yet."
+        },
+        {
+          "id": "move_negative_paths",
+          "title": "Negative paths: unknown identity, out-of-range slot, malformed, replay, session and account isolation",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [],
+          "test_refs": [
+            "tests/test_item_move_hypothesis.py",
+            "tests/test_item_move_capture.py",
+            "tests/test_connection_lifecycle.py"
+          ],
+          "notes": "Offline negative coverage exists for the opt-in composition. Cross-account and cross-session isolation for a generalized move is not covered and has no runtime evidence."
+        },
+        {
+          "id": "occupied_destination_policy",
+          "title": "Occupied destination with a different item: swap, displacement or reject",
+          "required": true,
+          "status": "not_started",
+          "evidence_refs": [],
+          "test_refs": [],
+          "notes": "Must remain fail-closed reject until exact original behavior is captured. An explicit reject|swap server parameter defaulting to reject is the planned shape; any swap mode stays Grade D until runtime plus persistence and reconnect evidence exist."
+        },
+        {
+          "id": "stack_merge_and_limit",
+          "title": "Compatible stack merge and stack limit behavior",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_ITEM_LIFECYCLE001_V111_STACK_MERGE_PERSISTENCE_RUNTIME_PASS_20260816.md",
+            "reports/PF_RE_V107_to_V110_Stateful_Inventory_and_ActionItem_Capture_20260814.md"
+          ],
+          "test_refs": [
+            "tests/test_item_lifecycle.py"
+          ],
+          "notes": "One exact V111 merge to quantity 2 is runtime-proven and persisted. The stack ceiling, overflow split-on-merge behavior, and incompatible-template rejection are unproven."
+        },
+        {
+          "id": "split_stack",
+          "title": "Split a stack",
+          "required": true,
+          "status": "not_started",
+          "evidence_refs": [],
+          "test_refs": [],
+          "notes": "No request producer, response shape, or persistence policy captured."
+        },
+        {
+          "id": "equip_unequip",
+          "title": "Equip and unequip from the Backpack",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_EQUIP_STATE001_EQUIPPED_VS_COLLECTION_STATIC_BOUNDARY_20260816.md",
+            "reports/PF_RE_V123_Starter_Blade_Equip_From_Bag_Capture_20260814.md",
+            "reports/PF_RE_V130_Equipped_Blade_Negative_Boundary_20260815.md"
+          ],
+          "test_refs": [],
+          "notes": "Static boundary between equipped state and the Backpack collection is characterized and one capture exists. No server-side equip operation, persistence, or reconnect projection is implemented."
+        },
+        {
+          "id": "use_drop_sell",
+          "title": "Use, drop and sell paths",
+          "required": true,
+          "status": "not_started",
+          "evidence_refs": [],
+          "test_refs": [],
+          "notes": "Tracked as separate later milestones. Listed here so the domain can never read as complete while they are missing."
+        }
+      ]
+    },
+    {
+      "id": "session_lifecycle",
+      "title": "Session lifecycle",
+      "domain_complete": false,
+      "status_banner": "Session lifecycle: INCOMPLETE",
+      "next_missing_behavior": "concurrent_multi_client",
+      "capabilities": [
+        {
+          "id": "visible_console_requirement",
+          "title": "Every actual server run shows a visible console and mirrors its summary streams",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_CONSOLE001_VISIBLE_CONSOLE_RUNTIME_PASS_20260817.md"
+          ],
+          "test_refs": [
+            "tests/test_runtime_console.py"
+          ],
+          "notes": "One controlled start and requested stop through this exact helper and console host. --self-test-only stays exempt because it opens no listener."
+        },
+        {
+          "id": "requested_stop_clean_exit",
+          "title": "Requested stop exits server and shim with code 0 and no residue",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_CONSOLE001_VISIBLE_CONSOLE_RUNTIME_PASS_20260817.md",
+            "reports/PF_FND008_ACTIVE_CLIENT_CLEAN_SERVER_SHUTDOWN_RUNTIME_PASS_20260816.md"
+          ],
+          "test_refs": [
+            "tests/test_server_shutdown.py"
+          ],
+          "notes": "Exactly one stopped marker, zero stderr bytes, zero remaining listeners and processes. Not proof for every signal source."
+        },
+        {
+          "id": "character_select_to_scene_entry",
+          "title": "Character select, StartGame and scene entry through the real client",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_DEMO_FULLLOOP001_CANONICAL_PORT_ROYAL_RUNTIME_PASS_20260817.md"
+          ],
+          "test_refs": [
+            "tests/test_connection_lifecycle.py"
+          ],
+          "notes": "One single-client session reaching Port Royal with the persisted name projected, then exiting cleanly."
+        },
+        {
+          "id": "session_row_persistence",
+          "title": "Session row opens on entry and closes on exit with a durable lease generation",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_DEMO_FULLLOOP001_CANONICAL_PORT_ROYAL_RUNTIME_PASS_20260817.md",
+            "reports/PF_FND007_GAME_DISCONNECT_LEASE_CLOSE_RUNTIME_PASS_SHUTDOWN_NEGATIVE_20260816.md"
+          ],
+          "test_refs": [
+            "tests/test_connection_lifecycle.py"
+          ],
+          "notes": "Read-only post-state oracle confirms one session row with both timestamps, integrity ok and an empty foreign-key check."
+        },
+        {
+          "id": "abrupt_loss_recovery",
+          "title": "Abrupt client loss and abrupt server restart recover to a usable state",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_FND009_ABRUPT_PROCESS_RESTART_RECOVERY_RUNTIME_PASS_20260816.md",
+            "reports/PF_FND010_ABRUPT_CLIENT_PROCESS_LOSS_RECONNECT_RUNTIME_PASS_20260816.md",
+            "reports/PF_FND006_SERVER_RESTART_DURABILITY_RUNTIME_PASS_SHUTDOWN_NEGATIVE_20260816.md"
+          ],
+          "test_refs": [
+            "tests/test_server_shutdown.py",
+            "tests/test_connection_lifecycle.py"
+          ],
+          "notes": "Process-level abrupt loss is covered. Host power loss and storage-level torn writes are not."
+        },
+        {
+          "id": "concurrent_multi_client",
+          "title": "Two or more concurrent clients on separate accounts",
+          "required": true,
+          "status": "not_started",
+          "evidence_refs": [],
+          "test_refs": [],
+          "notes": "Every runtime pass so far is single client on one machine. Account isolation, per-session state separation and remote-player projection are unproven."
+        },
+        {
+          "id": "authenticated_multi_account",
+          "title": "Authenticated multi-account access control",
+          "required": true,
+          "status": "not_started",
+          "evidence_refs": [],
+          "test_refs": [],
+          "notes": "The local server accepts the development login path only. No credential policy, rate limit, or ownership check is claimed."
+        }
+      ]
+    }
+  ]
+}

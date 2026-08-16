@@ -110,6 +110,7 @@
 !/tools/pf_structural_corpus_audit_config.json
 !/tests/test_structural_corpus_audit.py
 !/tools/verify_hypothesis_ledger.py
+!/tools/verify_functional_coverage.py
 !/tools/run_test_arena.ps1
 !/tools/run_scene2_load_only.ps1
 !/tools/run_foundation_visible.ps1

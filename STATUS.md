@@ -13,6 +13,25 @@ AI-provider transfer is governed by `docs/AI_TRANSFER_HANDOFF_20260817.md` and
 `docs/AI_WORKSPACE_LEASE.json`: use the existing canonical worktrees only, allow one
 active executor, and never create a competing clone/worktree/project directory.
 
+## Functional coverage
+
+`docs/FUNCTIONAL_COVERAGE.json` is the canonical, machine-readable record of what
+each domain can actually do. `tools/verify_functional_coverage.py` runs inside the
+full verifier and rejects `domain_complete=true` while any required capability is
+short of `complete`. A narrow fixture, golden, or single controlled run earns
+`runtime_pass` at most; it never closes a domain.
+
+- **Inventory: INCOMPLETE** — next missing behavior: `move_known_item_any_free_slot`
+  (blocked on hypothesis ledger review; HYP-PF-008 permits only the single opt-in
+  identity-1 slot-0 to slot-2 composition). Occupied-destination policy, split
+  stack, and use/drop/sell are not started; equip/unequip and stack limits are
+  characterized but unimplemented.
+- **Session lifecycle: INCOMPLETE** — next missing behavior:
+  `concurrent_multi_client`. Visible console, requested-stop clean exit, character
+  select through scene entry, session-row persistence and abrupt-loss recovery are
+  each `runtime_pass` on single-client runs; concurrent clients and authenticated
+  multi-account access control are not started.
+
 ## Baselines
 
 - V140 remains the latest runtime-proven evidence checkpoint.

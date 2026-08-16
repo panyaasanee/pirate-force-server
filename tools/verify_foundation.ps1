@@ -46,6 +46,10 @@ py -3 -m py_compile tools\verify_hypothesis_ledger.py
 Assert-NativeSuccess -ExitCode $LASTEXITCODE -Step 'hypothesis ledger verifier py_compile'
 py -3 tools\verify_hypothesis_ledger.py
 Assert-NativeSuccess -ExitCode $LASTEXITCODE -Step 'hypothesis ledger verification'
+py -3 -m py_compile tools\verify_functional_coverage.py
+Assert-NativeSuccess -ExitCode $LASTEXITCODE -Step 'functional coverage verifier py_compile'
+py -3 tools\verify_functional_coverage.py
+Assert-NativeSuccess -ExitCode $LASTEXITCODE -Step 'functional coverage verification'
 py -3 -m py_compile tools\scene_db_guard.py
 Assert-NativeSuccess -ExitCode $LASTEXITCODE -Step 'database guard py_compile'
 [void][scriptblock]::Create((Get-Content -Raw tools\run_test_arena.ps1))
@@ -82,6 +86,7 @@ import hashlib, sys, zipfile
 expected = {
     'current/pf_login_game_server_v141.py',
     'docs/HYPOTHESIS_LEDGER.json',
+    'docs/FUNCTIONAL_COVERAGE.json',
     'migrations/001_initial.sql',
     'migrations/002_character_integrity.sql',
     'migrations/003_character_inventory.sql',
@@ -152,6 +157,7 @@ expected = {
     'tools/pf_structural_corpus_audit.py',
     'tools/pf_structural_corpus_audit_config.json',
     'tools/verify_hypothesis_ledger.py',
+    'tools/verify_functional_coverage.py',
     'tools/run_test_arena.ps1',
     'tools/run_scene2_load_only.ps1',
     'tools/run_foundation_visible.ps1',
