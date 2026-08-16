@@ -1,6 +1,6 @@
 # CHARACTER-NAME-001 — persisted player-name projection
 
-Date: 2026-08-16  
+Date: 2026-08-16
 Result: Grade A static boundary; offline implementation pass pending runtime
 
 ## Primary claim
