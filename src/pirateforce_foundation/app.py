@@ -7,6 +7,7 @@ from .connection import GameConnectionBindings, adapt_game_listener
 from .legacy_bridge import LegacyProjector, load_legacy
 from .lifecycle import CharacterLifecycle
 from .model import Position
+from .population_scenario import load_population_scenario
 from .runtime import make_state_class
 from .scenario import load_scenario
 from .scene_load import load_scene_load_scenario
@@ -25,6 +26,7 @@ def main() -> int:
     pre.add_argument('--db')
     pre.add_argument('--scenario')
     pre.add_argument('--scene-load-scenario')
+    pre.add_argument('--population-scenario')
     pre.add_argument('--capture-root')
     known, remaining = pre.parse_known_args(); sys.argv = [sys.argv[0], *remaining]
     scenario = load_scenario(known.scenario) if known.scenario else None
@@ -35,11 +37,21 @@ def main() -> int:
         load_scene_load_scenario(known.scene_load_scenario)
         if known.scene_load_scenario else None
     )
-    if scenario is not None and scene_load is not None:
-        pre.error('--scenario and --scene-load-scenario are mutually exclusive')
+    population = (
+        load_population_scenario(known.population_scenario)
+        if known.population_scenario else None
+    )
+    if sum(value is not None for value in (scenario, scene_load, population)) > 1:
+        pre.error(
+            '--scenario, --scene-load-scenario, and --population-scenario '
+            'are mutually exclusive'
+        )
     db_path = known.db or str(
-        root / ('state/test_arena_v1.sqlite3' if (scenario or scene_load)
-                else 'state/pirateforce.sqlite3')
+        root / (
+            'state/object_population_v94.sqlite3' if population is not None
+            else ('state/test_arena_v1.sqlite3' if (scenario or scene_load)
+                  else 'state/pirateforce.sqlite3')
+        )
     )
     legacy = load_legacy(root/'current/pf_login_game_server_v141.py')
     store = SQLiteStore(db_path, root/'migrations')
@@ -68,6 +80,7 @@ def main() -> int:
         legacy, lifecycle, projector, scenario=scenario,
         scene_load_scenario=scene_load, session_factory=session_factory,
         connection_bindings=connection_bindings,
+        population_scenario=population,
     )
     legacy.game_listener = adapt_game_listener(
         legacy.game_listener, connection_bindings, managed_sockets,

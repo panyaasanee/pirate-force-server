@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "id": "port_royal_authoritative_population_v94",
+  "test_only": true,
+  "entry": {
+    "flow": "full_writable_character",
+    "scene_id": 1
+  },
+  "population": {
+    "trigger": "first_exact_target_pos_after_runtime_ack",
+    "source": "v141_exact_port_royal_unambiguous_placements",
+    "source_count": 115,
+    "source_sha256": "22D7430E5954196E007D56CF1116BA1635BFFBB9AADA4501D2166E3772659618",
+    "authoritative_count": 20,
+    "refresh_distance": 1000,
+    "initial_reapply_ms": 3000
+  },
+  "transition": {
+    "retained": "npc_attr_only",
+    "entrants": "npc_attr_plus_full_movement_attr",
+    "omitted": "absent"
+  },
+  "capabilities": [
+    "authoritative_npc_style_membership"
+  ],
+  "nonclaims": [
+    "monster",
+    "remote_player",
+    "faction",
+    "combat",
+    "item",
+    "vehicle",
+    "portal",
+    "authentic_runtime_policy"
+  ]
+}

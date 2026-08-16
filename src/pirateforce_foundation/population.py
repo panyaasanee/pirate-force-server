@@ -240,3 +240,58 @@ def build_port_royal_membership_transition(
         pc,
         frame,
     )
+
+
+def build_port_royal_initial_population(
+    legacy: Any,
+    player_xyz: tuple[float, float, float],
+) -> SceneActorMembershipTransition:
+    """Build the exact initial nearest-20 generation with full movement.
+
+    This is deliberately separate from the transition builder: an empty prior
+    membership is valid only for the first opt-in generation.  Every selected
+    placement is therefore an entrant and carries NPCAttr plus the frozen full
+    MovementAttr shape.
+    """
+    placements = load_port_royal_placements(legacy)
+    by_index = {placement.placement_index: placement for placement in placements}
+    x, y, z = _validate_player_xyz(player_xyz)
+    candidates = []
+    for placement in placements:
+        distance2 = (
+            (placement.x - x) ** 2
+            + (placement.y - y) ** 2
+            + (placement.z - z) ** 2
+        )
+        if not math.isfinite(distance2):
+            raise ValueError("placement distance is non-finite")
+        candidates.append((distance2, placement.placement_index, placement))
+    candidates.sort(key=lambda item: (item[0], item[1]))
+    current = tuple(item[2] for item in candidates[:AUTHORITATIVE_COUNT])
+    if len(current) != AUTHORITATIVE_COUNT:
+        raise ValueError("insufficient exact placements for authoritative membership")
+
+    entries = []
+    for placement in current:
+        actor_identity = placement.actor_identity
+        npc_attr = legacy.make_npc_attr(
+            placement.template_id, actor_identity,
+            SCENE_ID, SCENE_SEQUENCE, placement.visual_preset,
+        )
+        movement = legacy.make_remote_movement_attr(
+            actor_identity,
+            placement.x, placement.y, placement.z,
+            _HEADINGS[placement.placement_index & 3],
+            mask=FULL_MOVEMENT_MASK,
+        )
+        entries.append(legacy.make_remote_actor_entry(
+            NPC_STYLE_ACTOR_TYPE, actor_identity,
+            [(NPC_ATTR_ID, npc_attr), (MOVEMENT_ATTR_ID, movement)],
+        ))
+    pc, frame = legacy.make_runtime_remote_actors(entries)
+    current_indices = tuple(item.placement_index for item in current)
+    identities = tuple(by_index[index].actor_identity for index in current_indices)
+    return SceneActorMembershipTransition(
+        (), current_indices, (), current_indices, (),
+        identities, (), identities, (), pc, frame,
+    )

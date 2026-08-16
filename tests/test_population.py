@@ -18,6 +18,7 @@ from pirateforce_foundation.population import (
     NPC_ATTR_ID,
     PORT_ROYAL_SOURCE_COUNT,
     PORT_ROYAL_SOURCE_SHA256,
+    build_port_royal_initial_population,
     build_port_royal_membership_transition,
     load_port_royal_placements,
 )
@@ -131,6 +132,35 @@ class PopulationTransitionTests(unittest.TestCase):
             )
             self.assertEqual(reverse.pc.count(exact_movement), 1)
 
+    def test_initial_population_is_byte_exact_frozen_v94_all_entrants(self):
+        initial = build_port_royal_initial_population(self.legacy, self.initial_xyz)
+        legacy_pc, legacy_frame, legacy_rows = self.legacy.make_v94_population_state(
+            *self.initial_xyz, None,
+        )
+        expected = self.golden["initial"]
+        self.assertEqual(initial.pc, legacy_pc)
+        self.assertEqual(initial.frame, legacy_frame)
+        self.assertEqual(
+            initial.current_indices, tuple(row[0] for row in legacy_rows),
+        )
+        self.assertEqual(initial.previous_indices, ())
+        self.assertEqual(initial.retained_indices, ())
+        self.assertEqual(initial.entrant_indices, tuple(expected["entrants"]))
+        self.assertEqual(initial.omitted_indices, ())
+        self.assertEqual(len(initial.pc), expected["pc_length"])
+        self.assertEqual(self._digest(initial.pc), expected["pc_sha256"])
+        self.assertEqual(len(initial.frame), expected["frame_length"])
+        self.assertEqual(self._digest(initial.frame), expected["frame_sha256"])
+        self.assertEqual(
+            initial.pc.count(self.legacy.u16tag(0x12, MOVEMENT_ATTR_ID)),
+            AUTHORITATIVE_COUNT,
+        )
+        self.assertEqual(
+            initial.pc.count(self.legacy.u16tag(0x12, NPC_ATTR_ID)),
+            AUTHORITATIVE_COUNT,
+        )
+        self._assert_generation_shape(initial)
+
     def test_previous_membership_and_position_are_strict(self):
         initial = tuple(self.golden["initial_indices"])
         invalid_previous = (
@@ -218,12 +248,13 @@ class PopulationTransitionTests(unittest.TestCase):
             finally:
                 setattr(self.legacy, name, original_value)
 
-    def test_capability_is_not_installed_into_runtime_baseline(self):
+    def test_runtime_wiring_is_explicitly_opt_in(self):
         runtime_source = (ROOT / "src/pirateforce_foundation/runtime.py").read_text(
             encoding="utf-8"
         )
-        self.assertNotIn("build_port_royal_membership_transition", runtime_source)
-        self.assertNotIn("pirateforce_foundation.population", runtime_source)
+        self.assertIn("build_port_royal_membership_transition", runtime_source)
+        self.assertIn("population_scenario is not None", runtime_source)
+        self.assertIn("self.npc_spawn_sent = True", runtime_source)
 
 
 if __name__ == "__main__":

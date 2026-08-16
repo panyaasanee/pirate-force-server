@@ -1,5 +1,12 @@
 """Lifecycle-aware V141 state factory for the real legacy TCP listeners."""
+import math
+
 from .model import Position
+from .population import (
+    build_port_royal_initial_population,
+    build_port_royal_membership_transition,
+)
+from .population_scenario import require_population_scenario
 from .scenario import is_p30_target_observation, make_p30_target
 from .session import FoundationSession
 from .scene_object import (is_scene_remote_target, is_scene_remote_hostile_target,
@@ -14,9 +21,16 @@ def _active_arena_version(scenario) -> str:
 
 def make_state_class(legacy, lifecycle, projector, scenario=None,
                      scene_load_scenario=None, session_factory=None,
-                     connection_bindings=None):
-    if scenario is not None and scene_load_scenario is not None:
-        raise ValueError("Arena and scene-load scenarios are mutually exclusive")
+                     connection_bindings=None, population_scenario=None):
+    active_modes = sum(value is not None for value in (
+        scenario, scene_load_scenario, population_scenario,
+    ))
+    if active_modes > 1:
+        raise ValueError(
+            "Arena, scene-load, and population scenarios are mutually exclusive"
+        )
+    if population_scenario is not None:
+        population_scenario = require_population_scenario(population_scenario)
     class PersistentGameSessionState(legacy.GameSessionState):
         def __init__(self, token: str):
             super().__init__(token)
@@ -28,6 +42,15 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.arena_scenario = scenario
                 self.arena_spawned = False
                 self.arena_target_captured = False
+                if population_scenario is not None:
+                    # The typed capability owns TargetPos population state.  The
+                    # inherited dispatcher must remain permanently unable to
+                    # install its frozen P0/P30/P91 prerequisite in this session.
+                    self.npc_spawn_sent = True
+                    self.population_indices = None
+                    self.object_population_membership = None
+                    self.object_population_anchor = None
+                    self.object_population_generation = 0
                 if scene_load_scenario is not None:
                     # The load-only branch must never inherit V141 population.
                     self.npc_spawn_sent = True
@@ -50,6 +73,102 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
 
         def close_connection(self) -> bool:
             return self.foundation.close_connection()
+
+        def _checkpoint_exact_target(self, target) -> None:
+            x, y, z, heading, _flags, _moving = target
+            selected = self.foundation.selected
+            candidate = Position(
+                selected.position.scene_id,
+                selected.position.scene_seq,
+                x, y, z, heading,
+            )
+            if candidate != selected.position:
+                self.foundation.checkpoint(candidate)
+
+        def _dispatch_object_population_target(self, parsed, target):
+            """Own the exact TargetPos lane for the opt-in V94 capability."""
+            if target is None or self.foundation.selected is None:
+                self.rx_frames += 1
+                self.events.append("object_population_target_rejected_no_reply")
+                return []
+            if self.foundation.selected.position.scene_id != population_scenario.scene_id:
+                self.rx_frames += 1
+                self.events.append("object_population_wrong_scene_no_reply")
+                return []
+
+            # Preserve the durable TargetPos contract first.  Any stale-lease or
+            # repository failure therefore prevents population state and bytes
+            # from being committed to the outbound queue.
+            self._checkpoint_exact_target(target)
+            if not (self.runtime_ack_sent and self.teleport_sent):
+                inherited_actions = super().dispatch(parsed)
+                self.events.append("object_population_not_runtime_ready_no_reply")
+                return inherited_actions
+
+            xyz = tuple(target[:3])
+            if not all(math.isfinite(value) for value in xyz):
+                self.events.append("object_population_nonfinite_no_reply")
+                return []
+            if self.object_population_membership is None:
+                transition = build_port_royal_initial_population(legacy, xyz)
+                action = (
+                    "OBJECT_POP_V94_INITIAL_NEAREST20",
+                    transition.pc, transition.frame, 0.0,
+                )
+                reapply = (
+                    "OBJECT_POP_V94_INITIAL_MODEL_READY_REAPPLY",
+                    transition.pc, transition.frame,
+                    population_scenario.initial_reapply_ms / 1000.0,
+                )
+                population_actions = [action, reapply]
+                inherited_actions = super().dispatch(parsed)
+                self.object_population_membership = transition.current_indices
+                self.object_population_anchor = xyz
+                self.object_population_generation = 1
+                self.events.append(
+                    "object_population_v94_initial_membership_committed"
+                )
+                return inherited_actions + population_actions
+
+            anchor = self.object_population_anchor
+            if anchor is None:
+                raise RuntimeError("population membership exists without anchor")
+            travel2 = sum((value - prior) ** 2 for value, prior in zip(xyz, anchor))
+            if not math.isfinite(travel2):
+                raise ValueError("population travel distance is non-finite")
+            if travel2 < population_scenario.refresh_distance ** 2:
+                inherited_actions = super().dispatch(parsed)
+                self.events.append("object_population_below_refresh_distance")
+                return inherited_actions
+
+            transition = build_port_royal_membership_transition(
+                legacy, self.object_population_membership, xyz,
+            )
+            # V94 advances the scan anchor at the threshold even if the set is
+            # unchanged.  Ordering-only changes emit no packet and do not replace
+            # the installed membership ordering.
+            if set(transition.current_indices) == set(self.object_population_membership):
+                inherited_actions = super().dispatch(parsed)
+                self.object_population_anchor = xyz
+                self.events.append("object_population_unchanged_set_suppressed")
+                return inherited_actions
+
+            entered = sorted(transition.entrant_indices)
+            left = sorted(transition.omitted_indices)
+            label = (
+                "OBJECT_POP_V94_REFRESH_ENTER["
+                + ",".join(map(str, entered))
+                + "]_LEAVE[" + ",".join(map(str, left)) + "]"
+            )
+            population_actions = [(label, transition.pc, transition.frame, 0.0)]
+            inherited_actions = super().dispatch(parsed)
+            self.object_population_anchor = xyz
+            self.object_population_membership = transition.current_indices
+            self.object_population_generation += 1
+            self.events.append(
+                f"object_population_generation_{self.object_population_generation}_committed"
+            )
+            return inherited_actions + population_actions
 
         def dispatch(self, parsed):
             nested_id = parsed.nested_id
@@ -142,6 +261,13 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 return actions
 
             durable_target = legacy.parse_v141_refresh_target_pos(parsed)
+            if (
+                population_scenario is not None
+                and nested_id == legacy.TARGET_POS_VITAL
+            ):
+                # This opt-in capability owns every TargetPos-shaped attempt so
+                # malformed forms cannot seed the broader frozen V141 population.
+                return self._dispatch_object_population_target(parsed, durable_target)
             remote = scene_load_scenario.remote_actor if scene_load_scenario is not None else None
             if (
                 remote is not None and not self.scene_remote_spawned
@@ -243,15 +369,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 durable_target is not None
                 and self.foundation.selected is not None
             ):
-                x, y, z, heading, _flags, _moving = durable_target
-                selected = self.foundation.selected
-                candidate = Position(
-                    selected.position.scene_id,
-                    selected.position.scene_seq,
-                    x, y, z, heading,
-                )
-                if candidate != selected.position:
-                    self.foundation.checkpoint(candidate)
+                self._checkpoint_exact_target(durable_target)
 
             if self.arena_scenario is not None and self.arena_spawned:
                 if (
