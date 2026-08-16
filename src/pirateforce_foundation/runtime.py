@@ -7,6 +7,11 @@ from .inventory import (
     is_exact_merge_request,
     parse_merge_candidate,
 )
+from .item_move_capture import (
+    ITEM_MOVE_CAPTURE_FIELDS,
+    classify_item_move_attempt,
+    require_item_move_capture_scenario,
+)
 from .population import (
     build_port_royal_initial_population,
     build_port_royal_membership_transition,
@@ -26,16 +31,23 @@ def _active_arena_version(scenario) -> str:
 
 def make_state_class(legacy, lifecycle, projector, scenario=None,
                      scene_load_scenario=None, session_factory=None,
-                     connection_bindings=None, population_scenario=None):
+                     connection_bindings=None, population_scenario=None,
+                     item_move_capture_scenario=None):
     active_modes = sum(value is not None for value in (
         scenario, scene_load_scenario, population_scenario,
+        item_move_capture_scenario,
     ))
     if active_modes > 1:
         raise ValueError(
-            "Arena, scene-load, and population scenarios are mutually exclusive"
+            "Arena, scene-load, population, and item-move capture scenarios "
+            "are mutually exclusive"
         )
     if population_scenario is not None:
         population_scenario = require_population_scenario(population_scenario)
+    if item_move_capture_scenario is not None:
+        item_move_capture_scenario = require_item_move_capture_scenario(
+            item_move_capture_scenario
+        )
     class PersistentGameSessionState(legacy.GameSessionState):
         def __init__(self, token: str):
             super().__init__(token)
@@ -47,6 +59,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.arena_scenario = scenario
                 self.arena_spawned = False
                 self.arena_target_captured = False
+                self.item_move_capture_count = 0
+                self.item_move_capture_last_fields = None
                 if population_scenario is not None:
                     # The typed capability owns TargetPos population state.  The
                     # inherited dispatcher must remain permanently unable to
@@ -140,6 +154,52 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 "FOUNDATION_V111_ITEM_STACK_ID3_INTO_ID1_QTY2_COMMITTED",
                 pc, frame, 0.0,
             )]
+
+        def _dispatch_item_move_capture(self, parsed):
+            """Own every ItemOperateReq in capture mode and never reply."""
+            self.rx_frames += 1
+            classification = classify_item_move_attempt(legacy, parsed)
+            if classification != "exact":
+                self.events.append(
+                    f"item_move_capture_{classification}_no_reply"
+                )
+                return []
+            if self.foundation.selected is None:
+                self.events.append("item_move_capture_no_selected_no_reply")
+                return []
+            if not self.teleport_sent or not self.runtime_ack_sent:
+                self.events.append("item_move_capture_wrong_sequence_no_reply")
+                return []
+            if self.foundation.backpack != MERGED_V111_BACKPACK:
+                self.events.append("item_move_capture_wrong_current_state_no_reply")
+                return []
+            if self.item_move_capture_count:
+                self.events.append("item_move_capture_duplicate_exact_no_reply")
+                return []
+
+            # Capture metadata is connection-local.  Backpack, frozen item_slot,
+            # repository state, and response queue remain untouched.  The
+            # future response/reconnect composition is still Grade D.
+            before = (
+                self.foundation.backpack,
+                self.item_slot,
+                self.item_quantity,
+                self.stack_source_present,
+            )
+            self.item_move_capture_count += 1
+            self.item_move_capture_last_fields = ITEM_MOVE_CAPTURE_FIELDS
+            self.events.append(
+                "item_move_capture_exact_op4_slot2_id1_no_reply"
+            )
+            after = (
+                self.foundation.backpack,
+                self.item_slot,
+                self.item_quantity,
+                self.stack_source_present,
+            )
+            if after != before:
+                raise RuntimeError("capture-only item state mutated")
+            return []
 
         def _checkpoint_exact_target(self, target) -> None:
             x, y, z, heading, _flags, _moving = target
@@ -329,6 +389,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 return actions
 
             if nested_id == legacy.ITEM_OPERATE_REQ_VITAL:
+                if item_move_capture_scenario is not None:
+                    return self._dispatch_item_move_capture(parsed)
                 candidate = parse_merge_candidate(legacy, parsed)
                 if candidate is not None:
                     return self._dispatch_v111_persistent_merge(parsed)

@@ -6,6 +6,7 @@ from pathlib import Path
 from .connection import GameConnectionBindings, adapt_game_listener
 from .legacy_bridge import LegacyProjector, load_legacy
 from .lifecycle import CharacterLifecycle
+from .item_move_capture import load_item_move_capture_scenario
 from .model import Position
 from .population_scenario import load_population_scenario
 from .runtime import make_state_class
@@ -20,6 +21,14 @@ from .shutdown import (
     run_server,
 )
 
+
+def resolve_item_move_capture_db(path: str) -> str:
+    """Pin capture mode to one existing DB across the later capture-root chdir."""
+    resolved = Path(path).resolve(strict=True)
+    if not resolved.is_file():
+        raise FileNotFoundError(resolved)
+    return str(resolved)
+
 def main() -> int:
     root = Path(__file__).resolve().parents[2]
     pre = argparse.ArgumentParser(add_help=False)
@@ -27,6 +36,7 @@ def main() -> int:
     pre.add_argument('--scenario')
     pre.add_argument('--scene-load-scenario')
     pre.add_argument('--population-scenario')
+    pre.add_argument('--item-move-capture-scenario')
     pre.add_argument('--capture-root')
     known, remaining = pre.parse_known_args(); sys.argv = [sys.argv[0], *remaining]
     scenario = load_scenario(known.scenario) if known.scenario else None
@@ -41,11 +51,19 @@ def main() -> int:
         load_population_scenario(known.population_scenario)
         if known.population_scenario else None
     )
-    if sum(value is not None for value in (scenario, scene_load, population)) > 1:
+    item_move_capture = (
+        load_item_move_capture_scenario(known.item_move_capture_scenario)
+        if known.item_move_capture_scenario else None
+    )
+    if sum(value is not None for value in (
+        scenario, scene_load, population, item_move_capture,
+    )) > 1:
         pre.error(
-            '--scenario, --scene-load-scenario, and --population-scenario '
-            'are mutually exclusive'
+            '--scenario, --scene-load-scenario, --population-scenario, and '
+            '--item-move-capture-scenario are mutually exclusive'
         )
+    if item_move_capture is not None and not known.db:
+        pre.error('--item-move-capture-scenario requires an explicit existing --db')
     db_path = known.db or str(
         root / (
             'state/object_population_v94.sqlite3' if population is not None
@@ -53,11 +71,16 @@ def main() -> int:
                   else 'state/pirateforce.sqlite3')
         )
     )
+    if item_move_capture is not None:
+        db_path = resolve_item_move_capture_db(db_path)
     legacy = load_legacy(root/'current/pf_login_game_server_v141.py')
     store = SQLiteStore(db_path, root/'migrations')
-    if scene_load is not None:
+    if scene_load is not None or item_move_capture is not None:
         if not Path(db_path).is_file():
             raise FileNotFoundError(db_path)
+        if item_move_capture is not None:
+            store.migrate()
+            store.expire_open_sessions()
     else:
         Path(db_path).parent.mkdir(parents=True, exist_ok=True); store.migrate()
         # A previous process cannot own a live lease after this process starts.
@@ -81,6 +104,7 @@ def main() -> int:
         scene_load_scenario=scene_load, session_factory=session_factory,
         connection_bindings=connection_bindings,
         population_scenario=population,
+        item_move_capture_scenario=item_move_capture,
     )
     legacy.game_listener = adapt_game_listener(
         legacy.game_listener, connection_bindings, managed_sockets,

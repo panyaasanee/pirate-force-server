@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "id": "item_move_capture_v111_merged_id1_slot0_to_free_slot2",
+  "test_only": true,
+  "entry": {
+    "flow": "full_writable_character",
+    "required_backpack": "merged_v111_exact",
+    "required_sequence": "selected_and_runtime_ready"
+  },
+  "candidate": {
+    "outer_id": 28271,
+    "outer_version": 0,
+    "outer_mask": 2,
+    "vital_count": 1,
+    "nested_id": 19437,
+    "nested_version": 0,
+    "operation": 4,
+    "value32": 2,
+    "item_identity": 1,
+    "pc_size": 36,
+    "pc_sha256": "7A59F83060CFEC50D087BF991695852BA27C00B27B7B46B3D72F3340830436EE"
+  },
+  "capabilities": [
+    "capture_exact_item_move_request_no_reply"
+  ],
+  "nonclaims": [
+    "item_move_response",
+    "item_move_persistence",
+    "reconnect_collection_order",
+    "occupied_slot_policy",
+    "generalized_item_move"
+  ]
+}
