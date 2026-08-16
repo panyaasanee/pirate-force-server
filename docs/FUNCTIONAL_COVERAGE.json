@@ -195,7 +195,9 @@
             "reports/PF_DEMO_FULLLOOP001_CANONICAL_PORT_ROYAL_RUNTIME_PASS_20260817.md"
           ],
           "test_refs": [
-            "tests/test_connection_lifecycle.py"
+            "tests/test_connection_lifecycle.py",
+            "tests/test_foundation.py",
+            "tests/test_session_row_persistence.py"
           ],
           "notes": "One single-client session reaching Port Royal with the persisted name projected, then exiting cleanly."
         },
@@ -209,7 +211,8 @@
             "reports/PF_FND007_GAME_DISCONNECT_LEASE_CLOSE_RUNTIME_PASS_SHUTDOWN_NEGATIVE_20260816.md"
           ],
           "test_refs": [
-            "tests/test_connection_lifecycle.py"
+            "tests/test_connection_lifecycle.py",
+            "tests/test_session_row_persistence.py"
           ],
           "notes": "Read-only post-state oracle confirms one session row with both timestamps, integrity ok and an empty foreign-key check."
         },
@@ -369,7 +372,9 @@
           ],
           "test_refs": [
             "tests/test_relation_probe.py",
-            "tests/test_relation_matrix_probe.py"
+            "tests/test_relation_matrix_probe.py",
+            "tests/test_arena.py",
+            "tests/test_action_ack.py"
           ],
           "notes": "One faction value made a scene actor selectable as hostile and the comparator path was traced live. Tab selection alone produced TargetVital without any action, per the V132 negative."
         },
@@ -510,7 +515,8 @@
           ],
           "test_refs": [
             "tests/test_connection_lifecycle.py",
-            "tests/test_arena.py"
+            "tests/test_arena.py",
+            "tests/test_foundation.py"
           ],
           "notes": "One persisted character was listed and selected through the real client. Multi-character lists, slot ordering, and the classification/faction fields carried in the list are unproven; ARENA-V1 records the classification negative."
         },

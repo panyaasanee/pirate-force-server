@@ -362,6 +362,28 @@ class FunctionalCoverageTests(unittest.TestCase):
         ]
         self.assertEqual(unwatched, [])
 
+    def test_every_cited_test_path_is_a_module_that_defines_tests(self) -> None:
+        """A citation must point at something that can actually fail.
+
+        The verifier only proves the cited path exists inside the repository.
+        That is not enough: a golden fixture, a package marker, or a helper
+        module would all satisfy it while watching nothing. Every citation
+        must be a ``tests/`` module that defines at least one test method.
+        """
+        offenders = []
+        for domain in self.raw["domains"]:
+            for cap in domain["capabilities"]:
+                for ref in cap["test_refs"]:
+                    path = ROOT / ref
+                    if (
+                        not ref.startswith("tests/")
+                        or path.suffix != ".py"
+                        or not path.is_file()
+                        or "def test_" not in path.read_text(encoding="utf-8")
+                    ):
+                        offenders.append((domain["id"], cap["id"], ref))
+        self.assertEqual(offenders, [])
+
     def test_not_started_rows_stay_empty_on_both_sides(self) -> None:
         carrying = [
             (domain["id"], cap["id"])
