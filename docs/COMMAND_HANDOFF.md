@@ -264,6 +264,19 @@ other.
   validated server PID 328 was terminated by Stop-Process under the stop rule;
   generation 7 remains open. Next durability work must prove clean server shutdown
   and session closure separately before crash recovery.
+- FND-007 separately proves the normal GAME-disconnect lease close. Session
+  `aeee8c26bef046cfa0a8958579d7f68d` was open at generation 6 with selected
+  character 1 before the Chief directly observed the UI-confirmed client exit
+  (operator observation), then the same SID gained exact
+  `closed_at=2026-08-16T05:54:24.102133+00:00` immediately after the GAME socket
+  ended. Its scene-1 position and update timestamp were not rewritten. The exact
+  Python server PID remained alive and ports 10188/10189 remained listening after
+  disconnect (operational observation; no netstat sidecar retained), so this is a
+  connection-local result rather than a startup-expiry effect. Do not call server
+  shutdown graceful: Ctrl+C still failed, validated PID 12228 required force-stop,
+  and the PTY ended exit 1. Next operations work is clean server-stop handling;
+  abrupt client loss, process crash recovery and concurrent-client isolation still
+  need controlled runtime evidence.
 
 - `STATUS.md` and the ledger contain the full accepted record through SCENE-010.
 - Foundation lifecycle and the assisted reconnect are accepted within their

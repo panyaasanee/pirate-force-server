@@ -60,6 +60,17 @@ Updated: 2026-08-16
   and generation 7 remains open. Crash durability, graceful session close, delete,
   remote/multi-account naming, rename policy, and authenticated ownership remain
   unproven.
+- FND-007 closes the normal GAME-disconnect lease boundary in a separate controlled
+  run. Exact session `aeee8c26bef046cfa0a8958579d7f68d`, generation 6 and selected
+  character 1, was open before the client closed and received
+  `closed_at=2026-08-16T05:54:24.102133+00:00` immediately after the GAME connection
+  ended. The persisted scene-1 position and its prior update timestamp were
+  unchanged. The server process remained alive and ports 10188/10189 remained
+  listening after the client exit (operational observation; no netstat sidecar was
+  retained). This is not a graceful server-shutdown pass: Ctrl+C still failed and
+  exact validated Python PID 12228 required force-stop. Abrupt client loss,
+  process-crash recovery, graceful process shutdown, concurrent connections and
+  authenticated multi-account ownership remain unproven.
 
 ## Test Arena V1
 
