@@ -5,6 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FILES = [
     ROOT/'current/pf_login_game_server_v141.py',
+    ROOT/'docs/HYPOTHESIS_LEDGER.json',
     *sorted((ROOT/'src').rglob('*.py')),
     *sorted((ROOT/'migrations').glob('*.sql')),
     *sorted((ROOT/'scenarios').glob('*.json')),
@@ -38,6 +39,7 @@ FILES = [
     ROOT/'tools/pf_knockdown_consumer_probe_local_config.json',
     ROOT/'tools/pf_structural_corpus_audit.py',
     ROOT/'tools/pf_structural_corpus_audit_config.json',
+    ROOT/'tools/verify_hypothesis_ledger.py',
     ROOT/'tools/run_test_arena.ps1',
     ROOT/'tools/run_scene2_load_only.ps1',
     ROOT/'tools/scene_db_guard.py',

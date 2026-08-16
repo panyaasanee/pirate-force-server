@@ -1,6 +1,6 @@
 """Narrow modular extensions to the frozen legacy NPCAttr serializer."""
 
-
+# PF-HYPOTHESIS-LEDGER: RET-PF-001 retired
 def make_npc_attr_with_basic_faction(
     legacy,
     template_id: int,

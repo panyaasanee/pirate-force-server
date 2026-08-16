@@ -42,6 +42,10 @@ py -3 -m py_compile tools\pf_knockdown_consumer_probe.py
 Assert-NativeSuccess -ExitCode $LASTEXITCODE -Step 'knockdown consumer probe py_compile'
 py -3 -m py_compile tools\pf_structural_corpus_audit.py
 Assert-NativeSuccess -ExitCode $LASTEXITCODE -Step 'structural corpus audit py_compile'
+py -3 -m py_compile tools\verify_hypothesis_ledger.py
+Assert-NativeSuccess -ExitCode $LASTEXITCODE -Step 'hypothesis ledger verifier py_compile'
+py -3 tools\verify_hypothesis_ledger.py
+Assert-NativeSuccess -ExitCode $LASTEXITCODE -Step 'hypothesis ledger verification'
 py -3 -m py_compile tools\scene_db_guard.py
 Assert-NativeSuccess -ExitCode $LASTEXITCODE -Step 'database guard py_compile'
 [void][scriptblock]::Create((Get-Content -Raw tools\run_test_arena.ps1))
@@ -76,6 +80,7 @@ try {
 import hashlib, sys, zipfile
 expected = {
     'current/pf_login_game_server_v141.py',
+    'docs/HYPOTHESIS_LEDGER.json',
     'migrations/001_initial.sql',
     'migrations/002_character_integrity.sql',
     'scenarios/arena_v1.json',
@@ -131,6 +136,7 @@ expected = {
     'tools/pf_knockdown_consumer_probe_local_config.json',
     'tools/pf_structural_corpus_audit.py',
     'tools/pf_structural_corpus_audit_config.json',
+    'tools/verify_hypothesis_ledger.py',
     'tools/run_test_arena.ps1',
     'tools/run_scene2_load_only.ps1',
     'tools/scene_db_guard.py',

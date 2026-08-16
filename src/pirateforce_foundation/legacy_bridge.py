@@ -44,6 +44,10 @@ class LegacyProjector:
         )
 
     def start_game(self, character, position=None, basic_faction=None):
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-001 frozen
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-007 frozen
+        # PF-HYPOTHESIS-LEDGER: GEO-PF-002 frozen
+        # PF-HYPOTHESIS-LEDGER: GEO-PF-003 frozen
         p = position or character.position
         actor = (
             self.v.make_actor_attr_minimal(

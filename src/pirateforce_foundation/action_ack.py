@@ -70,6 +70,7 @@ def parse_scene006_ea7d(legacy, parsed, policy: SceneActionAck):
 
 def make_scene007_action_ack(legacy, fields, performer_identity: int):
     """Build one ActionVital; only performer differs from the audited request."""
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-002 frozen
     if not 0 < performer_identity <= 0xFFFFFFFFFFFFFFFF:
         raise ValueError("selected performer identity is outside uint64")
     payload = (

@@ -21,6 +21,9 @@ def main():
     pre.add_argument('--capture-root')
     known, remaining = pre.parse_known_args(); sys.argv = [sys.argv[0], *remaining]
     scenario = load_scenario(known.scenario) if known.scenario else None
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-007 frozen
+    # PF-HYPOTHESIS-LEDGER: GEO-PF-002 frozen
+    # PF-HYPOTHESIS-LEDGER: GEO-PF-003 frozen
     scene_load = (
         load_scene_load_scenario(known.scene_load_scenario)
         if known.scene_load_scenario else None

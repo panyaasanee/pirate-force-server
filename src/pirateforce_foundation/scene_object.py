@@ -2,6 +2,9 @@
 import math, struct
 
 def make_scene_remote_actor(legacy, profile):
+    # PF-HYPOTHESIS-LEDGER: DIAG-PF-001 frozen
+    # PF-HYPOTHESIS-LEDGER: GEO-PF-002 frozen
+    # PF-HYPOTHESIS-LEDGER: GEO-PF-003 frozen
     profile_key = (profile.placement_index, profile.actor_identity, profile.template_id,
         profile.visual_preset, profile.name, profile.faction,
         profile.position.scene_id, profile.position.scene_seq,

@@ -1,0 +1,644 @@
+{
+  "schema": 1,
+  "policy": {
+    "max_related_versions": 3,
+    "approval_schema": {
+      "required_fields": ["approval_id", "approved_entry_ids", "approved_through"],
+      "rule": "Any future approval must name exact ledger IDs and an approved-through checkpoint; a generic user-policy token is invalid."
+    },
+    "policy_text": "Bounded, explicit hypotheses may advance blocked work for at most three related experimental versions; expired entries freeze existing emissions and permit no new dependent version until a scoped approval, proof, or retirement."
+  },
+  "entries": [
+    {
+      "id": "HYP-PF-001",
+      "kind": "protocol_hypothesis",
+      "introduced_checkpoint": "SCENE-005",
+      "exact_value_or_transform": "For the opt-in hostile-P60 scenario only, add player BasicAttr mask 0x0400 and serializer-ordered u32 faction value 1.",
+      "scope": "scene2_fighting_fish_soldier_hp3857_player_faction1 and its SCENE-007 Port Royal derivative only",
+      "status": "frozen",
+      "provenance": "Grade D table-guided emulator composition; SCENE-005 runtime proves the composed relation result but not the authentic player faction.",
+      "evidence_refs": [
+        "reports/PF_SCENE005_FACTION1_HOSTILE_RELATION_RUNTIME_PASS_20260815.md",
+        "scenarios/scene2_fighting_fish_soldier_hp3857_player_faction1.json"
+      ],
+      "accepted_ceiling": "Opt-in scenario hostility presentation and kind-1 TargetVital only; faction 1 is not authentic player state.",
+      "evidence_gap": "The original player BasicAttr faction producer/value is absent.",
+      "falsification": "Replace or retire value 1 when an exact original player-faction producer/capture proves a different value or policy.",
+      "stop_rule": "Frozen: no new combat version may depend on faction 1 until original evidence proves or retires it.",
+      "production_allowed": false,
+      "expiry": {
+        "tracked_versions": ["SCENE-005", "SCENE-006", "SCENE-007", "SCENE-008", "SCENE-009", "SCENE-010", "SCENE-011", "SCENE-012"],
+        "decision": "Expired and frozen after the existing diagnostic lineage; SCENE-013 is excluded because its offline corpus audit neither executed nor depended on this value."
+      },
+      "max_versions": 3,
+      "extension_approval_ref": null,
+      "source_refs": [
+        {
+          "path": "scenarios/scene2_fighting_fish_soldier_hp3857_player_faction1.json",
+          "required_markers": ["\"basic_faction\": 1", "faction_table_relation_candidate_not_authentic_player_faction"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "scenarios/port_royal_fighting_fish_soldier_hp3857_player_faction1_ea7d_ack.json",
+          "required_markers": ["\"basic_faction\": 1", "faction_table_relation_candidate_not_authentic_player_faction"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/scene_load.py",
+          "required_markers": ["\"basic_faction\": 1", "player_basic_faction = 1"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/player_wire.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-001 frozen", "legacy.u32tag(0x14, basic_faction)"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/legacy_bridge.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-001 frozen", "make_actor_attr_with_basic_faction("],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/session.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-001 frozen", "self.scenario.player_basic_faction"],
+          "active_claim_marker": true
+        }
+      ]
+    },
+    {
+      "id": "HYP-PF-002",
+      "kind": "protocol_hypothesis",
+      "introduced_checkpoint": "SCENE-007",
+      "exact_value_or_transform": "After selected+spawned+TargetVital kind 1+exact EA7D, send once one RuntimeRes v4/count 1 ActionVital: copy the accepted 64-byte request ActionVital, replace performer qword 0 with persisted selected-player identity, preserve all other ActionVital fields, and omit trailing TargetPos.",
+      "scope": "port_royal_fighting_fish_soldier_hp3857_player_faction1_ea7d_ack connection-local one-shot only",
+      "status": "frozen",
+      "provenance": "Grade D minimum no-damage response composition accepted only for transport; repeated Grade B runtime acceptance did not prove the original response.",
+      "evidence_refs": [
+        "reports/PF_SCENE007_PORT_ROYAL_EA7D_ACTION_ACK_RUNTIME_PASS_20260816.md",
+        "scenarios/port_royal_fighting_fish_soldier_hp3857_player_faction1_ea7d_ack.json"
+      ],
+      "accepted_ceiling": "One accepted inert ActionVital acknowledgement per gated session; no animation, hit, damage, HP, AI, death, loot, or original-server equivalence.",
+      "evidence_gap": "No lawful original server-to-client response to the exact EA7D request exists in the curated corpus.",
+      "falsification": "Replace or retire the response when an exact original server response or exact original producer contradicts envelope, fields, ordering, or omission of TargetPos.",
+      "stop_rule": "Frozen: no new dependent combat version may layer on this acknowledgement; resume only from original S2C evidence or an exact producer.",
+      "production_allowed": false,
+      "expiry": {
+        "tracked_versions": ["SCENE-007", "SCENE-008", "SCENE-009", "SCENE-010", "SCENE-011", "SCENE-012"],
+        "decision": "Expired and frozen after the existing diagnostic acknowledgement; SCENE-013 is excluded because its offline corpus audit neither executed nor depended on this response."
+      },
+      "max_versions": 3,
+      "extension_approval_ref": null,
+      "source_refs": [
+        {
+          "path": "scenarios/port_royal_fighting_fish_soldier_hp3857_player_faction1_ea7d_ack.json",
+          "required_markers": ["single_actionvital_performer_identity_only", "\"effects\": \"none\""],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/scene_load.py",
+          "required_markers": ["single_actionvital_performer_identity_only", "action_ack = SceneActionAck(0xEA7D, 0x203D, 1)"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/action_ack.py",
+          "required_markers": ["Build one ActionVital; only performer differs", "make_runtime_vitals([(legacy.ACTION_VITAL, 0, payload)])"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/runtime.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-002 frozen", "make_scene007_action_ack(legacy, fields, performer)"],
+          "active_claim_marker": true
+        }
+      ]
+    },
+    {
+      "id": "HYP-PF-003",
+      "kind": "protocol_hypothesis",
+      "introduced_checkpoint": "V134",
+      "exact_value_or_transform": "After the exact P0 conversation, q3020 operation 1 queues action 6 OpenAcceptUI; the exact subsequent operation 2 queues action 1 Accept_Run once.",
+      "scope": "Frozen V134/V135 q3020 connection-local quest UI composition",
+      "status": "expired_pending_decision",
+      "provenance": "Accepted legacy composition joining exact client request ordering with independently proven action consumers.",
+      "evidence_refs": ["current/pf_login_game_server_v141.py"],
+      "accepted_ceiling": "Client-local q3020 offer/accept UI and tracker behavior only; no authoritative quest persistence or reward.",
+      "evidence_gap": "Original server response linkage for the full q3020 exchange is absent.",
+      "falsification": "Retire or correct the linkage if original traffic or an exact server producer gives different actions or ordering.",
+      "stop_rule": "Do not extend q3020 into durable quest state, rewards, or new quest IDs without original evidence.",
+      "production_allowed": false,
+      "expiry": {
+        "tracked_versions": ["V134", "V135", "V136", "V137", "V138", "V139", "V140", "V141"],
+        "decision": "Expired pending proof, retirement, or a scoped approval after the cumulative legacy lineage; existing emissions are frozen and non-production."
+      },
+      "max_versions": 3,
+      "extension_approval_ref": null,
+      "source_refs": [
+        {
+          "path": "current/pf_login_game_server_v141.py",
+          "required_markers": ["q3020_op1_after_p0_conversation_action6_sent_once", "exact_q3020_action6_op2_v3_singleton_"],
+          "active_claim_marker": true,
+          "immutable": true,
+          "sha256": "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22",
+          "immutable_anchors": ["This op1->action6 link is the bounded V134 integration", "self.v136_docking_composition_pending=True"]
+        }
+      ]
+    },
+    {
+      "id": "HYP-PF-004",
+      "kind": "protocol_hypothesis",
+      "introduced_checkpoint": "V136",
+      "exact_value_or_transform": "Compose q3020 Var2=1 with the post-operation-2 empty 12-byte RuntimeReq to queue once the MARKER1 TeleportCheck value-1 prompt; accept the exact 23-byte confirmation journal with no reply.",
+      "scope": "Frozen V136 q3020-to-MARKER1 connection-local composition",
+      "status": "expired_pending_decision",
+      "provenance": "Accepted legacy composition linking data-backed q3020 Var2=1 to an independently proven MARKER1 prompt.",
+      "evidence_refs": ["current/pf_login_game_server_v141.py"],
+      "accepted_ceiling": "Prompt/journal transport only; no proof that the original server links q3020 to MARKER1.",
+      "evidence_gap": "Original server linkage between q3020 completion and the MARKER1 prompt is absent.",
+      "falsification": "Retire the linkage if original traffic or a server producer shows a different trigger, marker, value, or confirmation response.",
+      "stop_rule": "Do not generalize to other quests, markers, or confirmations without exact evidence.",
+      "production_allowed": false,
+      "expiry": {
+        "tracked_versions": ["V136", "V137", "V138", "V139", "V140", "V141"],
+        "decision": "Expired pending proof, retirement, or a scoped approval after the cumulative legacy lineage; the q3020-to-MARKER1 link is frozen and non-production."
+      },
+      "max_versions": 3,
+      "extension_approval_ref": null,
+      "source_refs": [
+        {
+          "path": "current/pf_login_game_server_v141.py",
+          "required_markers": ["V136_COMPOSITIONAL_Q3020_VAR2_1_MARKER1_DOCKING_PROMPT_ONCE", "V136_MARKER1_CONFIRM_PC"],
+          "active_claim_marker": true,
+          "immutable": true,
+          "sha256": "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22",
+          "immutable_anchors": ["V136_MARKER1_CONFIRM_PC = bytes.fromhex("]
+        }
+      ]
+    },
+    {
+      "id": "HYP-PF-005",
+      "kind": "protocol_hypothesis",
+      "introduced_checkpoint": "V137",
+      "exact_value_or_transform": "After the accepted MARKER1 confirmation, queue once one RuntimeRes v4 singleton TeleportVital v4 to scene 1/seq 0 at XYZ (-10322,-755,671), with all other composed fields zero.",
+      "scope": "Frozen V137 isolated MARKER1 transport composition",
+      "status": "expired_pending_decision",
+      "provenance": "Accepted legacy composition using data-backed MARKER1 coordinates and exact client consumer wire shape.",
+      "evidence_refs": ["current/pf_login_game_server_v141.py"],
+      "accepted_ceiling": "Client transport to the composed destination only; no original server trigger or general travel policy.",
+      "evidence_gap": "The original server TeleportVital response and field policy are absent.",
+      "falsification": "Replace or retire when original traffic or producer proves different envelope, version, scene/sequence, coordinates, or nonzero fields.",
+      "stop_rule": "Do not reuse the composed zero/default fields for other transport destinations.",
+      "production_allowed": false,
+      "expiry": {
+        "tracked_versions": ["V137", "V138", "V139", "V140", "V141"],
+        "decision": "Expired pending proof, retirement, or a scoped approval after the cumulative legacy lineage; the transport composition is frozen and non-production."
+      },
+      "max_versions": 3,
+      "extension_approval_ref": null,
+      "source_refs": [
+        {
+          "path": "current/pf_login_game_server_v141.py",
+          "required_markers": ["V137_ISOLATED_COMPOSITIONAL_MARKER1_", "V137_MARKER_X = -10322.0", "V137_MARKER_Y = -755.0", "V137_MARKER_Z = 671.0"],
+          "active_claim_marker": true,
+          "immutable": true,
+          "sha256": "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22",
+          "immutable_anchors": ["V137_MARKER_X = -10322.0", "V137_MARKER_Y = -755.0", "V137_MARKER_Z = 671.0"]
+        }
+      ]
+    },
+    {
+      "id": "HYP-PF-006",
+      "kind": "protocol_hypothesis",
+      "introduced_checkpoint": "V138",
+      "exact_value_or_transform": "After V137, compose the MARKER1 nearest-20 snapshot and integrate P86 target/choose/facing/default-conversation behavior through V138/V139.",
+      "scope": "Frozen V138/V139 MARKER1 destination population and P86 interaction",
+      "status": "expired_pending_decision",
+      "provenance": "Accepted legacy composition combining exact frozen placement rows, snapshot ordering, and previously proven interaction builders.",
+      "evidence_refs": ["current/pf_login_game_server_v141.py"],
+      "accepted_ceiling": "Destination population/interaction harness only; no authentic population ownership, travel policy, or quest linkage.",
+      "evidence_gap": "Original server destination snapshot and P86 integration response are absent.",
+      "falsification": "Retire or correct when original destination traffic proves different membership, ordering, actor identity, or interaction behavior.",
+      "stop_rule": "Do not extend the snapshot to persistence, respawn, or other destinations without original evidence.",
+      "production_allowed": false,
+      "expiry": {
+        "tracked_versions": ["V138", "V139", "V140", "V141"],
+        "decision": "Expired pending proof, retirement, or a scoped approval after the cumulative legacy lineage; destination population and interaction are frozen and non-production."
+      },
+      "max_versions": 3,
+      "extension_approval_ref": null,
+      "source_refs": [
+        {
+          "path": "current/pf_login_game_server_v141.py",
+          "required_markers": ["V138_MARKER1_NEAREST_INDICES", "V139_MARKER1_TARGETPOS_PC", "v134_p0_q3020_npc_conversation_sent_once"],
+          "active_claim_marker": true,
+          "immutable": true,
+          "sha256": "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22",
+          "immutable_anchors": ["V138_MARKER1_NEAREST_INDICES=(", "V139_MARKER1_TARGETPOS_PC=bytes.fromhex("]
+        }
+      ]
+    },
+    {
+      "id": "HYP-PF-007",
+      "kind": "protocol_hypothesis",
+      "introduced_checkpoint": "SCENE-001",
+      "exact_value_or_transform": "For the opt-in direct Scene2 load, compose scene_seq 0 and heading 0; direction 8 remains unmapped and heading 0 is only the constructor fallback.",
+      "scope": "scene2_load_only_marker2 and the SCENE-002 through SCENE-006 Scene2-derived test scenarios",
+      "status": "expired_pending_decision",
+      "provenance": "Grade D transport defaults around an exact Scene2 marker position.",
+      "evidence_refs": ["scenarios/scene2_load_only.json"],
+      "accepted_ceiling": "Coherent direct scene load only; not travel, sequence provenance, or direction-to-heading mapping.",
+      "evidence_gap": "Original direction-8 heading mapping and scene sequence producer are absent.",
+      "falsification": "Replace defaults when exact original traffic or static mapping proves scene sequence or heading.",
+      "stop_rule": "Do not generalize seq0/heading0 beyond explicit load harnesses.",
+      "production_allowed": false,
+      "expiry": {
+        "tracked_versions": ["SCENE-001", "SCENE-002", "SCENE-003", "SCENE-004", "SCENE-005", "SCENE-006"],
+        "decision": "Expired pending proof, retirement, or a scoped approval; inherited transport defaults are frozen and cannot establish authentic sequence or heading."
+      },
+      "max_versions": 3,
+      "extension_approval_ref": null,
+      "source_refs": [
+        {
+          "path": "scenarios/scene2_load_only.json",
+          "required_markers": ["\"scene_seq\": 0", "direction8_unmapped_constructor_zero"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "scenarios/scene2_fighting_fish_soldier.json",
+          "required_markers": ["\"scene_seq\": 0", "\"heading\": 0"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "scenarios/scene2_fighting_fish_soldier_hp3857.json",
+          "required_markers": ["\"scene_seq\": 0", "\"heading\": 0"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "scenarios/scene2_fighting_fish_soldier_hp3857_player_faction1.json",
+          "required_markers": ["\"scene_seq\": 0", "\"heading\": 0"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/scene_load.py",
+          "required_markers": ["Position(expected_scene, 0", "direction8_unmapped_constructor_zero"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/app.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-007 frozen", "load_scene_load_scenario(known.scene_load_scenario)"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/session.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-007 frozen", "self.scenario.position"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/legacy_bridge.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-007 frozen", "p = position or character.position"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/runtime.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-007 frozen", "make_login_teleport("],
+          "active_claim_marker": true
+        }
+      ]
+    },
+    {
+      "id": "DIAG-PF-001",
+      "kind": "diagnostic_value",
+      "introduced_checkpoint": "SCENE-003",
+      "exact_value_or_transform": "For P60 only, use BasicAttr mask 0x070D with diagnostic current HP 3857 and max HP 3857 from local level-27 data.",
+      "scope": "P60 liveness/selection diagnostic lineage from SCENE-003 through SCENE-012",
+      "status": "expired_pending_decision",
+      "provenance": "Grade D diagnostic value constrained by local level data; runtime proved target-selection liveness, not spawn policy.",
+      "evidence_refs": ["scenarios/scene2_fighting_fish_soldier_hp3857.json"],
+      "accepted_ceiling": "P60 liveness and target-selection transport in the harness only.",
+      "evidence_gap": "Authentic monster spawn HP policy and scaling are absent.",
+      "falsification": "Replace when original spawn traffic or exact server/client producer proves P60 HP policy.",
+      "stop_rule": "Do not persist, scale, or promote 3857 as authentic monster HP.",
+      "production_allowed": false,
+      "expiry": {
+        "tracked_versions": ["SCENE-003", "SCENE-004", "SCENE-005", "SCENE-006", "SCENE-007", "SCENE-008", "SCENE-009", "SCENE-010", "SCENE-011", "SCENE-012"],
+        "decision": "Expired pending proof, retirement, or a scoped approval; the inherited diagnostic value is frozen and is not authentic spawn HP policy."
+      },
+      "max_versions": 3,
+      "extension_approval_ref": null,
+      "source_refs": [
+        {
+          "path": "scenarios/scene2_fighting_fish_soldier_hp3857.json",
+          "required_markers": ["\"diagnostic_current_hp\": 3857", "bounded_level27_diagnostic_not_spawn_policy"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "scenarios/scene2_fighting_fish_soldier_hp3857_player_faction1.json",
+          "required_markers": ["\"diagnostic_current_hp\": 3857", "bounded_level27_diagnostic_not_spawn_policy"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "scenarios/port_royal_fighting_fish_soldier_hp3857_player_faction1_ea7d_ack.json",
+          "required_markers": ["\"diagnostic_current_hp\": 3857", "bounded_level27_diagnostic_not_spawn_policy"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/scene_load.py",
+          "required_markers": ["\"diagnostic_current_hp\": 3857", "diagnostic_hp = 3857"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/scene_object.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: DIAG-PF-001 frozen", "legacy.u32tag(0x14, profile.diagnostic_hp) * 2"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/runtime.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: DIAG-PF-001 frozen", "make_scene_remote_actor(legacy, remote)"],
+          "active_claim_marker": true
+        }
+      ]
+    },
+    {
+      "id": "RET-PF-001",
+      "kind": "retired_claim",
+      "introduced_checkpoint": "ARENA-002",
+      "exact_value_or_transform": "Arena V2 added BasicAttr mask 0x0400 and target faction value 6 as a hostility candidate.",
+      "scope": "arena_v2_p30_basic_faction6_diagnostic historical diagnostic only",
+      "status": "retired",
+      "provenance": "Stable runtime negative retired the hostility claim; the diagnostic config may remain for reproduction only.",
+      "evidence_refs": ["scenarios/arena_v2.json", "STATUS.md"],
+      "accepted_ceiling": "Exact transport and stable non-hostile classification negative; faction 6 cannot support a hostility claim.",
+      "evidence_gap": "Authentic player faction and policy remain unknown.",
+      "falsification": "A future authentic faction producer may explain the negative but cannot reactivate this retired candidate without a new ledger decision.",
+      "stop_rule": "Never use Arena V2 faction 6 as evidence for hostility; keep any reuse diagnostic-only.",
+      "production_allowed": false,
+      "expiry": {
+        "tracked_versions": ["ARENA-002"],
+        "decision": "Retired after the stable negative."
+      },
+      "max_versions": 3,
+      "extension_approval_ref": null,
+      "source_refs": [
+        {
+          "path": "scenarios/arena_v2.json",
+          "required_markers": ["arena_v2_p30_basic_faction6_diagnostic", "p30_basic_faction6_diagnostic"],
+          "active_claim_marker": false
+        },
+        {
+          "path": "STATUS.md",
+          "required_markers": ["The stop rule has been applied: this candidate is retired"],
+          "active_claim_marker": false
+        },
+        {
+          "path": "src/pirateforce_foundation/scenario.py",
+          "required_markers": ["\"arena_v2_p30_basic_faction6_diagnostic\": (\"p30_basic_faction6_diagnostic\", 6)"],
+          "active_claim_marker": false
+        },
+        {
+          "path": "src/pirateforce_foundation/npc_wire.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: RET-PF-001 retired", "legacy.u32tag(0x14, basic_faction)"],
+          "active_claim_marker": false
+        }
+      ]
+    },
+    {
+      "id": "GEO-PF-001",
+      "kind": "test_geometry",
+      "introduced_checkpoint": "ARENA-001",
+      "exact_value_or_transform": "Place P30 at player-relative +100 X, +50 Y, +0 Z in Arena V1/V2.",
+      "scope": "arena_v1_player_p30_target and arena_v2_p30_basic_faction6_diagnostic",
+      "status": "harness_only",
+      "provenance": "Synthetic test geometry chosen for visibility and targeting.",
+      "evidence_refs": ["scenarios/arena_v1.json", "scenarios/arena_v2.json"],
+      "accepted_ceiling": "Deterministic spawn/target harness placement only.",
+      "evidence_gap": "Authentic P30 world placement is absent.",
+      "falsification": "Replace only when a test requires different geometry or authentic placement is recovered; never silently relabel it authentic.",
+      "stop_rule": "Do not use these coordinates as world data.",
+      "production_allowed": false,
+      "expiry": {
+        "tracked_versions": ["ARENA-001", "ARENA-002"],
+        "decision": "Harness-only and within the three-version limit."
+      },
+      "max_versions": 3,
+      "extension_approval_ref": null,
+      "source_refs": [
+        {
+          "path": "scenarios/arena_v1.json",
+          "required_markers": ["\"mode\": \"player_relative\"", "\"dx\": 100", "\"dy\": 50"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "scenarios/arena_v2.json",
+          "required_markers": ["\"mode\": \"player_relative\"", "\"dx\": 100", "\"dy\": 50"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/scenario.py",
+          "required_markers": ["position[\"mode\"] != \"player_relative\"", "target_x, target_y, target_z = x + scenario.dx, y + scenario.dy, z + scenario.dz"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/runtime.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: GEO-PF-001 harness_only", "make_p30_target("],
+          "active_claim_marker": true
+        }
+      ],
+      "authentic": false
+    },
+    {
+      "id": "GEO-PF-002",
+      "kind": "test_geometry",
+      "introduced_checkpoint": "SCENE-002",
+      "exact_value_or_transform": "Keep authentic MOBS34/P60 coordinates while placing the transient player 100 X and 50 Y away at the same Z.",
+      "scope": "SCENE-002 through SCENE-006 P60 harness lineage",
+      "status": "expired_pending_decision",
+      "provenance": "P60 placement is evidence-backed; only the transient player offset is synthetic test geometry.",
+      "evidence_refs": ["scenarios/scene2_fighting_fish_soldier.json"],
+      "accepted_ceiling": "Visibility/interaction harness around authentic P60 placement; player position is not authentic.",
+      "evidence_gap": "Authentic player location for the original P60 encounter is absent.",
+      "falsification": "Replace the player offset when authentic co-location evidence or a narrower harness is available.",
+      "stop_rule": "Do not persist or publish the synthetic player position as world data.",
+      "production_allowed": false,
+      "expiry": {
+        "tracked_versions": ["SCENE-002", "SCENE-003", "SCENE-004", "SCENE-005", "SCENE-006"],
+        "decision": "Expired pending proof, retirement, or a scoped approval; inherited harness geometry is frozen and remains non-authentic."
+      },
+      "max_versions": 3,
+      "extension_approval_ref": null,
+      "source_refs": [
+        {
+          "path": "scenarios/scene2_fighting_fish_soldier.json",
+          "required_markers": ["synthetic_p60_minus100x_minus50y_samez", "\"placement_index\": 60"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "scenarios/scene2_fighting_fish_soldier_hp3857.json",
+          "required_markers": ["synthetic_p60_minus100x_minus50y_samez", "\"placement_index\": 60"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "scenarios/scene2_fighting_fish_soldier_hp3857_player_faction1.json",
+          "required_markers": ["synthetic_p60_minus100x_minus50y_samez", "\"placement_index\": 60"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/scene_load.py",
+          "required_markers": ["synthetic_p60_minus100x_minus50y_samez", "21421.0059", "9277.1123"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/app.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: GEO-PF-002 frozen", "load_scene_load_scenario(known.scene_load_scenario)"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/session.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: GEO-PF-002 frozen", "self.scenario.position"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/legacy_bridge.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: GEO-PF-002 frozen", "p = position or character.position"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/scene_object.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: GEO-PF-002 frozen", "21421.0059, 9277.1123, 590.6788, 0"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/runtime.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: GEO-PF-002 frozen", "make_scene_remote_actor(legacy, remote)"],
+          "active_claim_marker": true
+        }
+      ],
+      "authentic": false
+    },
+    {
+      "id": "GEO-PF-003",
+      "kind": "test_geometry",
+      "introduced_checkpoint": "SCENE-007",
+      "exact_value_or_transform": "Place the player at exact V74 scene 1/seq 0 XYZ (0,0,931), heading 0; transplant P60 to P144/Jessica XYZ (1788.796875,-1121.6756591796875,930.423583984375) with harness heading 0.",
+      "scope": "SCENE-007 through SCENE-012 Port Royal one-frame interaction harness lineage",
+      "status": "expired_pending_decision",
+      "provenance": "Each source coordinate is evidence-backed, but combining P60 with P144 placement and the heading is synthetic.",
+      "evidence_refs": ["scenarios/port_royal_fighting_fish_soldier_hp3857_player_faction1_ea7d_ack.json"],
+      "accepted_ceiling": "Default-camera visibility harness only; not authentic P60 Port Royal placement or heading.",
+      "evidence_gap": "Authentic P60 placement in scene 1 and authentic P144/P60 headings are absent.",
+      "falsification": "Replace the transplant when authentic scene-1 P60 placement or a non-synthetic camera-safe harness is recovered.",
+      "stop_rule": "Do not treat the transplanted P144 coordinates as P60 world data.",
+      "production_allowed": false,
+      "expiry": {
+        "tracked_versions": ["SCENE-007", "SCENE-008", "SCENE-009", "SCENE-010", "SCENE-011", "SCENE-012"],
+        "decision": "Expired pending proof, retirement, or a scoped approval; inherited harness geometry is frozen, non-authentic, and non-production."
+      },
+      "max_versions": 3,
+      "extension_approval_ref": null,
+      "source_refs": [
+        {
+          "path": "scenarios/port_royal_fighting_fish_soldier_hp3857_player_faction1_ea7d_ack.json",
+          "required_markers": ["v74_exact_port_royal_targetpos", "v74_p144_jessica_exact_placement_user_confirmed_beer_tray_visual", "1788.796875"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/scene_load.py",
+          "required_markers": ["1788.796875 if scene007", "v74_p144_jessica_exact_placement_user_confirmed_beer_tray_visual"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/app.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: GEO-PF-003 frozen", "load_scene_load_scenario(known.scene_load_scenario)"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/session.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: GEO-PF-003 frozen", "self.scenario.position"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/legacy_bridge.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: GEO-PF-003 frozen", "p = position or character.position"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/scene_object.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: GEO-PF-003 frozen", "1788.796875, -1121.6756591796875, 930.423583984375, 0"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/runtime.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: GEO-PF-003 frozen", "make_scene_remote_actor(legacy, remote)"],
+          "active_claim_marker": true
+        }
+      ],
+      "authentic": false
+    },
+    {
+      "id": "GEO-PF-004",
+      "kind": "test_geometry",
+      "introduced_checkpoint": "V135",
+      "exact_value_or_transform": "Move the test player so P0 is player-relative +100 X,+50 Y; pin player Y=-2830.045166015625 and heading 0.",
+      "scope": "Frozen V135 q3020 P0 conversation harness",
+      "status": "expired_pending_decision",
+      "provenance": "Legacy synthetic interaction geometry around an authentic P0 placement.",
+      "evidence_refs": ["current/pf_login_game_server_v141.py"],
+      "accepted_ceiling": "P0 conversation reachability harness only.",
+      "evidence_gap": "Authentic player location/heading for this conversation is absent.",
+      "falsification": "Replace when authentic co-location evidence is recovered.",
+      "stop_rule": "Do not persist or generalize the player offset as world placement.",
+      "production_allowed": false,
+      "expiry": {
+        "tracked_versions": ["V135", "V136", "V137", "V138", "V139", "V140", "V141"],
+        "decision": "Expired pending proof, retirement, or a scoped approval after the cumulative legacy prerequisite chain; existing geometry is frozen and non-authentic."
+      },
+      "max_versions": 3,
+      "extension_approval_ref": null,
+      "source_refs": [
+        {
+          "path": "current/pf_login_game_server_v141.py",
+          "required_markers": ["V135_PLAYER_Y=-2830.045166015625", "P0 lies at relative (+100X,+50Y)"],
+          "active_claim_marker": true,
+          "immutable": true,
+          "sha256": "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22",
+          "immutable_anchors": ["V135_PLAYER_Y=-2830.045166015625"]
+        }
+      ],
+      "authentic": false
+    },
+    {
+      "id": "GEO-PF-005",
+      "kind": "test_geometry",
+      "introduced_checkpoint": "V140",
+      "exact_value_or_transform": "Place P86 actor 0x2057 at MARKER1+100 X,+50 Y with Z 671: XYZ (-10222,-705,671).",
+      "scope": "Frozen V140 P86 interaction harness; V141 removal is characterization, not formal retirement",
+      "status": "harness_only",
+      "provenance": "Accepted legacy synthetic P86 interaction geometry derived from MARKER1.",
+      "evidence_refs": ["current/pf_login_game_server_v141.py", "AGENTS.md"],
+      "accepted_ceiling": "P86 interaction harness transport/UI only; no authentic placement.",
+      "evidence_gap": "Authentic P86 placement and population ownership are absent.",
+      "falsification": "Replace or retire when authentic placement is recovered or the harness is formally removed from the accepted baseline.",
+      "stop_rule": "V141 removal alone is not retirement; never promote MARKER1+100/+50 as authentic world data.",
+      "production_allowed": false,
+      "expiry": {
+        "tracked_versions": ["V140", "V141"],
+        "decision": "Harness-only; V141 is characterization rather than a retirement decision."
+      },
+      "max_versions": 3,
+      "extension_approval_ref": null,
+      "source_refs": [
+        {
+          "path": "current/pf_login_game_server_v141.py",
+          "required_markers": ["assert V139_P86_ACTOR_ID==0x2057", "V140_P86_HARNESS_X=V137_MARKER_X+100.0", "V140_P86_HARNESS_Y=V137_MARKER_Y+50.0"],
+          "active_claim_marker": true,
+          "immutable": true,
+          "sha256": "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22",
+          "immutable_anchors": ["V140_P86_HARNESS_X=V137_MARKER_X+100.0", "V140_P86_HARNESS_Y=V137_MARKER_Y+50.0", "V140_P86_HARNESS_Z=V137_MARKER_Z"]
+        },
+        {
+          "path": "AGENTS.md",
+          "required_markers": ["V140 P86 coordinates are a synthetic interaction harness"],
+          "active_claim_marker": true
+        }
+      ],
+      "authentic": false
+    }
+  ]
+}

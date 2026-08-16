@@ -2,6 +2,7 @@
 import struct
 
 
+# PF-HYPOTHESIS-LEDGER: HYP-PF-001 frozen
 def make_actor_attr_with_basic_faction(
     legacy, identity_lo: int, identity_hi: int, scene_id: int, scene_seq: int,
     basic_faction: int,

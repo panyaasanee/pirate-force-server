@@ -31,6 +31,12 @@ class SceneLoadScenario:
 
 
 def load_scene_load_scenario(path: str | Path) -> SceneLoadScenario:
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-001 frozen
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-002 frozen
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-007 frozen
+    # PF-HYPOTHESIS-LEDGER: DIAG-PF-001 frozen
+    # PF-HYPOTHESIS-LEDGER: GEO-PF-002 frozen
+    # PF-HYPOTHESIS-LEDGER: GEO-PF-003 frozen
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     if type(data) is not dict or set(data) not in ({
         "schema", "id", "test_only", "entry", "persistence", "population",

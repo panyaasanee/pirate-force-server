@@ -29,6 +29,7 @@ _CAPABILITIES = {"spawn", "target"}
 _NONCLAIMS = {"authentic_position", "tab", "combat", "ai", "damage", "loot"}
 _PROFILES = {
     "arena_v1_player_p30_target": ("v119_p30", None),
+    # PF-HYPOTHESIS-LEDGER: RET-PF-001 retired
     "arena_v2_p30_basic_faction6_diagnostic": ("p30_basic_faction6_diagnostic", 6),
 }
 
@@ -92,6 +93,7 @@ def load_scenario(path: str | Path) -> ArenaScenario:
 
 def make_p30_target(legacy, scenario: ArenaScenario, player_position):
     """Build one P30 actor at explicit test-only player-relative geometry."""
+    # PF-HYPOTHESIS-LEDGER: GEO-PF-001 harness_only
     x, y, z, _heading, _flags, _moving = player_position
     target_x, target_y, target_z = x + scenario.dx, y + scenario.dy, z + scenario.dz
     row = legacy._v112_test_rows((scenario.placement_index,))[0]

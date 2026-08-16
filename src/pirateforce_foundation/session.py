@@ -57,6 +57,10 @@ class ReadOnlyFoundationSession:
         if len(matches) != 1:
             raise KeyError(selector)
         self.selected = matches[0]
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-001 frozen
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-007 frozen
+        # PF-HYPOTHESIS-LEDGER: GEO-PF-002 frozen
+        # PF-HYPOTHESIS-LEDGER: GEO-PF-003 frozen
         return self.selected, self.projector.start_game(
             self.selected, self.scenario.position,
             self.scenario.player_basic_faction,

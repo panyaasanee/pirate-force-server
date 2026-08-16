@@ -107,6 +107,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 )]
                 if not self.teleport_sent:
                     if load_only:
+                        # PF-HYPOTHESIS-LEDGER: HYP-PF-007 frozen
                         p = scene_load_scenario.position
                         tp_pc, tp_frame = legacy.make_login_teleport(
                             p.scene_id, p.scene_seq, p.x, p.y, p.z,
@@ -135,6 +136,9 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             ):
                 if durable_target is None:
                     return []
+                # PF-HYPOTHESIS-LEDGER: DIAG-PF-001 frozen
+                # PF-HYPOTHESIS-LEDGER: GEO-PF-002 frozen
+                # PF-HYPOTHESIS-LEDGER: GEO-PF-003 frozen
                 pc, frame = make_scene_remote_actor(legacy, remote)
                 self.scene_remote_spawned = True
                 self.events.append("scene2_p60_mobs34_single_committed")
@@ -166,6 +170,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     return []
                 selected = self.foundation.selected
                 performer = ((selected.identity_hi & 0xFFFFFFFF) << 32) | (selected.identity_lo & 0xFFFFFFFF)
+                # PF-HYPOTHESIS-LEDGER: HYP-PF-002 frozen
                 pc, frame = make_scene007_action_ack(legacy, fields, performer)
                 self.scene_action_ack_sent = True
                 self.events.append("scene007_ea7d_no_damage_action_ack_sent")
@@ -197,6 +202,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 and self.foundation.selected.position.scene_id == self.arena_scenario.scene_id
                 and durable_target is not None
             ):
+                # PF-HYPOTHESIS-LEDGER: GEO-PF-001 harness_only
                 pc, frame, target = make_p30_target(
                     legacy, self.arena_scenario, durable_target,
                 )

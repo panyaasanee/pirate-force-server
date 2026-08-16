@@ -19,7 +19,13 @@ not override them.
   gameplay function by function. Never redefine completion around offline tests.
 - Preserve one primary claim per milestone. Separate fact, inference,
   hypothesis, operational negative, and superseded claim.
-- Never guess unknown protocol fields merely to make a visual result appear.
+- Read `docs/HYPOTHESIS_LEDGER.json` before adding or inheriting any guessed
+  value. Every value must be registered with falsification and a stop rule,
+  remain non-production, and be proved, retired, or frozen after at most three
+  related versions. No current entry has extension approval. A future approval
+  is valid only when it names exact ledger IDs and an approved-through
+  checkpoint. SCENE-005 faction 1 and the SCENE-007 acknowledgement are frozen;
+  do not add another dependent version to either or any expired entry.
 
 ## Chief Architect master plan
 
@@ -113,6 +119,11 @@ For each milestone:
 9. Update `STATUS.md` and the ledger without broadening the evidence ceiling.
 10. Promote a runtime result only after evidence review; otherwise retire or
     correct the candidate without layering guesses onto it.
+
+The canonical hypothesis ledger verifier is part of the deterministic gate.
+Run it directly with `py -3 tools/verify_hypothesis_ledger.py`; never edit an
+emitted hypothesis in source without updating the ledger in the same governance
+checkpoint. Synthetic geometry always remains `authentic=false`.
 
 ### Two complementary test paths
 
