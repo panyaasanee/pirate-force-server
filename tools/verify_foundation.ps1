@@ -101,6 +101,7 @@ expected = {
     'src/pirateforce_foundation/model.py',
     'src/pirateforce_foundation/npc_wire.py',
     'src/pirateforce_foundation/player_wire.py',
+    'src/pirateforce_foundation/population.py',
     'src/pirateforce_foundation/repository.py',
     'src/pirateforce_foundation/runtime.py',
     'src/pirateforce_foundation/scenario.py',

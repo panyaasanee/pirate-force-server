@@ -1,0 +1,40 @@
+{
+  "source_count": 115,
+  "source_sha256": "22D7430E5954196E007D56CF1116BA1635BFFBB9AADA4501D2166E3772659618",
+  "provenance": {
+    "raw_path": "backups/v94_runtime_before_v95_20260814_003000/capture_v94/GAME_20260814_002212_259510_53880.txt",
+    "raw_size": 225258,
+    "raw_sha256": "B581D3F9901DD11841FA1EA34B88FCF916A6D101F4445CAE5E1467B9FDF55AFD",
+    "live_path": "backups/v94_runtime_before_v95_20260814_003000/capture_v94/GAME_LIVE.txt",
+    "live_size": 42986,
+    "live_sha256": "11C3C0952FCA1155F4E23253B9C5F31A2402B5A124227B81D23DF9A06DD1451F",
+    "initial_xyz_f32le": ["25BAD6B6", "846612C3", "00C06844"],
+    "initial_xyz": [-0.0000063993670664785895, -146.40045166015625, 931.0],
+    "initial_hexdump_anchor": "90 2A 0B 00 2A 25 BA D6 B6 2A 84 66 12 C3 2A 00",
+    "initial_label": "V94_LOCAL_NEAREST_20_INITIAL_READY",
+    "refresh_xyz_f32le": ["5EA58743", "C09CDAC4", "00C06844"],
+    "refresh_xyz": [271.29193115234375, -1748.8984375, 931.0],
+    "refresh_hexdump_anchor": "90 2A 0B 00 2A 5E A5 87 43 2A C0 9C DA C4 2A 00",
+    "accepted_label": "V94_LOCAL_REFRESH_ENTER[91]_LEAVE[70]"
+  },
+  "initial_indices": [5, 50, 84, 89, 85, 39, 144, 145, 82, 92, 16, 146, 70, 147, 22, 65, 79, 88, 68, 30],
+  "refresh_indices": [84, 5, 145, 89, 144, 39, 50, 85, 92, 82, 16, 146, 147, 79, 88, 30, 22, 91, 68, 65],
+  "forward": {
+    "pc_length": 2033,
+    "pc_sha256": "9F4170F6FF6597E176683CD6DDB27A1C5ECCF84D3B38B9F00B04FDF726BEBBDE",
+    "frame_length": 2046,
+    "frame_sha256": "5772AC52646A134FBB64795D19EF779375A3A6AD08CB22DD05C6D0ED132C94E4",
+    "retained": [84, 5, 145, 89, 144, 39, 50, 85, 92, 82, 16, 146, 147, 79, 88, 30, 22, 68, 65],
+    "entrants": [91],
+    "omitted": [70]
+  },
+  "reverse": {
+    "pc_length": 2037,
+    "pc_sha256": "3DEB3B592AC07B00539DCD22FB8C1E17F9FBEDD955850668B20D36CD5F4BD5D9",
+    "frame_length": 2050,
+    "frame_sha256": "1A021DE21C42B9A0E49096F73EE2F1E7B5D9D9AF0581F4511104D9FEDBB52B4A",
+    "retained": [5, 50, 84, 89, 85, 39, 144, 145, 82, 92, 16, 146, 147, 22, 65, 79, 88, 68, 30],
+    "entrants": [70],
+    "omitted": [91]
+  }
+}
