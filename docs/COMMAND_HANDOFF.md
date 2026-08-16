@@ -368,10 +368,11 @@ other.
   followed. SECOND-PASSWORD-BYPASS-002 therefore repeats the same hash-pinned
   response on later empty runtime polls and never contains a PIN/digest. The
   unthrottled live pulse opened Backpack directly but created a feedback loop;
-  the current corrective caps pulses at one per 2.0 monotonic seconds and awaits
-  a clean runtime recheck. This is the final bounded server-packet timing: if a
-  rate-limited pulse does not close the dialog or the client errors, retire
-  packet-only bypass rather than adding a third trigger or patching the client.
+  the final corrective caps pulses at one per 2.0 monotonic seconds. Its clean
+  runtime recheck passed: Backpack opened directly at `3 / 40`, no PIN appeared,
+  52 retained sends were at least 2.018 seconds apart, and stderr was empty.
+  Keep this as explicit local-server composition only; do not add a third timing,
+  infer authentic credential policy, or claim every gated UI/client binary.
 - ITEM-MOVE-HYP-001 is a separate HYP-PF-008 test-only composition, not an
   accepted server policy. It permits exactly merged identity 1 quantity 2 slot
   0 to move to currently free slot 2, commits before one hash-pinned response,

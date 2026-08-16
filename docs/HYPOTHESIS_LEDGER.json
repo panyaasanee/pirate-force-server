@@ -383,18 +383,18 @@
       "exact_value_or_transform": "When the stable Foundation server parameter --second-password-mode is explicitly set to bypass, emit the already accepted V110 CheckSecondPwdVital result=1/u32=0/empty-string response immediately after the first selected runtime-ready request and repeat the same exact response on a later empty runtime poll no more often than once every 2.0 monotonic seconds, without receiving or storing a credential; required remains the default.",
       "scope": "All Foundation server modes through the required|bypass server parameter; bypass defaults off and the frozen V141 source remains unchanged",
       "status": "active",
-      "provenance": "The 34-byte PC and 44-byte frame are exact accepted V110 bytes and the client handler maps result 1 to OK. The first live trial proved one early unsolicited response was not retained: Backpack still opened the PIN dialog and no dialog-open wire event was emitted. A second live trial proved poll pulses let Backpack open directly, but an unthrottled pulse caused a request/response feedback loop; the 2.0-second monotonic rate limit is an offline-corrected part of the same second bounded Grade D timing composition. No original-server policy proves this timing.",
+      "provenance": "The 34-byte PC and 44-byte frame are exact accepted V110 bytes and the client handler maps result 1 to OK. The first live trial proved one early unsolicited response was not retained: Backpack still opened the PIN dialog and no dialog-open wire event was emitted. An unthrottled poll pulse opened Backpack directly but caused a request/response feedback loop. The final controlled run with the 2.0-second monotonic rate limit again opened Backpack directly at 3/40 with no PIN dialog; 52 retained keepalive sends had a minimum spacing of 2.018 seconds and server stderr stayed empty. No original-server policy proves this timing.",
       "evidence_refs": [
         "current/pf_login_game_server_v141.py"
       ],
       "accepted_ceiling": "One opt-in initial delivery plus rate-limited exact OK pulses on empty runtime polls for a selected Foundation connection; required remains byte-neutral/default.",
-      "evidence_gap": "No original traffic or static producer proves unsolicited delivery. The unthrottled poll pulse opened Backpack without PIN but produced a feedback loop; the 2.0-second rate-limited corrective is pending one controlled runtime observation.",
+      "evidence_gap": "No original traffic or static producer proves unsolicited delivery. Runtime proves this local Foundation parameter suppresses the observed Backpack PIN gate, but not authentic credential validation policy, every gated UI, or every future client binary.",
       "falsification": "Retire server-packet-only bypass if an OK pulse delivered while the dialog is open does not close it, the client errors/disconnects, or a lawful original trace proves a different unlock-state producer.",
       "stop_rule": "Do not add credentials, hashes, a third timing, client-binary patching or implicit/default enablement. Stop after the one controlled poll-pulse runtime result if the dialog remains or the client errors.",
       "production_allowed": false,
       "expiry": {
         "tracked_versions": ["SECOND-PASSWORD-BYPASS-001", "SECOND-PASSWORD-BYPASS-002"],
-        "decision": "The first one-shot timing was falsified live; the empty-runtime-poll pulse is the second and final bounded server-packet timing before prove or retire."
+        "decision": "The first one-shot timing was falsified live; the second poll-pulse timing passed after a 2.0-second rate-limit corrective. Retain as explicit non-production local-server composition without extending to a third timing."
       },
       "max_versions": 3,
       "extension_approval_ref": null,

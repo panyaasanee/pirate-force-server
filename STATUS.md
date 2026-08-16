@@ -167,9 +167,12 @@ Updated: 2026-08-16
   BYPASS-002 therefore repeats the same hash-pinned response on exact empty
   runtime polls while `bypass` is enabled. The live pulse opened Backpack
   directly, but an unthrottled response loop was observed; the implementation
-  now rate-limits pulses to one per 2.0 monotonic seconds. It never receives,
-  stores or synthesizes a PIN/digest. Default sessions remain unchanged. The
-  rate-limited corrective is pending one controlled runtime test.
+  now rate-limits pulses to one per 2.0 monotonic seconds. The final controlled
+  run opened Backpack directly at `3 / 40` with no PIN dialog; 52 retained
+  keepalive sends were spaced by at least 2.018 seconds and server stderr was
+  empty. It never receives, stores or synthesizes a PIN/digest. Default sessions
+  remain unchanged. This is a local-server runtime pass, not authentic original-
+  server credential policy or proof for every client binary/gated UI.
 - ITEM-MOVE-HYP-001 implements the first bounded HYP-PF-008 composition behind
   a separate strict test-only scenario. It combines the exact captured slot-2
   request with separately accepted free-slot and quantity-2 response facts,
