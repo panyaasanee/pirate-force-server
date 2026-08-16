@@ -39,6 +39,10 @@ class ServerShutdownController:
         with self._lock:
             return self._started
 
+    def wait_for_stop(self, timeout: float) -> bool:
+        """Let the true main thread poll while signal callbacks stay runnable."""
+        return self._requested.wait(timeout)
+
     @property
     def failures(self) -> tuple[BaseException, ...]:
         with self._lock:
@@ -358,7 +362,39 @@ def run_server(server_main: Callable[[], Any],
                signal_module: Any = signal,
                output: Any = None) -> int:
     """Run until an explicit stop; return zero only after bounded clean teardown."""
-    primary: BaseException | None = None
+    main_primary: BaseException | None = None
+    worker_primaries: list[BaseException] = []
+    worker_done = threading.Event()
+
+    def worker_target() -> None:
+        try:
+            server_main()
+        except ShutdownRequested as error:
+            if not controller.requested:
+                worker_primaries.append(error)
+                controller.request_stop("unexpected shutdown sentinel")
+        except KeyboardInterrupt:
+            controller.request_stop("KeyboardInterrupt")
+        except BaseException as error:
+            worker_primaries.append(error)
+            controller.request_stop("server exception")
+        else:
+            if not controller.requested:
+                worker_primaries.append(RuntimeError(
+                    "server main returned without a shutdown request"
+                ))
+                controller.request_stop("unexpected main return")
+        finally:
+            worker_done.set()
+
+    # The true main thread must remain available to dispatch Python signal
+    # callbacks on Windows. The frozen blocking listeners therefore run here.
+    worker = threading.Thread(
+        target=worker_target,
+        name="FoundationServerMain",
+        daemon=True,
+    )
+    worker_started = False
     scope = (
         installed_signal_handlers(controller, signal_module)
         if install_signals else contextlib.nullcontext()
@@ -367,31 +403,53 @@ def run_server(server_main: Callable[[], Any],
     try:
         with scope:
             try:
-                server_main()
-            except ShutdownRequested as error:
-                if not controller.requested:
-                    primary = error
-                    controller.request_stop("unexpected shutdown sentinel")
+                worker.start()
+                worker_started = True
+                while not worker_done.is_set() and not controller.requested:
+                    controller.wait_for_stop(0.05)
             except KeyboardInterrupt:
                 controller.request_stop("KeyboardInterrupt")
             except BaseException as error:
-                primary = error
-                controller.request_stop("server exception")
-            else:
-                if not controller.requested:
-                    primary = RuntimeError(
-                        "server main returned without a shutdown request"
-                    )
-                    controller.request_stop("unexpected main return")
-            if controller.started:
-                controller.finish(join_timeout)
-                finished = True
+                main_primary = error
+                controller.request_stop("main-thread failure")
+
+            if worker_started:
+                try:
+                    worker.join(join_timeout)
+                except BaseException as error:
+                    controller._record_failure("main-worker-join", error)
+                else:
+                    if worker.is_alive():
+                        controller._record_failure(
+                            "main-worker-timeout",
+                            TimeoutError(
+                                "server main worker did not stop within "
+                                f"{join_timeout:.3f}s"
+                            ),
+                        )
+            controller.finish(join_timeout)
+            finished = True
     except BaseException as error:
-        primary = primary or error
+        main_primary = main_primary or error
         controller.request_stop("signal setup failure")
 
-    if controller.started and not finished:
+    if not finished:
+        if worker_started:
+            try:
+                worker.join(join_timeout)
+            except BaseException as error:
+                controller._record_failure("main-worker-join", error)
+            else:
+                if worker.is_alive():
+                    controller._record_failure(
+                        "main-worker-timeout",
+                        TimeoutError(
+                            "server main worker did not stop within "
+                            f"{join_timeout:.3f}s"
+                        ),
+                    )
         controller.finish(join_timeout)
+    primary = main_primary or (worker_primaries[0] if worker_primaries else None)
     failures = controller.failures
     if primary is not None:
         for failure in failures:

@@ -353,6 +353,58 @@ class ServerShutdownTests(unittest.TestCase):
         self.assertLess(events.index("raw_close"), events.index("lease_close"))
         self.assertEqual(events.count("lease_close"), 1)
 
+    def test_main_thread_signal_stops_worker_blocked_in_active_recv(self):
+        events = []
+        fake = _FakeSignalModule()
+        signal_threads = []
+
+        class PollingSignalController(ServerShutdownController):
+            def wait_for_stop(self, timeout):
+                if "recv_blocked" in events and not signal_threads:
+                    signal_threads.append(threading.get_ident())
+                    fake.handlers[fake.SIGINT](fake.SIGINT, None)
+                return super().wait_for_stop(timeout)
+
+        controller = PollingSignalController()
+        bindings = GameConnectionBindings(controller.record_connection_failure)
+
+        class State:
+            def __init__(self, _token):
+                bindings.bind(self)
+            def close_connection(self):
+                events.append("lease_close")
+                return True
+
+        accepted = _BlockingRecvAccepted(events)
+        game_listener = _RawImmediateListener(accepted, events)
+        login_listener = _BlockingListener(
+            events, _BlockingSocketModule._Counter(),
+        )
+        raw_sockets = _QueuedSocketModule((game_listener, login_listener))
+        managed = ManagedSocketModule(raw_sockets, controller)
+        original = _active_frozen_shape(raw_sockets, State, events)
+        original.__globals__["game_listener"] = adapt_game_listener(
+            original.__globals__["game_listener"], bindings, managed,
+        )
+        adapted = adapt_server_main(original, controller, managed, threading)
+        output = io.StringIO()
+        caller_thread = threading.get_ident()
+
+        result = run_server(
+            adapted, controller, join_timeout=1,
+            signal_module=fake, output=output,
+        )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(signal_threads, [caller_thread])
+        self.assertLess(events.index(("raw_shutdown", 2)), events.index("heartbeat_join"))
+        self.assertLess(events.index("heartbeat_join"), events.index("raw_close"))
+        self.assertLess(events.index("raw_close"), events.index("lease_close"))
+        self.assertEqual(events.count("lease_close"), 1)
+        self.assertEqual(output.getvalue().count("[FOUNDATION] stopped"), 1)
+        self.assertEqual(fake.handlers[fake.SIGINT], "old-int")
+        self.assertEqual(fake.handlers[fake.SIGTERM], "old-term")
+
     def test_game_lease_close_failure_reaches_controller(self):
         events = []
         raw_accepted = _RawAccepted(events)
@@ -439,13 +491,18 @@ class ServerShutdownTests(unittest.TestCase):
         restore = RestoreFailure()
         second = ServerShutdownController()
         stderr = io.StringIO()
+        output = io.StringIO()
         with contextlib.redirect_stderr(stderr):
-            with installed_signal_handlers(second, restore):
-                restore.handlers[restore.SIGTERM](restore.SIGTERM, None)
+            result = run_server(
+                lambda: second.request_stop("restore-test"), second,
+                signal_module=restore, output=output,
+            )
+        self.assertEqual(result, 1)
         self.assertTrue(any(
             "restore failed" in repr(error) for error in second.failures
         ))
         self.assertIn("signal-restore", stderr.getvalue())
+        self.assertEqual(output.getvalue(), "")
 
     def test_unrelated_pre_stop_accept_error_is_primary(self):
         class FailingAccept(_RawImmediateListener):
@@ -548,6 +605,36 @@ class ServerShutdownTests(unittest.TestCase):
             failures = controller.finish(0.01)
         self.assertTrue(any("join failed" in repr(x) for x in failures))
         self.assertIn("thread-join", stderr.getvalue())
+
+    def test_main_worker_timeout_is_bounded_and_nonzero(self):
+        entered = threading.Event()
+        release = threading.Event()
+        controller = ServerShutdownController()
+        output = io.StringIO()
+
+        def blocked_main():
+            entered.set()
+            release.wait(5)
+
+        requester = threading.Thread(
+            target=lambda: (entered.wait(1), controller.request_stop("test")),
+        )
+        requester.start()
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):
+                result = run_server(
+                    blocked_main, controller, join_timeout=0.01,
+                    install_signals=False, output=output,
+                )
+        finally:
+            release.set()
+            requester.join(1)
+        self.assertEqual(result, 1)
+        self.assertTrue(any(
+            "server main worker did not stop" in repr(error)
+            for error in controller.failures
+        ))
+        self.assertEqual(output.getvalue(), "")
 
     def test_unrequested_return_fails_even_before_resources_and_v141_is_preserved(self):
         controller = ServerShutdownController()
