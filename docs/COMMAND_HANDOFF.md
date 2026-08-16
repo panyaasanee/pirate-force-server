@@ -397,6 +397,20 @@ other.
   animation or packet shape is proven. Treat the class name as role provenance
   only. Do not synthesize it; resume only from original S2C evidence or an exact
   producer assigning every field. SCENE-013 is not static-consumer exhaustion.
+- COMBAT-KNOCK-DATA-001 retires the asset-name binding branch. The exact frozen
+  expanded `B_CONSTDATA_TH.pc_.dec` BEHAVIOR table has 2,279 rows/30 columns.
+  Rows 278 and 279 share the reported numeric values but have different source
+  animation/keyframe strings. Ten row IDs contain `KNOCK`, 106 rows have a
+  non-empty `s_HITBACK`, and zero source strings contain `REACTION`. These names
+  do not select a `CKnockdownVital +0x20` value. Accepted SCENE-011
+  `vector_count=1` for both rows is structural only; do not infer vector content,
+  animation, hit, damage or response ordering. Keep the current packed client
+  asset separate: it was hash/size guarded but not parsed by this checkpoint.
+  Static code continues to prove only `+0x20` as the BEHAVIOR key, `+0x24`
+  stored at inner `+0x50`, and `+0x34` discarded. No direct non-framework writer
+  was found; an indirect/original producer remains possible. Stop asset-name
+  mining and resume only with original S2C evidence or an exact producer that
+  assigns every field. Do not synthesize a row ID or packet.
 - Personal plugin `pirate-force-input-bridge` now provides bounded held keys and
   right-button drags. One-second held `E` camera rotation passed twice. Use it for
   autonomous GameClient control; this operational result does not raise any

@@ -318,6 +318,21 @@ Updated: 2026-08-16
   visible knockdown/animation or packet fields/order is proven. The class name
   is role provenance only. Resume only with original inbound evidence or an
   exact producer assigning every field.
+- COMBAT-KNOCK-DATA-001 closes the asset-name binding lane as a bounded negative.
+  The exact frozen expanded BEHAVIOR table has 2,279 rows and 30 columns. Rows
+  278/279 share raw `n_RANGE=75`, `n_CLASS=0`, `n_THENDO=278`,
+  `n_AMOUNT_TARGET=1`, `n_DAMAGE_AREA=200` and `f_DAMAGE_PHYSICS=10`, but carry
+  different source animation/keyframe strings. Ten row IDs contain `KNOCK` in
+  a source string, 106 rows have non-empty `s_HITBACK`, and zero source strings
+  contain `REACTION`; none has a proven dataflow to `CKnockdownVital +0x20`.
+  Accepted SCENE-011 `vector_count=1` for 278/279 is structural only and exposes
+  no record content or gameplay meaning. The current packed client asset is a
+  separate, unparsed artifact and is not conflated with the guarded frozen
+  expanded input. The concrete path still proves only `+0x20` as lookup key,
+  `+0x24` stored at inner `+0x50`, and `+0x34` discarded. No direct
+  non-framework field writer was found; an indirect/original producer remains
+  possible. Stop mining asset names and resume only with lawful original S2C
+  evidence or an exact producer assigning every field.
 - The launcher starts a detached database guard. After both client and server close,
   runtime acceptance additionally requires `PASS_UNCHANGED` for the main SQLite file
   and the exact pre-run existence/hash/size state of both `-wal` and `-shm`.
