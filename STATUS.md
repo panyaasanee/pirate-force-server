@@ -165,9 +165,11 @@ Updated: 2026-08-16
   one-shot trial emitted the exact V110 OK packet but Backpack still opened the
   PIN dialog; opening that dialog emitted no distinct request. SECOND-PASSWORD-
   BYPASS-002 therefore repeats the same hash-pinned response on exact empty
-  runtime polls while `bypass` is enabled, without receiving, storing or
-  synthesizing a PIN/digest. Default sessions remain unchanged. This second
-  timing is Grade D and pending one controlled runtime test.
+  runtime polls while `bypass` is enabled. The live pulse opened Backpack
+  directly, but an unthrottled response loop was observed; the implementation
+  now rate-limits pulses to one per 2.0 monotonic seconds. It never receives,
+  stores or synthesizes a PIN/digest. Default sessions remain unchanged. The
+  rate-limited corrective is pending one controlled runtime test.
 - ITEM-MOVE-HYP-001 implements the first bounded HYP-PF-008 composition behind
   a separate strict test-only scenario. It combines the exact captured slot-2
   request with separately accepted free-slot and quantity-2 response facts,

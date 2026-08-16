@@ -1,5 +1,6 @@
 """Lifecycle-aware V141 state factory for the real legacy TCP listeners."""
 import math
+import time
 
 from .model import Position
 from .inventory import (
@@ -28,6 +29,7 @@ from .session import FoundationSession
 from .scene_object import (is_scene_remote_target, is_scene_remote_hostile_target,
                            make_scene_remote_actor)
 from .second_password_bypass import (
+    SECOND_PASSWORD_PULSE_INTERVAL_SECONDS,
     make_proactive_second_password_ok,
     require_second_password_mode,
 )
@@ -44,7 +46,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                      connection_bindings=None, population_scenario=None,
                      item_move_capture_scenario=None,
                      item_move_hypothesis_scenario=None,
-                     second_password_mode="required"):
+                     second_password_mode="required",
+                     monotonic_clock=None):
     active_modes = sum(value is not None for value in (
         scenario, scene_load_scenario, population_scenario,
         item_move_capture_scenario, item_move_hypothesis_scenario,
@@ -66,6 +69,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             item_move_hypothesis_scenario
         )
     second_password_mode = require_second_password_mode(second_password_mode)
+    if monotonic_clock is None:
+        monotonic_clock = time.monotonic
     class PersistentGameSessionState(legacy.GameSessionState):
         def __init__(self, token: str):
             super().__init__(token)
@@ -87,6 +92,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.item_move_hypothesis_count = 0
                 self.second_password_bypass_sent = False
                 self.second_password_bypass_keepalive_started = False
+                self.second_password_bypass_last_sent_at = None
                 if population_scenario is not None:
                     # The typed capability owns TargetPos population state.  The
                     # inherited dispatcher must remain permanently unable to
@@ -592,6 +598,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     legacy, second_password_mode,
                 )
                 self.second_password_bypass_sent = True
+                self.second_password_bypass_last_sent_at = monotonic_clock()
                 self.events.append(
                     "hyp_pf_009_proactive_second_password_ok_committed"
                 )
@@ -606,6 +613,9 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 and self.teleport_sent
                 and self.runtime_ack_sent
                 and parsed.vital_count == 0
+                and self.second_password_bypass_last_sent_at is not None
+                and monotonic_clock() - self.second_password_bypass_last_sent_at
+                >= SECOND_PASSWORD_PULSE_INTERVAL_SECONDS
             ):
                 # The first live trial proved that an unsolicited OK delivered
                 # before the UI challenge is not retained by this client.  Empty
@@ -616,6 +626,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 pc, frame = make_proactive_second_password_ok(
                     legacy, second_password_mode,
                 )
+                self.second_password_bypass_last_sent_at = monotonic_clock()
                 if not self.second_password_bypass_keepalive_started:
                     self.second_password_bypass_keepalive_started = True
                     self.events.append(

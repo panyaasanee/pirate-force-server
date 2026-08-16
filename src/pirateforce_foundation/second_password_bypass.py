@@ -22,6 +22,7 @@ SECOND_PASSWORD_OK_FRAME_SHA256 = (
 
 
 SECOND_PASSWORD_MODES = ("required", "bypass")
+SECOND_PASSWORD_PULSE_INTERVAL_SECONDS = 2.0
 
 
 def require_second_password_mode(value: Any) -> str:

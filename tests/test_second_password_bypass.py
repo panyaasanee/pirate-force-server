@@ -24,6 +24,7 @@ from pirateforce_foundation.second_password_bypass import (
     SECOND_PASSWORD_MODES,
     SECOND_PASSWORD_OK_FRAME_SHA256,
     SECOND_PASSWORD_OK_PC_SHA256,
+    SECOND_PASSWORD_PULSE_INTERVAL_SECONDS,
     make_proactive_second_password_ok,
     require_second_password_mode,
 )
@@ -64,11 +65,13 @@ class SecondPasswordBypassTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def _state(self, login="bypass", *, mode="bypass", capture=True):
+    def _state(self, login="bypass", *, mode="bypass", capture=True,
+               monotonic_clock=None):
         state_type = make_state_class(
             self.legacy, self.lifecycle, self.projector,
             item_move_capture_scenario=self.capture if capture else None,
             second_password_mode=mode,
+            monotonic_clock=monotonic_clock,
         )
         state = state_type(login)
         state.dispatch(self.legacy.parse_outer(
@@ -161,12 +164,23 @@ class SecondPasswordBypassTests(unittest.TestCase):
         )
 
     def test_bypass_repeats_exact_ok_on_empty_runtime_polls_without_credentials(self):
-        state = self._state()
+        now = [100.0]
+        state = self._state(monotonic_clock=lambda: now[0])
         state.dispatch(self.legacy.parse_outer(RUNTIME_READY_PC))
         empty = self.legacy.parse_outer(EMPTY_RUNTIME_PC)
         self.assertEqual(empty.vital_count, 0)
 
+        self.assertNotIn(
+            "HYP_PF_009_SECOND_PASSWORD_OK_KEEPALIVE",
+            [action[0] for action in state.dispatch(empty)],
+        )
+        now[0] += SECOND_PASSWORD_PULSE_INTERVAL_SECONDS
         first = state.dispatch(empty)
+        self.assertNotIn(
+            "HYP_PF_009_SECOND_PASSWORD_OK_KEEPALIVE",
+            [action[0] for action in state.dispatch(empty)],
+        )
+        now[0] += SECOND_PASSWORD_PULSE_INTERVAL_SECONDS
         second = state.dispatch(empty)
         for actions in (first, second):
             matching = [action for action in actions if action[0] ==
