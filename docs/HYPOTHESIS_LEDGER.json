@@ -310,14 +310,15 @@
       "exact_value_or_transform": "Only in the explicit item_move_hypothesis_v111_slot2 mode, accept the exact 36-byte client request (op 4, destination value32 2, identity 1) from the exact persisted post-merge Backpack; compose the already accepted ItemOperateVitalRes update shape with quantity 2 and free slot 2, persist identity 1 at slot 2 while retaining identities 2 and 4, preserve identity order [1,2,4] on reconnect, commit before emitting the one response, and suppress replays.",
       "scope": "item_move_hypothesis_v111_merged_id1_slot0_to_free_slot2 test-only scenario and its exact reconnect projection only",
       "status": "active",
-      "provenance": "Grade D bounded composition. Historical Grade B V108 accepted free destination slot 2 with quantity 1; V111 accepted quantity 2 with the same update-only response shape at a then-free destination. The combined post-merge slot-2 response, persistence policy, and reconnect identity order are not original-server evidence.",
+      "provenance": "Grade D bounded composition. Historical Grade B V108 accepted free destination slot 2 with quantity 1; V111 accepted quantity 2 with the same update-only response shape at a then-free destination. Grade A ITEM-MOVE-ORDER-001 proves the exact client keys and canonicalizes the ItemAttr tree by qword identity and that the complete accepted merged state leaves slot 2 unoccupied. The combined post-merge slot-2 response and durable persistence policy are not original-server evidence; reconnect order [1,2,4] is client-compatible canonical ordering, not proof of original-server ordering policy.",
       "evidence_refs": [
         "reports/PF_RE_V107_to_V110_Stateful_Inventory_and_ActionItem_Capture_20260814.md",
         "reports/PF_ITEM_LIFECYCLE001_V111_STACK_MERGE_PERSISTENCE_RUNTIME_PASS_20260816.md",
+        "reports/PF_ITEM_MOVE_ORDER001_BACKPACK_IDENTITY_ORDER_STATIC_CHECKPOINT_20260816.md",
         "scenarios/item_move_hypothesis_v111_slot2.json"
       ],
       "accepted_ceiling": "One opt-in free-slot move composition after the exact merged Backpack, with fail-closed persistence/reconnect projection; no occupied-slot or generalized move policy.",
-      "evidence_gap": "No original server response binds quantity 2, destination slot 2, persistence, and reconnect collection order in this exact current three-item state.",
+      "evidence_gap": "No original server response binds quantity 2, destination slot 2, and durable persistence in this exact current three-item state. The exact client codec proves structural acceptance and identity-tree canonicalization, but not original-server response or reconnect ordering policy.",
       "falsification": "Replace or retire the composition if an original response, exact original producer, or controlled capture shows different response bytes, rejection, persisted slot, item order, or reconnect behavior.",
       "stop_rule": "Allow at most this one free-slot transition and its exact reconnect. Do not add another destination, occupied-slot behavior, swap, displacement, split, drop, equip, or second dependent version without new evidence and ledger review.",
       "production_allowed": false,

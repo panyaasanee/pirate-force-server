@@ -369,6 +369,12 @@ other.
   occupancy, swap/displacement and all other ItemOperate tuples fail closed.
   Runtime acceptance remains pending; retire or correct it if the capture/original
   evidence disagrees.
+- ITEM-MOVE-ORDER-001 statically proves the client collection uses ItemAttr qword
+  identity `+0x28` as its tree key and writes successor order; `[1,2,4]` is the
+  canonical internal order for the current identities, while the exact merged
+  state leaves slot 2 unoccupied. Use this only as client compatibility evidence.
+  It does not authenticate the composed response, original-server reconnect
+  ordering, or persistence policy, and it does not promote HYP-PF-008 above D.
 
 - `STATUS.md` and the ledger contain the full accepted record through
   ITEM-LIFECYCLE-001.

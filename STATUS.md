@@ -168,6 +168,14 @@ Updated: 2026-08-16
   non-owning sessions, baseline projection and replay fail closed. This is Grade
   D implementation evidence only; no original-server response policy or runtime
   client acceptance is claimed.
+- ITEM-MOVE-ORDER-001 narrows two HYP-PF-008 uncertainties with exact static
+  client proof. ItemAttr qword identity `+0x28` is the Backpack tree key; the
+  comparator and codec successor walk canonicalize small positive identities as
+  `[1,2,4]`, independent of their slots. The complete accepted merged snapshot
+  occupies only slots 0, 1 and 3, so slot 2 is structurally unoccupied. This
+  proves client compatibility/internal ordering, not original-server response,
+  reconnect ordering policy, persistence, or runtime acceptance; HYP-PF-008
+  remains Grade D and non-production.
 
 ## Test Arena V1
 
