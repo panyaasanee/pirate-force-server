@@ -71,6 +71,19 @@ Updated: 2026-08-16
   exact validated Python PID 12228 required force-stop. Abrupt client loss,
   process-crash recovery, graceful process shutdown, concurrent connections and
   authenticated multi-account ownership remain unproven.
+- FND-008 closes one clean requested server-shutdown boundary with an active GAME
+  client. A Windows helper attached to the console associated with exact target PID
+  24080 and returned `ctrl_c_sent=true`; the server then stopped active LOGIN/GAME
+  sockets and closed exact session
+  `690593d79d7e4a9bb550900a48f2b21e` generation 7 at
+  `2026-08-16T06:53:42.854792+00:00`, emitted one `[FOUNDATION] stopped`, and exited
+  0 with empty stderr. The close occurred about 62.6 ms after the retained signal
+  window began and did not rewrite the persisted position. The Chief directly
+  observed the connected client show a disconnect modal after server stop and then
+  acknowledged it (operator observation; no screenshot retained); its wrapper later
+  exited 0 with empty streams. This is one Grade B active-client requested-stop pass,
+  not proof of every Windows console host/signal source, crash or power-loss safety,
+  transaction-failure recovery, concurrency, remote clients, or multi-account use.
 
 ## Test Arena V1
 

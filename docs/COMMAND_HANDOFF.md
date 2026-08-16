@@ -274,9 +274,23 @@ other.
   disconnect (operational observation; no netstat sidecar retained), so this is a
   connection-local result rather than a startup-expiry effect. Do not call server
   shutdown graceful: Ctrl+C still failed, validated PID 12228 required force-stop,
-  and the PTY ended exit 1. Next operations work is clean server-stop handling;
-  abrupt client loss, process crash recovery and concurrent-client isolation still
-  need controlled runtime evidence.
+  and the PTY ended exit 1. FND-008 subsequently closes one clean requested-stop
+  boundary; abrupt client loss, process crash recovery and concurrent-client
+  isolation still need controlled runtime evidence.
+- FND-008 proves one active-client requested server shutdown. The retained Windows
+  helper record says it attached to the console associated with exact target PID
+  24080 and returned `ctrl_c_sent=true` at UTC
+  `06:53:42.792204..06:53:42.795041`; the server then stopped. Exact selected session
+  `690593d79d7e4a9bb550900a48f2b21e`, generation 7, changed from open to
+  `closed_at=2026-08-16T06:53:42.854792+00:00` without a position rewrite. Server
+  stdout ends with shutdown-induced GAME/LOGIN socket diagnostics, both log closures
+  and one `[FOUNDATION] stopped`; stderr is empty and the retained server exit code
+  is 0. The Chief directly observed the connected client display a disconnect modal
+  after the server stopped and then acknowledged it (operator observation; no
+  screenshot retained); the client wrapper exit is 0 with empty stdout/stderr.
+  Keep the ceiling to this exact helper/console path. It is not crash, power-loss,
+  active-transaction, every-signal-source, concurrent-client, remote-client or
+  authenticated multi-account proof, and it emitted no new gameplay/protocol bytes.
 
 - `STATUS.md` and the ledger contain the full accepted record through SCENE-010.
 - Foundation lifecycle and the assisted reconnect are accepted within their
