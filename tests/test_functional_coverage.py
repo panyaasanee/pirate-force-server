@@ -73,6 +73,44 @@ class FunctionalCoverageTests(unittest.TestCase):
         for cap in inventory.capabilities:
             self.assertTrue(cap.required, f"{cap.id} must stay required")
 
+    def test_playable_game_domains_are_present_and_every_row_stays_required(self) -> None:
+        """The matrix must keep spanning the whole playable surface.
+
+        The stated project goal is a game that is actually playable through the
+        real client.  A domain may only be removed from this set by an explicit
+        decision, never as a side effect of making the report look greener.
+        """
+        coverage = load_coverage()
+        expected = {
+            "inventory",
+            "session_lifecycle",
+            "movement",
+            "combat",
+            "character_management",
+            "chat",
+            "npc_interaction",
+        }
+        present = {domain.id for domain in coverage.domains}
+        self.assertEqual(expected, expected & present, sorted(expected - present))
+        for domain in coverage.domains:
+            for cap in domain.capabilities:
+                self.assertTrue(
+                    cap.required,
+                    f"{domain.id}.{cap.id} must stay required",
+                )
+
+    def test_no_open_domain_hides_behind_runtime_pass_alone(self) -> None:
+        """runtime_pass rows must never be mistaken for finished behavior."""
+        for domain in load_coverage().domains:
+            if domain.domain_complete:
+                continue
+            statuses = {cap.status for cap in domain.capabilities if cap.required}
+            self.assertNotEqual(
+                statuses,
+                {"complete"},
+                f"{domain.id} is open yet every required row reads complete",
+            )
+
     def test_status_file_publishes_every_banner_exactly_once(self) -> None:
         contents = (ROOT / "STATUS.md").read_text(encoding="utf-8")
         for domain in load_coverage().domains:

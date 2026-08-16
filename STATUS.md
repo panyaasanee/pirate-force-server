@@ -31,6 +31,31 @@ short of `complete`. A narrow fixture, golden, or single controlled run earns
   select through scene entry, session-row persistence and abrupt-loss recovery are
   each `runtime_pass` on single-client runs; concurrent clients and authenticated
   multi-account access control are not started.
+- **Movement: INCOMPLETE** — next missing behavior:
+  `local_player_movement_authority`. Scene-entry placement, NPC gait, authoritative
+  scene-actor streaming and one teleport transport are `runtime_pass`; the server
+  accepts client-reported positions without any validation, and no remote player's
+  movement has ever been projected.
+- **Combat: INCOMPLETE** — next missing behavior: `damage_and_hit_result`, which is
+  blocked on evidence rather than code: a hash-guarded audit proves the curated
+  corpus cannot answer the server-to-client combat-result question. Target
+  selection, the attack-command producer and the action acknowledgement are
+  `runtime_pass`, but the acknowledged action is inert; HP/death/respawn, mob AI
+  and PvP are not started.
+- **Character management: INCOMPLETE** — next missing behavior:
+  `character_creation`. Character list projection and the persisted player name are
+  `runtime_pass`; creation and deletion stop at characterized boundaries, the
+  second-password gate is an opt-in test-only bypass, appearance is preserved only
+  as opaque bytes, and progression is not modeled.
+- **Chat: INCOMPLETE** — next missing behavior: `client_chat_input`. Only the
+  server-originated system message is observed, and it is emitted by the frozen
+  legacy seam rather than owned by a Foundation module. No client chat request has
+  been captured, and routing, persistence and moderation are not started.
+- **NPC interaction: INCOMPLETE** — next missing behavior:
+  `quest_accept_and_progress`. The conversation handshake and one operation/action
+  docking sequence are `runtime_pass`; quest state, shop transactions, and monster
+  spawn and loot are unimplemented, and the V140 synthetic harness position remains
+  a test device only.
 
 ## Baselines
 

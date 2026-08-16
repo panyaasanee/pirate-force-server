@@ -239,6 +239,469 @@
           "notes": "The local server accepts the development login path only. No credential policy, rate limit, or ownership check is claimed."
         }
       ]
+    },
+    {
+      "id": "movement",
+      "title": "Movement",
+      "domain_complete": false,
+      "status_banner": "Movement: INCOMPLETE",
+      "next_missing_behavior": "local_player_movement_authority",
+      "capabilities": [
+        {
+          "id": "scene_entry_placement",
+          "title": "Scene entry places the local player at the persisted position",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_DEMO_FULLLOOP001_CANONICAL_PORT_ROYAL_RUNTIME_PASS_20260817.md"
+          ],
+          "test_refs": [
+            "tests/test_scene_load.py",
+            "tests/test_connection_lifecycle.py"
+          ],
+          "notes": "One controlled entry into scene 1 Port Royal at the persisted coordinates with the stable zero-target teleport sent exactly once. This is not proof for any other scene, spawn point, instance, or scene transition."
+        },
+        {
+          "id": "local_player_position_checkpoint",
+          "title": "Client-reported position is checkpointed and saved on exit",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_FND010_ABRUPT_CLIENT_PROCESS_LOSS_RECONNECT_RUNTIME_PASS_20260816.md"
+          ],
+          "test_refs": [
+            "tests/test_foundation.py",
+            "tests/test_connection_lifecycle.py"
+          ],
+          "notes": "The runtime checkpoints the exact client-reported target position and lifecycle.exit saves it, with offline tests covering non-finite rejection and last-writer ordering. The only runtime record shows an unchanged position across an abrupt loss, so a position the player actually moved to surviving reconnect is still unproven."
+        },
+        {
+          "id": "local_player_movement_authority",
+          "title": "Server-side movement validation and authoritative correction",
+          "required": true,
+          "status": "not_started",
+          "evidence_refs": [],
+          "test_refs": [],
+          "notes": "Reported positions are accepted as given. No speed, distance, collision, terrain, or line-of-sight validation exists, and no corrective reposition is ever sent. The original server's movement authority model is uncaptured."
+        },
+        {
+          "id": "npc_locomotion_presentation",
+          "title": "NPC walk and run gait presentation",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_RE_V67_to_V87_Walk_Gait_20260813.md",
+            "reports/PF_RE_V92_Runtime_and_V93_Five_Proven_Walkers_20260814.md"
+          ],
+          "test_refs": [
+            "tests/test_population.py"
+          ],
+          "notes": "Gait selection is accounted for by the decoded MOBS walk-speed value carried in BasicAttr bit 0x0040. Observed visually for a fixed set of placements; it is not a general locomotion or pathing engine."
+        },
+        {
+          "id": "scene_actor_population_streaming",
+          "title": "Authoritative scene-actor membership and forward/reverse refresh",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_OBJECT_POP002_AUTHORITATIVE_SCENE_ACTOR_RUNTIME_PASS_20260816.md",
+            "reports/PF_RE_V93_Runtime_and_V94_Local_Population_Streaming_20260814.md"
+          ],
+          "test_refs": [
+            "tests/test_population.py",
+            "tests/test_population_adapter.py",
+            "tests/test_scene_object.py"
+          ],
+          "notes": "One nearest-20 initial generation plus one forward and one reverse refresh, byte-identical to the frozen V141 builder. Arbitrary scene sizes, streaming under load, and the original server's real population policy are unproven."
+        },
+        {
+          "id": "teleport_transport",
+          "title": "Server-initiated teleport transport",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_RE_V137_MARKER1_TeleportVital_Transport_Pass_20260815.md",
+            "reports/PF_RE_V131_TeleportCheck_Challenge_Echo_Capture_20260815.md"
+          ],
+          "test_refs": [],
+          "notes": "One standalone TeleportVital version 4 to a decoded MARKER row transported the client. The TeleportCheck challenge/echo path is only captured, so a server-validated transport with its own acceptance rule does not exist."
+        },
+        {
+          "id": "remote_player_movement_projection",
+          "title": "Another player's movement projected to a second client",
+          "required": true,
+          "status": "not_started",
+          "evidence_refs": [],
+          "test_refs": [],
+          "notes": "Every runtime pass to date is a single client. No second player has ever been projected, so interest management, update cadence, and interpolation are entirely unknown."
+        }
+      ]
+    },
+    {
+      "id": "combat",
+      "title": "Combat",
+      "domain_complete": false,
+      "status_banner": "Combat: INCOMPLETE",
+      "next_missing_behavior": "damage_and_hit_result",
+      "capabilities": [
+        {
+          "id": "hostile_relation_and_target_selection",
+          "title": "Hostile relation and target selection",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_SCENE005_FACTION1_HOSTILE_RELATION_RUNTIME_PASS_20260815.md",
+            "reports/PF_RELATION_COMPARATOR_RUNTIME_TRACE_20260815.md"
+          ],
+          "test_refs": [
+            "tests/test_relation_probe.py",
+            "tests/test_relation_matrix_probe.py"
+          ],
+          "notes": "One faction value made a scene actor selectable as hostile and the comparator path was traced live. Tab selection alone produced TargetVital without any action, per the V132 negative."
+        },
+        {
+          "id": "attack_command_producer",
+          "title": "Client produces a target-bound attack command",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_SCENE006_EA7D_ATTACK_COMMAND_RUNTIME_PASS_20260815.md",
+            "reports/PF_COMBAT_BIND001_EA7D_BEHAVIOR_SELECTION_STATIC_CHECKPOINT_20260816.md"
+          ],
+          "test_refs": [
+            "tests/test_action_producer_probe.py"
+          ],
+          "notes": "Double-clicking a hostile actor produced ActionVital 0xEA7D bound to the exact target identity and the same vital reached the server wire in two independent sessions. This proves the request direction only."
+        },
+        {
+          "id": "action_acknowledgement",
+          "title": "Server acknowledges an action vital",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_SCENE007_PORT_ROYAL_EA7D_ACTION_ACK_RUNTIME_PASS_20260816.md",
+            "reports/PF_SCENE008_EA7D_INERT_ACTION_CONSUMER_RUNTIME_TRACE_20260816.md"
+          ],
+          "test_refs": [
+            "tests/test_action_ack.py",
+            "tests/test_action_consumer_probe.py"
+          ],
+          "notes": "The ack is accepted by the client without error, and SCENE-008 traced the consumer as inert: no visible attack, animation, or state change follows. Acknowledgement is not combat."
+        },
+        {
+          "id": "damage_and_hit_result",
+          "title": "Damage application and the server-to-client hit result",
+          "required": true,
+          "status": "blocked",
+          "evidence_refs": [
+            "reports/PF_SCENE009_CHITRESULT_CONSUMER_PROVENANCE_READY_NEGATIVE_20260816.md",
+            "reports/PF_SCENE013_STRUCTURAL_COMBAT_CORPUS_CAPABILITY_NEGATIVE_20260816.md"
+          ],
+          "test_refs": [
+            "tests/test_hit_result_probe.py",
+            "tests/test_structural_corpus_audit.py"
+          ],
+          "notes": "Blocked on evidence, not on code. A hash-guarded audit proves the curated corpus cannot answer the server-to-client combat-result question, so a new authentic capture is required before any damage number, formula, or result packet may be claimed."
+        },
+        {
+          "id": "knockdown_and_reaction_states",
+          "title": "Knockdown and reaction states",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_COMBAT_KNOCK001_STATIC_CONSUMER_BINDING_CHECKPOINT_20260816.md",
+            "reports/PF_COMBAT_KNOCK_DATA001_BEHAVIOR_BINDING_NEGATIVE_20260816.md"
+          ],
+          "test_refs": [
+            "tests/test_knockdown_consumer_probe.py"
+          ],
+          "notes": "The client-side consumer binding is statically characterized and the data-side binding attempt is a recorded negative. Nothing is emitted by the server and no reaction state is stored."
+        },
+        {
+          "id": "skill_use",
+          "title": "Skill trigger and skill state",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_SKILL001_TRIGGER_AND_STATE_STATIC_CHECKPOINT_20260816.md",
+            "reports/PF_HOTBAR001_SET_ITEM_HOTKEY_STATIC_CHECKPOINT_20260816.md"
+          ],
+          "test_refs": [
+            "tests/test_skill_trigger_probe.py"
+          ],
+          "notes": "Static trigger and hotbar-assignment boundaries exist. No skill is registered, cast, cooled down, or persisted server-side, and no runtime skill use has been observed."
+        },
+        {
+          "id": "behavior_range_gating",
+          "title": "Behavior lookup and geometric range gating",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_SCENE010_EA7D_BEHAVIOR_LOOKUP_RUNTIME_CORRECTIVE_20260816.md",
+            "reports/PF_SCENE011_BEHAVIOR_ENTRY_RUNTIME_20260816.md",
+            "reports/PF_SCENE012_EA7D_GEOMETRIC_GATE_CALLSITE_NEGATIVE_20260816.md"
+          ],
+          "test_refs": [
+            "tests/test_behavior_lookup_probe.py",
+            "tests/test_behavior_entry_probe.py",
+            "tests/test_behavior_range_gate_probe.py"
+          ],
+          "notes": "Behavior entry and lookup are traced at runtime and one earlier lookup claim was corrected. The geometric gate call site remains a negative, so no range rule may be asserted."
+        },
+        {
+          "id": "hp_death_and_respawn",
+          "title": "HP depletion, death and respawn",
+          "required": true,
+          "status": "not_started",
+          "evidence_refs": [],
+          "test_refs": [],
+          "notes": "HP is projected as a static attribute value only. No depletion, death state, corpse, penalty, or respawn path is captured or implemented."
+        },
+        {
+          "id": "mob_aggro_and_server_ai",
+          "title": "Monster aggro and server-driven AI",
+          "required": true,
+          "status": "not_started",
+          "evidence_refs": [],
+          "test_refs": [],
+          "notes": "Scene actors are projected placements that never react to the player. No aggro radius, threat table, chase, or attack loop exists on the server."
+        },
+        {
+          "id": "pvp_engagement",
+          "title": "Player-versus-player engagement rules",
+          "required": true,
+          "status": "not_started",
+          "evidence_refs": [],
+          "test_refs": [],
+          "notes": "The client shows a PvP warning dialog during server selection, but no PvP rule, flag, zone, or consequence is implemented or claimed on the server side."
+        }
+      ]
+    },
+    {
+      "id": "character_management",
+      "title": "Character management",
+      "domain_complete": false,
+      "status_banner": "Character management: INCOMPLETE",
+      "next_missing_behavior": "character_creation",
+      "capabilities": [
+        {
+          "id": "character_list_projection",
+          "title": "Character list projection and selection",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_DEMO_FULLLOOP001_CANONICAL_PORT_ROYAL_RUNTIME_PASS_20260817.md",
+            "reports/PF_FOUNDATION_ARENA_V1_RUNTIME_PASS_CLASSIFICATION_NEGATIVE_20260815.md"
+          ],
+          "test_refs": [
+            "tests/test_connection_lifecycle.py",
+            "tests/test_arena.py"
+          ],
+          "notes": "One persisted character was listed and selected through the real client. Multi-character lists, slot ordering, and the classification/faction fields carried in the list are unproven; ARENA-V1 records the classification negative."
+        },
+        {
+          "id": "player_name_projection",
+          "title": "Persisted player name projected into the world view",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_CHARACTER_NAME002_PLAYER_NAME_RUNTIME_PASS_20260816.md",
+            "reports/PF_CHARACTER_NAME001_PLAYER_NAME_PROJECTION_STATIC_IMPLEMENTATION_20260816.md"
+          ],
+          "test_refs": [
+            "tests/test_player_name.py"
+          ],
+          "notes": "The exact UTF-16LE name field inside ActorAttr rendered above the local player. This closes the local-player name projection only, not remote-player nameboards or name change."
+        },
+        {
+          "id": "character_creation",
+          "title": "Create a character through the real client",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_JOB001_CHARCREATE_CLASS_STATIC_BOUNDARY_20260816.md",
+            "reports/PF_FOUNDATION_ARENA_V2_FACTION_ONLY_NEGATIVE_20260815.md"
+          ],
+          "test_refs": [
+            "tests/test_foundation.py"
+          ],
+          "notes": "The store implements creation with identity binding, a normalized name key, and a submitted-wire fingerprint, and it is offline-tested. No runtime pass creates a character through the client, and JOB-001 proves no persistent job/class selector has been identified in any wire record, so the creation presets cannot yet be honored."
+        },
+        {
+          "id": "character_deletion",
+          "title": "Delete a character",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_DELETE003_PRODUCER_OUTER_FRAMING_NEGATIVE_20260816.md"
+          ],
+          "test_refs": [
+            "tests/test_delete_actor.py"
+          ],
+          "notes": "Only the nested DeleteActorVital record is parsed, deliberately stopping before the outer envelope, dispatch, response, and any repository mutation. The schema carries a soft-delete field. The delete control in the character-select screen must stay unhandled until this is designed, and it must never be exercised during testing."
+        },
+        {
+          "id": "second_password_gate",
+          "title": "Second-password gate",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_RE_V101_Empty_Backpack_and_Second_Password_20260814.md"
+          ],
+          "test_refs": [
+            "tests/test_second_password_bypass.py"
+          ],
+          "notes": "An explicit opt-in test-only bypass exists under canonical ledger entry SECOND-PASSWORD-BYPASS-001 and is used by every runtime pass. The authentic verification, storage, and change paths are not implemented; production use stays disallowed."
+        },
+        {
+          "id": "appearance_and_avatar_binding",
+          "title": "Appearance and avatar wire binding",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [],
+          "test_refs": [
+            "tests/test_foundation.py"
+          ],
+          "notes": "Actor and avatar wires are persisted and replayed as opaque bytes with server-side identity rebinding, which preserves appearance without decoding it. No field-level appearance model exists, so appearance cannot be edited, validated, or generated."
+        },
+        {
+          "id": "stats_and_progression",
+          "title": "Level, experience and attribute progression",
+          "required": true,
+          "status": "not_started",
+          "evidence_refs": [],
+          "test_refs": [],
+          "notes": "The proven projection carries name and cash only. No level, experience, attribute point, or progression rule is modeled, persisted, or captured."
+        }
+      ]
+    },
+    {
+      "id": "chat",
+      "title": "Chat",
+      "domain_complete": false,
+      "status_banner": "Chat: INCOMPLETE",
+      "next_missing_behavior": "client_chat_input",
+      "capabilities": [
+        {
+          "id": "server_system_message",
+          "title": "Server-originated system message",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_RE_V99_ShowMessage_and_Fast_Entry_20260814.md",
+            "reports/PF_DEMO_FULLLOOP001_CANONICAL_PORT_ROYAL_RUNTIME_PASS_20260817.md"
+          ],
+          "test_refs": [],
+          "notes": "ShowMessageVital 0x36D2 carries exactly one wide string and the client renders it in the authentic system panel on the first runtime request. It is emitted by the frozen legacy seam, no Foundation module owns it, and it has no offline test, so it is one observation rather than an owned feature."
+        },
+        {
+          "id": "client_chat_input",
+          "title": "Client chat input reaching the server",
+          "required": true,
+          "status": "not_started",
+          "evidence_refs": [],
+          "test_refs": [],
+          "notes": "No chat request produced by typing in the client has been captured, decoded, or dispatched. The request class, command prefixes, and length limits are unknown."
+        },
+        {
+          "id": "chat_channels_and_routing",
+          "title": "Channels, whisper and broadcast routing",
+          "required": true,
+          "status": "not_started",
+          "evidence_refs": [],
+          "test_refs": [],
+          "notes": "Routing needs at least two concurrent sessions, which no runtime pass has ever established. Channel identifiers and recipient resolution are uncaptured."
+        },
+        {
+          "id": "chat_persistence_and_moderation",
+          "title": "Chat persistence, rate limiting and filtering",
+          "required": true,
+          "status": "not_started",
+          "evidence_refs": [],
+          "test_refs": [],
+          "notes": "No chat row exists in the schema and no rate limit or filter is implemented. Listed so the domain can never read as complete while they are missing."
+        }
+      ]
+    },
+    {
+      "id": "npc_interaction",
+      "title": "NPC interaction",
+      "domain_complete": false,
+      "status_banner": "NPC interaction: INCOMPLETE",
+      "next_missing_behavior": "quest_accept_and_progress",
+      "capabilities": [
+        {
+          "id": "npc_conversation_handshake",
+          "title": "NPC conversation handshake",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_RE_V135_Q3020_Conversation_Handshake_Pass_20260815.md",
+            "reports/PF_RE_V96_Runtime_and_V97_NPCConversation_20260814.md"
+          ],
+          "test_refs": [],
+          "notes": "One click on a placed actor produced TargetVital plus an embedded ChooseNPC, and the server answered with exactly one NPCConversation carrying one descriptor. One actor, one descriptor, one composition."
+        },
+        {
+          "id": "conversation_operation_sequence",
+          "title": "Conversation operation and action sequence",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_RE_V136_Q3020_MARKER1_Compositional_Docking_Pass_20260815.md",
+            "reports/PF_RE_V125_Quest_OpenAccept_Op2_Capture_20260814.md"
+          ],
+          "test_refs": [],
+          "notes": "The operation-1/action-6 then operation-2/action-1 docking-confirm sequence replayed as an exact composition. No semantic name is assigned to the raw operation or action values, and no branching dialogue tree is modeled."
+        },
+        {
+          "id": "quest_accept_and_progress",
+          "title": "Quest accept, tracking and completion",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_RE_V124_Quest_Action1_Tracker_Boundary_20260814.md",
+            "reports/PF_RE_V127_Quest_Accept_P30_G_Negative_Boundary_20260814.md",
+            "reports/PF_RE_V129_Quest3020_Accept_Travel_Negative_Boundary_20260815.md"
+          ],
+          "test_refs": [],
+          "notes": "Three recorded negative boundaries bound where the accept path stops. No quest state is stored server-side, no tracker update is proven, and completion and rewards are untouched."
+        },
+        {
+          "id": "shop_buy_sell",
+          "title": "Shop browse, buy and sell",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_RE_V111_to_V115_Inventory_Monster_Shop_20260814.md",
+            "reports/PF_RE_V116_to_V120_Cash_Monster_and_Shop_20260814.md",
+            "reports/PF_RE_V121_to_V122_Final_Buy_Cash_Update_20260814.md"
+          ],
+          "test_refs": [],
+          "notes": "Captures reach a cash update following a buy. Nothing is implemented in the Foundation store: no shop inventory, no price authority, no transactional buy or sell, and no persistence."
+        },
+        {
+          "id": "interaction_negative_paths",
+          "title": "Interaction negative paths and reachability limits",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_RE_V139_P86_Interaction_Operational_Negative_20260815.md",
+            "reports/PF_RE_V140_P86_Synthetic_Harness_Interaction_Pass_20260815.md"
+          ],
+          "test_refs": [],
+          "notes": "V139 was statically valid but operationally unreachable, and V140 passed only after an explicit synthetic harness position was substituted. That harness is a test device and is never permission to place synthetic positions in production population data."
+        },
+        {
+          "id": "monster_spawn_and_loot",
+          "title": "Monster spawn cycle and loot",
+          "required": true,
+          "status": "not_started",
+          "evidence_refs": [],
+          "test_refs": [],
+          "notes": "Scene actors are static placements. No spawn timer, respawn cycle, drop table, loot object, or pickup path is captured or implemented."
+        }
+      ]
     }
   ]
 }
