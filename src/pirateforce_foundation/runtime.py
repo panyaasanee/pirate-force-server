@@ -3,6 +3,7 @@ import math
 
 from .model import Position
 from .inventory import (
+    HYPOTHESIZED_V111_SLOT2_BACKPACK,
     MERGED_V111_BACKPACK,
     is_exact_merge_request,
     parse_merge_candidate,
@@ -11,6 +12,11 @@ from .item_move_capture import (
     ITEM_MOVE_CAPTURE_FIELDS,
     classify_item_move_attempt,
     require_item_move_capture_scenario,
+)
+from .item_move_hypothesis import (
+    classify_item_move_hypothesis_attempt,
+    make_hypothesized_move_response,
+    require_item_move_hypothesis_scenario,
 )
 from .population import (
     build_port_royal_initial_population,
@@ -32,14 +38,16 @@ def _active_arena_version(scenario) -> str:
 def make_state_class(legacy, lifecycle, projector, scenario=None,
                      scene_load_scenario=None, session_factory=None,
                      connection_bindings=None, population_scenario=None,
-                     item_move_capture_scenario=None):
+                     item_move_capture_scenario=None,
+                     item_move_hypothesis_scenario=None):
     active_modes = sum(value is not None for value in (
         scenario, scene_load_scenario, population_scenario,
-        item_move_capture_scenario,
+        item_move_capture_scenario, item_move_hypothesis_scenario,
     ))
     if active_modes > 1:
         raise ValueError(
-            "Arena, scene-load, population, and item-move capture scenarios "
+            "Arena, scene-load, population, item-move capture, and item-move "
+            "hypothesis scenarios "
             "are mutually exclusive"
         )
     if population_scenario is not None:
@@ -48,12 +56,21 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         item_move_capture_scenario = require_item_move_capture_scenario(
             item_move_capture_scenario
         )
+    if item_move_hypothesis_scenario is not None:
+        item_move_hypothesis_scenario = require_item_move_hypothesis_scenario(
+            item_move_hypothesis_scenario
+        )
     class PersistentGameSessionState(legacy.GameSessionState):
         def __init__(self, token: str):
             super().__init__(token)
             self.foundation = (
                 session_factory(token) if session_factory is not None
-                else FoundationSession(lifecycle, projector, token)
+                else FoundationSession(
+                    lifecycle, projector, token,
+                    allow_hypothesized_item_move=(
+                        item_move_hypothesis_scenario is not None
+                    ),
+                )
             )
             try:
                 self.arena_scenario = scenario
@@ -61,6 +78,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.arena_target_captured = False
                 self.item_move_capture_count = 0
                 self.item_move_capture_last_fields = None
+                self.item_move_hypothesis_count = 0
                 if population_scenario is not None:
                     # The typed capability owns TargetPos population state.  The
                     # inherited dispatcher must remain permanently unable to
@@ -200,6 +218,60 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             if after != before:
                 raise RuntimeError("capture-only item state mutated")
             return []
+
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-008 active
+        def _dispatch_item_move_hypothesis(self, parsed):
+            """Commit the one tracked free-slot composition before replying."""
+            self.rx_frames += 1
+            classification = classify_item_move_hypothesis_attempt(legacy, parsed)
+            if classification != "exact":
+                self.events.append(
+                    f"item_move_hypothesis_{classification}_no_reply"
+                )
+                return []
+            if self.foundation.selected is None:
+                self.events.append("item_move_hypothesis_no_selected_no_reply")
+                return []
+            if not self.teleport_sent or not self.runtime_ack_sent:
+                self.events.append("item_move_hypothesis_wrong_sequence_no_reply")
+                return []
+            if self.foundation.backpack == HYPOTHESIZED_V111_SLOT2_BACKPACK:
+                self.events.append("item_move_hypothesis_replay_no_reply")
+                return []
+            if self.foundation.backpack != MERGED_V111_BACKPACK:
+                self.events.append("item_move_hypothesis_wrong_current_state_no_reply")
+                return []
+
+            # Response bytes are fully built and hash-checked before the DB
+            # transaction.  They are not returned unless the exact post-state
+            # commits and the in-memory snapshot is updated afterward.
+            pc, frame = make_hypothesized_move_response(legacy)
+            before = self.foundation.backpack
+            try:
+                applied = self.foundation.move_hypothesized_v111_slot2()
+            except Exception as exc:
+                if self.foundation.backpack is not before:
+                    raise RuntimeError(
+                        "repository failure changed hypothesized in-memory state"
+                    ) from exc
+                self.events.append(
+                    f"item_move_hypothesis_repository_failure_no_reply_{exc!r}"
+                )
+                return []
+            self._sync_frozen_inventory_state()
+            if not applied:
+                self.events.append("item_move_hypothesis_replay_no_reply")
+                return []
+            if self.foundation.backpack != HYPOTHESIZED_V111_SLOT2_BACKPACK:
+                raise RuntimeError("committed HYP-PF-008 Backpack state mismatch")
+            self.item_move_hypothesis_count += 1
+            self.events.append(
+                "item_move_hypothesis_committed_before_composed_response"
+            )
+            return [(
+                "HYP_PF_008_ITEM_MOVE_ID1_SLOT0_TO_FREE_SLOT2_COMMITTED",
+                pc, frame, 0.0,
+            )]
 
         def _checkpoint_exact_target(self, target) -> None:
             x, y, z, heading, _flags, _moving = target
@@ -356,7 +428,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     return []
                 try:
                     _, (pc, frame) = self.foundation.select_and_start(selector)
-                except KeyError:
+                except (KeyError, PermissionError):
+                    self.events.append("foundation_start_game_rejected_no_reply")
                     return []
                 self._sync_frozen_inventory_state()
                 self.start_game_reply_sent = True
@@ -391,6 +464,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             if nested_id == legacy.ITEM_OPERATE_REQ_VITAL:
                 if item_move_capture_scenario is not None:
                     return self._dispatch_item_move_capture(parsed)
+                if item_move_hypothesis_scenario is not None:
+                    return self._dispatch_item_move_hypothesis(parsed)
                 candidate = parse_merge_candidate(legacy, parsed)
                 if candidate is not None:
                     return self._dispatch_v111_persistent_merge(parsed)

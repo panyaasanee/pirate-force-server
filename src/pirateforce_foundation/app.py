@@ -7,6 +7,7 @@ from .connection import GameConnectionBindings, adapt_game_listener
 from .legacy_bridge import LegacyProjector, load_legacy
 from .lifecycle import CharacterLifecycle
 from .item_move_capture import load_item_move_capture_scenario
+from .item_move_hypothesis import load_item_move_hypothesis_scenario
 from .model import Position
 from .population_scenario import load_population_scenario
 from .runtime import make_state_class
@@ -37,6 +38,7 @@ def main() -> int:
     pre.add_argument('--scene-load-scenario')
     pre.add_argument('--population-scenario')
     pre.add_argument('--item-move-capture-scenario')
+    pre.add_argument('--item-move-hypothesis-scenario')
     pre.add_argument('--capture-root')
     known, remaining = pre.parse_known_args(); sys.argv = [sys.argv[0], *remaining]
     scenario = load_scenario(known.scenario) if known.scenario else None
@@ -55,15 +57,24 @@ def main() -> int:
         load_item_move_capture_scenario(known.item_move_capture_scenario)
         if known.item_move_capture_scenario else None
     )
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-008 active
+    item_move_hypothesis = (
+        load_item_move_hypothesis_scenario(known.item_move_hypothesis_scenario)
+        if known.item_move_hypothesis_scenario else None
+    )
     if sum(value is not None for value in (
         scenario, scene_load, population, item_move_capture,
+        item_move_hypothesis,
     )) > 1:
         pre.error(
             '--scenario, --scene-load-scenario, --population-scenario, and '
-            '--item-move-capture-scenario are mutually exclusive'
+            '--item-move-capture-scenario/--item-move-hypothesis-scenario '
+            'are mutually exclusive'
         )
     if item_move_capture is not None and not known.db:
         pre.error('--item-move-capture-scenario requires an explicit existing --db')
+    if item_move_hypothesis is not None and not known.db:
+        pre.error('--item-move-hypothesis-scenario requires an explicit existing --db')
     db_path = known.db or str(
         root / (
             'state/object_population_v94.sqlite3' if population is not None
@@ -71,14 +82,18 @@ def main() -> int:
                   else 'state/pirateforce.sqlite3')
         )
     )
-    if item_move_capture is not None:
+    if item_move_capture is not None or item_move_hypothesis is not None:
         db_path = resolve_item_move_capture_db(db_path)
     legacy = load_legacy(root/'current/pf_login_game_server_v141.py')
     store = SQLiteStore(db_path, root/'migrations')
-    if scene_load is not None or item_move_capture is not None:
+    if (
+        scene_load is not None
+        or item_move_capture is not None
+        or item_move_hypothesis is not None
+    ):
         if not Path(db_path).is_file():
             raise FileNotFoundError(db_path)
-        if item_move_capture is not None:
+        if item_move_capture is not None or item_move_hypothesis is not None:
             store.migrate()
             store.expire_open_sessions()
     else:
@@ -105,6 +120,7 @@ def main() -> int:
         connection_bindings=connection_bindings,
         population_scenario=population,
         item_move_capture_scenario=item_move_capture,
+        item_move_hypothesis_scenario=item_move_hypothesis,
     )
     legacy.game_listener = adapt_game_listener(
         legacy.game_listener, connection_bindings, managed_sockets,

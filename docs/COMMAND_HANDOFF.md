@@ -356,6 +356,19 @@ other.
   Do not generalize to moves, split/drop, equipment, ownership, concurrency,
   multi-account authorization or crash recovery. No retained server exit sidecar
   exists and PTY exit was 1; do not claim a clean stop or exit 0.
+- ITEM-MOVE-CAPTURE-001 is offline-ready and deliberately response-free. It owns
+  all ItemOperate-shaped traffic only in its exact opt-in mode and records the
+  exact `(op4,value2,id1)` request once without mutating Backpack state. The live
+  client is currently at the Backpack second-password dialog; never automate PIN
+  entry. Resume the capture only after the user enters it manually and confirms.
+- ITEM-MOVE-HYP-001 is a separate HYP-PF-008 test-only composition, not an
+  accepted server policy. It permits exactly merged identity 1 quantity 2 slot
+  0 to move to currently free slot 2, commits before one hash-pinned response,
+  and projects the resulting `[1,2,4]` state only when the same scenario is
+  explicitly enabled. Baseline, stale/non-owning/read-only paths, replay, slot 3
+  occupancy, swap/displacement and all other ItemOperate tuples fail closed.
+  Runtime acceptance remains pending; retire or correct it if the capture/original
+  evidence disagrees.
 
 - `STATUS.md` and the ledger contain the full accepted record through
   ITEM-LIFECYCLE-001.

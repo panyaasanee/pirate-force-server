@@ -1,9 +1,9 @@
-"""Exact persisted structural state for the accepted V111 stack merge.
+"""Persisted structural Backpack states at the exact V111 boundary.
 
-This module deliberately supports only two byte-proven Backpack states: the
-unchanged four-record StartGame snapshot and the exact post-V111 state where
-identity 1 has quantity 2 and identity 3 is absent.  It is not a generalized
-inventory, item-ownership, or equipment model.
+The initial and merged states are byte-proven.  The third state is the
+explicitly tracked HYP-PF-008 composition that keeps the merged quantity and
+moves identity 1 to the independently proven free destination slot 2.  It is
+not a generalized inventory, item-ownership, collision, or equipment model.
 """
 
 from __future__ import annotations
@@ -59,6 +59,21 @@ MERGED_V111_BACKPACK = BackpackState(
     ),
 )
 
+# PF-HYPOTHESIS-LEDGER: HYP-PF-008 active
+HYPOTHESIZED_V111_SLOT2_BACKPACK = BackpackState(
+    BACKPACK_BASE_MASK,
+    BACKPACK_BASE_IDENTITY,
+    BACKPACK_RANGE_MASK,
+    (
+        # Identity order is retained from the exact merged snapshot.  Its
+        # reconnect use after the move is part of HYP-PF-008, not original
+        # server evidence.
+        ItemAttrState(1, 2600001, 2, 2),
+        ItemAttrState(2, 2400901, 1, 1),
+        ItemAttrState(4, 2200002, 1, 3),
+    ),
+)
+
 V111_MERGE_REQUEST_PC = bytes.fromhex(
     "12 6F 6E 14 00 00 00 00 08 00 0B 02 12 01 00 12 "
     "ED 4B 0B 00 0B 04 14 00 00 00 00 32 03 00 00 00 "
@@ -75,7 +90,7 @@ def _require_int(value: Any, label: str, minimum: int, maximum: int) -> int:
 
 
 def require_known_backpack(value: Any) -> BackpackState:
-    """Reject every state outside the two exact accepted structural snapshots."""
+    """Reject every state outside the two exact and one tracked snapshots."""
     if type(value) is not BackpackState:
         raise ValueError("backpack must be an exact BackpackState")
     _require_int(value.base_mask, "backpack base mask", 0, 0xFF)
@@ -99,13 +114,17 @@ def require_known_backpack(value: Any) -> BackpackState:
             raise ValueError("backpack identity/slot must be unique")
         identities.add(item.identity)
         slots.add(item.slot)
-    if value not in (INITIAL_BACKPACK, MERGED_V111_BACKPACK):
-        raise ValueError("backpack state is outside the exact V111 allowlist")
+    if value not in (
+        INITIAL_BACKPACK,
+        MERGED_V111_BACKPACK,
+        HYPOTHESIZED_V111_SLOT2_BACKPACK,
+    ):
+        raise ValueError("backpack state is outside the governed V111 allowlist")
     return value
 
 
 def make_backpack_attr(legacy: Any, state: BackpackState) -> bytes:
-    """Serialize one of the two exact states using frozen tagged primitives."""
+    """Serialize one governed state using frozen tagged primitives."""
     state = require_known_backpack(state)
     required = {
         "BACKPACK_ATTR": 0x1F81,

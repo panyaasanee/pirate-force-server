@@ -2,9 +2,17 @@
 from dataclasses import replace
 import threading
 
+from .inventory import HYPOTHESIZED_V111_SLOT2_BACKPACK
+
 class FoundationSession:
-    def __init__(self, lifecycle, projector, login_name: str):
+    def __init__(
+        self, lifecycle, projector, login_name: str, *,
+        allow_hypothesized_item_move: bool = False,
+    ):
+        if type(allow_hypothesized_item_move) is not bool:
+            raise TypeError("hypothesized item-move gate must be bool")
         self.lifecycle, self.projector = lifecycle, projector
+        self.allow_hypothesized_item_move = allow_hypothesized_item_move
         self.selected = None
         self.backpack = None
         self._closed = False
@@ -23,8 +31,17 @@ class FoundationSession:
         return character, self.projector.create_success(character)
 
     def select_and_start(self, selector: int):
-        self.selected = self.lifecycle.select(self.session_id, selector)
-        self.backpack = self.lifecycle.backpack(self.session_id, self.selected)
+        selected = self.lifecycle.select(self.session_id, selector)
+        backpack = self.lifecycle.backpack(self.session_id, selected)
+        if (
+            backpack == HYPOTHESIZED_V111_SLOT2_BACKPACK
+            and not self.allow_hypothesized_item_move
+        ):
+            raise PermissionError(
+                "HYP-PF-008 post-state requires its explicit opt-in scenario"
+            )
+        self.selected = selected
+        self.backpack = backpack
         return self.selected, self.projector.start_game(
             self.selected, backpack=self.backpack,
         )
@@ -33,6 +50,22 @@ class FoundationSession:
         if self.selected is None or self.backpack is None:
             raise RuntimeError("no selected character Backpack")
         updated = self.lifecycle.merge_v111_stack(self.session_id, self.selected)
+        if updated is None:
+            return False
+        self.backpack = updated
+        return True
+
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-008 active
+    def move_hypothesized_v111_slot2(self) -> bool:
+        if not self.allow_hypothesized_item_move:
+            raise PermissionError(
+                "HYP-PF-008 mutation requires its explicit opt-in scenario"
+            )
+        if self.selected is None or self.backpack is None:
+            raise RuntimeError("no selected character Backpack")
+        updated = self.lifecycle.move_hypothesized_v111_slot2(
+            self.session_id, self.selected,
+        )
         if updated is None:
             return False
         self.backpack = updated
@@ -104,6 +137,9 @@ class ReadOnlyFoundationSession:
         raise PermissionError("scene-load milestone cannot checkpoint")
 
     def merge_v111_stack(self):
+        raise PermissionError("scene-load milestone cannot mutate Backpack state")
+
+    def move_hypothesized_v111_slot2(self):
         raise PermissionError("scene-load milestone cannot mutate Backpack state")
 
     def close(self, _position=None):

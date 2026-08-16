@@ -304,6 +304,78 @@
       ]
     },
     {
+      "id": "HYP-PF-008",
+      "kind": "protocol_hypothesis",
+      "introduced_checkpoint": "ITEM-MOVE-HYP-001",
+      "exact_value_or_transform": "Only in the explicit item_move_hypothesis_v111_slot2 mode, accept the exact 36-byte client request (op 4, destination value32 2, identity 1) from the exact persisted post-merge Backpack; compose the already accepted ItemOperateVitalRes update shape with quantity 2 and free slot 2, persist identity 1 at slot 2 while retaining identities 2 and 4, preserve identity order [1,2,4] on reconnect, commit before emitting the one response, and suppress replays.",
+      "scope": "item_move_hypothesis_v111_merged_id1_slot0_to_free_slot2 test-only scenario and its exact reconnect projection only",
+      "status": "active",
+      "provenance": "Grade D bounded composition. Historical Grade B V108 accepted free destination slot 2 with quantity 1; V111 accepted quantity 2 with the same update-only response shape at a then-free destination. The combined post-merge slot-2 response, persistence policy, and reconnect identity order are not original-server evidence.",
+      "evidence_refs": [
+        "reports/PF_RE_V107_to_V110_Stateful_Inventory_and_ActionItem_Capture_20260814.md",
+        "reports/PF_ITEM_LIFECYCLE001_V111_STACK_MERGE_PERSISTENCE_RUNTIME_PASS_20260816.md",
+        "scenarios/item_move_hypothesis_v111_slot2.json"
+      ],
+      "accepted_ceiling": "One opt-in free-slot move composition after the exact merged Backpack, with fail-closed persistence/reconnect projection; no occupied-slot or generalized move policy.",
+      "evidence_gap": "No original server response binds quantity 2, destination slot 2, persistence, and reconnect collection order in this exact current three-item state.",
+      "falsification": "Replace or retire the composition if an original response, exact original producer, or controlled capture shows different response bytes, rejection, persisted slot, item order, or reconnect behavior.",
+      "stop_rule": "Allow at most this one free-slot transition and its exact reconnect. Do not add another destination, occupied-slot behavior, swap, displacement, split, drop, equip, or second dependent version without new evidence and ledger review.",
+      "production_allowed": false,
+      "expiry": {
+        "tracked_versions": ["ITEM-MOVE-HYP-001"],
+        "decision": "Active first bounded version; prove, retire, or explicitly review before any broader item-move lineage is added."
+      },
+      "max_versions": 3,
+      "extension_approval_ref": null,
+      "source_refs": [
+        {
+          "path": "scenarios/item_move_hypothesis_v111_slot2.json",
+          "required_markers": ["\"hypothesis_id\": \"HYP-PF-008\"", "\"production_allowed\": false", "\"destination_policy\": \"slot2_must_be_free\""],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/item_move_hypothesis.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-008 active", "make_item_operate_move_delta_success(2, 2)", "HYPOTHESIZED_MOVE_RESPONSE_PC_SHA256"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/inventory.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-008 active", "HYPOTHESIZED_V111_SLOT2_BACKPACK", "ItemAttrState(1, 2600001, 2, 2)"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/repository.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-008 active", "apply_hypothesized_v111_slot2_move"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/lifecycle.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-008 active", "move_hypothesized_v111_slot2"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/store.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-008 active", "UPDATE character_backpack_items SET slot=2", "ORDER BY item_identity"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/session.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-008 active", "allow_hypothesized_item_move", "HYP-PF-008 post-state requires its explicit opt-in scenario"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/runtime.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-008 active", "make_hypothesized_move_response(legacy)", "HYP_PF_008_ITEM_MOVE_ID1_SLOT0_TO_FREE_SLOT2_COMMITTED"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/app.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-008 active", "load_item_move_hypothesis_scenario(known.item_move_hypothesis_scenario)"],
+          "active_claim_marker": true
+        }
+      ]
+    },
+    {
       "id": "DIAG-PF-001",
       "kind": "diagnostic_value",
       "introduced_checkpoint": "SCENE-003",

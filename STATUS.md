@@ -8,7 +8,9 @@ Updated: 2026-08-16
 - V141 is closed as a legacy characterization baseline: packaged and deterministic
   offline self-tested. A raw runtime capture exists but has not been formally audited,
   reported or promoted; V141 therefore adds no accepted gameplay claim.
-- Foundation work introduces no V142 protocol/gameplay hypothesis.
+- The accepted Foundation baseline introduces no V142 protocol/gameplay
+  hypothesis. Explicit test-only hypothesis modes remain outside that baseline
+  and are governed by the canonical hypothesis ledger.
 
 ## Foundation gates
 
@@ -38,7 +40,7 @@ Updated: 2026-08-16
 - Deterministic source archive verification: implemented and excluded from Git.
 - `docs/HYPOTHESIS_LEDGER.json` is the canonical inventory for every emitted
   guessed value, diagnostic value, retired candidate, and synthetic geometry.
-  Its strict verifier pins 14 known entries, evidence markers, three-version
+  Its strict verifier pins 15 known entries, evidence markers, three-version
   expiry, `production_allowed=false`, and `authentic=false` for geometry.
   No current entry has an extension approval. Every entry beyond three related
   versions is frozen or `expired_pending_decision`; SCENE-005 faction 1 and the
@@ -150,6 +152,22 @@ Updated: 2026-08-16
   only the exact V111 merge/reconnect projection—not generalized item moves,
   equipment, ownership, concurrency or crash recovery. No retained server exit
   sidecar exists and PTY exit was 1, so no clean-shutdown/exit-0 claim is added.
+- ITEM-MOVE-CAPTURE-001 adds a strict capture-only boundary for the exact
+  36-byte client request `(operation=4,value32=2,item_identity=1)` from the
+  exact merged Backpack. In that explicit mode every ItemOperate-shaped request
+  is owned, the target request is recorded once, and no response or durable/
+  in-memory Backpack mutation is allowed. Offline verification passes; the live
+  assisted run is paused at the Backpack second-password dialog because PIN
+  entry must be performed by the user. No live request/response claim is made.
+- ITEM-MOVE-HYP-001 implements the first bounded HYP-PF-008 composition behind
+  a separate strict test-only scenario. It combines the exact captured slot-2
+  request with separately accepted free-slot and quantity-2 response facts,
+  commits identity 1 quantity 2 from slot 0 to currently free slot 2, then emits
+  one hash-pinned composed response and permits only that same opt-in reconnect
+  projection. Occupied slot 3, swap/displacement, every other tuple, stale or
+  non-owning sessions, baseline projection and replay fail closed. This is Grade
+  D implementation evidence only; no original-server response policy or runtime
+  client acceptance is claimed.
 
 ## Test Arena V1
 

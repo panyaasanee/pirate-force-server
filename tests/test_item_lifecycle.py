@@ -355,9 +355,9 @@ class ItemLifecycleTests(unittest.TestCase):
                 "WHERE character_id=? AND item_identity=2",
                 (character.id,),
             )
-        with self.assertRaisesRegex(ValueError, "outside the exact V111 allowlist"):
+        with self.assertRaisesRegex(ValueError, "outside the governed V111 allowlist"):
             self.store.get_backpack(state.foundation.session_id, character.id)
-        with self.assertRaisesRegex(ValueError, "outside the exact V111 allowlist"):
+        with self.assertRaisesRegex(ValueError, "outside the governed V111 allowlist"):
             self.store.apply_v111_stack_merge(
                 state.foundation.session_id, character.id
             )

@@ -7,6 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 from .inventory import (
     BackpackState,
+    HYPOTHESIZED_V111_SLOT2_BACKPACK,
     INITIAL_BACKPACK,
     MERGED_V111_BACKPACK,
     ItemAttrState,
@@ -247,7 +248,10 @@ class SQLiteStore:
             raise RuntimeError("character Backpack state is missing")
         rows = db.execute(
             "SELECT item_identity,template_id,quantity,slot,raw_u8_38,raw_u8_39,detail_present "
-            "FROM character_backpack_items WHERE character_id=? ORDER BY slot,item_identity",
+                # The serialized client container is keyed by item identity.
+                # Keeping that order is byte-neutral for the two exact states;
+                # its post-move reconnect use is governed by HYP-PF-008.
+                "FROM character_backpack_items WHERE character_id=? ORDER BY item_identity",
             (character_id,),
         ).fetchall()
         state = BackpackState(
@@ -313,6 +317,37 @@ class SQLiteStore:
             after = self._load_backpack(db, character_id)
             if after != MERGED_V111_BACKPACK:
                 raise RuntimeError("exact V111 post-state validation failed")
+            return after
+
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-008 active
+    def apply_hypothesized_v111_slot2_move(
+        self, sid: str, character_id: int,
+    ) -> BackpackState | None:
+        """Atomically install only the governed merged-slot0 -> free-slot2 state."""
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            self._require_selected_session(db, sid, character_id)
+            before = self._load_backpack(db, character_id)
+            if before == HYPOTHESIZED_V111_SLOT2_BACKPACK:
+                return None
+            if before != MERGED_V111_BACKPACK:
+                raise ValueError("Backpack is outside the HYP-PF-008 pre-state")
+            moved = db.execute(
+                "UPDATE character_backpack_items SET slot=2 "
+                "WHERE character_id=? AND item_identity=1 AND template_id=2600001 "
+                "AND quantity=2 AND slot=0 AND raw_u8_38=0 "
+                "AND raw_u8_39=255 AND detail_present=0",
+                (character_id,),
+            )
+            if moved.rowcount != 1:
+                raise RuntimeError("HYP-PF-008 target row changed during transaction")
+            db.execute(
+                "UPDATE character_backpacks SET updated_at=? WHERE character_id=?",
+                (_now(), character_id),
+            )
+            after = self._load_backpack(db, character_id)
+            if after != HYPOTHESIZED_V111_SLOT2_BACKPACK:
+                raise RuntimeError("HYP-PF-008 post-state validation failed")
             return after
 
     @staticmethod

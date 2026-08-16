@@ -65,6 +65,12 @@ class CharacterLifecycle:
     def merge_v111_stack(self, session_id, character):
         return self.store.apply_v111_stack_merge(session_id, character.id)
 
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-008 active
+    def move_hypothesized_v111_slot2(self, session_id, character):
+        return self.store.apply_hypothesized_v111_slot2_move(
+            session_id, character.id,
+        )
+
     def exit(self, session_id, character, position):
         self.store.save_position(session_id, character.id, position)
         self.store.close_session(session_id)

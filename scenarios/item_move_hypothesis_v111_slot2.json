@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "id": "item_move_hypothesis_v111_merged_id1_slot0_to_free_slot2",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-008",
+  "entry": {
+    "flow": "full_writable_character",
+    "required_backpack": "merged_v111_exact",
+    "required_sequence": "selected_and_runtime_ready",
+    "destination_policy": "slot2_must_be_free"
+  },
+  "request": {
+    "operation": 4,
+    "value32": 2,
+    "item_identity": 1,
+    "pc_size": 36,
+    "pc_sha256": "7A59F83060CFEC50D087BF991695852BA27C00B27B7B46B3D72F3340830436EE"
+  },
+  "composed_response": {
+    "pc_size": 71,
+    "pc_sha256": "DF40B49DC179DB07A006FC4989273D6F97529DAE6FF7D0DE692815435A1CD2F9",
+    "frame_size": 82,
+    "frame_sha256": "45C38CB7331EAF0EA8A06191DEFBD039733FB3EAD88E6142C08AEB1F6ACFE10E",
+    "quantity": 2,
+    "slot": 2
+  },
+  "persisted_post_state": {
+    "identity_order": [1, 2, 4],
+    "identity1_quantity": 2,
+    "identity1_slot": 2,
+    "backpack_size": 124,
+    "backpack_sha256": "5B2FECF979CD5B9E65586E6AD0DE834598028C7B1A1B7502B40C94F32281ADDC"
+  },
+  "capabilities": [
+    "emit_one_tracked_free_slot_move_after_commit",
+    "project_tracked_post_state_only_in_same_opt_in_mode"
+  ],
+  "nonclaims": [
+    "original_server_response_policy",
+    "occupied_slot_swap_or_displacement",
+    "generalized_item_move",
+    "equipment_or_item_ownership",
+    "production_baseline_behavior"
+  ]
+}
