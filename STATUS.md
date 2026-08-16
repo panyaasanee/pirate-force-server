@@ -84,6 +84,21 @@ Updated: 2026-08-16
   exited 0 with empty streams. This is one Grade B active-client requested-stop pass,
   not proof of every Windows console host/signal source, crash or power-loss safety,
   transaction-failure recovery, concurrency, remote clients, or multi-account use.
+- FND-009 closes one bounded abrupt-process restart boundary. Round A committed
+  `Arena01` scene 1/seq 0 at
+  `(-7292.4833984375,-3187.03759765625,186)`, heading
+  `0.18130016326904297`, while exact selected session
+  `becd6c1efb9e4443825cfb4f46ce9210` generation 8 remained open. A validated
+  `Stop-Process -Force` removed exact server PID 11412 while client PID 2308 was
+  still running; the post-kill snapshot retained both the committed checkpoint and
+  open lease. Round B startup closed that stale SID before fresh login, then opened
+  generation 9 and emitted byte-identical Character List plus StartGame MovementAttr
+  containing the exact checkpoint, without CreateActor and without changing the
+  opaque actor/avatar blobs. Normal client disconnect closed generation 9; a later
+  requested stop emitted one marker and exited 0. This is a Grade B stable-commit
+  recovery pass with a Grade E deliberate-loss trigger, not proof of in-flight
+  transaction/non-empty-WAL recovery, power loss, every crash mechanism,
+  concurrency, remote clients, or authenticated multi-account use.
 
 ## Test Arena V1
 

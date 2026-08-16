@@ -291,6 +291,22 @@ other.
   Keep the ceiling to this exact helper/console path. It is not crash, power-loss,
   active-transaction, every-signal-source, concurrent-client, remote-client or
   authenticated multi-account proof, and it emitted no new gameplay/protocol bytes.
+- FND-009 proves one stable committed-checkpoint recovery after deliberate server
+  process loss. Round A captured exact TargetPos
+  `(-7292.4833984375,-3187.03759765625,186)`, heading
+  `0.18130016326904297`; the committed Position retained those values at scene
+  1/seq 0 under selected generation 8. The retained precheck pinned
+  exact PID 11412, command line, database/capture paths and listeners; forced
+  Stop-Process removed that server while the client remained active, leaving the
+  exact SID open in the immutable post-kill snapshot. Round B startup closed the
+  stale SID before fresh login. With no CreateActor, it re-emitted byte-identical
+  Character List and a StartGame MovementAttr containing the exact checkpoint,
+  preserving `Arena01`, selector 0, identity `0x10010001:0` and both opaque blobs.
+  Generation 9 then closed on normal client disconnect, and the replacement server
+  later completed the FND-008 requested-stop path with one stopped marker and exit
+  0. Keep the ceiling to stable committed data across this exact forced-loss/restart
+  sequence. In-flight transactions, non-empty WAL, power loss, corruption,
+  concurrency, remote/multi-account use and new gameplay remain unproven.
 
 - `STATUS.md` and the ledger contain the full accepted record through SCENE-010.
 - Foundation lifecycle and the assisted reconnect are accepted within their
