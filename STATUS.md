@@ -186,6 +186,15 @@ Updated: 2026-08-16
   has no hidden consumer-side prestate gate. Original-server response selection,
   durable/reconnect policy and live UI acceptance remain missing, so HYP-PF-008
   stays Grade D, test-only and non-production.
+- EQUIP-STATE-001 closes a false-equivalence risk in the next equipment lane.
+  `ItemBagAttr_Equiped` is an exact registered shared ItemBag structure, but the
+  Character equipment refresh explicitly requests the separate
+  `CollectionBagAttr`, then maps each non-`0xFF` ItemAttr `+0x39` byte to an
+  identity. StartGame generically imports every received attribute before its
+  four class-specific Backpack/Actor/Avatar/Movement lookups; neither equipped
+  bag has a direct StartGame lookup. No authentic equipped container, absolute
+  reserved slot, operation-5 response or server allocation policy exists, so
+  Foundation StartGame remains unchanged and no equipment state is synthesized.
 
 ## Test Arena V1
 

@@ -383,6 +383,14 @@ other.
   client-prestate gate remains for the composed quantity-2/slot-2 response.
   Keep original-server response selection, persistence/reconnect policy and live
   UI acceptance as missing; HYP-PF-008 remains Grade D and non-production.
+- EQUIP-STATE-001 proves that `ItemBagAttr_Equiped` and `CollectionBagAttr` are
+  distinct registered classes. StartGame can retain arbitrary incoming attrs
+  through its generic aggregate import, but its direct handling names neither;
+  Character equipment refresh explicitly requests `CollectionBagAttr` and maps
+  ItemAttr `+0x39`, not `ItemBagAttr_Equiped`. Keep Foundation StartGame
+  unchanged. Do not revive V130 slot `-1`, choose a reserved slot, synthesize an
+  equipped container or infer operation-5/6 response/persistence without an
+  original inbound response or an exact two-state producer.
 
 - `STATUS.md` and the ledger contain the full accepted record through
   ITEM-LIFECYCLE-001.
