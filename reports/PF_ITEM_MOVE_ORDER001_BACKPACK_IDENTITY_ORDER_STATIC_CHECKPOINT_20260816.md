@@ -1,6 +1,6 @@
 # ITEM-MOVE-ORDER-001 — Backpack identity-order static checkpoint
 
-Date: 2026-08-16  
+Date: 2026-08-16
 Scope: read-only exact-client audit; no packet, runtime input, database write, or
 gameplay implementation change.
 
