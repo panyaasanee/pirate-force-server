@@ -94,6 +94,7 @@ expected = {
     'src/pirateforce_foundation/action_ack.py',
     'src/pirateforce_foundation/actor_wire.py',
     'src/pirateforce_foundation/app.py',
+    'src/pirateforce_foundation/delete_actor.py',
     'src/pirateforce_foundation/legacy_bridge.py',
     'src/pirateforce_foundation/lifecycle.py',
     'src/pirateforce_foundation/model.py',
