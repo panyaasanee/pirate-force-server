@@ -34,7 +34,7 @@ $serverArgs = @(
     '--capture-root', ('"' + $capture + '"')
 )
 $server = Start-Process -FilePath 'py' -ArgumentList $serverArgs -WorkingDirectory $root `
-    -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
+    -WindowStyle Normal -PassThru
 Set-Content -LiteralPath (Join-Path $capture 'server.pid') -Value $server.Id -Encoding ascii
 $deadline = [DateTime]::UtcNow.AddSeconds(15)
 do {

@@ -68,6 +68,9 @@ not let it silently become an implementation milestone.
 2. During code work, close GameClient, Computer Use, recorders, and idle terminals.
 3. During runtime work, keep only one server, one GameClient, one lightweight
    recorder, and the current command task.
+   Every actual server must have a visible console; hidden/background-only/PTY
+   server runs are forbidden even for automated evidence collection. Offline
+   `--self-test-only` verification is not an actual server invocation.
 4. Use one implementer. Add one reviewer only when the risk tier requires it; do
    not leave idle agents or duplicate audits running.
 5. Prefer one stable diff over a chain of micro-corrections. Freeze the diff before
@@ -135,6 +138,9 @@ not let it silently become an implementation milestone.
   inspect the result, and never repeat an ambiguous or destructive action blindly.
 - Preserve raw transport and authoritative DB/process oracles. Operator visual
   observations are labelled as such and never substituted for missing wire data.
+- Mirror summary stdout/stderr to both the visible console and deterministic UTF-8
+  per-run files. Keep raw packet hex file-only so console rendering cannot become
+  a performance bottleneck.
 - Stop on unexpected packet loops, client/server errors, ambiguous PID/process
   identity, out-of-scope DB mutation, or loss of the exact acceptance oracle.
 - Stateful features require persistence/reconnect evidence before completion.

@@ -2,6 +2,15 @@
 
 Updated: 2026-08-16
 
+## Mandatory visible server console
+
+Every actual Foundation server run must display a visible console. Use
+`tools\run_foundation_visible.ps1` for the normal server-only path; scenario
+launchers also start the server with `-WindowStyle Normal`. The app mirrors summary
+stdout/stderr to `server_console_live.out.txt` and `.err.txt` inside the run capture
+root. Raw protocol logs remain under `capture_v141`. Do not start a real listener
+inside a hidden window or Codex-only PTY. `--self-test-only` is the only exception.
+
 This is the compact continuity file for a fresh Chief Architect task. Read it
 after `AGENTS.md`, `STATUS.md`, and `docs/EXPERIMENT_LEDGER.md`. Those three
 files remain authoritative for safety, evidence ceilings, and accepted runtime

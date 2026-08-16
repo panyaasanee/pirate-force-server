@@ -50,6 +50,7 @@ py -3 -m py_compile tools\scene_db_guard.py
 Assert-NativeSuccess -ExitCode $LASTEXITCODE -Step 'database guard py_compile'
 [void][scriptblock]::Create((Get-Content -Raw tools\run_test_arena.ps1))
 [void][scriptblock]::Create((Get-Content -Raw tools\run_scene2_load_only.ps1))
+[void][scriptblock]::Create((Get-Content -Raw tools\run_foundation_visible.ps1))
 py -3 current\pf_login_game_server_v141.py --self-test-only
 Assert-NativeSuccess -ExitCode $LASTEXITCODE -Step 'legacy self-test'
 py -3 -m unittest discover -s tests -v
@@ -113,6 +114,7 @@ expected = {
     'src/pirateforce_foundation/population_scenario.py',
     'src/pirateforce_foundation/repository.py',
     'src/pirateforce_foundation/runtime.py',
+    'src/pirateforce_foundation/runtime_console.py',
     'src/pirateforce_foundation/scenario.py',
     'src/pirateforce_foundation/scene_load.py',
     'src/pirateforce_foundation/scene_object.py',
@@ -152,6 +154,7 @@ expected = {
     'tools/verify_hypothesis_ledger.py',
     'tools/run_test_arena.ps1',
     'tools/run_scene2_load_only.ps1',
+    'tools/run_foundation_visible.ps1',
     'tools/scene_db_guard.py',
     'tools/wait_for_pf_stage.py',
 }

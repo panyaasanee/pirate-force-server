@@ -18,9 +18,14 @@ powershell -ExecutionPolicy Bypass -File .\tools\verify_foundation.ps1
 Run the persistent lifecycle adapter (after offline gates pass):
 
 ```powershell
-$env:PYTHONPATH = ".\src"
-py -3 -m pirateforce_foundation.app --db .\state\pirateforce.sqlite3
+powershell -ExecutionPolicy Bypass -File .\tools\run_foundation_visible.ps1 `
+  -Database .\state\pirateforce.sqlite3
 ```
+
+Every actual server run displays a visible console and mirrors its summary output
+to deterministic UTF-8 files in the run capture root. Raw packet logs remain
+file-only under `capture_v141`. Offline `--self-test-only` checks are the sole
+console exception.
 
 Current state and evidence ceilings are in `STATUS.md` and
 `docs/EXPERIMENT_LEDGER.md`.

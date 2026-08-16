@@ -42,6 +42,7 @@ FILES = [
     ROOT/'tools/verify_hypothesis_ledger.py',
     ROOT/'tools/run_test_arena.ps1',
     ROOT/'tools/run_scene2_load_only.ps1',
+    ROOT/'tools/run_foundation_visible.ps1',
     ROOT/'tools/scene_db_guard.py',
     ROOT/'tools/wait_for_pf_stage.py',
 ]

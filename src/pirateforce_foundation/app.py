@@ -11,6 +11,7 @@ from .item_move_hypothesis import load_item_move_hypothesis_scenario
 from .model import Position
 from .population_scenario import load_population_scenario
 from .runtime import make_state_class
+from .runtime_console import install_runtime_console
 from .scenario import load_scenario
 from .scene_load import load_scene_load_scenario
 from .second_password_bypass import SECOND_PASSWORD_MODES
@@ -89,6 +90,19 @@ def main() -> int:
     )
     if item_move_capture is not None or item_move_hypothesis is not None:
         db_path = resolve_item_move_capture_db(db_path)
+    self_test_only = '--self-test-only' in remaining
+    if not self_test_only:
+        mode = (
+            'arena' if scenario is not None else
+            'scene-load' if scene_load is not None else
+            'population' if population is not None else
+            'item-move-capture' if item_move_capture is not None else
+            'item-move-hypothesis' if item_move_hypothesis is not None else
+            'foundation'
+        )
+        install_runtime_console(
+            root, known.capture_root, db_path, mode,
+        )
     legacy = load_legacy(root/'current/pf_login_game_server_v141.py')
     store = SQLiteStore(db_path, root/'migrations')
     if (
@@ -136,7 +150,7 @@ def main() -> int:
         legacy.main, shutdown, managed_sockets, legacy.threading,
     )
     legacy.run_self_test = lambda verbose=True: None
-    if '--self-test-only' in remaining:
+    if self_test_only:
         # Keep the frozen argument-validation/self-test-only return outside the
         # production shutdown runner. An unrequested run_server return is always
         # an early-startup failure, including before either listener binds.

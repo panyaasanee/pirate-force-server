@@ -130,6 +130,18 @@ Do not combine an architecture migration with a new gameplay/protocol hypothesis
 One milestone has one primary claim and explicit nonclaims. Commit state before
 queueing a success response; set one-shot state before queueing a one-shot packet.
 
+## Runtime console and logging
+
+- Every actual server invocation, manual or automated, must display a visible
+  Foundation console for its entire lifetime. Hidden server windows and
+  console-less background/PTY server runs are forbidden. `--self-test-only`
+  subprocesses are offline verification and are the sole exception.
+- Mirror human-readable stdout/stderr to deterministic UTF-8 per-run files while
+  keeping raw GAME/LOGIN/packet hex in capture files only. Console rendering must
+  never be the sole evidence source.
+- Stop an actual server with Ctrl+C in its visible console or the accepted bounded
+  signal helper. Preserve exact PID/exit/log evidence for runtime checkpoints.
+
 ## Git and artifacts
 
 - Track authored source, tests, migrations, tools, concise docs and selected frozen
