@@ -385,6 +385,18 @@ other.
   both exact client profiles and no source edge here; never call it equipped,
   owned or weapon-bound. Stop this lane: no echoed IDs, row insertion, ActionVital
   alteration, CHitResult/HP/FightAttr synthesis, hook expansion or packet test.
+- COMBAT-KNOCK-001/BIND proves a separate static consumer boundary only.
+  `CKnockdownVital` consumer `0x750700` resolves the receiver actor; concrete
+  path `0x47CAD0 -> 0x48D270 -> 0x702A10` uses raw object `+0x20` as a BEHAVIOR
+  key. Raw `+0x24` is stored at inner implementation `+0x50`, while `+0x34` is
+  discarded. Success creates a wrapper with vtable `0xF0F7DC` and flags
+  `0x40000005`. Wrapper bit `0x40000000` selects the actor `+0x40` lane through
+  `0x4843F0`; the `0x4A0C90` queue invocation receives a separate argument `1`.
+  No direct non-framework writer,
+  EA7D/278/279/CHitResult binding, HP/FightAttr/UpdateAttr mutation, visible
+  animation or packet shape is proven. Treat the class name as role provenance
+  only. Do not synthesize it; resume only from original S2C evidence or an exact
+  producer assigning every field. SCENE-013 is not static-consumer exhaustion.
 - Personal plugin `pirate-force-input-bridge` now provides bounded held keys and
   right-button drags. One-second held `E` camera rotation passed twice. Use it for
   autonomous GameClient control; this operational result does not raise any

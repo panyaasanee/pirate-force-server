@@ -305,6 +305,19 @@ Updated: 2026-08-16
   client image and no dataflow into this chain; it is not proven equipped,
   owned, weapon-related or a BEHAVIOR key. Do not echo IDs, alter ActionVital or
   synthesize combat responses.
+- COMBAT-KNOCK-001/BIND establishes an exact static actor-scheduler boundary for
+  `CKnockdownVital` without authorizing a packet. Consumer `0x750700` resolves a
+  receiver actor, and `0x47CAD0 -> 0x48D270 -> 0x702A10` uses raw vital `+0x20`
+  as a BEHAVIOR key. Raw `+0x24` is stored at inner implementation `+0x50`;
+  float `+0x34` is discarded by this concrete path. Success builds a wrapper
+  with vtable `0xF0F7DC` and flags `0x40000005`. Wrapper bit `0x40000000`
+  selects the receiver actor `+0x40` lane through `0x4843F0`; the subsequent
+  `0x4A0C90` queue invocation receives a separate argument `1`. Nullable
+  receiver, lookup and actor-side gates remain. No non-framework
+  direct writer, EA7D/278/279/CHitResult edge, HP/FightAttr/UpdateAttr mutation,
+  visible knockdown/animation or packet fields/order is proven. The class name
+  is role provenance only. Resume only with original inbound evidence or an
+  exact producer assigning every field.
 - The launcher starts a detached database guard. After both client and server close,
   runtime acceptance additionally requires `PASS_UNCHANGED` for the main SQLite file
   and the exact pre-run existence/hash/size state of both `-wal` and `-shm`.
