@@ -107,6 +107,7 @@ expected = {
     'src/pirateforce_foundation/scene_load.py',
     'src/pirateforce_foundation/scene_object.py',
     'src/pirateforce_foundation/session.py',
+    'src/pirateforce_foundation/shutdown.py',
     'src/pirateforce_foundation/store.py',
     'tools/PF_FAST_ENTRY_AUTOMATION.md',
     'tools/pf_relation_probe.py',

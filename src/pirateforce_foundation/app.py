@@ -12,8 +12,14 @@ from .scenario import load_scenario
 from .scene_load import load_scene_load_scenario
 from .session import ReadOnlyFoundationSession
 from .store import SQLiteStore
+from .shutdown import (
+    ManagedSocketModule,
+    ServerShutdownController,
+    adapt_server_main,
+    run_server,
+)
 
-def main():
+def main() -> int:
     root = Path(__file__).resolve().parents[2]
     pre = argparse.ArgumentParser(add_help=False)
     pre.add_argument('--db')
@@ -53,22 +59,36 @@ def main():
         session_factory = lambda token: ReadOnlyFoundationSession(
             store, projector, token, scene_load,
         )
-    connection_bindings = GameConnectionBindings()
+    shutdown = ServerShutdownController()
+    connection_bindings = GameConnectionBindings(
+        shutdown.record_connection_failure,
+    )
+    managed_sockets = ManagedSocketModule(legacy.socket, shutdown)
     legacy.GameSessionState = make_state_class(
         legacy, lifecycle, projector, scenario=scenario,
         scene_load_scenario=scene_load, session_factory=session_factory,
         connection_bindings=connection_bindings,
     )
     legacy.game_listener = adapt_game_listener(
-        legacy.game_listener, connection_bindings, legacy.socket,
+        legacy.game_listener, connection_bindings, managed_sockets,
+    )
+    server_main = adapt_server_main(
+        legacy.main, shutdown, managed_sockets, legacy.threading,
     )
     legacy.run_self_test = lambda verbose=True: None
+    if '--self-test-only' in remaining:
+        # Keep the frozen argument-validation/self-test-only return outside the
+        # production shutdown runner. An unrequested run_server return is always
+        # an early-startup failure, including before either listener binds.
+        server_main()
+        return 0
     if known.capture_root:
         capture_root = Path(known.capture_root).resolve()
         capture_root.mkdir(parents=True, exist_ok=True)
         # The frozen V141 listener writes to relative capture_v141/. Isolate
         # that immutable behavior under this run's timestamped capture root.
         os.chdir(capture_root)
-    legacy.main()
+    return run_server(server_main, shutdown)
 
-if __name__ == '__main__': main()
+if __name__ == '__main__':
+    raise SystemExit(main())

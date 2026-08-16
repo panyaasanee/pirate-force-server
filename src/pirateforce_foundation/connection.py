@@ -31,8 +31,20 @@ def _report_standalone(error: BaseException) -> None:
 class GameConnectionBindings:
     """Bind one accepted GAME socket to one connection-local state per thread."""
 
-    def __init__(self) -> None:
+    def __init__(self, close_error_observer=None) -> None:
         self._local = threading.local()
+        self._close_error_observer = close_error_observer
+
+    def report_close_error(self, error: BaseException) -> None:
+        if self._close_error_observer is not None:
+            try:
+                self._close_error_observer(error)
+            except BaseException as observer_error:
+                print(
+                    f"[FOUNDATION!] GAME teardown error observer failed: "
+                    f"{observer_error!r}",
+                    file=sys.stderr,
+                )
 
     def accepted(self, raw_socket: Any) -> "AcceptedGameSocket":
         if getattr(self._local, "pending", None) is not None:
@@ -90,6 +102,7 @@ class AcceptedGameSocket:
         try:
             self._bindings.release(self)
         except BaseException as close_error:
+            self._bindings.report_close_error(close_error)
             if primary is None:
                 _report_standalone(close_error)
             else:
