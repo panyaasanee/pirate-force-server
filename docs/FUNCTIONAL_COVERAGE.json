@@ -618,7 +618,7 @@
           "test_refs": [
             "tests/test_system_message_wire.py"
           ],
-          "notes": "ShowMessageVital 0x36D2 carries exactly one wide string and the client renders it in the authentic system panel on the first runtime request. It is emitted by the frozen legacy seam, no Foundation module owns it, and it has no offline test, so it is one observation rather than an owned feature."
+          "notes": "ShowMessageVital 0x36D2 carries exactly one wide string and the client renders it in the authentic system panel on the first runtime request. It is emitted by the frozen legacy seam and no Foundation module owns it, so it is one observation relayed through the inherited dispatch path rather than an owned feature; the offline test pins the wire shape and the ownership negative, not the runtime emission."
         },
         {
           "id": "client_chat_input",
