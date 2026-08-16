@@ -306,9 +306,10 @@
             "reports/PF_RE_V92_Runtime_and_V93_Five_Proven_Walkers_20260814.md"
           ],
           "test_refs": [
-            "tests/test_population.py"
+            "tests/test_population.py",
+            "tests/test_npc_gait_wire.py"
           ],
-          "notes": "Gait selection is accounted for by the decoded MOBS walk-speed value carried in BasicAttr bit 0x0040. Observed visually for a fixed set of placements; it is not a general locomotion or pathing engine."
+          "notes": "Gait selection is accounted for by the decoded MOBS walk-speed value carried in BasicAttr bit 0x0040, and the accepted rule is that the value must be serialized in every generation and not only the bootstrap, because omitting it from movement snapshots is what turned the observed walk into a run. Observed visually for a fixed set of placements in the legacy scenario runner; it is not a general locomotion or pathing engine. The Foundation population path never requests a movement speed, so no Foundation runtime has reproduced this gait and a test pins that absence."
         },
         {
           "id": "scene_actor_population_streaming",
