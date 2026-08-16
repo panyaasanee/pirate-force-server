@@ -86,6 +86,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.item_move_capture_last_fields = None
                 self.item_move_hypothesis_count = 0
                 self.second_password_bypass_sent = False
+                self.second_password_bypass_keepalive_started = False
                 if population_scenario is not None:
                     # The typed capability owns TargetPos population state.  The
                     # inherited dispatcher must remain permanently unable to
@@ -587,7 +588,6 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 and self.teleport_sent
                 and self.runtime_ack_sent
             ):
-                # PF-HYPOTHESIS-LEDGER: HYP-PF-009 active
                 pc, frame = make_proactive_second_password_ok(
                     legacy, second_password_mode,
                 )
@@ -597,6 +597,32 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 )
                 actions = actions + [(
                     "HYP_PF_009_PROACTIVE_SECOND_PASSWORD_OK_ONCE",
+                    pc, frame, 0.0,
+                )]
+            elif (
+                second_password_mode == "bypass"
+                and self.second_password_bypass_sent
+                and self.foundation.selected is not None
+                and self.teleport_sent
+                and self.runtime_ack_sent
+                and parsed.vital_count == 0
+            ):
+                # The first live trial proved that an unsolicited OK delivered
+                # before the UI challenge is not retained by this client.  Empty
+                # runtime polls are the only exact, continuing client boundary;
+                # pulse the same accepted response so an opened dialog receives
+                # it without any PIN submission.  No credential is read or sent.
+                # PF-HYPOTHESIS-LEDGER: HYP-PF-009 active
+                pc, frame = make_proactive_second_password_ok(
+                    legacy, second_password_mode,
+                )
+                if not self.second_password_bypass_keepalive_started:
+                    self.second_password_bypass_keepalive_started = True
+                    self.events.append(
+                        "hyp_pf_009_second_password_ok_keepalive_started"
+                    )
+                actions = actions + [(
+                    "HYP_PF_009_SECOND_PASSWORD_OK_KEEPALIVE",
                     pc, frame, 0.0,
                 )]
             if (

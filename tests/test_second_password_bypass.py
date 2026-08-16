@@ -39,6 +39,9 @@ RUNTIME_READY_PC = bytes.fromhex(
     "12 90 2A 0B 00 2A 00 00 00 00 2A 00 00 00 00 "
     "2A 00 00 C0 68 44 2A 00 00 00 00 0B 00 0B 00"
 )
+EMPTY_RUNTIME_PC = bytes.fromhex(
+    "12 6F 6E 14 00 00 00 00 08 00 0B 00"
+)
 
 
 class SecondPasswordBypassTests(unittest.TestCase):
@@ -155,6 +158,37 @@ class SecondPasswordBypassTests(unittest.TestCase):
         self.assertEqual(
             state.events.count("hyp_pf_009_proactive_second_password_ok_committed"),
             1,
+        )
+
+    def test_bypass_repeats_exact_ok_on_empty_runtime_polls_without_credentials(self):
+        state = self._state()
+        state.dispatch(self.legacy.parse_outer(RUNTIME_READY_PC))
+        empty = self.legacy.parse_outer(EMPTY_RUNTIME_PC)
+        self.assertEqual(empty.vital_count, 0)
+
+        first = state.dispatch(empty)
+        second = state.dispatch(empty)
+        for actions in (first, second):
+            matching = [action for action in actions if action[0] ==
+                        "HYP_PF_009_SECOND_PASSWORD_OK_KEEPALIVE"]
+            self.assertEqual(len(matching), 1)
+            self.assertEqual(
+                matching[0][1:3],
+                self.legacy.make_check_second_password_success(),
+            )
+        self.assertTrue(state.second_password_bypass_keepalive_started)
+        self.assertEqual(
+            state.events.count(
+                "hyp_pf_009_second_password_ok_keepalive_started"
+            ),
+            1,
+        )
+
+        baseline = self._state("pulse-baseline", mode="required")
+        baseline.dispatch(self.legacy.parse_outer(RUNTIME_READY_PC))
+        self.assertNotIn(
+            "HYP_PF_009_SECOND_PASSWORD_OK_KEEPALIVE",
+            [action[0] for action in baseline.dispatch(empty)],
         )
 
     def test_baseline_has_no_proactive_packet_or_state_effect(self):

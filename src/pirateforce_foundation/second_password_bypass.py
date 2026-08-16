@@ -1,9 +1,10 @@
-"""Server-selectable proactive Second Password success.
+"""Server-selectable Second Password success pulses.
 
 The response bytes are the already accepted V110 result=OK packet.  Sending
-that packet after runtime readiness, before a client request, is deliberately
-tracked as HYP-PF-009.  The stable server parameter defaults to ``required``;
-``bypass`` must be explicitly selected for a local server run.
+that packet after runtime readiness and repeating it on empty runtime polls,
+without a credential request, is deliberately tracked as HYP-PF-009.  The
+stable server parameter defaults to ``required``; ``bypass`` must be explicitly
+selected for a local server run.
 """
 
 from __future__ import annotations

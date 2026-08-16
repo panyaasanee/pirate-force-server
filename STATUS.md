@@ -161,14 +161,13 @@ Updated: 2026-08-16
   entry must be performed by the user. No live request/response claim is made.
 - SECOND-PASSWORD-BYPASS-001 adds the persistent Foundation server parameter
   `--second-password-mode required|bypass`; `required` is the default and the
-  option is available alongside every Foundation scenario. In `bypass` mode,
-  after the first selected runtime-ready
-  request it proactively emits the already accepted V110 34-byte
-  `CheckSecondPwdVital` result-OK PC/44-byte frame once, without receiving,
-  storing or synthesizing a PIN/digest. Default sessions remain unchanged.
-  Offline tests pass;
-  whether unsolicited timing actually suppresses the Backpack PIN dialog is a
-  pending Grade-D runtime question, not original authentication policy.
+  option is available alongside every Foundation scenario. The first live
+  one-shot trial emitted the exact V110 OK packet but Backpack still opened the
+  PIN dialog; opening that dialog emitted no distinct request. SECOND-PASSWORD-
+  BYPASS-002 therefore repeats the same hash-pinned response on exact empty
+  runtime polls while `bypass` is enabled, without receiving, storing or
+  synthesizing a PIN/digest. Default sessions remain unchanged. This second
+  timing is Grade D and pending one controlled runtime test.
 - ITEM-MOVE-HYP-001 implements the first bounded HYP-PF-008 composition behind
   a separate strict test-only scenario. It combines the exact captured slot-2
   request with separately accepted free-slot and quantity-2 response facts,

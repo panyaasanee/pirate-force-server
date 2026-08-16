@@ -363,11 +363,13 @@ other.
   entry. Resume the capture only after the user enters it manually and confirms.
 - SECOND-PASSWORD-BYPASS-001 is a persistent user-requested Foundation server
   setting: `--second-password-mode required|bypass`, defaulting to `required`
-  and available with every Foundation scenario. Explicit `bypass` proactively
-  sends the hash-pinned V110 OK response once after runtime readiness and never
-  contains a PIN/digest. Its timing remains Grade D and runtime-pending: if the dialog
-  remains or the client errors, retire the timing rather than adding another
-  trigger, patching the client, or broadening authentication bypass.
+  and available with every Foundation scenario. The first runtime-ready one-shot
+  was not retained and Backpack still opened PIN; no distinct dialog-open packet
+  followed. SECOND-PASSWORD-BYPASS-002 therefore repeats the same hash-pinned
+  response on later empty runtime polls and never contains a PIN/digest. This is
+  the final bounded server-packet timing: if a pulse delivered while the dialog
+  is open does not close it or the client errors, retire packet-only bypass rather
+  than adding a third trigger or patching the client.
 - ITEM-MOVE-HYP-001 is a separate HYP-PF-008 test-only composition, not an
   accepted server policy. It permits exactly merged identity 1 quantity 2 slot
   0 to move to currently free slot 2, commits before one hash-pinned response,
