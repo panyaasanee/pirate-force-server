@@ -13,6 +13,7 @@ from .population_scenario import load_population_scenario
 from .runtime import make_state_class
 from .scenario import load_scenario
 from .scene_load import load_scene_load_scenario
+from .second_password_bypass import load_second_password_bypass_scenario
 from .session import ReadOnlyFoundationSession
 from .store import SQLiteStore
 from .shutdown import (
@@ -39,6 +40,7 @@ def main() -> int:
     pre.add_argument('--population-scenario')
     pre.add_argument('--item-move-capture-scenario')
     pre.add_argument('--item-move-hypothesis-scenario')
+    pre.add_argument('--second-password-bypass-scenario')
     pre.add_argument('--capture-root')
     known, remaining = pre.parse_known_args(); sys.argv = [sys.argv[0], *remaining]
     scenario = load_scenario(known.scenario) if known.scenario else None
@@ -62,6 +64,12 @@ def main() -> int:
         load_item_move_hypothesis_scenario(known.item_move_hypothesis_scenario)
         if known.item_move_hypothesis_scenario else None
     )
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-009 active
+    second_password_bypass = (
+        load_second_password_bypass_scenario(
+            known.second_password_bypass_scenario
+        ) if known.second_password_bypass_scenario else None
+    )
     if sum(value is not None for value in (
         scenario, scene_load, population, item_move_capture,
         item_move_hypothesis,
@@ -75,6 +83,11 @@ def main() -> int:
         pre.error('--item-move-capture-scenario requires an explicit existing --db')
     if item_move_hypothesis is not None and not known.db:
         pre.error('--item-move-hypothesis-scenario requires an explicit existing --db')
+    if second_password_bypass is not None and item_move_capture is None:
+        pre.error(
+            '--second-password-bypass-scenario requires '
+            '--item-move-capture-scenario'
+        )
     db_path = known.db or str(
         root / (
             'state/object_population_v94.sqlite3' if population is not None
@@ -121,6 +134,7 @@ def main() -> int:
         population_scenario=population,
         item_move_capture_scenario=item_move_capture,
         item_move_hypothesis_scenario=item_move_hypothesis,
+        second_password_bypass_scenario=second_password_bypass,
     )
     legacy.game_listener = adapt_game_listener(
         legacy.game_listener, connection_bindings, managed_sockets,

@@ -37,24 +37,20 @@ view remains green/person/talk, record the negative and stop without adding
 FightAttr, AI, or local-player faction guesses. The no-scenario Full Flow
 continues to use the legacy isolated P0/P30/P91 population.
 
-## Fast Backpack PIN path (runtime-proven in V110)
+## Historical Backpack PIN path (runtime-proven in V110; no longer automated)
 
-The game accepts the complete PIN through one `type_text` action even though
-the custom PIN field does not draw bullets or digits. Do not send four separate
-digit actions and do not capture a screenshot after each digit:
+V110 proved that the client accepts a complete PIN through one `type_text`
+action even though the custom field draws no bullets or digits. Current
+Computer Use policy forbids automating authentication dialogs, so those input
+steps are retained as historical characterization only and must not be run by
+the agent.
 
-1. Click the Backpack icon once and refresh once to prove the PIN dialog has
-   focus.
-2. Send the literal text `1234` in one Computer Use `type_text` action.
-3. Refresh once, then press `Return` once to submit.
-4. The opened `2 / 40` Backpack and captured `CheckSecondPwdVital` prove the
-   complete string was accepted. An apparently blank custom field is not a
-   failure signal.
-
-This reduces the PIN path from five input actions (four digits plus submit) to
-two input actions (one complete text entry plus submit). Do not click the
-randomized on-screen keyboard unless direct text entry is disproven by a new
-client build.
+For ordinary runs, hand the dialog to the user. For the isolated
+ITEM-MOVE-CAPTURE-001 run only, the user-authorized
+`scenarios/second_password_bypass_v110.json` profile may instead be paired with
+the exact capture scenario. HYP-PF-009 sends the accepted V110 OK response once
+after runtime readiness without PIN input. Its proactive timing is Grade D and
+must be proved or retired after one controlled run.
 
 ## Screenshot budget
 
@@ -67,9 +63,9 @@ client build.
 - Observe the character screen once after `character-ready`, then `Return`.
 - After entering the character, use another lightweight post-action refresh,
   wait for `runtime-ready`, then observe Port Royal once.
-- After `type_text("1234")`, use a lightweight post-action refresh; do not spend
-  a screenshot merely trying to see masked digits. Submit with `Return`, wait
-  for `CheckSecondPwdVital`, and take one final Backpack screenshot.
+- Never type or submit the PIN through Computer Use. In the test-only bypass
+  run, wait for `HYP_PF_009_PROACTIVE_SECOND_PASSWORD_OK_ONCE`, then take one
+  screenshot only when checking whether Backpack opens without a dialog.
 
 Screenshots are state proof, not timers. Avoid commentary, report work, static
 analysis, or unrelated shell inspection between a ready-state observation and

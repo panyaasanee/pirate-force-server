@@ -361,6 +361,13 @@ other.
   exact `(op4,value2,id1)` request once without mutating Backpack state. The live
   client is currently at the Backpack second-password dialog; never automate PIN
   entry. Resume the capture only after the user enters it manually and confirms.
+- SECOND-PASSWORD-BYPASS-001 is the one user-authorized exception for that
+  paused capture. Run `scenarios/second_password_bypass_v110.json` only together
+  with `scenarios/item_move_capture_v111_slot2.json`. HYP-PF-009 proactively
+  sends the hash-pinned V110 OK response once after runtime readiness and never
+  contains a PIN/digest. It is test-only and runtime-pending: if the dialog
+  remains or the client errors, retire the timing rather than adding another
+  trigger, patching the client, or broadening authentication bypass.
 - ITEM-MOVE-HYP-001 is a separate HYP-PF-008 test-only composition, not an
   accepted server policy. It permits exactly merged identity 1 quantity 2 slot
   0 to move to currently free slot 2, commits before one hash-pinned response,

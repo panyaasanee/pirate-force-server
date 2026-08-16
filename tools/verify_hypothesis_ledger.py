@@ -12,7 +12,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
-CANONICAL_CONTENT_SHA256 = "FE1F4BB9E5A3A2F3D49E62DDA295E8B7EF8FC36B927E7CB332BE82B316D93F78"
+CANONICAL_CONTENT_SHA256 = "3A0C83B88680B97DF45D82A1538A5274B159039ECB73510C6A4272FBA06DE901"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -22,6 +22,7 @@ ANNOTATION_RE = re.compile(
 EXPECTED_IDS = (
     "HYP-PF-001", "HYP-PF-002", "HYP-PF-003", "HYP-PF-004",
     "HYP-PF-005", "HYP-PF-006", "HYP-PF-007", "HYP-PF-008",
+    "HYP-PF-009",
     "DIAG-PF-001",
     "RET-PF-001", "GEO-PF-001", "GEO-PF-002", "GEO-PF-003",
     "GEO-PF-004", "GEO-PF-005",
@@ -35,6 +36,9 @@ EXPECTED_META = {
     "HYP-PF-006": ("protocol_hypothesis", "V138", "expired_pending_decision"),
     "HYP-PF-007": ("protocol_hypothesis", "SCENE-001", "expired_pending_decision"),
     "HYP-PF-008": ("protocol_hypothesis", "ITEM-MOVE-HYP-001", "active"),
+    "HYP-PF-009": (
+        "protocol_hypothesis", "SECOND-PASSWORD-BYPASS-001", "active",
+    ),
     "DIAG-PF-001": ("diagnostic_value", "SCENE-003", "expired_pending_decision"),
     "RET-PF-001": ("retired_claim", "ARENA-002", "retired"),
     "GEO-PF-001": ("test_geometry", "ARENA-001", "harness_only"),

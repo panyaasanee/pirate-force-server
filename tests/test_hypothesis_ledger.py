@@ -46,6 +46,13 @@ class HypothesisLedgerTests(unittest.TestCase):
             raw_by_id["HYP-PF-008"]["exact_value_or_transform"],
         )
         self.assertFalse(raw_by_id["HYP-PF-008"]["production_allowed"])
+        self.assertEqual(raw_by_id["HYP-PF-009"]["status"], "active")
+        self.assertIn(
+            "after the first selected runtime-ready request",
+            raw_by_id["HYP-PF-009"]["exact_value_or_transform"],
+        )
+        self.assertEqual(raw_by_id["HYP-PF-009"]["max_versions"], 3)
+        self.assertFalse(raw_by_id["HYP-PF-009"]["production_allowed"])
         self.assertEqual(raw_by_id["RET-PF-001"]["status"], "retired")
         self.assertTrue(all(item["production_allowed"] is False for item in self.raw["entries"]))
         self.assertTrue(all(item["authentic"] is False for item in self.raw["entries"] if item["kind"] == "test_geometry"))
@@ -77,7 +84,7 @@ class HypothesisLedgerTests(unittest.TestCase):
             lambda value: value["entries"][0]["source_refs"][0]["required_markers"].append("missing ledger marker"),
             lambda value: value["entries"][0]["evidence_refs"].append("missing/report.md"),
             lambda value: value["entries"][0]["source_refs"][0].update(active_claim_marker=False),
-            lambda value: value["entries"][9]["source_refs"][0].update(active_claim_marker=True),
+            lambda value: value["entries"][10]["source_refs"][0].update(active_claim_marker=True),
         )
         for mutation in mutations:
             with self.subTest(mutation=mutation):
@@ -86,7 +93,7 @@ class HypothesisLedgerTests(unittest.TestCase):
     def test_rejects_production_geometry_and_expiry_drift(self) -> None:
         mutations = (
             lambda value: value["entries"][0].update(production_allowed=True),
-            lambda value: value["entries"][10].update(authentic=True),
+            lambda value: value["entries"][11].update(authentic=True),
             lambda value: value["entries"][0].update(extension_approval_ref="GENERIC-APPROVAL"),
             lambda value: value["entries"][0].update(extension_approval_ref={
                 "approval_id": "SCOPE-1", "approved_entry_ids": ["HYP-PF-003"],
