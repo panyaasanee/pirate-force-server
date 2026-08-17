@@ -1,0 +1,10 @@
+# Evidence for PF-MOVE-AUTHORITY-001 (paths relative to the Pirate Force root)
+# Static/code characterization of local player movement authority. Additive, report-only.
+# Server-source claims are reproducible from the pinned files; the MovementAttr serializer
+# static RE (0x4671C0, ImageBase 0x400000) is reproducible from the pinned client binary.
+Pirate Force ServerProject\current\pf_login_game_server_v141.py|382913|2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22
+Pirate Force ServerProject\src\pirateforce_foundation\store.py|21385|9FD0BE05B62148A18AACE3FED1E6382D626800B58E314403B1B23017B08400B7
+Pirate Force ServerProject\src\pirateforce_foundation\lifecycle.py|3574|B863847C5F134D3BF55B56805C2FAD81DE16B52F46883FA91E8E7CA19F160BF5
+Pirate Force ServerProject\reports\PF_GT005_MOVEMENT_POSITION_PERSISTS_ACROSS_RESTART_RUNTIME_PASS_20260817.md|7339|46F8F1729F522147ED7B89A8F89EEAF197C8551313F3A7FD79B6E2A761476340
+Pirate Force ServerProject\reports\capture_corpus_audit\scene013_structural_combat_corpus_20260816.json|2895|0A579ED8E28E8F6E54990B99D69D6258CBC1AC42842C659C9D13CBF3F5F8A4C6
+GameClient\GameClient.local.bin|14759424|9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623
