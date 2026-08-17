@@ -1,0 +1,4 @@
+# Evidence for PF_CHAT_ECHO007 (paths relative to the Pirate Force root)
+# Static disassembly supplement to ECHO005/ECHO006. Sole evidence source = the client binary (read-only, disassembled).
+# All cited VAs/offsets/byte-guards are reproducible from this exact binary via capstone (CS_MODE_32, ImageBase 0x400000).
+GameClient\GameClient.local.bin|14759424|9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623
