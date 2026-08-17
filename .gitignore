@@ -206,3 +206,5 @@
 !/reports/move_cadence001_smoke/
 !/reports/move_cadence001_smoke/**
 !/tools/pf_move_cadence001_headless_replay.py
+!/reports/PF_CHAT_ECHO008_LOCALTALK_COHORT_VTABLE_NAME_MAP_STATIC_20260818.md
+!/reports/PF_CHAT_ECHO008_LOCALTALK_COHORT_VTABLE_NAME_MAP_STATIC_20260818.manifest
