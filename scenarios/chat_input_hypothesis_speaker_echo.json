@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "id": "chat_input_hypothesis_speaker_echo_ascii12",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-014",
+  "entry": {
+    "flow": "full_writable_character",
+    "required_sequence": "selected_and_runtime_ready",
+    "response_policy": "speaker_wstring_echo_no_write_no_close"
+  },
+  "requests": {
+    "shape": {
+      "payload_size": 34,
+      "prefix_hex": "48000000004818000000",
+      "text_pairs": 12,
+      "charset": "printable_ascii_0x20_0x7E"
+    },
+    "probe1": {
+      "payload_size": 34,
+      "payload_sha256": "0DC90C60BB22C92FDFF3649125703546E9BE324C2D7C265023C00DACA1C584CF",
+      "pc_size": 54,
+      "pc_sha256": "49C9BEA57F99246E19CF8DAB7A7D5A908DF7F230E71665762D6A6CAA0196154C"
+    },
+    "probe2": {
+      "payload_size": 34,
+      "payload_sha256": "59ED7CD6071BC4D094098DFBAFA91ED6D190637A1AE07FC90B6937A6A9DCB208",
+      "pc_size": 54,
+      "pc_sha256": "33B905CDD41065A1DE58BCED9A92697F5FA2C77E7C397954BD4DEE84D89DA42C"
+    }
+  },
+  "composed_responses": {
+    "policy": "selected_character_name_fills_wstring1_in_accepted_runtime_res_envelope",
+    "pc_size_rule": "56_plus_2_bytes_per_speaker_name_character",
+    "probe_speaker_name": "test01",
+    "pc_size": 68,
+    "frame_size": 79,
+    "probe1": {
+      "pc_sha256": "5D80E83CE4C60A3927C9AFE020B0833358763BFE3CA1ECAB3EFB28E98BC9EE17",
+      "frame_sha256": "AA27B015AB9EA30537331408D5F262BC37EA489A0DB8E7B3BC7D4A1896D99D23"
+    },
+    "probe2": {
+      "pc_sha256": "8717FC3F5282269CF591FEFE24C2152E443C843A63B9927A0514D424D6EBA9F2",
+      "frame_sha256": "79ABB34925D20793A0AC718246ACC717D8ECF8F41FB9DCDC0BD482E23FFE1FFA"
+    }
+  },
+  "persisted_post_state": {
+    "database_write": "none"
+  },
+  "capabilities": [
+    "speaker_name_wstring_echo_of_exact_shape_pinned_chat_input_frames",
+    "repeatable_echo_per_session_no_state_change"
+  ],
+  "nonclaims": [
+    "prefix_byte_semantics_including_the_0x18_candidate_length_field",
+    "wstring1_speaker_name_semantics_until_attended_gt012",
+    "text_lengths_other_than_12_characters",
+    "non_ascii_or_thai_text",
+    "thai_or_non_bmp_speaker_names_on_the_wire",
+    "channel_tag_selection_mechanism",
+    "channel_whisper_broadcast_semantics",
+    "delivery_to_any_other_client",
+    "message_persistence_or_database_write",
+    "original_server_response_policy",
+    "client_observable_speaker_name_rendering",
+    "production_baseline_behavior"
+  ]
+}

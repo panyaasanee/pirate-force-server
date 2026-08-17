@@ -23,9 +23,11 @@ from .item_move_hypothesis import (
     require_item_move_hypothesis_scenario,
 )
 from .chat_input_hypothesis import (
+    CHAT_INPUT_SPEAKER_ECHO_SCENARIO_ID,
     CHAT_INPUT_VITAL_ID,
     classify_chat_input_attempt,
     make_chat_input_echo_response,
+    make_chat_input_speaker_echo_response,
     require_chat_input_hypothesis_scenario,
 )
 from .delete_actor import DELETE_ACTOR_VITAL_ID
@@ -37,9 +39,13 @@ from .delete_actor_hypothesis import (
 )
 from .logout_hypothesis import (
     LOGOUT_POST_ACK_ACTION_CLOSE_SOCKET,
+    LOGOUT_RESPONSE_POLICY_WORLDINFO_FIRST,
     LOGOUT_VITAL_ID,
+    WORLDINFO_VITAL_ID,
     classify_logout_attempt,
+    classify_worldinfo_frame,
     make_logout_ack_response,
+    make_worldinfo_first_response,
     require_logout_hypothesis_scenario,
 )
 from .population import (
@@ -146,6 +152,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.logout_ack_count = 0
                 self.logout_acknowledged = False
                 self.logout_close_scheduled = False
+                self.worldinfo_last_payload = None
+                self.worldinfo_stored_count = 0
                 self.chat_input_echo_count = 0
                 self.delete_actor_soft_delete_count = 0
                 self.transport_socket_closer = None
@@ -501,9 +509,30 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     "logout_hypothesis_close_unavailable_no_reply"
                 )
                 return []
-            # The designed echo ack is fully composed and hash-pinned before
+            # HYP-PF-016: the response-first shape can only be fulfilled by
+            # echoing a full GetWorldInfoVital payload this connection itself
+            # produced.  Without one stored, no response byte exists without
+            # invention, so the whole lane fails closed before the lease is
+            # touched: no write, no response, no bare ack fallback (falling
+            # back to ack-only would silently re-run the GT-007/GT-008
+            # falsified shapes and contaminate the attended evidence).
+            worldinfo_first = (
+                logout_hypothesis_scenario.response_policy
+                == LOGOUT_RESPONSE_POLICY_WORLDINFO_FIRST
+            )
+            if worldinfo_first and self.worldinfo_last_payload is None:
+                self.events.append(
+                    "logout_hypothesis_worldinfo_missing_no_reply"
+                )
+                return []
+            # The designed responses are fully composed and pinned before
             # the lease is touched; no bytes are queued unless the clean
             # close commits.
+            worldinfo_response = None
+            if worldinfo_first:
+                worldinfo_response = make_worldinfo_first_response(
+                    legacy, self.worldinfo_last_payload,
+                )
             pc, frame = make_logout_ack_response(legacy, subcode)
             try:
                 closed = self.foundation.close_connection()
@@ -537,6 +566,27 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     "logout_hypothesis_post_ack_socket_close_scheduled_"
                     f"{delay_ms}ms"
                 )
+                if worldinfo_first:
+                    # Response first, pinned ack second, FIN last: the frozen
+                    # listener sends queued actions strictly in list order on
+                    # the one TCP stream, so the wire order is deterministic.
+                    self.events.append(
+                        f"logout_hypothesis_subcode{subcode:02d}"
+                        "_worldinfo_response_before_ack"
+                    )
+                    info_pc, info_frame = worldinfo_response
+                    return [
+                        (
+                            f"HYP_PF_016_LOGOUT_SUBCODE{subcode:02d}"
+                            "_WORLDINFO_RESPONSE_FIRST",
+                            info_pc, info_frame, 0.0,
+                        ),
+                        (
+                            f"HYP_PF_016_LOGOUT_SUBCODE{subcode:02d}"
+                            "_ACK_THEN_SERVER_SOCKET_CLOSE",
+                            pc, frame, 0.0,
+                        ),
+                    ]
                 return [(
                     f"HYP_PF_013_LOGOUT_SUBCODE{subcode:02d}"
                     "_ACK_THEN_SERVER_SOCKET_CLOSE",
@@ -548,6 +598,39 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 pc, frame, 0.0,
             )]
 
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-016 active
+        def _dispatch_worldinfo_observation(self, parsed):
+            """Store the last exact full GetWorldInfoVital payload; no reply.
+
+            Only the worldinfo_first scenario routes 0x3D4B here.  The full
+            R40 248-byte form from a runtime-ready session is kept in
+            connection-local memory (no table, no write path) so the logout
+            lane can echo the client's own bytes back; the observed server
+            behavior at dialog-open time (no response) is preserved.  The
+            empty 2-byte form, malformed forms, and frames outside the
+            runtime-ready sequence are never stored and never answered.
+            """
+            self.rx_frames += 1
+            classification = classify_worldinfo_frame(legacy, parsed)
+            if classification != "full_form":
+                self.events.append(
+                    f"logout_worldinfo_{classification}_no_store_no_reply"
+                )
+                return []
+            if (
+                self.foundation.selected is None
+                or not self.teleport_sent
+                or not self.runtime_ack_sent
+            ):
+                self.events.append(
+                    "logout_worldinfo_wrong_sequence_no_store_no_reply"
+                )
+                return []
+            self.worldinfo_last_payload = parsed.nested_payload
+            self.worldinfo_stored_count += 1
+            self.events.append("logout_worldinfo_full_form_stored_no_reply")
+            return []
+
         # PF-HYPOTHESIS-LEDGER: HYP-PF-014 active
         def _dispatch_chat_input_hypothesis(self, parsed):
             """Echo one exact-shape chat input frame (UNKNOWN_0xAC52) back.
@@ -556,7 +639,10 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             lane never touches the store (chat has no table), never closes
             the socket, and never becomes one-shot: every accepted frame on
             the session is echoed.  Wrong shapes, wrong envelopes, and wrong
-            sequences fail closed with no reply and no write.
+            sequences fail closed with no reply and no write.  Under the
+            CHAT-ECHO-002 speaker scenario the same accepted frame is instead
+            answered with the speaker-name wstring composition; the request
+            classification and every guard above stay identical.
             """
             self.rx_frames += 1
             classification = classify_chat_input_attempt(legacy, parsed)
@@ -573,6 +659,35 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     "chat_input_hypothesis_wrong_sequence_no_reply"
                 )
                 return []
+            if (
+                chat_input_hypothesis_scenario.scenario_id
+                == CHAT_INPUT_SPEAKER_ECHO_SCENARIO_ID
+            ):
+                # CHAT-ECHO-002 (HYP-PF-014 version 2): wstring#1 is filled
+                # with the selected character's canonical name; everything
+                # from the second wstring header on is echoed byte-exactly
+                # (68B PC / 79B frame for the pinned probe forms).  The
+                # payload re-passed the exact classification above, so the
+                # only ValueError left is a name the fixed-size composition
+                # cannot carry -- fail closed with no reply and no write.
+                try:
+                    pc, frame = make_chat_input_speaker_echo_response(
+                        legacy, parsed.nested_payload,
+                        self.foundation.selected.name,
+                    )
+                except ValueError:
+                    self.events.append(
+                        "chat_input_hypothesis_speaker_name_unavailable_no_reply"
+                    )
+                    return []
+                self.chat_input_echo_count += 1
+                self.events.append(
+                    "chat_input_hypothesis_speaker_echo_ack_ascii12"
+                )
+                return [(
+                    "HYP_PF_014_CHAT_INPUT_SPEAKER_ECHO_ASCII12",
+                    pc, frame, 0.0,
+                )]
             # The echo is fully composed and structurally pinned (56B PC /
             # 66B frame, payload byte-exact at the fixed envelope offset;
             # both GT-006 probes are additionally hash-pinned) before any
@@ -745,6 +860,17 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 return []
             if logout_hypothesis_scenario is not None and nested_id == LOGOUT_VITAL_ID:
                 return self._dispatch_logout_hypothesis(parsed)
+            if (
+                logout_hypothesis_scenario is not None
+                and logout_hypothesis_scenario.response_policy
+                == LOGOUT_RESPONSE_POLICY_WORLDINFO_FIRST
+                and nested_id == WORLDINFO_VITAL_ID
+            ):
+                # HYP-PF-016 only: the worldinfo_first scenario owns every
+                # 0x3D4B-bearing frame.  Under the two ack-only logout
+                # scenarios this branch is unreachable and 0x3D4B keeps its
+                # frozen inherited no-response path, byte-identical.
+                return self._dispatch_worldinfo_observation(parsed)
             if (
                 chat_input_hypothesis_scenario is not None
                 and nested_id == CHAT_INPUT_VITAL_ID

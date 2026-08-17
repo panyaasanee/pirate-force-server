@@ -31,7 +31,13 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # DELETE-SOFT-002, the trailing-mask v2 delete ack, after GT-010 confirmed
 # the request envelope via the first natural 0x36DB and falsified the v1
 # ack live with ErrorData=28317; no entry added or removed, count stays 22).
-CANONICAL_CONTENT_SHA256 = "20AF62F300A5367F9CDA41BD94CFDEFAD94DCF2390ABD37D7E210F1C81E664A6"
+# -> 56FC5454.. (2026-08-18 chief round 53: PF-014 opens CHAT-ECHO-002, the
+# speaker-name wstring variant behind its own opt-in scenario, headless-proven
+# the same round per the CHAT-ECHO-002 research; HYP-PF-016 appended --
+# logout response-first, mirror-echo of the stored full-form 0x3D4B before
+# the unchanged PF-012 ack plus the composed PF-013 close, after GT-008
+# falsified the ack+close shape at the client layer; count moves to 23).
+CANONICAL_CONTENT_SHA256 = "56FC54549ADEC8F3EA8E5BB573393312A51DDD9AC48DDB6CC698D6BB8CB02133"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -65,6 +71,12 @@ EXPECTED_IDS = (
     # decode, under the owner's explicit Lane-1 Option-B decision of
     # 2026-08-18 00:52) is likewise appended.
     "HYP-PF-015",
+    # HYP-PF-016 (response-first logout: echo the stored client-sent
+    # GetWorldInfoVital 0x3D4B payload before the unchanged PF-012 ack and
+    # PF-013 close, after attended GT-008 falsified the bare ack+close shape,
+    # on the R40 grade-B payload decode, under the owner's standing
+    # pre-approval of 2026-08-17 18:2x) is likewise appended.
+    "HYP-PF-016",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -91,6 +103,7 @@ EXPECTED_META = {
     "HYP-PF-013": ("protocol_hypothesis", "LOGOUT-CLOSE-001", "active"),
     "HYP-PF-014": ("protocol_hypothesis", "CHAT-ECHO-001", "active"),
     "HYP-PF-015": ("protocol_hypothesis", "DELETE-SOFT-001", "active"),
+    "HYP-PF-016": ("protocol_hypothesis", "LOGOUT-RESP-001", "active"),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}
 STATUSES = {"active", "frozen", "retired", "harness_only", "expired_pending_decision"}

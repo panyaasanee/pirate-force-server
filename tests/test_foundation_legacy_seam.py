@@ -67,27 +67,23 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers three deliberate movements, all products of processing
-    # attended รอบใหญ่ #2 (2026-08-18 01:33-02:15; chief round 52; repo-side
-    # record reports/PF_BIGROUND2_ATTENDED_RESULTS_20260818.md, manifest
-    # backed):
-    #  1. chat/chat_input_echo_hypothesis moves in_progress -> runtime_pass:
-    #     attended GT-009 confirmed the client renders every echoed message
-    #     in the chat window; the BIGROUND2 report and the CHAT-ECHO-002
-    #     speaker-field research join evidence_refs.
-    #  2. character_management/character_deletion stays in_progress but
-    #     gains the GT-010 answers: the natural-0x36DB decode
-    #     (DELETE-SOFT-002 report), the trailing-mask v2 ack headless proof
-    #     (DELETE-SOFT-003 report), and the BIGROUND2 report join
-    #     evidence_refs; client acceptance of the v2 ack is queued (GT-011).
-    #  3. session_lifecycle/clean_logout stays in_progress but gains the
-    #     GT-008 falsification record (client never detects the TCP close;
-    #     transitions are protocol-driven): the BIGROUND2 report joins
-    #     evidence_refs; next design is the 0x3D4B-first response shape.
-    # Previous pin 18A37245..971B (2026-08-18 round 51) covered
-    # character_deletion gaining the HYP-PF-015 evidence and watch; see its
-    # note for the lineage before that.
-    "011A63BE6217E6851F7F293BECE12CA8FC8401197A87A7562C7B253715E595C9"
+    # This pin covers two deliberate movements, both same-round headless
+    # deliveries of chief round 53 (2026-08-18; no status changes):
+    #  1. chat/chat_input_echo_hypothesis stays runtime_pass but gains the
+    #     CHAT-ECHO-002 speaker-name wstring variant evidence: the new
+    #     speaker_echo opt-in scenario and the CHAT-ECHO-003 headless report
+    #     join evidence_refs; client render of the named form is queued as
+    #     GT-012.
+    #  2. session_lifecycle/clean_logout stays in_progress but gains
+    #     HYP-PF-016 (LOGOUT-RESP-001, the 0x3D4B-first response shape after
+    #     the GT-008 falsification): the worldinfo_first opt-in scenario and
+    #     the LOGOUT-RESP-001 headless report join evidence_refs, and
+    #     tests/test_logout_worldinfo_first.py joins test_refs; the client
+    #     transition claim is queued as GT-013.
+    # Previous pin 011A63BE..95C9 (2026-08-18 round 52) covered the three
+    # attended-รอบใหญ่-#2 movements (GT-009 runtime_pass, GT-010 and GT-008
+    # records); see its note for the lineage before that.
+    "78558E56304675D99CCFA6FB73D6E55CD725F038AFD32D954A1FF511FB716DC8"
 )
 
 

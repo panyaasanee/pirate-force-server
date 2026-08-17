@@ -1,0 +1,80 @@
+[03:35:16] expected probe1: 79B sha AA27B015..9D23
+[03:35:16] expected probe2: 79B sha 79ABB349..1FFA
+[03:35:17] server GAME port open
+[03:35:20] login: 2 reply frames, eof False
+[03:35:23] create: 1 reply frames, characters [(0, 'test01', None)]
+[03:35:26] start_game selector 0: 2 reply frames, eof False
+[03:35:29] runtime-ready: 2 reply frames, eof False
+[03:35:32] send 1 (probe1): echo_byte_exact = True (non-heartbeat [79], heartbeats 2, eof False)
+[03:35:35] send 2 (probe2): echo_byte_exact = True (non-heartbeat [79], heartbeats 1, eof False)
+[03:35:38] send 3 (probe1): echo_byte_exact = True (non-heartbeat [79], heartbeats 2, eof False)
+[03:35:41] SHORT: 0 reply frames, eof False
+[03:35:46] tail: heartbeats 3, dispatch 0, eof False
+{
+ "probe": "CHAT-ECHO-002",
+ "checks": {
+  "login_reply_frames": 2,
+  "create_reply_frames": 1,
+  "created_characters": 1,
+  "persisted_name_is_probe_name": true,
+  "start_game_reply_frames": 2,
+  "runtime_ready_reply_frames": 2,
+  "short_reply_frames": 0,
+  "short_silent_no_eof": true,
+  "db_unchanged_across_chat": true,
+  "tail_heartbeats": 3,
+  "tail_dispatch_frames": 0,
+  "heartbeat_continues": true,
+  "eof": false
+ },
+ "ok": true,
+ "db_sha256_before_chat": "2D1B8009AB6D6B35C2116D27CB1B5C1551C53DDBC8B3A1969725D999FD292BB0",
+ "db_sha256_after_chat": "2D1B8009AB6D6B35C2116D27CB1B5C1551C53DDBC8B3A1969725D999FD292BB0",
+ "sends": [
+  {
+   "send": 1,
+   "probe": "probe1",
+   "window_frames": 3,
+   "window_heartbeats": 2,
+   "dispatch_sizes": [
+    79
+   ],
+   "dispatch_sha256": [
+    "AA27B015AB9EA30537331408D5F262BC37EA489A0DB8E7B3BC7D4A1896D99D23"
+   ],
+   "echo_byte_exact": true,
+   "echo_after_send_ms": 50.7,
+   "eof": false
+  },
+  {
+   "send": 2,
+   "probe": "probe2",
+   "window_frames": 2,
+   "window_heartbeats": 1,
+   "dispatch_sizes": [
+    79
+   ],
+   "dispatch_sha256": [
+    "79ABB34925D20793A0AC718246ACC717D8ECF8F41FB9DCDC0BD482E23FFE1FFA"
+   ],
+   "echo_byte_exact": true,
+   "echo_after_send_ms": 51.5,
+   "eof": false
+  },
+  {
+   "send": 3,
+   "probe": "probe1",
+   "window_frames": 3,
+   "window_heartbeats": 2,
+   "dispatch_sizes": [
+    79
+   ],
+   "dispatch_sha256": [
+    "AA27B015AB9EA30537331408D5F262BC37EA489A0DB8E7B3BC7D4A1896D99D23"
+   ],
+   "echo_byte_exact": true,
+   "echo_after_send_ms": 51.0,
+   "eof": false
+  }
+ ]
+}

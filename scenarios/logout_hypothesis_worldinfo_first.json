@@ -1,0 +1,86 @@
+{
+  "schema": 1,
+  "id": "logout_hypothesis_worldinfo_first_subcode01_03",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-016",
+  "entry": {
+    "flow": "full_writable_character",
+    "required_sequence": "selected_and_runtime_ready",
+    "response_policy": "worldinfo_response_first",
+    "worldinfo_source": "echo_last_full_248b_getworldinfo_payload_stored_in_memory_from_this_connection",
+    "worldinfo_missing_policy": "fail_closed_silent_no_reply_no_write",
+    "post_ack_policy": "dispatch_silent_then_server_clean_socket_close",
+    "post_ack_action": "close_socket",
+    "close_delay_ms": 250
+  },
+  "requests": {
+    "subcode01": {
+      "pc_size": 34,
+      "pc_sha256": "EF3B19F34A5FA55698617A16254BA5F722AC0BE44AF12170E1352CD206408973"
+    },
+    "subcode03": {
+      "pc_size": 34,
+      "pc_sha256": "EC5B53DCC49C034A9B716F893F4315104146B4220E9551C0101F1F699BB0FAA0"
+    },
+    "worldinfo_full": {
+      "pc_size": 268,
+      "payload_size": 248,
+      "vital_count": 3,
+      "probe_payload_sha256": {
+        "capture_gt002": "5959EC6BF3F9C9AD34E5CFB8D444C8664659087065425C15CF1D876F95FAF324",
+        "capture_item_move_hyp001": "9D4D11E13ADF4ADE1AF639C9BDB925FD9395404BEDC4E683DF43127E1CD0BCF1"
+      },
+      "probe_pc_sha256": {
+        "capture_gt002": "F185DE9AAD4563940978C2467D2CEA5092270914AA16954A6547A8F842F6DF99",
+        "capture_item_move_hyp001": "D33E068BDEC59A3C16D29DB640B1A3B8625E36795477CAB31282C6B30FBAA559"
+      }
+    }
+  },
+  "composed_responses": {
+    "worldinfo_first": {
+      "pc_size": 270,
+      "frame_size": 283,
+      "probe_pc_sha256": {
+        "capture_gt002": "7879485AB11BB6F1F1123EC33FA0468ECA00AD62DC5E29619F1DB61394143EFF",
+        "capture_item_move_hyp001": "3E7C2A20738DCEC2BC03C8DB6B00590082187B78E62980499B9C17CCF61F98C9"
+      },
+      "probe_frame_sha256": {
+        "capture_gt002": "21D7971DAFEC09404844447C80A0F25E1E24F7ED44E6B86A45E462FBBE2298A8",
+        "capture_item_move_hyp001": "8AEB397340082F85BC6EF2C52A0E3852CBB2DD75985507A9EE951F730B33114C"
+      }
+    },
+    "subcode01": {
+      "pc_size": 36,
+      "pc_sha256": "9E4FA00E408910204C91DE264ED9274ECF7A3C7E8C37C75199F090AB7DE23C67",
+      "frame_size": 46,
+      "frame_sha256": "9B417B5F0EF05B1096FA000C7FC154DF952EF817232115DA077253BDC27A3D0A"
+    },
+    "subcode03": {
+      "pc_size": 36,
+      "pc_sha256": "FC8B9E2CC2BD590458F1EAAFCE712D283538D525F136AD0F9838B108395F6DC6",
+      "frame_size": 46,
+      "frame_sha256": "AB172DFFCBC1195F086A848018FC4797D53945B6B2854D651D37B3740F4E6696"
+    }
+  },
+  "persisted_post_state": {
+    "sessions_closed_at": "written_before_worldinfo_response_bytes_are_queued",
+    "position_rewrite": "none",
+    "worldinfo_storage": "connection_memory_only_no_table_no_write_path"
+  },
+  "capabilities": [
+    "store_last_full_getworldinfo_payload_per_connection_in_memory",
+    "echo_stored_getworldinfo_payload_before_the_pinned_logout_ack",
+    "acknowledge_exact_captured_logout_requests_after_clean_close",
+    "silence_connection_after_acknowledged_logout",
+    "server_initiated_clean_socket_close_after_acknowledged_logout"
+  ],
+  "nonclaims": [
+    "original_server_response_policy",
+    "getworldinfo_float_and_constant_semantics",
+    "client_observable_exit_or_character_select_return",
+    "logout_outside_runtime_ready_sequence",
+    "subcodes_other_than_01_and_03",
+    "production_baseline_behavior"
+  ]
+}

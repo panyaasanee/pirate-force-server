@@ -183,3 +183,11 @@
 !/reports/PF_CHAT_ECHO002_SPEAKER_FIELD_RESEARCH_20260818.md
 !/reports/delete_soft003_smoke/
 !/reports/delete_soft003_smoke/**
+!/reports/PF_CHAT_ECHO003_SPEAKER_WSTRING_VARIANT_HEADLESS_20260818.md
+!/reports/PF_CHAT_ECHO003_SPEAKER_WSTRING_VARIANT_HEADLESS_20260818.manifest
+!/reports/chat_echo002_smoke/
+!/reports/chat_echo002_smoke/**
+!/reports/PF_LOGOUT_RESP001_HYP_PF_016_WORLDINFO_FIRST_HEADLESS_20260818.md
+!/reports/PF_LOGOUT_RESP001_HYP_PF_016_WORLDINFO_FIRST_HEADLESS_20260818.manifest
+!/reports/logout_resp001_smoke/
+!/reports/logout_resp001_smoke/**

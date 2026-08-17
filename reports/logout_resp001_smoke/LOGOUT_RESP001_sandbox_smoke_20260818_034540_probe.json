@@ -1,0 +1,80 @@
+{
+ "probe": "LOGOUT-RESP-001",
+ "checks": {
+  "request_pins": {
+   "logout_subcode01_pc_sha256": "EF3B19F34A5FA55698617A16254BA5F722AC0BE44AF12170E1352CD206408973",
+   "logout_subcode03_pc_sha256": "EC5B53DCC49C034A9B716F893F4315104146B4220E9551C0101F1F699BB0FAA0",
+   "worldinfo_gt002_payload_sha256": "5959EC6BF3F9C9AD34E5CFB8D444C8664659087065425C15CF1D876F95FAF324",
+   "worldinfo_hyp001_payload_sha256": "9D4D11E13ADF4ADE1AF639C9BDB925FD9395404BEDC4E683DF43127E1CD0BCF1"
+  },
+  "a_login_reply_frames": 2,
+  "a_lease_id": "db6c78b37879421ebf82dee4743e6bc7",
+  "a_create_reply_frames": 1,
+  "a_start_game_reply_frames": 2,
+  "a_runtime_ready_reply_frames": 2,
+  "a_heartbeats_before_logout": 2,
+  "a_worldinfo_capture_gt002_reply_frames": 0,
+  "a_dispatch_frames": [
+   {
+    "bytes": 283,
+    "sha256": "21D7971DAFEC09404844447C80A0F25E1E24F7ED44E6B86A45E462FBBE2298A8"
+   },
+   {
+    "bytes": 46,
+    "sha256": "9B417B5F0EF05B1096FA000C7FC154DF952EF817232115DA077253BDC27A3D0A"
+   }
+  ],
+  "a_heartbeat_frames_in_window": 0,
+  "a_eof": true,
+  "a_response_then_ack_byte_exact": true,
+  "a_closed_at": "2026-08-17T20:44:50.061485+00:00",
+  "a_closed_at_minus_logout_send_ms": 10.3,
+  "a_response_minus_closed_at_ms": 13.8,
+  "a_closed_at_before_response": true,
+  "a_eof_after_ack_ms": 244.5,
+  "a_fin_after_ack_in_window": true,
+  "pass_a_ok": true,
+  "b_login_reply_frames": 2,
+  "b_lease_id": "7894f133cd6748cba64d10328d748bac",
+  "b_start_game_reply_frames": 2,
+  "b_runtime_ready_reply_frames": 2,
+  "b_heartbeats_before_logout": 2,
+  "b_dispatch_frames": [],
+  "b_heartbeat_frames_in_window": 3,
+  "b_eof": false,
+  "b_silent_no_reply": true,
+  "b_closed_at_stays_null": true,
+  "b_no_eof_in_window": true,
+  "pass_b_ok": true,
+  "c_login_reply_frames": 2,
+  "c_lease_id": "ef649e7866674535943b701d788db320",
+  "c_start_game_reply_frames": 2,
+  "c_runtime_ready_reply_frames": 2,
+  "c_heartbeats_before_logout": 2,
+  "c_worldinfo_capture_gt002_reply_frames": 0,
+  "c_worldinfo_capture_item_move_hyp001_reply_frames": 0,
+  "c_dispatch_frames": [
+   {
+    "bytes": 283,
+    "sha256": "8AEB397340082F85BC6EF2C52A0E3852CBB2DD75985507A9EE951F730B33114C"
+   },
+   {
+    "bytes": 46,
+    "sha256": "AB172DFFCBC1195F086A848018FC4797D53945B6B2854D651D37B3740F4E6696"
+   }
+  ],
+  "c_heartbeat_frames_in_window": 0,
+  "c_eof": true,
+  "c_response_then_ack_byte_exact": true,
+  "c_closed_at": "2026-08-17T20:45:19.568974+00:00",
+  "c_closed_at_minus_logout_send_ms": 12.0,
+  "c_response_minus_closed_at_ms": 14.2,
+  "c_closed_at_before_response": true,
+  "c_eof_after_ack_ms": 244.3,
+  "c_fin_after_ack_in_window": true,
+  "pass_c_ok": true,
+  "heartbeat_seen_before_every_logout": true,
+  "worldinfo_frames_never_answered": true
+ },
+ "ok": true
+}
