@@ -31,7 +31,12 @@ short of `complete`. A narrow fixture, golden, or single controlled run earns
   `concurrent_multi_client`. Visible console, requested-stop clean exit, character
   select through scene entry, session-row persistence and abrupt-loss recovery are
   each `runtime_pass` on single-client runs; concurrent clients and authenticated
-  multi-account access control are not started.
+  multi-account access control are not started. Client-requested logout
+  (`clean_logout`) is `in_progress`: the HYP-PF-012 echo ack is wire/DB-proven
+  (close-before-ack confirmed on the real client in GT-007) but GT-007 falsified
+  the echo-only shape at the client-observable layer — the client neither returns
+  to character select nor closes itself, so a content-bearing response shape is
+  the next hypothesis.
 - **Movement: INCOMPLETE** — next missing behavior:
   `local_player_movement_authority`. Scene-entry placement, NPC gait, authoritative
   scene-actor streaming and one teleport transport are `runtime_pass`; the server
