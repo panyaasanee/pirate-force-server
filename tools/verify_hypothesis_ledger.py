@@ -15,7 +15,7 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # Lineage: 08FD966F.. (HYP-PF-011 append, round 34) -> 276FF122.. (2026-08-17:
 # HYP-PF-010 evidence_gap rewritten + GT-002 runtime report appended to
 # evidence_refs after the first real-client acceptance, commit b1087bb lineage).
-CANONICAL_CONTENT_SHA256 = "276FF122492DB72E308A0104E6A125DB0F14D5DC243F41ED8E2A48AF3076B712"
+CANONICAL_CONTENT_SHA256 = "00142EB6C89789BE7AD126F856EEF9129D1124DFCBF9F449B7640EF5B77460B8"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -33,6 +33,9 @@ EXPECTED_IDS = (
     # list order is canonical, and appending keeps every existing entry index
     # stable for the index-based test fixtures (the round-31 lesson).
     "HYP-PF-011",
+    # HYP-PF-012 (acknowledged logout, owner option A 2026-08-17 18:35) is
+    # likewise appended so all prior entry indices stay stable.
+    "HYP-PF-012",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -55,6 +58,7 @@ EXPECTED_META = {
     "GEO-PF-004": ("test_geometry", "V135", "expired_pending_decision"),
     "GEO-PF-005": ("test_geometry", "V140", "harness_only"),
     "HYP-PF-011": ("protocol_hypothesis", "MULTI-CLIENT-001", "active"),
+    "HYP-PF-012": ("protocol_hypothesis", "LOGOUT-ACK-001", "active"),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}
 STATUSES = {"active", "frozen", "retired", "harness_only", "expired_pending_decision"}

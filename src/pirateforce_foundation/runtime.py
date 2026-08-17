@@ -21,6 +21,12 @@ from .item_move_hypothesis import (
     make_hypothesized_move_response,
     require_item_move_hypothesis_scenario,
 )
+from .logout_hypothesis import (
+    LOGOUT_VITAL_ID,
+    classify_logout_attempt,
+    make_logout_ack_response,
+    require_logout_hypothesis_scenario,
+)
 from .population import (
     build_port_royal_initial_population,
     build_port_royal_membership_transition,
@@ -48,17 +54,23 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                      connection_bindings=None, population_scenario=None,
                      item_move_capture_scenario=None,
                      item_move_hypothesis_scenario=None,
+                     logout_hypothesis_scenario=None,
                      second_password_mode="required",
                      monotonic_clock=None):
     active_modes = sum(value is not None for value in (
         scenario, scene_load_scenario, population_scenario,
         item_move_capture_scenario, item_move_hypothesis_scenario,
+        logout_hypothesis_scenario,
     ))
     if active_modes > 1:
         raise ValueError(
-            "Arena, scene-load, population, item-move capture, and item-move "
-            "hypothesis scenarios "
+            "Arena, scene-load, population, item-move capture, item-move "
+            "hypothesis, and logout hypothesis scenarios "
             "are mutually exclusive"
+        )
+    if logout_hypothesis_scenario is not None:
+        logout_hypothesis_scenario = require_logout_hypothesis_scenario(
+            logout_hypothesis_scenario
         )
     if population_scenario is not None:
         population_scenario = require_population_scenario(population_scenario)
@@ -93,6 +105,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.item_move_capture_last_fields = None
                 self.item_move_hypothesis_count = 0
                 self.item_move_generalized_count = 0
+                self.logout_ack_count = 0
+                self.logout_acknowledged = False
                 self.second_password_bypass_sent = False
                 self.second_password_bypass_keepalive_started = False
                 self.second_password_bypass_last_sent_at = None
@@ -393,6 +407,56 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 pc, frame, 0.0,
             )]
 
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-012 active
+        def _dispatch_logout_hypothesis(self, parsed):
+            """Acknowledge one exact captured logout after a clean close.
+
+            The session lease (``closed_at``) is committed before any ack
+            byte is queued, mirroring the commit-before-response ordering of
+            every other governed lane.  Wrong payloads, wrong sequences, and
+            replays after the acknowledged logout fail closed with no reply
+            and no write.
+            """
+            self.rx_frames += 1
+            classification = classify_logout_attempt(legacy, parsed)
+            if classification not in ("exact_01", "exact_03"):
+                self.events.append(
+                    f"logout_hypothesis_{classification}_no_reply"
+                )
+                return []
+            subcode = int(classification[-2:])
+            if self.foundation.selected is None:
+                self.events.append("logout_hypothesis_no_selected_no_reply")
+                return []
+            if not self.teleport_sent or not self.runtime_ack_sent:
+                self.events.append("logout_hypothesis_wrong_sequence_no_reply")
+                return []
+            # The designed echo ack is fully composed and hash-pinned before
+            # the lease is touched; no bytes are queued unless the clean
+            # close commits.
+            pc, frame = make_logout_ack_response(legacy, subcode)
+            try:
+                closed = self.foundation.close_connection()
+            except Exception as exc:
+                self.events.append(
+                    f"logout_hypothesis_repository_failure_no_reply_{exc!r}"
+                )
+                return []
+            if not closed:
+                self.events.append("logout_hypothesis_already_closed_no_reply")
+                return []
+            self.logout_acknowledged = True
+            self.logout_ack_count += 1
+            self.events.append(
+                f"logout_hypothesis_subcode{subcode:02d}"
+                "_session_closed_before_ack"
+            )
+            return [(
+                f"HYP_PF_012_LOGOUT_SUBCODE{subcode:02d}"
+                "_ACK_AFTER_CLEAN_CLOSE",
+                pc, frame, 0.0,
+            )]
+
         def _checkpoint_exact_target(self, target) -> None:
             x, y, z, heading, _flags, _moving = target
             selected = self.foundation.selected
@@ -491,6 +555,16 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
 
         def dispatch(self, parsed):
             nested_id = parsed.nested_id
+            if logout_hypothesis_scenario is not None and self.logout_acknowledged:
+                # After the acknowledged logout (HYP-PF-012 lane below) the
+                # lease is closed; every later frame on this connection is
+                # counted and ignored so no other lane can write through a
+                # closed session.
+                self.rx_frames += 1
+                self.events.append("logout_hypothesis_post_ack_frame_no_reply")
+                return []
+            if logout_hypothesis_scenario is not None and nested_id == LOGOUT_VITAL_ID:
+                return self._dispatch_logout_hypothesis(parsed)
             if nested_id == legacy.LOGIN_VERIFY_VITAL:
                 self.rx_frames += 1
                 out = []

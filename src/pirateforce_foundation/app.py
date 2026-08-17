@@ -8,6 +8,7 @@ from .legacy_bridge import LegacyProjector, load_legacy
 from .lifecycle import CharacterLifecycle
 from .item_move_capture import load_item_move_capture_scenario
 from .item_move_hypothesis import load_item_move_hypothesis_scenario
+from .logout_hypothesis import load_logout_hypothesis_scenario
 from .model import Position
 from .population_scenario import load_population_scenario
 from .runtime import make_state_class
@@ -41,6 +42,7 @@ def main() -> int:
     pre.add_argument('--population-scenario')
     pre.add_argument('--item-move-capture-scenario')
     pre.add_argument('--item-move-hypothesis-scenario')
+    pre.add_argument('--logout-hypothesis-scenario')
     pre.add_argument(
         '--second-password-mode', choices=SECOND_PASSWORD_MODES,
         default='required',
@@ -68,19 +70,27 @@ def main() -> int:
         load_item_move_hypothesis_scenario(known.item_move_hypothesis_scenario)
         if known.item_move_hypothesis_scenario else None
     )
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-012 active
+    logout_hypothesis = (
+        load_logout_hypothesis_scenario(known.logout_hypothesis_scenario)
+        if known.logout_hypothesis_scenario else None
+    )
     if sum(value is not None for value in (
         scenario, scene_load, population, item_move_capture,
-        item_move_hypothesis,
+        item_move_hypothesis, logout_hypothesis,
     )) > 1:
         pre.error(
             '--scenario, --scene-load-scenario, --population-scenario, and '
-            '--item-move-capture-scenario/--item-move-hypothesis-scenario '
+            '--item-move-capture-scenario/--item-move-hypothesis-scenario/'
+            '--logout-hypothesis-scenario '
             'are mutually exclusive'
         )
     if item_move_capture is not None and not known.db:
         pre.error('--item-move-capture-scenario requires an explicit existing --db')
     if item_move_hypothesis is not None and not known.db:
         pre.error('--item-move-hypothesis-scenario requires an explicit existing --db')
+    if logout_hypothesis is not None and not known.db:
+        pre.error('--logout-hypothesis-scenario requires an explicit existing --db')
     db_path = known.db or str(
         root / (
             'state/object_population_v94.sqlite3' if population is not None
@@ -98,6 +108,7 @@ def main() -> int:
             'population' if population is not None else
             'item-move-capture' if item_move_capture is not None else
             'item-move-hypothesis' if item_move_hypothesis is not None else
+            'logout-hypothesis' if logout_hypothesis is not None else
             'foundation'
         )
         install_runtime_console(
@@ -109,10 +120,15 @@ def main() -> int:
         scene_load is not None
         or item_move_capture is not None
         or item_move_hypothesis is not None
+        or logout_hypothesis is not None
     ):
         if not Path(db_path).is_file():
             raise FileNotFoundError(db_path)
-        if item_move_capture is not None or item_move_hypothesis is not None:
+        if (
+            item_move_capture is not None
+            or item_move_hypothesis is not None
+            or logout_hypothesis is not None
+        ):
             store.migrate()
             store.expire_open_sessions()
     else:
@@ -140,6 +156,7 @@ def main() -> int:
         population_scenario=population,
         item_move_capture_scenario=item_move_capture,
         item_move_hypothesis_scenario=item_move_hypothesis,
+        logout_hypothesis_scenario=logout_hypothesis,
         # PF-HYPOTHESIS-LEDGER: HYP-PF-009 active
         second_password_mode=known.second_password_mode,
     )

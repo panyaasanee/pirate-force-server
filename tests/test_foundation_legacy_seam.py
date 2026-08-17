@@ -67,20 +67,19 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers one deliberate movement: inventory/
-    # move_known_item_any_free_slot moved in_progress -> runtime_pass on GT-002
-    # (2026-08-17, attended at HEAD 55c7c59), the first real-client acceptance
-    # of the HYP-PF-010 generalized free-slot move: wire request, explicit
-    # commit response, both persistence tables, and a reconnect projection at
-    # the new slot. The row gains the GT-002 report as its leading evidence
-    # ref; production_allowed stays false and the path stays behind the opt-in
-    # scenario. next_missing_behavior for the domain moved to
-    # occupied_destination_policy (prose field, outside this digest).
-    # Previous pin B5389719..DC609 (same day) covered session_lifecycle/
-    # concurrent_multi_client not_started -> blocked as the owner-decided
-    # (item 14 option B) known_limitation record with HYP-PF-011 keeping the
-    # multiplayer hypothesis open; see its note for the lineage before that.
-    "400F42B34797DDEC8D850B4734D8C610913E5066CF7C288E907BF2D720646171"
+    # This pin covers one deliberate movement: session_lifecycle gains the new
+    # row clean_logout at in_progress (HYP-PF-012, owner option A 2026-08-17
+    # 18:35: acknowledged logout for both captured LogoutVital forms behind
+    # the logout opt-in scenario, clean close committed before the ack). The
+    # row starts at in_progress -- not runtime_pass -- because the wire/DB
+    # layer is loopback- and headless-proven while the client-observable layer
+    # (real client exits / returns to character select instead of hanging) is
+    # queued for the attended big round; see the row note.
+    # Previous pin 400F42B3..6171 (same day) covered inventory/
+    # move_known_item_any_free_slot in_progress -> runtime_pass on GT-002,
+    # the first real-client acceptance of HYP-PF-010; see its note for the
+    # lineage before that.
+    "D0E5E1BD204845A88D8418EBD814575F93719E58E2734198587EB9E52461E580"
 )
 
 

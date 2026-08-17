@@ -236,6 +236,19 @@
           "notes": "Process-level abrupt loss is covered. Host power loss and storage-level torn writes are not. The restart half of the claim -- a replacement process closing the lease a dead process left open -- is watched only by the startup recovery module; the other two files watch the client-loss half."
         },
         {
+          "id": "clean_logout",
+          "title": "Client-requested logout is acknowledged and closes the session cleanly",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "scenarios/logout_hypothesis_ack_echo.json"
+          ],
+          "test_refs": [
+            "tests/test_logout_hypothesis.py"
+          ],
+          "notes": "HYP-PF-012 (owner option A, 2026-08-17): both captured LogoutVital forms (subcode 01 exit-game, 03 return-to-character-select) are acknowledged with a designed hash-pinned echo behind the logout opt-in scenario only, after sessions.closed_at commits; the dispatch layer is silent afterward (the frozen v141 clock heartbeat continues until socket close, unchanged) and everything else fails closed. The wire/DB layer is loopback-tested and headless-proven; the client-observable layer (does the real client actually exit or return to character select on the echo ack, instead of hanging until End task) is exactly what the attended big round must confirm before this row can claim runtime_pass."
+        },
+        {
           "id": "concurrent_multi_client",
           "title": "Two or more concurrent clients on separate accounts",
           "required": true,

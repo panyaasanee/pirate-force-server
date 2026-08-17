@@ -841,6 +841,47 @@
           "active_claim_marker": true
         }
       ]
+    },
+    {
+      "id": "HYP-PF-012",
+      "kind": "protocol_hypothesis",
+      "introduced_checkpoint": "LOGOUT-ACK-001",
+      "exact_value_or_transform": "Behind the explicit logout opt-in scenario only, acknowledge the two captured LogoutVital (0x1B40) client requests -- subcode 01 (exit game) and subcode 03 (return to character select), each a deterministic 34-byte PC across two independent capture sessions (R38 decode, R40 corpus sweep) -- with a designed echo composition: the exact 14-byte request payload wrapped in the accepted GSCN_RunTimeProtocolRes v4 single-vital collection envelope (36-byte PC / 46-byte frame, hash-pinned per subcode). The session lease is closed cleanly (sessions.closed_at committed, no position rewrite) before any ack byte is queued, and after the acknowledged logout every further frame on that connection is counted and ignored. Wrong payloads, wrong envelopes, wrong sequences, uncaptured subcodes, repository failures, and already-closed leases fail closed with no reply and no write.",
+      "scope": "Acknowledged-logout composition at the runtime-dispatch/session boundary behind the logout opt-in scenario only; no client-observable exit or character-select-return claim, no default-mode or production request path, no lease-policy or store change (the clean-close write path is the pre-existing close_connection/close_session)",
+      "status": "active",
+      "provenance": "Opened by project-owner decision on 2026-08-17 ~18:35 ICT (option A, full 01+03 scope, typed directly in the chief session chat). The request decode is the R38 registry-hash identification of 0x1B40 as LogoutVital with subcode correlation to the exit-game and character-select buttons of the GT-002 attended session; the R40 corpus sweep confirmed both request forms are byte-identical across capture_gt002 and capture_item_move_hyp001 and that Foundation previously sent no response, leaving the real client hung until End task. No lawful original-server response to LogoutVital exists in the corpus; the echo response shape is therefore a designed hypothesis, not a reproduction.",
+      "evidence_refs": [
+        "scenarios/logout_hypothesis_ack_echo.json",
+        "reports/PF_LOGOUT_ACK001_HYP_PF_012_ACKNOWLEDGED_LOGOUT_HEADLESS_WIRE_DB_20260817.md"
+      ],
+      "accepted_ceiling": "Echo acknowledgement of the two exact captured request forms after a committed clean close, behind the explicit opt-in only, with fail-closed handling for everything else; the response shape has no original-server evidence and no client-acceptance evidence yet.",
+      "evidence_gap": "What the real client does on receiving the echo ack is unmeasured: whether subcode 01 exits the process cleanly and whether subcode 03 returns to the character-select screen are exactly the client-observable claims queued for the attended big round. The original server's logout response bytes and its session-teardown ordering are unknown and unknowable from the corpus.",
+      "falsification": "Retire or redesign the echo shape if the real client rejects, ignores, or desyncs on either ack (the pre-change behavior was a hang, so an unchanged hang falsifies the shape), if a lawful original trace shows different logout response bytes or teardown ordering, or if the clean close is ever observed to rewrite position or write any table other than sessions.closed_at.",
+      "stop_rule": "Acknowledge only the two exact captured request forms behind the existing opt-in; do not invent responses for other subcodes or payload variants, do not enable production or default-mode exposure, and do not add lease-policy, reconnect, or multi-step character-select-return behavior under this entry. Stop and record if the first attended client run rejects either composition.",
+      "production_allowed": false,
+      "expiry": {
+        "tracked_versions": ["LOGOUT-ACK-001"],
+        "decision": "Opened 2026-08-17 by project-owner decision (option A) as the first bounded version; prove the wire/DB layer headless, then confirm the client-observable layer in the attended big round before any retire/freeze/extend decision."
+      },
+      "max_versions": 3,
+      "extension_approval_ref": null,
+      "source_refs": [
+        {
+          "path": "src/pirateforce_foundation/logout_hypothesis.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-012 active", "make_logout_ack_response", "HYP-PF-012 response PC drift", "logout hypothesis scenario exceeds the exact allowlist"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/runtime.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-012 active", "_dispatch_logout_hypothesis", "logout_hypothesis_post_ack_frame_no_reply", "_session_closed_before_ack"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/app.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-012 active", "--logout-hypothesis-scenario requires an explicit existing --db"],
+          "active_claim_marker": true
+        }
+      ]
     }
   ]
 }
