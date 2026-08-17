@@ -23,3 +23,8 @@ class CharacterRepository(Protocol):
     def apply_hypothesized_v111_slot2_move(
         self, session_id: str, character_id: int,
     ) -> BackpackState | None: ...
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-010 active
+    def move_backpack_item_to_free_slot(
+        self, session_id: str, character_id: int,
+        item_identity: int, destination_slot: int,
+    ) -> BackpackState | None: ...

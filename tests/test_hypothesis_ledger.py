@@ -84,7 +84,7 @@ class HypothesisLedgerTests(unittest.TestCase):
             lambda value: value["entries"][0]["source_refs"][0]["required_markers"].append("missing ledger marker"),
             lambda value: value["entries"][0]["evidence_refs"].append("missing/report.md"),
             lambda value: value["entries"][0]["source_refs"][0].update(active_claim_marker=False),
-            lambda value: value["entries"][10]["source_refs"][0].update(active_claim_marker=True),
+            lambda value: value["entries"][11]["source_refs"][0].update(active_claim_marker=True),
         )
         for mutation in mutations:
             with self.subTest(mutation=mutation):
@@ -93,7 +93,7 @@ class HypothesisLedgerTests(unittest.TestCase):
     def test_rejects_production_geometry_and_expiry_drift(self) -> None:
         mutations = (
             lambda value: value["entries"][0].update(production_allowed=True),
-            lambda value: value["entries"][11].update(authentic=True),
+            lambda value: value["entries"][12].update(authentic=True),
             lambda value: value["entries"][0].update(extension_approval_ref="GENERIC-APPROVAL"),
             lambda value: value["entries"][0].update(extension_approval_ref={
                 "approval_id": "SCOPE-1", "approved_entry_ids": ["HYP-PF-003"],

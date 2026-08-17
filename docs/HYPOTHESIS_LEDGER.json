@@ -417,6 +417,59 @@
       ]
     },
     {
+      "id": "HYP-PF-010",
+      "kind": "protocol_hypothesis",
+      "introduced_checkpoint": "ITEM-MOVE-GEN-001",
+      "exact_value_or_transform": "Behind the explicit item-move opt-in scenario only, allow the governed V111 Backpack contents (exact initial or post-merge snapshots) to move one known item identity to one currently empty visible slot in [0,39]: the pure transition preserves every other ItemAttr field, the store persists exactly that one slot change atomically and re-validates the post-state, and the delta serializer reuses the accepted ItemOperateVitalRes update shape for the moved item, staying byte-equal to the accepted V141 golden for the identity-1/slot-2 case; same-slot requests are a no-op and unknown identities, out-of-range slots, and occupied destinations fail closed with no write.",
+      "scope": "Generalized free-slot Backpack move for the exact governed V111 item contents at the session/lifecycle/store boundary behind the existing item-move opt-in scenario only; no wire-request generalization, no occupied-slot, swap, displacement, split, drop, equip, creation, or cross-container behavior",
+      "status": "active",
+      "provenance": "Grade D bounded generalization opened by project-owner decision on 2026-08-17 (M3 option A) as a new claim so that HYP-PF-008 keeps its exact single-transition ceiling. The structural item codec and identity-tree canonicalization are the accepted Grade A ITEM-MOVE-ORDER-001 result; the single accepted free-slot composition and its reconnect projection remain HYP-PF-008; the delta serializer is pinned byte-equal to the frozen V141 golden for that case and reused structurally for other free destinations. No original-server traffic shows any destination other than slot 2 being accepted.",
+      "evidence_refs": [
+        "reports/PF_RE_V107_to_V110_Stateful_Inventory_and_ActionItem_Capture_20260814.md",
+        "reports/PF_ITEM_LIFECYCLE001_V111_STACK_MERGE_PERSISTENCE_RUNTIME_PASS_20260816.md",
+        "reports/PF_ITEM_MOVE_ORDER001_BACKPACK_IDENTITY_ORDER_STATIC_CHECKPOINT_20260816.md",
+        "scenarios/item_move_hypothesis_v111_slot2.json"
+      ],
+      "accepted_ceiling": "Free-destination moves of the exact governed items behind the explicit opt-in only, with fail-closed occupied/unknown/out-of-range handling and atomic single-slot persistence; no occupied-slot policy, no generalized inventory model, and no production or default-mode exposure.",
+      "evidence_gap": "No original-server response, capture, or static producer binds any destination slot other than 2 for these items. Client acceptance of the re-serialized update shape for other free slots is unproven; the first runtime evidence must come from the queued GT-002 client-acceptance test, and reconnect ordering for moved states beyond slot 2 is only client-compatible canonical ordering.",
+      "falsification": "Retire or narrow this generalization if a real client rejects, desyncs, or renders differently on any free-slot move response, if a lawful original trace shows different response bytes or destination policy, or if persistence/reconnect ever changes any field other than the one moved slot.",
+      "stop_rule": "Allow only free-destination moves of the governed contents behind the existing opt-in. Do not add occupied-slot behavior, swap, displacement, split, drop, equip, item creation, cross-container transfer, wire-request generalization, or production enablement without new evidence and ledger review; stop and record if the first GT-002 client run rejects the composition.",
+      "production_allowed": false,
+      "expiry": {
+        "tracked_versions": ["ITEM-MOVE-GEN-001"],
+        "decision": "Opened 2026-08-17 by project-owner decision (M3 option A) as the first bounded version; prove with the first client-acceptance runtime (GT-002), then retire, freeze, or review before any broader item-move lineage."
+      },
+      "max_versions": 3,
+      "extension_approval_ref": null,
+      "source_refs": [
+        {
+          "path": "src/pirateforce_foundation/inventory.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-010 active", "move_known_item_to_free_slot", "Backpack slot is occupied"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/repository.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-010 active", "move_backpack_item_to_free_slot"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/lifecycle.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-010 active", "move_backpack_item_to_free_slot"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/store.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-010 active", "move_backpack_item_to_free_slot", "free-slot move post-state validation failed"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/session.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-010 active", "HYP-PF-010 mutation requires its explicit opt-in scenario", "is_unmoved_baseline"],
+          "active_claim_marker": true
+        }
+      ]
+    },
+    {
       "id": "DIAG-PF-001",
       "kind": "diagnostic_value",
       "introduced_checkpoint": "SCENE-003",

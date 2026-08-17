@@ -1,14 +1,14 @@
 """Persisted structural Backpack states at the exact V111 boundary.
 
-The initial and merged states are byte-proven.  The third state is the
-explicitly tracked HYP-PF-008 composition that keeps the merged quantity and
-moves identity 1 to the independently proven free destination slot 2.  It is
-not a generalized inventory, item-ownership, collision, or equipment model.
+The item contents are limited to the exact initial or post-merge snapshots.
+HYP-PF-010 permits those known items to move between free Backpack slots while
+preserving every other ItemAttr field.  Occupied-slot behavior, item creation,
+equipment, and ownership semantics remain outside this module.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 
@@ -83,6 +83,17 @@ V111_MERGE_FIELDS = (4, 0, 3)
 V111_MERGE_PAYLOAD = V111_MERGE_REQUEST_PC[20:]
 
 
+def _item_content_signature(item: ItemAttrState) -> tuple[int, ...]:
+    return (
+        item.identity, item.template_id, item.quantity,
+        item.raw_u8_38, item.raw_u8_39, item.detail_present,
+    )
+
+
+_INITIAL_CONTENT = tuple(_item_content_signature(item) for item in INITIAL_BACKPACK.items)
+_MERGED_CONTENT = tuple(_item_content_signature(item) for item in MERGED_V111_BACKPACK.items)
+
+
 def _require_int(value: Any, label: str, minimum: int, maximum: int) -> int:
     if type(value) is not int or not minimum <= value <= maximum:
         raise ValueError(f"{label} must be an integer in [{minimum},{maximum}]")
@@ -90,7 +101,7 @@ def _require_int(value: Any, label: str, minimum: int, maximum: int) -> int:
 
 
 def require_known_backpack(value: Any) -> BackpackState:
-    """Reject every state outside the two exact and one tracked snapshots."""
+    """Accept exact known contents with unique slots in the visible 40-slot bag."""
     if type(value) is not BackpackState:
         raise ValueError("backpack must be an exact BackpackState")
     _require_int(value.base_mask, "backpack base mask", 0, 0xFF)
@@ -106,7 +117,7 @@ def require_known_backpack(value: Any) -> BackpackState:
         _require_int(item.identity, "item identity", 0, 0x7FFFFFFFFFFFFFFF)
         _require_int(item.template_id, "item template", 0, 0xFFFFFFFF)
         _require_int(item.quantity, "item quantity", 0, 0xFFFF)
-        _require_int(item.slot, "item slot", 0, 0xFFFF)
+        _require_int(item.slot, "item slot", 0, 39)
         _require_int(item.raw_u8_38, "item raw +0x38", 0, 0xFF)
         _require_int(item.raw_u8_39, "item raw +0x39", 0, 0xFF)
         _require_int(item.detail_present, "item detail presence", 0, 1)
@@ -114,13 +125,95 @@ def require_known_backpack(value: Any) -> BackpackState:
             raise ValueError("backpack identity/slot must be unique")
         identities.add(item.identity)
         slots.add(item.slot)
-    if value not in (
-        INITIAL_BACKPACK,
-        MERGED_V111_BACKPACK,
-        HYPOTHESIZED_V111_SLOT2_BACKPACK,
-    ):
-        raise ValueError("backpack state is outside the governed V111 allowlist")
+    content = tuple(_item_content_signature(item) for item in value.items)
+    if content not in (_INITIAL_CONTENT, _MERGED_CONTENT):
+        raise ValueError("backpack contents are outside the governed V111 allowlist")
     return value
+
+
+def is_unmoved_baseline(value: Any) -> bool:
+    """Return whether a state is one of the two production-neutral snapshots."""
+    return value in (INITIAL_BACKPACK, MERGED_V111_BACKPACK)
+
+
+# PF-HYPOTHESIS-LEDGER: HYP-PF-010 active
+def move_known_item_to_free_slot(
+    value: BackpackState, item_identity: int, destination_slot: int,
+) -> tuple[BackpackState, ItemAttrState] | None:
+    """Purely move one known item, rejecting unknown or occupied destinations.
+
+    ``None`` is the exact same-slot no-op.  The caller persists and emits only
+    after this pure transition has passed all structural checks.
+    """
+    value = require_known_backpack(value)
+    item_identity = _require_int(
+        item_identity, "item identity", 0, 0x7FFFFFFFFFFFFFFF,
+    )
+    destination_slot = _require_int(destination_slot, "destination slot", 0, 39)
+    matches = [item for item in value.items if item.identity == item_identity]
+    if len(matches) != 1:
+        raise KeyError(f"unknown Backpack item identity: {item_identity}")
+    current = matches[0]
+    if current.slot == destination_slot:
+        return None
+    if any(item.slot == destination_slot for item in value.items):
+        raise FileExistsError(f"Backpack slot is occupied: {destination_slot}")
+    moved = replace(current, slot=destination_slot)
+    after = replace(
+        value,
+        items=tuple(moved if item.identity == item_identity else item for item in value.items),
+    )
+    return require_known_backpack(after), moved
+
+
+def make_item_move_delta_response(
+    legacy: Any, moved_item: ItemAttrState,
+) -> tuple[bytes, bytes]:
+    """Serialize the exact ItemOperate result shape for one complete ItemAttr.
+
+    The serializer is independently pinned against frozen V141 for the accepted
+    identity-1/slot-2 golden.  Other known items reuse the same exact structural
+    codec; original-server selection policy remains HYP-PF-008.
+    """
+    if type(moved_item) is not ItemAttrState:
+        raise TypeError("moved item must be an exact ItemAttrState")
+    _require_int(moved_item.identity, "item identity", 0, 0x7FFFFFFFFFFFFFFF)
+    _require_int(moved_item.template_id, "item template", 0, 0xFFFFFFFF)
+    _require_int(moved_item.quantity, "item quantity", 0, 0xFFFF)
+    _require_int(moved_item.slot, "item slot", 0, 39)
+    _require_int(moved_item.raw_u8_38, "item raw +0x38", 0, 0xFF)
+    _require_int(moved_item.raw_u8_39, "item raw +0x39", 0, 0xFF)
+    _require_int(moved_item.detail_present, "item detail presence", 0, 1)
+    item_wire = (
+        legacy.qwordtag(0x32, moved_item.identity)
+        + legacy.u32tag(0x14, moved_item.template_id)
+        + legacy.u16tag(0x0F, moved_item.quantity)
+        + legacy.u16tag(0x0F, moved_item.slot)
+        + legacy.u8tag(0x08, moved_item.raw_u8_38)
+        + legacy.u8tag(0x08, moved_item.raw_u8_39)
+        + legacy.u8tag(0x0B, moved_item.detail_present)
+    )
+    item_bag = (
+        legacy.u8tag(0x0B, BACKPACK_BASE_MASK)
+        + legacy.qwordtag(0x32, BACKPACK_BASE_IDENTITY)
+        + legacy.u16tag(0x0F, 1)
+        + item_wire
+        + legacy.u16tag(0x0F, 0)
+    )
+    payload = (
+        legacy.u8tag(0x08, 0)
+        + legacy.u8tag(0x0B, 1)
+        + item_bag
+        + legacy.u8tag(0x08, 0)
+    )
+    result = legacy.make_runtime_vitals([(
+        legacy.ITEM_OPERATE_RES_VITAL, 2, payload,
+    )])
+    if moved_item == HYPOTHESIZED_V111_SLOT2_BACKPACK.items[0]:
+        expected = legacy.make_item_operate_move_delta_success(2, 2)
+        if result != expected:
+            raise RuntimeError("generic item-move response drifted from V141 golden")
+    return result
 
 
 def make_backpack_attr(legacy: Any, state: BackpackState) -> bytes:

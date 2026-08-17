@@ -11,6 +11,7 @@ from .inventory import (
     INITIAL_BACKPACK,
     MERGED_V111_BACKPACK,
     ItemAttrState,
+    move_known_item_to_free_slot,
     require_known_backpack,
 )
 from .model import Character, Position
@@ -348,6 +349,49 @@ class SQLiteStore:
             after = self._load_backpack(db, character_id)
             if after != HYPOTHESIZED_V111_SLOT2_BACKPACK:
                 raise RuntimeError("HYP-PF-008 post-state validation failed")
+            return after
+
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-010 active
+    def move_backpack_item_to_free_slot(
+        self, sid: str, character_id: int,
+        item_identity: int, destination_slot: int,
+    ) -> BackpackState | None:
+        """Atomically move one governed item to one currently empty slot."""
+        if type(item_identity) is not int:
+            raise TypeError("item identity must be int")
+        if type(destination_slot) is not int:
+            raise TypeError("destination slot must be int")
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            self._require_selected_session(db, sid, character_id)
+            before = self._load_backpack(db, character_id)
+            transition = move_known_item_to_free_slot(
+                before, item_identity, destination_slot,
+            )
+            if transition is None:
+                return None
+            expected, current_item = transition
+            moved = db.execute(
+                "UPDATE character_backpack_items SET slot=? "
+                "WHERE character_id=? AND item_identity=? AND slot=?",
+                (
+                    destination_slot, character_id,
+                    item_identity,
+                    next(
+                        item.slot for item in before.items
+                        if item.identity == current_item.identity
+                    ),
+                ),
+            )
+            if moved.rowcount != 1:
+                raise RuntimeError("Backpack item changed during move transaction")
+            db.execute(
+                "UPDATE character_backpacks SET updated_at=? WHERE character_id=?",
+                (_now(), character_id),
+            )
+            after = self._load_backpack(db, character_id)
+            if after != expected:
+                raise RuntimeError("free-slot move post-state validation failed")
             return after
 
     @staticmethod

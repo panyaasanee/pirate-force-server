@@ -2,7 +2,10 @@
 from dataclasses import replace
 import threading
 
-from .inventory import HYPOTHESIZED_V111_SLOT2_BACKPACK
+from .inventory import (
+    HYPOTHESIZED_V111_SLOT2_BACKPACK,
+    is_unmoved_baseline,
+)
 
 class FoundationSession:
     def __init__(
@@ -33,10 +36,7 @@ class FoundationSession:
     def select_and_start(self, selector: int):
         selected = self.lifecycle.select(self.session_id, selector)
         backpack = self.lifecycle.backpack(self.session_id, selected)
-        if (
-            backpack == HYPOTHESIZED_V111_SLOT2_BACKPACK
-            and not self.allow_hypothesized_item_move
-        ):
+        if not is_unmoved_baseline(backpack) and not self.allow_hypothesized_item_move:
             raise PermissionError(
                 "HYP-PF-008 post-state requires its explicit opt-in scenario"
             )
@@ -65,6 +65,24 @@ class FoundationSession:
             raise RuntimeError("no selected character Backpack")
         updated = self.lifecycle.move_hypothesized_v111_slot2(
             self.session_id, self.selected,
+        )
+        if updated is None:
+            return False
+        self.backpack = updated
+        return True
+
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-010 active
+    def move_backpack_item_to_free_slot(
+        self, item_identity: int, destination_slot: int,
+    ) -> bool:
+        if not self.allow_hypothesized_item_move:
+            raise PermissionError(
+                "HYP-PF-010 mutation requires its explicit opt-in scenario"
+            )
+        if self.selected is None or self.backpack is None:
+            raise RuntimeError("no selected character Backpack")
+        updated = self.lifecycle.move_backpack_item_to_free_slot(
+            self.session_id, self.selected, item_identity, destination_slot,
         )
         if updated is None:
             return False
@@ -140,6 +158,9 @@ class ReadOnlyFoundationSession:
         raise PermissionError("scene-load milestone cannot mutate Backpack state")
 
     def move_hypothesized_v111_slot2(self):
+        raise PermissionError("scene-load milestone cannot mutate Backpack state")
+
+    def move_backpack_item_to_free_slot(self, _item_identity, _destination_slot):
         raise PermissionError("scene-load milestone cannot mutate Backpack state")
 
     def close(self, _position=None):

@@ -71,6 +71,14 @@ class CharacterLifecycle:
             session_id, character.id,
         )
 
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-010 active
+    def move_backpack_item_to_free_slot(
+        self, session_id, character, item_identity, destination_slot,
+    ):
+        return self.store.move_backpack_item_to_free_slot(
+            session_id, character.id, item_identity, destination_slot,
+        )
+
     def exit(self, session_id, character, position):
         self.store.save_position(session_id, character.id, position)
         self.store.close_session(session_id)
