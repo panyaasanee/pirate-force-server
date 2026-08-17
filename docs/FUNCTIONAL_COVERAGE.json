@@ -278,15 +278,16 @@
           "id": "local_player_position_checkpoint",
           "title": "Client-reported position is checkpointed and saved on exit",
           "required": true,
-          "status": "in_progress",
+          "status": "runtime_pass",
           "evidence_refs": [
+            "reports/PF_GT005_MOVEMENT_POSITION_PERSISTS_ACROSS_RESTART_RUNTIME_PASS_20260817.md",
             "reports/PF_FND010_ABRUPT_CLIENT_PROCESS_LOSS_RECONNECT_RUNTIME_PASS_20260816.md"
           ],
           "test_refs": [
             "tests/test_foundation.py",
             "tests/test_connection_lifecycle.py"
           ],
-          "notes": "The runtime checkpoints the exact client-reported target position and lifecycle.exit saves it, with offline tests covering non-finite rejection and last-writer ordering. The only runtime record shows an unchanged position across an abrupt loss, so a position the player actually moved to surviving reconnect is still unproven."
+          "notes": "One attended two-boot run through the real client walked the local player from (-9098.55, -2866.86) to (-8094.61, -3207.83), and that walked position was in character_positions after the server exited and was the position the character stood at on the next entry, matching on screen and in the database. The server console counted 29 inbound TargetPosVital frames and the client-side capture counted 29 for the same walk. This is one walk, in scene 1 Port Royal, with one client; the number of checkpoints written per walk, other scenes, scene transitions, and the visible heading remain unmeasured."
         },
         {
           "id": "local_player_movement_authority",

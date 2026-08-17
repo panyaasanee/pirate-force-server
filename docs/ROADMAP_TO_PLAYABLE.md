@@ -22,7 +22,7 @@ engineering work.
 | --- | --- | --- | --- |
 | **D — decision** | the work would exceed a hypothesis ceiling or widen the definition of the product | `move_known_item_any_free_slot` | project owner |
 | **E — evidence** | the recovered corpus provably cannot answer the question | `damage_and_hit_result` | nobody, until a new source appears |
-| **R — runtime** | the code path exists; nobody has run it against the real client yet | `local_player_position_checkpoint` | in-game tester |
+| **R — runtime** | the code path exists; nobody has run it against the real client yet | `client_chat_input` | in-game tester |
 | **B — build** | ordinary implementation work with no ceiling problem | `chat_channels_and_routing` | server work |
 
 The important asymmetry: **R work is the cheapest and it is the largest
@@ -48,7 +48,7 @@ new work; that is what `GT-001` in the test queue exists to catch.
 
 | row | domain | status | queued as |
 | --- | --- | --- | --- |
-| `local_player_position_checkpoint` | movement | in_progress | `GT-005` |
+| `local_player_position_checkpoint` | movement | runtime_pass 2026-08-17 | `GT-005` (done) |
 | `client_chat_input` | chat | not_started | `GT-006` |
 | `concurrent_multi_client` | session lifecycle | not_started | `GT-003` |
 
@@ -57,13 +57,13 @@ new reverse-engineering, and without touching `src/`. It is small, and that is
 the single most important fact about the project's current position: **the
 matrix is mostly blocked on decisions and evidence, not on effort.**
 
-`local_player_position_checkpoint` is the highest-value of the three. The write
-path exists end to end (`runtime._checkpoint_exact_target` → `lifecycle.checkpoint`
-→ `store.save_position`, with a second save on `lifecycle.exit`), and FND-010
-only ever proved that an *unchanged* position survives an abrupt loss. Whether a
-*changed* position survives has never been observed. Either answer is worth
-having: a pass upgrades the row, a failure is a real bug on a path the whole
-persistence story depends on.
+`local_player_position_checkpoint` was the highest-value of the three and is
+**answered as of 2026-08-17**: GT-005 walked the character through the real
+client, restarted the server, and found the character standing at the walked
+position — see
+`reports/PF_GT005_MOVEMENT_POSITION_PERSISTS_ACROSS_RESTART_RUNTIME_PASS_20260817.md`.
+The row is `runtime_pass`, which upgrades one walk in one scene and does not
+close the domain. The two remaining Tier 1 rows are unchanged.
 
 ### Tier 2 — behind the HYP-PF-008 ceiling decision (kind D)
 
@@ -113,8 +113,9 @@ not be treated as a failure of execution.
   the cheapest progress available in this domain.
 - **Movement**: `local_player_movement_authority` is `not_started` and is where
   the server stops trusting client-reported coordinates. It should not be
-  attempted before `local_player_position_checkpoint` is settled, because
-  validating a value the server does not yet reliably persist is meaningless.
+  now unblocked in principle: `local_player_position_checkpoint` reached
+  `runtime_pass` on 2026-08-17, so the value being validated is one the server
+  demonstrably persists across a restart.
   `remote_player_movement_projection` depends on `concurrent_multi_client`.
 
 ## 3. Ordering recommendation
