@@ -67,9 +67,16 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # M14 added tests/test_startup_stale_lease_recovery.py to the test refs of
-    # session_lifecycle/abrupt_loss_recovery. No status or evidence ref moved.
-    "E2154CE69DF0C2383B500FB559F1F92C07280A4633E7FB38B7C416D0D8238A32"
+    # Commit 7c067b4 moved movement/local_player_position_checkpoint from
+    # in_progress to runtime_pass and added two GT-005 evidence refs after the
+    # in-game run of 2026-08-17 12:23-12:41 proved the walked position survives
+    # a server restart in character_positions. That commit did not re-pin this
+    # digest, so main was red until this line; the grade movement itself was
+    # deliberate and is recorded in the GT-005 runtime-pass report.
+    # Previous pin E2154CE6..8A32 covered M14, which only added
+    # tests/test_startup_stale_lease_recovery.py to the test refs of
+    # session_lifecycle/abrupt_loss_recovery without moving a status.
+    "3460935E82A3F9647FB68F6E0AB46EB0EBDD27E6B24BC67ECF83255F6059E78F"
 )
 
 # Two manifest formats exist in reports/.  PIPE is the house format used by 21 of
