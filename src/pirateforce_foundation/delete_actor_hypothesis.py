@@ -17,13 +17,23 @@ stop rule's approval requirement while keeping its nonclaims):
   nested id 0x36DB, nested version 1, nested payload parsed by the strict
   DELETE-003 parser.  Op 1 only; op 2 has no proven UI provenance and fails
   closed.
-- designed response: echo the exact request vital back inside the accepted
-  ``GSCN_RunTimeProtocolRes`` v4 single-vital envelope (``make_runtime_vital``,
-  the same envelope every accepted character-select-stage response uses).
+- designed response (v2, DELETE-SOFT-002): echo the exact request vital back
+  inside the accepted ``GSCN_RunTimeProtocolRes`` v4 single-vital collection
+  envelope **with the trailing derived-class change mask ``0B 00``**
+  (``make_runtime_vitals``, the composition every live-accepted RuntimeRes
+  collection response uses).  The v1 composition (``make_runtime_vital``,
+  no trailing mask) was falsified live by attended GT-010 on 2026-08-18:
+  the real client parsed the whole stream, over-read past the echoed record
+  looking for the derived-class mask, and raised the RuntimeRes stream error
+  ``GSCN_RunTimeProtocolRes ErrorData=28317`` (28317 = 0x6E9D = the protocol
+  class id of GSCN_RUNTIME_PROTOCOL_RES itself) while the request-side
+  envelope was confirmed byte-compatible -- the server parsed the natural
+  0x36DB and committed the soft delete.  Decode + candidate ranking:
+  reports/PF_DELETE_SOFT002_NATURAL_0x36DB_DECODE_20260818.md.
   DELETE-003 proved the client owns an inbound DeleteActorVital consumer
-  (``0x5EFDC0 -> 0x4BAEB0``) with the same codec, so the echo is decodable by
-  the real client; what its UI does with it is exactly the queued attended
-  claim.
+  (``0x5EFDC0 -> 0x4BAEB0``) with the same codec; whether the *fixed* echo
+  now drives the UI (list refresh, freed slot) is the re-queued attended
+  claim (GT-011).
 
 The repository commit (``deleted_at`` set under the migration-004 partial
 unique indexes) happens before any ack byte is queued.  Wrong envelopes,
@@ -79,7 +89,13 @@ def _login_protocol_request_pc(legacy: Any, nested_payload: bytes) -> bytes:
 
 
 # Deterministic designed-probe pins (34/50-byte request PCs, echo ack
-# 34/50-byte PCs inside 44/60-byte frames), verified end to end by the tests.
+# 36/52-byte PCs inside 46/62-byte frames), verified end to end by the tests.
+# v2 (DELETE-SOFT-002): the ack PC/frame pins moved +2 bytes when the trailing
+# derived-class change mask 0B 00 joined the composition after attended GT-010
+# falsified the tail-less v1 ack live (ErrorData=28317; see the module
+# docstring and reports/PF_DELETE_SOFT002_NATURAL_0x36DB_DECODE_20260818.md).
+# The request pins are unchanged: the natural GT-010 capture confirmed the
+# request envelope byte-compatible, so only the response side moved.
 DELETE_ACTOR_PROBE_REQUEST_PC_SHA256 = {
     "op1_selector0_empty": (
         "F5DDA13FA9DEB964B70C0E2614C664C722CF2A7D411A88532E77BFE869DB6DC9"
@@ -90,18 +106,18 @@ DELETE_ACTOR_PROBE_REQUEST_PC_SHA256 = {
 }
 DELETE_ACTOR_PROBE_ACK_PC_SHA256 = {
     "op1_selector0_empty": (
-        "C3DA60C3254BE290E79AEE24BBBFEA39F1D368D743E3DCADEB5DE44000004462"
+        "481A8939FD84D2DDC1A81645F10856A5C666D2387776704355A62E8FA36D4581"
     ),
     "op1_selector0_deltst01": (
-        "55C60A79AB5669531486F77D50651AB4CE23BF70AF8A4FA5EAD1AFFF0D1C7197"
+        "D2F82525658EDB80D0232F037ADFCE8AE476F01B7BDB44C46BAAEE780E2BD7EF"
     ),
 }
 DELETE_ACTOR_PROBE_ACK_FRAME_SHA256 = {
     "op1_selector0_empty": (
-        "4132E4014572E829C6A9F258B22BB3C76B48C76CFA18CC6EB0B379D24E22DECA"
+        "055ACBB0B690891DFB3799FD6760BA102288593675454D243873AB03F0B3223E"
     ),
     "op1_selector0_deltst01": (
-        "A2A398C70136798BF4006E69738296A6AAA42A692223DF966057CEFEA4A66E38"
+        "679EBAF9B3A1F202CAF0F13248C704DF9B8B993C8802FF7248B9FA9F2213FD21"
     ),
 }
 
@@ -239,12 +255,18 @@ def make_delete_actor_ack_response(
 ) -> tuple[bytes, bytes]:
     """Build and structurally pin the designed echo ack for one accepted request.
 
-    The ack is the exact request vital echoed inside the accepted
-    GSCN_RunTimeProtocolRes v4 single-vital envelope -- the same envelope
-    every character-select-stage response already uses.  The composition is
-    checked structurally (envelope prefix + byte-exact payload at the fixed
-    offset); the deterministic probe forms are additionally hash-pinned by
-    the tests.
+    v2 (DELETE-SOFT-002): the ack is the exact request vital echoed inside
+    the accepted GSCN_RunTimeProtocolRes v4 single-vital *collection*
+    envelope with the trailing derived-class change mask ``0B 00``
+    (``make_runtime_vitals``).  Attended GT-010 falsified the v1 tail-less
+    composition live: the client over-read the collection and raised
+    ErrorData=28317 (the RuntimeRes class id itself), exactly the failure
+    mode the ``make_runtime_vitals`` comment documents.  Every RuntimeRes
+    collection response the client accepted live in the same session
+    (character_list, create_success) carries this trailing mask.  The
+    composition is checked structurally (envelope prefix + byte-exact
+    payload + trailing mask); the deterministic probe forms are additionally
+    hash-pinned by the tests.
     """
     record = (
         b"\x12" + struct.pack("<H", DELETE_ACTOR_VITAL_ID)
@@ -254,11 +276,13 @@ def make_delete_actor_ack_response(
     request = parse_delete_actor_vital_request(record)
     if request.op != 1:
         raise ValueError("delete actor ack requires an accepted op-1 request")
-    pc, frame = legacy.make_runtime_vital(
-        DELETE_ACTOR_VITAL_ID, DELETE_ACTOR_VITAL_VERSION, nested_payload,
+    pc, frame = legacy.make_runtime_vitals(
+        [(DELETE_ACTOR_VITAL_ID, DELETE_ACTOR_VITAL_VERSION, nested_payload)],
     )
-    if len(pc) != 20 + len(nested_payload) or not pc.endswith(nested_payload):
+    if len(pc) != 22 + len(nested_payload):
         raise RuntimeError("HYP-PF-015 response PC drift")
+    if not pc.endswith(nested_payload + b"\x0b\x00"):
+        raise RuntimeError("HYP-PF-015 response tail drift")
     if not frame.endswith(pc):
         raise RuntimeError("HYP-PF-015 response frame drift")
     return pc, frame

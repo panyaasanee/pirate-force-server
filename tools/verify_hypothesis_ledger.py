@@ -22,8 +22,16 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # HYP-PF-014 chat input echo append on the GT-006 wire capture, under the
 # owner's standing pre-approval of 18:2x) -> 6C16037F.. (2026-08-18:
 # HYP-PF-015 soft delete + slot reuse append on the DELETE-003 static decode,
-# under the owner's explicit Lane-1 Option-B decision of 2026-08-18 00:52).
-CANONICAL_CONTENT_SHA256 = "6C16037FFF55C1ECE6D97F32BA4C9FE86414A4BC4FCE67D6167B2B51CD26EFA9"
+# under the owner's explicit Lane-1 Option-B decision of 2026-08-18 00:52)
+# -> 20AF62F3.. (2026-08-18 chief round 52: attended รอบใหญ่ #2 answers
+# processed into three amendments -- PF-013 evidence_gap/decision record the
+# GT-008 client-layer falsification of the ack+close shape; PF-014
+# evidence_gap/decision/evidence_refs record the GT-009 client acceptance of
+# the chat echo; PF-015 transform/gap/decision/refs/tracked_versions open
+# DELETE-SOFT-002, the trailing-mask v2 delete ack, after GT-010 confirmed
+# the request envelope via the first natural 0x36DB and falsified the v1
+# ack live with ErrorData=28317; no entry added or removed, count stays 22).
+CANONICAL_CONTENT_SHA256 = "20AF62F300A5367F9CDA41BD94CFDEFAD94DCF2390ABD37D7E210F1C81E664A6"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(

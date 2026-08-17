@@ -85,6 +85,15 @@ class RuntimeConsoleTests(unittest.TestCase):
             )
 
     def test_self_test_only_is_the_console_exception(self):
+        # An explicit --db is mandatory here.  Without it the app resolves the
+        # default foundation path state/pirateforce.sqlite3 -- the CANONICAL
+        # database -- and the foundation branch runs store.migrate() plus
+        # expire_open_sessions() against it on every pytest run.  That exact
+        # latent hole applied migration 004 to the canonical DB at
+        # 2026-08-18 01:22:31 during the round-51 Windows gate (job 096); it
+        # had been invisible before only because migrations 001-003 were
+        # already applied, making migrate() a no-op.  See
+        # pf_bridge/FINDINGS_R41_PYTEST_TOUCHED_CANONICAL_DB.md.
         with tempfile.TemporaryDirectory() as tmp:
             capture = Path(tmp) / "self-test-capture"
             env = os.environ.copy()
@@ -92,6 +101,7 @@ class RuntimeConsoleTests(unittest.TestCase):
             result = subprocess.run(
                 [
                     sys.executable, "-m", "pirateforce_foundation.app",
+                    "--db", str(Path(tmp) / "selftest_scratch.sqlite3"),
                     "--capture-root", str(capture), "--self-test-only",
                 ],
                 cwd=ROOT, env=env, text=True, capture_output=True, check=False,

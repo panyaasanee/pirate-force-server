@@ -90,3 +90,17 @@ logs), the job logs `pf_bridge\outbox\072_gt001_boot.*`,
 `073_gt001_teardown.*`, `073_console_tail_20260817_192447.txt`,
 `073_ctrlc_20260817_192447.json`, and the pre-test backup
 `pf_bridge\backup\pirateforce_before_gt001_20260817_192033.sqlite3`.
+
+## Addendum 2026-08-18 (chief round 52) — four manifest lines removed
+
+The staged jobs `072`/`073` are re-armed and re-run for every GT-001 pass and
+overwrite their `pf_bridge\outbox\` logs in place. The 2026-08-18 02:07 re-run
+(รอบใหญ่ #2) therefore replaced the four boot/teardown logs this report's
+manifest had pinned, which would have failed every future manifest re-hash.
+Those four lines (`072_gt001_boot.*`, `073_gt001_teardown.*`) were removed
+from the manifest; the substantive evidence — the immutable
+`GameClient\capture_gt001_20260817_192033` capture set and the timestamped
+`073_console_tail/ctrlc_20260817_192447.*` files, which are never reused —
+remains pinned and intact. Systemic rule going forward: manifests must never
+pin re-armed jobs' live outbox filenames, only timestamped or archived
+copies. See `pf_bridge/FINDINGS_R42_REARMED_JOB_LOGS_BREAK_MANIFESTS.md`.

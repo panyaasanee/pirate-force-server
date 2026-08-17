@@ -67,20 +67,27 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers one deliberate movement: character_management/
-    # character_deletion (already in_progress) gains the HYP-PF-015 evidence
-    # and watch (chief 2026-08-18 under the owner's Lane-1 Option-B decision
-    # of 00:52): the opt-in scenario and the DELETE-SOFT-001 headless report
-    # join evidence_refs, and tests/test_delete_actor_hypothesis.py joins
-    # test_refs. The row deliberately stays in_progress -- not runtime_pass
-    # -- because no natural 0x36DB wire exists in any corpus: the accepted
-    # envelope and the echo ack are designed, and the client-observable
-    # layer (delete button emission, echo acceptance, freed-slot rendering)
-    # is queued for the attended big round; see the row note.
-    # Previous pin 05FAFA31..42F5 (2026-08-17) covered chat gaining
-    # chat_input_echo_hypothesis at in_progress on HYP-PF-014; see its note
-    # for the lineage before that.
-    "18A3724564D1D20C3AA40A69331CB0F438C2E51B8D5F4523A95E91895942971B"
+    # This pin covers three deliberate movements, all products of processing
+    # attended รอบใหญ่ #2 (2026-08-18 01:33-02:15; chief round 52; repo-side
+    # record reports/PF_BIGROUND2_ATTENDED_RESULTS_20260818.md, manifest
+    # backed):
+    #  1. chat/chat_input_echo_hypothesis moves in_progress -> runtime_pass:
+    #     attended GT-009 confirmed the client renders every echoed message
+    #     in the chat window; the BIGROUND2 report and the CHAT-ECHO-002
+    #     speaker-field research join evidence_refs.
+    #  2. character_management/character_deletion stays in_progress but
+    #     gains the GT-010 answers: the natural-0x36DB decode
+    #     (DELETE-SOFT-002 report), the trailing-mask v2 ack headless proof
+    #     (DELETE-SOFT-003 report), and the BIGROUND2 report join
+    #     evidence_refs; client acceptance of the v2 ack is queued (GT-011).
+    #  3. session_lifecycle/clean_logout stays in_progress but gains the
+    #     GT-008 falsification record (client never detects the TCP close;
+    #     transitions are protocol-driven): the BIGROUND2 report joins
+    #     evidence_refs; next design is the 0x3D4B-first response shape.
+    # Previous pin 18A37245..971B (2026-08-18 round 51) covered
+    # character_deletion gaining the HYP-PF-015 evidence and watch; see its
+    # note for the lineage before that.
+    "011A63BE6217E6851F7F293BECE12CA8FC8401197A87A7562C7B253715E595C9"
 )
 
 

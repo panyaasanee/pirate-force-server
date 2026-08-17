@@ -1,0 +1,5 @@
+[superseded stub] First invocation at 20260818_024701 asked the probe to write
+its JSON verdict directly under reports/, which the probe's repo-write guard
+refuses by design (exit 2, no server was booted, no DB was touched). The real
+GREEN run is the 20260818_024727 pair in this directory. File kept only because
+the sandbox mount cannot unlink files; content replaced with this note.
