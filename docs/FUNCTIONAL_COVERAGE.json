@@ -54,7 +54,7 @@
           "id": "move_known_item_any_free_slot",
           "title": "Move any known item to any free slot 0-39",
           "required": true,
-          "status": "blocked",
+          "status": "in_progress",
           "evidence_refs": [
             "reports/PF_ITEM_MOVE_CAPTURE001_FREE_SLOT_REQUEST_RUNTIME_PASS_20260817.md",
             "reports/PF_ITEM_MOVE_CONSUMER001_RESPONSE_APPLY_STATIC_CHECKPOINT_20260816.md",
@@ -62,9 +62,10 @@
           ],
           "test_refs": [
             "tests/test_item_move_capture.py",
-            "tests/test_item_move_hypothesis.py"
+            "tests/test_item_move_hypothesis.py",
+            "tests/test_item_move_generalized.py"
           ],
-          "notes": "Blocked on hypothesis ledger review. The exact client request producer is Grade B proven and an implementation exists as uncommitted work in progress, but HYP-PF-008 accepted_ceiling and stop_rule permit only the single opt-in identity-1 slot-0 to slot-2 composition. Generalizing to any identity and any free slot needs a ledger decision by the project owner before the work may be committed."
+          "notes": "HYP-PF-010 (M3, commit abf3696) opened the generalized free-slot claim and the owner-approved M4 runtime hookup now routes every well-formed non-tracked ItemOperate request into it behind the existing opt-in scenario, failing closed for occupied, unknown, out-of-range, and same-slot targets. The logic layer is loopback-tested end to end; first real-client acceptance (GT-002) is still required before runtime_pass, and production_allowed stays false."
         },
         {
           "id": "same_slot_noop",

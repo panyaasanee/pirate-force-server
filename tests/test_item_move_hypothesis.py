@@ -228,14 +228,17 @@ class ItemMoveHypothesisTests(unittest.TestCase):
     def test_all_other_item_operate_shapes_are_owned_without_mutation(self):
         state, character, _ = self._merged_hypothesis_state("negative")
         before_rows = self._rows(character.id)
-        # value32=3 is the currently occupied blade slot.  HYP-PF-008 must
-        # never infer swap/displacement behavior from the frozen legacy path.
+        # value32=3 is the currently occupied blade slot.  Neither the frozen
+        # HYP-PF-008 lane nor the generalized HYP-PF-010 lane may ever infer
+        # swap/displacement behavior from it: it must fail closed.
         occupied_slot3 = (
             ITEM_MOVE_CAPTURE_REQUEST_PC[:23]
             + b"\x03\x00\x00\x00"
             + ITEM_MOVE_CAPTURE_REQUEST_PC[27:]
         )
         variants = [
+            # The merge-shaped tuple (4,0,3) targets identity 3, which no
+            # longer exists after the persisted merge: unknown fails closed.
             V111_MERGE_REQUEST_PC,
             ITEM_MOVE_CAPTURE_REQUEST_PC + b"\x00",
             occupied_slot3,
@@ -248,7 +251,20 @@ class ItemMoveHypothesisTests(unittest.TestCase):
         self.assertEqual(state.foundation.backpack, MERGED_V111_BACKPACK)
         self.assertEqual(self._rows(character.id), before_rows)
         self.assertEqual(state.item_move_hypothesis_count, 0)
-        self.assertIn("item_move_hypothesis_wrong_tuple_no_reply", state.events)
+        self.assertEqual(state.item_move_generalized_count, 0)
+        self.assertIn(
+            "item_move_generalized_fail_closed_no_reply_KeyError", state.events,
+        )
+        self.assertIn(
+            "item_move_generalized_fail_closed_no_reply_FileExistsError",
+            state.events,
+        )
+        self.assertIn(
+            "item_move_hypothesis_malformed_or_trailing_no_reply", state.events,
+        )
+        self.assertIn(
+            "item_move_hypothesis_wrong_envelope_no_reply", state.events,
+        )
 
     def test_session_gate_stale_lease_and_cross_character_fail_closed(self):
         state, character, _ = self._merged_hypothesis_state("gates")

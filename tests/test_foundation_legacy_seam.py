@@ -67,24 +67,21 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers two deliberate movements made in the same commit, per the
-    # owner's 2026-08-17 decisions and the GT-006 attended capture:
-    #   1. chat/client_chat_input moved not_started -> in_progress on its first
-    #      evidence ever (one undecoded 34-byte vital 0xAC52, unknown to the
-    #      server registry, that nothing dispatches or answers), recorded in
-    #      reports/PF_GT006_CHAT_INPUT_UNKNOWN_FRAME_WIRE_CAPTURE_20260817.md.
-    #   2. The eighth domain `presentation` (Presentation and audio) opened
-    #      whole with four in_progress rows, closing the M8 audit gap that no
-    #      domain covered client-side presentation/audio (the V100
-    #      MusicControlVital evidence had no row to live in).
-    # Previous pin 3460935E..E78F covered the GT-005 grade movement of
-    # movement/local_player_position_checkpoint to runtime_pass; see the
-    # 2de967f re-pin note in git history for the pin before that.
-    # Every graded row above carries a test ref because the same-day ratchet
-    # in test_functional_coverage.py demands it; the five new rows cite
-    # tests/test_presentation_ownership.py and tests/test_system_message_wire.py.
-    "0EC17CBB7EB8C99B6F737DCD29230FE32977B3BA6E16C4CAE21735D7E6A733A1"
+    # This pin covers one deliberate movement: inventory/
+    # move_known_item_any_free_slot moved blocked -> in_progress because the
+    # blocker it recorded (hypothesis-ledger review) was resolved by the owner:
+    # HYP-PF-010 landed as M3 (commit abf3696) and the owner-approved M4
+    # runtime hookup wired the generalized free-slot move into the runtime
+    # ItemOperate lane behind the existing opt-in scenario, with occupied/
+    # unknown/out-of-range/same-slot targets failing closed.  The row gains
+    # tests/test_item_move_generalized.py per the same-day test-ref ratchet.
+    # Not runtime_pass yet: the first real-client acceptance run is GT-002.
+    # Previous pin 0EC17CBB..33A1 covered the chat/client_chat_input first
+    # evidence and the opening of the eighth domain `presentation`; see the
+    # eb6fef0 re-pin note in git history for the pin before that.
+    "B00AE3FBE64E29AD994FB6C55F2725B85C7487A0B880059E95304E257B61B63B"
 )
+
 
 # Two manifest formats exist in reports/.  PIPE is the house format used by 21 of
 # the 22 manifests; COLUMNS is a single earlier file whose paths are relative to

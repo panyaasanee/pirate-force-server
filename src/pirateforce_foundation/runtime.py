@@ -7,6 +7,8 @@ from .inventory import (
     HYPOTHESIZED_V111_SLOT2_BACKPACK,
     MERGED_V111_BACKPACK,
     is_exact_merge_request,
+    make_item_move_delta_response,
+    move_known_item_to_free_slot,
     parse_merge_candidate,
 )
 from .item_move_capture import (
@@ -90,6 +92,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.item_move_capture_count = 0
                 self.item_move_capture_last_fields = None
                 self.item_move_hypothesis_count = 0
+                self.item_move_generalized_count = 0
                 self.second_password_bypass_sent = False
                 self.second_password_bypass_keepalive_started = False
                 self.second_password_bypass_last_sent_at = None
@@ -238,6 +241,11 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             """Commit the one tracked free-slot composition before replying."""
             self.rx_frames += 1
             classification = classify_item_move_hypothesis_attempt(legacy, parsed)
+            if classification == "wrong_tuple":
+                # A well-formed strict parse that is not the tracked HYP-PF-008
+                # request stays owned by this opt-in mode and is offered to the
+                # generalized HYP-PF-010 free-slot lane, which fails closed.
+                return self._dispatch_item_move_generalized(parsed)
             if classification != "exact":
                 self.events.append(
                     f"item_move_hypothesis_{classification}_no_reply"
@@ -284,6 +292,104 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             )
             return [(
                 "HYP_PF_008_ITEM_MOVE_ID1_SLOT0_TO_FREE_SLOT2_COMMITTED",
+                pc, frame, 0.0,
+            )]
+
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-010 active
+        def _dispatch_item_move_generalized(self, parsed):
+            """Route one governed free-slot move behind the same opt-in only.
+
+            The exact HYP-PF-008 request never reaches this lane.  Occupied,
+            unknown, and out-of-range destinations fail closed with no reply
+            and no write; the exact same-slot request is a silent no-op.  The
+            caller has already counted the frame.
+            """
+            if not (
+                parsed.outer_id == legacy.GSCN_RUNTIME_PROTOCOL_REQ
+                and parsed.outer_version == 0
+                and parsed.outer_mask == 0x02
+                and parsed.vital_count == 1
+                and parsed.nested_version == 0
+            ):
+                self.events.append(
+                    "item_move_generalized_wrong_envelope_no_reply"
+                )
+                return []
+            try:
+                operation, destination_slot, item_identity = (
+                    legacy.parse_item_operate_req(parsed)
+                )
+            except (ValueError, TypeError):
+                self.events.append("item_move_generalized_unparsed_no_reply")
+                return []
+            if operation != ITEM_MOVE_CAPTURE_FIELDS[0]:
+                self.events.append(
+                    "item_move_generalized_wrong_operation_no_reply"
+                )
+                return []
+            if self.foundation.selected is None or self.foundation.backpack is None:
+                self.events.append(
+                    "item_move_generalized_no_selected_no_reply"
+                )
+                return []
+            if not self.teleport_sent or not self.runtime_ack_sent:
+                self.events.append(
+                    "item_move_generalized_wrong_sequence_no_reply"
+                )
+                return []
+            # The pure transition validates the governed contents and fails
+            # closed before any bytes or writes exist.  The response is fully
+            # composed before the persistence transaction, exactly like the
+            # tracked HYP-PF-008 lane, and is only queued after the atomic
+            # commit re-validates that same post-state.
+            try:
+                transition = move_known_item_to_free_slot(
+                    self.foundation.backpack, item_identity, destination_slot,
+                )
+            except (KeyError, FileExistsError, ValueError) as exc:
+                self.events.append(
+                    "item_move_generalized_fail_closed_no_reply_"
+                    f"{type(exc).__name__}"
+                )
+                return []
+            if transition is None:
+                self.events.append(
+                    "item_move_generalized_same_slot_noop_no_reply"
+                )
+                return []
+            expected_backpack, moved = transition
+            pc, frame = make_item_move_delta_response(legacy, moved)
+            before = self.foundation.backpack
+            try:
+                applied = self.foundation.move_backpack_item_to_free_slot(
+                    item_identity, destination_slot,
+                )
+            except Exception as exc:
+                if self.foundation.backpack is not before:
+                    raise RuntimeError(
+                        "repository failure changed generalized in-memory state"
+                    ) from exc
+                self.events.append(
+                    f"item_move_generalized_repository_failure_no_reply_{exc!r}"
+                )
+                return []
+            self._sync_frozen_inventory_state()
+            if not applied:
+                self.events.append(
+                    "item_move_generalized_same_slot_noop_no_reply"
+                )
+                return []
+            if self.foundation.backpack != expected_backpack:
+                raise RuntimeError(
+                    "committed HYP-PF-010 Backpack state mismatch"
+                )
+            self.item_move_generalized_count += 1
+            self.events.append(
+                "item_move_generalized_committed_before_composed_response"
+            )
+            return [(
+                f"HYP_PF_010_ITEM_MOVE_ID{item_identity}"
+                f"_TO_FREE_SLOT{destination_slot}_COMMITTED",
                 pc, frame, 0.0,
             )]
 
