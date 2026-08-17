@@ -228,9 +228,10 @@
           ],
           "test_refs": [
             "tests/test_server_shutdown.py",
-            "tests/test_connection_lifecycle.py"
+            "tests/test_connection_lifecycle.py",
+            "tests/test_startup_stale_lease_recovery.py"
           ],
-          "notes": "Process-level abrupt loss is covered. Host power loss and storage-level torn writes are not."
+          "notes": "Process-level abrupt loss is covered. Host power loss and storage-level torn writes are not. The restart half of the claim -- a replacement process closing the lease a dead process left open -- is watched only by the startup recovery module; the other two files watch the client-loss half."
         },
         {
           "id": "concurrent_multi_client",

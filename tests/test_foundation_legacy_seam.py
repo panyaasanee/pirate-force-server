@@ -67,7 +67,9 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    "264A0D44D61AA78685E2F65F1F52011935A1405A28CF4E83484F42A51B5257D2"
+    # M14 added tests/test_startup_stale_lease_recovery.py to the test refs of
+    # session_lifecycle/abrupt_loss_recovery. No status or evidence ref moved.
+    "E2154CE69DF0C2383B500FB559F1F92C07280A4633E7FB38B7C416D0D8238A32"
 )
 
 # Two manifest formats exist in reports/.  PIPE is the house format used by 21 of
