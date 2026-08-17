@@ -361,7 +361,7 @@
           "test_refs": [
             "tests/test_teleport_transport_wire.py"
           ],
-          "notes": "One standalone TeleportVital version 4 to a decoded MARKER row transported the client. The TeleportCheck challenge/echo path is only captured, so a server-validated transport with its own acceptance rule does not exist."
+          "notes": "One standalone TeleportVital version 4 to a decoded MARKER row transported the client. The TeleportCheck challenge/echo path is only captured, so a server-validated transport with its own acceptance rule does not exist. TELEPORT_AUDIT001 (2026-08-18) audited the client-sent TeleportVital 0x25A2: a fixed 11-byte target-less echo, once per session as the first vital of the first RunTimeProtocolReq, byte-identical in 14/14 corpus sessions, already satisfied by the generic first-Req ack; no dedicated server response is warranted and none was added. Full report: reports/PF_TELEPORT_AUDIT001_CLIENT_25A2_FIRSTREQ_ECHO_CORPUS_20260818.md."
         },
         {
           "id": "remote_player_movement_projection",
