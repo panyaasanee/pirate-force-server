@@ -90,8 +90,17 @@ plus three world-context frames and the clean-exit dialog.
   `closed_at`.
 - `character_backpacks` unchanged at `updated_at=2026-08-16T10:30:39Z` — the
   one-shot backpack write path was never touched.
-- `pragma integrity_check` = `ok`, `pragma foreign_key_check` empty, no `-wal` or
-  `-shm` left behind, `git status --porcelain` 6 lines before and after.
+- `pragma integrity_check` = `ok`, `pragma foreign_key_check` empty, and
+  `git status --porcelain` 6 lines before and after.
+- Sidecar files: job `050` checked at `12:40:50.144` and found no `-wal`/`-shm`,
+  then opened the database itself to read the final state, which left
+  `pirateforce.sqlite3-wal` (0 bytes) and `pirateforce.sqlite3-shm` (32 KiB)
+  behind at `12:40:50`/`12:40:51`. The check ran before the reader, so the
+  "no sidecars" line in that job's log describes the moment before its own read.
+  The database file itself is byte-identical to the value hashed above, and the
+  `-wal` is empty, so no committed content is parked outside the main file. A
+  cleanliness gate that means "no sidecars after the run" has to run after the
+  last reader, not before it.
 
 ### A5 — the zero-target teleport did not displace the character (negative result)
 
