@@ -22,6 +22,12 @@ from .item_move_hypothesis import (
     make_hypothesized_move_response,
     require_item_move_hypothesis_scenario,
 )
+from .chat_input_hypothesis import (
+    CHAT_INPUT_VITAL_ID,
+    classify_chat_input_attempt,
+    make_chat_input_echo_response,
+    require_chat_input_hypothesis_scenario,
+)
 from .logout_hypothesis import (
     LOGOUT_POST_ACK_ACTION_CLOSE_SOCKET,
     LOGOUT_VITAL_ID,
@@ -57,23 +63,28 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                      item_move_capture_scenario=None,
                      item_move_hypothesis_scenario=None,
                      logout_hypothesis_scenario=None,
+                     chat_input_hypothesis_scenario=None,
                      second_password_mode="required",
                      monotonic_clock=None,
                      close_timer_factory=None):
     active_modes = sum(value is not None for value in (
         scenario, scene_load_scenario, population_scenario,
         item_move_capture_scenario, item_move_hypothesis_scenario,
-        logout_hypothesis_scenario,
+        logout_hypothesis_scenario, chat_input_hypothesis_scenario,
     ))
     if active_modes > 1:
         raise ValueError(
             "Arena, scene-load, population, item-move capture, item-move "
-            "hypothesis, and logout hypothesis scenarios "
-            "are mutually exclusive"
+            "hypothesis, logout hypothesis, and chat input hypothesis "
+            "scenarios are mutually exclusive"
         )
     if logout_hypothesis_scenario is not None:
         logout_hypothesis_scenario = require_logout_hypothesis_scenario(
             logout_hypothesis_scenario
+        )
+    if chat_input_hypothesis_scenario is not None:
+        chat_input_hypothesis_scenario = require_chat_input_hypothesis_scenario(
+            chat_input_hypothesis_scenario
         )
     if population_scenario is not None:
         population_scenario = require_population_scenario(population_scenario)
@@ -117,6 +128,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.logout_ack_count = 0
                 self.logout_acknowledged = False
                 self.logout_close_scheduled = False
+                self.chat_input_echo_count = 0
                 self.transport_socket_closer = None
                 self.second_password_bypass_sent = False
                 self.second_password_bypass_keepalive_started = False
@@ -517,6 +529,45 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 pc, frame, 0.0,
             )]
 
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-014 active
+        def _dispatch_chat_input_hypothesis(self, parsed):
+            """Echo one exact-shape chat input frame (UNKNOWN_0xAC52) back.
+
+            The designed echo is composed and pinned before it is queued; the
+            lane never touches the store (chat has no table), never closes
+            the socket, and never becomes one-shot: every accepted frame on
+            the session is echoed.  Wrong shapes, wrong envelopes, and wrong
+            sequences fail closed with no reply and no write.
+            """
+            self.rx_frames += 1
+            classification = classify_chat_input_attempt(legacy, parsed)
+            if classification != "ascii12":
+                self.events.append(
+                    f"chat_input_hypothesis_{classification}_no_reply"
+                )
+                return []
+            if self.foundation.selected is None:
+                self.events.append("chat_input_hypothesis_no_selected_no_reply")
+                return []
+            if not self.teleport_sent or not self.runtime_ack_sent:
+                self.events.append(
+                    "chat_input_hypothesis_wrong_sequence_no_reply"
+                )
+                return []
+            # The echo is fully composed and structurally pinned (56B PC /
+            # 66B frame, payload byte-exact at the fixed envelope offset;
+            # both GT-006 probes are additionally hash-pinned) before any
+            # byte is queued.  No repository call exists on this path.
+            pc, frame = make_chat_input_echo_response(
+                legacy, parsed.nested_payload,
+            )
+            self.chat_input_echo_count += 1
+            self.events.append("chat_input_hypothesis_echo_ack_ascii12")
+            return [(
+                "HYP_PF_014_CHAT_INPUT_ECHO_ASCII12",
+                pc, frame, 0.0,
+            )]
+
         def _checkpoint_exact_target(self, target) -> None:
             x, y, z, heading, _flags, _moving = target
             selected = self.foundation.selected
@@ -625,6 +676,11 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 return []
             if logout_hypothesis_scenario is not None and nested_id == LOGOUT_VITAL_ID:
                 return self._dispatch_logout_hypothesis(parsed)
+            if (
+                chat_input_hypothesis_scenario is not None
+                and nested_id == CHAT_INPUT_VITAL_ID
+            ):
+                return self._dispatch_chat_input_hypothesis(parsed)
             if nested_id == legacy.LOGIN_VERIFY_VITAL:
                 self.rx_frames += 1
                 out = []

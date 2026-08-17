@@ -67,19 +67,21 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers one deliberate movement: session_lifecycle gains the new
-    # row clean_logout at in_progress (HYP-PF-012, owner option A 2026-08-17
-    # 18:35: acknowledged logout for both captured LogoutVital forms behind
-    # the logout opt-in scenario, clean close committed before the ack). The
-    # row starts at in_progress -- not runtime_pass -- because the wire/DB
-    # layer is loopback- and headless-proven while the client-observable layer
-    # (real client exits / returns to character select instead of hanging) is
-    # queued for the attended big round; see the row note.
-    # Previous pin 400F42B3..6171 (same day) covered inventory/
-    # move_known_item_any_free_slot in_progress -> runtime_pass on GT-002,
-    # the first real-client acceptance of HYP-PF-010; see its note for the
-    # lineage before that.
-    "D0E5E1BD204845A88D8418EBD814575F93719E58E2734198587EB9E52461E580"
+    # This pin covers one deliberate movement: chat gains the new row
+    # chat_input_echo_hypothesis at in_progress (HYP-PF-014, chief 2026-08-17
+    # under the owner's standing pre-approval: the exact GT-006 chat input
+    # shape UNKNOWN_0xAC52 is echoed byte-exactly behind the chat input
+    # opt-in scenario only, no database write, no socket action, repeatable
+    # per session, everything else fail-closed). The row starts at
+    # in_progress -- not runtime_pass -- because the wire layer is loopback-
+    # and sandbox-headless-proven while the client-observable layer (does
+    # the real client render the echoed message instead of the GT-006
+    # silent-window baseline) is queued for the attended big round; see the
+    # row note.
+    # Previous pin D0E5E1BD..E580 (same day) covered session_lifecycle
+    # gaining clean_logout at in_progress on HYP-PF-012; see its note for
+    # the lineage before that.
+    "05FAFA31E0CBD38D73088A161BA0439C7ABF8A2A16CB9833E9712114A4D042F5"
 )
 
 

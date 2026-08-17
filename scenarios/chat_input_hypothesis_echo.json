@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "id": "chat_input_hypothesis_echo_ascii12",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-014",
+  "entry": {
+    "flow": "full_writable_character",
+    "required_sequence": "selected_and_runtime_ready",
+    "response_policy": "echo_exact_request_vital_no_write_no_close"
+  },
+  "requests": {
+    "shape": {
+      "payload_size": 34,
+      "prefix_hex": "48000000004818000000",
+      "text_pairs": 12,
+      "charset": "printable_ascii_0x20_0x7E"
+    },
+    "probe1": {
+      "payload_size": 34,
+      "payload_sha256": "0DC90C60BB22C92FDFF3649125703546E9BE324C2D7C265023C00DACA1C584CF",
+      "pc_size": 54,
+      "pc_sha256": "49C9BEA57F99246E19CF8DAB7A7D5A908DF7F230E71665762D6A6CAA0196154C"
+    },
+    "probe2": {
+      "payload_size": 34,
+      "payload_sha256": "59ED7CD6071BC4D094098DFBAFA91ED6D190637A1AE07FC90B6937A6A9DCB208",
+      "pc_size": 54,
+      "pc_sha256": "33B905CDD41065A1DE58BCED9A92697F5FA2C77E7C397954BD4DEE84D89DA42C"
+    }
+  },
+  "composed_responses": {
+    "policy": "echo_exact_request_vital_in_accepted_runtime_res_envelope",
+    "pc_size": 56,
+    "frame_size": 66,
+    "probe1": {
+      "pc_sha256": "B92C185ABB0C707EA6512409CAAF5ADC03D911E0399F0CC0DC60A2C49111FA06",
+      "frame_sha256": "06C23375BE9A115C59AF410E1446393E2EE3B3294254BCDF6EB88FADFF7E2323"
+    },
+    "probe2": {
+      "pc_sha256": "539B177F430B4391348F440932E119C1D58788BF15BFA061BF16F56E4DDDFC2C",
+      "frame_sha256": "E97A12256A0D61F8CBB8B433336F97D9EEA2A93CADA5934EAAEB5B7D4706EA10"
+    }
+  },
+  "persisted_post_state": {
+    "database_write": "none"
+  },
+  "capabilities": [
+    "echo_acknowledge_exact_shape_pinned_chat_input_frames",
+    "repeatable_echo_per_session_no_state_change"
+  ],
+  "nonclaims": [
+    "prefix_byte_semantics_including_the_0x18_candidate_length_field",
+    "text_lengths_other_than_12_characters",
+    "non_ascii_or_thai_text",
+    "channel_whisper_broadcast_semantics",
+    "delivery_to_any_other_client",
+    "message_persistence_or_database_write",
+    "original_server_response_policy",
+    "client_observable_chat_echo_or_rendering",
+    "production_baseline_behavior"
+  ]
+}

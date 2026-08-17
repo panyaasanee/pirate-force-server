@@ -1,0 +1,112 @@
+=== CHAT-ECHO-001 sandbox loopback smoke 2026-08-17T16:39:35Z (run dir /tmp/pf_chat_smoke/run_20260817_163935) ===
+repo HEAD: f7b85b9 (dirty working tree, pre-commit smoke)
+scenario: scenarios/chat_input_hypothesis_echo.json (sha256 1350c98a0de99b4690191bb998f66a0dfe7b8a7a41f15f33dbad135de0c75abb)
+--- canonical DB before ---
+fa794d0b1b69c6dcf0c7bcf0869fbedc18138890c623547275952b3fefe14400  state/pirateforce.sqlite3
+--- run DB copy ---
+fa794d0b1b69c6dcf0c7bcf0869fbedc18138890c623547275952b3fefe14400  /tmp/pf_chat_smoke/run_20260817_163935/pirateforce_chat_smoke.sqlite3
+server pid 19
+listener up: 1
+LISTEN 0      4          127.0.0.1:10188      0.0.0.0:*          
+LISTEN 0      4          127.0.0.1:10189      0.0.0.0:*          
+--- probe start 16:39:36 ---
+request pin probe1: pc_sha=49C9BEA57F99246E19CF8DAB7A7D5A908DF7F230E71665762D6A6CAA0196154C frame=63B
+request pin probe2: pc_sha=33B905CDD41065A1DE58BCED9A92697F5FA2C77E7C397954BD4DEE84D89DA42C frame=63B
+[chat] game connected to 127.0.0.1:10189
+[chat] unsolicited before first send: 0
+[chat] SENT #0 LoginVerifyVital             55B
+[chat] SENT #1 NotifyEnterCreateActor       32B
+[chat] SENT #2 StartGameReq                 32B
+[chat] SENT #3 TeleportVital               180B
+[chat] SENT #4 GSCN_RunTimeProtocolReq      22B
+[chat] SENT #5 GSCN_RunTimeProtocolReq      22B
+[chat] SENT #6 GSCN_RunTimeProtocolReq      22B
+[chat] SENT #7 GSCN_RunTimeProtocolReq      22B
+[chat] SENT #8 GSCN_RunTimeProtocolReq      22B
+[chat] SENT #9 GSCN_RunTimeProtocolReq      22B
+[chat] SENT #901 chat_probe1                  63B
+[chat] send 1 (probe1): echo_byte_exact = True (non-heartbeat [66], heartbeats 1, eof False)
+[chat] SENT #902 chat_probe2                  63B
+[chat] send 2 (probe2): echo_byte_exact = True (non-heartbeat [66], heartbeats 2, eof False)
+[chat] SENT #903 chat_probe1                  63B
+[chat] send 3 (probe1): echo_byte_exact = True (non-heartbeat [66], heartbeats 1, eof False)
+[chat] tail: heartbeats 3, dispatch [], eof False
+
+--- machine-readable summary ---
+{
+  "chat_capture": "GAME_20260817_143546_708289_57440.txt",
+  "db_sha256_after_chat": "F39324B866A2FBA76741FAA43672C4F8D088C1ADFC1C7642950212C0F1908578",
+  "db_sha256_before_chat": "F39324B866A2FBA76741FAA43672C4F8D088C1ADFC1C7642950212C0F1908578",
+  "db_unchanged_across_chat": true,
+  "entry_capture": "GAME_20260817_042112_525596_60857.txt",
+  "entry_eof": false,
+  "entry_frames_received": 11,
+  "entry_frames_sent": 10,
+  "eof": false,
+  "heartbeat_continues": true,
+  "ok": true,
+  "probe": "hyp014_chat_input_echo_ascii12",
+  "sends": [
+    {
+      "dispatch_sha256": [
+        "06C23375BE9A115C59AF410E1446393E2EE3B3294254BCDF6EB88FADFF7E2323"
+      ],
+      "dispatch_sizes": [
+        66
+      ],
+      "echo_after_send_ms": 9.5,
+      "echo_byte_exact": true,
+      "eof": false,
+      "probe": "probe1",
+      "send": 1,
+      "window_frames": 2,
+      "window_heartbeats": 1
+    },
+    {
+      "dispatch_sha256": [
+        "E97A12256A0D61F8CBB8B433336F97D9EEA2A93CADA5934EAAEB5B7D4706EA10"
+      ],
+      "dispatch_sizes": [
+        66
+      ],
+      "echo_after_send_ms": 1.7,
+      "echo_byte_exact": true,
+      "eof": false,
+      "probe": "probe2",
+      "send": 2,
+      "window_frames": 3,
+      "window_heartbeats": 2
+    },
+    {
+      "dispatch_sha256": [
+        "06C23375BE9A115C59AF410E1446393E2EE3B3294254BCDF6EB88FADFF7E2323"
+      ],
+      "dispatch_sizes": [
+        66
+      ],
+      "echo_after_send_ms": 1.5,
+      "echo_byte_exact": true,
+      "eof": false,
+      "probe": "probe1",
+      "send": 3,
+      "window_frames": 2,
+      "window_heartbeats": 1
+    }
+  ],
+  "tail_dispatch_sizes": [],
+  "tail_heartbeats": 3,
+  "total_rx": 23
+}
+(written to /tmp/pf_chat_smoke/run_20260817_163935/probe_summary.json)
+probe exit: 0
+--- teardown: SIGINT server 16:40:04 ---
+server process ended
+--- canonical DB after ---
+fa794d0b1b69c6dcf0c7bcf0869fbedc18138890c623547275952b3fefe14400  state/pirateforce.sqlite3
+--- run DB after (post-shutdown; teardown lease close is the only expected write after entry) ---
+141e0cf0590cdba2a88a9586397a95fbc669274ac3624ecebb521c6e41ede68f  /tmp/pf_chat_smoke/run_20260817_163935/pirateforce_chat_smoke.sqlite3
+--- run DB session rows after shutdown ---
+sessions: [('08509a0dc3f944ed94a797457ea5962e', 1), ('6af845a54e8f47b69f23c66c13a1ce38', 1), ('7ede44a3d81d46c88be83b167730fa25', 1), ('b7b3fcfca4b341a191a6c89153e3c585', 1), ('b88cc7a2978040bd8fdaf22a7d99bf60', 1), ('dba83b2c4a9242dfa1831148ff0130e3', 1)]
+open sessions: 0
+integrity: ok
+=== smoke end (probe exit 0) ===

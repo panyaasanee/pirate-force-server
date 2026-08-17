@@ -10,9 +10,15 @@ negatives* — nothing in Foundation produces, handles, or owns any of it yet.
 These tests make those negatives fail loudly the day they stop being true, so
 the matrix rows cannot silently rot:
 
-  * If a Foundation module starts mentioning the unknown chat vital, the
-    ``client_chat_input`` grade and the GT-006 report's "nothing dispatches
-    it" claim must be revisited in the same change.
+  * The chat-input negative stopped being blanket-true on the same day it
+    was written: HYP-PF-014 (CHAT-ECHO-001) opened the designed echo lane
+    for the unknown chat vital behind the chat input opt-in scenario, graded
+    separately in ``chat/chat_input_echo_hypothesis``.  The pin below moved
+    from "no module mentions it" to the exact HYP-PF-014 lane files, in the
+    same change, exactly as this docstring demanded.  The default mode still
+    dispatches nothing and answers nothing (``client_chat_input`` keeps the
+    GT-006 grade), and any module beyond the pinned lane mentioning the
+    vital still fails loudly here.
   * If a Foundation module starts mentioning music control, the
     ``scene_music_control`` grade moves and the V100 observation stops being
     the row's only evidence.
@@ -37,6 +43,14 @@ PINNED_LEGACY_MODULE = ROOT / "current" / "pf_login_game_server_v141.py"
 # handling it.
 UNKNOWN_CHAT_VITAL_PATTERN = r"(?i)AC52|44114"
 
+# The only Foundation modules allowed to mention the unknown chat vital: the
+# HYP-PF-014 opt-in echo lane (module + dispatch hookup), nothing else.  The
+# lane keeps the raw name UNKNOWN_0xAC52, is unreachable without
+# --chat-input-hypothesis-scenario, and is graded in
+# chat/chat_input_echo_hypothesis; growing this list means a new deliberate
+# ownership movement.
+CHAT_VITAL_ALLOWED_MODULES = ["chat_input_hypothesis.py", "runtime.py"]
+
 # MusicControlVital 0x3EAF (16047 decimal), the V100 observation.
 MUSIC_CONTROL_PATTERN = r"(?i)MusicControl|3EAF|16047"
 
@@ -58,10 +72,15 @@ def modules_mentioning(root, pattern):
 
 
 class ChatInputOwnershipTests(unittest.TestCase):
-    """The captured chat request is undispatched, and must visibly stay so."""
+    """Exactly the HYP-PF-014 opt-in lane owns the chat vital, nothing else."""
 
     def test_no_foundation_module_mentions_the_unknown_chat_vital(self):
-        self.assertEqual(modules_mentioning(SRC_ROOT, UNKNOWN_CHAT_VITAL_PATTERN), [])
+        # Until 2026-08-17 this asserted the empty list; HYP-PF-014 moved the
+        # pin to its exact opt-in lane in the same change that opened it.
+        self.assertEqual(
+            modules_mentioning(SRC_ROOT, UNKNOWN_CHAT_VITAL_PATTERN),
+            CHAT_VITAL_ALLOWED_MODULES,
+        )
 
     def test_the_scanner_would_notice_a_module_that_started_handling_it(self):
         # Guard the guard: the pattern must actually match the spellings a

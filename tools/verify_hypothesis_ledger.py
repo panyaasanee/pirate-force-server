@@ -17,8 +17,11 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # evidence_refs after the first real-client acceptance, commit b1087bb lineage)
 # -> 00142EB6.. (HYP-PF-012 append) -> 2B844F29.. (2026-08-17 round 43:
 # HYP-PF-013 ack+socket-close append after the GT-007 echo-only client-layer
-# falsification, under the owner's standing pre-approval of 18:2x).
-CANONICAL_CONTENT_SHA256 = "741C5CE592AAE2E74D9205C8E703524D165EDA23933076E5CF2AA8E4074BD984"
+# falsification, under the owner's standing pre-approval of 18:2x)
+# -> 741C5CE5.. (that append's canonical content) -> 6933C363.. (2026-08-17:
+# HYP-PF-014 chat input echo append on the GT-006 wire capture, under the
+# owner's standing pre-approval of 18:2x).
+CANONICAL_CONTENT_SHA256 = "6933C3636F6DAF902F088650D88534F292DFA545F86D65D6A60F20CE7D36E312"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -43,6 +46,10 @@ EXPECTED_IDS = (
     # under the owner's standing pre-approval of 2026-08-17 18:2x, after the
     # GT-007 echo-only client-layer falsification) is likewise appended.
     "HYP-PF-013",
+    # HYP-PF-014 (designed echo-ack for the chat input frame UNKNOWN_0xAC52,
+    # on the GT-006 grade-B wire capture, under the owner's standing
+    # pre-approval of 2026-08-17 18:2x) is likewise appended.
+    "HYP-PF-014",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -67,6 +74,7 @@ EXPECTED_META = {
     "HYP-PF-011": ("protocol_hypothesis", "MULTI-CLIENT-001", "active"),
     "HYP-PF-012": ("protocol_hypothesis", "LOGOUT-ACK-001", "active"),
     "HYP-PF-013": ("protocol_hypothesis", "LOGOUT-CLOSE-001", "active"),
+    "HYP-PF-014": ("protocol_hypothesis", "CHAT-ECHO-001", "active"),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}
 STATUSES = {"active", "frozen", "retired", "harness_only", "expired_pending_decision"}

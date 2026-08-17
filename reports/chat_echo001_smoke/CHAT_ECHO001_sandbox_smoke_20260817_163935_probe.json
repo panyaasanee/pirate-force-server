@@ -1,0 +1,64 @@
+{
+  "chat_capture": "GAME_20260817_143546_708289_57440.txt",
+  "db_sha256_after_chat": "F39324B866A2FBA76741FAA43672C4F8D088C1ADFC1C7642950212C0F1908578",
+  "db_sha256_before_chat": "F39324B866A2FBA76741FAA43672C4F8D088C1ADFC1C7642950212C0F1908578",
+  "db_unchanged_across_chat": true,
+  "entry_capture": "GAME_20260817_042112_525596_60857.txt",
+  "entry_eof": false,
+  "entry_frames_received": 11,
+  "entry_frames_sent": 10,
+  "eof": false,
+  "heartbeat_continues": true,
+  "ok": true,
+  "probe": "hyp014_chat_input_echo_ascii12",
+  "sends": [
+    {
+      "dispatch_sha256": [
+        "06C23375BE9A115C59AF410E1446393E2EE3B3294254BCDF6EB88FADFF7E2323"
+      ],
+      "dispatch_sizes": [
+        66
+      ],
+      "echo_after_send_ms": 9.5,
+      "echo_byte_exact": true,
+      "eof": false,
+      "probe": "probe1",
+      "send": 1,
+      "window_frames": 2,
+      "window_heartbeats": 1
+    },
+    {
+      "dispatch_sha256": [
+        "E97A12256A0D61F8CBB8B433336F97D9EEA2A93CADA5934EAAEB5B7D4706EA10"
+      ],
+      "dispatch_sizes": [
+        66
+      ],
+      "echo_after_send_ms": 1.7,
+      "echo_byte_exact": true,
+      "eof": false,
+      "probe": "probe2",
+      "send": 2,
+      "window_frames": 3,
+      "window_heartbeats": 2
+    },
+    {
+      "dispatch_sha256": [
+        "06C23375BE9A115C59AF410E1446393E2EE3B3294254BCDF6EB88FADFF7E2323"
+      ],
+      "dispatch_sizes": [
+        66
+      ],
+      "echo_after_send_ms": 1.5,
+      "echo_byte_exact": true,
+      "eof": false,
+      "probe": "probe1",
+      "send": 3,
+      "window_frames": 2,
+      "window_heartbeats": 1
+    }
+  ],
+  "tail_dispatch_sizes": [],
+  "tail_heartbeats": 3,
+  "total_rx": 23
+}

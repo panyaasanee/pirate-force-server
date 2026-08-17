@@ -924,6 +924,44 @@
           "active_claim_marker": true
         }
       ]
+    },
+    {
+      "id": "HYP-PF-014",
+      "kind": "protocol_hypothesis",
+      "introduced_checkpoint": "CHAT-ECHO-001",
+      "exact_value_or_transform": "Behind the explicit chat input opt-in scenario only (scenarios/chat_input_hypothesis_echo.json, response_policy echo_exact_request_vital_no_write_no_close), acknowledge the chat input frame UNKNOWN_0xAC52 -- the vital id 0xAC52 (44114), unknown to the server registry and named here only by the UI action GT-006 proved emits it (typing an ASCII message in the chat box and pressing Enter) -- with a designed echo composition: the exact 34-byte request payload wrapped in the accepted GSCN_RunTimeProtocolRes v4 single-vital collection envelope (56-byte PC / 66-byte frame; both captured probe payloads hash-pinned end to end, request pc/payload and echo pc/frame). The accepted request shape is pinned fail-closed: the exact one-vital GSCN_RunTimeProtocolReq envelope (outer version 0, mask 0x02, vital_count 1, nested version 0) carrying exactly 34 payload bytes that start with the exact captured 10-byte prefix 48 00 00 00 00 48 18 00 00 00 -- treated as one opaque blob, since byte index 6 (0x18 = 24) is only a candidate length field that two equal-length samples cannot prove -- and continue with exactly 12 (low, 0x00) byte pairs whose low bytes are printable ASCII 0x20-0x7E. Everything else -- wrong lengths, wrong prefixes, non-zero high bytes, non-printable low bytes, wrong envelopes, no selected character, and requests outside the runtime-ready sequence -- fails closed with no reply and no write. This is a no-write lane: chat has no table, no repository call exists on the path, no socket action is taken, the session lease is untouched, and the echo deliberately repeats for every accepted frame on a session (not one-shot).",
+      "scope": "Designed echo acknowledgement at the runtime-dispatch boundary behind the chat input opt-in scenario only; no semantic claim about the frame's meaning, prefix bytes, channels, or persistence, no client-observable rendering claim, no default-mode or production request path, and no store, lease, or transport change of any kind (the lane never touches the database or the socket)",
+      "status": "active",
+      "provenance": "Opened by the chief session on 2026-08-17 under the project owner's standing pre-approval of 2026-08-17 18:2x ('fix the exit button and every gameplay button found later'), on the GT-006 grade-B wire capture (reports/PF_GT006_CHAT_INPUT_UNKNOWN_FRAME_WIRE_CAPTURE_20260817.md): typing an ASCII message into the chat box and pressing Enter emits exactly one 34-byte payload vital id 0xAC52 inside the standard GSCN_RunTimeProtocolReq envelope (pc_len 54), the server dispatches nothing and answers nothing, and the client renders no echo -- the first wire evidence the chat/client_chat_input matrix row ever collected. Both captured payloads share the 10-byte prefix and differ only in the final typed character, with the typed characters' codes interleaved with 0x00 one byte at a time. No 0xAC52 response frame exists anywhere in the corpus, so the echo response shape is a designed hypothesis, not a reproduction; the echo-in-RuntimeRes composition reuses the same accepted envelope lever HYP-PF-012 proved deliverable on the real client (GT-007 confirmed receipt without desync while falsifying the logout transition claim, which is not claimed here).",
+      "evidence_refs": ["scenarios/chat_input_hypothesis_echo.json", "tests/test_chat_input_echo.py", "reports/PF_CHAT_ECHO001_CHAT_INPUT_ECHO_HYPOTHESIS_HEADLESS_20260817.md"],
+      "accepted_ceiling": "Echo acknowledgement of exact-shape 34-byte ASCII-12 chat input frames behind the explicit opt-in only, repeatable per session, with fail-closed handling for everything else and a no-write no-close guarantee; the response shape has no original-server evidence and no client-acceptance evidence yet.",
+      "evidence_gap": "What the real client does on receiving the echo is unmeasured: whether the typed message appears in the chat window (and how it renders) is exactly the client-observable claim queued for the attended big round. The original server's chat response bytes, the prefix byte semantics, channel/whisper/broadcast routing, delivery to other clients, message lengths other than 12 characters, non-ASCII input, and any persistence are unknown and not claimed.",
+      "falsification": "Retire or redesign the echo shape if the real client rejects, ignores, or desyncs on the echo (the GT-006 baseline is a silent chat window, so an unchanged silent window on the attended run falsifies the shape at the client-observable layer), if a lawful original trace shows different chat response bytes, or if this lane is ever observed to write any database row or take any socket action.",
+      "stop_rule": "Echo only the exact pinned 34-byte ASCII-12 shape behind the existing opt-in; do not invent responses for other lengths, charsets, or prefix variants, do not assign semantic names to 0xAC52 or its prefix bytes, do not add channel, whisper, broadcast, or persistence behavior, and do not enable production or default-mode exposure. Stop and record if the first attended client run rejects the composition.",
+      "production_allowed": false,
+      "expiry": {
+        "tracked_versions": ["CHAT-ECHO-001"],
+        "decision": "Opened 2026-08-17 by the chief under the owner's standing pre-approval as the first bounded version; prove the wire layer headless (echo byte-exact and repeatable, heartbeat unchanged, no DB write), then confirm the client-observable layer in the attended big round before any retire/freeze/extend decision."
+      },
+      "max_versions": 3,
+      "extension_approval_ref": null,
+      "source_refs": [
+        {
+          "path": "src/pirateforce_foundation/chat_input_hypothesis.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-014 active", "make_chat_input_echo_response", "HYP-PF-014 response PC drift", "chat input hypothesis scenario exceeds the exact allowlist", "classify_chat_input_payload"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/runtime.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-014 active", "_dispatch_chat_input_hypothesis", "chat_input_hypothesis_echo_ack_ascii12", "HYP_PF_014_CHAT_INPUT_ECHO_ASCII12"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/app.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-014 active", "--chat-input-hypothesis-scenario requires an explicit existing --db"],
+          "active_claim_marker": true
+        }
+      ]
     }
   ]
 }
