@@ -1,0 +1,16 @@
+# Evidence for PF_TELEPORT_CHECK001 (paths relative to the Pirate Force root)
+# Static disassembly of the client binary (read-only) + read-only wire corpus cross-reference.
+# All cited VAs/offsets/byte-guards are reproducible from this exact binary via capstone
+# (CS_MODE_32, ImageBase 0x400000, PE section table parsed) using tools/pf_teleportcheck_0x4477_static.py.
+GameClient\GameClient.local.bin|14759424|9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623
+# Wire corpus (client->server TeleportCheckVital 0x4477, value=1, byte-identical, server reply=0):
+GameClient\capture_v131\GAME_*.txt
+GameClient\capture_v136\GAME_*.txt
+GameClient\capture_v137\GAME_*.txt
+GameClient\capture_v138\GAME_*.txt
+GameClient\capture_v139\GAME_*.txt
+GameClient\capture_v140\GAME_*.txt
+GameClient\capture_v141\GAME_*.txt
+GameClient\capture_v142\GAME_*.txt
+# Verifier (16 guards, exit 0 = PASS):
+tools\pf_teleportcheck_0x4477_static.py
