@@ -962,6 +962,59 @@
           "active_claim_marker": true
         }
       ]
+    },
+    {
+      "id": "HYP-PF-015",
+      "kind": "protocol_hypothesis",
+      "introduced_checkpoint": "DELETE-SOFT-001",
+      "exact_value_or_transform": "Behind the explicit delete actor opt-in scenario only (scenarios/delete_actor_hypothesis_soft_delete.json, response_policy echo_exact_request_vital_after_committed_soft_delete), soft-delete one owned, active, unselected character by selector at the character-select stage and acknowledge it with a designed echo: the exact DELETE-003 nested DeleteActorVital record (id 0x36DB, version 1, op 1, selector u8, zero u32, opaque even-length UTF-16LE wstring) accepted inside the designed one-vital GSCN_LoginProtocol envelope (outer 0x453A version 0 mask 0x02 count 1 -- the shape every captured character-select-stage request uses), answered by the same nested record echoed inside the accepted GSCN_RunTimeProtocolRes v4 single-vital envelope (20-byte envelope + payload; both deterministic probe forms hash-pinned end to end: 34/50-byte request PCs, 34/50-byte ack PCs, 44/60-byte ack frames). The repository write is store.soft_delete_character: set characters.deleted_at (and updated_at) on the one guarded row, committed before any ack byte is queued; child character_positions and backpack rows survive as history. Slot reuse is enabled by migration 004 (proven on a canonical-DB copy first): the table-level UNIQUE(account_id,selector) and UNIQUE(identity_lo,identity_hi) constraints and the characters_create_fingerprint unique index are replaced by partial unique indexes WHERE deleted_at IS NULL, so the owner-mandated cycle create -> delete -> recreate lands the byte-identical create wire in the same slot with the same selector, identity_lo/hi, and create_fingerprint while the deleted row survives. Everything else fails closed with no reply and no write: wrong envelopes (including the runtime envelope), unparseable records, op 2 (op2_unproven), wrong stages (anything but character-list-sent-and-nothing-selected), stale or closed sessions, characters the session's account does not own, already-deleted characters, characters selected by any open session, and every frame without the opt-in scenario.",
+      "scope": "Designed soft-delete acknowledgement at the character-select-stage dispatch boundary behind the delete actor opt-in scenario only, plus the migration-004 partial-unique-index reuse policy; no semantic claim about op values 1 or 2, no claim about the original server's envelope, response, or refresh behavior, no client-observable claim, no hard delete or history removal, and no default-mode or production request path",
+      "status": "active",
+      "provenance": "Opened by the chief session on 2026-08-18 under the project owner's explicit Lane-1 Option-B decision of 2026-08-18 00:52 (soft delete via DeleteActorVital + partial unique index migration so the freed slot is genuinely reusable, superseding the chief's no-migration Option A; recorded in pf_bridge/CHIEF_CONTINUATION.md) and the standing pre-approval of 2026-08-17 18:2x, on the DELETE-003 grade-A static decode (reports/PF_DELETE003_PRODUCER_OUTER_FRAMING_NEGATIVE_20260816.md): both client images prove the nested DeleteActorVital producers (UI path op 1 with an opaque UI wstring, path 0x4B47A0 op 2 with an empty wstring), the generic submission boundary, and an inbound consumer (0x5EFDC0 -> 0x4BAEB0) with the same codec, but no natural 0x36DB wire exists in any corpus, so the accepted envelope and the echo response are designed hypotheses, not reproductions. The DELETE-003 stop rule's approval requirement is superseded by those owner decisions; its nonclaims are kept. The echo-in-RuntimeRes lever is the same envelope family HYP-PF-012/014 proved deliverable; the GSCN_LoginProtocol request envelope matches every captured character-select-stage request (login_verify, create_actor).",
+      "evidence_refs": ["scenarios/delete_actor_hypothesis_soft_delete.json", "migrations/004_character_soft_delete_reuse.sql", "tests/test_delete_actor_hypothesis.py", "reports/PF_DELETE_SOFT001_SOFT_DELETE_REUSE_HEADLESS_20260818.md", "docs/DESIGN_PERSIST_CHARACTERS_ACCOUNTS_20260818.md"],
+      "accepted_ceiling": "Soft delete of one owned, active, unselected character by selector behind the explicit opt-in only, acknowledged by the designed echo after the committed deleted_at write, with slot/identity/fingerprint reuse for later creates under the migration-004 partial unique indexes, fail-closed handling for everything else, and history rows preserved; neither the request envelope nor the response shape has original-server or client-acceptance evidence yet.",
+      "evidence_gap": "Whether the real client's delete flow emits this envelope at all is unmeasured: no natural 0x36DB wire exists, so the accepted GSCN_LoginProtocol shape is a design guess falsified or confirmed by the first attended capture. What the client does on receiving the echo (list refresh, freed slot rendering, dialog dismissal) is the queued attended big-round claim. Op 2 semantics, the opaque wstring meaning, the original server's response policy, restore/undelete, and any retention or purge policy are unknown and not claimed.",
+      "falsification": "Retire or redesign if the first natural capture of the client's delete flow shows a different envelope, record, or sequence; if the real client rejects, ignores, or desyncs on the echo ack; if a lawful original trace shows different delete response bytes; if the lane is ever observed to write anything beyond deleted_at/updated_at on the one guarded row; or if slot reuse under migration 004 is ever observed to corrupt an active row or resurrect history.",
+      "stop_rule": "Accept only the exact designed op-1 shape behind the existing opt-in; do not accept op 2, do not assign semantic names to op values or the opaque wstring, do not hard-delete or purge history, do not add restore, rename, or list-refresh compositions, do not touch accounts, and do not enable production or default-mode exposure. Stop and record if the first attended run shows the client emitting a different delete envelope.",
+      "production_allowed": false,
+      "expiry": {
+        "tracked_versions": ["DELETE-SOFT-001"],
+        "decision": "Opened 2026-08-18 by the chief under the owner's Lane-1 Option-B decision as the first bounded version; the wire/DB layer is headless-proven (delete ack byte-exact, commit-before-ack, op-2 and default-mode negatives, reuse cycle committed); confirm the client-observable layer in the attended big round before any retire/freeze/extend decision."
+      },
+      "max_versions": 3,
+      "extension_approval_ref": null,
+      "source_refs": [
+        {
+          "path": "src/pirateforce_foundation/delete_actor_hypothesis.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-015 active", "make_delete_actor_ack_response", "HYP-PF-015 response PC drift", "delete actor hypothesis scenario exceeds the exact allowlist", "classify_delete_actor_attempt"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/store.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-015 active", "def soft_delete_character", "character is selected by an open session"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/lifecycle.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-015 active", "def soft_delete", "soft_delete_character"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/session.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-015 active", "HYP-PF-015 soft delete requires its explicit opt-in scenario"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/runtime.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-015 active", "_dispatch_delete_actor_hypothesis", "delete_actor_hypothesis_wrong_stage_no_reply", "HYP_PF_015_DELETE_ACTOR_SELECTOR"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/app.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-015 active", "--delete-actor-hypothesis-scenario requires an explicit existing --db"],
+          "active_claim_marker": true
+        }
+      ]
     }
   ]
 }

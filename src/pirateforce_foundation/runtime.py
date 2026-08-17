@@ -28,6 +28,13 @@ from .chat_input_hypothesis import (
     make_chat_input_echo_response,
     require_chat_input_hypothesis_scenario,
 )
+from .delete_actor import DELETE_ACTOR_VITAL_ID
+from .delete_actor_hypothesis import (
+    classify_delete_actor_attempt,
+    make_delete_actor_ack_response,
+    parse_accepted_delete_request,
+    require_delete_actor_hypothesis_scenario,
+)
 from .logout_hypothesis import (
     LOGOUT_POST_ACK_ACTION_CLOSE_SOCKET,
     LOGOUT_VITAL_ID,
@@ -64,6 +71,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                      item_move_hypothesis_scenario=None,
                      logout_hypothesis_scenario=None,
                      chat_input_hypothesis_scenario=None,
+                     delete_actor_hypothesis_scenario=None,
                      second_password_mode="required",
                      monotonic_clock=None,
                      close_timer_factory=None):
@@ -71,12 +79,19 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         scenario, scene_load_scenario, population_scenario,
         item_move_capture_scenario, item_move_hypothesis_scenario,
         logout_hypothesis_scenario, chat_input_hypothesis_scenario,
+        delete_actor_hypothesis_scenario,
     ))
     if active_modes > 1:
         raise ValueError(
             "Arena, scene-load, population, item-move capture, item-move "
-            "hypothesis, logout hypothesis, and chat input hypothesis "
-            "scenarios are mutually exclusive"
+            "hypothesis, logout hypothesis, chat input hypothesis, and "
+            "delete actor hypothesis scenarios are mutually exclusive"
+        )
+    if delete_actor_hypothesis_scenario is not None:
+        delete_actor_hypothesis_scenario = (
+            require_delete_actor_hypothesis_scenario(
+                delete_actor_hypothesis_scenario
+            )
         )
     if logout_hypothesis_scenario is not None:
         logout_hypothesis_scenario = require_logout_hypothesis_scenario(
@@ -115,6 +130,9 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     allow_hypothesized_item_move=(
                         item_move_hypothesis_scenario is not None
                     ),
+                    allow_soft_delete=(
+                        delete_actor_hypothesis_scenario is not None
+                    ),
                 )
             )
             try:
@@ -129,6 +147,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.logout_acknowledged = False
                 self.logout_close_scheduled = False
                 self.chat_input_echo_count = 0
+                self.delete_actor_soft_delete_count = 0
                 self.transport_socket_closer = None
                 self.second_password_bypass_sent = False
                 self.second_password_bypass_keepalive_started = False
@@ -568,6 +587,56 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 pc, frame, 0.0,
             )]
 
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-015 active
+        def _dispatch_delete_actor_hypothesis(self, parsed):
+            """Soft-delete one owned character behind the explicit opt-in.
+
+            Character-select-stage lane: the character list must have been
+            sent and nothing may be selected.  The repository commit (the
+            ``deleted_at`` write under the migration-004 partial unique
+            indexes) happens before any ack byte is queued; the designed
+            echo ack is composed and structurally pinned first, and wrong
+            envelopes, wrong ops, wrong stages, and repository refusals all
+            fail closed with no reply and no write.
+            """
+            self.rx_frames += 1
+            classification = classify_delete_actor_attempt(legacy, parsed)
+            if classification != "exact_op1":
+                self.events.append(
+                    f"delete_actor_hypothesis_{classification}_no_reply"
+                )
+                return []
+            if (
+                not self.select_actor_sent
+                or self.start_game_reply_sent
+                or self.foundation.selected is not None
+            ):
+                self.events.append(
+                    "delete_actor_hypothesis_wrong_stage_no_reply"
+                )
+                return []
+            request = parse_accepted_delete_request(parsed)
+            pc, frame = make_delete_actor_ack_response(
+                legacy, parsed.nested_payload,
+            )
+            try:
+                self.foundation.soft_delete_character(request.selector)
+            except Exception as exc:
+                self.events.append(
+                    f"delete_actor_hypothesis_repository_failure_no_reply_{exc!r}"
+                )
+                return []
+            self.delete_actor_soft_delete_count += 1
+            self.events.append(
+                f"delete_actor_hypothesis_selector{request.selector:02d}"
+                "_committed_before_ack"
+            )
+            return [(
+                f"HYP_PF_015_DELETE_ACTOR_SELECTOR{request.selector:02d}"
+                "_SOFT_DELETE_COMMITTED",
+                pc, frame, 0.0,
+            )]
+
         def _checkpoint_exact_target(self, target) -> None:
             x, y, z, heading, _flags, _moving = target
             selected = self.foundation.selected
@@ -681,6 +750,11 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 and nested_id == CHAT_INPUT_VITAL_ID
             ):
                 return self._dispatch_chat_input_hypothesis(parsed)
+            if (
+                delete_actor_hypothesis_scenario is not None
+                and nested_id == DELETE_ACTOR_VITAL_ID
+            ):
+                return self._dispatch_delete_actor_hypothesis(parsed)
             if nested_id == legacy.LOGIN_VERIFY_VITAL:
                 self.rx_frames += 1
                 out = []

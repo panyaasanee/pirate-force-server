@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "id": "delete_actor_hypothesis_soft_delete_op1",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-015",
+  "entry": {
+    "flow": "character_select_stage",
+    "required_sequence": "character_list_sent_and_nothing_selected",
+    "request_envelope": "gscn_login_protocol_one_vital_designed",
+    "response_policy": "echo_exact_request_vital_after_committed_soft_delete"
+  },
+  "persisted_post_state": {
+    "characters_deleted_at": "written_before_ack_bytes_are_queued",
+    "child_rows": "positions_and_backpack_rows_survive_as_history",
+    "slot_reuse": "migration_004_partial_unique_indexes_allow_recreate"
+  },
+  "capabilities": [
+    "soft_delete_one_owned_unselected_character_by_selector",
+    "acknowledge_committed_soft_delete_with_designed_echo",
+    "recreate_into_the_freed_slot_through_the_existing_create_path"
+  ],
+  "nonclaims": [
+    "original_server_request_envelope",
+    "original_server_response_policy",
+    "client_observable_list_refresh_or_slot_reuse",
+    "semantic_names_for_op_values_1_and_2",
+    "op2_handling",
+    "hard_delete_or_history_removal",
+    "production_baseline_behavior"
+  ]
+}

@@ -192,6 +192,55 @@ class SQLiteStore:
             self._insert_initial_backpack(db, cid, now)
         return self.get_character(cid)
 
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-015 active
+    def soft_delete_character(self, sid: str, selector: int) -> int:
+        """Soft-delete one owned, active, unselected character by selector.
+
+        Sets ``deleted_at`` (and ``updated_at``) only; child position and
+        backpack rows survive as history behind the deleted parent, and the
+        migration-004 partial unique indexes free the selector, identity, and
+        fingerprint slots for a later create.  Every guard failure raises
+        before any write: stale or closed sessions, characters the session's
+        account does not own, already-deleted characters, and characters
+        selected by any open session all fail closed.
+        """
+        if type(selector) is not int:
+            raise TypeError("delete selector must be int")
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT c.id FROM sessions s JOIN characters c "
+                "ON c.account_id=s.account_id "
+                "WHERE s.id=? AND s.closed_at IS NULL "
+                "AND c.selector=? AND c.deleted_at IS NULL",
+                (sid, selector),
+            ).fetchone()
+            if row is None:
+                raise PermissionError(
+                    "stale session or unknown active character"
+                )
+            cid = int(row[0])
+            selected = db.execute(
+                "SELECT 1 FROM sessions "
+                "WHERE selected_character_id=? AND closed_at IS NULL",
+                (cid,),
+            ).fetchone()
+            if selected is not None:
+                raise PermissionError(
+                    "character is selected by an open session"
+                )
+            now = _now()
+            cur = db.execute(
+                "UPDATE characters SET deleted_at=?, updated_at=? "
+                "WHERE id=? AND deleted_at IS NULL",
+                (now, now, cid),
+            )
+            if cur.rowcount != 1:
+                raise RuntimeError(
+                    "soft delete target changed during transaction"
+                )
+        return cid
+
     def list_characters(self, account_id: int):
         with self.connect() as db:
             rows = db.execute("SELECT c.*,p.scene_id,p.scene_seq,p.x,p.y,p.z,p.heading FROM characters c JOIN character_positions p ON p.character_id=c.id WHERE c.account_id=? AND c.deleted_at IS NULL ORDER BY c.selector", (account_id,)).fetchall()

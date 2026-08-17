@@ -11,11 +11,15 @@ class FoundationSession:
     def __init__(
         self, lifecycle, projector, login_name: str, *,
         allow_hypothesized_item_move: bool = False,
+        allow_soft_delete: bool = False,
     ):
         if type(allow_hypothesized_item_move) is not bool:
             raise TypeError("hypothesized item-move gate must be bool")
+        if type(allow_soft_delete) is not bool:
+            raise TypeError("soft-delete gate must be bool")
         self.lifecycle, self.projector = lifecycle, projector
         self.allow_hypothesized_item_move = allow_hypothesized_item_move
+        self.allow_soft_delete = allow_soft_delete
         self.selected = None
         self.backpack = None
         self._closed = False
@@ -32,6 +36,20 @@ class FoundationSession:
         character = self.lifecycle.create(self.account_id, name, actor_wire)
         self.characters = self.lifecycle.store.list_characters(self.account_id)
         return character, self.projector.create_success(character)
+
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-015 active
+    def soft_delete_character(self, selector: int) -> int:
+        if not self.allow_soft_delete:
+            raise PermissionError(
+                "HYP-PF-015 soft delete requires its explicit opt-in scenario"
+            )
+        if self.selected is not None:
+            raise PermissionError(
+                "soft delete is a character-select-stage operation"
+            )
+        cid = self.lifecycle.soft_delete(self.session_id, selector)
+        self.characters = self.lifecycle.store.list_characters(self.account_id)
+        return cid
 
     def select_and_start(self, selector: int):
         selected = self.lifecycle.select(self.session_id, selector)
@@ -135,6 +153,9 @@ class ReadOnlyFoundationSession:
         return self.projector.character_list(self.characters)
 
     def create(self, _name: str, _actor_wire: bytes):
+        raise PermissionError("scene-load milestone is read-only")
+
+    def soft_delete_character(self, _selector: int) -> int:
         raise PermissionError("scene-load milestone is read-only")
 
     def select_and_start(self, selector: int):

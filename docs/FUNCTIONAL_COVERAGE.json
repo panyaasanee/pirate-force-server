@@ -577,12 +577,15 @@
           "required": true,
           "status": "in_progress",
           "evidence_refs": [
-            "reports/PF_DELETE003_PRODUCER_OUTER_FRAMING_NEGATIVE_20260816.md"
+            "reports/PF_DELETE003_PRODUCER_OUTER_FRAMING_NEGATIVE_20260816.md",
+            "scenarios/delete_actor_hypothesis_soft_delete.json",
+            "reports/PF_DELETE_SOFT001_SOFT_DELETE_REUSE_HEADLESS_20260818.md"
           ],
           "test_refs": [
-            "tests/test_delete_actor.py"
+            "tests/test_delete_actor.py",
+            "tests/test_delete_actor_hypothesis.py"
           ],
-          "notes": "Only the nested DeleteActorVital record is parsed, deliberately stopping before the outer envelope, dispatch, response, and any repository mutation. The schema carries a soft-delete field. The delete control in the character-select screen must stay unhandled until this is designed, and it must never be exercised during testing."
+          "notes": "HYP-PF-015 (chief 2026-08-18, under the owner's Lane-1 Option-B decision of 00:52): the exact DELETE-003 nested DeleteActorVital record with op 1, accepted inside the designed one-vital GSCN_LoginProtocol envelope at the character-select stage behind the delete actor opt-in scenario only, soft-deletes the one owned, active, unselected character (deleted_at committed before the designed echo ack is queued; child rows survive as history) and migration 004's partial unique indexes free the slot so the byte-identical create wire recreates into the same selector, identity, and fingerprint. The full cycle create -> delete -> recreate is proven offline through the real dispatch path and headless on a real server process over TCP (DELETE-SOFT-001). The row stays in_progress -- not runtime_pass -- because no natural 0x36DB wire exists anywhere in the corpus: whether the real client's delete button emits this envelope, accepts the echo, and renders the freed slot is exactly the attended big-round claim; op 2 stays fail-closed and unnamed."
         },
         {
           "id": "second_password_gate",

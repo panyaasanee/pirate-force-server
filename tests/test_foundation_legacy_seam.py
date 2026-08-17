@@ -67,21 +67,20 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers one deliberate movement: chat gains the new row
-    # chat_input_echo_hypothesis at in_progress (HYP-PF-014, chief 2026-08-17
-    # under the owner's standing pre-approval: the exact GT-006 chat input
-    # shape UNKNOWN_0xAC52 is echoed byte-exactly behind the chat input
-    # opt-in scenario only, no database write, no socket action, repeatable
-    # per session, everything else fail-closed). The row starts at
-    # in_progress -- not runtime_pass -- because the wire layer is loopback-
-    # and sandbox-headless-proven while the client-observable layer (does
-    # the real client render the echoed message instead of the GT-006
-    # silent-window baseline) is queued for the attended big round; see the
-    # row note.
-    # Previous pin D0E5E1BD..E580 (same day) covered session_lifecycle
-    # gaining clean_logout at in_progress on HYP-PF-012; see its note for
-    # the lineage before that.
-    "05FAFA31E0CBD38D73088A161BA0439C7ABF8A2A16CB9833E9712114A4D042F5"
+    # This pin covers one deliberate movement: character_management/
+    # character_deletion (already in_progress) gains the HYP-PF-015 evidence
+    # and watch (chief 2026-08-18 under the owner's Lane-1 Option-B decision
+    # of 00:52): the opt-in scenario and the DELETE-SOFT-001 headless report
+    # join evidence_refs, and tests/test_delete_actor_hypothesis.py joins
+    # test_refs. The row deliberately stays in_progress -- not runtime_pass
+    # -- because no natural 0x36DB wire exists in any corpus: the accepted
+    # envelope and the echo ack are designed, and the client-observable
+    # layer (delete button emission, echo acceptance, freed-slot rendering)
+    # is queued for the attended big round; see the row note.
+    # Previous pin 05FAFA31..42F5 (2026-08-17) covered chat gaining
+    # chat_input_echo_hypothesis at in_progress on HYP-PF-014; see its note
+    # for the lineage before that.
+    "18A3724564D1D20C3AA40A69331CB0F438C2E51B8D5F4523A95E91895942971B"
 )
 
 

@@ -1,0 +1,21 @@
+{
+ "probe": "DELETE-SOFT-001",
+ "checks": {
+  "a_login_reply_frames": 2,
+  "a_create_reply_frames": 1,
+  "a_active_before_delete": 1,
+  "delete_reply_frames": 1,
+  "delete_reply_sha_matches_pin": true,
+  "deleted_at_set": true,
+  "active_after_delete": 0,
+  "children_survive": true,
+  "op2_reply_frames": 0,
+  "op2_no_write": true,
+  "b_recreate_reply_frames": 1,
+  "total_rows_after_cycle": 2,
+  "active_after_recreate": 1,
+  "slot_identity_fingerprint_reused": true,
+  "history_row_survives": true
+ },
+ "ok": true
+}

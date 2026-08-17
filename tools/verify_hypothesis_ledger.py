@@ -20,8 +20,10 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # falsification, under the owner's standing pre-approval of 18:2x)
 # -> 741C5CE5.. (that append's canonical content) -> 6933C363.. (2026-08-17:
 # HYP-PF-014 chat input echo append on the GT-006 wire capture, under the
-# owner's standing pre-approval of 18:2x).
-CANONICAL_CONTENT_SHA256 = "6933C3636F6DAF902F088650D88534F292DFA545F86D65D6A60F20CE7D36E312"
+# owner's standing pre-approval of 18:2x) -> 6C16037F.. (2026-08-18:
+# HYP-PF-015 soft delete + slot reuse append on the DELETE-003 static decode,
+# under the owner's explicit Lane-1 Option-B decision of 2026-08-18 00:52).
+CANONICAL_CONTENT_SHA256 = "6C16037FFF55C1ECE6D97F32BA4C9FE86414A4BC4FCE67D6167B2B51CD26EFA9"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -50,6 +52,11 @@ EXPECTED_IDS = (
     # on the GT-006 grade-B wire capture, under the owner's standing
     # pre-approval of 2026-08-17 18:2x) is likewise appended.
     "HYP-PF-014",
+    # HYP-PF-015 (soft delete via DeleteActorVital + migration-004 partial
+    # unique indexes for genuine slot reuse, on the DELETE-003 grade-A static
+    # decode, under the owner's explicit Lane-1 Option-B decision of
+    # 2026-08-18 00:52) is likewise appended.
+    "HYP-PF-015",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -75,6 +82,7 @@ EXPECTED_META = {
     "HYP-PF-012": ("protocol_hypothesis", "LOGOUT-ACK-001", "active"),
     "HYP-PF-013": ("protocol_hypothesis", "LOGOUT-CLOSE-001", "active"),
     "HYP-PF-014": ("protocol_hypothesis", "CHAT-ECHO-001", "active"),
+    "HYP-PF-015": ("protocol_hypothesis", "DELETE-SOFT-001", "active"),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}
 STATUSES = {"active", "frozen", "retired", "harness_only", "expired_pending_decision"}

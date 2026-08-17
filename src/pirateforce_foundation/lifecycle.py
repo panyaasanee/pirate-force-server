@@ -56,6 +56,10 @@ class CharacterLifecycle:
     def select(self, session_id: str, selector: int):
         return self.store.select_character(session_id, selector)
 
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-015 active
+    def soft_delete(self, session_id: str, selector: int) -> int:
+        return self.store.soft_delete_character(session_id, selector)
+
     def checkpoint(self, session_id, character, position):
         self.store.save_position(session_id, character.id, position)
 

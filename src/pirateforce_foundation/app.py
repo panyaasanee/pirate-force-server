@@ -7,6 +7,7 @@ from .connection import GameConnectionBindings, adapt_game_listener
 from .legacy_bridge import LegacyProjector, load_legacy
 from .lifecycle import CharacterLifecycle
 from .chat_input_hypothesis import load_chat_input_hypothesis_scenario
+from .delete_actor_hypothesis import load_delete_actor_hypothesis_scenario
 from .item_move_capture import load_item_move_capture_scenario
 from .item_move_hypothesis import load_item_move_hypothesis_scenario
 from .logout_hypothesis import load_logout_hypothesis_scenario
@@ -45,6 +46,7 @@ def main() -> int:
     pre.add_argument('--item-move-hypothesis-scenario')
     pre.add_argument('--logout-hypothesis-scenario')
     pre.add_argument('--chat-input-hypothesis-scenario')
+    pre.add_argument('--delete-actor-hypothesis-scenario')
     pre.add_argument(
         '--second-password-mode', choices=SECOND_PASSWORD_MODES,
         default='required',
@@ -82,15 +84,21 @@ def main() -> int:
         load_chat_input_hypothesis_scenario(known.chat_input_hypothesis_scenario)
         if known.chat_input_hypothesis_scenario else None
     )
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-015 active
+    delete_actor_hypothesis = (
+        load_delete_actor_hypothesis_scenario(known.delete_actor_hypothesis_scenario)
+        if known.delete_actor_hypothesis_scenario else None
+    )
     if sum(value is not None for value in (
         scenario, scene_load, population, item_move_capture,
         item_move_hypothesis, logout_hypothesis, chat_input_hypothesis,
+        delete_actor_hypothesis,
     )) > 1:
         pre.error(
             '--scenario, --scene-load-scenario, --population-scenario, and '
             '--item-move-capture-scenario/--item-move-hypothesis-scenario/'
-            '--logout-hypothesis-scenario/--chat-input-hypothesis-scenario '
-            'are mutually exclusive'
+            '--logout-hypothesis-scenario/--chat-input-hypothesis-scenario/'
+            '--delete-actor-hypothesis-scenario are mutually exclusive'
         )
     if item_move_capture is not None and not known.db:
         pre.error('--item-move-capture-scenario requires an explicit existing --db')
@@ -100,6 +108,8 @@ def main() -> int:
         pre.error('--logout-hypothesis-scenario requires an explicit existing --db')
     if chat_input_hypothesis is not None and not known.db:
         pre.error('--chat-input-hypothesis-scenario requires an explicit existing --db')
+    if delete_actor_hypothesis is not None and not known.db:
+        pre.error('--delete-actor-hypothesis-scenario requires an explicit existing --db')
     db_path = known.db or str(
         root / (
             'state/object_population_v94.sqlite3' if population is not None
@@ -119,6 +129,7 @@ def main() -> int:
             'item-move-hypothesis' if item_move_hypothesis is not None else
             'logout-hypothesis' if logout_hypothesis is not None else
             'chat-input-hypothesis' if chat_input_hypothesis is not None else
+            'delete-actor-hypothesis' if delete_actor_hypothesis is not None else
             'foundation'
         )
         install_runtime_console(
@@ -132,6 +143,7 @@ def main() -> int:
         or item_move_hypothesis is not None
         or logout_hypothesis is not None
         or chat_input_hypothesis is not None
+        or delete_actor_hypothesis is not None
     ):
         if not Path(db_path).is_file():
             raise FileNotFoundError(db_path)
@@ -140,6 +152,7 @@ def main() -> int:
             or item_move_hypothesis is not None
             or logout_hypothesis is not None
             or chat_input_hypothesis is not None
+            or delete_actor_hypothesis is not None
         ):
             store.migrate()
             store.expire_open_sessions()
@@ -170,6 +183,7 @@ def main() -> int:
         item_move_hypothesis_scenario=item_move_hypothesis,
         logout_hypothesis_scenario=logout_hypothesis,
         chat_input_hypothesis_scenario=chat_input_hypothesis,
+        delete_actor_hypothesis_scenario=delete_actor_hypothesis,
         # PF-HYPOTHESIS-LEDGER: HYP-PF-009 active
         second_password_mode=known.second_password_mode,
     )
