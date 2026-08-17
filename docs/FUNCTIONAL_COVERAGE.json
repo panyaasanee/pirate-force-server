@@ -626,10 +626,14 @@
           "id": "client_chat_input",
           "title": "Client chat input reaching the server",
           "required": true,
-          "status": "not_started",
-          "evidence_refs": [],
-          "test_refs": [],
-          "notes": "No chat request produced by typing in the client has been captured, decoded, or dispatched. The request class, command prefixes, and length limits are unknown."
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_GT006_CHAT_INPUT_UNKNOWN_FRAME_WIRE_CAPTURE_20260817.md"
+          ],
+          "test_refs": [
+            "tests/test_presentation_ownership.py"
+          ],
+          "notes": "First wire evidence exists: pressing Enter in the chat box emits exactly one 34-byte vital id 0xAC52 -- an id unknown to the server registry -- inside the standard GSCN_RunTimeProtocolReq envelope, with the typed characters interleaved with 0x00 bytes. The server dispatches nothing and answers nothing, and the client renders no echo. The request is captured but not decoded, not dispatched, and not answered, so nothing higher than in_progress may be claimed; command prefixes and length limits remain unknown."
         },
         {
           "id": "chat_channels_and_routing",
@@ -740,6 +744,68 @@
           "evidence_refs": [],
           "test_refs": [],
           "notes": "Scene actors are static placements. No spawn timer, respawn cycle, drop table, loot object, or pickup path is captured or implemented."
+        }
+      ]
+    },
+    {
+      "id": "presentation",
+      "title": "Presentation and audio",
+      "domain_complete": false,
+      "status_banner": "Presentation and audio: INCOMPLETE",
+      "next_missing_behavior": "scene_music_control",
+      "capabilities": [
+        {
+          "id": "scene_music_control",
+          "title": "Scene music control reaching the client",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_RE_V100_Current_Scene_Music_20260814.md"
+          ],
+          "test_refs": [
+            "tests/test_presentation_ownership.py"
+          ],
+          "notes": "The client accepted one MusicControlVital 0x3EAF at runtime and continued normally. No Foundation module produces or owns music control, no per-scene track mapping is captured, and no audible output is verified, so this is one accepted-frame observation only."
+        },
+        {
+          "id": "system_message_display",
+          "title": "System message display surface",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_RE_V99_ShowMessage_and_Fast_Entry_20260814.md",
+            "reports/PF_DEMO_FULLLOOP001_CANONICAL_PORT_ROYAL_RUNTIME_PASS_20260817.md"
+          ],
+          "test_refs": [
+            "tests/test_system_message_wire.py"
+          ],
+          "notes": "The authentic system panel rendered the one-string ShowMessageVital in runtime passes. Wire shape and emission ownership stay graded in chat/server_system_message; this row tracks only the presentation surface, whose panel routing rules, fonts, and display limits are unmeasured."
+        },
+        {
+          "id": "ui_error_dialog_surfaces",
+          "title": "UI error and dialog surfaces",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_GT001_POST_M3_CANONICAL_FULL_LOOP_SMOKE_RUNTIME_PASS_20260817.md"
+          ],
+          "test_refs": [
+            "tests/test_presentation_ownership.py"
+          ],
+          "notes": "The PvP warning dialog at server selection and the exit confirmation dialog were operated during attended loops. No catalogue of error surfaces exists and no server-driven error dialog has ever been observed."
+        },
+        {
+          "id": "loading_transition_screens",
+          "title": "Loading and transition screens",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_GT001_POST_M3_CANONICAL_FULL_LOOP_SMOKE_RUNTIME_PASS_20260817.md"
+          ],
+          "test_refs": [
+            "tests/test_presentation_ownership.py"
+          ],
+          "notes": "One WANTED loading screen of roughly 30 seconds preceded Port Royal entry in attended loops. No other scene, no failure path, and no progress semantics are observed."
         }
       ]
     }

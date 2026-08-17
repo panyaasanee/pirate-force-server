@@ -1,6 +1,6 @@
 # Pirate Force Server — Foundation Status
 
-Updated: 2026-08-16
+Updated: 2026-08-17
 
 Execution is governed by `docs/WORKFLOW.md`: one active milestone, Cloud-first
 sanitized work, Local-only proprietary/runtime work, tiered verification,
@@ -47,15 +47,23 @@ short of `complete`. A narrow fixture, golden, or single controlled run earns
   `runtime_pass`; creation and deletion stop at characterized boundaries, the
   second-password gate is an opt-in test-only bypass, appearance is preserved only
   as opaque bytes, and progression is not modeled.
-- **Chat: INCOMPLETE** — next missing behavior: `client_chat_input`. Only the
-  server-originated system message is observed, and it is emitted by the frozen
-  legacy seam rather than owned by a Foundation module. No client chat request has
-  been captured, and routing, persistence and moderation are not started.
+- **Chat: INCOMPLETE** — next missing behavior: `client_chat_input`. The
+  server-originated system message is observed, emitted by the frozen legacy seam
+  rather than owned by a Foundation module. One client chat request is now
+  captured — an undecoded 34-byte vital `0xAC52` unknown to the server registry
+  that nothing dispatches or answers — and routing, persistence and moderation
+  are not started.
 - **NPC interaction: INCOMPLETE** — next missing behavior:
   `quest_accept_and_progress`. The conversation handshake and one operation/action
   docking sequence are `runtime_pass`; quest state, shop transactions, and monster
   spawn and loot are unimplemented, and the V140 synthetic harness position remains
   a test device only.
+- **Presentation and audio: INCOMPLETE** — next missing behavior:
+  `scene_music_control`. Opened whole as the eighth domain by the owner's
+  2026-08-17 decision. One accepted MusicControlVital, the system-panel rendering
+  surface, the PvP/exit dialogs and one WANTED loading screen are observed in
+  passing runs; no Foundation module owns any of it and no presentation behavior
+  has a test.
 
 ## Baselines
 

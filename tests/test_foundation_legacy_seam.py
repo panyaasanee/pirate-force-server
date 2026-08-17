@@ -67,16 +67,23 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # Commit 7c067b4 moved movement/local_player_position_checkpoint from
-    # in_progress to runtime_pass and added two GT-005 evidence refs after the
-    # in-game run of 2026-08-17 12:23-12:41 proved the walked position survives
-    # a server restart in character_positions. That commit did not re-pin this
-    # digest, so main was red until this line; the grade movement itself was
-    # deliberate and is recorded in the GT-005 runtime-pass report.
-    # Previous pin E2154CE6..8A32 covered M14, which only added
-    # tests/test_startup_stale_lease_recovery.py to the test refs of
-    # session_lifecycle/abrupt_loss_recovery without moving a status.
-    "3460935E82A3F9647FB68F6E0AB46EB0EBDD27E6B24BC67ECF83255F6059E78F"
+    # This pin covers two deliberate movements made in the same commit, per the
+    # owner's 2026-08-17 decisions and the GT-006 attended capture:
+    #   1. chat/client_chat_input moved not_started -> in_progress on its first
+    #      evidence ever (one undecoded 34-byte vital 0xAC52, unknown to the
+    #      server registry, that nothing dispatches or answers), recorded in
+    #      reports/PF_GT006_CHAT_INPUT_UNKNOWN_FRAME_WIRE_CAPTURE_20260817.md.
+    #   2. The eighth domain `presentation` (Presentation and audio) opened
+    #      whole with four in_progress rows, closing the M8 audit gap that no
+    #      domain covered client-side presentation/audio (the V100
+    #      MusicControlVital evidence had no row to live in).
+    # Previous pin 3460935E..E78F covered the GT-005 grade movement of
+    # movement/local_player_position_checkpoint to runtime_pass; see the
+    # 2de967f re-pin note in git history for the pin before that.
+    # Every graded row above carries a test ref because the same-day ratchet
+    # in test_functional_coverage.py demands it; the five new rows cite
+    # tests/test_presentation_ownership.py and tests/test_system_message_wire.py.
+    "0EC17CBB7EB8C99B6F737DCD29230FE32977B3BA6E16C4CAE21735D7E6A733A1"
 )
 
 # Two manifest formats exist in reports/.  PIPE is the house format used by 21 of
