@@ -18,7 +18,7 @@
       "title": "Inventory",
       "domain_complete": false,
       "status_banner": "Inventory: INCOMPLETE",
-      "next_missing_behavior": "move_known_item_any_free_slot",
+      "next_missing_behavior": "occupied_destination_policy",
       "capabilities": [
         {
           "id": "backpack_open_display",
@@ -54,8 +54,9 @@
           "id": "move_known_item_any_free_slot",
           "title": "Move any known item to any free slot 0-39",
           "required": true,
-          "status": "in_progress",
+          "status": "runtime_pass",
           "evidence_refs": [
+            "reports/PF_GT002_GENERALIZED_FREE_SLOT_MOVE_FIRST_CLIENT_ACCEPTANCE_RUNTIME_PASS_20260817.md",
             "reports/PF_ITEM_MOVE_CAPTURE001_FREE_SLOT_REQUEST_RUNTIME_PASS_20260817.md",
             "reports/PF_ITEM_MOVE_CONSUMER001_RESPONSE_APPLY_STATIC_CHECKPOINT_20260816.md",
             "reports/PF_ITEM_MOVE_ORDER001_BACKPACK_IDENTITY_ORDER_STATIC_CHECKPOINT_20260816.md"
@@ -65,7 +66,7 @@
             "tests/test_item_move_hypothesis.py",
             "tests/test_item_move_generalized.py"
           ],
-          "notes": "HYP-PF-010 (M3, commit abf3696) opened the generalized free-slot claim and the owner-approved M4 runtime hookup now routes every well-formed non-tracked ItemOperate request into it behind the existing opt-in scenario, failing closed for occupied, unknown, out-of-range, and same-slot targets. The logic layer is loopback-tested end to end; first real-client acceptance (GT-002) is still required before runtime_pass, and production_allowed stays false."
+          "notes": "GT-002 (attended, HEAD 55c7c59) delivered the first real-client acceptance: a drag of identity 1 from slot 0 to free slot 10 under the opt-in scenario produced the wire request, an explicit HYP_PF_010 commit response (82 bytes, 0.3 ms), the slot update in character_backpack_items plus the touched character_backpacks.updated_at, and a reconnect projection at slot 10. One controlled observation of one item/slot pair; occupied, swap, stack, other identities, and restart durability remain unproven, and production_allowed stays false behind the opt-in scenario."
         },
         {
           "id": "same_slot_noop",

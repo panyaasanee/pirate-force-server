@@ -21,9 +21,10 @@ full verifier and rejects `domain_complete=true` while any required capability i
 short of `complete`. A narrow fixture, golden, or single controlled run earns
 `runtime_pass` at most; it never closes a domain.
 
-- **Inventory: INCOMPLETE** — next missing behavior: `move_known_item_any_free_slot`
-  (blocked on hypothesis ledger review; HYP-PF-008 permits only the single opt-in
-  identity-1 slot-0 to slot-2 composition). Occupied-destination policy, split
+- **Inventory: INCOMPLETE** — next missing behavior: `occupied_destination_policy`.
+  The generalized free-slot move earned `runtime_pass` via GT-002 (first
+  real-client acceptance at HEAD `55c7c59`, opt-in scenario only,
+  `production_allowed` still false). Occupied-destination policy, split
   stack, and use/drop/sell are not started; equip/unequip and stack limits are
   characterized but unimplemented.
 - **Session lifecycle: INCOMPLETE** — next missing behavior:

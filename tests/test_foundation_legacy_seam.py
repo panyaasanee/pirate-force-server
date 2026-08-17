@@ -67,17 +67,20 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers one deliberate movement: session_lifecycle/
-    # concurrent_multi_client moved not_started -> blocked as the owner-decided
-    # (2026-08-17, item 14 option B) known_limitation record: serial accept in
-    # both v141 listeners plus the open_session lease takeover make a second
-    # concurrent client structurally unservable today, HYP-PF-011 keeps the
-    # multiplayer hypothesis open, and the row gains its evidence report and
-    # tests/test_single_session_limitation.py per the test-ref ratchet.
-    # Previous pin B00AE3FB..1B63B (same day) covered inventory/
-    # move_known_item_any_free_slot blocked -> in_progress on the M4 runtime
-    # hookup (commit 4c29a63); see its note for the pin lineage before that.
-    "B538971969030795210D51C01BAE46020F9377B4C01C537C6C7CE777FCDFC609"
+    # This pin covers one deliberate movement: inventory/
+    # move_known_item_any_free_slot moved in_progress -> runtime_pass on GT-002
+    # (2026-08-17, attended at HEAD 55c7c59), the first real-client acceptance
+    # of the HYP-PF-010 generalized free-slot move: wire request, explicit
+    # commit response, both persistence tables, and a reconnect projection at
+    # the new slot. The row gains the GT-002 report as its leading evidence
+    # ref; production_allowed stays false and the path stays behind the opt-in
+    # scenario. next_missing_behavior for the domain moved to
+    # occupied_destination_policy (prose field, outside this digest).
+    # Previous pin B5389719..DC609 (same day) covered session_lifecycle/
+    # concurrent_multi_client not_started -> blocked as the owner-decided
+    # (item 14 option B) known_limitation record with HYP-PF-011 keeping the
+    # multiplayer hypothesis open; see its note for the lineage before that.
+    "400F42B34797DDEC8D850B4734D8C610913E5066CF7C288E907BF2D720646171"
 )
 
 
