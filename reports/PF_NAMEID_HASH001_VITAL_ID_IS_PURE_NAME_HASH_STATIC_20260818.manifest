@@ -1,0 +1,28 @@
+# Evidence for PF-NAMEID-HASH-001 (paths relative to the Pirate Force root)
+# Static disassembly of the client binary (read-only) + committed server id constants.
+# All cited VAs/offsets/byte-guards/name-literal->id ties are reproducible from this exact
+# binary via capstone (CS_MODE_32, ImageBase 0x400000, PE section table parsed) using
+# tools/pf_vital_id_hash_static.py (exit 0 = PASS).
+GameClient\GameClient.local.bin|14759424|9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623
+# Hash function + id-assign + once-init guard:
+#   0x89b220 = signed-char position-weighted sum mod 2^16 (the hash)
+#   0x89bd00 = id-assign wrapper (calls 0x89b220, returns ax)
+#   0x89c080 = _Init_thread singleton guard @0x108cf90 (NOT a hash)
+# In-image registration thunks tied to committed wire ids (name-literal -> slot):
+#   TeleportCheckVital 0xbee820 slot 0x1082074 = 0x4477  (matches TELEPORT-CHECK-001)
+#   TargetPosVital     0xbee380 slot 0x1081FE0 = 0x2A90
+#   TeleportVital      0xbee400 slot 0x1081FF0 = 0x25A2
+#   GetWorldInfoVital  0xbee7c0 slot 0x1082068 = 0x3D4B
+#   LogoutVital        0xbee860 slot 0x108207C = 0x1B40
+#   UseItemVital       0xbee600 slot 0x1082030 = 0x1F4F
+#   QuestOperateVital  0xbf2b70 slot 0x108324C = 0x3E34
+#   Channel_LocalTalkMessageVital 0xbf72d0 slot 0x1084458 = 0xAC52
+#   TradeCmdVital      0xbf8830 slot 0x1084AE8 = 0x23B5
+#   TradeZoomVital     0xbf8870 slot 0x1084AF0 = 0x2A7A
+# Committed server constants / protocol_name_id asserts (the 13 (name,id) pairs):
+Pirate Force ServerProject\current\pf_login_game_server_v141.py
+# Cross-references (read-only):
+Pirate Force ServerProject\reports\PF_TELEPORT_CHECK001_0X4477_VTABLE_SCHEMA_CONFIRM_STATIC_20260818.md
+Pirate Force ServerProject\reports\PF_CHAT_ECHO008_LOCALTALK_COHORT_VTABLE_NAME_MAP_STATIC_20260818.md
+# Verifier (22 guards, exit 0 = PASS):
+Pirate Force ServerProject\tools\pf_vital_id_hash_static.py
