@@ -81,6 +81,18 @@ LOGOUT_ACK_FRAME_SHA256 = {
 }
 
 
+# HYP-PF-013 (LOGOUT-CLOSE-001): after the byte-identical PF-012 ack, the
+# server owns exactly one further lever it can pull without inventing payload
+# bytes: a clean TCP shutdown+close of the accepted GAME socket.  The GT-007
+# attended negative proved the echo-only shape leaves the real client parked
+# on the never-closing socket (keepalive every ~2 s, no reconnect, no
+# transition), and the corpus contains no 0x1B40 golden response, so the
+# delayed server-initiated close is the next falsifiable hypothesis shape.
+LOGOUT_POST_ACK_ACTION_NONE = "none"
+LOGOUT_POST_ACK_ACTION_CLOSE_SOCKET = "close_socket"
+LOGOUT_CLOSE_DELAY_MS = 250
+
+
 @dataclass(frozen=True)
 class LogoutHypothesisScenario:
     scenario_id: str
@@ -91,9 +103,11 @@ class LogoutHypothesisScenario:
     ack_pc_sha256_03: str
     ack_frame_sha256_01: str
     ack_frame_sha256_03: str
+    post_ack_action: str
+    close_delay_ms: int
 
 
-_PROFILE = LogoutHypothesisScenario(
+_PROFILE_ECHO = LogoutHypothesisScenario(
     "logout_hypothesis_ack_echo_subcode01_03",
     "HYP-PF-012",
     LOGOUT_REQUEST_PC_SHA256[1],
@@ -102,14 +116,30 @@ _PROFILE = LogoutHypothesisScenario(
     LOGOUT_ACK_PC_SHA256[3],
     LOGOUT_ACK_FRAME_SHA256[1],
     LOGOUT_ACK_FRAME_SHA256[3],
+    LOGOUT_POST_ACK_ACTION_NONE,
+    0,
 )
 
-_EXPECTED = {
+# PF-HYPOTHESIS-LEDGER: HYP-PF-013 active
+_PROFILE_ACK_CLOSE = LogoutHypothesisScenario(
+    "logout_hypothesis_ack_close_subcode01_03",
+    "HYP-PF-013",
+    LOGOUT_REQUEST_PC_SHA256[1],
+    LOGOUT_REQUEST_PC_SHA256[3],
+    LOGOUT_ACK_PC_SHA256[1],
+    LOGOUT_ACK_PC_SHA256[3],
+    LOGOUT_ACK_FRAME_SHA256[1],
+    LOGOUT_ACK_FRAME_SHA256[3],
+    LOGOUT_POST_ACK_ACTION_CLOSE_SOCKET,
+    LOGOUT_CLOSE_DELAY_MS,
+)
+
+_EXPECTED_ECHO = {
     "schema": 1,
-    "id": _PROFILE.scenario_id,
+    "id": _PROFILE_ECHO.scenario_id,
     "test_only": True,
     "production_allowed": False,
-    "hypothesis_id": _PROFILE.hypothesis_id,
+    "hypothesis_id": _PROFILE_ECHO.hypothesis_id,
     "entry": {
         "flow": "full_writable_character",
         "required_sequence": "selected_and_runtime_ready",
@@ -156,6 +186,70 @@ _EXPECTED = {
     ],
 }
 
+# HYP-PF-013 exact allowlist: identical pins and identical fail-closed
+# envelope to the echo scenario, plus the single new post-ack lever.  The
+# ack bytes themselves are the unchanged hash-pinned PF-012 composition;
+# no byte is invented under this scenario either.
+_EXPECTED_ACK_CLOSE = {
+    "schema": 1,
+    "id": _PROFILE_ACK_CLOSE.scenario_id,
+    "test_only": True,
+    "production_allowed": False,
+    "hypothesis_id": _PROFILE_ACK_CLOSE.hypothesis_id,
+    "entry": {
+        "flow": "full_writable_character",
+        "required_sequence": "selected_and_runtime_ready",
+        "post_ack_policy": "dispatch_silent_then_server_clean_socket_close",
+        "post_ack_action": LOGOUT_POST_ACK_ACTION_CLOSE_SOCKET,
+        "close_delay_ms": LOGOUT_CLOSE_DELAY_MS,
+    },
+    "requests": {
+        "subcode01": {
+            "pc_size": 34,
+            "pc_sha256": LOGOUT_REQUEST_PC_SHA256[1],
+        },
+        "subcode03": {
+            "pc_size": 34,
+            "pc_sha256": LOGOUT_REQUEST_PC_SHA256[3],
+        },
+    },
+    "composed_responses": {
+        "subcode01": {
+            "pc_size": 36,
+            "pc_sha256": LOGOUT_ACK_PC_SHA256[1],
+            "frame_size": 46,
+            "frame_sha256": LOGOUT_ACK_FRAME_SHA256[1],
+        },
+        "subcode03": {
+            "pc_size": 36,
+            "pc_sha256": LOGOUT_ACK_PC_SHA256[3],
+            "frame_size": 46,
+            "frame_sha256": LOGOUT_ACK_FRAME_SHA256[3],
+        },
+    },
+    "persisted_post_state": {
+        "sessions_closed_at": "written_before_ack_bytes_are_queued",
+        "position_rewrite": "none",
+    },
+    "capabilities": [
+        "acknowledge_exact_captured_logout_requests_after_clean_close",
+        "silence_connection_after_acknowledged_logout",
+        "server_initiated_clean_socket_close_after_acknowledged_logout",
+    ],
+    "nonclaims": [
+        "original_server_response_policy",
+        "client_observable_exit_or_character_select_return",
+        "logout_outside_runtime_ready_sequence",
+        "subcodes_other_than_01_and_03",
+        "production_baseline_behavior",
+    ],
+}
+
+_EXPECTED_BY_ID = {
+    _PROFILE_ECHO.scenario_id: (_EXPECTED_ECHO, _PROFILE_ECHO),
+    _PROFILE_ACK_CLOSE.scenario_id: (_EXPECTED_ACK_CLOSE, _PROFILE_ACK_CLOSE),
+}
+
 
 def _exact_equal(actual: Any, expected: Any) -> bool:
     if type(actual) is not type(expected):
@@ -176,21 +270,18 @@ def load_logout_hypothesis_scenario(path: str | Path) -> LogoutHypothesisScenari
         data = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError("invalid logout hypothesis scenario") from exc
-    if type(data) is not dict or not _exact_equal(data, _EXPECTED):
+    if type(data) is not dict or data.get("id") not in _EXPECTED_BY_ID:
         raise ValueError("logout hypothesis scenario exceeds the exact allowlist")
-    return require_logout_hypothesis_scenario(LogoutHypothesisScenario(
-        data["id"], data["hypothesis_id"],
-        data["requests"]["subcode01"]["pc_sha256"],
-        data["requests"]["subcode03"]["pc_sha256"],
-        data["composed_responses"]["subcode01"]["pc_sha256"],
-        data["composed_responses"]["subcode03"]["pc_sha256"],
-        data["composed_responses"]["subcode01"]["frame_sha256"],
-        data["composed_responses"]["subcode03"]["frame_sha256"],
-    ))
+    expected, profile = _EXPECTED_BY_ID[data["id"]]
+    if not _exact_equal(data, expected):
+        raise ValueError("logout hypothesis scenario exceeds the exact allowlist")
+    return require_logout_hypothesis_scenario(profile)
 
 
 def require_logout_hypothesis_scenario(value: Any) -> LogoutHypothesisScenario:
-    if type(value) is not LogoutHypothesisScenario or value != _PROFILE:
+    if type(value) is not LogoutHypothesisScenario or value not in (
+        _PROFILE_ECHO, _PROFILE_ACK_CLOSE,
+    ):
         raise ValueError("logout hypothesis scenario object exceeds the allowlist")
     for subcode in LOGOUT_SUBCODES:
         digest = hashlib.sha256(LOGOUT_REQUEST_PCS[subcode]).hexdigest().upper()

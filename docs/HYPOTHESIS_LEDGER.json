@@ -882,6 +882,48 @@
           "active_claim_marker": true
         }
       ]
+    },
+    {
+      "id": "HYP-PF-013",
+      "kind": "protocol_hypothesis",
+      "introduced_checkpoint": "LOGOUT-CLOSE-001",
+      "exact_value_or_transform": "Behind the separate ack_close opt-in scenario only (scenarios/logout_hypothesis_ack_close.json, post_ack_action close_socket, close_delay_ms 250), acknowledge the two captured LogoutVital (0x1B40) request forms with the byte-identical hash-pinned HYP-PF-012 echo composition, then perform exactly one additional server-owned action: a clean shutdown(2)+close of that connection's accepted GAME socket, scheduled 250 ms after the ack is queued. No response byte is invented or changed; the ack pins are the unchanged PF-012 values. The session lease (sessions.closed_at) still commits before any ack byte is queued, the dispatch layer is still silent after the ack, and the transport close lever is attached once per accepted connection by the Foundation connection adapter at state-bind time. If the ack_close scenario is active but no transport lever is attached, the whole lane fails closed before the lease is touched: no write, no ack, no partial shape. Wrong payloads, wrong envelopes, wrong sequences, uncaptured subcodes, repository failures, already-closed leases, and every request without the opt-in scenario fail closed exactly as under HYP-PF-012.",
+      "scope": "Post-ack transport disposition at the runtime-dispatch/connection-adapter boundary behind the ack_close opt-in scenario only; no response-byte change relative to HYP-PF-012, no client-observable exit or character-select-return claim, no default-mode or production request path, no lease-policy or store change, and no effect of any kind under the echo scenario or without a logout scenario",
+      "status": "active",
+      "provenance": "Opened by the chief session on 2026-08-17 ~20:1x ICT under the project owner's standing pre-approval of 2026-08-17 18:2x ('fix the exit button and every gameplay button found later'), following the GT-007 attended negative (reports/PF_GT007_LOGOUT_ECHO_ACK_CLIENT_TRANSITION_NEGATIVE_20260817.md): the echo-only shape was falsified at the client-observable layer, and the GT-007 GAME_LIVE timeline showed the real client parked on the never-closed socket sending GSCN_RunTimeProtocolReq keepalives every ~2 s with no reconnect and no timeout. The R40 corpus sweep found no 0x1B40 response frame anywhere in the evidence, so no golden logout response exists; the delayed server-initiated clean TCP close is the minimal next falsifiable shape because it is the only lever the server owns that requires inventing no payload bytes. A full GetWorldInfoVital-first shape (0x3D4B before ack) is recorded as the designed fallback and is NOT part of this entry.",
+      "evidence_refs": [
+        "scenarios/logout_hypothesis_ack_close.json",
+        "tests/test_logout_ack_close.py",
+        "reports/PF_LOGOUT_CLOSE001_HYP_PF_013_ACK_SOCKET_CLOSE_HEADLESS_WIRE_DB_20260817.md"
+      ],
+      "accepted_ceiling": "Ack with the unchanged PF-012 pinned bytes plus one scheduled clean shutdown+close of the accepted GAME socket 250 ms later, behind the explicit ack_close opt-in only, with fail-closed handling for everything else including an unattached transport lever; whether the real client treats the close as a logout transition is unknown.",
+      "evidence_gap": "What the real client does when the server closes the socket after the ack is unmeasured: whether subcode 01 closes the game window/process and whether subcode 03 leaves the map (character select, server select, or a disconnect dialog) are exactly the client-observable claims for GT-008 in the attended big round. A disconnect-error dialog would partially falsify this shape and route design to the recorded 0x3D4B-first fallback under a new entry.",
+      "falsification": "Retire or redesign the ack+close shape if the real client shows a disconnect-error dialog instead of a clean exit/transition on either subcode, if it reconnects and resumes as though no logout happened, if a lawful original trace shows different logout response bytes or teardown ordering, if the FIN is ever observed on the wire before the ack bytes, or if the close path is ever observed to write anything beyond sessions.closed_at.",
+      "stop_rule": "Close only the one accepted GAME socket of the acknowledging connection, only after the two exact captured request forms, only behind the ack_close opt-in; do not add reconnect handling, do not invent response payloads (the 0x3D4B-first fallback requires a new ledger entry), do not enable production or default-mode exposure, and do not extend the close behavior to any other vital or scenario. Stop and record if GT-008 shows a disconnect-error dialog or client desync.",
+      "production_allowed": false,
+      "expiry": {
+        "tracked_versions": ["LOGOUT-CLOSE-001"],
+        "decision": "Opened 2026-08-17 by the chief under the owner's standing pre-approval as the first bounded version; prove the wire/DB layer headless (ack byte-exact, then FIN inside the close window, closed_at committed before the ack), then confirm the client-observable layer as GT-008 in the attended big round before any retire/freeze/extend decision."
+      },
+      "max_versions": 3,
+      "extension_approval_ref": null,
+      "source_refs": [
+        {
+          "path": "src/pirateforce_foundation/logout_hypothesis.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-013 active", "LOGOUT_CLOSE_DELAY_MS", "LOGOUT_POST_ACK_ACTION_CLOSE_SOCKET", "logout_hypothesis_ack_close_subcode01_03"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/runtime.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-013 active", "close_socket_after_ack", "logout_hypothesis_close_unavailable_no_reply", "_ACK_THEN_SERVER_SOCKET_CLOSE", "attach_transport_socket_closer"],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/connection.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-013 active", "make_transport_socket_closer", "close_transport_socket"],
+          "active_claim_marker": true
+        }
+      ]
     }
   ]
 }

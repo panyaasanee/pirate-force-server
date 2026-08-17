@@ -14,8 +14,11 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # Lineage: 08FD966F.. (HYP-PF-011 append, round 34) -> 276FF122.. (2026-08-17:
 # HYP-PF-010 evidence_gap rewritten + GT-002 runtime report appended to
-# evidence_refs after the first real-client acceptance, commit b1087bb lineage).
-CANONICAL_CONTENT_SHA256 = "00142EB6C89789BE7AD126F856EEF9129D1124DFCBF9F449B7640EF5B77460B8"
+# evidence_refs after the first real-client acceptance, commit b1087bb lineage)
+# -> 00142EB6.. (HYP-PF-012 append) -> 2B844F29.. (2026-08-17 round 43:
+# HYP-PF-013 ack+socket-close append after the GT-007 echo-only client-layer
+# falsification, under the owner's standing pre-approval of 18:2x).
+CANONICAL_CONTENT_SHA256 = "741C5CE592AAE2E74D9205C8E703524D165EDA23933076E5CF2AA8E4074BD984"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -36,6 +39,10 @@ EXPECTED_IDS = (
     # HYP-PF-012 (acknowledged logout, owner option A 2026-08-17 18:35) is
     # likewise appended so all prior entry indices stay stable.
     "HYP-PF-012",
+    # HYP-PF-013 (ack + server-initiated clean socket close, chief round 43
+    # under the owner's standing pre-approval of 2026-08-17 18:2x, after the
+    # GT-007 echo-only client-layer falsification) is likewise appended.
+    "HYP-PF-013",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -59,6 +66,7 @@ EXPECTED_META = {
     "GEO-PF-005": ("test_geometry", "V140", "harness_only"),
     "HYP-PF-011": ("protocol_hypothesis", "MULTI-CLIENT-001", "active"),
     "HYP-PF-012": ("protocol_hypothesis", "LOGOUT-ACK-001", "active"),
+    "HYP-PF-013": ("protocol_hypothesis", "LOGOUT-CLOSE-001", "active"),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}
 STATUSES = {"active", "frozen", "retired", "harness_only", "expired_pending_decision"}

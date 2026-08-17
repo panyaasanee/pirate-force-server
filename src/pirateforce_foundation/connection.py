@@ -90,6 +90,28 @@ class AcceptedGameSocket:
         if self.state is not None:
             raise RuntimeError("GAME connection already has a state")
         self.state = state
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-013 active
+        # Offer the one transport close lever to states that accept it.  The
+        # lever performs a clean shutdown+close of this accepted GAME socket
+        # and is only pulled by the opt-in ack+close logout scenario.
+        attach = getattr(state, "attach_transport_socket_closer", None)
+        if attach is not None:
+            attach(self.make_transport_socket_closer())
+
+    def make_transport_socket_closer(self):
+        raw_socket = self._raw_socket
+
+        def close_transport_socket() -> None:
+            try:
+                raw_socket.shutdown(2)
+            except OSError:
+                pass
+            try:
+                raw_socket.close()
+            except OSError:
+                pass
+
+        return close_transport_socket
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._raw_socket, name)

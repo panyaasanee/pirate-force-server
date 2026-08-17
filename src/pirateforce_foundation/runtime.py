@@ -1,5 +1,6 @@
 """Lifecycle-aware V141 state factory for the real legacy TCP listeners."""
 import math
+import threading
 import time
 
 from .model import Position
@@ -22,6 +23,7 @@ from .item_move_hypothesis import (
     require_item_move_hypothesis_scenario,
 )
 from .logout_hypothesis import (
+    LOGOUT_POST_ACK_ACTION_CLOSE_SOCKET,
     LOGOUT_VITAL_ID,
     classify_logout_attempt,
     make_logout_ack_response,
@@ -56,7 +58,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                      item_move_hypothesis_scenario=None,
                      logout_hypothesis_scenario=None,
                      second_password_mode="required",
-                     monotonic_clock=None):
+                     monotonic_clock=None,
+                     close_timer_factory=None):
     active_modes = sum(value is not None for value in (
         scenario, scene_load_scenario, population_scenario,
         item_move_capture_scenario, item_move_hypothesis_scenario,
@@ -85,6 +88,12 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
     second_password_mode = require_second_password_mode(second_password_mode)
     if monotonic_clock is None:
         monotonic_clock = time.monotonic
+    if close_timer_factory is None:
+        def close_timer_factory(delay_seconds, callback):
+            timer = threading.Timer(delay_seconds, callback)
+            timer.daemon = True
+            timer.start()
+            return timer
     class PersistentGameSessionState(legacy.GameSessionState):
         def __init__(self, token: str):
             super().__init__(token)
@@ -107,6 +116,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.item_move_generalized_count = 0
                 self.logout_ack_count = 0
                 self.logout_acknowledged = False
+                self.logout_close_scheduled = False
+                self.transport_socket_closer = None
                 self.second_password_bypass_sent = False
                 self.second_password_bypass_keepalive_started = False
                 self.second_password_bypass_last_sent_at = None
@@ -141,6 +152,20 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
 
         def close_connection(self) -> bool:
             return self.foundation.close_connection()
+
+        def attach_transport_socket_closer(self, closer) -> None:
+            """Accept the one bound transport close lever from the adapter.
+
+            The closer performs a clean shutdown+close of this connection's
+            accepted GAME socket.  It is only ever pulled by the HYP-PF-013
+            post-ack schedule below; without the close_socket scenario flag
+            it is stored and never invoked.
+            """
+            if self.transport_socket_closer is not None:
+                raise RuntimeError("transport socket closer already attached")
+            if not callable(closer):
+                raise TypeError("transport socket closer must be callable")
+            self.transport_socket_closer = closer
 
         def _sync_frozen_inventory_state(self) -> None:
             backpack = self.foundation.backpack
@@ -431,6 +456,20 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             if not self.teleport_sent or not self.runtime_ack_sent:
                 self.events.append("logout_hypothesis_wrong_sequence_no_reply")
                 return []
+            # PF-HYPOTHESIS-LEDGER: HYP-PF-013 active
+            # The close_socket shape is ack + delayed server-initiated clean
+            # socket close.  If the transport lever is not attached the shape
+            # cannot be fulfilled, so the whole lane fails closed before the
+            # lease is touched: no write, no ack, no partial shape.
+            close_socket_after_ack = (
+                logout_hypothesis_scenario.post_ack_action
+                == LOGOUT_POST_ACK_ACTION_CLOSE_SOCKET
+            )
+            if close_socket_after_ack and self.transport_socket_closer is None:
+                self.events.append(
+                    "logout_hypothesis_close_unavailable_no_reply"
+                )
+                return []
             # The designed echo ack is fully composed and hash-pinned before
             # the lease is touched; no bytes are queued unless the clean
             # close commits.
@@ -451,6 +490,27 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 f"logout_hypothesis_subcode{subcode:02d}"
                 "_session_closed_before_ack"
             )
+            if close_socket_after_ack:
+                # The ack action below is queued with zero delay and the
+                # frozen listener sends it immediately after this dispatch
+                # returns; the close timer starts now, so the close_delay_ms
+                # budget (250 ms) covers the send and puts FIN strictly after
+                # the ack bytes on the wire.  The wire ordering itself is the
+                # falsifiable claim of the headless probe.
+                delay_ms = logout_hypothesis_scenario.close_delay_ms
+                close_timer_factory(
+                    delay_ms / 1000.0, self.transport_socket_closer,
+                )
+                self.logout_close_scheduled = True
+                self.events.append(
+                    "logout_hypothesis_post_ack_socket_close_scheduled_"
+                    f"{delay_ms}ms"
+                )
+                return [(
+                    f"HYP_PF_013_LOGOUT_SUBCODE{subcode:02d}"
+                    "_ACK_THEN_SERVER_SOCKET_CLOSE",
+                    pc, frame, 0.0,
+                )]
             return [(
                 f"HYP_PF_012_LOGOUT_SUBCODE{subcode:02d}"
                 "_ACK_AFTER_CLEAN_CLOSE",
