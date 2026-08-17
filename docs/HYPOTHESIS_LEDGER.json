@@ -810,6 +810,36 @@
         }
       ],
       "authentic": false
+    },
+    {
+      "id": "HYP-PF-011",
+      "kind": "protocol_hypothesis",
+      "introduced_checkpoint": "MULTI-CLIENT-001",
+      "exact_value_or_transform": "Recorded known limitation with an open door: the v141 server structurally serves one client at a time (listen(4) with accept-and-handle in one loop on both listeners; a second concurrent client is neither rejected nor served but waits in the TCP backlog until the first closes, measured live at 42.1 s LOGIN / 22.1 s GAME with acceptance ~30 ms after release), and the Foundation store closes every open lease of an account inside open_session before inserting the new row. The hypothesis held open by this entry: concurrent multi-client service with per-session state separation is achievable without changing any accepted byte contract, but only after (a) the dispatch thread gains an exception boundary so a stale-lease raise cannot stop the whole server and (b) an explicit lease policy replaces the silent per-account takeover.",
+      "scope": "Documentation-and-guard entry for the single-session limitation at the accept and lease layers; no src behavior change, no concurrency implementation, no client-observable claim about what a queued client displays",
+      "status": "active",
+      "provenance": "Project-owner decision on 2026-08-17 (item 14, option B): record single-session as known_limitation rather than by_design, because calling it by-design would assert a client-observable service policy from wire-layer evidence, and open this hypothesis so multiplayer is not foreclosed. Wire measurements are the round-18 job 041 headless probes; the unguarded-dispatch interlock analysis is round 21. GT-003 was released from the attended queue by the same decision.",
+      "evidence_refs": [
+        "reports/PF_SESSION_LIMIT001_SINGLE_SESSION_SERIAL_ACCEPT_KNOWN_LIMITATION_20260817.md"
+      ],
+      "accepted_ceiling": "Recording the limitation and pinning both enforcement layers with tests; the concurrency hypothesis itself has zero accepted evidence and no implementation.",
+      "evidence_gap": "No runtime evidence of two concurrently served clients exists and none is possible under the current structure. What a queued second client displays is unmeasured. The original deployment's concurrency policy is unknown; no lawful trace shows it.",
+      "falsification": "Retire the limitation half of this entry if a reproducible run shows two clients served concurrently on the current structure; retire the hypothesis half if a lawful original trace proves the deployment was single-session by policy, or if implementing the preconditions shows an accepted byte contract must change.",
+      "stop_rule": "Do not implement per-connection threading, selectors, shared world state, or any lease-policy change under this entry. Reopening requires an owner-approved milestone that lands the dispatch exception boundary and the explicit lease policy first, then a two-client runtime experiment with its own ledger review. Stop and record if any precondition work would alter an accepted byte contract.",
+      "production_allowed": false,
+      "expiry": {
+        "tracked_versions": ["MULTI-CLIENT-001"],
+        "decision": "Opened 2026-08-17 by project-owner decision (item 14, option B) as a pending hypothesis; it advances only through the owner-approved precondition milestones named in the stop rule."
+      },
+      "max_versions": 3,
+      "extension_approval_ref": null,
+      "source_refs": [
+        {
+          "path": "src/pirateforce_foundation/store.py",
+          "required_markers": ["PF-HYPOTHESIS-LEDGER: HYP-PF-011 active", "Single-session-per-account lease takeover", "UPDATE sessions SET closed_at=? WHERE account_id=? AND closed_at IS NULL"],
+          "active_claim_marker": true
+        }
+      ]
     }
   ]
 }

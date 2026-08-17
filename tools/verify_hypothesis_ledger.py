@@ -12,7 +12,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
-CANONICAL_CONTENT_SHA256 = "194F614EBD5D4925F6D1301A72A06F11B8AA57712004A288B139FAFDA5C9E366"
+CANONICAL_CONTENT_SHA256 = "08FD966F36A2639ED094294727354F6381370B2A62D976167FFAC1116E9C2F9F"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -26,6 +26,10 @@ EXPECTED_IDS = (
     "DIAG-PF-001",
     "RET-PF-001", "GEO-PF-001", "GEO-PF-002", "GEO-PF-003",
     "GEO-PF-004", "GEO-PF-005",
+    # HYP-PF-011 is appended after the geometry block on purpose: the ledger
+    # list order is canonical, and appending keeps every existing entry index
+    # stable for the index-based test fixtures (the round-31 lesson).
+    "HYP-PF-011",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -47,6 +51,7 @@ EXPECTED_META = {
     "GEO-PF-003": ("test_geometry", "SCENE-007", "expired_pending_decision"),
     "GEO-PF-004": ("test_geometry", "V135", "expired_pending_decision"),
     "GEO-PF-005": ("test_geometry", "V140", "harness_only"),
+    "HYP-PF-011": ("protocol_hypothesis", "MULTI-CLIENT-001", "active"),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}
 STATUSES = {"active", "frozen", "retired", "harness_only", "expired_pending_decision"}

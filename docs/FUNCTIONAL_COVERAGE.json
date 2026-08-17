@@ -238,10 +238,14 @@
           "id": "concurrent_multi_client",
           "title": "Two or more concurrent clients on separate accounts",
           "required": true,
-          "status": "not_started",
-          "evidence_refs": [],
-          "test_refs": [],
-          "notes": "Every runtime pass so far is single client on one machine. Account isolation, per-session state separation and remote-player projection are unproven."
+          "status": "blocked",
+          "evidence_refs": [
+            "reports/PF_SESSION_LIMIT001_SINGLE_SESSION_SERIAL_ACCEPT_KNOWN_LIMITATION_20260817.md"
+          ],
+          "test_refs": [
+            "tests/test_single_session_limitation.py"
+          ],
+          "notes": "Known limitation by owner decision 2026-08-17 (item 14 option B), not by_design: the wire layer proved a second client waits in the TCP backlog until the first closes (serial accept in both v141 listeners), and open_session closes every open lease of the account. HYP-PF-011 keeps the multiplayer door open but demands the dispatch exception boundary and an explicit lease policy first, because the limitation currently interlocks the unguarded position-checkpoint write. This row moves again only after those preconditions and a real two-client runtime run."
         },
         {
           "id": "authenticated_multi_account",

@@ -67,20 +67,19 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers one deliberate movement: inventory/
-    # move_known_item_any_free_slot moved blocked -> in_progress because the
-    # blocker it recorded (hypothesis-ledger review) was resolved by the owner:
-    # HYP-PF-010 landed as M3 (commit abf3696) and the owner-approved M4
-    # runtime hookup wired the generalized free-slot move into the runtime
-    # ItemOperate lane behind the existing opt-in scenario, with occupied/
-    # unknown/out-of-range/same-slot targets failing closed.  The row gains
-    # tests/test_item_move_generalized.py per the same-day test-ref ratchet.
-    # Not runtime_pass yet: the first real-client acceptance run is GT-002.
-    # Previous pin 0EC17CBB..33A1 covered the chat/client_chat_input first
-    # evidence and the opening of the eighth domain `presentation`; see the
-    # eb6fef0 re-pin note in git history for the pin before that.
-    "B00AE3FBE64E29AD994FB6C55F2725B85C7487A0B880059E95304E257B61B63B"
+    # This pin covers one deliberate movement: session_lifecycle/
+    # concurrent_multi_client moved not_started -> blocked as the owner-decided
+    # (2026-08-17, item 14 option B) known_limitation record: serial accept in
+    # both v141 listeners plus the open_session lease takeover make a second
+    # concurrent client structurally unservable today, HYP-PF-011 keeps the
+    # multiplayer hypothesis open, and the row gains its evidence report and
+    # tests/test_single_session_limitation.py per the test-ref ratchet.
+    # Previous pin B00AE3FB..1B63B (same day) covered inventory/
+    # move_known_item_any_free_slot blocked -> in_progress on the M4 runtime
+    # hookup (commit 4c29a63); see its note for the pin lineage before that.
+    "B538971969030795210D51C01BAE46020F9377B4C01C537C6C7CE777FCDFC609"
 )
+
 
 
 # Two manifest formats exist in reports/.  PIPE is the house format used by 21 of

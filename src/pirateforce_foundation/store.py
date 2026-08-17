@@ -128,7 +128,12 @@ class SQLiteStore:
             db.execute("INSERT OR IGNORE INTO accounts(login_name,created_at) VALUES (?,?)", (name, _now()))
             return int(db.execute("SELECT id FROM accounts WHERE login_name=?", (name,)).fetchone()[0])
 
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-011 active
     def open_session(self, account_id: int) -> str:
+        # Single-session-per-account lease takeover: every open lease of the
+        # same account is closed before the new row exists.  Together with the
+        # serial accept loop in legacy v141 this is the recorded
+        # known-limitation boundary (and interlock) that HYP-PF-011 governs.
         sid = uuid4().hex
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
