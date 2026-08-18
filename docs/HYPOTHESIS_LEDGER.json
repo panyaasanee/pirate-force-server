@@ -1855,6 +1855,85 @@
      "active_claim_marker": true
     }
    ]
+  },
+  {
+   "id": "HYP-PF-020",
+   "kind": "protocol_hypothesis",
+   "introduced_checkpoint": "STATS-PROG-002",
+   "exact_value_or_transform": "Behind the explicit stats-progression opt-in scenario only (scenarios/stats_progression_hypothesis_xp_sweep.json, response_policy compose_cumulative_update_attr_vital_progression_deltas_no_write_no_close, reached only through the new CLI flag --stats-progression-hypothesis-scenario, which requires an explicit existing --db and is mutually exclusive with every other scenario mode), implement the client's mask-gated ActorAttr wire as a server-side encoder and decoder and ship it through the UpdateAttrVital 0x309A delta pipe. The body follows the class chain base first exactly as STATS-PROG-001 read it: DBAttribute u8 mask (tag 0x0B) = 0x01 then the identity qword (tag 0x32); BasicAttr u16 mask (tag 0x12) then its set fields; ActorAttr 64-bit mask (tag 0x32) then the u8 extra-group flag (tag 0x05, value 1, the value the frozen v141 snapshot has always sent with a zero high mask dword) then its set fields. Within a block fields are emitted in ASCENDING MASK BIT order, which is not assumed: STATS-PROG-001 sections 4 and 5 record a gate-test address for every gated field and those addresses ascend strictly with the mask bits in both tables, and a linear serializer emits in code order. 23 fields are implemented -- BasicAttr level 0x0002 +0x5E u16, hp_current 0x0004 +0x44 u32, hp_max 0x0008 +0x48 u32, mp_current 0x0010 +0x4C u32, mp_max 0x0020 +0x50 u32, scene_id 0x0100 +0x5C u16, scene_sequence 0x0200 +0x60 qword; ActorAttr class 0x1 +0x8C u32, skill points 0x8 +0x7C u32, unspent allocation points 0x10 +0x80 u16, STR/CON/DEX/INT/PER 0x20/0x40/0x80/0x100/0x200 at +0x82/+0x84/+0x86/+0x88/+0x8A u16, experience 0x400 +0xA0 qword, cash 0x800 +0xA8 qword, the five ability bonuses 0x40000..0x400000 at +0x182..+0x18A u16, and the persisted character name 0x01000000 +0x164 wstring. Every mask bit but the last is a STATS-PROG-001 gate pin; the name bit is DERIVED from the mask player_wire has had on a real client's wire since NAME-002 (0x01000800 minus the report-pinned cash bit 0x800) and the module records it as a derivation rather than as a report pin. The encoder is externally pinned rather than self-certified: for the baseline field set (hp 100/100, the actor's scene pair, cash = V116_INITIAL_CASH, the persisted name) the generic mask-driven encoder reproduces the hand-written, already client-accepted player_wire.make_actor_attr_with_name byte for byte, all 73 bytes, and that cross-check runs on EVERY composition, not only in tests. Composed bodies ride the frozen v141 make_runtime_vitals one-vital GSCN_RunTimeProtocolRes v4 collection envelope with the shared Attr-collection payload v141's own UpdateAttrVital encoder uses (tag12/u16 count = 1, tag12/u16 ActorAttr id 0x12AD, tag14/u32 body length, body), so PC size = 22 + 11 + body and the body sits at the fixed offset 31. Under the scenario only, one accepted chat input frame -- the exact 34-byte ascii12 shape classify_chat_input_attempt already accepts, with the unchanged selected + teleport_sent + runtime_ack_sent guards -- is used as a TRIGGER (nothing in the request is read) and answered with nine frames in the pinned order BASELINE, EXPERIENCE_1 (1234), EXPERIENCE_2 (987654), LEVEL (7), ABILITY_STR (11), ABILITY_CON (22), ABILITY_DEX (33), ABILITY_INT (44), ABILITY_PER (55), labelled HYP_PF_020_STATS_PROG_<STEP> and spaced by spacing_seconds 3.0 (the fourth action-tuple field is a gap on the frozen V141 sender's cumulative deadline, so the first frame carries 0.0 and each later frame the full spacing). Frames are CUMULATIVE by design: v141's own note on the client's ActorAttr apply 0x464F30 records that the incoming object is copied whole, so a field dropped from a later delta would be reset rather than left alone, and every frame therefore carries the full baseline field set plus every change so far. Every frame is composed, structurally checked (ids against the frozen module, sizes, body at the fixed offset) and re-decoded back to the requested (identity, fields) before any of them is queued. Everything else fails closed with no bytes and no write: unknown field names, non-integer or bool values, values outside a field's width, identities outside a u32 half, empty or non-two-bytes-per-code-unit names, a step index outside the plan, any mask bit in the high half of the 64-bit ActorAttr mask, and on the decode side damaged bodies, wrong tags and mask bits this lane does not implement. This is a no-write lane: progression has no table, no repository call exists on the path, and no socket action is taken.",
+   "scope": "Server-side encoder and decoder for the mask-gated ActorAttr progression fields and the nine-frame UpdateAttrVital 0x309A sweep that ships them, behind the one stats-progression opt-in scenario only; no progression VERB (AbilityDepoly, AbilityDepolyAll, CLearnSkillVital, CLearnSkillResultVital, CRevertSkilltVital) has any encoder, decoder or dispatch here, no inbound progression request is handled, no level-up rule, XP curve, allocation validation or reset cost is modelled, no progression value is persisted or read from any table, no client-observable rendering claim is made, and no production or default-mode path exists",
+   "status": "active",
+   "provenance": "Opened by the chief's implementation lane on 2026-08-18 (round 78) under the project owner's standing pre-approval of 2026-08-17 18:2x ('fix the exit button and every gameplay button found later'), on the STATS-PROG-001 static milestone (reports/PF_STATS_PROG001_CHARACTER_STATS_AND_PROGRESSION_STATIC_20260818.md), which named every implemented field with an in-binary consumer and a gate pin and measured the server gap at 19 named progression fields, 2 emitted, 0 decoded. This milestone implements the field half of that gap and nothing else. The composition itself is a DESIGNED hypothesis: no wire capture of any progression field exists in either direction, so what is proven is that the bytes the client's own serializer schema describes can be produced, that they are identical to the one ActorAttr projection a real client has already accepted wherever the two overlap, and that they leave the dispatcher.",
+   "evidence_refs": [
+    "reports/PF_STATS_PROG001_CHARACTER_STATS_AND_PROGRESSION_STATIC_20260818.md",
+    "reports/PF_STATS_PROG002_SERVER_ENCODER_20260818.md",
+    "scenarios/stats_progression_hypothesis_xp_sweep.json",
+    "tests/test_stats_progression_hypothesis.py",
+    "tests/test_stats_progression_dispatch.py",
+    "tools/verify_stats_progression_encoder.py",
+    "reports/PF_CHARACTER_NAME002_PLAYER_NAME_RUNTIME_PASS_20260816.md"
+   ],
+   "accepted_ceiling": "Composing mask-gated ActorAttr progression deltas behind the explicit opt-in only, with the baseline field set byte-identical to the already client-accepted player_wire projection and the progression fields composed by the same code path. The ceiling is the WIRE layer: nine frames are proven to leave the real make_state_class dispatcher, in order, carrying vital 0x309A and an ActorAttr collection whose body re-decodes to the declared cumulative field set, on a temp database, with all 27 per-step hashes matching the scenario pins. It does NOT reach the client layer by one millimetre: no client has seen a progression frame, and the per-level numbers that decide what the XP bar would draw are not even in the client executable.",
+   "evidence_gap": "NO progression field has ever been observed on this project's wire, in either direction, and no client has ever seen one of these frames. This lane has NOT been driven through a real server process over real TCP -- it is proven headless through the dispatcher only, on a temporary database. Whether the client accepts nine UpdateAttrVital frames in a 24-second window without coalescing, ignoring or erroring on them; whether the XP bar, the level number and the five Char_Info2 ability rows move; and whether 3.0 s spacing is enough to attribute one on-screen change to one frame are all unmeasured and are exactly GT-017, which this milestone unblocks but does not answer. The on-screen XP percentage cannot even be predicted: the requirement it divides by lives in external static data, not in the executable. The original server's progression rules, XP curve, allocation validation and reset policy remain entirely uncaptured. Sparse-delta semantics are untested by construction (every frame here is cumulative because v141's note on apply 0x464F30 says an omitted field is reset, not kept), and the meaning of the u8 extra-group flag and of the high half of the 64-bit mask is unknown -- the flag is reproduced at the v141 value and every high-half bit is refused.",
+   "falsification": "Retire or redesign this encoder if a real client rejects, ignores or desyncs on a composed progression frame (a RuntimeRes stream error falsifies the envelope or the Attr-collection reuse; a frame that blanks the character name, HP or scene falsifies the cumulative field set), if the generic encoder ever stops reproducing player_wire.make_actor_attr_with_name byte for byte for the baseline field set (which would mean the mask table and the proven projection have diverged), if a corrected STATS-PROG-001 ever records a gate pin that does not ascend with its mask bit (which would falsify the ascending-mask-bit emission order), if an attended observation shows a value landing on the wrong on-screen label (which would falsify the offset-to-label binding, e.g. LABEL_STR showing 22 instead of 11), or if this lane is ever observed to write any database row or take any socket action.",
+   "stop_rule": "Compose only the 23 implemented ActorAttr/BasicAttr fields, only from an explicit named field set, only behind the existing opt-in scenario file. Do not add any of the five progression verbs, do not handle any inbound progression request, do not implement level-up, allocation or reset rules, do not persist a progression value or open a table for one, do not set any high-half mask bit or any value for the extra-group flag other than the v141 one, do not ship a bare non-cumulative delta, and do not enable production or default-mode exposure. The sweep is a diagnostic for GT-017, not a progression feature. Stop and record if the first attended observation shows the client rejecting the frames or rendering a value on the wrong label.",
+   "production_allowed": false,
+   "expiry": {
+    "tracked_versions": [
+     "STATS-PROG-002"
+    ],
+    "decision": "Opened 2026-08-18 by the chief's implementation lane (round 78) under the owner's standing pre-approval as the first bounded version. Proven offline against the player_wire cross-check and through the real dispatcher; not driven over TCP and never seen by a client. Confirm the client-observable layer as GT-017 in the attended queue -- specifically whether the XP bar moves between the two experience frames, whether the level number updates, and whether each ability value lands on its own label -- before any retire, freeze or extend decision. Two versions of the three remain."
+   },
+   "max_versions": 3,
+   "extension_approval_ref": null,
+   "source_refs": [
+    {
+     "path": "src/pirateforce_foundation/stats_progression_hypothesis.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-020 active",
+      "encode_actor_attr",
+      "decode_actor_attr",
+      "make_stats_progression_response",
+      "make_stats_progression_step_response",
+      "require_stats_progression_hypothesis_scenario",
+      "stats_progression_hypothesis_xp_sweep",
+      "STATS_PROGRESSION_STEP_ORDER",
+      "STATS_PROGRESSION_SPACING_SECONDS"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "src/pirateforce_foundation/runtime.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-020 active",
+      "_dispatch_stats_progression_hypothesis",
+      "stats_progression_hypothesis_xp_sweep_sent",
+      "stats_progression_hypothesis_no_selected_no_reply",
+      "stats_progression_hypothesis_wrong_sequence_no_reply",
+      "STATS_PROGRESSION_ACTION_LABEL_PREFIX"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "src/pirateforce_foundation/app.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-020 active",
+      "--stats-progression-hypothesis-scenario requires an explicit existing --db"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "scenarios/stats_progression_hypothesis_xp_sweep.json",
+     "required_markers": [
+      "\"hypothesis_id\": \"HYP-PF-020\"",
+      "\"production_allowed\": false",
+      "\"test_only\": true",
+      "\"database_write\": \"none\"",
+      "\"field_order_rule\": \"ascending_mask_bit_within_each_block\""
+     ],
+     "active_claim_marker": true
+    }
+   ]
   }
  ]
 }

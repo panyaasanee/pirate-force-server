@@ -1,0 +1,367 @@
+{
+  "schema": 1,
+  "id": "stats_progression_hypothesis_xp_sweep",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-020",
+  "entry": {
+    "flow": "full_writable_character",
+    "required_sequence": "selected_and_runtime_ready",
+    "response_policy": "compose_cumulative_update_attr_vital_progression_deltas_no_write_no_close"
+  },
+  "dispatch": {
+    "trigger": "accepted_chat_input_frame_exact_ascii12_shape",
+    "trigger_classifier": "classify_chat_input_attempt",
+    "frames_per_accepted_request": 9,
+    "step_order": [
+      "BASELINE",
+      "EXPERIENCE_1",
+      "EXPERIENCE_2",
+      "LEVEL",
+      "ABILITY_STR",
+      "ABILITY_CON",
+      "ABILITY_DEX",
+      "ABILITY_INT",
+      "ABILITY_PER"
+    ],
+    "step_fields": {
+      "BASELINE": {},
+      "EXPERIENCE_1": {
+        "experience": 1234
+      },
+      "EXPERIENCE_2": {
+        "experience": 987654
+      },
+      "LEVEL": {
+        "level": 7
+      },
+      "ABILITY_STR": {
+        "ability_str": 11
+      },
+      "ABILITY_CON": {
+        "ability_con": 22
+      },
+      "ABILITY_DEX": {
+        "ability_dex": 33
+      },
+      "ABILITY_INT": {
+        "ability_int": 44
+      },
+      "ABILITY_PER": {
+        "ability_per": 55
+      }
+    },
+    "cumulative": true,
+    "spacing_seconds": 3.0,
+    "first_frame_delay_seconds": 0.0,
+    "delay_semantics": "gap_before_each_send_on_a_cumulative_deadline",
+    "action_label_prefix": "HYP_PF_020_STATS_PROG_",
+    "action_labels": [
+      "HYP_PF_020_STATS_PROG_BASELINE",
+      "HYP_PF_020_STATS_PROG_EXPERIENCE_1",
+      "HYP_PF_020_STATS_PROG_EXPERIENCE_2",
+      "HYP_PF_020_STATS_PROG_LEVEL",
+      "HYP_PF_020_STATS_PROG_ABILITY_STR",
+      "HYP_PF_020_STATS_PROG_ABILITY_CON",
+      "HYP_PF_020_STATS_PROG_ABILITY_DEX",
+      "HYP_PF_020_STATS_PROG_ABILITY_INT",
+      "HYP_PF_020_STATS_PROG_ABILITY_PER"
+    ],
+    "one_shot": false,
+    "socket_action": "none"
+  },
+  "wire": {
+    "vital_id": 12442,
+    "vital_version": 0,
+    "envelope": "gscn_runtime_protocol_res_v4_one_vital_collection",
+    "attr_id": 4781,
+    "attr_collection": "tag12_u16_count_tag12_u16_attr_id_tag14_u32_length_then_body",
+    "block_order": [
+      "dbattribute_mask_u8_then_identity_qword",
+      "basicattr_mask_u16_then_gated_fields",
+      "actorattr_mask_qword_then_extra_group_u8_then_gated_fields"
+    ],
+    "field_order_rule": "ascending_mask_bit_within_each_block",
+    "extra_group_flag_value": 1,
+    "basic_attr_fields": {
+      "level": {
+        "mask_bit": 2,
+        "object_offset": 94,
+        "wire_tag": 18,
+        "width": "u16",
+        "evidence": "STATS-PROG-001 s4 gate 0x465736; GetLv handler 0x460050"
+      },
+      "hp_current": {
+        "mask_bit": 4,
+        "object_offset": 68,
+        "wire_tag": 20,
+        "width": "u32",
+        "evidence": "STATS-PROG-001 s4 gate 0x46574A"
+      },
+      "hp_max": {
+        "mask_bit": 8,
+        "object_offset": 72,
+        "wire_tag": 20,
+        "width": "u32",
+        "evidence": "STATS-PROG-001 s4 gate 0x46575E"
+      },
+      "mp_current": {
+        "mask_bit": 16,
+        "object_offset": 76,
+        "wire_tag": 20,
+        "width": "u32",
+        "evidence": "STATS-PROG-001 s4 gate 0x465772; PROGRESSBAR_MP 0x53F1AD"
+      },
+      "mp_max": {
+        "mask_bit": 32,
+        "object_offset": 80,
+        "wire_tag": 20,
+        "width": "u32",
+        "evidence": "STATS-PROG-001 s4 gate 0x465786; schema column n_STAMINAMAX"
+      },
+      "scene_id": {
+        "mask_bit": 256,
+        "object_offset": 92,
+        "wire_tag": 18,
+        "width": "u16",
+        "evidence": "STATS-PROG-001 s4 gate 0x4657C2"
+      },
+      "scene_sequence": {
+        "mask_bit": 512,
+        "object_offset": 96,
+        "wire_tag": 50,
+        "width": "qword",
+        "evidence": "STATS-PROG-001 s4 gate 0x4657E3"
+      }
+    },
+    "actor_attr_fields": {
+      "class_id": {
+        "mask_bit": 1,
+        "object_offset": 140,
+        "wire_tag": 25,
+        "width": "u32",
+        "evidence": "STATS-PROG-001 s5 gate 0x466299; GetClass 0x460160"
+      },
+      "skill_points": {
+        "mask_bit": 8,
+        "object_offset": 124,
+        "wire_tag": 25,
+        "width": "u32",
+        "evidence": "STATS-PROG-001 s5 gate 0x4662EC; NUMBERLABEL_SPNOW 0x75C613"
+      },
+      "unspent_ability_points": {
+        "mask_bit": 16,
+        "object_offset": 128,
+        "wire_tag": 18,
+        "width": "u16",
+        "evidence": "STATS-PROG-001 s5 gate 0x466304; spinner cap 0x57DD7A"
+      },
+      "ability_str": {
+        "mask_bit": 32,
+        "object_offset": 130,
+        "wire_tag": 18,
+        "width": "u16",
+        "evidence": "STATS-PROG-001 s5 gate 0x46631F; getter 0x467A60 -> LABEL_STR"
+      },
+      "ability_con": {
+        "mask_bit": 64,
+        "object_offset": 132,
+        "wire_tag": 18,
+        "width": "u16",
+        "evidence": "STATS-PROG-001 s5 gate 0x46633A; getter 0x467AF0 -> LABEL_CON"
+      },
+      "ability_dex": {
+        "mask_bit": 128,
+        "object_offset": 134,
+        "wire_tag": 18,
+        "width": "u16",
+        "evidence": "STATS-PROG-001 s5 gate 0x466355; getter 0x467B80 -> LABEL_DEX"
+      },
+      "ability_int": {
+        "mask_bit": 256,
+        "object_offset": 136,
+        "wire_tag": 18,
+        "width": "u16",
+        "evidence": "STATS-PROG-001 s5 gate 0x466370; getter 0x467CA0 -> LABEL_INT"
+      },
+      "ability_per": {
+        "mask_bit": 512,
+        "object_offset": 138,
+        "wire_tag": 18,
+        "width": "u16",
+        "evidence": "STATS-PROG-001 s5 gate 0x46638A; getter 0x467C10 -> LABEL_PER"
+      },
+      "experience": {
+        "mask_bit": 1024,
+        "object_offset": 160,
+        "wire_tag": 50,
+        "width": "qword",
+        "evidence": "STATS-PROG-001 s5 gate 0x4663A8; XP bar 0x519299/0x5192C6"
+      },
+      "cash": {
+        "mask_bit": 2048,
+        "object_offset": 168,
+        "wire_tag": 50,
+        "width": "qword",
+        "evidence": "STATS-PROG-001 s5 gate 0x4663C6; GetCash 0x4600AC"
+      },
+      "ability_bonus_str": {
+        "mask_bit": 262144,
+        "object_offset": 386,
+        "wire_tag": 18,
+        "width": "u16",
+        "evidence": "STATS-PROG-001 s5 gate 0x466490"
+      },
+      "ability_bonus_con": {
+        "mask_bit": 524288,
+        "object_offset": 388,
+        "wire_tag": 18,
+        "width": "u16",
+        "evidence": "STATS-PROG-001 s5 gate 0x4664AE"
+      },
+      "ability_bonus_dex": {
+        "mask_bit": 1048576,
+        "object_offset": 390,
+        "wire_tag": 18,
+        "width": "u16",
+        "evidence": "STATS-PROG-001 s5 gate 0x4664CC"
+      },
+      "ability_bonus_int": {
+        "mask_bit": 2097152,
+        "object_offset": 392,
+        "wire_tag": 18,
+        "width": "u16",
+        "evidence": "STATS-PROG-001 s5 gate 0x4664EA"
+      },
+      "ability_bonus_per": {
+        "mask_bit": 4194304,
+        "object_offset": 394,
+        "wire_tag": 18,
+        "width": "u16",
+        "evidence": "STATS-PROG-001 s5 gate 0x466508"
+      },
+      "character_name": {
+        "mask_bit": 16777216,
+        "object_offset": 356,
+        "wire_tag": 72,
+        "width": "wstring",
+        "evidence": "derived: player_wire mask 0x01000800 minus report-pinned cash"
+      }
+    },
+    "not_implemented_basic_attr_bits": [
+      1,
+      64,
+      128,
+      1024,
+      2048
+    ],
+    "not_implemented_note": "the 24 ActorAttr fields STATS-PROG-001 s5 decodes but deliberately does not name are not implemented, and neither is any of the five progression verbs of s7"
+  },
+  "probe": {
+    "identity_lo": 268500993,
+    "identity_hi": 0,
+    "scene_id": 1,
+    "scene_sequence": 0,
+    "character_name": "test01",
+    "cash": 10000,
+    "hp_current": 100,
+    "hp_max": 100,
+    "baseline_crosscheck": "encode_actor_attr_reproduces_player_wire_make_actor_attr_with_name_byte_for_byte",
+    "per_step": {
+      "BASELINE": {
+        "attr_body_size": 73,
+        "attr_body_sha256": "479ED77DFA554F89AAB02E884608EC53BAEC9E213F85548AF9CCD291BCC896C4",
+        "pc_size": 106,
+        "pc_sha256": "DB3CE0B5D14196181EF9EA26A0D435E0489212634334CB562F840E368B5F0049",
+        "frame_size": 117,
+        "frame_sha256": "04E2B40152B633A48C84713B1C24A2910B7AB84E178E268094C0D10B179D9FBC"
+      },
+      "EXPERIENCE_1": {
+        "attr_body_size": 82,
+        "attr_body_sha256": "53D7B4EF98604159C7ED07270BD474660C99512BC4736B5B26C9E3C4D848B661",
+        "pc_size": 115,
+        "pc_sha256": "EAF977654412771F20008C02739DE3CECBEB5C7F53A163E5FE2C4E65A74912DF",
+        "frame_size": 126,
+        "frame_sha256": "0174F88CF2171AFF6AA34D7278F5F488CDF77132F73035526CE20C7EBE2325B1"
+      },
+      "EXPERIENCE_2": {
+        "attr_body_size": 82,
+        "attr_body_sha256": "F1C14654F06D805A4A3A642D6DD41A32EAA316DC089138158727E256EB93B437",
+        "pc_size": 115,
+        "pc_sha256": "4C87E2924B8FBC0D0EB82870F57D273E7DB7F6FB3F8E3C8DEDA6E0F210E1F421",
+        "frame_size": 126,
+        "frame_sha256": "4FC30B642D619E4CBBD6DFDDB13A643A67D3DECC8BDADAF3D45AA6682F3D2E2D"
+      },
+      "LEVEL": {
+        "attr_body_size": 85,
+        "attr_body_sha256": "A0743D9BE338E470344914F5CC91B095B76254268DF180DEE721888470C0DB24",
+        "pc_size": 118,
+        "pc_sha256": "3C6AF0B21B6A92491375830EA33EBEF293AD223B46C68CA7C866EE696F07E59E",
+        "frame_size": 129,
+        "frame_sha256": "4D016B5F775E5355909AA2CB795BA1F598F7538BF5FD0202605D3891F8AE3158"
+      },
+      "ABILITY_STR": {
+        "attr_body_size": 88,
+        "attr_body_sha256": "AEB122CEA1B4256E151B9661153085AE81B838071288CB10F0868585B1D96620",
+        "pc_size": 121,
+        "pc_sha256": "4C85605FCB38AC7C47CA825A849EC86B847182A5B21F32CC2B92D732CDF5DAD6",
+        "frame_size": 132,
+        "frame_sha256": "408D9E1A1A662EF39A85D81EC9C45A9732C7D64323F812AA2FCD7D43D339FF70"
+      },
+      "ABILITY_CON": {
+        "attr_body_size": 91,
+        "attr_body_sha256": "B421BAC35F08DB6A9E377C87F772A5F04B02AC33B90DB29B5EE4A885E1DB5D39",
+        "pc_size": 124,
+        "pc_sha256": "1BB3225F1CBA9F5B414E8A27A9B499432DECDB454DF8895BF10C79CFA4312881",
+        "frame_size": 135,
+        "frame_sha256": "425B740EB4DABA91A38FBA46A1EBD8F8A35130227C16BB44FCEA1008662F1BCF"
+      },
+      "ABILITY_DEX": {
+        "attr_body_size": 94,
+        "attr_body_sha256": "D2CF02DF7FA574311B2383E1FD5E21D809D7659632CC4D988BAD33E6523C8342",
+        "pc_size": 127,
+        "pc_sha256": "A256C9A69572ACCB6FE8FCA07C7E8783790FB68B1DFD6C076336EAF52A797022",
+        "frame_size": 138,
+        "frame_sha256": "857891B014383215DE540F2A6C47FEE3A9E4D42BB13817C99651241F834AFD21"
+      },
+      "ABILITY_INT": {
+        "attr_body_size": 97,
+        "attr_body_sha256": "B20CD7AC63A9F9EB4FCB8236F3791AA77D5A2B028F026C9BA7BC99FC4AFB42D4",
+        "pc_size": 130,
+        "pc_sha256": "77AB9EE8E29B396A18A98F4A3DDC75A1B9851D1FCF60393148574926D638AA0E",
+        "frame_size": 142,
+        "frame_sha256": "165990411FC64348A69389F1DA5F67F9A3E5E6A2F096FD6D79511C6BD05A5F16"
+      },
+      "ABILITY_PER": {
+        "attr_body_size": 100,
+        "attr_body_sha256": "4EE5B05F3773A3171BE8284ED69DC9E878520B870E319900F129E884993ABA1E",
+        "pc_size": 133,
+        "pc_sha256": "0B57D332114568AC644E3B65D37E6BC28C3053EB595941C1E2059F60328796D5",
+        "frame_size": 145,
+        "frame_sha256": "50AC4927BBEAD772EFAB459B07D35404F457F3E190F53EF538C378BD7B186625"
+      }
+    }
+  },
+  "persisted_post_state": {
+    "database_write": "none"
+  },
+  "capabilities": [
+    "compose_sparse_mask_gated_actor_attr_bodies_from_named_fields",
+    "emit_level_experience_and_five_ability_fields_through_0x309A",
+    "reproduce_the_proven_player_wire_baseline_projection_byte_exactly",
+    "decode_every_composed_body_back_to_the_requested_fields",
+    "repeatable_sweep_per_session_no_state_change"
+  ],
+  "nonclaims": [
+    "client_rendering_of_any_progression_field_pending_gt017",
+    "any_wire_observation_of_a_progression_field_in_either_direction",
+    "original_server_progression_rules_xp_curve_or_allocation_policy",
+    "the_per_level_numbers_which_live_in_external_static_data",
+    "sparse_delta_semantics_for_fields_a_frame_omits",
+    "any_meaning_for_the_extra_group_flag_beyond_the_v141_value",
+    "the_five_progression_verbs_which_have_no_encoder_here",
+    "progression_persistence_or_database_write",
+    "production_dispatch_wiring",
+    "production_baseline_behavior"
+  ]
+}

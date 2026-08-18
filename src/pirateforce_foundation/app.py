@@ -19,6 +19,9 @@ from .runtime_console import install_runtime_console
 from .scenario import load_scenario
 from .scene_load import load_scene_load_scenario
 from .second_password_bypass import SECOND_PASSWORD_MODES
+from .stats_progression_hypothesis import (
+    load_stats_progression_hypothesis_scenario,
+)
 from .session import ReadOnlyFoundationSession
 from .store import SQLiteStore
 from .shutdown import (
@@ -49,6 +52,7 @@ def main() -> int:
     pre.add_argument('--chat-input-hypothesis-scenario')
     pre.add_argument('--channel-message-hypothesis-scenario')
     pre.add_argument('--delete-actor-hypothesis-scenario')
+    pre.add_argument('--stats-progression-hypothesis-scenario')
     pre.add_argument(
         '--second-password-mode', choices=SECOND_PASSWORD_MODES,
         default='required',
@@ -98,17 +102,26 @@ def main() -> int:
         load_delete_actor_hypothesis_scenario(known.delete_actor_hypothesis_scenario)
         if known.delete_actor_hypothesis_scenario else None
     )
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-020 active
+    stats_progression_hypothesis = (
+        load_stats_progression_hypothesis_scenario(
+            known.stats_progression_hypothesis_scenario
+        )
+        if known.stats_progression_hypothesis_scenario else None
+    )
     if sum(value is not None for value in (
         scenario, scene_load, population, item_move_capture,
         item_move_hypothesis, logout_hypothesis, chat_input_hypothesis,
         channel_message_hypothesis, delete_actor_hypothesis,
+        stats_progression_hypothesis,
     )) > 1:
         pre.error(
             '--scenario, --scene-load-scenario, --population-scenario, and '
             '--item-move-capture-scenario/--item-move-hypothesis-scenario/'
             '--logout-hypothesis-scenario/--chat-input-hypothesis-scenario/'
             '--channel-message-hypothesis-scenario/'
-            '--delete-actor-hypothesis-scenario are mutually exclusive'
+            '--delete-actor-hypothesis-scenario/'
+            '--stats-progression-hypothesis-scenario are mutually exclusive'
         )
     if item_move_capture is not None and not known.db:
         pre.error('--item-move-capture-scenario requires an explicit existing --db')
@@ -124,6 +137,10 @@ def main() -> int:
         )
     if delete_actor_hypothesis is not None and not known.db:
         pre.error('--delete-actor-hypothesis-scenario requires an explicit existing --db')
+    if stats_progression_hypothesis is not None and not known.db:
+        pre.error(
+            '--stats-progression-hypothesis-scenario requires an explicit existing --db'
+        )
     db_path = known.db or str(
         root / (
             'state/object_population_v94.sqlite3' if population is not None
@@ -146,6 +163,8 @@ def main() -> int:
             'channel-message-hypothesis'
             if channel_message_hypothesis is not None else
             'delete-actor-hypothesis' if delete_actor_hypothesis is not None else
+            'stats-progression-hypothesis'
+            if stats_progression_hypothesis is not None else
             'foundation'
         )
         install_runtime_console(
@@ -161,6 +180,7 @@ def main() -> int:
         or chat_input_hypothesis is not None
         or channel_message_hypothesis is not None
         or delete_actor_hypothesis is not None
+        or stats_progression_hypothesis is not None
     ):
         if not Path(db_path).is_file():
             raise FileNotFoundError(db_path)
@@ -171,6 +191,7 @@ def main() -> int:
             or chat_input_hypothesis is not None
             or channel_message_hypothesis is not None
             or delete_actor_hypothesis is not None
+            or stats_progression_hypothesis is not None
         ):
             store.migrate()
             store.expire_open_sessions()
@@ -203,6 +224,7 @@ def main() -> int:
         chat_input_hypothesis_scenario=chat_input_hypothesis,
         channel_message_hypothesis_scenario=channel_message_hypothesis,
         delete_actor_hypothesis_scenario=delete_actor_hypothesis,
+        stats_progression_hypothesis_scenario=stats_progression_hypothesis,
         # PF-HYPOTHESIS-LEDGER: HYP-PF-009 active
         second_password_mode=known.second_password_mode,
     )

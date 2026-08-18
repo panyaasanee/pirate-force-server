@@ -67,7 +67,41 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers ONE deliberate movement, chief round 77 (2026-08-18):
+    # This pin covers ONE deliberate movement, chief round 78 (2026-08-18):
+    # character_management/stats_and_progression gains the STATS-PROG-002 evidence and
+    # test refs (status already in_progress, unchanged, and deliberately NOT moved to
+    # runtime_pass). evidence_refs
+    # reports/PF_STATS_PROG002_SERVER_ENCODER_20260818.md and
+    # scenarios/stats_progression_hypothesis_xp_sweep.json, test_refs
+    # tests/test_stats_progression_hypothesis.py and
+    # tests/test_stats_progression_dispatch.py. STATS-PROG-001 measured the gap at
+    # nineteen named progression fields, two emitted, zero decoded; this milestone moves
+    # the FIELD half of it. src/pirateforce_foundation/stats_progression_hypothesis.py is
+    # a generic mask-driven ActorAttr encoder/decoder over 23 fields in the three chained
+    # blocks, emitting in ascending mask-bit order -- which is read off the report rather
+    # than assumed, because STATS-PROG-001 records a gate-test address per gated field and
+    # those addresses ascend strictly with the bits in both tables. The encoder is pinned
+    # externally, not self-certified: for the baseline field set it reproduces
+    # player_wire.make_actor_attr_with_name byte for byte (73 bytes), a hand-written
+    # projection a real client has accepted since NAME-002, and that check runs on every
+    # composition. A new opt-in scenario plus the new --stats-progression-hypothesis-scenario
+    # flag (explicit --db, mutually exclusive with every other mode including the two chat
+    # lanes, which key on the same trigger vital) wires it into runtime.py: one accepted
+    # ascii12 frame is a TRIGGER (nothing in it is read) answered with nine UpdateAttrVital
+    # 0x309A frames 3.0 s apart -- baseline, exp 1234, exp 987654, level 7, then
+    # STR/CON/DEX/INT/PER = 11/22/33/44/55 one at a time, cumulative because V141 records
+    # that the client's ActorAttr apply 0x464F30 copies the incoming object whole. Proven on
+    # dispatched bytes: nine actions in order, every Attr body at the fixed offset 31
+    # re-decoding to the declared cumulative field set, all 27 per-step hashes matching the
+    # scenario pins, eighteen frames for two requests with no accumulated state, database
+    # byte-identical across accepted and refused windows. The ledger GROWS: HYP-PF-020
+    # appended, count 26 -> 27, every existing index stable. NOT runtime_pass: no client has
+    # seen one of these frames and no progression field has ever been on this project's wire
+    # in either direction -- that is GT-017, attended, unblocked but unanswered. No other
+    # lane's module, scenario or test was touched; tests/test_presentation_ownership.py and
+    # the STATS-PROG-001 static guards needed no change (the new module spells neither the
+    # chat vital id nor any of the five progression verb names).
+    # Previous pin B6002E45..E1F3 (round 77) covered ONE deliberate movement:
     # chat/chat_channels_and_routing gains the CHAT-CHANNEL-003 evidence and test
     # refs (status already in_progress, unchanged, and deliberately NOT moved to
     # runtime_pass). evidence_refs
@@ -222,7 +256,7 @@ GRADE_SUBSET_SHA256 = (
     # 26D752FE..BA9A (round 65) occupied_destination_policy not_started ->
     # in_progress under HYP-PF-017 (ITEM-SWAP-001); see its lineage note before that
     # for round 53's 78558E56..6DC8.
-    "B6002E450485EFBA85AAD189CEFFC43DB0663B5BFD288494AA51FC563181E1F3"
+    "0C16D38678FBF08312804AA127A9518FE747418D57F943EFE636EC096BE6FE90"
 )
 
 

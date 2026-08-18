@@ -71,6 +71,13 @@ from .scenario import is_p30_target_observation, make_p30_target
 from .session import FoundationSession
 from .scene_object import (is_scene_remote_target, is_scene_remote_hostile_target,
                            make_scene_remote_actor)
+from .stats_progression_hypothesis import (
+    STATS_PROGRESSION_ACTION_LABEL_PREFIX,
+    STATS_PROGRESSION_FIRST_DELAY_SECONDS,
+    StatsProgressionActor,
+    make_stats_progression_step_response,
+    require_stats_progression_hypothesis_scenario,
+)
 from .second_password_bypass import (
     SECOND_PASSWORD_PULSE_INTERVAL_SECONDS,
     make_proactive_second_password_ok,
@@ -93,6 +100,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                      chat_input_hypothesis_scenario=None,
                      channel_message_hypothesis_scenario=None,
                      delete_actor_hypothesis_scenario=None,
+                     stats_progression_hypothesis_scenario=None,
                      second_password_mode="required",
                      monotonic_clock=None,
                      close_timer_factory=None):
@@ -102,13 +110,20 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         logout_hypothesis_scenario, chat_input_hypothesis_scenario,
         channel_message_hypothesis_scenario,
         delete_actor_hypothesis_scenario,
+        stats_progression_hypothesis_scenario,
     ))
     if active_modes > 1:
         raise ValueError(
             "Arena, scene-load, population, item-move capture, item-move "
             "hypothesis, logout hypothesis, chat input hypothesis, channel "
-            "message hypothesis, and delete actor hypothesis scenarios are "
-            "mutually exclusive"
+            "message hypothesis, delete actor hypothesis, and stats "
+            "progression hypothesis scenarios are mutually exclusive"
+        )
+    if stats_progression_hypothesis_scenario is not None:
+        stats_progression_hypothesis_scenario = (
+            require_stats_progression_hypothesis_scenario(
+                stats_progression_hypothesis_scenario
+            )
         )
     if delete_actor_hypothesis_scenario is not None:
         delete_actor_hypothesis_scenario = (
@@ -199,6 +214,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.worldinfo_stored_count = 0
                 self.chat_input_echo_count = 0
                 self.channel_message_sweep_count = 0
+                self.stats_progression_sweep_count = 0
                 self.delete_actor_soft_delete_count = 0
                 self.transport_socket_closer = None
                 self.second_password_bypass_sent = False
@@ -962,6 +978,81 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             )
             return actions
 
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-020 active
+        def _dispatch_stats_progression_hypothesis(self, parsed):
+            """Answer one accepted chat input frame with the progression sweep.
+
+            STATS-PROG-002.  The request side is deliberately the SAME accepted
+            shape the HYP-PF-014 echo lane classifies (exact 34-byte ascii12
+            frame): it is the only client action an attended tester can trigger
+            on demand, and reusing it means every guard here is one the project
+            has already proven -- wrong shape, wrong envelope, no selected
+            character and not-yet-runtime-ready all fail closed with no reply
+            and no write.  Nothing in the request is read: the request is a
+            trigger, not an input, and the answer is composed entirely from the
+            selected character plus the scenario's pinned step plan.
+
+            The answer is one UpdateAttrVital frame per step, in the scenario's
+            order, spaced by ``spacing_seconds`` so an attended reader can
+            attribute one on-screen change to one frame.  Each frame carries the
+            cumulative field set: the exact baseline ActorAttr projection
+            player_wire already puts on the wire at start-game, plus every
+            progression change up to that step.  That is not decoration -- v141's
+            note on the client's ActorAttr apply 0x464F30 says the incoming
+            object is copied whole, so a field dropped from a later frame would
+            be undone rather than left alone.  Every frame is composed, re-decoded
+            and pinned before any of them is queued.  The lane touches no store
+            (progression has no table), takes no socket action, and is not
+            one-shot.
+            """
+            self.rx_frames += 1
+            classification = classify_chat_input_attempt(legacy, parsed)
+            if classification != "ascii12":
+                self.events.append(
+                    f"stats_progression_hypothesis_{classification}_no_reply"
+                )
+                return []
+            selected = self.foundation.selected
+            if selected is None:
+                self.events.append(
+                    "stats_progression_hypothesis_no_selected_no_reply"
+                )
+                return []
+            if not self.teleport_sent or not self.runtime_ack_sent:
+                self.events.append(
+                    "stats_progression_hypothesis_wrong_sequence_no_reply"
+                )
+                return []
+            position = selected.position
+            actor = StatsProgressionActor(
+                selected.identity_lo, selected.identity_hi,
+                position.scene_id, position.scene_seq, selected.name,
+            )
+            actions = []
+            for index, label in enumerate(
+                stats_progression_hypothesis_scenario.step_order
+            ):
+                pc, frame = make_stats_progression_step_response(
+                    legacy, actor, index,
+                )
+                # The frozen V141 sender accumulates these onto one deadline
+                # (send_deadline += delay, then sleep to it), so this field is
+                # the gap before each send: 0.0 for the first frame and the
+                # full spacing for every later one.
+                delay = (
+                    STATS_PROGRESSION_FIRST_DELAY_SECONDS if index == 0
+                    else stats_progression_hypothesis_scenario.spacing_seconds
+                )
+                actions.append((
+                    STATS_PROGRESSION_ACTION_LABEL_PREFIX + label,
+                    pc, frame, delay,
+                ))
+            self.stats_progression_sweep_count += 1
+            self.events.append(
+                "stats_progression_hypothesis_xp_sweep_sent"
+            )
+            return actions
+
         # PF-HYPOTHESIS-LEDGER: HYP-PF-015 active
         def _dispatch_delete_actor_hypothesis(self, parsed):
             """Soft-delete one owned character behind the explicit opt-in.
@@ -1146,6 +1237,16 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # the two flags together, which is why the ordering of these
                 # two branches cannot matter.
                 return self._dispatch_channel_message_hypothesis(parsed)
+            if (
+                stats_progression_hypothesis_scenario is not None
+                and nested_id == CHAT_INPUT_VITAL_ID
+            ):
+                # STATS-PROG-002.  This lane and both chat lanes are keyed on
+                # the same vital id, so they must never be able to see the same
+                # frame: make_state_class refuses any pair outright and app.py
+                # refuses the flags together, which is why the ordering of these
+                # branches cannot matter.
+                return self._dispatch_stats_progression_hypothesis(parsed)
             if (
                 delete_actor_hypothesis_scenario is not None
                 and nested_id == DELETE_ACTOR_VITAL_ID

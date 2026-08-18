@@ -65,7 +65,19 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # moves only at the WIRE layer: five frames leave the dispatcher in pinned order with
 # byte-identical payloads and a two-byte PC delta.  No client has seen a sweep and this
 # lane has NOT been driven over real TCP, unlike CHAT-ECHO-002.  Count stays 26).
-CANONICAL_CONTENT_SHA256 = "6A3D24657CC491A2813F6817C440E0F639B576707B9948D5CEBCD6451BFDF8CE"
+# -> E5D94616.. (2026-08-18 chief round 78: HYP-PF-020 APPENDED -- the server-side
+# mask-gated ActorAttr progression encoder/decoder plus the nine-frame UpdateAttrVital
+# 0x309A sweep that ships it, behind its own opt-in scenario
+# scenarios/stats_progression_hypothesis_xp_sweep.json and the new
+# --stats-progression-hypothesis-scenario flag, on the STATS-PROG-001 static milestone.
+# Appended at the end so every existing entry index stays stable.  Like HYP-PF-019 this
+# one is NOT driven over real TCP: it is proven offline -- the generic mask-driven encoder
+# reproduces player_wire.make_actor_attr_with_name byte for byte for the baseline field
+# set, which is the one ActorAttr projection a real client has already accepted -- and
+# through the real dispatcher on a temp database.  NO progression field has ever been seen
+# on this project's wire in either direction and no client has seen one of these frames;
+# that is GT-017.  Count moves to 27.
+CANONICAL_CONTENT_SHA256 = "E5D9461683D36431493F0E4E6A110FEA6AC09B38B93958391D9D22CE52A1615F"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -130,6 +142,14 @@ EXPECTED_IDS = (
     # lanes agreeing byte-for-byte where they overlap IS the evidence the parse
     # is correct.
     "HYP-PF-019",
+    # HYP-PF-020 (server-side mask-gated ActorAttr progression encoder behind the
+    # UpdateAttrVital 0x309A delta pipe, with its own stats-progression opt-in
+    # scenario, under the owner's standing pre-approval of 2026-08-17 18:2x, on the
+    # STATS-PROG-001 static milestone) is likewise appended.  It emits fields
+    # STATS-PROG-001 named and nothing else: none of the five progression VERBS has
+    # an encoder or a dispatch branch here, so that milestone's "5 verbs, 0
+    # encoders" statement and its src/ guard stay literally true.
+    "HYP-PF-020",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -160,6 +180,7 @@ EXPECTED_META = {
     "HYP-PF-017": ("protocol_hypothesis", "ITEM-SWAP-001", "active"),
     "HYP-PF-018": ("protocol_hypothesis", "ITEM-MERGE-001", "active"),
     "HYP-PF-019": ("protocol_hypothesis", "CHAT-CHANNEL-002", "active"),
+    "HYP-PF-020": ("protocol_hypothesis", "STATS-PROG-002", "active"),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}
 STATUSES = {"active", "frozen", "retired", "harness_only", "expired_pending_decision"}

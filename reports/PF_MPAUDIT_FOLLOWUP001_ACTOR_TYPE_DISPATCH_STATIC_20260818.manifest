@@ -1,0 +1,76 @@
+# Evidence for PF_MPAUDIT_FOLLOWUP001 (paths relative to the Pirate Force root)
+# Static RE only: no src/ change, no matrix flip, no ledger entry, no scenario, no
+# runtime claim, no network, no GameClient launch, no canonical database access.
+# Every address, vtable slot, jump-table entry and span hash quoted in the report is
+# reproduced from these exact files by tools/pf_actor_type_dispatch_static.py
+# (111 guards; exit 0 = PASS).  Measured at HEAD f286945.
+#
+# --- THE SOLE BINARY EVIDENCE (read-only, never written by this project) ---
+# The whole dispatch enumeration comes out of this one image:
+#   actor_type setter          0x5DEC00
+#   actor-entry serializer     0x5E21D0 (outbound) / 0x5E2301 (inbound)
+#   actor factory              0x446990, jump table 0x446B2C (5 entries), default 0x446B14
+#   branch heads               0x4469E1 / 0x4469F7 / 0x446A3D / 0x446A5A / 0x446A77
+#   class registrars           0x405BD9 0x405C69 0x40BA39 0x40BAC9 0x413259
+#   type-node registrar        0x88F2E0, is-a check 0x88F2B0
+#   Attr bind thunks (+0x38)   0x469760 0x4697B0 0x469800 0x469850 0x4698B0 0x73D360
+#   attr apply loop            0x5DF080, CNetActor::init 0x454920
+#   GetAttr / GetName          0x44C630 / 0x45CD20 and 0x4549E0 / 0x45BB40
+#   name board                 0x456580 0x45C560 0x5BE080 0x5BD320 (bailout 0x5BD8C7)
+#   stream path                0x5E4060 -> 0x446F30 -> 0x446990
+Pirate Force\GameClient\GameClient.local.bin|14759424|9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623
+#
+# --- READ-ONLY SERVER CROSS-CHECK (immutable; opened for reading only) ---
+# 19 make_remote_actor_entry call sites with a literal actor_type, all of them 4.
+# NPC_ATTR 0x0AD5 / ACTOR_ATTR 0x12AD / MOVEMENT_ATTR 0x2067 declared;
+# ACTOR_ATTR is used only in UpdateAttrVital payloads, never inside an actor entry.
+Pirate Force ServerProject\current\pf_login_game_server_v141.py|382913|2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22
+#
+# --- FOUNDATION MODULES THE CROSS-CHECK COUNTS (read only, not modified) ---
+# population.py:23  NPC_STYLE_ACTOR_TYPE = 4  (two call sites)
+# scene_object.py:34 make_remote_actor_entry(4, ...) hardcoded
+# population_scenario.py  keeps "remote_player" as an explicit nonclaim
+Pirate Force ServerProject\src\pirateforce_foundation\population.py|11593|DF7BEDB387963B67C0E4438479B057E8023A2A63EFA1016000994982DE18D52F
+Pirate Force ServerProject\src\pirateforce_foundation\scene_object.py|3267|39532CEB30A9B02F22EF85B2F0140E4498DAA5C561AE772C179A2F6ACA5A6D1B
+Pirate Force ServerProject\src\pirateforce_foundation\population_scenario.py|3318|669C60FABA9C69530C1559507135266C121CB03602362BADEB4C28384D333276
+#
+# --- CONTEXT MODULES READ WHILE WRITING THE REPORT (read only, not modified,
+#     pinned so the report's statements about them can be checked later) ---
+# npc_wire.py    the NPCAttr the server sends today (BasicAttr name bit 0x0001 present)
+# player_wire.py the local-player ActorAttr projection, incl. the +0x164 name field
+# actor_wire.py  the CreateActorDataEx identity/selector/name prefix helpers
+Pirate Force ServerProject\src\pirateforce_foundation\npc_wire.py|1915|B176D56875D1DA237A9D476CA23250291CFBE5DC3A25DB72CA958377EC5C0228
+Pirate Force ServerProject\src\pirateforce_foundation\player_wire.py|2859|E3AD8E25DC99BEFC46AFDA314D3238DC33FD5FBD3F3942E7EC950B2263928C3F
+Pirate Force ServerProject\src\pirateforce_foundation\actor_wire.py|3109|F053F7C2F9FEE4F83EC460124C1D519156E81455517C20425D93FBD6B7A676BB
+#
+# --- PRIOR MILESTONES THIS ONE BUILDS ON AND DOES NOT RE-PROVE ---
+# MULTIPLAYER-READINESS-AUDIT-001  the question this milestone answers (G1, F8, G2)
+# MOVE-PROJECT-001                 the RuntimeRes derived +0x1C actor stream, the
+#                                  direction-agnostic codec, MovementAttr vtable 0xF0D0F8
+# NAMEID-HASH-001                  the u16 name-hash that reproduces all six Attr ids
+# CHARACTER-NAME-001               ActorAttr +0x164 as the player-name field (cited only)
+# OBJECT-POP-002                   the runtime-proven actor_type 4 + NPCAttr entry
+# STATS-PROG-001                   the Attribute/DBAttribute/BasicAttr/ActorAttr hierarchy
+Pirate Force ServerProject\reports\PF_MULTIPLAYER_READINESS_AUDIT001_SINGLE_PLAYER_ASSUMPTIONS_20260818.md|41201|754F7FDC1BD209A49CA9E3517F3AF9F4ABF7F578444FB01B667821E1B2444BEC
+Pirate Force ServerProject\reports\PF_MOVE_PROJECT001_REMOTE_MOVEMENT_PROJECTION_STATIC_20260818.md|11976|31008A6A0A4362132F31133673312FB3E7F0816F607F821593E44346AA9FB302
+Pirate Force ServerProject\reports\PF_NAMEID_HASH001_VITAL_ID_IS_PURE_NAME_HASH_STATIC_20260818.md|8580|15BA2DE7D8F09DDABA40770A6B9FD0E42C0533414D9BFD2F15A16A165599A5B5
+Pirate Force ServerProject\reports\PF_CHARACTER_NAME001_PLAYER_NAME_PROJECTION_STATIC_IMPLEMENTATION_20260816.md|4139|30D6FE38FF9A6786147188D9DD9D46ED643E03C91465DD8044917D98DAAAE54B
+Pirate Force ServerProject\reports\PF_OBJECT_POP002_AUTHORITATIVE_SCENE_ACTOR_RUNTIME_PASS_20260816.md|8518|B87D3673DC7F21DE30ED1A3A596EB5CDA5A3B009BBF71E064A91108C8F7FEC7F
+Pirate Force ServerProject\reports\PF_STATS_PROG001_CHARACTER_STATS_AND_PROGRESSION_STATIC_20260818.md|30015|CC8B701CB988B74EE1A95FFD40D33D22B220F2D81EC72538FEF0BDCB16ABF05E
+#
+# Deliberately NOT pinned, and why:
+#   (ref, unpinned) docs/FUNCTIONAL_COVERAGE.json - the rows this milestone reports on
+#       (movement/remote_player_movement_projection, character_management/
+#       appearance_and_avatar_binding, session_lifecycle/concurrent_multi_client).
+#       NOT modified: the D -> B grade in section 6 is a proposal, not a flip.
+#   (ref, unpinned) docs/HYPOTHESIS_LEDGER.json - HYP-PF-011 preconditions. NOT modified.
+#   (ref, unpinned) capture corpus - NO capture was used. There is no archived capture of
+#       an actor_type other than 4 anywhere in the corpus, and none can exist: the
+#       original server is closed and was never published. That absence is the reason
+#       this milestone is static-only and is recorded here rather than hidden.
+#
+# Verifier + regression test shipped with this report:
+#   (ref, unpinned) tools/pf_actor_type_dispatch_static.py   (111 guards, exit 0)
+#   (ref, unpinned) tests/test_actor_type_dispatch_static.py
+# Report (this file's sibling):
+#   (ref, unpinned) reports/PF_MPAUDIT_FOLLOWUP001_ACTOR_TYPE_DISPATCH_STATIC_20260818.md

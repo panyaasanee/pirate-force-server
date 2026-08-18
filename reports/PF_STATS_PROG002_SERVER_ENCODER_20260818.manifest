@@ -1,0 +1,50 @@
+# Evidence for PF_STATS_PROG002 (paths relative to the Pirate Force root)
+# Server-side encoder milestone: src/ changed, one matrix row gains evidence/test refs
+# (status unchanged), one ledger entry appended (HYP-PF-020, count 26 -> 27). NO network,
+# NO server process, NO GameClient, NO canonical database access, NO commit. Every number
+# in the report is reproducible from these exact files via
+#   py -3 tools/verify_stats_progression_encoder.py   (85 guards, exit 0)
+#   py -3 tools/verify_hypothesis_ledger.py           (entries=27)
+#   py -3 -m pytest tests/test_stats_progression_hypothesis.py tests/test_stats_progression_dispatch.py -q
+# NOTE: a concurrent static lane (PF_MPAUDIT_FOLLOWUP001) was writing to reports/, tools/
+# and tests/ in the same window. It touched none of the files pinned below; the hashes here
+# were taken after this milestone's last edit to each of them.
+#
+# --- the immutable legacy module this lane composes through (read-only, never edited) ---
+Pirate Force ServerProject\current\pf_login_game_server_v141.py|382913|2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22
+#
+# --- the hand-written projection the generic encoder is cross-checked against, byte for
+#     byte, on every composition. Unchanged by this milestone; pinned because the whole
+#     correctness argument of section 4 of the report rests on its exact bytes. ---
+Pirate Force ServerProject\src\pirateforce_foundation\player_wire.py|2859|E3AD8E25DC99BEFC46AFDA314D3238DC33FD5FBD3F3942E7EC950B2263928C3F
+#
+# --- the milestone itself: encoder module, opt-in scenario, the two wiring points ---
+Pirate Force ServerProject\src\pirateforce_foundation\stats_progression_hypothesis.py|49000|BC64152C57B615F98BD5BC377CFBCE81F010CE834F49E86D081561FA750D2BD7
+Pirate Force ServerProject\scenarios\stats_progression_hypothesis_xp_sweep.json|12398|FB8D869A741850C3B24D2F548E3DC4F9F7C0E49C182574376A90CBC3B3F57B12
+Pirate Force ServerProject\src\pirateforce_foundation\runtime.py|73462|710EDC8D2235F2664113D93BC5277B44E6CDE53127D52C51678BD090BCDF38B6
+Pirate Force ServerProject\src\pirateforce_foundation\app.py|11493|B5FD629C6944E365DBF695749A0B300A72D51D73B0F812FF0AE61FD03A9D1FDB
+#
+# --- the tests and the deterministic verifier shipped with this report ---
+Pirate Force ServerProject\tests\test_stats_progression_hypothesis.py|29739|B52A3C55BAD1E636A20CAD92760556040AE9FD17225ACF4AE3164957CEDABDC9
+Pirate Force ServerProject\tests\test_stats_progression_dispatch.py|23508|BD3FA61BA83A07E11C5432BBAB7986D252A60DB1F7213E9B88C8E5372103EBD9
+Pirate Force ServerProject\tools\verify_stats_progression_encoder.py|13360|7247660079ECF69C60788B5BD3C63CD472326C34F8C77B510DA743B9787DF6B4
+#
+# --- the static milestone every field offset, mask bit and gate pin comes from ---
+Pirate Force ServerProject\reports\PF_STATS_PROG001_CHARACTER_STATS_AND_PROGRESSION_STATIC_20260818.md|30015|CC8B701CB988B74EE1A95FFD40D33D22B220F2D81EC72538FEF0BDCB16ABF05E
+Pirate Force ServerProject\tools\pf_stats_progression_static.py|72760|8F68CE8340B99CFFEFB83D4382378947BE2D90D05AC185230F92BAA4E2867BCF
+Pirate Force ServerProject\tests\test_stats_progression_static.py|45810|C976B238BF9D796F4AE31A83CE14D7DA29C530CA5C3A9640AC369BB4E6663374
+#
+# Deliberately NOT hash-pinned (shared files a concurrent lane may edit in the same window;
+# this milestone's changes to them are surgical and are described in the report):
+#   (ref, unpinned) docs/HYPOTHESIS_LEDGER.json   -- HYP-PF-020 appended, count 26 -> 27
+#   (ref, unpinned) docs/FUNCTIONAL_COVERAGE.json -- character_management/stats_and_progression
+#       gains two evidence refs and two test refs; status stays in_progress
+#   (ref, unpinned) tools/verify_hypothesis_ledger.py -- EXPECTED_IDS/EXPECTED_META gain
+#       HYP-PF-020, CANONICAL_CONTENT_SHA256 recomputed to
+#       E5D9461683D36431493F0E4E6A110FEA6AC09B38B93958391D9D22CE52A1615F
+#   (ref, unpinned) tests/test_foundation_legacy_seam.py -- GRADE_SUBSET_SHA256 moved to
+#       0C16D38678FBF08312804AA127A9518FE747418D57F943EFE636EC096BE6FE90
+#   (ref, unpinned) .gitignore -- three un-ignore lines for this report, its manifest and
+#       the verifier tool
+# Report (this file's sibling):
+#   (ref, unpinned) reports/PF_STATS_PROG002_SERVER_ENCODER_20260818.md
