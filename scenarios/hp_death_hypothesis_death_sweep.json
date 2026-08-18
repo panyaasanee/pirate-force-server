@@ -1,0 +1,167 @@
+{
+  "schema": 1,
+  "id": "hp_death_hypothesis_death_sweep",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-022",
+  "lethal": true,
+  "entry": {
+    "flow": "full_writable_character",
+    "required_sequence": "selected_and_runtime_ready",
+    "response_policy": "compose_cumulative_update_attr_vital_death_deltas_no_write_no_close"
+  },
+  "dispatch": {
+    "trigger": "accepted_chat_input_frame_exact_ascii12_shape",
+    "trigger_classifier": "classify_chat_input_attempt",
+    "frames_per_accepted_request": 4,
+    "step_order": [
+      "BASELINE",
+      "TIMER_ARMED",
+      "HP_ZERO",
+      "HP_RESTORED"
+    ],
+    "step_fields": {
+      "BASELINE": {},
+      "TIMER_ARMED": {
+        "hp_death_timer": 60.0
+      },
+      "HP_ZERO": {
+        "hp_current": 0
+      },
+      "HP_RESTORED": {
+        "hp_current": 100
+      }
+    },
+    "lethal_steps": [
+      "HP_ZERO"
+    ],
+    "cumulative": true,
+    "spacing_seconds": 6.0,
+    "first_frame_delay_seconds": 0.0,
+    "delay_semantics": "gap_before_each_send_on_a_cumulative_deadline",
+    "action_label_prefix": "HYP_PF_022_HP_DEATH_",
+    "action_labels": [
+      "HYP_PF_022_HP_DEATH_BASELINE",
+      "HYP_PF_022_HP_DEATH_TIMER_ARMED",
+      "HYP_PF_022_HP_DEATH_HP_ZERO",
+      "HYP_PF_022_HP_DEATH_HP_RESTORED"
+    ],
+    "one_shot": false,
+    "socket_action": "none"
+  },
+  "wire": {
+    "vital_id": 12442,
+    "vital_version": 0,
+    "envelope": "gscn_runtime_protocol_res_v4_one_vital_collection",
+    "attr_id": 4781,
+    "attr_collection": "tag12_u16_count_tag12_u16_attr_id_tag14_u32_length_then_body",
+    "field_order_rule": "ascending_mask_bit_within_each_block",
+    "death_field": {
+      "name": "hp_death_timer",
+      "block": "basic",
+      "mask_bit": 128,
+      "object_offset": 88,
+      "wire_tag": 42,
+      "width": "f32",
+      "gate_pin": 4609966,
+      "value_seconds": 60.0
+    },
+    "death_predicate": {
+      "is_dead_player": 4541120,
+      "is_dead_npc": 4439456,
+      "zero_float_constant": 15767708,
+      "current_hp_mask_bit": 4,
+      "current_hp_offset": 68,
+      "rule": "current_hp_zero_and_death_timer_greater_than_zero"
+    },
+    "death_window_gate": {
+      "per_frame_gate": 4498752,
+      "window_literal": 15783736,
+      "duration_dying_global": 16917660,
+      "duration_dying_image_default": 20,
+      "rule": "duration_dying_minus_half_second_at_most_the_timer"
+    },
+    "apply_chain": {
+      "inbound_handler": 6235136,
+      "attr_class_id_getter": 4607552,
+      "attr_lookup": 6261808,
+      "actor_attr_copy": 4607792,
+      "basic_attr_copy": 4606784,
+      "copy_is_mask_gated": false,
+      "reaches_dead_state_sync": false,
+      "dead_state_sync": 4470720,
+      "dead_state_sync_only_reachable_from": 4548263
+    }
+  },
+  "probe": {
+    "identity_lo": 268500993,
+    "identity_hi": 0,
+    "scene_id": 1,
+    "scene_sequence": 0,
+    "character_name": "test01",
+    "cash": 10000,
+    "hp_current": 100,
+    "hp_max": 100,
+    "baseline_crosscheck": "encode_actor_attr_reproduces_player_wire_make_actor_attr_with_name_byte_for_byte",
+    "per_step": {
+      "BASELINE": {
+        "lethal": false,
+        "attr_body_size": 73,
+        "attr_body_sha256": "479ED77DFA554F89AAB02E884608EC53BAEC9E213F85548AF9CCD291BCC896C4",
+        "pc_size": 106,
+        "pc_sha256": "DB3CE0B5D14196181EF9EA26A0D435E0489212634334CB562F840E368B5F0049",
+        "frame_size": 117,
+        "frame_sha256": "04E2B40152B633A48C84713B1C24A2910B7AB84E178E268094C0D10B179D9FBC"
+      },
+      "TIMER_ARMED": {
+        "lethal": false,
+        "attr_body_size": 78,
+        "attr_body_sha256": "903F2D45EAB009DD2D1AD9C14A00D0027F428BB98076560E5C5F22534B53A8FA",
+        "pc_size": 111,
+        "pc_sha256": "B7BE99B81FDBBC88D08599C6504328B99E55F40B3877856FC6D7BA0F7047E97F",
+        "frame_size": 122,
+        "frame_sha256": "FF43A6FC590A88CCC9B548AE694FA9EDAFE25051FB3AB9E61041BA4142276B04"
+      },
+      "HP_ZERO": {
+        "lethal": true,
+        "attr_body_size": 78,
+        "attr_body_sha256": "C718DFC077AEC9C93432F26C81A6AA08D2BD8616F5C4424D1DC2DAC668576469",
+        "pc_size": 111,
+        "pc_sha256": "A1990A937B4A1A8FFAB2D1D8F29004489C260A7829051F14CADDB0D619A16717",
+        "frame_size": 122,
+        "frame_sha256": "F6DB8ACA8C80DBFCED2FBF12BC8532C0A0865818D88D7AF4B4CAD06931C58A35"
+      },
+      "HP_RESTORED": {
+        "lethal": false,
+        "attr_body_size": 78,
+        "attr_body_sha256": "903F2D45EAB009DD2D1AD9C14A00D0027F428BB98076560E5C5F22534B53A8FA",
+        "pc_size": 111,
+        "pc_sha256": "B7BE99B81FDBBC88D08599C6504328B99E55F40B3877856FC6D7BA0F7047E97F",
+        "frame_size": 122,
+        "frame_sha256": "FF43A6FC590A88CCC9B548AE694FA9EDAFE25051FB3AB9E61041BA4142276B04"
+      }
+    }
+  },
+  "persisted_post_state": {
+    "database_write": "none"
+  },
+  "capabilities": [
+    "emit_basicattr_mask_bit_0x0080_as_an_f32_death_timer",
+    "compose_the_exact_pair_the_client_isdead_predicate_reads",
+    "arm_the_timer_before_the_kill_and_restore_hp_in_the_same_sweep",
+    "reproduce_the_proven_player_wire_baseline_projection_byte_exactly",
+    "decode_every_composed_body_back_to_the_requested_fields"
+  ],
+  "nonclaims": [
+    "client_rendering_of_death_pending_gt019",
+    "any_wire_observation_of_bit_0x0080_in_either_direction",
+    "the_death_animation_or_target_panel_which_this_transport_cannot_reach",
+    "any_spawn_point_or_marker_behavior",
+    "any_death_penalty_corpse_or_damage_rule",
+    "original_server_death_rules",
+    "hp_persistence_or_database_write",
+    "the_deployed_value_of_duration_dying",
+    "production_dispatch_wiring",
+    "production_baseline_behavior"
+  ]
+}

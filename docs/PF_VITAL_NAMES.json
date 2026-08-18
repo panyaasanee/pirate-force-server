@@ -1,0 +1,825 @@
+{
+ "__doc__": [
+  "docs/PF_VITAL_NAMES.json - the project's SINGLE SOURCE OF TRUTH for Pirate Force wire (Vital) id -> class name.",
+  "ตารางชื่อ vital ของโปรเจกต์ - ที่เก็บชื่อ 'ที่เดียว' ห้ามมีตารางชื่อคู่ขนานที่อื่น",
+  "",
+  "(1) WHAT THIS FILE IS / ไฟล์นี้คืออะไร",
+  "    Every 16-bit Vital wire id the project has a plaintext name for lives here, and only here.",
+  "    Any tool, server, test or document that needs an id->name mapping must read THIS file.",
+  "    ทุกที่ในโปรเจกต์ที่ต้องแปลง id -> ชื่อ ให้อ่านไฟล์นี้",
+  "",
+  "(2) COVERAGE / ขอบเขต",
+  "    This table is a strict superset of the NAMES dict inside the frozen delivery snapshot",
+  "    current/pf_login_game_server_v141.py: all 49 of its entries are reproduced here verbatim,",
+  "    plus 3 ids that v141 decoded as bare hex and that PF-NAMEID-RESOLVE-001 resolved from the",
+  "    read-only client binary:",
+  "      0x1B40 -> LogoutVital                    (id-slot 0x108207C)",
+  "      0x36DB -> DeleteActorVital               (id-slot 0x1081FD0)",
+  "      0xAC52 -> Channel_LocalTalkMessageVital  (id-slot 0x1084458)",
+  "    Each of the three carries a literal->slot evidence pointer in its 'evidence' field.",
+  "",
+  "(3) WHY v141 IS NOT EDITED / ทำไมห้ามแก้ v141",
+  "    current/pf_login_game_server_v141.py is a FROZEN DELIVERY SNAPSHOT written by the previous",
+  "    AI (Codex): a from-scratch server derived by reverse-engineering the client. It is NOT raw",
+  "    evidence and it is NOT 'the original server' - the original server was never published and",
+  "    has been shut down for years. Its one remaining job is to be the reference we diff the",
+  "    rewrite against, so that we can tell whether we have drifted. That comparison is only",
+  "    meaningful if the snapshot never moves. That - not evidentiary status - is why it is",
+  "    byte-frozen (sha256 guard in tools/verify_hypothesis_ledger.py).",
+  "    v141 = สมุดทดลองของ Codex ที่แช่แข็งไว้เป็น 'ตัวเทียบว่า rewrite ไม่หลงทาง'",
+  "    ไม่ใช่หลักฐานดิบ และไม่ใช่ 'original server' - ห้ามแก้แม้แต่ไบต์เดียว",
+  "    Raw evidence (read-only forever) = GameClient/GameClient.local.bin + capture_v141/.",
+  "",
+  "(4) HOW TO ADD A NEW NAME / จะเพิ่มชื่อใหม่ทำยังไง",
+  "    ADD IT HERE. ONLY HERE. Never in v141, never in a second table.",
+  "    เพิ่มที่ไฟล์นี้เท่านั้น ห้ามเติมใน v141 (แม้จะดูเป็นที่ที่ 'เคยชิน')",
+  "    A new entry is admissible only when BOTH hold:",
+  "      (a) HASH MATCH - wire_id(name) == id under the round-62 algorithm in hash_algorithm below.",
+  "          tests/test_vital_names_table.py enforces this on every entry, so a wrong name is red",
+  "          immediately.",
+  "      (b) LITERAL -> SLOT EVIDENCE - the name exists as a unique identifier-style string literal",
+  "          in GameClient/GameClient.local.bin, and the single push of that literal sits in the",
+  "          round-62 registration thunk (push <lit>; call 0x89C080; mov ecx,eax; call 0x89BD00;",
+  "          mov word ptr [<id-slot>], ax; ret). Record that id-slot VA in 'id_slot_va' and cite",
+  "          the finding document in 'evidence'.",
+  "    Names inherited from v141 are grandfathered: their evidence pointer is the v141 NAMES entry",
+  "    itself, and they still have to pass the hash check.",
+  "",
+  "GUARDS / ยาม",
+  "    tests/test_vital_names_table.py  - table superset-of-v141, name agreement, hash of every entry",
+  "    tools/pf_vital_id_resolve_static.py - reads this file as primary, cross-checks against v141",
+  "                                          and against the client binary + golden corpus"
+ ],
+ "schema": 1,
+ "hash_algorithm": {
+  "summary": "uint16 id = ( sum over i of (signed char)name[i] * (i+1) ) mod 2^16",
+  "pseudocode": [
+   "s = 0",
+   "for i, byte in enumerate(name.encode('latin1')):",
+   "    c = byte - 256 if byte >= 128 else byte     # movsx di, byte -> signed char",
+   "    s += c * (i + 1)                            # imul di, bx    -> 1-based index",
+   "return s & 0xFFFF                               # mov ax, dx; ret 4"
+  ],
+  "settled_by": "PF-NAMEID-HASH-001 (round 62, commit 7c66b21)",
+  "reference_impl": "tools/pf_vital_id_resolve_static.py :: wire_id()",
+  "verifiers": [
+   "tools/pf_vital_id_hash_static.py",
+   "tools/pf_vital_id_resolve_static.py"
+  ]
+ },
+ "frozen_snapshot": {
+  "path": "current/pf_login_game_server_v141.py",
+  "role": "frozen delivery snapshot / comparison reference only - NOT raw evidence, NOT the original server",
+  "mutable": false,
+  "names_symbol": "NAMES",
+  "names_entry_count": 49,
+  "byte_freeze_guard": "tools/verify_hypothesis_ledger.py (IMMUTABLE_V141_PATH sha256)"
+ },
+ "raw_evidence_sources": [
+  "GameClient/GameClient.local.bin (read-only forever)",
+  "capture_v141/*.txt (pinned canonical golden corpus, read-only forever)"
+ ],
+ "entry_count": 52,
+ "entries": [
+  {
+   "id": "0x0AD5",
+   "id_dec": 2773,
+   "name": "NPCAttr",
+   "source": "v141_NAMES",
+   "v141_const": "NPC_ATTR",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[NPC_ATTR]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x0ECD",
+   "id_dec": 3789,
+   "name": "ItemAttr",
+   "source": "v141_NAMES",
+   "v141_const": "ITEM_ATTR",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[ITEM_ATTR]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x0F01",
+   "id_dec": 3841,
+   "name": "UserSetting_UpdateServerSettingVital",
+   "source": "v141_NAMES",
+   "v141_const": "UPDATE_SERVER_SETTING_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[UPDATE_SERVER_SETTING_VITAL]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x0FB6",
+   "id_dec": 4022,
+   "name": "ChooseNPC",
+   "source": "v141_NAMES",
+   "v141_const": "CHOOSE_NPC",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[CHOOSE_NPC]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x12AD",
+   "id_dec": 4781,
+   "name": "ActorAttr",
+   "source": "v141_NAMES",
+   "v141_const": "ACTOR_ATTR",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[ACTOR_ATTR]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x1890",
+   "id_dec": 6288,
+   "name": "OpenCloseUI",
+   "source": "v141_NAMES",
+   "v141_const": "OPEN_CLOSE_UI",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[OPEN_CLOSE_UI]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x1ADD",
+   "id_dec": 6877,
+   "name": "TargetVital",
+   "source": "v141_NAMES",
+   "v141_const": "TARGET_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[TARGET_VITAL]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x1AEA",
+   "id_dec": 6890,
+   "name": "ActionVital",
+   "source": "v141_NAMES",
+   "v141_const": "ACTION_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[ACTION_VITAL]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x1B40",
+   "id_dec": 6976,
+   "name": "LogoutVital",
+   "source": "PF-NAMEID-RESOLVE-001 (chief) + FINDINGS R38 (bridge round 38)",
+   "v141_const": null,
+   "id_slot_va": "0x108207C",
+   "evidence": [
+    "pf_bridge/FINDINGS_R38_0x1B40_DECODED_LOGOUTVITAL.md",
+    "GameClient/GameClient.local.bin: unique identifier-style string literal whose wire hash == 0x1B40; single push of that literal sits in the round-62 registration thunk shape (push <lit>; call 0x89C080; mov ecx,eax; call 0x89BD00; mov word ptr [0x108207C], ax; ret)",
+    "capture_v141/*.txt: id 6976 appears UNNAMED as '0x1B40' in STRUCTURAL_IDS, in frames labelled HYP_PF_016_LOGOUT_*",
+    "tools/pf_vital_id_resolve_static.py section [2]/[3]"
+   ],
+   "in_golden_corpus": true,
+   "notes": "GT-002 exit dialog. Subcode 01 = 'exit game', subcode 03 = 'back to character select'. Foundation has no handler yet."
+  },
+  {
+   "id": "0x1E87",
+   "id_dec": 7815,
+   "name": "StartGameReq",
+   "source": "v141_NAMES",
+   "v141_const": "START_GAME_REQ",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[START_GAME_REQ]",
+    "capture_v141/*.txt STRUCTURAL_IDS (named tuple present in the golden corpus)",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": true,
+   "notes": null
+  },
+  {
+   "id": "0x1E9F",
+   "id_dec": 7839,
+   "name": "StartGameRes",
+   "source": "v141_NAMES",
+   "v141_const": "START_GAME_RES",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[START_GAME_RES]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x1EB4",
+   "id_dec": 7860,
+   "name": "COnLandVital",
+   "source": "v141_NAMES",
+   "v141_const": "ON_LAND_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[ON_LAND_VITAL]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x1F4F",
+   "id_dec": 8015,
+   "name": "UseItemVital",
+   "source": "v141_NAMES",
+   "v141_const": "USE_ITEM_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[USE_ITEM_VITAL]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x1F81",
+   "id_dec": 8065,
+   "name": "BackpackAttr",
+   "source": "v141_NAMES",
+   "v141_const": "BACKPACK_ATTR",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[BACKPACK_ATTR]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x1FB2",
+   "id_dec": 8114,
+   "name": "TriggerVital",
+   "source": "v141_NAMES",
+   "v141_const": "TRIGGER_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[TRIGGER_VITAL]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x2067",
+   "id_dec": 8295,
+   "name": "MovementAttr",
+   "source": "v141_NAMES",
+   "v141_const": "MOVEMENT_ATTR",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[MOVEMENT_ATTR]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x23B5",
+   "id_dec": 9141,
+   "name": "TradeCmdVital",
+   "source": "v141_NAMES",
+   "v141_const": "TRADE_CMD_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[TRADE_CMD_VITAL]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x25A2",
+   "id_dec": 9634,
+   "name": "TeleportVital",
+   "source": "v141_NAMES",
+   "v141_const": "TELEPORT_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[TELEPORT_VITAL]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x2A7A",
+   "id_dec": 10874,
+   "name": "TradeZoomVital",
+   "source": "v141_NAMES",
+   "v141_const": "TRADE_ZOOM_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[TRADE_ZOOM_VITAL]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x2A90",
+   "id_dec": 10896,
+   "name": "TargetPosVital",
+   "source": "v141_NAMES",
+   "v141_const": "TARGET_POS_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[TARGET_POS_VITAL]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x300B",
+   "id_dec": 12299,
+   "name": "ActionPickVital",
+   "source": "v141_NAMES",
+   "v141_const": "ACTION_PICK_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[ACTION_PICK_VITAL]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x309A",
+   "id_dec": 12442,
+   "name": "UpdateAttrVital",
+   "source": "v141_NAMES",
+   "v141_const": "UPDATE_ATTR_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[UPDATE_ATTR_VITAL]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x31D8",
+   "id_dec": 12760,
+   "name": "NPCConversation",
+   "source": "v141_NAMES",
+   "v141_const": "NPC_CONVERSATION",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[NPC_CONVERSATION]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x369A",
+   "id_dec": 13978,
+   "name": "StorageOpenVital",
+   "source": "v141_NAMES",
+   "v141_const": "STORAGE_OPEN_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[STORAGE_OPEN_VITAL]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x36CF",
+   "id_dec": 14031,
+   "name": "CreateActorVital",
+   "source": "v141_NAMES",
+   "v141_const": "CREATE_ACTOR_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[CREATE_ACTOR_VITAL]",
+    "capture_v141/*.txt STRUCTURAL_IDS (named tuple present in the golden corpus)",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": true,
+   "notes": null
+  },
+  {
+   "id": "0x36D2",
+   "id_dec": 14034,
+   "name": "ShowMessageVital",
+   "source": "v141_NAMES",
+   "v141_const": "SHOW_MESSAGE_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[SHOW_MESSAGE_VITAL]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x36DB",
+   "id_dec": 14043,
+   "name": "DeleteActorVital",
+   "source": "PF-NAMEID-RESOLVE-001 (chief)",
+   "v141_const": null,
+   "id_slot_va": "0x1081FD0",
+   "evidence": [
+    "GameClient/GameClient.local.bin: unique identifier-style string literal whose wire hash == 0x36DB; single push of that literal sits in the round-62 registration thunk shape (push <lit>; call 0x89C080; mov ecx,eax; call 0x89BD00; mov word ptr [0x1081FD0], ax; ret)",
+    "capture_v141/*.txt: id 14043 appears UNNAMED as '0x36DB' in STRUCTURAL_IDS, in frames labelled HYP_PF_015_DELETE_ACTOR_*",
+    "tools/pf_vital_id_resolve_static.py section [2]/[3]"
+   ],
+   "in_golden_corpus": true,
+   "notes": "Character-delete request (leftmost button on the character-select screen). No erase-by-key path exists in the binary; the delete ack cannot refresh the list."
+  },
+  {
+   "id": "0x36EF",
+   "id_dec": 14063,
+   "name": "SelectActorVital",
+   "source": "v141_NAMES",
+   "v141_const": "SELECT_ACTOR_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[SELECT_ACTOR_VITAL]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x36FE",
+   "id_dec": 14078,
+   "name": "ItemOperateVital",
+   "source": "v141_NAMES",
+   "v141_const": "ITEM_OPERATE_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[ITEM_OPERATE_VITAL]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x3784",
+   "id_dec": 14212,
+   "name": "LoginVerifyVital",
+   "source": "v141_NAMES",
+   "v141_const": "LOGIN_VERIFY_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[LOGIN_VERIFY_VITAL]",
+    "capture_v141/*.txt STRUCTURAL_IDS (named tuple present in the golden corpus)",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": true,
+   "notes": null
+  },
+  {
+   "id": "0x3BFB",
+   "id_dec": 15355,
+   "name": "ChooseNPCByTableID",
+   "source": "v141_NAMES",
+   "v141_const": "CHOOSE_NPC_BY_TABLE_ID",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[CHOOSE_NPC_BY_TABLE_ID]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x3D4B",
+   "id_dec": 15691,
+   "name": "GetWorldInfoVital",
+   "source": "v141_NAMES",
+   "v141_const": "GET_WORLD_INFO_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[GET_WORLD_INFO_VITAL]",
+    "capture_v141/*.txt STRUCTURAL_IDS (named tuple present in the golden corpus)",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": true,
+   "notes": null
+  },
+  {
+   "id": "0x3E34",
+   "id_dec": 15924,
+   "name": "QuestOperateVital",
+   "source": "v141_NAMES",
+   "v141_const": "QUEST_OPERATE_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[QUEST_OPERATE_VITAL]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x3E60",
+   "id_dec": 15968,
+   "name": "ActorInspectVital",
+   "source": "v141_NAMES",
+   "v141_const": "ACTOR_INSPECT_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[ACTOR_INSPECT_VITAL]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x3EAF",
+   "id_dec": 16047,
+   "name": "MusicControlVital",
+   "source": "v141_NAMES",
+   "v141_const": "MUSIC_CONTROL_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[MUSIC_CONTROL_VITAL]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x42BF",
+   "id_dec": 17087,
+   "name": "LSCN_LoginVitalReq",
+   "source": "v141_NAMES",
+   "v141_const": "LOGIN_REQ",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[LOGIN_REQ]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x42E3",
+   "id_dec": 17123,
+   "name": "LSCN_LoginVitalRes",
+   "source": "v141_NAMES",
+   "v141_const": "LOGIN_RES",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[LOGIN_RES]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x4323",
+   "id_dec": 17187,
+   "name": "StartGameFailVital",
+   "source": "v141_NAMES",
+   "v141_const": "START_GAME_FAIL_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[START_GAME_FAIL_VITAL]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x4477",
+   "id_dec": 17527,
+   "name": "TeleportCheckVital",
+   "source": "v141_NAMES",
+   "v141_const": "TELEPORT_CHECK_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[TELEPORT_CHECK_VITAL]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x453A",
+   "id_dec": 17722,
+   "name": "GSCN_LoginProtocol",
+   "source": "v141_NAMES",
+   "v141_const": "GSCN_LOGIN_PROTOCOL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[GSCN_LOGIN_PROTOCOL]",
+    "capture_v141/*.txt STRUCTURAL_IDS (named tuple present in the golden corpus)",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": true,
+   "notes": null
+  },
+  {
+   "id": "0x4B98",
+   "id_dec": 19352,
+   "name": "CheckSecondPwdVital",
+   "source": "v141_NAMES",
+   "v141_const": "CHECK_SECOND_PWD_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[CHECK_SECOND_PWD_VITAL]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x4BED",
+   "id_dec": 19437,
+   "name": "ItemOperateVitalReq",
+   "source": "v141_NAMES",
+   "v141_const": "ITEM_OPERATE_REQ_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[ITEM_OPERATE_REQ_VITAL]",
+    "capture_v141/*.txt STRUCTURAL_IDS (named tuple present in the golden corpus)",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": true,
+   "notes": null
+  },
+  {
+   "id": "0x4C13",
+   "id_dec": 19475,
+   "name": "ItemOperateVitalRes",
+   "source": "v141_NAMES",
+   "v141_const": "ITEM_OPERATE_RES_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[ITEM_OPERATE_RES_VITAL]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x515F",
+   "id_dec": 20831,
+   "name": "UpdateNPCAppearVital",
+   "source": "v141_NAMES",
+   "v141_const": "UPDATE_NPC_APPEAR_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[UPDATE_NPC_APPEAR_VITAL]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x536E",
+   "id_dec": 21358,
+   "name": "LSCN_SelectServerReq",
+   "source": "v141_NAMES",
+   "v141_const": "SELECT_SERVER_REQ",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[SELECT_SERVER_REQ]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x5396",
+   "id_dec": 21398,
+   "name": "LSCN_SelectServerRes",
+   "source": "v141_NAMES",
+   "v141_const": "SELECT_SERVER_RES",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[SELECT_SERVER_RES]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x557B",
+   "id_dec": 21883,
+   "name": "TradeItemResultVital",
+   "source": "v141_NAMES",
+   "v141_const": "TRADE_ITEM_RESULT_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[TRADE_ITEM_RESULT_VITAL]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x5D4B",
+   "id_dec": 23883,
+   "name": "CarryableServiceVital",
+   "source": "v141_NAMES",
+   "v141_const": "CARRYABLE_SERVICE_VITAL",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[CARRYABLE_SERVICE_VITAL]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x6539",
+   "id_dec": 25913,
+   "name": "NotifyEnterCreateActor",
+   "source": "v141_NAMES",
+   "v141_const": "NOTIFY_ENTER_CREATE_ACTOR",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[NOTIFY_ENTER_CREATE_ACTOR]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0x6E6F",
+   "id_dec": 28271,
+   "name": "GSCN_RunTimeProtocolReq",
+   "source": "v141_NAMES",
+   "v141_const": "GSCN_RUNTIME_PROTOCOL_REQ",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[GSCN_RUNTIME_PROTOCOL_REQ]",
+    "capture_v141/*.txt STRUCTURAL_IDS (named tuple present in the golden corpus)",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": true,
+   "notes": null
+  },
+  {
+   "id": "0x6E9D",
+   "id_dec": 28317,
+   "name": "GSCN_RunTimeProtocolRes",
+   "source": "v141_NAMES",
+   "v141_const": "GSCN_RUNTIME_PROTOCOL_RES",
+   "id_slot_va": null,
+   "evidence": [
+    "current/pf_login_game_server_v141.py :: NAMES[GSCN_RUNTIME_PROTOCOL_RES]",
+    "tools/pf_vital_id_resolve_static.py section [1b] (hash-match byte-exact)"
+   ],
+   "in_golden_corpus": false,
+   "notes": null
+  },
+  {
+   "id": "0xAC52",
+   "id_dec": 44114,
+   "name": "Channel_LocalTalkMessageVital",
+   "source": "PF-NAMEID-RESOLVE-001 (chief)",
+   "v141_const": null,
+   "id_slot_va": "0x1084458",
+   "evidence": [
+    "GameClient/GameClient.local.bin: unique identifier-style string literal whose wire hash == 0xAC52; single push of that literal sits in the round-62 registration thunk shape (push <lit>; call 0x89C080; mov ecx,eax; call 0x89BD00; mov word ptr [0x1084458], ax; ret)",
+    "capture_v141/*.txt: id 44114 appears UNNAMED as '0xAC52' in STRUCTURAL_IDS, in frames labelled HYP_PF_014_CHAT_INPUT_*",
+    "pf_bridge/FINDINGS_R38_0x1B40_DECODED_LOGOUTVITAL.md (candidate raised in the same round)",
+    "tools/pf_vital_id_resolve_static.py section [2]/[3]"
+   ],
+   "in_golden_corpus": true,
+   "notes": "GT-006 local chat. Golden payload carries the UTF-16LE text the tester typed (PFCHATPROBE1/2)."
+  }
+ ]
+}

@@ -819,12 +819,14 @@ guard(_hp_sites >= 1 and _hpmax_sites >= 1,
       "the BasicAttr HP pair (bits 0x0004/0x0008) IS emitted: %d/%d call sites"
       % (_hp_sites, _hpmax_sites))
 guard(re.search(r"basic_mask\s*\|?=\s*0x0080", _ALL_SERVER) is None,
-      "NEGATIVE: BasicAttr bit 0x0080 (the death/down timer at +0x58) is never set")
+      "NEGATIVE: no hand-written call site sets BasicAttr bit 0x0080 "
+      "(HP-DEATH-002 emits it mask-driven, behind its opt-in scenario only)")
 guard("0x1A8" not in _ALL_SERVER and "0x1a8" not in _ALL_SERVER,
       "NEGATIVE: the alternate HP pair ActorAttr +0x1A8/+0x1AC is never emitted")
 guard(re.search(r"current_hp\s*=\s*0\b", _ALL_SERVER) is None
       and re.search(r"current_hp\s*=\s*0[,)\s]", _ALL_SERVER) is None,
-      "NEGATIVE: no code path in v141 or src/ ever emits current HP == 0")
+      "NEGATIVE: no hand-written call site assigns current HP == 0 "
+      "(HP-DEATH-002 sends it from a named field set, opt-in only)")
 guard(re.search(r"0xEA7C|0xea7c", _ALL_SERVER) is None,
       "NEGATIVE: the client's debug die-action id 0xEA7C has no server handler")
 
@@ -852,7 +854,8 @@ guard(BASICATTR_FIELDS_EMITTED == 7,
       "our side sets 7 distinct BasicAttr mask bits (%s)"
       % sorted(hex(b) for b in _bits))
 guard(0x0080 not in _bits,
-      "NEGATIVE: mask bit 0x0080 is not among them - the death timer is never sent")
+      "NEGATIVE: mask bit 0x0080 is not among the literal masks - the death "
+      "timer leaves only through the HP-DEATH-002 opt-in lane")
 guard(0x0004 in _bits and 0x0008 in _bits,
       "the HP pair bits 0x0004/0x0008 ARE among them")
 
@@ -886,6 +889,9 @@ COUNTS = {
     "fields_read_by_the_death_predicate": DEATH_RELEVANT_FIELDS,
     "fields_read_by_the_death_predicate_emitted_by_us": DEATH_RELEVANT_EMITTED,
     "server_call_sites_emitting_zero_current_hp": 0,
+    # Literal, hand-written references on the DEFAULT path.  HP-DEATH-002
+    # (HYP-PF-022) emits this bit mask-driven behind an opt-in scenario, so
+    # this count stays 0 and no longer means "the bit can never go out".
     "server_references_to_basicattr_bit_0x0080": 0,
     "server_references_to_actorattr_0x1A8_pair": 0,
     "server_handlers_for_action_0xEA7C": 0,

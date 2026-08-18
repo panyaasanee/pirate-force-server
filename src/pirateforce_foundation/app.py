@@ -9,6 +9,7 @@ from .lifecycle import CharacterLifecycle
 from .channel_message_hypothesis import load_channel_message_hypothesis_scenario
 from .chat_input_hypothesis import load_chat_input_hypothesis_scenario
 from .delete_actor_hypothesis import load_delete_actor_hypothesis_scenario
+from .delete_refresh_hypothesis import load_delete_refresh_hypothesis_scenario
 from .item_move_capture import load_item_move_capture_scenario
 from .item_move_hypothesis import load_item_move_hypothesis_scenario
 from .logout_hypothesis import load_logout_hypothesis_scenario
@@ -20,6 +21,7 @@ from .scenario import load_scenario
 from .scene_load import load_scene_load_scenario
 from .second_password_bypass import SECOND_PASSWORD_MODES
 from .stats_progression_hypothesis import (
+    load_hp_death_hypothesis_scenario,
     load_stats_progression_hypothesis_scenario,
 )
 from .session import ReadOnlyFoundationSession
@@ -52,7 +54,9 @@ def main() -> int:
     pre.add_argument('--chat-input-hypothesis-scenario')
     pre.add_argument('--channel-message-hypothesis-scenario')
     pre.add_argument('--delete-actor-hypothesis-scenario')
+    pre.add_argument('--delete-refresh-hypothesis-scenario')
     pre.add_argument('--stats-progression-hypothesis-scenario')
+    pre.add_argument('--hp-death-hypothesis-scenario')
     pre.add_argument(
         '--second-password-mode', choices=SECOND_PASSWORD_MODES,
         default='required',
@@ -102,6 +106,13 @@ def main() -> int:
         load_delete_actor_hypothesis_scenario(known.delete_actor_hypothesis_scenario)
         if known.delete_actor_hypothesis_scenario else None
     )
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-021 active
+    delete_refresh_hypothesis = (
+        load_delete_refresh_hypothesis_scenario(
+            known.delete_refresh_hypothesis_scenario
+        )
+        if known.delete_refresh_hypothesis_scenario else None
+    )
     # PF-HYPOTHESIS-LEDGER: HYP-PF-020 active
     stats_progression_hypothesis = (
         load_stats_progression_hypothesis_scenario(
@@ -109,11 +120,22 @@ def main() -> int:
         )
         if known.stats_progression_hypothesis_scenario else None
     )
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-022 active
+    # HP-DEATH-002.  This is the one lane in this file that can make a
+    # character appear to die on a real client, so it is the one lane a reader
+    # should double-check: it is refused alongside every other mode, it demands
+    # an explicit existing --db like the other hypothesis lanes, and with the
+    # flag absent nothing in the process can even name the death-timer field.
+    hp_death_hypothesis = (
+        load_hp_death_hypothesis_scenario(known.hp_death_hypothesis_scenario)
+        if known.hp_death_hypothesis_scenario else None
+    )
     if sum(value is not None for value in (
         scenario, scene_load, population, item_move_capture,
         item_move_hypothesis, logout_hypothesis, chat_input_hypothesis,
         channel_message_hypothesis, delete_actor_hypothesis,
-        stats_progression_hypothesis,
+        delete_refresh_hypothesis, stats_progression_hypothesis,
+        hp_death_hypothesis,
     )) > 1:
         pre.error(
             '--scenario, --scene-load-scenario, --population-scenario, and '
@@ -121,7 +143,9 @@ def main() -> int:
             '--logout-hypothesis-scenario/--chat-input-hypothesis-scenario/'
             '--channel-message-hypothesis-scenario/'
             '--delete-actor-hypothesis-scenario/'
-            '--stats-progression-hypothesis-scenario are mutually exclusive'
+            '--delete-refresh-hypothesis-scenario/'
+            '--stats-progression-hypothesis-scenario/'
+            '--hp-death-hypothesis-scenario are mutually exclusive'
         )
     if item_move_capture is not None and not known.db:
         pre.error('--item-move-capture-scenario requires an explicit existing --db')
@@ -137,9 +161,17 @@ def main() -> int:
         )
     if delete_actor_hypothesis is not None and not known.db:
         pre.error('--delete-actor-hypothesis-scenario requires an explicit existing --db')
+    if delete_refresh_hypothesis is not None and not known.db:
+        pre.error(
+            '--delete-refresh-hypothesis-scenario requires an explicit existing --db'
+        )
     if stats_progression_hypothesis is not None and not known.db:
         pre.error(
             '--stats-progression-hypothesis-scenario requires an explicit existing --db'
+        )
+    if hp_death_hypothesis is not None and not known.db:
+        pre.error(
+            '--hp-death-hypothesis-scenario requires an explicit existing --db'
         )
     db_path = known.db or str(
         root / (
@@ -163,8 +195,11 @@ def main() -> int:
             'channel-message-hypothesis'
             if channel_message_hypothesis is not None else
             'delete-actor-hypothesis' if delete_actor_hypothesis is not None else
+            'delete-refresh-hypothesis'
+            if delete_refresh_hypothesis is not None else
             'stats-progression-hypothesis'
             if stats_progression_hypothesis is not None else
+            'hp-death-hypothesis' if hp_death_hypothesis is not None else
             'foundation'
         )
         install_runtime_console(
@@ -180,7 +215,9 @@ def main() -> int:
         or chat_input_hypothesis is not None
         or channel_message_hypothesis is not None
         or delete_actor_hypothesis is not None
+        or delete_refresh_hypothesis is not None
         or stats_progression_hypothesis is not None
+        or hp_death_hypothesis is not None
     ):
         if not Path(db_path).is_file():
             raise FileNotFoundError(db_path)
@@ -191,7 +228,9 @@ def main() -> int:
             or chat_input_hypothesis is not None
             or channel_message_hypothesis is not None
             or delete_actor_hypothesis is not None
+            or delete_refresh_hypothesis is not None
             or stats_progression_hypothesis is not None
+            or hp_death_hypothesis is not None
         ):
             store.migrate()
             store.expire_open_sessions()
@@ -224,7 +263,9 @@ def main() -> int:
         chat_input_hypothesis_scenario=chat_input_hypothesis,
         channel_message_hypothesis_scenario=channel_message_hypothesis,
         delete_actor_hypothesis_scenario=delete_actor_hypothesis,
+        delete_refresh_hypothesis_scenario=delete_refresh_hypothesis,
         stats_progression_hypothesis_scenario=stats_progression_hypothesis,
+        hp_death_hypothesis_scenario=hp_death_hypothesis,
         # PF-HYPOTHESIS-LEDGER: HYP-PF-009 active
         second_password_mode=known.second_password_mode,
     )

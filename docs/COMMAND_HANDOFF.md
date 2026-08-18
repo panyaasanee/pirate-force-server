@@ -36,6 +36,52 @@ not override them.
   checkpoint. SCENE-005 faction 1 and the SCENE-007 acknowledgement are frozen;
   do not add another dependent version to either or any expired entry.
 
+## Vital names live in docs/PF_VITAL_NAMES.json — READ THIS BEFORE NAMING AN ID
+
+**NAMES-HOME-001 (2026-08-19).** The single source of truth for Vital wire
+`id -> class name` is now **`docs/PF_VITAL_NAMES.json`** (52 entries: the 49
+names the frozen v141 snapshot carried, plus `0x1B40 LogoutVital`,
+`0x36DB DeleteActorVital`, `0xAC52 Channel_LocalTalkMessageVital`). Read it with
+`tools/pf_vital_names.py` (`load_names_table()`, `wire_id()`,
+`parse_v141_names()`, `cross_check_v141()`; pure stdlib).
+
+> ### ⚠️ WARNING TO THE NEXT AGENT — ESPECIALLY DURING A CODEX SHIFT ⚠️
+>
+> **Do NOT add a newly resolved name to `current/pf_login_game_server_v141.py`.**
+>
+> That file's `NAMES = {...}` dict was the only names table for 141 versions, and
+> the agent that wrote all 141 of them will reach for it by reflex. It is now a
+> **frozen delivery snapshot** — kept byte-identical so the rewrite can be diffed
+> against it — and a sha256 guard in `tools/verify_hypothesis_ledger.py` blocks
+> any edit. **Add the name to `docs/PF_VITAL_NAMES.json` instead.**
+>
+> `tests/test_vital_names_table.py` will catch a name added to v141 (the table
+> must stay a superset that agrees name-for-name), so nothing ships wrong — but
+> it costs a whole round to discover. Save that round: **new names go in
+> `docs/PF_VITAL_NAMES.json`, only there.**
+>
+> เตือนกะถัดไป (โดยเฉพาะกะ Codex): ห้ามเติมชื่อ vital ใหม่ลง v141 เด็ดขาด
+> ให้เติมที่ `docs/PF_VITAL_NAMES.json` ที่เดียว — เทสจับได้ แต่เสียเวลาไปหนึ่งรอบ
+
+Admission rule for a new entry (both must hold, enforced by the test):
+
+1. **Hash match** — `wire_id(name) == id` under the round-62 algorithm
+   (`id = Σ_i (signed char)name[i] * (i+1) mod 2^16`, PF-NAMEID-HASH-001).
+2. **Literal → slot evidence** — the name is a unique identifier-style string
+   literal in `GameClient/GameClient.local.bin` whose single `push` sits in the
+   registration thunk `push <lit>; call 0x89C080; mov ecx,eax; call 0x89BD00;
+   mov word ptr [<id-slot>], ax; ret`. Record that id-slot VA in `id_slot_va`
+   and cite the finding document in `evidence`.
+
+Guards:
+
+- `python -m pytest tests/test_vital_names_table.py -q` — table ⊇ v141 NAMES,
+  names agree character-for-character, every entry hash-matches its id.
+- `py -3 tools/pf_vital_id_resolve_static.py` — 43 guards (was 35): reads the
+  table as the primary source, keeps the v141 parse as a read-only cross-check,
+  and re-proves each non-v141 name against the client binary and golden corpus,
+  including that its recorded `id_slot_va` is the slot the thunk actually writes.
+
 ## Chief Architect master plan
 
 The project is a long-lived replacement server recovered from observable client

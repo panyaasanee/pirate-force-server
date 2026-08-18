@@ -170,6 +170,39 @@ Canonical hypothesis governance is in `docs/HYPOTHESIS_LEDGER.json`; all guesses
 test-only, `production_allowed=false`, have falsification/stop rules and expire after
 at most 2–3 dependent experimental versions unless exact scoped approval exists.
 
+### 4.1 ชื่อ Vital ทั้งหมดอยู่ที่ `docs/PF_VITAL_NAMES.json` (NAMES-HOME-001, 2026-08-19)
+
+ตาราง `id -> ชื่อคลาส Vital` ของโปรเจกต์มี **ที่เดียว** คือ `docs/PF_VITAL_NAMES.json`
+(52 entry = 49 ชื่อเดิมของ v141 + `0x1B40 LogoutVital`, `0x36DB DeleteActorVital`,
+`0xAC52 Channel_LocalTalkMessageVital` ที่ PF-NAMEID-RESOLVE-001 แกะจาก client binary)
+อ่านผ่าน `tools/pf_vital_names.py` (pure stdlib)
+
+> **⚠️ ห้ามเติมชื่อใหม่ลง `current/pf_login_game_server_v141.py` เด็ดขาด ⚠️**
+>
+> `NAMES = {...}` ใน v141 เคยเป็นตารางชื่อเดียวของโปรเจกต์มา 141 เวอร์ชัน — AI ที่เขียน
+> ไฟล์นั้นมาเองจะเผลอเติมที่เดิมตามความเคยชิน (**ความเสี่ยงสูงเป็นพิเศษในกะ Codex**)
+> แต่ตอนนี้ v141 เป็น **snapshot ส่งมอบที่แช่แข็ง** ไว้เป็นตัวเทียบว่า rewrite ไม่หลงทาง
+> ไม่ใช่หลักฐานดิบ และไม่ใช่ "original server" (server ต้นฉบับปิดไปแล้วและไม่เคย publish)
+> มี sha256 guard ใน `tools/verify_hypothesis_ledger.py` กันไว้ **ห้ามแก้แม้แต่ไบต์เดียว**
+>
+> `tests/test_vital_names_table.py` จะจับได้ทันทีถ้ามีชื่อโผล่ใน v141 แต่ไม่มีในตารางเรา
+> — จับได้ก็จริง แต่**เสียเวลาไปหนึ่งรอบ** ให้เติมที่ `docs/PF_VITAL_NAMES.json` ที่เดียว
+>
+> English: never add a resolved Vital name to the frozen v141 snapshot. Add it to
+> `docs/PF_VITAL_NAMES.json` only. The test will catch it, but it costs a round.
+
+เงื่อนไขการเพิ่ม entry ใหม่ (ต้องครบทั้งสองข้อ, เทสบังคับ):
+
+1. **hash ตรง** — `wire_id(name) == id` ตามสูตรรอบ 62
+   (`id = Σ_i (signed char)name[i] * (i+1) mod 2^16`)
+2. **หลักฐาน literal → slot** — ชื่อเป็น string literal ตัวเดียวใน
+   `GameClient/GameClient.local.bin` และ `push` ของมันอยู่ใน registration thunk
+   `push <lit>; call 0x89C080; mov ecx,eax; call 0x89BD00; mov word ptr [<id-slot>], ax; ret`
+   บันทึก id-slot VA ลงฟิลด์ `id_slot_va` และอ้างไฟล์ finding ในฟิลด์ `evidence`
+
+ยาม: `python -m pytest tests/test_vital_names_table.py -q` และ
+`py -3 tools/pf_vital_id_resolve_static.py` (43 guards, เดิม 35)
+
 ## 5. Architecture already accepted
 
 Foundation is typed modular Python with SQLite behind a repository seam. Accepted

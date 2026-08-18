@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "id": "delete_refresh_hypothesis_list_rebuild_after_ack",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-021",
+  "entry": {
+    "flow": "character_select_stage",
+    "required_sequence": "character_list_sent_and_nothing_selected",
+    "request_envelope": "gscn_login_protocol_one_vital_designed",
+    "response_policy": "echo_exact_request_vital_then_rebuild_the_whole_list_with_select_actor_vital_0x36ef",
+    "rebuild_source": "reproject_the_post_delete_character_set_through_the_unchanged_runtime_proven_character_list_projection",
+    "rebuild_gap_seconds": 0.35,
+    "rebuild_failure_policy": "fail_closed_silent_no_reply_not_even_the_ack"
+  },
+  "composed_responses": {
+    "list_rebuild_empty": {
+      "vital_id": 14063,
+      "vital_version": 10,
+      "pc_size": 45,
+      "pc_sha256": "E19905837B226059E4973AD26869A41CB79EF4C4FD14BACDFD18DC4B5D3CEEA4",
+      "frame_size": 55,
+      "frame_sha256": "735ACC96DC0742D711167258EF0CD64D2854E0A2DEAA9B63805505DE595152CB"
+    }
+  },
+  "persisted_post_state": {
+    "characters_deleted_at": "written_before_any_byte_is_queued",
+    "child_rows": "positions_and_backpack_rows_survive_as_history",
+    "rebuild_write_path": "none_the_rebuild_only_reads_the_character_table"
+  },
+  "capabilities": [
+    "soft_delete_one_owned_unselected_character_by_selector",
+    "acknowledge_committed_soft_delete_with_the_pinned_designed_echo",
+    "rebuild_the_client_character_list_with_select_actor_vital_after_the_ack"
+  ],
+  "nonclaims": [
+    "original_server_request_envelope",
+    "original_server_response_policy",
+    "client_observable_list_refresh",
+    "client_observable_page_variable_reset_or_button_recovery",
+    "semantic_names_for_op_values_1_and_2",
+    "op2_handling",
+    "hard_delete_or_history_removal",
+    "production_baseline_behavior"
+  ]
+}

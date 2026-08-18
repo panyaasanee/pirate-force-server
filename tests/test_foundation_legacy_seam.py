@@ -67,7 +67,41 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers ONE deliberate movement, HP-DEATH-001 (2026-08-19):
+    # This pin covers ONE deliberate movement, DELETE-REFRESH-001 (2026-08-19):
+    # character_management/character_deletion gains the DELETE-REFRESH-001 evidence and
+    # test refs (status already in_progress, unchanged, and deliberately NOT moved to
+    # runtime_pass). evidence_refs
+    # reports/PF_UI_REFRESH001_CHARACTER_SELECT_STATE_MACHINE_STATIC_20260819.md,
+    # scenarios/delete_refresh_hypothesis_list_rebuild.json and
+    # tools/verify_delete_refresh_static.py; test_refs
+    # tests/test_delete_refresh_hypothesis.py and tests/test_delete_refresh_static.py.
+    # Attended GT-011 committed the soft delete, raised no error, and left the
+    # character-select list where it was; UI-REFRESH-001 proved from the client image
+    # that this was never fixable in the acknowledgement -- the list has ONE buffer
+    # ([0x1081A90]+0x180), its only writers are bulk fill 0x5DDD00 (one caller in the
+    # image, inside the SelectActorVital 0x36EF apply), append-one 0x5DDE10 (one caller,
+    # inside the CreateActorVital apply) and whole-collection clear, and there is NO
+    # erase-by-key path anywhere. HYP-PF-021 therefore answers one accepted op-1 delete
+    # with two frames: the unchanged hash-pinned HYP-PF-015 echo ack, then the unchanged
+    # runtime-proven LegacyProjector.character_list projection over the POST-DELETE row
+    # set 0.35 s later. No wire byte is invented -- only the set of rows differs from a
+    # frame real clients have accepted at every login -- and the lane verifies and
+    # hash-pins the projection (0x36EF v10 header, record-count byte, 0B 00 0B 00 tail,
+    # byte-equality with make_runtime_vitals over the payload minus its last two bytes,
+    # i.e. the DELETE-SOFT-002 trailing mask, frame == frame_pc(pc), and the 45/55-byte
+    # empty-list pins) before the dispatcher may queue it. The milestone also adds a
+    # byte-exact finding UI-REFRESH-001 did not have: 0x107A2C0 has 26 references in
+    # .text -- 20 immediate writes, 5 reads, and a twenty-first REGISTER writer 0x4BD650
+    # (edi = 0) inside 0x4BD5E0, which has zero direct call sites and is
+    # cStateCreateActor's vtable slot +0x10, the enter hook the state tick 0x4C7540 runs
+    # on phase 0; since the 0x36EF apply builds a fresh cStateCreateActor and calls
+    # RequestNext, the same frame is predicted to unstick the page the delete animation
+    # left at 0x0B. The ledger GROWS: HYP-PF-021 appended, every existing index stable.
+    # NOT runtime_pass: no client has seen a delete answered by a rebuild, the page-reset
+    # half is a chain of byte facts rather than an observation, and the headless TCP
+    # replay is written but unrun (LOCK-protected boot). That is GT-021, attended.
+    # Previous pin 19319329..3991 covered ONE deliberate movement, HP-DEATH-001
+    # (2026-08-19):
     # combat/hp_death_and_respawn moves not_started -> in_progress and gains its first
     # evidence and test refs -- evidence_refs
     # reports/PF_HP_DEATH001_HP_DEATH_AND_RESPAWN_STATIC_20260819.md, test_refs
@@ -290,7 +324,7 @@ GRADE_SUBSET_SHA256 = (
     # 26D752FE..BA9A (round 65) occupied_destination_policy not_started ->
     # in_progress under HYP-PF-017 (ITEM-SWAP-001); see its lineage note before that
     # for round 53's 78558E56..6DC8.
-    "19319329D1A482A697C4D8FB9E7EE250C56170C4338EC02BDDC24B471AE13991"
+    "50D475A2ED354B6F44EB19F3BE4D8954AD629FC4CE63CACE25A197A0778006E6"
 )
 
 

@@ -87,6 +87,20 @@ literally true and its guards stay green.  ``BasicAttr`` bits 0x0001, 0x0040,
 implemented either; ``NOT_IMPLEMENTED_*`` below says so explicitly rather than
 leaving the omission silent.
 
+One tenant, two ledger entries
+------------------------------
+This file also hosts HP-DEATH-002 / HYP-PF-022 -- the LETHAL lane, at the very
+bottom, behind its own scenario file, its own step plan and an unlock token.
+It is the same encoder because the death predicate reads the same BasicAttr
+block, but it is NOT the same claim and it is NOT the same bound: HYP-PF-020's
+stop rule allows exactly the 23 fields listed above and nothing else, so bit
+0x0080 stays in ``NOT_IMPLEMENTED_BASIC_ATTR_BITS`` and stays out of
+``BASIC_ATTR_FIELDS`` / ``PROGRESSION_FIELDS`` forever.  With ``lethal=None`` --
+which is every progression call site and the default everywhere -- the field
+table is byte-for-byte the one described above and ``hp_death_timer`` is an
+unknown field name like any other.  Read the block comment at the bottom of
+this file before touching any of it.
+
 Opt-in, test-only
 -----------------
 ``production_allowed`` is False in the module and in the scenario file, the
@@ -112,6 +126,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
+import struct
 from typing import Any
 
 from .player_wire import make_actor_attr_with_name
@@ -158,7 +173,9 @@ ACTOR_ATTR_MASK_LOW_HALF_LIMIT = 1 << 32
 
 # Field widths as emitted by the scalar codec 0x89A600 (stdcall tag/ptr/width)
 # and the wstring codec 0x89A810 (tag 0x48 + u32 byte length + UTF-16LE).
-FIELD_KIND_WIDTH = {"u16": 2, "u32": 4, "qword": 8}
+# ``f32`` is used by the HP-DEATH-002 lethal lane only (tag 0x2A, width 4); it
+# is NOT reachable from the progression field tables above.
+FIELD_KIND_WIDTH = {"u16": 2, "u32": 4, "qword": 8, "f32": 4}
 WSTRING_TAG = 0x48
 WSTRING_HEADER_SIZE = 5
 
@@ -581,6 +598,8 @@ def _require_step_plan() -> None:
 
 # ---------------------------------------------------------------- encoder
 def _encode_scalar(legacy: Any, field: AttrField, value: Any) -> bytes:
+    if field.kind == "f32":
+        return _encode_death_timer(legacy, field, value)
     if type(value) is not int or type(value) is bool:
         raise ValueError(
             "stats progression field rejected: value_type_not_integer"
@@ -640,6 +659,7 @@ def _encode_block(
 # PF-HYPOTHESIS-LEDGER: HYP-PF-020 active
 def encode_actor_attr(
     legacy: Any, identity_lo: int, identity_hi: int, fields: dict[str, Any],
+    lethal: Any = None,
 ) -> bytes:
     """Compose one sparse mask-gated ``ActorAttr`` body from named fields.
 
@@ -650,15 +670,25 @@ def encode_actor_attr(
     serializer's emission order (module docstring).  Unknown names, wrong
     types, out-of-range values and unencodable names all raise ``ValueError``
     with the reason and produce no bytes.
+
+    ``lethal`` is the HP-DEATH-002 unlock token and is ``None`` on every
+    progression path.  With ``None`` the field table is exactly the 23
+    progression fields and the death-timer bit 0x0080 is an ``unknown_field``
+    like any other unimplemented name; only the unlock token widens the table.
     """
     _require_field_table()
     _require_ascending_gate_pins()
+    basic_fields, field_index = _resolve_field_tables(lethal)
     if type(fields) is not dict:
         raise ValueError("stats progression field rejected: unknown_field")
-    unknown = sorted(set(fields) - set(PROGRESSION_FIELDS))
+    unknown = sorted(set(fields) - set(field_index))
     if unknown:
         raise ValueError(
             "stats progression field rejected: unknown_field " + unknown[0]
+        )
+    if HP_DEATH_TIMER_NAME in fields and "hp_current" not in fields:
+        raise ValueError(
+            "hp death field rejected: death_timer_without_hp_current"
         )
     for value in (identity_lo, identity_hi):
         if type(value) is not int or type(value) is bool:
@@ -669,7 +699,7 @@ def encode_actor_attr(
             raise ValueError(
                 "stats progression field rejected: identity_outside_qword"
             )
-    basic_mask, basic_body = _encode_block(legacy, BASIC_ATTR_FIELDS, fields)
+    basic_mask, basic_body = _encode_block(legacy, basic_fields, fields)
     actor_mask, actor_body = _encode_block(legacy, ACTOR_ATTR_FIELDS, fields)
     if actor_mask >= ACTOR_ATTR_MASK_LOW_HALF_LIMIT:
         raise ValueError(
@@ -688,20 +718,25 @@ def encode_actor_attr(
         + legacy.u8tag(ACTOR_ATTR_EXTRA_GROUP_TAG, ACTOR_ATTR_EXTRA_GROUP_VALUE)
         + actor_body
     )
-    if decode_actor_attr(body) != (identity_lo, identity_hi, dict(fields)):
+    if decode_actor_attr(body, lethal) != (
+        identity_lo, identity_hi, dict(fields),
+    ):
         raise RuntimeError("HYP-PF-020 encoder is not decoder-inverse")
     return body
 
 
 # ---------------------------------------------------------------- decoder
-def _read_scalar(body: bytes, cursor: int, field: AttrField) -> tuple[int, int]:
+def _read_scalar(body: bytes, cursor: int, field: AttrField) -> tuple[Any, int]:
     width = FIELD_KIND_WIDTH[field.kind]
     if len(body) - cursor < 1 + width:
         raise ValueError("stats progression body rejected: truncated_field")
     if body[cursor] != field.tag:
         raise ValueError("stats progression body rejected: wrong_field_tag")
     cursor += 1
-    value = int.from_bytes(body[cursor:cursor + width], "little")
+    raw = body[cursor:cursor + width]
+    if field.kind == "f32":
+        return struct.unpack("<f", raw)[0], cursor + width
+    value = int.from_bytes(raw, "little")
     return value, cursor + width
 
 
@@ -748,13 +783,18 @@ def _read_block(
     return cursor
 
 
-def decode_actor_attr(body: bytes) -> tuple[int, int, dict[str, Any]]:
+def decode_actor_attr(
+    body: bytes, lethal: Any = None,
+) -> tuple[int, int, dict[str, Any]]:
     """Read one sparse ``ActorAttr`` body back into ``(lo, hi, fields)``.
 
     This is the inverse the encoder checks itself against; it accepts only the
     masks this lane implements, so a body carrying an unimplemented bit is a
-    refusal rather than a partial parse.
+    refusal rather than a partial parse.  Without the HP-DEATH-002 unlock token
+    the death-timer bit 0x0080 stays an ``unimplemented_mask_bit``, so a lethal
+    body cannot even be read back on a progression path.
     """
+    basic_fields, _field_index = _resolve_field_tables(lethal)
     if type(body) is not bytes and type(body) is not bytearray:
         raise ValueError("stats progression body rejected: truncated_field")
     body = bytes(body)
@@ -771,7 +811,7 @@ def decode_actor_attr(body: bytes) -> tuple[int, int, dict[str, Any]]:
     basic_mask = int.from_bytes(body[cursor + 1:cursor + 3], "little")
     cursor += 3
     values: dict[str, Any] = {}
-    cursor = _read_block(body, cursor, BASIC_ATTR_FIELDS, basic_mask, values)
+    cursor = _read_block(body, cursor, basic_fields, basic_mask, values)
     if len(body) - cursor < 9 or body[cursor] != ACTOR_ATTR_MASK_TAG:
         raise ValueError("stats progression body rejected: wrong_field_tag")
     actor_mask = int.from_bytes(body[cursor + 1:cursor + 9], "little")
@@ -1116,3 +1156,718 @@ def require_stats_progression_hypothesis_scenario(
     _require_ascending_gate_pins()
     _require_step_plan()
     return value
+
+
+# ============================================================================
+# HP-DEATH-002 (HYP-PF-022) -- the lethal lane.
+#
+# READ THIS BEFORE TOUCHING ANYTHING BELOW.  Everything above composes numbers
+# a player would like to see go up.  Everything below composes the two values
+# that make the client decide the character is DEAD.  It is a separate ledger
+# entry, a separate opt-in scenario file, a separate field table and a separate
+# unlock token on purpose: HYP-PF-020's stop rule says "compose only the 23
+# implemented fields, only behind the existing opt-in scenario file", and this
+# lane is outside that bound in both directions.
+#
+# What HP-DEATH-001 proved byte-exactly (reports/PF_HP_DEATH001_*.md), and what
+# this lane implements verbatim:
+#
+#   * There is NO death frame.  Every actor class derives death itself, in
+#     ``IsDead`` at vtable +0x40 (``0x454AC0`` for CNetActor/CMyActor,
+#     ``0x43BDA0`` for the NPC family): the f32 at ``attr+0x58`` must be
+#     GREATER than the 0.0f constant at ``0xF0989C``, and then the u32 at
+#     ``attr+0x44`` must be ZERO.
+#   * ``+0x44`` is BasicAttr mask bit 0x0004 -- the field this module has always
+#     emitted as ``hp_current``.  ``+0x58`` is BasicAttr mask bit 0x0080, f32,
+#     wire tag 0x2A, gate pin 0x4657AE -- the one bit in the whole death
+#     predicate that nothing in this repository has ever emitted.  It is listed
+#     in ``NOT_IMPLEMENTED_BASIC_ATTR_BITS`` above and STAYS listed there: it is
+#     not in ``BASIC_ATTR_FIELDS`` and it is not in ``PROGRESSION_FIELDS``.
+#     Only ``LETHAL_BASIC_ATTR_FIELDS`` / ``LETHAL_FIELDS`` carry it, and they
+#     are only reachable with the unlock token this file hands out exactly once,
+#     from the hp-death scenario loader.
+#
+# What THIS lane added on top, from the same read-only client image, and which
+# is why the timer value below is not a round number picked out of the air
+# (all of it re-asserted as byte guards by tools/verify_hp_death_encoder.py):
+#
+#   * The local player's death window is a pure per-frame function of the two
+#     values: ``CMyActor`` vtable +0x18 = 0x44E4E0 calls 0x44A540, which calls
+#     ``IsDead`` and, if true, opens L"Main_Dead" (0xF0D738) -- but only behind
+#     one more comparison at 0x44A572:
+#         cvtsi2sd xmm1, dword [0x102249C]     ; the int the by-name binder at
+#                                              ; 0x483476 binds to L"DURATION_DYING"
+#         subsd    xmm1, [0xF092D0]            ; the double constant 0.5
+#         cvtps2pd xmm0, xmm0                  ; the f32 at attr+0x58
+#         comisd   xmm1, xmm0 ; ja  -> do NOT open
+#     so the window opens iff ``DURATION_DYING - 0.5 <= timer``.  The value
+#     compiled into the image at 0x102249C is 20.  A timer of "any positive
+#     float" satisfies ``IsDead`` but can silently fail to open the window, so
+#     this lane pins the timer ABOVE the in-image default with margin.
+#   * The incoming attribute really does land on the object the death predicate
+#     reads.  ``UpdateAttrVital``'s inbound handler 0x5F2400 takes each Attr in
+#     the collection, asks it for its class id (vtable +0x10 = 0x464E40 =
+#     ``mov ax,[0x10334A0]``, the once-init ActorAttr id), looks that class up
+#     in ``[0x1032EC4]+0x130`` -- the local player's own attr collection -- and
+#     calls the INCOMING attr's vtable +0x24, which for ActorAttr (vtable base
+#     0xF0E7A0) is 0x464F30.  0x464F30 chains the BasicAttr copy 0x464B40,
+#     which copies the whole block UNCONDITIONALLY -- ``8b 57 44 / 89 56 44``
+#     for current HP and ``d9 47 58 / d9 5e 58`` for the death timer -- with no
+#     mask consulted.  The actor caches that same pointer at ``+0x348`` and
+#     registers it into ``+0x130`` in one breath at 0x4573CA, and ``+0x348`` is
+#     exactly what ``GetAttr`` (0x44C630) returns to ``IsDead``.
+#
+# The one correction this lane makes to HP-DEATH-001's open debt B1: the chain
+# is NOT ``UpdateAttrVital -> 0x4446F0``.  ``0x4446F0`` (attr apply + the
+# dead-state sync 0x4437C0 that latches [actor+0x70] |= 0x200, spawns
+# CActorTask_Dead and plays L"_F_DIE_000") has exactly ONE caller in the whole
+# image, 0x4566A7, which is the actor-entry update path -- not this one.
+# CONSEQUENCE, stated so nobody claims more than we have: a frame from this
+# lane is expected to move the local player's HUD and open L"Main_Dead", and is
+# NOT expected to play the death animation or push L"TargetIsDead".
+#
+# NOT CLAIMED: that any client has rendered any of it (that is GT-019, attended,
+# not run); anything about coming back the other way -- HP-DEATH-001 enumerated
+# the three verbs that carry a death token out of 519 registered classes, found
+# that the player-facing one has no inbound handler at all (its slot is the
+# shared no-op 0x710440, so a server echo of it changes nothing), and this lane
+# implements NONE of them, has no encoder or decoder for any of them, and names
+# none of them anywhere in src/; any death penalty, corpse or damage rule;
+# anything about the ORIGINAL server; and any persistence -- HP has no write
+# path in this project and this lane opens none.
+# ============================================================================
+
+HP_DEATH_TIMER_NAME = "hp_death_timer"
+HP_DEATH_TIMER_MASK_BIT = 0x0080
+HP_DEATH_TIMER_OFFSET = 0x58
+HP_DEATH_TIMER_TAG = 0x2A
+HP_DEATH_TIMER_WIDTH = 4
+HP_DEATH_TIMER_GATE_PIN = 0x4657AE
+
+# Client-binary VAs proven in HP-DEATH-001 and in this lane's own static pass;
+# documentation-grade constants, never dereferenced.
+IS_DEAD_PLAYER_VA = 0x454AC0            # CNetActor/CMyActor vtable +0x40
+IS_DEAD_PLAYER_TIMER_ELAPSED_VA = 0x454A70   # ... vtable +0x3C
+IS_DEAD_NPC_VA = 0x43BDA0               # CNetNPC/CAvatarNPC/Pet vtable +0x40
+ZERO_FLOAT_CONSTANT_VA = 0xF0989C       # the 0.0f IsDead compares the timer to
+MY_ACTOR_UPDATE_VA = 0x44E4E0           # CMyActor vtable +0x18
+MAIN_DEAD_GATE_VA = 0x44A540            # the per-frame death-window gate
+MAIN_DEAD_LITERAL_VA = 0xF0D738         # L"Main_Dead"
+DURATION_DYING_GLOBAL_VA = 0x102249C    # the int bound to L"DURATION_DYING"
+DURATION_DYING_NAME_VA = 0xF118FC       # that name literal
+DURATION_DYING_HALF_SECOND_VA = 0xF092D0  # the 0.5 subtracted from it
+UPDATE_ATTR_VITAL_ATTR_CLASS_LOOKUP_VA = 0x5F8C30  # the by-class-id lookup
+ACTOR_ATTR_CLASS_ID_GETTER_VA = 0x464E40   # ActorAttr vtable +0x10
+ACTOR_ATTR_VTABLE_VA = 0xF0E7A0
+ACTOR_ATTR_COPY_VA = 0x464F30              # ActorAttr vtable +0x24
+BASIC_ATTR_COPY_VA = 0x464B40              # BasicAttr vtable +0x24, unconditional
+LOCAL_PLAYER_POINTER_VA = 0x1032EC4
+LOCAL_PLAYER_ATTR_COLLECTION_OFFSET = 0x130
+ACTOR_BOUND_ATTR_OFFSET = 0x348
+ACTOR_ATTR_BIND_SITE_VA = 0x4573CA
+DEAD_STATE_SYNC_VA = 0x4437C0
+ATTR_APPLY_AND_DEAD_SYNC_VA = 0x4446F0
+ATTR_APPLY_AND_DEAD_SYNC_ONLY_CALLER_VA = 0x4566A7
+
+# The value compiled into the image for DURATION_DYING, and the gate the death
+# window is behind.  See the block comment above.
+DURATION_DYING_IMAGE_DEFAULT = 20
+DURATION_DYING_WINDOW_MARGIN = 0.5
+
+HP_DEATH_TIMER_FIELD = AttrField(
+    HP_DEATH_TIMER_NAME, "basic", HP_DEATH_TIMER_MASK_BIT, HP_DEATH_TIMER_OFFSET,
+    HP_DEATH_TIMER_TAG, "f32",
+    "STATS-PROG-001 s4 / HP-DEATH-001 s1 gate 0x4657AE "
+    "`f6 03 80 74 0f 6a 04 8d 4e 58 51 6a 2a`; read by IsDead 0x454AC0",
+)
+
+# The lethal tables.  These are the ONLY tables that know the field exists.
+LETHAL_BASIC_ATTR_FIELDS = _ordered(BASIC_ATTR_FIELDS + (HP_DEATH_TIMER_FIELD,))
+LETHAL_FIELDS = {
+    **PROGRESSION_FIELDS, HP_DEATH_TIMER_NAME: HP_DEATH_TIMER_FIELD,
+}
+LETHAL_BASIC_ATTR_GATE_PINS = {
+    **BASIC_ATTR_GATE_PINS, HP_DEATH_TIMER_MASK_BIT: HP_DEATH_TIMER_GATE_PIN,
+}
+
+HP_DEATH_REJECTIONS = (
+    "lethal_lane_locked",
+    "death_timer_not_float",
+    "death_timer_not_finite",
+    "death_timer_not_positive",
+    "death_timer_not_exactly_representable",
+    "death_timer_below_the_death_window_gate",
+    "death_timer_without_hp_current",
+    "unknown_step_label",
+)
+
+
+@dataclass(frozen=True)
+class HpDeathLethalUnlock:
+    """The only key that widens the field table to include bit 0x0080.
+
+    An instance is compared by IDENTITY, not by value: constructing an equal
+    dataclass elsewhere does not unlock the lane.
+    """
+
+    scenario_id: str
+    hypothesis_id: str
+
+
+HP_DEATH_SCENARIO_ID = "hp_death_hypothesis_death_sweep"
+HP_DEATH_HYPOTHESIS_ID = "HYP-PF-022"
+_HP_DEATH_UNLOCK = HpDeathLethalUnlock(HP_DEATH_SCENARIO_ID, HP_DEATH_HYPOTHESIS_ID)
+
+
+def require_hp_death_lethal_unlock(value: Any) -> HpDeathLethalUnlock:
+    """Fail closed unless this is the one token the scenario loader hands out."""
+    if value is not _HP_DEATH_UNLOCK:
+        raise ValueError("hp death field rejected: lethal_lane_locked")
+    return value
+
+
+def _resolve_field_tables(lethal: Any) -> tuple[tuple[AttrField, ...], dict]:
+    """``None`` means the 23 progression fields; the token means 24."""
+    if lethal is None:
+        return BASIC_ATTR_FIELDS, PROGRESSION_FIELDS
+    require_hp_death_lethal_unlock(lethal)
+    _require_lethal_field_table()
+    return LETHAL_BASIC_ATTR_FIELDS, LETHAL_FIELDS
+
+
+def _require_lethal_field_table() -> None:
+    """The lethal table must be the progression table plus exactly one bit."""
+    if HP_DEATH_TIMER_NAME in PROGRESSION_FIELDS:
+        raise RuntimeError("HYP-PF-022 the death timer leaked into the base table")
+    if HP_DEATH_TIMER_MASK_BIT in {field.mask_bit for field in BASIC_ATTR_FIELDS}:
+        raise RuntimeError("HYP-PF-022 the death bit leaked into the base table")
+    if HP_DEATH_TIMER_MASK_BIT not in NOT_IMPLEMENTED_BASIC_ATTR_BITS:
+        raise RuntimeError(
+            "HYP-PF-022 bit 0x0080 must stay declared not-implemented for "
+            "HYP-PF-020"
+        )
+    if len(LETHAL_BASIC_ATTR_FIELDS) != len(BASIC_ATTR_FIELDS) + 1:
+        raise RuntimeError("HYP-PF-022 lethal table is not base plus one field")
+    if set(LETHAL_FIELDS) != set(PROGRESSION_FIELDS) | {HP_DEATH_TIMER_NAME}:
+        raise RuntimeError("HYP-PF-022 lethal name table drift")
+    if HP_DEATH_TIMER_FIELD.kind != "f32" or HP_DEATH_TIMER_FIELD.tag != 0x2A:
+        raise RuntimeError("HYP-PF-022 the death timer is not the f32 tag 0x2A")
+    # The whole emission-order argument again, on the widened table.
+    addresses = [
+        LETHAL_BASIC_ATTR_GATE_PINS[field.mask_bit]
+        for field in LETHAL_BASIC_ATTR_FIELDS
+        if field.mask_bit in LETHAL_BASIC_ATTR_GATE_PINS
+    ]
+    if addresses != sorted(addresses) or len(set(addresses)) != len(addresses):
+        raise RuntimeError("HYP-PF-022 gate pin order contradicts mask order")
+
+
+def _encode_death_timer(legacy: Any, field: AttrField, value: Any) -> bytes:
+    """Encode the one float this project is allowed to put at BasicAttr +0x58.
+
+    Every rejection here produces no bytes.  The value must be a real ``float``
+    (``int`` and ``bool`` are refused so "1" can never become a timer by
+    accident), finite, strictly greater than the 0.0f ``IsDead`` compares
+    against, exactly representable in 32 bits so the wire value is the pinned
+    value, and at least the death-window gate ``DURATION_DYING - 0.5`` computed
+    from the value compiled into the client image.
+    """
+    if type(value) is not float:
+        raise ValueError("hp death field rejected: death_timer_not_float")
+    if value != value or value in (float("inf"), float("-inf")):
+        raise ValueError("hp death field rejected: death_timer_not_finite")
+    if not value > 0.0:
+        raise ValueError("hp death field rejected: death_timer_not_positive")
+    encoded = legacy.f32tag(value)
+    if (
+        len(encoded) != 1 + HP_DEATH_TIMER_WIDTH
+        or encoded[0] != field.tag
+        or field.tag != HP_DEATH_TIMER_TAG
+    ):
+        raise RuntimeError("HYP-PF-022 f32 tag drift against the frozen module")
+    if struct.unpack("<f", encoded[1:])[0] != value:
+        raise ValueError(
+            "hp death field rejected: death_timer_not_exactly_representable"
+        )
+    if value < DURATION_DYING_IMAGE_DEFAULT - DURATION_DYING_WINDOW_MARGIN:
+        raise ValueError(
+            "hp death field rejected: death_timer_below_the_death_window_gate"
+        )
+    return encoded
+
+
+# ------------------------------------------------------------ the death plan
+# The timer this lane sends.  IsDead needs only "> 0.0f", but the local player's
+# L"Main_Dead" window is behind `DURATION_DYING - 0.5 <= timer` and the value
+# compiled into the image is 20.  60.0 clears that gate with a wide margin --
+# it stays a plausible "seconds of dying remaining" while surviving a deployed
+# configuration that raises DURATION_DYING -- and it is exactly representable in
+# 32 bits, so the wire value is this value.  The margin is a DESIGN CHOICE on
+# top of a byte-proven inequality, and is recorded as such in the ledger.
+HP_DEATH_TIMER_SECONDS = 60.0
+# The pair that makes IsDead true.  Zero is not a magic number here: it is the
+# literal `cmp [attr+0x44], 0` at 0x454AFA.
+HP_DEATH_HP_CURRENT = 0
+# Recovery is one more frame with a non-zero current HP -- NOT a protocol verb:
+# 0x44A540 closes the window as soon as IsDead is false, so restoring the HP
+# value is the whole undo and the tester never has to restart the client.  It is
+# the same 100 the baseline projection already carries.
+HP_DEATH_HP_RESTORED = STATS_BASELINE_HP_CURRENT
+
+HP_DEATH_STEPS = (
+    # Byte-identical to the projection a real client has accepted since
+    # NAME-002.  Nothing lethal, no new bit, no new tag.
+    ("BASELINE", {}),
+    # The new bit and the new tag WITHOUT the kill: HP is still full, so IsDead
+    # is false and nothing should happen on screen.  This step exists to tell
+    # "the client cannot parse a BasicAttr carrying bit 0x0080" apart from "the
+    # client will not die" -- if the session survives this frame the wire shape
+    # is accepted, whatever the next frame does.
+    ("TIMER_ARMED", {HP_DEATH_TIMER_NAME: HP_DEATH_TIMER_SECONDS}),
+    # The kill.  Cumulative, so this frame carries both halves of the predicate.
+    ("HP_ZERO", {"hp_current": HP_DEATH_HP_CURRENT}),
+    # Undo it in the same sweep, by restoring the attribute and nothing else.
+    # Leaving a tester staring at a dead character is not an acceptable end
+    # state for a diagnostic.
+    ("HP_RESTORED", {"hp_current": HP_DEATH_HP_RESTORED}),
+)
+HP_DEATH_STEP_ORDER = tuple(label for label, _fields in HP_DEATH_STEPS)
+HP_DEATH_STEP_FIELDS = {label: dict(fields) for label, fields in HP_DEATH_STEPS}
+HP_DEATH_LETHAL_STEP_LABELS = ("HP_ZERO",)
+# Wider than the progression sweep on purpose: an attended tester has to see
+# the window open, read it, and still be looking when it closes again.
+HP_DEATH_SPACING_SECONDS = 6.0
+HP_DEATH_FIRST_DELAY_SECONDS = 0.0
+HP_DEATH_ACTION_LABEL_PREFIX = "HYP_PF_022_HP_DEATH_"
+
+
+@dataclass(frozen=True)
+class HpDeathHypothesisScenario:
+    scenario_id: str
+    hypothesis_id: str
+    step_order: tuple[str, ...]
+    spacing_seconds: float
+    death_timer_seconds: float
+
+
+def _require_hp_death_step_plan() -> None:
+    """The sweep must open harmless, kill exactly once, and end alive."""
+    if HP_DEATH_STEP_ORDER[0] != "BASELINE":
+        raise RuntimeError("HYP-PF-022 the sweep must open with the baseline")
+    if HP_DEATH_STEP_FIELDS["BASELINE"]:
+        raise RuntimeError("HYP-PF-022 the baseline must add no lethal field")
+    if len(set(HP_DEATH_STEP_ORDER)) != len(HP_DEATH_STEP_ORDER):
+        raise RuntimeError("HYP-PF-022 duplicate step label")
+    for label in HP_DEATH_STEP_ORDER[1:]:
+        added = HP_DEATH_STEP_FIELDS[label]
+        if len(added) != 1:
+            raise RuntimeError("HYP-PF-022 a step must change exactly one field")
+        for name in added:
+            if name not in LETHAL_FIELDS:
+                raise RuntimeError("HYP-PF-022 step names an unknown field")
+    # The timer has to be armed BEFORE the kill: a frame that zeroes HP while
+    # the timer is still absent leaves the client in a state IsDead does not
+    # cover, and this lane refuses to be the thing that produced it.
+    armed = HP_DEATH_STEP_ORDER.index("TIMER_ARMED")
+    killed = HP_DEATH_STEP_ORDER.index("HP_ZERO")
+    restored = HP_DEATH_STEP_ORDER.index("HP_RESTORED")
+    if not armed < killed < restored:
+        raise RuntimeError("HYP-PF-022 the sweep order is not arm/kill/restore")
+    if HP_DEATH_STEP_FIELDS["HP_ZERO"]["hp_current"] != 0:
+        raise RuntimeError("HYP-PF-022 the lethal step does not zero current HP")
+    if HP_DEATH_STEP_FIELDS["HP_RESTORED"]["hp_current"] <= 0:
+        raise RuntimeError("HYP-PF-022 the sweep does not end alive")
+    if HP_DEATH_STEP_ORDER[-1] != "HP_RESTORED":
+        raise RuntimeError("HYP-PF-022 the sweep must end on the hp-restored frame")
+    if len(HP_DEATH_LETHAL_STEP_LABELS) != 1:
+        raise RuntimeError("HYP-PF-022 exactly one step may be lethal")
+
+
+def hp_death_step_fields(
+    legacy: Any, actor: StatsProgressionActor, step_index: int,
+) -> dict[str, Any]:
+    """Baseline plus every death change up to and including this step.
+
+    Cumulative for the same reason the progression sweep is, and here the
+    reason is byte-proven twice over: BasicAttr's copy 0x464B40 copies the whole
+    block with no mask consulted, so a field dropped from a later frame is not
+    left alone -- it is overwritten with whatever the incoming object holds.
+    """
+    if type(step_index) is not int or type(step_index) is bool:
+        raise ValueError("hp death step rejected: unknown_step_label")
+    if step_index < 0 or step_index >= len(HP_DEATH_STEP_ORDER):
+        raise ValueError("hp death step rejected: unknown_step_label")
+    fields = stats_progression_baseline_fields(legacy, actor)
+    for label in HP_DEATH_STEP_ORDER[:step_index + 1]:
+        fields.update(HP_DEATH_STEP_FIELDS[label])
+    return fields
+
+
+def hp_death_step_is_lethal(step_index: int) -> bool:
+    """True only for the frame on which the client should derive death."""
+    fields = {}
+    for label in HP_DEATH_STEP_ORDER[:step_index + 1]:
+        fields.update(HP_DEATH_STEP_FIELDS[label])
+    return (
+        fields.get("hp_current") == 0
+        and float(fields.get(HP_DEATH_TIMER_NAME, 0.0)) > 0.0
+    )
+
+
+# ---------------------------------------------------------------- death pins
+# Same probe actor as the progression sweep, on purpose: the BASELINE frame of
+# this sweep is then byte-identical to HYP-PF-020's BASELINE frame and to the
+# player_wire projection a real client has been accepting since NAME-002, which
+# is what makes the DIFFERENCE between the frames the only thing under test.
+# Every value below is a sha256 of bytes this encoder produced, recomputed live
+# by tools/verify_hp_death_encoder.py, never a value copied in.
+HP_DEATH_PROBE_ACTOR = STATS_PROBE_ACTOR
+HP_DEATH_PROBE_ATTR_BODY_SHA256 = {
+    "BASELINE": (
+        "479ED77DFA554F89AAB02E884608EC53BAEC9E213F85548AF9CCD291BCC896C4"
+    ),
+    "TIMER_ARMED": (
+        "903F2D45EAB009DD2D1AD9C14A00D0027F428BB98076560E5C5F22534B53A8FA"
+    ),
+    "HP_ZERO": (
+        "C718DFC077AEC9C93432F26C81A6AA08D2BD8616F5C4424D1DC2DAC668576469"
+    ),
+    "HP_RESTORED": (
+        "903F2D45EAB009DD2D1AD9C14A00D0027F428BB98076560E5C5F22534B53A8FA"
+    ),
+}
+HP_DEATH_PROBE_PC_SHA256 = {
+    "BASELINE": (
+        "DB3CE0B5D14196181EF9EA26A0D435E0489212634334CB562F840E368B5F0049"
+    ),
+    "TIMER_ARMED": (
+        "B7BE99B81FDBBC88D08599C6504328B99E55F40B3877856FC6D7BA0F7047E97F"
+    ),
+    "HP_ZERO": (
+        "A1990A937B4A1A8FFAB2D1D8F29004489C260A7829051F14CADDB0D619A16717"
+    ),
+    "HP_RESTORED": (
+        "B7BE99B81FDBBC88D08599C6504328B99E55F40B3877856FC6D7BA0F7047E97F"
+    ),
+}
+HP_DEATH_PROBE_FRAME_SHA256 = {
+    "BASELINE": (
+        "04E2B40152B633A48C84713B1C24A2910B7AB84E178E268094C0D10B179D9FBC"
+    ),
+    "TIMER_ARMED": (
+        "FF43A6FC590A88CCC9B548AE694FA9EDAFE25051FB3AB9E61041BA4142276B04"
+    ),
+    "HP_ZERO": (
+        "F6DB8ACA8C80DBFCED2FBF12BC8532C0A0865818D88D7AF4B4CAD06931C58A35"
+    ),
+    "HP_RESTORED": (
+        "FF43A6FC590A88CCC9B548AE694FA9EDAFE25051FB3AB9E61041BA4142276B04"
+    ),
+}
+HP_DEATH_PROBE_ATTR_BODY_SIZE = {
+    "BASELINE": 73, "TIMER_ARMED": 78, "HP_ZERO": 78, "HP_RESTORED": 78,
+}
+HP_DEATH_PROBE_PC_SIZE = {
+    "BASELINE": 106, "TIMER_ARMED": 111, "HP_ZERO": 111, "HP_RESTORED": 111,
+}
+HP_DEATH_PROBE_FRAME_SIZE = {
+    "BASELINE": 117, "TIMER_ARMED": 122, "HP_ZERO": 122, "HP_RESTORED": 122,
+}
+# The masks the four frames carry, so a reader never has to trust prose about
+# which bits went out.  0x030C is the baseline (hp cur/max, scene id, scene
+# sequence) and 0x038C is that plus the death bit 0x0080.
+HP_DEATH_PROBE_BASIC_MASK = {
+    "BASELINE": 0x030C, "TIMER_ARMED": 0x038C,
+    "HP_ZERO": 0x038C, "HP_RESTORED": 0x038C,
+}
+# The exact five bytes bit 0x0080 puts on the wire: tag 0x2A + 60.0f LE.
+HP_DEATH_TIMER_WIRE_BYTES = bytes.fromhex("2a00007042")
+
+
+def _require_pinned_death_composition(
+    actor: StatsProgressionActor, label: str, body: bytes, pc: bytes,
+    frame: bytes,
+) -> None:
+    if actor != HP_DEATH_PROBE_ACTOR or not HP_DEATH_PROBE_PC_SHA256:
+        return
+    if hashlib.sha256(body).hexdigest().upper() != HP_DEATH_PROBE_ATTR_BODY_SHA256[label]:
+        raise RuntimeError("HYP-PF-022 composed Attr body drift")
+    if hashlib.sha256(pc).hexdigest().upper() != HP_DEATH_PROBE_PC_SHA256[label]:
+        raise RuntimeError("HYP-PF-022 composed PC drift")
+    if hashlib.sha256(frame).hexdigest().upper() != HP_DEATH_PROBE_FRAME_SHA256[label]:
+        raise RuntimeError("HYP-PF-022 composed frame drift")
+    if (
+        len(body) != HP_DEATH_PROBE_ATTR_BODY_SIZE[label]
+        or len(pc) != HP_DEATH_PROBE_PC_SIZE[label]
+        or len(frame) != HP_DEATH_PROBE_FRAME_SIZE[label]
+    ):
+        raise RuntimeError("HYP-PF-022 composed size pin drift")
+
+
+# PF-HYPOTHESIS-LEDGER: HYP-PF-022 active
+def make_hp_death_response(
+    legacy: Any, actor: StatsProgressionActor, fields: dict[str, Any],
+    lethal: Any,
+) -> tuple[bytes, bytes]:
+    """Compose ``(pc, frame)`` for one UpdateAttrVital frame of the death sweep.
+
+    Same envelope, same Attr collection and same encoder as the progression
+    lane -- the only new thing on the wire is one f32 field at BasicAttr +0x58,
+    and it is only reachable with the unlock token.  Before any byte is
+    returned this re-runs the whole HYP-PF-020 chain of self-checks (the frozen
+    module's ids, the ascending gate pins, the byte-for-byte player_wire
+    cross-check on the baseline projection) plus the lethal table and step-plan
+    guards, and re-decodes the composed PC back to the requested field set.
+    """
+    require_hp_death_lethal_unlock(lethal)
+    if legacy.UPDATE_ATTR_VITAL != UPDATE_ATTR_VITAL_ID:
+        raise RuntimeError(
+            "HYP-PF-022 UpdateAttrVital id drift against the frozen module"
+        )
+    _require_lethal_field_table()
+    _require_hp_death_step_plan()
+    _require_player_wire_crosscheck(legacy, actor)
+    body = encode_actor_attr(
+        legacy, actor.identity_lo, actor.identity_hi, fields, lethal,
+    )
+    payload = make_stats_progression_attr_payload(legacy, body)
+    pc, frame = legacy.make_runtime_vitals([
+        (legacy.UPDATE_ATTR_VITAL, UPDATE_ATTR_VITAL_VERSION, payload),
+    ])
+    if len(pc) != len(payload) + STATS_PC_OVERHEAD:
+        raise RuntimeError("HYP-PF-022 composed PC size drift")
+    if pc[STATS_PC_PAYLOAD_OFFSET:STATS_PC_PAYLOAD_OFFSET + len(payload)] != payload:
+        raise RuntimeError("HYP-PF-022 composed PC is not the encoded payload")
+    if pc[STATS_PC_ATTR_BODY_OFFSET:STATS_PC_ATTR_BODY_OFFSET + len(body)] != body:
+        raise RuntimeError("HYP-PF-022 composed PC is not the encoded Attr body")
+    if decode_actor_attr(
+        pc[STATS_PC_ATTR_BODY_OFFSET:STATS_PC_ATTR_BODY_OFFSET + len(body)],
+        lethal,
+    ) != (actor.identity_lo, actor.identity_hi, dict(fields)):
+        raise RuntimeError("HYP-PF-022 composed PC does not re-decode")
+    return pc, frame
+
+
+def make_hp_death_step_response(
+    legacy: Any, actor: StatsProgressionActor, step_index: int, lethal: Any,
+) -> tuple[bytes, bytes]:
+    """Compose one numbered frame of the pinned death sweep, then drift-check."""
+    require_hp_death_lethal_unlock(lethal)
+    fields = hp_death_step_fields(legacy, actor, step_index)
+    pc, frame = make_hp_death_response(legacy, actor, fields, lethal)
+    label = HP_DEATH_STEP_ORDER[step_index]
+    _require_pinned_death_composition(
+        actor, label, hp_death_attr_body(pc), pc, frame,
+    )
+    return pc, frame
+
+
+def hp_death_attr_body(pc: bytes) -> bytes:
+    """Slice the ``ActorAttr`` body out of a composed PC by its own length tag.
+
+    The Attr collection carries ``tag14/u32 body length`` immediately before the
+    body, so the body is read out of the frame rather than assumed: a caller
+    that slices to the end of the PC picks up the envelope's own tail bytes and
+    every hash it computes is wrong.
+    """
+    length_tag_offset = STATS_PC_PAYLOAD_OFFSET + 6
+    if len(pc) < length_tag_offset + 5 or pc[length_tag_offset] != 0x14:
+        raise ValueError("hp death body rejected: wrong_field_tag")
+    length = int.from_bytes(
+        pc[length_tag_offset + 1:length_tag_offset + 5], "little",
+    )
+    end = STATS_PC_ATTR_BODY_OFFSET + length
+    if length <= 0 or end > len(pc):
+        raise ValueError("hp death body rejected: truncated_field")
+    return pc[STATS_PC_ATTR_BODY_OFFSET:end]
+
+
+# --------------------------------------------------------- death scenario gate
+_PROFILE_DEATH_SWEEP = HpDeathHypothesisScenario(
+    HP_DEATH_SCENARIO_ID,
+    HP_DEATH_HYPOTHESIS_ID,
+    HP_DEATH_STEP_ORDER,
+    HP_DEATH_SPACING_SECONDS,
+    HP_DEATH_TIMER_SECONDS,
+)
+
+
+def _expected_death_sweep() -> dict[str, Any]:
+    return {
+        "schema": 1,
+        "id": HP_DEATH_SCENARIO_ID,
+        "test_only": True,
+        "production_allowed": False,
+        "hypothesis_id": HP_DEATH_HYPOTHESIS_ID,
+        "lethal": True,
+        "entry": {
+            "flow": "full_writable_character",
+            "required_sequence": "selected_and_runtime_ready",
+            "response_policy": (
+                "compose_cumulative_update_attr_vital_death_deltas_"
+                "no_write_no_close"
+            ),
+        },
+        "dispatch": {
+            "trigger": "accepted_chat_input_frame_exact_ascii12_shape",
+            "trigger_classifier": "classify_chat_input_attempt",
+            "frames_per_accepted_request": len(HP_DEATH_STEP_ORDER),
+            "step_order": list(HP_DEATH_STEP_ORDER),
+            "step_fields": {
+                label: dict(HP_DEATH_STEP_FIELDS[label])
+                for label in HP_DEATH_STEP_ORDER
+            },
+            "lethal_steps": list(HP_DEATH_LETHAL_STEP_LABELS),
+            "cumulative": True,
+            "spacing_seconds": HP_DEATH_SPACING_SECONDS,
+            "first_frame_delay_seconds": HP_DEATH_FIRST_DELAY_SECONDS,
+            "delay_semantics": "gap_before_each_send_on_a_cumulative_deadline",
+            "action_label_prefix": HP_DEATH_ACTION_LABEL_PREFIX,
+            "action_labels": [
+                HP_DEATH_ACTION_LABEL_PREFIX + label
+                for label in HP_DEATH_STEP_ORDER
+            ],
+            "one_shot": False,
+            "socket_action": "none",
+        },
+        "wire": {
+            "vital_id": UPDATE_ATTR_VITAL_ID,
+            "vital_version": UPDATE_ATTR_VITAL_VERSION,
+            "envelope": "gscn_runtime_protocol_res_v4_one_vital_collection",
+            "attr_id": ACTOR_ATTR_ID,
+            "attr_collection": (
+                "tag12_u16_count_tag12_u16_attr_id_tag14_u32_length_then_body"
+            ),
+            "field_order_rule": "ascending_mask_bit_within_each_block",
+            "death_field": {
+                "name": HP_DEATH_TIMER_NAME,
+                "block": "basic",
+                "mask_bit": HP_DEATH_TIMER_MASK_BIT,
+                "object_offset": HP_DEATH_TIMER_OFFSET,
+                "wire_tag": HP_DEATH_TIMER_TAG,
+                "width": "f32",
+                "gate_pin": HP_DEATH_TIMER_GATE_PIN,
+                "value_seconds": HP_DEATH_TIMER_SECONDS,
+            },
+            "death_predicate": {
+                "is_dead_player": IS_DEAD_PLAYER_VA,
+                "is_dead_npc": IS_DEAD_NPC_VA,
+                "zero_float_constant": ZERO_FLOAT_CONSTANT_VA,
+                "current_hp_mask_bit": PROGRESSION_FIELDS["hp_current"].mask_bit,
+                "current_hp_offset": PROGRESSION_FIELDS["hp_current"].offset,
+                "rule": "current_hp_zero_and_death_timer_greater_than_zero",
+            },
+            "death_window_gate": {
+                "per_frame_gate": MAIN_DEAD_GATE_VA,
+                "window_literal": MAIN_DEAD_LITERAL_VA,
+                "duration_dying_global": DURATION_DYING_GLOBAL_VA,
+                "duration_dying_image_default": DURATION_DYING_IMAGE_DEFAULT,
+                "rule": "duration_dying_minus_half_second_at_most_the_timer",
+            },
+            "apply_chain": {
+                "inbound_handler": UPDATE_ATTR_VITAL_HANDLER_VA,
+                "attr_class_id_getter": ACTOR_ATTR_CLASS_ID_GETTER_VA,
+                "attr_lookup": UPDATE_ATTR_VITAL_ATTR_CLASS_LOOKUP_VA,
+                "actor_attr_copy": ACTOR_ATTR_COPY_VA,
+                "basic_attr_copy": BASIC_ATTR_COPY_VA,
+                "copy_is_mask_gated": False,
+                "reaches_dead_state_sync": False,
+                "dead_state_sync": DEAD_STATE_SYNC_VA,
+                "dead_state_sync_only_reachable_from": (
+                    ATTR_APPLY_AND_DEAD_SYNC_ONLY_CALLER_VA
+                ),
+            },
+        },
+        "probe": {
+            "identity_lo": STATS_PROBE_IDENTITY_LO,
+            "identity_hi": STATS_PROBE_IDENTITY_HI,
+            "scene_id": STATS_PROBE_SCENE_ID,
+            "scene_sequence": STATS_PROBE_SCENE_SEQUENCE,
+            "character_name": STATS_PROBE_CHARACTER_NAME,
+            "cash": STATS_PROBE_CASH,
+            "hp_current": STATS_BASELINE_HP_CURRENT,
+            "hp_max": STATS_BASELINE_HP_MAX,
+            "baseline_crosscheck": (
+                "encode_actor_attr_reproduces_player_wire_"
+                "make_actor_attr_with_name_byte_for_byte"
+            ),
+            "per_step": {
+                label: {
+                    "lethal": label in HP_DEATH_LETHAL_STEP_LABELS,
+                    "attr_body_size": HP_DEATH_PROBE_ATTR_BODY_SIZE[label],
+                    "attr_body_sha256": HP_DEATH_PROBE_ATTR_BODY_SHA256[label],
+                    "pc_size": HP_DEATH_PROBE_PC_SIZE[label],
+                    "pc_sha256": HP_DEATH_PROBE_PC_SHA256[label],
+                    "frame_size": HP_DEATH_PROBE_FRAME_SIZE[label],
+                    "frame_sha256": HP_DEATH_PROBE_FRAME_SHA256[label],
+                }
+                for label in HP_DEATH_STEP_ORDER
+            },
+        },
+        "persisted_post_state": {
+            "database_write": "none",
+        },
+        "capabilities": [
+            "emit_basicattr_mask_bit_0x0080_as_an_f32_death_timer",
+            "compose_the_exact_pair_the_client_isdead_predicate_reads",
+            "arm_the_timer_before_the_kill_and_restore_hp_in_the_same_sweep",
+            "reproduce_the_proven_player_wire_baseline_projection_byte_exactly",
+            "decode_every_composed_body_back_to_the_requested_fields",
+        ],
+        "nonclaims": [
+            "client_rendering_of_death_pending_gt019",
+            "any_wire_observation_of_bit_0x0080_in_either_direction",
+            "the_death_animation_or_target_panel_which_this_transport_"
+            "cannot_reach",
+            "any_spawn_point_or_marker_behavior",
+            "any_death_penalty_corpse_or_damage_rule",
+            "original_server_death_rules",
+            "hp_persistence_or_database_write",
+            "the_deployed_value_of_duration_dying",
+            "production_dispatch_wiring",
+            "production_baseline_behavior",
+        ],
+    }
+
+
+def load_hp_death_hypothesis_scenario(
+    path: str | Path,
+) -> HpDeathHypothesisScenario:
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("invalid hp death hypothesis scenario") from exc
+    if type(data) is not dict or data.get("id") != HP_DEATH_SCENARIO_ID:
+        raise ValueError("hp death hypothesis scenario exceeds the exact allowlist")
+    if not _exact_equal(data, _expected_death_sweep()):
+        raise ValueError("hp death hypothesis scenario exceeds the exact allowlist")
+    return require_hp_death_hypothesis_scenario(_PROFILE_DEATH_SWEEP)
+
+
+def require_hp_death_hypothesis_scenario(
+    value: Any,
+) -> HpDeathHypothesisScenario:
+    if (
+        type(value) is not HpDeathHypothesisScenario
+        or value is not _PROFILE_DEATH_SWEEP
+    ):
+        raise ValueError(
+            "hp death hypothesis scenario object exceeds the allowlist"
+        )
+    _require_field_table()
+    _require_ascending_gate_pins()
+    _require_lethal_field_table()
+    _require_hp_death_step_plan()
+    return value
+
+
+def hp_death_lethal_unlock(
+    scenario: HpDeathHypothesisScenario,
+) -> HpDeathLethalUnlock:
+    """Hand out the unlock token, and only against the allowlisted scenario.
+
+    This is the ONLY public way to obtain it.  Everything lethal in this module
+    is behind an identity comparison against the object it returns.
+    """
+    require_hp_death_hypothesis_scenario(scenario)
+    return _HP_DEATH_UNLOCK

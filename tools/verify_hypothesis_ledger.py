@@ -77,7 +77,43 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # through the real dispatcher on a temp database.  NO progression field has ever been seen
 # on this project's wire in either direction and no client has seen one of these frames;
 # that is GT-017.  Count moves to 27.
-CANONICAL_CONTENT_SHA256 = "E5D9461683D36431493F0E4E6A110FEA6AC09B38B93958391D9D22CE52A1615F"
+# -> EE0C4EFC.. (2026-08-19 DELETE-REFRESH-001: HYP-PF-021 APPENDED -- the
+# post-acknowledgement character-list rebuild that answers a committed soft delete
+# with a SelectActorVital 0x36EF, behind its own opt-in scenario
+# scenarios/delete_refresh_hypothesis_list_rebuild.json and the new
+# --delete-refresh-hypothesis-scenario flag, on the UI-REFRESH-001 static milestone.
+# Appended at the end so every existing entry index stays stable.  Unlike every prior
+# append this one composes NO new wire byte at all: the rebuild frame is the unchanged
+# LegacyProjector.character_list projection -- the frame a real client has accepted at
+# every login since the first runtime pass -- taken over the post-delete row set, and the
+# lane's module only verifies and hash-pins it before the dispatcher may queue it.  What
+# is designed is the POLICY (answer a delete with a full list rebuild), which no capture
+# has ever shown.  HYP-PF-015 is untouched and still active: its stop rule still forbids a
+# list-refresh composition under ITS scenario, and the two scenarios are mutually
+# exclusive because they key on the same vital id 0x36DB.  Proven offline through the real
+# dispatcher on a temp database; the headless TCP replay
+# (tools/pf_delete_refresh001_headless_replay.py) is written and ready but was NOT run --
+# the server boot is LOCK-protected.  No client has seen a delete answered by a rebuild;
+# that is GT-021.  Count moves to 28.
+# -> 7A2BC611.. (2026-08-19 HP-DEATH-002: HYP-PF-022 APPENDED -- emission of the one
+# BasicAttr bit the client's death predicate reads and nothing in this repository had
+# ever emitted, the f32 death timer at +0x58 (mask bit 0x0080, wire tag 0x2A, gate pin
+# 0x4657AE), behind its own opt-in scenario
+# scenarios/hp_death_hypothesis_death_sweep.json and the new
+# --hp-death-hypothesis-scenario flag, on the HP-DEATH-001 static milestone.  Appended at
+# the end so every existing entry index stays stable.  It is a SEPARATE entry rather than
+# a second HYP-PF-020 version on purpose: HYP-PF-020's stop rule allows exactly 23 fields
+# behind exactly one scenario file, and this lane adds a 24th field, a new wire width, a
+# second scenario and a lethal claim with its own falsification.  HYP-PF-020 is untouched
+# and still active -- bit 0x0080 stays in its NOT_IMPLEMENTED list, stays out of its field
+# tables, and its baseline projection is byte-identical with and without this lane's
+# unlock token.  Proven offline: 38 + 21 tests, 66 verifier guards (9 of them byte spans
+# against the read-only client image), and the wire replay
+# tools/pf_hp_death002_headless_replay.py, which reads the dispatcher's own bytes back
+# with an INDEPENDENT tag walker and confirms that exactly one of the four frames carries
+# hp_current == 0 together with a positive death timer.  Not driven over TCP; no client has
+# ever seen bit 0x0080; that is GT-019.  Count moves to 29.
+CANONICAL_CONTENT_SHA256 = "7A2BC6113A94D559FAD94FAF6F7867DDDB0B8B8D7A345AAEEFC6B03ADEE48A4F"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -150,6 +186,31 @@ EXPECTED_IDS = (
     # an encoder or a dispatch branch here, so that milestone's "5 verbs, 0
     # encoders" statement and its src/ guard stay literally true.
     "HYP-PF-020",
+    # HYP-PF-021 (DELETE-REFRESH-001: answer one accepted op-1 delete with the
+    # unchanged pinned HYP-PF-015 echo ack AND, 0.35 s later, the unchanged
+    # runtime-proven character-list projection over the post-delete row set,
+    # behind its own delete-refresh opt-in scenario, under the owner's standing
+    # pre-approval of 2026-08-17 18:2x, on the UI-REFRESH-001 static milestone)
+    # is likewise appended at the end so every existing entry index stays
+    # stable.  It composes no new wire byte -- the rebuild frame is an
+    # already-client-accepted projection over a different set of rows -- and it
+    # leaves HYP-PF-015 completely untouched: that lane's stop rule still
+    # forbids a list-refresh composition under ITS scenario, and the two
+    # scenarios are mutually exclusive because they key on the same vital id.
+    "HYP-PF-021",
+    # HYP-PF-022 (HP-DEATH-002: emit BasicAttr mask bit 0x0080, the f32 death
+    # timer at +0x58 that the client's IsDead predicate 0x454AC0 gates on,
+    # alongside the already-emitted current-HP bit 0x0004 set to zero, behind
+    # its own hp-death opt-in scenario, under the owner's standing pre-approval
+    # of 2026-08-17 18:2x, on the HP-DEATH-001 static milestone) is likewise
+    # appended at the end so every existing entry index stays stable.  It rides
+    # HYP-PF-020's encoder but is deliberately NOT a second version of it: that
+    # entry's stop rule allows 23 fields behind one scenario file, and bit
+    # 0x0080 stays in its NOT_IMPLEMENTED list and out of its field tables, so
+    # the progression lane's own statements stay literally true and its
+    # baseline projection is byte-identical with and without this lane's
+    # unlock token.
+    "HYP-PF-022",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -181,6 +242,8 @@ EXPECTED_META = {
     "HYP-PF-018": ("protocol_hypothesis", "ITEM-MERGE-001", "active"),
     "HYP-PF-019": ("protocol_hypothesis", "CHAT-CHANNEL-002", "active"),
     "HYP-PF-020": ("protocol_hypothesis", "STATS-PROG-002", "active"),
+    "HYP-PF-021": ("protocol_hypothesis", "DELETE-REFRESH-001", "active"),
+    "HYP-PF-022": ("protocol_hypothesis", "HP-DEATH-002", "active"),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}
 STATUSES = {"active", "frozen", "retired", "harness_only", "expired_pending_decision"}

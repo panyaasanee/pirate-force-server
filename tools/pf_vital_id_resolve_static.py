@@ -42,10 +42,29 @@ This tool proves three things, each byte-exact / corpus-exact:
         0x36DB under HYP_PF_015_DELETE_ACTOR_...      -> DeleteActorVital
         0xAC52 under HYP_PF_014_CHAT_INPUT_...        -> Channel_LocalTalkMessageVital
 
+NAMES-HOME-001 rewiring: the id->name table this tool verifies is no longer
+hardcoded here and is no longer read out of v141. The primary source is now
+docs/PF_VITAL_NAMES.json (the project's single home for Vital names, loaded via
+tools/pf_vital_names.py). Section [1c] proves that table hash-clean and a strict
+superset of the frozen v141 NAMES dict, and section [2] takes both the resolved
+names and their expected id-slot VAs FROM that table. The v141 parse is kept, as
+a read-only guard only: v141 is a frozen delivery snapshot (the comparison
+reference for the rewrite), never a place to add a name.
+
 Usage:  py -3 tools/pf_vital_id_resolve_static.py [path-to-GameClient.local.bin] [path-to-capture_v141]
 Exit 0 = all guards reproduced; nonzero = a guard drifted.
 """
 import os, re, sys, struct, hashlib, glob
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from pf_vital_names import (            # pure stdlib, no side effects
+    DEFAULT_TABLE,
+    VitalNamesError,
+    cross_check_v141,
+    load_names_table,
+    parse_v141_names,
+    wire_id,                            # round-62 algorithm, single definition
+)
 
 try:
     from capstone import Cs, CS_ARCH_X86, CS_MODE_32
@@ -65,12 +84,9 @@ def guard(cond, msg):
         FAILS.append(msg)
 
 # ---------- hash (round-62 algorithm, signed char, 1-based index) ----------
-def wire_id(name: str) -> int:
-    s = 0
-    for i, ch in enumerate(name.encode("latin1")):
-        c = ch - 256 if ch >= 128 else ch      # movsx di, byte  -> signed
-        s += c * (i + 1)                        # imul di, bx     -> 1-based index
-    return s & 0xFFFF                            # mov ax, dx; ret 4
+# wire_id() now lives in tools/pf_vital_names.py so the names table, this
+# verifier and tests/test_vital_names_table.py all hash with one definition:
+#     uint16 id = ( sum_i (signed char)name[i] * (i+1) ) mod 2^16
 
 # ---------- load image + PE section table ----------
 data = open(BIN, "rb").read()
@@ -124,28 +140,45 @@ for f in corpus_files:
 for wid, nm in sorted(corpus_named):
     guard(wire_id(nm) == wid, f"corpus named tuple ({nm},0x{wid:04X}) reproduced")
 
-# ---------- (1b) all v141 NAMES entries reproduce ----------
+# ---------- (1b) all v141 NAMES entries reproduce (frozen-snapshot guard) ----------
 print("\n[1b] hash reproduces every entry in the v141 protocol NAMES table")
-V141 = "current/pf_login_game_server_v141.py"
-NAMES_PAIRS = []
-if os.path.exists(V141):
-    src = open(V141, encoding="utf-8").read()
-    consts = {m.group(1): int(m.group(2), 16)
-              for m in re.finditer(r"^([A-Z][A-Z0-9_]+)\s*=\s*(0x[0-9A-Fa-f]+)\s*$", src, re.M)}
-    mnames = re.search(r"NAMES\s*=\s*\{(.*?)\n\}", src, re.S)
-    if mnames:
-        for em in re.finditer(r'(0x[0-9A-Fa-f]+|[A-Z][A-Z0-9_]+)\s*:\s*"([^"]+)"', mnames.group(1)):
-            k = em.group(1); nm = em.group(2)
-            val = int(k, 16) if k.startswith("0x") else consts.get(k)
-            if val is not None:
-                NAMES_PAIRS.append((val, nm))
-    bad = [(nm, v) for v, nm in NAMES_PAIRS if wire_id(nm) != v]
-    guard(len(NAMES_PAIRS) >= 40, f"v141 NAMES parsed ({len(NAMES_PAIRS)} entries)")
-    guard(not bad, f"all {len(NAMES_PAIRS)} v141 NAMES entries hash-match byte-exact ({len(bad)} mismatch)")
-else:
-    print("  SKIP  v141 protocol file not found; NAMES cross-check skipped")
+print("     (v141 is a FROZEN delivery snapshot, read-only; it is a guard here, not the source)")
+V141_PAIRS = []
+try:
+    V141_PAIRS = [(v, nm) for v, nm, _const in parse_v141_names()]
+except VitalNamesError as exc:
+    print(f"  SKIP  {exc}; v141 NAMES cross-check skipped")
+if V141_PAIRS:
+    bad = [(nm, v) for v, nm in V141_PAIRS if wire_id(nm) != v]
+    guard(len(V141_PAIRS) >= 40, f"v141 NAMES parsed ({len(V141_PAIRS)} entries)")
+    guard(not bad, f"all {len(V141_PAIRS)} v141 NAMES entries hash-match byte-exact ({len(bad)} mismatch)")
 
-names_table_ids = {v for v, _ in NAMES_PAIRS}
+v141_ids = {v for v, _ in V141_PAIRS}
+
+# ---------- (1c) docs/PF_VITAL_NAMES.json is the primary id->name source ----------
+print("\n[1c] project names table (PRIMARY SOURCE) is hash-clean and covers v141")
+TABLE = None
+try:
+    TABLE = load_names_table()
+except VitalNamesError as exc:
+    guard(False, f"docs/PF_VITAL_NAMES.json loads and validates [{exc}]")
+
+if TABLE is not None:
+    guard(True, f"names table loaded from {DEFAULT_TABLE.name} ({len(TABLE)} entries)")
+    guard(len(TABLE) >= 52,
+          f"names table holds at least the 49 v141 names + 3 resolved ids ({len(TABLE)} entries)")
+    bad_hash = TABLE.hash_mismatches()
+    guard(not bad_hash,
+          f"all {len(TABLE)} names-table entries hash-match byte-exact ({len(bad_hash)} mismatch)"
+          + (f" -> fix docs/PF_VITAL_NAMES.json: {bad_hash}" if bad_hash else ""))
+    cover = cross_check_v141(TABLE, [(v, nm, None) for v, nm in V141_PAIRS]) if V141_PAIRS else []
+    guard(not cover,
+          f"names table is a superset of v141 NAMES and agrees name-for-name "
+          f"({len(cover)} problem(s))" + (f" -> {cover[0]}" if cover else ""))
+    extra = sorted(set(TABLE.by_id) - v141_ids)
+    guard(len(extra) >= 3,
+          f"names table carries {len(extra)} name(s) v141 never had "
+          f"({', '.join(f'0x{i:04X}={TABLE.name_for(i)}' for i in extra)})")
 
 # ---------- string extraction for collision bound ----------
 strings = set()
@@ -197,14 +230,27 @@ def thunk_ok(lit_bytes, expect_id):
 
 # ---------- (2) resolution ----------
 print("\n[2] resolve unnamed golden ids to unique in-image name literals")
-RESOLVED = [
-    (0x1B40, "LogoutVital"),
-    (0x36DB, "DeleteActorVital"),
-    (0xAC52, "Channel_LocalTalkMessageVital"),
-]
-for wid, name in RESOLVED:
+print("     (names and expected id-slot VAs are read from docs/PF_VITAL_NAMES.json)")
+
+# Driven by the names table: every id we hold a name for that v141 never had must
+# stand on its own literal->slot evidence in the client binary. Adding an entry to
+# docs/PF_VITAL_NAMES.json therefore adds guards here automatically.
+RESOLVED = []
+if TABLE is not None:
+    RESOLVED = [
+        (ident, TABLE.by_id[ident]["name"], TABLE.by_id[ident].get("id_slot_va"))
+        for ident in sorted(set(TABLE.by_id) - v141_ids)
+    ]
+else:  # table unreadable: fall back to the round-62 findings so [2] still runs
+    RESOLVED = [
+        (0x1B40, "LogoutVital", "0x108207C"),
+        (0x36DB, "DeleteActorVital", "0x1081FD0"),
+        (0xAC52, "Channel_LocalTalkMessageVital", "0x1084458"),
+    ]
+
+for wid, name, want_slot in RESOLVED:
     guard(wire_id(name) == wid, f"hash({name}) == 0x{wid:04X}")
-    guard(wid not in names_table_ids, f"0x{wid:04X} absent from v141 NAMES (was decoded as bare hex)")
+    guard(wid not in v141_ids, f"0x{wid:04X} absent from v141 NAMES (was decoded as bare hex)")
     guard((wid, f"0x{wid:04X}") in corpus_unnamed, f"0x{wid:04X} appears UNNAMED in golden corpus")
     allc, identc = collisions(wid)
     identc_names = sorted({s.decode('latin1') for s in identc})
@@ -213,6 +259,11 @@ for wid, name in RESOLVED:
     slot, why = thunk_ok(name.encode("latin1"), wid)
     guard(slot is not None,
           f"0x{wid:04X}: registration thunk byte-exact (push;call 0x89c080;mov ecx,eax;call 0x89bd00;mov {slot or '?'};ret) [{why}]")
+    got_slot = re.search(r"0x[0-9a-fA-F]+", slot).group(0) if slot else None
+    guard(got_slot is not None and want_slot is not None
+          and int(got_slot, 16) == int(want_slot, 16),
+          f"0x{wid:04X}: id-slot VA in docs/PF_VITAL_NAMES.json ({want_slot}) == the slot the "
+          f"binary thunk writes ({got_slot})")
 
 # ---------- (3) semantic corroboration ----------
 print("\n[3] golden-frame hypothesis labels corroborate resolved names")

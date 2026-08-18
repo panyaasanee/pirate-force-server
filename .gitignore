@@ -258,3 +258,23 @@
 !/reports/PF_HP_DEATH001_HP_DEATH_AND_RESPAWN_STATIC_20260819.md
 !/reports/PF_HP_DEATH001_HP_DEATH_AND_RESPAWN_STATIC_20260819.manifest
 !/tools/pf_hp_death_respawn_static.py
+
+# NAMES-HOME-001 - single home for Vital id -> name (docs/PF_VITAL_NAMES.json)
+!/tools/pf_vital_names.py
+
+# HP-DEATH-002 / HYP-PF-022 - the lethal encoder's verifier and wire replay
+!/tools/verify_hp_death_encoder.py
+!/tools/pf_hp_death002_headless_replay.py
+
+# MP-OPT1-B - LSCN_LoginVitalReq 0x42BF static decode (answers audit G8)
+!/reports/PF_MPOPT1B_LOGIN_VITAL_REQ_0X42BF_STATIC_20260819.md
+!/reports/PF_MPOPT1B_LOGIN_VITAL_REQ_0X42BF_STATIC_20260819.manifest
+!/tools/pf_login_vital_req_static.py
+
+# DELETE-REFRESH-001 / HYP-PF-021 - list rebuild after soft delete
+# (round 81: these three were lost when four agents wrote .gitignore in parallel;
+#  without them the verifier and the replay are invisible to git and the lane
+#  looks committed while its proof is not. Do not drop them again.)
+!/tools/verify_delete_refresh_static.py
+!/tools/pf_delete_refresh001_headless_replay.py
+!/tools/pf_delete_refresh001_headless_replay_config.json

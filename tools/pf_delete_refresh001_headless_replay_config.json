@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "milestone": "DELETE-REFRESH-001",
+  "hypothesis": "HYP-PF-021",
+  "scenario": "scenarios/delete_refresh_hypothesis_list_rebuild.json",
+  "host": "127.0.0.1",
+  "game_port": 10189,
+  "window_seconds": 2.5,
+  "boot_wait_seconds": 12.0,
+  "expected": {
+    "delete_reply_frames": 2,
+    "reply_order": ["hyp_pf_015_echo_ack", "select_actor_vital_0x36ef_list_rebuild"],
+    "ack_frame_size": 44,
+    "rebuild_frame_size": 55,
+    "rebuild_pc_size": 45,
+    "rebuild_vital_id": 14063,
+    "rebuild_vital_version": 10,
+    "rebuild_record_count": 0,
+    "active_after_delete": 0,
+    "op2_reply_frames": 0,
+    "nothing_to_delete_reply_frames": 0
+  },
+  "scope_guard": {
+    "canonical_db": "never_opened",
+    "game_client": "never_launched",
+    "repo_writes": "refused_by_the_script",
+    "database": "scratch_only_outside_the_repository"
+  }
+}

@@ -1,0 +1,65 @@
+# Evidence for PF_MPOPT1B (paths relative to the Pirate Force root)
+# Static RE only: no src/ change, no matrix flip, no ledger entry, no scenario, no
+# runtime claim, no network, no GameClient launch, no canonical database access.
+# Every address, vtable slot, wire tag and span hash quoted in the report is
+# reproduced from these exact files by tools/pf_login_vital_req_static.py
+# (126 guards; exit 0 = PASS).  Measured at HEAD dd1a66c.
+#
+# --- THE SOLE BINARY EVIDENCE (read-only, never written by this project) ---
+# The whole decode comes out of this one image:
+#   class literal / id thunk    0xF0B084 -> 0xBEFDF0 -> id slot 0x1082344 (0x42BF)
+#   type registrar / RTTI       0xBEFE90 -> 0x1022DD0 ".?AVLSCN_LoginVitalReq@@"
+#   vtable                      0xF16B34 (+0x00 token, +0x10 GetID, +0x14 Clone,
+#                                         +0x18 Serial, +0x1C/+0x20 no-op 0x710440)
+#   constructor / destructor    0x4C5090 / 0x4C5130   (object size 0x4C)
+#   Serial                      0x5F2780  write 0x5F278F  read 0x5F27AA
+#   codec helpers               out 0x89A810 (tag 0x48) / 0x89A6D0 (tag 0x44)
+#                               in  0x89A880 (tag 0x48) / 0x89A740 (tag 0x44)
+#   producer                    cStateLogin 0xF16B58, token 0x107A5AC
+#                               state entry 0x4C5AE0, DoLogin 0x4C5920,
+#                               fill 0x4C5A50..0x4C5A79, send 0x5DD890
+#   command line                WinMain 0x40AE70, parser 0xB00B20,
+#                               L"-acc" 0xF0A12C / L"-pwd" 0xF0A120,
+#                               flag 0x102C5AC, globals 0x102C5B0 / 0x102C5CC
+#   login dialog                OK 0x4D9630, auto-fill 0x4D9990,
+#                               widgets +0x14 (account) / +0x18 (password)
+#   hex decoder                 0x89B070, loop 0x89B194..0x89B1C9,
+#                               hexval 0x89ACC0, jump table 0x89AD38,
+#                               map 0x89AD7C (0x37 bytes)
+#   password narrowing          0x88E200 -> 0x88E090 -> WideCharToMultiByte
+#   identity bindings           app singleton +0xE4, global 0x107A590,
+#                               response handler 0x4C57A0
+#
+GameClient\GameClient.local.bin|14759424|9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623
+#
+# --- THE FROZEN SERVER AND THE FOUNDATION MODULES THE REPORT QUOTES ---
+# v141 answers 0x42BF by nested id alone, never reads either field, carries the
+# decoded account as a frozen literal in make_game_login_ack, and persists a
+# login_name taken from its own --token argument (default "localtest").
+#
+Pirate Force ServerProject\current\pf_login_game_server_v141.py|382913|2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22
+Pirate Force ServerProject\src\pirateforce_foundation\app.py|13577|5956A4A5D4ED9CF417730A4A070435E4A703402EC54EC796A548F8DE00D93E49
+Pirate Force ServerProject\src\pirateforce_foundation\session.py|10566|429EA7E718362E343F09286293A97B6693FDB169395DED9C5B28DCEE61B0AFB4
+Pirate Force ServerProject\src\pirateforce_foundation\lifecycle.py|4210|CA75F2B5600E6B4B4CC42FBECE011B4450C37FCC34A1578D06FEAADF3EEA2267
+Pirate Force ServerProject\src\pirateforce_foundation\store.py|27137|D204D56709A42629A4911508F9A3F9F230EB4A33CD144C71623540D90AEDFCBB
+#
+# --- THE CORPUS ---
+# One representative archived login capture (the verifier reads all 63 that this
+# repository contains; all 63 carry the identical nested body) and one
+# capture_v141 GAME file showing the same decoded account inside LoginVerifyVital.
+#
+Pirate Force ServerProject\analysis\lost_eden_leisure_runtime\capture_v110\LOGIN_20260814_152723_188831_59376.txt|2326|E848588F75035FFD11A5A6C740AFC0A33327FD6D584C5B53764E13995CDF486F
+Pirate Force ServerProject\capture_v141\GAME_20260818_011453_898877_46072.txt|13794|21FBCB61CA34C72339521D7B4B19C43807AA16E33CDF3E8898A1ED25F1032298
+#
+# --- THE PRIOR REPORTS THIS ONE STANDS ON ---
+# The audit that raised G8, Option 1 part (a), and the two name-hash milestones
+# whose algorithm reproduces 0x42BF from the plaintext class name.
+#
+Pirate Force ServerProject\reports\PF_MULTIPLAYER_READINESS_AUDIT001_SINGLE_PLAYER_ASSUMPTIONS_20260818.md|41201|754F7FDC1BD209A49CA9E3517F3AF9F4ABF7F578444FB01B667821E1B2444BEC
+Pirate Force ServerProject\reports\PF_MPAUDIT_FOLLOWUP001_ACTOR_TYPE_DISPATCH_STATIC_20260818.md|29503|B5C4D1A68693B481633666F19069809C99157A427F7DC64E8DF7C80959B65E6D
+Pirate Force ServerProject\reports\PF_NAMEID_HASH001_VITAL_ID_IS_PURE_NAME_HASH_STATIC_20260818.md|8580|15BA2DE7D8F09DDABA40770A6B9FD0E42C0533414D9BFD2F15A16A165599A5B5
+Pirate Force ServerProject\reports\PF_NAMEID_RESOLVE001_GOLDEN_IDS_NAMED_STATIC_20260818.md|7402|97FAD4B9A4F70030AC2476A93A43740A75468BD75BFE2C75395F4CEB495E946A
+#
+# --- THE VERIFIER AND ITS REGRESSION TEST ---
+Pirate Force ServerProject\tools\pf_login_vital_req_static.py|50641|7D6334BB82202642EAEAAC5F2C6AAA074EEE4B1D1C38881F58BB70948E2F4609
+Pirate Force ServerProject\tests\test_login_vital_req_static.py|12685|1E252C426B789544D3F185A82B9A5790EC4D071BD2E9D8498B40D14A457A9CA4

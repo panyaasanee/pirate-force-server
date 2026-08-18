@@ -51,6 +51,13 @@ from .delete_actor_hypothesis import (
     parse_accepted_delete_request,
     require_delete_actor_hypothesis_scenario,
 )
+from .delete_refresh_hypothesis import (
+    DELETE_REFRESH_ACTION_LABEL,
+    DELETE_REFRESH_GAP_SECONDS,
+    assert_selector_absent,
+    make_delete_actor_list_rebuild_response,
+    require_delete_refresh_hypothesis_scenario,
+)
 from .logout_hypothesis import (
     LOGOUT_POST_ACK_ACTION_CLOSE_SOCKET,
     LOGOUT_RESPONSE_POLICY_WORLDINFO_FIRST,
@@ -72,10 +79,15 @@ from .session import FoundationSession
 from .scene_object import (is_scene_remote_target, is_scene_remote_hostile_target,
                            make_scene_remote_actor)
 from .stats_progression_hypothesis import (
+    HP_DEATH_ACTION_LABEL_PREFIX,
+    HP_DEATH_FIRST_DELAY_SECONDS,
     STATS_PROGRESSION_ACTION_LABEL_PREFIX,
     STATS_PROGRESSION_FIRST_DELAY_SECONDS,
     StatsProgressionActor,
+    hp_death_lethal_unlock,
+    make_hp_death_step_response,
     make_stats_progression_step_response,
+    require_hp_death_hypothesis_scenario,
     require_stats_progression_hypothesis_scenario,
 )
 from .second_password_bypass import (
@@ -100,7 +112,9 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                      chat_input_hypothesis_scenario=None,
                      channel_message_hypothesis_scenario=None,
                      delete_actor_hypothesis_scenario=None,
+                     delete_refresh_hypothesis_scenario=None,
                      stats_progression_hypothesis_scenario=None,
+                     hp_death_hypothesis_scenario=None,
                      second_password_mode="required",
                      monotonic_clock=None,
                      close_timer_factory=None):
@@ -110,14 +124,28 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         logout_hypothesis_scenario, chat_input_hypothesis_scenario,
         channel_message_hypothesis_scenario,
         delete_actor_hypothesis_scenario,
+        delete_refresh_hypothesis_scenario,
         stats_progression_hypothesis_scenario,
+        hp_death_hypothesis_scenario,
     ))
     if active_modes > 1:
         raise ValueError(
             "Arena, scene-load, population, item-move capture, item-move "
             "hypothesis, logout hypothesis, chat input hypothesis, channel "
-            "message hypothesis, delete actor hypothesis, and stats "
-            "progression hypothesis scenarios are mutually exclusive"
+            "message hypothesis, delete actor hypothesis, delete refresh "
+            "hypothesis, stats progression hypothesis, and hp death "
+            "hypothesis scenarios are mutually exclusive"
+        )
+    # DELETE-REFRESH-001 and HYP-PF-015 key on the same vital id 0x36DB, so
+    # they must never be able to see the same frame: the mutual-exclusion
+    # check above refuses the pair outright and app.py refuses the two flags
+    # together, which is why the ordering of the two dispatch branches below
+    # cannot matter.
+    if delete_refresh_hypothesis_scenario is not None:
+        delete_refresh_hypothesis_scenario = (
+            require_delete_refresh_hypothesis_scenario(
+                delete_refresh_hypothesis_scenario
+            )
         )
     if stats_progression_hypothesis_scenario is not None:
         stats_progression_hypothesis_scenario = (
@@ -125,6 +153,18 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 stats_progression_hypothesis_scenario
             )
         )
+    # HP-DEATH-002.  The lethal unlock token is derived ONCE, here, from the
+    # allowlisted scenario object.  It is the only value in this process that
+    # can widen the encoder's field table to include BasicAttr bit 0x0080 (the
+    # death timer the client's IsDead predicate reads), and with no hp-death
+    # scenario it stays None, the lethal branch below does not exist, and the
+    # encoder cannot name the field at all.
+    hp_death_lethal = None
+    if hp_death_hypothesis_scenario is not None:
+        hp_death_hypothesis_scenario = require_hp_death_hypothesis_scenario(
+            hp_death_hypothesis_scenario
+        )
+        hp_death_lethal = hp_death_lethal_unlock(hp_death_hypothesis_scenario)
     if delete_actor_hypothesis_scenario is not None:
         delete_actor_hypothesis_scenario = (
             require_delete_actor_hypothesis_scenario(
@@ -194,6 +234,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     allow_hypothesized_item_merge=item_merge_enabled,
                     allow_soft_delete=(
                         delete_actor_hypothesis_scenario is not None
+                        or delete_refresh_hypothesis_scenario is not None
                     ),
                 )
             )
@@ -215,7 +256,9 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.chat_input_echo_count = 0
                 self.channel_message_sweep_count = 0
                 self.stats_progression_sweep_count = 0
+                self.hp_death_sweep_count = 0
                 self.delete_actor_soft_delete_count = 0
+                self.delete_refresh_list_rebuild_count = 0
                 self.transport_socket_closer = None
                 self.second_password_bypass_sent = False
                 self.second_password_bypass_keepalive_started = False
@@ -1053,6 +1096,80 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             )
             return actions
 
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-022 active
+        def _dispatch_hp_death_hypothesis(self, parsed):
+            """Answer one accepted chat input frame with the death sweep.
+
+            HP-DEATH-002.  This is the lane that can make a character appear to
+            DIE, so read what it does before changing it.  HP-DEATH-001 proved
+            byte-exactly that the client derives death by itself: ``IsDead``
+            (CNetActor/CMyActor vtable +0x40 = 0x454AC0) requires the f32 at
+            ``BasicAttr +0x58`` to be greater than the 0.0f at 0xF0989C and the
+            u32 at ``BasicAttr +0x44`` to be zero.  Those are mask bits 0x0080
+            and 0x0004 of the same block this server already emits.  There is no
+            death frame to send and none is composed here; the whole trigger is
+            two attribute values.
+
+            The request side is deliberately the SAME accepted shape the
+            HYP-PF-014 echo lane classifies, for the same reason the progression
+            lane reuses it: it is the only client action an attended tester can
+            trigger on demand, and every refusal guard is one this project has
+            already proven.  Nothing in the request is read.
+
+            The answer is four frames: the untouched baseline projection, then
+            the death timer armed while HP is still full (which must NOT kill --
+            it isolates "the client accepts bit 0x0080" from "the client dies"),
+            then the zeroed current HP that completes the predicate, then the
+            frame that restores the HP value and puts it back.  Ending the sweep
+            alive is a requirement, not a courtesy: the composer refuses a plan
+            whose last step is not the restoring one.  Frames are cumulative because BasicAttr's copy 0x464B40
+            copies the whole block with no mask consulted, so a field dropped
+            from a later frame is overwritten rather than left alone.
+
+            The lane touches no store (HP has no write path in this project),
+            takes no socket action, and is not one-shot.
+            """
+            self.rx_frames += 1
+            classification = classify_chat_input_attempt(legacy, parsed)
+            if classification != "ascii12":
+                self.events.append(
+                    f"hp_death_hypothesis_{classification}_no_reply"
+                )
+                return []
+            selected = self.foundation.selected
+            if selected is None:
+                self.events.append("hp_death_hypothesis_no_selected_no_reply")
+                return []
+            if not self.teleport_sent or not self.runtime_ack_sent:
+                self.events.append("hp_death_hypothesis_wrong_sequence_no_reply")
+                return []
+            position = selected.position
+            actor = StatsProgressionActor(
+                selected.identity_lo, selected.identity_hi,
+                position.scene_id, position.scene_seq, selected.name,
+            )
+            actions = []
+            for index, label in enumerate(
+                hp_death_hypothesis_scenario.step_order
+            ):
+                pc, frame = make_hp_death_step_response(
+                    legacy, actor, index, hp_death_lethal,
+                )
+                # The frozen V141 sender accumulates these onto one deadline
+                # (send_deadline += delay, then sleep to it), so this field is
+                # the gap before each send: 0.0 for the first frame and the
+                # full spacing for every later one.
+                delay = (
+                    HP_DEATH_FIRST_DELAY_SECONDS if index == 0
+                    else hp_death_hypothesis_scenario.spacing_seconds
+                )
+                actions.append((
+                    HP_DEATH_ACTION_LABEL_PREFIX + label, pc, frame, delay,
+                ))
+            self.hp_death_sweep_count += 1
+            self.events.append("hp_death_hypothesis_death_sweep_sent")
+            return actions
+
         # PF-HYPOTHESIS-LEDGER: HYP-PF-015 active
         def _dispatch_delete_actor_hypothesis(self, parsed):
             """Soft-delete one owned character behind the explicit opt-in.
@@ -1102,6 +1219,98 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 "_SOFT_DELETE_COMMITTED",
                 pc, frame, 0.0,
             )]
+
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-021 active
+        def _dispatch_delete_refresh_hypothesis(self, parsed):
+            """Soft-delete, acknowledge, then rebuild the whole client list.
+
+            DELETE-REFRESH-001.  UI-REFRESH-001 proved that the client keeps
+            the character list in one buffer with no erase-by-key path at
+            all, so the 0x36DB acknowledgement can never take a row off the
+            screen; the only frame that can is a fresh SelectActorVital
+            0x36EF, which resets the model, refills it and builds a new
+            cStateCreateActor whose enter hook also zeroes the page variable
+            the delete animation left set.  This lane therefore answers one
+            accepted delete request with two frames: the unchanged pinned
+            HYP-PF-015 echo ack, then the unchanged runtime-proven character
+            list projection taken over the POST-DELETE character set, 0.35 s
+            later (the same gap the login-time list has always used).
+
+            Nothing is composed here: the rebuild is the projector's own
+            output, verified and hash-pinned before it may be queued.  The
+            lane fails closed as one unit -- if the post-delete list still
+            carries the deleted selector, or the projection does not verify,
+            NO bytes are queued at all, not even the ack.  The soft delete
+            is committed before any byte is queued, exactly as HYP-PF-015
+            pins it; a rebuild refusal therefore leaves the row deleted and
+            the client silent, which is observable in the DB and named in
+            the event log rather than guessed at on the wire.
+            """
+            self.rx_frames += 1
+            classification = classify_delete_actor_attempt(legacy, parsed)
+            if classification != "exact_op1":
+                self.events.append(
+                    f"delete_refresh_hypothesis_{classification}_no_reply"
+                )
+                return []
+            if (
+                not self.select_actor_sent
+                or self.start_game_reply_sent
+                or self.foundation.selected is not None
+            ):
+                self.events.append(
+                    "delete_refresh_hypothesis_wrong_stage_no_reply"
+                )
+                return []
+            request = parse_accepted_delete_request(parsed)
+            ack_pc, ack_frame = make_delete_actor_ack_response(
+                legacy, parsed.nested_payload,
+            )
+            try:
+                self.foundation.soft_delete_character(request.selector)
+            except Exception as exc:
+                self.events.append(
+                    "delete_refresh_hypothesis_repository_failure_no_reply_"
+                    f"{exc!r}"
+                )
+                return []
+            try:
+                projection = self.foundation.character_list()
+                record_count = assert_selector_absent(
+                    self.foundation.characters, request.selector,
+                )
+                rebuild_pc, rebuild_frame = (
+                    make_delete_actor_list_rebuild_response(
+                        legacy, projection, record_count=record_count,
+                    )
+                )
+            except Exception as exc:
+                self.events.append(
+                    "delete_refresh_hypothesis_rebuild_refused_no_reply_"
+                    f"{exc!r}"
+                )
+                return []
+            self.delete_actor_soft_delete_count += 1
+            self.delete_refresh_list_rebuild_count += 1
+            self.events.append(
+                f"delete_refresh_hypothesis_selector{request.selector:02d}"
+                "_committed_before_ack"
+            )
+            self.events.append(
+                "delete_refresh_hypothesis_list_rebuild_records"
+                f"{record_count:02d}_after_ack"
+            )
+            return [
+                (
+                    f"HYP_PF_021_DELETE_ACTOR_SELECTOR{request.selector:02d}"
+                    "_SOFT_DELETE_COMMITTED",
+                    ack_pc, ack_frame, 0.0,
+                ),
+                (
+                    DELETE_REFRESH_ACTION_LABEL,
+                    rebuild_pc, rebuild_frame, DELETE_REFRESH_GAP_SECONDS,
+                ),
+            ]
 
         def _checkpoint_exact_target(self, target) -> None:
             x, y, z, heading, _flags, _moving = target
@@ -1248,10 +1457,30 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # branches cannot matter.
                 return self._dispatch_stats_progression_hypothesis(parsed)
             if (
+                hp_death_hypothesis_scenario is not None
+                and nested_id == CHAT_INPUT_VITAL_ID
+            ):
+                # HP-DEATH-002.  This lane, the progression lane and both chat
+                # lanes are keyed on the same vital id, so they must never be
+                # able to see the same frame: make_state_class refuses any pair
+                # outright and app.py refuses the flags together, which is why
+                # the ordering of these branches cannot matter.
+                return self._dispatch_hp_death_hypothesis(parsed)
+            if (
                 delete_actor_hypothesis_scenario is not None
                 and nested_id == DELETE_ACTOR_VITAL_ID
             ):
                 return self._dispatch_delete_actor_hypothesis(parsed)
+            if (
+                delete_refresh_hypothesis_scenario is not None
+                and nested_id == DELETE_ACTOR_VITAL_ID
+            ):
+                # DELETE-REFRESH-001.  This lane and HYP-PF-015 key on the
+                # same vital id, so they must never be able to see the same
+                # frame: make_state_class refuses the pair outright and
+                # app.py refuses the two flags together, which is why the
+                # ordering of these two branches cannot matter.
+                return self._dispatch_delete_refresh_hypothesis(parsed)
             if nested_id == legacy.LOGIN_VERIFY_VITAL:
                 self.rx_frames += 1
                 out = []
