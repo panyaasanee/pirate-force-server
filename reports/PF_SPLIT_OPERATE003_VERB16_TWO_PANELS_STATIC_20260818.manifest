@@ -1,0 +1,19 @@
+# Evidence for PF_SPLIT_OPERATE003 (paths relative to the Pirate Force root)
+# Static disassembly of the client binary (read-only), cross-checked against
+# read-only, plaintext client UI assets. All cited VAs / byte spans / call-site
+# targets are reproducible from this exact binary via capstone (CS_MODE_32,
+# ImageBase 0x400000, PE section table parsed) using
+# tools/pf_split_operate_verb_panels_static.py.
+GameClient\GameClient.local.bin|14759424|9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623
+# Readable client UI assets used as evidence (names/plaintext are load-bearing;
+# caption text itself lives in the packed table and is NOT statically readable):
+#   (ref, unpinned) GameClient\Data\GUI\Model\Common_NumInput.model -- plaintext UIControlData XML, no inline caption
+#   (ref, unpinned) GameClient\Data\B_TEXTDATA_TH.pc_ -- packed text table (file magic "$pcz")
+# Prior milestones this supplements:
+#   (ref, unpinned) reports/PF_SPLIT_OPERATE001_ITEM_OPERATE_OPCODE_SPACE_STATIC_20260818.md
+#   (ref, unpinned) reports/PF_SPLIT_OPERATE002_OP6_QUANTITY_FAMILY_ENUMERATION_STATIC_20260818.md
+# Report (this file's sibling):
+#   (ref, unpinned) reports/PF_SPLIT_OPERATE003_VERB16_TWO_PANELS_STATIC_20260818.md
+# Verifier (21 guards, exit 0 = PASS) + regression test (11 cases):
+#   (ref, unpinned) tools/pf_split_operate_verb_panels_static.py
+#   (ref, unpinned) tests/test_split_operate_verb_panels_static.py
