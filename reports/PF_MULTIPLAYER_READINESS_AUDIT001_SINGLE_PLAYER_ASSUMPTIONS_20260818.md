@@ -333,7 +333,9 @@ py -3 tools/pf_multiplayer_readiness_audit.py --json     # machine-readable coun
 py -3 -m pytest tests/test_multiplayer_readiness_audit.py -q
 ```
 
-The test parses the `AUDIT_COUNTS` block below out of this file and compares it to a live run of the verifier, so no number here can drift away from the tree. Whole-suite totals and import-closure totals are compared with a `>=` rule (a suite may grow under a concurrent lane; it may not shrink silently); every other number is compared exactly.
+The test parses the `AUDIT_COUNTS` block below out of this file and compares it to a live run of the verifier, so no number here can drift away from the tree. **Every number in the block is compared exactly** (this changed in round 84 — see the erratum at the foot of this document; the six `*_at_head` numbers used to be compared with `>=` and that is how a stale figure survived).
+
+The `*_at_head` numbers describe commit `5cc0eda` and nothing else. They are pinned as constants in the verifier next to that commit and re-derived from it on every run with `git ls-tree` / `git cat-file`, so they can be proven wrong. The *live* suite size is reported by the verifier as `tests_total_files_today` / `tests_total_functions_today` and is deliberately not published here: a number that moves whenever anyone adds a test does not belong in a document that is not re-published when they do.
 
 ```json AUDIT_COUNTS
 {
@@ -388,3 +390,18 @@ See `PF_MULTIPLAYER_READINESS_AUDIT001_SINGLE_PLAYER_ASSUMPTIONS_20260818.manife
 5. No claim that the file, site and test counts here are an effort estimate.
 6. No matrix row, ledger entry, hypothesis or `src/` file was changed by this audit.
 7. No claim that `session_lifecycle/concurrent_multi_client` may move. It remains `blocked` behind HYP-PF-011's recorded preconditions, and this audit re-verifies rather than relaxes them.
+
+---
+
+## ⚠ ERRATUM 2026-08-19 (รอบ 84, SCAN-DEBT-001) — กฎเทียบตัวเลข suite เปลี่ยนจาก `>=` เป็น `==` (ตัวเลขในรายงานไม่เปลี่ยน)
+
+**ตัวเลขที่ตีพิมพ์ไว้ถูกต้องทั้งหมด สิ่งที่ผิดคือกฎที่ใช้ค้ำมัน**
+
+1. **สิ่งที่เน่าเงียบ** — `tests_total_files_at_head: 61` (และอีก 5 ตัวในตระกูลเดียวกัน) ถูกเทียบด้วยกฎ `>=` เทียบกับต้นไม้ **วันนี้** ด้วยเหตุผลว่า "suite โตได้ ห้ามหด" ผลคือเมื่อ suite โตเป็น **74 → 77 → 78 ไฟล์** เทสก็ยังเขียวตลอด (78 ≥ 61) ทั้งที่ตัวเลขในรายงานล้าไปแล้ว **17 ไฟล์** · คนอ่านที่เอา `package_a_closure 29/61` ไปคิดเป็นสัดส่วน "แพ็กเกจ A แตะ ~48 % ของ suite" จะได้เลขที่ผิดไปหนึ่งในสาม
+   (เกรด C จาก `reports/PF_CORPUS_PIN001_DIRECTORY_SCAN_SURVEY_20260819.md` จุดที่ 6)
+2. **ตัวเลขผิดไหม — ไม่ผิด** — รอบ 84 นับซ้ำจาก commit `5cc0eda` ตรง ๆ (`git ls-tree` + `git cat-file` แล้วเดิน AST ด้วยนิยามเดียวกับที่ใช้นับต้นไม้วันนี้) ได้ **61 ไฟล์ / 663 test functions · closure A 29/351 · closure B 27/320** ตรงกับที่ตีพิมพ์ทุกตัว ⇒ **ไม่มีตัวเลขไหนต้องแก้** ตัวเลขชุดนี้เป็น **ค่าประวัติศาสตร์ของ commit `5cc0eda` (2026-08-18)** ไม่ใช่ค่าปัจจุบัน และในเอกสารนี้อ่านแบบนั้นเท่านั้น
+3. **กฎใหม่** — verifier ตรึงหกตัวนี้เป็นค่าคงที่คู่กับ commit + วันที่ (`HEAD_COMMIT` / `HEAD_MEASURED_AT` / `AT_HEAD` ใน `tools/pf_multiplayer_readiness_audit.py`) แล้ว **นับซ้ำจาก commit นั้นทุกครั้งที่รัน** · pin ไม่ตรงกับ commit ⇒ exit ≠ 0 · git ตอบไม่ได้ ⇒ exit ≠ 0 (ข้ออ้างเชิงประวัติศาสตร์ในเช็คเอาต์ที่มองประวัติตัวเองไม่เห็น คือข้ออ้างที่พิสูจน์ไม่ได้ คำตอบที่ซื่อสัตย์คือแดง ไม่ใช่เขียว) · เทสเทียบรายงานกับ pin แบบ **เท่ากันเป๊ะ**
+4. **ค่าปัจจุบันไปอยู่ที่ไหน** — verifier ยังวัด suite วันนี้ให้ดู ในคีย์ `tests_total_files_today` / `tests_total_functions_today` แต่ **ไม่เอาเข้าบล็อก `AUDIT_COUNTS`** โดยตั้งใจ: ตัวเลขที่ขยับทุกครั้งที่ใครก็ตามเพิ่มเทส ไม่ควรอยู่ในเอกสารที่ไม่ได้ตีพิมพ์ใหม่ตอนนั้น (ณ 2026-08-19 = 78 ไฟล์ / 1142 test functions — บันทึกไว้ตรงนี้พร้อมวันที่ ไม่ใช่ pin)
+5. **trap test** — `tests/test_multiplayer_readiness_audit.py::GuardWouldNoticeTests` พิสูจน์ว่า guard ยิงจริง: pin ที่เพี้ยนไป 1 ⇒ scan แดง · commit ที่ไม่มีอยู่ ⇒ scan แดง
+
+ข้อสรุปของ audit (40 assumption sites / 18 immutable / 17 ready sites / 18 frames) **ไม่เปลี่ยน** — ตัวเลขชุดนั้นเป็น live measurement และถูกเทียบแบบเท่ากันเป๊ะมาตั้งแต่ต้น

@@ -101,6 +101,54 @@ table is byte-for-byte the one described above and ``hp_death_timer`` is an
 unknown field name like any other.  Read the block comment at the bottom of
 this file before touching any of it.
 
+One hypothesis, two death profiles (DYING-HOLD-001)
+---------------------------------------------------
+HYP-PF-022 ships TWO named step-plan profiles, not one, and the difference
+between them is the point rather than an accident of configuration:
+
+  * ``death_sweep`` is a DIAGNOSTIC.  It arms the timer, zeroes current HP and
+    then puts the HP value back in the same sweep, so an attended tester is
+    never left staring at a dead character and never has to restart the client.
+    Its timer is 60.0 s, picked back when the deployed value of the client's
+    ``DURATION_DYING`` was unknown and a wide margin was the only safe guess.
+    Its pins, hashes and tests are load-bearing and are frozen: nothing in this
+    file may move one byte of them.
+  * ``dying_hold`` asks the question the diagnostic cannot ask -- "what does the
+    client do when the dying countdown actually runs out?"  It arms the timer at
+    20.0 s, zeroes current HP, and then STOPS.  There is no restoring frame, on
+    purpose: the frame that restores HP is exactly the frame that would stop the
+    answer from ever being observable.
+
+20.0 is not a guess and not a margin.  It is the value compiled into the client
+image for ``DURATION_DYING``: the int global at ``0x102249C``, bound by name at
+``0x483476`` to the literal L"DURATION_DYING" at ``0xF118FC``, with exactly one
+reader in the whole image, ``0x44A572``, which opens L"Main_Dead"
+(``0xF0D738``) iff ``DURATION_DYING - 0.5 <= timer``.  A timer of 20.0
+therefore clears that gate exactly, with nothing to spare and nothing invented.
+The two predicates the countdown moves between are ``0x454AC0`` (HP == 0 and
+timer > 0 -- the "dying" state; this module has always called its pin
+``IS_DEAD_PLAYER_VA`` and that name is kept so no test moves) and ``0x454A70``
+(HP == 0 and timer <= 0 -- the "timer elapsed" state).  The screen that offers
+to put the character back on its feet is a DIFFERENT window, L"Common_Death"
+(``0xF0D860``), opened out of ``CMyActor``'s own per-frame update once the
+elapsed predicate is true.  Whether any of that appears on a real screen is
+unobserved: no client in this project has ever been shown either window, and
+this module implements, names and composes none of the client-side verbs that
+window is wired to.
+
+The step plan and the timer are therefore properties of a NAMED PROFILE, not of
+this module.  Every symbol that used to be a module-level plan constant
+(``HP_DEATH_TIMER_SECONDS``, ``HP_DEATH_STEPS``, ``HP_DEATH_STEP_ORDER``,
+``HP_DEATH_STEP_FIELDS``, ``HP_DEATH_LETHAL_STEP_LABELS``,
+``HP_DEATH_SCENARIO_ID``) still exists and still names the ``death_sweep``
+profile byte for byte, so every existing caller and every existing test is
+untouched.  ``_require_hp_death_step_plan`` now validates ONE profile at a time
+and got STRICTER, not looser: a profile must declare ``ends_dead`` explicitly,
+and the two branches are separately enforced -- ``ends_dead=False`` must end on
+a restoring frame with hp > 0, ``ends_dead=True`` must end on the hp-zero frame,
+must not contain a restoring frame at all, and must carry a timer that clears
+``DURATION_DYING - 0.5``.
+
 Opt-in, test-only
 -----------------
 ``production_allowed`` is False in the module and in the scenario file, the
@@ -1269,6 +1317,20 @@ DEAD_STATE_SYNC_VA = 0x4437C0
 ATTR_APPLY_AND_DEAD_SYNC_VA = 0x4446F0
 ATTR_APPLY_AND_DEAD_SYNC_ONLY_CALLER_VA = 0x4566A7
 
+# DYING-HOLD-001 added these three, from the same read-only image and by the
+# same method.  The first two are ALIASES for pins this module already carries:
+# round 83's static pass established that 0x454AC0 is the "still dying" half of
+# the predicate pair (HP == 0 and timer > 0) and 0x454A70 the "timer elapsed"
+# half (HP == 0 and timer <= 0).  The original names are kept above so no pin,
+# no test and no report reference moves; the aliases exist so a cold reader can
+# tell the two states apart by name.
+IS_DYING_PLAYER_VA = IS_DEAD_PLAYER_VA               # 0x454AC0
+IS_DEAD_ELAPSED_PLAYER_VA = IS_DEAD_PLAYER_TIMER_ELAPSED_VA   # 0x454A70
+# The window that follows the countdown is NOT L"Main_Dead".  It is a second,
+# separate window opened from CMyActor's own per-frame update after the elapsed
+# predicate turns true, and nothing in this project has ever seen it.
+COMMON_DEATH_LITERAL_VA = 0xF0D860
+
 # The value compiled into the image for DURATION_DYING, and the gate the death
 # window is behind.  See the block comment above.
 DURATION_DYING_IMAGE_DEFAULT = 20
@@ -1299,6 +1361,7 @@ HP_DEATH_REJECTIONS = (
     "death_timer_below_the_death_window_gate",
     "death_timer_without_hp_current",
     "unknown_step_label",
+    "unknown_step_profile",
 )
 
 
@@ -1316,6 +1379,13 @@ class HpDeathLethalUnlock:
 
 HP_DEATH_SCENARIO_ID = "hp_death_hypothesis_death_sweep"
 HP_DEATH_HYPOTHESIS_ID = "HYP-PF-022"
+# DYING-HOLD-001's second profile.  Same hypothesis, same ledger entry, same
+# unlock token -- a different STEP PLAN, nothing more.
+HP_DEATH_DYING_HOLD_SCENARIO_ID = "hp_death_hypothesis_dying_hold"
+HP_DEATH_PROFILE_DEATH_SWEEP_NAME = "death_sweep"
+HP_DEATH_PROFILE_DYING_HOLD_NAME = "dying_hold"
+# There is exactly ONE token for the whole lane, and it is the death_sweep one
+# by construction: adding a profile must not add a key.
 _HP_DEATH_UNLOCK = HpDeathLethalUnlock(HP_DEATH_SCENARIO_ID, HP_DEATH_HYPOTHESIS_ID)
 
 
@@ -1396,7 +1466,15 @@ def _encode_death_timer(legacy: Any, field: AttrField, value: Any) -> bytes:
     return encoded
 
 
-# ------------------------------------------------------------ the death plan
+# ----------------------------------------------------------- the death plans
+# TWO PROFILES, ONE HYPOTHESIS.  Read the "One hypothesis, two death profiles"
+# section of the module docstring before touching either plan.  In one sentence:
+# ``death_sweep`` is the diagnostic that ends ALIVE and whose 60.0 s timer is a
+# margin taken when the deployed DURATION_DYING was unknown, and ``dying_hold``
+# is the question that ends DEAD on purpose, with the 20.0 s the client image
+# actually carries, because the thing it asks about only happens after the
+# countdown has run all the way out.
+#
 # The timer this lane sends.  IsDead needs only "> 0.0f", but the local player's
 # L"Main_Dead" window is behind `DURATION_DYING - 0.5 <= timer` and the value
 # compiled into the image is 20.  60.0 clears that gate with a wide margin --
@@ -1439,52 +1517,206 @@ HP_DEATH_LETHAL_STEP_LABELS = ("HP_ZERO",)
 HP_DEATH_SPACING_SECONDS = 6.0
 HP_DEATH_FIRST_DELAY_SECONDS = 0.0
 HP_DEATH_ACTION_LABEL_PREFIX = "HYP_PF_022_HP_DEATH_"
+HP_DEATH_RESPONSE_POLICY = (
+    "compose_cumulative_update_attr_vital_death_deltas_no_write_no_close"
+)
+HP_DEATH_CAPABILITIES = (
+    "emit_basicattr_mask_bit_0x0080_as_an_f32_death_timer",
+    "compose_the_exact_pair_the_client_isdead_predicate_reads",
+    "arm_the_timer_before_the_kill_and_restore_hp_in_the_same_sweep",
+    "reproduce_the_proven_player_wire_baseline_projection_byte_exactly",
+    "decode_every_composed_body_back_to_the_requested_fields",
+)
+HP_DEATH_NONCLAIMS = (
+    "client_rendering_of_death_pending_gt019",
+    "any_wire_observation_of_bit_0x0080_in_either_direction",
+    "the_death_animation_or_target_panel_which_this_transport_"
+    "cannot_reach",
+    "any_spawn_point_or_marker_behavior",
+    "any_death_penalty_corpse_or_damage_rule",
+    "original_server_death_rules",
+    "hp_persistence_or_database_write",
+    "the_deployed_value_of_duration_dying",
+    "production_dispatch_wiring",
+    "production_baseline_behavior",
+)
+
+# ---------------------------------------------------- DYING-HOLD-001, profile 2
+# 20.0, not 60.0, and not because 20 is rounder.  It is the int compiled into
+# the image at DURATION_DYING_GLOBAL_VA (0x102249C), bound by name at 0x483476
+# to the literal at 0xF118FC, with a single reader at 0x44A572 that opens
+# L"Main_Dead" iff `DURATION_DYING - 0.5 <= timer`.  20.0 clears that gate
+# exactly -- 20.0 >= 19.5 -- so this profile sends the client's own number back
+# to it and nothing else.  It is exactly representable in 32 bits, so the wire
+# value is this value.
+HP_DEATH_DYING_HOLD_TIMER_SECONDS = 20.0
+
+HP_DEATH_DYING_HOLD_STEPS = (
+    # Byte-identical to the death_sweep baseline, and therefore to the
+    # player_wire projection a real client has accepted since NAME-002.  The
+    # tests assert that identity rather than assuming it.
+    ("BASELINE", {}),
+    # The same armed frame as death_sweep except for the four f32 bytes of the
+    # timer itself -- also asserted, not assumed.
+    ("TIMER_ARMED", {HP_DEATH_TIMER_NAME: HP_DEATH_DYING_HOLD_TIMER_SECONDS}),
+    # The kill, and the LAST frame.  There is deliberately no restoring step:
+    # the whole question this profile asks is what the client does once the
+    # countdown reaches zero, and a restoring frame is precisely the thing that
+    # would stop that from ever being observable.
+    ("HP_ZERO", {"hp_current": HP_DEATH_HP_CURRENT}),
+)
+HP_DEATH_DYING_HOLD_STEP_ORDER = tuple(
+    label for label, _fields in HP_DEATH_DYING_HOLD_STEPS
+)
+HP_DEATH_DYING_HOLD_STEP_FIELDS = {
+    label: dict(fields) for label, fields in HP_DEATH_DYING_HOLD_STEPS
+}
+HP_DEATH_DYING_HOLD_LETHAL_STEP_LABELS = ("HP_ZERO",)
+HP_DEATH_DYING_HOLD_SPACING_SECONDS = 6.0
+HP_DEATH_DYING_HOLD_FIRST_DELAY_SECONDS = 0.0
+HP_DEATH_DYING_HOLD_ACTION_LABEL_PREFIX = "HYP_PF_022_DYING_HOLD_"
+HP_DEATH_DYING_HOLD_RESPONSE_POLICY = (
+    "compose_cumulative_update_attr_vital_dying_hold_deltas_no_write_no_close"
+)
+HP_DEATH_DYING_HOLD_CAPABILITIES = (
+    "emit_basicattr_mask_bit_0x0080_as_an_f32_death_timer",
+    "compose_the_exact_pair_the_client_isdead_predicate_reads",
+    "arm_the_timer_at_the_duration_dying_value_compiled_into_the_image",
+    "hold_the_character_dead_so_the_countdown_can_run_to_zero",
+    "reproduce_the_proven_player_wire_baseline_projection_byte_exactly",
+    "decode_every_composed_body_back_to_the_requested_fields",
+)
+HP_DEATH_DYING_HOLD_NONCLAIMS = (
+    # The four this profile is REQUIRED to state, first and in plain words.
+    "no_client_has_ever_been_shown_one_byte_of_this_profile",
+    "the_common_death_window_has_never_been_observed_by_this_project",
+    "no_persistence_hp_has_no_write_path_and_this_lane_opens_none",
+    "not_a_rule_of_the_original_server_which_this_project_cannot_read",
+    # And the ones death_sweep already carries, which stay true here.
+    "client_rendering_of_death_pending_gt019",
+    "any_wire_observation_of_bit_0x0080_in_either_direction",
+    "the_death_animation_or_target_panel_which_this_transport_"
+    "cannot_reach",
+    "any_spawn_point_or_marker_behavior",
+    "any_death_penalty_corpse_or_damage_rule",
+    "the_deployed_value_of_duration_dying",
+    "what_the_client_does_when_the_countdown_reaches_zero",
+    "any_recovery_path_out_of_the_state_this_profile_leaves_behind",
+    "production_dispatch_wiring",
+    "production_baseline_behavior",
+)
 
 
 @dataclass(frozen=True)
 class HpDeathHypothesisScenario:
+    """One allowlisted hp-death scenario object.
+
+    ``ends_dead`` and ``profile_name`` carry defaults so the five-positional
+    construction every existing caller and test uses keeps working and keeps
+    meaning the ``death_sweep`` profile.  Neither default is a fallback the
+    loader relies on: the two real objects below name both explicitly.
+    """
+
     scenario_id: str
     hypothesis_id: str
     step_order: tuple[str, ...]
     spacing_seconds: float
     death_timer_seconds: float
+    ends_dead: bool = False
+    profile_name: str = HP_DEATH_PROFILE_DEATH_SWEEP_NAME
 
 
-def _require_hp_death_step_plan() -> None:
-    """The sweep must open harmless, kill exactly once, and end alive."""
-    if HP_DEATH_STEP_ORDER[0] != "BASELINE":
+def _require_hp_death_step_plan(profile: Any = None) -> None:
+    """Validate ONE named step plan.  Stricter than the single-plan version.
+
+    Every rule the original module-level validator enforced is still enforced,
+    and none of them was relaxed to make room for the second profile:
+
+      * open with a BASELINE that adds no field;
+      * no duplicate label, and every later step changes exactly one field
+        that the lethal table knows;
+      * arm the timer BEFORE the kill -- a frame that zeroes HP while the timer
+        is still absent leaves the client in a state neither half of the
+        predicate pair covers, and this lane refuses to be what produced it;
+      * exactly one lethal step, and it is the one that zeroes current HP;
+      * the armed step carries the profile's own declared timer, as a float.
+
+    What is NEW is that the end state is no longer assumed.  A profile has to
+    say which of the two it is, in ``ends_dead``, and each answer is then
+    enforced separately:
+
+      * ``ends_dead=False`` -- the diagnostic contract, unchanged: the plan must
+        contain a restoring step, it must come after the kill, it must set a
+        positive current HP, and it must be the LAST step.
+      * ``ends_dead=True`` -- the dying-hold contract: the plan must NOT contain
+        a restoring step at all, the last step must be the kill, and the timer
+        must clear the client's own death-window gate
+        ``DURATION_DYING - 0.5``, because a countdown the window never opens
+        for cannot be watched running out.
+    """
+    if profile is None:
+        profile = HP_DEATH_PROFILE_DEATH_SWEEP
+    if type(profile) is not HpDeathStepProfile:
+        raise RuntimeError("HYP-PF-022 step plan is not a named profile")
+    if type(profile.ends_dead) is not bool:
+        raise RuntimeError("HYP-PF-022 a profile must declare ends_dead")
+    order = profile.step_order
+    plan = profile.step_fields
+    if not order or order[0] != "BASELINE":
         raise RuntimeError("HYP-PF-022 the sweep must open with the baseline")
-    if HP_DEATH_STEP_FIELDS["BASELINE"]:
+    if plan["BASELINE"]:
         raise RuntimeError("HYP-PF-022 the baseline must add no lethal field")
-    if len(set(HP_DEATH_STEP_ORDER)) != len(HP_DEATH_STEP_ORDER):
+    if len(set(order)) != len(order):
         raise RuntimeError("HYP-PF-022 duplicate step label")
-    for label in HP_DEATH_STEP_ORDER[1:]:
-        added = HP_DEATH_STEP_FIELDS[label]
+    for label in order[1:]:
+        added = plan[label]
         if len(added) != 1:
             raise RuntimeError("HYP-PF-022 a step must change exactly one field")
         for name in added:
             if name not in LETHAL_FIELDS:
                 raise RuntimeError("HYP-PF-022 step names an unknown field")
-    # The timer has to be armed BEFORE the kill: a frame that zeroes HP while
-    # the timer is still absent leaves the client in a state IsDead does not
-    # cover, and this lane refuses to be the thing that produced it.
-    armed = HP_DEATH_STEP_ORDER.index("TIMER_ARMED")
-    killed = HP_DEATH_STEP_ORDER.index("HP_ZERO")
-    restored = HP_DEATH_STEP_ORDER.index("HP_RESTORED")
-    if not armed < killed < restored:
+    if "TIMER_ARMED" not in order or "HP_ZERO" not in order:
         raise RuntimeError("HYP-PF-022 the sweep order is not arm/kill/restore")
-    if HP_DEATH_STEP_FIELDS["HP_ZERO"]["hp_current"] != 0:
+    armed = order.index("TIMER_ARMED")
+    killed = order.index("HP_ZERO")
+    if not armed < killed:
+        raise RuntimeError("HYP-PF-022 the sweep order is not arm/kill/restore")
+    if plan["HP_ZERO"].get("hp_current") != 0:
         raise RuntimeError("HYP-PF-022 the lethal step does not zero current HP")
-    if HP_DEATH_STEP_FIELDS["HP_RESTORED"]["hp_current"] <= 0:
-        raise RuntimeError("HYP-PF-022 the sweep does not end alive")
-    if HP_DEATH_STEP_ORDER[-1] != "HP_RESTORED":
-        raise RuntimeError("HYP-PF-022 the sweep must end on the hp-restored frame")
-    if len(HP_DEATH_LETHAL_STEP_LABELS) != 1:
+    if profile.lethal_step_labels != ("HP_ZERO",):
         raise RuntimeError("HYP-PF-022 exactly one step may be lethal")
+    timer = plan["TIMER_ARMED"].get(HP_DEATH_TIMER_NAME)
+    if type(timer) is not float or timer != profile.timer_seconds:
+        raise RuntimeError("HYP-PF-022 the armed step is not the profile timer")
+    if profile.ends_dead:
+        if "HP_RESTORED" in order:
+            raise RuntimeError(
+                "HYP-PF-022 a profile that ends dead must carry no restore step"
+            )
+        if order[-1] != "HP_ZERO":
+            raise RuntimeError(
+                "HYP-PF-022 a profile that ends dead must end on the kill frame"
+            )
+        if timer < DURATION_DYING_IMAGE_DEFAULT - DURATION_DYING_WINDOW_MARGIN:
+            raise RuntimeError(
+                "HYP-PF-022 a profile that ends dead must clear the "
+                "death-window gate"
+            )
+        return
+    if "HP_RESTORED" not in order:
+        raise RuntimeError("HYP-PF-022 the sweep does not end alive")
+    restored = order.index("HP_RESTORED")
+    if not killed < restored:
+        raise RuntimeError("HYP-PF-022 the sweep order is not arm/kill/restore")
+    if plan["HP_RESTORED"].get("hp_current", 0) <= 0:
+        raise RuntimeError("HYP-PF-022 the sweep does not end alive")
+    if order[-1] != "HP_RESTORED":
+        raise RuntimeError("HYP-PF-022 the sweep must end on the hp-restored frame")
 
 
 def hp_death_step_fields(
     legacy: Any, actor: StatsProgressionActor, step_index: int,
+    profile: Any = None,
 ) -> dict[str, Any]:
     """Baseline plus every death change up to and including this step.
 
@@ -1492,22 +1724,30 @@ def hp_death_step_fields(
     reason is byte-proven twice over: BasicAttr's copy 0x464B40 copies the whole
     block with no mask consulted, so a field dropped from a later frame is not
     left alone -- it is overwritten with whatever the incoming object holds.
+
+    ``profile`` defaults to ``death_sweep``, so every existing caller keeps the
+    plan it has always had.
     """
+    profile = _resolve_hp_death_profile(profile)
+    order = profile.step_order
+    plan = profile.step_fields
     if type(step_index) is not int or type(step_index) is bool:
         raise ValueError("hp death step rejected: unknown_step_label")
-    if step_index < 0 or step_index >= len(HP_DEATH_STEP_ORDER):
+    if step_index < 0 or step_index >= len(order):
         raise ValueError("hp death step rejected: unknown_step_label")
     fields = stats_progression_baseline_fields(legacy, actor)
-    for label in HP_DEATH_STEP_ORDER[:step_index + 1]:
-        fields.update(HP_DEATH_STEP_FIELDS[label])
+    for label in order[:step_index + 1]:
+        fields.update(plan[label])
     return fields
 
 
-def hp_death_step_is_lethal(step_index: int) -> bool:
+def hp_death_step_is_lethal(step_index: int, profile: Any = None) -> bool:
     """True only for the frame on which the client should derive death."""
+    profile = _resolve_hp_death_profile(profile)
+    plan = profile.step_fields
     fields = {}
-    for label in HP_DEATH_STEP_ORDER[:step_index + 1]:
-        fields.update(HP_DEATH_STEP_FIELDS[label])
+    for label in profile.step_order[:step_index + 1]:
+        fields.update(plan[label])
     return (
         fields.get("hp_current") == 0
         and float(fields.get(HP_DEATH_TIMER_NAME, 0.0)) > 0.0
@@ -1583,23 +1823,193 @@ HP_DEATH_PROBE_BASIC_MASK = {
 # The exact five bytes bit 0x0080 puts on the wire: tag 0x2A + 60.0f LE.
 HP_DEATH_TIMER_WIRE_BYTES = bytes.fromhex("2a00007042")
 
+# ------------------------------------------------- DYING-HOLD-001 death pins
+# Same probe actor again.  BASELINE is byte-identical to death_sweep's BASELINE
+# (and therefore to the player_wire projection), TIMER_ARMED differs from
+# death_sweep's TIMER_ARMED in exactly the four f32 bytes of the timer, and
+# HP_ZERO is the last frame this profile sends.  Both statements are asserted by
+# tests, not left as prose.  Every value below was recomputed from bytes the
+# encoder produced; none of it was copied from the death_sweep table.
+HP_DEATH_DYING_HOLD_PROBE_ATTR_BODY_SHA256 = {
+    "BASELINE": (
+        "479ED77DFA554F89AAB02E884608EC53BAEC9E213F85548AF9CCD291BCC896C4"
+    ),
+    "TIMER_ARMED": (
+        "877A7E0AB45E8BC144AD509D78D38A25C25E1524F4AE795336211700B29725EB"
+    ),
+    "HP_ZERO": (
+        "857AC3F2D1CFBCB717FAC62B27DE78617344D4E2A7D74BB00DE6FD2F8E488873"
+    ),
+}
+HP_DEATH_DYING_HOLD_PROBE_PC_SHA256 = {
+    "BASELINE": (
+        "DB3CE0B5D14196181EF9EA26A0D435E0489212634334CB562F840E368B5F0049"
+    ),
+    "TIMER_ARMED": (
+        "F08E53D3D89DC8ABA169277BA5D9230A539D221F78F7881CB7D69C6E80917932"
+    ),
+    "HP_ZERO": (
+        "1099931C80FAA0394BE1DADCA587ED890A04ED7C72118F1888D6708CF9967E44"
+    ),
+}
+HP_DEATH_DYING_HOLD_PROBE_FRAME_SHA256 = {
+    "BASELINE": (
+        "04E2B40152B633A48C84713B1C24A2910B7AB84E178E268094C0D10B179D9FBC"
+    ),
+    "TIMER_ARMED": (
+        "01E1B9E638BAD578D5E2865BEC2F14F05FF8645A679B48AF968B6ECFF82F611F"
+    ),
+    "HP_ZERO": (
+        "77E98AD69434C112FD4D7B6F29B04DCCE306B42187E92B3BDB91383F0C1B200D"
+    ),
+}
+HP_DEATH_DYING_HOLD_PROBE_ATTR_BODY_SIZE = {
+    "BASELINE": 73, "TIMER_ARMED": 78, "HP_ZERO": 78,
+}
+HP_DEATH_DYING_HOLD_PROBE_PC_SIZE = {
+    "BASELINE": 106, "TIMER_ARMED": 111, "HP_ZERO": 111,
+}
+HP_DEATH_DYING_HOLD_PROBE_FRAME_SIZE = {
+    "BASELINE": 117, "TIMER_ARMED": 122, "HP_ZERO": 122,
+}
+HP_DEATH_DYING_HOLD_PROBE_BASIC_MASK = {
+    "BASELINE": 0x030C, "TIMER_ARMED": 0x038C, "HP_ZERO": 0x038C,
+}
+# Tag 0x2A + 20.0f little-endian.  The four value bytes are the ONLY difference
+# between this profile's armed frame and death_sweep's.
+HP_DEATH_DYING_HOLD_TIMER_WIRE_BYTES = bytes.fromhex("2a0000a041")
+
+
+# ------------------------------------------------------------ named profiles
+@dataclass(frozen=True)
+class HpDeathStepProfile:
+    """One named hp-death step plan, with its own pins and its own end state.
+
+    A profile is the unit HYP-PF-022 varies.  Everything that used to be a
+    module-level plan constant lives here now, including ``ends_dead``, which a
+    profile must state OUT LOUD -- the validator refuses to infer it from the
+    step list, because inferring it is exactly how a plan that silently stopped
+    restoring HP would get past a reviewer.
+    """
+
+    name: str
+    scenario_id: str
+    timer_seconds: float
+    steps: tuple[tuple[str, dict[str, Any]], ...]
+    lethal_step_labels: tuple[str, ...]
+    ends_dead: bool
+    spacing_seconds: float
+    first_delay_seconds: float
+    action_label_prefix: str
+    response_policy: str
+    capabilities: tuple[str, ...]
+    nonclaims: tuple[str, ...]
+    probe_attr_body_sha256: dict
+    probe_pc_sha256: dict
+    probe_frame_sha256: dict
+    probe_attr_body_size: dict
+    probe_pc_size: dict
+    probe_frame_size: dict
+    probe_basic_mask: dict
+    timer_wire_bytes: bytes
+
+    @property
+    def step_order(self) -> tuple[str, ...]:
+        return tuple(label for label, _fields in self.steps)
+
+    @property
+    def step_fields(self) -> dict:
+        return {label: dict(fields) for label, fields in self.steps}
+
+
+HP_DEATH_PROFILE_DEATH_SWEEP = HpDeathStepProfile(
+    HP_DEATH_PROFILE_DEATH_SWEEP_NAME,
+    HP_DEATH_SCENARIO_ID,
+    HP_DEATH_TIMER_SECONDS,
+    HP_DEATH_STEPS,
+    HP_DEATH_LETHAL_STEP_LABELS,
+    False,
+    HP_DEATH_SPACING_SECONDS,
+    HP_DEATH_FIRST_DELAY_SECONDS,
+    HP_DEATH_ACTION_LABEL_PREFIX,
+    HP_DEATH_RESPONSE_POLICY,
+    HP_DEATH_CAPABILITIES,
+    HP_DEATH_NONCLAIMS,
+    HP_DEATH_PROBE_ATTR_BODY_SHA256,
+    HP_DEATH_PROBE_PC_SHA256,
+    HP_DEATH_PROBE_FRAME_SHA256,
+    HP_DEATH_PROBE_ATTR_BODY_SIZE,
+    HP_DEATH_PROBE_PC_SIZE,
+    HP_DEATH_PROBE_FRAME_SIZE,
+    HP_DEATH_PROBE_BASIC_MASK,
+    HP_DEATH_TIMER_WIRE_BYTES,
+)
+HP_DEATH_PROFILE_DYING_HOLD = HpDeathStepProfile(
+    HP_DEATH_PROFILE_DYING_HOLD_NAME,
+    HP_DEATH_DYING_HOLD_SCENARIO_ID,
+    HP_DEATH_DYING_HOLD_TIMER_SECONDS,
+    HP_DEATH_DYING_HOLD_STEPS,
+    HP_DEATH_DYING_HOLD_LETHAL_STEP_LABELS,
+    True,
+    HP_DEATH_DYING_HOLD_SPACING_SECONDS,
+    HP_DEATH_DYING_HOLD_FIRST_DELAY_SECONDS,
+    HP_DEATH_DYING_HOLD_ACTION_LABEL_PREFIX,
+    HP_DEATH_DYING_HOLD_RESPONSE_POLICY,
+    HP_DEATH_DYING_HOLD_CAPABILITIES,
+    HP_DEATH_DYING_HOLD_NONCLAIMS,
+    HP_DEATH_DYING_HOLD_PROBE_ATTR_BODY_SHA256,
+    HP_DEATH_DYING_HOLD_PROBE_PC_SHA256,
+    HP_DEATH_DYING_HOLD_PROBE_FRAME_SHA256,
+    HP_DEATH_DYING_HOLD_PROBE_ATTR_BODY_SIZE,
+    HP_DEATH_DYING_HOLD_PROBE_PC_SIZE,
+    HP_DEATH_DYING_HOLD_PROBE_FRAME_SIZE,
+    HP_DEATH_DYING_HOLD_PROBE_BASIC_MASK,
+    HP_DEATH_DYING_HOLD_TIMER_WIRE_BYTES,
+)
+HP_DEATH_PROFILES = {
+    HP_DEATH_PROFILE_DEATH_SWEEP_NAME: HP_DEATH_PROFILE_DEATH_SWEEP,
+    HP_DEATH_PROFILE_DYING_HOLD_NAME: HP_DEATH_PROFILE_DYING_HOLD,
+}
+
+
+def _resolve_hp_death_profile(profile: Any) -> HpDeathStepProfile:
+    """``None`` means ``death_sweep``; anything unregistered is refused.
+
+    Identity, not equality: a profile assembled elsewhere that happens to
+    compare equal is still not one of the two this module ships, and composing
+    against it would compose bytes nobody reviewed.
+    """
+    if profile is None:
+        return HP_DEATH_PROFILE_DEATH_SWEEP
+    for candidate in HP_DEATH_PROFILES.values():
+        if profile is candidate:
+            return candidate
+    raise ValueError("hp death step rejected: unknown_step_profile")
+
 
 def _require_pinned_death_composition(
     actor: StatsProgressionActor, label: str, body: bytes, pc: bytes,
-    frame: bytes,
+    frame: bytes, profile: Any = None,
 ) -> None:
-    if actor != HP_DEATH_PROBE_ACTOR or not HP_DEATH_PROBE_PC_SHA256:
+    profile = _resolve_hp_death_profile(profile)
+    if actor != HP_DEATH_PROBE_ACTOR or not profile.probe_pc_sha256:
         return
-    if hashlib.sha256(body).hexdigest().upper() != HP_DEATH_PROBE_ATTR_BODY_SHA256[label]:
+    if (
+        hashlib.sha256(body).hexdigest().upper()
+        != profile.probe_attr_body_sha256[label]
+    ):
         raise RuntimeError("HYP-PF-022 composed Attr body drift")
-    if hashlib.sha256(pc).hexdigest().upper() != HP_DEATH_PROBE_PC_SHA256[label]:
+    if hashlib.sha256(pc).hexdigest().upper() != profile.probe_pc_sha256[label]:
         raise RuntimeError("HYP-PF-022 composed PC drift")
-    if hashlib.sha256(frame).hexdigest().upper() != HP_DEATH_PROBE_FRAME_SHA256[label]:
+    if (
+        hashlib.sha256(frame).hexdigest().upper()
+        != profile.probe_frame_sha256[label]
+    ):
         raise RuntimeError("HYP-PF-022 composed frame drift")
     if (
-        len(body) != HP_DEATH_PROBE_ATTR_BODY_SIZE[label]
-        or len(pc) != HP_DEATH_PROBE_PC_SIZE[label]
-        or len(frame) != HP_DEATH_PROBE_FRAME_SIZE[label]
+        len(body) != profile.probe_attr_body_size[label]
+        or len(pc) != profile.probe_pc_size[label]
+        or len(frame) != profile.probe_frame_size[label]
     ):
         raise RuntimeError("HYP-PF-022 composed size pin drift")
 
@@ -1607,7 +2017,7 @@ def _require_pinned_death_composition(
 # PF-HYPOTHESIS-LEDGER: HYP-PF-022 active
 def make_hp_death_response(
     legacy: Any, actor: StatsProgressionActor, fields: dict[str, Any],
-    lethal: Any,
+    lethal: Any, profile: Any = None,
 ) -> tuple[bytes, bytes]:
     """Compose ``(pc, frame)`` for one UpdateAttrVital frame of the death sweep.
 
@@ -1618,14 +2028,19 @@ def make_hp_death_response(
     module's ids, the ascending gate pins, the byte-for-byte player_wire
     cross-check on the baseline projection) plus the lethal table and step-plan
     guards, and re-decodes the composed PC back to the requested field set.
+
+    ``profile`` selects the step plan whose contract is enforced; it defaults to
+    ``death_sweep``, and the unlock token is the same one for every profile --
+    a second plan must not mean a second key.
     """
     require_hp_death_lethal_unlock(lethal)
+    profile = _resolve_hp_death_profile(profile)
     if legacy.UPDATE_ATTR_VITAL != UPDATE_ATTR_VITAL_ID:
         raise RuntimeError(
             "HYP-PF-022 UpdateAttrVital id drift against the frozen module"
         )
     _require_lethal_field_table()
-    _require_hp_death_step_plan()
+    _require_hp_death_step_plan(profile)
     _require_player_wire_crosscheck(legacy, actor)
     body = encode_actor_attr(
         legacy, actor.identity_lo, actor.identity_hi, fields, lethal,
@@ -1650,14 +2065,16 @@ def make_hp_death_response(
 
 def make_hp_death_step_response(
     legacy: Any, actor: StatsProgressionActor, step_index: int, lethal: Any,
+    profile: Any = None,
 ) -> tuple[bytes, bytes]:
     """Compose one numbered frame of the pinned death sweep, then drift-check."""
     require_hp_death_lethal_unlock(lethal)
-    fields = hp_death_step_fields(legacy, actor, step_index)
-    pc, frame = make_hp_death_response(legacy, actor, fields, lethal)
-    label = HP_DEATH_STEP_ORDER[step_index]
+    profile = _resolve_hp_death_profile(profile)
+    fields = hp_death_step_fields(legacy, actor, step_index, profile)
+    pc, frame = make_hp_death_response(legacy, actor, fields, lethal, profile)
+    label = profile.step_order[step_index]
     _require_pinned_death_composition(
-        actor, label, hp_death_attr_body(pc), pc, frame,
+        actor, label, hp_death_attr_body(pc), pc, frame, profile,
     )
     return pc, frame
 
@@ -1689,13 +2106,38 @@ _PROFILE_DEATH_SWEEP = HpDeathHypothesisScenario(
     HP_DEATH_STEP_ORDER,
     HP_DEATH_SPACING_SECONDS,
     HP_DEATH_TIMER_SECONDS,
+    False,
+    HP_DEATH_PROFILE_DEATH_SWEEP_NAME,
 )
+_PROFILE_DYING_HOLD = HpDeathHypothesisScenario(
+    HP_DEATH_DYING_HOLD_SCENARIO_ID,
+    HP_DEATH_HYPOTHESIS_ID,
+    HP_DEATH_DYING_HOLD_STEP_ORDER,
+    HP_DEATH_DYING_HOLD_SPACING_SECONDS,
+    HP_DEATH_DYING_HOLD_TIMER_SECONDS,
+    True,
+    HP_DEATH_PROFILE_DYING_HOLD_NAME,
+)
+# Both scenario objects are singletons and are compared by IDENTITY everywhere.
+_HP_DEATH_SCENARIOS = {
+    HP_DEATH_SCENARIO_ID: _PROFILE_DEATH_SWEEP,
+    HP_DEATH_DYING_HOLD_SCENARIO_ID: _PROFILE_DYING_HOLD,
+}
 
 
-def _expected_death_sweep() -> dict[str, Any]:
+def _expected_death_scenario(profile: Any) -> dict[str, Any]:
+    """The one shape a scenario file for ``profile`` is allowed to have.
+
+    Both profiles share this structure key for key; only the values a profile
+    owns differ.  The loader compares a file against it with ``_exact_equal``,
+    so an extra key, a missing key or a changed type is a refusal.
+    """
+    profile = _resolve_hp_death_profile(profile)
+    step_order = profile.step_order
+    step_fields = profile.step_fields
     return {
         "schema": 1,
-        "id": HP_DEATH_SCENARIO_ID,
+        "id": profile.scenario_id,
         "test_only": True,
         "production_allowed": False,
         "hypothesis_id": HP_DEATH_HYPOTHESIS_ID,
@@ -1703,29 +2145,24 @@ def _expected_death_sweep() -> dict[str, Any]:
         "entry": {
             "flow": "full_writable_character",
             "required_sequence": "selected_and_runtime_ready",
-            "response_policy": (
-                "compose_cumulative_update_attr_vital_death_deltas_"
-                "no_write_no_close"
-            ),
+            "response_policy": profile.response_policy,
         },
         "dispatch": {
             "trigger": "accepted_chat_input_frame_exact_ascii12_shape",
             "trigger_classifier": "classify_chat_input_attempt",
-            "frames_per_accepted_request": len(HP_DEATH_STEP_ORDER),
-            "step_order": list(HP_DEATH_STEP_ORDER),
+            "frames_per_accepted_request": len(step_order),
+            "step_order": list(step_order),
             "step_fields": {
-                label: dict(HP_DEATH_STEP_FIELDS[label])
-                for label in HP_DEATH_STEP_ORDER
+                label: dict(step_fields[label]) for label in step_order
             },
-            "lethal_steps": list(HP_DEATH_LETHAL_STEP_LABELS),
+            "lethal_steps": list(profile.lethal_step_labels),
             "cumulative": True,
-            "spacing_seconds": HP_DEATH_SPACING_SECONDS,
-            "first_frame_delay_seconds": HP_DEATH_FIRST_DELAY_SECONDS,
+            "spacing_seconds": profile.spacing_seconds,
+            "first_frame_delay_seconds": profile.first_delay_seconds,
             "delay_semantics": "gap_before_each_send_on_a_cumulative_deadline",
-            "action_label_prefix": HP_DEATH_ACTION_LABEL_PREFIX,
+            "action_label_prefix": profile.action_label_prefix,
             "action_labels": [
-                HP_DEATH_ACTION_LABEL_PREFIX + label
-                for label in HP_DEATH_STEP_ORDER
+                profile.action_label_prefix + label for label in step_order
             ],
             "one_shot": False,
             "socket_action": "none",
@@ -1747,7 +2184,7 @@ def _expected_death_sweep() -> dict[str, Any]:
                 "wire_tag": HP_DEATH_TIMER_TAG,
                 "width": "f32",
                 "gate_pin": HP_DEATH_TIMER_GATE_PIN,
-                "value_seconds": HP_DEATH_TIMER_SECONDS,
+                "value_seconds": profile.timer_seconds,
             },
             "death_predicate": {
                 "is_dead_player": IS_DEAD_PLAYER_VA,
@@ -1793,63 +2230,77 @@ def _expected_death_sweep() -> dict[str, Any]:
             ),
             "per_step": {
                 label: {
-                    "lethal": label in HP_DEATH_LETHAL_STEP_LABELS,
-                    "attr_body_size": HP_DEATH_PROBE_ATTR_BODY_SIZE[label],
-                    "attr_body_sha256": HP_DEATH_PROBE_ATTR_BODY_SHA256[label],
-                    "pc_size": HP_DEATH_PROBE_PC_SIZE[label],
-                    "pc_sha256": HP_DEATH_PROBE_PC_SHA256[label],
-                    "frame_size": HP_DEATH_PROBE_FRAME_SIZE[label],
-                    "frame_sha256": HP_DEATH_PROBE_FRAME_SHA256[label],
+                    "lethal": label in profile.lethal_step_labels,
+                    "attr_body_size": profile.probe_attr_body_size[label],
+                    "attr_body_sha256": profile.probe_attr_body_sha256[label],
+                    "pc_size": profile.probe_pc_size[label],
+                    "pc_sha256": profile.probe_pc_sha256[label],
+                    "frame_size": profile.probe_frame_size[label],
+                    "frame_sha256": profile.probe_frame_sha256[label],
                 }
-                for label in HP_DEATH_STEP_ORDER
+                for label in step_order
             },
         },
         "persisted_post_state": {
             "database_write": "none",
         },
-        "capabilities": [
-            "emit_basicattr_mask_bit_0x0080_as_an_f32_death_timer",
-            "compose_the_exact_pair_the_client_isdead_predicate_reads",
-            "arm_the_timer_before_the_kill_and_restore_hp_in_the_same_sweep",
-            "reproduce_the_proven_player_wire_baseline_projection_byte_exactly",
-            "decode_every_composed_body_back_to_the_requested_fields",
-        ],
-        "nonclaims": [
-            "client_rendering_of_death_pending_gt019",
-            "any_wire_observation_of_bit_0x0080_in_either_direction",
-            "the_death_animation_or_target_panel_which_this_transport_"
-            "cannot_reach",
-            "any_spawn_point_or_marker_behavior",
-            "any_death_penalty_corpse_or_damage_rule",
-            "original_server_death_rules",
-            "hp_persistence_or_database_write",
-            "the_deployed_value_of_duration_dying",
-            "production_dispatch_wiring",
-            "production_baseline_behavior",
-        ],
+        "capabilities": list(profile.capabilities),
+        "nonclaims": list(profile.nonclaims),
     }
+
+
+def _expected_death_sweep() -> dict[str, Any]:
+    """The death_sweep shape, kept under its original name for old callers."""
+    return _expected_death_scenario(HP_DEATH_PROFILE_DEATH_SWEEP)
+
+
+def hp_death_profile_for_scenario(value: Any) -> HpDeathStepProfile:
+    """Map an allowlisted scenario object to the step profile it selects."""
+    require_hp_death_hypothesis_scenario(value)
+    return HP_DEATH_PROFILES[value.profile_name]
 
 
 def load_hp_death_hypothesis_scenario(
     path: str | Path,
 ) -> HpDeathHypothesisScenario:
+    """Load ONE of the two allowlisted scenario files, by exact match.
+
+    The allowlist is still exact and still by id: a file whose id is not one of
+    the two names this module ships is refused before anything else is read,
+    and the whole document must then equal the shape the matching profile
+    declares, key for key and type for type.
+    """
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError("invalid hp death hypothesis scenario") from exc
-    if type(data) is not dict or data.get("id") != HP_DEATH_SCENARIO_ID:
+    if type(data) is not dict or type(data.get("id")) is not str:
         raise ValueError("hp death hypothesis scenario exceeds the exact allowlist")
-    if not _exact_equal(data, _expected_death_sweep()):
+    scenario = _HP_DEATH_SCENARIOS.get(data["id"])
+    if scenario is None:
         raise ValueError("hp death hypothesis scenario exceeds the exact allowlist")
-    return require_hp_death_hypothesis_scenario(_PROFILE_DEATH_SWEEP)
+    profile = HP_DEATH_PROFILES[scenario.profile_name]
+    if not _exact_equal(data, _expected_death_scenario(profile)):
+        raise ValueError("hp death hypothesis scenario exceeds the exact allowlist")
+    return require_hp_death_hypothesis_scenario(scenario)
 
 
 def require_hp_death_hypothesis_scenario(
     value: Any,
 ) -> HpDeathHypothesisScenario:
+    if type(value) is not HpDeathHypothesisScenario or not any(
+        value is candidate for candidate in _HP_DEATH_SCENARIOS.values()
+    ):
+        raise ValueError(
+            "hp death hypothesis scenario object exceeds the allowlist"
+        )
+    profile = HP_DEATH_PROFILES[value.profile_name]
     if (
-        type(value) is not HpDeathHypothesisScenario
-        or value is not _PROFILE_DEATH_SWEEP
+        profile.scenario_id != value.scenario_id
+        or profile.ends_dead is not value.ends_dead
+        or profile.timer_seconds != value.death_timer_seconds
+        or profile.step_order != value.step_order
+        or profile.spacing_seconds != value.spacing_seconds
     ):
         raise ValueError(
             "hp death hypothesis scenario object exceeds the allowlist"
@@ -1857,7 +2308,7 @@ def require_hp_death_hypothesis_scenario(
     _require_field_table()
     _require_ascending_gate_pins()
     _require_lethal_field_table()
-    _require_hp_death_step_plan()
+    _require_hp_death_step_plan(profile)
     return value
 
 

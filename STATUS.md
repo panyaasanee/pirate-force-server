@@ -1,6 +1,6 @@
 # Pirate Force Server — Foundation Status
 
-Updated: 2026-08-17
+Updated: 2026-08-19
 
 Execution is governed by `docs/WORKFLOW.md`: one active milestone, Cloud-first
 sanitized work, Local-only proprietary/runtime work, tiered verification,
@@ -44,15 +44,25 @@ short of `complete`. A narrow fixture, golden, or single controlled run earns
   movement has ever been projected.
 - **Combat: INCOMPLETE** — next missing behavior: `damage_and_hit_result`, which is
   blocked on evidence rather than code: a hash-guarded audit proves the curated
-  corpus cannot answer the server-to-client combat-result question. Target
-  selection, the attack-command producer and the action acknowledgement are
-  `runtime_pass`, but the acknowledged action is inert; HP/death/respawn, mob AI
+  corpus cannot answer the server-to-client combat-result question, and the client
+  image proves the client computes no damage at all. Target selection, the
+  attack-command producer and the action acknowledgement are `runtime_pass`, but
+  the acknowledged action is inert. `hp_death_and_respawn` earned `runtime_pass`
+  via GT-019 (attended, 2026-08-19) **on the death half only**: current HP at zero
+  plus the dying timer is enough for the real client to derive a death by itself
+  and open a rescue window, repeated eight times in one session. The respawn half
+  has no evidence of any kind and GT-021 is the first test that touches it. Mob AI
   and PvP are not started.
 - **Character management: INCOMPLETE** — next missing behavior:
   `character_creation`. Character list projection and the persisted player name are
-  `runtime_pass`; creation and deletion stop at characterized boundaries, the
-  second-password gate is an opt-in test-only bypass, appearance is preserved only
-  as opaque bytes, and progression is not modeled.
+  `runtime_pass`; `character_deletion` joined them via GT-018 (attended,
+  2026-08-19) on one controlled observation — a one-character list, one delete
+  answered by an acknowledgement plus a `SelectActorVital` rebuild, after which the
+  row left the list and the character-select buttons became usable again — while
+  slot reuse stays headless-only and the multi-character and negative paths are
+  untested. Creation still stops at a characterized boundary, the second-password
+  gate is an opt-in test-only bypass, appearance is preserved only as opaque bytes,
+  and progression is not modeled.
 - **Chat: INCOMPLETE** — next missing behavior: `client_chat_input`. The
   server-originated system message is observed, emitted by the frozen legacy seam
   rather than owned by a Foundation module. One client chat request is now

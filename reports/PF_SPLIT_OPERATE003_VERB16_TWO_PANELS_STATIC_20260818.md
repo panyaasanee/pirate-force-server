@@ -33,6 +33,17 @@ span-hash pin (byte-identical): body C `[0x5A349B,0x5A3537)` = `1E2EB3E2…08997
 numeric dialog เป็น **generic reusable control** ไม่ใช่ dialog เฉพาะ split:
 
 - `Data/GUI/Model/Common_NumInput.model` (และ `Common_NumberInput2/3.model`) = plaintext `<UIControlData>` XML (UTF-8 BOM) **ไม่มี caption ฝังใน model** — ไม่มีไฟล์ `.model` ชื่อ split/divide เลย
+
+> **NOTE 2026-08-19 (รอบ 84, SCAN-DEBT-001) — นิยามของ "เซ็ตที่ negative นี้เป็น negative เหนือมัน"**
+> ตัวเลขที่ตีพิมพ์ไม่มีตัวไหนเปลี่ยน (match = 0 เหมือนเดิม) แต่ตอนตีพิมพ์ **ไม่ได้เขียนไว้ว่าเซ็ตคืออะไร** และสองฝั่งนับคนละชุด:
+> tool ใช้ `os.listdir(GUI_MODEL)` = **573 รายการ** ส่วนเทสใช้ `glob("*.model")` = **534 ไฟล์** (573 = 534 `.model` + 37 `.project` + 1 `.fsl` + 1 `.tip`)
+> วันนี้ทั้งสองฝั่งเรียกตัวนับเดียวกันที่ `tools/pf_client_ui_assets.py` ซึ่งเขียนนิยามไว้ในหัวฟังก์ชันว่า
+> **นับ = ไฟล์ปกติที่อยู่ตรง ๆ ใน `Data/GUI/Model` และชื่อลงท้าย `.model` แบบไม่สนตัวพิมพ์** ·
+> **ไม่นับ** = sidecar ของ editor (`.project`/`.fsl`/`.tip` — caption นิยามในนั้นไม่ได้), ไดเรกทอรี, และไฟล์ในไดเรกทอรีย่อย ·
+> **ไม่สนตัวพิมพ์** เพราะ `glob("*.model")` case-sensitive บน Linux แต่ไม่ใช่บน Windows และโปรเจกต์นี้รัน verifier ทั้งสองเครื่อง
+> ⇒ **ตัวส่วนของ negative ข้อนี้คือ 534 ไฟล์ `.model`** (ไม่ใช่ 573) · ถ้าไดเรกทอรีอ่านไม่ได้ tool **fail** (เดิม `print("SKIP ...")` แล้วไปต่อ — "มองไม่เห็น" ไม่ใช่ "มองแล้วไม่เจอ") ·
+> trap test: `tests/test_client_ui_asset_inventory.py` (pure stdlib รันได้แม้ไม่มี capstone/pefile)
+> ข้อจำกัดที่ยังอยู่: `GameClient/Data/GUI/` อยู่นอก git worktree ไม่มี version control และไม่มี sha pin ใน manifest
 - caption ถูก resolve ตอน runtime จาก **packed text table `B_TEXTDATA_TH.pc_`** (file magic `$pcz`) และ UI Lua (`*.lu_` ก็ `$pcz`-packed เช่นกัน)
 - จึง **ไม่มี client asset ที่อ่านได้** ที่ map dialog id `0x12` → caption "split" โดยไม่ถอดรหัส/แตก packed proprietary (นอกขอบเขต + ไม่แตะ proprietary)
 
@@ -47,7 +58,8 @@ numeric dialog เป็น **generic reusable control** ไม่ใช่ dial
 - ไบนารี read-only: `GameClient/GameClient.local.bin` sha256 `9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623` (14,759,424 B)
 - verifier: `tools/pf_split_operate_verb_panels_static.py` — 21 static guards, exit 0 = PASS (capstone CS_MODE_32, ImageBase 0x400000, PE section table parsed)
 - regression test: `tests/test_split_operate_verb_panels_static.py` — 11 cases (pefile + capstone)
-- readable client assets ใช้เป็นหลักฐาน: `Data/GUI/Model/Common_NumInput.model` (plaintext), `Data/B_TEXTDATA_TH.pc_` (magic `$pcz` = packed)
+- readable client assets ใช้เป็นหลักฐาน: `Data/GUI/Model/Common_NumInput.model` (plaintext), `Data/B_TEXTDATA_TH.pc_` (magic `$pcz` = packed) — เซ็ตที่ negative นับเหนือมัน = **534 ไฟล์ `.model`** ตามนิยามใน `tools/pf_client_ui_assets.py` (ดู NOTE 2026-08-19 ใน §2)
+- ตัวนับที่ใช้ร่วมกันทั้ง tool และเทส: `tools/pf_client_ui_assets.py` · trap test: `tests/test_client_ui_asset_inventory.py` (pure stdlib, 14 cases)
 - ไม่มี network / GameClient runtime / canonical DB ถูกแตะ
 
 ## 5. Governance

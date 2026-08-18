@@ -67,7 +67,58 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers ONE deliberate movement, DELETE-REFRESH-001 (2026-08-19):
+    # This pin covers TWO deliberate movements, both of them attended-runtime results
+    # from big rounds #4 and #5 (2026-08-19, tree 11fea4f; both lanes landed at 6891372),
+    # and it is the first pin this project has moved on the strength of what was on a
+    # screen rather than on what was in the image.
+    #
+    # 1. character_management/character_deletion in_progress -> runtime_pass, gaining
+    #    reports/PF_DELETE_REFRESH001_GT018_LIST_REBUILD_CLIENT_ACCEPTANCE_RUNTIME_PASS_20260819.md.
+    #    GT-018 drove one delete through the real UI against a list holding exactly ONE
+    #    character and the server answered it with the unchanged HYP-PF-015 echo ack plus
+    #    the HYP-PF-021 SelectActorVital 0x36EF rebuild. Round 81's upgraded prediction
+    #    was confirmed on BOTH halves: the character left the list (nameboard and model
+    #    gone), the 'delete character' button removed itself from the button row (five
+    #    buttons to four, i.e. the screen recomputed its affordances from a list it reads
+    #    as empty rather than hiding a row), and 'create character' was pressed and did
+    #    open the creation screen -- closing both symptoms GT-011 left open. Wire markers
+    #    HYP_PF_021_DELETE_ACTOR_SELECTOR00_SOFT_DELETE_COMMITTED then
+    #    HYP_PF_021_DELETE_ACTOR_LIST_REBUILD_0; the run used a copy and the canonical
+    #    database was never opened. The grade is narrow ON PURPOSE and the note says so in
+    #    its own words: slot reuse is still headless-only (the creation screen was opened,
+    #    no character was created), the second-password gate ran in bypass, multi-character
+    #    deletion and list ordering are untested, every negative path is fail-closed by
+    #    test only, and the page-variable route stays a chain of byte facts because
+    #    0x107A2C0's live value was never read. Answering a delete with a rebuild remains
+    #    OUR designed policy, shown by no capture anywhere.
+    #
+    # 2. combat/hp_death_and_respawn in_progress -> runtime_pass, gaining
+    #    reports/PF_HP_DEATH002_GT019_CLIENT_DERIVED_DEATH_RUNTIME_PASS_20260819.md.
+    #    Read the note before reading the status: ONLY THE DEATH HALF IS OBSERVED and the
+    #    respawn half has no evidence of any kind, which is why the note names GT-021
+    #    (dying_hold) as the first test that will touch it. What GT-019 proved on a real
+    #    screen is HP-DEATH-001's central prediction: HP +0x44 (bit 0x0004) at zero plus
+    #    the f32 at +0x58 (bit 0x0080) positive is enough, with no further frame, for the
+    #    client to derive a death by itself -- HUD '0 /100', a collapsed pose, and a
+    #    previously unknown gold-rimmed red cross button captioned in Thai 'abandon the
+    #    rescue', which is this project's first evidence that a player-rescue system
+    #    exists and that HP == 0 alone raises it. Round #5 photographed it and fired the
+    #    sweep eight times in one session, complete every time, lateness under 2.5 ms.
+    #    The process note travels with the result: round #4 first called this a FAIL by
+    #    straddling the 6.0 s lethal window with point sampling, and the permanent rule is
+    #    that a time-ordered test may never conclude 'nothing happened' from point samples.
+    #    Deployed DURATION_DYING is still unknown (image 20, scenario sent 60.0f), no
+    #    countdown was SEEN in three observed frames which is not the same as none, and
+    #    nothing here is claimed about the original server.
+    #
+    # Neither domain moved: domain_complete stays false for all eight, both banners stay
+    # INCOMPLETE, and next_missing_behavior is unchanged in both (character_creation is
+    # still in_progress, damage_and_hit_result is still blocked). The manifest-debt list
+    # is unchanged because both rows already cite manifest-backed reports
+    # (PF_DELETE_SOFT001 and PF_HP_DEATH001); the two new reports carry no .manifest
+    # because their artifacts are capture and bridge trees outside the repository.
+    # Previous pin 50D475A2..06E6 covered ONE deliberate movement,
+    # DELETE-REFRESH-001 (2026-08-19):
     # character_management/character_deletion gains the DELETE-REFRESH-001 evidence and
     # test refs (status already in_progress, unchanged, and deliberately NOT moved to
     # runtime_pass). evidence_refs
@@ -324,7 +375,7 @@ GRADE_SUBSET_SHA256 = (
     # 26D752FE..BA9A (round 65) occupied_destination_policy not_started ->
     # in_progress under HYP-PF-017 (ITEM-SWAP-001); see its lineage note before that
     # for round 53's 78558E56..6DC8.
-    "50D475A2ED354B6F44EB19F3BE4D8954AD629FC4CE63CACE25A197A0778006E6"
+    "EFCDB5317B9EB6FFE9D3655ED3D2DD5298535B88EFB6E81E352168CB34F15A21"
 )
 
 

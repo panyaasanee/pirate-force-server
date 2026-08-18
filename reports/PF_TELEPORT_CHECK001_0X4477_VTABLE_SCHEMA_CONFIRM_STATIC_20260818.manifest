@@ -4,13 +4,22 @@
 # (CS_MODE_32, ImageBase 0x400000, PE section table parsed) using tools/pf_teleportcheck_0x4477_static.py.
 GameClient\GameClient.local.bin|14759424|9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623
 # Wire corpus (client->server TeleportCheckVital 0x4477, value=1, byte-identical, server reply=0):
-#   (ref, unpinned) GameClient\capture_v131\GAME_*.txt
-#   (ref, unpinned) GameClient\capture_v136\GAME_*.txt
-#   (ref, unpinned) GameClient\capture_v137\GAME_*.txt
-#   (ref, unpinned) GameClient\capture_v138\GAME_*.txt
-#   (ref, unpinned) GameClient\capture_v139\GAME_*.txt
-#   (ref, unpinned) GameClient\capture_v140\GAME_*.txt
-#   (ref, unpinned) GameClient\capture_v141\GAME_*.txt
-#   (ref, unpinned) GameClient\capture_v142\GAME_*.txt
-# Verifier (16 guards, exit 0 = PASS):
+# ERRATUM 2026-08-19 (round 84, SCAN-DEBT-001): the eight rows below were read out of the game
+# install tree, which has never been under version control.  Six of the eight sessions were
+# snapshotted into backups/ at the time and are byte-identical to those originals; they are now
+# PINNED by path+size+sha256 in docs/PF_CAPTURE_CORPUS.json, set "game_teleportcheck_0x4477", and
+# the verifier reads that table instead of globbing.  v141 and v142 were never snapshotted and are
+# UNPINNABLE by construction - the verifier names them and excludes them from every claim.
+#   (pinned, docs/PF_CAPTURE_CORPUS.json:game_teleportcheck_0x4477)
+#       backups\v131_teleportcheck_challenge_echo_20260815_011204\capture_v131\GAME_2*.txt
+#       backups\v136_q3020_marker1_composition_20260815_051330\capture_v136\GAME_2*.txt
+#       backups\v137_marker1_teleport_transport_20260815_054009\capture_v137\GAME_2*.txt  (2 files: 1 positive, 1 proven negative)
+#       backups\v138_marker1_population_reapply_20260815_060241\capture_v138\GAME_2*.txt
+#       backups\v139_p86_interaction_operational_negative_20260815_063044\capture_v139\GAME_2*.txt
+#       backups\v140_p86_synthetic_harness_interaction_20260815_065019\capture_v140\GAME_2*.txt
+#   (UNPINNABLE - no in-worktree copy, excluded from every claim)
+#       GameClient\capture_v141\GAME_20260815_073553_873970_56053.txt
+#       GameClient\capture_v142\GAME_20260815_100306_944866_53424.txt
+# Verifier (31 guards, exit 0 = PASS; pure stdlib; fails closed on missing/rewritten evidence):
 #   (ref, unpinned) tools\pf_teleportcheck_0x4477_static.py
+#   (ref, unpinned) tests\test_teleportcheck_0x4477_corpus.py

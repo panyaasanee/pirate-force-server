@@ -1,5 +1,37 @@
 # PF_TELEPORT_CHECK001 — `TeleportCheckVital 0x4477`: vtable + schema + field semantics settle the client→server confirm-request; the server correctly need not answer (static disasm + wire corpus)
 
+> ## ⚠ ERRATUM 2026-08-19 (รอบ 84, SCAN-DEBT-001) — ตาราง §4 พิสูจน์ซ้ำได้ **6 จาก 8 แถว** ไม่ใช่ 8/8
+>
+> **ตัวเลขในรายงานนี้ไม่ได้ผิด แต่ verifier ที่อ้างว่าค้ำมันไว้ ไม่ได้ตรวจอะไรเลยมาสองรอบ**
+>
+> 1. **สิ่งที่เกิดขึ้น** — `tools/pf_teleportcheck_0x4477_static.py` guard G8 อ่าน corpus ด้วย `glob` ไปที่
+>    `<repo>/../GameClient/capture_v13x|v14x/GAME_2*.txt` คือ **โฟลเดอร์ติดตั้งเกม นอก git worktree**
+>    เมื่อรันจาก repo root (ซึ่งเป็นวิธีที่ gate/เทส/scheduled job รันทุกครั้ง) glob จึง match 0 ไฟล์ แล้วโค้ด
+>    `print("SKIP wire corpus ...")` และ **exit 0** ⇒ เขียวโดยไม่ได้อ่าน wire evidence สักไบต์
+>    (เกรด B จาก `reports/PF_CORPUS_PIN001_DIRECTORY_SCAN_SURVEY_20260819.md` จุดที่ 4)
+> 2. **หลักฐานหายไปแค่ไหน** — ไม่หายทั้งหมด **6 ใน 8 session** ถูก snapshot ไว้ใน
+>    `backups/v13x_*/capture_v13x/` ตั้งแต่ตอนนั้น และ **byte-identical** กับต้นฉบับใน install tree
+>    (เทียบ sha256 รอบ 84) จึงถูก **pin** ไว้ใน `docs/PF_CAPTURE_CORPUS.json` ชุด
+>    `game_teleportcheck_0x4477` แล้ว
+> 3. **สองแถวที่พิสูจน์ซ้ำไม่ได้** — `v141` และ `v142` **ไม่เคยถูก snapshot** เข้ามาใน worktree มีอยู่แค่ใน
+>    `<repo>/../GameClient/` ซึ่งไม่เคยอยู่ใต้ version control และไม่มี hash pin ⇒ **unpinnable by
+>    construction** verifier รายงานสองแถวนี้เป็น `UNPINNABLE` และ **ไม่นับเข้าในข้ออ้างใด ๆ**
+>    ⇒ ประโยค "wire corpus 8 เฟรม" และบรรทัด "(8/8 byte-identical)" ใน §4 **อ่านได้ว่า 6/8 ที่ re-derivable
+>    + 2 ที่ต้องเชื่อรายงานฉบับนี้เฉย ๆ** — ไม่ได้แก้ตัวเลขเดิมทิ้ง เพราะตอนเขียนมัน 8 จริง
+> 4. **`count ≠ content`** — guard เดิมเช็ค `"77 44 0B 00 0F 01" in text` คือ substring ทั้งไฟล์ ไม่แยกทิศทาง
+>    ซึ่ง**ผิดได้จริงบน corpus นี้**: `backups/v137_*/capture_v137/GAME_20260815_052412_181760_54676.txt`
+>    มี byte string นั้น **2 ครั้ง** ในเฟรม server→client ที่ harness ประกอบเอง และ **ไม่มี inbound 0x4477
+>    เลย** ไฟล์นี้ถูก pin ไว้เป็น **proven negative** เพื่อกันไม่ให้ใครกลับไปนับ substring อีก
+>    guard ใหม่ถอด `DECOMPRESSED` + `STRUCTURAL_IDS` แล้ว pin **ทั้งเฟรม 23 ไบต์**
+>    `12 6F 6E 14 00 00 00 00 08 00 0B 02 12 01 00 12 77 44 0B 00 0F 01 00`
+> 5. **verifier วันนี้** — pure stdlib (เดิม `import capstone` แล้วไม่ได้ใช้เลย จึงรันใน gate ไม่ได้ด้วยซ้ำ),
+>    31 guards, fail closed ทุกทาง: pinned file หาย / ถูกเขียนทับ / มีไฟล์แปลกปลอมในโฟลเดอร์ / client image
+>    อ่านไม่ได้ ⇒ exit ≠ 0 ทั้งหมด · trap test ที่พิสูจน์ว่า guard ยิงจริงอยู่ที่
+>    `tests/test_teleportcheck_0x4477_corpus.py`
+>
+> ข้อสรุปเชิงความหมายของรายงาน (identity / schema / field / "server ไม่ต้องตอบ") **ไม่เปลี่ยน** — ทั้ง 6 เฟรมที่
+> pin ได้ยังเป็น value = 1 byte-identical และ `teleportcheck_reply=0` เหมือนเดิม
+
 รอบ 61 (2026-08-18 scheduled) · chief · report-only additive · milestone สำรอง pre-approved (ii) จาก LOCK รอบ 60 · binary `GameClient.local.bin` SHA-256 `9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623` · capstone 5.0.7 (CS_MODE_32, ImageBase 0x400000, PE section table parsed) · reproduce: `py -3 tools/pf_teleportcheck_0x4477_static.py`
 
 เป้า: ปิด **bounded unknown ของ MOVE-AUTHORITY-001** ("what `TeleportCheckVital 0x4477` requests/answers" — logged `semantics=unassigned no_response=1") ให้ถึงชั้น identity/schema/field แบบ byte-exact static แล้ว cross-check กับ wire corpus 8 เฟรม (v131 challenge + v136–v142)

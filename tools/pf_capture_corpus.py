@@ -56,6 +56,11 @@ Usage
     paths = corpus.resolve("game_v141_archived")     # raises on drift
     corpus.assert_no_strays("game_v141_archived")    # raises on extra files
 
+A set declares either ``scan_dir`` (one directory) or ``scan_dirs`` (a list of
+directories, for evidence that is spread over several frozen snapshots).  It is
+an error to declare both or neither: a set must always say, in the table, where
+it looks - a set that scans nowhere can never notice a stray.
+
 Regenerating (only when new evidence is admitted on purpose)::
 
     python3 tools/pf_capture_corpus.py --regenerate
@@ -99,7 +104,26 @@ class CaptureSet:
         self.name = name
         self.root = root
         self.description = spec.get("description", "")
-        self.scan_dir = spec["scan_dir"]
+        # A set normally lives in ONE directory (``scan_dir``).  Some evidence is
+        # spread over several *frozen* snapshot directories - e.g. the six
+        # ``backups/v13x_*/capture_v13x/`` folders that hold the TeleportCheck
+        # wire corpus - and those declare ``scan_dirs`` (a list) instead.
+        # Exactly one of the two must be present, so "where does this set look?"
+        # is always a written-down list and never an implicit default.
+        if ("scan_dir" in spec) == ("scan_dirs" in spec):
+            raise CaptureCorpusError(
+                "capture set %r must declare exactly one of 'scan_dir' (one "
+                "directory) or 'scan_dirs' (a list)" % name)
+        if "scan_dirs" in spec:
+            self.scan_dirs = list(spec["scan_dirs"])
+            if not self.scan_dirs:
+                raise CaptureCorpusError(
+                    "capture set %r declares an empty 'scan_dirs' list; a set "
+                    "that scans nowhere can never notice a stray" % name)
+        else:
+            self.scan_dirs = [spec["scan_dir"]]
+        # Human-readable form used in every error message.
+        self.scan_dir = ", ".join(self.scan_dirs)
         self.pattern = spec["pattern"]
         self.recursive = bool(spec.get("recursive", False))
         # Directory names never descended into while scanning.  ``.git`` is
@@ -156,16 +180,28 @@ class CaptureSet:
         return resolved
 
     def scan(self) -> list[str]:
-        """Every path under ``scan_dir`` matching ``pattern``, repo-relative.
+        """Every path under every ``scan_dir`` matching ``pattern``, repo-relative.
 
         This is the *only* place a directory scan survives, and its result is
         never counted - it is only ever compared against the pinned set.
         """
-        base = self.root / self.scan_dir
+        found: list[str] = []
+        for scan_dir in self.scan_dirs:
+            found.extend(self._scan_one(scan_dir))
+        duplicates = sorted({path for path in found if found.count(path) > 1})
+        if duplicates:
+            raise CaptureCorpusError(
+                "capture set %r has overlapping scan_dirs, so the same file is "
+                "reached twice and 'no strays' would compare the wrong "
+                "cardinality:\n  %s" % (self.name, "\n  ".join(duplicates[:5])))
+        return sorted(found)
+
+    def _scan_one(self, scan_dir: str) -> list[str]:
+        base = self.root / scan_dir
         if not base.is_dir():
             raise CaptureCorpusError(
                 "capture set %r scans %s, which does not exist"
-                % (self.name, self.scan_dir))
+                % (self.name, scan_dir))
         found = []
         if not self.recursive:
             for entry in sorted(base.iterdir()):
@@ -328,6 +364,12 @@ def main(argv=None) -> int:
     parser.add_argument("--regenerate", action="store_true",
                         help="re-pin sizes and hashes from what is on disk "
                              "(only for deliberately admitted evidence)")
+    # Checking is the default action.  The flag exists because the table's own
+    # "check_with" field and this module's docstring both spell the command with
+    # it, and a documented command that exits 2 on an unrecognised argument is a
+    # trap for the next reader.
+    parser.add_argument("--check", action="store_true",
+                        help="verify the pinned corpus (the default action)")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     table, root = Path(args.table), Path(args.root)

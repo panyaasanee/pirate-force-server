@@ -81,10 +81,12 @@ from .scene_object import (is_scene_remote_target, is_scene_remote_hostile_targe
 from .stats_progression_hypothesis import (
     HP_DEATH_ACTION_LABEL_PREFIX,
     HP_DEATH_FIRST_DELAY_SECONDS,
+    HP_DEATH_PROFILE_DEATH_SWEEP_NAME,
     STATS_PROGRESSION_ACTION_LABEL_PREFIX,
     STATS_PROGRESSION_FIRST_DELAY_SECONDS,
     StatsProgressionActor,
     hp_death_lethal_unlock,
+    hp_death_profile_for_scenario,
     make_hp_death_step_response,
     make_stats_progression_step_response,
     require_hp_death_hypothesis_scenario,
@@ -159,12 +161,38 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
     # death timer the client's IsDead predicate reads), and with no hp-death
     # scenario it stays None, the lethal branch below does not exist, and the
     # encoder cannot name the field at all.
+    #
+    # HYP-PF-022 ships two named step-plan profiles behind that one token --
+    # ``death_sweep`` (arm, kill, restore; ends alive) and ``dying_hold`` (arm,
+    # kill, stop; ends dead on purpose, with the 20.0 s DURATION_DYING the
+    # client image carries).  The profile is derived ONCE, here, from the same
+    # allowlisted scenario object, so the dispatch loop below cannot pick a plan
+    # of its own.
     hp_death_lethal = None
+    hp_death_profile = None
     if hp_death_hypothesis_scenario is not None:
         hp_death_hypothesis_scenario = require_hp_death_hypothesis_scenario(
             hp_death_hypothesis_scenario
         )
         hp_death_lethal = hp_death_lethal_unlock(hp_death_hypothesis_scenario)
+        hp_death_profile = hp_death_profile_for_scenario(
+            hp_death_hypothesis_scenario
+        )
+        # Drift check, not decoration.  The label prefix and the first-frame
+        # delay used to be read straight off these two module constants, and
+        # other readers (the ledger's source pins, the headless replay tool,
+        # the attended playbook) still name them.  Under the death_sweep
+        # profile the profile-carried values must therefore still BE those
+        # constants, or two readers of the same sweep would disagree about what
+        # went out on the wire.
+        if hp_death_profile.name == HP_DEATH_PROFILE_DEATH_SWEEP_NAME and (
+            hp_death_profile.action_label_prefix != HP_DEATH_ACTION_LABEL_PREFIX
+            or hp_death_profile.first_delay_seconds
+            != HP_DEATH_FIRST_DELAY_SECONDS
+        ):
+            raise ValueError(
+                "hp death hypothesis scenario object exceeds the allowlist"
+            )
     if delete_actor_hypothesis_scenario is not None:
         delete_actor_hypothesis_scenario = (
             require_delete_actor_hypothesis_scenario(
@@ -1116,13 +1144,27 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             trigger on demand, and every refusal guard is one this project has
             already proven.  Nothing in the request is read.
 
-            The answer is four frames: the untouched baseline projection, then
-            the death timer armed while HP is still full (which must NOT kill --
-            it isolates "the client accepts bit 0x0080" from "the client dies"),
-            then the zeroed current HP that completes the predicate, then the
-            frame that restores the HP value and puts it back.  Ending the sweep
-            alive is a requirement, not a courtesy: the composer refuses a plan
-            whose last step is not the restoring one.  Frames are cumulative because BasicAttr's copy 0x464B40
+            The answer is the frame list of whichever step profile the scenario
+            selected, and the two profiles differ in exactly one thing -- how
+            they end:
+
+              * ``death_sweep`` sends four frames: the untouched baseline
+                projection, then the death timer armed while HP is still full
+                (which must NOT kill -- it isolates "the client accepts bit
+                0x0080" from "the client dies"), then the zeroed current HP that
+                completes the predicate, then the frame that restores the HP
+                value and puts it back.  Ending alive is a requirement of that
+                profile, not a courtesy, and the composer refuses a
+                ``death_sweep``-shaped plan whose last step is not the restoring
+                one.
+              * ``dying_hold`` sends three: baseline, timer armed at the 20.0 s
+                the client image itself carries for DURATION_DYING, then the
+                kill -- and stops there, deliberately, because the question that
+                profile exists to ask is what happens once the countdown runs
+                out, and a restoring frame is the one thing that would stop the
+                answer from being observable.
+
+            Frames are cumulative because BasicAttr's copy 0x464B40
             copies the whole block with no mask consulted, so a field dropped
             from a later frame is overwritten rather than left alone.
 
@@ -1153,18 +1195,19 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 hp_death_hypothesis_scenario.step_order
             ):
                 pc, frame = make_hp_death_step_response(
-                    legacy, actor, index, hp_death_lethal,
+                    legacy, actor, index, hp_death_lethal, hp_death_profile,
                 )
                 # The frozen V141 sender accumulates these onto one deadline
                 # (send_deadline += delay, then sleep to it), so this field is
                 # the gap before each send: 0.0 for the first frame and the
                 # full spacing for every later one.
                 delay = (
-                    HP_DEATH_FIRST_DELAY_SECONDS if index == 0
+                    hp_death_profile.first_delay_seconds if index == 0
                     else hp_death_hypothesis_scenario.spacing_seconds
                 )
                 actions.append((
-                    HP_DEATH_ACTION_LABEL_PREFIX + label, pc, frame, delay,
+                    hp_death_profile.action_label_prefix + label,
+                    pc, frame, delay,
                 ))
             self.hp_death_sweep_count += 1
             self.events.append("hp_death_hypothesis_death_sweep_sent")

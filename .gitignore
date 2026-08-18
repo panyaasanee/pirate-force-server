@@ -288,3 +288,17 @@
 !/tools/pf_capture_corpus.py
 !/reports/PF_CORPUS_PIN001_DIRECTORY_SCAN_SURVEY_20260819.md
 !/reports/PF_CORPUS_PIN001_DIRECTORY_SCAN_SURVEY_20260819.manifest
+
+# Round 84.  Four files, added in one edit on purpose: round 81 lost a lane's
+# three lines because four lanes edited this file at once, so the chief writes
+# every allowlist line for a round rather than the lanes writing their own.
+# DYING-HOLD-001 -- the 20-second variant of the HYP-PF-022 sweep.
+!/reports/PF_DYING_HOLD001_TWENTY_SECOND_DYING_HOLD_20260819.md
+# ATTENDED-EVIDENCE-001 -- the two attended runtime-pass records that back the
+# two matrix flips in this round.  Without these lines the coverage matrix would
+# cite evidence that version control cannot see.
+!/reports/PF_DELETE_REFRESH001_GT018_LIST_REBUILD_CLIENT_ACCEPTANCE_RUNTIME_PASS_20260819.md
+!/reports/PF_HP_DEATH002_GT019_CLIENT_DERIVED_DEATH_RUNTIME_PASS_20260819.md
+# SCAN-DEBT-001 -- the single definition of "a client UI model file", imported by
+# one tool and two test modules, so a fresh clone without it fails to import.
+!/tools/pf_client_ui_assets.py

@@ -13,7 +13,10 @@
 2. โรคหนักที่สุดอยู่ที่ `tools/pf_login_vital_req_static.py` **ทั้งสองบรรทัด (941, 981)** — ตัวเลข `archived_login_captures=63` และ `game_captures_with_the_same_account=44` ถูก pin ใน `reports/PF_MPOPT1B_*.md` และ `tests/test_login_vital_req_static.py` เทียบ **key-by-key แบบเท่ากันเป๊ะ**
 3. **v141 เขียนไฟล์ลงในตัวส่วนทั้งสองชุดโดยตรง**: `current/pf_login_game_server_v141.py:7867` ตั้ง `capdir = Path("capture_v141")` (relative to cwd) แล้ว `:7401` เขียน `GAME_{stamp}.txt`, `:7945` เขียน `LOGIN_{stamp}.txt`, `:7372-7373` เขียนทับ `GAME_LIVE.txt` / `GAME_EVENTS_LIVE.txt` — ทุก boot ที่ cwd = repo root จึงขยับ **ทั้ง 63 และ 44/69** เงียบ ๆ เพราะ `capture_v141/` ติด `.gitignore:157` (`**/capture*/`)
 4. ตอนนี้ `capture_v141/GAME_*.txt` = **69 ไฟล์ และในนั้นมี `GAME_LIVE.txt` + `GAME_EVENTS_LIVE.txt` ปนอยู่จริง 2 ไฟล์** (ตัวส่วนวันนี้ = 67 archived + 2 mutable) · `**/LOGIN_*.txt` = **63 ไฟล์ อยู่ใน `backups/` 59 + `analysis/` 4** ซึ่ง gitignore ทั้งคู่ (`.gitignore:1` = `/*`)
-5. ของดีที่ควรลอกเป็นแบบ: `pf_structural_corpus_audit.py` (รายชื่อ input มาจาก config + sha256 pin, ไม่สแกนไดเรกทอรีเลย), `pf_multiplayer_readiness_audit` (pin ด้วยกฎ `>=` ไม่ใช่ `==`), `pf_teleportcheck` (pattern `GAME_2*` ตัดไฟล์ `GAME_LIVE` ออกโดยบังเอิญ), และ `pf_delete_refresh001_headless_replay.py:206-213` (บังคับ `--capture-root` นอก repo — ยาที่ chief ใส่ไว้แล้วหลังรอบ 81)
+5. ของดีที่ควรลอกเป็นแบบ: `pf_structural_corpus_audit.py` (รายชื่อ input มาจาก config + sha256 pin, ไม่สแกนไดเรกทอรีเลย), ~~`pf_multiplayer_readiness_audit` (pin ด้วยกฎ `>=` ไม่ใช่ `==`)~~ **[ถอนคำชมรอบ 84: กฎ `>=` คือสาเหตุของจุดที่ 6 เอง ไม่ใช่ยา — ดูสถานะใต้จุดที่ 6]**, `pf_teleportcheck` (pattern `GAME_2*` ตัดไฟล์ `GAME_LIVE` ออกโดยบังเอิญ), และ `pf_delete_refresh001_headless_replay.py:206-213` (บังคับ `--capture-root` นอก repo — ยาที่ chief ใส่ไว้แล้วหลังรอบ 81)
+
+> **อัปเดตรอบ 84 (2026-08-19, SCAN-DEBT-001):** จุดที่ **4 (B), 6 (C), 7 (C) ปิดแล้ว** — รายละเอียดอยู่ใต้หัวข้อของแต่ละจุด
+> จุดที่เหลือ (1, 2, 3, 5, 8-13) ยังคงสถานะเดิมตามที่สำรวจไว้รอบ 83
 
 ---
 
@@ -85,7 +88,16 @@ guard(len(corpus_files) > 0, f"golden corpus present ({len(corpus_files)} files 
 * pin ต่อไปที่ไหน: ไม่มี COUNTS block และ **ไม่มีเทสไหน import เครื่องมือนี้เลย** (`grep pf_vital_id_resolve tests/` = ว่าง) — สิ่งที่ pin คือ *ข้อสรุปที่ได้จาก corpus* ใน `PF_NAMEID_RESOLVE001_*.md` ("เหลือ 0 unnamed", "6 golden named cross-checked") + manifest ซึ่งเขียนตรง ๆ ว่า corpus เป็น `(ref, unpinned)`
 * เหตุที่เป็น B ไม่ใช่ A: guard เป็น floor (`>0`) ไม่ใช่ตัวเลขตายตัว และไม่มีเทส gate เทียบ — drift จะไม่ทำให้ gate แดง (ซึ่งก็แปลว่า **จะไม่มีใครรู้** เหมือนกัน แค่ไม่พังของคนอื่น)
 
-### 4. `tools/pf_teleportcheck_0x4477_static.py:132-134` — เกรด B
+### 4. `tools/pf_teleportcheck_0x4477_static.py:132-134` — เกรด B → **ปิดแล้วรอบ 84 (SCAN-DEBT-001)**
+
+> **สถานะ 2026-08-19:** ปิดด้วยทาง (ก) — หลักฐานไม่ได้หาย 6 ใน 8 session ถูก snapshot ไว้ใน
+> `backups/v13x_*/capture_v13x/` และ byte-identical กับต้นฉบับ จึง pin ลง `docs/PF_CAPTURE_CORPUS.json`
+> ชุด `game_teleportcheck_0x4477` (7 ไฟล์ = 6 positive + 1 **proven negative**) · tool อ่านจากตาราง ไม่ glob แล้ว ·
+> ไม่มี `print("SKIP")` เหลือ · เขียนใหม่เป็น **pure stdlib** (เดิม `import capstone` แล้วไม่ได้ใช้) ·
+> guard เดิมเป็น substring ทั้งไฟล์ซึ่ง**ผิดจริงบน corpus นี้** จึงเปลี่ยนเป็นถอด `DECOMPRESSED`+`STRUCTURAL_IDS`
+> แล้ว pin ทั้งเฟรม 23 ไบต์ · `v141`/`v142` **unpinnable** (ไม่เคยมีสำเนาใน worktree) → ERRATUM ในรายงาน ·
+> trap test: `tests/test_teleportcheck_0x4477_corpus.py`
+
 
 ```python
 for gl in sorted(glob.glob(os.path.join(root, "GameClient", "capture_v13[6-9]", "GAME_2*.txt"))
@@ -111,7 +123,14 @@ self.manifests = sorted(REPORTS.glob("*.manifest"))
 * assertion ที่ใช้: `assertGreaterEqual(len(self.manifests), 22)` (floor — ปลอดภัย), ต้อง parse ผ่านทุกไฟล์, ต้องมี `.md` คู่, และ `odd == LEGACY_FORMAT_MANIFESTS` (**set เท่ากันเป๊ะ** — manifest แปลกปลอมที่ format เก่าจะทำเทสแดงทันที)
 * สรุป: ไม่ pin ตัวเลขลงรายงาน แต่เป็นช่องให้ไฟล์ที่ git มองไม่เห็นมีอำนาจทำ gate แดง/เขียว
 
-### 6. `tools/pf_multiplayer_readiness_audit.py:469` — เกรด C (มียาแล้ว)
+### 6. `tools/pf_multiplayer_readiness_audit.py:469` — เกรด C (มียาแล้ว) → **ปิดแล้วรอบ 84 (SCAN-DEBT-001)**
+
+> **สถานะ 2026-08-19:** "ยา" คือกฎ `>=` ซึ่งกันได้แค่การหด ไม่กันการเน่า — นี่คือช่องที่ปล่อยให้ 61 อยู่ในรายงานจนต้นไม้โตเป็น 78
+> ตัวเลขทั้งหก **ถูกต้องสำหรับ commit `5cc0eda` จริง** (นับซ้ำแล้วรอบ 84: 61/663, closure A 29/351, B 27/320)
+> จึงตรึงเป็น **ค่าประวัติศาสตร์คู่ commit+วันที่** (`HEAD_COMMIT`/`HEAD_MEASURED_AT`/`AT_HEAD`) และ **นับซ้ำจาก commit นั้นทุกครั้งที่รัน**
+> ด้วย `git ls-tree`+`git cat-file` · pin ไม่ตรง / git ตอบไม่ได้ ⇒ exit ≠ 0 · เทสเทียบรายงานกับ pin แบบเท่ากันเป๊ะ ไม่ใช่ `>=` ·
+> ค่าปัจจุบันย้ายไปคีย์ `tests_total_files_today` / `tests_total_functions_today` และ **ไม่อยู่ในบล็อก `AUDIT_COUNTS`** · ERRATUM ท้ายรายงาน
+
 
 ```python
 def _test_files() -> list[str]:
@@ -124,7 +143,14 @@ def _test_files() -> list[str]:
 * **ยาที่ใส่ไว้แล้ว**: เทสประกาศชัดว่าเลขชุดนี้เทียบด้วย `>=` ("a suite may grow under a concurrent lane; it may not shrink silently") — วันนี้ 74 ≥ 61 จึงยังเขียวทั้งที่ห่างกัน 13 ไฟล์
 * เหลือความเสี่ยงเชิงคุณภาพเท่านั้น: เลขในรายงาน (61/663) **ล้าไปแล้ว** เทียบกับต้นไม้จริง — คนอ่านรายงานจะเข้าใจสัดส่วน "53 % ของ suite" ผิด
 
-### 7. `tools/pf_split_operate_verb_panels_static.py:197` + `tests/test_split_operate_verb_panels_static.py:154` — เกรด C
+### 7. `tools/pf_split_operate_verb_panels_static.py:197` + `tests/test_split_operate_verb_panels_static.py:154` — เกรด C → **ปิดแล้วรอบ 84 (SCAN-DEBT-001)**
+
+> **สถานะ 2026-08-19:** ทั้งสองฝั่งเรียกตัวนับเดียวกันที่ **`tools/pf_client_ui_assets.py`** ซึ่งเขียนนิยามไว้ในหัวโมดูลว่า
+> นับ = ไฟล์ปกติ ตรง ๆ ใน `Data/GUI/Model` ชื่อลงท้าย `.model` แบบไม่สนตัวพิมพ์ · ไม่นับ sidecar (`.project`/`.fsl`/`.tip`), ไดเรกทอรี, ไฟล์ในโฟลเดอร์ย่อย
+> ⇒ ตัวส่วนของ negative = **534** (ไม่ใช่ 573) · ไดเรกทอรีอ่านไม่ได้ ⇒ **raise/FAIL** ไม่ใช่ `print("SKIP")` · default ของ `BIN` เปลี่ยนจาก path สัมพัทธ์กับ cwd เป็น absolute จากตำแหน่งไฟล์ ·
+> ไม่มีตัวเลขที่ตีพิมพ์เปลี่ยน (match = 0 เหมือนเดิม) จึงเป็น **NOTE** ไม่ใช่ erratum · trap test pure stdlib: `tests/test_client_ui_asset_inventory.py`
+> **ค้าง:** `tools/pf_client_ui_assets.py` โดน `.gitignore:99 /tools/*` ignore อยู่ ต้องเติม `!/tools/pf_client_ui_assets.py` ก่อน commit (ลูกมือแก้ `.gitignore` เองไม่ได้)
+
 
 * tool: `models = os.listdir(GUI_MODEL)` → **573 entries** · test: `{p.name.lower() for p in GUI_MODEL.glob("*.model")}` → **534 ไฟล์**
   → **สองตัวใช้ตัวส่วนคนละชุดสำหรับ guard เดียวกัน** (573 vs 534)

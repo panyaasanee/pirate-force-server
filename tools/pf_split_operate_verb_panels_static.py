@@ -58,7 +58,14 @@ try:
 except ImportError:
     sys.exit("capstone required: pip install capstone")
 
-BIN = sys.argv[1] if len(sys.argv) > 1 else "GameClient/GameClient.local.bin"
+import os.path as _osp
+# Resolved from THIS file, not from the caller's cwd: the relative default
+# "GameClient/GameClient.local.bin" only worked when the tool happened to be run
+# from the Pirate Force root, which is the same class of bug SCAN-DEBT-001 closed
+# in the wire-corpus half of pf_teleportcheck_0x4477_static.py.
+_DEFAULT_BIN = _osp.normpath(_osp.join(
+    _osp.dirname(_osp.abspath(__file__)), "..", "..", "GameClient", "GameClient.local.bin"))
+BIN = sys.argv[1] if len(sys.argv) > 1 else _DEFAULT_BIN
 EXPECT_SHA = "9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623"
 
 data = open(BIN, "rb").read()
@@ -188,17 +195,36 @@ check("0x42AB40 calls free/dtor 0x88D060 @0x42AB83", call_target(0x42AB83) == 0x
 # ---------------------------------------------------------------------------
 # R2. the numeric dialog is a GENERIC reusable control -> caption not in the model.
 # (Names are load-bearing plaintext; contents carry NO inline split caption.)
+#
+# SCAN-DEBT-001 (round 84): this block used to call os.listdir() on the model
+# directory (573 entries: 534 .model + 37 .project + 1 .fsl + 1 .tip) while
+# tests/test_split_operate_verb_panels_static.py built its set with
+# glob("*.model") (534).  Two denominators, one guard, and neither of them had
+# written down which set the report's negative is a negative over.  Both sides
+# now call tools/pf_client_ui_assets.model_names(), which carries the definition
+# in its docstring.  It also raises instead of printing SKIP when the directory
+# is unreachable: "I could not look" is not "I looked and found nothing".
 # ---------------------------------------------------------------------------
 import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from pf_client_ui_assets import (  # noqa: E402
+    ClientAssetsUnavailable, model_names, models_named,
+)
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
 GUI_MODEL = os.path.normpath(os.path.join(_HERE, "..", "..", "GameClient", "Data", "GUI", "Model"))
 TEXTDATA = os.path.normpath(os.path.join(_HERE, "..", "..", "GameClient", "Data", "B_TEXTDATA_TH.pc_"))
-if os.path.isdir(GUI_MODEL):
-    models = os.listdir(GUI_MODEL)
-    has_numinput = any(n.lower() == "common_numinput.model" for n in models)
-    has_split_named = any("split" in n.lower() or "divide" in n.lower() for n in models)
-    check("generic numeric-input control Common_NumInput.model present", has_numinput)
-    check("no split/divide-named dialog model exists (caption is not in GUI)", not has_split_named)
+try:
+    models = model_names(GUI_MODEL)
+except ClientAssetsUnavailable as error:
+    check("client UI model directory is readable", False, str(error).splitlines()[0])
+    models = None
+if models is not None:
+    check("generic numeric-input control Common_NumInput.model present",
+          "common_numinput.model" in models, "models=%d" % len(models))
+    offenders = models_named(("split", "divide"), GUI_MODEL)
+    check("no split/divide-named dialog model exists (caption is not in GUI)",
+          not offenders, "found=%s" % offenders)
     numinput = os.path.join(GUI_MODEL, "Common_NumInput.model")
     if os.path.isfile(numinput):
         body = open(numinput, "rb").read()
@@ -207,14 +233,14 @@ if os.path.isdir(GUI_MODEL):
               b"<uicontroldata>" in low)
         check("Common_NumInput.model carries NO inline split caption",
               b"split" not in low and b"divide" not in low)
-else:
-    print("SKIP  GUI/Model dir not reachable from this cwd (packaging layout)")
+    else:
+        check("Common_NumInput.model is readable", False, numinput)
 if os.path.isfile(TEXTDATA):
     magic = open(TEXTDATA, "rb").read(4)
     check("text table B_TEXTDATA_TH.pc_ is packed ($pcz) -> caption not statically readable",
           magic == b"$pcz")
 else:
-    print("SKIP  B_TEXTDATA_TH.pc_ not reachable from this cwd (packaging layout)")
+    check("packed text table B_TEXTDATA_TH.pc_ is readable", False, TEXTDATA)
 
 print()
 if fails:

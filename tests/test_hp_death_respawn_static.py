@@ -256,7 +256,16 @@ class ServerGapTests(unittest.TestCase):
 
 
 class CoverageRowTests(unittest.TestCase):
-    """The one matrix edit this milestone is allowed to make, and only that one."""
+    """The grade this row carries, and the scope limit that has to travel with it.
+
+    HP-DEATH-001 wrote this row as ``in_progress`` on static evidence alone and
+    these tests pinned it there.  GT-019 (attended big rounds #4 and #5,
+    2026-08-19) moved it to ``runtime_pass``, and the movement is only honest
+    while the note keeps saying, in its own opening words, that **only the death
+    half was observed**.  The row's title still says "and respawn", and there is
+    no respawn evidence of any kind, so the tests below now guard the scope limit
+    rather than the old status.
+    """
 
     def _row(self):
         matrix = json.loads(COVERAGE.read_text(encoding="utf-8"))
@@ -266,26 +275,55 @@ class CoverageRowTests(unittest.TestCase):
                     return domain, row
         raise AssertionError("combat/hp_death_and_respawn row not found")
 
-    def test_the_row_is_in_progress_and_not_runtime_pass(self):
+    def test_the_row_is_runtime_pass_and_never_complete(self):
         _domain, row = self._row()
-        self.assertEqual(row["status"], "in_progress")
+        self.assertEqual(row["status"], "runtime_pass")
 
-    def test_the_row_points_at_this_report_and_this_test(self):
+    def test_the_row_points_at_both_reports_and_this_test(self):
         _domain, row = self._row()
         self.assertIn(
             "reports/PF_HP_DEATH001_HP_DEATH_AND_RESPAWN_STATIC_20260819.md",
             row["evidence_refs"])
+        self.assertIn(
+            "reports/PF_HP_DEATH002_GT019_CLIENT_DERIVED_DEATH_RUNTIME_PASS_20260819.md",
+            row["evidence_refs"])
         self.assertIn("tests/test_hp_death_respawn_static.py", row["test_refs"])
+
+    def test_the_note_opens_by_limiting_the_grade_to_the_death_half(self):
+        """A reader who stops after one sentence must not be misled."""
+        _domain, row = self._row()
+        self.assertTrue(
+            row["notes"].startswith("ONLY THE DEATH HALF OF THIS ROW HAS BEEN OBSERVED."),
+            "the scope limit must be the first thing in the note, not buried in it")
+
+    def test_the_note_says_the_respawn_half_has_no_evidence_and_names_its_test(self):
+        _domain, row = self._row()
+        note = row["notes"]
+        self.assertIn("respawn half of this row has no evidence of any kind", note.lower())
+        self.assertIn("GT-021", note)
 
     def test_the_note_states_the_derivation_and_keeps_the_negatives(self):
         _domain, row = self._row()
         note = row["notes"]
         self.assertIn("+0x44", note)
         self.assertIn("client-side derivation", note.lower())
-        for still_missing in ("static evidence only", "still absent on the server",
-                              "no respawn placement", "not runtime-proven"):
+        for still_missing in ("still absent on the server", "no respawn placement"):
             with self.subTest(token=still_missing):
                 self.assertIn(still_missing, note.lower())
+
+    def test_the_note_keeps_the_unknowns_that_the_runtime_pass_did_not_close(self):
+        _domain, row = self._row()
+        note = row["notes"].lower()
+        for unresolved in (
+            # the deployed dying duration is still unmeasured
+            "duration_dying is unknown",
+            # a counter not seen is not a counter absent
+            "not the same statement as 'there is no counter'",
+            # owner testimony never grades anything here
+            "owner_testimony",
+        ):
+            with self.subTest(token=unresolved):
+                self.assertIn(unresolved, note)
 
     def test_the_row_lives_under_the_combat_domain(self):
         domain, _row = self._row()

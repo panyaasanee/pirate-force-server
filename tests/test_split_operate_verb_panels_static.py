@@ -35,6 +35,8 @@ from pathlib import Path
 import capstone
 import pefile
 
+from tools.pf_client_ui_assets import model_names, models_named
+
 ROOT = Path(__file__).resolve().parents[1]
 BINARY = ROOT.parent / "GameClient" / "GameClient.local.bin"
 BINARY_SHA = "9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623"
@@ -151,9 +153,13 @@ class SplitOperateVerbPanelsStaticTests(unittest.TestCase):
 
     def test_the_numeric_dialog_is_a_generic_reusable_control(self):
         # caption is NOT baked into a split-specific model; it's the shared NumInput.
-        names = {p.name.lower() for p in GUI_MODEL.glob("*.model")}
+        # The set comes from tools/pf_client_ui_assets, which is the SAME counter
+        # tools/pf_split_operate_verb_panels_static.py uses.  Before round 84 this
+        # test used glob("*.model") (534 files) while the tool used os.listdir()
+        # (573 entries) - one guard, two denominators, neither written down.
+        names = model_names(GUI_MODEL)
         self.assertIn("common_numinput.model", names)
-        self.assertFalse(any("split" in n or "divide" in n for n in names),
+        self.assertEqual(models_named(("split", "divide"), GUI_MODEL), [],
                          "no split/divide-named dialog model exists")
         body = (GUI_MODEL / "Common_NumInput.model").read_bytes().lower()
         self.assertIn(b"<uicontroldata>", body)

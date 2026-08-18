@@ -80,9 +80,23 @@ class CaptureCorpusTableTests(unittest.TestCase):
             self.assertIn(needle, doc,
                           "the table's own header must explain %r" % needle)
 
-    def test_both_sets_are_declared(self) -> None:
+    def test_every_expected_set_is_declared(self) -> None:
+        # An exact list on purpose: admitting a set is a deliberate act and has
+        # to be visible in a diff of this test as well as of the table.
+        # game_teleportcheck_0x4477 was added in round 84 (SCAN-DEBT-001) when
+        # tools/pf_teleportcheck_0x4477_static.py stopped globbing the game
+        # install tree and started reading the pinned corpus instead.
         self.assertEqual(sorted(self.corpus.sets),
-                         ["game_v141_archived", "login_archived"])
+                         ["game_teleportcheck_0x4477",
+                          "game_v141_archived",
+                          "login_archived"])
+
+    def test_every_set_says_where_it_looks(self) -> None:
+        for name, spec in sorted(self.raw["sets"].items()):
+            with self.subTest(set=name):
+                self.assertEqual(
+                    ("scan_dir" in spec) != ("scan_dirs" in spec), True,
+                    "set %r must declare exactly one of scan_dir / scan_dirs" % name)
 
     def test_entries_are_well_formed(self) -> None:
         for name, holder in sorted(self.corpus.sets.items()):

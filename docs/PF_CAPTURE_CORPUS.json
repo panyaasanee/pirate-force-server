@@ -63,10 +63,10 @@
   "    the repository (round 81).  This table is the second line of defence, not the first.",
   "",
   "(7) SCOPE / สิ่งที่ไฟล์นี้ยังไม่ครอบคลุม",
-  "    Only the two sets below are pinned so far.  tools/pf_teleportcheck_0x4477_static.py reads a",
-  "    capture directory that lives OUTSIDE the git worktree entirely, and",
-  "    tools/pf_vital_id_resolve_static.py used to scan capture_v141 with a relative default path;",
-  "    the survey of all 13 directory-scan sites is in",
+  "    Three sets are pinned so far.  tools/pf_teleportcheck_0x4477_static.py used to read a",
+  "    capture directory that lives OUTSIDE the git worktree entirely (fixed in round 84: it now reads",
+  "    game_teleportcheck_0x4477 below and fails closed).  tools/pf_vital_id_resolve_static.py used to",
+  "    scan capture_v141 with a relative default path; the survey of all 13 sites is in",
   "    reports/PF_CORPUS_PIN001_DIRECTORY_SCAN_SURVEY_20260819.md."
  ],
  "milestone": "CORPUS-PIN-001",
@@ -752,6 +752,58 @@
      "sha256": "F507D08D1AF6D69A815250911ADA315FEA85CFF212585E90261DE5F53C3FD6B4"
     }
    ]
+  },
+  "game_teleportcheck_0x4477": {
+   "description": "The client->server TeleportCheckVital 0x4477 wire corpus, as far as it survives INSIDE the git worktree.  PF_TELEPORT_CHECK001 quoted eight frames read out of <repo>/../GameClient/capture_v1xx/, which was never under version control and is not reachable from the repository root; the verifier printed SKIP and exited 0 whenever it could not find them.  Six of those eight sessions were snapshotted into backups/ at the time and are byte-identical to the install-tree originals, so they are pinned here and the verifier now reads THIS table.  The two remaining rows (capture_v141, capture_v142) have no in-worktree copy and are unpinnable by construction - see the ERRATUM in the report.  Pattern GAME_2* (a leading year) is what keeps the mutable GAME_LIVE.txt / GAME_EVENTS_LIVE.txt tails out of the set by construction rather than by exclusion.  NOTE the denominator here is SEVEN files, not six: backups/v137_*/capture_v137 holds two archived GAME captures and only the second carries an inbound 0x4477 frame.  The first one is pinned on purpose as a proven NEGATIVE - its text does contain the byte string '77 44 0B 00 0F 01' twice, in server->client frames the harness composed, so anything that counts substrings instead of decoding inbound frames gets this file wrong.",
+   "scan_dirs": [
+    "backups/v131_teleportcheck_challenge_echo_20260815_011204/capture_v131",
+    "backups/v136_q3020_marker1_composition_20260815_051330/capture_v136",
+    "backups/v137_marker1_teleport_transport_20260815_054009/capture_v137",
+    "backups/v138_marker1_population_reapply_20260815_060241/capture_v138",
+    "backups/v139_p86_interaction_operational_negative_20260815_063044/capture_v139",
+    "backups/v140_p86_synthetic_harness_interaction_20260815_065019/capture_v140"
+   ],
+   "pattern": "GAME_2*.txt",
+   "recursive": false,
+   "excluded": {},
+   "files": [
+    {
+     "path": "backups/v131_teleportcheck_challenge_echo_20260815_011204/capture_v131/GAME_20260815_010048_077396_65459.txt",
+     "size": 177781,
+     "sha256": "DB95F9C9D47451768DB9534284E07822EB4D22D1324D3940E0C2246CB900CBDE"
+    },
+    {
+     "path": "backups/v136_q3020_marker1_composition_20260815_051330/capture_v136/GAME_20260815_050713_102583_61900.txt",
+     "size": 181176,
+     "sha256": "306D0016B81896AC0993D222AE8626B025F6697F28401BACCEBCEDA9EC15AF81"
+    },
+    {
+     "path": "backups/v137_marker1_teleport_transport_20260815_054009/capture_v137/GAME_20260815_052412_181760_54676.txt",
+     "size": 174925,
+     "sha256": "DCC9ED933117842B9A1E65580F07D4074167A60F9D1356D3EC677410E7DA1ED1"
+    },
+    {
+     "path": "backups/v137_marker1_teleport_transport_20260815_054009/capture_v137/GAME_20260815_052956_222262_59254.txt",
+     "size": 200182,
+     "sha256": "E28A1454800214E213547D3A7D5588DCDA4337E7A01E1FA14519648A25DC5DEE"
+    },
+    {
+     "path": "backups/v138_marker1_population_reapply_20260815_060241/capture_v138/GAME_20260815_055315_343031_61775.txt",
+     "size": 333554,
+     "sha256": "8927FD56A1198FD4FF0F208C19036E74A24F0C05C62D7F061E93425511674138"
+    },
+    {
+     "path": "backups/v139_p86_interaction_operational_negative_20260815_063044/capture_v139/GAME_20260815_062212_502692_52069.txt",
+     "size": 354004,
+     "sha256": "2AE63778242E17C47BC1AA0C136CA1FB04EB20B9625A8F54950DC40A1959BA19"
+    },
+    {
+     "path": "backups/v140_p86_synthetic_harness_interaction_20260815_065019/capture_v140/GAME_20260815_064209_394015_49293.txt",
+     "size": 324525,
+     "sha256": "2C27E2F096D5978827C9A46FD479037932B8E83E01797A9D7BDC2059255AF043"
+    }
+   ],
+   "file_count": 7
   }
  }
 }

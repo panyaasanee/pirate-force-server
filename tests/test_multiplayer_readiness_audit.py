@@ -11,20 +11,27 @@ If a site moves file, disappears, or is duplicated, the verifier itself exits
 nonzero and the first test fails.  If a site survives but a count in the report
 disagrees with the tree, the comparison tests fail.
 
-Two comparison rules, on purpose:
+One comparison rule since round 84: **exact, for every number in the block.**
 
-  * EXACT for everything the audit reasons from -- site counts, the
-    immutable/mutable split, the frame anchor split, the per-package file and
-    site counts, and the pinned impact sets (which are explicit, named test
-    files, so a concurrent lane adding new test files never moves them).
-  * ``>=`` for the whole-suite totals and the two import-closure totals, which
-    are "how big is the suite today" measurements.  The report records the
-    HEAD 5cc0eda value; the suite may grow under a concurrent lane, and it may
-    not shrink silently.
+That used to be two rules.  The whole-suite totals and the two import-closure
+totals were compared with ``>=`` ("a suite may grow under a concurrent lane; it
+may not shrink silently"), and that is how ``tests_total_files_at_head: 61``
+sat in a published report while the tree grew to 77 - the comparison was green
+the entire time because 77 >= 61.  A ``>=`` guard over a number that only ever
+goes up is not a guard.
+
+Those six numbers are *historical*: they describe commit ``5cc0eda``, not the
+tree in front of you.  The tool now pins them as constants next to that commit
+and re-derives them from it with ``git ls-tree``/``git cat-file`` on every run,
+so the pin is falsifiable; these tests compare the report to the pin exactly.
+The live suite size is still measured, under ``tests_total_files_today`` /
+``tests_total_functions_today``, and is deliberately NOT in the report block.
 
 Re-pinning when a number legitimately moves: run
 ``py -3 tools/pf_multiplayer_readiness_audit.py --json`` and update the
-``AUDIT_COUNTS`` block in the report in the same change.
+``AUDIT_COUNTS`` block in the report in the same change.  The ``*_at_head``
+numbers are NOT in that category - they describe a commit that cannot change,
+so if one of them is wrong the report needs an erratum, not a re-pin.
 
 These tests import nothing from ``src/``, open no socket and touch no database.
 """
@@ -214,31 +221,38 @@ class ExactCountTests(unittest.TestCase):
                 self.assertEqual(self.report[key], self.tool[key])
 
 
-class SuiteSizeTests(unittest.TestCase):
-    """Suite-size measurements: may grow under a concurrent lane, may not shrink."""
+class HistoricalSuiteSizeTests(unittest.TestCase):
+    """The six historical numbers, compared exactly and re-derived from the commit."""
 
     @classmethod
     def setUpClass(cls):
-        cls.tool = load_tool().build()
+        cls.module = load_tool()
+        cls.tool = cls.module.build()
         cls.report = report_counts()
 
-    def test_the_suite_has_not_shrunk_since_the_audit_was_counted(self):
-        pairs = (
-            ("tests_total_files_at_head", self.tool["tests_total_files"]),
-            ("tests_total_functions_at_head", self.tool["tests_total_functions"]),
-            ("package_a_closure_test_files_at_head", self.tool["impact_a_closure"]["files"]),
-            ("package_a_closure_test_functions_at_head",
-             self.tool["impact_a_closure"]["functions"]),
-            ("package_b_closure_test_files_at_head", self.tool["impact_b_closure"]["files"]),
-            ("package_b_closure_test_functions_at_head",
-             self.tool["impact_b_closure"]["functions"]),
-        )
-        for key, live in pairs:
+    def test_the_report_and_the_pin_agree_exactly(self):
+        for key in sorted(self.module.AT_HEAD):
             with self.subTest(key=key):
-                self.assertGreaterEqual(live, self.report[key])
+                self.assertEqual(self.report[key], self.tool[key])
+
+    def test_the_pin_is_re_derived_from_the_commit_it_names(self):
+        # The whole point: this is what makes "61 test files" falsifiable.
+        self.assertEqual(self.tool["historical_pin"],
+                         "reproduced from " + self.module.HEAD_COMMIT)
+        self.assertEqual(self.report["measured_at_head"],
+                         self.module.HEAD_COMMIT)
+        self.assertEqual(self.module._counts_at_head(self.module.HEAD_COMMIT),
+                         dict(self.module.AT_HEAD))
+
+    def test_the_live_suite_size_is_reported_but_not_published(self):
+        # It is measured (a shrinking suite is still worth seeing) and it is
+        # deliberately absent from the report's machine-readable block.
+        self.assertGreater(self.tool["tests_total_files_today"], 0)
+        self.assertNotIn("tests_total_files_today", self.report)
+        self.assertNotIn("tests_total_functions_today", self.report)
 
     def test_the_closures_are_a_strict_subset_of_the_suite(self):
-        total = self.tool["tests_total_files"]
+        total = self.tool["tests_total_files_today"]
         for key in ("impact_a_closure", "impact_b_closure"):
             with self.subTest(key=key):
                 self.assertLessEqual(self.tool[key]["files"], total)
@@ -286,6 +300,40 @@ class GuardWouldNoticeTests(unittest.TestCase):
             self.assertTrue(module._failures)
         finally:
             module.ASSUMPTION_SITES = original
+            module._failures.clear()
+
+    def test_a_stale_historical_pin_makes_the_scan_fail(self):
+        """The defect SCAN-DEBT-001 closed: a rotted number that stayed green."""
+        module = load_tool()
+        original = dict(module.AT_HEAD)
+        module._failures.clear()
+        try:
+            module.AT_HEAD["tests_total_files_at_head"] = original[
+                "tests_total_files_at_head"] + 1
+            module.build()
+            self.assertTrue(
+                [f for f in module._failures if "historical pin" in f],
+                module._failures)
+        finally:
+            module.AT_HEAD.clear()
+            module.AT_HEAD.update(original)
+            module._failures.clear()
+
+    def test_an_unreachable_history_makes_the_scan_fail_rather_than_skip(self):
+        """A historical claim in a checkout that cannot see its history is red."""
+        module = load_tool()
+        original = module.HEAD_COMMIT
+        module._failures.clear()
+        try:
+            module.HEAD_COMMIT = "0000000000000000000000000000000000000000"
+            with self.assertRaises(module.HistoryUnavailable):
+                module._counts_at_head(module.HEAD_COMMIT)
+            module.build()
+            self.assertTrue(
+                [f for f in module._failures if "historical pin" in f],
+                module._failures)
+        finally:
+            module.HEAD_COMMIT = original
             module._failures.clear()
 
     def test_a_missing_frame_evidence_path_makes_the_scan_fail(self):

@@ -38,6 +38,37 @@ Re-pinning procedure when a number legitimately moves: run this tool, take the
 the same change.  ``tests/test_multiplayer_readiness_audit.py`` compares the two
 and fails if they disagree, so the report cannot drift away from the tree.
 
+
+TWO KINDS OF NUMBER, AND WHY THE SUITE TOTALS CHANGED SHAPE (SCAN-DEBT-001, round 84)
+-------------------------------------------------------------------------------------
+Everything above is a *live* measurement: it describes the tree as it is right
+now and it must be exact.  Six of the numbers the report publishes are not that.
+``tests_total_files_at_head``, ``tests_total_functions_at_head`` and the four
+import-closure totals are **historical**: they describe the suite as it stood at
+commit ``5cc0eda`` on 2026-08-18, which is what makes sentences like "package A
+touches 53 % of the suite" mean anything.
+
+They used to be compared with ``>=`` - "a suite may grow under a concurrent lane;
+it may not shrink silently".  That rule cannot catch rot, only shrinkage.  By
+round 84 the suite had gone 61 -> 77 files while the report still said 61, the
+comparison stayed green the whole way (77 >= 61), and a reader doing the
+percentage got a number that was wrong by a third.  A published number nobody can
+falsify is not evidence.
+
+So the historical values are now **pinned here as constants, with the commit and
+the date they were measured at**, and they are *re-derived from that commit* on
+every run: ``git ls-tree``/``git cat-file`` read the ``tests/`` tree of
+``5cc0eda`` and count it again with the same AST walk used for today's tree.  If
+the pin and the commit disagree, the pin was wrong and this tool exits nonzero.
+If git cannot answer, this tool exits nonzero as well - a historical claim in a
+checkout that cannot see its own history is unverifiable, and the honest report
+of an unverifiable claim is red, not green.
+
+The live suite size still ships, under ``tests_total_files_today`` /
+``tests_total_functions_today``.  It is deliberately NOT in the report's
+``AUDIT_COUNTS`` block: a number that changes whenever anyone adds a test does
+not belong in a document that is not re-published when they do.
+
 Report-only / additive: this tool reads files, writes nothing, opens no socket,
 touches no database, and imports nothing from ``src/``.
 
@@ -53,10 +84,37 @@ import ast
 import json
 import os
 import re
+import subprocess
 import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(_HERE, ".."))
+
+# ---------------------------------------------------------------------------
+# 0. The historical pin (see the "TWO KINDS OF NUMBER" section of the docstring)
+# ---------------------------------------------------------------------------
+#: The commit the report's suite-size numbers describe, and the day it was cut.
+#: These two strings are the whole reason the numbers below can be checked at
+#: all: without them "61 test files" is a claim about no particular tree.
+HEAD_COMMIT = "5cc0eda"
+HEAD_MEASURED_AT = "2026-08-18"
+
+#: What the suite looked like at HEAD_COMMIT.  Re-derived from that commit on
+#: every run by ``_counts_at_head()``; a disagreement is a failure, not a
+#: refresh.  Never edit these to make something green - if they are wrong, the
+#: report they back is wrong and needs an erratum.
+AT_HEAD = {
+    "tests_total_files_at_head": 61,
+    "tests_total_functions_at_head": 663,
+    "package_a_closure_test_files_at_head": 29,
+    "package_a_closure_test_functions_at_head": 351,
+    "package_b_closure_test_files_at_head": 27,
+    "package_b_closure_test_functions_at_head": 320,
+}
+
+
+class HistoryUnavailable(Exception):
+    """git could not answer a question about ``HEAD_COMMIT``."""
 
 V141 = "current/pf_login_game_server_v141.py"
 CONNECTION = "src/pirateforce_foundation/connection.py"
@@ -452,14 +510,29 @@ def _game_listener_handlers() -> list[tuple[int, int]]:
     return sorted(out)
 
 
-def _test_functions(relpath: str) -> int:
-    tree = ast.parse(_read(relpath))
+# The two counters below take TEXT, not a path, so that the same definition of
+# "a test function" and "a foundation import" is applied to today's working tree
+# and to the blobs read out of HEAD_COMMIT.  Two counters would mean the
+# historical re-derivation could agree with the pin for the wrong reason.
+def _count_test_functions(text: str) -> int:
+    tree = ast.parse(text)
     return sum(
         1
         for node in ast.walk(tree)
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name.startswith("test")
     )
+
+
+def _count_foundation_imports(text: str) -> set[str]:
+    modules: set[str] = set()
+    modules.update(re.findall(r"from\s+pirateforce_foundation\.([A-Za-z_0-9]+)\s+import", text))
+    modules.update(re.findall(r"import\s+pirateforce_foundation\.([A-Za-z_0-9]+)", text))
+    return modules
+
+
+def _test_functions(relpath: str) -> int:
+    return _count_test_functions(_read(relpath))
 
 
 def _test_files() -> list[str]:
@@ -472,11 +545,7 @@ def _test_files() -> list[str]:
 
 
 def _foundation_imports(relpath: str) -> set[str]:
-    text = _read(relpath)
-    modules: set[str] = set()
-    modules.update(re.findall(r"from\s+pirateforce_foundation\.([A-Za-z_0-9]+)\s+import", text))
-    modules.update(re.findall(r"import\s+pirateforce_foundation\.([A-Za-z_0-9]+)", text))
-    return modules
+    return _count_foundation_imports(_read(relpath))
 
 
 def _closure(modules) -> dict:
@@ -487,6 +556,91 @@ def _closure(modules) -> dict:
         "functions": sum(_test_functions(path) for path in files),
         "names": files,
     }
+
+
+# ---------------------------------------------------------------------------
+# the historical re-derivation
+# ---------------------------------------------------------------------------
+def _git(args: list[str], stdin: bytes = b"") -> bytes:
+    try:
+        completed = subprocess.run(
+            ["git", "--no-optional-locks"] + args,
+            cwd=ROOT, input=stdin, capture_output=True,
+        )
+    except OSError as error:
+        raise HistoryUnavailable("git is not runnable: %r" % (error,)) from None
+    if completed.returncode != 0:
+        raise HistoryUnavailable(
+            "git %s failed (%d): %s"
+            % (" ".join(args), completed.returncode,
+               completed.stderr.decode("utf-8", "replace").strip()))
+    return completed.stdout
+
+
+def _tests_tree_at(commit: str) -> dict[str, str]:
+    """``{path: blob source}`` for every ``tests/*.py`` at ``commit``.
+
+    One ``ls-tree`` plus one batched ``cat-file`` - not 61 subprocesses.
+    """
+    listing = _git(["ls-tree", commit, "tests/"]).decode("utf-8", "replace")
+    blobs: dict[str, str] = {}
+    for line in listing.splitlines():
+        if "\t" not in line:
+            continue
+        meta, path = line.split("\t", 1)
+        parts = meta.split()
+        if len(parts) != 3 or parts[1] != "blob" or not path.endswith(".py"):
+            continue
+        blobs[path] = parts[2]
+    if not blobs:
+        raise HistoryUnavailable(
+            "commit %s has no tests/*.py - is that really the commit the report "
+            "was measured at?" % commit)
+
+    payload = ("\n".join(blobs.values()) + "\n").encode("ascii")
+    stream = _git(["cat-file", "--batch"], stdin=payload)
+    sources: dict[str, str] = {}
+    offset = 0
+    for path, sha in blobs.items():
+        newline = stream.index(b"\n", offset)
+        header = stream[offset:newline].decode("ascii").split()
+        if len(header) != 3 or header[1] != "blob":
+            raise HistoryUnavailable(
+                "unexpected cat-file header for %s: %r" % (path, header))
+        size = int(header[2])
+        body = stream[newline + 1:newline + 1 + size]
+        sources[path] = body.decode("utf-8", "replace")
+        offset = newline + 1 + size + 1  # trailing newline after each object
+    return sources
+
+
+_RECOUNT_CACHE: dict[str, dict] = {}
+
+
+def _counts_at_head(commit: str) -> dict:
+    """Re-count the pinned commit's ``tests/`` tree with today's definitions."""
+    if commit in _RECOUNT_CACHE:
+        return dict(_RECOUNT_CACHE[commit])
+    sources = _tests_tree_at(commit)
+    names = sorted(sources)
+
+    def closure(modules):
+        wanted = set(modules)
+        files = [n for n in names if _count_foundation_imports(sources[n]) & wanted]
+        return len(files), sum(_count_test_functions(sources[n]) for n in files)
+
+    files_a, functions_a = closure(CLOSURE_A_MODULES)
+    files_b, functions_b = closure(CLOSURE_B_MODULES)
+    _RECOUNT_CACHE[commit] = {
+        "tests_total_files_at_head": len(names),
+        "tests_total_functions_at_head":
+            sum(_count_test_functions(sources[n]) for n in names),
+        "package_a_closure_test_files_at_head": files_a,
+        "package_a_closure_test_functions_at_head": functions_a,
+        "package_b_closure_test_files_at_head": files_b,
+        "package_b_closure_test_functions_at_head": functions_b,
+    }
+    return dict(_RECOUNT_CACHE[commit])
 
 
 def _pinned_impact(paths) -> dict:
@@ -568,9 +722,35 @@ def build() -> dict:
     package_a_new = sum(1 for _p, kind, _s in PACKAGE_A_FILES if kind == "new")
     package_b_new = sum(1 for _p, kind, _s in PACKAGE_B_FILES if kind == "new")
 
+    # The historical half.  A mismatch here means the report's published
+    # suite-size numbers never described HEAD_COMMIT, which is a fact about the
+    # report and not something to be fixed by editing the pin.
+    try:
+        recount = _counts_at_head(HEAD_COMMIT)
+    except HistoryUnavailable as error:
+        recount = None
+        _fail(
+            "historical pin: cannot re-derive the suite size at %s, so the "
+            "report's *_at_head numbers are unverifiable here (%s)"
+            % (HEAD_COMMIT, error))
+    else:
+        for key, pinned in sorted(AT_HEAD.items()):
+            if recount[key] != pinned:
+                _fail(
+                    "historical pin: %s is pinned at %d but commit %s actually "
+                    "has %d - the published number is wrong and needs an "
+                    "erratum, not a re-pin"
+                    % (key, pinned, HEAD_COMMIT, recount[key]))
+
     all_files = _test_files()
     return {
-        "revision_note": "counts are re-derived live; the report quotes HEAD 5cc0eda line numbers",
+        "revision_note": "site counts are re-derived live; the *_at_head numbers "
+                         "are historical and re-derived from commit " + HEAD_COMMIT,
+        "measured_at_head_commit": HEAD_COMMIT,
+        "measured_at_head_date": HEAD_MEASURED_AT,
+        "historical_pin": ("reproduced from " + HEAD_COMMIT) if recount is not None
+                          else "UNVERIFIABLE (git could not answer)",
+        **AT_HEAD,
         "assumption_sites_total": len(assumptions),
         "assumption_sites_by_layer": by_layer,
         "assumption_sites_immutable": immutable,
@@ -594,8 +774,10 @@ def build() -> dict:
         "impact_b_pinned": _pinned_impact(IMPACT_B_PINNED),
         "impact_a_closure": _closure(CLOSURE_A_MODULES),
         "impact_b_closure": _closure(CLOSURE_B_MODULES),
-        "tests_total_files": len(all_files),
-        "tests_total_functions": sum(_test_functions(path) for path in all_files),
+        # Live suite size.  Named "_today" so that nobody can mistake it for the
+        # historical figure the report publishes, which is what happened before.
+        "tests_total_files_today": len(all_files),
+        "tests_total_functions_today": sum(_test_functions(path) for path in all_files),
         "_rows": {"assumptions": assumptions, "ready": ready},
     }
 
@@ -651,8 +833,13 @@ def _print_table(result: dict) -> None:
         print(f"    pinned impact : {pinned['files']} files / {pinned['functions']} test functions")
         print(f"    import closure: {closure['files']} files / {closure['functions']} test functions")
         print()
-    print(f"  suite today: {result['tests_total_files']} files / "
-          f"{result['tests_total_functions']} test functions")
+    print(f"  suite today   : {result['tests_total_files_today']} files / "
+          f"{result['tests_total_functions_today']} test functions")
+    print(f"  suite at {result['measured_at_head_commit']} "
+          f"({result['measured_at_head_date']}, the figure the report publishes): "
+          f"{result['tests_total_files_at_head']} files / "
+          f"{result['tests_total_functions_at_head']} test functions "
+          f"[{result['historical_pin']}]")
     print()
     print("5. INTERLOCK")
     print("-" * 78)

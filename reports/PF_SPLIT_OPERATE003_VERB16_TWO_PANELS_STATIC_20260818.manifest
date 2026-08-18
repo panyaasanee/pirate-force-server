@@ -17,3 +17,10 @@ GameClient\GameClient.local.bin|14759424|9627211412AC60D50AD189CE5A629443CE928EC
 # Verifier (21 guards, exit 0 = PASS) + regression test (11 cases):
 #   (ref, unpinned) tools/pf_split_operate_verb_panels_static.py
 #   (ref, unpinned) tests/test_split_operate_verb_panels_static.py
+# NOTE 2026-08-19 (round 84, SCAN-DEBT-001): the "no split/divide-named model" negative is a
+# negative over 534 .model files, per the definition in tools/pf_client_ui_assets.py, which both
+# the verifier and the regression test now call.  Before round 84 the verifier counted 573
+# directory entries and the test counted 534 glob matches - one guard, two denominators, neither
+# written down.  An unreadable asset directory is now a FAILURE, not a printed SKIP.
+#   (ref, unpinned) tools/pf_client_ui_assets.py
+#   (ref, unpinned) tests/test_client_ui_asset_inventory.py
