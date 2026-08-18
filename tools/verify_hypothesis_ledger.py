@@ -44,7 +44,16 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # dedicated merge profile -- generalizing the single original-server-evidenced
 # V111 merge capture with the composer pinned to the frozen V141 golden --
 # headless-proven the same round per ITEM-MERGE-001; count moves to 25).
-CANONICAL_CONTENT_SHA256 = "2707A86312B0A8E8AE6E8E85C53CF1811F6FCD7AB05485025B674A8D02098C19"
+# -> CE3CC161.. (2026-08-18 chief round 76: HYP-PF-019 appended -- the
+# bidirectional codec for the five channel classes sharing base serializer
+# 0x65AD40, behind its own opt-in scenario, on the CHAT-CHANNEL-001 static
+# milestone.  Unlike every prior append this one is NOT headless-proven over TCP
+# the same round: it is proven offline instead, by re-encoding the decoded GT-006
+# capture back to the captured bytes AND to the PC/frame pins an independent lane
+# (HYP-PF-014) produced without ever parsing the payload.  Client acceptance is
+# established for 0xAC52 only; the other four channels are composed but have
+# never been on this project's wire.  Count moves to 26).
+CANONICAL_CONTENT_SHA256 = "CE3CC161CEDE62352817C8DEBE2C5058D48B7A6DC0FA9F13CC0D6A9BE50685E2"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -100,6 +109,15 @@ EXPECTED_IDS = (
     # 2026-08-17 18:2x; HYP-PF-010's occupied fail-closure and HYP-PF-017's
     # swap stay byte-identical under their own modes) is likewise appended.
     "HYP-PF-018",
+    # HYP-PF-019 (bidirectional codec plus designed server-originated composition
+    # for the five channel classes that share the base serializer 0x65AD40,
+    # behind its own channel-message opt-in scenario, under the owner's standing
+    # pre-approval of 2026-08-17 18:2x, on the CHAT-CHANNEL-001 static milestone)
+    # is likewise appended.  It reads the same 0xAC52 bytes HYP-PF-014 treats as
+    # an opaque blob; HYP-PF-014 is left untouched and still active, and the two
+    # lanes agreeing byte-for-byte where they overlap IS the evidence the parse
+    # is correct.
+    "HYP-PF-019",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -129,6 +147,7 @@ EXPECTED_META = {
     "HYP-PF-016": ("protocol_hypothesis", "LOGOUT-RESP-001", "active"),
     "HYP-PF-017": ("protocol_hypothesis", "ITEM-SWAP-001", "active"),
     "HYP-PF-018": ("protocol_hypothesis", "ITEM-MERGE-001", "active"),
+    "HYP-PF-019": ("protocol_hypothesis", "CHAT-CHANNEL-002", "active"),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}
 STATUSES = {"active", "frozen", "retired", "harness_only", "expired_pending_decision"}

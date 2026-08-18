@@ -1764,6 +1764,58 @@
      "active_claim_marker": true
     }
    ]
+  },
+  {
+   "id": "HYP-PF-019",
+   "kind": "protocol_hypothesis",
+   "introduced_checkpoint": "CHAT-CHANNEL-002",
+   "exact_value_or_transform": "Behind the explicit channel-message opt-in scenario only (scenarios/channel_message_hypothesis_shared_serializer.json, response_policy decode_and_compose_shared_serializer_channel_message_no_write_no_close), implement the client's shared channel-message serializer (base Channel_MessageVtial Serialize, client 0x65AD40) as a bidirectional server-side codec over the five channels that share it -- Channel_LocalTalkMessageVital 0xAC52, Channel_PartyMessageVital 0x82E6, Channel_GuildMessageVital 0x8189, Channel_ActorBoardcastMessageVital 0xEDFA, Channel_GMGlobalMessageVital 0x9F2C, all five ids derived at import time from their in-image name literals via the PF-NAMEID-HASH-001 hash (client 0x89B220) rather than transcribed. The payload schema is exactly two wstrings in serializer emission order -- speaker (object +0x34) then body (object +0x18) -- each encoded by the proven wstring codec 0x89A810/0x89A880 as tag 0x48 + u32 byte-length + UTF-16LE with no terminator. decode_channel_message_payload parses a payload into (speaker, body) and encode_channel_message_payload composes one from (speaker, body); make_channel_message_response wraps the composed payload for a chosen channel id in the accepted GSCN_RunTimeProtocolRes v4 single-vital collection envelope already proven deliverable to the real client by HYP-PF-012/HYP-PF-014, with PC size = 22 + payload bytes. The decode is externally pinned rather than self-certified: re-encoding the decoded GT-006 capture reproduces both 34-byte payloads byte-for-byte, and the LocalTalk composition reproduces the exact PC and frame sha256 that scenarios/chat_input_hypothesis_echo.json pinned via the HYP-PF-014 byte-echo path, which never parsed the payload at all; the CHAT-ECHO-002 speaker-variant pins (46-byte payload / 68-byte PC / 79-byte frame) are reproduced the same way. Across all five channels the composed PC differs in exactly two bytes, pc[16:18] = the 16-bit class id. Everything else fails closed with no reply and no write: channel ids outside the five (explicitly including Channel_WhisperVital 0x556C, whose schema carries a third wstring recipient at +0x50 and a u8 result at +0x6C and is therefore NOT a member of this family), truncated wstring headers, a tag other than 0x48, odd byte lengths, lengths running past the payload end, trailing bytes after the second wstring, surrogate or non-BMP code points on either the decode or the encode side, and an empty body. An empty speaker is accepted, because every captured client request carries one. This is a no-write lane: chat has no table, no repository call exists on the path, no socket action is taken, and the module is not imported by runtime.py, app.py, connection.py or scenario.py -- it is unreachable in default mode by construction, not merely by flag.",
+   "scope": "Bidirectional codec plus designed server-originated composition for the five shared-serializer channel-message classes, at the runtime-dispatch boundary behind the channel-message opt-in scenario only; no whisper, join/leave, membership, custom-channel, class-channel or original-sin-channel behavior, no routing or fan-out to other sessions, no client-observable rendering claim, no persistence, and no production or default-mode request path",
+   "status": "active",
+   "provenance": "Opened by the chief's implementation lane on 2026-08-18 (round 76) under the project owner's standing pre-approval of 2026-08-17 18:2x ('fix the exit button and every gameplay button found later'), on the CHAT-CHANNEL-001 static milestone (reports/PF_CHAT_CHANNEL001_CHANNEL_FAMILY_AND_ROUTING_STATIC_20260818.md), which derived all seventeen Channel_*Vital ids from their in-image name literals with the anchor name_id('Channel_LocalTalkMessageVital') = 0xAC52 matching the id GT-006 captured on the wire, established that five channels share the base serializer 0x65AD40 and therefore differ only by class id, and read the shared payload as wstring speaker followed by wstring body. This milestone is the implementation of that reading. It supersedes the treatment of the same bytes as an opaque pinned blob in HYP-PF-014, which is left untouched and still active; the two lanes agree byte-for-byte where they overlap, which is the evidence that the parse is correct.",
+   "evidence_refs": [
+    "reports/PF_CHAT_CHANNEL001_CHANNEL_FAMILY_AND_ROUTING_STATIC_20260818.md",
+    "reports/PF_CHAT_CHANNEL002_SHARED_SERIALIZER_EMITTER_20260818.md",
+    "scenarios/channel_message_hypothesis_shared_serializer.json",
+    "tests/test_channel_message_hypothesis.py",
+    "reports/PF_GT006_CHAT_INPUT_UNKNOWN_FRAME_WIRE_CAPTURE_20260817.md"
+   ],
+   "accepted_ceiling": "Decoding and composing shared-serializer channel messages behind the explicit opt-in only, with the LocalTalk composition byte-identical to the already client-accepted HYP-PF-014 echo and the remaining four channels composed by the same code path; client acceptance is proven for 0xAC52 only (GT-009), and for the other four channels the pins state what the bytes would be, not that they were ever observed.",
+   "evidence_gap": "Only 0xAC52 has ever appeared on this project's wire, in either direction. Whether the original protocol permitted the server to originate Party, Guild, ActorBoardcast or GMGlobal messages at all is unknown; whether the real client accepts, renders, ignores or desyncs on each of them, and with what channel tag and speaker placement, is unmeasured and is exactly GT-016 in attended big round #3. The membership authority, fan-out and routing policy of the original server remain uncaptured and require two concurrent sessions. The u8 tag 0x08, u8@+0x3C and u16@+0x28 fields seen elsewhere in the family are not decoded here, and the Whisper result-code semantics are untouched.",
+   "falsification": "Retire or redesign this codec if the real client rejects, ignores or desyncs on a composed message for any of the five channels (a RuntimeRes stream error falsifies the envelope generalization; a rendering that misplaces or drops the speaker falsifies the speaker-then-body field order), if the byte-exact re-encode of the GT-006 capture ever stops reproducing the HYP-PF-014 pins (which would mean the parse and the capture have diverged), if a lawful original trace shows a different shared-serializer payload shape, or if this lane is ever observed to write any database row or take any socket action.",
+   "stop_rule": "Compose only the five shared-serializer channel classes, only from a (speaker, body) pair, only behind the existing opt-in scenario file. Do not add Whisper, Join/Leave, custom-channel, class-channel or original-sin-channel behavior, do not add routing or delivery to any other session, do not decode the undecoded fields, do not widen the accepted channel set without a new tracked version, do not edit or re-point the HYP-PF-014 lane or its pins, and do not enable production or default-mode exposure. Stop and record if the first attended observation (GT-016) rejects any non-LocalTalk channel.",
+   "production_allowed": false,
+   "expiry": {
+    "tracked_versions": [
+     "CHAT-CHANNEL-002"
+    ],
+    "decision": "Opened 2026-08-18 by the chief's implementation lane (round 76) under the owner's standing pre-approval as the first bounded version. The codec layer is proven offline against the GT-006 capture and the two independent HYP-PF-014 pin sets; confirm the client-observable layer as GT-016 in attended big round #3 -- specifically which of the five channels render and with what channel tag -- before any retire, freeze or extend decision."
+   },
+   "max_versions": 3,
+   "extension_approval_ref": null,
+   "source_refs": [
+    {
+     "path": "src/pirateforce_foundation/channel_message_hypothesis.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-019 active",
+      "decode_channel_message_payload",
+      "encode_channel_message_payload",
+      "make_channel_message_response",
+      "require_channel_message_hypothesis_scenario",
+      "channel_message_hypothesis_shared_serializer"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "scenarios/channel_message_hypothesis_shared_serializer.json",
+     "required_markers": [
+      "\"hypothesis_id\": \"HYP-PF-019\"",
+      "\"production_allowed\": false",
+      "\"test_only\": true"
+     ],
+     "active_claim_marker": true
+    }
+   ]
   }
  ]
 }

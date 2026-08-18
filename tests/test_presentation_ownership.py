@@ -44,12 +44,26 @@ PINNED_LEGACY_MODULE = ROOT / "current" / "pf_login_game_server_v141.py"
 UNKNOWN_CHAT_VITAL_PATTERN = r"(?i)AC52|44114"
 
 # The only Foundation modules allowed to mention the unknown chat vital: the
-# HYP-PF-014 opt-in echo lane (module + dispatch hookup), nothing else.  The
-# lane keeps the raw name UNKNOWN_0xAC52, is unreachable without
+# HYP-PF-014 opt-in echo lane (module + dispatch hookup), plus -- since
+# 2026-08-18, chief round 76 -- the HYP-PF-019 channel-message lane.  The
+# HYP-PF-014 lane keeps the raw name UNKNOWN_0xAC52, is unreachable without
 # --chat-input-hypothesis-scenario, and is graded in
 # chat/chat_input_echo_hypothesis; growing this list means a new deliberate
 # ownership movement.
-CHAT_VITAL_ALLOWED_MODULES = ["chat_input_hypothesis.py", "runtime.py"]
+#
+# The 2026-08-18 movement is exactly that, and it is deliberate: CHAT-CHANNEL-001
+# proved 0xAC52 is not an unknown at all but name_id("Channel_LocalTalkMessageVital"),
+# one of seventeen ids derivable from the in-image name literals, so
+# channel_message_hypothesis.py owns it under its *named* identity as one of the
+# five shared-serializer channels.  The id could have been derived from the name
+# hash at import time to keep this list at two entries and the scanner green --
+# that was deliberately NOT done, because it would leave the repository asserting
+# "one module touches 0xAC52" when two do.  The scanner is supposed to notice.
+CHAT_VITAL_ALLOWED_MODULES = [
+    "channel_message_hypothesis.py",
+    "chat_input_hypothesis.py",
+    "runtime.py",
+]
 
 # MusicControlVital 0x3EAF (16047 decimal), the V100 observation.
 MUSIC_CONTROL_PATTERN = r"(?i)MusicControl|3EAF|16047"

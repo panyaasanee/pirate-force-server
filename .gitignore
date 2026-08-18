@@ -238,3 +238,6 @@
 !/tools/pf_use_drop_sell_static.py
 !/reports/PF_CHAT_CHANNEL001_CHANNEL_FAMILY_AND_ROUTING_STATIC_20260818.md
 !/tools/pf_chat_channel_family_static.py
+!/reports/PF_CHAT_CHANNEL002_SHARED_SERIALIZER_EMITTER_20260818.md
+!/reports/PF_STATS_PROG001_CHARACTER_STATS_AND_PROGRESSION_STATIC_20260818.md
+!/tools/pf_stats_progression_static.py

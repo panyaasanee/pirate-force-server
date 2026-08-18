@@ -1,0 +1,108 @@
+{
+  "schema": 1,
+  "id": "channel_message_hypothesis_shared_serializer",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-019",
+  "entry": {
+    "flow": "full_writable_character",
+    "required_sequence": "selected_and_runtime_ready",
+    "response_policy": "decode_and_compose_shared_serializer_channel_message_no_write_no_close"
+  },
+  "requests": {
+    "shape": {
+      "serializer_va": "0x65AD40",
+      "field_order": [
+        "wstring_speaker_at_0x34",
+        "wstring_body_at_0x18"
+      ],
+      "wstring_codec": "tag_0x48_u32_byte_length_utf16le_no_nul",
+      "accepted_channel_ids": [
+        44114,
+        33510,
+        33161,
+        60922,
+        40748
+      ],
+      "rejected_channel_ids": [
+        21868
+      ]
+    },
+    "probe1": {
+      "channel_id": 44114,
+      "speaker": "",
+      "body": "PFCHATPROBE1",
+      "payload_size": 34,
+      "payload_sha256": "0DC90C60BB22C92FDFF3649125703546E9BE324C2D7C265023C00DACA1C584CF"
+    },
+    "probe2": {
+      "channel_id": 44114,
+      "speaker": "",
+      "body": "PFCHATPROBE2",
+      "payload_size": 34,
+      "payload_sha256": "59ED7CD6071BC4D094098DFBAFA91ED6D190637A1AE07FC90B6937A6A9DCB208"
+    }
+  },
+  "composed_responses": {
+    "policy": "encode_speaker_and_body_into_the_shared_serializer_payload_in_accepted_runtime_res_envelope",
+    "pc_size_rule": "22_plus_encoded_payload_bytes",
+    "probe_speaker": "",
+    "probe_body": "PFCHATPROBE1",
+    "pc_size": 56,
+    "frame_size": 66,
+    "per_channel": {
+      "Channel_LocalTalkMessageVital": {
+        "channel_id": 44114,
+        "pc_sha256": "B92C185ABB0C707EA6512409CAAF5ADC03D911E0399F0CC0DC60A2C49111FA06",
+        "frame_sha256": "06C23375BE9A115C59AF410E1446393E2EE3B3294254BCDF6EB88FADFF7E2323"
+      },
+      "Channel_PartyMessageVital": {
+        "channel_id": 33510,
+        "pc_sha256": "23063CB9B2C66DC6DE59F52F9DAB1E3EE2F67D66BA0226BBAD0EA2F49EB44B03",
+        "frame_sha256": "73C2B4C15C63A42FB182D5537081122B9D6EB9FFA9A039B0FED5658C832BDD53"
+      },
+      "Channel_GuildMessageVital": {
+        "channel_id": 33161,
+        "pc_sha256": "E1B235C1F014E245FFCCC7E30A081755DFE4DEE4045D7DEBA5C5C7507F34A9CE",
+        "frame_sha256": "4CD610FE9C996E46D76E95B3A121160C9D0C32191CCCD7BB20BF6330C8589AA2"
+      },
+      "Channel_ActorBoardcastMessageVital": {
+        "channel_id": 60922,
+        "pc_sha256": "8EC02EC28784C7FEC46DED02421917E632015C71F972B403125D0E5915AB4FC4",
+        "frame_sha256": "A09A8C768A982C227492342947EFDDE70C358FD5A764562D615211AFC899760F"
+      },
+      "Channel_GMGlobalMessageVital": {
+        "channel_id": 40748,
+        "pc_sha256": "6F6566C0FAE8CAD9EE2C6B1CE1BC75EC7C6E93654666A6CE6C8E5B20228B8C5E",
+        "frame_sha256": "E9619EFA94A8FB02FD67E0477C2538367C32ED9B93422295D6DD348BB35BDEA3"
+      }
+    },
+    "crosscheck": {
+      "chat_echo_001_scenario": "scenarios/chat_input_hypothesis_echo.json",
+      "chat_echo_001_probe1_pc_sha256": "B92C185ABB0C707EA6512409CAAF5ADC03D911E0399F0CC0DC60A2C49111FA06",
+      "chat_echo_001_probe1_frame_sha256": "06C23375BE9A115C59AF410E1446393E2EE3B3294254BCDF6EB88FADFF7E2323",
+      "chat_echo_002_speaker": "test01",
+      "chat_echo_002_probe1_payload_sha256": "D702CEE2B3BD83E7568EBAFC93B73D3B87D9AF643EE8155B36D827A6E24B4A02",
+      "chat_echo_002_probe1_pc_sha256": "5D80E83CE4C60A3927C9AFE020B0833358763BFE3CA1ECAB3EFB28E98BC9EE17"
+    }
+  },
+  "persisted_post_state": {
+    "database_write": "none"
+  },
+  "capabilities": [
+    "decode_shared_serializer_channel_payload_to_speaker_and_body",
+    "compose_shared_serializer_channel_payload_without_a_request_template",
+    "byte_exact_round_trip_of_both_captured_gt006_payloads",
+    "repeatable_composition_per_session_no_state_change"
+  ],
+  "nonclaims": [
+    "client_rendering_of_any_of_the_five_channels_pending_gt016",
+    "any_wire_observation_of_the_four_non_localtalk_channels",
+    "original_server_routing_fanout_or_membership_policy",
+    "whisper_channel_0x556C_schema_or_result_byte_meaning",
+    "delivery_to_any_other_client",
+    "message_persistence_or_database_write",
+    "production_dispatch_wiring",
+    "production_baseline_behavior"
+  ]
+}

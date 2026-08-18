@@ -67,8 +67,58 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers two deliberate movements, chief round 75 (2026-08-18), both
-    # report-only static characterizations that leave the ledger at 25:
+    # This pin covers two deliberate movements, chief round 76 (2026-08-18).
+    # Unlike round 75 these are NOT both report-only: the ledger moves 25 -> 26.
+    #  1. character_management/stats_and_progression not_started -> in_progress
+    #     with STATS-PROG-001 (report-only static). evidence_ref
+    #     reports/PF_STATS_PROG001_CHARACTER_STATS_AND_PROGRESSION_STATIC_20260818.md
+    #     and test_ref tests/test_stats_progression_static.py. Fourteen attribute
+    #     classes, every id derived from its in-image name literal by
+    #     PF-NAMEID-HASH-001 and anchored on the three the delivered V141 snapshot
+    #     already hardcodes (ActorAttr 0x12AD, NPCAttr 0x0AD5, UpdateAttrVital
+    #     0x309A). Nineteen progression fields are named with an in-binary consumer
+    #     each -- level BasicAttr u16 +0x5E (GetLv 0x460050), experience ActorAttr
+    #     qword +0xA0 (XP bar 0x519299), the five ability u16 at +0x82..+0x8A and
+    #     their bonuses at +0x182..+0x18A (LABEL_STR..PER getters), skill point
+    #     +0x7C, unspent points +0x80, class +0x8C, HP/MP pairs on BasicAttr -- all
+    #     mask-gated through UpdateAttrVital 0x309A. Five progression verbs pinned,
+    #     of which AbilityDepolyAll 0x36AD is proven end to end (UP button ->
+    #     pending counter -> five i16 tag 0x0F in STR,CON,DEX,INT,PER order).
+    #     Evidenced negatives: the AddExp/AddAbilityPoint/AddSkillPoint script
+    #     bindings only broadcast an in-process event through 0x5F9C70 and can grant
+    #     nothing; Attribute 0x1306 and FightAttr 0x1285 have no wire fields at all
+    #     (serializer slot is a bare ret 8 at 0x515EC0); and the curve numbers are
+    #     not in the executable -- only column names and lookup code. Server gap:
+    #     fourteen classes, zero ids in V141; nineteen progression fields, two
+    #     emitted, zero decoded; five verbs, zero encoders and zero dispatch. Status
+    #     is in_progress and NOT runtime_pass: no capture has ever carried a
+    #     progression field. The POTENTIAL column-to-offset binding is NOT claimed
+    #     (AGILITY<->DEX is cardinality inference, not a byte proof).
+    #  2. chat/chat_channels_and_routing gains the CHAT-CHANNEL-002 evidence and
+    #     test refs (status already in_progress, unchanged): evidence_refs
+    #     reports/PF_CHAT_CHANNEL002_SHARED_SERIALIZER_EMITTER_20260818.md and
+    #     scenarios/channel_message_hypothesis_shared_serializer.json, test_ref
+    #     tests/test_channel_message_hypothesis.py. This one carries a ledger entry,
+    #     HYP-PF-019 (ledger 25 -> 26): the shared serializer 0x65AD40 implemented
+    #     both directions over the five channels that share it, with the five ids
+    #     derived from the name hash at import rather than transcribed. The decode
+    #     is pinned externally, not self-certified -- re-encoding the decoded GT-006
+    #     capture reproduces both 34-byte payloads byte-for-byte AND reproduces the
+    #     PC/frame sha256 that HYP-PF-014 pinned through a path that never parsed
+    #     anything, plus the CHAT-ECHO-002 46/68/79-byte pins. Across all five
+    #     channels the composed PC differs in exactly two bytes (pc[16:18] = class
+    #     id), re-proving CHAT-CHANNEL-001's channel-id-is-the-selector conclusion on
+    #     server-produced bytes. Opt-in only, production_allowed false, no DB write,
+    #     not imported by runtime/app/connection/scenario. Whisper 0x556C is rejected
+    #     on purpose (third wstring + result byte = different schema). Only 0xAC52
+    #     has ever been on this project's wire: the other four channels' pins say
+    #     what the bytes would be, NOT that they were observed. GT-016 unblocked.
+    #     Note: tests/test_presentation_ownership.py's chat-vital allowlist grew
+    #     from two modules to three in the same commit. That was deliberate and was
+    #     not avoided -- deriving the id from the hash at import would have kept the
+    #     scanner green while leaving the repo asserting something false.
+    # Previous pin 70E1668D..48BD (round 75) recorded two deliberate movements, both
+    # report-only static characterizations that left the ledger at 25:
     #  1. inventory/use_drop_sell not_started -> in_progress with USE-DROP-SELL-001.
     #     evidence_ref
     #     reports/PF_USE_DROP_SELL001_ITEM_OPERATE_USE_DROP_SELL_STATIC_20260818.md
@@ -140,7 +190,7 @@ GRADE_SUBSET_SHA256 = (
     # 26D752FE..BA9A (round 65) occupied_destination_policy not_started ->
     # in_progress under HYP-PF-017 (ITEM-SWAP-001); see its lineage note before that
     # for round 53's 78558E56..6DC8.
-    "70E1668DABE1BF0B987C629F5777682E64AB809B3171246BC10ECCF8931B48BD"
+    "CB3ADB1057EC88B65ECC7DC81113310CB74C64CC847296A0A6B19FA30FF6F404"
 )
 
 
