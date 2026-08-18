@@ -67,7 +67,41 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers ONE deliberate movement, chief round 78 (2026-08-18):
+    # This pin covers ONE deliberate movement, HP-DEATH-001 (2026-08-19):
+    # combat/hp_death_and_respawn moves not_started -> in_progress and gains its first
+    # evidence and test refs -- evidence_refs
+    # reports/PF_HP_DEATH001_HP_DEATH_AND_RESPAWN_STATIC_20260819.md, test_refs
+    # tests/test_hp_death_respawn_static.py. Deliberately NOT runtime_pass: nothing was
+    # captured, executed or observed; this is the same evidence-first shape STATS-PROG-001
+    # used to open the stats lane. What earns the movement is that the lane's central
+    # unknown -- "what would a server have to send to make a character die?" -- is now
+    # answered byte-exact from the client image alone. Death is a CLIENT-SIDE derivation,
+    # not a frame: the four IsDead predicates (0x454AC0 / 0x454A70 on CNetActor and
+    # CMyActor, 0x43BDA0 / 0x43BD70 on CNetNPC, CAvatarNPC and Pet) each fetch the bound
+    # Attr through vtable +0x74 and return `current HP == 0`, reading BasicAttr +0x44
+    # (mask bit 0x0004) under an f32 gate on +0x58 (bit 0x0080) against the constant 0.0f
+    # at 0xF0989C; max HP is +0x48 (bit 0x0008), and current-vs-max is earned from the HUD
+    # bar helper 0x53EED0 (arg1/arg0, arg1 is the printed number) rather than from the
+    # field names. The transition is welded to the attr apply -- 0x4446F0 is
+    # `call 0x5DF080 ; call 0x4437C0` -- and 0x4437C0 has exactly one call site in the
+    # whole image, latches [actor+0x70] |= 0x200, builds CActorTask_Dead (ctor 0x472810,
+    # also one call site) and plays L"_F_DIE_000"; the local player's L"Main_Dead" window
+    # is opened per frame from CMyActor vtable +0x18. The verb family is exhaustive, not
+    # sampled: of 519 registered protocol classes exactly three carry a death token --
+    # ReliveVital 0x1AD4, ReliveMarkerVital 0x3DD6, Pets_NotifySailorDeadVital 0x8B12 --
+    # and ReliveVital is one of 69 classes whose inbound slot is the shared no-op
+    # 0x710440, so it is REQUEST-ONLY and a server echo of it does nothing. The client
+    # also picks no respawn point: CMyActor+0x400 has two readers, and the only use of the
+    # marker is its u16 +0x12 as a scene id for a SCENE_NAME_TIP name lookup; there is no
+    # movement, teleport or position call anywhere in the relive UI span, and n_DEADLOSS
+    # is external data the client only displays. Server gap, counted not eyed: three verbs,
+    # zero encoders and zero dispatch; three fields the predicate reads, two emitted -- the
+    # gap is exactly one mask bit (0x0080) and one float. Report-only and additive: no
+    # src/ change, no scenario, NO ledger entry (count stays 27), no other matrix row and
+    # no other axis touched. The one open debt is recorded in the report, not the ledger:
+    # the inbound UpdateAttrVital -> 0x4446F0 chain is NOT traced end to end.
+    # Previous pin 0C16D386..FE90 (chief round 78, 2026-08-18) covered ONE deliberate
+    # movement:
     # character_management/stats_and_progression gains the STATS-PROG-002 evidence and
     # test refs (status already in_progress, unchanged, and deliberately NOT moved to
     # runtime_pass). evidence_refs
@@ -256,7 +290,7 @@ GRADE_SUBSET_SHA256 = (
     # 26D752FE..BA9A (round 65) occupied_destination_policy not_started ->
     # in_progress under HYP-PF-017 (ITEM-SWAP-001); see its lineage note before that
     # for round 53's 78558E56..6DC8.
-    "0C16D38678FBF08312804AA127A9518FE747418D57F943EFE636EC096BE6FE90"
+    "19319329D1A482A697C4D8FB9E7EE250C56170C4338EC02BDDC24B471AE13991"
 )
 
 

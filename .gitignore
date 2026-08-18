@@ -252,3 +252,9 @@
 !/reports/PF_STATS_PROG002_SERVER_ENCODER_20260818.md
 !/reports/PF_STATS_PROG002_SERVER_ENCODER_20260818.manifest
 !/tools/verify_stats_progression_encoder.py
+!/reports/PF_UI_REFRESH001_CHARACTER_SELECT_STATE_MACHINE_STATIC_20260819.md
+!/reports/PF_UI_REFRESH001_CHARACTER_SELECT_STATE_MACHINE_STATIC_20260819.manifest
+!/tools/pf_ui_state_refresh_static.py
+!/reports/PF_HP_DEATH001_HP_DEATH_AND_RESPAWN_STATIC_20260819.md
+!/reports/PF_HP_DEATH001_HP_DEATH_AND_RESPAWN_STATIC_20260819.manifest
+!/tools/pf_hp_death_respawn_static.py

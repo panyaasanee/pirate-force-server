@@ -528,10 +528,14 @@
           "id": "hp_death_and_respawn",
           "title": "HP depletion, death and respawn",
           "required": true,
-          "status": "not_started",
-          "evidence_refs": [],
-          "test_refs": [],
-          "notes": "HP is projected as a static attribute value only. No depletion, death state, corpse, penalty, or respawn path is captured or implemented."
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_HP_DEATH001_HP_DEATH_AND_RESPAWN_STATIC_20260819.md"
+          ],
+          "test_refs": [
+            "tests/test_hp_death_respawn_static.py"
+          ],
+          "notes": "Static evidence only, no capture. Death is a client-side derivation: the four IsDead predicates (0x454AC0/0x454A70 for CNetActor and CMyActor, 0x43BDA0/0x43BD70 for CNetNPC, CAvatarNPC and Pet) return current HP == 0, reading BasicAttr +0x44 (mask bit 0x0004) gated on the f32 death timer at +0x58 (bit 0x0080); max HP is +0x48 (bit 0x0008), proven current-vs-max by the HUD bar helper 0x53EED0. The transition (actor flag 0x200, CActorTask_Dead, animation _F_DIE_000, the Main_Dead window) is client-driven from those values, so no death frame exists. Three verbs carry a death token out of 519 registered classes: ReliveVital 0x1AD4 (request only, no inbound handler), ReliveMarkerVital 0x3DD6, Pets_NotifySailorDeadVital 0x8B12. Still absent on the server: no depletion, no corpse, no penalty (n_DEADLOSS is external data the client only displays), no respawn placement, no encoder or dispatch for any of the three verbs, and mask bit 0x0080 is never emitted. Not runtime-proven."
         },
         {
           "id": "mob_aggro_and_server_ai",

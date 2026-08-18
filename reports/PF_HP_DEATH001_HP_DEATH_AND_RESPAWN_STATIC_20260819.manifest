@@ -1,0 +1,142 @@
+# Evidence for PF_HP_DEATH001 (paths relative to the Pirate Force root)
+# Static RE only: no src/ change, no ledger entry, no scenario, no runtime claim,
+# no network, no GameClient launch, no canonical database access.  The single
+# matrix edit this milestone makes is the one row it reports on, and it is listed
+# below as a modified-but-unpinned file.
+# Every address, vtable slot, mask bit, literal and count quoted in the report is
+# reproduced from these exact files by tools/pf_hp_death_respawn_static.py
+# (191 guards; exit 0 = PASS).  Measured at HEAD fc204c7.
+#
+# --- THE SOLE BINARY EVIDENCE (read-only, never written by this project) ---
+# The whole HP / death / respawn reconstruction comes out of this one image:
+#   HP wire fields          BasicAttr::Serialize 0x4656F0
+#                             bit 0x0004 -> u32 +0x44 (HP current)  gate 0x46574A
+#                             bit 0x0008 -> u32 +0x48 (HP max)      gate 0x46575E
+#                             bit 0x0010 -> u32 +0x4C / 0x0020 -> +0x50 (MP pair)
+#                             bit 0x0080 -> f32 +0x58 (death/down timer) gate 0x4657AE
+#                           ActorAttr alternate pair, high mask +0x1B8
+#                             bit 0x40 -> u32 +0x1A8  gate 0x4666D7
+#                             bit 0x80 -> u32 +0x1AC  gate 0x4666F2
+#   current-vs-max consumer HUD updater 0x53F180 -> bar helper 0x53EED0
+#                           (arg1/arg0, arg1 is the printed number => +0x44 current)
+#   pair selector           byte [actor+0x358], sole writer 0x4564B3
+#                           (`al = SceneCategory(0x430E10) == 8`)
+#   DEATH PREDICATES        CNetActor/CMyActor vtable +0x40 -> 0x454AC0
+#                                              vtable +0x3C -> 0x454A70
+#                                              vtable +0x74 -> 0x44C630 (GetAttr)
+#                           CNetNPC/CAvatarNPC/Pet   +0x40 -> 0x43BDA0
+#                                                    +0x3C -> 0x43BD70
+#                                                    +0x74 -> 0x45CD20
+#                           float constant 0xF0989C == 0.0f
+#   death transition        0x4446F0 = call 0x5DF080 (attr apply) + call 0x4437C0
+#                           0x4437C0 sole call site 0x444705, latches [actor+0x70]|=0x200
+#                           CActorTask_Dead ctor 0x472810 (sole call site 0x4439E9),
+#                           vtable 0xF0F048, task id 0x80000005,
+#                           update 0x472850 plays L"_F_DIE_000" at 0xF0F060
+#   local-player death UI   CMyActor vtable +0x18 -> 0x44E4E0 -> 0x44A540 (0x44E828)
+#                           opens L"Main_Dead" 0xF0D738 via 0xAA0710 at 0x44A5A1
+#   verb family (3 of 519)  ReliveVital                0x1AD4 thunk 0xBEE640
+#                             slot 0x1082038 getid 0x5E5F70 vtable 0xF30404
+#                             sizeof 0x1C ser 0x5E5F80 inbound 0x710440 = NONE
+#                           ReliveMarkerVital          0x3DD6 thunk 0xBEE660
+#                             slot 0x108203C getid 0x5E7440 vtable 0xF305D8
+#                             sizeof 0x18 ser 0x5EB6D0 inbound 0x5F0410
+#                           Pets_NotifySailorDeadVital 0x8B12 thunk 0xC04410
+#                             slot 0x1088364 getid 0x6FF0B0 vtable 0xF422BC
+#                             sizeof 0x20 ser 0x642B00 inbound 0x700DC0
+#   ReliveVital producers   pool 0x4E45B0; +0x14=1 at 0x4E4737, +0x14=0 at 0x4E4AEA
+#                           and 0x4E4B8A; sends via 0x4011A0 -> 0x5DD800
+#   respawn marker          handler 0x5F0410 stores into CMyActor+0x400;
+#                           only other reader 0x4E4370 (sole caller 0x4E4BBA);
+#                           marker sub-object serializer 0x5DF250;
+#                           marker u16 +0x12 used as a scene id against
+#                           L"SCENE_NAME_TIP" 0xF0C59C / L"s_SCENE_NAME" 0xF0C3C4
+#   death penalty (display) L"STANDARD_STATUS" 0xF152AC column L"n_DEADLOSS" 0xF14BC8
+#                           read at 0x4E4C54 and 0x4E4C9F, keyed by BasicAttr+0x5E
+#   UI wiring               ReliveConfirmEventHandler vtable 0xF2E6A8
+#                             +0x18 bind 0x4E43A0, +0x28 dispatch 0x4E4D90
+#                             L"BUTTON_RELIVE" 0xF1A704 / L"BUTTON_SPAWN" 0xF1A6E8
+#                             L"BUTTON_RELIVE_TEXT" 0xF1A6C0
+#                           MainDeadEventHandler vtable 0xF1F550
+#                             +0x60 bind 0x5183D0 (L"BUTTON_DIE" 0xF1F5CC)
+#                             +0x18 hook 0x5184C0 -> 0x518450, action id 0xEA7C
+#   RTTI descriptors        .?AVReliveVital@@ 0x101FB00, .?AVReliveMarkerVital@@
+#                           0x101FB1C, .?AVPets_NotifySailorDeadVital@@ 0x101D82C,
+#                           .?AVCActorTask_Dead@@ 0x101CDE4,
+#                           .?AVReliveConfirmEventHandler@@ 0x10232EC,
+#                           .?AVMainDeadEventHandler@@ 0x1023E60
+Pirate Force\GameClient\GameClient.local.bin|14759424|9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623
+#
+# --- READ-ONLY SERVER CROSS-CHECK (immutable; opened for reading only) ---
+# Emits the BasicAttr HP pair (bits 0x0004/0x0008) at make_npc_attr; never emits
+# bit 0x0080 (the f32 at +0x58 the death predicate gates on); never emits the
+# ActorAttr alternate pair +0x1A8/+0x1AC; never passes current_hp == 0; declares
+# none of 0x1AD4 / 0x3DD6 / 0x8B12; has no handler for action id 0xEA7C.
+# NOTE: v141 is a read-only snapshot of a prior AI's work, NOT ground truth and
+# NOT "the original server".  Its own comment at line 1167 already reached the
+# NPC half of the +0x44/+0x58 conclusion from 0x43BD70/0x43BDA0; this milestone
+# re-derives it independently and adds the player half (0x454A70/0x454AC0), the
+# alternate pair, the transition path and the verb family, none of which v141
+# mentions anywhere.
+Pirate Force ServerProject\current\pf_login_game_server_v141.py|382913|2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22
+#
+# --- FOUNDATION MODULES THE CROSS-CHECK COUNTS (read only, not modified) ---
+# npc_wire.py    the only src/ module that emits the BasicAttr HP pair
+# player_wire.py the local-player ActorAttr projection (fixed 100/100 HP pair)
+# scene_object.py the diagnostic HP path (3857/3857), still never zero
+# stats_progression_hypothesis.py carries the hp_current/hp_max AttrField rows
+#                this milestone's field identification must stay consistent with
+Pirate Force ServerProject\src\pirateforce_foundation\npc_wire.py|1915|B176D56875D1DA237A9D476CA23250291CFBE5DC3A25DB72CA958377EC5C0228
+Pirate Force ServerProject\src\pirateforce_foundation\player_wire.py|2859|E3AD8E25DC99BEFC46AFDA314D3238DC33FD5FBD3F3942E7EC950B2263928C3F
+Pirate Force ServerProject\src\pirateforce_foundation\scene_object.py|3267|39532CEB30A9B02F22EF85B2F0140E4498DAA5C561AE772C179A2F6ACA5A6D1B
+Pirate Force ServerProject\src\pirateforce_foundation\stats_progression_hypothesis.py|49000|BC64152C57B615F98BD5BC377CFBCE81F010CE834F49E86D081561FA750D2BD7
+#
+# --- PRIOR MILESTONES THIS ONE BUILDS ON AND DOES NOT RE-PROVE ---
+# STATS-PROG-001   the Attribute/DBAttribute/BasicAttr/ActorAttr hierarchy, the
+#                  BasicAttr u16 mask at +0x70, the HP/MP field pairs, the HUD
+#                  widget slot binder shift.  This milestone re-derives the HP
+#                  half independently and adds the death consumer.
+# STATS-PROG-002   the mask-driven server encoder (23 fields) - the shape the
+#                  suggested HP-DEATH-002 encoder should follow.
+# MP-AUDIT-FOLLOWUP-001  the actor factory, the 5-value actor_type jump table and
+#                  the class-gated Attr bind at vtable +0x38; supplies the five
+#                  actor classes whose +0x3C/+0x40/+0x74 slots are read here.
+# NAMEID-HASH-001  the u16 name-hash at 0x89B220 that reproduces all three ids.
+# MOVE-AUTHORITY-001  the local-player movement authority boundary, cited only as
+#                  the reason a server-driven respawn placement is the open half.
+# SCENE-013        the structural combat-corpus negative that still stands: this
+#                  milestone adds no damage model and no combat rule.
+Pirate Force ServerProject\reports\PF_STATS_PROG001_CHARACTER_STATS_AND_PROGRESSION_STATIC_20260818.md|30015|CC8B701CB988B74EE1A95FFD40D33D22B220F2D81EC72538FEF0BDCB16ABF05E
+Pirate Force ServerProject\reports\PF_STATS_PROG002_SERVER_ENCODER_20260818.md|22806|838153F6076B820FF898DDA8F105FCC3B2DF23D1697FE184E6EAE4878ADBCC46
+Pirate Force ServerProject\reports\PF_MPAUDIT_FOLLOWUP001_ACTOR_TYPE_DISPATCH_STATIC_20260818.md|29503|B5C4D1A68693B481633666F19069809C99157A427F7DC64E8DF7C80959B65E6D
+Pirate Force ServerProject\reports\PF_NAMEID_HASH001_VITAL_ID_IS_PURE_NAME_HASH_STATIC_20260818.md|8580|15BA2DE7D8F09DDABA40770A6B9FD0E42C0533414D9BFD2F15A16A165599A5B5
+Pirate Force ServerProject\reports\PF_MOVE_AUTHORITY001_LOCAL_PLAYER_MOVEMENT_AUTHORITY_STATIC_20260818.md|8104|FA9FC13C44718D9D8DBC22334853C9E6476B7005C1578167E8B737CAE60C7756
+Pirate Force ServerProject\reports\PF_SCENE013_STRUCTURAL_COMBAT_CORPUS_CAPABILITY_NEGATIVE_20260816.md|3114|126651860099937FC100E9CAC8AFDCB5C3110CA23491D5A273028AA1915D1538
+#
+# Deliberately NOT pinned, and why:
+#   (modified, unpinned) docs/FUNCTIONAL_COVERAGE.json - the ONE row this
+#       milestone edits: combat/hp_death_and_respawn, not_started -> in_progress,
+#       with a note rewritten to match what is proven here and evidence_refs /
+#       test_refs pointed at this report and its test.  Left unpinned on purpose:
+#       the file is edited in the same change, so a hash here would be stale the
+#       moment it is written.  No other row, no grade on any other axis, and no
+#       schema/policy block was touched.
+#   (ref, unpinned) docs/HYPOTHESIS_LEDGER.json - NOT modified.  This milestone
+#       opens no hypothesis; the one open question it leaves (does an inbound
+#       UpdateAttrVital alone re-enter 0x4446F0?) is recorded in the report's
+#       "known debt" section, not in the ledger.
+#   (ref, unpinned) the capture corpus - NO capture was used, and none exists for
+#       death or respawn: the original server is closed and was never published.
+#       That absence is why this milestone is static-only and is recorded here
+#       rather than hidden.
+#   (ref, unpinned) the external static-data tables (STANDARD_STATUS, its column
+#       n_DEADLOSS, and whatever 0x430E10's scene-category mapping resolves to).
+#       Only the column-name literals and the lookup call sites are in-image; the
+#       numbers themselves are NOT in the executable and are NOT claimed.
+#
+# Verifier + regression test shipped with this report:
+#   (ref, unpinned) tools/pf_hp_death_respawn_static.py   (191 guards, exit 0,
+#       pure stdlib - no capstone, so the Windows `py -3` gate can run it)
+#   (ref, unpinned) tests/test_hp_death_respawn_static.py
+# Report (this file's sibling):
+#   (ref, unpinned) reports/PF_HP_DEATH001_HP_DEATH_AND_RESPAWN_STATIC_20260819.md

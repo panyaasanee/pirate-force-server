@@ -1,0 +1,85 @@
+# Evidence for PF_UI_REFRESH001 (paths relative to the Pirate Force root)
+# Static RE only: no src/ change, no matrix flip, no ledger entry, no scenario, no
+# runtime claim, no network, no GameClient launch, no database access.
+# Every address, vtable slot, jump-table entry and byte guard quoted in the report is
+# reproduced from these exact files by tools/pf_ui_state_refresh_static.py
+# (292 guards; exit 0 = PASS).  Measured at HEAD 08fb65b.
+#
+# --- THE SOLE BINARY EVIDENCE (read-only, never written by this project) ---
+# The whole enumeration comes out of this one image:
+#   state registrar / type nodes   0x88F2E0, is-a 0x88F2B0
+#   ten state classes              descriptors 0x102150C 0x1022D5C 0x1022EB0 0x1022ED0
+#                                  0x1022EF4 0x1022F14 0x1022F3C 0x1022F60 0x1022F7C 0x1022FA0
+#   cStateCreateActor              token 0x107A38C, getter 0x4C0110, ctor 0x4C03E0,
+#                                  vtable 0xF16520, size 0x770, per-frame 0x4C3C40
+#   live state pointer             [0x1093198]+0x34C
+#   CState::RequestNext            0x4C7320  (18 call sites, all pinned)
+#   character-list singleton       accessor 0x4011A0, global 0x1081A90, ctor 0x5DE7D0
+#   the list itself                singleton+0x180  (built 0x58CD10, count +0x19C)
+#     fill 0x5DDD00 (1 caller 0x5EFCAC) · add-one 0x5DDE10 (1 caller 0x5EFD76)
+#     clear 0x5DDF00 (3 callers) / 0x5DE540 (1 caller) · find 0x5F8400 · erase: none
+#   free-slot gate                 0x4B405F vs MAX_CHAR_COUNT global 0x10337FC
+#   page variable                  0x107A2C0, jump table 0x4C3E30 (15 entries),
+#                                  input gate 0x4BEEA9, 20 immediate writes
+#   UI command table               0x4C0120 / 0x4C02DC (27 entries), cmd 3 -> 0x4B4910
+#   vital vtable layout            +0x10 id getter, +0x18 serializer, +0x1C inbound apply
+#   no-op inbound apply            0x710440  (mov al,1 ; ret 4)
+#   SelectActorVital 0x36EF        vtable 0xF30744, apply 0x5EFC40
+#   CreateActorVital 0x36CF        vtable 0xF3017C, apply 0x5EFD50
+#   DeleteActorVital 0x36DB        vtable 0xF301A0, serial 0x5E4E10, apply 0x5EFDC0
+#                                  -> cStateCreateActor::OnDeleteResult 0x4BAEB0..0x4BB618
+#   LogoutVital 0x1B40             vtable 0xF304B8, apply 0x5EF930 -> 0x5DC660
+#   UI literals                    L"Login_CharSelect_Panel_Operations" 0xF15F00
+#                                  L"Set_DeleteBtn_Visible" 0xF161A0
+#                                  L"Set_DeleteBtn_Text"    0xF16178
+#                                  L"Set_EditBtn_Disable"   0xF16150
+#                                  L"SystemSetting_LogoutConfirm" 0xF2FDAC
+#                                  L"MAX_CHAR_COUNT" 0xF135E0
+Pirate Force\GameClient\GameClient.local.bin|14759424|9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623
+#
+# --- READ-ONLY SERVER CROSS-CHECK (immutable; opened for reading only) ---
+# The verifier re-reads seven vital-id constants out of v141 and confirms they are the
+# same numbers it just read out of the client image, plus the presence of the two
+# SelectActorVital builders (the only frame family that can rebuild the client's list)
+# and the absence of a DeleteActorVital constant (its id is resolved statically).
+Pirate Force ServerProject\current\pf_login_game_server_v141.py|382913|2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22
+#
+# --- PRIOR MILESTONES THIS ONE BUILDS ON AND DOES NOT RE-PROVE ---
+# DELETE-SOFT-002   the natural 0x36DB wire and the op=1/selector=0/u32=0 field values
+#                   this report explains the client-side consequence of
+# DELETE-003        the 0x5E4E10 field order (u8 +0x14, u8 +0x15, u32 +0x18, wstring +0x1C)
+#                   and the 0x5EFDC0 -> 0x4BAEB0 consumer edge (re-proved byte-exact here)
+# DELETE-SOFT-003   the RuntimeRes trailing-mask fix that made GT-011 parse cleanly
+# LOGOUT-RESP-001   HYP-PF-016 worldinfo-first, the shape GT-013 falsified
+# GT-007            echo / ack+close logout shapes, falsified earlier
+# NAMEID-HASH-001   the u16 name hash that reproduces every wire id quoted here
+# NAMEID-RESOLVE-001 0x36DB -> DeleteActorVital, 0x1B40 -> LogoutVital
+# MP-AUDIT-FOLLOWUP-001 the verifier/report/manifest shape this milestone copies
+Pirate Force ServerProject\reports\PF_DELETE_SOFT002_NATURAL_0x36DB_DECODE_20260818.md|19623|FECEA5F153FA8877E074713E87527C8D66091170661D64E8B47F4C4FFE8D9A87
+Pirate Force ServerProject\reports\PF_DELETE003_PRODUCER_OUTER_FRAMING_NEGATIVE_20260816.md|6327|26B6204CE5EE1CE72A9F81DC8D198A75AB100E5B12ECC74907F5F125E6CEC5E8
+Pirate Force ServerProject\reports\PF_DELETE_SOFT003_RUNTIMERES_TAIL_FIX_HEADLESS_20260818.md|4546|5A47219F01E235C1F9E6851188E127CF46C1471F71B3BEB8067F933C2E44B1B6
+Pirate Force ServerProject\reports\PF_LOGOUT_RESP001_HYP_PF_016_WORLDINFO_FIRST_HEADLESS_20260818.md|11558|7C766356FF008006C8B066EE32F61885D29451C41221EEB46AF7836E53C9ECE3
+Pirate Force ServerProject\reports\PF_GT007_LOGOUT_ECHO_ACK_CLIENT_TRANSITION_NEGATIVE_20260817.md|6333|9D7041740EECCC8C3E27398485653A799D1A205A37DA514284BE3D2461F9F2E1
+Pirate Force ServerProject\reports\PF_NAMEID_HASH001_VITAL_ID_IS_PURE_NAME_HASH_STATIC_20260818.md|8580|15BA2DE7D8F09DDABA40770A6B9FD0E42C0533414D9BFD2F15A16A165599A5B5
+Pirate Force ServerProject\reports\PF_NAMEID_RESOLVE001_GOLDEN_IDS_NAMED_STATIC_20260818.md|7402|97FAD4B9A4F70030AC2476A93A43740A75468BD75BFE2C75395F4CEB495E946A
+Pirate Force ServerProject\reports\PF_MPAUDIT_FOLLOWUP001_ACTOR_TYPE_DISPATCH_STATIC_20260818.md|29503|B5C4D1A68693B481633666F19069809C99157A427F7DC64E8DF7C80959B65E6D
+#
+# Deliberately NOT pinned, and why:
+#   (ref, unpinned) docs/FUNCTIONAL_COVERAGE.json - character_management rows this report
+#       bears on.  NOT modified: no grade is proposed and no row is flipped.
+#   (ref, unpinned) docs/HYPOTHESIS_LEDGER.json - HYP-PF-015 (delete) and HYP-PF-016
+#       (worldinfo-first logout).  NOT modified, and no new hypothesis was opened.
+#       The report notes that HYP-PF-015's stop rule currently forbids list-refresh
+#       compositions; acting on that is the chief's call, not this report's.
+#   (ref, unpinned) pf_bridge/GAME_TEST_QUEUE.md - GT-011 / GT-013 result blocks that
+#       state the two symptoms.  Read only, never written, never edited.
+#   (ref, unpinned) capture corpus - NO capture was used this round.  The whole
+#       milestone is one binary and its own disassembly; the GT-011/GT-013 wire facts
+#       are cited from DELETE-SOFT-002/003 and LOGOUT-RESP-001, which are pinned above.
+#   (ref, unpinned) GameClient/GameClient.bin (non-local profile) - parity NOT verified.
+#
+# Verifier + regression test shipped with this report:
+#   (ref, unpinned) tools/pf_ui_state_refresh_static.py   (292 guards, pure stdlib, exit 0)
+#   (ref, unpinned) tests/test_ui_state_refresh_static.py
+# Report (this file's sibling):
+#   (ref, unpinned) reports/PF_UI_REFRESH001_CHARACTER_SELECT_STATE_MACHINE_STATIC_20260819.md
