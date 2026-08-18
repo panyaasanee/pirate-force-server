@@ -229,14 +229,19 @@ class FunctionalCoverageTests(unittest.TestCase):
         self.assertIn("evidence ref", str(error))
 
     def test_not_started_must_not_carry_evidence(self) -> None:
+        # Any not_started row anywhere in the document will do.  This used to look
+        # only in `inventory`, which made the invariant hostage to that one domain's
+        # progress: chief round 75 flipped inventory/use_drop_sell to in_progress
+        # (USE-DROP-SELL-001), inventory ran out of not_started rows, and the fixture
+        # failed to find a subject even though the rule it guards was untouched.
         def mutate(value: dict) -> None:
-            domain = self.domain(value, "inventory")
-            for cap in domain["capabilities"]:
-                if cap["status"] == "not_started":
-                    cap["evidence_refs"] = [
-                        "reports/PF_CONSOLE001_VISIBLE_CONSOLE_RUNTIME_PASS_20260817.md"
-                    ]
-                    return
+            for domain in value["domains"]:
+                for cap in domain["capabilities"]:
+                    if cap["status"] == "not_started":
+                        cap["evidence_refs"] = [
+                            "reports/PF_CONSOLE001_VISIBLE_CONSOLE_RUNTIME_PASS_20260817.md"
+                        ]
+                        return
             raise AssertionError("no not_started row to mutate")
 
         error = self.reject(mutate)

@@ -1,886 +1,894 @@
 {
- "schema": 1,
- "policy": {
-  "statuses": [
-   "not_started",
-   "in_progress",
-   "blocked",
-   "runtime_pass",
-   "complete"
-  ],
-  "completion_rule": "A domain may set domain_complete=true only when every required capability is exactly 'complete'. 'runtime_pass' is a narrow controlled observation and never closes a domain by itself.",
-  "banner_rule": "Every domain publishes status_banner verbatim in STATUS.md. The banner is '<title>: INCOMPLETE' while domain_complete is false and '<title>: COMPLETE' only when it is true.",
-  "policy_text": "A narrow fixture, golden, or single controlled run proves one fact and never closes a domain function. Full stateful completion requires the client/wire path, database persistence, reconnect projection, and the negative paths together. Every handoff must name the next missing behavior for each open domain."
- },
- "domains": [
-  {
-   "id": "inventory",
-   "title": "Inventory",
-   "domain_complete": false,
-   "status_banner": "Inventory: INCOMPLETE",
-   "next_missing_behavior": "occupied_destination_policy",
-   "capabilities": [
-    {
-     "id": "backpack_open_display",
-     "title": "Backpack open and display",
-     "required": true,
-     "status": "runtime_pass",
-     "evidence_refs": [
-      "reports/PF_ITEM_MOVE_CAPTURE001_FREE_SLOT_REQUEST_RUNTIME_PASS_20260817.md",
-      "reports/PF_DEMO_FULLLOOP001_CANONICAL_PORT_ROYAL_RUNTIME_PASS_20260817.md",
-      "reports/PF_RE_V102_Inventory_Unlock_20260814.md",
-      "reports/PF_RE_V103_One_Item_Backpack_20260814.md"
-     ],
-     "test_refs": [
-      "tests/test_item_lifecycle.py"
-     ],
-     "notes": "The client renders the persisted three-item Backpack as 3/40 with identities 1, 2 and 4 at slots 0, 1 and 3. This is one controlled observation of the projection, not a proof of every bag size, page, or filter."
-    },
-    {
-     "id": "persisted_projection_reconnect",
-     "title": "Persisted projection survives reconnect",
-     "required": true,
-     "status": "in_progress",
-     "evidence_refs": [
-      "reports/PF_ITEM_LIFECYCLE001_V111_STACK_MERGE_PERSISTENCE_RUNTIME_PASS_20260816.md"
-     ],
-     "test_refs": [
-      "tests/test_item_lifecycle.py",
-      "tests/test_item_order_static.py"
-     ],
-     "notes": "Persistence across one merge is runtime-proven. Identity ordering on reconnect is canonicalized client-compatible ordering, not proven original-server policy; see HYP-PF-008 provenance."
-    },
-    {
-     "id": "move_known_item_any_free_slot",
-     "title": "Move any known item to any free slot 0-39",
-     "required": true,
-     "status": "runtime_pass",
-     "evidence_refs": [
-      "reports/PF_GT002_GENERALIZED_FREE_SLOT_MOVE_FIRST_CLIENT_ACCEPTANCE_RUNTIME_PASS_20260817.md",
-      "reports/PF_ITEM_MOVE_CAPTURE001_FREE_SLOT_REQUEST_RUNTIME_PASS_20260817.md",
-      "reports/PF_ITEM_MOVE_CONSUMER001_RESPONSE_APPLY_STATIC_CHECKPOINT_20260816.md",
-      "reports/PF_ITEM_MOVE_ORDER001_BACKPACK_IDENTITY_ORDER_STATIC_CHECKPOINT_20260816.md"
-     ],
-     "test_refs": [
-      "tests/test_item_move_capture.py",
-      "tests/test_item_move_hypothesis.py",
-      "tests/test_item_move_generalized.py"
-     ],
-     "notes": "GT-002 (attended, HEAD 55c7c59) delivered the first real-client acceptance: a drag of identity 1 from slot 0 to free slot 10 under the opt-in scenario produced the wire request, an explicit HYP_PF_010 commit response (82 bytes, 0.3 ms), the slot update in character_backpack_items plus the touched character_backpacks.updated_at, and a reconnect projection at slot 10. One controlled observation of one item/slot pair; occupied, swap, stack, other identities, and restart durability remain unproven, and production_allowed stays false behind the opt-in scenario."
-    },
-    {
-     "id": "same_slot_noop",
-     "title": "Same-slot move is an exact no-op",
-     "required": true,
-     "status": "runtime_pass",
-     "evidence_refs": [
-      "reports/PF_SAME_SLOT_NOOP001_DEFAULT_PROFILE_REPLAY_HEADLESS_20260818.md"
-     ],
-     "test_refs": [
-      "tests/test_item_move_generalized.py"
-     ],
-     "notes": "Same-slot move is a silent no-op with no reply and no write, and stays one under replay. Runtime-proven at the wire/DB layer under the default free-slot profile by SAME-SLOT-NOOP-001 (three own-slot targets x three replays each, all silent, both persistence tables byte-identical before and after; heartbeat control confirms a live socket). It is accepted HYP-PF-010 behavior (the free-slot lane returns the same-slot None sentinel), not a new hypothesis; the swap milestone proved the same silence once under the swap profile. No client-observable claim: a no-op has no visible effect."
-    },
-    {
-     "id": "move_negative_paths",
-     "title": "Negative paths: unknown identity, out-of-range slot, malformed, replay, session and account isolation",
-     "required": true,
-     "status": "in_progress",
-     "evidence_refs": [
-      "reports/PF_RE_V104_ItemOperate_Request_Capture_20260814.md",
-      "reports/PF_RE_V105_ItemOperate_Response_Version_Boundary_20260814.md",
-      "reports/PF_RE_V106_ItemOperate_V2_Accepted_Removal_Boundary_20260814.md",
-      "reports/PF_MOVE_ISOLATION001_CROSS_SESSION_AND_ACCOUNT_HEADLESS_20260818.md"
-     ],
-     "test_refs": [
-      "tests/test_item_move_hypothesis.py",
-      "tests/test_item_move_capture.py",
-      "tests/test_connection_lifecycle.py",
-      "tests/test_item_move_generalized.py"
-     ],
-     "notes": "Offline negative coverage exists for unknown identity, out-of-range slot, malformed, and replay. MOVE-ISOLATION-001 (chief round 67, 2026-08-18) adds the previously-missing isolation evidence: on a real server over TCP, two dev-account characters with identical INITIAL Backpacks each committed the byte-identical free-slot move under its own serial session, and each move mutated only its own character_id rows (the other character's rows and updated_at byte-identical across the foreign move), proving cross-session/cross-character isolation and within-session identity resolution. Two independent layers are proven: (Layer 1, wire) parse_item_operate_req decodes exactly operation/destination/item_identity with no owner field and rejects trailing bytes, so no request can name another character; (Layer 2, persistence) the _require_selected_session guard accepts only the open session that has itself selected that character within its own account, exercised against a seeded second account to reject foreign-account, unselected-sibling, and closed-session cases. Stays in_progress, not runtime_pass: full cross-account isolation at runtime needs two live authenticated accounts, which the development login path does not yet support (the standing authenticated_multi_account / persistence-accounts question). production_allowed stays false; the lane is opt-in only."
-    },
-    {
-     "id": "occupied_destination_policy",
-     "title": "Occupied destination with a different item: swap, displacement or reject",
-     "required": true,
-     "status": "in_progress",
-     "evidence_refs": [
-      "reports/PF_ITEM_SWAP001_OCCUPIED_DESTINATION_SWAP_HEADLESS_20260818.md",
-      "scenarios/item_move_hypothesis_v111_occupied_swap.json"
-     ],
-     "test_refs": [
-      "tests/test_item_swap_hypothesis.py"
-     ],
-     "notes": "HYP-PF-017 (round 65): occupied-by-different-identity swap landed behind the dedicated swap profile of the item-move opt-in scenario, wire/DB headless-proven on a real server process over real TCP (two-item delta response byte-exact after the atomic commit; both persistence tables; canonical untouched). Outside that profile occupied destinations stay fail-closed exactly as pinned by HYP-PF-010 (probe pass E). Client-observable acceptance and the real client request shape for an occupied-destination drag are GT-015 (attended). Original-server policy remains unknown and unclaimed; production_allowed stays false."
-    },
-    {
-     "id": "stack_merge_and_limit",
-     "title": "Compatible stack merge and stack limit behavior",
-     "required": true,
-     "status": "in_progress",
-     "evidence_refs": [
-      "reports/PF_ITEM_LIFECYCLE001_V111_STACK_MERGE_PERSISTENCE_RUNTIME_PASS_20260816.md",
-      "reports/PF_RE_V107_to_V110_Stateful_Inventory_and_ActionItem_Capture_20260814.md",
-      "reports/PF_ITEM_MERGE001_OCCUPIED_SAMETEMPLATE_MERGE_HEADLESS_20260818.md",
-      "scenarios/item_move_hypothesis_v111_occupied_merge.json"
-     ],
-     "test_refs": [
-      "tests/test_item_lifecycle.py",
-      "tests/test_item_merge_hypothesis.py"
-     ],
-     "notes": "One exact V111 merge to quantity 2 is runtime-proven and persisted (the real client accepted and rendered the original server's stack-merge delta live). ITEM-MERGE-001 (HYP-PF-018, chief round 71, 2026-08-18) generalizes that single captured behavior behind the dedicated merge profile of the item-move opt-in scenario: on a real server over real TCP, a strict-parse move onto a slot occupied by a same-template, identical-variant governed item merges the source stack into the surviving target in one atomic transaction against both named persistence tables, answered with the V111 merge delta structure byte-identically (the exact V111 direction reproduces the frozen V141 golden byte-for-byte; a generalized slot-7 instance committed with the same structure); different templates and the reversed direction fail closed, and the lane is unreachable without the opt-in profile. Client acceptance of the merge delta at non-slot-0 destinations rides GT-015 (attended). The stack ceiling, overflow split-on-merge behavior, and the original server's incompatible-template policy remain unproven and unclaimed; production_allowed stays false."
-    },
-    {
-     "id": "split_stack",
-     "title": "Split a stack",
-     "required": true,
-     "status": "in_progress",
-     "evidence_refs": [
-      "reports/PF_SPLIT_OPERATE001_ITEM_OPERATE_OPCODE_SPACE_STATIC_20260818.md",
-      "reports/PF_SPLIT_OPERATE002_OP6_QUANTITY_FAMILY_ENUMERATION_STATIC_20260818.md"
-     ],
-     "test_refs": [
-      "tests/test_split_operate_static.py",
-      "tests/test_split_operate_family_static.py"
-     ],
-     "notes": "SPLIT-OPERATE-001 (chief round 68, 2026-08-18) captures the request transport and its wire schema byte-exact from the client binary. A stack-split has no dedicated opcode: every item action rides ItemOperateVitalReq 0x4BED, discriminated by a single operation byte at obj+0x14 (wire tag 0x0B). The full operation space present in the image is {1,3,4,5,6}: 1 is the constructor default, and producers emit 3,4,5,6 as immediates. op4=move (value32=destination slot, qword=item identity) and op5=equip-from-bag (value32=slot bitfield) match the server's two recognized operations. op6 is the quantity-parameterized producer: its caller pops a positive-only numeric input dialog (0x5A1630) and encodes the entered count into the qword field (tag 0x32) that move/equip use for item identity, while value32 carries the item handle. This operation-dependent field meaning is the trap a naive split implementation would hit. The serializer 0x5E5AF0 and id assignment match the shared VitalData cohort (id 0x4BED is runtime-assigned, never a code immediate). Server gap: current/pf_login_game_server_v141.py handles operation 4 and 5 only; operations 3 and 6 have client producers but no server handler, so split is characterized, not implemented. Not claimed: op6 == split specifically (op6 is the quantity-op family covering split/drop-N/sell-N; op6 carries no destination slot, so distinguishing split needs the verb-code->UI action resolution for eax==0x16 or a live capture). Response lane = ItemOperateVitalRes 0x4C13 (shared with move-merge success); persistence lane = character_backpack_items rows + character_backpacks.updated_at under the pinned _require_selected_session guard. SPLIT-OPERATE-002 (chief round 69, 2026-08-18) enumerates the op6 family byte-exact and bounds the split candidate. The op6 factory 0x59F870 has exactly four call sites (0x57D1F4, 0x58294D, 0x5A3532, 0x5BA208), so op6 is definitively a shared quantity-op family, not a split opcode; every site passes (qty_low, qty_high, item_handle) and the factory serializes value32=item_handle and qword=64-bit quantity (ret 0xC) with no destination-slot argument at any site. The inventory action dispatcher is one function [0x5A2A70,0x5A40B0) that holds the op4=move producer call (verb eax==2 @0x5A3491) and exactly one op6 site (verb eax==0x16 @0x5A3532); the other three op6 sites are in three distinct functions outside it. So within the backpack move/equip dispatcher, verb 0x16 is the unique quantity-op path (opens numeric-input dialog resource 0x12, guards it strictly positive, then calls op6) and is the bounded split candidate. Still not claimed: verb 0x16 == split specifically -- op6-with-no-destination is equally consistent with backpack drop-N/destroy-N, so a positive split label still needs the dialog-resource 0x12 caption resolution or a live capture. SPLIT-OPERATE-003 (chief round 70, 2026-08-18; reports/PF_SPLIT_OPERATE003_VERB16_TWO_PANELS_STATIC_20260818.md, tools/pf_split_operate_verb_panels_static.py, tests/test_split_operate_verb_panels_static.py) walks that hop as far as static evidence allows and closes the static caption route. Two of the four op6 sites gate on cmp eax,0x16 (site C @0x5A3532 in the dispatcher fn 0x5A2A70, and site D @0x5BA208 in a distinct fn @0x5B9F70), both routing through the same numeric-input helper 0x5A1630 before op6 -- so verb 0x16 is not globally unique; the shared action code plus shared dialog is consistent with a generic quantity-split reused across panels but is still not a positive split label (op6 has no destination slot; equally consistent with a shared drop-N/destroy-N). The numeric dialog is the generic reusable control Common_NumInput.model (plaintext UIControlData XML with no inline caption); the caption text is resolved at runtime from the packed table B_TEXTDATA_TH.pc_ (magic $pcz) and packed UI Lua, so no readable client asset maps dialog id 0x12 to a split caption. Incidental correction: 0x42AB40 in the verb-0x16 body is a temp-object destructor (SEH prologue + two vtable stores + free 0x88D060), not a dialog opener; dialog id 0x12 is a stack local at 0x5A34D7. Net: the static caption route is now evidenced-closed, so the sole remaining hop to a positive split label is a live capture of the verb-0x16 numeric dialog plus the op6 frame it emits (queued as GT-015). Stays in_progress, not runtime_pass: no server handler and no runtime capture yet."
-    },
-    {
-     "id": "equip_unequip",
-     "title": "Equip and unequip from the Backpack",
-     "required": true,
-     "status": "in_progress",
-     "evidence_refs": [
-      "reports/PF_EQUIP_STATE001_EQUIPPED_VS_COLLECTION_STATIC_BOUNDARY_20260816.md",
-      "reports/PF_RE_V123_Starter_Blade_Equip_From_Bag_Capture_20260814.md",
-      "reports/PF_RE_V130_Equipped_Blade_Negative_Boundary_20260815.md"
-     ],
-     "test_refs": [
-      "tests/test_equip_state_static.py"
-     ],
-     "notes": "Static boundary between equipped state and the Backpack collection is characterized and one capture exists. No server-side equip operation, persistence, or reconnect projection is implemented."
-    },
-    {
-     "id": "use_drop_sell",
-     "title": "Use, drop and sell paths",
-     "required": true,
-     "status": "not_started",
-     "evidence_refs": [],
-     "test_refs": [],
-     "notes": "Tracked as separate later milestones. Listed here so the domain can never read as complete while they are missing."
-    }
-   ]
+  "schema": 1,
+  "policy": {
+    "statuses": [
+      "not_started",
+      "in_progress",
+      "blocked",
+      "runtime_pass",
+      "complete"
+    ],
+    "completion_rule": "A domain may set domain_complete=true only when every required capability is exactly 'complete'. 'runtime_pass' is a narrow controlled observation and never closes a domain by itself.",
+    "banner_rule": "Every domain publishes status_banner verbatim in STATUS.md. The banner is '<title>: INCOMPLETE' while domain_complete is false and '<title>: COMPLETE' only when it is true.",
+    "policy_text": "A narrow fixture, golden, or single controlled run proves one fact and never closes a domain function. Full stateful completion requires the client/wire path, database persistence, reconnect projection, and the negative paths together. Every handoff must name the next missing behavior for each open domain."
   },
-  {
-   "id": "session_lifecycle",
-   "title": "Session lifecycle",
-   "domain_complete": false,
-   "status_banner": "Session lifecycle: INCOMPLETE",
-   "next_missing_behavior": "concurrent_multi_client",
-   "capabilities": [
+  "domains": [
     {
-     "id": "visible_console_requirement",
-     "title": "Every actual server run shows a visible console and mirrors its summary streams",
-     "required": true,
-     "status": "runtime_pass",
-     "evidence_refs": [
-      "reports/PF_CONSOLE001_VISIBLE_CONSOLE_RUNTIME_PASS_20260817.md"
-     ],
-     "test_refs": [
-      "tests/test_runtime_console.py"
-     ],
-     "notes": "One controlled start and requested stop through this exact helper and console host. --self-test-only stays exempt because it opens no listener."
+      "id": "inventory",
+      "title": "Inventory",
+      "domain_complete": false,
+      "status_banner": "Inventory: INCOMPLETE",
+      "next_missing_behavior": "occupied_destination_policy",
+      "capabilities": [
+        {
+          "id": "backpack_open_display",
+          "title": "Backpack open and display",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_ITEM_MOVE_CAPTURE001_FREE_SLOT_REQUEST_RUNTIME_PASS_20260817.md",
+            "reports/PF_DEMO_FULLLOOP001_CANONICAL_PORT_ROYAL_RUNTIME_PASS_20260817.md",
+            "reports/PF_RE_V102_Inventory_Unlock_20260814.md",
+            "reports/PF_RE_V103_One_Item_Backpack_20260814.md"
+          ],
+          "test_refs": [
+            "tests/test_item_lifecycle.py"
+          ],
+          "notes": "The client renders the persisted three-item Backpack as 3/40 with identities 1, 2 and 4 at slots 0, 1 and 3. This is one controlled observation of the projection, not a proof of every bag size, page, or filter."
+        },
+        {
+          "id": "persisted_projection_reconnect",
+          "title": "Persisted projection survives reconnect",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_ITEM_LIFECYCLE001_V111_STACK_MERGE_PERSISTENCE_RUNTIME_PASS_20260816.md"
+          ],
+          "test_refs": [
+            "tests/test_item_lifecycle.py",
+            "tests/test_item_order_static.py"
+          ],
+          "notes": "Persistence across one merge is runtime-proven. Identity ordering on reconnect is canonicalized client-compatible ordering, not proven original-server policy; see HYP-PF-008 provenance."
+        },
+        {
+          "id": "move_known_item_any_free_slot",
+          "title": "Move any known item to any free slot 0-39",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_GT002_GENERALIZED_FREE_SLOT_MOVE_FIRST_CLIENT_ACCEPTANCE_RUNTIME_PASS_20260817.md",
+            "reports/PF_ITEM_MOVE_CAPTURE001_FREE_SLOT_REQUEST_RUNTIME_PASS_20260817.md",
+            "reports/PF_ITEM_MOVE_CONSUMER001_RESPONSE_APPLY_STATIC_CHECKPOINT_20260816.md",
+            "reports/PF_ITEM_MOVE_ORDER001_BACKPACK_IDENTITY_ORDER_STATIC_CHECKPOINT_20260816.md"
+          ],
+          "test_refs": [
+            "tests/test_item_move_capture.py",
+            "tests/test_item_move_hypothesis.py",
+            "tests/test_item_move_generalized.py"
+          ],
+          "notes": "GT-002 (attended, HEAD 55c7c59) delivered the first real-client acceptance: a drag of identity 1 from slot 0 to free slot 10 under the opt-in scenario produced the wire request, an explicit HYP_PF_010 commit response (82 bytes, 0.3 ms), the slot update in character_backpack_items plus the touched character_backpacks.updated_at, and a reconnect projection at slot 10. One controlled observation of one item/slot pair; occupied, swap, stack, other identities, and restart durability remain unproven, and production_allowed stays false behind the opt-in scenario."
+        },
+        {
+          "id": "same_slot_noop",
+          "title": "Same-slot move is an exact no-op",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_SAME_SLOT_NOOP001_DEFAULT_PROFILE_REPLAY_HEADLESS_20260818.md"
+          ],
+          "test_refs": [
+            "tests/test_item_move_generalized.py"
+          ],
+          "notes": "Same-slot move is a silent no-op with no reply and no write, and stays one under replay. Runtime-proven at the wire/DB layer under the default free-slot profile by SAME-SLOT-NOOP-001 (three own-slot targets x three replays each, all silent, both persistence tables byte-identical before and after; heartbeat control confirms a live socket). It is accepted HYP-PF-010 behavior (the free-slot lane returns the same-slot None sentinel), not a new hypothesis; the swap milestone proved the same silence once under the swap profile. No client-observable claim: a no-op has no visible effect."
+        },
+        {
+          "id": "move_negative_paths",
+          "title": "Negative paths: unknown identity, out-of-range slot, malformed, replay, session and account isolation",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_RE_V104_ItemOperate_Request_Capture_20260814.md",
+            "reports/PF_RE_V105_ItemOperate_Response_Version_Boundary_20260814.md",
+            "reports/PF_RE_V106_ItemOperate_V2_Accepted_Removal_Boundary_20260814.md",
+            "reports/PF_MOVE_ISOLATION001_CROSS_SESSION_AND_ACCOUNT_HEADLESS_20260818.md"
+          ],
+          "test_refs": [
+            "tests/test_item_move_hypothesis.py",
+            "tests/test_item_move_capture.py",
+            "tests/test_connection_lifecycle.py",
+            "tests/test_item_move_generalized.py"
+          ],
+          "notes": "Offline negative coverage exists for unknown identity, out-of-range slot, malformed, and replay. MOVE-ISOLATION-001 (chief round 67, 2026-08-18) adds the previously-missing isolation evidence: on a real server over TCP, two dev-account characters with identical INITIAL Backpacks each committed the byte-identical free-slot move under its own serial session, and each move mutated only its own character_id rows (the other character's rows and updated_at byte-identical across the foreign move), proving cross-session/cross-character isolation and within-session identity resolution. Two independent layers are proven: (Layer 1, wire) parse_item_operate_req decodes exactly operation/destination/item_identity with no owner field and rejects trailing bytes, so no request can name another character; (Layer 2, persistence) the _require_selected_session guard accepts only the open session that has itself selected that character within its own account, exercised against a seeded second account to reject foreign-account, unselected-sibling, and closed-session cases. Stays in_progress, not runtime_pass: full cross-account isolation at runtime needs two live authenticated accounts, which the development login path does not yet support (the standing authenticated_multi_account / persistence-accounts question). production_allowed stays false; the lane is opt-in only."
+        },
+        {
+          "id": "occupied_destination_policy",
+          "title": "Occupied destination with a different item: swap, displacement or reject",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_ITEM_SWAP001_OCCUPIED_DESTINATION_SWAP_HEADLESS_20260818.md",
+            "scenarios/item_move_hypothesis_v111_occupied_swap.json"
+          ],
+          "test_refs": [
+            "tests/test_item_swap_hypothesis.py"
+          ],
+          "notes": "HYP-PF-017 (round 65): occupied-by-different-identity swap landed behind the dedicated swap profile of the item-move opt-in scenario, wire/DB headless-proven on a real server process over real TCP (two-item delta response byte-exact after the atomic commit; both persistence tables; canonical untouched). Outside that profile occupied destinations stay fail-closed exactly as pinned by HYP-PF-010 (probe pass E). Client-observable acceptance and the real client request shape for an occupied-destination drag are GT-015 (attended). Original-server policy remains unknown and unclaimed; production_allowed stays false."
+        },
+        {
+          "id": "stack_merge_and_limit",
+          "title": "Compatible stack merge and stack limit behavior",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_ITEM_LIFECYCLE001_V111_STACK_MERGE_PERSISTENCE_RUNTIME_PASS_20260816.md",
+            "reports/PF_RE_V107_to_V110_Stateful_Inventory_and_ActionItem_Capture_20260814.md",
+            "reports/PF_ITEM_MERGE001_OCCUPIED_SAMETEMPLATE_MERGE_HEADLESS_20260818.md",
+            "scenarios/item_move_hypothesis_v111_occupied_merge.json"
+          ],
+          "test_refs": [
+            "tests/test_item_lifecycle.py",
+            "tests/test_item_merge_hypothesis.py"
+          ],
+          "notes": "One exact V111 merge to quantity 2 is runtime-proven and persisted (the real client accepted and rendered the original server's stack-merge delta live). ITEM-MERGE-001 (HYP-PF-018, chief round 71, 2026-08-18) generalizes that single captured behavior behind the dedicated merge profile of the item-move opt-in scenario: on a real server over real TCP, a strict-parse move onto a slot occupied by a same-template, identical-variant governed item merges the source stack into the surviving target in one atomic transaction against both named persistence tables, answered with the V111 merge delta structure byte-identically (the exact V111 direction reproduces the frozen V141 golden byte-for-byte; a generalized slot-7 instance committed with the same structure); different templates and the reversed direction fail closed, and the lane is unreachable without the opt-in profile. Client acceptance of the merge delta at non-slot-0 destinations rides GT-015 (attended). The stack ceiling, overflow split-on-merge behavior, and the original server's incompatible-template policy remain unproven and unclaimed; production_allowed stays false."
+        },
+        {
+          "id": "split_stack",
+          "title": "Split a stack",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_SPLIT_OPERATE001_ITEM_OPERATE_OPCODE_SPACE_STATIC_20260818.md",
+            "reports/PF_SPLIT_OPERATE002_OP6_QUANTITY_FAMILY_ENUMERATION_STATIC_20260818.md"
+          ],
+          "test_refs": [
+            "tests/test_split_operate_static.py",
+            "tests/test_split_operate_family_static.py"
+          ],
+          "notes": "SPLIT-OPERATE-001 (chief round 68, 2026-08-18) captures the request transport and its wire schema byte-exact from the client binary. A stack-split has no dedicated opcode: every item action rides ItemOperateVitalReq 0x4BED, discriminated by a single operation byte at obj+0x14 (wire tag 0x0B). The full operation space present in the image is {1,3,4,5,6}: 1 is the constructor default, and producers emit 3,4,5,6 as immediates. op4=move (value32=destination slot, qword=item identity) and op5=equip-from-bag (value32=slot bitfield) match the server's two recognized operations. op6 is the quantity-parameterized producer: its caller pops a positive-only numeric input dialog (0x5A1630) and encodes the entered count into the qword field (tag 0x32) that move/equip use for item identity, while value32 carries the item handle. This operation-dependent field meaning is the trap a naive split implementation would hit. The serializer 0x5E5AF0 and id assignment match the shared VitalData cohort (id 0x4BED is runtime-assigned, never a code immediate). Server gap: current/pf_login_game_server_v141.py handles operation 4 and 5 only; operations 3 and 6 have client producers but no server handler, so split is characterized, not implemented. Not claimed: op6 == split specifically (op6 is the quantity-op family covering split/drop-N/sell-N; op6 carries no destination slot, so distinguishing split needs the verb-code->UI action resolution for eax==0x16 or a live capture). Response lane = ItemOperateVitalRes 0x4C13 (shared with move-merge success); persistence lane = character_backpack_items rows + character_backpacks.updated_at under the pinned _require_selected_session guard. SPLIT-OPERATE-002 (chief round 69, 2026-08-18) enumerates the op6 family byte-exact and bounds the split candidate. The op6 factory 0x59F870 has exactly four call sites (0x57D1F4, 0x58294D, 0x5A3532, 0x5BA208), so op6 is definitively a shared quantity-op family, not a split opcode; every site passes (qty_low, qty_high, item_handle) and the factory serializes value32=item_handle and qword=64-bit quantity (ret 0xC) with no destination-slot argument at any site. The inventory action dispatcher is one function [0x5A2A70,0x5A40B0) that holds the op4=move producer call (verb eax==2 @0x5A3491) and exactly one op6 site (verb eax==0x16 @0x5A3532); the other three op6 sites are in three distinct functions outside it. So within the backpack move/equip dispatcher, verb 0x16 is the unique quantity-op path (opens numeric-input dialog resource 0x12, guards it strictly positive, then calls op6) and is the bounded split candidate. Still not claimed: verb 0x16 == split specifically -- op6-with-no-destination is equally consistent with backpack drop-N/destroy-N, so a positive split label still needs the dialog-resource 0x12 caption resolution or a live capture. SPLIT-OPERATE-003 (chief round 70, 2026-08-18; reports/PF_SPLIT_OPERATE003_VERB16_TWO_PANELS_STATIC_20260818.md, tools/pf_split_operate_verb_panels_static.py, tests/test_split_operate_verb_panels_static.py) walks that hop as far as static evidence allows and closes the static caption route. Two of the four op6 sites gate on cmp eax,0x16 (site C @0x5A3532 in the dispatcher fn 0x5A2A70, and site D @0x5BA208 in a distinct fn @0x5B9F70), both routing through the same numeric-input helper 0x5A1630 before op6 -- so verb 0x16 is not globally unique; the shared action code plus shared dialog is consistent with a generic quantity-split reused across panels but is still not a positive split label (op6 has no destination slot; equally consistent with a shared drop-N/destroy-N). The numeric dialog is the generic reusable control Common_NumInput.model (plaintext UIControlData XML with no inline caption); the caption text is resolved at runtime from the packed table B_TEXTDATA_TH.pc_ (magic $pcz) and packed UI Lua, so no readable client asset maps dialog id 0x12 to a split caption. Incidental correction: 0x42AB40 in the verb-0x16 body is a temp-object destructor (SEH prologue + two vtable stores + free 0x88D060), not a dialog opener; dialog id 0x12 is a stack local at 0x5A34D7. Net: the static caption route is now evidenced-closed, so the sole remaining hop to a positive split label is a live capture of the verb-0x16 numeric dialog plus the op6 frame it emits (queued as GT-015). Stays in_progress, not runtime_pass: no server handler and no runtime capture yet."
+        },
+        {
+          "id": "equip_unequip",
+          "title": "Equip and unequip from the Backpack",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_EQUIP_STATE001_EQUIPPED_VS_COLLECTION_STATIC_BOUNDARY_20260816.md",
+            "reports/PF_RE_V123_Starter_Blade_Equip_From_Bag_Capture_20260814.md",
+            "reports/PF_RE_V130_Equipped_Blade_Negative_Boundary_20260815.md"
+          ],
+          "test_refs": [
+            "tests/test_equip_state_static.py"
+          ],
+          "notes": "Static boundary between equipped state and the Backpack collection is characterized and one capture exists. No server-side equip operation, persistence, or reconnect projection is implemented."
+        },
+        {
+          "id": "use_drop_sell",
+          "title": "Use, drop and sell paths",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_USE_DROP_SELL001_ITEM_OPERATE_USE_DROP_SELL_STATIC_20260818.md"
+          ],
+          "test_refs": [
+            "tests/test_use_drop_sell_static.py"
+          ],
+          "notes": "USE-DROP-SELL-001 (chief round 75, 2026-08-18) characterizes, byte-exact from the read-only client binary cross-checked against the read-only server source, how the client actually produces the use, drop and sell paths, and the headline is a pair of positive negatives: neither use nor sell rides ItemOperate at all. USE has its own request class UseItemVital (vtable 0xF30950, single registration 0xBEE600 into id-slot 0x1082030, one get-id stub 0x5BEA50, cohort-shaped like ItemOperateVitalReq) whose serializer 0x6C0180 emits exactly one field, a qword tag 0x32 at +0x18: use(item_identity) with no operation byte and no value32. SELL has an entire system of its own: StallModule_Client, StallStartVital, StallOpenVital and StallOperateVital for player stalls, the GSCN_BlackMarketPutOnSale/OffSale/Buy/Search family, UpdateConditionalStoreItemVital, and the ItemMall classes; StallOperateVital's serializer 0x76A630 is a priced wire (u8 tag 0x08 at +0x14, qword tag 0x32 at +0x18, u32 tag 0x14 at +0x20 = price, string at +0x24), a different shape from ItemOperate's three-field wire. None of the five functions that produce an ItemOperate (0x57CF50, 0x582730, 0x5A2A70, 0x5B9F70, 0x5B9CE0) references any string containing stall, market, store, sell, buy, shop, vendor, money or price, which retires the sell-N candidate SPLIT-OPERATE-002 had left open for the op6 family. Within ItemOperate the milestone pins op3: its single caller 0x5B9D0C sits in a 0x3E-byte function [0x5B9CE0,0x5B9D1E) that is never e8-called -- its only image-wide dword reference is push 0x5B9CE0 at 0x5BA16C, registering it as a dialog callback through 0x405D40 into dialog+0x12CC -- and it emits op3 only when [arg1+0x94]==1, reading the identity out of the global qword 0x1080F40/44 and clearing it; the latch is set by verb eax==2 of panel 0x5B9F70, which opens message-box template 0x69 first. So op3 is destructive-shaped: single target, identity-only, no quantity, no destination, no counterparty, behind a modal confirm. The three remaining op6 sites are separated: site A 0x57D1F4 in 0x57CF50 is a third verb-0x16 site that earlier rounds missed because it is written as a memory operand (cmp dword [esi+0x94],0x16) and it carries two item handles and follows op6 with two op5 equips; site B 0x58294D in 0x582730 is not verb-gated at all but gated on a context field [ctx+8] with a GetAsyncKeyState SHIFT/CTRL arm; site D 0x5BA208 is the verb-0x16 arm of panel 0x5B9F70. Server gap: v141 declares USE_ITEM_VITAL = 0x1F4F and lists it in NAMES but has no dispatch branch for it, ItemOperate accepts only operations 4 and 5 with no 3 and no 6, there is no stall or black-market id anywhere, the one implemented shop route is TradeCmdVital 0x23B5 which accepts a single command (cart-add/buy = 6) with no sell branch, and foundation runtime.py fails closed on every operation other than 4. Incidental evidenced correction: the mov dword [esp+0x180],0x12 at 0x5A34D7 that SPLIT-OPERATE-001/002 labelled a numeric-input dialog resource is in fact an MSVC EH trylevel store (the same slot takes 0xFFFFFFFF at 0x5A3502 and 0x0A at 0x5A335A/0x5A30C0, anchored by the EHRec lea/mov fs:[0]); this does not disturb any structure those rounds proved and it strengthens SPLIT-OPERATE-003's negative closure, because there was never a dialog id to resolve a caption for. Not claimed: that op3 is specifically drop, discard or destroy (the message-box 0x69 caption lives in the packed text table, so op3 remains compatible with destroy, discard, unequip-with-confirm or consume-with-confirm), that any op6 verb is split or drop-N, and that the client has no drop request at all. Status is in_progress, not runtime_pass: no server handler exists for op3, op6 or UseItemVital, and nothing here is runtime-captured. Report-only additive; ledger stays 25. Verified by tools/pf_use_drop_sell_static.py (88 guards, exit 0) and tests/test_use_drop_sell_static.py (16 tests)."
+        }
+      ]
     },
     {
-     "id": "requested_stop_clean_exit",
-     "title": "Requested stop exits server and shim with code 0 and no residue",
-     "required": true,
-     "status": "runtime_pass",
-     "evidence_refs": [
-      "reports/PF_CONSOLE001_VISIBLE_CONSOLE_RUNTIME_PASS_20260817.md",
-      "reports/PF_FND008_ACTIVE_CLIENT_CLEAN_SERVER_SHUTDOWN_RUNTIME_PASS_20260816.md"
-     ],
-     "test_refs": [
-      "tests/test_server_shutdown.py"
-     ],
-     "notes": "Exactly one stopped marker, zero stderr bytes, zero remaining listeners and processes. Not proof for every signal source."
+      "id": "session_lifecycle",
+      "title": "Session lifecycle",
+      "domain_complete": false,
+      "status_banner": "Session lifecycle: INCOMPLETE",
+      "next_missing_behavior": "concurrent_multi_client",
+      "capabilities": [
+        {
+          "id": "visible_console_requirement",
+          "title": "Every actual server run shows a visible console and mirrors its summary streams",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_CONSOLE001_VISIBLE_CONSOLE_RUNTIME_PASS_20260817.md"
+          ],
+          "test_refs": [
+            "tests/test_runtime_console.py"
+          ],
+          "notes": "One controlled start and requested stop through this exact helper and console host. --self-test-only stays exempt because it opens no listener."
+        },
+        {
+          "id": "requested_stop_clean_exit",
+          "title": "Requested stop exits server and shim with code 0 and no residue",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_CONSOLE001_VISIBLE_CONSOLE_RUNTIME_PASS_20260817.md",
+            "reports/PF_FND008_ACTIVE_CLIENT_CLEAN_SERVER_SHUTDOWN_RUNTIME_PASS_20260816.md"
+          ],
+          "test_refs": [
+            "tests/test_server_shutdown.py"
+          ],
+          "notes": "Exactly one stopped marker, zero stderr bytes, zero remaining listeners and processes. Not proof for every signal source."
+        },
+        {
+          "id": "character_select_to_scene_entry",
+          "title": "Character select, StartGame and scene entry through the real client",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_DEMO_FULLLOOP001_CANONICAL_PORT_ROYAL_RUNTIME_PASS_20260817.md"
+          ],
+          "test_refs": [
+            "tests/test_connection_lifecycle.py",
+            "tests/test_foundation.py",
+            "tests/test_session_row_persistence.py"
+          ],
+          "notes": "One single-client session reaching Port Royal with the persisted name projected, then exiting cleanly."
+        },
+        {
+          "id": "session_row_persistence",
+          "title": "Session row opens on entry and closes on exit with a durable lease generation",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_DEMO_FULLLOOP001_CANONICAL_PORT_ROYAL_RUNTIME_PASS_20260817.md",
+            "reports/PF_FND007_GAME_DISCONNECT_LEASE_CLOSE_RUNTIME_PASS_SHUTDOWN_NEGATIVE_20260816.md"
+          ],
+          "test_refs": [
+            "tests/test_connection_lifecycle.py",
+            "tests/test_session_row_persistence.py"
+          ],
+          "notes": "Read-only post-state oracle confirms one session row with both timestamps, integrity ok and an empty foreign-key check."
+        },
+        {
+          "id": "abrupt_loss_recovery",
+          "title": "Abrupt client loss and abrupt server restart recover to a usable state",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_FND009_ABRUPT_PROCESS_RESTART_RECOVERY_RUNTIME_PASS_20260816.md",
+            "reports/PF_FND010_ABRUPT_CLIENT_PROCESS_LOSS_RECONNECT_RUNTIME_PASS_20260816.md",
+            "reports/PF_FND006_SERVER_RESTART_DURABILITY_RUNTIME_PASS_SHUTDOWN_NEGATIVE_20260816.md"
+          ],
+          "test_refs": [
+            "tests/test_server_shutdown.py",
+            "tests/test_connection_lifecycle.py",
+            "tests/test_startup_stale_lease_recovery.py"
+          ],
+          "notes": "Process-level abrupt loss is covered. Host power loss and storage-level torn writes are not. The restart half of the claim -- a replacement process closing the lease a dead process left open -- is watched only by the startup recovery module; the other two files watch the client-loss half."
+        },
+        {
+          "id": "clean_logout",
+          "title": "Client-requested logout is acknowledged and closes the session cleanly",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "scenarios/logout_hypothesis_ack_echo.json",
+            "reports/PF_BIGROUND2_ATTENDED_RESULTS_20260818.md",
+            "scenarios/logout_hypothesis_worldinfo_first.json",
+            "reports/PF_LOGOUT_RESP001_HYP_PF_016_WORLDINFO_FIRST_HEADLESS_20260818.md"
+          ],
+          "test_refs": [
+            "tests/test_logout_hypothesis.py",
+            "tests/test_logout_worldinfo_first.py"
+          ],
+          "notes": "HYP-PF-012 (owner option A, 2026-08-17): both captured LogoutVital forms (subcode 01 exit-game, 03 return-to-character-select) are acknowledged with a designed hash-pinned echo behind the logout opt-in scenario only, after sessions.closed_at commits; the dispatch layer is silent afterward and everything else fails closed. The wire/DB layer is loopback-tested and headless-proven (LOGOUT-ACK-001), and GT-007 (2026-08-17 attended, reports/PF_GT007_LOGOUT_ECHO_ACK_CLIENT_TRANSITION_NEGATIVE_20260817.md) confirmed close-before-ack on the real client for the first time. GT-007 also falsified the echo-only shape at the client-observable layer: the real client neither returns to character select (03) nor closes itself (01) on the echo ack, though the no-response freeze from GT-002 did not recur. The row stays in_progress until a content-bearing response shape (03: character-select/world payload; 01: close instruction or server-side socket close) is designed under a new hypothesis and passes the attended client-observable check. HYP-PF-013 (LOGOUT-CLOSE-001, round 43 under the owner's standing pre-approval) implements the server-side-close branch: unchanged PF-012 ack bytes plus a clean shutdown+close of the accepted GAME socket 250 ms after the ack, behind the separate ack_close opt-in scenario, fail-closed without an attached transport lever. The client-observable check for this shape is queued as GT-008; a disconnect-error dialog would route design to the recorded 0x3D4B-first fallback under a new entry. UPDATE 2026-08-18 (attended GT-008, รอบใหญ่ #2): the ack+close shape (HYP-PF-013, ack then clean server-side socket shutdown at +250 ms) is also falsified at the client-observable layer -- the client never detects the TCP close at all on either subcode (no transition, no dialog, UI live 40+ s). Client transitions are protocol-driven, not transport-driven; next design = 0x3D4B-first response (world/character-select payload before or instead of the bare echo), to open as a new ledger entry when implemented. UPDATE 2026-08-18 (chief round 53): HYP-PF-016 (LOGOUT-RESP-001) implements the 0x3D4B-first design behind the new worldinfo_first opt-in scenario: the full-form 248-byte GetWorldInfoVital payload the client itself sends at logout-dialog open is stored in memory per connection (never written), and an accepted LogoutVital is answered response-first -- the stored payload mirror-echoed in the accepted RuntimeRes v4 collection envelope with the client's own count=3 and the DELETE-SOFT-002 trailing mask (270-byte PC / 283-byte frame), then the unchanged PF-012 ack, then the composed PF-013 close at +250 ms; sessions.closed_at still commits before the first response byte, and a session that never sent the full form stays silent (no ack-only fallback). Headless-proven in the sandbox over real TCP (ordering and bytes pinned, negative silent, latest-payload-wins). Whether the real client finally transitions (03: character select; 01: exit) is queued as GT-013."
+        },
+        {
+          "id": "concurrent_multi_client",
+          "title": "Two or more concurrent clients on separate accounts",
+          "required": true,
+          "status": "blocked",
+          "evidence_refs": [
+            "reports/PF_SESSION_LIMIT001_SINGLE_SESSION_SERIAL_ACCEPT_KNOWN_LIMITATION_20260817.md"
+          ],
+          "test_refs": [
+            "tests/test_single_session_limitation.py"
+          ],
+          "notes": "Known limitation by owner decision 2026-08-17 (item 14 option B), not by_design: the wire layer proved a second client waits in the TCP backlog until the first closes (serial accept in both v141 listeners), and open_session closes every open lease of the account. HYP-PF-011 keeps the multiplayer door open but demands the dispatch exception boundary and an explicit lease policy first, because the limitation currently interlocks the unguarded position-checkpoint write. This row moves again only after those preconditions and a real two-client runtime run."
+        },
+        {
+          "id": "authenticated_multi_account",
+          "title": "Authenticated multi-account access control",
+          "required": true,
+          "status": "not_started",
+          "evidence_refs": [],
+          "test_refs": [],
+          "notes": "The local server accepts the development login path only. No credential policy, rate limit, or ownership check is claimed."
+        }
+      ]
     },
     {
-     "id": "character_select_to_scene_entry",
-     "title": "Character select, StartGame and scene entry through the real client",
-     "required": true,
-     "status": "runtime_pass",
-     "evidence_refs": [
-      "reports/PF_DEMO_FULLLOOP001_CANONICAL_PORT_ROYAL_RUNTIME_PASS_20260817.md"
-     ],
-     "test_refs": [
-      "tests/test_connection_lifecycle.py",
-      "tests/test_foundation.py",
-      "tests/test_session_row_persistence.py"
-     ],
-     "notes": "One single-client session reaching Port Royal with the persisted name projected, then exiting cleanly."
+      "id": "movement",
+      "title": "Movement",
+      "domain_complete": false,
+      "status_banner": "Movement: INCOMPLETE",
+      "next_missing_behavior": "remote_player_movement_projection",
+      "capabilities": [
+        {
+          "id": "scene_entry_placement",
+          "title": "Scene entry places the local player at the persisted position",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_DEMO_FULLLOOP001_CANONICAL_PORT_ROYAL_RUNTIME_PASS_20260817.md"
+          ],
+          "test_refs": [
+            "tests/test_scene_load.py",
+            "tests/test_connection_lifecycle.py"
+          ],
+          "notes": "One controlled entry into scene 1 Port Royal at the persisted coordinates with the stable zero-target teleport sent exactly once. This is not proof for any other scene, spawn point, instance, or scene transition."
+        },
+        {
+          "id": "local_player_position_checkpoint",
+          "title": "Client-reported position is checkpointed and saved on exit",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_GT005_MOVEMENT_POSITION_PERSISTS_ACROSS_RESTART_RUNTIME_PASS_20260817.md",
+            "reports/PF_FND010_ABRUPT_CLIENT_PROCESS_LOSS_RECONNECT_RUNTIME_PASS_20260816.md"
+          ],
+          "test_refs": [
+            "tests/test_foundation.py",
+            "tests/test_connection_lifecycle.py"
+          ],
+          "notes": "One attended two-boot run through the real client walked the local player from (-9098.55, -2866.86) to (-8094.61, -3207.83), and that walked position was in character_positions after the server exited and was the position the character stood at on the next entry, matching on screen and in the database. The server console counted 29 inbound TargetPosVital frames and the client-side capture counted 29 for the same walk. This is one walk, in scene 1 Port Royal, with one client; the number of checkpoints written per walk, other scenes, scene transitions, and the visible heading remain unmeasured."
+        },
+        {
+          "id": "local_player_movement_authority",
+          "title": "Server-side movement validation and authoritative correction",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_MOVE_AUTHORITY001_TARGETPOS_PRODUCER_STATIC_20260818.md"
+          ],
+          "test_refs": [
+            "tests/test_move_authority_targetpos_static.py"
+          ],
+          "notes": "MOVE-AUTHORITY-001 (chief round 72, 2026-08-18) characterizes, byte-exact from the read-only client binary cross-checked against the read-only server source, the transport the local player's movement report rides and confirms the acceptance-as-given gap. The report (the frame the client emits when it walks or clicks a destination) rides TargetPosVital 0x2A90. Identity follows the runtime-assigned id wall of the ItemOperateVitalReq/ECHO/TELEPORT cohort: the RTTI name string 'TargetPosVital' sits at 0xF30818, a single registration site 0xBEE380 stores the runtime id into id-slot 0x1081FE0, the id 0x2A90 is never a code immediate anywhere in .text (dword scan, rel32 tails excluded, zero hits), and the id-slot is read by exactly one get-id stub 0x5E50A0. The vtable 0xF30230 carries the shared VitalData const 0x401B20 at +0x08, get-id at +0x10, and the serializer 0x5E50E0 at +0x18; the constructor 0x5E5050 zero-inits four f32 (x,y,z,heading at obj+0x14/+0x18/+0x1C/+0x20) and two u8 (moving,mask at obj+0x24/+0x25). The wire schema is four f32 (tag 0x2A) then two u8 (tag 0x0B): serializer 0x5E50E0 emits x,y,z through the vec3 helper 0x5F3490 and heading through the field serializer 0x89A600 (stdcall (tag,ptr,width) ret 0xC), then moving and mask; this matches the server parse_target_pos_vital byte-for-byte. The authentic captured payload V139_MARKER1_TARGETPOS_PC embedded in the server source decodes under this schema to MARKER1 (x,y,z)=(-10322,-755,671), heading 0, moving 1, mask 0, remain 0. Producer: the object is factory-constructed (0x28-byte allocation) then the ctor is called from exactly two sites (0x44B7C4, 0x44B842); get-id and the serializer are vtable-dispatched (no direct E8 callers), consistent with the cohort. Server coverage gap: the server decodes the identical schema and stores self.last_target_pos = (x, y, z, heading), performing no local-player speed/distance/collision/line-of-sight validation and sending no corrective reposition; the only movement_speed in the file is the NPC walk-speed constant V73_WALK_SPEED fed to NPCAttr. Still not claimed: the original server's authority model itself (accept threshold, correction packet, cadence) is uncaptured, so this is characterization only. Stays in_progress, not runtime_pass: no authority behavior is implemented and no validation event is captured; the next hop is a corpus of additional movement frames or a live capture of an authoritative correction (queued alongside GT-011..GT-015)."
+        },
+        {
+          "id": "npc_locomotion_presentation",
+          "title": "NPC walk and run gait presentation",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_RE_V67_to_V87_Walk_Gait_20260813.md",
+            "reports/PF_RE_V92_Runtime_and_V93_Five_Proven_Walkers_20260814.md"
+          ],
+          "test_refs": [
+            "tests/test_population.py",
+            "tests/test_npc_gait_wire.py"
+          ],
+          "notes": "Gait selection is accounted for by the decoded MOBS walk-speed value carried in BasicAttr bit 0x0040, and the accepted rule is that the value must be serialized in every generation and not only the bootstrap, because omitting it from movement snapshots is what turned the observed walk into a run. Observed visually for a fixed set of placements in the legacy scenario runner; it is not a general locomotion or pathing engine. The Foundation population path never requests a movement speed, so no Foundation runtime has reproduced this gait and a test pins that absence."
+        },
+        {
+          "id": "scene_actor_population_streaming",
+          "title": "Authoritative scene-actor membership and forward/reverse refresh",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_OBJECT_POP002_AUTHORITATIVE_SCENE_ACTOR_RUNTIME_PASS_20260816.md",
+            "reports/PF_RE_V93_Runtime_and_V94_Local_Population_Streaming_20260814.md",
+            "reports/PF_RE_V138_MARKER1_Nearest20_Population_Reapply_Pass_20260815.md"
+          ],
+          "test_refs": [
+            "tests/test_population.py",
+            "tests/test_population_adapter.py",
+            "tests/test_scene_object.py"
+          ],
+          "notes": "One nearest-20 initial generation plus one forward and one reverse refresh, byte-identical to the frozen V141 builder. Arbitrary scene sizes, streaming under load, and the original server's real population policy are unproven."
+        },
+        {
+          "id": "teleport_transport",
+          "title": "Server-initiated teleport transport",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_RE_V137_MARKER1_TeleportVital_Transport_Pass_20260815.md",
+            "reports/PF_RE_V131_TeleportCheck_Challenge_Echo_Capture_20260815.md"
+          ],
+          "test_refs": [
+            "tests/test_teleport_transport_wire.py"
+          ],
+          "notes": "One standalone TeleportVital version 4 to a decoded MARKER row transported the client. The TeleportCheck challenge/echo path is only captured, so a server-validated transport with its own acceptance rule does not exist. TELEPORT_AUDIT001 (2026-08-18) audited the client-sent TeleportVital 0x25A2: a fixed 11-byte target-less echo, once per session as the first vital of the first RunTimeProtocolReq, byte-identical in 14/14 corpus sessions, already satisfied by the generic first-Req ack; no dedicated server response is warranted and none was added. Full report: reports/PF_TELEPORT_AUDIT001_CLIENT_25A2_FIRSTREQ_ECHO_CORPUS_20260818.md."
+        },
+        {
+          "id": "remote_player_movement_projection",
+          "title": "Another player's movement projected to a second client",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_MOVE_PROJECT001_REMOTE_MOVEMENT_PROJECTION_STATIC_20260818.md"
+          ],
+          "test_refs": [
+            "tests/test_remote_movement_projection_static.py"
+          ],
+          "notes": "MOVE-PROJECT-001 (chief round 73, 2026-08-18) characterizes, byte-exact from the read-only client binary cross-checked against the read-only server source, the mechanism by which a remote actor's position/heading/control state is projected on the client. That state rides the MovementAttr (MOVEMENT_ATTR = 0x2067) attribute carried inside every remote-actor entry of the RuntimeRes actor stream. Identity follows the runtime-assigned id wall of the TargetPosVital/ItemOperate cohort: the class name string 'MovementAttr' sits at 0xF0E840, a single registration site 0xBD9410 stores the runtime id into id-slot 0x10334A8, the id 0x2067 is never a code immediate anywhere in .text (dword scan, rel32 tails excluded, zero hits), and the id-slot is written by exactly one site 0xBD9421 and read by exactly one get-id stub 0x43BBB0. The MovementAttr class token 0x103346C is the is-a reference used by the runtime type check 0x88F2B0 at all three consumers that downcast an incoming attr (0x465466, the delta 0x46705A, the apply/merge 0x467145). The vtable 0xF0D0F8 carries the shared framework const 0x401B20 at +0x08, get-id 0x43BBB0 at +0x10, reset 0x467030 at +0x28, delta 0x467040 at +0x2C, apply/merge 0x467130 at +0x30, and Serial 0x4671C0 at +0x34; the payload layout is identity qword at obj+0x18, submask u8 at +0x20, position vec3 at +0x28..+0x30, heading f32 at +0x34, mode u8 at +0x38, flags u32 at +0x3C, three f32 at +0x40/+0x44/+0x48, and the field mask u8 at +0x4C. The wire schema (Serial 0x4671C0; the codec 0x89A600 is stdcall (tag,ptr,width) ret 0xC and direction-agnostic, so the same routine decodes an inbound attr): header 0x467790 emits u8(tag 0x0B,1) submask then a qword(tag 0x32) identity, then the field mask u8(tag 0x0B), then per set bit position vec3 via helper 0x5F3490 (three tag-0x2A f32), heading f32(tag 0x2A), mode u8(tag 0x0B), flags u32(tag 0x26), and three f32(tag 0x2A) -- byte-exact with the server make_remote_movement_attr. The projection apply/merge 0x467130 is the consumer: after the 0x88F2B0/0x103346C is-a guard it reads the target's own field mask at +0x4C and, for every field whose bit is NOT set, copies that field from the incoming source into the same offset (position +0x28/+0x30, heading +0x34, mode +0x38, flags +0x3C, f32 +0x40/+0x44/+0x48), so a sparse movement delta is completed against the existing projected state without overwriting fields the target already owns. The delta mask 0x467040 is the outbound counterpart, clearing the mask then setting each bit whose field differs from a reference (position via 0x4A1720, heading and the three f32 via cvtps2pd+ucomisd, mode via u8 cmp, flags via u32 cmp). Server cross-check: MOVEMENT_ATTR = 0x2067; make_remote_movement_attr documents the same static 0x4671C0 per-field mask and emits the byte-exact schema; make_remote_actor_entry (client serializer 0x5E21D0) carries it as u16tag(0x12, 0x2067) followed by the attr's Serial. Still not claimed: the server only ever emits remote actors of actor_type 4 (CNetNPC); no authentic capture of a remote human-PLAYER actor_type and its full projected-attr composition exists, so this characterizes the projection mechanism byte-exact but does not claim the original server's remote human-player projection behavior. Report-only additive: no server behavior changed; ledger stays 25. Stays in_progress, not runtime_pass: no second player has been projected, so interest management, update cadence, and interpolation remain uncaptured; the next hop is a live two-client capture (queued alongside GT-011..GT-015)."
+        }
+      ]
     },
     {
-     "id": "session_row_persistence",
-     "title": "Session row opens on entry and closes on exit with a durable lease generation",
-     "required": true,
-     "status": "runtime_pass",
-     "evidence_refs": [
-      "reports/PF_DEMO_FULLLOOP001_CANONICAL_PORT_ROYAL_RUNTIME_PASS_20260817.md",
-      "reports/PF_FND007_GAME_DISCONNECT_LEASE_CLOSE_RUNTIME_PASS_SHUTDOWN_NEGATIVE_20260816.md"
-     ],
-     "test_refs": [
-      "tests/test_connection_lifecycle.py",
-      "tests/test_session_row_persistence.py"
-     ],
-     "notes": "Read-only post-state oracle confirms one session row with both timestamps, integrity ok and an empty foreign-key check."
+      "id": "combat",
+      "title": "Combat",
+      "domain_complete": false,
+      "status_banner": "Combat: INCOMPLETE",
+      "next_missing_behavior": "damage_and_hit_result",
+      "capabilities": [
+        {
+          "id": "hostile_relation_and_target_selection",
+          "title": "Hostile relation and target selection",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_SCENE005_FACTION1_HOSTILE_RELATION_RUNTIME_PASS_20260815.md",
+            "reports/PF_RELATION_COMPARATOR_RUNTIME_TRACE_20260815.md",
+            "reports/PF_RE_V132_Tab_SelectTarget_Negative_Boundary_20260815.md",
+            "reports/PF_RE_V133_P70_Relation_Display_Negative_Boundary_20260815.md"
+          ],
+          "test_refs": [
+            "tests/test_relation_probe.py",
+            "tests/test_relation_matrix_probe.py",
+            "tests/test_arena.py",
+            "tests/test_action_ack.py"
+          ],
+          "notes": "One faction value made a scene actor selectable as hostile and the comparator path was traced live. Tab selection alone produced TargetVital without any action, per the V132 negative."
+        },
+        {
+          "id": "attack_command_producer",
+          "title": "Client produces a target-bound attack command",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_SCENE006_EA7D_ATTACK_COMMAND_RUNTIME_PASS_20260815.md",
+            "reports/PF_COMBAT_BIND001_EA7D_BEHAVIOR_SELECTION_STATIC_CHECKPOINT_20260816.md",
+            "reports/PF_RE_V128_Wield_Z_ActionVital_Capture_20260814.md"
+          ],
+          "test_refs": [
+            "tests/test_action_producer_probe.py"
+          ],
+          "notes": "Double-clicking a hostile actor produced ActionVital 0xEA7D bound to the exact target identity and the same vital reached the server wire in two independent sessions. This proves the request direction only."
+        },
+        {
+          "id": "action_acknowledgement",
+          "title": "Server acknowledges an action vital",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_SCENE007_PORT_ROYAL_EA7D_ACTION_ACK_RUNTIME_PASS_20260816.md",
+            "reports/PF_SCENE008_EA7D_INERT_ACTION_CONSUMER_RUNTIME_TRACE_20260816.md"
+          ],
+          "test_refs": [
+            "tests/test_action_ack.py",
+            "tests/test_action_consumer_probe.py"
+          ],
+          "notes": "The ack is accepted by the client without error, and SCENE-008 traced the consumer as inert: no visible attack, animation, or state change follows. Acknowledgement is not combat."
+        },
+        {
+          "id": "damage_and_hit_result",
+          "title": "Damage application and the server-to-client hit result",
+          "required": true,
+          "status": "blocked",
+          "evidence_refs": [
+            "reports/PF_SCENE009_CHITRESULT_CONSUMER_PROVENANCE_READY_NEGATIVE_20260816.md",
+            "reports/PF_SCENE013_STRUCTURAL_COMBAT_CORPUS_CAPABILITY_NEGATIVE_20260816.md"
+          ],
+          "test_refs": [
+            "tests/test_hit_result_probe.py",
+            "tests/test_structural_corpus_audit.py"
+          ],
+          "notes": "Blocked on evidence, not on code. A hash-guarded audit proves the curated corpus cannot answer the server-to-client combat-result question, so a new authentic capture is required before any damage number, formula, or result packet may be claimed."
+        },
+        {
+          "id": "knockdown_and_reaction_states",
+          "title": "Knockdown and reaction states",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_COMBAT_KNOCK001_STATIC_CONSUMER_BINDING_CHECKPOINT_20260816.md",
+            "reports/PF_COMBAT_KNOCK_DATA001_BEHAVIOR_BINDING_NEGATIVE_20260816.md"
+          ],
+          "test_refs": [
+            "tests/test_knockdown_consumer_probe.py"
+          ],
+          "notes": "The client-side consumer binding is statically characterized and the data-side binding attempt is a recorded negative. Nothing is emitted by the server and no reaction state is stored."
+        },
+        {
+          "id": "skill_use",
+          "title": "Skill trigger and skill state",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_SKILL001_TRIGGER_AND_STATE_STATIC_CHECKPOINT_20260816.md",
+            "reports/PF_HOTBAR001_SET_ITEM_HOTKEY_STATIC_CHECKPOINT_20260816.md"
+          ],
+          "test_refs": [
+            "tests/test_skill_trigger_probe.py"
+          ],
+          "notes": "Static trigger and hotbar-assignment boundaries exist. No skill is registered, cast, cooled down, or persisted server-side, and no runtime skill use has been observed."
+        },
+        {
+          "id": "behavior_range_gating",
+          "title": "Behavior lookup and geometric range gating",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_SCENE010_EA7D_BEHAVIOR_LOOKUP_RUNTIME_CORRECTIVE_20260816.md",
+            "reports/PF_SCENE011_BEHAVIOR_ENTRY_RUNTIME_20260816.md",
+            "reports/PF_SCENE012_EA7D_GEOMETRIC_GATE_CALLSITE_NEGATIVE_20260816.md"
+          ],
+          "test_refs": [
+            "tests/test_behavior_lookup_probe.py",
+            "tests/test_behavior_entry_probe.py",
+            "tests/test_behavior_range_gate_probe.py"
+          ],
+          "notes": "Behavior entry and lookup are traced at runtime and one earlier lookup claim was corrected. The geometric gate call site remains a negative, so no range rule may be asserted."
+        },
+        {
+          "id": "hp_death_and_respawn",
+          "title": "HP depletion, death and respawn",
+          "required": true,
+          "status": "not_started",
+          "evidence_refs": [],
+          "test_refs": [],
+          "notes": "HP is projected as a static attribute value only. No depletion, death state, corpse, penalty, or respawn path is captured or implemented."
+        },
+        {
+          "id": "mob_aggro_and_server_ai",
+          "title": "Monster aggro and server-driven AI",
+          "required": true,
+          "status": "not_started",
+          "evidence_refs": [],
+          "test_refs": [],
+          "notes": "Scene actors are projected placements that never react to the player. No aggro radius, threat table, chase, or attack loop exists on the server."
+        },
+        {
+          "id": "pvp_engagement",
+          "title": "Player-versus-player engagement rules",
+          "required": true,
+          "status": "not_started",
+          "evidence_refs": [],
+          "test_refs": [],
+          "notes": "The client shows a PvP warning dialog during server selection, but no PvP rule, flag, zone, or consequence is implemented or claimed on the server side."
+        }
+      ]
     },
     {
-     "id": "abrupt_loss_recovery",
-     "title": "Abrupt client loss and abrupt server restart recover to a usable state",
-     "required": true,
-     "status": "runtime_pass",
-     "evidence_refs": [
-      "reports/PF_FND009_ABRUPT_PROCESS_RESTART_RECOVERY_RUNTIME_PASS_20260816.md",
-      "reports/PF_FND010_ABRUPT_CLIENT_PROCESS_LOSS_RECONNECT_RUNTIME_PASS_20260816.md",
-      "reports/PF_FND006_SERVER_RESTART_DURABILITY_RUNTIME_PASS_SHUTDOWN_NEGATIVE_20260816.md"
-     ],
-     "test_refs": [
-      "tests/test_server_shutdown.py",
-      "tests/test_connection_lifecycle.py",
-      "tests/test_startup_stale_lease_recovery.py"
-     ],
-     "notes": "Process-level abrupt loss is covered. Host power loss and storage-level torn writes are not. The restart half of the claim -- a replacement process closing the lease a dead process left open -- is watched only by the startup recovery module; the other two files watch the client-loss half."
+      "id": "character_management",
+      "title": "Character management",
+      "domain_complete": false,
+      "status_banner": "Character management: INCOMPLETE",
+      "next_missing_behavior": "character_creation",
+      "capabilities": [
+        {
+          "id": "character_list_projection",
+          "title": "Character list projection and selection",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_DEMO_FULLLOOP001_CANONICAL_PORT_ROYAL_RUNTIME_PASS_20260817.md",
+            "reports/PF_FOUNDATION_ARENA_V1_RUNTIME_PASS_CLASSIFICATION_NEGATIVE_20260815.md"
+          ],
+          "test_refs": [
+            "tests/test_connection_lifecycle.py",
+            "tests/test_arena.py",
+            "tests/test_foundation.py"
+          ],
+          "notes": "One persisted character was listed and selected through the real client. Multi-character lists, slot ordering, and the classification/faction fields carried in the list are unproven; ARENA-V1 records the classification negative."
+        },
+        {
+          "id": "player_name_projection",
+          "title": "Persisted player name projected into the world view",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_CHARACTER_NAME002_PLAYER_NAME_RUNTIME_PASS_20260816.md",
+            "reports/PF_CHARACTER_NAME001_PLAYER_NAME_PROJECTION_STATIC_IMPLEMENTATION_20260816.md"
+          ],
+          "test_refs": [
+            "tests/test_player_name.py"
+          ],
+          "notes": "The exact UTF-16LE name field inside ActorAttr rendered above the local player. This closes the local-player name projection only, not remote-player nameboards or name change."
+        },
+        {
+          "id": "character_creation",
+          "title": "Create a character through the real client",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_JOB001_CHARCREATE_CLASS_STATIC_BOUNDARY_20260816.md",
+            "reports/PF_FOUNDATION_ARENA_V2_FACTION_ONLY_NEGATIVE_20260815.md"
+          ],
+          "test_refs": [
+            "tests/test_character_identity_binding.py",
+            "tests/test_foundation.py"
+          ],
+          "notes": "The store implements creation with identity binding, a normalized name key, and a submitted-wire fingerprint, and it is offline-tested. No runtime pass creates a character through the client, and JOB-001 proves no persistent job/class selector has been identified in any wire record, so the creation presets cannot yet be honored."
+        },
+        {
+          "id": "character_deletion",
+          "title": "Delete a character",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_DELETE003_PRODUCER_OUTER_FRAMING_NEGATIVE_20260816.md",
+            "scenarios/delete_actor_hypothesis_soft_delete.json",
+            "reports/PF_DELETE_SOFT001_SOFT_DELETE_REUSE_HEADLESS_20260818.md",
+            "reports/PF_DELETE_SOFT002_NATURAL_0x36DB_DECODE_20260818.md",
+            "reports/PF_DELETE_SOFT003_RUNTIMERES_TAIL_FIX_HEADLESS_20260818.md",
+            "reports/PF_BIGROUND2_ATTENDED_RESULTS_20260818.md"
+          ],
+          "test_refs": [
+            "tests/test_delete_actor.py",
+            "tests/test_delete_actor_hypothesis.py"
+          ],
+          "notes": "HYP-PF-015 (chief 2026-08-18, under the owner's Lane-1 Option-B decision of 00:52): the exact DELETE-003 nested DeleteActorVital record with op 1, accepted inside the designed one-vital GSCN_LoginProtocol envelope at the character-select stage behind the delete actor opt-in scenario only, soft-deletes the one owned, active, unselected character (deleted_at committed before the designed echo ack is queued; child rows survive as history) and migration 004's partial unique indexes free the slot so the byte-identical create wire recreates into the same selector, identity, and fingerprint. The full cycle create -> delete -> recreate is proven offline through the real dispatch path and headless on a real server process over TCP (DELETE-SOFT-001). The row stays in_progress -- not runtime_pass -- because no natural 0x36DB wire exists anywhere in the corpus: whether the real client's delete button emits this envelope, accepts the echo, and renders the freed slot is exactly the attended big-round claim; op 2 stays fail-closed and unnamed. UPDATE 2026-08-18 (attended GT-010, รอบใหญ่ #2): the project's first natural 0x36DB confirmed the request envelope byte-compatible (server parsed and committed the soft delete on the test copy); the v1 tail-less RuntimeRes ack was falsified live (ErrorData=28317 over-read) and fixed as DELETE-SOFT-002 (trailing derived-class mask 0B 00), headless-proven the same round. Row stays in_progress until the real client accepts the v2 ack (GT-011 queued). Real delete flow documented: leftmost char-select button, yes/no dialog, second-step randomized password pad."
+        },
+        {
+          "id": "second_password_gate",
+          "title": "Second-password gate",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_RE_V101_Empty_Backpack_and_Second_Password_20260814.md"
+          ],
+          "test_refs": [
+            "tests/test_second_password_bypass.py"
+          ],
+          "notes": "An explicit opt-in test-only bypass exists under canonical ledger entry SECOND-PASSWORD-BYPASS-001 and is used by every runtime pass. The authentic verification, storage, and change paths are not implemented; production use stays disallowed."
+        },
+        {
+          "id": "appearance_and_avatar_binding",
+          "title": "Appearance and avatar wire binding",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [],
+          "test_refs": [
+            "tests/test_character_identity_binding.py",
+            "tests/test_foundation.py"
+          ],
+          "notes": "Actor and avatar wires are persisted and replayed as opaque bytes with server-side identity rebinding, which preserves appearance without decoding it. No field-level appearance model exists, so appearance cannot be edited, validated, or generated."
+        },
+        {
+          "id": "stats_and_progression",
+          "title": "Level, experience and attribute progression",
+          "required": true,
+          "status": "not_started",
+          "evidence_refs": [],
+          "test_refs": [],
+          "notes": "The proven projection carries name and cash only. No level, experience, attribute point, or progression rule is modeled, persisted, or captured."
+        }
+      ]
     },
     {
-     "id": "clean_logout",
-     "title": "Client-requested logout is acknowledged and closes the session cleanly",
-     "required": true,
-     "status": "in_progress",
-     "evidence_refs": [
-      "scenarios/logout_hypothesis_ack_echo.json",
-      "reports/PF_BIGROUND2_ATTENDED_RESULTS_20260818.md",
-      "scenarios/logout_hypothesis_worldinfo_first.json",
-      "reports/PF_LOGOUT_RESP001_HYP_PF_016_WORLDINFO_FIRST_HEADLESS_20260818.md"
-     ],
-     "test_refs": [
-      "tests/test_logout_hypothesis.py",
-      "tests/test_logout_worldinfo_first.py"
-     ],
-     "notes": "HYP-PF-012 (owner option A, 2026-08-17): both captured LogoutVital forms (subcode 01 exit-game, 03 return-to-character-select) are acknowledged with a designed hash-pinned echo behind the logout opt-in scenario only, after sessions.closed_at commits; the dispatch layer is silent afterward and everything else fails closed. The wire/DB layer is loopback-tested and headless-proven (LOGOUT-ACK-001), and GT-007 (2026-08-17 attended, reports/PF_GT007_LOGOUT_ECHO_ACK_CLIENT_TRANSITION_NEGATIVE_20260817.md) confirmed close-before-ack on the real client for the first time. GT-007 also falsified the echo-only shape at the client-observable layer: the real client neither returns to character select (03) nor closes itself (01) on the echo ack, though the no-response freeze from GT-002 did not recur. The row stays in_progress until a content-bearing response shape (03: character-select/world payload; 01: close instruction or server-side socket close) is designed under a new hypothesis and passes the attended client-observable check. HYP-PF-013 (LOGOUT-CLOSE-001, round 43 under the owner's standing pre-approval) implements the server-side-close branch: unchanged PF-012 ack bytes plus a clean shutdown+close of the accepted GAME socket 250 ms after the ack, behind the separate ack_close opt-in scenario, fail-closed without an attached transport lever. The client-observable check for this shape is queued as GT-008; a disconnect-error dialog would route design to the recorded 0x3D4B-first fallback under a new entry. UPDATE 2026-08-18 (attended GT-008, รอบใหญ่ #2): the ack+close shape (HYP-PF-013, ack then clean server-side socket shutdown at +250 ms) is also falsified at the client-observable layer -- the client never detects the TCP close at all on either subcode (no transition, no dialog, UI live 40+ s). Client transitions are protocol-driven, not transport-driven; next design = 0x3D4B-first response (world/character-select payload before or instead of the bare echo), to open as a new ledger entry when implemented. UPDATE 2026-08-18 (chief round 53): HYP-PF-016 (LOGOUT-RESP-001) implements the 0x3D4B-first design behind the new worldinfo_first opt-in scenario: the full-form 248-byte GetWorldInfoVital payload the client itself sends at logout-dialog open is stored in memory per connection (never written), and an accepted LogoutVital is answered response-first -- the stored payload mirror-echoed in the accepted RuntimeRes v4 collection envelope with the client's own count=3 and the DELETE-SOFT-002 trailing mask (270-byte PC / 283-byte frame), then the unchanged PF-012 ack, then the composed PF-013 close at +250 ms; sessions.closed_at still commits before the first response byte, and a session that never sent the full form stays silent (no ack-only fallback). Headless-proven in the sandbox over real TCP (ordering and bytes pinned, negative silent, latest-payload-wins). Whether the real client finally transitions (03: character select; 01: exit) is queued as GT-013."
+      "id": "chat",
+      "title": "Chat",
+      "domain_complete": false,
+      "status_banner": "Chat: INCOMPLETE",
+      "next_missing_behavior": "client_chat_input",
+      "capabilities": [
+        {
+          "id": "server_system_message",
+          "title": "Server-originated system message",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_RE_V99_ShowMessage_and_Fast_Entry_20260814.md",
+            "reports/PF_DEMO_FULLLOOP001_CANONICAL_PORT_ROYAL_RUNTIME_PASS_20260817.md"
+          ],
+          "test_refs": [
+            "tests/test_system_message_wire.py"
+          ],
+          "notes": "ShowMessageVital 0x36D2 carries exactly one wide string and the client renders it in the authentic system panel on the first runtime request. It is emitted by the frozen legacy seam and no Foundation module owns it, so it is one observation relayed through the inherited dispatch path rather than an owned feature; the offline test pins the wire shape and the ownership negative, not the runtime emission."
+        },
+        {
+          "id": "client_chat_input",
+          "title": "Client chat input reaching the server",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_GT006_CHAT_INPUT_UNKNOWN_FRAME_WIRE_CAPTURE_20260817.md"
+          ],
+          "test_refs": [
+            "tests/test_presentation_ownership.py"
+          ],
+          "notes": "First wire evidence exists: pressing Enter in the chat box emits exactly one 34-byte vital id 0xAC52 -- an id unknown to the server registry -- inside the standard GSCN_RunTimeProtocolReq envelope, with the typed characters interleaved with 0x00 bytes. The server dispatches nothing and answers nothing, and the client renders no echo. The request is captured but not decoded, not dispatched, and not answered under the default mode, so nothing higher than in_progress may be claimed; command prefixes and length limits remain unknown. HYP-PF-014 (CHAT-ECHO-001) now answers this exact captured shape behind the chat input opt-in scenario only; that designed lane is graded separately in chat_input_echo_hypothesis and changes nothing here."
+        },
+        {
+          "id": "chat_input_echo_hypothesis",
+          "title": "Designed echo acknowledgement of the captured chat input frame",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "scenarios/chat_input_hypothesis_echo.json",
+            "reports/PF_CHAT_ECHO001_CHAT_INPUT_ECHO_HYPOTHESIS_HEADLESS_20260817.md",
+            "reports/PF_BIGROUND2_ATTENDED_RESULTS_20260818.md",
+            "reports/PF_CHAT_ECHO002_SPEAKER_FIELD_RESEARCH_20260818.md",
+            "scenarios/chat_input_hypothesis_speaker_echo.json",
+            "reports/PF_CHAT_ECHO003_SPEAKER_WSTRING_VARIANT_HEADLESS_20260818.md"
+          ],
+          "test_refs": [
+            "tests/test_chat_input_echo.py"
+          ],
+          "notes": "HYP-PF-014 (chief 2026-08-17, under the owner's standing pre-approval): the exact GT-006 chat input shape -- vital id 0xAC52 in the one-vital GSCN_RunTimeProtocolReq envelope with exactly 34 payload bytes, the exact captured 10-byte prefix, and 12 printable-ASCII (low, 0x00) pairs -- is echoed back byte-exactly in the accepted GSCN_RunTimeProtocolRes v4 envelope (56-byte PC / 66-byte frame, both captured probes hash-pinned), behind the chat input opt-in scenario only, repeatable per session, with no database write and no socket action; everything else fails closed. The wire layer is loopback-tested and headless-proven in the sandbox (CHAT-ECHO-001 smoke: both probes echoed byte-exactly on a real server process, repeat send re-echoed, DB file bytes unchanged across the chat window, heartbeat cadence unchanged). The row starts at in_progress -- not runtime_pass -- because the client-observable layer (does the real client render the echoed message in its chat window, instead of the GT-006 silent-window baseline) is exactly what the attended big round must measure; the frame's meaning, prefix semantics, channels, delivery to other clients, and persistence remain unclaimed. UPDATE 2026-08-18 (attended GT-009, รอบใหญ่ #2 -- reports/PF_BIGROUND2_ATTENDED_RESULTS_20260818.md, manifest-backed): the real client rendered every echoed 12-ASCII message in the chat window ('[ทั่วไป] : <text>', channel tag from client text resource id 540, empty speaker slot, input cleared, not one-shot, general shape); a 5-char message stayed silent (UI fail-closed). Row moved to runtime_pass. Not claimed: non-ASCII/Thai, other lengths, channels/whisper, multi-client, persistence, prefix semantics, original-server behaviour; speaker-name variant is the next bounded step (CHAT-ECHO-002 research). UPDATE 2026-08-18 (chief round 53): CHAT-ECHO-002, the speaker-name wstring variant (candidate 1 of the speaker-field research), is implemented as the second tracked version behind its own opt-in scenario (speaker_wstring_echo_no_write_no_close): wstring#1 carries the selected character's canonical name, the text wstring and the accepted request shape are unchanged, pc = 56+2*len(name), frame = 79 bytes for the 6-char probe name (measured; the research's +10 frame rule under-counted the snappy literal header by one byte at pc > 60). Headless-proven in the sandbox over real TCP (byte-exact against new pins, repeatable, SHORT silent, no DB write, heartbeat unchanged). Whether the real client renders '[ทั่วไป] <name> : <text>' is queued as GT-012; Thai names and the tag-selection mechanism remain unclaimed."
+        },
+        {
+          "id": "chat_channels_and_routing",
+          "title": "Channels, whisper and broadcast routing",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_CHAT_CHANNEL001_CHANNEL_FAMILY_AND_ROUTING_STATIC_20260818.md"
+          ],
+          "test_refs": [
+            "tests/test_chat_channel_family_static.py"
+          ],
+          "notes": "CHAT-CHANNEL-001 (chief round 75, 2026-08-18) retires the 'Channel identifiers and recipient resolution are uncaptured' half of this row's gap with byte-exact static evidence from the read-only client binary, cross-checked against the read-only server source. The client carries a family of seventeen Channel_*Vital classes registered from one contiguous block 0xBF72B0..0xBF74F0 (stride 0x20, eighteen entries = the seventeen channels plus CBoardcastVital) in exactly the PF-NAMEID-HASH-001 shape, so the previously proven name hash (client 0x89B220, u16 id = sum over i of (int16)((signed char)name[i]*(i+1)) mod 2^16) derives every channel id from the in-image name literal alone. The anchor holds exactly: name_id('Channel_LocalTalkMessageVital') = 0xAC52, the id GT-006 captured on the wire. The full table is ForbidTalkNotification 0xFDF2, LocalTalkMessage 0xAC52, LocalPerformance 0xAE8C, PartyMessage 0x82E6, Whisper 0x556C, GuildMessage 0x8189, ActorBoardcastMessage 0xEDFA, GMGlobalMessage 0x9F2C, JoinCustomChannel 0xBA58, OnActorJoinCustomChannel 0x18DA, LeaveCustomChannel 0xC663, OnActorLeaveCustomChannel 0x2770, CustomChannelMessage 0xE064, JoinOriginalSinChannel 0xFA07, OriginalSinChannelMessage 0x265C, JoinClassChannel 0xAC9D, ClassChannelMessage 0xD1F8 -- no collisions. All seventeen ids obey the runtime-assigned wall (zero code immediates once rel32 tails of E8/E9 AND 0F 8x are excluded -- the jcc exclusion matters, without it LocalPerformance's 0xAE8C takes two false positives from 0F 8C AE 00 00 00), each id-slot has exactly one writer and one reader, and two independent naming routes converge 17/17 (literal -> thunk -> slot -> get-id -> vtable+0x10, and vtable+0x00 -> type node -> registration -> .?AVChannel_XxxVital@@ descriptor). Serialize is vtable +0x18, one bidirectional thiscall (bool save, Stream*) ret 8 routine whose bl selects the write or read codec, so the same routine decodes inbound; the wstring codec 0x89A810/0x89A880 is tag 0x48 + u32 byte-length + UTF-16LE, and the scalar codec is the same 0x89A600 stdcall (tag,ptr,width) ret 0xC used by MOVE-PROJECT-001. Recipient resolution is decoded: Channel_WhisperVital is the only channel with a third wstring, its Serialize 0x65AEA0 emitting speaker@+0x34, body@+0x18, recipient@+0x50 and a u8 (tag 0x0B) @+0x6C, with Whisper's own ctor 0x658240 constructing +0x50 and zeroing +0x6C so the field belongs to Whisper rather than the base; the dispatcher reads that u8 as a result code (1 -> system message 0x0B, 2 -> 0x18, otherwise render as WhisperTalk). Five channels share the base Channel_MessageVtial serializer 0x65AD40 (LocalTalk, Party, Guild, ActorBoardcast, GMGlobal), so their wire is byte-identical and the channel identifier IS the 16-bit class id rather than any selector inside the payload. The 34-byte GT-006 replay payload parses through that schema with zero bytes left over (48 00000000 empty-wstring speaker, then 48 18000000 and 24 bytes of UTF-16LE 'PFCHATPROBE1'), upgrading CHAT-ECHO-002's opaque prefix into named fields. The routing hierarchy is readable from the type-node registration block 0xBF74F0..0xBF7AB0 (23 entries carrying a parent node argument): Channel_BasicVtial -> {Channel_CommandVtial (7 leaves), Channel_MessageVtial, Channel_ForbidTalkNotificationVtial}, and Channel_MessageVtial -> {Channel_GlobalVital (7 leaves), Channel_LocalVital (2 leaves: LocalTalk and Party)}; the five base classes have no literal and no thunk, so they have no wire id. Join and Leave are a real membership protocol: every Join*/Leave* schema ends in a u8 result and its delivery hook is gated on that byte, suppressing hand-off into ChannelModule_Client when it is non-zero (0x65C8B0 gates +0x3D, 0x65C950 gates +0x21, 0x65CB40 gates +0x24, each offset matching that channel's trailing u8 exactly), while the OnActor* counterparts share serializer 0x65B140 and add the actor-name wstring. Client-side routing resolves through vtable +0x1C into the module registry [0x1032EC4]+0x130 by the ASCII name 'ChannelModule_Client', reaching dispatcher 0x659870, an ordered downcast chain over fourteen channels with per-channel style names (LocalTalk, WhisperTalk, GuildTalk, PartyTalk, YellTalk, LocalPerformance, CustomDefine, ClassTalk). Evidenced negative: JoinOriginalSinChannel, OriginalSinChannelMessage and JoinClassChannel have no downcast consumer anywhere in .text, so three of the seventeen are producer-side only. Server gap, now measured: v141 contains no Channel_ token and none of the seventeen ids, and only src/pirateforce_foundation/chat_input_hypothesis.py touches one of them (0xAC52), still calling it UNKNOWN_0xAC52 and comparing it as one opaque pinned blob -- seventeen channels client-side, one touched server-side, zero decoded server-side. Not claimed: the original server's fan-out, routing or membership authority behaviour, which still needs two concurrent sessions and has never been established by any runtime pass, so this stays in_progress and not runtime_pass; also unclaimed are the value semantics of each result code and of the u8 tag 0x08, u8@+0x3C and u16@+0x28 fields. Report-only additive; ledger stays 25. Verified by tools/pf_chat_channel_family_static.py (69 guards, exit 0) and tests/test_chat_channel_family_static.py (15 tests)."
+        },
+        {
+          "id": "chat_persistence_and_moderation",
+          "title": "Chat persistence, rate limiting and filtering",
+          "required": true,
+          "status": "not_started",
+          "evidence_refs": [],
+          "test_refs": [],
+          "notes": "No chat row exists in the schema and no rate limit or filter is implemented. Listed so the domain can never read as complete while they are missing."
+        }
+      ]
     },
     {
-     "id": "concurrent_multi_client",
-     "title": "Two or more concurrent clients on separate accounts",
-     "required": true,
-     "status": "blocked",
-     "evidence_refs": [
-      "reports/PF_SESSION_LIMIT001_SINGLE_SESSION_SERIAL_ACCEPT_KNOWN_LIMITATION_20260817.md"
-     ],
-     "test_refs": [
-      "tests/test_single_session_limitation.py"
-     ],
-     "notes": "Known limitation by owner decision 2026-08-17 (item 14 option B), not by_design: the wire layer proved a second client waits in the TCP backlog until the first closes (serial accept in both v141 listeners), and open_session closes every open lease of the account. HYP-PF-011 keeps the multiplayer door open but demands the dispatch exception boundary and an explicit lease policy first, because the limitation currently interlocks the unguarded position-checkpoint write. This row moves again only after those preconditions and a real two-client runtime run."
+      "id": "npc_interaction",
+      "title": "NPC interaction",
+      "domain_complete": false,
+      "status_banner": "NPC interaction: INCOMPLETE",
+      "next_missing_behavior": "quest_accept_and_progress",
+      "capabilities": [
+        {
+          "id": "npc_conversation_handshake",
+          "title": "NPC conversation handshake",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_RE_V135_Q3020_Conversation_Handshake_Pass_20260815.md",
+            "reports/PF_RE_V96_Runtime_and_V97_NPCConversation_20260814.md"
+          ],
+          "test_refs": [
+            "tests/test_npc_interaction_wire.py"
+          ],
+          "notes": "One click on a placed actor produced TargetVital plus an embedded ChooseNPC, and the server answered with exactly one NPCConversation carrying one descriptor. One actor, one descriptor, one composition."
+        },
+        {
+          "id": "conversation_operation_sequence",
+          "title": "Conversation operation and action sequence",
+          "required": true,
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_RE_V136_Q3020_MARKER1_Compositional_Docking_Pass_20260815.md",
+            "reports/PF_RE_V125_Quest_OpenAccept_Op2_Capture_20260814.md"
+          ],
+          "test_refs": [
+            "tests/test_npc_interaction_wire.py"
+          ],
+          "notes": "The operation-1/action-6 then operation-2/action-1 docking-confirm sequence replayed as an exact composition. No semantic name is assigned to the raw operation or action values, and no branching dialogue tree is modeled."
+        },
+        {
+          "id": "quest_accept_and_progress",
+          "title": "Quest accept, tracking and completion",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_RE_V124_Quest_Action1_Tracker_Boundary_20260814.md",
+            "reports/PF_RE_V127_Quest_Accept_P30_G_Negative_Boundary_20260814.md",
+            "reports/PF_RE_V129_Quest3020_Accept_Travel_Negative_Boundary_20260815.md"
+          ],
+          "test_refs": [
+            "tests/test_npc_interaction_wire.py"
+          ],
+          "notes": "Three recorded negative boundaries bound where the accept path stops. No quest state is stored server-side, no tracker update is proven, and completion and rewards are untouched."
+        },
+        {
+          "id": "shop_buy_sell",
+          "title": "Shop browse, buy and sell",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_RE_V111_to_V115_Inventory_Monster_Shop_20260814.md",
+            "reports/PF_RE_V116_to_V120_Cash_Monster_and_Shop_20260814.md",
+            "reports/PF_RE_V121_to_V122_Final_Buy_Cash_Update_20260814.md"
+          ],
+          "test_refs": [
+            "tests/test_npc_interaction_wire.py"
+          ],
+          "notes": "Captures reach a cash update following a buy. Nothing is implemented in the Foundation store: no shop inventory, no price authority, no transactional buy or sell, and no persistence."
+        },
+        {
+          "id": "interaction_negative_paths",
+          "title": "Interaction negative paths and reachability limits",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_RE_V139_P86_Interaction_Operational_Negative_20260815.md",
+            "reports/PF_RE_V140_P86_Synthetic_Harness_Interaction_Pass_20260815.md",
+            "reports/PF_RE_V134_Q3020_Conversation_Handshake_Operational_Negative_20260815.md",
+            "reports/PF_RE_V126_Failed_Operational_P91_Mistarget_20260814.md"
+          ],
+          "test_refs": [
+            "tests/test_npc_interaction_wire.py"
+          ],
+          "notes": "V139 was statically valid but operationally unreachable, and V140 passed only after an explicit synthetic harness position was substituted. That harness is a test device and is never permission to place synthetic positions in production population data."
+        },
+        {
+          "id": "monster_spawn_and_loot",
+          "title": "Monster spawn cycle and loot",
+          "required": true,
+          "status": "not_started",
+          "evidence_refs": [],
+          "test_refs": [],
+          "notes": "Scene actors are static placements. No spawn timer, respawn cycle, drop table, loot object, or pickup path is captured or implemented."
+        }
+      ]
     },
     {
-     "id": "authenticated_multi_account",
-     "title": "Authenticated multi-account access control",
-     "required": true,
-     "status": "not_started",
-     "evidence_refs": [],
-     "test_refs": [],
-     "notes": "The local server accepts the development login path only. No credential policy, rate limit, or ownership check is claimed."
+      "id": "presentation",
+      "title": "Presentation and audio",
+      "domain_complete": false,
+      "status_banner": "Presentation and audio: INCOMPLETE",
+      "next_missing_behavior": "scene_music_control",
+      "capabilities": [
+        {
+          "id": "scene_music_control",
+          "title": "Scene music control reaching the client",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_RE_V100_Current_Scene_Music_20260814.md"
+          ],
+          "test_refs": [
+            "tests/test_presentation_ownership.py"
+          ],
+          "notes": "The client accepted one MusicControlVital 0x3EAF at runtime and continued normally. No Foundation module produces or owns music control, no per-scene track mapping is captured, and no audible output is verified, so this is one accepted-frame observation only."
+        },
+        {
+          "id": "system_message_display",
+          "title": "System message display surface",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_RE_V99_ShowMessage_and_Fast_Entry_20260814.md",
+            "reports/PF_DEMO_FULLLOOP001_CANONICAL_PORT_ROYAL_RUNTIME_PASS_20260817.md"
+          ],
+          "test_refs": [
+            "tests/test_system_message_wire.py"
+          ],
+          "notes": "The authentic system panel rendered the one-string ShowMessageVital in runtime passes. Wire shape and emission ownership stay graded in chat/server_system_message; this row tracks only the presentation surface, whose panel routing rules, fonts, and display limits are unmeasured."
+        },
+        {
+          "id": "ui_error_dialog_surfaces",
+          "title": "UI error and dialog surfaces",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_GT001_POST_M3_CANONICAL_FULL_LOOP_SMOKE_RUNTIME_PASS_20260817.md"
+          ],
+          "test_refs": [
+            "tests/test_presentation_ownership.py"
+          ],
+          "notes": "The PvP warning dialog at server selection and the exit confirmation dialog were operated during attended loops. No catalogue of error surfaces exists and no server-driven error dialog has ever been observed."
+        },
+        {
+          "id": "loading_transition_screens",
+          "title": "Loading and transition screens",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_GT001_POST_M3_CANONICAL_FULL_LOOP_SMOKE_RUNTIME_PASS_20260817.md"
+          ],
+          "test_refs": [
+            "tests/test_presentation_ownership.py"
+          ],
+          "notes": "One WANTED loading screen of roughly 30 seconds preceded Port Royal entry in attended loops. No other scene, no failure path, and no progress semantics are observed."
+        }
+      ]
     }
-   ]
-  },
-  {
-   "id": "movement",
-   "title": "Movement",
-   "domain_complete": false,
-   "status_banner": "Movement: INCOMPLETE",
-   "next_missing_behavior": "remote_player_movement_projection",
-   "capabilities": [
-    {
-     "id": "scene_entry_placement",
-     "title": "Scene entry places the local player at the persisted position",
-     "required": true,
-     "status": "runtime_pass",
-     "evidence_refs": [
-      "reports/PF_DEMO_FULLLOOP001_CANONICAL_PORT_ROYAL_RUNTIME_PASS_20260817.md"
-     ],
-     "test_refs": [
-      "tests/test_scene_load.py",
-      "tests/test_connection_lifecycle.py"
-     ],
-     "notes": "One controlled entry into scene 1 Port Royal at the persisted coordinates with the stable zero-target teleport sent exactly once. This is not proof for any other scene, spawn point, instance, or scene transition."
-    },
-    {
-     "id": "local_player_position_checkpoint",
-     "title": "Client-reported position is checkpointed and saved on exit",
-     "required": true,
-     "status": "runtime_pass",
-     "evidence_refs": [
-      "reports/PF_GT005_MOVEMENT_POSITION_PERSISTS_ACROSS_RESTART_RUNTIME_PASS_20260817.md",
-      "reports/PF_FND010_ABRUPT_CLIENT_PROCESS_LOSS_RECONNECT_RUNTIME_PASS_20260816.md"
-     ],
-     "test_refs": [
-      "tests/test_foundation.py",
-      "tests/test_connection_lifecycle.py"
-     ],
-     "notes": "One attended two-boot run through the real client walked the local player from (-9098.55, -2866.86) to (-8094.61, -3207.83), and that walked position was in character_positions after the server exited and was the position the character stood at on the next entry, matching on screen and in the database. The server console counted 29 inbound TargetPosVital frames and the client-side capture counted 29 for the same walk. This is one walk, in scene 1 Port Royal, with one client; the number of checkpoints written per walk, other scenes, scene transitions, and the visible heading remain unmeasured."
-    },
-    {
-     "id": "local_player_movement_authority",
-     "title": "Server-side movement validation and authoritative correction",
-     "required": true,
-     "status": "in_progress",
-     "evidence_refs": [
-      "reports/PF_MOVE_AUTHORITY001_TARGETPOS_PRODUCER_STATIC_20260818.md"
-     ],
-     "test_refs": [
-      "tests/test_move_authority_targetpos_static.py"
-     ],
-     "notes": "MOVE-AUTHORITY-001 (chief round 72, 2026-08-18) characterizes, byte-exact from the read-only client binary cross-checked against the read-only server source, the transport the local player's movement report rides and confirms the acceptance-as-given gap. The report (the frame the client emits when it walks or clicks a destination) rides TargetPosVital 0x2A90. Identity follows the runtime-assigned id wall of the ItemOperateVitalReq/ECHO/TELEPORT cohort: the RTTI name string 'TargetPosVital' sits at 0xF30818, a single registration site 0xBEE380 stores the runtime id into id-slot 0x1081FE0, the id 0x2A90 is never a code immediate anywhere in .text (dword scan, rel32 tails excluded, zero hits), and the id-slot is read by exactly one get-id stub 0x5E50A0. The vtable 0xF30230 carries the shared VitalData const 0x401B20 at +0x08, get-id at +0x10, and the serializer 0x5E50E0 at +0x18; the constructor 0x5E5050 zero-inits four f32 (x,y,z,heading at obj+0x14/+0x18/+0x1C/+0x20) and two u8 (moving,mask at obj+0x24/+0x25). The wire schema is four f32 (tag 0x2A) then two u8 (tag 0x0B): serializer 0x5E50E0 emits x,y,z through the vec3 helper 0x5F3490 and heading through the field serializer 0x89A600 (stdcall (tag,ptr,width) ret 0xC), then moving and mask; this matches the server parse_target_pos_vital byte-for-byte. The authentic captured payload V139_MARKER1_TARGETPOS_PC embedded in the server source decodes under this schema to MARKER1 (x,y,z)=(-10322,-755,671), heading 0, moving 1, mask 0, remain 0. Producer: the object is factory-constructed (0x28-byte allocation) then the ctor is called from exactly two sites (0x44B7C4, 0x44B842); get-id and the serializer are vtable-dispatched (no direct E8 callers), consistent with the cohort. Server coverage gap: the server decodes the identical schema and stores self.last_target_pos = (x, y, z, heading), performing no local-player speed/distance/collision/line-of-sight validation and sending no corrective reposition; the only movement_speed in the file is the NPC walk-speed constant V73_WALK_SPEED fed to NPCAttr. Still not claimed: the original server's authority model itself (accept threshold, correction packet, cadence) is uncaptured, so this is characterization only. Stays in_progress, not runtime_pass: no authority behavior is implemented and no validation event is captured; the next hop is a corpus of additional movement frames or a live capture of an authoritative correction (queued alongside GT-011..GT-015)."
-    },
-    {
-     "id": "npc_locomotion_presentation",
-     "title": "NPC walk and run gait presentation",
-     "required": true,
-     "status": "runtime_pass",
-     "evidence_refs": [
-      "reports/PF_RE_V67_to_V87_Walk_Gait_20260813.md",
-      "reports/PF_RE_V92_Runtime_and_V93_Five_Proven_Walkers_20260814.md"
-     ],
-     "test_refs": [
-      "tests/test_population.py",
-      "tests/test_npc_gait_wire.py"
-     ],
-     "notes": "Gait selection is accounted for by the decoded MOBS walk-speed value carried in BasicAttr bit 0x0040, and the accepted rule is that the value must be serialized in every generation and not only the bootstrap, because omitting it from movement snapshots is what turned the observed walk into a run. Observed visually for a fixed set of placements in the legacy scenario runner; it is not a general locomotion or pathing engine. The Foundation population path never requests a movement speed, so no Foundation runtime has reproduced this gait and a test pins that absence."
-    },
-    {
-     "id": "scene_actor_population_streaming",
-     "title": "Authoritative scene-actor membership and forward/reverse refresh",
-     "required": true,
-     "status": "runtime_pass",
-     "evidence_refs": [
-      "reports/PF_OBJECT_POP002_AUTHORITATIVE_SCENE_ACTOR_RUNTIME_PASS_20260816.md",
-      "reports/PF_RE_V93_Runtime_and_V94_Local_Population_Streaming_20260814.md",
-      "reports/PF_RE_V138_MARKER1_Nearest20_Population_Reapply_Pass_20260815.md"
-     ],
-     "test_refs": [
-      "tests/test_population.py",
-      "tests/test_population_adapter.py",
-      "tests/test_scene_object.py"
-     ],
-     "notes": "One nearest-20 initial generation plus one forward and one reverse refresh, byte-identical to the frozen V141 builder. Arbitrary scene sizes, streaming under load, and the original server's real population policy are unproven."
-    },
-    {
-     "id": "teleport_transport",
-     "title": "Server-initiated teleport transport",
-     "required": true,
-     "status": "runtime_pass",
-     "evidence_refs": [
-      "reports/PF_RE_V137_MARKER1_TeleportVital_Transport_Pass_20260815.md",
-      "reports/PF_RE_V131_TeleportCheck_Challenge_Echo_Capture_20260815.md"
-     ],
-     "test_refs": [
-      "tests/test_teleport_transport_wire.py"
-     ],
-     "notes": "One standalone TeleportVital version 4 to a decoded MARKER row transported the client. The TeleportCheck challenge/echo path is only captured, so a server-validated transport with its own acceptance rule does not exist. TELEPORT_AUDIT001 (2026-08-18) audited the client-sent TeleportVital 0x25A2: a fixed 11-byte target-less echo, once per session as the first vital of the first RunTimeProtocolReq, byte-identical in 14/14 corpus sessions, already satisfied by the generic first-Req ack; no dedicated server response is warranted and none was added. Full report: reports/PF_TELEPORT_AUDIT001_CLIENT_25A2_FIRSTREQ_ECHO_CORPUS_20260818.md."
-    },
-    {
-     "id": "remote_player_movement_projection",
-     "title": "Another player's movement projected to a second client",
-     "required": true,
-     "status": "in_progress",
-     "evidence_refs": [
-      "reports/PF_MOVE_PROJECT001_REMOTE_MOVEMENT_PROJECTION_STATIC_20260818.md"
-     ],
-     "test_refs": [
-      "tests/test_remote_movement_projection_static.py"
-     ],
-     "notes": "MOVE-PROJECT-001 (chief round 73, 2026-08-18) characterizes, byte-exact from the read-only client binary cross-checked against the read-only server source, the mechanism by which a remote actor's position/heading/control state is projected on the client. That state rides the MovementAttr (MOVEMENT_ATTR = 0x2067) attribute carried inside every remote-actor entry of the RuntimeRes actor stream. Identity follows the runtime-assigned id wall of the TargetPosVital/ItemOperate cohort: the class name string 'MovementAttr' sits at 0xF0E840, a single registration site 0xBD9410 stores the runtime id into id-slot 0x10334A8, the id 0x2067 is never a code immediate anywhere in .text (dword scan, rel32 tails excluded, zero hits), and the id-slot is written by exactly one site 0xBD9421 and read by exactly one get-id stub 0x43BBB0. The MovementAttr class token 0x103346C is the is-a reference used by the runtime type check 0x88F2B0 at all three consumers that downcast an incoming attr (0x465466, the delta 0x46705A, the apply/merge 0x467145). The vtable 0xF0D0F8 carries the shared framework const 0x401B20 at +0x08, get-id 0x43BBB0 at +0x10, reset 0x467030 at +0x28, delta 0x467040 at +0x2C, apply/merge 0x467130 at +0x30, and Serial 0x4671C0 at +0x34; the payload layout is identity qword at obj+0x18, submask u8 at +0x20, position vec3 at +0x28..+0x30, heading f32 at +0x34, mode u8 at +0x38, flags u32 at +0x3C, three f32 at +0x40/+0x44/+0x48, and the field mask u8 at +0x4C. The wire schema (Serial 0x4671C0; the codec 0x89A600 is stdcall (tag,ptr,width) ret 0xC and direction-agnostic, so the same routine decodes an inbound attr): header 0x467790 emits u8(tag 0x0B,1) submask then a qword(tag 0x32) identity, then the field mask u8(tag 0x0B), then per set bit position vec3 via helper 0x5F3490 (three tag-0x2A f32), heading f32(tag 0x2A), mode u8(tag 0x0B), flags u32(tag 0x26), and three f32(tag 0x2A) -- byte-exact with the server make_remote_movement_attr. The projection apply/merge 0x467130 is the consumer: after the 0x88F2B0/0x103346C is-a guard it reads the target's own field mask at +0x4C and, for every field whose bit is NOT set, copies that field from the incoming source into the same offset (position +0x28/+0x30, heading +0x34, mode +0x38, flags +0x3C, f32 +0x40/+0x44/+0x48), so a sparse movement delta is completed against the existing projected state without overwriting fields the target already owns. The delta mask 0x467040 is the outbound counterpart, clearing the mask then setting each bit whose field differs from a reference (position via 0x4A1720, heading and the three f32 via cvtps2pd+ucomisd, mode via u8 cmp, flags via u32 cmp). Server cross-check: MOVEMENT_ATTR = 0x2067; make_remote_movement_attr documents the same static 0x4671C0 per-field mask and emits the byte-exact schema; make_remote_actor_entry (client serializer 0x5E21D0) carries it as u16tag(0x12, 0x2067) followed by the attr's Serial. Still not claimed: the server only ever emits remote actors of actor_type 4 (CNetNPC); no authentic capture of a remote human-PLAYER actor_type and its full projected-attr composition exists, so this characterizes the projection mechanism byte-exact but does not claim the original server's remote human-player projection behavior. Report-only additive: no server behavior changed; ledger stays 25. Stays in_progress, not runtime_pass: no second player has been projected, so interest management, update cadence, and interpolation remain uncaptured; the next hop is a live two-client capture (queued alongside GT-011..GT-015)."
-    }
-   ]
-  },
-  {
-   "id": "combat",
-   "title": "Combat",
-   "domain_complete": false,
-   "status_banner": "Combat: INCOMPLETE",
-   "next_missing_behavior": "damage_and_hit_result",
-   "capabilities": [
-    {
-     "id": "hostile_relation_and_target_selection",
-     "title": "Hostile relation and target selection",
-     "required": true,
-     "status": "runtime_pass",
-     "evidence_refs": [
-      "reports/PF_SCENE005_FACTION1_HOSTILE_RELATION_RUNTIME_PASS_20260815.md",
-      "reports/PF_RELATION_COMPARATOR_RUNTIME_TRACE_20260815.md",
-      "reports/PF_RE_V132_Tab_SelectTarget_Negative_Boundary_20260815.md",
-      "reports/PF_RE_V133_P70_Relation_Display_Negative_Boundary_20260815.md"
-     ],
-     "test_refs": [
-      "tests/test_relation_probe.py",
-      "tests/test_relation_matrix_probe.py",
-      "tests/test_arena.py",
-      "tests/test_action_ack.py"
-     ],
-     "notes": "One faction value made a scene actor selectable as hostile and the comparator path was traced live. Tab selection alone produced TargetVital without any action, per the V132 negative."
-    },
-    {
-     "id": "attack_command_producer",
-     "title": "Client produces a target-bound attack command",
-     "required": true,
-     "status": "runtime_pass",
-     "evidence_refs": [
-      "reports/PF_SCENE006_EA7D_ATTACK_COMMAND_RUNTIME_PASS_20260815.md",
-      "reports/PF_COMBAT_BIND001_EA7D_BEHAVIOR_SELECTION_STATIC_CHECKPOINT_20260816.md",
-      "reports/PF_RE_V128_Wield_Z_ActionVital_Capture_20260814.md"
-     ],
-     "test_refs": [
-      "tests/test_action_producer_probe.py"
-     ],
-     "notes": "Double-clicking a hostile actor produced ActionVital 0xEA7D bound to the exact target identity and the same vital reached the server wire in two independent sessions. This proves the request direction only."
-    },
-    {
-     "id": "action_acknowledgement",
-     "title": "Server acknowledges an action vital",
-     "required": true,
-     "status": "runtime_pass",
-     "evidence_refs": [
-      "reports/PF_SCENE007_PORT_ROYAL_EA7D_ACTION_ACK_RUNTIME_PASS_20260816.md",
-      "reports/PF_SCENE008_EA7D_INERT_ACTION_CONSUMER_RUNTIME_TRACE_20260816.md"
-     ],
-     "test_refs": [
-      "tests/test_action_ack.py",
-      "tests/test_action_consumer_probe.py"
-     ],
-     "notes": "The ack is accepted by the client without error, and SCENE-008 traced the consumer as inert: no visible attack, animation, or state change follows. Acknowledgement is not combat."
-    },
-    {
-     "id": "damage_and_hit_result",
-     "title": "Damage application and the server-to-client hit result",
-     "required": true,
-     "status": "blocked",
-     "evidence_refs": [
-      "reports/PF_SCENE009_CHITRESULT_CONSUMER_PROVENANCE_READY_NEGATIVE_20260816.md",
-      "reports/PF_SCENE013_STRUCTURAL_COMBAT_CORPUS_CAPABILITY_NEGATIVE_20260816.md"
-     ],
-     "test_refs": [
-      "tests/test_hit_result_probe.py",
-      "tests/test_structural_corpus_audit.py"
-     ],
-     "notes": "Blocked on evidence, not on code. A hash-guarded audit proves the curated corpus cannot answer the server-to-client combat-result question, so a new authentic capture is required before any damage number, formula, or result packet may be claimed."
-    },
-    {
-     "id": "knockdown_and_reaction_states",
-     "title": "Knockdown and reaction states",
-     "required": true,
-     "status": "in_progress",
-     "evidence_refs": [
-      "reports/PF_COMBAT_KNOCK001_STATIC_CONSUMER_BINDING_CHECKPOINT_20260816.md",
-      "reports/PF_COMBAT_KNOCK_DATA001_BEHAVIOR_BINDING_NEGATIVE_20260816.md"
-     ],
-     "test_refs": [
-      "tests/test_knockdown_consumer_probe.py"
-     ],
-     "notes": "The client-side consumer binding is statically characterized and the data-side binding attempt is a recorded negative. Nothing is emitted by the server and no reaction state is stored."
-    },
-    {
-     "id": "skill_use",
-     "title": "Skill trigger and skill state",
-     "required": true,
-     "status": "in_progress",
-     "evidence_refs": [
-      "reports/PF_SKILL001_TRIGGER_AND_STATE_STATIC_CHECKPOINT_20260816.md",
-      "reports/PF_HOTBAR001_SET_ITEM_HOTKEY_STATIC_CHECKPOINT_20260816.md"
-     ],
-     "test_refs": [
-      "tests/test_skill_trigger_probe.py"
-     ],
-     "notes": "Static trigger and hotbar-assignment boundaries exist. No skill is registered, cast, cooled down, or persisted server-side, and no runtime skill use has been observed."
-    },
-    {
-     "id": "behavior_range_gating",
-     "title": "Behavior lookup and geometric range gating",
-     "required": true,
-     "status": "in_progress",
-     "evidence_refs": [
-      "reports/PF_SCENE010_EA7D_BEHAVIOR_LOOKUP_RUNTIME_CORRECTIVE_20260816.md",
-      "reports/PF_SCENE011_BEHAVIOR_ENTRY_RUNTIME_20260816.md",
-      "reports/PF_SCENE012_EA7D_GEOMETRIC_GATE_CALLSITE_NEGATIVE_20260816.md"
-     ],
-     "test_refs": [
-      "tests/test_behavior_lookup_probe.py",
-      "tests/test_behavior_entry_probe.py",
-      "tests/test_behavior_range_gate_probe.py"
-     ],
-     "notes": "Behavior entry and lookup are traced at runtime and one earlier lookup claim was corrected. The geometric gate call site remains a negative, so no range rule may be asserted."
-    },
-    {
-     "id": "hp_death_and_respawn",
-     "title": "HP depletion, death and respawn",
-     "required": true,
-     "status": "not_started",
-     "evidence_refs": [],
-     "test_refs": [],
-     "notes": "HP is projected as a static attribute value only. No depletion, death state, corpse, penalty, or respawn path is captured or implemented."
-    },
-    {
-     "id": "mob_aggro_and_server_ai",
-     "title": "Monster aggro and server-driven AI",
-     "required": true,
-     "status": "not_started",
-     "evidence_refs": [],
-     "test_refs": [],
-     "notes": "Scene actors are projected placements that never react to the player. No aggro radius, threat table, chase, or attack loop exists on the server."
-    },
-    {
-     "id": "pvp_engagement",
-     "title": "Player-versus-player engagement rules",
-     "required": true,
-     "status": "not_started",
-     "evidence_refs": [],
-     "test_refs": [],
-     "notes": "The client shows a PvP warning dialog during server selection, but no PvP rule, flag, zone, or consequence is implemented or claimed on the server side."
-    }
-   ]
-  },
-  {
-   "id": "character_management",
-   "title": "Character management",
-   "domain_complete": false,
-   "status_banner": "Character management: INCOMPLETE",
-   "next_missing_behavior": "character_creation",
-   "capabilities": [
-    {
-     "id": "character_list_projection",
-     "title": "Character list projection and selection",
-     "required": true,
-     "status": "runtime_pass",
-     "evidence_refs": [
-      "reports/PF_DEMO_FULLLOOP001_CANONICAL_PORT_ROYAL_RUNTIME_PASS_20260817.md",
-      "reports/PF_FOUNDATION_ARENA_V1_RUNTIME_PASS_CLASSIFICATION_NEGATIVE_20260815.md"
-     ],
-     "test_refs": [
-      "tests/test_connection_lifecycle.py",
-      "tests/test_arena.py",
-      "tests/test_foundation.py"
-     ],
-     "notes": "One persisted character was listed and selected through the real client. Multi-character lists, slot ordering, and the classification/faction fields carried in the list are unproven; ARENA-V1 records the classification negative."
-    },
-    {
-     "id": "player_name_projection",
-     "title": "Persisted player name projected into the world view",
-     "required": true,
-     "status": "runtime_pass",
-     "evidence_refs": [
-      "reports/PF_CHARACTER_NAME002_PLAYER_NAME_RUNTIME_PASS_20260816.md",
-      "reports/PF_CHARACTER_NAME001_PLAYER_NAME_PROJECTION_STATIC_IMPLEMENTATION_20260816.md"
-     ],
-     "test_refs": [
-      "tests/test_player_name.py"
-     ],
-     "notes": "The exact UTF-16LE name field inside ActorAttr rendered above the local player. This closes the local-player name projection only, not remote-player nameboards or name change."
-    },
-    {
-     "id": "character_creation",
-     "title": "Create a character through the real client",
-     "required": true,
-     "status": "in_progress",
-     "evidence_refs": [
-      "reports/PF_JOB001_CHARCREATE_CLASS_STATIC_BOUNDARY_20260816.md",
-      "reports/PF_FOUNDATION_ARENA_V2_FACTION_ONLY_NEGATIVE_20260815.md"
-     ],
-     "test_refs": [
-      "tests/test_character_identity_binding.py",
-      "tests/test_foundation.py"
-     ],
-     "notes": "The store implements creation with identity binding, a normalized name key, and a submitted-wire fingerprint, and it is offline-tested. No runtime pass creates a character through the client, and JOB-001 proves no persistent job/class selector has been identified in any wire record, so the creation presets cannot yet be honored."
-    },
-    {
-     "id": "character_deletion",
-     "title": "Delete a character",
-     "required": true,
-     "status": "in_progress",
-     "evidence_refs": [
-      "reports/PF_DELETE003_PRODUCER_OUTER_FRAMING_NEGATIVE_20260816.md",
-      "scenarios/delete_actor_hypothesis_soft_delete.json",
-      "reports/PF_DELETE_SOFT001_SOFT_DELETE_REUSE_HEADLESS_20260818.md",
-      "reports/PF_DELETE_SOFT002_NATURAL_0x36DB_DECODE_20260818.md",
-      "reports/PF_DELETE_SOFT003_RUNTIMERES_TAIL_FIX_HEADLESS_20260818.md",
-      "reports/PF_BIGROUND2_ATTENDED_RESULTS_20260818.md"
-     ],
-     "test_refs": [
-      "tests/test_delete_actor.py",
-      "tests/test_delete_actor_hypothesis.py"
-     ],
-     "notes": "HYP-PF-015 (chief 2026-08-18, under the owner's Lane-1 Option-B decision of 00:52): the exact DELETE-003 nested DeleteActorVital record with op 1, accepted inside the designed one-vital GSCN_LoginProtocol envelope at the character-select stage behind the delete actor opt-in scenario only, soft-deletes the one owned, active, unselected character (deleted_at committed before the designed echo ack is queued; child rows survive as history) and migration 004's partial unique indexes free the slot so the byte-identical create wire recreates into the same selector, identity, and fingerprint. The full cycle create -> delete -> recreate is proven offline through the real dispatch path and headless on a real server process over TCP (DELETE-SOFT-001). The row stays in_progress -- not runtime_pass -- because no natural 0x36DB wire exists anywhere in the corpus: whether the real client's delete button emits this envelope, accepts the echo, and renders the freed slot is exactly the attended big-round claim; op 2 stays fail-closed and unnamed. UPDATE 2026-08-18 (attended GT-010, รอบใหญ่ #2): the project's first natural 0x36DB confirmed the request envelope byte-compatible (server parsed and committed the soft delete on the test copy); the v1 tail-less RuntimeRes ack was falsified live (ErrorData=28317 over-read) and fixed as DELETE-SOFT-002 (trailing derived-class mask 0B 00), headless-proven the same round. Row stays in_progress until the real client accepts the v2 ack (GT-011 queued). Real delete flow documented: leftmost char-select button, yes/no dialog, second-step randomized password pad."
-    },
-    {
-     "id": "second_password_gate",
-     "title": "Second-password gate",
-     "required": true,
-     "status": "in_progress",
-     "evidence_refs": [
-      "reports/PF_RE_V101_Empty_Backpack_and_Second_Password_20260814.md"
-     ],
-     "test_refs": [
-      "tests/test_second_password_bypass.py"
-     ],
-     "notes": "An explicit opt-in test-only bypass exists under canonical ledger entry SECOND-PASSWORD-BYPASS-001 and is used by every runtime pass. The authentic verification, storage, and change paths are not implemented; production use stays disallowed."
-    },
-    {
-     "id": "appearance_and_avatar_binding",
-     "title": "Appearance and avatar wire binding",
-     "required": true,
-     "status": "in_progress",
-     "evidence_refs": [],
-     "test_refs": [
-      "tests/test_character_identity_binding.py",
-      "tests/test_foundation.py"
-     ],
-     "notes": "Actor and avatar wires are persisted and replayed as opaque bytes with server-side identity rebinding, which preserves appearance without decoding it. No field-level appearance model exists, so appearance cannot be edited, validated, or generated."
-    },
-    {
-     "id": "stats_and_progression",
-     "title": "Level, experience and attribute progression",
-     "required": true,
-     "status": "not_started",
-     "evidence_refs": [],
-     "test_refs": [],
-     "notes": "The proven projection carries name and cash only. No level, experience, attribute point, or progression rule is modeled, persisted, or captured."
-    }
-   ]
-  },
-  {
-   "id": "chat",
-   "title": "Chat",
-   "domain_complete": false,
-   "status_banner": "Chat: INCOMPLETE",
-   "next_missing_behavior": "client_chat_input",
-   "capabilities": [
-    {
-     "id": "server_system_message",
-     "title": "Server-originated system message",
-     "required": true,
-     "status": "runtime_pass",
-     "evidence_refs": [
-      "reports/PF_RE_V99_ShowMessage_and_Fast_Entry_20260814.md",
-      "reports/PF_DEMO_FULLLOOP001_CANONICAL_PORT_ROYAL_RUNTIME_PASS_20260817.md"
-     ],
-     "test_refs": [
-      "tests/test_system_message_wire.py"
-     ],
-     "notes": "ShowMessageVital 0x36D2 carries exactly one wide string and the client renders it in the authentic system panel on the first runtime request. It is emitted by the frozen legacy seam and no Foundation module owns it, so it is one observation relayed through the inherited dispatch path rather than an owned feature; the offline test pins the wire shape and the ownership negative, not the runtime emission."
-    },
-    {
-     "id": "client_chat_input",
-     "title": "Client chat input reaching the server",
-     "required": true,
-     "status": "in_progress",
-     "evidence_refs": [
-      "reports/PF_GT006_CHAT_INPUT_UNKNOWN_FRAME_WIRE_CAPTURE_20260817.md"
-     ],
-     "test_refs": [
-      "tests/test_presentation_ownership.py"
-     ],
-     "notes": "First wire evidence exists: pressing Enter in the chat box emits exactly one 34-byte vital id 0xAC52 -- an id unknown to the server registry -- inside the standard GSCN_RunTimeProtocolReq envelope, with the typed characters interleaved with 0x00 bytes. The server dispatches nothing and answers nothing, and the client renders no echo. The request is captured but not decoded, not dispatched, and not answered under the default mode, so nothing higher than in_progress may be claimed; command prefixes and length limits remain unknown. HYP-PF-014 (CHAT-ECHO-001) now answers this exact captured shape behind the chat input opt-in scenario only; that designed lane is graded separately in chat_input_echo_hypothesis and changes nothing here."
-    },
-    {
-     "id": "chat_input_echo_hypothesis",
-     "title": "Designed echo acknowledgement of the captured chat input frame",
-     "required": true,
-     "status": "runtime_pass",
-     "evidence_refs": [
-      "scenarios/chat_input_hypothesis_echo.json",
-      "reports/PF_CHAT_ECHO001_CHAT_INPUT_ECHO_HYPOTHESIS_HEADLESS_20260817.md",
-      "reports/PF_BIGROUND2_ATTENDED_RESULTS_20260818.md",
-      "reports/PF_CHAT_ECHO002_SPEAKER_FIELD_RESEARCH_20260818.md",
-      "scenarios/chat_input_hypothesis_speaker_echo.json",
-      "reports/PF_CHAT_ECHO003_SPEAKER_WSTRING_VARIANT_HEADLESS_20260818.md"
-     ],
-     "test_refs": [
-      "tests/test_chat_input_echo.py"
-     ],
-     "notes": "HYP-PF-014 (chief 2026-08-17, under the owner's standing pre-approval): the exact GT-006 chat input shape -- vital id 0xAC52 in the one-vital GSCN_RunTimeProtocolReq envelope with exactly 34 payload bytes, the exact captured 10-byte prefix, and 12 printable-ASCII (low, 0x00) pairs -- is echoed back byte-exactly in the accepted GSCN_RunTimeProtocolRes v4 envelope (56-byte PC / 66-byte frame, both captured probes hash-pinned), behind the chat input opt-in scenario only, repeatable per session, with no database write and no socket action; everything else fails closed. The wire layer is loopback-tested and headless-proven in the sandbox (CHAT-ECHO-001 smoke: both probes echoed byte-exactly on a real server process, repeat send re-echoed, DB file bytes unchanged across the chat window, heartbeat cadence unchanged). The row starts at in_progress -- not runtime_pass -- because the client-observable layer (does the real client render the echoed message in its chat window, instead of the GT-006 silent-window baseline) is exactly what the attended big round must measure; the frame's meaning, prefix semantics, channels, delivery to other clients, and persistence remain unclaimed. UPDATE 2026-08-18 (attended GT-009, รอบใหญ่ #2 -- reports/PF_BIGROUND2_ATTENDED_RESULTS_20260818.md, manifest-backed): the real client rendered every echoed 12-ASCII message in the chat window ('[ทั่วไป] : <text>', channel tag from client text resource id 540, empty speaker slot, input cleared, not one-shot, general shape); a 5-char message stayed silent (UI fail-closed). Row moved to runtime_pass. Not claimed: non-ASCII/Thai, other lengths, channels/whisper, multi-client, persistence, prefix semantics, original-server behaviour; speaker-name variant is the next bounded step (CHAT-ECHO-002 research). UPDATE 2026-08-18 (chief round 53): CHAT-ECHO-002, the speaker-name wstring variant (candidate 1 of the speaker-field research), is implemented as the second tracked version behind its own opt-in scenario (speaker_wstring_echo_no_write_no_close): wstring#1 carries the selected character's canonical name, the text wstring and the accepted request shape are unchanged, pc = 56+2*len(name), frame = 79 bytes for the 6-char probe name (measured; the research's +10 frame rule under-counted the snappy literal header by one byte at pc > 60). Headless-proven in the sandbox over real TCP (byte-exact against new pins, repeatable, SHORT silent, no DB write, heartbeat unchanged). Whether the real client renders '[ทั่วไป] <name> : <text>' is queued as GT-012; Thai names and the tag-selection mechanism remain unclaimed."
-    },
-    {
-     "id": "chat_channels_and_routing",
-     "title": "Channels, whisper and broadcast routing",
-     "required": true,
-     "status": "not_started",
-     "evidence_refs": [],
-     "test_refs": [],
-     "notes": "Routing needs at least two concurrent sessions, which no runtime pass has ever established. Channel identifiers and recipient resolution are uncaptured."
-    },
-    {
-     "id": "chat_persistence_and_moderation",
-     "title": "Chat persistence, rate limiting and filtering",
-     "required": true,
-     "status": "not_started",
-     "evidence_refs": [],
-     "test_refs": [],
-     "notes": "No chat row exists in the schema and no rate limit or filter is implemented. Listed so the domain can never read as complete while they are missing."
-    }
-   ]
-  },
-  {
-   "id": "npc_interaction",
-   "title": "NPC interaction",
-   "domain_complete": false,
-   "status_banner": "NPC interaction: INCOMPLETE",
-   "next_missing_behavior": "quest_accept_and_progress",
-   "capabilities": [
-    {
-     "id": "npc_conversation_handshake",
-     "title": "NPC conversation handshake",
-     "required": true,
-     "status": "runtime_pass",
-     "evidence_refs": [
-      "reports/PF_RE_V135_Q3020_Conversation_Handshake_Pass_20260815.md",
-      "reports/PF_RE_V96_Runtime_and_V97_NPCConversation_20260814.md"
-     ],
-     "test_refs": [
-      "tests/test_npc_interaction_wire.py"
-     ],
-     "notes": "One click on a placed actor produced TargetVital plus an embedded ChooseNPC, and the server answered with exactly one NPCConversation carrying one descriptor. One actor, one descriptor, one composition."
-    },
-    {
-     "id": "conversation_operation_sequence",
-     "title": "Conversation operation and action sequence",
-     "required": true,
-     "status": "runtime_pass",
-     "evidence_refs": [
-      "reports/PF_RE_V136_Q3020_MARKER1_Compositional_Docking_Pass_20260815.md",
-      "reports/PF_RE_V125_Quest_OpenAccept_Op2_Capture_20260814.md"
-     ],
-     "test_refs": [
-      "tests/test_npc_interaction_wire.py"
-     ],
-     "notes": "The operation-1/action-6 then operation-2/action-1 docking-confirm sequence replayed as an exact composition. No semantic name is assigned to the raw operation or action values, and no branching dialogue tree is modeled."
-    },
-    {
-     "id": "quest_accept_and_progress",
-     "title": "Quest accept, tracking and completion",
-     "required": true,
-     "status": "in_progress",
-     "evidence_refs": [
-      "reports/PF_RE_V124_Quest_Action1_Tracker_Boundary_20260814.md",
-      "reports/PF_RE_V127_Quest_Accept_P30_G_Negative_Boundary_20260814.md",
-      "reports/PF_RE_V129_Quest3020_Accept_Travel_Negative_Boundary_20260815.md"
-     ],
-     "test_refs": [
-      "tests/test_npc_interaction_wire.py"
-     ],
-     "notes": "Three recorded negative boundaries bound where the accept path stops. No quest state is stored server-side, no tracker update is proven, and completion and rewards are untouched."
-    },
-    {
-     "id": "shop_buy_sell",
-     "title": "Shop browse, buy and sell",
-     "required": true,
-     "status": "in_progress",
-     "evidence_refs": [
-      "reports/PF_RE_V111_to_V115_Inventory_Monster_Shop_20260814.md",
-      "reports/PF_RE_V116_to_V120_Cash_Monster_and_Shop_20260814.md",
-      "reports/PF_RE_V121_to_V122_Final_Buy_Cash_Update_20260814.md"
-     ],
-     "test_refs": [
-      "tests/test_npc_interaction_wire.py"
-     ],
-     "notes": "Captures reach a cash update following a buy. Nothing is implemented in the Foundation store: no shop inventory, no price authority, no transactional buy or sell, and no persistence."
-    },
-    {
-     "id": "interaction_negative_paths",
-     "title": "Interaction negative paths and reachability limits",
-     "required": true,
-     "status": "in_progress",
-     "evidence_refs": [
-      "reports/PF_RE_V139_P86_Interaction_Operational_Negative_20260815.md",
-      "reports/PF_RE_V140_P86_Synthetic_Harness_Interaction_Pass_20260815.md",
-      "reports/PF_RE_V134_Q3020_Conversation_Handshake_Operational_Negative_20260815.md",
-      "reports/PF_RE_V126_Failed_Operational_P91_Mistarget_20260814.md"
-     ],
-     "test_refs": [
-      "tests/test_npc_interaction_wire.py"
-     ],
-     "notes": "V139 was statically valid but operationally unreachable, and V140 passed only after an explicit synthetic harness position was substituted. That harness is a test device and is never permission to place synthetic positions in production population data."
-    },
-    {
-     "id": "monster_spawn_and_loot",
-     "title": "Monster spawn cycle and loot",
-     "required": true,
-     "status": "not_started",
-     "evidence_refs": [],
-     "test_refs": [],
-     "notes": "Scene actors are static placements. No spawn timer, respawn cycle, drop table, loot object, or pickup path is captured or implemented."
-    }
-   ]
-  },
-  {
-   "id": "presentation",
-   "title": "Presentation and audio",
-   "domain_complete": false,
-   "status_banner": "Presentation and audio: INCOMPLETE",
-   "next_missing_behavior": "scene_music_control",
-   "capabilities": [
-    {
-     "id": "scene_music_control",
-     "title": "Scene music control reaching the client",
-     "required": true,
-     "status": "in_progress",
-     "evidence_refs": [
-      "reports/PF_RE_V100_Current_Scene_Music_20260814.md"
-     ],
-     "test_refs": [
-      "tests/test_presentation_ownership.py"
-     ],
-     "notes": "The client accepted one MusicControlVital 0x3EAF at runtime and continued normally. No Foundation module produces or owns music control, no per-scene track mapping is captured, and no audible output is verified, so this is one accepted-frame observation only."
-    },
-    {
-     "id": "system_message_display",
-     "title": "System message display surface",
-     "required": true,
-     "status": "in_progress",
-     "evidence_refs": [
-      "reports/PF_RE_V99_ShowMessage_and_Fast_Entry_20260814.md",
-      "reports/PF_DEMO_FULLLOOP001_CANONICAL_PORT_ROYAL_RUNTIME_PASS_20260817.md"
-     ],
-     "test_refs": [
-      "tests/test_system_message_wire.py"
-     ],
-     "notes": "The authentic system panel rendered the one-string ShowMessageVital in runtime passes. Wire shape and emission ownership stay graded in chat/server_system_message; this row tracks only the presentation surface, whose panel routing rules, fonts, and display limits are unmeasured."
-    },
-    {
-     "id": "ui_error_dialog_surfaces",
-     "title": "UI error and dialog surfaces",
-     "required": true,
-     "status": "in_progress",
-     "evidence_refs": [
-      "reports/PF_GT001_POST_M3_CANONICAL_FULL_LOOP_SMOKE_RUNTIME_PASS_20260817.md"
-     ],
-     "test_refs": [
-      "tests/test_presentation_ownership.py"
-     ],
-     "notes": "The PvP warning dialog at server selection and the exit confirmation dialog were operated during attended loops. No catalogue of error surfaces exists and no server-driven error dialog has ever been observed."
-    },
-    {
-     "id": "loading_transition_screens",
-     "title": "Loading and transition screens",
-     "required": true,
-     "status": "in_progress",
-     "evidence_refs": [
-      "reports/PF_GT001_POST_M3_CANONICAL_FULL_LOOP_SMOKE_RUNTIME_PASS_20260817.md"
-     ],
-     "test_refs": [
-      "tests/test_presentation_ownership.py"
-     ],
-     "notes": "One WANTED loading screen of roughly 30 seconds preceded Port Royal entry in attended loops. No other scene, no failure path, and no progress semantics are observed."
-    }
-   ]
-  }
- ]
+  ]
 }

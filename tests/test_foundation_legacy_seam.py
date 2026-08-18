@@ -67,8 +67,44 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers one deliberate movement, chief rounds 73-74 (2026-08-18):
-    #  1. movement/remote_player_movement_projection not_started -> in_progress
+    # This pin covers two deliberate movements, chief round 75 (2026-08-18), both
+    # report-only static characterizations that leave the ledger at 25:
+    #  1. inventory/use_drop_sell not_started -> in_progress with USE-DROP-SELL-001.
+    #     evidence_ref
+    #     reports/PF_USE_DROP_SELL001_ITEM_OPERATE_USE_DROP_SELL_STATIC_20260818.md
+    #     and test_ref tests/test_use_drop_sell_static.py. Byte-exact from the client
+    #     binary: neither use nor sell rides ItemOperate. USE is its own class
+    #     UseItemVital (vtable 0xF30950, single registration 0xBEE600 -> id-slot
+    #     0x1082030, get-id 0x5BEA50) whose serializer 0x6C0180 emits one qword
+    #     (tag 0x32) and nothing else; SELL is the Stall/BlackMarket/ItemMall system,
+    #     whose StallOperateVital serializer 0x76A630 is a priced wire. No ItemOperate
+    #     producer references any vendor/price string, retiring the sell-N candidate
+    #     SPLIT-OPERATE-002 left open. op3's single caller 0x5B9D0C is a dialog
+    #     callback (never e8-called; registered via 0x405D40 into dialog+0x12CC) that
+    #     fires only on confirm: identity-only, no quantity, destination or
+    #     counterparty. Server has no handler for op3, op6 or USE_ITEM_VITAL 0x1F4F,
+    #     and the one shop route TradeCmdVital 0x23B5 is buy-only, so status stays
+    #     in_progress. Which verb is literally drop/discard/destroy is NOT claimed.
+    #  2. chat/chat_channels_and_routing not_started -> in_progress with
+    #     CHAT-CHANNEL-001. evidence_ref
+    #     reports/PF_CHAT_CHANNEL001_CHANNEL_FAMILY_AND_ROUTING_STATIC_20260818.md
+    #     and test_ref tests/test_chat_channel_family_static.py. The seventeen
+    #     Channel_*Vital classes register from one contiguous block
+    #     0xBF72B0..0xBF74F0 in PF-NAMEID-HASH-001 shape, so every channel id derives
+    #     from its in-image name literal; the anchor holds exactly
+    #     (Channel_LocalTalkMessageVital = 0xAC52, the id GT-006 captured on the
+    #     wire), no id is ever a code immediate once E8/E9 AND 0F 8x rel32 tails are
+    #     excluded, and two independent naming routes converge 17/17. Recipient
+    #     resolution is decoded: Whisper alone carries a third wstring
+    #     (Serialize 0x65AEA0, recipient@+0x50) plus a u8 result code @+0x6C. Five
+    #     channels share base serializer 0x65AD40, so the channel identifier IS the
+    #     16-bit class id, not a payload selector, and the 34-byte GT-006 payload
+    #     parses with zero bytes left over. Server carries no Channel_ token and none
+    #     of the seventeen ids: seventeen client-side, one touched, zero decoded. The
+    #     original server's fan-out/membership behaviour still needs two concurrent
+    #     sessions, so this is NOT runtime_pass.
+    # Previous pin C98EB5B8..B58C (rounds 73-74) recorded
+    #  0. movement/remote_player_movement_projection not_started -> in_progress
     #     with MOVE-PROJECT-001. evidence_ref
     #     reports/PF_MOVE_PROJECT001_REMOTE_MOVEMENT_PROJECTION_STATIC_20260818.md
     #     and test_ref tests/test_remote_movement_projection_static.py. It
@@ -104,7 +140,7 @@ GRADE_SUBSET_SHA256 = (
     # 26D752FE..BA9A (round 65) occupied_destination_policy not_started ->
     # in_progress under HYP-PF-017 (ITEM-SWAP-001); see its lineage note before that
     # for round 53's 78558E56..6DC8.
-    "C98EB5B82B056AC47B4D999BE112C426813AA808CDE8E1551DBC5B33B893B58C"
+    "70E1668DABE1BF0B987C629F5777682E64AB809B3171246BC10ECCF8931B48BD"
 )
 
 

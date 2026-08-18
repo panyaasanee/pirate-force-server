@@ -234,3 +234,7 @@
 !/tools/pf_move_authority_targetpos_static.py
 !/reports/PF_MOVE_PROJECT001_REMOTE_MOVEMENT_PROJECTION_STATIC_20260818.md
 !/tools/pf_remote_movement_projection_static.py
+!/reports/PF_USE_DROP_SELL001_ITEM_OPERATE_USE_DROP_SELL_STATIC_20260818.md
+!/tools/pf_use_drop_sell_static.py
+!/reports/PF_CHAT_CHANNEL001_CHANNEL_FAMILY_AND_ROUTING_STATIC_20260818.md
+!/tools/pf_chat_channel_family_static.py
