@@ -1,11 +1,11 @@
 {
   "schema": 1,
   "workspace_id": "pirate-force-command-2-canonical-local-workspace",
-  "lease_state": "handoff_ready",
-  "active_executor": null,
+  "lease_state": "active",
+  "active_executor": "Claude (Cowork)",
   "authorized_by": "user",
   "last_executor": "OpenAI Codex",
-  "updated_at": "2026-08-17T00:00:00+07:00",
+  "updated_at": "2026-08-18T12:20:00+07:00",
   "canonical_paths": {
     "main_worktree": "C:\\Users\\Panya\\Desktop\\Pirate Force\\Pirate Force ServerProject",
     "visible_console_worktree": "C:\\Users\\Panya\\Desktop\\Pirate Force\\Pirate Force ServerProject-console",

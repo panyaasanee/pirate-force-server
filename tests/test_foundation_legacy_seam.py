@@ -67,25 +67,33 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers one deliberate movement, chief round 72 (2026-08-18):
-    #  1. movement/local_player_movement_authority not_started -> in_progress
-    #     with MOVE-AUTHORITY-001. evidence_ref
-    #     reports/PF_MOVE_AUTHORITY001_TARGETPOS_PRODUCER_STATIC_20260818.md and
-    #     test_ref tests/test_move_authority_targetpos_static.py. It characterizes
-    #     byte-exact, from the read-only client binary cross-checked against the
-    #     read-only server source, the transport the local player's movement report
-    #     rides -- TargetPosVital 0x2A90: runtime-assigned id wall (name @0xF30818,
-    #     single registration 0xBEE380 -> id-slot 0x1081FE0, 0x2A90 never a code
-    #     immediate, one get-id stub 0x5E50A0), vtable 0xF30230 (+0x08 shared
-    #     VitalData const, +0x18 serializer 0x5E50E0), and the wire schema four
-    #     f32(tag 0x2A) + two u8(tag 0x0B) matching parse_target_pos_vital, bound to
-    #     the authentic captured V139_MARKER1_TARGETPOS_PC. Server decodes the same
-    #     schema and accepts as given (no local speed/distance/collision validation,
-    #     no corrective reposition) -- the gap an authority must fill. Report-only
-    #     additive: no server behavior changed; ledger stays 25. Status stays
-    #     in_progress (authority model uncaptured; not runtime_pass). The movement
-    #     domain's next_missing_behavior moves to remote_player_movement_projection.
-    # Previous pin E04F22D1..CCE8 (round 71) recorded inventory/stack_merge_and_limit
+    # This pin covers one deliberate movement, chief rounds 73-74 (2026-08-18):
+    #  1. movement/remote_player_movement_projection not_started -> in_progress
+    #     with MOVE-PROJECT-001. evidence_ref
+    #     reports/PF_MOVE_PROJECT001_REMOTE_MOVEMENT_PROJECTION_STATIC_20260818.md
+    #     and test_ref tests/test_remote_movement_projection_static.py. It
+    #     characterizes byte-exact, from the read-only client binary cross-checked
+    #     against the read-only server source, the transport a remote actor's
+    #     movement projection rides -- MovementAttr 0x2067 inside every remote-actor
+    #     entry of the RuntimeRes actor stream: runtime-assigned id wall (name
+    #     @0xF0E840, single registration 0xBD9410 -> id-slot 0x10334A8, 0x2067 never
+    #     a code immediate, one get-id stub 0x43BBB0), vtable 0xF0D0F8 (+0x2C delta
+    #     0x467040, +0x30 apply/merge 0x467130, +0x34 Serial 0x4671C0), the
+    #     mask-gated sparse wire schema (submask u8 + identity qword(0x32) + field
+    #     mask u8, then per-bit pos vec3/heading f32/mode u8/flags u32(0x26)/three
+    #     f32) matching make_remote_movement_attr byte-exact, and the projection
+    #     apply/merge that completes a sparse delta against existing projected state
+    #     (copies only fields whose target-mask bit is NOT set). Server only ever
+    #     emits remote actors of actor_type 4 (CNetNPC): no authentic remote
+    #     human-PLAYER capture exists, so status stays in_progress (interest
+    #     management, cadence, interpolation uncaptured; not runtime_pass).
+    #     Report-only additive: no server behavior changed; ledger stays 25. The
+    #     movement domain has no not_started rows left; next_missing_behavior stays
+    #     remote_player_movement_projection (first row still short of runtime_pass).
+    # Previous pin 0F705C08..C4F8 (round 72) recorded
+    # movement/local_player_movement_authority not_started -> in_progress with
+    # MOVE-AUTHORITY-001 (TargetPosVital 0x2A90 producer + wire schema, server
+    # accepts-as-given gap); E04F22D1..CCE8 (round 71) recorded inventory/stack_merge_and_limit
     # gaining the ITEM-MERGE-001 (HYP-PF-018) evidence/test refs; 594DEB56..DCF5
     # (round 69) recorded split_stack's second evidence set (SPLIT-OPERATE-002;
     # round 70 touched notes prose only so the digest held); 3A78B4B6..A766
@@ -96,7 +104,7 @@ GRADE_SUBSET_SHA256 = (
     # 26D752FE..BA9A (round 65) occupied_destination_policy not_started ->
     # in_progress under HYP-PF-017 (ITEM-SWAP-001); see its lineage note before that
     # for round 53's 78558E56..6DC8.
-    "0F705C08EE6A1DB1444E148614242C57A64293B36E9CE3AF2D8D28290024C4F8"
+    "C98EB5B82B056AC47B4D999BE112C426813AA808CDE8E1551DBC5B33B893B58C"
 )
 
 

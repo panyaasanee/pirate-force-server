@@ -232,3 +232,5 @@
 !/reports/itemmerge001_smoke/**
 !/reports/PF_MOVE_AUTHORITY001_TARGETPOS_PRODUCER_STATIC_20260818.md
 !/tools/pf_move_authority_targetpos_static.py
+!/reports/PF_MOVE_PROJECT001_REMOTE_MOVEMENT_PROJECTION_STATIC_20260818.md
+!/tools/pf_remote_movement_projection_static.py
