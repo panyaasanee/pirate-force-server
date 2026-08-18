@@ -48,6 +48,9 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation.channel_message_hypothesis import (  # noqa: E402
     CHANNEL_MESSAGE_ACCEPTED,
+    CHANNEL_SWEEP_ORDER,
+    CHANNEL_SWEEP_SCENARIO_ID,
+    CHANNEL_SWEEP_SPACING_SECONDS,
     CHANNEL_MESSAGE_FIELD_ORDER,
     CHANNEL_MESSAGE_PC_OVERHEAD,
     CHANNEL_MESSAGE_PC_PAYLOAD_OFFSET,
@@ -92,6 +95,9 @@ LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 SCENARIO_PATH = (
     ROOT / "scenarios" / "channel_message_hypothesis_shared_serializer.json"
 )
+SWEEP_SCENARIO_PATH = (
+    ROOT / "scenarios" / "channel_message_hypothesis_channel_sweep.json"
+)
 ECHO_SCENARIO_PATH = ROOT / "scenarios" / "chat_input_hypothesis_echo.json"
 SPEAKER_SCENARIO_PATH = (
     ROOT / "scenarios" / "chat_input_hypothesis_speaker_echo.json"
@@ -99,6 +105,11 @@ SPEAKER_SCENARIO_PATH = (
 # CHAT-ECHO-001/002 own those two files; this lane must leave them byte-identical.
 ECHO_SCENARIO_FILE_SHA256 = (
     "1350C98A0DE99B4690191BB998F66A0DFE7B8A7A41F15F33DBAD135DE0C75ABB"
+)
+# CHAT-CHANNEL-002 owns the codec-only profile; CHAT-CHANNEL-003 must add a
+# second file rather than widen that one.
+SHARED_SERIALIZER_SCENARIO_FILE_SHA256 = (
+    "31D1E45A7D3D52BEA909478C916533E2D4542F1AC35C22671BA8B06316C5E6B2"
 )
 # The 16-bit channel id sits at PC bytes 16:18 of the one-vital collection
 # envelope (u16tag 3 + u32tag 5 + u8tag 2 + u8tag 2 + u16tag 3 = 15, +1 tag).
@@ -612,16 +623,143 @@ class ScenarioGateTests(unittest.TestCase):
             ECHO_SCENARIO_FILE_SHA256,
         )
 
-    def test_this_lane_is_not_wired_into_production_dispatch(self):
+    def test_this_lane_is_reachable_only_through_the_opt_in_scenario(self):
+        """CHAT-CHANNEL-003 deliberately changed what this guard can assert.
+
+        Until 2026-08-18 this test asserted the strongest possible containment:
+        the string ``channel_message_hypothesis`` appeared in NO runtime module
+        at all, so the lane was unreachable by construction rather than by
+        flag.  That was the honest statement of CHAT-CHANNEL-002, whose whole
+        point was a codec with no way to reach the wire -- which is also why
+        GT-016 stayed BLOCKED.  CHAT-CHANNEL-003 is the milestone that hooks it
+        up, so ``runtime.py`` and ``app.py`` now import it on purpose and this
+        assertion had to move rather than be worked around.  (It was NOT worked
+        around: no indirection, no lazy import, no derived module name -- the
+        two importers are named below and the list is exact, so a third one
+        shows up here as a failure.)
+
+        What is still true, and is what this guard now pins:
+
+          * ``connection.py`` and ``scenario.py`` still never mention it.
+          * Nothing reaches the lane without an explicit opt-in scenario
+            object: every mention in ``runtime.py`` is inside the
+            ``channel_message_hypothesis_scenario is not None`` gate, and
+            ``app.py`` only builds one from an explicit CLI flag.
+          * Both scenario profiles keep ``production_allowed: false`` and
+            ``database_write: none``.
+          * The frozen v141 module still knows nothing about any of it.
+
+        The runtime-behaviour half of this contract (no scenario => zero
+        actions, zero events, byte-identical database) is proven against the
+        real dispatch path in tests/test_channel_message_dispatch.py.
+        """
         module = "channel_message_hypothesis"
-        for name in ("runtime.py", "app.py", "connection.py", "scenario.py"):
-            source = (ROOT / "src" / "pirateforce_foundation" / name).read_text(
-                encoding="utf-8",
+        src = ROOT / "src" / "pirateforce_foundation"
+        importers = sorted(
+            path.name for path in src.glob("*.py")
+            if module in path.read_text(encoding="utf-8")
+            and path.name != f"{module}.py"
+        )
+        self.assertEqual(importers, ["app.py", "runtime.py"])
+        for name in ("connection.py", "scenario.py"):
+            self.assertNotIn(
+                module, (src / name).read_text(encoding="utf-8"), name,
             )
-            self.assertNotIn(module, source, name)
         legacy_source = LEGACY_PATH.read_text(encoding="utf-8")
         self.assertNotIn(module, legacy_source)
         self.assertNotIn("Channel_", legacy_source)
+
+    def test_every_runtime_mention_sits_behind_the_opt_in_gate(self):
+        # The lane may be imported, but it must be impossible to enter it
+        # without an opt-in scenario object.  Both call sites and the branch
+        # that guards them are named here so that adding an ungated one fails.
+        source = (
+            ROOT / "src" / "pirateforce_foundation" / "runtime.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "if channel_message_hypothesis_scenario is not None:", source,
+        )
+        self.assertIn(
+            "channel_message_hypothesis_scenario is not None\n"
+            "                and nested_id == CHAT_INPUT_VITAL_ID",
+            source,
+        )
+        # The composer is reached from exactly one call site (the import line
+        # is the other mention).
+        self.assertEqual(source.count("make_channel_message_response"), 2)
+        self.assertEqual(source.count("make_channel_message_response("), 1)
+        self.assertEqual(
+            source.count("_dispatch_channel_message_hypothesis"), 2,
+        )
+
+    def test_both_profiles_stay_test_only_with_no_database_write(self):
+        for path in (SCENARIO_PATH, SWEEP_SCENARIO_PATH):
+            data = json.loads(path.read_text(encoding="utf-8"))
+            self.assertIs(data["test_only"], True, path.name)
+            self.assertIs(data["production_allowed"], False, path.name)
+            self.assertEqual(
+                data["persisted_post_state"]["database_write"], "none",
+                path.name,
+            )
+            self.assertEqual(data["hypothesis_id"], "HYP-PF-019", path.name)
+
+    def test_the_cli_flag_requires_an_explicit_database(self):
+        source = (
+            ROOT / "src" / "pirateforce_foundation" / "app.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("--channel-message-hypothesis-scenario", source)
+        self.assertIn(
+            "'--channel-message-hypothesis-scenario requires an explicit "
+            "existing --db'",
+            source,
+        )
+
+    def test_the_sweep_profile_loads_and_pins_the_dispatch_policy(self):
+        scenario = load_channel_message_hypothesis_scenario(SWEEP_SCENARIO_PATH)
+        self.assertEqual(scenario.scenario_id, CHANNEL_SWEEP_SCENARIO_ID)
+        self.assertEqual(scenario.channel_order, CHANNEL_SWEEP_ORDER)
+        self.assertEqual(scenario.spacing_seconds, CHANNEL_SWEEP_SPACING_SECONDS)
+        # The codec-only profile carries no dispatch policy at all: it cannot
+        # be handed to the sweep branch and accidentally emit one frame.
+        codec_only = load_channel_message_hypothesis_scenario(SCENARIO_PATH)
+        self.assertEqual(codec_only.channel_order, ())
+        self.assertEqual(codec_only.spacing_seconds, 0.0)
+
+    def test_the_sweep_profile_allowlist_is_exact(self):
+        data = json.loads(SWEEP_SCENARIO_PATH.read_text(encoding="utf-8"))
+        for mutate in (
+            lambda d: d.__setitem__("production_allowed", True),
+            lambda d: d.__setitem__("test_only", False),
+            lambda d: d.__setitem__("id", "channel_message_hypothesis_sweep_v2"),
+            lambda d: d.__setitem__("extra_field", 1),
+            lambda d: d.pop("nonclaims"),
+            lambda d: d["dispatch"].__setitem__("spacing_seconds", 0.0),
+            lambda d: d["dispatch"]["channel_order"].reverse(),
+            lambda d: d["dispatch"]["channel_order"].pop(),
+            lambda d: d["dispatch"].__setitem__(
+                "speaker_policy", "selected_character_name",
+            ),
+            lambda d: d["persisted_post_state"].__setitem__(
+                "database_write", "chat_messages",
+            ),
+            lambda d: d["composed_responses"]["per_channel"][
+                "Channel_GMGlobalMessageVital"
+            ].__setitem__("pc_sha256", "00" * 32),
+        ):
+            tampered_data = json.loads(json.dumps(data))
+            mutate(tampered_data)
+            tampered = Path(self.tmp.name) / "tampered_sweep.json"
+            tampered.write_text(json.dumps(tampered_data), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                load_channel_message_hypothesis_scenario(tampered)
+
+    def test_the_shared_serializer_profile_file_is_untouched(self):
+        # CHAT-CHANNEL-002 pinned that file end to end; CHAT-CHANNEL-003 adds a
+        # second file rather than editing it.
+        self.assertEqual(
+            hashlib.sha256(SCENARIO_PATH.read_bytes()).hexdigest().upper(),
+            SHARED_SERIALIZER_SCENARIO_FILE_SHA256,
+        )
 
 
 if __name__ == "__main__":

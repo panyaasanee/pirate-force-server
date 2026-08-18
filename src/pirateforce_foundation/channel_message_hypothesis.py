@@ -77,29 +77,50 @@ OWNERSHIP GATE -- READ BEFORE MERGING
 ------------------------------------
 ``tests/test_presentation_ownership.py`` pins an exact allowlist of Foundation
 modules allowed to mention the GT-006 chat vital id (regex ``(?i)AC52|44114``,
-allowlist ``["chat_input_hypothesis.py", "runtime.py"]``).  This module is a
-SECOND deliberate owner of that id, so that guard now fails by design and only
-the chief can settle it -- the allowlist is a deliberate ownership movement,
-not an accident, and this lane will not hide the id from the scanner to make
-the guard green.  The intended one-line resolution is
-``CHAT_VITAL_ALLOWED_MODULES = ["channel_message_hypothesis.py",
-"chat_input_hypothesis.py", "runtime.py"]`` (sorted order, which is what
-``modules_mentioning`` returns).
+allowlist, settled by the chief in round 76 as
+``["channel_message_hypothesis.py", "chat_input_hypothesis.py",
+"runtime.py"]``).  This module is a SECOND deliberate owner of that id.  The
+id could have been derived from the name hash at import time to keep the
+scanner quiet -- that was deliberately NOT done, and CHAT-CHANNEL-003 does
+not do it either: the repository is supposed to be able to say truthfully how
+many modules touch 0xAC52.
+
+CHAT-CHANNEL-003 -- the dispatch hookup (this is a deliberate change)
+--------------------------------------------------------------------
+CHAT-CHANNEL-002 stopped one step short on purpose: the codec existed but
+nothing could put a byte on the wire, so GT-016 stayed BLOCKED.  This
+milestone adds a SECOND profile,
+``scenarios/channel_message_hypothesis_channel_sweep.json``, and wires it
+into ``runtime.py``.  Under that profile only, one accepted chat input frame
+(the exact ascii12 0xAC52 shape ``chat_input_hypothesis`` already classifies)
+is decoded into ``(speaker, body)`` and answered with FIVE composed frames --
+one per shared-serializer channel, in the order GT-016 asks to read them on
+screen: LocalTalk, Party, Guild, GMGlobal, ActorBoardcast -- spaced by
+``spacing_seconds`` so the client cannot coalesce them into one line.
+
+The speaker is deliberately empty on all five.  That is the whole point of
+the experiment: with an empty speaker the five nested payloads are IDENTICAL
+byte for byte and the composed PCs differ in exactly the two bytes at
+``pc[16:18]`` (the 16-bit class id), so whatever the client does differently
+between the five lines it did on the strength of the class id alone.
 
 Opt-in, test-only
 -----------------
-``scenarios/channel_message_hypothesis_shared_serializer.json`` carries
-``test_only: true`` / ``production_allowed: false`` and is loaded through an
-exact allowlist.  This module is deliberately NOT wired into the production
-dispatch path: nothing imports it from ``runtime.py``, it owns no session
-state, and ``database_write`` is ``none`` (chat has no table).
+Both scenario files carry ``test_only: true`` / ``production_allowed: false``
+and load through an exact allowlist.  The lane is reachable ONLY when one of
+them is handed in: with no scenario the dispatch branch does not exist, the
+module composes nothing, it owns no session state beyond a counter, and
+``database_write`` is ``none`` (chat has no table).  There is no production
+path to any of this, and no default-mode behaviour changed.
 
 NOT CLAIMED here: that the client renders any of the five channels (that is
 GT-016, attended, not run); the original server's routing/fan-out or
 membership policy (never captured -- two concurrent sessions have never
 existed in this project); the meaning of Whisper's result byte; and any
 behaviour for the four channels other than LocalTalk, which have never been
-observed on this project's wire in either direction.
+observed on this project's wire in either direction.  A sweep is five frames
+sent to the ONE session that asked for them: it is not fan-out, not routing,
+and not membership.
 """
 
 from __future__ import annotations
@@ -234,6 +255,32 @@ CHANNEL_MESSAGE_PROBE1_FRAME_SHA256 = {
 CHANNEL_MESSAGE_PROBE1_PC_SIZE = 56
 CHANNEL_MESSAGE_PROBE1_FRAME_SIZE = 66
 
+# ------------------------------------------------------- CHAT-CHANNEL-003 sweep
+# The order GT-016 asks to read the five lines in on screen.  It is NOT the
+# declaration order of SHARED_SERIALIZER_CHANNELS: GMGlobal is pulled ahead of
+# ActorBoardcast because the attended tester reads the two "loud" channels
+# last.  _require_sweep_order below proves it is a permutation of the five, so
+# a typo cannot silently drop or duplicate a channel.
+CHANNEL_SWEEP_SCENARIO_ID = "channel_message_hypothesis_channel_sweep"
+CHANNEL_SWEEP_ORDER = (
+    "Channel_LocalTalkMessageVital",
+    "Channel_PartyMessageVital",
+    "Channel_GuildMessageVital",
+    "Channel_GMGlobalMessageVital",
+    "Channel_ActorBoardcastMessageVital",
+)
+# Seconds between consecutive sends.  The frozen V141 sender treats the fourth
+# action-tuple field as a gap on a cumulative deadline (it does
+# ``send_deadline += delay`` then sleeps to it), so the first frame carries 0.0
+# and each later frame carries the full spacing.  Three seconds is what an
+# attended reader needs to see five separate chat lines rather than a burst.
+CHANNEL_SWEEP_SPACING_SECONDS = 3.0
+CHANNEL_SWEEP_FIRST_DELAY_SECONDS = 0.0
+# Empty speaker on every channel, so the five nested payloads are identical
+# byte for byte and the class id is the only difference on the wire.
+CHANNEL_SWEEP_SPEAKER = CHANNEL_MESSAGE_PROBE_SPEAKER
+CHANNEL_SWEEP_ACTION_LABEL_PREFIX = "HYP_PF_019_CHANNEL_SWEEP_"
+
 
 @dataclass(frozen=True)
 class ChannelMessage:
@@ -253,6 +300,11 @@ class ChannelMessageHypothesisScenario:
     probe2_payload_sha256: str
     localtalk_probe1_pc_sha256: str
     localtalk_probe1_frame_sha256: str
+    # CHAT-CHANNEL-003 dispatch policy.  The CHAT-CHANNEL-002 codec-only
+    # profile carries the empty defaults: it composes nothing on dispatch
+    # because it is never handed to a dispatch branch.
+    channel_order: tuple[str, ...] = ()
+    spacing_seconds: float = 0.0
 
 
 # ---------------------------------------------------------------- id derivation
@@ -289,6 +341,36 @@ def _require_derived_channel_ids() -> None:
         SHARED_SERIALIZER_CHANNEL_IDS
     ):
         raise RuntimeError("HYP-PF-019 channel id collision")
+
+
+def channel_short_name(name: str) -> str:
+    """Derive the action-label token from the class-name literal.
+
+    Derived, not transcribed, for the same reason the ids are: a second table
+    is a second thing that can drift away from the first.
+    """
+    if name not in SHARED_SERIALIZER_CHANNEL_IDS:
+        raise ValueError("channel message rejected: "
+                         "channel_outside_shared_serializer")
+    return name.removeprefix("Channel_").removesuffix("MessageVital").upper()
+
+
+def _require_sweep_order() -> None:
+    """The sweep order must be a permutation of the five, no more, no less."""
+    if len(CHANNEL_SWEEP_ORDER) != len(SHARED_SERIALIZER_CHANNELS):
+        raise RuntimeError("HYP-PF-019 sweep order length drift")
+    if set(CHANNEL_SWEEP_ORDER) != set(SHARED_SERIALIZER_CHANNELS):
+        raise RuntimeError("HYP-PF-019 sweep order membership drift")
+    if len(set(CHANNEL_SWEEP_ORDER)) != len(CHANNEL_SWEEP_ORDER):
+        raise RuntimeError("HYP-PF-019 sweep order duplicate channel")
+    if CHANNEL_SWEEP_ORDER[0] != "Channel_LocalTalkMessageVital":
+        # The only channel this project has ever seen on the wire leads, so an
+        # attended run that dies after one frame still produced a comparable.
+        raise RuntimeError("HYP-PF-019 sweep order anchor drift")
+    if len({channel_short_name(name) for name in CHANNEL_SWEEP_ORDER}) != len(
+        CHANNEL_SWEEP_ORDER
+    ):
+        raise RuntimeError("HYP-PF-019 sweep action label collision")
 
 
 # ---------------------------------------------------------------- classification
@@ -641,9 +723,140 @@ _EXPECTED_SHARED_SERIALIZER = {
     ],
 }
 
+_PROFILE_CHANNEL_SWEEP = ChannelMessageHypothesisScenario(
+    CHANNEL_SWEEP_SCENARIO_ID,
+    "HYP-PF-019",
+    CHAT_INPUT_PROBE_PAYLOAD_SHA256["probe1"],
+    CHAT_INPUT_PROBE_PAYLOAD_SHA256["probe2"],
+    CHANNEL_MESSAGE_PROBE1_PC_SHA256["Channel_LocalTalkMessageVital"],
+    CHANNEL_MESSAGE_PROBE1_FRAME_SHA256["Channel_LocalTalkMessageVital"],
+    CHANNEL_SWEEP_ORDER,
+    CHANNEL_SWEEP_SPACING_SECONDS,
+)
+
+# CHAT-CHANNEL-003.  The shared-serializer profile above is left byte-identical
+# (it is pinned end to end by tests/test_channel_message_hypothesis.py); the
+# dispatch policy lives in its own file, exactly as CHAT-ECHO-002 did.
+_EXPECTED_CHANNEL_SWEEP = {
+    "schema": 1,
+    "id": _PROFILE_CHANNEL_SWEEP.scenario_id,
+    "test_only": True,
+    "production_allowed": False,
+    "hypothesis_id": _PROFILE_CHANNEL_SWEEP.hypothesis_id,
+    "entry": {
+        "flow": "full_writable_character",
+        "required_sequence": "selected_and_runtime_ready",
+        "response_policy": (
+            "sweep_one_decoded_chat_input_across_five_shared_serializer_"
+            "channels_no_write_no_close"
+        ),
+    },
+    "dispatch": {
+        "trigger": (
+            "accepted_chat_input_frame_vital_0xAC52_exact_ascii12_shape"
+        ),
+        "trigger_classifier": "classify_chat_input_attempt",
+        "body_source": "decode_channel_message_payload_of_the_request_payload",
+        "frames_per_accepted_request": len(CHANNEL_SWEEP_ORDER),
+        "channel_order": list(CHANNEL_SWEEP_ORDER),
+        "channel_id_order": [
+            SHARED_SERIALIZER_CHANNEL_IDS[name] for name in CHANNEL_SWEEP_ORDER
+        ],
+        "spacing_seconds": CHANNEL_SWEEP_SPACING_SECONDS,
+        "first_frame_delay_seconds": CHANNEL_SWEEP_FIRST_DELAY_SECONDS,
+        "delay_semantics": "gap_before_each_send_on_a_cumulative_deadline",
+        "speaker_policy": (
+            "empty_speaker_so_payload_bytes_are_identical_across_channels"
+        ),
+        "action_label_prefix": CHANNEL_SWEEP_ACTION_LABEL_PREFIX,
+        "action_labels": [
+            CHANNEL_SWEEP_ACTION_LABEL_PREFIX + channel_short_name(name)
+            for name in CHANNEL_SWEEP_ORDER
+        ],
+        "one_shot": False,
+        "socket_action": "none",
+    },
+    "requests": {
+        "shape": {
+            "vital_id": CHAT_INPUT_VITAL_ID,
+            "payload_size": 34,
+            "envelope": (
+                "gscn_runtime_protocol_req_one_vital_outer_version_0_mask_0x02"
+            ),
+            "serializer_va": "0x65AD40",
+            "field_order": ["wstring_speaker_at_0x34", "wstring_body_at_0x18"],
+            "wstring_codec": "tag_0x48_u32_byte_length_utf16le_no_nul",
+        },
+        "probe1": {
+            "channel_id": CHAT_INPUT_VITAL_ID,
+            "speaker": CHANNEL_MESSAGE_PROBE_SPEAKER,
+            "body": CHANNEL_MESSAGE_PROBE_BODIES["probe1"],
+            "payload_size": 34,
+            "payload_sha256": CHAT_INPUT_PROBE_PAYLOAD_SHA256["probe1"],
+        },
+        "probe2": {
+            "channel_id": CHAT_INPUT_VITAL_ID,
+            "speaker": CHANNEL_MESSAGE_PROBE_SPEAKER,
+            "body": CHANNEL_MESSAGE_PROBE_BODIES["probe2"],
+            "payload_size": 34,
+            "payload_sha256": CHAT_INPUT_PROBE_PAYLOAD_SHA256["probe2"],
+        },
+    },
+    "composed_responses": {
+        "policy": (
+            "encode_empty_speaker_and_decoded_body_once_per_channel_"
+            "in_accepted_runtime_res_envelope"
+        ),
+        "pc_size_rule": "22_plus_encoded_payload_bytes",
+        "probe_speaker": CHANNEL_MESSAGE_PROBE_SPEAKER,
+        "probe_body": CHANNEL_MESSAGE_PROBE_BODIES["probe1"],
+        # One payload, five envelopes: this hash is the SAME for all five
+        # channels and is the request payload GT-006 captured.
+        "payload_size": 34,
+        "payload_sha256": CHAT_INPUT_PROBE_PAYLOAD_SHA256["probe1"],
+        "pc_size": CHANNEL_MESSAGE_PROBE1_PC_SIZE,
+        "frame_size": CHANNEL_MESSAGE_PROBE1_FRAME_SIZE,
+        "pc_channel_id_offset": 16,
+        "pc_bytes_differing_across_channels": 2,
+        "per_channel": {
+            name: {
+                "channel_id": SHARED_SERIALIZER_CHANNEL_IDS[name],
+                "pc_sha256": CHANNEL_MESSAGE_PROBE1_PC_SHA256[name],
+                "frame_sha256": CHANNEL_MESSAGE_PROBE1_FRAME_SHA256[name],
+            }
+            for name in CHANNEL_SWEEP_ORDER
+        },
+    },
+    "persisted_post_state": {
+        "database_write": "none",
+    },
+    "capabilities": [
+        "decode_one_accepted_chat_input_frame_into_speaker_and_body",
+        "emit_five_shared_serializer_channel_frames_for_one_request",
+        "identical_payload_bytes_across_all_five_channels",
+        "repeatable_sweep_per_session_no_state_change",
+    ],
+    "nonclaims": [
+        "client_rendering_of_any_of_the_five_channels_pending_gt016",
+        "any_wire_observation_of_the_four_non_localtalk_channels",
+        "original_server_routing_fanout_or_membership_policy",
+        "delivery_to_any_other_client_or_session",
+        "channel_membership_or_join_leave_authority",
+        "whisper_channel_0x556C_schema_or_result_byte_meaning",
+        "message_persistence_or_database_write",
+        "text_lengths_other_than_12_characters_on_the_request_side",
+        "non_ascii_or_thai_text",
+        "original_server_response_policy",
+        "production_baseline_behavior",
+    ],
+}
+
 _EXPECTED_BY_ID = {
     _PROFILE_SHARED_SERIALIZER.scenario_id: (
         _EXPECTED_SHARED_SERIALIZER, _PROFILE_SHARED_SERIALIZER,
+    ),
+    _PROFILE_CHANNEL_SWEEP.scenario_id: (
+        _EXPECTED_CHANNEL_SWEEP, _PROFILE_CHANNEL_SWEEP,
     ),
 }
 
@@ -684,12 +897,13 @@ def load_channel_message_hypothesis_scenario(
 def require_channel_message_hypothesis_scenario(
     value: Any,
 ) -> ChannelMessageHypothesisScenario:
-    if type(value) is not ChannelMessageHypothesisScenario or value != (
-        _PROFILE_SHARED_SERIALIZER
+    if type(value) is not ChannelMessageHypothesisScenario or value not in (
+        _PROFILE_SHARED_SERIALIZER, _PROFILE_CHANNEL_SWEEP,
     ):
         raise ValueError(
             "channel message hypothesis scenario object exceeds the allowlist"
         )
     _require_derived_channel_ids()
+    _require_sweep_order()
     _require_capture_roundtrip()
     return value

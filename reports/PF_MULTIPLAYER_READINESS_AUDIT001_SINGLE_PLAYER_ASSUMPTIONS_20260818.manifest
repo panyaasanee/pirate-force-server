@@ -1,0 +1,68 @@
+# Evidence for PF_MULTIPLAYER_READINESS_AUDIT001 (paths relative to the Pirate Force root)
+# Audit only: no src/ change, no matrix flip, no ledger entry, no runtime claim, no
+# network, no GameClient, no canonical database access. Every cited path:line is a
+# source-scan result reproducible from these exact files via
+# tools/pf_multiplayer_readiness_audit.py (40 assumption sites, 17 ready sites,
+# 18 frame anchors, 2 AST facts, 1 byte-exact capture guard; exit 0 = PASS).
+# Line numbers quoted in the report are as observed at HEAD 5cc0eda; the verifier
+# locates every site by content, so a moved line is not drift.
+#
+# --- the immutable legacy module: 18 of the 40 assumption sites live here ---
+Pirate Force ServerProject\current\pf_login_game_server_v141.py|382913|2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22
+#
+# --- Foundation modules carrying the remaining 22 assumption sites and the ready sites ---
+Pirate Force ServerProject\src\pirateforce_foundation\connection.py|8668|C340EF3FB013FD4AAA5BAEB2AC48A89EACF1478534B12A6F6E0673E0A7AF80E2
+Pirate Force ServerProject\src\pirateforce_foundation\shutdown.py|16556|A7652636B5ED6E6F3289C846028F784FE026C716627CB78E3EB6D0A164589945
+Pirate Force ServerProject\src\pirateforce_foundation\store.py|27137|D204D56709A42629A4911508F9A3F9F230EB4A33CD144C71623540D90AEDFCBB
+Pirate Force ServerProject\src\pirateforce_foundation\session.py|10566|429EA7E718362E343F09286293A97B6693FDB169395DED9C5B28DCEE61B0AFB4
+Pirate Force ServerProject\src\pirateforce_foundation\lifecycle.py|4210|CA75F2B5600E6B4B4CC42FBECE011B4450C37FCC34A1578D06FEAADF3EEA2267
+Pirate Force ServerProject\src\pirateforce_foundation\population.py|11593|DF7BEDB387963B67C0E4438479B057E8023A2A63EFA1016000994982DE18D52F
+Pirate Force ServerProject\src\pirateforce_foundation\population_scenario.py|3318|669C60FABA9C69530C1559507135266C121CB03602362BADEB4C28384D333276
+Pirate Force ServerProject\src\pirateforce_foundation\scene_object.py|3267|39532CEB30A9B02F22EF85B2F0140E4498DAA5C561AE772C179A2F6ACA5A6D1B
+Pirate Force ServerProject\src\pirateforce_foundation\scene_load.py|8255|AA88AEC937517FDF28CE048B6C6D7A9F6773F5382E5D21AEDAC2CC95E5D593B7
+Pirate Force ServerProject\src\pirateforce_foundation\runtime_console.py|5550|D6A7E295B122E1EDF055F95BD7879C50A2DDC15319F747B2441A8B049B1DA25C
+#
+# --- pinned for the R17 correction: _require_selected_session is NOT in this file
+#     (zero occurrences), it is store.py:324. The standing note named the wrong module.
+Pirate Force ServerProject\src\pirateforce_foundation\inventory.py|20772|BD0D6026A632AEC5851712DC182606204FB299C003E508518352BF06EB499C03
+#
+# --- schema behind the "already ready" finding R01/R02 ---
+Pirate Force ServerProject\migrations\001_initial.sql|1140|9C1AD7EEC36A3B7296EB398731941D08F6BB6EF809E0BD1DAE9305485978C2E8
+Pirate Force ServerProject\migrations\002_character_integrity.sql|791|3C07171F45D6FCC4E7582CBDB4F23D0E23187CFD074B86761A8980F4AA8F0ADD
+#
+# --- the archived LOGIN capture behind I04 / G8. The verifier reproduces the nested
+#     LSCN_LoginVitalReq record byte-exact:
+#     bf 42 0b 00 48 04 00 00 00 0e 00 00 00 44 04 00 00 00 74 65 73 74
+#     (tag 0x44 ASCII "test"). Every archived LOGIN_*.txt carries the same record,
+#     which is why the field's role is an inference and not a decoded variable.
+Pirate Force ServerProject\analysis\lost_eden_leisure_runtime\capture_v110\LOGIN_20260814_152723_188831_59376.txt|2326|E848588F75035FFD11A5A6C740AFC0A33327FD6D584C5B53764E13995CDF486F
+#
+# --- prior milestones this audit re-verifies rather than restates ---
+Pirate Force ServerProject\reports\PF_SESSION_LIMIT001_SINGLE_SESSION_SERIAL_ACCEPT_KNOWN_LIMITATION_20260817.md|4456|6DD142F687D70EF88519ECE3B16D33C3EDB9D0F71BF40889C52BC295E8D80368
+Pirate Force ServerProject\reports\PF_MOVE_PROJECT001_REMOTE_MOVEMENT_PROJECTION_STATIC_20260818.md|11976|31008A6A0A4362132F31133673312FB3E7F0816F607F821593E44346AA9FB302
+Pirate Force ServerProject\tests\test_single_session_limitation.py|6245|76D9F0B1AAF90D2B52ED194C79BDD41CE80DBA99E6B7D91997D87A29B086BAC4
+#
+# Deliberately NOT hash-pinned (a concurrent lane is editing them while this audit
+# was written; the verifier locates their sites by content, so the audit does not
+# depend on their bytes):
+#   (ref, unpinned) src/pirateforce_foundation/runtime.py -- sites X01, X02, W01/W02 hook
+#   (ref, unpinned) src/pirateforce_foundation/app.py     -- sites L05, I07 call sites
+#
+# Read-only context, not pinned because this audit makes no claim about their contents:
+#   (ref, unpinned) docs/FUNCTIONAL_COVERAGE.json -- rows concurrent_multi_client (blocked),
+#       authenticated_multi_account (not_started), remote_player_movement_projection
+#       (in_progress), pvp_engagement (not_started). NOT modified by this audit.
+#   (ref, unpinned) docs/HYPOTHESIS_LEDGER.json -- HYP-PF-011 preconditions. NOT modified.
+#   (ref, unpinned) docs/ROADMAP_TO_PLAYABLE.md -- the dependency claim corrected in 3.3
+#   (ref, unpinned) reports/PF_CHAT_CHANNEL001_CHANNEL_FAMILY_AND_ROUTING_STATIC_20260818.md
+#   (ref, unpinned) reports/PF_CHAT_CHANNEL002_SHARED_SERIALIZER_EMITTER_20260818.md
+#   (ref, unpinned) reports/PF_OBJECT_POP002_AUTHORITATIVE_SCENE_ACTOR_RUNTIME_PASS_20260816.md
+#   (ref, unpinned) reports/PF_SCENE013_STRUCTURAL_COMBAT_CORPUS_CAPABILITY_NEGATIVE_20260816.md
+#   (ref, unpinned) reports/PF_MOVE_CADENCE001_CHECKPOINT_CADENCE_PER_WALK_HEADLESS_20260818.md
+#   (ref, unpinned) reports/PF_GT006_UNATTENDED_SCHEDULED_ATTEMPT_OPERATIONAL_NEGATIVE_20260817.md
+#
+# Verifier + regression test shipped with this report:
+#   (ref, unpinned) tools/pf_multiplayer_readiness_audit.py
+#   (ref, unpinned) tests/test_multiplayer_readiness_audit.py (24 tests, 26 subtests)
+# Report (this file's sibling):
+#   (ref, unpinned) reports/PF_MULTIPLAYER_READINESS_AUDIT001_SINGLE_PLAYER_ASSUMPTIONS_20260818.md

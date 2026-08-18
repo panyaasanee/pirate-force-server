@@ -53,7 +53,19 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # (HYP-PF-014) produced without ever parsing the payload.  Client acceptance is
 # established for 0xAC52 only; the other four channels are composed but have
 # never been on this project's wire.  Count moves to 26).
-CANONICAL_CONTENT_SHA256 = "CE3CC161CEDE62352817C8DEBE2C5058D48B7A6DC0FA9F13CC0D6A9BE50685E2"
+# -> 6A3D2465.. (2026-08-18 chief round 77: HYP-PF-019 AMENDED, not appended --
+# CHAT-CHANNEL-003 opens the second tracked version, the dispatch hookup the codec
+# version deliberately withheld.  transform/scope/ceiling/gap/falsification/
+# stop_rule/decision record the sweep behind its own second opt-in file
+# scenarios/channel_message_hypothesis_channel_sweep.json and the new
+# --channel-message-hypothesis-scenario flag; evidence_refs gain the CHAT-CHANNEL-003
+# report, the sweep scenario and tests/test_channel_message_dispatch.py; source_refs
+# gain runtime.py and app.py (the lane is imported on purpose now, which is exactly
+# what the amended containment test says) and the second scenario file.  The claim
+# moves only at the WIRE layer: five frames leave the dispatcher in pinned order with
+# byte-identical payloads and a two-byte PC delta.  No client has seen a sweep and this
+# lane has NOT been driven over real TCP, unlike CHAT-ECHO-002.  Count stays 26).
+CANONICAL_CONTENT_SHA256 = "6A3D24657CC491A2813F6817C440E0F639B576707B9948D5CEBCD6451BFDF8CE"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(

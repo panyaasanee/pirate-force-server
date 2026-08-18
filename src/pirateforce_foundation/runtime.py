@@ -34,6 +34,16 @@ from .chat_input_hypothesis import (
     make_chat_input_speaker_echo_response,
     require_chat_input_hypothesis_scenario,
 )
+from .channel_message_hypothesis import (
+    CHANNEL_SWEEP_ACTION_LABEL_PREFIX,
+    CHANNEL_SWEEP_FIRST_DELAY_SECONDS,
+    CHANNEL_SWEEP_SPEAKER,
+    SHARED_SERIALIZER_CHANNEL_IDS,
+    channel_short_name,
+    decode_channel_message_payload,
+    make_channel_message_response,
+    require_channel_message_hypothesis_scenario,
+)
 from .delete_actor import DELETE_ACTOR_VITAL_ID
 from .delete_actor_hypothesis import (
     classify_delete_actor_attempt,
@@ -81,6 +91,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                      item_move_hypothesis_scenario=None,
                      logout_hypothesis_scenario=None,
                      chat_input_hypothesis_scenario=None,
+                     channel_message_hypothesis_scenario=None,
                      delete_actor_hypothesis_scenario=None,
                      second_password_mode="required",
                      monotonic_clock=None,
@@ -89,13 +100,15 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         scenario, scene_load_scenario, population_scenario,
         item_move_capture_scenario, item_move_hypothesis_scenario,
         logout_hypothesis_scenario, chat_input_hypothesis_scenario,
+        channel_message_hypothesis_scenario,
         delete_actor_hypothesis_scenario,
     ))
     if active_modes > 1:
         raise ValueError(
             "Arena, scene-load, population, item-move capture, item-move "
-            "hypothesis, logout hypothesis, chat input hypothesis, and "
-            "delete actor hypothesis scenarios are mutually exclusive"
+            "hypothesis, logout hypothesis, chat input hypothesis, channel "
+            "message hypothesis, and delete actor hypothesis scenarios are "
+            "mutually exclusive"
         )
     if delete_actor_hypothesis_scenario is not None:
         delete_actor_hypothesis_scenario = (
@@ -110,6 +123,12 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
     if chat_input_hypothesis_scenario is not None:
         chat_input_hypothesis_scenario = require_chat_input_hypothesis_scenario(
             chat_input_hypothesis_scenario
+        )
+    if channel_message_hypothesis_scenario is not None:
+        channel_message_hypothesis_scenario = (
+            require_channel_message_hypothesis_scenario(
+                channel_message_hypothesis_scenario
+            )
         )
     if population_scenario is not None:
         population_scenario = require_population_scenario(population_scenario)
@@ -179,6 +198,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.worldinfo_last_payload = None
                 self.worldinfo_stored_count = 0
                 self.chat_input_echo_count = 0
+                self.channel_message_sweep_count = 0
                 self.delete_actor_soft_delete_count = 0
                 self.transport_socket_closer = None
                 self.second_password_bypass_sent = False
@@ -867,6 +887,81 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 pc, frame, 0.0,
             )]
 
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-019 active
+        def _dispatch_channel_message_hypothesis(self, parsed):
+            """Sweep one accepted chat input frame across the five channels.
+
+            CHAT-CHANNEL-003.  The request side is the SAME accepted shape the
+            HYP-PF-014 echo lane classifies (exact 34-byte ascii12 0xAC52
+            frame) and every guard is the same: wrong shape, wrong envelope, no
+            selected character, and not-yet-runtime-ready all fail closed with
+            no reply and no write.  What changes is the answer: the payload is
+            *decoded* into (speaker, body) rather than spliced, and the decoded
+            body is re-composed once per shared-serializer channel, in the
+            scenario's order, with an EMPTY speaker so all five nested payloads
+            are byte-identical and the 16-bit class id is the only difference
+            on the wire.  Every frame is composed and pinned before any of them
+            is queued.  The lane touches no store (chat has no table), takes no
+            socket action, and is not one-shot.
+            """
+            self.rx_frames += 1
+            classification = classify_chat_input_attempt(legacy, parsed)
+            if classification != "ascii12":
+                self.events.append(
+                    f"channel_message_hypothesis_{classification}_no_reply"
+                )
+                return []
+            if self.foundation.selected is None:
+                self.events.append(
+                    "channel_message_hypothesis_no_selected_no_reply"
+                )
+                return []
+            if not self.teleport_sent or not self.runtime_ack_sent:
+                self.events.append(
+                    "channel_message_hypothesis_wrong_sequence_no_reply"
+                )
+                return []
+            try:
+                # Decoded, not spliced: the body that goes back out is the one
+                # the 0x65AD40 schema says is in the request.  Today every
+                # ascii12 payload decodes by construction, so this is a
+                # structural backstop rather than a live branch -- it exists so
+                # that widening the accepted request shape can never leak an
+                # undecodable payload onto the wire.
+                _speaker, body = decode_channel_message_payload(
+                    parsed.nested_payload
+                )
+            except ValueError:
+                self.events.append(
+                    "channel_message_hypothesis_undecodable_payload_no_reply"
+                )
+                return []
+            actions = []
+            for index, name in enumerate(
+                channel_message_hypothesis_scenario.channel_order
+            ):
+                pc, frame = make_channel_message_response(
+                    legacy, SHARED_SERIALIZER_CHANNEL_IDS[name],
+                    CHANNEL_SWEEP_SPEAKER, body,
+                )
+                # The frozen V141 sender accumulates these onto one deadline
+                # (send_deadline += delay, then sleep to it), so this field is
+                # the gap before each send: 0.0 for the first frame and the
+                # full spacing for every later one.
+                delay = (
+                    CHANNEL_SWEEP_FIRST_DELAY_SECONDS if index == 0
+                    else channel_message_hypothesis_scenario.spacing_seconds
+                )
+                actions.append((
+                    CHANNEL_SWEEP_ACTION_LABEL_PREFIX + channel_short_name(name),
+                    pc, frame, delay,
+                ))
+            self.channel_message_sweep_count += 1
+            self.events.append(
+                "channel_message_hypothesis_channel_sweep_sent"
+            )
+            return actions
+
         # PF-HYPOTHESIS-LEDGER: HYP-PF-015 active
         def _dispatch_delete_actor_hypothesis(self, parsed):
             """Soft-delete one owned character behind the explicit opt-in.
@@ -1041,6 +1136,16 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 and nested_id == CHAT_INPUT_VITAL_ID
             ):
                 return self._dispatch_chat_input_hypothesis(parsed)
+            if (
+                channel_message_hypothesis_scenario is not None
+                and nested_id == CHAT_INPUT_VITAL_ID
+            ):
+                # CHAT-CHANNEL-003.  Both chat lanes are keyed on the same
+                # vital id, so they must never be able to see the same frame:
+                # make_state_class refuses the pair outright and app.py refuses
+                # the two flags together, which is why the ordering of these
+                # two branches cannot matter.
+                return self._dispatch_channel_message_hypothesis(parsed)
             if (
                 delete_actor_hypothesis_scenario is not None
                 and nested_id == DELETE_ACTOR_VITAL_ID

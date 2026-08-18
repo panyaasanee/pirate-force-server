@@ -67,7 +67,39 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers two deliberate movements, chief round 76 (2026-08-18).
+    # This pin covers ONE deliberate movement, chief round 77 (2026-08-18):
+    # chat/chat_channels_and_routing gains the CHAT-CHANNEL-003 evidence and test
+    # refs (status already in_progress, unchanged, and deliberately NOT moved to
+    # runtime_pass). evidence_refs
+    # reports/PF_CHAT_CHANNEL003_DISPATCH_HOOKUP_HEADLESS_20260818.md and
+    # scenarios/channel_message_hypothesis_channel_sweep.json, test_ref
+    # tests/test_channel_message_dispatch.py. This is the dispatch hookup
+    # CHAT-CHANNEL-002 withheld on purpose: the codec existed but nothing could
+    # put a byte on the wire, so GT-016 was unblocked on paper and BLOCKED in
+    # practice. A second opt-in scenario file plus the new
+    # --channel-message-hypothesis-scenario flag (explicit --db required, mutually
+    # exclusive with every other mode including --chat-input-hypothesis-scenario,
+    # which keys on the same vital id) wires the lane into runtime.py: one
+    # accepted 34-byte ascii12 0xAC52 frame, under the unchanged selected +
+    # runtime-ready guards, is DECODED (not spliced) and answered with five
+    # composed frames -- LocalTalk, Party, Guild, GMGlobal, ActorBoardcast -- 3.0 s
+    # apart. Proven on dispatched bytes: five actions in pinned order, the five
+    # nested payloads identical byte for byte (empty speaker by policy, one
+    # sha256), the five 56-byte PCs differing in exactly the two bytes pc[16:18],
+    # all ten per-channel hashes matching the scenario pins, ten frames for two
+    # requests with no accumulated state, the database file byte-identical across
+    # accepted and refused windows, and every fail-closed family silent with a
+    # named event. The ledger does NOT grow: HYP-PF-019 is amended in place,
+    # tracked_versions CHAT-CHANNEL-002 -> +CHAT-CHANNEL-003, count stays 26.
+    # Note: tests/test_channel_message_hypothesis.py's containment test, which
+    # asserted that NO runtime module imports the lane, was deliberately rewritten
+    # in the same commit -- that assertion is precisely what this milestone had to
+    # break. It was not worked around: no hidden id, no derived name, no lazy
+    # import. The rewritten guard pins an exact importer list (app.py, runtime.py),
+    # keeps connection.py/scenario.py clean, and requires every runtime mention to
+    # sit inside the scenario gate. tests/test_presentation_ownership.py needed no
+    # change: its chat-vital allowlist already covered both modules from round 76.
+    # Previous pin CB3ADB10..F404 (round 76) covered two deliberate movements.
     # Unlike round 75 these are NOT both report-only: the ledger moves 25 -> 26.
     #  1. character_management/stats_and_progression not_started -> in_progress
     #     with STATS-PROG-001 (report-only static). evidence_ref
@@ -190,7 +222,7 @@ GRADE_SUBSET_SHA256 = (
     # 26D752FE..BA9A (round 65) occupied_destination_policy not_started ->
     # in_progress under HYP-PF-017 (ITEM-SWAP-001); see its lineage note before that
     # for round 53's 78558E56..6DC8.
-    "CB3ADB1057EC88B65ECC7DC81113310CB74C64CC847296A0A6B19FA30FF6F404"
+    "B6002E450485EFBA85AAD189CEFFC43DB0663B5BFD288494AA51FC563181E1F3"
 )
 
 

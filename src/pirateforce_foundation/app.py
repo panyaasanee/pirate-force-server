@@ -6,6 +6,7 @@ from pathlib import Path
 from .connection import GameConnectionBindings, adapt_game_listener
 from .legacy_bridge import LegacyProjector, load_legacy
 from .lifecycle import CharacterLifecycle
+from .channel_message_hypothesis import load_channel_message_hypothesis_scenario
 from .chat_input_hypothesis import load_chat_input_hypothesis_scenario
 from .delete_actor_hypothesis import load_delete_actor_hypothesis_scenario
 from .item_move_capture import load_item_move_capture_scenario
@@ -46,6 +47,7 @@ def main() -> int:
     pre.add_argument('--item-move-hypothesis-scenario')
     pre.add_argument('--logout-hypothesis-scenario')
     pre.add_argument('--chat-input-hypothesis-scenario')
+    pre.add_argument('--channel-message-hypothesis-scenario')
     pre.add_argument('--delete-actor-hypothesis-scenario')
     pre.add_argument(
         '--second-password-mode', choices=SECOND_PASSWORD_MODES,
@@ -84,6 +86,13 @@ def main() -> int:
         load_chat_input_hypothesis_scenario(known.chat_input_hypothesis_scenario)
         if known.chat_input_hypothesis_scenario else None
     )
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-019 active
+    channel_message_hypothesis = (
+        load_channel_message_hypothesis_scenario(
+            known.channel_message_hypothesis_scenario
+        )
+        if known.channel_message_hypothesis_scenario else None
+    )
     # PF-HYPOTHESIS-LEDGER: HYP-PF-015 active
     delete_actor_hypothesis = (
         load_delete_actor_hypothesis_scenario(known.delete_actor_hypothesis_scenario)
@@ -92,12 +101,13 @@ def main() -> int:
     if sum(value is not None for value in (
         scenario, scene_load, population, item_move_capture,
         item_move_hypothesis, logout_hypothesis, chat_input_hypothesis,
-        delete_actor_hypothesis,
+        channel_message_hypothesis, delete_actor_hypothesis,
     )) > 1:
         pre.error(
             '--scenario, --scene-load-scenario, --population-scenario, and '
             '--item-move-capture-scenario/--item-move-hypothesis-scenario/'
             '--logout-hypothesis-scenario/--chat-input-hypothesis-scenario/'
+            '--channel-message-hypothesis-scenario/'
             '--delete-actor-hypothesis-scenario are mutually exclusive'
         )
     if item_move_capture is not None and not known.db:
@@ -108,6 +118,10 @@ def main() -> int:
         pre.error('--logout-hypothesis-scenario requires an explicit existing --db')
     if chat_input_hypothesis is not None and not known.db:
         pre.error('--chat-input-hypothesis-scenario requires an explicit existing --db')
+    if channel_message_hypothesis is not None and not known.db:
+        pre.error(
+            '--channel-message-hypothesis-scenario requires an explicit existing --db'
+        )
     if delete_actor_hypothesis is not None and not known.db:
         pre.error('--delete-actor-hypothesis-scenario requires an explicit existing --db')
     db_path = known.db or str(
@@ -129,6 +143,8 @@ def main() -> int:
             'item-move-hypothesis' if item_move_hypothesis is not None else
             'logout-hypothesis' if logout_hypothesis is not None else
             'chat-input-hypothesis' if chat_input_hypothesis is not None else
+            'channel-message-hypothesis'
+            if channel_message_hypothesis is not None else
             'delete-actor-hypothesis' if delete_actor_hypothesis is not None else
             'foundation'
         )
@@ -143,6 +159,7 @@ def main() -> int:
         or item_move_hypothesis is not None
         or logout_hypothesis is not None
         or chat_input_hypothesis is not None
+        or channel_message_hypothesis is not None
         or delete_actor_hypothesis is not None
     ):
         if not Path(db_path).is_file():
@@ -152,6 +169,7 @@ def main() -> int:
             or item_move_hypothesis is not None
             or logout_hypothesis is not None
             or chat_input_hypothesis is not None
+            or channel_message_hypothesis is not None
             or delete_actor_hypothesis is not None
         ):
             store.migrate()
@@ -183,6 +201,7 @@ def main() -> int:
         item_move_hypothesis_scenario=item_move_hypothesis,
         logout_hypothesis_scenario=logout_hypothesis,
         chat_input_hypothesis_scenario=chat_input_hypothesis,
+        channel_message_hypothesis_scenario=channel_message_hypothesis,
         delete_actor_hypothesis_scenario=delete_actor_hypothesis,
         # PF-HYPOTHESIS-LEDGER: HYP-PF-009 active
         second_password_mode=known.second_password_mode,
