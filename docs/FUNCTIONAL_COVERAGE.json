@@ -299,7 +299,7 @@
    "title": "Movement",
    "domain_complete": false,
    "status_banner": "Movement: INCOMPLETE",
-   "next_missing_behavior": "local_player_movement_authority",
+   "next_missing_behavior": "remote_player_movement_projection",
    "capabilities": [
     {
      "id": "scene_entry_placement",
@@ -334,10 +334,14 @@
      "id": "local_player_movement_authority",
      "title": "Server-side movement validation and authoritative correction",
      "required": true,
-     "status": "not_started",
-     "evidence_refs": [],
-     "test_refs": [],
-     "notes": "Reported positions are accepted as given. No speed, distance, collision, terrain, or line-of-sight validation exists, and no corrective reposition is ever sent. The original server's movement authority model is uncaptured."
+     "status": "in_progress",
+     "evidence_refs": [
+      "reports/PF_MOVE_AUTHORITY001_TARGETPOS_PRODUCER_STATIC_20260818.md"
+     ],
+     "test_refs": [
+      "tests/test_move_authority_targetpos_static.py"
+     ],
+     "notes": "MOVE-AUTHORITY-001 (chief round 72, 2026-08-18) characterizes, byte-exact from the read-only client binary cross-checked against the read-only server source, the transport the local player's movement report rides and confirms the acceptance-as-given gap. The report (the frame the client emits when it walks or clicks a destination) rides TargetPosVital 0x2A90. Identity follows the runtime-assigned id wall of the ItemOperateVitalReq/ECHO/TELEPORT cohort: the RTTI name string 'TargetPosVital' sits at 0xF30818, a single registration site 0xBEE380 stores the runtime id into id-slot 0x1081FE0, the id 0x2A90 is never a code immediate anywhere in .text (dword scan, rel32 tails excluded, zero hits), and the id-slot is read by exactly one get-id stub 0x5E50A0. The vtable 0xF30230 carries the shared VitalData const 0x401B20 at +0x08, get-id at +0x10, and the serializer 0x5E50E0 at +0x18; the constructor 0x5E5050 zero-inits four f32 (x,y,z,heading at obj+0x14/+0x18/+0x1C/+0x20) and two u8 (moving,mask at obj+0x24/+0x25). The wire schema is four f32 (tag 0x2A) then two u8 (tag 0x0B): serializer 0x5E50E0 emits x,y,z through the vec3 helper 0x5F3490 and heading through the field serializer 0x89A600 (stdcall (tag,ptr,width) ret 0xC), then moving and mask; this matches the server parse_target_pos_vital byte-for-byte. The authentic captured payload V139_MARKER1_TARGETPOS_PC embedded in the server source decodes under this schema to MARKER1 (x,y,z)=(-10322,-755,671), heading 0, moving 1, mask 0, remain 0. Producer: the object is factory-constructed (0x28-byte allocation) then the ctor is called from exactly two sites (0x44B7C4, 0x44B842); get-id and the serializer are vtable-dispatched (no direct E8 callers), consistent with the cohort. Server coverage gap: the server decodes the identical schema and stores self.last_target_pos = (x, y, z, heading), performing no local-player speed/distance/collision/line-of-sight validation and sending no corrective reposition; the only movement_speed in the file is the NPC walk-speed constant V73_WALK_SPEED fed to NPCAttr. Still not claimed: the original server's authority model itself (accept threshold, correction packet, cadence) is uncaptured, so this is characterization only. Stays in_progress, not runtime_pass: no authority behavior is implemented and no validation event is captured; the next hop is a corpus of additional movement frames or a live capture of an authoritative correction (queued alongside GT-011..GT-015)."
     },
     {
      "id": "npc_locomotion_presentation",

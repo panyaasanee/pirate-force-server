@@ -67,30 +67,36 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers one deliberate movement, chief round 71 (2026-08-18):
-    #  1. inventory/stack_merge_and_limit (already in_progress) gains the
-    #     ITEM-MERGE-001 evidence_refs (headless report + the new dedicated
-    #     merge profile scenarios/item_move_hypothesis_v111_occupied_merge.json)
-    #     and test_ref tests/test_item_merge_hypothesis.py. HYP-PF-018
-    #     generalizes the single original-server-evidenced V111 merge capture:
-    #     same-template occupied destinations merge behind the opt-in merge
-    #     profile, wire/DB headless-proven on a real server over real TCP (the
-    #     exact V111 direction byte-equal to the frozen V141 golden; a
-    #     generalized slot-7 instance committed with the same structure; both
-    #     persistence tables in one atomic transaction; different templates,
-    #     the reversed direction, and every non-merge mode fail closed).
-    #     Status stays in_progress (ceiling/overflow/incompatible-template
-    #     unproven; generalized client acceptance rides GT-015).
-    # Previous pin 594DEB56..DCF5 (round 69) recorded split_stack's second
-    # evidence set (SPLIT-OPERATE-002 op6-family enumeration; round 70 touched
-    # notes prose only so the digest held); 3A78B4B6..A766 (round 68) recorded
-    # split_stack not_started -> in_progress with SPLIT-OPERATE-001;
-    # CF031345..BC3B (round 67) recorded inventory/move_negative_paths
-    # isolation (MOVE-ISOLATION-001); 35082475..E228C0 (round 66) same_slot_noop
-    # blocked -> runtime_pass under HYP-PF-010; 26D752FE..BA9A (round 65)
-    # occupied_destination_policy not_started -> in_progress under HYP-PF-017
-    # (ITEM-SWAP-001); see its lineage note before that for round 53's 78558E56..6DC8.
-    "E04F22D178FD9F019FE6B6D75F35C6C997EEE840C95CF0A9E0E19172FBE8CCE8"
+    # This pin covers one deliberate movement, chief round 72 (2026-08-18):
+    #  1. movement/local_player_movement_authority not_started -> in_progress
+    #     with MOVE-AUTHORITY-001. evidence_ref
+    #     reports/PF_MOVE_AUTHORITY001_TARGETPOS_PRODUCER_STATIC_20260818.md and
+    #     test_ref tests/test_move_authority_targetpos_static.py. It characterizes
+    #     byte-exact, from the read-only client binary cross-checked against the
+    #     read-only server source, the transport the local player's movement report
+    #     rides -- TargetPosVital 0x2A90: runtime-assigned id wall (name @0xF30818,
+    #     single registration 0xBEE380 -> id-slot 0x1081FE0, 0x2A90 never a code
+    #     immediate, one get-id stub 0x5E50A0), vtable 0xF30230 (+0x08 shared
+    #     VitalData const, +0x18 serializer 0x5E50E0), and the wire schema four
+    #     f32(tag 0x2A) + two u8(tag 0x0B) matching parse_target_pos_vital, bound to
+    #     the authentic captured V139_MARKER1_TARGETPOS_PC. Server decodes the same
+    #     schema and accepts as given (no local speed/distance/collision validation,
+    #     no corrective reposition) -- the gap an authority must fill. Report-only
+    #     additive: no server behavior changed; ledger stays 25. Status stays
+    #     in_progress (authority model uncaptured; not runtime_pass). The movement
+    #     domain's next_missing_behavior moves to remote_player_movement_projection.
+    # Previous pin E04F22D1..CCE8 (round 71) recorded inventory/stack_merge_and_limit
+    # gaining the ITEM-MERGE-001 (HYP-PF-018) evidence/test refs; 594DEB56..DCF5
+    # (round 69) recorded split_stack's second evidence set (SPLIT-OPERATE-002;
+    # round 70 touched notes prose only so the digest held); 3A78B4B6..A766
+    # (round 68) recorded split_stack not_started -> in_progress with
+    # SPLIT-OPERATE-001; CF031345..BC3B (round 67) recorded
+    # inventory/move_negative_paths isolation (MOVE-ISOLATION-001); 35082475..E228C0
+    # (round 66) same_slot_noop blocked -> runtime_pass under HYP-PF-010;
+    # 26D752FE..BA9A (round 65) occupied_destination_policy not_started ->
+    # in_progress under HYP-PF-017 (ITEM-SWAP-001); see its lineage note before that
+    # for round 53's 78558E56..6DC8.
+    "0F705C08EE6A1DB1444E148614242C57A64293B36E9CE3AF2D8D28290024C4F8"
 )
 
 

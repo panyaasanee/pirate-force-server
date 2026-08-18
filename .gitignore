@@ -230,3 +230,5 @@
 !/reports/PF_ITEM_MERGE001_OCCUPIED_SAMETEMPLATE_MERGE_HEADLESS_20260818.manifest
 !/reports/itemmerge001_smoke/
 !/reports/itemmerge001_smoke/**
+!/reports/PF_MOVE_AUTHORITY001_TARGETPOS_PRODUCER_STATIC_20260818.md
+!/tools/pf_move_authority_targetpos_static.py
