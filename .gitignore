@@ -6,6 +6,7 @@
 !/AGENTS.md
 !/reports/
 /reports/*
+!/reports/PF_DAMAGE_MODEL001_CLIENT_HIT_RESULT_EXPECTATION_20260819.md
 !/reports/PF_HOTBAR001_SET_ITEM_HOTKEY_STATIC_CHECKPOINT_20260816.md
 !/reports/PF_COMBAT_BIND001_EA7D_BEHAVIOR_SELECTION_STATIC_CHECKPOINT_20260816.md
 !/reports/PF_COMBAT_KNOCK001_STATIC_CONSUMER_BINDING_CHECKPOINT_20260816.md
@@ -96,6 +97,7 @@
 !/scenarios/**
 !/tools/
 /tools/*
+!/tools/pf_damage_hit_result_static.py
 !/tools/build_foundation_release.py
 !/tools/PF_FAST_ENTRY_AUTOMATION.md
 !/tools/pf_relation_probe.py
