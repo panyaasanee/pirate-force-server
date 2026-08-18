@@ -41,6 +41,12 @@ class ItemMoveHypothesisScenario:
     response_pc_sha256: str
     response_frame_sha256: str
     backpack_sha256: str
+    # The swap profile is a strict superset of the free-slot profile: the
+    # HYP-PF-010 free-slot lane keeps its exact behavior, and an occupied
+    # destination additionally swaps with the different occupying identity
+    # instead of failing closed.  Under the default profile this field is
+    # False and occupied destinations stay fail-closed exactly as pinned.
+    occupied_swap: bool = False
 
 
 _PROFILE = ItemMoveHypothesisScenario(
@@ -99,6 +105,50 @@ _EXPECTED = {
     ],
 }
 
+# PF-HYPOTHESIS-LEDGER: HYP-PF-017 active
+_SWAP_PROFILE = ItemMoveHypothesisScenario(
+    "item_move_hypothesis_v111_occupied_swap",
+    "HYP-PF-017",
+    "", "", "", "",
+    True,
+)
+
+_EXPECTED_SWAP = {
+    "schema": 1,
+    "id": _SWAP_PROFILE.scenario_id,
+    "test_only": True,
+    "production_allowed": False,
+    "hypothesis_id": _SWAP_PROFILE.hypothesis_id,
+    "entry": {
+        "flow": "full_writable_character",
+        "required_backpack": "governed_v111_allowlist",
+        "required_sequence": "selected_and_runtime_ready",
+        "destination_policy": "occupied_by_different_identity_swaps",
+        "free_slot_policy": "unchanged_hyp_pf_010",
+    },
+    "request": {
+        "operation": ITEM_MOVE_CAPTURE_FIELDS[0],
+        "shape": "generic_item_operate_move_tuple",
+        "pc_size": len(ITEM_MOVE_CAPTURE_REQUEST_PC),
+    },
+    "composed_response": {
+        "shape": "item_operate_res_two_item_delta",
+        "item_count": 2,
+        "entry_order": ["moved_item", "displaced_item"],
+    },
+    "capabilities": [
+        "emit_generalized_free_slot_move_after_commit_as_hyp_pf_010",
+        "swap_occupied_destination_with_different_identity_after_commit",
+    ],
+    "nonclaims": [
+        "original_server_response_policy",
+        "client_display_acceptance",
+        "stack_merge_or_split_on_swap",
+        "cross_container_or_equipment_movement",
+        "production_baseline_behavior",
+    ],
+}
+
 
 def _exact_equal(actual: Any, expected: Any) -> bool:
     if type(actual) is not type(expected):
@@ -121,22 +171,30 @@ def load_item_move_hypothesis_scenario(
         data = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError("invalid item-move hypothesis scenario") from exc
-    if type(data) is not dict or not _exact_equal(data, _EXPECTED):
-        raise ValueError("item-move hypothesis scenario exceeds the exact allowlist")
-    return require_item_move_hypothesis_scenario(ItemMoveHypothesisScenario(
-        data["id"], data["hypothesis_id"], data["request"]["pc_sha256"],
-        data["composed_response"]["pc_sha256"],
-        data["composed_response"]["frame_sha256"],
-        data["persisted_post_state"]["backpack_sha256"],
-    ))
+    if type(data) is dict and _exact_equal(data, _EXPECTED):
+        return require_item_move_hypothesis_scenario(ItemMoveHypothesisScenario(
+            data["id"], data["hypothesis_id"], data["request"]["pc_sha256"],
+            data["composed_response"]["pc_sha256"],
+            data["composed_response"]["frame_sha256"],
+            data["persisted_post_state"]["backpack_sha256"],
+        ))
+    if type(data) is dict and _exact_equal(data, _EXPECTED_SWAP):
+        return require_item_move_hypothesis_scenario(ItemMoveHypothesisScenario(
+            data["id"], data["hypothesis_id"], "", "", "", "", True,
+        ))
+    raise ValueError("item-move hypothesis scenario exceeds the exact allowlist")
 
 
 def require_item_move_hypothesis_scenario(
     value: Any,
 ) -> ItemMoveHypothesisScenario:
-    if type(value) is not ItemMoveHypothesisScenario or value != _PROFILE:
+    if type(value) is not ItemMoveHypothesisScenario or value not in (
+        _PROFILE, _SWAP_PROFILE,
+    ):
         raise ValueError("item-move hypothesis scenario object exceeds the allowlist")
-    if hashlib.sha256(ITEM_MOVE_CAPTURE_REQUEST_PC).hexdigest().upper() != value.request_sha256:
+    if value.request_sha256 and hashlib.sha256(
+        ITEM_MOVE_CAPTURE_REQUEST_PC
+    ).hexdigest().upper() != value.request_sha256:
         raise RuntimeError("item-move hypothesis request fixture drift")
     return value
 

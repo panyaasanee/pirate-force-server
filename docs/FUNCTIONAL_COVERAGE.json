@@ -100,10 +100,15 @@
           "id": "occupied_destination_policy",
           "title": "Occupied destination with a different item: swap, displacement or reject",
           "required": true,
-          "status": "not_started",
-          "evidence_refs": [],
-          "test_refs": [],
-          "notes": "Must remain fail-closed reject until exact original behavior is captured. An explicit reject|swap server parameter defaulting to reject is the planned shape; any swap mode stays Grade D until runtime plus persistence and reconnect evidence exist."
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_ITEM_SWAP001_OCCUPIED_DESTINATION_SWAP_HEADLESS_20260818.md",
+            "scenarios/item_move_hypothesis_v111_occupied_swap.json"
+          ],
+          "test_refs": [
+            "tests/test_item_swap_hypothesis.py"
+          ],
+          "notes": "HYP-PF-017 (round 65): occupied-by-different-identity swap landed behind the dedicated swap profile of the item-move opt-in scenario, wire/DB headless-proven on a real server process over real TCP (two-item delta response byte-exact after the atomic commit; both persistence tables; canonical untouched). Outside that profile occupied destinations stay fail-closed exactly as pinned by HYP-PF-010 (probe pass E). Client-observable acceptance and the real client request shape for an occupied-destination drag are GT-015 (attended). Original-server policy remains unknown and unclaimed; production_allowed stays false."
         },
         {
           "id": "stack_merge_and_limit",

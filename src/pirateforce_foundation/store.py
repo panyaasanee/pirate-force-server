@@ -13,6 +13,7 @@ from .inventory import (
     ItemAttrState,
     move_known_item_to_free_slot,
     require_known_backpack,
+    swap_known_item_with_occupied_slot,
 )
 from .model import Character, Position
 
@@ -446,6 +447,66 @@ class SQLiteStore:
             after = self._load_backpack(db, character_id)
             if after != expected:
                 raise RuntimeError("free-slot move post-state validation failed")
+            return after
+
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-017 active
+    def swap_backpack_item_with_occupied_slot(
+        self, sid: str, character_id: int,
+        item_identity: int, destination_slot: int,
+    ) -> BackpackState:
+        """Atomically swap one governed item with the occupant of its target.
+
+        The UNIQUE(character_id,slot) constraint forbids a direct two-row
+        UPDATE, so the source row parks on the transient slot 65535 (lawful
+        for the column CHECK, never visible outside this transaction, and
+        re-validated away by the post-state load) while the occupant moves
+        into the vacated slot.  Every step asserts its exact rowcount and the
+        final state must equal the pure transition's post-state byte for
+        byte, or the whole transaction rolls back.
+        """
+        if type(item_identity) is not int:
+            raise TypeError("item identity must be int")
+        if type(destination_slot) is not int:
+            raise TypeError("destination slot must be int")
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            self._require_selected_session(db, sid, character_id)
+            before = self._load_backpack(db, character_id)
+            expected, moved, displaced = swap_known_item_with_occupied_slot(
+                before, item_identity, destination_slot,
+            )
+            source_slot = displaced.slot
+            parked = db.execute(
+                "UPDATE character_backpack_items SET slot=65535 "
+                "WHERE character_id=? AND item_identity=? AND slot=?",
+                (character_id, moved.identity, source_slot),
+            )
+            if parked.rowcount != 1:
+                raise RuntimeError("swap source row changed during transaction")
+            vacated = db.execute(
+                "UPDATE character_backpack_items SET slot=? "
+                "WHERE character_id=? AND item_identity=? AND slot=?",
+                (
+                    source_slot, character_id,
+                    displaced.identity, destination_slot,
+                ),
+            )
+            if vacated.rowcount != 1:
+                raise RuntimeError("swap occupant row changed during transaction")
+            landed = db.execute(
+                "UPDATE character_backpack_items SET slot=? "
+                "WHERE character_id=? AND item_identity=? AND slot=65535",
+                (destination_slot, character_id, moved.identity),
+            )
+            if landed.rowcount != 1:
+                raise RuntimeError("swap parked row changed during transaction")
+            db.execute(
+                "UPDATE character_backpacks SET updated_at=? WHERE character_id=?",
+                (_now(), character_id),
+            )
+            after = self._load_backpack(db, character_id)
+            if after != expected:
+                raise RuntimeError("occupied-swap post-state validation failed")
             return after
 
     @staticmethod

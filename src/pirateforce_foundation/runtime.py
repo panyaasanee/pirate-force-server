@@ -9,8 +9,10 @@ from .inventory import (
     MERGED_V111_BACKPACK,
     is_exact_merge_request,
     make_item_move_delta_response,
+    make_item_swap_delta_response,
     move_known_item_to_free_slot,
     parse_merge_candidate,
+    swap_known_item_with_occupied_slot,
 )
 from .item_move_capture import (
     ITEM_MOVE_CAPTURE_FIELDS,
@@ -117,6 +119,14 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         item_move_hypothesis_scenario = require_item_move_hypothesis_scenario(
             item_move_hypothesis_scenario
         )
+    # Occupied-destination swap activates only under the dedicated swap
+    # profile of the item-move opt-in scenario.  Under the original profile
+    # (and with no scenario at all) occupied destinations stay fail-closed
+    # exactly as pinned by HYP-PF-010.
+    item_swap_enabled = (
+        item_move_hypothesis_scenario is not None
+        and item_move_hypothesis_scenario.occupied_swap
+    )
     second_password_mode = require_second_password_mode(second_password_mode)
     if monotonic_clock is None:
         monotonic_clock = time.monotonic
@@ -136,6 +146,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     allow_hypothesized_item_move=(
                         item_move_hypothesis_scenario is not None
                     ),
+                    allow_hypothesized_item_swap=item_swap_enabled,
                     allow_soft_delete=(
                         delete_actor_hypothesis_scenario is not None
                     ),
@@ -149,6 +160,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.item_move_capture_last_fields = None
                 self.item_move_hypothesis_count = 0
                 self.item_move_generalized_count = 0
+                self.item_swap_occupied_count = 0
                 self.logout_ack_count = 0
                 self.logout_acknowledged = False
                 self.logout_close_scheduled = False
@@ -424,7 +436,20 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 transition = move_known_item_to_free_slot(
                     self.foundation.backpack, item_identity, destination_slot,
                 )
-            except (KeyError, FileExistsError, ValueError) as exc:
+            except FileExistsError as exc:
+                # Only the dedicated swap profile may own an occupied
+                # destination; every other mode keeps the pinned HYP-PF-010
+                # fail-closed silence.
+                if item_swap_enabled:
+                    return self._dispatch_item_swap_occupied(
+                        item_identity, destination_slot,
+                    )
+                self.events.append(
+                    "item_move_generalized_fail_closed_no_reply_"
+                    f"{type(exc).__name__}"
+                )
+                return []
+            except (KeyError, ValueError) as exc:
                 self.events.append(
                     "item_move_generalized_fail_closed_no_reply_"
                     f"{type(exc).__name__}"
@@ -468,6 +493,65 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             return [(
                 f"HYP_PF_010_ITEM_MOVE_ID{item_identity}"
                 f"_TO_FREE_SLOT{destination_slot}_COMMITTED",
+                pc, frame, 0.0,
+            )]
+
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-017 active
+        def _dispatch_item_swap_occupied(self, item_identity, destination_slot):
+            """Commit one governed occupied-destination swap before replying.
+
+            Reached only from the generalized lane's occupied branch under
+            the dedicated swap profile: envelope, operation, selection,
+            sequence, and occupancy are already established.  The pure
+            transition re-validates everything, the two-item delta response
+            is fully composed before the persistence transaction, and the
+            response is queued only after the atomic commit re-validates the
+            swapped post-state.  Any raise keeps fail-closed silence with no
+            write.
+            """
+            try:
+                transition = swap_known_item_with_occupied_slot(
+                    self.foundation.backpack, item_identity, destination_slot,
+                )
+            except (LookupError, ValueError) as exc:
+                self.events.append(
+                    "item_swap_occupied_fail_closed_no_reply_"
+                    f"{type(exc).__name__}"
+                )
+                return []
+            expected_backpack, moved, displaced = transition
+            pc, frame = make_item_swap_delta_response(legacy, moved, displaced)
+            before = self.foundation.backpack
+            try:
+                applied = self.foundation.swap_backpack_item_with_occupied_slot(
+                    item_identity, destination_slot,
+                )
+            except Exception as exc:
+                if self.foundation.backpack is not before:
+                    raise RuntimeError(
+                        "repository failure changed swap in-memory state"
+                    ) from exc
+                self.events.append(
+                    f"item_swap_occupied_repository_failure_no_reply_{exc!r}"
+                )
+                return []
+            self._sync_frozen_inventory_state()
+            if not applied:
+                self.events.append("item_swap_occupied_not_applied_no_reply")
+                return []
+            if self.foundation.backpack != expected_backpack:
+                raise RuntimeError(
+                    "committed HYP-PF-017 Backpack state mismatch"
+                )
+            self.item_swap_occupied_count += 1
+            self.events.append(
+                "item_swap_occupied_committed_before_composed_response"
+            )
+            return [(
+                f"HYP_PF_017_ITEM_SWAP_ID{item_identity}"
+                f"_TO_SLOT{destination_slot}"
+                f"_DISPLACING_ID{displaced.identity}"
+                f"_TO_SLOT{displaced.slot}_COMMITTED",
                 pc, frame, 0.0,
             )]
 

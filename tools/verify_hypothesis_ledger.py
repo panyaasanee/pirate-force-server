@@ -37,7 +37,7 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # logout response-first, mirror-echo of the stored full-form 0x3D4B before
 # the unchanged PF-012 ack plus the composed PF-013 close, after GT-008
 # falsified the ack+close shape at the client layer; count moves to 23).
-CANONICAL_CONTENT_SHA256 = "56FC54549ADEC8F3EA8E5BB573393312A51DDD9AC48DDB6CC698D6BB8CB02133"
+CANONICAL_CONTENT_SHA256 = "01E19C08F9F772F3680DD10355C2001FB31DCF50FE001BAEFEE6EB2E8C666442"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -77,6 +77,13 @@ EXPECTED_IDS = (
     # on the R40 grade-B payload decode, under the owner's standing
     # pre-approval of 2026-08-17 18:2x) is likewise appended.
     "HYP-PF-016",
+    # HYP-PF-017 (occupied-destination swap behind the dedicated swap profile
+    # of the item-move opt-in scenario, composed on the ITEM-MOVE-CONSUMER-001
+    # grade-A response-apply decode after GT-002 proved the generalized
+    # free-slot lane live, under the owner's standing pre-approval of
+    # 2026-08-17 18:2x; HYP-PF-010's occupied fail-closure is byte-identical
+    # under every other mode) is likewise appended.
+    "HYP-PF-017",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -104,6 +111,7 @@ EXPECTED_META = {
     "HYP-PF-014": ("protocol_hypothesis", "CHAT-ECHO-001", "active"),
     "HYP-PF-015": ("protocol_hypothesis", "DELETE-SOFT-001", "active"),
     "HYP-PF-016": ("protocol_hypothesis", "LOGOUT-RESP-001", "active"),
+    "HYP-PF-017": ("protocol_hypothesis", "ITEM-SWAP-001", "active"),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}
 STATUSES = {"active", "frozen", "retired", "harness_only", "expired_pending_decision"}

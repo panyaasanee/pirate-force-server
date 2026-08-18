@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "id": "item_move_hypothesis_v111_occupied_swap",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-017",
+  "entry": {
+    "flow": "full_writable_character",
+    "required_backpack": "governed_v111_allowlist",
+    "required_sequence": "selected_and_runtime_ready",
+    "destination_policy": "occupied_by_different_identity_swaps",
+    "free_slot_policy": "unchanged_hyp_pf_010"
+  },
+  "request": {
+    "operation": 4,
+    "shape": "generic_item_operate_move_tuple",
+    "pc_size": 36
+  },
+  "composed_response": {
+    "shape": "item_operate_res_two_item_delta",
+    "item_count": 2,
+    "entry_order": ["moved_item", "displaced_item"]
+  },
+  "capabilities": [
+    "emit_generalized_free_slot_move_after_commit_as_hyp_pf_010",
+    "swap_occupied_destination_with_different_identity_after_commit"
+  ],
+  "nonclaims": [
+    "original_server_response_policy",
+    "client_display_acceptance",
+    "stack_merge_or_split_on_swap",
+    "cross_container_or_equipment_movement",
+    "production_baseline_behavior"
+  ]
+}

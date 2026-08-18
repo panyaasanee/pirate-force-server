@@ -67,23 +67,20 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers two deliberate movements, both same-round headless
-    # deliveries of chief round 53 (2026-08-18; no status changes):
-    #  1. chat/chat_input_echo_hypothesis stays runtime_pass but gains the
-    #     CHAT-ECHO-002 speaker-name wstring variant evidence: the new
-    #     speaker_echo opt-in scenario and the CHAT-ECHO-003 headless report
-    #     join evidence_refs; client render of the named form is queued as
-    #     GT-012.
-    #  2. session_lifecycle/clean_logout stays in_progress but gains
-    #     HYP-PF-016 (LOGOUT-RESP-001, the 0x3D4B-first response shape after
-    #     the GT-008 falsification): the worldinfo_first opt-in scenario and
-    #     the LOGOUT-RESP-001 headless report join evidence_refs, and
-    #     tests/test_logout_worldinfo_first.py joins test_refs; the client
-    #     transition claim is queued as GT-013.
-    # Previous pin 011A63BE..95C9 (2026-08-18 round 52) covered the three
-    # attended-รอบใหญ่-#2 movements (GT-009 runtime_pass, GT-010 and GT-008
-    # records); see its note for the lineage before that.
-    "78558E56304675D99CCFA6FB73D6E55CD725F038AFD32D954A1FF511FB716DC8"
+    # This pin covers one deliberate movement, the same-round headless
+    # delivery of chief round 65 (2026-08-18):
+    #  1. inventory/occupied_destination_policy not_started -> in_progress
+    #     under HYP-PF-017 (ITEM-SWAP-001, occupied-by-different-identity
+    #     swap behind the dedicated swap profile of the item-move opt-in
+    #     flag): the swap-profile scenario and the ITEM-SWAP-001 headless
+    #     report join evidence_refs, and tests/test_item_swap_hypothesis.py
+    #     joins test_refs; the client-acceptance claim (including the real
+    #     client's request shape for an occupied-destination drag) is queued
+    #     as GT-015.
+    # Previous pin 78558E56..6DC8 (2026-08-18 round 53) covered the
+    # CHAT-ECHO-003 and LOGOUT-RESP-001 evidence additions (no status
+    # changes); see its note for the lineage before that.
+    "26D752FE5D5E9F9CAABDF25E6FEB8C7AB5CBE034213524A6E8F90503CF9ABA9A"
 )
 
 

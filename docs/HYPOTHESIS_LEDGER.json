@@ -1057,6 +1057,101 @@
           "active_claim_marker": true
         }
       ]
+    },
+    {
+      "id": "HYP-PF-017",
+      "kind": "protocol_hypothesis",
+      "introduced_checkpoint": "ITEM-SWAP-001",
+      "exact_value_or_transform": "Behind the dedicated swap profile of the item-move opt-in scenario only (scenarios/item_move_hypothesis_v111_occupied_swap.json, destination_policy occupied_by_different_identity_swaps, free_slot_policy unchanged_hyp_pf_010), a well-formed strict-parse ItemOperate move request (operation 4, exact runtime envelope) whose destination slot is occupied by a different governed item identity swaps the two items: the pure transition exchanges exactly the two slot fields and preserves every other ItemAttr field of both items, the store persists both slot changes in one atomic transaction (source parks on transient slot 65535 to satisfy UNIQUE(character_id,slot), occupant moves to the vacated slot, source lands on the destination, each step rowcount-asserted, post-state re-validated byte-exact against the pure transition before commit), and the response reuses the accepted ItemOperateVitalRes delta structure with the first ItemBag collection carrying exactly two complete ItemAttr payloads (moved item first, displaced occupant second, count word 2, trailing collection count 0), queued only after the atomic commit re-validates the swapped post-state. Same-slot requests keep the silent no-op, free destinations keep the exact HYP-PF-010 lane, the exact tracked HYP-PF-008 request keeps its frozen lane, and under the original item-move profile or no scenario at all an occupied destination stays fail-closed with no reply and no write, byte-identical to the pinned HYP-PF-010 behavior.",
+      "scope": "Occupied-destination swap for the exact governed V111 item contents at the runtime-dispatch/session/lifecycle/store boundary behind the dedicated swap profile of the item-move opt-in scenario only; no displacement-to-free-slot, no stack merge or split on collision, no cross-container or equipment movement, no item creation or deletion, and no production or default-mode request path",
+      "status": "active",
+      "provenance": "Grade D designed composition opened by the chief's implementation lane on 2026-08-18 (round 65) under the owner's standing pre-approval of 2026-08-17 18:2x ('fix the exit button and every gameplay button found later - part of complete gameplay'), as the coverage-matrix inventory row occupied_destination_policy. The client-consumer mechanics are the accepted Grade A ITEM-MOVE-CONSUMER-001 static decode: the exact response-apply loop applies each ItemAttr of the first ItemBag collection as a complete replacement (clear-by-identity then place-by-slot) with no occupancy gate and no old-quantity/old-slot comparison, so a two-entry delta re-places both swapped items in either order; that report's stop rule against inferring occupied-slot behavior is honored by opening this as a new opt-in hypothesis rather than a consumer inference. The swap-response envelope and per-item wire layout are byte-identical to the GT-002 live-accepted single-item delta except the collection count word and the second ItemAttr payload. No original-server traffic shows any occupied-destination move being accepted or answered (R21: 23 of 24 ItemOperate shapes produce no reply), so the original server's policy for this case is unknown and explicitly not claimed.",
+      "evidence_refs": [
+        "reports/PF_ITEM_MOVE_CONSUMER001_RESPONSE_APPLY_STATIC_CHECKPOINT_20260816.md",
+        "reports/PF_GT002_GENERALIZED_FREE_SLOT_MOVE_FIRST_CLIENT_ACCEPTANCE_RUNTIME_PASS_20260817.md",
+        "scenarios/item_move_hypothesis_v111_occupied_swap.json",
+        "tests/test_item_swap_hypothesis.py"
+      ],
+      "accepted_ceiling": "Swap of the two governed items' slot fields behind the dedicated opt-in swap profile only, with the two-item delta response composed before the atomic commit and queued after post-state re-validation; the response shape has no original-server evidence and no client-acceptance evidence yet, and the free-slot, same-slot, tracked-exact, and non-swap-mode behaviors are pinned unchanged.",
+      "evidence_gap": "Whether the real client accepts the two-item delta response and renders both swapped items (and whether its separate Backpack data collection stays consistent with the display, the ITEM-MOVE-CONSUMER-001 warning) is unmeasured - that client-observable claim is exactly GT-015, queued for the next attended big round, which also captures what request the real client actually emits for a drag onto an occupied slot (it may gate the request client-side, emit the same operation-4 tuple, or emit a different operation; only the same-tuple case exercises this lane). The original server's occupied-destination policy (swap, displace, reject, or silence) is unknown and unknowable from the corpus.",
+      "falsification": "Retire or redesign the swap shape if the real client rejects, ignores, or desyncs on the two-item delta response (a RuntimeRes stream error such as ErrorData=28317 falsifies the envelope composition; a rendered state diverging from the two swapped slots falsifies the per-entry replacement composition; a Backpack-collection inconsistency on reconnect falsifies the durable projection), if the real client turns out to gate occupied-destination drags client-side or to emit a different request shape for them, if a lawful original trace shows different occupied-destination bytes or policy, if the response bytes are ever observed on the wire before the persistence transaction commits, or if the lane is ever observed to activate outside the dedicated swap profile.",
+      "stop_rule": "Swap only the two slot fields of two distinct governed identities behind the dedicated swap profile only; do not displace to a free slot, do not merge or split stacks on collision, do not touch any other ItemAttr field, do not answer occupied destinations under any other mode, do not edit the HYP-PF-008 or HYP-PF-010 lanes or their pinned responses, and do not enable production or default-mode exposure. Stop and record if the first attended run (GT-015) rejects the composition or shows a different client request shape for occupied-destination drags.",
+      "production_allowed": false,
+      "expiry": {
+        "tracked_versions": [
+          "ITEM-SWAP-001"
+        ],
+        "decision": "Opened 2026-08-18 by the chief's implementation lane (round 65) under the owner's standing pre-approval as the first bounded version; the wire/DB layer is headless-proven on a real server process over real TCP with a scratch DB (two-item delta response byte-exact after the atomic commit, both persistence tables updated, canonical DB untouched); confirm the client-observable layer as GT-015 in the attended big round before any retire/freeze/extend decision."
+      },
+      "max_versions": 3,
+      "extension_approval_ref": null,
+      "source_refs": [
+        {
+          "path": "scenarios/item_move_hypothesis_v111_occupied_swap.json",
+          "required_markers": [
+            "\"hypothesis_id\": \"HYP-PF-017\"",
+            "\"production_allowed\": false",
+            "\"destination_policy\": \"occupied_by_different_identity_swaps\"",
+            "\"free_slot_policy\": \"unchanged_hyp_pf_010\""
+          ],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/inventory.py",
+          "required_markers": [
+            "PF-HYPOTHESIS-LEDGER: HYP-PF-017 active",
+            "swap_known_item_with_occupied_slot",
+            "make_item_swap_delta_response",
+            "swap response requires two distinct item identities"
+          ],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/item_move_hypothesis.py",
+          "required_markers": [
+            "PF-HYPOTHESIS-LEDGER: HYP-PF-017 active",
+            "item_move_hypothesis_v111_occupied_swap",
+            "occupied_swap"
+          ],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/runtime.py",
+          "required_markers": [
+            "PF-HYPOTHESIS-LEDGER: HYP-PF-017 active",
+            "_dispatch_item_swap_occupied",
+            "item_swap_occupied_committed_before_composed_response",
+            "item_swap_occupied_fail_closed_no_reply_"
+          ],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/session.py",
+          "required_markers": [
+            "PF-HYPOTHESIS-LEDGER: HYP-PF-017 active",
+            "HYP-PF-017 mutation requires its explicit opt-in scenario",
+            "HYP-PF-017 swap requires the item-move opt-in lane"
+          ],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/lifecycle.py",
+          "required_markers": [
+            "PF-HYPOTHESIS-LEDGER: HYP-PF-017 active",
+            "swap_backpack_item_with_occupied_slot"
+          ],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/store.py",
+          "required_markers": [
+            "PF-HYPOTHESIS-LEDGER: HYP-PF-017 active",
+            "swap_backpack_item_with_occupied_slot",
+            "occupied-swap post-state validation failed"
+          ],
+          "active_claim_marker": true
+        }
+      ]
     }
   ]
 }

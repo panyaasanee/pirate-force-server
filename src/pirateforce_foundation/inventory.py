@@ -166,6 +166,49 @@ def move_known_item_to_free_slot(
     return require_known_backpack(after), moved
 
 
+# PF-HYPOTHESIS-LEDGER: HYP-PF-017 active
+def swap_known_item_with_occupied_slot(
+    value: BackpackState, item_identity: int, destination_slot: int,
+) -> tuple[BackpackState, ItemAttrState, ItemAttrState]:
+    """Purely swap one known item with the different item occupying the target.
+
+    This transition owns only the occupied-destination case: the same-slot
+    no-op and every free destination belong to ``move_known_item_to_free_slot``
+    (HYP-PF-010) and never reach this function.  Both items keep every
+    ItemAttr field except ``slot``; the destination occupant moves to the
+    source's previous slot.  Unknown identities, out-of-range slots, same-slot
+    requests, and unoccupied destinations all raise and therefore fail closed
+    at the caller with no write and no reply.
+    """
+    value = require_known_backpack(value)
+    item_identity = _require_int(
+        item_identity, "item identity", 0, 0x7FFFFFFFFFFFFFFF,
+    )
+    destination_slot = _require_int(destination_slot, "destination slot", 0, 39)
+    matches = [item for item in value.items if item.identity == item_identity]
+    if len(matches) != 1:
+        raise KeyError(f"unknown Backpack item identity: {item_identity}")
+    current = matches[0]
+    if current.slot == destination_slot:
+        raise ValueError("same-slot request is owned by the free-slot no-op lane")
+    occupants = [item for item in value.items if item.slot == destination_slot]
+    if len(occupants) != 1:
+        raise LookupError(f"Backpack slot is not occupied: {destination_slot}")
+    occupant = occupants[0]
+    moved = replace(current, slot=destination_slot)
+    displaced = replace(occupant, slot=current.slot)
+    after = replace(
+        value,
+        items=tuple(
+            moved if item.identity == current.identity
+            else displaced if item.identity == occupant.identity
+            else item
+            for item in value.items
+        ),
+    )
+    return require_known_backpack(after), moved, displaced
+
+
 def make_item_move_delta_response(
     legacy: Any, moved_item: ItemAttrState,
 ) -> tuple[bytes, bytes]:
@@ -214,6 +257,68 @@ def make_item_move_delta_response(
         if result != expected:
             raise RuntimeError("generic item-move response drifted from V141 golden")
     return result
+
+
+def _item_attr_wire(legacy: Any, item: ItemAttrState) -> bytes:
+    """Serialize one complete ItemAttr with the frozen tagged primitives."""
+    if type(item) is not ItemAttrState:
+        raise TypeError("item must be an exact ItemAttrState")
+    _require_int(item.identity, "item identity", 0, 0x7FFFFFFFFFFFFFFF)
+    _require_int(item.template_id, "item template", 0, 0xFFFFFFFF)
+    _require_int(item.quantity, "item quantity", 0, 0xFFFF)
+    _require_int(item.slot, "item slot", 0, 39)
+    _require_int(item.raw_u8_38, "item raw +0x38", 0, 0xFF)
+    _require_int(item.raw_u8_39, "item raw +0x39", 0, 0xFF)
+    _require_int(item.detail_present, "item detail presence", 0, 1)
+    return (
+        legacy.qwordtag(0x32, item.identity)
+        + legacy.u32tag(0x14, item.template_id)
+        + legacy.u16tag(0x0F, item.quantity)
+        + legacy.u16tag(0x0F, item.slot)
+        + legacy.u8tag(0x08, item.raw_u8_38)
+        + legacy.u8tag(0x08, item.raw_u8_39)
+        + legacy.u8tag(0x0B, item.detail_present)
+    )
+
+
+def make_item_swap_delta_response(
+    legacy: Any, moved_item: ItemAttrState, displaced_item: ItemAttrState,
+) -> tuple[bytes, bytes]:
+    """Serialize the ItemOperate result shape carrying both swapped ItemAttrs.
+
+    The structure is byte-identical to the accepted single-item delta response
+    except that the first ItemBag collection carries exactly two complete
+    ItemAttr payloads (moved item first, displaced occupant second) and its
+    count word says 2.  The exact client response-apply loop
+    (ITEM-MOVE-CONSUMER-001) applies each ItemAttr of the first collection as
+    a complete replacement -- clear-by-identity then place-by-slot -- so both
+    swapped items are re-placed in either order without an occupancy gate.
+    Whether the original server ever answered an occupied-destination move
+    this way is explicitly not claimed (HYP-PF-017).
+    """
+    if type(moved_item) is not ItemAttrState or type(displaced_item) is not ItemAttrState:
+        raise TypeError("swap response requires two exact ItemAttrState items")
+    if moved_item.identity == displaced_item.identity:
+        raise ValueError("swap response requires two distinct item identities")
+    if moved_item.slot == displaced_item.slot:
+        raise ValueError("swap response requires two distinct destination slots")
+    item_bag = (
+        legacy.u8tag(0x0B, BACKPACK_BASE_MASK)
+        + legacy.qwordtag(0x32, BACKPACK_BASE_IDENTITY)
+        + legacy.u16tag(0x0F, 2)
+        + _item_attr_wire(legacy, moved_item)
+        + _item_attr_wire(legacy, displaced_item)
+        + legacy.u16tag(0x0F, 0)
+    )
+    payload = (
+        legacy.u8tag(0x08, 0)
+        + legacy.u8tag(0x0B, 1)
+        + item_bag
+        + legacy.u8tag(0x08, 0)
+    )
+    return legacy.make_runtime_vitals([(
+        legacy.ITEM_OPERATE_RES_VITAL, 2, payload,
+    )])
 
 
 def make_backpack_attr(legacy: Any, state: BackpackState) -> bytes:
