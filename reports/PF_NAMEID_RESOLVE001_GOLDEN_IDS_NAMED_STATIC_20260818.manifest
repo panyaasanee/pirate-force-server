@@ -1,0 +1,26 @@
+# Evidence for PF-NAMEID-RESOLVE-001 (paths relative to the Pirate Force root)
+# Static disassembly of the client binary (read-only) + the pinned golden corpus.
+# All cited VAs/offsets/byte-guards/name-literal->id ties and every golden cross-check
+# are reproducible from this exact binary + corpus via capstone (CS_MODE_32, ImageBase
+# parsed from PE header) using tools/pf_vital_id_resolve_static.py (exit 0 = PASS).
+GameClient\GameClient.local.bin|14759424|9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623
+# Confirmed algorithm (settled round 62, commit 7c66b21):
+#   0x89b220 = signed-char position-weighted sum mod 2^16 (the hash)
+#   0x89bd00 = id-assign wrapper (calls 0x89b220, returns ax)
+#   0x89c080 = _Init_thread singleton guard @0x108cf90 (NOT a hash)
+# Three golden-corpus ids resolved this round (name-literal -> id-slot -> wire id):
+#   LogoutVital                    thunk 0xBEE860 slot 0x108207C = 0x1B40  (golden: HYP_PF_016_LOGOUT)
+#   DeleteActorVital               thunk 0xBEE300 slot 0x1081FD0 = 0x36DB  (golden: HYP_PF_015_DELETE_ACTOR ; NET-NEW tie)
+#   Channel_LocalTalkMessageVital  thunk 0xBF72D0 slot 0x1084458 = 0xAC52  (golden: HYP_PF_014_CHAT_INPUT)
+# Golden named ids cross-checked byte-exact (6):
+#   StartGameReq 0x1E87 · CreateActorVital 0x36CF · LoginVerifyVital 0x3784
+#   GetWorldInfoVital 0x3D4B · GSCN_LoginProtocol 0x453A · GSCN_RunTimeProtocolReq 0x6E6F
+# Committed protocol NAMES table (all 49 entries reproduce, 0 mismatch):
+Pirate Force ServerProject\current\pf_login_game_server_v141.py
+# Golden corpus (pinned canonical B5557E9F..C9ED), read-only:
+Pirate Force ServerProject\capture_v141
+# Cross-references (read-only):
+Pirate Force ServerProject\reports\PF_NAMEID_HASH001_VITAL_ID_IS_PURE_NAME_HASH_STATIC_20260818.md
+Pirate Force ServerProject\reports\PF_TELEPORT_CHECK001_0X4477_VTABLE_SCHEMA_CONFIRM_STATIC_20260818.md
+# Verifier (exit 0 = PASS; guards: SHA pin + 6 golden named + all-49 NAMES + 3 resolved x [hash/absent/unnamed/unique/thunk] + 3 semantic):
+Pirate Force ServerProject\tools\pf_vital_id_resolve_static.py
