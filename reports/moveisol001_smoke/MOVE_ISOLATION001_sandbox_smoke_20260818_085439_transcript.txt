@@ -1,0 +1,44 @@
+MOVE-ISOLATION-001 sandbox smoke transcript
+probe: pf_move_isolation_probe.py  (stdlib, scratch DB outside repo, no GameClient)
+server: pirateforce_foundation.app --item-move-hypothesis-scenario scenarios/item_move_hypothesis_v111_slot2.json (default free-slot profile)
+game port 10189 (fixed), scratch DB migrated fresh; one dev account, two characters seeded with identical INITIAL Backpacks
+verdict.ok = True
+
+== seed ==
+  same-account sibling: {'source_character_id': 1, 'new_character_id': 2, 'account_id': 1, 'source_selector': 0, 'new_selector': 1}
+  foreign account:      {'foreign_account_id': 2, 'foreign_character_id': 3}
+  char A: {'id': 1, 'selector': 0}   char B: {'id': 2, 'selector': 1}
+
+== DB guard predicate (exact _require_selected_session SQL) ==
+  accept owning session for own char:      True  (want True)
+  reject foreign-account character:         False  (want False)
+  reject unselected same-account sibling:   False  (want False)
+  reject closed session:                    False  (want False)
+  guard_predicate_ok = True
+
+== session A -> move char A (identity 1, slot 0 -> free slot 4) ==
+  heartbeats_before_request: 2
+  committed_reply: True  reply_frames: [{'bytes': 82, 'sha256': 'B0184B7373F1541E632FC3DF061711A31C571708762DAB885832503281240381'}]
+  mover_rows_before: [[1, 0, 1, 2600001, 0, 255, 0], [2, 1, 1, 2400901, 0, 255, 0], [3, 2, 1, 2600001, 0, 255, 0], [4, 3, 1, 2200002, 0, 255, 0]]
+  mover_rows_after:  [[1, 4, 1, 2600001, 0, 255, 0], [2, 1, 1, 2400901, 0, 255, 0], [3, 2, 1, 2600001, 0, 255, 0], [4, 3, 1, 2200002, 0, 255, 0]]
+  mover_changed: True   moved id1->slot4: True
+  OTHER char rows_before: [[1, 0, 1, 2600001, 0, 255, 0], [2, 1, 1, 2400901, 0, 255, 0], [3, 2, 1, 2600001, 0, 255, 0], [4, 3, 1, 2200002, 0, 255, 0]]
+  OTHER char rows_after:  [[1, 0, 1, 2600001, 0, 255, 0], [2, 1, 1, 2400901, 0, 255, 0], [3, 2, 1, 2600001, 0, 255, 0], [4, 3, 1, 2200002, 0, 255, 0]]
+  other_unchanged_across_move: True
+  sessionA_ok: True
+
+== session B (reconnect) -> move char B (identical request) ==
+  heartbeats_before_request: 2
+  committed_reply: True  reply_frames: [{'bytes': 82, 'sha256': 'B0184B7373F1541E632FC3DF061711A31C571708762DAB885832503281240381'}]
+  mover_rows_before: [[1, 0, 1, 2600001, 0, 255, 0], [2, 1, 1, 2400901, 0, 255, 0], [3, 2, 1, 2600001, 0, 255, 0], [4, 3, 1, 2200002, 0, 255, 0]]
+  mover_rows_after:  [[1, 4, 1, 2600001, 0, 255, 0], [2, 1, 1, 2400901, 0, 255, 0], [3, 2, 1, 2600001, 0, 255, 0], [4, 3, 1, 2200002, 0, 255, 0]]
+  mover_changed: True   moved id1->slot4: True
+  OTHER char rows_before: [[1, 4, 1, 2600001, 0, 255, 0], [2, 1, 1, 2400901, 0, 255, 0], [3, 2, 1, 2600001, 0, 255, 0], [4, 3, 1, 2200002, 0, 255, 0]]
+  OTHER char rows_after:  [[1, 4, 1, 2600001, 0, 255, 0], [2, 1, 1, 2400901, 0, 255, 0], [3, 2, 1, 2600001, 0, 255, 0], [4, 3, 1, 2200002, 0, 255, 0]]
+  other_unchanged_across_move: True
+  sessionB_ok: True
+
+== identical wire request, disjoint row sets: True ==
+
+Scope: sockets + one scratch DB only. Never launched or touched GameClient.
+Never opened the canonical state DB. No repo-relative write target accepted.

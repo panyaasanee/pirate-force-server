@@ -1,0 +1,8 @@
+Pirate Force ServerProject\tests\test_item_move_generalized.py|20341|97867BB7702DB1E882F53EF4D9BD2D7410F26A921BD22E25B05C6EE232BBFB77
+Pirate Force ServerProject\reports\moveisol001_smoke\pf_move_isolation_probe.py|22978|A27E8D2B1A93CD0BF5BE879A3AE4CF5DD5B800170F1E397DAD3C8D3608DBC0EF
+Pirate Force ServerProject\reports\moveisol001_smoke\MOVE_ISOLATION001_sandbox_smoke_20260818_085439_probe.json|4134|7331B7F04139829E744F16D496F9DAB6A012064D83297B88E542D3DC7B6C87A4
+Pirate Force ServerProject\reports\moveisol001_smoke\MOVE_ISOLATION001_sandbox_smoke_20260818_085439_transcript.txt|3111|09E2DF22F53A9E01C1FF78ADA6BE0E5ADAFF468C7FE0B77598CAA0D08CEAEDE0
+#   (ref, unpinned) reports/PF_MOVE_ISOLATION001_CROSS_SESSION_AND_ACCOUNT_HEADLESS_20260818.md — this report
+#   (ref, unpinned) src/pirateforce_foundation/store.py — _require_selected_session guard predicate (Layer 2)
+#   (ref, unpinned) current/pf_login_game_server_v141.py — parse_item_operate_req serializer (Layer 1)
+#   (ref, unpinned) src/pirateforce_foundation/inventory.py — move_known_item_to_free_slot within-session resolution

@@ -11,6 +11,7 @@ opt-in scenario.
 """
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 import struct
 import sys
@@ -327,6 +328,124 @@ class ItemMoveGeneralizedRuntimeTests(unittest.TestCase):
                 self.assertEqual(self._rows(character.id), before_rows)
         self.assertEqual(state.item_move_generalized_count, 0)
         self.assertEqual(state.item_move_hypothesis_count, 0)
+
+
+class ItemMoveIsolationInvariantTests(unittest.TestCase):
+    """Prove the two independent layers that isolate a generalized free-slot
+    move to the session's own selected character.
+
+    Layer 1 (wire): parse_item_operate_req decodes exactly one operation byte,
+    one destination dword, and one item-identity qword, and rejects any
+    trailing bytes.  There is no owner/character field a client could send, so
+    no request can name another character.
+
+    Layer 2 (persistence): every Backpack read and write is guarded by
+    _require_selected_session, whose predicate accepts only the open session
+    that has itself selected that character within its own account.
+
+    These are the offline companions to the MOVE-ISOLATION-001 headless probe,
+    which proves the same invariant to the wire and the DB on a live server.
+    Nothing here is production behavior; the lane stays opt-in only.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.tmp.name) / "state.sqlite3"
+        self.store = SQLiteStore(self.db_path, ROOT / "migrations")
+        self.store.migrate()
+        self.legacy = load_legacy(LEGACY_PATH)
+        self.pos = Position(
+            1, 0, self.legacy.V135_PLAYER_X,
+            self.legacy.V135_PLAYER_Y, self.legacy.V135_PLAYER_Z,
+        )
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _make_character(self, account_id, name, identity_lo):
+        def build(_selector):
+            return b"\x00", b"\x00", identity_lo, 0
+        return self.store.create_character(
+            account_id, name, name.casefold(), f"fp-{name}", build, self.pos,
+        )
+
+    def _select_own(self, account_id, selector):
+        sid = self.store.open_session(account_id)
+        self.store.select_character(sid, selector)
+        return sid
+
+    # ---- Layer 1: the wire carries no owner field --------------------------
+
+    def test_item_operate_request_decodes_exactly_three_unowned_fields(self):
+        parsed = self.legacy.parse_outer(_move_request_pc(4, 1))
+        fields = self.legacy.parse_item_operate_req(parsed)
+        # Exactly (operation, destination_slot, item_identity): no fourth
+        # field by which a request could address another character.
+        self.assertEqual(len(fields), 3)
+        self.assertEqual(fields, (4, 4, 1))
+
+    def test_item_operate_request_rejects_trailing_owner_bytes(self):
+        # One extra tagged dword on the nested payload -- the only place a
+        # smuggled owner id could ride -- must be refused, not silently used.
+        parsed = self.legacy.parse_outer(_move_request_pc(4, 1))
+        tampered = replace(
+            parsed,
+            nested_payload=parsed.nested_payload
+            + self.legacy.u32tag(0x14, 0xDEADBEEF),
+        )
+        with self.assertRaises(ValueError):
+            self.legacy.parse_item_operate_req(tampered)
+
+    # ---- Layer 2: the persistence guard ------------------------------------
+
+    def test_guard_accepts_owning_selected_session(self):
+        aid = self.store.ensure_account("acct-own")
+        ch = self._make_character(aid, "alpha", 0x11110001)
+        sid = self.store.open_session(aid)
+        self.store.select_character(sid, ch.selector)
+        # No raise; returns exactly the seeded INITIAL Backpack.
+        self.assertEqual(self.store.get_backpack(sid, ch.id), INITIAL_BACKPACK)
+
+    def test_guard_rejects_foreign_account_character_on_read_and_write(self):
+        aid1 = self.store.ensure_account("acct-a")
+        aid2 = self.store.ensure_account("acct-b")
+        ch1 = self._make_character(aid1, "alpha", 0x22220001)
+        ch2 = self._make_character(aid2, "bravo", 0x33330001)
+        sid1 = self.store.open_session(aid1)
+        self.store.select_character(sid1, ch1.selector)
+        with self.assertRaises(PermissionError):
+            self.store.get_backpack(sid1, ch2.id)
+        # The generalized move write path is guarded by the same predicate and
+        # never touches a foreign character's rows.
+        with self.assertRaises(PermissionError):
+            self.store.move_backpack_item_to_free_slot(sid1, ch2.id, 1, 4)
+        # The foreign character's own owning session still reads it intact.
+        self.assertEqual(
+            self.store.get_backpack(
+                self._select_own(aid2, ch2.selector), ch2.id,
+            ),
+            INITIAL_BACKPACK,
+        )
+
+    def test_guard_rejects_unselected_sibling_character(self):
+        aid = self.store.ensure_account("acct-sib")
+        ch1 = self._make_character(aid, "alpha", 0x44440001)
+        ch2 = self._make_character(aid, "bravo", 0x44440002)
+        sid = self.store.open_session(aid)
+        self.store.select_character(sid, ch1.selector)
+        # A session reaches only the character it has itself selected, even a
+        # sibling in the same account.
+        with self.assertRaises(PermissionError):
+            self.store.get_backpack(sid, ch2.id)
+
+    def test_guard_rejects_closed_session(self):
+        aid = self.store.ensure_account("acct-closed")
+        ch = self._make_character(aid, "alpha", 0x55550001)
+        sid = self.store.open_session(aid)
+        self.store.select_character(sid, ch.selector)
+        self.store.close_session(sid)
+        with self.assertRaises(PermissionError):
+            self.store.get_backpack(sid, ch.id)
 
 
 if __name__ == "__main__":

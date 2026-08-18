@@ -89,14 +89,16 @@
           "evidence_refs": [
             "reports/PF_RE_V104_ItemOperate_Request_Capture_20260814.md",
             "reports/PF_RE_V105_ItemOperate_Response_Version_Boundary_20260814.md",
-            "reports/PF_RE_V106_ItemOperate_V2_Accepted_Removal_Boundary_20260814.md"
+            "reports/PF_RE_V106_ItemOperate_V2_Accepted_Removal_Boundary_20260814.md",
+            "reports/PF_MOVE_ISOLATION001_CROSS_SESSION_AND_ACCOUNT_HEADLESS_20260818.md"
           ],
           "test_refs": [
             "tests/test_item_move_hypothesis.py",
             "tests/test_item_move_capture.py",
-            "tests/test_connection_lifecycle.py"
+            "tests/test_connection_lifecycle.py",
+            "tests/test_item_move_generalized.py"
           ],
-          "notes": "Offline negative coverage exists for the opt-in composition. Cross-account and cross-session isolation for a generalized move is not covered and has no runtime evidence."
+          "notes": "Offline negative coverage exists for unknown identity, out-of-range slot, malformed, and replay. MOVE-ISOLATION-001 (chief round 67, 2026-08-18) adds the previously-missing isolation evidence: on a real server over TCP, two dev-account characters with identical INITIAL Backpacks each committed the byte-identical free-slot move under its own serial session, and each move mutated only its own character_id rows (the other character's rows and updated_at byte-identical across the foreign move), proving cross-session/cross-character isolation and within-session identity resolution. Two independent layers are proven: (Layer 1, wire) parse_item_operate_req decodes exactly operation/destination/item_identity with no owner field and rejects trailing bytes, so no request can name another character; (Layer 2, persistence) the _require_selected_session guard accepts only the open session that has itself selected that character within its own account, exercised against a seeded second account to reject foreign-account, unselected-sibling, and closed-session cases. Stays in_progress, not runtime_pass: full cross-account isolation at runtime needs two live authenticated accounts, which the development login path does not yet support (the standing authenticated_multi_account / persistence-accounts question). production_allowed stays false; the lane is opt-in only."
         },
         {
           "id": "occupied_destination_policy",

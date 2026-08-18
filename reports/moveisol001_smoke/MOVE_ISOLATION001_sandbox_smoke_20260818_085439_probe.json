@@ -1,0 +1,365 @@
+{
+ "probe": "MOVE-ISOLATION-001",
+ "checks": {
+  "seeded_sibling": {
+   "source_character_id": 1,
+   "new_character_id": 2,
+   "account_id": 1,
+   "source_selector": 0,
+   "new_selector": 1
+  },
+  "seeded_foreign": {
+   "foreign_account_id": 2,
+   "foreign_character_id": 3
+  },
+  "char_a": {
+   "id": 1,
+   "selector": 0
+  },
+  "char_b": {
+   "id": 2,
+   "selector": 1
+  },
+  "guard_predicate": {
+   "accept_owning_session_own_char": true,
+   "reject_foreign_account_char": false,
+   "reject_unselected_sibling_char": false,
+   "reject_closed_session": false
+  },
+  "guard_predicate_ok": true,
+  "sessionA_heartbeats_before_request": 2,
+  "sessionA_committed_reply": true,
+  "sessionA_reply_frames": [
+   {
+    "bytes": 82,
+    "sha256": "B0184B7373F1541E632FC3DF061711A31C571708762DAB885832503281240381"
+   }
+  ],
+  "sessionA_mover_rows_before": [
+   [
+    1,
+    0,
+    1,
+    2600001,
+    0,
+    255,
+    0
+   ],
+   [
+    2,
+    1,
+    1,
+    2400901,
+    0,
+    255,
+    0
+   ],
+   [
+    3,
+    2,
+    1,
+    2600001,
+    0,
+    255,
+    0
+   ],
+   [
+    4,
+    3,
+    1,
+    2200002,
+    0,
+    255,
+    0
+   ]
+  ],
+  "sessionA_mover_rows_after": [
+   [
+    1,
+    4,
+    1,
+    2600001,
+    0,
+    255,
+    0
+   ],
+   [
+    2,
+    1,
+    1,
+    2400901,
+    0,
+    255,
+    0
+   ],
+   [
+    3,
+    2,
+    1,
+    2600001,
+    0,
+    255,
+    0
+   ],
+   [
+    4,
+    3,
+    1,
+    2200002,
+    0,
+    255,
+    0
+   ]
+  ],
+  "sessionA_mover_changed": true,
+  "sessionA_mover_moved_id1_to_slot4": true,
+  "sessionA_mover_updated_at_before": "2026-08-18T01:54:43.396125+00:00",
+  "sessionA_mover_updated_at_after": "2026-08-18T01:55:00.481475+00:00",
+  "sessionA_other_rows_before": [
+   [
+    1,
+    0,
+    1,
+    2600001,
+    0,
+    255,
+    0
+   ],
+   [
+    2,
+    1,
+    1,
+    2400901,
+    0,
+    255,
+    0
+   ],
+   [
+    3,
+    2,
+    1,
+    2600001,
+    0,
+    255,
+    0
+   ],
+   [
+    4,
+    3,
+    1,
+    2200002,
+    0,
+    255,
+    0
+   ]
+  ],
+  "sessionA_other_rows_after": [
+   [
+    1,
+    0,
+    1,
+    2600001,
+    0,
+    255,
+    0
+   ],
+   [
+    2,
+    1,
+    1,
+    2400901,
+    0,
+    255,
+    0
+   ],
+   [
+    3,
+    2,
+    1,
+    2600001,
+    0,
+    255,
+    0
+   ],
+   [
+    4,
+    3,
+    1,
+    2200002,
+    0,
+    255,
+    0
+   ]
+  ],
+  "sessionA_other_unchanged_across_move": true,
+  "sessionA_ok": true,
+  "sessionB_heartbeats_before_request": 2,
+  "sessionB_committed_reply": true,
+  "sessionB_reply_frames": [
+   {
+    "bytes": 82,
+    "sha256": "B0184B7373F1541E632FC3DF061711A31C571708762DAB885832503281240381"
+   }
+  ],
+  "sessionB_mover_rows_before": [
+   [
+    1,
+    0,
+    1,
+    2600001,
+    0,
+    255,
+    0
+   ],
+   [
+    2,
+    1,
+    1,
+    2400901,
+    0,
+    255,
+    0
+   ],
+   [
+    3,
+    2,
+    1,
+    2600001,
+    0,
+    255,
+    0
+   ],
+   [
+    4,
+    3,
+    1,
+    2200002,
+    0,
+    255,
+    0
+   ]
+  ],
+  "sessionB_mover_rows_after": [
+   [
+    1,
+    4,
+    1,
+    2600001,
+    0,
+    255,
+    0
+   ],
+   [
+    2,
+    1,
+    1,
+    2400901,
+    0,
+    255,
+    0
+   ],
+   [
+    3,
+    2,
+    1,
+    2600001,
+    0,
+    255,
+    0
+   ],
+   [
+    4,
+    3,
+    1,
+    2200002,
+    0,
+    255,
+    0
+   ]
+  ],
+  "sessionB_mover_changed": true,
+  "sessionB_mover_moved_id1_to_slot4": true,
+  "sessionB_mover_updated_at_before": "2026-08-18T01:54:47.544879+00:00",
+  "sessionB_mover_updated_at_after": "2026-08-18T01:55:15.558716+00:00",
+  "sessionB_other_rows_before": [
+   [
+    1,
+    4,
+    1,
+    2600001,
+    0,
+    255,
+    0
+   ],
+   [
+    2,
+    1,
+    1,
+    2400901,
+    0,
+    255,
+    0
+   ],
+   [
+    3,
+    2,
+    1,
+    2600001,
+    0,
+    255,
+    0
+   ],
+   [
+    4,
+    3,
+    1,
+    2200002,
+    0,
+    255,
+    0
+   ]
+  ],
+  "sessionB_other_rows_after": [
+   [
+    1,
+    4,
+    1,
+    2600001,
+    0,
+    255,
+    0
+   ],
+   [
+    2,
+    1,
+    1,
+    2400901,
+    0,
+    255,
+    0
+   ],
+   [
+    3,
+    2,
+    1,
+    2600001,
+    0,
+    255,
+    0
+   ],
+   [
+    4,
+    3,
+    1,
+    2200002,
+    0,
+    255,
+    0
+   ]
+  ],
+  "sessionB_other_unchanged_across_move": true,
+  "sessionB_ok": true,
+  "identical_request_disjoint_rows": true
+ },
+ "ok": true
+}
