@@ -156,6 +156,27 @@ except ImportError:  # pragma: no cover - environment guard, same as the sibling
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.normpath(os.path.join(_HERE, ".."))
 
+sys.path.insert(0, _HERE)
+from pf_capture_corpus import (          # pure stdlib, no side effects
+    CaptureCorpus,
+    CaptureCorpusError,
+)
+
+
+def _corpus_state(holder):
+    """Prove a pinned capture set is present and byte-identical.
+
+    Returns ``(ok, note)`` for ``check()``.  Presence and content are proved
+    together on purpose: before CORPUS-PIN-001 this file trusted a directory
+    scan, so a capture that had been rewritten in place looked exactly like a
+    capture that had not.
+    """
+    try:
+        resolved = holder.resolve()
+    except CaptureCorpusError as exc:
+        return False, " ".join(str(exc).split())[:240]
+    return True, "%d pinned captures present and byte-identical" % len(resolved)
+
 EXPECT_SHA = "9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623"
 
 
@@ -937,9 +958,22 @@ def _decompressed_blocks(text):
     return blocks
 
 
-LOGIN_CAPTURES = sorted(
-    glob.glob(os.path.join(_ROOT, "**", "LOGIN_*.txt"), recursive=True)
-)
+# CORPUS-PIN-001 (round 82).  These two sets used to come from glob() over the
+# capture directories.  A scan has no expectation: when a job wrote fresh
+# captures into the git-ignored golden corpus, the numbers this file pins moved
+# silently and nothing in the gate went red.  The evidence is now named,
+# sized and hashed in docs/PF_CAPTURE_CORPUS.json, and the directory scan
+# survives only as the "is there anything here I did not expect?" guard below.
+CORPUS = CaptureCorpus.load()
+_LOGIN_SET = CORPUS["login_archived"]
+_LOGIN_OK, _LOGIN_NOTE = _corpus_state(_LOGIN_SET)
+check("every archived login capture named in docs/PF_CAPTURE_CORPUS.json is "
+      "present and byte-identical",
+      _LOGIN_OK, _LOGIN_NOTE)
+check("and no LOGIN capture exists anywhere in the worktree outside that set",
+      not _LOGIN_SET.strays(),
+      "%d stray: %s" % (len(_LOGIN_SET.strays()), _LOGIN_SET.strays()[:3]))
+LOGIN_CAPTURES = [str(p) for p in _LOGIN_SET.resolve(verify=False)]
 CORPUS_ROWS = []
 for _path in LOGIN_CAPTURES:
     _text = open(_path, encoding="utf-8", errors="replace").read()
@@ -978,7 +1012,24 @@ check("which is the audit's G8 observation restated: one distinct account value"
 
 # ---- the same account value on the game listener --------------------------
 VERIFY_PREFIX = bytes.fromhex("0B68") + wstring_field(decode_hex_wstring(JOB_ACC_ARGUMENT))
-GAME_CAPTURES = sorted(glob.glob(os.path.join(_ROOT, "capture_v141", "GAME_*.txt")))
+_GAME_SET = CORPUS["game_v141_archived"]
+_GAME_OK, _GAME_NOTE = _corpus_state(_GAME_SET)
+check("every archived capture_v141 GAME file named in docs/PF_CAPTURE_CORPUS.json "
+      "is present and byte-identical",
+      _GAME_OK, _GAME_NOTE)
+check("and capture_v141 holds no GAME capture outside that set - the guard that "
+      "makes a job writing into the golden corpus red instead of silent",
+      not _GAME_SET.strays(),
+      "%d stray: %s" % (len(_GAME_SET.strays()), _GAME_SET.strays()[:3]))
+# The two live tails the old glob swept into the denominator are excluded by
+# name in the table, with the reason: the server truncates and rewrites both on
+# every run (v141:7372-7373), so neither has stable content or stable identity.
+check("the two live tails are excluded by name, not by a filter hidden in this "
+      "file",
+      set(_GAME_SET.excluded) == {"capture_v141/GAME_LIVE.txt",
+                                  "capture_v141/GAME_EVENTS_LIVE.txt"},
+      str(sorted(_GAME_SET.excluded)))
+GAME_CAPTURES = [str(p) for p in _GAME_SET.resolve(verify=False)]
 _verify_hits = 0
 for _path in GAME_CAPTURES:
     _text = open(_path, encoding="utf-8", errors="replace").read()
@@ -988,7 +1039,7 @@ for _path in GAME_CAPTURES:
             break
 check("the same decoded account also opens LoginVerifyVital on the game listener",
       _verify_hits > 0,
-      "%d of %d capture_v141 GAME files" % (_verify_hits, len(GAME_CAPTURES)))
+      "%d of %d pinned capture_v141 GAME captures" % (_verify_hits, len(GAME_CAPTURES)))
 
 # ==========================================================================
 # 7. What our own server does with all this (read-only)
@@ -1026,7 +1077,7 @@ GUARDS_TOTAL = len(RESULTS)
 GUARDS_FAILED = [n for n, ok in RESULTS if not ok]
 
 COUNTS = {
-    "measured_at_head": "dd1a66c",
+    "measured_at_head": "6891372",
     "client_sha256": sha,
     "guards_total": GUARDS_TOTAL,
     "wire_id": "0x%04X" % NESTED_ID_REQ,
@@ -1056,6 +1107,13 @@ COUNTS = {
     "probe_account_name": decode_hex_wstring(PROBE_ACC_ARGUMENT),
     "probe_body_length_delta": len(PROBE_BODY) - len(GOLDEN_BODY),
     "probe_bytes_changed": sum(1 for a, b in zip(PROBE_BODY, GOLDEN_BODY) if a != b),
+    # CORPUS-PIN-001: the denominator is now a pinned NAME SET, not whatever a
+    # directory scan returned.  It was 69 while the glob also swept up the two
+    # live tails the server rewrites on every run; the numerator never included
+    # them, so 44 is unchanged and "44 of 69" was simply the wrong denominator.
+    "corpus_table": "docs/PF_CAPTURE_CORPUS.json",
+    "pinned_game_captures": len(GAME_CAPTURES),
+    "excluded_live_game_files": len(_GAME_SET.excluded),
     "game_captures_with_the_same_account": _verify_hits,
     "dologin_callers": len(call_xrefs(DO_LOGIN)),
     "hex_decode_callers": len(call_xrefs(HEX_DECODE)),

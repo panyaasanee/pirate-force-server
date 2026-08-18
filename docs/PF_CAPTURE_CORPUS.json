@@ -1,0 +1,757 @@
+{
+ "__doc__": [
+  "docs/PF_CAPTURE_CORPUS.json - the project's SINGLE SOURCE OF TRUTH for WHICH capture files are evidence.",
+  "ทะเบียนหลักฐาน capture ของโปรเจกต์ - 'ไฟล์ไหนนับเป็นหลักฐาน' ต้องมาจากไฟล์นี้ที่เดียว ห้ามสแกนไดเรกทอรีเอาเอง",
+  "",
+  "(1) WHAT THIS FILE IS / ไฟล์นี้คืออะไร",
+  "    Every archived capture that a verifier, report or test is allowed to quote is listed here by",
+  "    exact path, size and sha256.  A tool that needs 'the corpus' must read THIS file through",
+  "    tools/pf_capture_corpus.py.  It must NOT call glob() on a capture directory.",
+  "    ทุกเครื่องมือที่ต้องใช้ชุด capture ให้อ่านไฟล์นี้ ห้าม glob ไดเรกทอรีเองอีก",
+  "",
+  "(2) WHY / ทำไมต้องมีไฟล์นี้ (CORPUS-PIN-001, รอบ 82)",
+  "    Verifiers used to answer 'which captures may I quote?' with a directory scan, then pin the",
+  "    resulting NUMBER into a published report.  Three holes, all of which we walked into:",
+  "",
+  "    (a) A SCAN HAS NO EXPECTATION.  On 2026-08-19 a headless replay job booted the server with no",
+  "        --capture-root from the repository root.  The frozen snapshot builds its capture directory",
+  "        from a RELATIVE path (current/pf_login_game_server_v141.py:7867 -> Path('capture_v141')),",
+  "        so live captures landed inside the golden corpus and grew it 69 -> 72.  capture_v141/ is",
+  "        git-ignored (.gitignore:157, '**/capture*/'), so git status stayed clean and the v141 hash",
+  "        guard stayed green - the v141 FILE really was untouched, the corpus beside it was not.",
+  "        The only thing in the entire gate that noticed was a count pinned by an unrelated",
+  "        milestone, and it was noticed by accident.  A scan cannot distinguish 'the corpus' from",
+  "        'the corpus plus whatever else is sitting in that folder'.",
+  "        การสแกนไดเรกทอรีไม่มี 'ความคาดหวัง' - ไฟล์แปลกปลอมงอกแล้วตัวเลขเลื่อนเงียบ",
+  "",
+  "    (b) A GLOB DOES NOT KNOW WHICH FILES HOLD STILL.  'GAME_*.txt' also matched GAME_LIVE.txt and",
+  "        GAME_EVENTS_LIVE.txt, which the server OVERWRITES IN PLACE on every run (v141:7372-7373).",
+  "        Two of the 69 files in the published denominator were mutable scratch files.  See the",
+  "        'excluded' object of each set: files matched by the pattern that are deliberately not",
+  "        evidence are listed there BY NAME, with the reason, so that excluding them is a recorded",
+  "        decision instead of a silent filter buried in a tool.",
+  "",
+  "    (c) COUNTS ARE NOT CONTENT.  A correct file count still says nothing about whether a capture",
+  "        holds the bytes a report quotes.  Every entry here carries size + sha256.",
+  "",
+  "(3) WHAT A VERIFIER GETS / เครื่องมือได้อะไรจากไฟล์นี้",
+  "    resolve(set)          -> the pinned paths, proving each exists and is byte-identical",
+  "    assert_no_strays(set) -> proves the directory holds NO capture outside the pinned set.",
+  "                             This is the guard that turns the incident in (2a) from an accidental",
+  "                             discovery into an immediate red.",
+  "    Both live in tools/pf_capture_corpus.py; tests/test_capture_corpus.py enforces them.",
+  "",
+  "(4) WHY THE TABLE LIVES IN docs/ / ทำไมเก็บไว้ใน docs/",
+  "    The capture directories themselves are git-ignored and always will be - they are bulky and",
+  "    they are written by tooling.  /docs/ is allow-listed (.gitignore:87-88), so this file is the",
+  "    one part of the evidence story that git can actually see and diff.  If the corpus changes,",
+  "    THIS FILE has to change in a commit, in front of a human.",
+  "",
+  "(5) HOW TO ADMIT NEW EVIDENCE / จะเพิ่มหลักฐานใหม่ทำยังไง",
+  "    Adding a capture is a DELIBERATE act, never a side effect of running something.",
+  "      1. Confirm the file is archived evidence, not a live/scratch file, and that it was produced",
+  "         on purpose (a job that ran with an explicit --capture-root OUTSIDE the repository).",
+  "      2. python3 tools/pf_capture_corpus.py --regenerate",
+  "      3. Read the diff.  Every added line must be a file you meant to add.  If a file you did not",
+  "         expect appears, that is the bug - do not regenerate it away.",
+  "      4. Any report that pins a count over the affected set must be re-measured and its .manifest",
+  "         re-hashed in the same commit.",
+  "    ห้ามรัน --regenerate เพื่อ 'ทำให้เทสเขียว' - ถ้าเทสแดงแปลว่ามีไฟล์ที่ไม่ควรอยู่ ให้ไปแก้ที่ต้นเหตุ",
+  "",
+  "(6) THE RULE THAT PREVENTS THE NEXT ONE / กติกาที่กันไม่ให้เกิดซ้ำ",
+  "    Every script that boots a server MUST pass an explicit --capture-root that resolves OUTSIDE",
+  "    the repository (round 81).  This table is the second line of defence, not the first.",
+  "",
+  "(7) SCOPE / สิ่งที่ไฟล์นี้ยังไม่ครอบคลุม",
+  "    Only the two sets below are pinned so far.  tools/pf_teleportcheck_0x4477_static.py reads a",
+  "    capture directory that lives OUTSIDE the git worktree entirely, and",
+  "    tools/pf_vital_id_resolve_static.py used to scan capture_v141 with a relative default path;",
+  "    the survey of all 13 directory-scan sites is in",
+  "    reports/PF_CORPUS_PIN001_DIRECTORY_SCAN_SURVEY_20260819.md."
+ ],
+ "milestone": "CORPUS-PIN-001",
+ "created_round": 82,
+ "created_at": "2026-08-19",
+ "regenerate_with": "python3 tools/pf_capture_corpus.py --regenerate",
+ "check_with": "python3 tools/pf_capture_corpus.py --check",
+ "sets": {
+  "game_v141_archived": {
+   "description": "Archived GAME_*.txt captures under capture_v141/ - the game-listener corpus that MP-OPT1-B and the vital-id resolver quote. Archived captures carry a timestamp+pid in the name and are never rewritten.",
+   "scan_dir": "capture_v141",
+   "pattern": "GAME_*.txt",
+   "recursive": false,
+   "excluded": {
+    "capture_v141/GAME_LIVE.txt": "Live tail. The server truncates and rewrites this file on every run (v141:7372). Not evidence: it has no stable content and no stable identity.",
+    "capture_v141/GAME_EVENTS_LIVE.txt": "Live event tail, rewritten on every run (v141:7373). Not evidence, same reason."
+   },
+   "file_count": 67,
+   "files": [
+    {
+     "path": "capture_v141/GAME_20260818_011453_869104_46070.txt",
+     "size": 53,
+     "sha256": "973EED34DA9644C78261E2361B600D6FA7F93F2A156F9599858D1CB97966AD32"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_011453_898877_46072.txt",
+     "size": 13794,
+     "sha256": "21FBCB61CA34C72339521D7B4B19C43807AA16E33CDF3E8898A1ED25F1032298"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_011503_887896_47412.txt",
+     "size": 9861,
+     "sha256": "BA2C88A134C8B079993EEF4FF1711F10D376B2D958A5F2CD06DB286EEA3298C9"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_011533_137850_57166.txt",
+     "size": 53,
+     "sha256": "0B5C991F70EC6711497828D4F03380B58FAAC68C5C2097F0956A3B7C5528F661"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_011533_162431_57180.txt",
+     "size": 13794,
+     "sha256": "789DF776D4B5BD16655C1B608A9AB4921B3BA35D57E81B496C7D30B45F55E2AD"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_011543_173487_60558.txt",
+     "size": 9861,
+     "sha256": "E93758E95C2DB1EFDCBCB074538F18423E73B63640A4EB8AC1C4D9497D6B5166"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_024557_824328_35780.txt",
+     "size": 53,
+     "sha256": "9EB719C06314764CDDEA44B86B6459C87F73665D333A7766CD9A797D1E9E40A6"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_024557_850106_35794.txt",
+     "size": 13798,
+     "sha256": "A77A6D6B33639B63B9FF233A2F45AFC3335CABF13DFDC23A964C559211FC8779"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_024607_860246_38562.txt",
+     "size": 9861,
+     "sha256": "E700F6D8039954275377EE11C47BE01B5B3C8690DABC62D92B6A359C4624485F"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_024728_183484_45580.txt",
+     "size": 53,
+     "sha256": "51183B10C40F865D5AA322443B53182387DE2CCB7E4A493D83089BA0F2B230A8"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_024728_209890_45586.txt",
+     "size": 13798,
+     "sha256": "AEB4296BD4A7B009BD5F85070F2D62269BFBA80C91BF9B50EE49F2E4A3D48F86"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_024738_215648_44912.txt",
+     "size": 9861,
+     "sha256": "348A03407DD106406EE87C1300B493EE7EDF3DBCCB9BD3F7D66C42DECF592F37"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_033517_584486_55226.txt",
+     "size": 53,
+     "sha256": "08471EB265F96F4AF0C6BA991985EC3E919A4DEF9BE8EF7602659CFFF48FA35C"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_033517_612086_55232.txt",
+     "size": 30303,
+     "sha256": "781C82A9F9AF62BDC3F892E737D78152C14A51C875E7F2F73E116EE360BB89C0"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_034437_454433_46068.txt",
+     "size": 53,
+     "sha256": "F3D13244687BECCAFB2E649D6DCCC30E70A8B97574F7B728FB8A7A0AE43A58BC"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_034437_481182_46080.txt",
+     "size": 29221,
+     "sha256": "CAAAD46D2DB6D9004101AB8C56526E1C1E21F05E4EC90EFBB76D5661A7E5F877"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_034451_357057_42320.txt",
+     "size": 17201,
+     "sha256": "F98A48F576B91E047F0CDB8B35987EB87F2D29F82B6C76F904D35B0884AB9AEF"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_034506_972931_52420.txt",
+     "size": 28521,
+     "sha256": "5361950F40707F8C6BF7EB23E3518E46A9FA0DF009E935A2D604A5CA1A68330B"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_075600_136965_43534.txt",
+     "size": 53,
+     "sha256": "29D5E7164EF62705E17D170C40CF69326467ED409BFEE58554F32E4621DBA715"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_075600_164236_43538.txt",
+     "size": 23035,
+     "sha256": "2240F67744439249A021B184B1A8ED4E4334365CA7B757F3CDAB779733131ED5"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_075613_767033_58976.txt",
+     "size": 18309,
+     "sha256": "8E0EABAD6F37065E016B6E9CF5CA21EFDE2D2DE1A1980CCE37636CFCF0D0A3CF"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_075625_383303_42716.txt",
+     "size": 18051,
+     "sha256": "39D7FDF849B4CFBCBAFA9A6545F3560141DD66EC21FEDE8803DF565734CAAE96"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_075637_000700_38316.txt",
+     "size": 17141,
+     "sha256": "6DF7FE7FBA0FD3A891AFDD999BCEE427E170CAA2B21F40DB2FB1B3B47854972E"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_075651_461771_60510.txt",
+     "size": 53,
+     "sha256": "85465B61812DD3F47099253DD352AE770797FA395F7F7138D73F263F03E3E07E"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_075651_490794_60524.txt",
+     "size": 21867,
+     "sha256": "15D7CB01D668004167FA3E55E21C9B7BF8792C81434984DEBEEA9B7D767C97EF"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_075732_055111_33822.txt",
+     "size": 53,
+     "sha256": "5A80B3B3F58EE03BB630DBA1AB230BD4C2CDDAF9E7DA7462E6DC9F3B52DF93D7"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_075732_081587_33824.txt",
+     "size": 23035,
+     "sha256": "398A1242A44759594FDF0AC509028EDD3AEFA3C4B917399C74A1E5E5B532B258"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_075745_674041_50760.txt",
+     "size": 18270,
+     "sha256": "4E89FC06FFCB457977D3FE22832E8D0CBF3D051AE07657D72D25F6C2C2CD4B42"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_075757_300876_43648.txt",
+     "size": 18051,
+     "sha256": "34E8517964F9E588F135FF16A75428916D2FFF40FDFEBF595BEDCB291C5CD9FB"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_075808_919743_42730.txt",
+     "size": 17141,
+     "sha256": "8EA9E669525442210F9F16B73B11850EB7E8D29C05F6F2964BA7A504D58469D7"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_075823_356600_33700.txt",
+     "size": 53,
+     "sha256": "68611479F7938620A3338CB4394D9EADA54A27F8AAC343434CB051B05389C78F"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_075823_381210_33708.txt",
+     "size": 21867,
+     "sha256": "B0A41F5490AD48B2BB342B0815ED42EEC50BB99FBF91FC95B336597671A865FD"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_082058_940128_35586.txt",
+     "size": 53,
+     "sha256": "7484728788EF7B670E4637D0184BA27C644DDB4929979534FFCACA893351CBF0"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_082058_964576_35600.txt",
+     "size": 25381,
+     "sha256": "6F753024873CB73DEEFDD1C5013CB3E0554555CB4B217075793CF9CB49F3DCAB"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_082116_574041_51172.txt",
+     "size": 20659,
+     "sha256": "7C2B4858E70EBBA4A2BE4D758F6B448BD13EAD1DC57C5FECB40A7408DE9C9138"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_082132_194222_40958.txt",
+     "size": 20659,
+     "sha256": "D5D8A551E53982909B80E0478DF9028B7AC7E77C4E355E820E54A8C4D8EBC952"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_084759_889167_47072.txt",
+     "size": 53,
+     "sha256": "96119C84DD2F75EA1C26F297D272C00FC070B79C5F9F38F45EA60C633A58A3A8"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_084759_915247_47086.txt",
+     "size": 9861,
+     "sha256": "E9464E2934E43F3FA9665FED18E04C8D52221B498F4F6A4F7F2AA1467783E71D"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_084831_507187_51098.txt",
+     "size": 53,
+     "sha256": "89BDD359DD70B85E3B3FCBF845F0D254D7A6C1AE1D1E17B1FD9369CCEF67DE0E"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_084831_535501_51100.txt",
+     "size": 9861,
+     "sha256": "3B9D6EFE4784FE4A13EC055548270839B8A9576B218FC1B5949BF5AE39CECA2B"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_084838_928297_50846.txt",
+     "size": 53,
+     "sha256": "625AFE5DCB70D2A7E61D01C099B2473B8030514CFA47CA31EB0CFC5EB5621068"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_084838_965253_50850.txt",
+     "size": 20192,
+     "sha256": "B509051B29E94EF1E110806204643C0CB48701F73DC784DAEBDF150D48215E87"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_084854_071067_54108.txt",
+     "size": 20200,
+     "sha256": "48A0D83C821EADCD7A42E9B79D2898A4BBBF330CFA873116F83AB16D0A20F18A"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_084929_569110_52162.txt",
+     "size": 53,
+     "sha256": "776EAB0015311F819FB96C565F0FA52A0AEB518FDBEF2CEA0BAC25280B46A7F9"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_084929_601161_52172.txt",
+     "size": 9861,
+     "sha256": "8FF1F6DC3405F54191D27345D6CC44867E189D6DFDC4537CBC00CFE97FBBEF9B"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_084936_983133_52204.txt",
+     "size": 53,
+     "sha256": "903F0B038F4E8B48532B92890FA5063DD923753DFD588D21CA675A828D36C7C2"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_084937_009093_52208.txt",
+     "size": 20192,
+     "sha256": "6A19BD2FF2BC79EB167B739FB7C6FB21EFA99908ECCF3BAF8DB610AFCA3C92CC"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_084952_116085_40068.txt",
+     "size": 20200,
+     "sha256": "C9AEF2E714565B88FD0B2E6C4B289672E0BBB388C740D1FC20AB42ABF885F6B0"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_085009_272173_36422.txt",
+     "size": 53,
+     "sha256": "788626347410117C53BCB265ED3C3DCF8C0D7599D87CDB0152662A136BF91B22"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_085009_297379_36432.txt",
+     "size": 9861,
+     "sha256": "364B7466D3962C5C8D5324115687C05B4534CB4AE34BF685DFED402A3F8115FF"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_085016_681886_36472.txt",
+     "size": 53,
+     "sha256": "7D4C115FC42DB7EC8E08F21123638924E698917ACD484F65D6158125D071C295"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_085016_714484_36478.txt",
+     "size": 20192,
+     "sha256": "4050F48AE323B778B1757B1AB8B651E56876BED2A4BBCAFCEEC23CE5ECE90131"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_085031_802639_43698.txt",
+     "size": 20200,
+     "sha256": "6E3D9A69B96C7565ECB4E225EC3208C22F33F96BBBC54006C517E9B910A235F0"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_085440_971600_40868.txt",
+     "size": 53,
+     "sha256": "8883C7C5E4EB6B075DA33A38B25297418C208E6C2F85C428CFAC967F8A2BE0A2"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_085440_998516_40878.txt",
+     "size": 9861,
+     "sha256": "F298944B8836FF2CB842E9C125FB1CB32DA0087B36E4D1003BFF01FB6FC307BF"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_085448_385473_38438.txt",
+     "size": 53,
+     "sha256": "335050B7DFFD9E263D8C8CAD8F869BF93590A1A2DA60D4748269152089F963FF"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_085448_411325_38440.txt",
+     "size": 20192,
+     "sha256": "F8894B1BB0F9D428C1B9CB16046B62CC37F79AD4BF65880D6FBB057DEBF93855"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_085503_497155_46526.txt",
+     "size": 20200,
+     "sha256": "201ED3166F450C74AFB2720C0065E46D5AC598CE000E826778FF76784051CE0C"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_105913_052977_35232.txt",
+     "size": 53,
+     "sha256": "5358AA716064CB0659018F19567874DFD19F91DE34D781C99A27DBFDE71D2C9B"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_105913_077958_35246.txt",
+     "size": 22805,
+     "sha256": "A7461B6AE29697FC866D34B3EDBD5821411BD0B30907D440F379D073E70977C6"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_105929_504333_44646.txt",
+     "size": 53,
+     "sha256": "4E4F0EF23107D66D950178BB32175AE2B8A3BF958CD3DDFABD7845F47F36C977"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_105929_529336_44648.txt",
+     "size": 22777,
+     "sha256": "055D32C7222EAA74F57792CE8D8064A8FD7FD605C2A8E1AB1E2D5DFA01E6B8FD"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_105943_126443_41220.txt",
+     "size": 18079,
+     "sha256": "2E09D5D5D987CD7E05CA80AC56E3AF50CD1A62959F9BEA651BC1C80384146815"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_105954_735484_56734.txt",
+     "size": 16761,
+     "sha256": "D2B5080C856D6D9B88313DC83EFE9F8A9CD37E61AED0DB9757208C9765552123"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_110006_365008_42208.txt",
+     "size": 16761,
+     "sha256": "ED6821D01C988EB3418229A409C369AB930B709871D58D15D77307226FD98F0C"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_110020_829177_36390.txt",
+     "size": 53,
+     "sha256": "F6901A5E2F3F851D373FE7BA1B55894408C93B82DFA02E1E0877C5ABA4490592"
+    },
+    {
+     "path": "capture_v141/GAME_20260818_110020_853793_36402.txt",
+     "size": 21867,
+     "sha256": "ECD8FA4308AE281BC8630D43E737345F4BE0D2B9993556BD07D4DFA6D6D70CD2"
+    }
+   ]
+  },
+  "login_archived": {
+   "description": "Every archived LOGIN_*.txt capture anywhere in the worktree - the login-listener corpus MP-OPT1-B quotes for the 0x42BF nested body. Scanned from the repository root on purpose: a stray login capture written into capture_v141/ by a mis-configured job is exactly the accident this set has to catch.",
+   "scan_dir": ".",
+   "pattern": "LOGIN_*.txt",
+   "recursive": true,
+   "prune_dirs": [
+    ".git",
+    "node_modules",
+    "__pycache__"
+   ],
+   "excluded": {},
+   "file_count": 63,
+   "files": [
+    {
+     "path": "analysis/lost_eden_leisure_runtime/capture_v110/LOGIN_20260814_152723_188831_59376.txt",
+     "size": 2326,
+     "sha256": "E848588F75035FFD11A5A6C740AFC0A33327FD6D584C5B53764E13995CDF486F"
+    },
+    {
+     "path": "analysis/lost_eden_scene14_runtime/capture_v110/LOGIN_20260814_154309_064992_63928.txt",
+     "size": 2453,
+     "sha256": "AD2736598F08EE57A7064CD5438F95F72F64DE7E332F1C6D02EC87FF592E4B6E"
+    },
+    {
+     "path": "analysis/lost_eden_scene14_runtime/capture_v110/LOGIN_20260814_154715_742195_64071.txt",
+     "size": 2326,
+     "sha256": "3013276199B506DC111351B0904FF733310A733B703613AAB6A144627651B1C4"
+    },
+    {
+     "path": "analysis/lost_eden_scene14_runtime2/capture_v110/LOGIN_20260814_155312_370544_56089.txt",
+     "size": 2326,
+     "sha256": "3C1396468A92B876FC0A74CD0EEFB052FB1BF743173F65DA4927AACA4B327743"
+    },
+    {
+     "path": "backups/pre_v68_replay_20260813_221150/capture_v85/LOGIN_20260813_213810_559370_57803.txt",
+     "size": 2326,
+     "sha256": "07C18ABE5BBF320C1962C45D6D25EE951A377370E0C1F221792EDB25DAB31F83"
+    },
+    {
+     "path": "backups/pre_v68_replay_20260813_221150/capture_v85/LOGIN_20260813_214258_839371_59950.txt",
+     "size": 2326,
+     "sha256": "8A1A208AD7B298447B52C943959BD5F7B7CAC867403C2CEC128112C35D9500A8"
+    },
+    {
+     "path": "backups/v101_empty_backpack_20260814_092719/capture_v101/LOGIN_20260814_090840_986084_55499.txt",
+     "size": 2326,
+     "sha256": "055F301177E38539ED4D086802642CD1D4707CED1DA9A287D228D87E489A500E"
+    },
+    {
+     "path": "backups/v101_empty_backpack_20260814_092719/capture_v101/LOGIN_20260814_091727_283869_49675.txt",
+     "size": 2326,
+     "sha256": "FAAD147CBC9EC6C2D25850BB7FCBADABF43CEE05EF91C479942BE867FCAD6CDD"
+    },
+    {
+     "path": "backups/v102_inventory_unlock_20260814_094550/capture_v102/LOGIN_20260814_093645_443999_64847.txt",
+     "size": 2326,
+     "sha256": "090CD96FCA112BF08231A591B81BA9F6BC76B398B621912DEAEA4B6213A09732"
+    },
+    {
+     "path": "backups/v102_itemattr_static_20260814_101500/capture_v102/LOGIN_20260814_093645_443999_64847.txt",
+     "size": 2326,
+     "sha256": "090CD96FCA112BF08231A591B81BA9F6BC76B398B621912DEAEA4B6213A09732"
+    },
+    {
+     "path": "backups/v103_one_item_backpack_20260814_103143/capture_v103/LOGIN_20260814_102434_878796_49209.txt",
+     "size": 2326,
+     "sha256": "9759AB8E9F15A9FE3376036E098B37F23772FA3E69A8113BD30CF6549CC9B078"
+    },
+    {
+     "path": "backups/v104_item_operate_capture_20260814_111326/capture_v104/LOGIN_20260814_103925_049762_55589.txt",
+     "size": 2326,
+     "sha256": "05977A2FAC796F496C86DC2E63FB3DF17FA2584C59409D896684DFEFCEC7E9C6"
+    },
+    {
+     "path": "backups/v105_item_operate_version_boundary_20260814_114147/capture_v105/LOGIN_20260814_112849_889182_49680.txt",
+     "size": 2326,
+     "sha256": "5148914410001B76E788F790FE8BCB665CC9DD5A571C279E646A01DB91E1543F"
+    },
+    {
+     "path": "backups/v106_item_operate_v2_removal_boundary_20260814_120216/capture_v106/LOGIN_20260814_114705_342039_55703.txt",
+     "size": 2326,
+     "sha256": "8B97FEDD8CDF1F20D343550A7E4D2291B54DEA8B00D5A67E066C07737AFE1ACE"
+    },
+    {
+     "path": "backups/v110_actionitem_capture_20260814_150007/capture_v110/LOGIN_20260814_141629_709177_53436.txt",
+     "size": 1334,
+     "sha256": "D22AEF5225F6B5E9BBFA1873C3515FBD66973726A4C99E52A4B877FA30DD97F1"
+    },
+    {
+     "path": "backups/v110_actionitem_capture_20260814_150007/capture_v110/LOGIN_20260814_144149_488941_61076.txt",
+     "size": 2326,
+     "sha256": "B4D3EE49B9C1C636671E06D1A400DCDC8DAF06095D3CCDCD9BC277DD8B29E78B"
+    },
+    {
+     "path": "backups/v115_inventory_monster_shop_20260814_175357/runtime_captures/capture_v111/LOGIN_20260814_164017_158429_61072.txt",
+     "size": 2326,
+     "sha256": "3A2516B04DFF618D9B86DB1C8577F83FA41E165E90AC9A60A0D1A02C6B1B0225"
+    },
+    {
+     "path": "backups/v115_inventory_monster_shop_20260814_175357/runtime_captures/capture_v111/LOGIN_20260814_165139_690317_61094.txt",
+     "size": 1334,
+     "sha256": "2093F62789DCCDC679600D0B7406438F15CC14EE8F6EEC4717B7B0443065355F"
+    },
+    {
+     "path": "backups/v115_inventory_monster_shop_20260814_175357/runtime_captures/capture_v112/LOGIN_20260814_170912_770391_53526.txt",
+     "size": 2453,
+     "sha256": "AD1AFF5760B1BED6BD08397CEDBC23388C9C4FB0F3BB8F0C06B4E8C0780282CF"
+    },
+    {
+     "path": "backups/v115_inventory_monster_shop_20260814_175357/runtime_captures/capture_v113/LOGIN_20260814_172038_512161_59797.txt",
+     "size": 2453,
+     "sha256": "E298FDCCF5D82EC02F3AEDACCCD7B583A4EEE5F606497B691697BC124E6388C8"
+    },
+    {
+     "path": "backups/v115_inventory_monster_shop_20260814_175357/runtime_captures/capture_v114/LOGIN_20260814_172847_627228_50887.txt",
+     "size": 2326,
+     "sha256": "F1A712D02F6BDA838FC375007FD8B168DAFD70145A04551550CDAD46AF3CD198"
+    },
+    {
+     "path": "backups/v115_inventory_monster_shop_20260814_175357/runtime_captures/capture_v115/LOGIN_20260814_174304_930691_61042.txt",
+     "size": 2326,
+     "sha256": "B541DE1F3E00937F77DA190A66F717C55B31830B1A7720116ECDA7E18AEF58F6"
+    },
+    {
+     "path": "backups/v116_shop_close_boundary_20260814_185700/capture_v116/LOGIN_20260814_181146_492657_49924.txt",
+     "size": 2326,
+     "sha256": "3A073B0FDE428E03D5C06FF86A1A2DCD76F650EB473EE9282DCDAFD9A45D8071"
+    },
+    {
+     "path": "backups/v116_shop_close_boundary_20260814_185700/capture_v116/LOGIN_20260814_183643_178870_56138.txt",
+     "size": 2326,
+     "sha256": "D350093434D7630157E2BED1E1FDE1FB7A752934DFA95E3AC4A3748C4A504020"
+    },
+    {
+     "path": "backups/v118_shop_free_slot_boundary_20260814_193245/capture_v118/LOGIN_20260814_190920_014828_65527.txt",
+     "size": 2326,
+     "sha256": "1F025174D32B66EE9C98FE277F6C669CA208D6E2D2938486C4CFD18B2D651AC3"
+    },
+    {
+     "path": "backups/v120_shop_cmd6_cmd8_boundary_20260814_195625/capture_v120/LOGIN_20260814_193425_414770_52315.txt",
+     "size": 2326,
+     "sha256": "D2D7C12D54CCC20CDB3C33C6727E322BB2C929E97E743C1B31964D3F8502BFB0"
+    },
+    {
+     "path": "backups/v122_cash_update_attr_boundary_20260814_203400/capture_v122/LOGIN_20260814_201409_890104_58242.txt",
+     "size": 2326,
+     "sha256": "4A02F1110937EA680E4435E1CDEC621BDAD6E43AB1CCCA1F6E35E26BF08702C9"
+    },
+    {
+     "path": "backups/v123_starter_blade_op5_capture_20260814_214616/capture_v123/LOGIN_20260814_213327_346669_62544.txt",
+     "size": 2326,
+     "sha256": "064D04008DEC70A2B6CE58AB87B08DB4EC53CFA4C80DB13FACD2E862F710D3B0"
+    },
+    {
+     "path": "backups/v124_quest_action1_tracker_boundary_20260814_221820/capture_v124/LOGIN_20260814_220809_445127_59250.txt",
+     "size": 2326,
+     "sha256": "9A63630016AE16AF26A8648BD08FA75D901AF493AEA7BACB6DF6708020296DFD"
+    },
+    {
+     "path": "backups/v125_quest_openaccept_op2_capture_20260814_223520/capture_v125/LOGIN_20260814_222759_600198_65186.txt",
+     "size": 2326,
+     "sha256": "E5F4E0F1F8BE79517CC23EC4A4B2C5F679D7E5C9CF6D1CF06814F2ACADCEF3AA"
+    },
+    {
+     "path": "backups/v126_failed_operational_p91_mistarget_20260814_230341/capture_v126/LOGIN_20260814_224711_191613_52991.txt",
+     "size": 2326,
+     "sha256": "037C69499FD8A289257B5DF9583165EF4D6FAEC90A7FEDE2F93436A38B165587"
+    },
+    {
+     "path": "backups/v127_quest_accept_p30_g_negative_20260814_232718/capture_v127/LOGIN_20260814_231228_746370_63197.txt",
+     "size": 2326,
+     "sha256": "0B87598C185D2D895FBA0C169323BCC3CA700AFD3D5C11DB979E8AE670401F61"
+    },
+    {
+     "path": "backups/v128_wield_z_action_capture_20260814_235039/capture_v128/LOGIN_20260814_234405_975747_60968.txt",
+     "size": 2326,
+     "sha256": "9475E577CDEB14D95DC74B4CDB7543FA613402CE6A0EB3F4F223CC3C86B5472D"
+    },
+    {
+     "path": "backups/v129_quest3020_accept_travel_negative_20260815_001754/capture_v129/LOGIN_20260815_000611_294109_60037.txt",
+     "size": 2326,
+     "sha256": "FC1A4E60D11C71DBAE98763F970F1496F4E63EB575F3333FC2FDD6FE7BF1D557"
+    },
+    {
+     "path": "backups/v130_equipped_blade_negative_20260815_005123/capture_v130/LOGIN_20260815_002623_601895_57802.txt",
+     "size": 2326,
+     "sha256": "49F7B1BCE80CAD9B6458164E80490BC8B61F081E25E5E89F663D4F52EA822C2D"
+    },
+    {
+     "path": "backups/v131_teleportcheck_challenge_echo_20260815_011204/capture_v131/LOGIN_20260815_005909_096604_54145.txt",
+     "size": 2326,
+     "sha256": "BBC9F3AFE1808A8B888B83D7542C4898223282C652672FC6EC43767836404C90"
+    },
+    {
+     "path": "backups/v132_tab_select_target_negative_20260815_014135/capture_v132/LOGIN_20260815_013145_067719_62375.txt",
+     "size": 2326,
+     "sha256": "891BC9CBBACDCE1FAE54ABA61B8B7799AD6340FA0F16D894479F6B04DAC74551"
+    },
+    {
+     "path": "backups/v133_p70_relation_negative_20260815_031748/capture_v133/LOGIN_20260815_030722_589985_62588.txt",
+     "size": 2326,
+     "sha256": "673DA98C82D046E375E0615D722F4E3A330C0761DE972804859466973B30A8DC"
+    },
+    {
+     "path": "backups/v134_q3020_conversation_operational_negative_20260815_042000/capture_v134/LOGIN_20260815_035902_312496_58933.txt",
+     "size": 2453,
+     "sha256": "1D5443B97E2D3C2D8F224BF3A0D962FCFD79E8A0D46D3700423F57B8A11369D5"
+    },
+    {
+     "path": "backups/v134_q3020_conversation_operational_negative_20260815_042000/capture_v134/LOGIN_20260815_041015_922794_49159.txt",
+     "size": 2326,
+     "sha256": "60A6168526708852A6E4603C0A0A48783BC10F9E40059708FBA9BE3DEC757EA9"
+    },
+    {
+     "path": "backups/v135_q3020_conversation_handshake_20260815_044150/capture_v135/LOGIN_20260815_043141_438061_63872.txt",
+     "size": 2326,
+     "sha256": "3AA2A3B0CF601FB6504F8F441CFFE8D2DF4866EDDEF4D4CB2CC718AD31F39866"
+    },
+    {
+     "path": "backups/v136_q3020_marker1_composition_20260815_051330/capture_v136/LOGIN_20260815_050631_763395_61612.txt",
+     "size": 2326,
+     "sha256": "62410B13BE00D6A139BA15EA30ABC766E49573255EDCDAB3CF594E271B7DD31A"
+    },
+    {
+     "path": "backups/v137_marker1_teleport_transport_20260815_054009/capture_v137/LOGIN_20260815_052338_083845_55685.txt",
+     "size": 2326,
+     "sha256": "30DEE08874C6722177DC212F97401A7FCB7D43FC87330533D1BB869488D6105F"
+    },
+    {
+     "path": "backups/v137_marker1_teleport_transport_20260815_054009/capture_v137/LOGIN_20260815_052915_585307_59238.txt",
+     "size": 2326,
+     "sha256": "2020730C684B06E7F1A8DF0EDCE33118306E103A36D8D644E0996D76AD68BE59"
+    },
+    {
+     "path": "backups/v138_marker1_population_reapply_20260815_060241/capture_v138/LOGIN_20260815_055224_385609_62984.txt",
+     "size": 2326,
+     "sha256": "DCD0BA7118A4F8FD553F8F5C62764B43545942B8CE9EC8D0C4DA402FC4104E58"
+    },
+    {
+     "path": "backups/v139_p86_interaction_operational_negative_20260815_063044/capture_v139/LOGIN_20260815_062144_287472_63421.txt",
+     "size": 2326,
+     "sha256": "07DBCC8F2C400C558ABB2ACC57173BDB03C40E4E5D2A8CD782E0ACA286EB25B1"
+    },
+    {
+     "path": "backups/v140_p86_synthetic_harness_interaction_20260815_065019/capture_v140/LOGIN_20260815_064132_802678_59236.txt",
+     "size": 2326,
+     "sha256": "FC50A01D0BE1E3BD1F1D7CAF0AA8DBFA5A9E76504EF1A22CE2BB784E71DC7ADF"
+    },
+    {
+     "path": "backups/v84_before_v85_20260813_212707/capture_v84/LOGIN_20260813_205940_427268_52441.txt",
+     "size": 2326,
+     "sha256": "FACB64767030DB172AE959E653779C12D28E8F147901D574F6597183E69A7203"
+    },
+    {
+     "path": "backups/v84_before_v85_20260813_212707/capture_v84/LOGIN_20260813_210942_172788_57162.txt",
+     "size": 2326,
+     "sha256": "E5D691CF8ED6AC1D0CBA6CD2BEA9DBA098828E2B6C6A9BC0D66A12D3E997C2F3"
+    },
+    {
+     "path": "backups/v85_runtime_before_v86_20260813_215141/capture_v85/LOGIN_20260813_213810_559370_57803.txt",
+     "size": 2326,
+     "sha256": "07C18ABE5BBF320C1962C45D6D25EE951A377370E0C1F221792EDB25DAB31F83"
+    },
+    {
+     "path": "backups/v85_runtime_before_v86_20260813_215141/capture_v85/LOGIN_20260813_214258_839371_59950.txt",
+     "size": 2326,
+     "sha256": "8A1A208AD7B298447B52C943959BD5F7B7CAC867403C2CEC128112C35D9500A8"
+    },
+    {
+     "path": "backups/v87_pass_before_v88_20260813_232000/capture_v87/LOGIN_20260813_230213_069118_51573.txt",
+     "size": 2326,
+     "sha256": "50A14CF3FEDA790D4772C548FB9418C9DFC0D301951BC06E27F6418B407C9196"
+    },
+    {
+     "path": "backups/v88_pass_before_v89_20260813_235000/capture_v88/LOGIN_20260813_231915_912425_50836.txt",
+     "size": 2326,
+     "sha256": "F1ABCC55DA92FE148D660658CF9F85EE9408BDD6CA351ABAE55120757F8B79C6"
+    },
+    {
+     "path": "backups/v89_pass_before_v90_20260814_000500/capture_v89/LOGIN_20260813_233131_501130_55810.txt",
+     "size": 2326,
+     "sha256": "56020EBF8D8DBC8A4F273FC449EB073258863B3B44E07528FC3D2D2A4B501E36"
+    },
+    {
+     "path": "backups/v90_observation_before_v91_20260814_001500/capture_v90/LOGIN_20260813_234148_772376_62080.txt",
+     "size": 2326,
+     "sha256": "5CC2E84372A01E0AB672CAC99E0EC1D96E975BE5C362037BC79F534473FA5B58"
+    },
+    {
+     "path": "backups/v91_runtime_before_v92_20260814_002000/capture_v91/LOGIN_20260813_235014_371759_50889.txt",
+     "size": 2326,
+     "sha256": "1F62C19CDC51231A444032FE2A27CADED4D08E40E843D2CD870B0962F013E2F0"
+    },
+    {
+     "path": "backups/v92_pass_before_v93_20260814_001000/capture_v92/LOGIN_20260813_235643_611894_62009.txt",
+     "size": 2326,
+     "sha256": "92E37AE8D23CAE6E2422878DCCABC9031EAC2B408443F7E6975468605E9B2457"
+    },
+    {
+     "path": "backups/v93_runtime_before_v94_20260814_002000/capture_v93/LOGIN_20260814_001415_352279_51348.txt",
+     "size": 2326,
+     "sha256": "5A99713BFB223BBFDD1A8C9CF7987CCB29BDFA34C15E1463DD96A26C1DD2AD43"
+    },
+    {
+     "path": "backups/v94_runtime_before_v95_20260814_003000/capture_v94/LOGIN_20260814_002202_245950_53878.txt",
+     "size": 2326,
+     "sha256": "8B7AF66982C3B9996D8E515850F471A2E06E128CAA7AB04119B29CEC44EF56A4"
+    },
+    {
+     "path": "backups/v95_failed_before_v96_capture_20260814_004000/capture_v95/LOGIN_20260814_003257_613004_64438.txt",
+     "size": 2326,
+     "sha256": "CC9A00265491E7C0AEE6B292F7CB2F232B6ABDB5D6B318E729BD3ECF5943DD90"
+    },
+    {
+     "path": "backups/v96_runtime_before_v97_20260814_005728/capture_v96/LOGIN_20260814_004216_432484_61856.txt",
+     "size": 2326,
+     "sha256": "345D9F33FB176E5AEE197A6870200789DA755D2896D5F669277BE4CEA824D455"
+    },
+    {
+     "path": "backups/v97_pass_before_v98_20260814_013022/capture_v97/LOGIN_20260814_010507_413791_65222.txt",
+     "size": 2326,
+     "sha256": "219827E2347B25D7668A09BC7BB67FE10A51DCA52BAD37E254287FA6C92480E6"
+    },
+    {
+     "path": "backups/v98_runtime_identity_facing_20260814_015800/capture_v98/LOGIN_20260814_013544_981800_55271.txt",
+     "size": 2326,
+     "sha256": "F507D08D1AF6D69A815250911ADA315FEA85CFF212585E90261DE5F53C3FD6B4"
+    }
+   ]
+  }
+ }
+}

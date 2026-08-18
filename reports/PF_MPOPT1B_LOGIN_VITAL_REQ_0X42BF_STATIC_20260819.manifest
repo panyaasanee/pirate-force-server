@@ -61,5 +61,16 @@ Pirate Force ServerProject\reports\PF_NAMEID_HASH001_VITAL_ID_IS_PURE_NAME_HASH_
 Pirate Force ServerProject\reports\PF_NAMEID_RESOLVE001_GOLDEN_IDS_NAMED_STATIC_20260818.md|7402|97FAD4B9A4F70030AC2476A93A43740A75468BD75BFE2C75395F4CEB495E946A
 #
 # --- THE VERIFIER AND ITS REGRESSION TEST ---
-Pirate Force ServerProject\tools\pf_login_vital_req_static.py|50641|7D6334BB82202642EAEAAC5F2C6AAA074EEE4B1D1C38881F58BB70948E2F4609
+Pirate Force ServerProject\tools\pf_login_vital_req_static.py|53714|BE773AFC09A8EF9D518F4D27B1BE02EA2CEA5F901EDECC2946B167CC2E95F864
 Pirate Force ServerProject\tests\test_login_vital_req_static.py|12685|1E252C426B789544D3F185A82B9A5790EC4D071BD2E9D8498B40D14A457A9CA4
+#
+# --- THE PINNED CORPUS (CORPUS-PIN-001, round 82) ---
+# The corpus numbers in this report are measured over a pinned NAME SET, not over
+# a directory scan.  The table names all 63 archived LOGIN_*.txt and all 67
+# archived capture_v141/GAME_*.txt with size and sha256, and excludes the two live
+# tails (GAME_LIVE.txt, GAME_EVENTS_LIVE.txt) by name.  The verifier proves the
+# set is present, byte-identical and complete before it counts anything.
+#
+Pirate Force ServerProject\docs\PF_CAPTURE_CORPUS.json|34449|E33A3BF94C1A6B2139E0F49EDEAB80444662FBCAC66132AF8CBFE915DCF9AEF7
+Pirate Force ServerProject\tools\pf_capture_corpus.py|14079|C44B745E35302B722661C1BDF8B74BBD4FD6E82DFE893DE177AAA48F2C122588
+Pirate Force ServerProject\tests\test_capture_corpus.py|11286|E2EBBC4548A07D481FF5F1ACDA45163C9F2437AEEBC48A5A763D991D0AF8D09E

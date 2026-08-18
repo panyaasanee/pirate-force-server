@@ -1,0 +1,43 @@
+# Evidence for PF-CORPUS-PIN-001 (directory-scan survey + the fix)
+# Survey only: no src/ change, no matrix flip, no ledger entry, no scenario, no
+# runtime claim, no network, no GameClient launch, no canonical database access.
+#
+# WHAT THE SURVEY FOUND
+# Thirteen places decide which files they are looking at by scanning a directory.
+# Two of them (grade A) are in the same verifier, and the numbers they produce are
+# pinned key-by-key in a published report and its regression test:
+#   tools/pf_login_vital_req_static.py:941  **/LOGIN_*.txt   -> 63 files
+#   tools/pf_login_vital_req_static.py:981  capture_v141/GAME_*.txt -> 69 files,
+#                                           two of which (GAME_LIVE.txt,
+#                                           GAME_EVENTS_LIVE.txt) the server
+#                                           truncates and rewrites on every run.
+# The frozen snapshot writes into BOTH scanned sets from a relative path
+# (current/pf_login_game_server_v141.py:7867 capdir = Path("capture_v141");
+#  :7401 GAME_{stamp}.txt; :7945 LOGIN_{stamp}.txt; :7372-7373 the live tails),
+# so any boot with cwd = repository root moves both numbers, and capture_v141/ is
+# git-ignored (.gitignore:157) so git cannot see it happen.  That is exactly the
+# incident of 2026-08-19 (corpus 69 -> 72), which was found by accident.
+#
+# THE FIX THIS SURVEY PAID FOR
+# docs/PF_CAPTURE_CORPUS.json names every archived capture with size and sha256;
+# tools/pf_capture_corpus.py proves presence, byte-identity and - the part that
+# would have caught the incident - that nothing unpinned is sitting in the
+# directory; tests/test_capture_corpus.py enforces all three and proves the trap
+# fires, on a throwaway tree.
+#
+# --- THE SURVEY ---
+Pirate Force ServerProject\reports\PF_CORPUS_PIN001_DIRECTORY_SCAN_SURVEY_20260819.md|31116|C93684F5148C12CE4D376F722B8AB20040F04D1C5D88C45EC325CC0512B5A049
+#
+# --- THE SINGLE HOME FOR THE CORPUS, AND ITS ENFORCEMENT ---
+Pirate Force ServerProject\docs\PF_CAPTURE_CORPUS.json|34449|E33A3BF94C1A6B2139E0F49EDEAB80444662FBCAC66132AF8CBFE915DCF9AEF7
+Pirate Force ServerProject\tools\pf_capture_corpus.py|14079|C44B745E35302B722661C1BDF8B74BBD4FD6E82DFE893DE177AAA48F2C122588
+Pirate Force ServerProject\tests\test_capture_corpus.py|11286|E2EBBC4548A07D481FF5F1ACDA45163C9F2437AEEBC48A5A763D991D0AF8D09E
+#
+# --- THE TWO VERIFIERS THAT STOPPED SCANNING (grade A and grade B) ---
+Pirate Force ServerProject\tools\pf_login_vital_req_static.py|53714|BE773AFC09A8EF9D518F4D27B1BE02EA2CEA5F901EDECC2946B167CC2E95F864
+Pirate Force ServerProject\tools\pf_vital_id_resolve_static.py|14424|9AD2F7107C94576F4EC67D0281BB7ED204483F36312FF852F9C2F6021B2FAA61
+Pirate Force ServerProject\tests\test_login_vital_req_static.py|12685|1E252C426B789544D3F185A82B9A5790EC4D071BD2E9D8498B40D14A457A9CA4
+#
+# --- THE REPORT WHOSE DENOMINATOR THIS CORRECTED (44 of 69 -> 44 of 67) ---
+Pirate Force ServerProject\reports\PF_MPOPT1B_LOGIN_VITAL_REQ_0X42BF_STATIC_20260819.md|21286|45C35D68704781B2158C12B023E30CE5CA9728E8DF286CA8A2E5EC1F4917A4BA
+Pirate Force ServerProject\reports\PF_MPOPT1B_LOGIN_VITAL_REQ_0X42BF_STATIC_20260819.manifest|5871|0F39FD0C9D3FA2F85EA87A28891E1AC17CEB3E0581D7AD9C6DE0DE940A90F4FF

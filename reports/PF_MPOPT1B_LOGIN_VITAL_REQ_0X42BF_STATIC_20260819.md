@@ -2,9 +2,9 @@
 
 **Milestone:** MP-OPT1-B (Option 1 "answer the byte first", part **(b)**)
 **Question answered:** MULTIPLAYER-READINESS-AUDIT-001 **G8**
-**Date:** 2026-08-19 · **Measured at HEAD:** `dd1a66c`
+**Date:** 2026-08-19 · **Measured at HEAD:** `6891372` (re-measured in round 82; first published at `dd1a66c`)
 **Kind:** report-only static RE. No `src/` change, no matrix flip, no ledger entry, no scenario, no new hypothesis, no runtime claim, no network, no GameClient launch, no database access.
-**Verifier:** `tools/pf_login_vital_req_static.py` — **126 guards, 0 failed, exit 0**
+**Verifier:** `tools/pf_login_vital_req_static.py` — **131 guards, 0 failed, exit 0**
 **Client image:** `GameClient/GameClient.local.bin`, sha256 `9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623`
 
 ---
@@ -234,7 +234,9 @@ The `LoginVerifyVital` (`0x3784`) frame the client sends to the GAME listener st
  u8       the decoded account          the token the server handed out
 ```
 
-**44 of the capture_v141 GAME files** carry it (asserted).
+**44 of the 67 pinned `capture_v141` GAME captures** carry it (asserted).
+
+> **Errata, round 82 (CORPUS-PIN-001).** The first publication of this report said *"44 of 69"*. The numerator was right; the denominator was not. It came from `glob("capture_v141/GAME_*.txt")`, and that pattern also matched `GAME_LIVE.txt` and `GAME_EVENTS_LIVE.txt` — two scratch files the server **truncates and rewrites on every run** (`v141:7372-7373`). Neither has ever carried the frame, so the count of 44 is unchanged, but "69" was never a number of archived captures. The evidence is now a pinned name set with sizes and sha256 in [`docs/PF_CAPTURE_CORPUS.json`](../docs/PF_CAPTURE_CORPUS.json), the two live tails are excluded there **by name and with a reason**, and the verifier asserts that the directory holds no GAME capture outside the set. See §8.1.
 
 Our own server, read-only facts:
 
@@ -247,7 +249,7 @@ Our own server, read-only facts:
 
 ## 7. What is proven, what is inferred, what is still open
 
-### ① byte-exact / statically proven (126 guards)
+### ① byte-exact / statically proven (131 guards)
 
 1. `0x42BF` = `LSCN_LoginVitalReq`, vtable `0xF16B34`, object `0x4C` bytes, `VitalData` subclass.
 2. The frame has **exactly two fields**, in this order: `wstring @ +0x14` (tag `0x48`) then `string @ +0x30` (tag `0x44`). Length prefixes are **byte counts**.
@@ -280,12 +282,23 @@ Our own server, read-only facts:
 ## 8. Reproduce
 
 ```
-py -3 tools\pf_login_vital_req_static.py            # 126 guards, exit 0
+py -3 tools\pf_login_vital_req_static.py            # 131 guards, exit 0
 py -3 tools\pf_login_vital_req_static.py --json     # the counts block below
 py -3 -m pytest tests\test_login_vital_req_static.py -q
 ```
 
 The test parses the `LOGIN_REQ_COUNTS` block below out of this file and compares it, key by key, to a live run of the verifier, so no number here can drift away from the binary. Every number is compared exactly.
+
+### 8.1 Where the corpus numbers come from (changed in round 82)
+
+Every corpus number above is measured over a **pinned name set**, not over whatever a directory scan returned:
+
+```
+py -3 tools\pf_capture_corpus.py                    # corpus intact, exit 0
+py -3 -m pytest tests\test_capture_corpus.py -q
+```
+
+`docs/PF_CAPTURE_CORPUS.json` names all 63 archived `LOGIN_*.txt` and all 67 archived `capture_v141/GAME_*.txt` with size and sha256. The verifier proves three things before it counts anything: every pinned capture is **present**, every pinned capture is **byte-identical**, and the directory contains **no capture outside the set**. That third guard is the one that matters — on 2026-08-19 a headless replay job booted the server without `--capture-root` from the repository root, wrote live captures into the golden corpus and grew it 69 → 72, and because `capture_v141/` is git-ignored (`.gitignore:157`) nothing in the gate noticed. It was found by accident, through exactly the number this report pins. The full survey of the other directory-scan sites is in `reports/PF_CORPUS_PIN001_DIRECTORY_SCAN_SURVEY_20260819.md`.
 
 > **Re-pinning rule.** `distinct_account_values`, `distinct_password_values`, `distinct_request_bodies`, `archived_login_captures` and `archived_login_captures_with_0x42bf` are the corpus numbers. **They are supposed to move when GT-020 runs** — that is the whole point of the test. When a capture with a different `-acc` lands in the repo, re-run `--json` and update this block in the same change, and say in the commit message which account was used.
 
@@ -301,22 +314,24 @@ The test parses the `LOGIN_REQ_COUNTS` block below out of this file and compares
   "archived_login_captures": 63,
   "archived_login_captures_with_0x42bf": 63,
   "client_sha256": "9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623",
+  "corpus_table": "docs/PF_CAPTURE_CORPUS.json",
   "distinct_account_values": 1,
   "distinct_password_values": 1,
   "distinct_request_bodies": 1,
   "dologin_callers": 2,
+  "excluded_live_game_files": 2,
   "game_captures_with_the_same_account": 44,
   "golden_account_wchars": [
     14,
     0
   ],
   "golden_nested_hex": "12 BF 42 0B 00 48 04 00 00 00 0E 00 00 00 44 04 00 00 00 74 65 73 74",
-  "guards_total": 126,
+  "guards_total": 131,
   "hex_decode_callers": 1,
   "hexval_map_bytes": 55,
   "hexval_mismatches_over_65536_chars": 0,
   "hexval_table_entries": 17,
-  "measured_at_head": "dd1a66c",
+  "measured_at_head": "6891372",
   "object_size": 76,
   "password_field_offset": "0x30",
   "password_field_type": "std::string",
@@ -326,6 +341,7 @@ The test parses the `LOGIN_REQ_COUNTS` block below out of this file and compares
     "-pwd argument",
     "Prototype_Login1 edit box +0x18"
   ],
+  "pinned_game_captures": 67,
   "probe_account_name": "AB",
   "probe_argument": "4142",
   "probe_body_length_delta": 0,

@@ -278,3 +278,11 @@
 !/tools/verify_delete_refresh_static.py
 !/tools/pf_delete_refresh001_headless_replay.py
 !/tools/pf_delete_refresh001_headless_replay_config.json
+
+# CORPUS-PIN-001 (round 82) - the pinned capture corpus: WHICH files are evidence.
+# docs/PF_CAPTURE_CORPUS.json needs no entry (/docs/ is allow-listed above) and
+# that is the point: the capture directories are ignored forever, so the one
+# git-visible record of the corpus has to live in docs/.
+!/tools/pf_capture_corpus.py
+!/reports/PF_CORPUS_PIN001_DIRECTORY_SCAN_SURVEY_20260819.md
+!/reports/PF_CORPUS_PIN001_DIRECTORY_SCAN_SURVEY_20260819.manifest

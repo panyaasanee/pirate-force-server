@@ -57,6 +57,10 @@ Exit 0 = all guards reproduced; nonzero = a guard drifted.
 import os, re, sys, struct, hashlib, glob
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from pf_capture_corpus import (        # pure stdlib, no side effects
+    CaptureCorpus,
+    CaptureCorpusError,
+)
 from pf_vital_names import (            # pure stdlib, no side effects
     DEFAULT_TABLE,
     VitalNamesError,
@@ -127,8 +131,31 @@ for name, wid in GOLDEN_NAMED.items():
     guard(wire_id(name) == wid, f"hash({name}) == 0x{wid:04X}")
 
 # every named tuple actually present in the corpus is reproduced
-corpus_files = sorted(glob.glob(os.path.join(CORPUS, "*.txt")))
-guard(len(corpus_files) > 0, f"golden corpus present ({len(corpus_files)} files under {CORPUS})")
+# CORPUS-PIN-001 (round 82).  This used to be
+#     corpus_files = sorted(glob.glob(os.path.join(CORPUS, "*.txt")))
+# with CORPUS defaulting to the RELATIVE string "capture_v141", so the set of
+# files depended on the caller's working directory, swept in the two live tails
+# the server rewrites on every run, and would have silently absorbed any capture
+# a mis-configured job dropped into the corpus.  When no explicit corpus is
+# given on the command line the pinned name set in docs/PF_CAPTURE_CORPUS.json
+# is authoritative; an explicit argument still scans, so ad-hoc corpora keep
+# working.
+if len(sys.argv) > 2:
+    corpus_files = sorted(glob.glob(os.path.join(CORPUS, "*.txt")))
+    guard(len(corpus_files) > 0,
+          f"golden corpus present ({len(corpus_files)} files under {CORPUS})")
+else:
+    _set = CaptureCorpus.load()["game_v141_archived"]
+    try:
+        corpus_files = [str(p) for p in _set.resolve()]
+        _corpus_ok, _corpus_why = True, f"{len(corpus_files)} pinned captures, byte-identical"
+    except CaptureCorpusError as exc:
+        corpus_files, _corpus_ok = [], False
+        _corpus_why = " ".join(str(exc).split())[:200]
+    guard(_corpus_ok, f"pinned golden corpus intact ({_corpus_why})")
+    _strays = _set.strays()
+    guard(not _strays,
+          f"no capture outside the pinned set ({len(_strays)} stray: {_strays[:3]})")
 corpus_named = set(); corpus_unnamed = set()
 tup = re.compile(r"\((\d+),\s*(\d+),\s*'([^']*)'\)")
 for f in corpus_files:
