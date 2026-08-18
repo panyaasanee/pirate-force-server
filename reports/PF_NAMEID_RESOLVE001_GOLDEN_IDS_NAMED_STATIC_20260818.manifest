@@ -16,11 +16,11 @@ GameClient\GameClient.local.bin|14759424|9627211412AC60D50AD189CE5A629443CE928EC
 #   StartGameReq 0x1E87 · CreateActorVital 0x36CF · LoginVerifyVital 0x3784
 #   GetWorldInfoVital 0x3D4B · GSCN_LoginProtocol 0x453A · GSCN_RunTimeProtocolReq 0x6E6F
 # Committed protocol NAMES table (all 49 entries reproduce, 0 mismatch):
-Pirate Force ServerProject\current\pf_login_game_server_v141.py
+#   (ref, unpinned) Pirate Force ServerProject\current\pf_login_game_server_v141.py
 # Golden corpus (pinned canonical B5557E9F..C9ED), read-only:
-Pirate Force ServerProject\capture_v141
+#   (ref, unpinned) Pirate Force ServerProject\capture_v141
 # Cross-references (read-only):
-Pirate Force ServerProject\reports\PF_NAMEID_HASH001_VITAL_ID_IS_PURE_NAME_HASH_STATIC_20260818.md
-Pirate Force ServerProject\reports\PF_TELEPORT_CHECK001_0X4477_VTABLE_SCHEMA_CONFIRM_STATIC_20260818.md
+#   (ref, unpinned) Pirate Force ServerProject\reports\PF_NAMEID_HASH001_VITAL_ID_IS_PURE_NAME_HASH_STATIC_20260818.md
+#   (ref, unpinned) Pirate Force ServerProject\reports\PF_TELEPORT_CHECK001_0X4477_VTABLE_SCHEMA_CONFIRM_STATIC_20260818.md
 # Verifier (exit 0 = PASS; guards: SHA pin + 6 golden named + all-49 NAMES + 3 resolved x [hash/absent/unnamed/unique/thunk] + 3 semantic):
-Pirate Force ServerProject\tools\pf_vital_id_resolve_static.py
+#   (ref, unpinned) Pirate Force ServerProject\tools\pf_vital_id_resolve_static.py

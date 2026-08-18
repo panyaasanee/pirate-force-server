@@ -20,9 +20,9 @@ GameClient\GameClient.local.bin|14759424|9627211412AC60D50AD189CE5A629443CE928EC
 #   TradeCmdVital      0xbf8830 slot 0x1084AE8 = 0x23B5
 #   TradeZoomVital     0xbf8870 slot 0x1084AF0 = 0x2A7A
 # Committed server constants / protocol_name_id asserts (the 13 (name,id) pairs):
-Pirate Force ServerProject\current\pf_login_game_server_v141.py
+#   (ref, unpinned) Pirate Force ServerProject\current\pf_login_game_server_v141.py
 # Cross-references (read-only):
-Pirate Force ServerProject\reports\PF_TELEPORT_CHECK001_0X4477_VTABLE_SCHEMA_CONFIRM_STATIC_20260818.md
-Pirate Force ServerProject\reports\PF_CHAT_ECHO008_LOCALTALK_COHORT_VTABLE_NAME_MAP_STATIC_20260818.md
+#   (ref, unpinned) Pirate Force ServerProject\reports\PF_TELEPORT_CHECK001_0X4477_VTABLE_SCHEMA_CONFIRM_STATIC_20260818.md
+#   (ref, unpinned) Pirate Force ServerProject\reports\PF_CHAT_ECHO008_LOCALTALK_COHORT_VTABLE_NAME_MAP_STATIC_20260818.md
 # Verifier (22 guards, exit 0 = PASS):
-Pirate Force ServerProject\tools\pf_vital_id_hash_static.py
+#   (ref, unpinned) Pirate Force ServerProject\tools\pf_vital_id_hash_static.py
