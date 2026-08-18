@@ -294,6 +294,40 @@ class ItemMoveGeneralizedRuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(PermissionError, "explicit opt-in scenario"):
             baseline.foundation.move_backpack_item_to_free_slot(2, 5)
 
+    def test_same_slot_noop_is_idempotent_under_replay(self):
+        """Repeated same-slot requests stay a silent no-op with no write.
+
+        The occupied-destination swap milestone proved same-slot silence once
+        under the swap profile.  This locks the ``same_slot_noop`` capability
+        under the default free-slot profile and adds the replay dimension the
+        coverage note requires: no response, no write, and no replay effect
+        across several identities and repeats.  The generalized move count
+        never advances because ``move_known_item_to_free_slot`` returns the
+        exact same-slot ``None`` every time.
+        """
+        state, character, _ = self._merged_state("same-slot-replay")
+        before_rows = self._rows(character.id)
+        # MERGED_V111_BACKPACK holds identity 1 at slot 0, identity 2 at slot 1
+        # and identity 4 at slot 3.  Each request targets an item's own slot.
+        same_slot_cases = [(0, 1), (1, 2), (3, 4)]
+        for destination_slot, item_identity in same_slot_cases:
+            # The pure transition is the exact same-slot no-op signal.
+            self.assertIsNone(move_known_item_to_free_slot(
+                MERGED_V111_BACKPACK, item_identity, destination_slot,
+            ))
+            for _ in range(3):
+                self.assertEqual(state.dispatch(self.legacy.parse_outer(
+                    _move_request_pc(destination_slot, item_identity)
+                )), [])
+                self.assertEqual(
+                    state.events[-1],
+                    "item_move_generalized_same_slot_noop_no_reply",
+                )
+                self.assertEqual(state.foundation.backpack, MERGED_V111_BACKPACK)
+                self.assertEqual(self._rows(character.id), before_rows)
+        self.assertEqual(state.item_move_generalized_count, 0)
+        self.assertEqual(state.item_move_hypothesis_count, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

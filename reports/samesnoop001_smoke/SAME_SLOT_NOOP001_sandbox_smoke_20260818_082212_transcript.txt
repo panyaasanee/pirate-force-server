@@ -1,0 +1,43 @@
+SAME-SLOT-NOOP-001 sandbox smoke transcript
+probe: pf_same_slot_noop_probe.py  (stdlib, scratch DB outside repo, no GameClient)
+server: pirateforce_foundation.app --item-move-hypothesis-scenario scenarios/item_move_hypothesis_v111_slot2.json (default free-slot profile)
+game port 10189 (fixed), scratch DB migrated fresh
+verdict.ok = True
+
+== t0_id1_slot0 ==
+  heartbeats_before_request: 2
+  send 1: silent_no_reply=True eof=False non_heartbeat_frames=[]
+  send 2: silent_no_reply=True eof=False non_heartbeat_frames=[]
+  send 3: silent_no_reply=True eof=False non_heartbeat_frames=[]
+  rows_before: [[1, 0, 1, 2600001], [2, 1, 1, 2400901], [3, 2, 1, 2600001], [4, 3, 1, 2200002]]
+  rows_after:  [[1, 0, 1, 2600001], [2, 1, 1, 2400901], [3, 2, 1, 2600001], [4, 3, 1, 2200002]]
+  updated_at_before: 2026-08-18T01:21:00.948176+00:00
+  updated_at_after:  2026-08-18T01:21:00.948176+00:00
+  no_write_across_replays: True
+  target_ok: True
+
+== t1_id2_slot1 ==
+  heartbeats_before_request: 2
+  send 1: silent_no_reply=True eof=False non_heartbeat_frames=[]
+  send 2: silent_no_reply=True eof=False non_heartbeat_frames=[]
+  send 3: silent_no_reply=True eof=False non_heartbeat_frames=[]
+  rows_before: [[1, 0, 1, 2600001], [2, 1, 1, 2400901], [3, 2, 1, 2600001], [4, 3, 1, 2200002]]
+  rows_after:  [[1, 0, 1, 2600001], [2, 1, 1, 2400901], [3, 2, 1, 2600001], [4, 3, 1, 2200002]]
+  updated_at_before: 2026-08-18T01:21:00.948176+00:00
+  updated_at_after:  2026-08-18T01:21:00.948176+00:00
+  no_write_across_replays: True
+  target_ok: True
+
+== t2_id4_slot3 ==
+  heartbeats_before_request: 2
+  send 1: silent_no_reply=True eof=False non_heartbeat_frames=[]
+  send 2: silent_no_reply=True eof=False non_heartbeat_frames=[]
+  send 3: silent_no_reply=True eof=False non_heartbeat_frames=[]
+  rows_before: [[1, 0, 1, 2600001], [2, 1, 1, 2400901], [3, 2, 1, 2600001], [4, 3, 1, 2200002]]
+  rows_after:  [[1, 0, 1, 2600001], [2, 1, 1, 2400901], [3, 2, 1, 2600001], [4, 3, 1, 2200002]]
+  updated_at_before: 2026-08-18T01:21:00.948176+00:00
+  updated_at_after:  2026-08-18T01:21:00.948176+00:00
+  no_write_across_replays: True
+  target_ok: True
+
+heartbeat_seen_before_every_request: True

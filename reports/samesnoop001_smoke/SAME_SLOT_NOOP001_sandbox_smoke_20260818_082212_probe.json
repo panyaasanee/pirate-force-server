@@ -1,0 +1,244 @@
+{
+ "probe": "SAME-SLOT-NOOP-001",
+ "checks": {
+  "targets": [
+   {
+    "item_identity": 1,
+    "own_slot": 0
+   },
+   {
+    "item_identity": 2,
+    "own_slot": 1
+   },
+   {
+    "item_identity": 4,
+    "own_slot": 3
+   }
+  ],
+  "repeats_per_target": 3,
+  "t0_id1_slot0_heartbeats_before_request": 2,
+  "t0_id1_slot0_sends": [
+   {
+    "silent_no_reply": true,
+    "eof": false,
+    "non_heartbeat_frames": []
+   },
+   {
+    "silent_no_reply": true,
+    "eof": false,
+    "non_heartbeat_frames": []
+   },
+   {
+    "silent_no_reply": true,
+    "eof": false,
+    "non_heartbeat_frames": []
+   }
+  ],
+  "t0_id1_slot0_rows_before": [
+   [
+    1,
+    0,
+    1,
+    2600001
+   ],
+   [
+    2,
+    1,
+    1,
+    2400901
+   ],
+   [
+    3,
+    2,
+    1,
+    2600001
+   ],
+   [
+    4,
+    3,
+    1,
+    2200002
+   ]
+  ],
+  "t0_id1_slot0_rows_after": [
+   [
+    1,
+    0,
+    1,
+    2600001
+   ],
+   [
+    2,
+    1,
+    1,
+    2400901
+   ],
+   [
+    3,
+    2,
+    1,
+    2600001
+   ],
+   [
+    4,
+    3,
+    1,
+    2200002
+   ]
+  ],
+  "t0_id1_slot0_updated_at_before": "2026-08-18T01:21:00.948176+00:00",
+  "t0_id1_slot0_updated_at_after": "2026-08-18T01:21:00.948176+00:00",
+  "t0_id1_slot0_no_write_across_replays": true,
+  "t0_id1_slot0_ok": true,
+  "t1_id2_slot1_heartbeats_before_request": 2,
+  "t1_id2_slot1_sends": [
+   {
+    "silent_no_reply": true,
+    "eof": false,
+    "non_heartbeat_frames": []
+   },
+   {
+    "silent_no_reply": true,
+    "eof": false,
+    "non_heartbeat_frames": []
+   },
+   {
+    "silent_no_reply": true,
+    "eof": false,
+    "non_heartbeat_frames": []
+   }
+  ],
+  "t1_id2_slot1_rows_before": [
+   [
+    1,
+    0,
+    1,
+    2600001
+   ],
+   [
+    2,
+    1,
+    1,
+    2400901
+   ],
+   [
+    3,
+    2,
+    1,
+    2600001
+   ],
+   [
+    4,
+    3,
+    1,
+    2200002
+   ]
+  ],
+  "t1_id2_slot1_rows_after": [
+   [
+    1,
+    0,
+    1,
+    2600001
+   ],
+   [
+    2,
+    1,
+    1,
+    2400901
+   ],
+   [
+    3,
+    2,
+    1,
+    2600001
+   ],
+   [
+    4,
+    3,
+    1,
+    2200002
+   ]
+  ],
+  "t1_id2_slot1_updated_at_before": "2026-08-18T01:21:00.948176+00:00",
+  "t1_id2_slot1_updated_at_after": "2026-08-18T01:21:00.948176+00:00",
+  "t1_id2_slot1_no_write_across_replays": true,
+  "t1_id2_slot1_ok": true,
+  "t2_id4_slot3_heartbeats_before_request": 2,
+  "t2_id4_slot3_sends": [
+   {
+    "silent_no_reply": true,
+    "eof": false,
+    "non_heartbeat_frames": []
+   },
+   {
+    "silent_no_reply": true,
+    "eof": false,
+    "non_heartbeat_frames": []
+   },
+   {
+    "silent_no_reply": true,
+    "eof": false,
+    "non_heartbeat_frames": []
+   }
+  ],
+  "t2_id4_slot3_rows_before": [
+   [
+    1,
+    0,
+    1,
+    2600001
+   ],
+   [
+    2,
+    1,
+    1,
+    2400901
+   ],
+   [
+    3,
+    2,
+    1,
+    2600001
+   ],
+   [
+    4,
+    3,
+    1,
+    2200002
+   ]
+  ],
+  "t2_id4_slot3_rows_after": [
+   [
+    1,
+    0,
+    1,
+    2600001
+   ],
+   [
+    2,
+    1,
+    1,
+    2400901
+   ],
+   [
+    3,
+    2,
+    1,
+    2600001
+   ],
+   [
+    4,
+    3,
+    1,
+    2200002
+   ]
+  ],
+  "t2_id4_slot3_updated_at_before": "2026-08-18T01:21:00.948176+00:00",
+  "t2_id4_slot3_updated_at_after": "2026-08-18T01:21:00.948176+00:00",
+  "t2_id4_slot3_no_write_across_replays": true,
+  "t2_id4_slot3_ok": true,
+  "heartbeat_seen_before_every_request": true
+ },
+ "ok": true
+}

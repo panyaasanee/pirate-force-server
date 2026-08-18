@@ -72,12 +72,14 @@
           "id": "same_slot_noop",
           "title": "Same-slot move is an exact no-op",
           "required": true,
-          "status": "blocked",
-          "evidence_refs": [],
-          "test_refs": [
-            "tests/test_item_move_hypothesis.py"
+          "status": "runtime_pass",
+          "evidence_refs": [
+            "reports/PF_SAME_SLOT_NOOP001_DEFAULT_PROFILE_REPLAY_HEADLESS_20260818.md"
           ],
-          "notes": "Blocked behind the same ledger review as move_known_item_any_free_slot. No response, no write and no replay is the intended behavior; it has no runtime evidence yet."
+          "test_refs": [
+            "tests/test_item_move_generalized.py"
+          ],
+          "notes": "Same-slot move is a silent no-op with no reply and no write, and stays one under replay. Runtime-proven at the wire/DB layer under the default free-slot profile by SAME-SLOT-NOOP-001 (three own-slot targets x three replays each, all silent, both persistence tables byte-identical before and after; heartbeat control confirms a live socket). It is accepted HYP-PF-010 behavior (the free-slot lane returns the same-slot None sentinel), not a new hypothesis; the swap milestone proved the same silence once under the swap profile. No client-observable claim: a no-op has no visible effect."
         },
         {
           "id": "move_negative_paths",

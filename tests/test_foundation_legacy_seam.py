@@ -67,20 +67,20 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers one deliberate movement, the same-round headless
-    # delivery of chief round 65 (2026-08-18):
-    #  1. inventory/occupied_destination_policy not_started -> in_progress
-    #     under HYP-PF-017 (ITEM-SWAP-001, occupied-by-different-identity
-    #     swap behind the dedicated swap profile of the item-move opt-in
-    #     flag): the swap-profile scenario and the ITEM-SWAP-001 headless
-    #     report join evidence_refs, and tests/test_item_swap_hypothesis.py
-    #     joins test_refs; the client-acceptance claim (including the real
-    #     client's request shape for an occupied-destination drag) is queued
-    #     as GT-015.
-    # Previous pin 78558E56..6DC8 (2026-08-18 round 53) covered the
-    # CHAT-ECHO-003 and LOGOUT-RESP-001 evidence additions (no status
-    # changes); see its note for the lineage before that.
-    "26D752FE5D5E9F9CAABDF25E6FEB8C7AB5CBE034213524A6E8F90503CF9ABA9A"
+    # This pin covers one deliberate movement, chief round 66 (2026-08-18):
+    #  1. inventory/same_slot_noop blocked -> runtime_pass. The blocking
+    #     review (shared with move_known_item_any_free_slot, now runtime_pass)
+    #     is resolved; the SAME-SLOT-NOOP-001 headless report joins
+    #     evidence_refs and test_refs moves to
+    #     tests/test_item_move_generalized.py, which now carries the
+    #     same-slot no-op replay-idempotence test. Same-slot no-op is accepted
+    #     HYP-PF-010 behavior (no new hypothesis); the proof is wire/DB only
+    #     and makes no client-observable claim.
+    # Previous pin 26D752FE..BA9A (2026-08-18 round 65) covered
+    # inventory/occupied_destination_policy not_started -> in_progress under
+    # HYP-PF-017 (ITEM-SWAP-001); see its lineage note before that for round
+    # 53's 78558E56..6DC8.
+    "3508247589405370543A92D7936FB111A42E58F6F36FF6FF5B05975D19E228C0"
 )
 
 
