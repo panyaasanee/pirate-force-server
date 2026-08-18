@@ -47,6 +47,13 @@ class ItemMoveHypothesisScenario:
     # instead of failing closed.  Under the default profile this field is
     # False and occupied destinations stay fail-closed exactly as pinned.
     occupied_swap: bool = False
+    # The merge profile owns only a same-template occupied destination: the
+    # governed source stack merges into the occupying target (summed
+    # quantity, source consumed), free destinations keep HYP-PF-010, and
+    # every different-template occupied destination stays fail-closed.
+    # Default False; the swap and merge profiles are mutually exclusive
+    # because each allowlisted scenario file sets exactly one flag.
+    occupied_merge: bool = False
 
 
 _PROFILE = ItemMoveHypothesisScenario(
@@ -149,6 +156,54 @@ _EXPECTED_SWAP = {
     ],
 }
 
+# PF-HYPOTHESIS-LEDGER: HYP-PF-018 active
+_MERGE_PROFILE = ItemMoveHypothesisScenario(
+    "item_move_hypothesis_v111_occupied_merge",
+    "HYP-PF-018",
+    "", "", "", "",
+    False,
+    True,
+)
+
+_EXPECTED_MERGE = {
+    "schema": 1,
+    "id": _MERGE_PROFILE.scenario_id,
+    "test_only": True,
+    "production_allowed": False,
+    "hypothesis_id": _MERGE_PROFILE.hypothesis_id,
+    "entry": {
+        "flow": "full_writable_character",
+        "required_backpack": "governed_v111_allowlist",
+        "required_sequence": "selected_and_runtime_ready",
+        "destination_policy": "occupied_by_same_template_merges",
+        "different_template_policy": "fail_closed_no_reply",
+        "free_slot_policy": "unchanged_hyp_pf_010",
+    },
+    "request": {
+        "operation": ITEM_MOVE_CAPTURE_FIELDS[0],
+        "shape": "generic_item_operate_move_tuple",
+        "pc_size": len(ITEM_MOVE_CAPTURE_REQUEST_PC),
+    },
+    "composed_response": {
+        "shape": "item_operate_res_merge_delta",
+        "item_count": 1,
+        "removed_identity_count": 1,
+        "entry_order": ["merged_item", "removed_source_identity"],
+    },
+    "capabilities": [
+        "emit_generalized_free_slot_move_after_commit_as_hyp_pf_010",
+        "merge_occupied_same_template_destination_after_commit",
+    ],
+    "nonclaims": [
+        "original_server_generalized_merge_policy",
+        "client_display_acceptance_beyond_v111_slot0",
+        "stack_ceiling_or_overflow_split",
+        "different_template_swap_or_displacement",
+        "cross_container_or_equipment_movement",
+        "production_baseline_behavior",
+    ],
+}
+
 
 def _exact_equal(actual: Any, expected: Any) -> bool:
     if type(actual) is not type(expected):
@@ -182,6 +237,10 @@ def load_item_move_hypothesis_scenario(
         return require_item_move_hypothesis_scenario(ItemMoveHypothesisScenario(
             data["id"], data["hypothesis_id"], "", "", "", "", True,
         ))
+    if type(data) is dict and _exact_equal(data, _EXPECTED_MERGE):
+        return require_item_move_hypothesis_scenario(ItemMoveHypothesisScenario(
+            data["id"], data["hypothesis_id"], "", "", "", "", False, True,
+        ))
     raise ValueError("item-move hypothesis scenario exceeds the exact allowlist")
 
 
@@ -189,7 +248,7 @@ def require_item_move_hypothesis_scenario(
     value: Any,
 ) -> ItemMoveHypothesisScenario:
     if type(value) is not ItemMoveHypothesisScenario or value not in (
-        _PROFILE, _SWAP_PROFILE,
+        _PROFILE, _SWAP_PROFILE, _MERGE_PROFILE,
     ):
         raise ValueError("item-move hypothesis scenario object exceeds the allowlist")
     if value.request_sha256 and hashlib.sha256(

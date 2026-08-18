@@ -37,7 +37,14 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # logout response-first, mirror-echo of the stored full-form 0x3D4B before
 # the unchanged PF-012 ack plus the composed PF-013 close, after GT-008
 # falsified the ack+close shape at the client layer; count moves to 23).
-CANONICAL_CONTENT_SHA256 = "01E19C08F9F772F3680DD10355C2001FB31DCF50FE001BAEFEE6EB2E8C666442"
+# -> 01E19C08.. (2026-08-18 chief round 65: HYP-PF-017 occupied-destination
+# swap appended behind the dedicated swap profile, headless-proven the same
+# round; count moves to 24) -> 2707A863.. (2026-08-18 chief round 71:
+# HYP-PF-018 occupied-destination same-template merge appended behind the
+# dedicated merge profile -- generalizing the single original-server-evidenced
+# V111 merge capture with the composer pinned to the frozen V141 golden --
+# headless-proven the same round per ITEM-MERGE-001; count moves to 25).
+CANONICAL_CONTENT_SHA256 = "2707A86312B0A8E8AE6E8E85C53CF1811F6FCD7AB05485025B674A8D02098C19"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -84,6 +91,15 @@ EXPECTED_IDS = (
     # 2026-08-17 18:2x; HYP-PF-010's occupied fail-closure is byte-identical
     # under every other mode) is likewise appended.
     "HYP-PF-017",
+    # HYP-PF-018 (occupied-destination same-template stack merge behind the
+    # dedicated merge profile of the item-move opt-in scenario, generalizing
+    # the single original-server-evidenced V111 merge capture -- the one
+    # occupied-destination behavior the real server is known to have answered
+    # -- with the composer pinned byte-for-byte to the frozen V141 golden for
+    # the exact captured case, under the owner's standing pre-approval of
+    # 2026-08-17 18:2x; HYP-PF-010's occupied fail-closure and HYP-PF-017's
+    # swap stay byte-identical under their own modes) is likewise appended.
+    "HYP-PF-018",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -112,6 +128,7 @@ EXPECTED_META = {
     "HYP-PF-015": ("protocol_hypothesis", "DELETE-SOFT-001", "active"),
     "HYP-PF-016": ("protocol_hypothesis", "LOGOUT-RESP-001", "active"),
     "HYP-PF-017": ("protocol_hypothesis", "ITEM-SWAP-001", "active"),
+    "HYP-PF-018": ("protocol_hypothesis", "ITEM-MERGE-001", "active"),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}
 STATUSES = {"active", "frozen", "retired", "harness_only", "expired_pending_decision"}

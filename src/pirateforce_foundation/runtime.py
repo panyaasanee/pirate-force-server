@@ -8,8 +8,10 @@ from .inventory import (
     HYPOTHESIZED_V111_SLOT2_BACKPACK,
     MERGED_V111_BACKPACK,
     is_exact_merge_request,
+    make_item_merge_delta_response,
     make_item_move_delta_response,
     make_item_swap_delta_response,
+    merge_known_item_into_occupied_slot,
     move_known_item_to_free_slot,
     parse_merge_candidate,
     swap_known_item_with_occupied_slot,
@@ -127,6 +129,14 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         item_move_hypothesis_scenario is not None
         and item_move_hypothesis_scenario.occupied_swap
     )
+    # Occupied-destination same-template merge activates only under the
+    # dedicated merge profile.  Under every other mode occupied destinations
+    # keep their pinned behavior: HYP-PF-010 fail-closed silence, or the
+    # HYP-PF-017 swap under the swap profile only.
+    item_merge_enabled = (
+        item_move_hypothesis_scenario is not None
+        and item_move_hypothesis_scenario.occupied_merge
+    )
     second_password_mode = require_second_password_mode(second_password_mode)
     if monotonic_clock is None:
         monotonic_clock = time.monotonic
@@ -147,6 +157,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         item_move_hypothesis_scenario is not None
                     ),
                     allow_hypothesized_item_swap=item_swap_enabled,
+                    allow_hypothesized_item_merge=item_merge_enabled,
                     allow_soft_delete=(
                         delete_actor_hypothesis_scenario is not None
                     ),
@@ -161,6 +172,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.item_move_hypothesis_count = 0
                 self.item_move_generalized_count = 0
                 self.item_swap_occupied_count = 0
+                self.item_merge_occupied_count = 0
                 self.logout_ack_count = 0
                 self.logout_acknowledged = False
                 self.logout_close_scheduled = False
@@ -437,9 +449,14 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     self.foundation.backpack, item_identity, destination_slot,
                 )
             except FileExistsError as exc:
-                # Only the dedicated swap profile may own an occupied
-                # destination; every other mode keeps the pinned HYP-PF-010
-                # fail-closed silence.
+                # Only the dedicated swap and merge profiles may own an
+                # occupied destination; every other mode keeps the pinned
+                # HYP-PF-010 fail-closed silence.  The two profiles are
+                # mutually exclusive at the scenario allowlist.
+                if item_merge_enabled:
+                    return self._dispatch_item_merge_occupied(
+                        item_identity, destination_slot,
+                    )
                 if item_swap_enabled:
                     return self._dispatch_item_swap_occupied(
                         item_identity, destination_slot,
@@ -552,6 +569,70 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 f"_TO_SLOT{destination_slot}"
                 f"_DISPLACING_ID{displaced.identity}"
                 f"_TO_SLOT{displaced.slot}_COMMITTED",
+                pc, frame, 0.0,
+            )]
+
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-018 active
+        def _dispatch_item_merge_occupied(self, item_identity, destination_slot):
+            """Commit one governed same-template merge before replying.
+
+            Reached only from the generalized lane's occupied branch under
+            the dedicated merge profile: envelope, operation, selection,
+            sequence, and occupancy are already established.  The pure
+            transition re-validates everything (same template, identical
+            variant bytes, governed post-state), the merge delta response --
+            byte-identical in structure to the live-accepted V111 stack-merge
+            response -- is fully composed before the persistence transaction,
+            and the response is queued only after the atomic commit
+            re-validates the merged post-state.  Different templates, the
+            reversed direction outside the governed allowlist, and any other
+            raise keep fail-closed silence with no write.
+            """
+            try:
+                transition = merge_known_item_into_occupied_slot(
+                    self.foundation.backpack, item_identity, destination_slot,
+                )
+            except (LookupError, ValueError) as exc:
+                self.events.append(
+                    "item_merge_occupied_fail_closed_no_reply_"
+                    f"{type(exc).__name__}"
+                )
+                return []
+            expected_backpack, merged, consumed = transition
+            pc, frame = make_item_merge_delta_response(
+                legacy, merged, consumed.identity,
+            )
+            before = self.foundation.backpack
+            try:
+                applied = self.foundation.merge_backpack_item_into_occupied_slot(
+                    item_identity, destination_slot,
+                )
+            except Exception as exc:
+                if self.foundation.backpack is not before:
+                    raise RuntimeError(
+                        "repository failure changed merge in-memory state"
+                    ) from exc
+                self.events.append(
+                    f"item_merge_occupied_repository_failure_no_reply_{exc!r}"
+                )
+                return []
+            self._sync_frozen_inventory_state()
+            if not applied:
+                self.events.append("item_merge_occupied_not_applied_no_reply")
+                return []
+            if self.foundation.backpack != expected_backpack:
+                raise RuntimeError(
+                    "committed HYP-PF-018 Backpack state mismatch"
+                )
+            self.item_merge_occupied_count += 1
+            self.events.append(
+                "item_merge_occupied_committed_before_composed_response"
+            )
+            return [(
+                f"HYP_PF_018_ITEM_MERGE_ID{item_identity}"
+                f"_INTO_ID{merged.identity}"
+                f"_AT_SLOT{destination_slot}"
+                f"_QTY{merged.quantity}_COMMITTED",
                 pc, frame, 0.0,
             )]
 

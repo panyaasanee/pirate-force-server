@@ -209,6 +209,60 @@ def swap_known_item_with_occupied_slot(
     return require_known_backpack(after), moved, displaced
 
 
+# PF-HYPOTHESIS-LEDGER: HYP-PF-018 active
+def merge_known_item_into_occupied_slot(
+    value: BackpackState, item_identity: int, destination_slot: int,
+) -> tuple[BackpackState, ItemAttrState, ItemAttrState]:
+    """Purely merge one known item into the same-template occupant of its target.
+
+    This transition owns only the occupied-destination case whose occupant
+    carries the same template and identical variant bytes: the occupying
+    target survives with the summed quantity and the source item is consumed.
+    The same-slot no-op and every free destination belong to
+    ``move_known_item_to_free_slot`` (HYP-PF-010) and never reach this
+    function; a different-template or different-variant occupant raises, as
+    do unknown identities, out-of-range slots, same-slot requests,
+    unoccupied destinations, quantity sums beyond the u16 wire bound, and
+    any post-state outside the governed allowlist (which is what keeps the
+    reversed merge direction fail-closed).  Every raise fails closed at the
+    caller with no write and no reply.
+    """
+    value = require_known_backpack(value)
+    item_identity = _require_int(
+        item_identity, "item identity", 0, 0x7FFFFFFFFFFFFFFF,
+    )
+    destination_slot = _require_int(destination_slot, "destination slot", 0, 39)
+    matches = [item for item in value.items if item.identity == item_identity]
+    if len(matches) != 1:
+        raise KeyError(f"unknown Backpack item identity: {item_identity}")
+    current = matches[0]
+    if current.slot == destination_slot:
+        raise ValueError("same-slot request is owned by the free-slot no-op lane")
+    occupants = [item for item in value.items if item.slot == destination_slot]
+    if len(occupants) != 1:
+        raise LookupError(f"Backpack slot is not occupied: {destination_slot}")
+    occupant = occupants[0]
+    if occupant.template_id != current.template_id:
+        raise ValueError("occupied destination holds a different template")
+    if (current.raw_u8_38, current.raw_u8_39, current.detail_present) != (
+        occupant.raw_u8_38, occupant.raw_u8_39, occupant.detail_present
+    ):
+        raise ValueError("occupied destination holds a different item variant")
+    merged_quantity = occupant.quantity + current.quantity
+    if merged_quantity > 0xFFFF:
+        raise ValueError("merged quantity exceeds the u16 wire bound")
+    merged = replace(occupant, quantity=merged_quantity)
+    after = replace(
+        value,
+        items=tuple(
+            merged if item.identity == occupant.identity else item
+            for item in value.items
+            if item.identity != current.identity
+        ),
+    )
+    return require_known_backpack(after), merged, current
+
+
 def make_item_move_delta_response(
     legacy: Any, moved_item: ItemAttrState,
 ) -> tuple[bytes, bytes]:
@@ -319,6 +373,59 @@ def make_item_swap_delta_response(
     return legacy.make_runtime_vitals([(
         legacy.ITEM_OPERATE_RES_VITAL, 2, payload,
     )])
+
+
+def make_item_merge_delta_response(
+    legacy: Any, merged_item: ItemAttrState, consumed_identity: int,
+) -> tuple[bytes, bytes]:
+    """Serialize the ItemOperate merge result: one survivor, one removal.
+
+    The structure is byte-identical to the live-accepted V111 stack-merge
+    response: the first ItemBag collection carries exactly one complete
+    ItemAttr payload (the surviving target with the summed quantity, count
+    word 1) and the second collection removes exactly the consumed source
+    identity (count word 1, one identity).  For the exact V111 case
+    (identity 3 into identity 1 at slot 0) the result is pinned byte for
+    byte against the frozen V141 golden that the real client accepted at
+    runtime; other governed cases reuse the same exact structural codec
+    (HYP-PF-018).
+    """
+    if type(merged_item) is not ItemAttrState:
+        raise TypeError("merge response requires an exact ItemAttrState")
+    consumed_identity = _require_int(
+        consumed_identity, "consumed item identity", 0, 0x7FFFFFFFFFFFFFFF,
+    )
+    if consumed_identity == merged_item.identity:
+        raise ValueError("merge response requires two distinct item identities")
+    if merged_item.quantity < 2:
+        raise ValueError("merged quantity must cover at least two stacks")
+    item_bag = (
+        legacy.u8tag(0x0B, BACKPACK_BASE_MASK)
+        + legacy.qwordtag(0x32, BACKPACK_BASE_IDENTITY)
+        + legacy.u16tag(0x0F, 1)
+        + _item_attr_wire(legacy, merged_item)
+        + legacy.u16tag(0x0F, 1)
+        + legacy.qwordtag(0x32, consumed_identity)
+    )
+    payload = (
+        legacy.u8tag(0x08, 0)
+        + legacy.u8tag(0x0B, 1)
+        + item_bag
+        + legacy.u8tag(0x08, 0)
+    )
+    result = legacy.make_runtime_vitals([(
+        legacy.ITEM_OPERATE_RES_VITAL, 2, payload,
+    )])
+    if (
+        merged_item == MERGED_V111_BACKPACK.items[0]
+        and consumed_identity == 3
+    ):
+        expected = legacy.make_item_operate_stack_merge_success()
+        if result != expected:
+            raise RuntimeError(
+                "generic item-merge response drifted from the V111 golden"
+            )
+    return result
 
 
 def make_backpack_attr(legacy: Any, state: BackpackState) -> bytes:

@@ -12,6 +12,7 @@ class FoundationSession:
         self, lifecycle, projector, login_name: str, *,
         allow_hypothesized_item_move: bool = False,
         allow_hypothesized_item_swap: bool = False,
+        allow_hypothesized_item_merge: bool = False,
         allow_soft_delete: bool = False,
     ):
         if type(allow_hypothesized_item_move) is not bool:
@@ -22,11 +23,18 @@ class FoundationSession:
             raise ValueError(
                 "HYP-PF-017 swap requires the item-move opt-in lane"
             )
+        if type(allow_hypothesized_item_merge) is not bool:
+            raise TypeError("hypothesized item-merge gate must be bool")
+        if allow_hypothesized_item_merge and not allow_hypothesized_item_move:
+            raise ValueError(
+                "HYP-PF-018 merge requires the item-move opt-in lane"
+            )
         if type(allow_soft_delete) is not bool:
             raise TypeError("soft-delete gate must be bool")
         self.lifecycle, self.projector = lifecycle, projector
         self.allow_hypothesized_item_move = allow_hypothesized_item_move
         self.allow_hypothesized_item_swap = allow_hypothesized_item_swap
+        self.allow_hypothesized_item_merge = allow_hypothesized_item_merge
         self.allow_soft_delete = allow_soft_delete
         self.selected = None
         self.backpack = None
@@ -133,6 +141,24 @@ class FoundationSession:
         self.backpack = updated
         return True
 
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-018 active
+    def merge_backpack_item_into_occupied_slot(
+        self, item_identity: int, destination_slot: int,
+    ) -> bool:
+        if not self.allow_hypothesized_item_merge:
+            raise PermissionError(
+                "HYP-PF-018 mutation requires its explicit opt-in scenario"
+            )
+        if self.selected is None or self.backpack is None:
+            raise RuntimeError("no selected character Backpack")
+        updated = self.lifecycle.merge_backpack_item_into_occupied_slot(
+            self.session_id, self.selected, item_identity, destination_slot,
+        )
+        if updated is None:
+            return False
+        self.backpack = updated
+        return True
+
     def checkpoint(self, position):
         if self.selected is None:
             raise RuntimeError("no selected character")
@@ -211,6 +237,9 @@ class ReadOnlyFoundationSession:
         raise PermissionError("scene-load milestone cannot mutate Backpack state")
 
     def swap_backpack_item_with_occupied_slot(self, _item_identity, _destination_slot):
+        raise PermissionError("scene-load milestone cannot mutate Backpack state")
+
+    def merge_backpack_item_into_occupied_slot(self, _item_identity, _destination_slot):
         raise PermissionError("scene-load milestone cannot mutate Backpack state")
 
     def close(self, _position=None):

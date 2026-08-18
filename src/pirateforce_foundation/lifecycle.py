@@ -91,6 +91,14 @@ class CharacterLifecycle:
             session_id, character.id, item_identity, destination_slot,
         )
 
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-018 active
+    def merge_backpack_item_into_occupied_slot(
+        self, session_id, character, item_identity, destination_slot,
+    ):
+        return self.store.merge_backpack_item_into_occupied_slot(
+            session_id, character.id, item_identity, destination_slot,
+        )
+
     def exit(self, session_id, character, position):
         self.store.save_position(session_id, character.id, position)
         self.store.close_session(session_id)

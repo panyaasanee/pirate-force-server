@@ -11,6 +11,7 @@ from .inventory import (
     INITIAL_BACKPACK,
     MERGED_V111_BACKPACK,
     ItemAttrState,
+    merge_known_item_into_occupied_slot,
     move_known_item_to_free_slot,
     require_known_backpack,
     swap_known_item_with_occupied_slot,
@@ -507,6 +508,63 @@ class SQLiteStore:
             after = self._load_backpack(db, character_id)
             if after != expected:
                 raise RuntimeError("occupied-swap post-state validation failed")
+            return after
+
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-018 active
+    def merge_backpack_item_into_occupied_slot(
+        self, sid: str, character_id: int,
+        item_identity: int, destination_slot: int,
+    ) -> BackpackState:
+        """Atomically merge one governed item into its same-template target.
+
+        The surviving target row takes the summed quantity and the consumed
+        source row is deleted, both inside one transaction against the two
+        named persistence tables; every step asserts its exact rowcount
+        (keyed on identity, slot, template, and the pre-merge quantity) and
+        the final state must equal the pure transition's post-state byte for
+        byte, or the whole transaction rolls back.
+        """
+        if type(item_identity) is not int:
+            raise TypeError("item identity must be int")
+        if type(destination_slot) is not int:
+            raise TypeError("destination slot must be int")
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            self._require_selected_session(db, sid, character_id)
+            before = self._load_backpack(db, character_id)
+            expected, merged, consumed = merge_known_item_into_occupied_slot(
+                before, item_identity, destination_slot,
+            )
+            survived = db.execute(
+                "UPDATE character_backpack_items SET quantity=? "
+                "WHERE character_id=? AND item_identity=? AND slot=? "
+                "AND template_id=? AND quantity=?",
+                (
+                    merged.quantity, character_id, merged.identity,
+                    merged.slot, merged.template_id,
+                    merged.quantity - consumed.quantity,
+                ),
+            )
+            if survived.rowcount != 1:
+                raise RuntimeError("merge target row changed during transaction")
+            removed = db.execute(
+                "DELETE FROM character_backpack_items "
+                "WHERE character_id=? AND item_identity=? AND slot=? "
+                "AND template_id=? AND quantity=?",
+                (
+                    character_id, consumed.identity, consumed.slot,
+                    consumed.template_id, consumed.quantity,
+                ),
+            )
+            if removed.rowcount != 1:
+                raise RuntimeError("merge source row changed during transaction")
+            db.execute(
+                "UPDATE character_backpacks SET updated_at=? WHERE character_id=?",
+                (_now(), character_id),
+            )
+            after = self._load_backpack(db, character_id)
+            if after != expected:
+                raise RuntimeError("occupied-merge post-state validation failed")
             return after
 
     @staticmethod

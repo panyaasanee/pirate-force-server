@@ -226,3 +226,7 @@
 !/reports/PF_SPLIT_OPERATE003_VERB16_TWO_PANELS_STATIC_20260818.md
 !/reports/PF_SPLIT_OPERATE003_VERB16_TWO_PANELS_STATIC_20260818.manifest
 !/tools/pf_split_operate_verb_panels_static.py
+!/reports/PF_ITEM_MERGE001_OCCUPIED_SAMETEMPLATE_MERGE_HEADLESS_20260818.md
+!/reports/PF_ITEM_MERGE001_OCCUPIED_SAMETEMPLATE_MERGE_HEADLESS_20260818.manifest
+!/reports/itemmerge001_smoke/
+!/reports/itemmerge001_smoke/**

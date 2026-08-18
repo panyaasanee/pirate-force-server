@@ -67,25 +67,30 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers one deliberate movement, chief round 69 (2026-08-18):
-    #  1. inventory/split_stack (already in_progress) gains a second evidence_ref
-    #     and test_ref: the SPLIT-OPERATE-002 static report and
-    #     tests/test_split_operate_family_static.py. That test pins, byte-exact,
-    #     that the op6 quantity-op factory 0x59F870 has exactly four call sites --
-    #     so op6 is a shared quantity-op family, not a split opcode -- and that
-    #     exactly one of them (verb eax==0x16) lives inside the inventory action
-    #     dispatcher [0x5A2A70,0x5A40B0) alongside the op4=move producer, bounding
-    #     the split candidate to that one verb while still not claiming it IS split.
-    #     Status stays in_progress (no runtime_pass); report-only / additive, no
-    #     server change, no new hypothesis. Only evidence_refs/test_refs moved.
-    # Previous pin 3A78B4B6..A766 (2026-08-18 round 68) recorded split_stack moving
-    # not_started -> in_progress with SPLIT-OPERATE-001 (the 0x4BED operation space
-    # {1,3,4,5,6}); CF031345..BC3B (round 67) recorded inventory/move_negative_paths
+    # This pin covers one deliberate movement, chief round 71 (2026-08-18):
+    #  1. inventory/stack_merge_and_limit (already in_progress) gains the
+    #     ITEM-MERGE-001 evidence_refs (headless report + the new dedicated
+    #     merge profile scenarios/item_move_hypothesis_v111_occupied_merge.json)
+    #     and test_ref tests/test_item_merge_hypothesis.py. HYP-PF-018
+    #     generalizes the single original-server-evidenced V111 merge capture:
+    #     same-template occupied destinations merge behind the opt-in merge
+    #     profile, wire/DB headless-proven on a real server over real TCP (the
+    #     exact V111 direction byte-equal to the frozen V141 golden; a
+    #     generalized slot-7 instance committed with the same structure; both
+    #     persistence tables in one atomic transaction; different templates,
+    #     the reversed direction, and every non-merge mode fail closed).
+    #     Status stays in_progress (ceiling/overflow/incompatible-template
+    #     unproven; generalized client acceptance rides GT-015).
+    # Previous pin 594DEB56..DCF5 (round 69) recorded split_stack's second
+    # evidence set (SPLIT-OPERATE-002 op6-family enumeration; round 70 touched
+    # notes prose only so the digest held); 3A78B4B6..A766 (round 68) recorded
+    # split_stack not_started -> in_progress with SPLIT-OPERATE-001;
+    # CF031345..BC3B (round 67) recorded inventory/move_negative_paths
     # isolation (MOVE-ISOLATION-001); 35082475..E228C0 (round 66) same_slot_noop
     # blocked -> runtime_pass under HYP-PF-010; 26D752FE..BA9A (round 65)
     # occupied_destination_policy not_started -> in_progress under HYP-PF-017
     # (ITEM-SWAP-001); see its lineage note before that for round 53's 78558E56..6DC8.
-    "594DEB56CE4F2ACAD49E3155CBAF9528F88102D8000FF3CC10BEF44436B7DCF5"
+    "E04F22D178FD9F019FE6B6D75F35C6C997EEE840C95CF0A9E0E19172FBE8CCE8"
 )
 
 

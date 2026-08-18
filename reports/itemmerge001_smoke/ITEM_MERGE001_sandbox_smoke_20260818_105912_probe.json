@@ -1,0 +1,201 @@
+{
+ "probe": "ITEM-MERGE-001",
+ "checks": {
+  "response_pins": {
+   "merge_id3_into_id1_slot0_frame_sha256": "A9899EB936AC562E6AC4F15D1DEE1AEA22076B8185CC93558232D21F9E1B1541",
+   "merge_frame_equals_frozen_v111_golden": true,
+   "free_move_id1_to_slot7_frame_sha256": "CD70F19E4AC5BC574A755DE76A68F758CB1D26DFA803BF4DC509CD2C6BF07AF2",
+   "merge_id3_into_id1_slot7_frame_sha256": "6210A0FBC328A3E4D9CA70B1CDA4E7D5BA8F5B7A546792313FC70E86D400BED5",
+   "merge_frame_size": 91,
+   "free_frame_size": 82
+  },
+  "a_heartbeats_before_request": 2,
+  "a_dispatch_frames": [
+   {
+    "bytes": 91,
+    "sha256": "A9899EB936AC562E6AC4F15D1DEE1AEA22076B8185CC93558232D21F9E1B1541"
+   }
+  ],
+  "a_eof": false,
+  "a_response_byte_exact": true,
+  "a_rows_after": [
+   [
+    1,
+    0,
+    2,
+    2600001
+   ],
+   [
+    2,
+    1,
+    1,
+    2400901
+   ],
+   [
+    4,
+    3,
+    1,
+    2200002
+   ]
+  ],
+  "a_rows_expected": true,
+  "a_updated_at_advanced": true,
+  "a_ok": true,
+  "b_heartbeats_before_request": 2,
+  "b_dispatch_frames": [
+   {
+    "bytes": 82,
+    "sha256": "CD70F19E4AC5BC574A755DE76A68F758CB1D26DFA803BF4DC509CD2C6BF07AF2"
+   }
+  ],
+  "b_eof": false,
+  "b_response_byte_exact": true,
+  "b_rows_after": [
+   [
+    1,
+    7,
+    1,
+    2600001
+   ],
+   [
+    2,
+    1,
+    1,
+    2400901
+   ],
+   [
+    3,
+    2,
+    1,
+    2600001
+   ],
+   [
+    4,
+    3,
+    1,
+    2200002
+   ]
+  ],
+  "b_rows_expected": true,
+  "b_updated_at_advanced": true,
+  "b_ok": true,
+  "c_heartbeats_before_request": 2,
+  "c_dispatch_frames": [
+   {
+    "bytes": 91,
+    "sha256": "6210A0FBC328A3E4D9CA70B1CDA4E7D5BA8F5B7A546792313FC70E86D400BED5"
+   }
+  ],
+  "c_eof": false,
+  "c_response_byte_exact": true,
+  "c_rows_after": [
+   [
+    1,
+    7,
+    2,
+    2600001
+   ],
+   [
+    2,
+    1,
+    1,
+    2400901
+   ],
+   [
+    4,
+    3,
+    1,
+    2200002
+   ]
+  ],
+  "c_rows_expected": true,
+  "c_updated_at_advanced": true,
+  "c_ok": true,
+  "d_heartbeats_before_request": 2,
+  "d_dispatch_frames": [],
+  "d_eof": false,
+  "d_silent_no_reply": true,
+  "d_rows_after": [
+   [
+    1,
+    7,
+    2,
+    2600001
+   ],
+   [
+    2,
+    1,
+    1,
+    2400901
+   ],
+   [
+    4,
+    3,
+    1,
+    2200002
+   ]
+  ],
+  "d_no_write": true,
+  "d_ok": true,
+  "e_heartbeats_before_request": 2,
+  "e_dispatch_frames": [],
+  "e_eof": false,
+  "e_silent_no_reply": true,
+  "e_rows_after": [
+   [
+    1,
+    7,
+    2,
+    2600001
+   ],
+   [
+    2,
+    1,
+    1,
+    2400901
+   ],
+   [
+    4,
+    3,
+    1,
+    2200002
+   ]
+  ],
+  "e_no_write": true,
+  "e_ok": true,
+  "f_heartbeats_before_request": 2,
+  "f_dispatch_frames": [],
+  "f_eof": false,
+  "f_silent_no_reply": true,
+  "f_rows_after": [
+   [
+    1,
+    0,
+    1,
+    2600001
+   ],
+   [
+    2,
+    1,
+    1,
+    2400901
+   ],
+   [
+    3,
+    2,
+    1,
+    2600001
+   ],
+   [
+    4,
+    3,
+    1,
+    2200002
+   ]
+  ],
+  "f_no_write": true,
+  "f_ok": true,
+  "heartbeat_seen_before_every_request": true
+ },
+ "ok": true
+}

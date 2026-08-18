@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "id": "item_move_hypothesis_v111_occupied_merge",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-018",
+  "entry": {
+    "flow": "full_writable_character",
+    "required_backpack": "governed_v111_allowlist",
+    "required_sequence": "selected_and_runtime_ready",
+    "destination_policy": "occupied_by_same_template_merges",
+    "different_template_policy": "fail_closed_no_reply",
+    "free_slot_policy": "unchanged_hyp_pf_010"
+  },
+  "request": {
+    "operation": 4,
+    "shape": "generic_item_operate_move_tuple",
+    "pc_size": 36
+  },
+  "composed_response": {
+    "shape": "item_operate_res_merge_delta",
+    "item_count": 1,
+    "removed_identity_count": 1,
+    "entry_order": ["merged_item", "removed_source_identity"]
+  },
+  "capabilities": [
+    "emit_generalized_free_slot_move_after_commit_as_hyp_pf_010",
+    "merge_occupied_same_template_destination_after_commit"
+  ],
+  "nonclaims": [
+    "original_server_generalized_merge_policy",
+    "client_display_acceptance_beyond_v111_slot0",
+    "stack_ceiling_or_overflow_split",
+    "different_template_swap_or_displacement",
+    "cross_container_or_equipment_movement",
+    "production_baseline_behavior"
+  ]
+}
