@@ -67,25 +67,25 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers one deliberate movement, chief round 68 (2026-08-18):
-    #  1. inventory/split_stack moves not_started -> in_progress. Its evidence is
-    #     now recorded: the SPLIT-OPERATE-001 static report joins evidence_refs
-    #     and tests/test_split_operate_static.py joins test_refs. That test pins,
-    #     byte-exact, the ItemOperateVitalReq 0x4BED operation space {1,3,4,5,6}
-    #     (the transport a stack-split rides): op4=move and op5=equip match the
-    #     server's two recognized operations, op6 is the quantity-parameterized
-    #     producer (count encoded in the qword field), and the server handles
-    #     only operations 4 and 5 -- so split is characterized, not implemented.
-    #     No runtime_pass, no new hypothesis; the proof is client-binary static
-    #     plus a server-source cross-check and makes no client-observable claim.
-    # Previous pin CF031345..BC3B (2026-08-18 round 67) recorded
-    # inventory/move_negative_paths isolation evidence (MOVE-ISOLATION-001);
-    # 35082475..E228C0 (round 66) covered inventory/same_slot_noop blocked ->
-    # runtime_pass under accepted HYP-PF-010; 26D752FE..BA9A (round 65) covered
-    # inventory/occupied_destination_policy not_started -> in_progress under
-    # HYP-PF-017 (ITEM-SWAP-001); see its lineage note before that for round 53's
-    # 78558E56..6DC8.
-    "3A78B4B6EAC3C93C66BA7BA8C66B289791AD86FE566E08F73A11DFD8E2FEA766"
+    # This pin covers one deliberate movement, chief round 69 (2026-08-18):
+    #  1. inventory/split_stack (already in_progress) gains a second evidence_ref
+    #     and test_ref: the SPLIT-OPERATE-002 static report and
+    #     tests/test_split_operate_family_static.py. That test pins, byte-exact,
+    #     that the op6 quantity-op factory 0x59F870 has exactly four call sites --
+    #     so op6 is a shared quantity-op family, not a split opcode -- and that
+    #     exactly one of them (verb eax==0x16) lives inside the inventory action
+    #     dispatcher [0x5A2A70,0x5A40B0) alongside the op4=move producer, bounding
+    #     the split candidate to that one verb while still not claiming it IS split.
+    #     Status stays in_progress (no runtime_pass); report-only / additive, no
+    #     server change, no new hypothesis. Only evidence_refs/test_refs moved.
+    # Previous pin 3A78B4B6..A766 (2026-08-18 round 68) recorded split_stack moving
+    # not_started -> in_progress with SPLIT-OPERATE-001 (the 0x4BED operation space
+    # {1,3,4,5,6}); CF031345..BC3B (round 67) recorded inventory/move_negative_paths
+    # isolation (MOVE-ISOLATION-001); 35082475..E228C0 (round 66) same_slot_noop
+    # blocked -> runtime_pass under HYP-PF-010; 26D752FE..BA9A (round 65)
+    # occupied_destination_policy not_started -> in_progress under HYP-PF-017
+    # (ITEM-SWAP-001); see its lineage note before that for round 53's 78558E56..6DC8.
+    "594DEB56CE4F2ACAD49E3155CBAF9528F88102D8000FF3CC10BEF44436B7DCF5"
 )
 
 
