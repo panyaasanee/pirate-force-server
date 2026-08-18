@@ -132,10 +132,14 @@
           "id": "split_stack",
           "title": "Split a stack",
           "required": true,
-          "status": "not_started",
-          "evidence_refs": [],
-          "test_refs": [],
-          "notes": "No request producer, response shape, or persistence policy captured."
+          "status": "in_progress",
+          "evidence_refs": [
+            "reports/PF_SPLIT_OPERATE001_ITEM_OPERATE_OPCODE_SPACE_STATIC_20260818.md"
+          ],
+          "test_refs": [
+            "tests/test_split_operate_static.py"
+          ],
+          "notes": "SPLIT-OPERATE-001 (chief round 68, 2026-08-18) captures the request transport and its wire schema byte-exact from the client binary. A stack-split has no dedicated opcode: every item action rides ItemOperateVitalReq 0x4BED, discriminated by a single operation byte at obj+0x14 (wire tag 0x0B). The full operation space present in the image is {1,3,4,5,6}: 1 is the constructor default, and producers emit 3,4,5,6 as immediates. op4=move (value32=destination slot, qword=item identity) and op5=equip-from-bag (value32=slot bitfield) match the server's two recognized operations. op6 is the quantity-parameterized producer: its caller pops a positive-only numeric input dialog (0x5A1630) and encodes the entered count into the qword field (tag 0x32) that move/equip use for item identity, while value32 carries the item handle. This operation-dependent field meaning is the trap a naive split implementation would hit. The serializer 0x5E5AF0 and id assignment match the shared VitalData cohort (id 0x4BED is runtime-assigned, never a code immediate). Server gap: current/pf_login_game_server_v141.py handles operation 4 and 5 only; operations 3 and 6 have client producers but no server handler, so split is characterized, not implemented. Not claimed: op6 == split specifically (op6 is the quantity-op family covering split/drop-N/sell-N; op6 carries no destination slot, so distinguishing split needs the verb-code->UI action resolution for eax==0x16 or a live capture). Response lane = ItemOperateVitalRes 0x4C13 (shared with move-merge success); persistence lane = character_backpack_items rows + character_backpacks.updated_at under the pinned _require_selected_session guard. Stays in_progress, not runtime_pass: no server handler and no runtime capture yet."
         },
         {
           "id": "equip_unequip",

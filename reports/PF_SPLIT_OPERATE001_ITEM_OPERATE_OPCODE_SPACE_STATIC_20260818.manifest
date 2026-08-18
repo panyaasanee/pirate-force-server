@@ -1,0 +1,14 @@
+# Evidence for PF_SPLIT_OPERATE001 (paths relative to the Pirate Force root)
+# Static disassembly of the client binary (read-only) cross-checked against the
+# read-only server source. All cited VAs / object offsets / operation immediates
+# are reproducible from this exact binary via capstone (CS_MODE_32, ImageBase
+# 0x400000, PE section table parsed) using tools/pf_split_operate_static.py.
+GameClient\GameClient.local.bin|14759424|9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623
+# Server cross-check (recognizes operation 4 and 5 only; no handler for 3/6):
+#   (ref, unpinned) current/pf_login_game_server_v141.py -- parse_item_operate_req + operation dispatch
+#   (ref, unpinned) src/pirateforce_foundation/inventory.py -- item quantity in every snapshot (u16tag 0x0F)
+# Report (this file's sibling):
+#   (ref, unpinned) reports/PF_SPLIT_OPERATE001_ITEM_OPERATE_OPCODE_SPACE_STATIC_20260818.md
+# Verifier (36 guards, exit 0 = PASS) + regression test (9 cases):
+#   (ref, unpinned) tools/pf_split_operate_static.py
+#   (ref, unpinned) tests/test_split_operate_static.py

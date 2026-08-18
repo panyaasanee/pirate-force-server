@@ -67,22 +67,25 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers one deliberate movement, chief round 67 (2026-08-18):
-    #  1. inventory/move_negative_paths stays in_progress, but its isolation
-    #     evidence is now recorded: the MOVE-ISOLATION-001 headless report
-    #     joins evidence_refs and tests/test_item_move_generalized.py joins
-    #     test_refs. That test module now carries ItemMoveIsolationInvariantTests
-    #     (no owner field on the wire; the _require_selected_session guard
-    #     accepts only the owning selected session and rejects foreign-account,
-    #     unselected-sibling, and closed-session cases). No status/grade change,
-    #     no new hypothesis; the proof is wire/DB only and makes no
-    #     client-observable claim.
-    # Previous pin 35082475..E228C0 (2026-08-18 round 66) covered
-    # inventory/same_slot_noop blocked -> runtime_pass under accepted HYP-PF-010;
-    # 26D752FE..BA9A (round 65) covered inventory/occupied_destination_policy
-    # not_started -> in_progress under HYP-PF-017 (ITEM-SWAP-001); see its
-    # lineage note before that for round 53's 78558E56..6DC8.
-    "CF031345EFBFFDC1E843988C9549C30148004DB8A6D174B0531BBD08DD1ABC3B"
+    # This pin covers one deliberate movement, chief round 68 (2026-08-18):
+    #  1. inventory/split_stack moves not_started -> in_progress. Its evidence is
+    #     now recorded: the SPLIT-OPERATE-001 static report joins evidence_refs
+    #     and tests/test_split_operate_static.py joins test_refs. That test pins,
+    #     byte-exact, the ItemOperateVitalReq 0x4BED operation space {1,3,4,5,6}
+    #     (the transport a stack-split rides): op4=move and op5=equip match the
+    #     server's two recognized operations, op6 is the quantity-parameterized
+    #     producer (count encoded in the qword field), and the server handles
+    #     only operations 4 and 5 -- so split is characterized, not implemented.
+    #     No runtime_pass, no new hypothesis; the proof is client-binary static
+    #     plus a server-source cross-check and makes no client-observable claim.
+    # Previous pin CF031345..BC3B (2026-08-18 round 67) recorded
+    # inventory/move_negative_paths isolation evidence (MOVE-ISOLATION-001);
+    # 35082475..E228C0 (round 66) covered inventory/same_slot_noop blocked ->
+    # runtime_pass under accepted HYP-PF-010; 26D752FE..BA9A (round 65) covered
+    # inventory/occupied_destination_policy not_started -> in_progress under
+    # HYP-PF-017 (ITEM-SWAP-001); see its lineage note before that for round 53's
+    # 78558E56..6DC8.
+    "3A78B4B6EAC3C93C66BA7BA8C66B289791AD86FE566E08F73A11DFD8E2FEA766"
 )
 
 
