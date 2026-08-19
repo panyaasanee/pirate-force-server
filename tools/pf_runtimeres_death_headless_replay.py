@@ -1,43 +1,77 @@
 #!/usr/bin/env python3
-"""RUNTIMERES-DISPATCH-001: headless wire proof for the spawn-then-kill sweep.
+"""RUNTIMERES-DISPATCH-001 / RUNTIMERES-LATCHONLY-001: headless wire proof for
+BOTH named profiles of HYP-PF-023.
 
 WHAT THIS PROVES, and it is a wire-layer claim only
 ---------------------------------------------------
-That a real ``make_state_class`` dispatcher, booted with the opt-in scenario
-``scenarios/runtimeres_death_hypothesis_spawn_then_kill.json`` and a throwaway
-database, answers ONE accepted client frame with THREE
-``GSCN_RunTimeProtocolRes`` id ``0x6E9D`` frames, and that those frames are
+That a real ``make_state_class`` dispatcher, booted with one of the two opt-in
+scenario files this lane ships and a throwaway database, answers ONE accepted
+client frame with the exact ``GSCN_RunTimeProtocolRes`` id ``0x6E9D`` sweep the
+named profile declares, and that those frames are
 
   (a) **byte-for-byte** the frames ``build_runtimeres_death_sweep`` composes --
       same labels, same PCs, same framed bytes, same delays, compared with
       ``==`` on the bytes objects, not by hash summary alone; and
   (b) independently readable, by a tag walker written in THIS file that does
       not import the encoder's decoder, as the sweep the round-85 static RE
-      says can reach ``L"_F_DIE_000"``:
+      says can (or, for the two-frame profile, deliberately CANNOT) reach
+      ``L"_F_DIE_000"``.
 
-        frame 1  SPAWN        identity I, HP  > 0, no BasicAttr bit 0x0080
-        frame 2  DYING_LATCH  identity I, HP == 0, timer  20.0f  > 0
-        frame 3  DEATH_TASK   identity I, HP == 0, timer   0.0f <= 0
+``--profile spawn_then_kill`` (the default, and the only thing the gate job
+runs, because it runs this tool with no arguments at all) is the three-frame
+sweep:
 
-      all three carrying the inherited change mask ``0x00`` and the derived
-      change mask bit ``0x02`` (the actor-entry collection at ``+0x1C``).
+    frame 1  SPAWN        identity I, HP  > 0, no BasicAttr bit 0x0080
+    frame 2  DYING_LATCH  identity I, HP == 0, timer  20.0f  > 0
+    frame 3  DEATH_TASK   identity I, HP == 0, timer   0.0f <= 0
+
+``--profile dying_latch_only`` is the same sweep with the third frame simply
+never composed: SPAWN, then DYING_LATCH, then nothing.  All frames of either
+profile carry the inherited change mask ``0x00`` and the derived change mask
+bit ``0x02`` (the actor-entry collection at ``+0x1C``).
 
 The polarity is inverted from intuition and is the point of the third frame:
 ``vt+0x40`` (0x43BDA0) is ``HP == 0 AND timer > 0`` and only latches
 ``[actor+0x70] |= 0x200``; ``vt+0x3C`` (0x43BD70) is ``HP == 0 AND timer <= 0``
 and is what gates ``0x443990`` -> ``call 0x472810`` -> ``CActorTask_Dead``.
 
+WHY THE TWO-FRAME PROFILE EXISTS AT ALL
+---------------------------------------
+The attended GT-022 session put a real corpse on a real client -- a body that
+lay down and stayed down -- and that is a genuine result.  What it could not do
+is say WHICH frame produced the pose.  The photographs were taken roughly a
+second away from the t+6 / t+12 boundary between the DYING_LATCH frame and the
+DEATH_TASK frame, and the capture latency of that photography was never
+measured, so "the timestamp says t+7, therefore it was the latch frame" is an
+argument about an unmeasured clock and not evidence.  Round 91's answer is to
+delete the clock from the question entirely: run a sweep that STOPS after
+DYING_LATCH, so the DEATH_TASK frame is not late, it is absent.  If a body
+still lies down, the latch frame alone did it; if it does not, the latch frame
+alone does not.  Neither branch needs anyone to know how long a screenshot
+takes.
+
+That experiment is only sound if the sole difference between the two runs is
+the missing third frame, so this tool composes the three-frame sweep IN THIS
+PROCESS (which needs no server, no socket and no database) and compares the
+two dispatched frames against its first two with ``==`` on the raw bytes.  A
+hash string that matched would be weaker: it would prove two digests agree,
+which is what you check when you cannot hold both sides at once, and here we
+can.
+
 WHAT IT DOES NOT PROVE
 ----------------------
 That any client does anything with these bytes.  **No client has ever been
-shown one byte of this profile.**  That is GT-022, attended, not run here.
-It does not prove that the dying latch is a prerequisite for the death task
-(the two predicates are mutually exclusive branches inside ``0x4437C0`` and the
-task gate does not read the ``0x200`` flag).  It does not narrow round 85's 229
-unresolved vtable ``+0x20`` dispatch sites.  It claims nothing about the
-original server, about any damage model, about persistence (nothing on this
-path has a write path), or about production (``production_allowed`` is False
-everywhere it appears).
+shown one byte of the two-frame profile either** -- GT-022 saw the three-frame
+one, and the two-frame variant is the TEST that would tell the two apart, not
+the answer to it.  Nothing here decides which frame produced the pose GT-022
+photographed; that decision needs an attended run of ``dying_latch_only`` on a
+real client, and this file is not that run.  It does not prove that the dying
+latch is a prerequisite for the death task (the two predicates are mutually
+exclusive branches inside ``0x4437C0`` and the task gate does not read the
+``0x200`` flag).  It does not narrow round 85's 229 unresolved vtable ``+0x20``
+dispatch sites.  It claims nothing about the original server, about any damage
+model, about persistence (nothing on this path has a write path), or about
+production (``production_allowed`` is False everywhere it appears).
 
 DISCIPLINE
 ----------
@@ -46,13 +80,21 @@ canonical database is never opened: everything runs on a fresh temporary SQLite
 file that is deleted on exit.  No repository file is written unless
 ``--evidence <path>`` is handed in.  Pure stdlib.
 
+The default is ``spawn_then_kill`` and it is load-bearing: every existing
+caller, including the Windows gate job, invokes this tool with no arguments and
+must keep getting today's run and today's guard set unchanged.  The two-frame
+profile adds guards, it does not move or weaken one of them.
+
 Usage:
     py -3 tools/pf_runtimeres_death_headless_replay.py
     py -3 tools/pf_runtimeres_death_headless_replay.py --json
+    py -3 tools/pf_runtimeres_death_headless_replay.py --profile spawn_then_kill
+    py -3 tools/pf_runtimeres_death_headless_replay.py --profile dying_latch_only
     py -3 tools/pf_runtimeres_death_headless_replay.py \
         --evidence reports/runtimeres_death001_headless.json
 
 Exit 0 = every wire guard held.  Exit 1 = at least one drifted, with the list.
+Exit 2 = the profile name on the command line is not one this lane ships.
 """
 from __future__ import annotations
 
@@ -80,18 +122,37 @@ from pirateforce_foundation import runtimeres_death_hypothesis as rdh  # noqa: E
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
 
+# ---------------------------------------------------------------------------
+# The two named profiles.  Same shape as tools/pf_hp_death002_headless_replay.py
+# uses for HYP-PF-022, and for the same reason: the second profile of a lane is
+# the SAME question one frame earlier or later, so it belongs in the tool that
+# already knows how to ask it rather than in a copy of that tool that will drift
+# away from it.
+#
+# SPAWN_THEN_KILL_PROFILE is the default and must stay the default.  Callers
+# that pass no argument -- the Windows gate job among them -- get exactly the
+# run they got before this file learned the word "profile".
+# ---------------------------------------------------------------------------
+SPAWN_THEN_KILL_PROFILE = "spawn_then_kill"
+DYING_LATCH_ONLY_PROFILE = "dying_latch_only"
 SCENARIO = ROOT / "scenarios" / "runtimeres_death_hypothesis_spawn_then_kill.json"
+LATCH_ONLY_SCENARIO = (
+    ROOT / "scenarios" / "runtimeres_death_hypothesis_dying_latch_only.json"
+)
+SCENARIO_BY_PROFILE = {
+    SPAWN_THEN_KILL_PROFILE: SCENARIO,
+    DYING_LATCH_ONLY_PROFILE: LATCH_ONLY_SCENARIO,
+}
+DEFAULT_PROFILE = SPAWN_THEN_KILL_PROFILE
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
+# The dispatcher names the profile it sent (round 91), so the event this tool
+# waits for is composed the same way the dispatcher composes it.  The
+# three-frame profile's string is therefore unchanged and still
+# "runtimeres_death_hypothesis_spawn_then_kill_sent"; SWEEP_EVENT is kept as
+# that literal because it is the name the ledger and the dispatch tests pin,
+# and section 1 checks the composed name against it for the default profile.
 SWEEP_EVENT = "runtimeres_death_hypothesis_spawn_then_kill_sent"
 REPEAT_EVENT = "runtimeres_death_hypothesis_already_sent_no_reply"
-
-# ---------------------------------------------------------------------------
-# An INDEPENDENT reader.  It deliberately does not import
-# decode_runtimeres_actor_entry_frame: the point of this file is to check the
-# dispatcher's bytes with a second pair of eyes.  Every constant below is
-# written out here rather than imported, and cross-checked against the module's
-# own constant in section 0 so the two cannot drift apart in silence.
-# ---------------------------------------------------------------------------
 RUNTIME_PROTOCOL_RES_ID = 0x6E9D
 RUNTIME_PROTOCOL_RES_VERSION = 4
 INHERITED_MASK_ABSENT = 0x00
@@ -258,11 +319,43 @@ def walk_actor_entry_frame(pc: bytes) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# What the dying_latch_only profile is REQUIRED to be, written out here as
+# literals rather than read off the profile object.  A guard that asks the
+# profile what it expects and then checks the profile against its own answer
+# is a restatement, not a check; these five lines are the tool's independent
+# opinion of what round 91 pinned, and section 4b measures the dispatcher
+# against THEM.
+# ---------------------------------------------------------------------------
+LATCH_ONLY_ACTION_LABELS = (
+    "HYP_PF_023_RUNTIMERES_DEATH_SPAWN",
+    "HYP_PF_023_RUNTIMERES_DEATH_DYING_LATCH",
+)
+LATCH_ONLY_DELAYS_SECONDS = (0.0, 6.0)
+LATCH_ONLY_TIMER_SECONDS = 20.0
+LATCH_ONLY_FRAME_COUNT = 2
+# Only used to keep the printed guard labels reading like English at either
+# length.  Nothing depends on it.
+FRAME_COUNT_WORD = {1: "one", 2: "two", 3: "three", 4: "four"}
+
+
 def main() -> int:
     want_json = "--json" in sys.argv
     evidence_path = None
     if "--evidence" in sys.argv:
         evidence_path = Path(sys.argv[sys.argv.index("--evidence") + 1])
+    # --profile, copied from tools/pf_hp_death002_headless_replay.py so the two
+    # death lanes are driven the same way.  Absent means the default, which is
+    # the three-frame sweep and everything that has ever run this tool.
+    profile_name = DEFAULT_PROFILE
+    if "--profile" in sys.argv:
+        at = sys.argv.index("--profile") + 1
+        profile_name = sys.argv[at] if at < len(sys.argv) else ""
+    if profile_name not in SCENARIO_BY_PROFILE:
+        print("unknown profile %r; pick one of %s"
+              % (profile_name, sorted(SCENARIO_BY_PROFILE)))
+        return 2
+    scenario_path = SCENARIO_BY_PROFILE[profile_name]
 
     failures: list[str] = []
     guards = 0
@@ -279,8 +372,29 @@ def main() -> int:
                 print("  FAIL  %s %s" % (label, detail))
 
     legacy = load_legacy(LEGACY_PATH)
-    scenario = rdh.load_runtimeres_death_hypothesis_scenario(SCENARIO)
-    pinned = json.loads(SCENARIO.read_text(encoding="utf-8"))
+    scenario = rdh.load_runtimeres_death_hypothesis_scenario(scenario_path)
+    pinned = json.loads(scenario_path.read_text(encoding="utf-8"))
+    # The loader picks the profile the FILE names.  If that is not the profile
+    # the command line asked for, the run is meaningless and no guard result
+    # would mean anything either, so this is a hard stop and not a red guard.
+    if scenario.profile_name != profile_name:
+        print("scenario %s names profile %r, not the requested %r"
+              % (scenario_path.name, scenario.profile_name, profile_name))
+        return 2
+    latch_only = not scenario.ends_on_death_task
+    # Everything below that used to be a three-frame literal now comes off the
+    # loaded profile: the step order, the labels, the frame count, the delays
+    # and the dispatcher event name.  The dispatcher composes the event the
+    # same way (runtime.py, round 91), so a rename on either side turns this
+    # tool red instead of leaving it waiting for a string nobody sends.
+    step_order = scenario.step_order
+    expected_labels = [
+        scenario.action_label_prefix + label for label in step_order
+    ]
+    sweep_event = (
+        "runtimeres_death_hypothesis_" + scenario.profile_name + "_sent"
+    )
+    frame_word = FRAME_COUNT_WORD.get(len(step_order), str(len(step_order)))
 
     if not want_json:
         print("-- 0. this reader's constants against the module's --")
@@ -302,6 +416,25 @@ def main() -> int:
     expected = rdh.build_runtimeres_death_sweep(
         legacy, probe, rdh.runtimeres_death_lethal_unlock(scenario), scenario,
     )
+
+    # And, when the two-frame profile is the one under test, the OTHER
+    # profile's sweep as well.  Composing it costs nothing -- no server, no
+    # socket, no database, just the frozen v141 encoder and the same probe --
+    # and it is the only way to say the thing the experiment actually rests on:
+    # that the two runs differ by the absent third frame and by NOTHING else.
+    # If frame 1 or frame 2 drifted by a single byte between the profiles, then
+    # an attended run of dying_latch_only would be testing a different sweep
+    # and could not be compared against GT-022's three-frame run at all.
+    three_frame = None
+    if latch_only:
+        three_frame_profile = rdh.load_runtimeres_death_hypothesis_scenario(
+            SCENARIO_BY_PROFILE[SPAWN_THEN_KILL_PROFILE]
+        )
+        three_frame = rdh.build_runtimeres_death_sweep(
+            legacy, probe,
+            rdh.runtimeres_death_lethal_unlock(three_frame_profile),
+            three_frame_profile,
+        )
 
     with tempfile.TemporaryDirectory() as tmp:
         db_path = Path(tmp) / "runtimeres_death001.sqlite3"
@@ -341,20 +474,21 @@ def main() -> int:
             return state
 
         if not want_json:
-            print("-- 1. one accepted client frame in, three frames out --")
+            print("-- 1. one accepted client frame in, %s frames out --"
+                  % frame_word)
         state = boot("runtimeres_death001")
         db_before = hashlib.sha256(db_path.read_bytes()).hexdigest().upper()
         actions = state.dispatch(
             legacy.parse_outer(CHAT_INPUT_PROBE_REQUEST_PCS["probe1"])
         )
-        check("the dispatcher answered with three frames",
-              len(actions) == len(rdh.RUNTIMERES_DEATH_STEP_ORDER),
+        check("the dispatcher answered with %s frames" % frame_word,
+              len(actions) == len(step_order),
               str(len(actions)))
         check("in the scenario's pinned order",
-              [row[0] for row in actions]
-              == list(rdh.RUNTIMERES_DEATH_ACTION_LABELS))
+              [row[0] for row in actions] == expected_labels)
         check("and named the sweep event exactly once",
-              state.events.count(SWEEP_EVENT) == 1)
+              state.events.count(sweep_event) == 1
+              and (latch_only or sweep_event == SWEEP_EVENT))
         check("the sweep took no socket action",
               all(len(action) == 4 for action in actions))
 
@@ -373,7 +507,7 @@ def main() -> int:
         ]
         check("every dispatched action equals the encoder's, byte for byte",
               not mismatched, str(mismatched))
-        for index, label in enumerate(rdh.RUNTIMERES_DEATH_STEP_ORDER):
+        for index, label in enumerate(step_order):
             if index >= len(actions) or index >= len(expected):
                 continue
             got, want = actions[index], expected[index]
@@ -390,7 +524,7 @@ def main() -> int:
             print("-- 3. every dispatched frame, read by an independent walker --")
         rows = []
         for index, (label, pc, frame, delay) in enumerate(actions):
-            step = rdh.RUNTIMERES_DEATH_STEP_ORDER[index]
+            step = step_order[index]
             pin = rdh.RUNTIMERES_DEATH_PINS[step]
             parsed = legacy.parse_outer(pc)
             check("frame %s parses with the frozen v141 outer parser" % step,
@@ -447,8 +581,12 @@ def main() -> int:
             })
 
         if not want_json:
-            print("-- 4. spawn-then-kill, and the inverted polarity --")
-        check("all three frames name ONE identity",
+            # The header names the profile so an attended tester reading a
+            # pasted log can tell the two runs apart at a glance.  For
+            # spawn_then_kill this reproduces the pre-round-91 line verbatim.
+            print("-- 4. %s, and the inverted polarity --"
+                  % scenario.profile_name.replace("_", "-"))
+        check("all %s frames name ONE identity" % frame_word,
               len({row["identity"] for row in rows}) == 1,
               str([hex(row["identity"]) for row in rows]))
         check("that identity is the pinned probe 0x%04X"
@@ -459,8 +597,12 @@ def main() -> int:
               and rows[0]["death_timer_bit_0x0080"] is None)
         check("frame 1 places the actor (MovementAttr present)",
               MOVEMENT_ATTR_ID in rows[0]["attr_ids"])
-        check("frames 2 and 3 both carry current HP == 0",
-              all(row["hp_current_bit_0x0004"] == 0 for row in rows[1:]))
+        if scenario.ends_on_death_task:
+            check("frames 2 and 3 both carry current HP == 0",
+                  all(row["hp_current_bit_0x0004"] == 0 for row in rows[1:]))
+        else:
+            check("frame 2 carries current HP == 0",
+                  all(row["hp_current_bit_0x0004"] == 0 for row in rows[1:]))
         check("frame 2 satisfies vt+0x40 (timer > 0) and NOT vt+0x3C",
               rows[1]["dying_latch_predicate_vt40"] is True
               and rows[1]["death_task_predicate_vt3c"] is False)
@@ -468,19 +610,94 @@ def main() -> int:
               % rdh.DYING_LATCH_TIMER_SECONDS,
               rows[1]["death_timer_bit_0x0080"]
               == rdh.DYING_LATCH_TIMER_SECONDS)
-        check("frame 3 satisfies vt+0x3C (timer <= 0) and NOT vt+0x40",
-              rows[2]["death_task_predicate_vt3c"] is True
-              and rows[2]["dying_latch_predicate_vt40"] is False)
-        check("frame 3 carries the pinned death-task timer %.1f"
-              % rdh.DEATH_TASK_TIMER_SECONDS,
-              rows[2]["death_timer_bit_0x0080"]
-              == rdh.DEATH_TASK_TIMER_SECONDS)
-        check("the LAST frame is the one that opens the task gate",
-              rows[-1]["death_task_predicate_vt3c"] is True)
+        if scenario.ends_on_death_task:
+            check("frame 3 satisfies vt+0x3C (timer <= 0) and NOT vt+0x40",
+                  rows[2]["death_task_predicate_vt3c"] is True
+                  and rows[2]["dying_latch_predicate_vt40"] is False)
+            check("frame 3 carries the pinned death-task timer %.1f"
+                  % rdh.DEATH_TASK_TIMER_SECONDS,
+                  rows[2]["death_timer_bit_0x0080"]
+                  == rdh.DEATH_TASK_TIMER_SECONDS)
+            check("the LAST frame is the one that opens the task gate",
+                  rows[-1]["death_task_predicate_vt3c"] is True)
         check("the spacing is the scenario's spacing",
               [row["delay_seconds"] for row in rows]
-              == [rdh.RUNTIMERES_DEATH_FIRST_DELAY_SECONDS]
+              == [scenario.first_delay_seconds]
               + [scenario.spacing_seconds] * (len(rows) - 1))
+
+        prefix_is_identical = None
+        if latch_only:
+            if not want_json:
+                print("-- 4b. dying_latch_only: the frame that is NOT sent --")
+            # Everything in this section is a CHECK, not a restatement.  The
+            # expected labels, delays, frame count and timer above are this
+            # file's own literals; the three-frame sweep below is composed by
+            # the encoder in this process; and the negative -- that no frame
+            # here opens the task gate -- is measured by the walker on the
+            # dispatched bytes, not asserted from the profile's own promise.
+            check("the dispatcher returned EXACTLY two actions",
+                  len(actions) == LATCH_ONLY_FRAME_COUNT, str(len(actions)))
+            check("with the two pinned action labels, in order",
+                  tuple(row[0] for row in actions) == LATCH_ONLY_ACTION_LABELS,
+                  str([row[0] for row in actions]))
+            check("with the pinned delays 0.0 then 6.0",
+                  tuple(row[3] for row in actions) == LATCH_ONLY_DELAYS_SECONDS,
+                  str([row[3] for row in actions]))
+            check("frame 1, re-read: HP > 0 (the probe is alive on the wire)",
+                  rows[0]["hp_current_bit_0x0004"] > 0,
+                  str(rows[0]["hp_current_bit_0x0004"]))
+            check("frame 1, re-read: NO BasicAttr bit 0x0080 in mask or body",
+                  not rows[0]["basic_mask"] & BIT_DEATH_TIMER
+                  and rows[0]["death_timer_bit_0x0080"] is None,
+                  hex(rows[0]["basic_mask"] or 0))
+            check("frame 2, re-read: the SAME identity as frame 1",
+                  rows[1]["identity"] == rows[0]["identity"],
+                  "%s vs %s" % (hex(rows[1]["identity"]),
+                                hex(rows[0]["identity"])))
+            check("frame 2, re-read: HP == 0",
+                  rows[1]["hp_current_bit_0x0004"] == 0,
+                  str(rows[1]["hp_current_bit_0x0004"]))
+            check("frame 2, re-read: BasicAttr bit 0x0080 set, timer 20.0f",
+                  bool(rows[1]["basic_mask"] & BIT_DEATH_TIMER)
+                  and rows[1]["death_timer_bit_0x0080"]
+                  == LATCH_ONLY_TIMER_SECONDS
+                  and LATCH_ONLY_TIMER_SECONDS == rdh.DYING_LATCH_TIMER_SECONDS,
+                  repr(rows[1]["death_timer_bit_0x0080"]))
+            # THE load-bearing negative of the whole experiment.  If any frame
+            # of this profile satisfied vt+0x3C then an attended run could not
+            # tell the two profiles apart and the round would prove nothing.
+            check("NO frame in this sweep satisfies the death-task predicate "
+                  "vt+0x3C (hp == 0 AND timer <= 0)",
+                  not any(row["death_task_predicate_vt3c"] for row in rows),
+                  str([row["step"] for row in rows
+                       if row["death_task_predicate_vt3c"]]))
+            check("the LAST frame satisfies the dying-latch predicate vt+0x40 "
+                  "(hp == 0 AND timer > 0)",
+                  rows[-1]["dying_latch_predicate_vt40"] is True,
+                  rows[-1]["step"])
+            check("the encoder composed three actions for the other profile",
+                  len(three_frame) == 3, str(len(three_frame)))
+            check("dispatched frame 1 PC bytes == three-frame frame 1 PC bytes",
+                  actions[0][1] == three_frame[0][1])
+            check("dispatched frame 1 framed bytes == three-frame frame 1's",
+                  actions[0][2] == three_frame[0][2])
+            check("dispatched frame 2 PC bytes == three-frame frame 2 PC bytes",
+                  actions[1][1] == three_frame[1][1])
+            check("dispatched frame 2 framed bytes == three-frame frame 2's",
+                  actions[1][2] == three_frame[1][2])
+            check("their labels and delays agree too",
+                  [(row[0], row[3]) for row in actions]
+                  == [(row[0], row[3]) for row in three_frame[:2]])
+            prefix_is_identical = (
+                list(actions) == list(three_frame[:LATCH_ONLY_FRAME_COUNT])
+            )
+            check("so the whole dispatched sweep IS the three-frame sweep's "
+                  "first two actions, compared with == and not by hash",
+                  prefix_is_identical)
+            check("and not one byte of the third frame appears in this run",
+                  three_frame[2][0] not in {row[0] for row in actions}
+                  and three_frame[2][1] not in {row[1] for row in actions}
+                  and three_frame[2][2] not in {row[2] for row in actions})
 
         if not want_json:
             print("-- 5. one-shot, fail-closed, containment --")
@@ -491,6 +708,18 @@ def main() -> int:
               again == [])
         check("and says so with a named event",
               state.events.count(REPEAT_EVENT) == 1)
+        if latch_only:
+            # The one-shot guard above says the repeat produced no actions.
+            # This one says the refusal did not ALSO re-announce the sweep: an
+            # attended tester reading the event log has to be able to count
+            # sends by counting that one string, and a second copy of it would
+            # make the log lie about how many latch frames left the process.
+            check("the refused repeat produced no bytes and no second sweep "
+                  "event",
+                  again == []
+                  and state.events.count(sweep_event) == 1
+                  and state.events.count(REPEAT_EVENT) == 1,
+                  str(state.events.count(sweep_event)))
         check("the sweep wrote nothing to the database",
               hashlib.sha256(db_path.read_bytes()).hexdigest().upper()
               == db_before)
@@ -512,13 +741,17 @@ def main() -> int:
               not ({row[1] for row in off_actions}
                    & {row[1] for row in expected}))
         check("and names no sweep event",
-              SWEEP_EVENT not in off.events)
+              sweep_event not in off.events)
 
     verdict = {
-        "milestone": "RUNTIMERES-DISPATCH-001",
+        "milestone": (
+            "RUNTIMERES-LATCHONLY-001" if latch_only
+            else "RUNTIMERES-DISPATCH-001"
+        ),
+        "profile": scenario.profile_name,
         "hypothesis_id": rdh.RUNTIMERES_DEATH_HYPOTHESIS_ID,
         "hypothesis_id_is_registered_in_the_ledger": True,
-        "scenario": SCENARIO.relative_to(ROOT).as_posix(),
+        "scenario": scenario_path.relative_to(ROOT).as_posix(),
         "layer": "wire_only_no_client_no_socket_no_server_process",
         "guards_run": guards,
         "failures": failures,
@@ -526,6 +759,7 @@ def main() -> int:
         "dispatch": {
             "trigger": "one accepted 34-byte ascii12 chat-input frame",
             "frames_per_accepted_request": len(actions),
+            "sweep_event": sweep_event,
             "one_shot": True,
             "socket_action": "none",
             "database_write": "none",
@@ -535,10 +769,27 @@ def main() -> int:
             "dying_latch_rule": "hp == 0 AND timer > 0.0f",
             "death_task_predicate_vt3c": rdh.DEATH_TASK_PREDICATE_VA,
             "death_task_rule": "hp == 0 AND timer <= 0.0f",
+            "any_frame_opens_the_task_gate": any(
+                row["death_task_predicate_vt3c"] for row in rows
+            ),
         },
-        "not_claimed": list(rdh.RUNTIMERES_DEATH_NONCLAIMS),
+        "not_claimed": list(
+            rdh.RUNTIMERES_DEATH_LATCH_ONLY_NONCLAIMS if latch_only
+            else rdh.RUNTIMERES_DEATH_NONCLAIMS
+        ),
         "frames": rows,
     }
+    if latch_only:
+        verdict["byte_prefix_of_spawn_then_kill"] = {
+            "compared": "raw bytes with ==, both sweeps composed in this "
+                        "process, no hash string relied on",
+            "first_two_actions_identical": prefix_is_identical,
+            "third_frame_step": rdh.DEATH_TASK_STEP_LABEL,
+            "third_frame_pc_sha256": hashlib.sha256(
+                three_frame[2][1]
+            ).hexdigest().upper(),
+            "third_frame_was_dispatched": False,
+        }
     if evidence_path is not None:
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text(
@@ -552,6 +803,13 @@ def main() -> int:
         if failures:
             print("RESULT: FAIL - %d guard(s) drifted: %s"
                   % (len(failures), failures))
+        elif latch_only:
+            print("RESULT: PASS - the real dispatcher emits the encoder's "
+                  "dying-latch-only sweep byte for byte, NO frame in it "
+                  "opens the death-task gate, and its two frames are the "
+                  "three-frame sweep's first two byte for byte (client "
+                  "layer = GT-022, not run, and no client has ever been "
+                  "shown this profile)")
         else:
             print("RESULT: PASS - the real dispatcher emits the encoder's "
                   "spawn-then-kill sweep byte for byte (client layer = "

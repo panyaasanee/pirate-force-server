@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "id": "runtimeres_death_hypothesis_spawn_then_kill",
-  "profile": "spawn_then_kill",
+  "id": "runtimeres_death_hypothesis_dying_latch_only",
+  "profile": "dying_latch_only",
   "test_only": true,
   "production_allowed": false,
   "hypothesis_id": "HYP-PF-023",
@@ -10,31 +10,28 @@
   "entry": {
     "flow": "full_writable_character",
     "required_sequence": "selected_and_runtime_ready",
-    "response_policy": "compose_spawn_then_kill_actor_entry_frames_no_write_no_close"
+    "response_policy": "compose_spawn_then_dying_latch_actor_entry_frames_and_stop_no_write_no_close"
   },
   "dispatch": {
     "wired": true,
     "wiring_owner": "runtimeres_dispatch_001_round_86",
     "app_policy_when_lane_disabled": "no_frames_composed_and_the_encoder_raises_if_called_directly",
-    "frames_per_accepted_request": 3,
+    "frames_per_accepted_request": 2,
     "step_order": [
       "SPAWN",
-      "DYING_LATCH",
-      "DEATH_TASK"
+      "DYING_LATCH"
     ],
     "lethal_steps": [
-      "DYING_LATCH",
-      "DEATH_TASK"
+      "DYING_LATCH"
     ],
-    "ends_on_death_task": true,
+    "ends_on_death_task": false,
     "spacing_seconds": 6.0,
     "first_frame_delay_seconds": 0.0,
     "delay_semantics": "gap_before_each_send_on_a_cumulative_deadline",
     "action_label_prefix": "HYP_PF_023_RUNTIMERES_DEATH_",
     "action_labels": [
       "HYP_PF_023_RUNTIMERES_DEATH_SPAWN",
-      "HYP_PF_023_RUNTIMERES_DEATH_DYING_LATCH",
-      "HYP_PF_023_RUNTIMERES_DEATH_DEATH_TASK"
+      "HYP_PF_023_RUNTIMERES_DEATH_DYING_LATCH"
     ],
     "one_shot": true,
     "socket_action": "none"
@@ -111,14 +108,6 @@
         "pc_sha256": "451D73AD2AB0360D206DDD3A3C4CED9A7A328FFD8455B84C4018A27B635D21EA",
         "frame_size": 131,
         "frame_sha256": "CDBFED6788E418110C1D8FE177BE9D4275DC7FF376A8E654F3B734C14BCDA2E4"
-      },
-      "DEATH_TASK": {
-        "lethal": true,
-        "basic_mask": 908,
-        "pc_size": 120,
-        "pc_sha256": "0116A7300814CA53F38668B2CAA193123324360F172EE2A9F9B5791BDE81BF0C",
-        "frame_size": 131,
-        "frame_sha256": "D545EC392D880D96BBC669A1F5646741268E8D0E29FD32B90474FF080160D1A0"
       }
     },
     "hp_alive": 100,
@@ -135,9 +124,10 @@
     "emit_gscn_runtimeprotocolres_0x6e9d_derived_mask_bit_0x02_actor_entries",
     "re_send_the_same_identity_so_the_client_takes_the_vtable_0x20_update_path",
     "emit_basicattr_bit_0x0080_on_the_actor_entry_path_not_the_vital_path",
-    "sweep_the_death_timer_from_positive_to_zero_in_the_proven_polarity_order",
+    "stop_the_sweep_on_the_positive_side_of_the_polarity_so_the_task_gate_never_opens",
     "reproduce_the_frozen_make_npc_attr_body_byte_for_byte_when_no_timer_is_set",
-    "refuse_to_return_a_sweep_that_cannot_reach_the_death_task_gate"
+    "refuse_to_return_a_sweep_that_reaches_the_death_task_gate",
+    "compose_the_first_two_frames_byte_identical_to_the_three_frame_profile"
   ],
   "nonclaims": [
     "no_client_has_ever_been_shown_one_byte_of_this_profile",
@@ -149,6 +139,8 @@
     "no_way_back_out_of_the_state_this_sweep_leaves_behind",
     "no_persistence_hp_has_no_write_path_and_this_lane_opens_none",
     "production_dispatch_wiring_the_wiring_is_opt_in_and_production_allowed_is_false",
-    "production_baseline_behavior"
+    "production_baseline_behavior",
+    "which_frame_produced_the_pose_gt022_photographed_this_variant_is_the_test_not_the_answer",
+    "that_a_client_does_anything_at_all_when_the_sweep_stops_after_the_latch"
   ]
 }

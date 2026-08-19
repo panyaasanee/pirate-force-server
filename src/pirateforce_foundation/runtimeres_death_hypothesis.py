@@ -128,6 +128,40 @@ RUNTIMERES_DEATH_HYPOTHESIS_ID = "HYP-PF-023"
 # kept because the tests read it.
 RUNTIMERES_DEATH_DISPATCH_KWARG = "runtimeres_death_hypothesis_scenario"
 
+# ---------------------------------------------------------------------------
+# NAMED PROFILES (RUNTIMERES-LATCHONLY-001, round 91).
+#
+# WHY THERE ARE TWO.  GT-022 ran three times on a real client and produced a
+# real corpse: the probe NPC went from standing to lying flat and stayed there.
+# What it could NOT answer is WHICH FRAME did that.  DYING_LATCH lands at t+6
+# and DEATH_TASK at t+12, the tester photographed at roughly t+10.5 to t+11.5
+# and the pose was already there, which points hard at DYING_LATCH -- but the
+# margin is about one second, capture latency was never instrumented, and a
+# timing argument with a one second margin is an indication and not a proof.
+#
+# The cheapest experiment that settles it without any appeal to a clock is a
+# sweep that STOPS after DYING_LATCH.  If the pose still appears, it belongs to
+# the latch; if it does not, it belongs to the death task.  Either answer is
+# decisive and neither depends on when a screenshot was taken.
+#
+# The two-frame profile is a STRICT SUBSET: its steps are literally the first
+# two rows of the same plan, so its bytes cannot drift away from the three-frame
+# profile's first two frames, and both hash-pin against the SAME per-step pins
+# below.  A test asserts that byte identity, because "the only difference is the
+# missing third frame" is the whole experiment; if the first two frames also
+# changed, a difference on screen would prove nothing.
+#
+# The validator is STRICTER for the new profile rather than looser: a profile
+# that does not reach the death task must never emit a frame that satisfies
+# vt+0x3C at all, must end on the latch, and must not carry the DEATH_TASK
+# label anywhere.  See validate_runtimeres_death_sweep.
+# ---------------------------------------------------------------------------
+RUNTIMERES_DEATH_PROFILE_SPAWN_THEN_KILL = "spawn_then_kill"
+RUNTIMERES_DEATH_PROFILE_DYING_LATCH_ONLY = "dying_latch_only"
+RUNTIMERES_DEATH_LATCH_ONLY_SCENARIO_ID = (
+    "runtimeres_death_hypothesis_dying_latch_only"
+)
+
 
 # ---------------------------------------------------------------------------
 # The envelope.  Byte offsets into the PC that make_runtime_remote_actors emits.
@@ -273,6 +307,20 @@ RUNTIMERES_DEATH_STEP_ORDER = tuple(row[0] for row in RUNTIMERES_DEATH_STEPS)
 RUNTIMERES_DEATH_LETHAL_STEP_LABELS = (
     DYING_LATCH_STEP_LABEL, DEATH_TASK_STEP_LABEL,
 )
+# The latch-only profile's plan is a SLICE of the plan above, not a copy of it.
+# A copy could be edited on one side only; a slice cannot.  Everything the two
+# profiles share -- the step rows, the pins, the probe, the encoder -- is shared
+# by reference for exactly that reason.
+RUNTIMERES_DEATH_LATCH_ONLY_STEPS = RUNTIMERES_DEATH_STEPS[:2]
+RUNTIMERES_DEATH_LATCH_ONLY_STEP_ORDER = tuple(
+    row[0] for row in RUNTIMERES_DEATH_LATCH_ONLY_STEPS
+)
+RUNTIMERES_DEATH_LATCH_ONLY_LETHAL_STEP_LABELS = (DYING_LATCH_STEP_LABEL,)
+# One row of the plan per step label, so a profile can name its steps by label
+# and still get the SAME row object the three-frame plan uses.
+RUNTIMERES_DEATH_STEP_BY_LABEL = {
+    row[0]: row for row in RUNTIMERES_DEATH_STEPS
+}
 # Gap before each send.  The frozen V141 sender accumulates these onto one
 # deadline, exactly as the HYP-PF-022 sweep documents, so index 0 is 0.0 and
 # every later index is the spacing.  6.0 s is the spacing the attended HP-death
@@ -283,6 +331,10 @@ RUNTIMERES_DEATH_ACTION_LABEL_PREFIX = "HYP_PF_023_RUNTIMERES_DEATH_"
 RUNTIMERES_DEATH_ACTION_LABELS = tuple(
     RUNTIMERES_DEATH_ACTION_LABEL_PREFIX + label
     for label in RUNTIMERES_DEATH_STEP_ORDER
+)
+RUNTIMERES_DEATH_LATCH_ONLY_ACTION_LABELS = tuple(
+    RUNTIMERES_DEATH_ACTION_LABEL_PREFIX + label
+    for label in RUNTIMERES_DEATH_LATCH_ONLY_STEP_ORDER
 )
 
 
@@ -410,11 +462,6 @@ class RuntimeResDeathLethalUnlock:
     hypothesis_id: str
 
 
-_UNLOCK = RuntimeResDeathLethalUnlock(
-    RUNTIMERES_DEATH_SCENARIO_ID, RUNTIMERES_DEATH_HYPOTHESIS_ID,
-)
-
-
 @dataclass(frozen=True)
 class RuntimeResDeathHypothesisScenario:
     scenario_id: str
@@ -423,6 +470,18 @@ class RuntimeResDeathHypothesisScenario:
     spacing_seconds: float
     first_delay_seconds: float
     action_label_prefix: str
+    # Added by RUNTIMERES-LATCHONLY-001 (round 91).  These three carry defaults
+    # for one reason and it is deliberate: the trap tests written when this
+    # class had six fields build a lookalike positionally and require a
+    # ValueError from the allowlist.  Defaulting keeps those traps working
+    # VERBATIM instead of turning them into TypeErrors, which would have been a
+    # different test proving a different thing.  Every default is the REFUSING
+    # value -- a profile name no profile has, an empty set of labels allowed to
+    # carry the lethal bit, and the narrower "does not reach the death task"
+    # claim -- so a partially built object can never be the wider one.
+    profile_name: str = ""
+    lethal_step_labels: tuple[str, ...] = ()
+    ends_on_death_task: bool = False
 
 
 _PROFILE = RuntimeResDeathHypothesisScenario(
@@ -432,19 +491,56 @@ _PROFILE = RuntimeResDeathHypothesisScenario(
     RUNTIMERES_DEATH_SPACING_SECONDS,
     RUNTIMERES_DEATH_FIRST_DELAY_SECONDS,
     RUNTIMERES_DEATH_ACTION_LABEL_PREFIX,
+    RUNTIMERES_DEATH_PROFILE_SPAWN_THEN_KILL,
+    RUNTIMERES_DEATH_LETHAL_STEP_LABELS,
+    True,
 )
+_PROFILE_LATCH_ONLY = RuntimeResDeathHypothesisScenario(
+    RUNTIMERES_DEATH_LATCH_ONLY_SCENARIO_ID,
+    RUNTIMERES_DEATH_HYPOTHESIS_ID,
+    RUNTIMERES_DEATH_LATCH_ONLY_STEP_ORDER,
+    RUNTIMERES_DEATH_SPACING_SECONDS,
+    RUNTIMERES_DEATH_FIRST_DELAY_SECONDS,
+    RUNTIMERES_DEATH_ACTION_LABEL_PREFIX,
+    RUNTIMERES_DEATH_PROFILE_DYING_LATCH_ONLY,
+    RUNTIMERES_DEATH_LATCH_ONLY_LETHAL_STEP_LABELS,
+    False,
+)
+_ALLOWED_PROFILES = (_PROFILE, _PROFILE_LATCH_ONLY)
+RUNTIMERES_DEATH_PROFILE_BY_SCENARIO_ID = {
+    profile.scenario_id: profile for profile in _ALLOWED_PROFILES
+}
+RUNTIMERES_DEATH_PROFILE_BY_NAME = {
+    profile.profile_name: profile for profile in _ALLOWED_PROFILES
+}
+
+# One unlock token PER PROFILE rather than one for the lane.  Handing the same
+# key to both profiles would have been simpler and strictly weaker: the sweep
+# builder can then check that the key it was given belongs to the profile it was
+# asked to compose, so a caller holding the three-frame key cannot compose the
+# two-frame sweep and vice versa.  Compared by identity everywhere, so a
+# value-equal forgery still opens nothing.
+_UNLOCKS = {
+    profile.scenario_id: RuntimeResDeathLethalUnlock(
+        profile.scenario_id, profile.hypothesis_id,
+    )
+    for profile in _ALLOWED_PROFILES
+}
+# The original name, kept because tools and tests reach for it directly.
+_UNLOCK = _UNLOCKS[RUNTIMERES_DEATH_SCENARIO_ID]
+_UNLOCK_LATCH_ONLY = _UNLOCKS[RUNTIMERES_DEATH_LATCH_ONLY_SCENARIO_ID]
 
 
 def runtimeres_death_lethal_unlock(value: Any) -> RuntimeResDeathLethalUnlock:
     """The only key that lets this process emit BasicAttr bit 0x0080."""
-    require_runtimeres_death_hypothesis_scenario(value)
-    return _UNLOCK
+    profile = require_runtimeres_death_hypothesis_scenario(value)
+    return _UNLOCKS[profile.scenario_id]
 
 
 def require_runtimeres_death_lethal_unlock(
     value: Any,
 ) -> RuntimeResDeathLethalUnlock:
-    if value is not _UNLOCK:
+    if not any(value is unlock for unlock in _UNLOCKS.values()):
         raise ValueError(
             "HYP-PF-023 refuses to emit BasicAttr bit 0x0080 without the "
             "lethal unlock derived from the opt-in scenario"
@@ -452,12 +548,25 @@ def require_runtimeres_death_lethal_unlock(
     return value
 
 
+def require_runtimeres_death_lethal_unlock_for(
+    value: Any,
+    profile: "RuntimeResDeathHypothesisScenario",
+) -> RuntimeResDeathLethalUnlock:
+    """The unlock must belong to THIS profile, not merely to this lane."""
+    require_runtimeres_death_lethal_unlock(value)
+    if value is not _UNLOCKS[profile.scenario_id]:
+        raise ValueError(
+            "HYP-PF-023 refuses a lethal unlock issued for a different "
+            "profile of this lane"
+        )
+    return value
+
+
 def require_runtimeres_death_hypothesis_scenario(
     value: Any,
 ) -> RuntimeResDeathHypothesisScenario:
-    if (
-        type(value) is not RuntimeResDeathHypothesisScenario
-        or value != _PROFILE
+    if type(value) is not RuntimeResDeathHypothesisScenario or not any(
+        value == allowed for allowed in _ALLOWED_PROFILES
     ):
         raise ValueError(
             "runtimeres death hypothesis scenario object exceeds the allowlist"
@@ -578,11 +687,30 @@ def make_runtimeres_death_step_response(
     require_runtimeres_death_hypothesis_scenario(profile)
     if type(index) is not int or type(index) is bool:
         raise ValueError("step index must be an int")
-    if not 0 <= index < len(RUNTIMERES_DEATH_STEPS):
+    if not 0 <= index < len(profile.step_order):
         raise ValueError("step index is outside the pinned plan")
-    label, current_hp, death_timer, with_movement = RUNTIMERES_DEATH_STEPS[index]
-    if label != profile.step_order[index]:
+    label = profile.step_order[index]
+    row = RUNTIMERES_DEATH_STEP_BY_LABEL.get(label)
+    # Both profiles must resolve step i to the SAME row object the three-frame
+    # plan holds at position i.  That is what makes the two-frame profile's
+    # bytes a strict prefix of the three-frame profile's bytes rather than a
+    # second composition that merely looks like one, and it is the property the
+    # whole experiment rests on.
+    if row is None or index >= len(RUNTIMERES_DEATH_STEPS) or (
+        row is not RUNTIMERES_DEATH_STEPS[index]
+    ):
         raise RuntimeError("HYP-PF-023 step plan drift")
+    label, current_hp, death_timer, with_movement = row
+    if death_timer is not None:
+        # The unlock has to belong to THIS profile, and the label has to be one
+        # this profile declared lethal.  Either check alone would let a profile
+        # emit bit 0x0080 on a step it never declared.
+        require_runtimeres_death_lethal_unlock_for(lethal, profile)
+        if label not in profile.lethal_step_labels:
+            raise RuntimeError(
+                "HYP-PF-023 %s carries the death timer but profile %r does not "
+                "declare that step lethal" % (label, profile.profile_name)
+            )
     npc_attr = encode_death_capable_npc_attr(
         legacy, probe, current_hp=current_hp,
         max_hp=RUNTIMERES_DEATH_HP_MAX,
@@ -999,17 +1127,43 @@ def validate_runtimeres_death_sweep(
             "no frame satisfies vt+0x40 (HP==0 AND timer>0), so the dying "
             "latch [actor+0x70] |= 0x200 is never set"
         )
-    if not reached_le_zero:
-        raise RuntimeResDeathValidationError(
-            "the death timer never reaches <= 0, so vt+0x3C (0x43BD70) is "
-            "never true, 0x443990 never opens and CActorTask_Dead is never "
-            "constructed: this sweep can latch dying and can never animate"
-        )
-    if rows[-1]["death_task_predicate_vt3c"] is not True:
-        raise RuntimeResDeathValidationError(
-            "the LAST frame must be the one that satisfies vt+0x3C, or the "
-            "sweep re-arms the timer after opening the task gate"
-        )
+    if profile.ends_on_death_task:
+        if not reached_le_zero:
+            raise RuntimeResDeathValidationError(
+                "the death timer never reaches <= 0, so vt+0x3C (0x43BD70) is "
+                "never true, 0x443990 never opens and CActorTask_Dead is never "
+                "constructed: this sweep can latch dying and can never animate"
+            )
+        if rows[-1]["death_task_predicate_vt3c"] is not True:
+            raise RuntimeResDeathValidationError(
+                "the LAST frame must be the one that satisfies vt+0x3C, or the "
+                "sweep re-arms the timer after opening the task gate"
+            )
+    else:
+        # RUNTIMERES-LATCHONLY-001.  The three checks below are the ones that
+        # make this profile an EXPERIMENT rather than a truncation.  Its whole
+        # value is that it cannot possibly reach the death task, so if the
+        # client still lies down, the pose belongs to the dying latch.  A
+        # profile that reached the gate by accident would answer nothing.
+        if reached_le_zero:
+            raise RuntimeResDeathValidationError(
+                "profile %r must never satisfy vt+0x3C (HP==0 AND timer<=0): a "
+                "frame that opens the death task gate destroys the only "
+                "question this profile exists to answer"
+                % (profile.profile_name,)
+            )
+        if DEATH_TASK_STEP_LABEL in profile.step_order:
+            raise RuntimeResDeathValidationError(
+                "profile %r must not carry the %s step at all"
+                % (profile.profile_name, DEATH_TASK_STEP_LABEL)
+            )
+        if rows[-1]["dying_latch_predicate_vt40"] is not True:
+            raise RuntimeResDeathValidationError(
+                "the LAST frame of profile %r must be the one that satisfies "
+                "vt+0x40 (HP==0 AND timer>0), so the sweep ends with the dying "
+                "latch armed and nothing else pending"
+                % (profile.profile_name,)
+            )
     return rows
 
 
@@ -1063,10 +1217,30 @@ RUNTIMERES_DEATH_NONCLAIMS = (
 )
 
 
-def _expected_scenario() -> dict[str, Any]:
+RUNTIMERES_DEATH_LATCH_ONLY_CAPABILITIES = (
+    "emit_gscn_runtimeprotocolres_0x6e9d_derived_mask_bit_0x02_actor_entries",
+    "re_send_the_same_identity_so_the_client_takes_the_vtable_0x20_update_path",
+    "emit_basicattr_bit_0x0080_on_the_actor_entry_path_not_the_vital_path",
+    "stop_the_sweep_on_the_positive_side_of_the_polarity_so_the_task_gate_never_opens",
+    "reproduce_the_frozen_make_npc_attr_body_byte_for_byte_when_no_timer_is_set",
+    "refuse_to_return_a_sweep_that_reaches_the_death_task_gate",
+    "compose_the_first_two_frames_byte_identical_to_the_three_frame_profile",
+)
+RUNTIMERES_DEATH_LATCH_ONLY_NONCLAIMS = RUNTIMERES_DEATH_NONCLAIMS + (
+    "which_frame_produced_the_pose_gt022_photographed_this_variant_is_the_test_not_the_answer",
+    "that_a_client_does_anything_at_all_when_the_sweep_stops_after_the_latch",
+)
+
+
+def _expected_scenario(
+    profile: RuntimeResDeathHypothesisScenario | None = None,
+) -> dict[str, Any]:
+    profile = _PROFILE if profile is None else profile
+    latch_only = not profile.ends_on_death_task
     return {
         "schema": 1,
-        "id": RUNTIMERES_DEATH_SCENARIO_ID,
+        "id": profile.scenario_id,
+        "profile": profile.profile_name,
         "test_only": True,
         "production_allowed": False,
         "hypothesis_id": RUNTIMERES_DEATH_HYPOTHESIS_ID,
@@ -1080,6 +1254,9 @@ def _expected_scenario() -> dict[str, Any]:
             "flow": "full_writable_character",
             "required_sequence": "selected_and_runtime_ready",
             "response_policy": (
+                "compose_spawn_then_dying_latch_actor_entry_frames_and_stop_"
+                "no_write_no_close"
+                if latch_only else
                 "compose_spawn_then_kill_actor_entry_frames_no_write_no_close"
             ),
         },
@@ -1095,14 +1272,18 @@ def _expected_scenario() -> dict[str, Any]:
             "app_policy_when_lane_disabled": (
                 "no_frames_composed_and_the_encoder_raises_if_called_directly"
             ),
-            "frames_per_accepted_request": len(RUNTIMERES_DEATH_STEP_ORDER),
-            "step_order": list(RUNTIMERES_DEATH_STEP_ORDER),
-            "lethal_steps": list(RUNTIMERES_DEATH_LETHAL_STEP_LABELS),
-            "spacing_seconds": RUNTIMERES_DEATH_SPACING_SECONDS,
-            "first_frame_delay_seconds": RUNTIMERES_DEATH_FIRST_DELAY_SECONDS,
+            "frames_per_accepted_request": len(profile.step_order),
+            "step_order": list(profile.step_order),
+            "lethal_steps": list(profile.lethal_step_labels),
+            "ends_on_death_task": profile.ends_on_death_task,
+            "spacing_seconds": profile.spacing_seconds,
+            "first_frame_delay_seconds": profile.first_delay_seconds,
             "delay_semantics": "gap_before_each_send_on_a_cumulative_deadline",
-            "action_label_prefix": RUNTIMERES_DEATH_ACTION_LABEL_PREFIX,
-            "action_labels": list(RUNTIMERES_DEATH_ACTION_LABELS),
+            "action_label_prefix": profile.action_label_prefix,
+            "action_labels": [
+                profile.action_label_prefix + label
+                for label in profile.step_order
+            ],
             "one_shot": True,
             "socket_action": "none",
         },
@@ -1161,16 +1342,20 @@ def _expected_scenario() -> dict[str, Any]:
             "actor_identity": RUNTIMERES_DEATH_PROBE_ACTOR_IDENTITY,
             "visual_preset": RUNTIMERES_DEATH_PROBE_VISUAL_PRESET,
             "source_name": RUNTIMERES_DEATH_PROBE_SOURCE_NAME,
+            # Only the steps THIS profile sends.  The pins themselves are the
+            # same objects for both profiles, which is the point: the two-frame
+            # file publishes the same two hashes the three-frame file does.
             "per_step": {
                 label: {
-                    "lethal": label in RUNTIMERES_DEATH_LETHAL_STEP_LABELS,
-                    "basic_mask": pin["basic_mask"],
-                    "pc_size": pin["pc_size"],
-                    "pc_sha256": pin["pc_sha256"],
-                    "frame_size": pin["frame_size"],
-                    "frame_sha256": pin["frame_sha256"],
+                    "lethal": label in profile.lethal_step_labels,
+                    "basic_mask": RUNTIMERES_DEATH_PINS[label]["basic_mask"],
+                    "pc_size": RUNTIMERES_DEATH_PINS[label]["pc_size"],
+                    "pc_sha256": RUNTIMERES_DEATH_PINS[label]["pc_sha256"],
+                    "frame_size": RUNTIMERES_DEATH_PINS[label]["frame_size"],
+                    "frame_sha256":
+                        RUNTIMERES_DEATH_PINS[label]["frame_sha256"],
                 }
-                for label, pin in RUNTIMERES_DEATH_PINS.items()
+                for label in profile.step_order
             },
             "hp_alive": RUNTIMERES_DEATH_HP_ALIVE,
             "hp_max": RUNTIMERES_DEATH_HP_MAX,
@@ -1185,8 +1370,14 @@ def _expected_scenario() -> dict[str, Any]:
         "persisted_post_state": {
             "database_write": "none",
         },
-        "capabilities": list(RUNTIMERES_DEATH_CAPABILITIES),
-        "nonclaims": list(RUNTIMERES_DEATH_NONCLAIMS),
+        "capabilities": list(
+            RUNTIMERES_DEATH_LATCH_ONLY_CAPABILITIES if latch_only
+            else RUNTIMERES_DEATH_CAPABILITIES
+        ),
+        "nonclaims": list(
+            RUNTIMERES_DEATH_LATCH_ONLY_NONCLAIMS if latch_only
+            else RUNTIMERES_DEATH_NONCLAIMS
+        ),
     }
 
 
@@ -1197,8 +1388,21 @@ def load_runtimeres_death_hypothesis_scenario(
         data = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError("invalid runtimeres death hypothesis scenario") from exc
-    if type(data) is not dict or not _exact_equal(data, _expected_scenario()):
+    if type(data) is not dict:
         raise ValueError(
             "runtimeres death hypothesis scenario exceeds the exact allowlist"
         )
-    return require_runtimeres_death_hypothesis_scenario(_PROFILE)
+    # The file names its own profile and the id has to be one of the two this
+    # module ships.  The exact-tree comparison below is still the thing that
+    # decides; this lookup only picks WHICH tree to compare against, so a file
+    # cannot select a profile and then carry another profile's contents.
+    scenario_id = data.get("id")
+    profile = (
+        RUNTIMERES_DEATH_PROFILE_BY_SCENARIO_ID.get(scenario_id)
+        if type(scenario_id) is str else None
+    )
+    if profile is None or not _exact_equal(data, _expected_scenario(profile)):
+        raise ValueError(
+            "runtimeres death hypothesis scenario exceeds the exact allowlist"
+        )
+    return require_runtimeres_death_hypothesis_scenario(profile)

@@ -1374,9 +1374,27 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 runtimeres_death_hypothesis_scenario,
             )
             self.runtimeres_death_sweep_count += 1
-            self.events.append(
-                "runtimeres_death_hypothesis_spawn_then_kill_sent"
+            # RUNTIMERES-LATCHONLY-001 (round 91): the event names the PROFILE
+            # that was sent, because there are now two and a log line saying
+            # only that "the sweep" went out cannot tell an attended tester
+            # which experiment they just ran.  The three-frame profile is named
+            # spawn_then_kill, so this composes the byte-identical string the
+            # ledger, the replay tool and the dispatch tests already pin.
+            event = (
+                "runtimeres_death_hypothesis_"
+                + runtimeres_death_hypothesis_scenario.profile_name
+                + "_sent"
             )
+            # The three-frame profile must keep composing EXACTLY the string the
+            # ledger's source markers, the replay tool and the dispatch tests
+            # already pin.  Written out here once and compared, so renaming a
+            # profile is an immediate RuntimeError rather than a published event
+            # name that quietly changed.
+            if runtimeres_death_hypothesis_scenario.ends_on_death_task and (
+                event != "runtimeres_death_hypothesis_spawn_then_kill_sent"
+            ):
+                raise RuntimeError("HYP-PF-023 sweep event name drift")
+            self.events.append(event)
             return actions
 
         # PF-HYPOTHESIS-LEDGER: HYP-PF-024 active

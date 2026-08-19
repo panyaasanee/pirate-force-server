@@ -379,3 +379,91 @@ py -3 -u -m pirateforce_foundation.app
 **The trigger, for the attended tester:** log in, select the character, wait for the runtime ack, then send the ascii12 chat probe `PFCHATPROBE1` in local chat — the same probe GT-006/GT-017/GT-019 used. Nothing in the message is read; it is a trigger. **Once per session:** the sweep is one-shot and a second send is silently refused by design.
 
 **Expected, if the hypothesis holds:** the "Navy Transfer" NPC (frozen placement 0, template 1) appears ~112 units from the spawn point; +6 s it should adopt the dying state; +6 s it should play `_F_DIE_000`. It does not recover. Nothing is written to the database — verify the DB SHA against `CANON_SHA.txt` before and after anyway.
+
+---
+
+## ERRATUM 1 — round 91 (RUNTIMERES-LATCHONLY-001): what GT-022 answered, what it did not, and the second profile that exists because of the difference
+
+**Appended 2026-08-19 (round 91). Nothing above this line is rewritten.** Two
+numbers in the body are now low and are corrected here rather than in place, and
+one sentence in §16 is simply wrong and is withdrawn below.
+
+### 1. The attended run happened. Read this before the predictions above.
+
+GT-022 ran three times on a real client on 2026-08-19 (16:43, 18:22, 19:06) and
+**the wire layer held completely**: three frames every time, 185 / 131 / 131
+bytes, `hp_death_timer` on the wire as `2A 00 00 A0 41` (20.0f) and then
+`2A 00 00 00 00` (0.0f), no traceback, no dropped client, and the canonical
+database SHA unchanged. On the second run the probe NPC was **standing before
+the trigger and lying flat afterwards**, and stayed flat past t+12. The owner
+walked to the spot herself and photographed it:
+`pf_bridge/evidence_screens/biground7/gt022_r2_npc_corpse_panya_eyewitness_20260819_183537.png`
+(941,528 bytes).
+
+**This is the first time any client has been shown one byte of this profile, and
+it rendered a result.** It is not, however, the claim §16 predicts.
+
+### 2. §16's "the NPC appears" is WITHDRAWN, and it nearly caused a wrong verdict
+
+> *"the 'Navy Transfer' NPC (frozen placement 0, template 1) **appears** ~112
+> units from the spawn point"*
+
+**False.** The probe identity `0x2001` is `0x2000 + placement_index + 1` over a
+placement the client **already has in its map data** — the blue-cloaked NPC that
+has always stood there. `SPAWN` therefore **updates an actor the client already
+draws**; nothing pops into existence. The first attended run was nearly written
+up as "spawn failed" on exactly that expectation. Any future test spec on this
+lane must drop both the prediction and the failure criterion built on it.
+
+The frame is still needed and the reason is unchanged: an actor cannot be born
+dead, and the identity has to be live in the client's collection before the
+update path can be taken. What was wrong was only the visible consequence.
+
+### 3. What GT-022 could NOT answer, and the profile that answers it
+
+**Which frame produced the pose is still unknown.** `DYING_LATCH` lands at t+6
+and `DEATH_TASK` at t+12. The third run was designed to separate them and
+photographed at roughly t+10.5 to t+11.5 with the pose already present, which
+points hard at the latch — but the margin is about **one second**, capture
+latency was never instrumented, and an attribution with a one-second margin is
+an argument about an unmeasured clock, not a proof. **`_F_DIE_000` is therefore
+still unobserved**, and the coverage row for this lane stays where it is.
+
+Round 91 adds the experiment that needs no clock: a second named profile,
+**`dying_latch_only`**, behind
+`scenarios/runtimeres_death_hypothesis_dying_latch_only.json`, which sends
+`SPAWN` and `DYING_LATCH` and **stops**. If the pose still appears it belongs to
+the latch; if it does not it belongs to the death task. Its two frames are the
+three-frame sweep's first two **byte for byte** — structurally, because the
+profile's step rows are a *slice* of the same plan rather than a copy — which is
+the property the experiment rests on: the absent third frame has to be the only
+difference between the two runs. The validator is **stricter** for it, not
+looser: no frame may satisfy `vt+0x3C`, the `DEATH_TASK` label may not appear in
+its step order, and the sweep must **end** on a frame satisfying `vt+0x40`. Each
+profile carries its own lethal unlock token compared by identity, so one
+profile's key opens no byte of the other.
+
+### 4. Corrected numbers
+
+| statement in the body | as published | after round 91 |
+|---|---|---|
+| `tools/pf_runtimeres_death_encoder_static.py` | 88 guards | **138 guards** (30 still the round-85 regression gate) |
+| `tools/pf_runtimeres_death_headless_replay.py` | 64 guards | **64** for `spawn_then_kill` (unchanged, default) · **68** for `--profile dying_latch_only` |
+| `tests/test_runtimeres_death_hypothesis.py` | 39 tests | **49 tests** |
+| `tests/test_runtimeres_death_dispatch.py` | 25 tests | **27 tests** |
+
+The default invocation of both tools is unchanged on purpose: the Windows gate
+job runs them with no arguments and had to keep getting exactly today's guard
+set, so a drift in this lane could not hide behind a new flag.
+
+### 5. Ledger
+
+`HYP-PF-023` is amended, not replaced, and `RUNTIMERES-LATCHONLY-001` is tracked
+as the **third of three** versions, which fills the budget. It is counted as a
+version although every byte it sends is a subset of the pinned frames, because
+it lets the lane end a session in a state no earlier version could produce — an
+NPC latched dying with the death task never opened. A fourth widening needs a
+new entry or a scoped approval.
+
+**Nonclaim, unchanged and load-bearing: no client has ever been shown one byte of
+the two-frame profile.** That is GT-025, queued and not run.

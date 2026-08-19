@@ -48,6 +48,21 @@ cited by address, **before this tool is allowed to assert anything new**:
 If ANY of those seven fails, this tool prints the failures, asserts NOTHING new,
 and exits non-zero.  Reproducing an old answer is the licence to state a new one.
 
+SECTION 8 - THE TWO-FRAME PROFILE
+--------------------------------
+Round 91 added a second named profile, ``dying_latch_only``: SPAWN, then
+DYING_LATCH, then STOP.  It exists because the attended GT-022 run produced a
+real corpse on a real client but could not say WHICH frame produced it - the
+photographs land about a second short of the DYING_LATCH/DEATH_TASK boundary
+and the capture latency of that path was never measured.  A sweep that stops
+after the latch answers that with no appeal to a clock at all.  Section 8
+verifies that profile, and its load-bearing guard is byte identity with the
+first two frames of the three-frame sweep: the experiment is only decisive if
+the single difference between the two runs is the missing third frame.
+
+Nothing in section 8 is an observation.  No client has ever been shown one byte
+of the two-frame profile; it is a queued attended test.
+
 DISCIPLINE
 ----------
 No server, no socket, no network, no GameClient process, no database.  The
@@ -62,6 +77,7 @@ Exit 0 = every guard reproduced.  Non-zero = at least one drifted, with a list.
 """
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import os
@@ -723,6 +739,622 @@ _rejects("frame 1 already dead (an actor cannot be born dead)", _dead_on_arrival
 _rejects("the kill frame re-targeted to a different identity (a second spawn, "
          "not a vtable +0x20 update)", _different_identity)
 
+# ==========================================================================
+# SECTION 8 - THE TWO-FRAME "dying_latch_only" PROFILE.
+# (RUNTIMERES-LATCHONLY-001, round 91.  Everything above this line is round 86
+# and is not touched by it.)
+#
+# WHY THERE IS A SECOND PROFILE AT ALL.  The attended GT-022 run put a real
+# corpse on a real client: the probe NPC went from standing to lying flat and
+# stayed there.  What that run could NOT say is which frame did it.  DYING_LATCH
+# leaves at t+6 and DEATH_TASK at t+12; the photographs land somewhere around
+# t+10.5 to t+11.5, i.e. roughly a second short of the boundary; and nobody ever
+# measured the latency of that capture path.  An unmeasured error bar the same
+# size as the margin turns "it was already lying down before the third frame"
+# into an indication rather than an answer, and this lane does not promote
+# indications.
+#
+# The two-frame profile settles it with no appeal to a clock at all: send SPAWN,
+# send DYING_LATCH, and STOP.  If the pose still appears, it belongs to the
+# latch.  If it never appears, it belonged to the death task.  Either outcome is
+# decisive, and neither depends on when a shutter opened.
+#
+# THE LOAD-BEARING GUARD.  That argument only works if the single difference
+# between the two runs is the missing third frame.  So the guard this section is
+# really built around is not a comparison against a constant, it is a comparison
+# against the OTHER PROFILE'S ACTUAL COMPOSED BYTES: frames 1 and 2 of the
+# two-frame sweep must be `==` the first two frames of the three-frame sweep,
+# byte for byte, plus the same SHA-256.  If the composer drifted so much as one
+# byte while dropping the third frame, then a difference on screen would no
+# longer be attributable to the missing frame and the whole experiment would
+# prove nothing - it would be two different sweeps producing two different
+# results, which is not an experiment, it is a coincidence.
+#
+# HOW INDEPENDENT THAT GUARD IS, HONESTLY.  Today it is NOT independent of the
+# pinned-hash guard below it: both profiles publish the same per-step pins, so
+# equal-to-the-pin already implies equal-to-each-other.  What byte identity adds
+# is that it keeps holding if the pins are ever legitimately re-pinned for a
+# real wire change - the pins would move together and the identity would still
+# have to survive.  Stating that plainly is cheaper than pretending to two
+# independent proofs.
+#
+# WHAT THIS SECTION DOES NOT CLAIM.  No client has ever been shown one byte of
+# the two-frame profile.  It is a queued attended test, not an observation.
+# Nothing below says the client will lie down, will not lie down, or does
+# anything whatsoever when a sweep stops on the positive side of the polarity.
+# It says only that the bytes are the bytes the three-frame run already sent,
+# that no frame of this sweep can open the task gate, and that every route which
+# could quietly turn a two-frame run back into a three-frame one refuses and
+# hands back nothing.
+# ==========================================================================
+section("8. the two-frame dying_latch_only profile (the GT-022 tie-breaker)")
+
+LATCH_SCENARIO_PATH = os.path.join(
+    _ROOT, "scenarios", "runtimeres_death_hypothesis_dying_latch_only.json",
+)
+
+latch_profile = rdh.load_runtimeres_death_hypothesis_scenario(
+    LATCH_SCENARIO_PATH,
+)
+guard(latch_profile is rdh.RUNTIMERES_DEATH_PROFILE_BY_NAME[
+          rdh.RUNTIMERES_DEATH_PROFILE_DYING_LATCH_ONLY]
+      and latch_profile is rdh.RUNTIMERES_DEATH_PROFILE_BY_SCENARIO_ID[
+          rdh.RUNTIMERES_DEATH_LATCH_ONLY_SCENARIO_ID]
+      and latch_profile is not scenario,
+      "the new scenario file loads through the exact-tree allowlist and yields "
+      "the ONE dying_latch_only profile object this module ships (not a copy, "
+      "and not the spawn_then_kill profile)")
+guard(latch_profile.profile_name == rdh.RUNTIMERES_DEATH_PROFILE_DYING_LATCH_ONLY
+      and latch_profile.ends_on_death_task is False
+      and scenario.ends_on_death_task is True,
+      "it declares ends_on_death_task = False while the three-frame profile "
+      "declares True - the two profiles disagree about exactly one thing")
+guard(len(latch_profile.step_order) == 2
+      and latch_profile.step_order
+      == rdh.RUNTIMERES_DEATH_LATCH_ONLY_STEP_ORDER
+      == (rdh.SPAWN_STEP_LABEL, rdh.DYING_LATCH_STEP_LABEL)
+      and rdh.DEATH_TASK_STEP_LABEL not in latch_profile.step_order,
+      "its plan is exactly 2 steps, SPAWN then DYING_LATCH, and the DEATH_TASK "
+      "label appears nowhere in it")
+guard(latch_profile.lethal_step_labels == (rdh.DYING_LATCH_STEP_LABEL,)
+      and rdh.DEATH_TASK_STEP_LABEL not in latch_profile.lethal_step_labels,
+      "its lethal step list names ONLY DYING_LATCH, so the encoder may name "
+      "BasicAttr bit 0x0080 on that step and on no other")
+# The step rows are the SAME OBJECTS, not equal copies.  A copy could be edited
+# on one side only; `is` cannot be satisfied by an edited copy.
+guard(all(rdh.RUNTIMERES_DEATH_STEP_BY_LABEL[_lbl]
+          is rdh.RUNTIMERES_DEATH_STEPS[_i]
+          for _i, _lbl in enumerate(latch_profile.step_order)),
+      "each of its two step rows IS (identity, not equality) the row the "
+      "three-frame plan holds at the same index")
+
+with open(LATCH_SCENARIO_PATH, "r", encoding="utf-8") as _fh:
+    _LATCH_JSON = json.load(_fh)
+guard(_LATCH_JSON["production_allowed"] is False
+      and _LATCH_JSON["test_only"] is True
+      and _LATCH_JSON["lethal"] is True
+      and _LATCH_JSON["hypothesis_id"] == rdh.RUNTIMERES_DEATH_HYPOTHESIS_ID,
+      "the two-frame scenario file declares test_only, lethal, HYP-PF-023 and "
+      "NOT production_allowed, exactly as the three-frame one does")
+guard(_LATCH_JSON["dispatch"]["ends_on_death_task"] is False
+      and _LATCH_JSON["dispatch"]["frames_per_accepted_request"] == 2
+      and _LATCH_JSON["dispatch"]["step_order"] == ["SPAWN", "DYING_LATCH"]
+      and _LATCH_JSON["dispatch"]["lethal_steps"] == ["DYING_LATCH"],
+      "and the file itself publishes 2 frames, the SPAWN/DYING_LATCH order and "
+      "DYING_LATCH as its only lethal step")
+guard("no_client_has_ever_been_shown_one_byte_of_this_profile"
+      in _LATCH_JSON["nonclaims"]
+      and any("this_variant_is_the_test_not_the_answer" in _n
+              for _n in _LATCH_JSON["nonclaims"]),
+      "and it keeps the nonclaim that NO CLIENT HAS EVER BEEN SHOWN ONE BYTE "
+      "of this profile: it is a queued attended test, not an observation")
+
+# ---- the unlock is per profile, so a two-frame run cannot borrow the key ----
+latch_unlock = rdh.runtimeres_death_lethal_unlock(latch_profile)
+guard(latch_unlock is rdh._UNLOCK_LATCH_ONLY and latch_unlock is not unlock
+      and unlock is rdh._UNLOCK,
+      "the file yields the two-frame lethal unlock, which is a DIFFERENT object "
+      "from the three-frame one")
+
+latch_actions = rdh.build_runtimeres_death_sweep(
+    legacy, probe, latch_unlock, latch_profile,
+)
+guard(len(latch_actions) == 2
+      and [a[0] for a in latch_actions]
+      == list(rdh.RUNTIMERES_DEATH_LATCH_ONLY_ACTION_LABELS),
+      "the composed sweep is exactly two frames, labelled SPAWN then "
+      "DYING_LATCH")
+guard([a[3] for a in latch_actions] == [a[3] for a in actions[:2]]
+      == [rdh.RUNTIMERES_DEATH_FIRST_DELAY_SECONDS,
+          rdh.RUNTIMERES_DEATH_SPACING_SECONDS],
+      "and its two delays are the same 0.0 / 6.0 the three-frame run uses, so "
+      "the tester photographs the same moments in both runs")
+
+# ------------------------------------------------------- THE identity guard
+# Written as a function on purpose: the trap at the bottom of this section calls
+# THIS function on a mutated copy, so the thing proved capable of failing is the
+# same code the guard runs, not a re-implementation of it that happens to agree.
+def _first_two_frames_identical(rows):
+    """True iff `rows` is two (label, pc, frame, delay) tuples whose pc and
+    frame bytes are the SAME BYTES as the three-frame sweep's first two."""
+    if type(rows) not in (list, tuple) or len(rows) != 2:
+        return False
+    for i in range(2):
+        pc, frame = rows[i][1], rows[i][2]
+        if pc != actions[i][1] or frame != actions[i][2]:
+            return False
+        if (hashlib.sha256(pc).hexdigest().upper()
+                != hashlib.sha256(actions[i][1]).hexdigest().upper()):
+            return False
+        if (hashlib.sha256(frame).hexdigest().upper()
+                != hashlib.sha256(actions[i][2]).hexdigest().upper()):
+            return False
+    return True
+
+
+guard(_first_two_frames_identical(latch_actions),
+      "LOAD-BEARING: the two composed frames are BYTE-IDENTICAL (== and "
+      "SHA-256) to the first two frames of the three-frame sweep, so the ONLY "
+      "difference between the two attended runs is the missing third frame")
+guard(latch_actions[0][1] == actions[0][1] and latch_actions[1][1] == actions[1][1]
+      and latch_actions[0][2] == actions[0][2]
+      and latch_actions[1][2] == actions[1][2],
+      "spelled out one comparison at a time, because a helper that returned "
+      "True for the wrong reason would be the only thing standing here")
+
+# ------------------------------------------------ the pins, from both files
+_LATCH_SIZES = tuple(
+    [len(latch_actions[0][1]), len(latch_actions[0][2]),
+     len(latch_actions[1][1]), len(latch_actions[1][2])]
+)
+guard(_LATCH_SIZES == (173, 185, 120, 131),
+      "the two frames are the pinned 173/185 (SPAWN pc/frame) and 120/131 "
+      "(DYING_LATCH pc/frame) bytes")
+for _i, _label in enumerate(rdh.RUNTIMERES_DEATH_LATCH_ONLY_STEP_ORDER):
+    _pin = rdh.RUNTIMERES_DEATH_PINS[_label]
+    _pub_latch = _LATCH_JSON["probe"]["per_step"][_label]
+    _pub_kill = _SCENARIO_JSON["probe"]["per_step"][_label]
+    _pc, _frame = latch_actions[_i][1], latch_actions[_i][2]
+    _pc_sha = hashlib.sha256(_pc).hexdigest().upper()
+    _frame_sha = hashlib.sha256(_frame).hexdigest().upper()
+    guard(len(_pc) == _pin["pc_size"] == _pub_latch["pc_size"]
+          == _pub_kill["pc_size"]
+          and _pc_sha == _pin["pc_sha256"] == _pub_latch["pc_sha256"]
+          == _pub_kill["pc_sha256"],
+          "%s PC reproduces the pin the module AND BOTH scenario files publish "
+          "(%d bytes / %s)" % (_label, _pin["pc_size"], _pin["pc_sha256"][:16]))
+    guard(len(_frame) == _pin["frame_size"] == _pub_latch["frame_size"]
+          == _pub_kill["frame_size"]
+          and _frame_sha == _pin["frame_sha256"] == _pub_latch["frame_sha256"]
+          == _pub_kill["frame_sha256"],
+          "%s frame reproduces the pin the module AND BOTH scenario files "
+          "publish (%d bytes / %s)"
+          % (_label, _pin["frame_size"], _pin["frame_sha256"][:16]))
+    guard(_pub_latch == _pub_kill,
+          "%s: the two scenario files publish the SAME pin block, so neither "
+          "file can be re-pinned alone" % _label)
+
+# ------------------------------- the polarity, re-read by the hand-written
+# walker at the top of this file rather than by the module's own decoder
+_LATCH_READ = [walk(a[1]) for a in latch_actions]
+guard(_LATCH_READ == READ[:2],
+      "the independent tag walker reads the same two frames out of the "
+      "two-frame sweep that it read out of the three-frame sweep")
+
+
+def _vt3c_death_task(read_row):
+    """0x43BD70, vtable +0x3C: HP == 0 AND timer <= 0.0f."""
+    hp = read_row["fields"].get(0x0004)
+    timer = read_row["fields"].get(0x0080)
+    return hp == 0 and timer is not None and timer <= 0.0
+
+
+def _vt40_dying_latch(read_row):
+    """0x43BDA0, vtable +0x40: HP == 0 AND timer > 0.0f."""
+    hp = read_row["fields"].get(0x0004)
+    timer = read_row["fields"].get(0x0080)
+    return hp == 0 and timer is not None and timer > 0.0
+
+
+guard(not any(_vt3c_death_task(r) for r in _LATCH_READ),
+      "NO frame of the two-frame sweep satisfies 0x43BD70 (vtable +0x3C, HP==0 "
+      "AND timer<=0), so 0x443990 never opens, 0x4439E9 never calls 0x472810 "
+      "and CActorTask_Dead is never constructed by this sweep")
+guard(_vt40_dying_latch(_LATCH_READ[-1])
+      and _LATCH_READ[-1]["fields"].get(0x0004) == 0
+      and _LATCH_READ[-1]["fields"].get(0x0080)
+      == rdh.DYING_LATCH_TIMER_SECONDS > 0.0,
+      "and the LAST frame DOES satisfy 0x43BDA0 (vtable +0x40, HP==0 AND "
+      "timer>0), so the sweep ends with the dying latch armed and the task gate "
+      "shut - which is the whole experimental design")
+guard(not _vt40_dying_latch(_LATCH_READ[0])
+      and not _vt3c_death_task(_LATCH_READ[0]),
+      "the spawn frame satisfies NEITHER predicate (it is alive and carries no "
+      "timer at all): an actor cannot be born dead")
+
+# ==========================================================================
+# SECTION 8b - REFUSALS.  Each one has to produce NO BYTES AT ALL, not merely
+# raise.  "It raised" is a weaker claim than it looks: a composer that raises
+# after handing a frame to a caller has already lost.  So every refusal below is
+# built as a call, the exception type is asserted, and then the fact that the
+# call bound NOTHING is asserted separately.
+#
+# WHAT IS NOT PROVEN BY THE HELPER.  It proves nothing left the call.  It does
+# not prove no bytes were formed INSIDE the call: build_runtimeres_death_sweep
+# composes the (harmless, timerless) spawn body before it ever reaches the
+# lethal step where a wrong unlock is caught, and those bytes are dropped on the
+# floor unreferenced.  What matters for safety is that no caller can ever be
+# handed them, and that is what is measured here.
+# ==========================================================================
+section("8b. REFUSALS - every one of them returns NOTHING, not merely raises")
+
+
+def _emitted_bytes(value):
+    """Total bytes reachable in whatever a refusing call handed back."""
+    if type(value) is bytes or type(value) is bytearray:
+        return len(value)
+    if type(value) in (list, tuple):
+        return sum(_emitted_bytes(item) for item in value)
+    return 0
+
+
+def _refuses_with_no_bytes(label, call, exc, expect_text=None):
+    produced = []
+    try:
+        produced.append(call())
+    except exc as err:
+        text = str(err)
+        if produced:
+            return guard(False, "%s: raised %s but had ALREADY produced a "
+                                "value" % (label, exc.__name__))
+        if expect_text is not None and expect_text not in text:
+            return guard(False, "%s: refused for the WRONG reason (%r)"
+                         % (label, text[:120]))
+        return guard(True, "REFUSES and returns nothing: " + label)
+    except Exception as err:
+        return guard(False, "%s: raised %s, not the required %s"
+                     % (label, type(err).__name__, exc.__name__))
+    return guard(False, "%s: returned instead of refusing, carrying %d bytes"
+                 % (label, _emitted_bytes(produced[0])))
+
+
+# Every fixture in the rest of this section is the real latch frame with its
+# four timer bytes rewritten and NOTHING else touched.  The offset is found once
+# and guarded once, and the rewriter degrades to "return the input unchanged"
+# rather than slicing at a negative index: if the composer ever drifts, this
+# section has to go RED with a sentence a human can read, not die in a traceback
+# raised out of a test fixture.
+_LATCH_TIMER_PATTERN = (
+    bytes([rdh.DEATH_TIMER_TAG])
+    + struct.pack("<f", rdh.DYING_LATCH_TIMER_SECONDS)
+)
+_LATCH_TIMER_OFFSET = latch_actions[1][1].find(_LATCH_TIMER_PATTERN)
+guard(_LATCH_TIMER_OFFSET > 0
+      and latch_actions[1][1].count(_LATCH_TIMER_PATTERN) == 1,
+      "the latch frame literally contains the bytes 2A 0000A041 (tag 0x2A, "
+      "20.0f) exactly ONCE, at offset %d, which is what every fixture below "
+      "rewrites" % _LATCH_TIMER_OFFSET)
+
+
+def _with_timer(pc, seconds):
+    """`pc` with those four bytes rewritten to `seconds`, same length."""
+    if _LATCH_TIMER_OFFSET < 0:
+        return pc
+    out = bytearray(pc)
+    out[_LATCH_TIMER_OFFSET + 1:_LATCH_TIMER_OFFSET + 5] = struct.pack(
+        "<f", seconds)
+    return bytes(out)
+
+
+def _latch_rows_with_final_timer(seconds):
+    """A copy of the two-frame sweep whose LAST frame carries `seconds` in the
+    tag-0x2A f32, so it is no longer the dying latch."""
+    rows = [list(a) for a in latch_actions]
+    pc = _with_timer(rows[1][1], seconds)
+    rows[1][1] = pc
+    rows[1][2] = legacy.frame_pc(pc)
+    return [tuple(r) for r in rows]
+
+
+def _with_widened_allowlist(profile, call):
+    """Run `call` with `profile` temporarily inside the module allowlist.
+
+    This is the only way to reach the validator's own DEATH_TASK-label rule,
+    because the allowlist refuses the shape first.  The widening is undone in a
+    finally and then asserted undone by a guard, so the tool cannot leave a
+    forged profile installed in a module the rest of this process shares.
+    """
+    saved = rdh._ALLOWED_PROFILES
+    rdh._ALLOWED_PROFILES = tuple(saved) + (profile,)
+    try:
+        return call()
+    finally:
+        rdh._ALLOWED_PROFILES = saved
+
+
+_SAVED_ALLOWED_PROFILES = rdh._ALLOWED_PROFILES
+
+
+# 1. a two-frame profile that somehow reaches the task gate.  This is the
+#    refusal the whole variant depends on: a two-frame run that opened the gate
+#    would answer nothing, because the pose could then have come from either
+#    place again - exactly the ambiguity GT-022 already has.
+#
+#    WHICH RULE ACTUALLY CATCHES IT, measured rather than assumed.  The first
+#    two calls below zero (and then negate) the timer of the real two-frame
+#    sweep, and the validator refuses them - but NOT on the "must never satisfy
+#    vt+0x3C" rule this section was written expecting.  In a two-frame sweep the
+#    single kill frame is also the only frame that can latch, so taking its
+#    timer to <= 0 removes the latch at the same time, and the earlier "no frame
+#    satisfies vt+0x40" rule fires first.  The expected text below is pinned to
+#    what the validator really says, because a guard that asserts the wrong
+#    reason is a guard that will one day pass for the wrong reason.  The third
+#    call then reaches the intended rule the only way it can be reached: a
+#    not-ending-on-the-task profile that latches first and opens the gate after.
+_refuses_with_no_bytes(
+    "a two-frame sweep whose kill frame is taken to timer 0.0f (HP==0 AND "
+    "timer<=0) - zeroing the only kill frame also removes the only latch, and "
+    "the sweep is refused for that",
+    lambda: rdh.validate_runtimeres_death_sweep(
+        _latch_rows_with_final_timer(0.0), latch_profile),
+    rdh.RuntimeResDeathValidationError,
+    "no frame satisfies vt+0x40",
+)
+_refuses_with_no_bytes(
+    "the same with an already-negative timer (-1.0f): <= 0 is <= 0, and this "
+    "profile may not emit it either",
+    lambda: rdh.validate_runtimeres_death_sweep(
+        _latch_rows_with_final_timer(-1.0), latch_profile),
+    rdh.RuntimeResDeathValidationError,
+    "no frame satisfies vt+0x40",
+)
+# The gate-opening shape that survives the latch check: latch at 20.0f as
+# usual, and then a THIRD frame at 0.0f, i.e. exactly the three-frame sweep
+# wearing the two-frame profile's name.  This is the sweep a careless future
+# round would produce by extending the plan and forgetting the flag, and it is
+# the one that must never be handed back.
+_FORGED_REACHES_GATE_PROFILE = dataclasses.replace(
+    latch_profile,
+    step_order=(rdh.SPAWN_STEP_LABEL, rdh.DYING_LATCH_STEP_LABEL,
+                rdh.DYING_LATCH_STEP_LABEL),
+)
+_GATE_PC = actions[2][1]
+_FORGED_REACHES_GATE_ROWS = list(latch_actions) + [(
+    rdh.RUNTIMERES_DEATH_ACTION_LABEL_PREFIX + rdh.DYING_LATCH_STEP_LABEL,
+    _GATE_PC, actions[2][2], rdh.RUNTIMERES_DEATH_SPACING_SECONDS,
+)]
+_refuses_with_no_bytes(
+    "a not-ending-on-the-task profile that latches AND THEN opens the task "
+    "gate (the real DEATH_TASK frame smuggled in under a latch label) - it "
+    "would destroy the only question this profile exists to answer",
+    lambda: _with_widened_allowlist(
+        _FORGED_REACHES_GATE_PROFILE,
+        lambda: rdh.validate_runtimeres_death_sweep(
+            _FORGED_REACHES_GATE_ROWS, _FORGED_REACHES_GATE_PROFILE)),
+    rdh.RuntimeResDeathValidationError,
+    "must never satisfy vt+0x3C",
+)
+
+# 2. a profile carrying the DEATH_TASK label while claiming not to end on it.
+#    The allowlist stops this shape before the validator ever sees it, so the
+#    refusal is proved TWICE: once at the allowlist, and once at the validator
+#    with the allowlist temporarily widened to let the forgery through.  The
+#    second half matters because a check that is only ever reached through a
+#    door that is always shut has never actually been run.
+_FORGED_TASK_LABEL_PROFILE = dataclasses.replace(
+    latch_profile,
+    step_order=rdh.RUNTIMERES_DEATH_STEP_ORDER,
+    lethal_step_labels=rdh.RUNTIMERES_DEATH_LETHAL_STEP_LABELS,
+)
+guard(_FORGED_TASK_LABEL_PROFILE.ends_on_death_task is False
+      and rdh.DEATH_TASK_STEP_LABEL in _FORGED_TASK_LABEL_PROFILE.step_order,
+      "the forgery is what it says on the tin: DEATH_TASK in the plan, "
+      "ends_on_death_task still False")
+_refuses_with_no_bytes(
+    "a profile carrying the DEATH_TASK label with ends_on_death_task False - "
+    "the exact-object allowlist refuses it outright",
+    lambda: rdh.require_runtimeres_death_hypothesis_scenario(
+        _FORGED_TASK_LABEL_PROFILE),
+    ValueError,
+    "exceeds the allowlist",
+)
+
+
+# The third row re-uses the DYING_LATCH bytes under the DEATH_TASK label, so the
+# timer stays at 20.0 and the "never reaches <= 0" rule cannot fire first: the
+# only rule left to catch this is the label rule itself.
+_FORGED_TASK_LABEL_ROWS = list(latch_actions) + [(
+    rdh.RUNTIMERES_DEATH_ACTION_LABEL_PREFIX + rdh.DEATH_TASK_STEP_LABEL,
+    latch_actions[1][1], latch_actions[1][2],
+    rdh.RUNTIMERES_DEATH_SPACING_SECONDS,
+)]
+_refuses_with_no_bytes(
+    "the same forgery with the allowlist temporarily widened - the validator "
+    "itself refuses a not-ending-on-the-task profile that names the DEATH_TASK "
+    "step, and does it on the label rather than on the timer",
+    lambda: _with_widened_allowlist(
+        _FORGED_TASK_LABEL_PROFILE,
+        lambda: rdh.validate_runtimeres_death_sweep(
+            _FORGED_TASK_LABEL_ROWS, _FORGED_TASK_LABEL_PROFILE)),
+    rdh.RuntimeResDeathValidationError,
+    "must not carry",
+)
+
+# 3. a sweep whose LAST frame is not the latch.
+#    Reaching this rule takes some care, and saying how is more useful than
+#    hiding it: for any kill frame the timer is either > 0 (the latch) or <= 0
+#    (the task gate), so a two-frame sweep whose last frame is not the latch
+#    normally trips the "must never satisfy vt+0x3C" rule first - as the two
+#    refusals above show.  The one value that is NEITHER is a NaN, which is
+#    unordered against 0.0f and therefore satisfies neither predicate as this
+#    validator reads them.  That is what the frame below carries, and it is the
+#    only shape that reaches the last-frame rule.
+#    NOT CLAIMED: anything at all about what the client's comiss/jb pair does
+#    with an unordered compare.  This frame is a test fixture; it is never sent,
+#    and no conclusion about client behaviour is drawn from it.
+_FORGED_TRAILING_PROFILE = dataclasses.replace(
+    latch_profile,
+    step_order=(rdh.SPAWN_STEP_LABEL, rdh.DYING_LATCH_STEP_LABEL,
+                rdh.DYING_LATCH_STEP_LABEL),
+)
+_NAN_PC = _with_timer(latch_actions[1][1], float("nan"))
+guard(_NAN_PC != latch_actions[1][1]
+      and len(_NAN_PC) == len(latch_actions[1][1]),
+      "the unordered-timer fixture is the latch frame with its four timer bytes "
+      "replaced and nothing else (same length, different bytes)")
+_FORGED_TRAILING_ROWS = list(latch_actions) + [(
+    rdh.RUNTIMERES_DEATH_ACTION_LABEL_PREFIX + rdh.DYING_LATCH_STEP_LABEL,
+    _NAN_PC, legacy.frame_pc(_NAN_PC), rdh.RUNTIMERES_DEATH_SPACING_SECONDS,
+)]
+_refuses_with_no_bytes(
+    "a sweep whose LAST frame is not the dying latch (its timer is unordered "
+    "against 0.0f, so it satisfies neither vt+0x40 nor vt+0x3C) - the sweep "
+    "would end with something other than the latch pending",
+    lambda: _with_widened_allowlist(
+        _FORGED_TRAILING_PROFILE,
+        lambda: rdh.validate_runtimeres_death_sweep(
+            _FORGED_TRAILING_ROWS, _FORGED_TRAILING_PROFILE)),
+    rdh.RuntimeResDeathValidationError,
+    "the LAST frame of profile",
+)
+guard(rdh._ALLOWED_PROFILES is _SAVED_ALLOWED_PROFILES
+      and len(rdh._ALLOWED_PROFILES) == 2
+      and rdh.RUNTIMERES_DEATH_PROFILE_BY_NAME[
+          rdh.RUNTIMERES_DEATH_PROFILE_DYING_LATCH_ONLY] is latch_profile,
+      "the temporary widening is UNDONE: the module allowlist is the same "
+      "two-profile object it was before, by identity")
+
+# 4. the unlocks are per profile, in BOTH directions, at the primitive and at
+#    the composer.  The composer half is the one that matters for "no bytes":
+#    build_runtimeres_death_sweep is the only function in this lane that would
+#    hand a caller a frame.
+_refuses_with_no_bytes(
+    "the THREE-frame unlock used against the two-frame profile "
+    "(require_runtimeres_death_lethal_unlock_for)",
+    lambda: rdh.require_runtimeres_death_lethal_unlock_for(
+        unlock, latch_profile),
+    ValueError,
+    "issued for a different",
+)
+_refuses_with_no_bytes(
+    "the TWO-frame unlock used against the three-frame profile "
+    "(require_runtimeres_death_lethal_unlock_for)",
+    lambda: rdh.require_runtimeres_death_lethal_unlock_for(
+        latch_unlock, scenario),
+    ValueError,
+    "issued for a different",
+)
+_refuses_with_no_bytes(
+    "composing the two-frame sweep with the three-frame unlock - no frame is "
+    "returned to anyone",
+    lambda: rdh.build_runtimeres_death_sweep(
+        legacy, probe, unlock, latch_profile),
+    ValueError,
+    "issued for a different",
+)
+_refuses_with_no_bytes(
+    "composing the three-frame sweep with the two-frame unlock - no frame is "
+    "returned to anyone",
+    lambda: rdh.build_runtimeres_death_sweep(
+        legacy, probe, latch_unlock, scenario),
+    ValueError,
+    "issued for a different",
+)
+
+# 5. a value-equal but DISTINCT forged unlock.  The unlock is a frozen
+#    dataclass, so `==` is free to anyone who can read the module; identity is
+#    not.  The first guard proves the forgery really is value-equal, otherwise
+#    the two refusals below would be proving something much cheaper.
+_FORGED_UNLOCK = rdh.RuntimeResDeathLethalUnlock(
+    latch_profile.scenario_id, latch_profile.hypothesis_id,
+)
+guard(_FORGED_UNLOCK == latch_unlock and _FORGED_UNLOCK is not latch_unlock,
+      "the forged unlock is EQUAL to the real two-frame unlock and is a "
+      "different object - so only an identity check can tell them apart")
+_refuses_with_no_bytes(
+    "a value-equal but distinct forged unlock at the primitive",
+    lambda: rdh.require_runtimeres_death_lethal_unlock_for(
+        _FORGED_UNLOCK, latch_profile),
+    ValueError,
+    "without the lethal unlock",
+)
+_refuses_with_no_bytes(
+    "a value-equal but distinct forged unlock at the composer - it gets no "
+    "frames at all",
+    lambda: rdh.build_runtimeres_death_sweep(
+        legacy, probe, _FORGED_UNLOCK, latch_profile),
+    ValueError,
+    "without the lethal unlock",
+)
+
+# ==========================================================================
+# SECTION 8c - TRAPS.  The house rule is that a check which has never been seen
+# to fail is not a check, it is a printout.  Each trap mutates a COPY, requires
+# the specific guard above to reject it, and then requires the untouched thing
+# to pass again - so the trap also proves it left nothing behind.
+# ==========================================================================
+section("8c. TRAPS - each new guard is watched going red on a mutated copy, "
+        "then green again on the real thing")
+
+# TRAP 1 - the byte-identity guard.  The mutation is deliberately BENIGN to
+# every other guard in this section: a 20.0f latch timer becomes 19.0f, which is
+# still HP==0 with a positive timer, still satisfies vt+0x40, still never
+# reaches the task gate, and still ends the sweep on the latch.  Every polarity
+# guard above stays green on it.  The identity guard is the one that has to
+# notice, because "the two runs differ only by the missing third frame" is
+# precisely the thing 19.0f would falsify.
+_TRAP_ROWS = _latch_rows_with_final_timer(19.0)
+_TRAP_READ = walk(_TRAP_ROWS[1][1])
+guard(_TRAP_ROWS[1][1] != latch_actions[1][1]
+      and _vt40_dying_latch(_TRAP_READ)
+      and not _vt3c_death_task(_TRAP_READ)
+      and _TRAP_READ["fields"][0x0080] == 19.0,
+      "TRAP 1 setup: the mutated copy is still a valid-looking dying latch "
+      "(HP==0, timer 19.0 > 0), so nothing except byte identity can catch it")
+guard(_first_two_frames_identical(_TRAP_ROWS) is False,
+      "TRAP 1: the byte-identity guard goes RED on that copy - it is a real "
+      "check and has now been seen to fail")
+guard(_first_two_frames_identical(latch_actions) is True,
+      "TRAP 1 restored: the untouched two-frame sweep passes the same guard, "
+      "so the trap mutated a copy and nothing else")
+
+# TRAP 2 - the profile allowlist.  A copy of the real two-frame profile with
+# ONE field flipped (ends_on_death_task True) is exactly the object that would
+# let a two-frame run be validated by three-frame rules.
+_TRAP_PROFILE = dataclasses.replace(latch_profile, ends_on_death_task=True)
+guard(_TRAP_PROFILE != latch_profile
+      and _TRAP_PROFILE.step_order == latch_profile.step_order
+      and _TRAP_PROFILE.scenario_id == latch_profile.scenario_id,
+      "TRAP 2 setup: the copy differs from the real profile in exactly one "
+      "field, and still carries the real scenario id")
+_refuses_with_no_bytes(
+    "TRAP 2: a copy of the two-frame profile with ends_on_death_task flipped "
+    "to True is refused by the allowlist",
+    lambda: rdh.require_runtimeres_death_hypothesis_scenario(_TRAP_PROFILE),
+    ValueError,
+    "exceeds the allowlist",
+)
+guard(rdh.require_runtimeres_death_hypothesis_scenario(latch_profile)
+      is latch_profile,
+      "TRAP 2 restored: the real profile still passes the same allowlist")
+
+# TRAP 3 - the exact-tree comparator the loader uses.  No file is written by
+# this tool, ever, so the mutation happens on the loaded dict in memory and is
+# handed to the SAME comparator load_runtimeres_death_hypothesis_scenario calls.
+# NOT CLAIMED: this exercises the comparator, not the file reading around it.
+_TRAP_TREE = json.loads(json.dumps(_LATCH_JSON))
+_TRAP_TREE["dispatch"]["ends_on_death_task"] = True
+guard(rdh._exact_equal(_LATCH_JSON, rdh._expected_scenario(latch_profile)),
+      "the two-frame file on disk is EXACTLY the tree the module expects for "
+      "this profile - no extra key, no missing key, no loose type")
+guard(rdh._exact_equal(_TRAP_TREE, rdh._expected_scenario(latch_profile))
+      is False,
+      "TRAP 3: one flipped boolean deep inside a copy of that tree makes the "
+      "comparator go RED")
+guard(rdh._exact_equal(_LATCH_JSON, rdh._expected_scenario(latch_profile)),
+      "TRAP 3 restored: the untouched tree still compares equal")
+
+
 # ------------------------------------------------------------------- results
 RESULT = {
     "binary_sha256": SHA,
@@ -775,6 +1407,36 @@ RESULT = {
         for i in range(len(actions))
     ],
     "nonclaims": list(rdh.RUNTIMERES_DEATH_NONCLAIMS),
+    # Additive, round 91.  The three keys above keep their exact meaning; a
+    # consumer that never heard of the second profile reads the same values it
+    # read before.
+    "latch_only_profile": {
+        "scenario": LATCH_SCENARIO_PATH.replace("\\", "/").split("/")[-1],
+        "profile": latch_profile.profile_name,
+        "ends_on_death_task": latch_profile.ends_on_death_task,
+        "step_order": list(latch_profile.step_order),
+        "lethal_steps": list(latch_profile.lethal_step_labels),
+        "frames_byte_identical_to_first_two_of_spawn_then_kill":
+            _first_two_frames_identical(latch_actions),
+        "frames": [
+            {
+                "label": latch_actions[i][0],
+                "delay_seconds": latch_actions[i][3],
+                "pc_size": len(latch_actions[i][1]),
+                "frame_size": len(latch_actions[i][2]),
+                "pc_sha256": hashlib.sha256(
+                    latch_actions[i][1]).hexdigest().upper(),
+                "frame_sha256": hashlib.sha256(
+                    latch_actions[i][2]).hexdigest().upper(),
+                "satisfies_vt40_dying_latch": _vt40_dying_latch(_LATCH_READ[i]),
+                "satisfies_vt3c_death_task": _vt3c_death_task(_LATCH_READ[i]),
+            }
+            for i in range(len(latch_actions))
+        ],
+        "any_frame_opens_the_task_gate":
+            any(_vt3c_death_task(r) for r in _LATCH_READ),
+        "nonclaims": list(rdh.RUNTIMERES_DEATH_LATCH_ONLY_NONCLAIMS),
+    },
 }
 
 if WANT_JSON:

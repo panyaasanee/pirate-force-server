@@ -487,6 +487,34 @@ class HeadlessReplayToolTests(unittest.TestCase):
         finally:
             sys.argv = saved
 
+    def _run_replay(self, argv):
+        spec = importlib.util.spec_from_file_location(
+            "pf_runtimeres_death_headless_replay", REPLAY_TOOL,
+        )
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        saved = sys.argv[:]
+        try:
+            sys.argv = [str(REPLAY_TOOL)] + argv
+            with contextlib.redirect_stdout(io.StringIO()):
+                return module.main()
+        finally:
+            sys.argv = saved
+
+    def test_the_replay_tool_runs_clean_for_the_two_frame_profile(self):
+        """RUNTIMERES-LATCHONLY-001.
+
+        Without this, the two-frame profile's replay guards exist and are run
+        by nothing: the gate job calls the tool with no arguments, which is the
+        three-frame profile, so the whole latch-only section would have been
+        dead code that only a human remembering to pass a flag ever executed.
+        """
+        self.assertEqual(self._run_replay(["--profile", "dying_latch_only"]), 0)
+
+    def test_the_replay_tool_refuses_a_profile_it_does_not_ship(self):
+        self.assertEqual(self._run_replay(["--profile", "no_such_profile"]), 2)
+
     def test_the_replay_tool_needs_no_third_party_package(self):
         source = REPLAY_TOOL.read_text(encoding="utf-8")
         for banned in ("capstone", "pefile", "numpy", "yaml", "requests"):

@@ -557,6 +557,212 @@ class VerifierTests(unittest.TestCase):
             self.assertNotIn("import " + banned, source)
 
 
+LATCH_ONLY_SCENARIO = (
+    ROOT / "scenarios" / "runtimeres_death_hypothesis_dying_latch_only.json"
+)
+
+
+class DyingLatchOnlyProfileTests(unittest.TestCase):
+    """RUNTIMERES-LATCHONLY-001 (round 91): the two-frame tie-breaker.
+
+    GT-022 put a real corpse on a real client -- the probe NPC went from
+    standing to lying flat and stayed there -- and could NOT say which frame
+    did it.  DYING_LATCH lands at t+6 and DEATH_TASK at t+12; the photographs
+    that caught the pose sit about one second from that boundary and capture
+    latency was never instrumented, so attributing the pose to either frame is
+    an argument about an unmeasured clock.
+
+    A sweep that STOPS after DYING_LATCH removes the clock from the question
+    entirely.  If the pose still appears, it belongs to the latch.  If it does
+    not, it belongs to the death task.  That only works if the two frames it
+    does send are the SAME BYTES the three-frame profile sends, which is what
+    most of the tests below are about: the experiment is decisive only while
+    the absent third frame is the only difference between the two runs.
+
+    Nothing here has been shown to a client.  This is the test, not the answer.
+    """
+
+    def latch_only(self):
+        profile = rdh.load_runtimeres_death_hypothesis_scenario(
+            LATCH_ONLY_SCENARIO,
+        )
+        unlock = rdh.runtimeres_death_lethal_unlock(profile)
+        probe = rdh.resolve_probe(legacy())
+        actions = rdh.build_runtimeres_death_sweep(
+            legacy(), probe, unlock, profile,
+        )
+        return profile, unlock, probe, actions
+
+    def test_the_shipped_two_frame_scenario_loads_as_its_own_profile(self):
+        profile, _unlock, _probe, _actions = self.latch_only()
+        self.assertEqual(profile.scenario_id,
+                         rdh.RUNTIMERES_DEATH_LATCH_ONLY_SCENARIO_ID)
+        self.assertEqual(profile.profile_name,
+                         rdh.RUNTIMERES_DEATH_PROFILE_DYING_LATCH_ONLY)
+        self.assertEqual(profile.step_order, ("SPAWN", "DYING_LATCH"))
+        self.assertEqual(profile.lethal_step_labels, ("DYING_LATCH",))
+        self.assertIs(profile.ends_on_death_task, False)
+
+    def test_the_two_frame_file_is_exactly_the_expected_tree(self):
+        on_disk = json.loads(LATCH_ONLY_SCENARIO.read_text(encoding="utf-8"))
+        self.assertEqual(on_disk, json.loads(json.dumps(
+            rdh._expected_scenario(rdh._PROFILE_LATCH_ONLY))))
+        self.assertIs(on_disk["production_allowed"], False)
+        self.assertIs(on_disk["test_only"], True)
+        self.assertIs(on_disk["lethal"], True)
+        self.assertIs(on_disk["dispatch"]["ends_on_death_task"], False)
+        self.assertEqual(on_disk["dispatch"]["frames_per_accepted_request"], 2)
+
+    def test_the_two_frames_are_the_three_frame_sweeps_first_two(self):
+        """THE load-bearing test of this profile.
+
+        Byte identity, compared on the bytes objects themselves rather than on
+        a hash summary.  If these two frames were merely similar, a difference
+        seen on a screen would prove nothing about which frame causes what.
+        """
+        _scenario, _unlock, _probe, three = sweep()
+        _p, _u, _pr, two = self.latch_only()
+        self.assertEqual(len(two), 2)
+        self.assertEqual(list(two), list(three[:2]))
+        for index in range(2):
+            label_a, pc_a, frame_a, delay_a = three[index]
+            label_b, pc_b, frame_b, delay_b = two[index]
+            with self.subTest(step=label_a):
+                self.assertEqual(label_a, label_b)
+                self.assertEqual(pc_a, pc_b)
+                self.assertEqual(frame_a, frame_b)
+                self.assertEqual(delay_a, delay_b)
+
+    def test_the_two_profiles_share_the_very_same_step_rows(self):
+        """Structural, not incidental: a slice cannot be edited on one side."""
+        self.assertIs(rdh.RUNTIMERES_DEATH_LATCH_ONLY_STEPS[0],
+                      rdh.RUNTIMERES_DEATH_STEPS[0])
+        self.assertIs(rdh.RUNTIMERES_DEATH_LATCH_ONLY_STEPS[1],
+                      rdh.RUNTIMERES_DEATH_STEPS[1])
+        self.assertEqual(len(rdh.RUNTIMERES_DEATH_LATCH_ONLY_STEPS), 2)
+
+    def test_no_frame_of_it_opens_the_death_task_gate(self):
+        profile, _unlock, _probe, actions = self.latch_only()
+        rows = rdh.validate_runtimeres_death_sweep(actions, profile)
+        self.assertEqual([row["death_task_predicate_vt3c"] for row in rows],
+                         [False, False])
+        self.assertIs(rows[-1]["dying_latch_predicate_vt40"], True)
+        self.assertEqual(rows[1]["death_timer_bit_0x0080"], 20.0)
+        self.assertIsNone(rows[0]["death_timer_bit_0x0080"])
+
+    def test_an_unlock_issued_for_one_profile_does_not_open_the_other(self):
+        three_unlock = rdh.runtimeres_death_lethal_unlock(
+            rdh.load_runtimeres_death_hypothesis_scenario(SCENARIO))
+        two_unlock = rdh.runtimeres_death_lethal_unlock(
+            rdh.load_runtimeres_death_hypothesis_scenario(LATCH_ONLY_SCENARIO))
+        self.assertIsNot(three_unlock, two_unlock)
+        probe = rdh.resolve_probe(legacy())
+        for unlock, profile, name in (
+            (three_unlock, rdh._PROFILE_LATCH_ONLY, "three key, two lane"),
+            (two_unlock, rdh._PROFILE, "two key, three lane"),
+        ):
+            with self.subTest(case=name):
+                with self.assertRaises(ValueError):
+                    rdh.build_runtimeres_death_sweep(
+                        legacy(), probe, unlock, profile,
+                    )
+
+    def test_a_value_equal_forged_unlock_still_opens_nothing(self):
+        forged = rdh.RuntimeResDeathLethalUnlock(
+            rdh.RUNTIMERES_DEATH_LATCH_ONLY_SCENARIO_ID,
+            rdh.RUNTIMERES_DEATH_HYPOTHESIS_ID,
+        )
+        self.assertEqual(forged, rdh._UNLOCK_LATCH_ONLY)   # equal by value
+        self.assertIsNot(forged, rdh._UNLOCK_LATCH_ONLY)   # not by identity
+        with self.assertRaises(ValueError):
+            rdh.build_runtimeres_death_sweep(
+                legacy(), rdh.resolve_probe(legacy()), forged,
+                rdh._PROFILE_LATCH_ONLY,
+            )
+
+    def test_a_file_that_names_one_profile_and_carries_the_other_is_refused(
+        self,
+    ):
+        """The id picks which tree to compare against; it decides nothing."""
+        body = rdh._expected_scenario(rdh._PROFILE)
+        body["id"] = rdh.RUNTIMERES_DEATH_LATCH_ONLY_SCENARIO_ID
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "s.json"
+            path.write_text(json.dumps(body), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                rdh.load_runtimeres_death_hypothesis_scenario(path)
+
+    def test_the_loader_rejects_every_single_key_edit_here_too(self):
+        base = rdh._expected_scenario(rdh._PROFILE_LATCH_ONLY)
+        variants = {
+            "ends on death task flipped": lambda d: d["dispatch"].update(
+                ends_on_death_task=True),
+            "third step smuggled in": lambda d: d["dispatch"]["step_order"]
+            .append("DEATH_TASK"),
+            "frame count widened": lambda d: d["dispatch"].update(
+                frames_per_accepted_request=3),
+            "timer taken to zero": lambda d: d["wire"]["polarity"].update(
+                dying_latch_value_seconds=0.0),
+            "profile renamed": lambda d: d.update(profile="spawn_then_kill"),
+        }
+        for label, mutate in variants.items():
+            with self.subTest(variant=label):
+                data = json.loads(json.dumps(base))
+                mutate(data)
+                with tempfile.TemporaryDirectory() as tmp:
+                    path = Path(tmp) / "s.json"
+                    path.write_text(json.dumps(data), encoding="utf-8")
+                    with self.assertRaises(ValueError):
+                        rdh.load_runtimeres_death_hypothesis_scenario(path)
+
+    def test_trap_a_profile_that_ends_on_the_latch_but_reaches_the_gate(self):
+        """A rule nobody can reach through a shipped file is still a rule.
+
+        The shipped two-frame profile CANNOT open the task gate, so the
+        validator branch that refuses one is unreachable from the scenarios
+        directory.  It is reached here by registering a forged profile on the
+        allowlist for the duration of the assertion and restoring it in a
+        finally, because a branch that has never been seen to fire is not a
+        guard.  The restore is asserted, by identity, at the end.
+        """
+        forged = rdh.RuntimeResDeathHypothesisScenario(
+            "runtimeres_death_hypothesis_forged_latch_only",
+            rdh.RUNTIMERES_DEATH_HYPOTHESIS_ID,
+            ("SPAWN", "DYING_LATCH", "DEATH_TASK"),
+            rdh.RUNTIMERES_DEATH_SPACING_SECONDS,
+            rdh.RUNTIMERES_DEATH_FIRST_DELAY_SECONDS,
+            rdh.RUNTIMERES_DEATH_ACTION_LABEL_PREFIX,
+            "forged_latch_only",
+            ("DYING_LATCH", "DEATH_TASK"),
+            False,                      # claims it never reaches the gate
+        )
+        saved_profiles = rdh._ALLOWED_PROFILES
+        saved_unlocks = dict(rdh._UNLOCKS)
+        try:
+            rdh._ALLOWED_PROFILES = saved_profiles + (forged,)
+            rdh._UNLOCKS[forged.scenario_id] = rdh.RuntimeResDeathLethalUnlock(
+                forged.scenario_id, forged.hypothesis_id,
+            )
+            with self.assertRaises(rdh.RuntimeResDeathValidationError):
+                rdh.build_runtimeres_death_sweep(
+                    legacy(), rdh.resolve_probe(legacy()),
+                    rdh._UNLOCKS[forged.scenario_id], forged,
+                )
+        finally:
+            rdh._ALLOWED_PROFILES = saved_profiles
+            rdh._UNLOCKS.clear()
+            rdh._UNLOCKS.update(saved_unlocks)
+        self.assertEqual(len(rdh._ALLOWED_PROFILES), 2)
+        self.assertIs(rdh._ALLOWED_PROFILES[0], rdh._PROFILE)
+        self.assertIs(rdh._ALLOWED_PROFILES[1], rdh._PROFILE_LATCH_ONLY)
+        self.assertEqual(set(rdh._UNLOCKS), {
+            rdh.RUNTIMERES_DEATH_SCENARIO_ID,
+            rdh.RUNTIMERES_DEATH_LATCH_ONLY_SCENARIO_ID,
+        })
+        # And the real thing still composes after the allowlist was handled.
+        self.assertEqual(len(self.latch_only()[3]), 2)
+
+
 def _client_image_present() -> bool:
     for cand in (
         ROOT.parent / "GameClient" / "GameClient.local.bin",

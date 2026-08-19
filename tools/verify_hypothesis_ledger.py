@@ -167,7 +167,27 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # the server sends -- so there was no original formula inside the image to recover, and
 # the owner approved designing one on 2026-08-19 11:45 within a scope of one signed i32
 # plus one flag word per target.  Two versions of three are spent on arrival.
-CANONICAL_CONTENT_SHA256 = "76AB2EFE4C9882AB8B608D90EF8C5D321195B5FC95A5F4F7E7957C163DA82758"
+# ROUND 91 AMENDMENT (HYP-PF-023, RUNTIMERES-LATCHONLY-001).  No entry added, no entry
+# index moved, count stays 31.  The entry gains a SECOND NAMED PROFILE, dying_latch_only,
+# behind its own opt-in file: SPAWN, DYING_LATCH, stop.  It exists because of a measurement
+# that could not be made rather than a new reading of the image.  GT-022 put a real corpse
+# on a real client -- the probe NPC went from standing to flat and stayed there, and the
+# owner walked over and photographed it herself -- and could not say WHICH FRAME did it,
+# because the photographs sit about one second from the t+6 / t+12 boundary and capture
+# latency was never instrumented.  A sweep that stops after the latch answers that with no
+# appeal to a clock at all.  Its two frames are the three-frame sweep's first two BYTE FOR
+# BYTE, structurally rather than incidentally: the profile's step rows are a SLICE of the
+# same plan, so the two cannot drift apart, and that identity is asserted independently by
+# the encoder, the verifier and the replay.  The validator is STRICTER for it, not looser --
+# no frame may satisfy vt+0x3C, the DEATH_TASK label may not appear, and the sweep must END
+# on the latch -- and each profile now carries its OWN unlock token compared by identity, so
+# one profile's key opens no byte of the other.  It is TRACKED AS THE THIRD VERSION, which
+# FILLS max_versions, and it is counted as a version rather than waved through as a mere
+# profile even though every byte it sends is a subset of the pinned frames, because it lets
+# the lane end a session in a state no earlier version could produce: an NPC latched dying
+# with the death task never opened.  No client has ever been shown one byte of it; that is
+# GT-025, queued and not run, and the coverage row stays where it is until then.
+CANONICAL_CONTENT_SHA256 = "F88B714F124696F8BDD22FB43BDA0206E3B9F6876A48FA614F5A0D5C7CEAA263"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
