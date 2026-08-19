@@ -17,6 +17,9 @@ from .model import Position
 from .population_scenario import load_population_scenario
 from .runtime import make_state_class
 from .runtime_console import install_runtime_console
+from .runtimeres_death_hypothesis import (
+    load_runtimeres_death_hypothesis_scenario,
+)
 from .scenario import load_scenario
 from .scene_load import load_scene_load_scenario
 from .second_password_bypass import SECOND_PASSWORD_MODES
@@ -57,6 +60,7 @@ def main() -> int:
     pre.add_argument('--delete-refresh-hypothesis-scenario')
     pre.add_argument('--stats-progression-hypothesis-scenario')
     pre.add_argument('--hp-death-hypothesis-scenario')
+    pre.add_argument('--runtimeres-death-hypothesis-scenario')
     pre.add_argument(
         '--second-password-mode', choices=SECOND_PASSWORD_MODES,
         default='required',
@@ -130,12 +134,24 @@ def main() -> int:
         load_hp_death_hypothesis_scenario(known.hp_death_hypothesis_scenario)
         if known.hp_death_hypothesis_scenario else None
     )
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-023 active
+    # RUNTIMERES-ENCODER-001 + RUNTIMERES-DISPATCH-001.  The lane that can drive
+    # a KNOWN actor through the real engine death chain (GSCN_RunTimeProtocolRes
+    # 0x6E9D, derived mask bit 0x02, object +0x1C) rather than HP-DEATH-002's
+    # local-player death window.  Registered by the round-86 ledger append; it is
+    # refused alongside every other mode and demands an explicit existing --db.
+    runtimeres_death_hypothesis = (
+        load_runtimeres_death_hypothesis_scenario(
+            known.runtimeres_death_hypothesis_scenario
+        )
+        if known.runtimeres_death_hypothesis_scenario else None
+    )
     if sum(value is not None for value in (
         scenario, scene_load, population, item_move_capture,
         item_move_hypothesis, logout_hypothesis, chat_input_hypothesis,
         channel_message_hypothesis, delete_actor_hypothesis,
         delete_refresh_hypothesis, stats_progression_hypothesis,
-        hp_death_hypothesis,
+        hp_death_hypothesis, runtimeres_death_hypothesis,
     )) > 1:
         pre.error(
             '--scenario, --scene-load-scenario, --population-scenario, and '
@@ -145,7 +161,8 @@ def main() -> int:
             '--delete-actor-hypothesis-scenario/'
             '--delete-refresh-hypothesis-scenario/'
             '--stats-progression-hypothesis-scenario/'
-            '--hp-death-hypothesis-scenario are mutually exclusive'
+            '--hp-death-hypothesis-scenario/'
+            '--runtimeres-death-hypothesis-scenario are mutually exclusive'
         )
     if item_move_capture is not None and not known.db:
         pre.error('--item-move-capture-scenario requires an explicit existing --db')
@@ -172,6 +189,11 @@ def main() -> int:
     if hp_death_hypothesis is not None and not known.db:
         pre.error(
             '--hp-death-hypothesis-scenario requires an explicit existing --db'
+        )
+    if runtimeres_death_hypothesis is not None and not known.db:
+        pre.error(
+            '--runtimeres-death-hypothesis-scenario requires an explicit '
+            'existing --db'
         )
     db_path = known.db or str(
         root / (
@@ -200,6 +222,8 @@ def main() -> int:
             'stats-progression-hypothesis'
             if stats_progression_hypothesis is not None else
             'hp-death-hypothesis' if hp_death_hypothesis is not None else
+            'runtimeres-death-hypothesis'
+            if runtimeres_death_hypothesis is not None else
             'foundation'
         )
         install_runtime_console(
@@ -218,6 +242,7 @@ def main() -> int:
         or delete_refresh_hypothesis is not None
         or stats_progression_hypothesis is not None
         or hp_death_hypothesis is not None
+        or runtimeres_death_hypothesis is not None
     ):
         if not Path(db_path).is_file():
             raise FileNotFoundError(db_path)
@@ -231,6 +256,7 @@ def main() -> int:
             or delete_refresh_hypothesis is not None
             or stats_progression_hypothesis is not None
             or hp_death_hypothesis is not None
+            or runtimeres_death_hypothesis is not None
         ):
             store.migrate()
             store.expire_open_sessions()
@@ -266,6 +292,9 @@ def main() -> int:
         delete_refresh_hypothesis_scenario=delete_refresh_hypothesis,
         stats_progression_hypothesis_scenario=stats_progression_hypothesis,
         hp_death_hypothesis_scenario=hp_death_hypothesis,
+        # RUNTIMERES-DISPATCH-001.  None unless the flag was handed in, and
+        # make_state_class refuses it alongside every other mode a second time.
+        runtimeres_death_hypothesis_scenario=runtimeres_death_hypothesis,
         # PF-HYPOTHESIS-LEDGER: HYP-PF-009 active
         second_password_mode=known.second_password_mode,
     )

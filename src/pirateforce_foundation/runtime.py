@@ -74,6 +74,12 @@ from .population import (
     build_port_royal_membership_transition,
 )
 from .population_scenario import require_population_scenario
+from .runtimeres_death_hypothesis import (
+    build_runtimeres_death_sweep,
+    require_runtimeres_death_hypothesis_scenario,
+    resolve_probe as resolve_runtimeres_death_probe,
+    runtimeres_death_lethal_unlock,
+)
 from .scenario import is_p30_target_observation, make_p30_target
 from .session import FoundationSession
 from .scene_object import (is_scene_remote_target, is_scene_remote_hostile_target,
@@ -117,6 +123,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                      delete_refresh_hypothesis_scenario=None,
                      stats_progression_hypothesis_scenario=None,
                      hp_death_hypothesis_scenario=None,
+                     runtimeres_death_hypothesis_scenario=None,
                      second_password_mode="required",
                      monotonic_clock=None,
                      close_timer_factory=None):
@@ -129,14 +136,15 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         delete_refresh_hypothesis_scenario,
         stats_progression_hypothesis_scenario,
         hp_death_hypothesis_scenario,
+        runtimeres_death_hypothesis_scenario,
     ))
     if active_modes > 1:
         raise ValueError(
             "Arena, scene-load, population, item-move capture, item-move "
             "hypothesis, logout hypothesis, chat input hypothesis, channel "
             "message hypothesis, delete actor hypothesis, delete refresh "
-            "hypothesis, stats progression hypothesis, and hp death "
-            "hypothesis scenarios are mutually exclusive"
+            "hypothesis, stats progression hypothesis, hp death hypothesis, "
+            "and runtimeres death hypothesis scenarios are mutually exclusive"
         )
     # DELETE-REFRESH-001 and HYP-PF-015 key on the same vital id 0x36DB, so
     # they must never be able to see the same frame: the mutual-exclusion
@@ -193,6 +201,31 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             raise ValueError(
                 "hp death hypothesis scenario object exceeds the allowlist"
             )
+    # RUNTIMERES-DISPATCH-001 (HYP-PF-023; the ledger annotation for this lane
+    # lives once per file, on the dispatch method below, exactly as HP-DEATH-002
+    # does it).  Same shape as HP-DEATH-002 above and for the same reasons, with
+    # one addition: the probe
+    # is resolved ONCE, here, so a drift in the frozen placement source or in
+    # the frozen V135 player spawn refuses at construction time rather than
+    # killing a different NPC in the middle of an attended session.
+    #
+    # This lane is NOT the hp-death lane.  HP-DEATH-002 rides UpdateAttrVital
+    # 0x309A, which round 85 proved can never reach the engine death chain;
+    # this one rides GSCN_RunTimeProtocolRes 0x6E9D with the derived change
+    # mask bit 0x02 (the actor-entry collection at +0x1C), whose inbound
+    # handler 0x5E4060 feeds 0x446F30 -> vtable +0x20 -> 0x4446F0 -> 0x4437C0.
+    runtimeres_death_lethal = None
+    runtimeres_death_probe = None
+    if runtimeres_death_hypothesis_scenario is not None:
+        runtimeres_death_hypothesis_scenario = (
+            require_runtimeres_death_hypothesis_scenario(
+                runtimeres_death_hypothesis_scenario
+            )
+        )
+        runtimeres_death_lethal = runtimeres_death_lethal_unlock(
+            runtimeres_death_hypothesis_scenario
+        )
+        runtimeres_death_probe = resolve_runtimeres_death_probe(legacy)
     if delete_actor_hypothesis_scenario is not None:
         delete_actor_hypothesis_scenario = (
             require_delete_actor_hypothesis_scenario(
@@ -285,6 +318,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.channel_message_sweep_count = 0
                 self.stats_progression_sweep_count = 0
                 self.hp_death_sweep_count = 0
+                self.runtimeres_death_sweep_count = 0
                 self.delete_actor_soft_delete_count = 0
                 self.delete_refresh_list_rebuild_count = 0
                 self.transport_socket_closer = None
@@ -1135,8 +1169,17 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             ``BasicAttr +0x58`` to be greater than the 0.0f at 0xF0989C and the
             u32 at ``BasicAttr +0x44`` to be zero.  Those are mask bits 0x0080
             and 0x0004 of the same block this server already emits.  There is no
-            death frame to send and none is composed here; the whole trigger is
-            two attribute values.
+            death frame to send and none is composed here; those two attribute
+            values ARE the whole trigger for the local player's own
+            ``Main_Dead`` window, which ``IsDead`` re-reads every frame -- but
+            round 85 static RE (see
+            ``reports/PF_RUNTIMERES_ACTOR_ENTRY001_STATIC_20260819.md``)
+            proved that sentence FALSE for engine death:
+            ``UpdateAttrVital``'s inbound handler (0x5F2400) contains zero
+            vtable +0x20 dispatch shapes across its whole extent, so this frame
+            never reaches the dead-state chain (latch [actor+0x70] |= 0x200,
+            spawn ``CActorTask_Dead``, play L"_F_DIE_000") -- see that report
+            for the full census.
 
             The request side is deliberately the SAME accepted shape the
             HYP-PF-014 echo lane classifies, for the same reason the progression
@@ -1211,6 +1254,96 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 ))
             self.hp_death_sweep_count += 1
             self.events.append("hp_death_hypothesis_death_sweep_sent")
+            return actions
+
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-023 active
+        # RUNTIMERES-DISPATCH-001.  Registered by the round-86 ledger append;
+        # this annotation and that entry's source_refs bind each other both ways.
+        def _dispatch_runtimeres_death_hypothesis(self, parsed):
+            """Answer one accepted chat input frame with the spawn-then-kill sweep.
+
+            This is the lane that aims at the ENGINE death chain, not at the
+            local player's own ``Main_Dead`` window, so read what it does
+            before changing it.  ``UpdateAttrVital`` -- the carrier
+            ``_dispatch_hp_death_hypothesis`` above uses -- cannot reach that
+            chain at all: its inbound handler 0x5F2400..0x5F261A contains zero
+            ``mov r,[reg+0x20]; call r`` dispatch shapes over its whole extent.
+            The carrier that does is ``GSCN_RunTimeProtocolRes`` id 0x6E9D
+            with the DERIVED change mask bit 0x02 (the actor-entry collection
+            at +0x1C), whose inbound handler 0x5E4060 hands the list head to
+            0x446F30, which has exactly one direct caller in the image.
+
+            The request side is deliberately the SAME accepted 34-byte ascii12
+            shape the HYP-PF-014 echo lane classifies, for the same reason the
+            other three sweeps reuse it: it is the only client action an
+            attended tester can fire on demand, and every refusal guard is one
+            this project has already proven.  Nothing in the request is read --
+            it is a trigger, not an input.  The selected character is required
+            for the entry sequence only; the actor that dies is an NPC probe
+            resolved from the frozen placement source, not the player.
+
+            The answer is the encoder's whole three-frame sweep for ONE
+            identity, composed, re-read by an independent tag walker and
+            hash-pinned by ``build_runtimeres_death_sweep`` before a single
+            byte is returned:
+
+              * SPAWN -- the probe alive (HP 100, no BasicAttr bit 0x0080) with
+                a MovementAttr that places it.  An actor cannot be born dead:
+                an identity the client does not know takes 0x446990 -> vtable
+                +0x10 and never touches the dead-state sync 0x4437C0, so the
+                sweep MUST introduce the identity alive first.
+              * DYING_LATCH -- the same identity, HP 0, timer 20.0f > 0.  That
+                is vtable +0x40 (0x43BDA0), which gates ``[actor+0x70] |=
+                0x200`` at 0x44384C.
+              * DEATH_TASK -- the same identity, HP 0, timer 0.0f <= 0.  That
+                is vtable +0x3C (0x43BD70), which gates 0x443990 and therefore
+                ``call 0x472810`` -> ``CActorTask_Dead`` -> ``L"_F_DIE_000"``.
+
+            The polarity is inverted from intuition and the two predicates are
+            mutually exclusive on any one snapshot, which is why both sides
+            have to be sent, in that order.
+
+            ONE-SHOT, and that is not a convenience: the scenario declares
+            ``"one_shot": true`` because a second sweep would re-send SPAWN for
+            an identity the client now knows, which takes the vtable +0x20
+            update path instead of the spawn path and would silently resurrect
+            the probe.  A repeat trigger is refused with a named event and no
+            bytes.
+
+            The lane touches no store (nothing on this path has a write path),
+            takes no socket action, and composes nothing at all when the
+            scenario is absent.
+            """
+            self.rx_frames += 1
+            classification = classify_chat_input_attempt(legacy, parsed)
+            if classification != "ascii12":
+                self.events.append(
+                    f"runtimeres_death_hypothesis_{classification}_no_reply"
+                )
+                return []
+            if self.foundation.selected is None:
+                self.events.append(
+                    "runtimeres_death_hypothesis_no_selected_no_reply"
+                )
+                return []
+            if not self.teleport_sent or not self.runtime_ack_sent:
+                self.events.append(
+                    "runtimeres_death_hypothesis_wrong_sequence_no_reply"
+                )
+                return []
+            if self.runtimeres_death_sweep_count:
+                self.events.append(
+                    "runtimeres_death_hypothesis_already_sent_no_reply"
+                )
+                return []
+            actions = build_runtimeres_death_sweep(
+                legacy, runtimeres_death_probe, runtimeres_death_lethal,
+                runtimeres_death_hypothesis_scenario,
+            )
+            self.runtimeres_death_sweep_count += 1
+            self.events.append(
+                "runtimeres_death_hypothesis_spawn_then_kill_sent"
+            )
             return actions
 
         # PF-HYPOTHESIS-LEDGER: HYP-PF-015 active
@@ -1509,6 +1642,17 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # outright and app.py refuses the flags together, which is why
                 # the ordering of these branches cannot matter.
                 return self._dispatch_hp_death_hypothesis(parsed)
+            if (
+                runtimeres_death_hypothesis_scenario is not None
+                and nested_id == CHAT_INPUT_VITAL_ID
+            ):
+                # RUNTIMERES-DISPATCH-001.  This lane, the hp-death lane, the
+                # progression lane and both chat lanes are keyed on the same
+                # vital id, so they must never be able to see the same frame:
+                # make_state_class refuses any pair outright and app.py refuses
+                # the flags together, which is why the ordering of these
+                # branches cannot matter.
+                return self._dispatch_runtimeres_death_hypothesis(parsed)
             if (
                 delete_actor_hypothesis_scenario is not None
                 and nested_id == DELETE_ACTOR_VITAL_ID

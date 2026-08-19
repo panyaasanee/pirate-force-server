@@ -753,6 +753,34 @@ SRC_MODULES_WITH_BOTH = sum(
     1 for t in _src.values()
     if _count(r"make_remote_actor_entry\(", t) and _count(r"0x0080", t))
 
+# Round 86 re-pin.  Section [5] counts our own src/, so unlike every other
+# section in this file its numbers move when we write code -- that is the
+# point of it, and it is also why it has to be re-pinned deliberately rather
+# than loosened.  Round 85 wrote three zeros here and called them "the
+# server-side gap"; round 86 built RUNTIMERES-ENCODER-001 specifically to
+# close them, so a red line on those three guards today is the lane working,
+# not the lane breaking.  The counts are re-pinned to the new state AND the
+# module names are now pinned beside them, because a bare count going from
+# 4 to 5 tells the next reader nothing about which emitter arrived.
+SRC_MODULES_WITH_ACTOR_ENTRY_NAMES = tuple(sorted(
+    f for f, t in _src.items() if _count(r"make_remote_actor_entry\(", t)))
+SRC_MODULES_WITH_DEATH_TIMER_BIT_NAMES = tuple(sorted(
+    f for f, t in _src.items() if _count(r"0x0080", t)))
+SRC_MODULES_WITH_BOTH_NAMES = tuple(sorted(
+    f for f, t in _src.items()
+    if _count(r"make_remote_actor_entry\(", t) and _count(r"0x0080", t)))
+
+# GAP 2's guard was green and its sentence was false, which is worse than red.
+# Round 85 asserted "no call site anywhere passes current_hp = 0" by grepping
+# for the literal `current_hp = 0`.  Round 86's encoder passes exactly that
+# zero -- through a named constant, `RUNTIMERES_DEATH_HP_ZERO = 0` -- so the
+# literal search finds nothing and the old guard would have kept reporting a
+# zero that stopped being true.  The check now looks for the named constant as
+# well, and the sentence says which module carries it.
+SRC_ZERO_HP_CONST_MODULES = tuple(sorted(
+    f for f, t in _src.items()
+    if _count(r"HP_ZERO\s*=\s*0\b", t)))
+
 guard(bool(_v141), "the read-only v141 snapshot opened for counting")
 guard(len(_src) >= 30, "the read-only src/ package opened for counting (%d modules)"
       % len(_src))
@@ -760,18 +788,34 @@ guard("make_runtime_remote_actors" in _v141,
       "v141 already implements the derived-bit-0x02 actor-entry carrier")
 guard("make_remote_actor_entry" in _v141,
       "v141 already implements the actor-entry serializer (0x5E21D0)")
-guard(SRC_ACTOR_ENTRY_SITES == 4,
-      "src/ builds actor entries at exactly 4 call sites")
-guard(SRC_ACTOR_STREAM_SITES == 4,
-      "src/ sends the actor-entry carrier at exactly 4 call sites")
-guard(SRC_MODULES_WITH_ACTOR_ENTRY == 3,
-      "3 src/ modules build actor entries (population, scenario, scene_object)")
-guard(SRC_MODULES_WITH_DEATH_TIMER_BIT == 2,
-      "2 src/ modules mention BasicAttr bit 0x0080 (runtime, stats_progression)")
-guard(SRC_MODULES_WITH_BOTH == 0,
-      "GAP 1: ZERO src/ modules both build an actor entry AND set bit 0x0080")
-guard(SRC_ZERO_HP_SITES == 0 and V141_ZERO_HP_SITES == 0,
-      "GAP 2: ZERO call sites anywhere pass current_hp = 0")
+guard(SRC_ACTOR_ENTRY_SITES == 5,
+      "src/ builds actor entries at exactly 5 call sites (4 spawns + the "
+      "round-86 re-send)")
+guard(SRC_ACTOR_STREAM_SITES == 5,
+      "src/ sends the actor-entry carrier at exactly 5 call sites")
+guard(SRC_MODULES_WITH_ACTOR_ENTRY == 4
+      and SRC_MODULES_WITH_ACTOR_ENTRY_NAMES == (
+          "population.py", "runtimeres_death_hypothesis.py", "scenario.py",
+          "scene_object.py"),
+      "4 named src/ modules build actor entries %s"
+      % (SRC_MODULES_WITH_ACTOR_ENTRY_NAMES,))
+guard(SRC_MODULES_WITH_DEATH_TIMER_BIT == 3
+      and SRC_MODULES_WITH_DEATH_TIMER_BIT_NAMES == (
+          "runtime.py", "runtimeres_death_hypothesis.py",
+          "stats_progression_hypothesis.py"),
+      "3 named src/ modules mention BasicAttr bit 0x0080 %s"
+      % (SRC_MODULES_WITH_DEATH_TIMER_BIT_NAMES,))
+guard(SRC_MODULES_WITH_BOTH == 1
+      and SRC_MODULES_WITH_BOTH_NAMES == ("runtimeres_death_hypothesis.py",),
+      "GAP 1 CLOSED in round 86: exactly ONE src/ module both builds an actor "
+      "entry AND sets bit 0x0080, and it is runtimeres_death_hypothesis.py "
+      "(round 85 counted zero and named this as the missing emitter)")
+guard(SRC_ZERO_HP_SITES == 0 and V141_ZERO_HP_SITES == 0
+      and SRC_ZERO_HP_CONST_MODULES == ("runtimeres_death_hypothesis.py",),
+      "GAP 2 CLOSED in round 86: the literal `current_hp = 0` still appears "
+      "nowhere in src/ or v141, but runtimeres_death_hypothesis.py passes zero "
+      "through the named constant RUNTIMERES_DEATH_HP_ZERO -- the round-85 "
+      "sentence was about to stay green while ceasing to be true")
 guard(SRC_VITAL_STREAM_SITES == 13,
       "src/ sends the VitalData carrier (make_runtime_vitals) at 13 call sites")
 guard(_count(r"make_runtime_remote_actors\(",
@@ -781,7 +825,17 @@ guard(_count(r"make_runtime_remote_actors\(",
       "GAP 3: the HP-DEATH-002 encoder ships ONLY over make_runtime_vitals "
       "(UpdateAttrVital) and never over the actor-entry carrier")
 
-ACTIONABLE_GAPS = 3
+# Round 85 counted three actionable gaps and round 86 built the emitter that
+# closes all three.  This number counts *emitter* gaps -- things absent from
+# our own source -- and nothing else.  It does NOT say a corpse has been seen:
+# whether these frames produce a visible death is a runtime question that only
+# GT-022 can answer, and it is still unanswered.  Do not read 0 as "done".
+ACTIONABLE_GAPS = 0
+guard(ACTIONABLE_GAPS == 0
+      and SRC_MODULES_WITH_BOTH == 1
+      and bool(SRC_ZERO_HP_CONST_MODULES),
+      "all THREE round-85 emitter gaps are closed by one module -- this is a "
+      "statement about our source, NOT about anything observed on a screen")
 
 # ------------------------------------------------------------------- results
 COUNTS = {
@@ -821,6 +875,9 @@ COUNTS = {
     "src_modules_building_actor_entries": SRC_MODULES_WITH_ACTOR_ENTRY,
     "src_modules_setting_basicattr_bit_0x0080": SRC_MODULES_WITH_DEATH_TIMER_BIT,
     "src_modules_doing_both": SRC_MODULES_WITH_BOTH,
+    "src_modules_doing_both_names": list(SRC_MODULES_WITH_BOTH_NAMES),
+    "src_modules_passing_zero_hp_by_named_constant":
+        list(SRC_ZERO_HP_CONST_MODULES),
     "server_call_sites_emitting_zero_current_hp": SRC_ZERO_HP_SITES
     + V141_ZERO_HP_SITES,
     "actionable_server_gaps": ACTIONABLE_GAPS,

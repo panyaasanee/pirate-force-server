@@ -86,8 +86,24 @@ come out of this capstone-free matcher with the identical id-slot VAs:
     DeleteActorVital               -> 0x01081FD0
     Channel_LocalTalkMessageVital  -> 0x01084458
 
+ROUND 86 - NAMES-FOLD-003 half (ก), section [5]
+-----------------------------------------------
+Round 85 only ever pointed this matcher at the tsv.  The 49 names the table
+inherited from the frozen v141 snapshot were scoped out, so they were the only
+rows left with a null id_slot_va.  Section [5] runs the SAME classify() over
+those 49 - same byte template, same two conditions, no relaxation of either -
+and pins the result.  38 clear the rule and now carry the slot the binary
+actually writes; 11 do not and stay null WITH the reason printed.
+Half (ข) - the 209 registered classes the tsv never listed - is deliberately in
+a sibling tool, tools/pf_vital_thunk_census_static.py, so that this file stays
+what it is: a verifier that reads and asserts and writes nothing.  The sibling
+imports Image/run_acceptance from here, so there is exactly ONE copy of the
+byte template and exactly ONE acceptance gate in the project.
+
 Usage:
     python3 tools/pf_vital_name_thunk_static.py [--list TIER] [binary] [tsv]
+      --list PROVEN|AMBIGUOUS|NO_THUNK|NO_LITERAL|ALL   tsv candidates
+      --list LEGACY | LEGACY:PROVEN | LEGACY:AMBIGUOUS  the 49 v141-inherited
 Exit 0 = every guard reproduced.  Nonzero = something drifted.
 """
 from __future__ import annotations
@@ -140,6 +156,36 @@ EXPECT_AMBIG_REASONS = {
 # a nonzero EXPECT_PROVEN_NEW again means the tsv grew a name the table lacks.
 EXPECT_PROVEN_ALREADY_IN_TABLE = 273
 EXPECT_PROVEN_NEW = 0
+
+# ---- NAMES-FOLD-003 half (ก), pinned round 86 -----------------------------
+# The names docs/PF_VITAL_NAMES.json inherited from the frozen v141 snapshot
+# (source starts with "v141").  Round 85 scoped them out of the fold, so they
+# were the only entries left without an id_slot_va.  Round 86 ran this same
+# matcher over them - the matcher is NOT relaxed for them in any way.
+#
+# 🔴 ERRATUM to the NAMES-FOLD-003 task brief: the brief says "38 entries ...
+# carry no id_slot_va".  The population is 49 (all of the v141-sourced rows);
+# 38 is the number that CLEARS both conditions.  Both numbers are pinned below
+# so the two can never be confused again.
+EXPECT_LEGACY_TOTAL = 49
+EXPECT_LEGACY_TIERS = {
+    "PROVEN": 38,
+    "AMBIGUOUS": 10,
+    "NO_THUNK": 0,
+    "NO_LITERAL": 1,
+}
+EXPECT_LEGACY_AMBIG_REASONS = {
+    "literal occurs more than once": 0,
+    "literal pushed from more than one site": 10,
+    "more than one thunk claims the literal": 0,
+}
+# Of the 38 PROVEN legacy names, 24 are also in the tsv (so round 85 had already
+# classified them PROVEN and simply did not write the slot back to a v141 row),
+# and 14 are NOT in the tsv at all - they are part of the 209-class remainder
+# that tools/pf_vital_thunk_census_static.py enumerates.  (17 of that remainder
+# carry a name the table already holds: these 14 PROVEN plus 3 AMBIGUOUS.)
+EXPECT_LEGACY_PROVEN_IN_TSV = 24
+EXPECT_LEGACY_PROVEN_OUTSIDE_TSV = 14
 
 ACCEPTANCE = {
     "LogoutVital": 0x0108207C,
@@ -322,6 +368,39 @@ def load_candidates(path: Path):
     return rows
 
 
+def run_acceptance(image: Image, thunks_by_literal: dict, report=guard) -> bool:
+    """Reproduce the three round-62 pins with this capstone-free matcher.
+
+    THIS IS THE GATE.  Nothing in this module - and nothing in any sibling tool
+    that imports it - is allowed to say anything about an unknown name until
+    this returns True.  tools/pf_vital_thunk_census_static.py calls it for
+    exactly that reason: one matcher, one gate, two callers.
+    """
+    ok = True
+    for name, want_slot in ACCEPTANCE.items():
+        lits = image.literal_vas(name)
+        pushes = image.push_sites(lits[0]) if len(lits) == 1 else []
+        found = thunks_by_literal.get(lits[0], []) if len(lits) == 1 else []
+        got = found[0][1] if len(found) == 1 else None
+        ok &= report(
+            len(lits) == 1 and len(pushes) == 1 and got == want_slot,
+            f"{name}: unique literal + single push + thunk -> id-slot "
+            f"0x{want_slot:08X} (got {'0x%08X' % got if got is not None else None}, "
+            f"{len(lits)} literal(s), {len(pushes)} push(es))",
+        )
+    return bool(ok)
+
+
+def is_v141_sourced(entry) -> bool:
+    """True for the names grandfathered in from the frozen v141 snapshot.
+
+    Same predicate tests/test_vital_names_table.py uses.  These are the only
+    entries rule (4) lets carry a null id_slot_va, which is why they are the
+    population of NAMES-FOLD-003 half (ก).
+    """
+    return str(entry.get("source", "")).startswith("v141")
+
+
 def classify(image: Image, thunks_by_literal: dict, candidates):
     """Sort candidates into the four tiers.  Pure function of the image."""
     results = []
@@ -397,18 +476,7 @@ def main(argv):
     print("\n[0] ACCEPTANCE - reproduce the three round-62 pins without capstone")
     print("    (if any of these fails, every number below is void)")
     thunks_by_literal, forms = image.scan_all_thunks()
-    acceptance_ok = True
-    for name, want_slot in ACCEPTANCE.items():
-        lits = image.literal_vas(name)
-        pushes = image.push_sites(lits[0]) if len(lits) == 1 else []
-        found = thunks_by_literal.get(lits[0], []) if len(lits) == 1 else []
-        got = found[0][1] if len(found) == 1 else None
-        acceptance_ok &= guard(
-            len(lits) == 1 and len(pushes) == 1 and got == want_slot,
-            f"{name}: unique literal + single push + thunk -> id-slot "
-            f"0x{want_slot:08X} (got {'0x%08X' % got if got is not None else None}, "
-            f"{len(lits)} literal(s), {len(pushes)} push(es))",
-        )
+    acceptance_ok = run_acceptance(image, thunks_by_literal)
     if not acceptance_ok:
         print("\n== RESULT ==\nFAIL (acceptance test failed - matcher is wrong, results discarded)")
         return 1
@@ -468,11 +536,23 @@ def main(argv):
     # ---------- [4] agreement with the project names table ----------
     print("\n[4] agreement with docs/PF_VITAL_NAMES.json (the single home)")
     table = None
+    legacy_rows = []
     try:
         table = load_names_table()
     except VitalNamesError as exc:
         guard(False, f"names table loads [{exc}]")
     if table is not None:
+        # NAMES-FOLD-003 half (ก) is classified HERE, before the drift guard
+        # below, because after round 86 the table publishes id_slot_va for
+        # legacy names the tsv never listed.  The drift guard has to be able to
+        # look those up, or it would report a phantom drift for every one of
+        # them.  Same classify(), same matcher, no relaxation.
+        legacy_entries = [e for e in table.entries if is_v141_sourced(e)]
+        legacy_rows = classify(
+            image,
+            thunks_by_literal,
+            [(e["id_dec"], e["name"]) for e in legacy_entries],
+        )
         already = [r for r in proven if r["id"] in table.by_id]
         new = [r for r in proven if r["id"] not in table.by_id]
         guard(len(already) == EXPECT_PROVEN_ALREADY_IN_TABLE,
@@ -492,6 +572,7 @@ def main(argv):
         # every id_slot_va the table publishes must be what the binary writes
         published = [e for e in table.entries if e.get("id_slot_va")]
         by_name = {r["name"]: r for r in rows}
+        by_name.update({r["name"]: r for r in legacy_rows})
         drift = []
         for entry in published:
             row = by_name.get(entry["name"])
@@ -503,11 +584,76 @@ def main(argv):
               f"all {len(published)} published id_slot_va values are the slot the binary "
               f"thunk writes ({len(drift)} drift)" + (f" -> {drift[:3]}" if drift else ""))
 
+    # ---------- [5] NAMES-FOLD-003 half (ก): the v141-inherited entries -------
+    print("\n[5] NAMES-FOLD-003 half (ก) - the v141-inherited entries")
+    print("    (same matcher, same two conditions; nothing is relaxed for them)")
+    if table is not None:
+        guard(len(legacy_rows) == EXPECT_LEGACY_TOTAL,
+              f"{len(legacy_rows)} entries are v141-inherited (pinned "
+              f"{EXPECT_LEGACY_TOTAL}); the task brief's '38' is the number that "
+              f"QUALIFIES, not the population")
+        lcounts = {tier: 0 for tier in EXPECT_LEGACY_TIERS}
+        for row in legacy_rows:
+            lcounts[row["tier"]] += 1
+        for tier, expect in EXPECT_LEGACY_TIERS.items():
+            guard(lcounts[tier] == expect,
+                  f"legacy {tier:<11} = {lcounts[tier]:>3} (pinned {expect})")
+        guard(sum(lcounts.values()) == len(legacy_rows),
+              f"tiers partition the legacy population "
+              f"({sum(lcounts.values())} == {len(legacy_rows)})")
+        lreasons = {}
+        for row in legacy_rows:
+            if row["tier"] == "AMBIGUOUS":
+                lreasons[row["why"]] = lreasons.get(row["why"], 0) + 1
+        for why, expect in EXPECT_LEGACY_AMBIG_REASONS.items():
+            guard(lreasons.get(why, 0) == expect,
+                  f"legacy AMBIGUOUS because '{why}' = {lreasons.get(why, 0)} "
+                  f"(pinned {expect})")
+
+        tsv_names = {n for _i, n in candidates}
+        lproven = [r for r in legacy_rows if r["tier"] == "PROVEN"]
+        in_tsv = [r for r in lproven if r["name"] in tsv_names]
+        out_tsv = [r for r in lproven if r["name"] not in tsv_names]
+        guard(len(in_tsv) == EXPECT_LEGACY_PROVEN_IN_TSV,
+              f"{len(in_tsv)} legacy PROVEN names are also tsv candidates "
+              f"(pinned {EXPECT_LEGACY_PROVEN_IN_TSV})")
+        guard(len(out_tsv) == EXPECT_LEGACY_PROVEN_OUTSIDE_TSV,
+              f"{len(out_tsv)} legacy PROVEN names are NOT in the tsv at all "
+              f"(pinned {EXPECT_LEGACY_PROVEN_OUTSIDE_TSV}) - they belong to the "
+              f"209-class remainder")
+        guard(all(wire_id(r["name"]) == r["id"] for r in legacy_rows),
+              f"condition (a) HASH MATCH holds for every legacy entry "
+              f"({sum(1 for r in legacy_rows if wire_id(r['name']) != r['id'])} mismatch)")
+
+        # the table must record EXACTLY what the matcher found, and nothing else
+        missing, wrong, overclaim = [], [], []
+        for row in legacy_rows:
+            entry = table.by_name[row["name"]]
+            got = entry.get("id_slot_va")
+            if row["tier"] == "PROVEN":
+                if not got:
+                    missing.append(row["name"])
+                elif int(got, 16) != row["id_slot_va"]:
+                    wrong.append((row["name"], got, "0x%08X" % row["id_slot_va"]))
+            elif got:
+                overclaim.append((row["name"], row["tier"], got))
+        guard(not missing,
+              f"every PROVEN legacy entry carries its slot in the table "
+              f"({len(missing)} without)" + (f" -> {missing[:3]}" if missing else ""))
+        guard(not wrong,
+              f"no PROVEN legacy entry publishes a slot the binary does not write "
+              f"({len(wrong)} wrong)" + (f" -> {wrong[:3]}" if wrong else ""))
+        guard(not overclaim,
+              f"no legacy entry that FAILED the rule carries a slot anyway "
+              f"({len(overclaim)} overclaim)" + (f" -> {overclaim[:3]}" if overclaim else ""))
+
     # ---------- optional listing (so the report can be re-derived) ----------
     if want_list:
         print(f"\n[--list {want_list}]")
-        for row in rows:
-            if row["tier"] == want_list or want_list == "ALL":
+        source = legacy_rows if want_list.startswith("LEGACY") else rows
+        tier_want = want_list.split(":", 1)[1] if ":" in want_list else None
+        for row in source:
+            if want_list in ("ALL", "LEGACY") or row["tier"] in (want_list, tier_want):
                 slot = "0x%08X" % row["id_slot_va"] if row["id_slot_va"] else "-"
                 print(f"  0x{row['id']:04X}\t{row['name']}\t{row['tier']}\t{slot}\t{row['why']}")
 

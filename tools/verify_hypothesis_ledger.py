@@ -113,7 +113,34 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # with an INDEPENDENT tag walker and confirms that exactly one of the four frames carries
 # hp_current == 0 together with a positive death timer.  Not driven over TCP; no client has
 # ever seen bit 0x0080; that is GT-019.  Count moves to 29.
-CANONICAL_CONTENT_SHA256 = "7A2BC6113A94D559FAD94FAF6F7867DDDB0B8B8D7A345AAEEFC6B03ADEE48A4F"
+# -> EE1CE2A2.. (2026-08-19 RUNTIMERES-ENCODER-001: HYP-PF-023 APPENDED -- the
+# three-frame spawn-then-kill sweep over the ACTOR-ENTRY carrier of
+# GSCN_RunTimeProtocolRes 0x6E9D, behind its own opt-in scenario
+# scenarios/runtimeres_death_hypothesis_spawn_then_kill.json and the new
+# --runtimeres-death-hypothesis-scenario flag.  Appended at the end so every existing
+# entry index stays stable.  It exists because round 85 proved a negative that invalidates
+# the route HYP-PF-022 was built on: the UpdateAttrVital handler contains not one dispatch
+# of the shape the engine's death chain requires, so that lane can open the local player's
+# downed window -- which is exactly what the owner watched happen on her own screen -- and
+# can never latch the dead state, spawn CActorTask_Dead or play _F_DIE_000, no matter what
+# it sends.  This is therefore a SEPARATE entry and not a second HYP-PF-022 version:
+# different carrier (derived change mask bit 0x02 at PC offset 13, the actor-entry
+# collection at object +0x1C, not the VitalData sub-object at +0x18), different frame id,
+# different arity and a different claim.  HYP-PF-022 is untouched and still active, and
+# stays the lane that owns the Main_Dead window.  TWO FACTS ARE LOAD-BEARING AND EASY TO
+# GET WRONG.  First, THE TIMER POLARITY IS INVERTED FROM INTUITION: the positive value
+# that opens the dying window is the same value that PREVENTS the animation, because the
+# two engine predicates differ only in the sign test on the f32 at BasicAttr +0x58, so
+# BOTH sides must be sent and in that order.  Second, AN ACTOR CANNOT BE BORN DEAD: an
+# unrecognised 64-bit identity takes the spawn path, which never touches the dead-state
+# sync, so the sweep needs three frames -- SPAWN, DYING_LATCH, DEATH_TASK -- and killing
+# anything requires a second message about an identity the client already knows.  Nothing
+# about the envelope is invented: the frames are composed by the frozen V141 serializers,
+# and what is DESIGNED is the policy of answering one accepted chat-input frame with this
+# sweep, which no capture has ever shown.  Proven offline through the real dispatcher; no
+# client has ever seen one of these frames, and no client has ever been observed to play
+# the death animation by anything in this project.  That is GT-022.  Count moves to 30.
+CANONICAL_CONTENT_SHA256 = "EE1CE2A2F68770D07CA25F40136E32B6A6E85C155AED195DE3FE6D0E5CF90879"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -211,6 +238,19 @@ EXPECTED_IDS = (
     # baseline projection is byte-identical with and without this lane's
     # unlock token.
     "HYP-PF-022",
+    # HYP-PF-023 (RUNTIMERES-ENCODER-001: answer one accepted chat-input frame
+    # with a three-frame SPAWN / DYING_LATCH / DEATH_TASK sweep for ONE identity
+    # over the actor-entry carrier of GSCN_RunTimeProtocolRes 0x6E9D, behind its
+    # own runtimeres-death opt-in scenario, under the owner's standing
+    # pre-approval of 2026-08-17 18:2x, on the RUNTIMERES-ACTOR-ENTRY-001 static
+    # milestone) is likewise appended at the end so every existing entry index
+    # stays stable.  It is NOT a second version of HYP-PF-022: round 85 proved
+    # that the UpdateAttrVital pipe that entry rides cannot reach the engine's
+    # death chain at all, so this lane uses a different carrier, a different
+    # frame id and a different arity to make a claim that one cannot make.
+    # HYP-PF-022 is untouched and still active as the lane that owns the local
+    # player's Main_Dead window, which is the half a human has actually seen.
+    "HYP-PF-023",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -244,6 +284,7 @@ EXPECTED_META = {
     "HYP-PF-020": ("protocol_hypothesis", "STATS-PROG-002", "active"),
     "HYP-PF-021": ("protocol_hypothesis", "DELETE-REFRESH-001", "active"),
     "HYP-PF-022": ("protocol_hypothesis", "HP-DEATH-002", "active"),
+    "HYP-PF-023": ("protocol_hypothesis", "RUNTIMERES-ENCODER-001", "active"),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}
 STATUSES = {"active", "frozen", "retired", "harness_only", "expired_pending_decision"}

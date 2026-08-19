@@ -310,3 +310,39 @@
 # SCAN-DEBT-001 -- the single definition of "a client UI model file", imported by
 # one tool and two test modules, so a fresh clone without it fails to import.
 !/tools/pf_client_ui_assets.py
+
+# Round 86.  SIX files, written by the chief in one edit for the same reason
+# round 84 records: lanes do not write their own allowlist lines, because two
+# lanes editing this file in the same round is how round 81 lost three of them.
+# Both lanes of this round independently reported being ignored before commit,
+# which is the fifth consecutive round the check-ignore step has paid for itself.
+# It said FIVE until round 87 counted them.  Round 86 was cut off mid-flight and
+# the round that took over re-ran the check-ignore step rather than trusting the
+# sentence above, which is the only reason the sixth file below is here: the
+# headless replay was listed in HYP-PF-023's evidence_refs while being invisible
+# to version control, so the ledger would have cited a file a fresh clone does
+# not contain.  The lesson is not "write six instead of five", it is that a
+# prose count of allowlist lines is not a check, and the check is cheap.
+# RUNTIMERES-ENCODER-001 -- the spawn-then-kill encoder's verifier, its report
+# and the headless replay that drives the sweep over a real socket.
+!/tools/pf_runtimeres_death_encoder_static.py
+!/tools/pf_runtimeres_death_headless_replay.py
+!/reports/PF_RUNTIMERES_ENCODER001_SPAWN_THEN_KILL_20260819.md
+# NAMES-FOLD-003 -- the thunk census tool, its report, and the machine-readable
+# companion the report's counts are re-derived from.  The .census.json is data
+# rather than prose and still has to be visible, or the report cites a file
+# version control cannot see.
+!/tools/pf_vital_thunk_census_static.py
+!/reports/PF_NAMES_FOLD003_LEGACY_SLOTS_AND_THUNK_CENSUS_20260819.md
+!/reports/PF_NAMES_FOLD003_LEGACY_SLOTS_AND_THUNK_CENSUS_20260819.census.json
+
+# Round 87, and this one is a debt rather than a new file.  Sweeping every
+# evidence_ref and source_ref in the hypothesis ledger against check-ignore --
+# which is what the new test beside verify_hypothesis_ledger.py now does on
+# every run -- found this report ignored since the day it was written on
+# 2026-08-14, while TWO ACTIVE ENTRIES, HYP-PF-008 and HYP-PF-010, cite it as
+# evidence.  Nothing was wrong with the file and nothing in either entry has to
+# change: a fresh clone simply did not contain the document those two claims
+# rest on, and no check in this repository was looking.  It is added rather
+# than the references removed, because the references are correct.
+!/reports/PF_RE_V107_to_V110_Stateful_Inventory_and_ActionItem_Capture_20260814.md

@@ -1,0 +1,152 @@
+{
+  "schema": 1,
+  "id": "runtimeres_death_hypothesis_spawn_then_kill",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-023",
+  "hypothesis_id_is_registered_in_the_ledger": true,
+  "lethal": true,
+  "entry": {
+    "flow": "full_writable_character",
+    "required_sequence": "selected_and_runtime_ready",
+    "response_policy": "compose_spawn_then_kill_actor_entry_frames_no_write_no_close"
+  },
+  "dispatch": {
+    "wired": true,
+    "wiring_owner": "runtimeres_dispatch_001_round_86",
+    "app_policy_when_lane_disabled": "no_frames_composed_and_the_encoder_raises_if_called_directly",
+    "frames_per_accepted_request": 3,
+    "step_order": [
+      "SPAWN",
+      "DYING_LATCH",
+      "DEATH_TASK"
+    ],
+    "lethal_steps": [
+      "DYING_LATCH",
+      "DEATH_TASK"
+    ],
+    "spacing_seconds": 6.0,
+    "first_frame_delay_seconds": 0.0,
+    "delay_semantics": "gap_before_each_send_on_a_cumulative_deadline",
+    "action_label_prefix": "HYP_PF_023_RUNTIMERES_DEATH_",
+    "action_labels": [
+      "HYP_PF_023_RUNTIMERES_DEATH_SPAWN",
+      "HYP_PF_023_RUNTIMERES_DEATH_DYING_LATCH",
+      "HYP_PF_023_RUNTIMERES_DEATH_DEATH_TASK"
+    ],
+    "one_shot": true,
+    "socket_action": "none"
+  },
+  "wire": {
+    "vital_id": 28317,
+    "vital_version": 4,
+    "envelope": "gscn_runtime_protocol_res_v4_actor_entry_collection",
+    "inherited_change_mask": 0,
+    "derived_change_mask": 2,
+    "derived_object_offset": 28,
+    "actor_type": 4,
+    "attr_ids": [
+      2773,
+      8295
+    ],
+    "field_order_rule": "ascending_mask_bit_within_each_block",
+    "death_field": {
+      "name": "hp_death_timer",
+      "block": "basic",
+      "mask_bit": 128,
+      "object_offset": 88,
+      "wire_tag": 42,
+      "width": "f32"
+    },
+    "polarity": {
+      "dying_latch_predicate": 4439456,
+      "dying_latch_vtable_slot": 64,
+      "dying_latch_rule": "current_hp_zero_and_death_timer_greater_than_zero",
+      "dying_latch_value_seconds": 20.0,
+      "death_task_predicate": 4439408,
+      "death_task_vtable_slot": 60,
+      "death_task_rule": "current_hp_zero_and_death_timer_less_than_or_equal_to_zero",
+      "death_task_value_seconds": 0.0,
+      "zero_float_constant": 15767708
+    },
+    "chain": {
+      "inbound_handler": 6176864,
+      "actor_reconcile": 4484912,
+      "actor_reconcile_direct_callers": 1,
+      "identity_lookup": 4481392,
+      "spawn_when_unknown": 4483472,
+      "update_when_known_vtable_slot": 32,
+      "attr_apply_and_dead_sync": 4474608,
+      "dead_state_sync": 4470720,
+      "death_task_ctor": 4663312,
+      "death_task_id": 2147483653,
+      "die_animation_literal": 15790176,
+      "model_loaded_gate": 64
+    }
+  },
+  "probe": {
+    "source": "port_royal_unambiguous_placements_frozen_v141",
+    "selection_rule": "nearest_placement_to_the_frozen_v135_player_spawn",
+    "identity_formula": "0x2000_plus_placement_index_plus_1",
+    "placement_index": 0,
+    "template_id": 1,
+    "actor_identity": 8193,
+    "visual_preset": "P_MALE_002_000_SP1",
+    "source_name": "Navy Transfer",
+    "per_step": {
+      "SPAWN": {
+        "lethal": false,
+        "basic_mask": 780,
+        "pc_size": 173,
+        "pc_sha256": "8965DCF2574B733B119741D2350FB5BAB6D416A9168113AA3E95A5F2FBAC698C",
+        "frame_size": 185,
+        "frame_sha256": "E7E2B0C671C1B023F5FD6FAE4D6489CC670F648DBD3802A67B760816A78AB0C4"
+      },
+      "DYING_LATCH": {
+        "lethal": true,
+        "basic_mask": 908,
+        "pc_size": 120,
+        "pc_sha256": "451D73AD2AB0360D206DDD3A3C4CED9A7A328FFD8455B84C4018A27B635D21EA",
+        "frame_size": 131,
+        "frame_sha256": "CDBFED6788E418110C1D8FE177BE9D4275DC7FF376A8E654F3B734C14BCDA2E4"
+      },
+      "DEATH_TASK": {
+        "lethal": true,
+        "basic_mask": 908,
+        "pc_size": 120,
+        "pc_sha256": "0116A7300814CA53F38668B2CAA193123324360F172EE2A9F9B5791BDE81BF0C",
+        "frame_size": 131,
+        "frame_sha256": "D545EC392D880D96BBC669A1F5646741268E8D0E29FD32B90474FF080160D1A0"
+      }
+    },
+    "hp_alive": 100,
+    "hp_max": 100,
+    "hp_zero": 0,
+    "scene_id": 1,
+    "scene_sequence": 0,
+    "baseline_crosscheck": "the_timerless_npc_attr_body_reproduces_legacy_make_npc_attr_byte_for_byte"
+  },
+  "persisted_post_state": {
+    "database_write": "none"
+  },
+  "capabilities": [
+    "emit_gscn_runtimeprotocolres_0x6e9d_derived_mask_bit_0x02_actor_entries",
+    "re_send_the_same_identity_so_the_client_takes_the_vtable_0x20_update_path",
+    "emit_basicattr_bit_0x0080_on_the_actor_entry_path_not_the_vital_path",
+    "sweep_the_death_timer_from_positive_to_zero_in_the_proven_polarity_order",
+    "reproduce_the_frozen_make_npc_attr_body_byte_for_byte_when_no_timer_is_set",
+    "refuse_to_return_a_sweep_that_cannot_reach_the_death_task_gate"
+  ],
+  "nonclaims": [
+    "no_client_has_ever_been_shown_one_byte_of_this_profile",
+    "client_rendering_of_the_death_animation_pending_gt022",
+    "that_the_dying_latch_is_a_prerequisite_for_the_death_task",
+    "that_the_229_unresolved_vtable_0x20_dispatch_sites_are_not_actors",
+    "the_original_server_death_rules_which_this_project_cannot_read",
+    "any_damage_model_or_death_penalty_or_corpse_persistence",
+    "no_way_back_out_of_the_state_this_sweep_leaves_behind",
+    "no_persistence_hp_has_no_write_path_and_this_lane_opens_none",
+    "production_dispatch_wiring_the_wiring_is_opt_in_and_production_allowed_is_false",
+    "production_baseline_behavior"
+  ]
+}

@@ -222,13 +222,47 @@ class TestTheAnswer(unittest.TestCase):
         self.assertEqual([tool.dw(0x446B2C + i * 4) for i in range(5)],
                          [0x4469E1, 0x4469F7, 0x446A3D, 0x446A5A, 0x446A77])
 
-    def test_the_server_gap_is_three_specific_zeros(self):
+    def test_the_server_gap_was_three_specific_zeros_and_round_86_closed_them(self):
+        """Round 85 wrote three zeros here and called them the server-side gap.
+
+        Round 86 built RUNTIMERES-ENCODER-001 to close them, so this test is
+        re-pinned to the closure rather than deleted: it now fails if somebody
+        removes the emitter, which is the direction that would actually cost
+        us something.  See ERRATUM 1 in the report.
+        """
         counts = load_tool().COUNTS
-        self.assertEqual(counts["src_modules_doing_both"], 0)
+        # gap 1 and gap 3: exactly one module now does both, and it is named,
+        # so adding a second emitter is a red line that says whose file it is
+        # rather than an arithmetic disagreement about a bare count.
+        self.assertEqual(counts["src_modules_doing_both"], 1)
+        self.assertEqual(counts["src_modules_doing_both_names"],
+                         ["runtimeres_death_hypothesis.py"])
+        self.assertEqual(counts["actionable_server_gaps"], 0)
+        self.assertEqual(counts["src_actor_stream_call_sites"], 5)
+        # gap 2 is the one worth keeping a test on.  The round-85 measure -
+        # the literal `current_hp = 0` - is STILL zero, because the encoder
+        # passes its zero through a named constant.  That guard was about to
+        # stay green while its sentence stopped being true, so both halves are
+        # asserted here: the old measure and the one that actually notices.
         self.assertEqual(counts["server_call_sites_emitting_zero_current_hp"], 0)
-        self.assertEqual(counts["actionable_server_gaps"], 3)
-        # the carrier IS already built - that is what makes the gap small
-        self.assertEqual(counts["src_actor_stream_call_sites"], 4)
+        self.assertEqual(counts["src_modules_passing_zero_hp_by_named_constant"],
+                         ["runtimeres_death_hypothesis.py"])
+
+    def test_the_erratum_is_present_and_does_not_rewrite_the_original(self):
+        """The published prose keeps its wrong sentence; the erratum follows it.
+
+        Same shape as tests/test_hp_death_erratum.py: making the record tidy by
+        making it false has to be as red as not correcting it at all.
+        """
+        text = REPORT.read_text(encoding="utf-8")
+        original = 'Each is a countable zero today.'
+        erratum = "## ERRATUM 1 --- round 86"
+        erratum = erratum.replace("---", "—")
+        self.assertIn(original, text,
+                      "the original sentence must survive verbatim")
+        self.assertIn(erratum, text, "the erratum must be present")
+        self.assertLess(text.index(original), text.index(erratum),
+                        "the erratum must come after the claim it corrects")
 
 
 class TestTraps(unittest.TestCase):

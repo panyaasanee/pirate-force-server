@@ -230,7 +230,7 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
 
 ```json RUNTIMERES_COUNTS
 {
-  "actionable_server_gaps": 3,
+  "actionable_server_gaps": 0,
   "actor_model_bit_0x40_writers": 2,
   "actor_type_jump_table_cases": 5,
   "actor_type_max": 6,
@@ -255,15 +255,21 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
   "gscn_runtime_protocol_req_id": 28271,
   "gscn_runtime_protocol_res_id": 28317,
   "gscn_runtime_protocol_res_sizeof": 40,
-  "guards": 150,
+  "guards": 151,
   "or_0x40_on_offset_0x70_sites": 3,
   "runtimeres_literal_occurrences_in_image": 0,
   "server_call_sites_emitting_zero_current_hp": 0,
-  "src_actor_entry_call_sites": 4,
-  "src_actor_stream_call_sites": 4,
-  "src_modules_building_actor_entries": 3,
-  "src_modules_doing_both": 0,
-  "src_modules_setting_basicattr_bit_0x0080": 2,
+  "src_actor_entry_call_sites": 5,
+  "src_actor_stream_call_sites": 5,
+  "src_modules_building_actor_entries": 4,
+  "src_modules_doing_both": 1,
+  "src_modules_doing_both_names": [
+    "runtimeres_death_hypothesis.py"
+  ],
+  "src_modules_passing_zero_hp_by_named_constant": [
+    "runtimeres_death_hypothesis.py"
+  ],
+  "src_modules_setting_basicattr_bit_0x0080": 3,
   "src_vital_stream_call_sites": 13,
   "vt20_dispatch_shapes_image_wide": 387,
   "vt20_dispatch_shapes_in_updateattrvital_handler": 0,
@@ -347,3 +353,57 @@ py -3 -m pytest tests/test_runtimeres_actor_entry_static.py -q
 ```
 
 The verifier is **pure stdlib** (`hashlib`, `json`, `os`, `re`, `struct`, `sys`) and needs no third-party package — a test asserts that. It reads the client image at `GameClient/GameClient.local.bin` (same staging fallback as the other static tools) and opens `current/pf_login_game_server_v141.py` and `src/pirateforce_foundation/` **read-only** for the gap counts. It touches no network, no database, no GameClient process, no server source and no canonical DB. The test file carries **five trap tests**; two of them (planted vtable pointer, spliced `+0x20` dispatch) exist specifically to prove the verifier can reject the failure modes round 83 was exposed to.
+
+---
+
+## ERRATUM 1 — round 86: the three counted zeros in §4 are no longer zero
+
+**Appended 2026-08-19 (round 86). Nothing above this line has been rewritten
+except the `RUNTIMERES_COUNTS` block, which is a live mirror of a tool run and
+not a published claim** — this file's own test says in so many words that when
+a count legitimately moves, the block is re-pinned in the same change. The
+prose is what carries the claim, so the prose gets an erratum instead.
+
+§4 says of the three server-side gaps: *"Each is a countable zero today."*
+That sentence was true when it was written and is false now, because round 86
+built `RUNTIMERES-ENCODER-001` for the express purpose of making it false. The
+table stays as written; read it as the state of the source on 2026-08-19
+before that lane landed. What moved:
+
+| §4 gap | round 85 | round 86 | closed by |
+| --- | --- | --- | --- |
+| 1 — a re-send for an already-known identity | `src_actor_entry_call_sites` = 4, all spawn-shaped | **5**, one of them a second entry for an identity already sent | `src/pirateforce_foundation/runtimeres_death_hypothesis.py` |
+| 2 — `current_hp = 0` on that path | `server_call_sites_emitting_zero_current_hp` = 0 | **still 0 by that measure** — see the warning below | same module |
+| 3 — the death-timer field on the entry path | `src_modules_doing_both` = 0 | **1** | same module |
+
+`actionable_server_gaps` therefore goes **3 → 0**. Read that zero narrowly: it
+counts things missing from *our own source*. It says nothing about whether
+these frames produce a corpse on a screen, which is a runtime question, is
+still unanswered, and is what GT-022 exists to ask.
+
+### 🔴 The interesting half: gap 2's guard was about to stay green while its sentence stopped being true
+
+Round 85 proved gap 2 by searching `src/` and the v141 snapshot for the literal
+`current_hp = 0` and finding none. Round 86's encoder passes exactly that zero
+— through a named constant, `RUNTIMERES_DEATH_HP_ZERO = 0`. The literal search
+finds nothing, so **the old guard would have gone on reporting a zero that had
+stopped being true, in green, indefinitely.** A guard that keeps passing after
+the thing it describes has changed is worse than one that fails, because
+nothing draws a human's attention to it.
+
+The check now also looks for the named constant, and reports which module
+carries it. The general lesson, which is the same shape as round 84's sampling
+lesson and round 85's hash lesson: **a negative asserted over a syntax is a
+claim about a spelling, not about a behaviour.** Anything that can be
+expressed a second way will eventually be expressed the second way, and the
+guard will not notice.
+
+Two further changes in the same edit, both tightenings:
+
+- the module *names* are pinned next to the counts, because a count moving
+  from 4 to 5 tells the next reader that something arrived but not what, and
+  the next person to add an emitter should get a red line that names their
+  own file rather than an arithmetic disagreement;
+- gap 3's guard is untouched and still green: `HP-DEATH-002` still ships only
+  over `make_runtime_vitals` and still never over the actor-entry carrier.
+  That lane was not modified by round 86 and keeps its own separate claim.

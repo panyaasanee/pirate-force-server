@@ -3,6 +3,8 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
+import shutil
+import subprocess
 import tempfile
 import unittest
 
@@ -170,6 +172,90 @@ class HypothesisLedgerTests(unittest.TestCase):
         for mutation in mutations:
             with self.subTest(mutation=mutation):
                 self.verify_mutation(mutation)
+
+
+class LedgerReferencesAreVisibleToVersionControlTests(unittest.TestCase):
+    """Every file the ledger cites must survive a fresh clone.
+
+    Round 87 added this after finding two separate instances of the same
+    defect in one sweep: a tool listed in HYP-PF-023's evidence_refs that the
+    round-86 allowlist edit had missed, and a report cited by HYP-PF-008 and
+    HYP-PF-010 that had been ignored since the day it was written five days
+    earlier.  Both files existed on the machine that wrote them, so an
+    existence check -- which the verifier already performs -- was green for
+    both.  Existence on the author's disk and presence in the repository are
+    different properties, and only the second one is what "evidence" means to
+    somebody who clones this later.
+
+    This is deliberately a test rather than a guard inside
+    verify_hypothesis_ledger.py, because it is the one check in this area that
+    cannot be answered from the working tree alone: it has to ask git.  The
+    verifier stays runnable with the standard library and no repository.
+    """
+
+    def _git(self, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["git", "--no-optional-locks", *args],
+            cwd=ROOT, capture_output=True, text=True,
+        )
+
+    def setUp(self) -> None:
+        if shutil.which("git") is None:
+            self.skipTest("git is not on PATH")
+        if self._git("rev-parse", "--is-inside-work-tree").returncode != 0:
+            self.skipTest("not a git work tree")
+
+    def _cited_paths(self) -> list[tuple[str, str]]:
+        raw = json.loads(DEFAULT_LEDGER.read_text(encoding="utf-8"))
+        cited: list[tuple[str, str]] = []
+        for entry in raw["entries"]:
+            for ref in entry.get("evidence_refs") or ():
+                cited.append((entry["id"], ref))
+            for ref in entry.get("source_refs") or ():
+                cited.append(
+                    (entry["id"], ref["path"] if isinstance(ref, dict) else ref)
+                )
+        return cited
+
+    def test_no_cited_file_is_excluded_by_gitignore(self) -> None:
+        cited = self._cited_paths()
+        self.assertGreater(len(cited), 100, "the sweep found suspiciously few refs")
+        ignored: list[tuple[str, str]] = []
+        for entry_id, ref in cited:
+            with self.subTest(entry=entry_id, ref=ref):
+                self.assertTrue(
+                    (ROOT / ref).exists(), f"{entry_id} cites a missing path: {ref}"
+                )
+                if self._git("check-ignore", "-q", ref).returncode == 0:
+                    ignored.append((entry_id, ref))
+        self.assertEqual(
+            ignored, [],
+            "the ledger cites files that version control cannot see, so a fresh "
+            "clone would not contain the evidence these claims rest on. Add an "
+            "allowlist line to .gitignore -- do NOT drop the reference, because "
+            "the reference is the part that is correct: " + repr(ignored),
+        )
+
+    def test_the_guard_actually_fires_on_an_ignored_path(self) -> None:
+        """A check that has never been seen to fail is not a check."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "init", "-q", str(root)], capture_output=True
+                ).returncode, 0,
+            )
+            (root / "ignored.md").write_text("evidence", encoding="utf-8")
+            (root / "visible.md").write_text("evidence", encoding="utf-8")
+            (root / ".gitignore").write_text("ignored.md\n", encoding="utf-8")
+            results = {}
+            for name in ("ignored.md", "visible.md"):
+                results[name] = subprocess.run(
+                    ["git", "--no-optional-locks", "check-ignore", "-q", name],
+                    cwd=root, capture_output=True,
+                ).returncode
+        self.assertEqual(results["ignored.md"], 0, "check-ignore missed an ignored file")
+        self.assertNotEqual(results["visible.md"], 0, "check-ignore over-reported")
 
 
 if __name__ == "__main__":

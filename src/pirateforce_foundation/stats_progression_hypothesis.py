@@ -1268,8 +1268,14 @@ def require_stats_progression_hypothesis_scenario(
 # The one correction this lane makes to HP-DEATH-001's open debt B1: the chain
 # is NOT ``UpdateAttrVital -> 0x4446F0``.  ``0x4446F0`` (attr apply + the
 # dead-state sync 0x4437C0 that latches [actor+0x70] |= 0x200, spawns
-# CActorTask_Dead and plays L"_F_DIE_000") has exactly ONE caller in the whole
-# image, 0x4566A7, which is the actor-entry update path -- not this one.
+# CActorTask_Dead and plays L"_F_DIE_000") has a full census of ONE direct
+# call in the whole image (0x4566A7, the actor-entry update path) PLUS FOUR
+# vtable +0x20 slots (the shared actor base and CNetNPC/CAvatarNPC/Pet -- see
+# reports/PF_RUNTIMERES_ACTOR_ENTRY001_STATIC_20260819.md sec 2). The
+# conclusion survives the fuller count unchanged: ``UpdateAttrVital``'s own
+# inbound handler (0x5F2400) contains zero +0x20 dispatch shapes across its
+# whole extent, so it cannot reach any of those five entry points -- not this
+# one.
 # CONSEQUENCE, stated so nobody claims more than we have: a frame from this
 # lane is expected to move the local player's HUD and open L"Main_Dead", and is
 # NOT expected to play the death animation or push L"TargetIsDead".
