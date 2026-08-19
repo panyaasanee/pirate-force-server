@@ -264,6 +264,14 @@
 # NAMES-HOME-001 - single home for Vital id -> name (docs/PF_VITAL_NAMES.json)
 !/tools/pf_vital_names.py
 
+# round 85 - NAMES-FOLD-002 (literal->slot thunk proof, 52 -> 298 entries)
+!/tools/pf_vital_name_thunk_static.py
+!/reports/PF_NAMES_FOLD002_LITERAL_TO_SLOT_20260819.md
+
+# round 85 - RUNTIMERES-ACTOR-ENTRY-001 (the real carrier of the death chain)
+!/tools/pf_runtimeres_actor_entry_static.py
+!/reports/PF_RUNTIMERES_ACTOR_ENTRY001_STATIC_20260819.md
+
 # HP-DEATH-002 / HYP-PF-022 - the lethal encoder's verifier and wire replay
 !/tools/verify_hp_death_encoder.py
 !/tools/pf_hp_death002_headless_replay.py

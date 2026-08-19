@@ -29,6 +29,7 @@ from tools.pf_vital_names import (
     DEFAULT_TABLE,
     DEFAULT_V141,
     VitalNamesError,
+    VitalNamesTable,
     cross_check_v141,
     load_names_table,
     parse_v141_names,
@@ -49,6 +50,71 @@ RESOLVED_ADDITIONS = {
     0xAC52: ("Channel_LocalTalkMessageVital", "0x1084458"),
 }
 
+# NAMES-FOLD-002 (round 85) folded 246 names out of the 327-candidate registry
+# in pf_bridge/VITAL_REGISTRY_FROM_CLIENT_BINARY_20260817.tsv, admitting only
+# the PROVEN tier of tools/pf_vital_name_thunk_static.py.
+FOLD_SOURCE = "NAMES-FOLD-002 (chief round 85)"
+FOLD_ENTRY_COUNT = 246
+EXPECTED_TOTAL_ENTRIES = 298
+
+
+# ---------------------------------------------------------------------------
+# Validators.  These live at module level, not inside a test method, so that
+# the SAME code proves the real table clean and proves that a deliberately
+# broken table is rejected.  A rule nobody has watched reject something is not
+# a rule.
+# ---------------------------------------------------------------------------
+def is_v141_sourced(entry) -> bool:
+    """True for the 49 names grandfathered in from the frozen v141 snapshot."""
+    return str(entry.get("source", "")).startswith("v141")
+
+
+def slot_evidence_problems(table) -> list:
+    """Entries that were added OUTSIDE v141 but carry no id-slot VA.
+
+    docs/PF_VITAL_NAMES.json rule (4)(b): a name that v141 never had is only
+    admissible with LITERAL -> SLOT evidence, and the slot VA is how that
+    evidence is recorded.  A null slot on such an entry means the name got in
+    on a hash match alone, which is exactly the mistake this table exists to
+    prevent (many distinct names hash to the same 16-bit id).
+    """
+    problems = []
+    for entry in table.entries:
+        if is_v141_sourced(entry):
+            continue
+        if not entry.get("id_slot_va"):
+            problems.append(
+                f"{entry['name']} (0x{entry['id_dec']:04X}, source={entry.get('source')!r}) "
+                f"has no id_slot_va; a name added outside v141 needs literal->slot evidence"
+            )
+    return problems
+
+
+def ordering_problems(entries) -> list:
+    """Entries must be stored in ascending id order, with no id used twice."""
+    problems = []
+    seen = {}
+    previous = None
+    for position, entry in enumerate(entries):
+        ident = entry["id_dec"]
+        if previous is not None and ident < previous:
+            problems.append(
+                f"entry #{position} ({entry['name']}, 0x{ident:04X}) breaks ascending "
+                f"id order after 0x{previous:04X}"
+            )
+        if ident in seen:
+            problems.append(
+                f"id 0x{ident:04X} used twice: {seen[ident]} and {entry['name']}"
+            )
+        seen[ident] = entry["name"]
+        previous = ident
+    return problems
+
+
+def _table_from(raw) -> VitalNamesTable:
+    """Build a table object straight from a dict, no file involved."""
+    return VitalNamesTable(raw, Path("<in-memory>"))
+
 
 class VitalNamesTableTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -64,7 +130,21 @@ class VitalNamesTableTests(unittest.TestCase):
             f"truth for Vital names; it must exist at {DEFAULT_TABLE}.",
         )
         self.assertGreaterEqual(len(self.table), 52)
-        self.assertEqual(self.raw.get("entry_count"), len(self.table))
+        self.assertEqual(
+            self.raw.get("entry_count"),
+            len(self.table),
+            "entry_count must equal len(entries); update it in the same edit "
+            "that adds or removes a name.",
+        )
+        self.assertEqual(
+            len(self.table),
+            EXPECTED_TOTAL_ENTRIES,
+            f"the table should hold {EXPECTED_TOTAL_ENTRIES} names "
+            f"(49 v141 + 3 PF-NAMEID-RESOLVE-001 + {FOLD_ENTRY_COUNT} NAMES-FOLD-002). "
+            f"If a round deliberately added or removed names, re-derive the count with "
+            f"python3 tools/pf_vital_name_thunk_static.py and update this pin in the "
+            f"same commit - never the other way round.",
+        )
 
     def test_ids_and_names_are_unique(self) -> None:
         ids = [entry["id_dec"] for entry in self.table.entries]
@@ -195,6 +275,178 @@ class VitalNamesTableTests(unittest.TestCase):
                     f"must not have been edited; revert it and keep the name in "
                     f"docs/PF_VITAL_NAMES.json.",
                 )
+
+    # --- NAMES-FOLD-002 (round 85) ---------------------------------------
+    def test_entries_are_sorted_by_id_with_no_duplicates(self) -> None:
+        problems = ordering_problems(self.table.entries)
+        self.assertEqual(
+            problems,
+            [],
+            "docs/PF_VITAL_NAMES.json entries must stay sorted by id with no id "
+            "used twice, so that a diff of this file is readable:\n  "
+            + "\n  ".join(problems),
+        )
+
+    def test_every_non_v141_entry_carries_a_slot_va(self) -> None:
+        problems = slot_evidence_problems(self.table)
+        self.assertEqual(
+            problems,
+            [],
+            "these entries were added outside the frozen v141 snapshot but carry no "
+            "id_slot_va, so nothing ties the name to the client binary:\n  "
+            + "\n  ".join(problems)
+            + "\nRe-derive the slot with python3 tools/pf_vital_name_thunk_static.py "
+            "or remove the entry. " + FIX_HINT,
+        )
+
+    def test_fold_round85_is_present_and_fully_evidenced(self) -> None:
+        folded = [e for e in self.table.entries if e.get("source") == FOLD_SOURCE]
+        self.assertEqual(
+            len(folded),
+            FOLD_ENTRY_COUNT,
+            f"expected {FOLD_ENTRY_COUNT} entries with source {FOLD_SOURCE!r}; "
+            f"found {len(folded)}. Re-derive with "
+            f"python3 tools/pf_vital_name_thunk_static.py.",
+        )
+        for entry in folded:
+            with self.subTest(name=entry["name"]):
+                self.assertEqual(wire_id(entry["name"]), entry["id_dec"])
+                self.assertTrue(
+                    entry.get("id_slot_va"),
+                    f"{entry['name']} was folded in without an id_slot_va.",
+                )
+                self.assertIsNone(
+                    entry.get("v141_const"),
+                    f"{entry['name']} is not a v141 name and must not claim a v141 const.",
+                )
+                joined = " ".join(entry["evidence"])
+                self.assertIn(
+                    "pf_vital_name_thunk_static.py",
+                    joined,
+                    f"{entry['name']} must cite the tool that proved its thunk.",
+                )
+                self.assertIn(
+                    entry["id_slot_va"].lstrip("0x").lstrip("0X").upper(),
+                    joined.upper(),
+                    f"{entry['name']}'s evidence must quote the id-slot VA it records.",
+                )
+
+    def test_folded_entries_never_overwrote_a_v141_name(self) -> None:
+        v141_ids = {pair[0] for pair in self.v141_pairs}
+        clashes = [
+            e["name"]
+            for e in self.table.entries
+            if e.get("source") == FOLD_SOURCE and e["id_dec"] in v141_ids
+        ]
+        self.assertEqual(
+            clashes,
+            [],
+            f"these folded entries sit on an id the frozen v141 snapshot already "
+            f"names: {clashes}. The fold must never restate a v141 id under a new "
+            f"source.",
+        )
+
+    def test_doc_header_explains_the_round85_fold(self) -> None:
+        doc = "\n".join(self.raw.get("__doc__", []))
+        for needle in (
+            "NAMES-FOLD-002",
+            "pf_vital_name_thunk_static.py",
+            "VITAL_REGISTRY_FROM_CLIENT_BINARY_20260817.tsv",
+            "PROVEN",
+            "AMBIGUOUS",
+            "NO_THUNK",
+            "NO_LITERAL",
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(
+                    needle,
+                    doc,
+                    f"__doc__ no longer explains {needle}; the header has to tell the "
+                    f"whole story of where these names came from and why the rest were "
+                    f"kept out.",
+                )
+
+    # --- trap tests: the rules above must actually reject bad tables -----
+    def _fake_entry(self, name, ident, **over):
+        entry = {
+            "id": f"0x{ident:04X}",
+            "id_dec": ident,
+            "name": name,
+            "source": FOLD_SOURCE,
+            "v141_const": None,
+            "id_slot_va": "0x1080000",
+            "evidence": ["fabricated for a trap test"],
+            "in_golden_corpus": False,
+            "notes": None,
+        }
+        entry.update(over)
+        return entry
+
+    def test_trap_hash_mismatch_is_caught(self) -> None:
+        """A name that does not hash to its id must be rejected."""
+        good = self._fake_entry("LogoutVital", wire_id("LogoutVital"))
+        bad = self._fake_entry("LogoutVita1", wire_id("LogoutVital"))  # digit one
+        self.assertEqual(_table_from({"entries": [good]}).hash_mismatches(), [])
+        self.assertTrue(
+            _table_from({"entries": [bad]}).hash_mismatches(),
+            "a fabricated name whose hash does not match its id slipped through; "
+            "hash_mismatches() is not doing its job.",
+        )
+
+    def test_trap_fold_entry_without_slot_va_is_caught(self) -> None:
+        """A non-v141 entry with a null id_slot_va must be rejected."""
+        good = self._fake_entry("LogoutVital", wire_id("LogoutVital"))
+        bad = self._fake_entry("LogoutVital", wire_id("LogoutVital"), id_slot_va=None)
+        grandfathered = self._fake_entry(
+            "LogoutVital", wire_id("LogoutVital"), id_slot_va=None, source="v141_NAMES"
+        )
+        self.assertEqual(slot_evidence_problems(_table_from({"entries": [good]})), [])
+        self.assertTrue(
+            slot_evidence_problems(_table_from({"entries": [bad]})),
+            "an entry sourced from the fold with no literal->slot evidence slipped "
+            "through; it would rest on a 16-bit hash alone.",
+        )
+        self.assertEqual(
+            slot_evidence_problems(_table_from({"entries": [grandfathered]})),
+            [],
+            "v141-inherited names are grandfathered and must NOT be flagged for a "
+            "missing slot VA; the trap must be specific, not a blanket.",
+        )
+
+    def test_trap_duplicate_id_is_caught(self) -> None:
+        """The same id twice must be rejected, by the loader and by ordering."""
+        entries = [
+            self._fake_entry("LogoutVital", 0x1B40),
+            self._fake_entry("SomethingElse", 0x1B40),
+        ]
+        self.assertTrue(
+            ordering_problems(entries),
+            "two entries sharing an id went unnoticed by ordering_problems().",
+        )
+        with self.assertRaises(VitalNamesError):
+            _table_from({"entries": entries})
+
+    def test_trap_out_of_order_entries_are_caught(self) -> None:
+        entries = [
+            self._fake_entry("B", 0x3000),
+            self._fake_entry("A", 0x1000),
+        ]
+        self.assertTrue(
+            ordering_problems(entries),
+            "entries stored out of id order went unnoticed; the file diff would "
+            "become unreadable one careless append at a time.",
+        )
+        self.assertEqual(ordering_problems(list(reversed(entries))), [])
+
+    def test_trap_wrong_entry_count_is_caught(self) -> None:
+        """entry_count that disagrees with len(entries) must be rejected."""
+        value = copy.deepcopy(self.raw)
+        value["entry_count"] = len(value["entries"]) + 1
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "names.json"
+            path.write_text(json.dumps(value), encoding="utf-8")
+            with self.assertRaises(VitalNamesError):
+                load_names_table(path)
 
     # --- negative tests: the loader really does reject bad tables --------
     def _reject(self, mutate) -> VitalNamesError:

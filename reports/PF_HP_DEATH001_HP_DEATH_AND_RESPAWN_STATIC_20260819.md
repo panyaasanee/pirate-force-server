@@ -4,6 +4,8 @@
 
 Milestone: `combat / hp_death_and_respawn`, whose coverage note read **"HP is projected as a static attribute value only. No depletion, death state, corpse, penalty, or respawn path is captured or implemented."** This round settles the *evidence* half — the same shape STATS-PROG-001 used to open the stats lane before STATS-PROG-002 wrote an encoder.
 
+> ⚠️ **READ THIS BEFORE THE ANSWER — ERRATUM 2026-08-19 (รอบ 85, HP-DEATH-ERRATA-001).** Two claims in the paragraph immediately below are **refuted byte-exact** by `reports/PF_RUNTIMERES_ACTOR_ENTRY001_STATIC_20260819.md` (round 85 lane B, 150 guards). In short: **(1)** *"to make a character die, a server sends one `UpdateAttrVital` … **That is the whole trigger**"* is true **only** for the local player's `Main_Dead` window — `UpdateAttrVital`'s inbound handler `0x5F2400..0x5F261A` contains **zero** `+0x20` dispatch shapes, so that transport **cannot** reach `0x4437C0`, cannot latch `[actor+0x70] |= 0x200`, cannot build `CActorTask_Dead` and **cannot play the animation**. **(2)** §2's *"mask bit `0x0080` set to a **positive** float"* has the **polarity backwards** for the animation: `vt+0x40` (`HP==0 && timer > 0`) latches *dying*, `vt+0x3C` (`HP==0 && timer <= 0`) is what gates the death **task**. Also: §7's open debt ("the inbound `UpdateAttrVital` → `0x4446F0` chain is NOT traced end to end") is now **answered, with a negative**. **Every number and byte span published below still reproduces; what was wrong is the transport sentence and the timer sign.** Full detail: [the ERRATUM appended at the foot of this document](#-erratum-2026-08-19-รอบ-85-hp-death-errata-001--carrier-และ-polarity).
+
 > **One-paragraph answer.** **The client derives death entirely by itself, from the attribute value the server already sends.** Every actor class answers `IsDead` at vtable `+0x40` out of its own bound `Attr`: for `CNetActor`/`CMyActor` that is `0x454AC0`, which loads the attr through `GetAttr` (`vtable +0x74` → `0x44C630` = `mov eax,[ecx+0x348]`), requires the `f32` at `attr+0x58` to be **greater than the constant `0.0f` at `0xF0989C`**, and then returns **`attr.u32[+0x44] == 0`** — i.e. *current HP is zero*. `CNetNPC`/`CAvatarNPC`/`Pet` use the mirror `0x43BDA0` on the same two `BasicAttr` fields. `BasicAttr +0x44` is mask bit `0x0004` and `+0x48` is bit `0x0008` — **the exact pair our server already emits as `current_hp` / `max_hp`** — and `+0x58` is mask bit `0x0080`, the field v141 deliberately omits. There is **no death frame, no death flag and no death verb inbound**: `0x4437C0` (the dead-state sync that latches `[actor+0x70] |= 0x200`, spawns `CActorTask_Dead` and plays `L"_F_DIE_000"`) has exactly one call site, welded to the attr-apply loop inside `0x4446F0` (`call 0x5DF080` then `call 0x4437C0`), and the local player's `Main_Dead` window is opened per frame from `CMyActor::Update` (`vtable +0x18` → `0x44E4E0` → `0x44A540`). **So: to make a character die, a server sends one `UpdateAttrVital` carrying a `BasicAttr` with mask bit `0x0004` = 0 and mask bit `0x0080` set to a positive float. That is the whole trigger.** The other direction — coming back — is a **request-only** verb: `ReliveVital` (`0x1AD4`, 2 bytes of payload, `u8@+0x14` selecting `1` = revive-in-place-with-item and `0` = respawn-at-marker) is one of 69 protocol classes whose inbound slot is the shared no-op `0x710440`, so the client will *decode* a `ReliveVital` echo and then do nothing with it. The **respawn position is not chosen by the client at all**: `ReliveMarkerVital` (`0x3DD6`) merely deposits a marker object in `CMyActor+0x400`, whose only other reader (`0x4E4370`) uses the marker's `u16 @+0x12` as a **scene id** to render a confirmation string — there is not one movement, teleport or position call anywhere in the relive UI span. Our server side of all of this is **zero**: 0 of the 3 verbs have an encoder or dispatch, and 1 of the 3 fields the death predicate reads (`+0x58`) is never emitted.
 
 **Grade:** field identification · four predicates · transition path · verb family with ids and vtables · marker path · negatives = **A** (byte-exact static; the verifier reproduces every address, offset, mask bit and count) · **anything about the ORIGINAL server = not claimed** · net: `combat/hp_death_and_respawn` **`not_started` → `in_progress`** (does **not** flip `runtime_pass`).
@@ -395,3 +397,51 @@ py -3 -m pytest tests/test_hp_death_respawn_static.py -q
 ```
 
 The verifier is pure stdlib and needs no third-party package. It reads the client image at `GameClient/GameClient.local.bin` (with the same staging fallback the other static tools use) and opens `current/pf_login_game_server_v141.py` and `src/` **read-only** for the gap count. It touches no network, no database, no GameClient process and no server source.
+
+---
+
+## ⚠ ERRATUM 2026-08-19 (รอบ 85, HP-DEATH-ERRATA-001) — carrier และ polarity
+
+**ตัวเลข ที่อยู่ (address) มาสก์บิต และ span hash ทุกตัวในรายงานนี้ยังถูกต้องและยังรีโปรดิวซ์ได้ทั้งหมด — `py -3 tools/pf_hp_death_respawn_static.py` ยัง 191 guards / exit 0 · สิ่งที่ผิดคือ *ประโยค* สองประโยค: ตัวขนส่ง (carrier) กับเครื่องหมายของ timer**
+
+ตามแบบแผนที่รอบ 82 ตั้งไว้และรอบ 84 ใช้ซ้ำ: **ประโยคเดิมไม่ถูกลบและไม่ถูกแก้ให้เนียน** — ถ้าลบทิ้ง คนที่เคยอ่านและเอาไปอ้างต่อจะไม่มีทางรู้ว่าตัวเองอ้างอะไรผิด บล็อกนี้จึงเป็นส่วนเพิ่ม และมีบล็อกเตือนคู่กันวางไว้ **เหนือย่อหน้า one-paragraph answer** เพื่อไม่ให้คำเตือนไปซ่อนอยู่ท้ายไฟล์ 400 บรรทัด (บังคับด้วยเทส `tests/test_hp_death_erratum.py`)
+
+**แหล่งหักล้าง:** `reports/PF_RUNTIMERES_ACTOR_ENTRY001_STATIC_20260819.md` (RUNTIMERES-ACTOR-ENTRY-001, รอบ 85 เลน B) · reproduce: `py -3 tools/pf_runtimeres_actor_entry_static.py` (**150 guards, exit 0**), `py -3 -m pytest tests/test_runtimeres_actor_entry_static.py -q` · binary เดียวกัน SHA-256 `9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623` · วิธีนับเป็น byte matching ล้วน ไม่ใช้ linear disassembler เลย (ซึ่งคือ failure mode ที่รอบ 83 โดน)
+
+### E1 — §2 "That is the whole trigger" ผิดสำหรับทุกอย่างที่ไม่ใช่หน้าต่างของผู้เล่นเอง
+
+| | |
+| --- | --- |
+| **ประโยคเดิม** (§0 one-paragraph answer และ §2 "The consequence for the server, stated plainly") | *"to make a character die, a server sends one `UpdateAttrVital` carrying a `BasicAttr` with mask bit `0x0004` = 0 and mask bit `0x0080` set to a positive float. **That is the whole trigger**."* |
+| **สิ่งที่พิสูจน์ได้ตอนนี้** | ทั่วทั้งช่วง `0x5F2400..0x5F261A` (inbound handler ของ `UpdateAttrVital`) มี `mov r,[reg+0x20] … call r` dispatch shape **0 อัน** และมี direct call ไปยัง `0x4446F0` / `0x456630` / `0x4437C0` / `0x446F30` **0 อัน** (span ถูกตรึงด้วย hash ⇒ เป็น negative ทั้งช่วง ไม่ใช่การสุ่มดู) |
+| **ผลที่ตามมา** | `UpdateAttrVital` **ไปไม่ถึง** `0x4437C0` ⇒ ไม่ latch `[actor+0x70] \| 0x200` · ไม่หยุด looping sound · ไม่สร้าง `CActorTask_Dead` · **ไม่เล่น `L"_F_DIE_000"`** · ไม่ดัน `L"TargetIsDead"` |
+| **ส่วนที่ยังจริง** | หน้าต่าง `Main_Dead` ของ **ผู้เล่นเอง** ยังเปิดได้จริงด้วยเฟรมเดียวนั้น เพราะ `0x44A540` อ่าน attribute ใหม่ทุกเฟรม ไม่ต้องพึ่งโซ่นี้ — §2's "the death UI is a pure function of the projected attribute" **ไม่ถูกหักล้าง** |
+| **carrier ที่ถูก** | `GSCN_RunTimeProtocolRes` (id `0x6E9D` = 28317, sizeof `0x28`) → **derived change-mask bit `0x02`, object `+0x1C`** → `0x5E4060` → `0x5E4085 call 0x446F30` (**1 caller ทั้งอิมเมจ, 0 pointer**) → identity **ที่รู้จักแล้ว** → vtable `+0x20` → `0x4446F0` → `0x4437C0` |
+
+> 🔴 **และมีเงื่อนไขที่รายงานฉบับนี้ไม่ได้พูดถึงเลย: actor เกิดมาตายเลยไม่ได้.** `0x446F30` ค้น identity 64-bit ของ entry ก่อน — *เจอ* → vtable `+0x20` (apply + dead-sync); *ไม่เจอ* → `0x446990` (spawn) ซึ่ง apply ผ่าน vtable `+0x10` และ **ไม่แตะ `0x4437C0` เลยทั้ง 5 คลาส** ⇒ ลำดับขั้นต่ำฝั่งเซิร์ฟเวอร์คือ **สองเฟรมของ identity เดียวกัน**: เฟรมที่ spawn แล้วค่อยเฟรมที่ฆ่า
+
+### E2 — §2 "positive float" มี polarity กลับด้านสำหรับแอนิเมชัน
+
+| | |
+| --- | --- |
+| **ประโยคเดิม** | *"mask bit `0x0080` set to a **positive** float"* / §2 "a `BasicAttr` in which mask bit `0x0004` carries `0` **and** mask bit `0x0080` carries a positive float" / §8 "with `current_hp = 0` and **a positive `+0x58`**" |
+| **สิ่งที่พิสูจน์ได้ตอนนี้** | `vt+0x40` (`0x43BDA0`) = `HP==0 **AND** timer > 0.0f` → gate **ของ dying latch** · `vt+0x3C` (`0x43BD70`) = `HP==0 **AND** timer <= 0.0f` → gate **ของ death task** · ภายใน `0x4437C0`: `bl` (`+0x40`) คุม `0x44384C` (`[actor+0x70] \|= 0x200`) และ `[esp+0x13]` (`+0x3C`) คุม `0x443990` ซึ่งครอบ `0x4439E9 call 0x472810` ทั้งก้อน |
+| **ผลที่ตามมา** | ทั้งสอง predicate **เป็นจริงพร้อมกันไม่ได้บน snapshot เดียว**: `+0x58` เป็นบวก ⇒ ได้ latch **แต่ไม่ได้แอนิเมชัน** · `+0x58` ≤ 0 หรือไม่ส่งบิต `0x0080` มาเลย (พร้อม `HP == 0`) ⇒ **ได้แอนิเมชัน** |
+| **สิ่งที่ *ไม่* ถูกหักล้าง** | ตัวฟิลด์เอง (`f32 @ +0x58`, mask bit `0x0080`, tag `0x2A`) ยังถูกต้องทุกตัวเลข · การอ่าน gate ใน §2 (`0x454AC0` ใช้ `timer > 0`) ก็ยังถูกต้อง — สิ่งที่ผิดคือ **สรุปว่าค่าบวกคือค่าที่เซิร์ฟเวอร์อยากส่ง** |
+| **ข้อควรระวังเพิ่ม (เลน B, ②)** | `[actor+0x70] & 0x40` ("model loaded", เขียนได้ 2 ที่: `0x4448B4`, `0x4599B4`) เป็น gate ที่สองของแอนิเมชัน — actor ที่ visual ไม่เคย resolve จะ latch และได้ `CActorTask_Dead` แต่ **ไม่มีวันเล่นท่าตาย** |
+
+### E3 — §7 หนี้ที่เปิดไว้ ตอนนี้ปิดแล้ว ด้วยคำตอบ "ไม่"
+
+§7 เขียนว่า *"The inbound `UpdateAttrVital` → `0x4446F0` chain is NOT traced end to end … treat 'an `UpdateAttrVital` alone latches `[actor+0x70] |= 0x200`' as **② at best** until it is either traced or observed."* — **ประโยคนี้ตั้งท่าถูกต้อง** และตอนนี้ถูกตอบแล้ว: มันถูก trace แล้ว และคำตอบคือ **ไม่ ①-grade** (E1) ⇒ ข้อความ "② at best" ควรอ่านว่า **"พิสูจน์แล้วว่าเป็นเท็จ"** ไม่ใช่ "ยังไม่รู้"
+
+**§8 ("Suggested next steps") จึงต้องอ่านใหม่:** GT ที่แนะนำไว้ — ส่ง `UpdateAttrVital` เดียวพร้อม `+0x58` เป็นบวกแล้วดูว่า `Main_Dead` เปิดไหม — **ยังเป็น GT ที่มีความหมาย** แต่มันเทสได้แค่ครึ่งเดียว (หน้าต่างของผู้เล่นเอง) และ **จะไม่มีวันทำให้อะไรล้มลง** สูตรที่จะทำให้ NPC ล้มอยู่ใน RUNTIMERES-ACTOR-ENTRY-001 §4 (spawn ก่อน แล้วส่ง actor-entry ซ้ำของ identity เดิมด้วย `current_hp = 0` และ **ละ** bit `0x0080`) และยังเป็น **②** จนกว่าจะมี runtime pass
+
+### สิ่งที่ erratum นี้ **ไม่** อ้าง
+
+- ไม่อ้างว่ามีเลขใดในรายงานนี้ผิด — เลน B รีโปรดิวซ์ `0x4446F0` / `0x4437C0` / `0x472810` / `L"_F_DIE_000"` ได้ตรงกันทุกตัว และ census ของ `0x4437C0` (1 direct caller, **0 pointer**) ยืนยัน §6 ข้อ 7 ตามเดิม
+- ไม่อ้างอะไรเกี่ยวกับ **ORIGINAL server** — ปิดไปแล้ว ไม่เคย publish ไม่มี capture ของการตาย
+- ไม่อ้างว่า client จริงเคยเรนเดอร์ศพ — ยังไม่มี runtime pass ทั้งสองเลน
+- ไม่แตะ matrix row, ledger, scenario หรือ `src/` — erratum นี้เป็น report-only เหมือนตัวรายงาน
+- **หมายเหตุถึง chief:** เลน B บันทึกว่าการ flip `runtime_pass` ของ `combat/hp_death_and_respawn` ในรอบ 84 ทำบนเลนที่ทำให้อะไรล้มไม่ได้ — erratum นี้ **ไม่** ขยับแถวนั้นเอง เป็นคำตัดสินของ chief
+
+**บังคับด้วยเทส:** `tests/test_hp_death_erratum.py` — พิสูจน์ว่าบล็อกเตือนอยู่ **ก่อน** ย่อหน้า one-paragraph answer จริง ๆ (ไม่ใช่แค่ "มีอยู่ที่ไหนสักแห่งในไฟล์"), ว่า erratum ท้ายไฟล์มีอยู่และชี้ไปหาแหล่งหักล้าง, และว่าประโยคเดิมทั้งสองยัง **อยู่ครบไม่ถูกลบ**
