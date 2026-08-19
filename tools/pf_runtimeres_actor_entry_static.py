@@ -816,8 +816,16 @@ guard(SRC_ZERO_HP_SITES == 0 and V141_ZERO_HP_SITES == 0
       "nowhere in src/ or v141, but runtimeres_death_hypothesis.py passes zero "
       "through the named constant RUNTIMERES_DEATH_HP_ZERO -- the round-85 "
       "sentence was about to stay green while ceasing to be true")
-guard(SRC_VITAL_STREAM_SITES == 13,
-      "src/ sends the VitalData carrier (make_runtime_vitals) at 13 call sites")
+# Round 90 re-pin, 13 -> 14.  DAMAGE-ENCODER-001 added the fourteenth call
+# site: damage_model_hypothesis.py ships CHitResult 0x16F7 over this same
+# VitalData carrier.  The number is meant to move when we write code -- that
+# is what section [5] is for -- but it is re-pinned deliberately rather than
+# loosened, because a census that quietly widens stops being a census.  Note
+# what did NOT move: the actor-entry counts below are unchanged, because the
+# damage lane rides the BASE change mask (object +0x18) and never touches the
+# derived actor-entry collection (+0x1C) this file is otherwise about.
+guard(SRC_VITAL_STREAM_SITES == 14,
+      "src/ sends the VitalData carrier (make_runtime_vitals) at 14 call sites")
 guard(_count(r"make_runtime_remote_actors\(",
              _src.get("stats_progression_hypothesis.py", "")) == 0
       and _count(r"make_runtime_vitals\(",

@@ -270,7 +270,7 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
     "runtimeres_death_hypothesis.py"
   ],
   "src_modules_setting_basicattr_bit_0x0080": 3,
-  "src_vital_stream_call_sites": 13,
+  "src_vital_stream_call_sites": 14,
   "vt20_dispatch_shapes_image_wide": 387,
   "vt20_dispatch_shapes_in_updateattrvital_handler": 0,
   "vt20_dispatch_shapes_with_vtable_load": 230
@@ -407,3 +407,31 @@ Two further changes in the same edit, both tightenings:
 - gap 3's guard is untouched and still green: `HP-DEATH-002` still ships only
   over `make_runtime_vitals` and still never over the actor-entry carrier.
   That lane was not modified by round 86 and keeps its own separate claim.
+
+---
+
+## ERRATUM 2 — round 90: one count in the mirror block moved, and it is not one of this file's own
+
+**Appended 2026-08-19 (round 90). Nothing above this line has been rewritten
+except `RUNTIMERES_COUNTS`, which is a live mirror of a tool run and is
+re-pinned in the same change that moves it, exactly as ERRATUM 1 describes.**
+
+`src_vital_stream_call_sites` moved **13 -> 14**. The fourteenth site is
+`src/pirateforce_foundation/damage_model_hypothesis.py`, which ships
+`CHitResult` `0x16F7` over `make_runtime_vitals` for `DAMAGE-ENCODER-001`
+(`HYP-PF-024`).
+
+**What did NOT move, and why that is the interesting half:** every actor-entry
+count in this file is unchanged — `src_actor_entry_call_sites` 5,
+`src_actor_stream_call_sites` 5, `src_modules_building_actor_entries` 4,
+`src_modules_doing_both` 1. The damage lane rides the **BASE** change mask
+(the VitalData collection at object `+0x18`); this file is about the
+**DERIVED** change mask (the actor-entry collection at `+0x1C`). They share a
+bit number and nothing else: different mask byte, different reader, different
+element shape. A reader who takes the matching `0x02` for a shared carrier
+will get this wrong, and two rounds already did; `drafts/DAMAGE_MODEL_UNKNOWNS_R90_STATIC.md`
+section 1 pins both side by side.
+
+No claim in this report changes. No guard was loosened: the census guard is
+re-pinned at 14 rather than widened to a range, for the same reason ERRATUM 1
+gives.

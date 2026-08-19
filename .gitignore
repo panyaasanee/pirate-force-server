@@ -350,3 +350,20 @@
 # rest on, and no check in this repository was looking.  It is added rather
 # than the references removed, because the references are correct.
 !/reports/PF_RE_V107_to_V110_Stateful_Inventory_and_ActionItem_Capture_20260814.md
+
+# DAMAGE-ENCODER-001 / DAMAGE-DISPATCH-001 (round 90, HYP-PF-024) -- the
+# encoder's offline verifier, the headless replay that drives the sweep through
+# the real dispatcher, the closing report, and the two design documents the
+# ledger entry cites as evidence.  The drafts are listed here rather than
+# dropped from evidence_refs for the reason round 87 wrote down: the references
+# were the part that was correct, and a claim whose evidence a fresh clone does
+# not contain is not evidence.  The R90 static document in particular carries
+# the byte tables that answer the version byte and the construction path, which
+# nothing else in the repository records.
+!/tools/verify_damage_model_encoder.py
+!/tools/pf_damage_model_headless_replay.py
+!/reports/PF_DAMAGE_ENCODER001_OUR_OWN_HIT_RESULT_20260819.md
+!/drafts/
+/drafts/*
+!/drafts/DAMAGE_MODEL_UNKNOWNS_R90_STATIC.md
+!/drafts/DAMAGE_MODEL_LANE1_DESIGN_20260819.md

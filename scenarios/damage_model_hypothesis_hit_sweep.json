@@ -1,0 +1,201 @@
+{
+  "schema": 1,
+  "id": "damage_model_hypothesis_hit_sweep",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-024",
+  "hypothesis_id_is_registered_in_the_ledger": true,
+  "our_own_formula_not_the_original_servers": true,
+  "entry": {
+    "flow": "full_writable_character",
+    "required_sequence": "selected_and_runtime_ready",
+    "response_policy": "compose_chit_result_hit_entries_from_our_own_formula_no_write_no_close"
+  },
+  "dispatch": {
+    "wired": true,
+    "wiring_owner": "damage_dispatch_001_round_90",
+    "app_policy_when_lane_disabled": "no_frames_composed_and_the_encoder_raises_if_called_directly",
+    "frames_per_accepted_request": 4,
+    "step_order": [
+      "HIT_WEAK",
+      "HIT_STRONG",
+      "MISS",
+      "HIT_REACTION"
+    ],
+    "miss_steps": [
+      "MISS"
+    ],
+    "spacing_seconds": 6.0,
+    "first_frame_delay_seconds": 0.0,
+    "delay_semantics": "gap_before_each_send_on_a_cumulative_deadline",
+    "action_label_prefix": "HYP_PF_024_DAMAGE_MODEL_",
+    "action_labels": [
+      "HYP_PF_024_DAMAGE_MODEL_HIT_WEAK",
+      "HYP_PF_024_DAMAGE_MODEL_HIT_STRONG",
+      "HYP_PF_024_DAMAGE_MODEL_MISS",
+      "HYP_PF_024_DAMAGE_MODEL_HIT_REACTION"
+    ],
+    "one_shot": true,
+    "socket_action": "none"
+  },
+  "wire": {
+    "envelope_vital_id": 28317,
+    "envelope_vital_version": 4,
+    "envelope": "gscn_runtime_protocol_res_v4_vitaldata_collection",
+    "base_change_mask": 2,
+    "derived_change_mask": 0,
+    "base_object_offset": 24,
+    "chit_result_vital_id": 5879,
+    "chit_result_vital_version": 0,
+    "chit_result_vital_version_compare_site": 6242044,
+    "chit_result_ctor_version_store_site": 7666041,
+    "header_wire_size": 22,
+    "header_reserved_fields": [
+      32,
+      34,
+      36,
+      40
+    ],
+    "header_reserved_value": 0,
+    "hit_element_stride": 32,
+    "hit_element_wire_size": 37,
+    "hit_entry_count": 1,
+    "damage_field": {
+      "name": "damage_wire",
+      "object_offset": 8,
+      "wire_tag": 20,
+      "width": "i32_read_signed",
+      "signed_compare_sites": [
+        7670041,
+        7670240,
+        7672345,
+        7672544
+      ],
+      "safe_band": [
+        -1000000,
+        0
+      ],
+      "scenario_band": [
+        -9999,
+        0
+      ]
+    },
+    "flag_field": {
+      "name": "result_flags",
+      "object_offset": 28,
+      "wire_tag": 18,
+      "width": "u16",
+      "value_allowlist": [
+        0,
+        1,
+        9
+      ],
+      "allowed_mask": 9,
+      "forbidden_mask": 61828,
+      "reaction_pass_gate_site": 7670234
+    },
+    "yaw_field": {
+      "name": "reaction_yaw",
+      "object_offset": 24,
+      "wire_tag": 42,
+      "pinned_value": 0.0,
+      "note": "an_angle_not_a_damage_value"
+    }
+  },
+  "formula": {
+    "owner": "this_project_not_the_original_server",
+    "deterministic": true,
+    "uses_random": false,
+    "atk_base": 100,
+    "k_atk_str": 7,
+    "k_atk_lv": 3,
+    "def_base": 10,
+    "k_def_con": 2,
+    "k_def_lv": 1,
+    "min_hit": 1,
+    "jitter_pct_max": 0,
+    "input_domain": [
+      0,
+      65535
+    ],
+    "defender": {
+      "name": "PLAYER_BASELINE",
+      "level": 7,
+      "ability_con": 22,
+      "source": "the_character_as_hyp_pf_020_sweep_leaves_it"
+    },
+    "attackers": {
+      "MOB_WEAK": {
+        "level": 1,
+        "ability_str": 3
+      },
+      "MOB_STRONG": {
+        "level": 20,
+        "ability_str": 40
+      }
+    }
+  },
+  "target": {
+    "rule": "the_players_own_actor_is_both_performer_and_target",
+    "reason": "the_only_identity_the_client_is_certain_to_know_in_phase_1",
+    "position_source": "frozen_v135_player_spawn",
+    "pins_are_composed_from_a_fixed_probe_identity": true,
+    "probe_identity_lo": 268500993,
+    "probe_identity_hi": 0,
+    "per_step": {
+      "HIT_WEAK": {
+        "damage_wire": -63,
+        "flags": 1,
+        "pc_size": 84,
+        "pc_sha256": "D824597F0C9AC24F64BE665699A83FF38A792C3342BCAC70202C3F46B5B584D4",
+        "frame_size": 95,
+        "frame_sha256": "D0C0C33C9A3ED9A5C8C1C6BCFBBBFB4762793D053002CD97C9A6C9576C98F999"
+      },
+      "HIT_STRONG": {
+        "damage_wire": -379,
+        "flags": 1,
+        "pc_size": 84,
+        "pc_sha256": "D7A708CBA4642452848D90523852235779D41F8E7869C57F386AE8AC3C285665",
+        "frame_size": 95,
+        "frame_sha256": "910669B9029C1E082740BC820BD33E5C1C89E1C2F26924EA2A44FF86C2415FD9"
+      },
+      "MISS": {
+        "damage_wire": 0,
+        "flags": 0,
+        "pc_size": 84,
+        "pc_sha256": "A1A746E4C2D4A35448531FD878E17A93AE5F2FB778C4A343D288D04621EEB77A",
+        "frame_size": 95,
+        "frame_sha256": "AC009503A61ACD2ADCB87C93B12A4C96AB1D6FC7F7313163B093158011EF558C"
+      },
+      "HIT_REACTION": {
+        "damage_wire": -63,
+        "flags": 9,
+        "pc_size": 84,
+        "pc_sha256": "595B7B5D037BC2EE06D205194A23E8946B1E2F67A0FBC2F31F8A93A65C189F6C",
+        "frame_size": 95,
+        "frame_sha256": "0B7DF0A8CAA20E65C2BE6B85D65162BEB6840CF315FFDCD793CCFDE74DDAA8B9"
+      }
+    }
+  },
+  "persisted_post_state": {
+    "database_write": "none"
+  },
+  "capabilities": [
+    "emit_chitresult_0x16f7_version_0_inside_the_vitaldata_collection",
+    "carry_one_signed_i32_damage_value_and_one_u16_flag_word_per_target",
+    "compute_that_value_from_a_formula_this_project_designed_and_pinned",
+    "send_a_control_frame_with_no_number_so_a_positive_result_is_falsifiable",
+    "refuse_every_value_whose_client_meaning_this_project_cannot_name"
+  ],
+  "nonclaims": [
+    "the_original_server_damage_formula_which_this_project_cannot_recover",
+    "that_zero_is_what_the_original_server_put_in_the_four_reserved_header_fields",
+    "the_meaning_of_any_individual_bit_in_the_hit_entry_flag_word",
+    "what_a_non_negative_value_at_entry_plus_0x08_means_to_the_client",
+    "that_the_number_renders_at_all_which_depends_on_a_singleton_static_cannot_read",
+    "any_link_between_this_number_and_hit_points_no_write_path_is_opened",
+    "no_client_has_ever_been_shown_one_byte_of_this_profile",
+    "production_dispatch_wiring_the_wiring_is_opt_in_and_production_allowed_is_false",
+    "production_baseline_behavior"
+  ]
+}

@@ -159,7 +159,15 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # unreachable without naming the step.  Third, tracked_versions now names all three
 # checkpoints (HP-DEATH-002, DYING-HOLD-001, DEATH-ESCALATE-001), which FILLS max_versions:
 # a fourth widening of this lane needs a new entry or an extension approval, not a profile.
-CANONICAL_CONTENT_SHA256 = "D69DA821AE0583C7640C23A48722D248D484FAD8077B9CED3B9C606343C56F55"
+# ROUND 90 APPEND (HYP-PF-024, DAMAGE-ENCODER-001 + DAMAGE-DISPATCH-001).  Entry 31 is
+# ADDED, not an amendment: the two checkpoints of this round open a lane that puts a
+# damage NUMBER on the wire, over the CHitResult 0x16F7 carrier inside the VitalData
+# collection.  The value that number carries comes from a formula THIS PROJECT WROTE.
+# Round 83 proved the client computes no damage at all -- it is a pure display of what
+# the server sends -- so there was no original formula inside the image to recover, and
+# the owner approved designing one on 2026-08-19 11:45 within a scope of one signed i32
+# plus one flag word per target.  Two versions of three are spent on arrival.
+CANONICAL_CONTENT_SHA256 = "76AB2EFE4C9882AB8B608D90EF8C5D321195B5FC95A5F4F7E7957C163DA82758"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -270,6 +278,17 @@ EXPECTED_IDS = (
     # HYP-PF-022 is untouched and still active as the lane that owns the local
     # player's Main_Dead window, which is the half a human has actually seen.
     "HYP-PF-023",
+    # HYP-PF-024 (our own damage model on the CHitResult 0x16F7 carrier,
+    # under the owner's explicit "way 1" decision of 2026-08-19 11:45) is
+    # likewise appended at the end so every existing entry index stays
+    # stable.  It rides the VitalData collection (BASE change mask 0x02,
+    # object +0x18), which is a DIFFERENT collection from the actor-entry
+    # one HYP-PF-023 uses (DERIVED mask 0x02, object +0x1C) despite the
+    # matching bit number, and it makes a claim about a NUMBER rather than
+    # about a state: the client computes no damage of its own, so the value
+    # it displays is whatever the server sent, and the formula behind that
+    # value is this project's own design and not a recovered one.
+    "HYP-PF-024",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -304,6 +323,7 @@ EXPECTED_META = {
     "HYP-PF-021": ("protocol_hypothesis", "DELETE-REFRESH-001", "active"),
     "HYP-PF-022": ("protocol_hypothesis", "HP-DEATH-002", "active"),
     "HYP-PF-023": ("protocol_hypothesis", "RUNTIMERES-ENCODER-001", "active"),
+    "HYP-PF-024": ("protocol_hypothesis", "DAMAGE-ENCODER-001", "active"),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}
 STATUSES = {"active", "frozen", "retired", "harness_only", "expired_pending_decision"}

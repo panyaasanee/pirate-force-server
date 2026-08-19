@@ -17,6 +17,9 @@ from .model import Position
 from .population_scenario import load_population_scenario
 from .runtime import make_state_class
 from .runtime_console import install_runtime_console
+from .damage_model_hypothesis import (
+    load_damage_model_hypothesis_scenario,
+)
 from .runtimeres_death_hypothesis import (
     load_runtimeres_death_hypothesis_scenario,
 )
@@ -61,6 +64,7 @@ def main() -> int:
     pre.add_argument('--stats-progression-hypothesis-scenario')
     pre.add_argument('--hp-death-hypothesis-scenario')
     pre.add_argument('--runtimeres-death-hypothesis-scenario')
+    pre.add_argument('--damage-model-hypothesis-scenario')
     pre.add_argument(
         '--second-password-mode', choices=SECOND_PASSWORD_MODES,
         default='required',
@@ -146,12 +150,26 @@ def main() -> int:
         )
         if known.runtimeres_death_hypothesis_scenario else None
     )
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-024 active
+    # DAMAGE-ENCODER-001 + DAMAGE-DISPATCH-001.  The lane that puts a damage
+    # NUMBER on the wire: CHitResult 0x16F7 version 0 inside the VitalData
+    # collection (BASE mask 0x02, object +0x18) -- a different collection from
+    # the actor-entry one above, despite the matching bit number.  The formula
+    # behind that number is this project's own; the original server's is gone.
+    # Refused alongside every other mode and demands an explicit existing --db.
+    damage_model_hypothesis = (
+        load_damage_model_hypothesis_scenario(
+            known.damage_model_hypothesis_scenario
+        )
+        if known.damage_model_hypothesis_scenario else None
+    )
     if sum(value is not None for value in (
         scenario, scene_load, population, item_move_capture,
         item_move_hypothesis, logout_hypothesis, chat_input_hypothesis,
         channel_message_hypothesis, delete_actor_hypothesis,
         delete_refresh_hypothesis, stats_progression_hypothesis,
         hp_death_hypothesis, runtimeres_death_hypothesis,
+        damage_model_hypothesis,
     )) > 1:
         pre.error(
             '--scenario, --scene-load-scenario, --population-scenario, and '
@@ -162,7 +180,8 @@ def main() -> int:
             '--delete-refresh-hypothesis-scenario/'
             '--stats-progression-hypothesis-scenario/'
             '--hp-death-hypothesis-scenario/'
-            '--runtimeres-death-hypothesis-scenario are mutually exclusive'
+            '--runtimeres-death-hypothesis-scenario/'
+            '--damage-model-hypothesis-scenario are mutually exclusive'
         )
     if item_move_capture is not None and not known.db:
         pre.error('--item-move-capture-scenario requires an explicit existing --db')
@@ -195,6 +214,11 @@ def main() -> int:
             '--runtimeres-death-hypothesis-scenario requires an explicit '
             'existing --db'
         )
+    if damage_model_hypothesis is not None and not known.db:
+        pre.error(
+            '--damage-model-hypothesis-scenario requires an explicit '
+            'existing --db'
+        )
     db_path = known.db or str(
         root / (
             'state/object_population_v94.sqlite3' if population is not None
@@ -224,6 +248,8 @@ def main() -> int:
             'hp-death-hypothesis' if hp_death_hypothesis is not None else
             'runtimeres-death-hypothesis'
             if runtimeres_death_hypothesis is not None else
+            'damage-model-hypothesis'
+            if damage_model_hypothesis is not None else
             'foundation'
         )
         install_runtime_console(
@@ -243,6 +269,7 @@ def main() -> int:
         or stats_progression_hypothesis is not None
         or hp_death_hypothesis is not None
         or runtimeres_death_hypothesis is not None
+        or damage_model_hypothesis is not None
     ):
         if not Path(db_path).is_file():
             raise FileNotFoundError(db_path)
@@ -257,6 +284,7 @@ def main() -> int:
             or stats_progression_hypothesis is not None
             or hp_death_hypothesis is not None
             or runtimeres_death_hypothesis is not None
+            or damage_model_hypothesis is not None
         ):
             store.migrate()
             store.expire_open_sessions()
@@ -295,6 +323,9 @@ def main() -> int:
         # RUNTIMERES-DISPATCH-001.  None unless the flag was handed in, and
         # make_state_class refuses it alongside every other mode a second time.
         runtimeres_death_hypothesis_scenario=runtimeres_death_hypothesis,
+        # DAMAGE-DISPATCH-001.  None unless the flag was handed in, and
+        # make_state_class refuses it alongside every other mode a second time.
+        damage_model_hypothesis_scenario=damage_model_hypothesis,
         # PF-HYPOTHESIS-LEDGER: HYP-PF-009 active
         second_password_mode=known.second_password_mode,
     )

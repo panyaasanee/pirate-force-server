@@ -73,6 +73,12 @@ from .population import (
     build_port_royal_initial_population,
     build_port_royal_membership_transition,
 )
+from .damage_model_hypothesis import (
+    build_damage_model_sweep,
+    damage_model_wire_unlock,
+    require_damage_model_hypothesis_scenario,
+    resolve_actor as resolve_damage_model_actor,
+)
 from .population_scenario import require_population_scenario
 from .runtimeres_death_hypothesis import (
     build_runtimeres_death_sweep,
@@ -124,6 +130,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                      stats_progression_hypothesis_scenario=None,
                      hp_death_hypothesis_scenario=None,
                      runtimeres_death_hypothesis_scenario=None,
+                     damage_model_hypothesis_scenario=None,
                      second_password_mode="required",
                      monotonic_clock=None,
                      close_timer_factory=None):
@@ -137,6 +144,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         stats_progression_hypothesis_scenario,
         hp_death_hypothesis_scenario,
         runtimeres_death_hypothesis_scenario,
+        damage_model_hypothesis_scenario,
     ))
     if active_modes > 1:
         raise ValueError(
@@ -144,7 +152,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             "hypothesis, logout hypothesis, chat input hypothesis, channel "
             "message hypothesis, delete actor hypothesis, delete refresh "
             "hypothesis, stats progression hypothesis, hp death hypothesis, "
-            "and runtimeres death hypothesis scenarios are mutually exclusive"
+            "runtimeres death hypothesis, and damage model hypothesis "
+            "scenarios are mutually exclusive"
         )
     # DELETE-REFRESH-001 and HYP-PF-015 key on the same vital id 0x36DB, so
     # they must never be able to see the same frame: the mutual-exclusion
@@ -226,6 +235,29 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             runtimeres_death_hypothesis_scenario
         )
         runtimeres_death_probe = resolve_runtimeres_death_probe(legacy)
+    # DAMAGE-DISPATCH-001 (HYP-PF-024; the ledger annotation for this lane
+    # lives once per file, on the dispatch method below).  Same shape as the
+    # two lanes above: the unlock token is derived ONCE, here, from the
+    # allowlisted scenario object, and it is the only value in this process
+    # that lets anything name the signed damage integer at hit-entry +0x08 or
+    # the flag word at +0x1C.  With no damage-model scenario it stays None and
+    # no CHitResult can be composed at all.
+    #
+    # This lane is neither of the two death lanes.  It rides CHitResult 0x16F7
+    # version 0 as an element of the VitalData collection -- the BASE change
+    # mask bit 0x02, object +0x18 -- which is a DIFFERENT collection from the
+    # actor-entry one RUNTIMERES-DISPATCH-001 uses, despite the matching bit
+    # number.  The reader that validates the version byte is 0x5F3EFC.
+    damage_model_unlock = None
+    if damage_model_hypothesis_scenario is not None:
+        damage_model_hypothesis_scenario = (
+            require_damage_model_hypothesis_scenario(
+                damage_model_hypothesis_scenario
+            )
+        )
+        damage_model_unlock = damage_model_wire_unlock(
+            damage_model_hypothesis_scenario
+        )
     if delete_actor_hypothesis_scenario is not None:
         delete_actor_hypothesis_scenario = (
             require_delete_actor_hypothesis_scenario(
@@ -319,6 +351,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.stats_progression_sweep_count = 0
                 self.hp_death_sweep_count = 0
                 self.runtimeres_death_sweep_count = 0
+                self.damage_model_sweep_count = 0
                 self.delete_actor_soft_delete_count = 0
                 self.delete_refresh_list_rebuild_count = 0
                 self.transport_socket_closer = None
@@ -1346,6 +1379,84 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             )
             return actions
 
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-024 active
+        # DAMAGE-DISPATCH-001.  Registered by the round-90 ledger append; this
+        # annotation and that entry's source_refs bind each other both ways.
+        def _dispatch_damage_model_hypothesis(self, parsed):
+            """Answer one accepted chat input frame with the hit sweep.
+
+            This is the lane that puts a NUMBER on the screen, and the number
+            is ours.  Round 83 proved the client computes nothing: it carries
+            no damage formula, applies no scaling and never subtracts damage
+            from hit points, so the figure a player sees is exactly the signed
+            i32 the server placed at hit-entry +0x08, printed through abs().
+            There is therefore nothing to recover and everything to design, and
+            the owner approved designing it (2026-08-19) within one signed
+            integer and one flag word per target.
+
+            The request side is the same accepted 34-byte ascii12 shape the
+            other three sweeps reuse, for the same reason: it is the one client
+            action an attended tester can fire on demand and every refusal
+            guard on it is already proven.  Nothing in the request is read.
+
+            The answer is four frames against the player's own actor, which is
+            the only identity this lane can be sure the client knows (a target
+            it cannot find is skipped at 0x7508AD / 0x750D27; a performer it
+            cannot find is NOT, per 0x7507C3):
+
+              * HIT_WEAK       -63, flags 0x0001
+              * HIT_STRONG    -379, flags 0x0001
+              * MISS             0, flags 0x0000  -- the control frame
+              * HIT_REACTION   -63, flags 0x0009
+
+            MISS is the experiment's control and the encoder refuses a sweep
+            without one: if every frame showed a number, a tester could not
+            tell our bytes from something the client draws on its own.
+
+            ONE-SHOT.  A repeat trigger is refused with a named event and no
+            bytes, because the value of the two hit numbers is that a tester
+            can predict them before they appear; a second sweep interleaved
+            with the first turns a legible sequence into noise.
+
+            The lane touches no store, takes no socket action, opens no write
+            path to hit points, and composes nothing at all when the scenario
+            is absent.
+            """
+            self.rx_frames += 1
+            classification = classify_chat_input_attempt(legacy, parsed)
+            if classification != "ascii12":
+                self.events.append(
+                    f"damage_model_hypothesis_{classification}_no_reply"
+                )
+                return []
+            if self.foundation.selected is None:
+                self.events.append(
+                    "damage_model_hypothesis_no_selected_no_reply"
+                )
+                return []
+            if not self.teleport_sent or not self.runtime_ack_sent:
+                self.events.append(
+                    "damage_model_hypothesis_wrong_sequence_no_reply"
+                )
+                return []
+            if self.damage_model_sweep_count:
+                self.events.append(
+                    "damage_model_hypothesis_already_sent_no_reply"
+                )
+                return []
+            actor = resolve_damage_model_actor(
+                legacy, self.foundation.selected,
+            )
+            actions = build_damage_model_sweep(
+                legacy, actor, damage_model_unlock,
+                damage_model_hypothesis_scenario,
+            )
+            self.damage_model_sweep_count += 1
+            self.events.append(
+                "damage_model_hypothesis_hit_sweep_sent"
+            )
+            return actions
+
         # PF-HYPOTHESIS-LEDGER: HYP-PF-015 active
         def _dispatch_delete_actor_hypothesis(self, parsed):
             """Soft-delete one owned character behind the explicit opt-in.
@@ -1653,6 +1764,16 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # the flags together, which is why the ordering of these
                 # branches cannot matter.
                 return self._dispatch_runtimeres_death_hypothesis(parsed)
+            if (
+                damage_model_hypothesis_scenario is not None
+                and nested_id == CHAT_INPUT_VITAL_ID
+            ):
+                # DAMAGE-DISPATCH-001.  This lane and the four above are keyed
+                # on the same vital id, so they must never be able to see the
+                # same frame: make_state_class refuses any pair outright and
+                # app.py refuses the flags together, which is why the ordering
+                # of these branches cannot matter.
+                return self._dispatch_damage_model_hypothesis(parsed)
             if (
                 delete_actor_hypothesis_scenario is not None
                 and nested_id == DELETE_ACTOR_VITAL_ID
