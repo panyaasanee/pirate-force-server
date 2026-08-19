@@ -339,6 +339,9 @@
 !/tools/pf_vital_thunk_census_static.py
 !/reports/PF_NAMES_FOLD003_LEGACY_SLOTS_AND_THUNK_CENSUS_20260819.md
 !/reports/PF_NAMES_FOLD003_LEGACY_SLOTS_AND_THUNK_CENSUS_20260819.census.json
+# IMG-QUERY-001 -- the image query queue runner (bytes/hash/search only).
+# The test beside it needs no real client image; it builds its own.
+!/tools/pf_image_query_runner.py
 
 # Round 87, and this one is a debt rather than a new file.  Sweeping every
 # evidence_ref and source_ref in the hypothesis ledger against check-ignore --
