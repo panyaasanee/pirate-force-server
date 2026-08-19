@@ -45,6 +45,14 @@ D. The module against itself, offline: compose the pinned probe sweep and
    compare all six pinned values per step, assert every wire width instead of
    trusting it, reproduce the formula outputs, and compare the scenario file's
    pins against the module's.
+D2. The npc_target profile (DAMAGE-NPC-TARGET-001, round 95): its scenario
+   file loads to the module's own profile object, its unlock token opens no
+   hit_sweep byte (and vice versa), its composed probe sweep reproduces
+   DAMAGE_MODEL_PINS_NPC, its pins DIFFER from the hit_sweep pins on every
+   step, its performer is the player while its target is the fixed placement
+   identity 0x2001, and the two npc-specific refusals fire by name.  Whether
+   0x2001 is in the client's identity map at RUNTIME is not checked here and
+   cannot be: that is GT-027, attended.
 E. Every rejection family produces NO BYTES: the call raises
    DamageModelValidationError with the right reason and returns nothing.
 F. Traps.  A verifier that has never seen itself go red is not a verifier, so
@@ -85,6 +93,8 @@ sys.path.insert(0, os.path.join(_ROOT, "src"))
 
 SCENARIO_PATH = os.path.join(
     _ROOT, "scenarios", "damage_model_hypothesis_hit_sweep.json")
+NPC_SCENARIO_PATH = os.path.join(
+    _ROOT, "scenarios", "damage_model_hypothesis_npc_sweep.json")
 OTHER_SCENARIO_PATH = os.path.join(
     _ROOT, "scenarios", "hp_death_hypothesis_death_sweep.json")
 LEGACY_PATH = os.path.join(_ROOT, "current", "pf_login_game_server_v141.py")
@@ -783,7 +793,7 @@ def main():
           and profile.scenario_id == dm.DAMAGE_MODEL_SCENARIO_ID
           and profile.hypothesis_id == dm.DAMAGE_MODEL_HYPOTHESIS_ID)
     unlock = dm.damage_model_wire_unlock(profile)
-    check("the unlock is the module's single token, by identity",
+    check("the unlock is the hit_sweep profile's own token, by identity",
           unlock is dm._UNLOCK)
     probe = dm.damage_probe_actor(legacy)
     check("the probe identity is the pinned smoke identity 0x10010001/0",
@@ -1003,6 +1013,92 @@ def main():
           and raw["formula"]["uses_random"] is False
           and "the_original_server_damage_formula_which_this_project_cannot_"
               "recover" in raw["nonclaims"])
+
+    # ==================== D2. THE npc_target PROFILE (DAMAGE-NPC-TARGET-001)
+    section("D2. the npc_target profile against its own pins")
+    npc_profile = dm.load_damage_model_hypothesis_scenario(NPC_SCENARIO_PATH)
+    check("the npc scenario file loads and yields the module's npc profile "
+          "object",
+          npc_profile is dm._PROFILE_NPC
+          and npc_profile.scenario_id == dm.DAMAGE_MODEL_NPC_SCENARIO_ID
+          and npc_profile.hypothesis_id == dm.DAMAGE_MODEL_HYPOTHESIS_ID)
+    npc_unlock = dm.damage_model_wire_unlock(npc_profile)
+    check("the npc unlock is the npc profile's own token, by identity",
+          npc_unlock is dm._UNLOCK_NPC and npc_unlock is not dm._UNLOCK)
+    check("both profiles hold the SAME step tuple object, so the plan cannot "
+          "fork",
+          npc_profile.step_order is profile.step_order
+          is dm.DAMAGE_MODEL_STEP_ORDER)
+    check("the npc target is the fixed placement identity 0x2001/0 and the "
+          "probe performer differs from it",
+          dm.DAMAGE_NPC_TARGET_IDENTITY_LO == 0x2001
+          and dm.DAMAGE_NPC_TARGET_IDENTITY_HI == 0
+          and dm.npc_target_identity() == 0x2001
+          and dm.actor_identity(probe) != dm.npc_target_identity())
+    check("the npc spacing is 15.0 s with first delay 0.0 (photography "
+          "headroom, the round-84 lesson)",
+          npc_profile.spacing_seconds == 15.0
+          and npc_profile.first_delay_seconds == 0.0)
+    npc_actions = dm.build_damage_model_sweep(
+        legacy, probe, npc_unlock, npc_profile)
+    check("the npc sweep is the four pinned steps under the npc labels",
+          [a[0] for a in npc_actions]
+          == list(dm.DAMAGE_MODEL_NPC_ACTION_LABELS))
+    npc_raw = json.loads(open(NPC_SCENARIO_PATH, encoding="utf-8").read())
+    for index, label in enumerate(dm.DAMAGE_MODEL_STEP_ORDER):
+        _lab, pc, frame, _delay = npc_actions[index]
+        pin = dm.DAMAGE_MODEL_PINS_NPC[label]
+        file_pin = npc_raw["target"]["per_step"][label]
+        check("npc %s: composed bytes reproduce DAMAGE_MODEL_PINS_NPC" % label,
+              len(pc) == pin["pc_size"] and len(frame) == pin["frame_size"]
+              and hashlib.sha256(pc).hexdigest().upper() == pin["pc_sha256"]
+              and hashlib.sha256(frame).hexdigest().upper()
+              == pin["frame_sha256"])
+        check("npc %s: the module pin and the scenario file pin are the SAME "
+              "pin" % label,
+              file_pin["pc_sha256"] == pin["pc_sha256"]
+              and file_pin["frame_sha256"] == pin["frame_sha256"]
+              and file_pin["damage_wire"] == pin["damage_wire"]
+              and file_pin["flags"] == pin["flags"])
+        check("npc %s: the npc pin DIFFERS from the hit_sweep pin (the target "
+              "qword is on the wire)" % label,
+              pin["pc_sha256"] != dm.DAMAGE_MODEL_PINS[label]["pc_sha256"])
+        read = dm.decode_chit_result_frame(pc)
+        body = read["vitals"][0]
+        entry = body["entries"][0]
+        check("npc %s: performer is the probe player, target is 0x2001, and "
+              "they differ" % label,
+              body["performer_identity"] == dm.actor_identity(probe)
+              and entry["target_identity"] == dm.npc_target_identity()
+              and body["performer_identity"] != entry["target_identity"])
+    check("the npc scenario file stays test-only, opt-in and write-free",
+          npc_raw["test_only"] is True
+          and npc_raw["production_allowed"] is False
+          and npc_raw["persisted_post_state"]["database_write"] == "none")
+    check("the npc scenario file carries the map-membership nonclaim GT-027 "
+          "exists to test",
+          "that_0x2001_is_registered_in_the_clients_identity_map_at_runtime"
+          "_gt_027_tests_exactly_that" in npc_raw["nonclaims"])
+    rejects(dm, "wire_unlock_is_for_a_different_profile",
+            "the hit_sweep key opens no npc byte",
+            dm.build_damage_model_sweep, legacy, probe, unlock, npc_profile)
+    rejects(dm, "wire_unlock_is_for_a_different_profile",
+            "the npc key opens no hit_sweep byte",
+            dm.build_damage_model_sweep, legacy, probe, npc_unlock, profile)
+    rejects(dm, "npc_target_identity_not_pinned",
+            "an npc sweep whose entry names the performer instead",
+            dm.validate_damage_model_sweep, legacy,
+            [(a[0], actions[i][1], actions[i][2], a[3])
+             for i, a in enumerate(npc_actions)],
+            npc_profile)
+    rejects(dm, "npc_performer_must_not_be_the_npc_target",
+            "an actor whose identity IS the npc placement identity",
+            dm.build_damage_model_sweep, legacy,
+            dm.DamageModelActor(
+                dm.DAMAGE_NPC_TARGET_IDENTITY_LO,
+                dm.DAMAGE_NPC_TARGET_IDENTITY_HI,
+                probe.x, probe.y, probe.z),
+            npc_unlock, npc_profile)
 
     # ================================== E. EVERY REJECTION PRODUCES NO BYTES
     section("E. every rejection produces no bytes")
@@ -1236,7 +1332,8 @@ def main():
         for item in FAILURES:
             emit("  - " + item)
         return 1
-    emit("RESULT: PASS - HYP-PF-024 / DAMAGE-ENCODER-001 verified offline")
+    emit("RESULT: PASS - HYP-PF-024 / DAMAGE-ENCODER-001 + "
+         "DAMAGE-NPC-TARGET-001 verified offline")
     return 0
 
 

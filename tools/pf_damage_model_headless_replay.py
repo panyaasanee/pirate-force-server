@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""DAMAGE-DISPATCH-001: headless wire proof for the HYP-PF-024 hit sweep.
+"""DAMAGE-DISPATCH-001 / DAMAGE-NPC-TARGET-001: headless wire proof for the
+HYP-PF-024 hit sweep, under BOTH of the lane's named profiles.
 
 WHAT THIS PROVES, and it is a wire-layer claim only
 ---------------------------------------------------
@@ -28,12 +29,20 @@ are
       entry ``+0x08``, which is the only reading the client's four ``cmp/jge``
       sites make sense under; and
 
-  (c) addressed to the SESSION's own selected character: the qword performer at
-      header ``+0x18`` and the qword target at entry ``+0x00`` are equal to each
-      other, equal across all four frames, and equal to the identity the
-      dispatcher's own ``foundation.selected`` carries.  A sweep composed here
-      against a DIFFERENT identity does NOT equal the dispatched bytes, which is
-      what makes that a claim about the session rather than about a constant.
+  (c) addressed to the identities THIS profile pins.  Under ``hit_sweep`` the
+      qword performer at header ``+0x18`` and the qword target at entry
+      ``+0x00`` are equal to each other, equal across all four frames, and
+      equal to the identity the dispatcher's own ``foundation.selected``
+      carries.  Under ``npc_target`` (round 95) the performer is still the
+      session's selected character -- one side must be the player or the
+      visibility filter at 0x43FEF0 draws nothing -- and the target is the
+      fixed NPC placement identity ``0x2001`` on every frame, with 15 s
+      spacing so an attended tester can photograph each frame.  A sweep
+      composed here against a DIFFERENT identity does NOT equal the
+      dispatched bytes, which is what makes this a claim about the session
+      rather than about a constant.  Whether ``0x2001`` is in the client's
+      identity map at runtime is UNPROVEN -- GT-027 measures exactly that,
+      and a silent skip at ``0x750D27`` is its meaningful negative.
 
       Note, because it would otherwise look like a coincidence: in this harness
       the selected character's identity IS ``0x10010001``, the fixed probe
@@ -85,6 +94,7 @@ Usage:
     py -3 tools/pf_damage_model_headless_replay.py
     py -3 tools/pf_damage_model_headless_replay.py --json
     py -3 tools/pf_damage_model_headless_replay.py --profile hit_sweep
+    py -3 tools/pf_damage_model_headless_replay.py --profile npc_target
     py -3 tools/pf_damage_model_headless_replay.py \
         --evidence reports/damage_dispatch001_headless.json
 
@@ -124,16 +134,44 @@ from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
 
 SCENARIO = ROOT / "scenarios" / "damage_model_hypothesis_hit_sweep.json"
-SCENARIO_BY_PROFILE = {"hit_sweep": SCENARIO}
+SCENARIO_NPC = ROOT / "scenarios" / "damage_model_hypothesis_npc_sweep.json"
+SCENARIO_BY_PROFILE = {"hit_sweep": SCENARIO, "npc_target": SCENARIO_NPC}
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 
 SWEEP_EVENT = "damage_model_hypothesis_hit_sweep_sent"
+NPC_SWEEP_EVENT = "damage_model_hypothesis_npc_sweep_sent"
 REPEAT_EVENT = "damage_model_hypothesis_already_sent_no_reply"
 NO_SELECTED_EVENT = "damage_model_hypothesis_no_selected_no_reply"
 WRONG_SEQUENCE_EVENT = "damage_model_hypothesis_wrong_sequence_no_reply"
 WRONG_TEXT_EVENT = "damage_model_hypothesis_wrong_text_no_reply"
 WRONG_ENVELOPE_EVENT = "damage_model_hypothesis_wrong_envelope_no_reply"
 EVENT_PREFIX = "damage_model_hypothesis_"
+
+# Per-profile expectations, written out as literals on purpose: a guard that
+# asks the profile object what to expect and then checks the object against
+# its own answer would prove nothing.  Section 0 cross-checks these against
+# the module's constants so the two cannot drift in silence.
+#   * hit_sweep (DAMAGE-DISPATCH-001): the player's own actor is BOTH sides.
+#   * npc_target (DAMAGE-NPC-TARGET-001, round 95): the performer stays the
+#     player, the entry target is the fixed placement identity 0x2001, and
+#     the spacing is 15 s so an attended tester can photograph every frame.
+#     Whether 0x2001 is in the client's identity map at runtime is UNPROVEN;
+#     GT-027 exists to measure exactly that, and "no number over the NPC" is
+#     the meaningful negative, not a null result.
+PROFILE_EXPECT = {
+    "hit_sweep": {
+        "label_prefix": "HYP_PF_024_DAMAGE_MODEL_",
+        "delays": (0.0, 6.0, 6.0, 6.0),
+        "sweep_event": SWEEP_EVENT,
+        "npc_target_identity": None,     # target == performer == the session
+    },
+    "npc_target": {
+        "label_prefix": "HYP_PF_024_DAMAGE_NPC_",
+        "delays": (0.0, 15.0, 15.0, 15.0),
+        "sweep_event": NPC_SWEEP_EVENT,
+        "npc_target_identity": 0x2001,   # hi dword 0; performer = the session
+    },
+}
 
 
 # ---------------------------------------------------------------------------
@@ -369,6 +407,11 @@ def main() -> int:
               % (profile_name, sorted(SCENARIO_BY_PROFILE)))
         return 2
     scenario_path = SCENARIO_BY_PROFILE[profile_name]
+    expect_profile = PROFILE_EXPECT[profile_name]
+    expected_label_prefix = expect_profile["label_prefix"]
+    expected_delays = expect_profile["delays"]
+    sweep_event = expect_profile["sweep_event"]
+    npc_identity = expect_profile["npc_target_identity"]
 
     failures: list[str] = []
     notes: list[str] = []
@@ -411,11 +454,20 @@ def main() -> int:
     check("the step order and label prefix agree with the module",
           EXPECTED_STEP_ORDER == dmh.DAMAGE_MODEL_STEP_ORDER
           and EXPECTED_LABEL_PREFIX == dmh.DAMAGE_MODEL_ACTION_LABEL_PREFIX)
+    check("this profile's label prefix agrees with the module's constant",
+          expected_label_prefix == (
+              dmh.DAMAGE_MODEL_NPC_ACTION_LABEL_PREFIX
+              if profile_name == "npc_target"
+              else dmh.DAMAGE_MODEL_ACTION_LABEL_PREFIX))
+    check("this profile's npc target constant agrees with the module",
+          npc_identity is None
+          or (npc_identity == dmh.DAMAGE_NPC_TARGET_IDENTITY_LO
+              and dmh.DAMAGE_NPC_TARGET_IDENTITY_HI == 0))
     check("the scenario profile carries the module's step plan",
           scenario.step_order == EXPECTED_STEP_ORDER
-          and scenario.action_label_prefix == EXPECTED_LABEL_PREFIX
-          and scenario.first_delay_seconds == EXPECTED_DELAYS[0]
-          and scenario.spacing_seconds == EXPECTED_DELAYS[1])
+          and scenario.action_label_prefix == expected_label_prefix
+          and scenario.first_delay_seconds == expected_delays[0]
+          and scenario.spacing_seconds == expected_delays[1])
     check("the lane is not production-allowed",
           dmh.production_allowed is False)
     check("the scenario file is the opt-in HYP-PF-024 file",
@@ -538,14 +590,22 @@ def main() -> int:
               len(actions) == len(EXPECTED_STEP_ORDER), str(len(actions)))
         check("in the scenario's pinned order",
               [row[0] for row in actions]
-              == [EXPECTED_LABEL_PREFIX + step
+              == [expected_label_prefix + step
                   for step in EXPECTED_STEP_ORDER],
               str([row[0] for row in actions]))
-        check("and named the sweep event exactly once",
-              state.events.count(SWEEP_EVENT) == 1)
+        check("and named THIS profile's sweep event exactly once",
+              state.events.count(sweep_event) == 1)
+        check("and never named the OTHER profile's sweep event",
+              not any(
+                  event in state.events
+                  for event in (SWEEP_EVENT, NPC_SWEEP_EVENT)
+                  if event != sweep_event
+              ))
         check("the dispatched labels equal the module's action labels",
               [row[0] for row in actions]
-              == list(dmh.DAMAGE_MODEL_ACTION_LABELS))
+              == list(dmh.DAMAGE_MODEL_NPC_ACTION_LABELS
+                      if profile_name == "npc_target"
+                      else dmh.DAMAGE_MODEL_ACTION_LABELS))
         check("the dispatched labels equal the scenario file's action labels",
               [row[0] for row in actions]
               == list(pinned["dispatch"]["action_labels"]))
@@ -579,7 +639,7 @@ def main() -> int:
                   "walker --")
         for index, (label, pc, frame, delay) in enumerate(actions):
             step = EXPECTED_STEP_ORDER[index]
-            pin = dmh.DAMAGE_MODEL_PINS[step]
+            pin = dmh.pins_for_profile(scenario)[step]
             scenario_pin = pinned["target"]["per_step"][step]
             parsed = legacy.parse_outer(pc)
             check("frame %s parses with the frozen v141 outer parser" % step,
@@ -640,10 +700,10 @@ def main() -> int:
                   ),
                   str(entry["position"]))
             check("frame %s: the delay is the pinned %.1f s"
-                  % (step, EXPECTED_DELAYS[index]),
-                  delay == EXPECTED_DELAYS[index], str(delay))
+                  % (step, expected_delays[index]),
+                  delay == expected_delays[index], str(delay))
             check("frame %s: the label is the pinned label" % step,
-                  label == EXPECTED_LABEL_PREFIX + step)
+                  label == expected_label_prefix + step)
             check("frame %s reproduces its MODULE byte pins" % step,
                   len(pc) == pin["pc_size"] == EXPECTED_PC_SIZE
                   and len(frame) == pin["frame_size"] == EXPECTED_FRAME_SIZE
@@ -696,14 +756,28 @@ def main() -> int:
 
         # ---------------------------------------------------------------
         if not want_json:
-            print("-- 4. the frames name the SESSION's own actor --")
-        check("performer == target on every frame",
-              all(row["performer_identity"] == row["target_identity"]
-                  for row in rows))
-        check("all four frames name ONE identity",
+            print("-- 4. the frames name the identities THIS profile pins --")
+        if npc_identity is None:
+            check("performer == target on every frame (the player is both "
+                  "sides under hit_sweep)",
+                  all(row["performer_identity"] == row["target_identity"]
+                      for row in rows))
+        else:
+            check("the target is the fixed NPC placement identity 0x%X on "
+                  "every frame" % npc_identity,
+                  all(row["target_identity"] == npc_identity for row in rows),
+                  str([hex(row["target_identity"]) for row in rows]))
+            check("the performer is NOT the NPC target on any frame (one side "
+                  "must be the player for the visibility filter)",
+                  all(row["performer_identity"] != row["target_identity"]
+                      for row in rows))
+        check("all four frames name ONE performer",
               len({row["performer_identity"] for row in rows}) == 1,
               str([hex(row["performer_identity"]) for row in rows]))
-        check("that identity is the dispatcher's selected character 0x%X"
+        check("all four frames name ONE target",
+              len({row["target_identity"] for row in rows}) == 1,
+              str([hex(row["target_identity"]) for row in rows]))
+        check("the performer is the dispatcher's selected character 0x%X"
               % session_identity,
               rows[0]["performer_identity"] == session_identity,
               hex(rows[0]["performer_identity"]))
@@ -751,7 +825,7 @@ def main() -> int:
               out == [] and no_select.damage_model_sweep_count == 0)
         check("no selected character: the named event, exactly",
               no_select.events.count(NO_SELECTED_EVENT) == 1
-              and SWEEP_EVENT not in no_select.events)
+              and sweep_event not in no_select.events)
         refusals.append({"case": "no_selected_character",
                          "event": NO_SELECTED_EVENT, "actions": len(out)})
 
@@ -761,7 +835,7 @@ def main() -> int:
               out == [] and not_ready.damage_model_sweep_count == 0)
         check("not yet teleport + runtime ack: the named event, exactly",
               not_ready.events.count(WRONG_SEQUENCE_EVENT) == 1
-              and SWEEP_EVENT not in not_ready.events)
+              and sweep_event not in not_ready.events)
         refusals.append({"case": "not_runtime_ready",
                          "event": WRONG_SEQUENCE_EVENT, "actions": len(out)})
 
@@ -773,7 +847,7 @@ def main() -> int:
               out == [] and wrong_text.damage_model_sweep_count == 0)
         check("a frame that is not ascii12: the named event, exactly",
               wrong_text.events.count(WRONG_TEXT_EVENT) == 1
-              and SWEEP_EVENT not in wrong_text.events)
+              and sweep_event not in wrong_text.events)
         refusals.append({"case": "not_ascii12_text",
                          "event": WRONG_TEXT_EVENT, "actions": len(out)})
 
@@ -794,13 +868,13 @@ def main() -> int:
               out == [] and wrong_env.damage_model_sweep_count == 0)
         check("a wrong envelope on the same vital id: the named event, exactly",
               wrong_env.events.count(WRONG_ENVELOPE_EVENT) == 1
-              and SWEEP_EVENT not in wrong_env.events)
+              and sweep_event not in wrong_env.events)
         refusals.append({"case": "wrong_envelope",
                          "event": WRONG_ENVELOPE_EVENT, "actions": len(out)})
 
         check("no refusal path ever names the sweep event",
               not any(
-                  SWEEP_EVENT in candidate.events
+                  sweep_event in candidate.events
                   for candidate in (no_select, not_ready, wrong_text, wrong_env)
               ))
 
@@ -833,7 +907,7 @@ def main() -> int:
         off_actions = off.dispatch(trigger())
         off_labels = [row[0] for row in off_actions]
         check("with the scenario absent no HYP-PF-024 action is composed",
-              not any(label.startswith(EXPECTED_LABEL_PREFIX)
+              not any(label.startswith(expected_label_prefix)
                       for label in off_labels), str(off_labels))
         check("with the scenario absent none of the sweep's bytes appear",
               not ({row[1] for row in off_actions} & seen_pcs))
@@ -861,7 +935,12 @@ def main() -> int:
             "socket_constructor_attempts": trap.attempts,
         },
         "identity": {
-            "rule": "performer == target == the session's selected character",
+            "rule": (
+                "performer == target == the session's selected character"
+                if npc_identity is None else
+                "performer == the session's selected character; "
+                "target == the fixed NPC placement identity 0x2001"
+            ),
             "session_identity": session_identity,
             "coincides_with_the_pinned_probe_identity": (
                 session_identity == dmh.DAMAGE_PROBE_IDENTITY_LO
@@ -903,10 +982,13 @@ def main() -> int:
             print("RESULT: FAIL - %d guard(s) drifted: %s"
                   % (len(failures), failures))
         else:
-            print("RESULT: PASS - %d guards PASS - the real dispatcher emits "
-                  "the encoder's four-step CHitResult hit sweep byte for byte "
-                  "against the session's own actor (client layer = attended, "
-                  "not run)" % guards)
+            print("RESULT: PASS - %d guards PASS - the real dispatcher "
+                  "emits the encoder's four-step CHitResult sweep byte for "
+                  "byte under the %s profile, %s (client layer = attended, "
+                  "not run)"
+                  % (guards, profile_name,
+                     "player as both sides" if npc_identity is None else
+                     "player as performer against NPC target 0x2001"))
     return 1 if failures else 0
 
 

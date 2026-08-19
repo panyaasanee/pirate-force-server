@@ -187,7 +187,27 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # the lane end a session in a state no earlier version could produce: an NPC latched dying
 # with the death task never opened.  No client has ever been shown one byte of it; that is
 # GT-025, queued and not run, and the coverage row stays where it is until then.
-CANONICAL_CONTENT_SHA256 = "F88B714F124696F8BDD22FB43BDA0206E3B9F6876A48FA614F5A0D5C7CEAA263"
+# ROUND 95 AMENDMENT (HYP-PF-024, DAMAGE-NPC-TARGET-001).  No entry added, no entry index
+# moved, count stays 31.  The damage entry gains a SECOND NAMED PROFILE, npc_target, behind
+# its own opt-in file and its own identity-compared unlock token (the same round-91 repair
+# HYP-PF-023 got).  It exists because GT-024 answered everything the first profile could ask
+# -- the numbers rendered, they were exactly 63 and 379, MISS drew the marker and no number
+# -- and left exactly one question it cannot: has the client ever been asked to draw our
+# number over an actor that is not the player?  The profile changes two things and nothing
+# else: the hit entry's TARGET is the fixed placement identity 0x2001 (the identity the
+# HYP-PF-023 death lane already drives; copied with a drift test, never imported) while the
+# performer stays the player, because one side must be the player or the visibility filter
+# at 0x43FEF0 draws nothing; and the spacing is 15 s so an attended tester can photograph
+# every frame (the round-84 lesson).  Both profiles hold the SAME step tuple object, so the
+# plan cannot fork.  Whether 0x2001 is in the client's identity map AT RUNTIME is
+# deliberately not claimed -- a target the client cannot resolve is skipped silently at
+# 0x750D27, and GT-027's meaningful negative is exactly that skip.  This FILLS the entry's
+# version budget (3 of 3): the stop rule now says so, and the next widening of the damage
+# lane needs a new entry or a scoped approval, not another profile.  The scope sentence
+# "never an NPC" is rewritten to name the two profiles, because a scope that contradicts
+# the tree is worse than no scope.  No client has ever been shown one byte of the npc
+# profile; that is GT-027, queued and not run, and the coverage row stays where it is.
+CANONICAL_CONTENT_SHA256 = "B1C9A42C6E8BECC785FFDA00EC356796DBF872A3E026A754AF24F04680670584"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(

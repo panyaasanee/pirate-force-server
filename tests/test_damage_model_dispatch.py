@@ -120,6 +120,11 @@ def tearDownModule():
 
 
 class DamageModelDispatchTests(unittest.TestCase):
+    # The event the booted profile is expected to name.  The npc subclass
+    # overrides this, which is what lets every inherited lane-level test run
+    # under BOTH profiles without weakening its assertion.
+    SWEEP_EVENT_NAME = SWEEP_EVENT
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.tmp_dir = Path(self.tmp.name)
@@ -597,7 +602,7 @@ class DamageModelDispatchTests(unittest.TestCase):
         self.assertEqual(state.dispatch(self._trigger()), [])
         self.assertEqual(state.dispatch(self._trigger("probe2")), [])
         self.assertEqual(state.damage_model_sweep_count, 1)
-        self.assertEqual(state.events.count(SWEEP_EVENT), 1)
+        self.assertEqual(state.events.count(self.SWEEP_EVENT_NAME), 1)
         self.assertEqual(state.events.count(REPEAT_EVENT), 2)
         self.assertEqual(self._db_digest(), before)
 
@@ -607,6 +612,7 @@ class DamageModelDispatchTests(unittest.TestCase):
         before = self._db_digest()
         self.assertEqual(state.dispatch(parsed), [])
         self.assertNotIn(SWEEP_EVENT, state.events)
+        self.assertNotIn(self.SWEEP_EVENT_NAME, state.events)
         self.assertEqual(state.events.count(event_name), 1, state.events)
         self.assertEqual(state.damage_model_sweep_count, 0)
         self.assertEqual(self._db_digest(), before)
@@ -834,6 +840,144 @@ class CanonicalDatabaseContainmentTests(unittest.TestCase):
 
     def test_the_canonical_database_has_not_moved_since_this_module_loaded(self):
         self.assertEqual(_canonical_stat(), _CANONICAL_AT_IMPORT)
+
+
+class NpcTargetProfileDispatchTests(DamageModelDispatchTests):
+    """DAMAGE-NPC-TARGET-001 (round 95): the SAME dispatcher, booted with the
+    npc_target scenario file instead of hit_sweep.
+
+    Subclassing DamageModelDispatchTests reruns every inherited test under the
+    npc profile ON PURPOSE: the refusal ladder, the one-shot rule, the no-write
+    guard and the containment tests are all claims about the LANE, so they have
+    to hold under both profiles or the second profile is not the same lane.
+    The inherited tests that pin hit_sweep-specific values are overridden below
+    with their npc equivalents.
+    """
+
+    NPC_SCENARIO_PATH = (
+        ROOT / "scenarios" / "damage_model_hypothesis_npc_sweep.json"
+    )
+    NPC_SWEEP_EVENT = "damage_model_hypothesis_npc_sweep_sent"
+    NPC_EXPECTED_DELAYS = (0.0, 15.0, 15.0, 15.0)
+    SWEEP_EVENT_NAME = NPC_SWEEP_EVENT
+
+    def setUp(self):
+        super().setUp()
+        self.scenario = dmh.load_damage_model_hypothesis_scenario(
+            self.NPC_SCENARIO_PATH
+        )
+        self.unlock = dmh.damage_model_wire_unlock(self.scenario)
+        self.pinned = json.loads(
+            self.NPC_SCENARIO_PATH.read_text(encoding="utf-8"))
+
+    # -- overrides of hit_sweep-specific pins --------------------------------
+
+    def test_one_request_sweeps_the_four_steps_in_the_pinned_order(self):
+        state = self._state("npc_order")
+        actions = state.dispatch(self._trigger())
+        self.assertEqual(
+            [row[0] for row in actions],
+            list(dmh.DAMAGE_MODEL_NPC_ACTION_LABELS),
+        )
+        self.assertEqual([row[3] for row in actions],
+                         list(self.NPC_EXPECTED_DELAYS))
+        self.assertEqual(state.events.count(self.NPC_SWEEP_EVENT), 1)
+        self.assertNotIn(SWEEP_EVENT, state.events)
+
+    def test_every_dispatched_frame_reproduces_its_module_and_scenario_pins(
+        self,
+    ):
+        state = self._state("npc_pins")
+        actions = state.dispatch(self._trigger())
+        pins = dmh.pins_for_profile(self.scenario)
+        self.assertIs(pins, dmh.DAMAGE_MODEL_PINS_NPC)
+        for index, step in enumerate(EXPECTED_STEP_ORDER):
+            pin = pins[step]
+            file_pin = self.pinned["target"]["per_step"][step]
+            _label, pc, frame, _delay = actions[index]
+            with self.subTest(step=step):
+                self.assertEqual(len(pc), pin["pc_size"])
+                self.assertEqual(len(frame), pin["frame_size"])
+                self.assertEqual(
+                    hashlib.sha256(pc).hexdigest().upper(), pin["pc_sha256"])
+                self.assertEqual(
+                    hashlib.sha256(frame).hexdigest().upper(),
+                    pin["frame_sha256"])
+                self.assertEqual(file_pin["pc_sha256"], pin["pc_sha256"])
+                self.assertEqual(file_pin["frame_sha256"],
+                                 pin["frame_sha256"])
+                # and the npc pin is NOT the hit_sweep pin: the target qword
+                # is on the wire, so the hashes must differ
+                self.assertNotEqual(
+                    pin["pc_sha256"],
+                    dmh.DAMAGE_MODEL_PINS[step]["pc_sha256"])
+
+    def test_performer_and_target_are_the_sessions_selected_character(self):
+        """Overridden: under npc_target the two sides must DIFFER."""
+        state = self._state("npc_identities")
+        actions = state.dispatch(self._trigger())
+        selected = state.foundation.selected
+        session_identity = (
+            ((selected.identity_hi & 0xFFFFFFFF) << 32)
+            | (selected.identity_lo & 0xFFFFFFFF)
+        )
+        for index, step in enumerate(EXPECTED_STEP_ORDER):
+            _decoded, body, entry = self._entry(actions[index][1])
+            with self.subTest(step=step):
+                self.assertEqual(body["performer_identity"], session_identity)
+                self.assertEqual(entry["target_identity"],
+                                 dmh.npc_target_identity())
+                self.assertEqual(entry["target_identity"], 0x2001)
+                self.assertNotEqual(body["performer_identity"],
+                                    entry["target_identity"])
+
+    def test_the_spacing_matches_the_scenario(self):
+        state = self._state("npc_spacing")
+        actions = state.dispatch(self._trigger())
+        self.assertEqual([row[3] for row in actions],
+                         list(self.NPC_EXPECTED_DELAYS))
+        self.assertEqual(
+            self.scenario.spacing_seconds,
+            dmh.DAMAGE_MODEL_NPC_SPACING_SECONDS,
+        )
+        self.assertEqual(dmh.DAMAGE_MODEL_NPC_SPACING_SECONDS, 15.0)
+
+    # -- npc-only additions ---------------------------------------------------
+
+    def test_the_npc_target_constant_matches_the_death_lanes_probe(self):
+        """0x2001 is COPIED from HYP-PF-023, not imported; drift is a red."""
+        self.assertEqual(
+            dmh.DAMAGE_NPC_TARGET_IDENTITY_LO,
+            rdh.RUNTIMERES_DEATH_PROBE_ACTOR_IDENTITY,
+        )
+        self.assertEqual(dmh.DAMAGE_NPC_TARGET_IDENTITY_HI, 0)
+
+    def test_the_hit_sweep_unlock_opens_no_npc_byte_through_the_dispatcher(
+        self,
+    ):
+        hit_sweep_scenario = dmh.load_damage_model_hypothesis_scenario(
+            SCENARIO_PATH
+        )
+        hit_sweep_unlock = dmh.damage_model_wire_unlock(hit_sweep_scenario)
+        state = self._state("npc_cross_key")
+        actor = self._session_actor(state)
+        with self.assertRaises(dmh.DamageModelValidationError) as raised:
+            dmh.build_damage_model_sweep(
+                self.legacy, actor, hit_sweep_unlock, self.scenario)
+        self.assertIn("wire_unlock_is_for_a_different_profile",
+                      str(raised.exception))
+
+    def test_the_replay_tool_passes_under_the_npc_profile(self):
+        proc = subprocess.run(
+            [sys.executable, str(REPLAY_TOOL), "--profile", "npc_target"],
+            cwd=str(ROOT), capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=600,
+        )
+        output = (proc.stdout or "") + (proc.stderr or "")
+        self.assertEqual(proc.returncode, 0, output[-4000:])
+        self.assertIn("RESULT: PASS", output)
+        self.assertIn("npc_target", output)
+        self.assertTrue(output.isascii())
 
 
 if __name__ == "__main__":

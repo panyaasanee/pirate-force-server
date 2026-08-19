@@ -1295,6 +1295,222 @@ class LedgerBindingTests(unittest.TestCase):
 
 
 # ===========================================================================
+# 8b. THE npc_target PROFILE (DAMAGE-NPC-TARGET-001, round 95)
+# ===========================================================================
+NPC_SCENARIO = ROOT / "scenarios" / "damage_model_hypothesis_npc_sweep.json"
+
+# The complete PC of every npc_target frame of the pinned probe PERFORMER
+# (0x10010001) against the pinned NPC TARGET (0x2001), byte for byte.  The
+# only bytes that differ from EXPECT_PC_HEX are the eight of the entry's
+# target qword: 01 00 01 10 00 00 00 00 becomes 01 20 00 00 00 00 00 00.
+EXPECT_NPC_PC_HEX = {
+    "HIT_WEAK": (
+        "129d6e140000000008040b0212010012f7160b0032010001100000000012"
+        "000012000014000000000b0012010032012000000000000014c1ffffff2a"
+        "d45f10c62ab9e030c52ac74a5f432a000000001201000b00"
+    ),
+    "HIT_STRONG": (
+        "129d6e140000000008040b0212010012f7160b0032010001100000000012"
+        "000012000014000000000b001201003201200000000000001485feffff2a"
+        "d45f10c62ab9e030c52ac74a5f432a000000001201000b00"
+    ),
+    "MISS": (
+        "129d6e140000000008040b0212010012f7160b0032010001100000000012"
+        "000012000014000000000b0012010032012000000000000014000000002a"
+        "d45f10c62ab9e030c52ac74a5f432a000000001200000b00"
+    ),
+    "HIT_REACTION": (
+        "129d6e140000000008040b0212010012f7160b0032010001100000000012"
+        "000012000014000000000b0012010032012000000000000014c1ffffff2a"
+        "d45f10c62ab9e030c52ac74a5f432a000000001209000b00"
+    ),
+}
+
+_NPC_SWEEP = None
+
+
+def npc_sweep():
+    """Compose the npc probe sweep once: (scenario, unlock, probe, actions)."""
+    global _NPC_SWEEP
+    if _NPC_SWEEP is None:
+        scenario = dmh.load_damage_model_hypothesis_scenario(NPC_SCENARIO)
+        unlock = dmh.damage_model_wire_unlock(scenario)
+        probe = dmh.damage_probe_actor(legacy())
+        _NPC_SWEEP = (
+            scenario, unlock, probe,
+            dmh.build_damage_model_sweep(legacy(), probe, unlock, scenario),
+        )
+    return _NPC_SWEEP
+
+
+class NpcProfileTests(NoBytesMixin, unittest.TestCase):
+    """The second profile widens WHO the entry names, and nothing else."""
+
+    def test_the_npc_scenario_file_loads_and_is_the_pinned_plan(self):
+        scenario, _unlock, _probe, _actions = npc_sweep()
+        self.assertIs(scenario, dmh._PROFILE_NPC)
+        self.assertEqual(scenario.scenario_id,
+                         dmh.DAMAGE_MODEL_NPC_SCENARIO_ID)
+        self.assertEqual(scenario.step_order, dmh.DAMAGE_MODEL_STEP_ORDER)
+        self.assertIs(scenario.step_order, dmh.DAMAGE_MODEL_STEP_ORDER)
+        self.assertEqual(scenario.spacing_seconds, 15.0)
+        self.assertEqual(scenario.first_delay_seconds, 0.0)
+        self.assertEqual(scenario.action_label_prefix,
+                         "HYP_PF_024_DAMAGE_NPC_")
+
+    def test_every_npc_probe_frame_is_byte_for_byte_the_expected_pc(self):
+        _scenario, _unlock, _probe, actions = npc_sweep()
+        for index, label in enumerate(dmh.DAMAGE_MODEL_STEP_ORDER):
+            with self.subTest(step=label):
+                self.assertEqual(actions[index][1].hex(),
+                                 EXPECT_NPC_PC_HEX[label])
+
+    def test_the_npc_pins_are_the_composed_hashes_and_the_file_pins(self):
+        on_disk = json.loads(NPC_SCENARIO.read_text(encoding="utf-8"))
+        per_step = on_disk["target"]["per_step"]
+        _scenario, _unlock, _probe, actions = npc_sweep()
+        for index, label in enumerate(dmh.DAMAGE_MODEL_STEP_ORDER):
+            pin = dmh.DAMAGE_MODEL_PINS_NPC[label]
+            _label, pc, frame, _delay = actions[index]
+            with self.subTest(step=label):
+                self.assertEqual(
+                    hashlib.sha256(pc).hexdigest().upper(), pin["pc_sha256"])
+                self.assertEqual(
+                    hashlib.sha256(frame).hexdigest().upper(),
+                    pin["frame_sha256"])
+                for key in ("damage_wire", "flags", "pc_size", "pc_sha256",
+                            "frame_size", "frame_sha256"):
+                    self.assertEqual(per_step[label][key], pin[key])
+                # the npc pin must DIFFER from the hit_sweep pin: the target
+                # qword is on the wire
+                self.assertNotEqual(pin["pc_sha256"],
+                                    dmh.DAMAGE_MODEL_PINS[label]["pc_sha256"])
+
+    def test_each_identity_appears_exactly_once_per_npc_frame(self):
+        """hit_sweep frames carry the probe qword TWICE; npc frames carry the
+        probe as performer once and the npc target once."""
+        _scenario, _unlock, probe, actions = npc_sweep()
+        performer = struct.pack("<Q", dmh.actor_identity(probe))
+        target = struct.pack("<Q", dmh.npc_target_identity())
+        self.assertEqual(dmh.npc_target_identity(), 0x2001)
+        for label, pc, _frame, _delay in actions:
+            with self.subTest(step=label):
+                self.assertEqual(pc.count(performer), 1)
+                self.assertEqual(pc.count(target), 1)
+
+    def test_the_npc_target_constant_matches_the_death_lanes_probe(self):
+        """0x2001 is COPIED from HYP-PF-023 (RUNTIMERES_DEATH_PROBE_ACTOR_
+        IDENTITY), never imported by the encoder; this is the drift check."""
+        from pirateforce_foundation import runtimeres_death_hypothesis as rdh
+
+        self.assertEqual(dmh.DAMAGE_NPC_TARGET_IDENTITY_LO,
+                         rdh.RUNTIMERES_DEATH_PROBE_ACTOR_IDENTITY)
+        self.assertEqual(dmh.DAMAGE_NPC_TARGET_IDENTITY_HI, 0)
+        source = MODULE_SOURCE_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("from .runtimeres_death_hypothesis", source)
+        self.assertNotIn("import runtimeres_death_hypothesis", source)
+
+    def test_the_npc_sweep_rides_the_npc_cadence(self):
+        _scenario, _unlock, _probe, actions = npc_sweep()
+        self.assertEqual([a[0] for a in actions],
+                         list(dmh.DAMAGE_MODEL_NPC_ACTION_LABELS))
+        self.assertEqual([a[3] for a in actions], [0.0, 15.0, 15.0, 15.0])
+
+    # -- traps ---------------------------------------------------------------
+
+    def test_trap_the_hit_sweep_key_opens_no_npc_byte_and_vice_versa(self):
+        npc_scenario, npc_unlock, probe, _actions = npc_sweep()
+        hit_scenario, hit_unlock, _hp, _ha = sweep()
+        self.assertIsNot(npc_unlock, hit_unlock)
+        self.assertNoBytes(
+            lambda: dmh.build_damage_model_sweep(
+                legacy(), probe, hit_unlock, npc_scenario),
+            "wire_unlock_is_for_a_different_profile",
+        )
+        self.assertNoBytes(
+            lambda: dmh.build_damage_model_sweep(
+                legacy(), probe, npc_unlock, hit_scenario),
+            "wire_unlock_is_for_a_different_profile",
+        )
+
+    def test_trap_an_npc_frame_whose_target_is_the_performer(self):
+        """Swap the hit_sweep PCs (target == performer) under the npc labels:
+        the validator must notice the entry does not name 0x2001."""
+        npc_scenario, _unlock, _probe, npc_actions = npc_sweep()
+        _hs, _hu, _hp, hit_actions = sweep()
+        swapped = [
+            (npc_actions[i][0], hit_actions[i][1], hit_actions[i][2],
+             npc_actions[i][3])
+            for i in range(len(npc_actions))
+        ]
+        self.assertNoBytes(
+            lambda: dmh.validate_damage_model_sweep(
+                legacy(), swapped, npc_scenario),
+            "npc_target_identity_not_pinned",
+        )
+
+    def test_trap_a_performer_that_is_the_npc_target_itself(self):
+        npc_scenario, npc_unlock, _probe, _actions = npc_sweep()
+        impostor = dmh.DamageModelActor(
+            dmh.DAMAGE_NPC_TARGET_IDENTITY_LO,
+            dmh.DAMAGE_NPC_TARGET_IDENTITY_HI,
+            float(legacy().V135_PLAYER_X), float(legacy().V135_PLAYER_Y),
+            float(legacy().V135_PLAYER_Z))
+        self.assertNoBytes(
+            lambda: dmh.build_damage_model_sweep(
+                legacy(), impostor, npc_unlock, npc_scenario),
+            "npc_performer_must_not_be_the_npc_target",
+        )
+
+    def test_trap_an_npc_delay_that_is_the_hit_sweep_delay(self):
+        npc_scenario, _unlock, _probe, npc_actions = npc_sweep()
+        rows = [list(a) for a in npc_actions]
+        rows[1][3] = 6.0
+        self.assertNoBytes(
+            lambda: dmh.validate_damage_model_sweep(
+                legacy(), [tuple(r) for r in rows], npc_scenario),
+            "sweep delay is not the plan",
+        )
+
+    def test_trap_the_npc_scenario_file_with_one_key_added_or_removed(self):
+        base = json.loads(NPC_SCENARIO.read_text(encoding="utf-8"))
+        variants = {
+            "extra top level key": lambda d: d.update(extra=1),
+            "missing npc target key": lambda d: d["target"].pop(
+                "npc_target_identity_lo"),
+            "edited npc target": lambda d: d["target"].update(
+                npc_target_identity_lo=0x2002),
+            "edited spacing": lambda d: d["dispatch"].update(
+                spacing_seconds=6.0),
+            "production allowed": lambda d: d.update(production_allowed=True),
+        }
+        for label, mutate in variants.items():
+            with self.subTest(variant=label):
+                data = json.loads(json.dumps(base))
+                mutate(data)
+                with tempfile.TemporaryDirectory() as tmp:
+                    path = Path(tmp) / "scenario.json"
+                    path.write_text(json.dumps(data), encoding="utf-8")
+                    self.assertNoBytes(
+                        lambda p=path:
+                        dmh.load_damage_model_hypothesis_scenario(p),
+                        "scenario_file_exceeds_allowlist",
+                    )
+
+    def test_the_npc_lane_never_claims_production_or_map_membership(self):
+        on_disk = json.loads(NPC_SCENARIO.read_text(encoding="utf-8"))
+        self.assertIs(on_disk["production_allowed"], False)
+        self.assertIs(on_disk["test_only"], True)
+        self.assertEqual(on_disk["persisted_post_state"]["database_write"],
+                         "none")
+        self.assertEqual(on_disk["dispatch"]["socket_action"], "none")
+        self.assertIn(
+            "that_0x2001_is_registered_in_the_clients_identity_map_at_runtime"
+            "_gt_027_tests_exactly_that",
+            on_disk["nonclaims"])
+
+
+# ===========================================================================
 # 9.  THE cp874 LESSON
 # ===========================================================================
 class AsciiOnlyTests(unittest.TestCase):
@@ -1304,7 +1520,7 @@ class AsciiOnlyTests(unittest.TestCase):
         self.assertTrue(source.isascii())
 
     def test_the_module_and_the_scenario_are_pure_ascii_too(self):
-        for path in (MODULE_SOURCE_PATH, SCENARIO):
+        for path in (MODULE_SOURCE_PATH, SCENARIO, NPC_SCENARIO):
             with self.subTest(path=path.name):
                 self.assertTrue(
                     path.read_text(encoding="utf-8").isascii())

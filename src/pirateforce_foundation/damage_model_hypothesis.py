@@ -32,12 +32,29 @@ what the frozen V141 helper ``make_runtime_vitals`` already emits.
     byte, different reader.  ``drafts/DAMAGE_MODEL_UNKNOWNS_R90_STATIC.md``
     section 1 pins both.
 
-The sweep is four frames against ONE target -- the player's own actor, which
-is the only identity this lane can be sure the client already knows:
+The sweep is four frames against ONE target.  The lane now ships TWO named
+profiles of the same four-step plan, and the second one exists because GT-024
+left exactly one question the first profile cannot ask:
+
+* ``hit_sweep`` (the original): the player's own actor is BOTH performer and
+  target -- the only identity this lane can be SURE the client already knows.
+  Spacing 6.0 s.  GT-024 ran it attended and the numbers rendered.
+* ``npc_target`` (DAMAGE-NPC-TARGET-001, the LAST version this entry's budget
+  allows): the performer stays the player's own actor -- one side of the frame
+  must be the player or the six-stage visibility filter at ``0x43FEF0`` draws
+  nothing -- but the hit entry's TARGET is the fixed NPC placement identity
+  ``0x2001`` (``0x2000 + placement_idx + 1``, the first Port Royal placement,
+  the same identity HYP-PF-023 drives).  Whether ``0x2001`` is actually IN the
+  client's identity map at runtime is UNPROVEN and is exactly what GT-027
+  tests: a target the client cannot resolve is skipped silently at
+  ``0x750D27``, so "no number over the NPC" is the meaningful negative.
+  Spacing 15.0 s, so an attended tester can photograph each frame without
+  racing their own capture latency (the round-84 lesson).
 
     HIT_WEAK      damage ``-63``  flags ``0x0001``   a number on screen
     HIT_STRONG    damage ``-379`` flags ``0x0001``   a bigger number
-    MISS          damage ``0``    flags ``0x0000``   the control: NO number
+    MISS          damage ``0``    flags ``0x0000``   the control: no NUMBER --
+                                                     but NOT silence; see below
     HIT_REACTION  damage ``-63``  flags ``0x0009``   the same number, plus the
                                                      branch behind bit 3
 
@@ -45,6 +62,16 @@ is the only identity this lane can be sure the client already knows:
 tester whether the client is reading our bytes or drawing something of its own,
 so :func:`validate_damage_model_sweep` refuses any sweep that does not contain
 one -- ``sweep_does_not_contain_a_miss_frame``.
+
+    ERRATUM (round 95, from the round-93 static pass, FINDINGS_R93_CHITRESULT_
+    DISPLAY_TARGET_STATIC.md): an earlier revision of this docstring called the
+    MISS frame "the control: NO number" as if nothing should appear at all.
+    The bytes say otherwise: ``bit0 clear AND damage == 0`` selects FxNumber
+    type 6 at ``0x440093`` (``6A 06``), key ``0x2D``, which is the texture
+    ``bm_miss.tga`` -- the client is DESIGNED to draw a MISS marker for this
+    frame.  Seeing the word MISS on screen is therefore POSITIVE evidence the
+    client read our flags and damage; only a floating NUMBER must be absent.
+    GT-024 observed exactly that (Panya, eyewitness, 2026-08-20 biground 8).
 
 THE SIGN IS THE MEANING
 -----------------------
@@ -103,6 +130,7 @@ from .population import RUNTIME_PROTOCOL_RES_ID
 production_allowed = False
 
 DAMAGE_MODEL_SCENARIO_ID = "damage_model_hypothesis_hit_sweep"
+DAMAGE_MODEL_NPC_SCENARIO_ID = "damage_model_hypothesis_npc_sweep"
 # PF-HYPOTHESIS-LEDGER: HYP-PF-024 active
 # Registered in docs/HYPOTHESIS_LEDGER.json by the round-90 append.  The
 # annotation above and that entry's source_refs bind each other both ways:
@@ -470,6 +498,38 @@ DAMAGE_MODEL_ACTION_LABELS = tuple(
     for label in DAMAGE_MODEL_STEP_ORDER
 )
 
+# The npc_target profile (DAMAGE-NPC-TARGET-001).  SAME four-step plan -- both
+# profiles resolve step i to the same DAMAGE_MODEL_STEPS row object, so the
+# damage values, the flag words and the MISS control cannot drift between
+# them.  What changes is WHO the hit entry names, and how far apart the frames
+# ride:
+#
+#   * the TARGET is the fixed NPC placement identity 0x2001 -- 0x2000 +
+#     placement_idx + 1, the first Port Royal placement, the same identity the
+#     HYP-PF-023 death lane drives (RUNTIMERES_DEATH_PROBE_ACTOR_IDENTITY; the
+#     value is COPIED here rather than imported, with a drift test beside the
+#     defender constants' one, because an encoder should not import a
+#     neighbouring lane);
+#   * the PERFORMER stays the player's own actor, because one side of the
+#     frame must be the player or the six-stage visibility filter at 0x43FEF0
+#     draws nothing at all (GT-027 spec, from the round-93 static pass);
+#   * the spacing is 15.0 s so an attended tester can photograph every frame
+#     without racing their own capture latency (the round-84 lesson: never use
+#     your own screenshot as the clock).
+#
+# Whether 0x2001 is IN the client's identity map at runtime is UNPROVEN.  A
+# target the client cannot resolve is skipped silently at 0x750D27, so GT-027
+# reads "no number over the NPC" as the meaningful negative, not as nothing.
+DAMAGE_NPC_TARGET_IDENTITY_LO = 0x2001
+DAMAGE_NPC_TARGET_IDENTITY_HI = 0
+DAMAGE_MODEL_NPC_FIRST_DELAY_SECONDS = 0.0
+DAMAGE_MODEL_NPC_SPACING_SECONDS = 15.0
+DAMAGE_MODEL_NPC_ACTION_LABEL_PREFIX = "HYP_PF_024_DAMAGE_NPC_"
+DAMAGE_MODEL_NPC_ACTION_LABELS = tuple(
+    DAMAGE_MODEL_NPC_ACTION_LABEL_PREFIX + label
+    for label in DAMAGE_MODEL_STEP_ORDER
+)
+
 
 @dataclass(frozen=True)
 class DamageModelActor:
@@ -488,8 +548,14 @@ class DamageModelWireUnlock:
     hypothesis_id: str
 
 
+# One token PER PROFILE, compared by identity, so the key issued for one
+# profile opens no byte of the other (the same round-91 repair HYP-PF-023
+# got when it grew its second profile).
 _UNLOCK = DamageModelWireUnlock(
     DAMAGE_MODEL_SCENARIO_ID, DAMAGE_MODEL_HYPOTHESIS_ID,
+)
+_UNLOCK_NPC = DamageModelWireUnlock(
+    DAMAGE_MODEL_NPC_SCENARIO_ID, DAMAGE_MODEL_HYPOTHESIS_ID,
 )
 
 
@@ -512,17 +578,39 @@ _PROFILE = DamageModelHypothesisScenario(
     DAMAGE_MODEL_ACTION_LABEL_PREFIX,
 )
 
+# Both profiles hold the SAME step tuple object: DAMAGE_MODEL_STEPS is the one
+# plan, and a profile is a policy about identities and timing, never a second
+# copy of the plan.
+_PROFILE_NPC = DamageModelHypothesisScenario(
+    DAMAGE_MODEL_NPC_SCENARIO_ID,
+    DAMAGE_MODEL_HYPOTHESIS_ID,
+    DAMAGE_MODEL_STEP_ORDER,
+    DAMAGE_MODEL_NPC_SPACING_SECONDS,
+    DAMAGE_MODEL_NPC_FIRST_DELAY_SECONDS,
+    DAMAGE_MODEL_NPC_ACTION_LABEL_PREFIX,
+)
+
+_UNLOCK_BY_SCENARIO_ID = {
+    DAMAGE_MODEL_SCENARIO_ID: _UNLOCK,
+    DAMAGE_MODEL_NPC_SCENARIO_ID: _UNLOCK_NPC,
+}
+
 
 def damage_model_wire_unlock(value: Any) -> DamageModelWireUnlock:
-    """The only key that lets this process name +0x08 or +0x1C."""
-    require_damage_model_hypothesis_scenario(value)
-    return _UNLOCK
+    """The only key that lets this process name +0x08 or +0x1C.
+
+    The key is issued FOR the profile that was handed in, and the composers
+    compare it by identity against that profile's own token, so a key minted
+    from one profile opens no byte of the other.
+    """
+    profile = require_damage_model_hypothesis_scenario(value)
+    return _UNLOCK_BY_SCENARIO_ID[profile.scenario_id]
 
 
 def require_damage_model_wire_unlock(value: Any) -> DamageModelWireUnlock:
     # Identity, not equality: a forged token that compares equal must not open
     # the lane.
-    if value is not _UNLOCK:
+    if value is not _UNLOCK and value is not _UNLOCK_NPC:
         raise DamageModelValidationError(
             "missing_or_forged_wire_unlock: HYP-PF-024 refuses to emit a "
             "CHitResult without the unlock derived from the opt-in scenario"
@@ -530,12 +618,24 @@ def require_damage_model_wire_unlock(value: Any) -> DamageModelWireUnlock:
     return value
 
 
+def require_damage_model_unlock_for_profile(
+    unlock: Any, profile: DamageModelHypothesisScenario,
+) -> DamageModelWireUnlock:
+    """The pairing check: this profile's own token, by identity, or nothing."""
+    require_damage_model_wire_unlock(unlock)
+    if unlock is not _UNLOCK_BY_SCENARIO_ID[profile.scenario_id]:
+        raise DamageModelValidationError(
+            "wire_unlock_is_for_a_different_profile: the key issued for one "
+            "profile of HYP-PF-024 opens no byte of the other"
+        )
+    return unlock
+
+
 def require_damage_model_hypothesis_scenario(
     value: Any,
 ) -> DamageModelHypothesisScenario:
-    if (
-        type(value) is not DamageModelHypothesisScenario
-        or value != _PROFILE
+    if type(value) is not DamageModelHypothesisScenario or (
+        value != _PROFILE and value != _PROFILE_NPC
     ):
         raise DamageModelValidationError(
             "scenario_object_exceeds_allowlist")
@@ -732,6 +832,33 @@ def step_damage_wire(index: Any) -> int:
     )
 
 
+def npc_target_identity() -> int:
+    """The fixed NPC placement identity the npc_target profile addresses."""
+    return (
+        ((DAMAGE_NPC_TARGET_IDENTITY_HI & 0xFFFFFFFF) << 32)
+        | (DAMAGE_NPC_TARGET_IDENTITY_LO & 0xFFFFFFFF)
+    )
+
+
+def profile_target_identity(
+    profile: DamageModelHypothesisScenario, performer_identity: int,
+) -> int:
+    """WHO the hit entry names, per profile.
+
+    hit_sweep: the performer's own identity -- the player is both sides.
+    npc_target: the fixed placement identity 0x2001; the performer must NOT be
+    that identity, because the whole point of the profile is that the two
+    sides differ (and a session actor with a placement identity would mean
+    something upstream is already broken).
+    """
+    if profile.scenario_id == DAMAGE_MODEL_NPC_SCENARIO_ID:
+        if performer_identity == npc_target_identity():
+            raise DamageModelValidationError(
+                "npc_performer_must_not_be_the_npc_target")
+        return npc_target_identity()
+    return performer_identity
+
+
 def make_damage_model_step_response(
     legacy: Any,
     actor: DamageModelActor,
@@ -740,15 +867,16 @@ def make_damage_model_step_response(
     profile: Any,
 ) -> tuple[bytes, bytes]:
     """Compose one step of the hit sweep."""
-    require_damage_model_hypothesis_scenario(profile)
-    require_damage_model_wire_unlock(unlock)
+    profile = require_damage_model_hypothesis_scenario(profile)
+    require_damage_model_unlock_for_profile(unlock, profile)
     label, _attacker_name, flags = step_plan(index)
     if label != profile.step_order[index]:
         raise DamageModelValidationError("unknown_step_label")
     _require_pinned_position(legacy, actor)
     identity = actor_identity(actor)
+    target = profile_target_identity(profile, identity)
     entry = encode_hit_entry(
-        legacy, identity, step_damage_wire(index),
+        legacy, target, step_damage_wire(index),
         (actor.x, actor.y, actor.z), YAW_PINNED, flags, unlock,
     )
     payload = encode_chit_result(legacy, identity, [entry], unlock)
@@ -767,7 +895,8 @@ def build_damage_model_sweep(
     profile: Any,
 ) -> list[tuple[str, bytes, bytes, float]]:
     """Compose the whole sweep, then refuse to return it unless it is the pin."""
-    require_damage_model_hypothesis_scenario(profile)
+    profile = require_damage_model_hypothesis_scenario(profile)
+    require_damage_model_unlock_for_profile(unlock, profile)
     actions: list[tuple[str, bytes, bytes, float]] = []
     for index, label in enumerate(profile.step_order):
         pc, frame = make_damage_model_step_response(
@@ -796,8 +925,9 @@ def _require_pinned_composition(
     every build.  A drifted encoder therefore cannot ship even once.
     """
     probe = damage_probe_actor(legacy)
+    pins = pins_for_profile(profile)
     for index, label in enumerate(profile.step_order):
-        pin = DAMAGE_MODEL_PINS[label]
+        pin = pins[label]
         row = rows[index]
         for key in ("damage_wire", "flags", "pc_size", "frame_size"):
             if row[key] != pin[key]:
@@ -969,11 +1099,13 @@ def validate_damage_model_sweep(
     This is the guard the trap tests exist to break.  It returns one row per
     step so the caller can compare against the pins.
     """
-    require_damage_model_hypothesis_scenario(profile)
+    profile = require_damage_model_hypothesis_scenario(profile)
     if type(actions) is not list or len(actions) != len(profile.step_order):
         raise DamageModelValidationError("sweep length is not the pinned plan")
+    npc_profile = profile.scenario_id == DAMAGE_MODEL_NPC_SCENARIO_ID
     rows: list[dict[str, Any]] = []
     identities: set[int] = set()
+    performers: set[int] = set()
     seen_miss = False
     for index, action in enumerate(actions):
         if type(action) is not tuple or len(action) != 4:
@@ -1029,10 +1161,22 @@ def validate_damage_model_sweep(
         if entry["wire_size"] != HIT_ELEMENT_WIRE_SIZE:
             raise DamageModelValidationError(
                 "composed_bytes_do_not_match_the_pin: entry width")
-        if entry["target_identity"] != body["performer_identity"]:
+        if npc_profile:
+            # The npc_target profile: the entry names the fixed placement
+            # identity, and the performer must be somebody ELSE (the player),
+            # because one side of the frame has to pass the visibility filter
+            # and the point of the profile is that the two sides differ.
+            if entry["target_identity"] != npc_target_identity():
+                raise DamageModelValidationError(
+                    "npc_target_identity_not_pinned")
+            if body["performer_identity"] == entry["target_identity"]:
+                raise DamageModelValidationError(
+                    "npc_performer_must_not_be_the_npc_target")
+        elif entry["target_identity"] != body["performer_identity"]:
             raise DamageModelValidationError(
                 "performer_identity_not_the_selected_actor")
         identities.add(entry["target_identity"])
+        performers.add(body["performer_identity"])
         require_damage_wire_value(entry["damage_wire"])
         require_scenario_band(entry["damage_wire"])
         require_flags_value(entry["flags"])
@@ -1064,7 +1208,7 @@ def validate_damage_model_sweep(
             "frame_size": len(frame),
             "frame_sha256": hashlib.sha256(frame).hexdigest().upper(),
         })
-    if len(identities) != 1:
+    if len(identities) != 1 or len(performers) != 1:
         raise DamageModelValidationError(
             "performer_identity_not_the_selected_actor")
     if not seen_miss:
@@ -1129,6 +1273,70 @@ DAMAGE_MODEL_PINS: dict[str, dict[str, Any]] = {
 }
 
 
+# The composed bytes of the npc_target profile for the SAME probe performer
+# (0x10010001) against the fixed NPC target (0x2001).  Same discipline as
+# DAMAGE_MODEL_PINS: every value here was produced by this encoder and read
+# back by the independent walker; none of it was copied in from anywhere.
+DAMAGE_MODEL_PINS_NPC: dict[str, dict[str, Any]] = {
+    "HIT_WEAK": {
+        "damage_wire": -63,
+        "flags": 1,
+        "pc_size": 84,
+        "pc_sha256": (
+            "D07A4F48E56085982E511FF24E4C4C079DF1318E60A7386BF1B93F5D54A8A4C3"
+        ),
+        "frame_size": 95,
+        "frame_sha256": (
+            "0B4537B6240F7C202B5FAF1A9BADCB0E0F7BAFC40191724DFDE953F797F89706"
+        ),
+    },
+    "HIT_STRONG": {
+        "damage_wire": -379,
+        "flags": 1,
+        "pc_size": 84,
+        "pc_sha256": (
+            "237CB09D44742068F8304FF02CFDA4E61E1045719DE00BE06F0B2CBAAA1E41A5"
+        ),
+        "frame_size": 95,
+        "frame_sha256": (
+            "3363C2A44878732D97F204987963B277E47DAF4016F6BDA27D0E92E2F0128FA9"
+        ),
+    },
+    "MISS": {
+        "damage_wire": 0,
+        "flags": 0,
+        "pc_size": 84,
+        "pc_sha256": (
+            "36702C4201652DBB84C5F712515D28729AC994D07353AAE069D53E454DDD3891"
+        ),
+        "frame_size": 95,
+        "frame_sha256": (
+            "E369DDC41CA253CBE3ABD5474760C2F0F4C9D76FD12A7BD1783B1D68D67E7458"
+        ),
+    },
+    "HIT_REACTION": {
+        "damage_wire": -63,
+        "flags": 9,
+        "pc_size": 84,
+        "pc_sha256": (
+            "5765546FC310F909F39899497472FEE58B4B1825537226FDE71E54D2CFE07F1A"
+        ),
+        "frame_size": 95,
+        "frame_sha256": (
+            "166C53D856C974CB009C34423757F09D3CB441D576585E6D3BA3F29B3E7F3FC1"
+        ),
+    },
+}
+
+
+def pins_for_profile(
+    profile: DamageModelHypothesisScenario,
+) -> dict[str, dict[str, Any]]:
+    if profile.scenario_id == DAMAGE_MODEL_NPC_SCENARIO_ID:
+        return DAMAGE_MODEL_PINS_NPC
+    return DAMAGE_MODEL_PINS
+
+
 DAMAGE_MODEL_CAPABILITIES = (
     "emit_chitresult_0x16f7_version_0_inside_the_vitaldata_collection",
     "carry_one_signed_i32_damage_value_and_one_u16_flag_word_per_target",
@@ -1147,6 +1355,18 @@ DAMAGE_MODEL_NONCLAIMS = (
     "no_client_has_ever_been_shown_one_byte_of_this_profile",
     "production_dispatch_wiring_the_wiring_is_opt_in_and_production_allowed_is_false",
     "production_baseline_behavior",
+)
+
+DAMAGE_MODEL_NPC_CAPABILITIES = DAMAGE_MODEL_CAPABILITIES + (
+    "address_the_hit_entry_at_the_fixed_npc_placement_identity_0x2001",
+    "keep_the_players_own_actor_as_performer_for_the_visibility_filter",
+    "space_the_frames_fifteen_seconds_apart_so_each_one_can_be_photographed",
+)
+
+DAMAGE_MODEL_NPC_NONCLAIMS = DAMAGE_MODEL_NONCLAIMS + (
+    "that_0x2001_is_registered_in_the_clients_identity_map_at_runtime_gt_027_tests_exactly_that",
+    "what_the_entry_position_field_means_for_a_target_that_is_not_the_performer",
+    "that_the_number_if_it_renders_anchors_to_the_npc_rather_than_the_player",
 )
 
 
@@ -1312,10 +1532,71 @@ def _expected_scenario() -> dict[str, Any]:
     }
 
 
+def _expected_scenario_npc() -> dict[str, Any]:
+    """The EXACT tree of the npc_target opt-in file.
+
+    Built by editing the hit_sweep tree rather than by copying it, so the two
+    expectations cannot drift apart on the parts they share: the wire block,
+    the formula block and the entry policy are the SAME objects.
+    """
+    tree = _expected_scenario()
+    tree["id"] = DAMAGE_MODEL_NPC_SCENARIO_ID
+    tree["dispatch"] = dict(tree["dispatch"])
+    tree["dispatch"]["wiring_owner"] = "damage_npc_target_001_round_95"
+    tree["dispatch"]["spacing_seconds"] = DAMAGE_MODEL_NPC_SPACING_SECONDS
+    tree["dispatch"]["first_frame_delay_seconds"] = (
+        DAMAGE_MODEL_NPC_FIRST_DELAY_SECONDS
+    )
+    tree["dispatch"]["action_label_prefix"] = (
+        DAMAGE_MODEL_NPC_ACTION_LABEL_PREFIX
+    )
+    tree["dispatch"]["action_labels"] = list(DAMAGE_MODEL_NPC_ACTION_LABELS)
+    tree["target"] = {
+        "rule": (
+            "a_fixed_npc_placement_identity_the_client_already_holds"
+            "_in_map_data"
+        ),
+        "reason": (
+            "gt_027_asks_whether_0x2001_is_in_the_identity_map_at_runtime"
+            "_a_target_the_client_cannot_resolve_is_skipped_silently"
+        ),
+        "performer_rule": (
+            "the_players_own_actor_stays_performer_or_the_visibility"
+            "_filter_draws_nothing"
+        ),
+        "position_source": "frozen_v135_player_spawn",
+        "pins_are_composed_from_a_fixed_probe_identity": True,
+        "probe_identity_lo": DAMAGE_PROBE_IDENTITY_LO,
+        "probe_identity_hi": DAMAGE_PROBE_IDENTITY_HI,
+        "npc_target_identity_lo": DAMAGE_NPC_TARGET_IDENTITY_LO,
+        "npc_target_identity_hi": DAMAGE_NPC_TARGET_IDENTITY_HI,
+        "per_step": {
+            label: {
+                "damage_wire": DAMAGE_MODEL_PINS_NPC[label]["damage_wire"],
+                "flags": DAMAGE_MODEL_PINS_NPC[label]["flags"],
+                "pc_size": DAMAGE_MODEL_PINS_NPC[label]["pc_size"],
+                "pc_sha256": DAMAGE_MODEL_PINS_NPC[label]["pc_sha256"],
+                "frame_size": DAMAGE_MODEL_PINS_NPC[label]["frame_size"],
+                "frame_sha256": DAMAGE_MODEL_PINS_NPC[label]["frame_sha256"],
+            }
+            for label in DAMAGE_MODEL_STEP_ORDER
+        },
+    }
+    tree["capabilities"] = list(DAMAGE_MODEL_NPC_CAPABILITIES)
+    tree["nonclaims"] = list(DAMAGE_MODEL_NPC_NONCLAIMS)
+    return tree
+
+
 def load_damage_model_hypothesis_scenario(
     path: Any,
 ) -> DamageModelHypothesisScenario:
-    """Load the opt-in scenario, or refuse with no lane at all."""
+    """Load one of the two opt-in scenario files, or refuse with no lane.
+
+    The file's whole tree decides which profile it is: an exact match against
+    the hit_sweep expectation yields the hit_sweep profile, an exact match
+    against the npc_target expectation yields the npc_target profile, and
+    anything else -- one key added or removed anywhere -- is refused.
+    """
     if path is None:
         raise DamageModelValidationError("scenario_file_exceeds_allowlist")
     resolved = Path(path)
@@ -1325,6 +1606,8 @@ def load_damage_model_hypothesis_scenario(
         raise DamageModelValidationError(
             "scenario_file_exceeds_allowlist: %s" % exc
         ) from exc
-    if not _exact_equal(raw, _expected_scenario()):
-        raise DamageModelValidationError("scenario_file_exceeds_allowlist")
-    return _PROFILE
+    if _exact_equal(raw, _expected_scenario()):
+        return _PROFILE
+    if _exact_equal(raw, _expected_scenario_npc()):
+        return _PROFILE_NPC
+    raise DamageModelValidationError("scenario_file_exceeds_allowlist")

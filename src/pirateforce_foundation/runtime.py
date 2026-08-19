@@ -74,6 +74,7 @@ from .population import (
     build_port_royal_membership_transition,
 )
 from .damage_model_hypothesis import (
+    DAMAGE_MODEL_NPC_SCENARIO_ID,
     build_damage_model_sweep,
     damage_model_wire_unlock,
     require_damage_model_hypothesis_scenario,
@@ -1417,10 +1418,15 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             action an attended tester can fire on demand and every refusal
             guard on it is already proven.  Nothing in the request is read.
 
-            The answer is four frames against the player's own actor, which is
-            the only identity this lane can be sure the client knows (a target
-            it cannot find is skipped at 0x7508AD / 0x750D27; a performer it
-            cannot find is NOT, per 0x7507C3):
+            The answer is four frames.  Under the hit_sweep profile both sides
+            are the player's own actor, the only identity this lane can be
+            sure the client knows; under the npc_target profile (round 95,
+            DAMAGE-NPC-TARGET-001) the performer stays the player and the hit
+            entry's target is the fixed NPC placement identity 0x2001, spaced
+            15 s for photography -- GT-027 tests whether that identity is in
+            the client's map at all (a target it cannot find is skipped at
+            0x7508AD / 0x750D27; a performer it cannot find is NOT, per
+            0x7507C3):
 
               * HIT_WEAK       -63, flags 0x0001
               * HIT_STRONG    -379, flags 0x0001
@@ -1470,9 +1476,29 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 damage_model_hypothesis_scenario,
             )
             self.damage_model_sweep_count += 1
-            self.events.append(
+            # DAMAGE-NPC-TARGET-001 (round 95): the event names the PROFILE
+            # that was sent, because there are now two and a log line saying
+            # only that "the sweep" went out cannot tell an attended tester
+            # which experiment they just ran.  The player-target profile must
+            # keep composing EXACTLY the string the ledger's source markers,
+            # the replay tool and the dispatch tests already pin, so both
+            # strings are written out here once and compared: renaming a
+            # profile is an immediate RuntimeError rather than a published
+            # event name that quietly changed.
+            npc_profile = (
+                damage_model_hypothesis_scenario.scenario_id
+                == DAMAGE_MODEL_NPC_SCENARIO_ID
+            )
+            event = (
+                "damage_model_hypothesis_npc_sweep_sent"
+                if npc_profile else
                 "damage_model_hypothesis_hit_sweep_sent"
             )
+            if not npc_profile and event != (
+                "damage_model_hypothesis_hit_sweep_sent"
+            ):
+                raise RuntimeError("HYP-PF-024 sweep event name drift")
+            self.events.append(event)
             return actions
 
         # PF-HYPOTHESIS-LEDGER: HYP-PF-015 active

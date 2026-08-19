@@ -342,6 +342,10 @@
 # IMG-QUERY-001 -- the image query queue runner (bytes/hash/search only).
 # The test beside it needs no real client image; it builds its own.
 !/tools/pf_image_query_runner.py
+# DAMAGE-NPC-TARGET-001 (round 95) -- the report the amended HYP-PF-024 entry
+# cites as evidence.  Same rule as every report on this list: cited by the
+# ledger means visible to git, or a fresh clone cannot read the claim's basis.
+!/reports/PF_DAMAGE_NPC_TARGET001_SECOND_PROFILE_20260820.md
 
 # Round 87, and this one is a debt rather than a new file.  Sweeping every
 # evidence_ref and source_ref in the hypothesis ledger against check-ignore --
