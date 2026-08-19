@@ -431,3 +431,13 @@
 !/reports/PF_RE_V93_Runtime_and_V94_Local_Population_Streaming_20260814.md
 !/reports/PF_RE_V96_Runtime_and_V97_NPCConversation_20260814.md
 !/reports/PF_RE_V99_ShowMessage_and_Fast_Entry_20260814.md
+
+# REMOTE-PLAYER-ENCODER-001 / REMOTE-PLAYER-DISPATCH-001 (HYP-PF-025, chief round 96).
+# The multiplayer chunk-2 visibility lane: the first actor_type 2 frames this tree can
+# compose, plus the three CHUNK2 static findings the ledger entry cites as evidence.
+!/tools/verify_remote_player_encoder.py
+!/tools/pf_remote_player_headless_replay.py
+!/reports/PF_REMOTE_PLAYER_ENCODER001_ACTOR_TYPE_2_VISIBILITY_20260820.md
+!/reports/PF_CHUNK2_Q1_ACTORATTR_MASK_FINDINGS_20260819.md
+!/reports/PF_CHUNK2_Q2_MOVEMENT_MERGE_FINDINGS_20260819.md
+!/reports/PF_CHUNK2_Q3_BIND_THUNK_FINDINGS_20260819.md

@@ -237,8 +237,21 @@ class TestTheAnswer(unittest.TestCase):
         self.assertEqual(counts["src_modules_doing_both"], 1)
         self.assertEqual(counts["src_modules_doing_both_names"],
                          ["runtimeres_death_hypothesis.py"])
+        # Round 96: a second module (remote_player_hypothesis.py) now builds
+        # actor entries and MENTIONS bit 0x0080, but only to FORBID it, so the
+        # SET census above must still be exactly the death lane while the new
+        # forbid census names the visibility probe.  This is the guard that
+        # would catch a future actor_type 2 lane quietly emitting the death
+        # timer.
+        self.assertEqual(counts["src_modules_forbidding_basicattr_bit_0x0080"],
+                         1)
+        self.assertEqual(counts["src_modules_forbidding_names"],
+                         ["remote_player_hypothesis.py"])
         self.assertEqual(counts["actionable_server_gaps"], 0)
-        self.assertEqual(counts["src_actor_stream_call_sites"], 5)
+        # Round 96: the two src/ actor-entry counts moved 5 -> 6 when the
+        # remote-player probe was added; the death-chain claims above did not.
+        self.assertEqual(counts["src_actor_stream_call_sites"], 6)
+        self.assertEqual(counts["src_actor_entry_call_sites"], 6)
         # gap 2 is the one worth keeping a test on.  The round-85 measure -
         # the literal `current_hp = 0` - is STILL zero, because the encoder
         # passes its zero through a named constant.  That guard was about to

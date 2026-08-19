@@ -207,7 +207,29 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # "never an NPC" is rewritten to name the two profiles, because a scope that contradicts
 # the tree is worse than no scope.  No client has ever been shown one byte of the npc
 # profile; that is GT-027, queued and not run, and the coverage row stays where it is.
-CANONICAL_CONTENT_SHA256 = "B1C9A42C6E8BECC785FFDA00EC356796DBF872A3E026A754AF24F04680670584"
+#
+# ROUND 96 APPEND (HYP-PF-025, REMOTE-PLAYER-ENCODER-001 + REMOTE-PLAYER-DISPATCH-001).
+# Entry 32 is appended -- no earlier entry moved, no earlier index changed -- and the
+# canonical content hash below is re-pinned for the same reason every earlier append
+# re-pinned it: the pin exists so the ledger cannot drift SILENTLY, not so it can never
+# grow.  The entry registers multiplayer chunk 2's first deliverable, the actor_type 2
+# (CNetActor, the remote-player branch) visibility probe: five one-entry RuntimeRes
+# frames for three synthetic identities in the 0x00A0_xxxx band -- an ActorAttr that
+# carries BasicAttr bit 0x0001 (the NAME, the field the name board reads and the field
+# no encoder in this tree ever put on the ActorAttr wire), an opaque replayed AvatarAttr
+# rebound to probe B and riding LAST so an independent walker can find its boundary, two
+# lone-MovementAttr update frames (mask 0x01 then 0x03) for a known identity, and a
+# deliberately wrong-class NPCAttr as the negative control, which the proven CNetNPC
+# bind gate must drop in silence -- a name over that actor falsifies chunk 1 and stops
+# the lane.  The design is OURS: the original server is closed, unpublished and
+# unrecoverable, and the entry says so in its first sentence.  Everything is behind one
+# opt-in scenario file and an identity-compared wire unlock, production_allowed false,
+# one-shot, 15-second spacing (the round-84 camera lesson), pins in three agreeing
+# copies (module, scenario, composed bytes) with the avatar-bearing frame skeleton-
+# pinned because its tail is per-character database content.  No client has ever been
+# shown one byte of actor_type 2; that is the queued attended visibility test, and the
+# movement/remote_player_movement_projection coverage row does not move until it runs.
+CANONICAL_CONTENT_SHA256 = "7A0F49A23B5AFB799122F206DAF00E0D910D9129D16F903BC27795252098ABF9"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -329,6 +351,13 @@ EXPECTED_IDS = (
     # it displays is whatever the server sent, and the formula behind that
     # value is this project's own design and not a recovered one.
     "HYP-PF-024",
+    # HYP-PF-025 (multiplayer chunk 2: the first actor_type 2 / CNetActor
+    # frames in this tree, the remote-player visibility probe) is appended so
+    # every existing entry index stays stable.  Like HYP-PF-024 it is a
+    # DESIGNED value: the original server is unrecoverable and no corpus
+    # holds a remote-human-player capture, so the entry's first nonclaim is
+    # that this is our design, checked against our client, not a recovery.
+    "HYP-PF-025",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -364,6 +393,9 @@ EXPECTED_META = {
     "HYP-PF-022": ("protocol_hypothesis", "HP-DEATH-002", "active"),
     "HYP-PF-023": ("protocol_hypothesis", "RUNTIMERES-ENCODER-001", "active"),
     "HYP-PF-024": ("protocol_hypothesis", "DAMAGE-ENCODER-001", "active"),
+    "HYP-PF-025": (
+        "protocol_hypothesis", "REMOTE-PLAYER-ENCODER-001", "active",
+    ),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}
 STATUSES = {"active", "frozen", "retired", "harness_only", "expired_pending_decision"}

@@ -81,6 +81,12 @@ from .damage_model_hypothesis import (
     resolve_actor as resolve_damage_model_actor,
 )
 from .population_scenario import require_population_scenario
+from .remote_player_hypothesis import (
+    build_remote_player_sweep,
+    remote_player_wire_unlock,
+    require_remote_player_hypothesis_scenario,
+    resolve_probes as resolve_remote_player_probes,
+)
 from .runtimeres_death_hypothesis import (
     build_runtimeres_death_sweep,
     require_runtimeres_death_hypothesis_scenario,
@@ -132,6 +138,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                      hp_death_hypothesis_scenario=None,
                      runtimeres_death_hypothesis_scenario=None,
                      damage_model_hypothesis_scenario=None,
+                     remote_player_hypothesis_scenario=None,
                      second_password_mode="required",
                      monotonic_clock=None,
                      close_timer_factory=None):
@@ -146,6 +153,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         hp_death_hypothesis_scenario,
         runtimeres_death_hypothesis_scenario,
         damage_model_hypothesis_scenario,
+        remote_player_hypothesis_scenario,
     ))
     if active_modes > 1:
         raise ValueError(
@@ -153,8 +161,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             "hypothesis, logout hypothesis, chat input hypothesis, channel "
             "message hypothesis, delete actor hypothesis, delete refresh "
             "hypothesis, stats progression hypothesis, hp death hypothesis, "
-            "runtimeres death hypothesis, and damage model hypothesis "
-            "scenarios are mutually exclusive"
+            "runtimeres death hypothesis, damage model hypothesis, and "
+            "remote player hypothesis scenarios are mutually exclusive"
         )
     # DELETE-REFRESH-001 and HYP-PF-015 key on the same vital id 0x36DB, so
     # they must never be able to see the same frame: the mutual-exclusion
@@ -259,6 +267,31 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         damage_model_unlock = damage_model_wire_unlock(
             damage_model_hypothesis_scenario
         )
+    # REMOTE-PLAYER-DISPATCH-001 (HYP-PF-025; the ledger annotation for this
+    # lane lives once per file, on the dispatch method below).  Same shape as
+    # the three lanes above: the wire unlock token is derived ONCE, here, from
+    # the allowlisted scenario object, and it is the only value in this
+    # process that lets anything put actor_type 2 on the actor-entry wire.
+    # The probes are resolved ONCE, here, so a drift in the frozen placement
+    # source refuses at construction time rather than mid-session.
+    #
+    # This lane rides the SAME carrier as RUNTIMERES-DISPATCH-001 (0x6E9D,
+    # derived mask bit 0x02, actor entries) but is a different experiment:
+    # actor_type 2 (CNetActor) instead of 4, an ActorAttr with the name bit
+    # instead of an NPCAttr, and a wrong-class negative control.  The mutual
+    # exclusion above keeps the two lanes from ever seeing the same frame.
+    remote_player_unlock = None
+    remote_player_probes = None
+    if remote_player_hypothesis_scenario is not None:
+        remote_player_hypothesis_scenario = (
+            require_remote_player_hypothesis_scenario(
+                remote_player_hypothesis_scenario
+            )
+        )
+        remote_player_unlock = remote_player_wire_unlock(
+            remote_player_hypothesis_scenario
+        )
+        remote_player_probes = resolve_remote_player_probes(legacy)
     if delete_actor_hypothesis_scenario is not None:
         delete_actor_hypothesis_scenario = (
             require_delete_actor_hypothesis_scenario(
@@ -353,6 +386,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.hp_death_sweep_count = 0
                 self.runtimeres_death_sweep_count = 0
                 self.damage_model_sweep_count = 0
+                self.remote_player_sweep_count = 0
                 self.delete_actor_soft_delete_count = 0
                 self.delete_refresh_list_rebuild_count = 0
                 self.transport_socket_closer = None
@@ -1501,6 +1535,93 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             self.events.append(event)
             return actions
 
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-025 active
+        # REMOTE-PLAYER-DISPATCH-001.  Registered by the round-96 ledger
+        # append; this annotation and that entry's source_refs bind each
+        # other both ways.
+        def _dispatch_remote_player_hypothesis(self, parsed):
+            """Answer one accepted chat input frame with the visibility sweep.
+
+            This is the lane that puts ``actor_type 2`` -- ``CNetActor``, the
+            remote-player branch of the client's actor factory -- on the wire
+            for the first time in this project's history, and the design is
+            OURS: the original server is closed, was never published, and no
+            corpus holds a server->client capture of a remote human player,
+            so there is nothing to recover and everything to design.  The
+            owner pre-approved multiplayer chunk 2 (2026-08-19 11:45).
+
+            The request side is the same accepted 34-byte ascii12 shape the
+            other sweeps reuse: the one client action an attended tester can
+            fire on demand, with every refusal guard already proven.  Nothing
+            in the request is read.
+
+            The answer is five frames for three synthetic identities in the
+            0x00A0_xxxx band (a DESIGN CHOICE, visibly fake, colliding with
+            nothing): SPAWN_BARE (ActorAttr with the never-before-shipped
+            BasicAttr name bit + full MovementAttr), SPAWN_AVATAR (the same
+            plus the selected character's opaque AvatarAttr rebound to probe
+            B -- the A/B comparison is the avatar experiment), MOVE_A_1 and
+            MOVE_A_2 (a lone MovementAttr to a known identity, mask 0x01 then
+            0x03), and NEGATIVE_CONTROL (a deliberately wrong-class NPCAttr
+            that the bind gate 0x4697B0 must drop in silence; a name over
+            that actor falsifies chunk 1 and stops the lane).
+
+            ONE-SHOT: a second sweep would re-introduce identities the client
+            now knows and turn spawns into updates.  15-second spacing, so an
+            attended tester never races their camera (the round-84 lesson).
+
+            The lane touches no store, takes no socket action, and composes
+            nothing at all when the scenario is absent.  A compose-time
+            refusal (a missing avatar wire, a probe/selected-identity
+            collision, any pin drift) is caught HERE and turned into a named
+            no-reply event: fail closed means the client sees silence and the
+            log says exactly why.
+            """
+            self.rx_frames += 1
+            classification = classify_chat_input_attempt(legacy, parsed)
+            if classification != "ascii12":
+                self.events.append(
+                    f"remote_player_hypothesis_{classification}_no_reply"
+                )
+                return []
+            if self.foundation.selected is None:
+                self.events.append(
+                    "remote_player_hypothesis_no_selected_no_reply"
+                )
+                return []
+            if not self.teleport_sent or not self.runtime_ack_sent:
+                self.events.append(
+                    "remote_player_hypothesis_wrong_sequence_no_reply"
+                )
+                return []
+            if self.remote_player_sweep_count:
+                self.events.append(
+                    "remote_player_hypothesis_already_sent_no_reply"
+                )
+                return []
+            selected = self.foundation.selected
+            selected_identity = (
+                (int(selected.identity_hi) << 32) | int(selected.identity_lo)
+            )
+            try:
+                actions = build_remote_player_sweep(
+                    legacy, remote_player_probes, remote_player_unlock,
+                    remote_player_hypothesis_scenario,
+                    avatar_wire=selected.avatar_wire,
+                    selected_identity=selected_identity,
+                )
+            except (ValueError, RuntimeError) as exc:
+                self.events.append(
+                    "remote_player_hypothesis_compose_refused_no_reply_"
+                    f"{exc!r}"
+                )
+                return []
+            self.remote_player_sweep_count += 1
+            self.events.append(
+                "remote_player_hypothesis_visibility_probe_sent"
+            )
+            return actions
+
         # PF-HYPOTHESIS-LEDGER: HYP-PF-015 active
         def _dispatch_delete_actor_hypothesis(self, parsed):
             """Soft-delete one owned character behind the explicit opt-in.
@@ -1818,6 +1939,16 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # app.py refuses the flags together, which is why the ordering
                 # of these branches cannot matter.
                 return self._dispatch_damage_model_hypothesis(parsed)
+            if (
+                remote_player_hypothesis_scenario is not None
+                and nested_id == CHAT_INPUT_VITAL_ID
+            ):
+                # REMOTE-PLAYER-DISPATCH-001.  This lane and the five above
+                # are keyed on the same vital id, so they must never be able
+                # to see the same frame: make_state_class refuses any pair
+                # outright and app.py refuses the flags together, which is
+                # why the ordering of these branches cannot matter.
+                return self._dispatch_remote_player_hypothesis(parsed)
             if (
                 delete_actor_hypothesis_scenario is not None
                 and nested_id == DELETE_ACTOR_VITAL_ID

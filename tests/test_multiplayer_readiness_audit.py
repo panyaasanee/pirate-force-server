@@ -259,15 +259,37 @@ class HistoricalSuiteSizeTests(unittest.TestCase):
                 self.assertGreater(self.tool[key]["files"], 0)
 
     def test_package_a_touches_more_of_the_suite_than_package_b(self):
-        """The audit's central cost comparison, re-derived rather than asserted."""
-        self.assertGreater(
-            self.tool["impact_a_closure"]["functions"],
-            self.tool["impact_b_closure"]["functions"],
-        )
+        """The audit's central cost comparison, re-derived rather than asserted.
+
+        The DURABLE form of the claim is the PINNED one: over the audit's own
+        pinned test sets, package A (transport/session) touches more test
+        functions than package B (world/visibility).  That is the finding the
+        1 -> 2 -> 3 sequencing rested on and it does not move -- it is asserted
+        strictly below and re-derived from the audit's HEAD commit by
+        ``test_the_pin_is_re_derived_from_the_commit_it_names``.
+
+        The LIVE closure is a different measurement and it is ALLOWED to move
+        as we write code, exactly like ``tests_total_files_today``.  Round 96
+        (HYP-PF-025, multiplayer chunk 2) added the package-B visibility lane
+        and its tests -- ``test_remote_player_hypothesis.py`` reaches
+        ``population.load_port_royal_placements`` and so joins package B's
+        blast radius, which is correct: it WOULD re-run if that module changed.
+        So the live package-B closure has caught up to and passed package A.
+        That is what DOING package-B work looks like, not a regression, so the
+        live ordering is measured and checked for sanity (both closures real
+        and positive) but no longer pinned to a direction.  Pinning a live
+        ordering that our own roadmap is designed to invert would be a guard
+        that fails on success.
+        """
+        # The durable, load-bearing claim -- unchanged.
         self.assertGreater(
             self.tool["impact_a_pinned"]["functions"],
             self.tool["impact_b_pinned"]["functions"],
         )
+        # The live closures are both real; their ordering is no longer pinned
+        # now that package-B development (chunk 2) has begun.
+        self.assertGreater(self.tool["impact_a_closure"]["functions"], 0)
+        self.assertGreater(self.tool["impact_b_closure"]["functions"], 0)
 
 
 class GuardWouldNoticeTests(unittest.TestCase):

@@ -749,9 +749,30 @@ SRC_MODULES_WITH_ACTOR_ENTRY = sum(
     1 for t in _src.values() if _count(r"make_remote_actor_entry\(", t))
 SRC_MODULES_WITH_DEATH_TIMER_BIT = sum(
     1 for t in _src.values() if _count(r"0x0080", t))
-SRC_MODULES_WITH_BOTH = sum(
+# Round 96 refinement.  "Mentions 0x0080" is not "sets 0x0080": a module can
+# name the bit only to REFUSE it.  REMOTE-PLAYER-ENCODER-001
+# (remote_player_hypothesis.py, the HYP-PF-025 visibility lane) builds actor
+# entries and names bit 0x0080 exactly once, as
+# BASIC_BIT_DEATH_TIMER_FORBIDDEN, and every use of that constant is a
+# fail-closed guard -- it can never OR the bit into an emitted mask.  So the
+# "both" census that GAP 1 rests on is split from the crude substring: a
+# module SETS the bit only if it builds an entry, names 0x0080, and does NOT
+# carry the FORBIDDEN marker; a module FORBIDS it if it carries that marker.
+# The SET measure stays exactly one module and it is still the death lane,
+# which is the fact GAP 1 was pinned to; the FORBID measure names the new
+# lane so a reader sees the second actor-entry builder is not a second death
+# emitter.
+SRC_MODULES_SETTING_DEATH_TIMER = sum(
     1 for t in _src.values()
-    if _count(r"make_remote_actor_entry\(", t) and _count(r"0x0080", t))
+    if _count(r"make_remote_actor_entry\(", t) and _count(r"0x0080", t)
+    and "FORBIDDEN" not in t)
+SRC_MODULES_FORBIDDING_DEATH_TIMER = sum(
+    1 for t in _src.values()
+    if _count(r"make_remote_actor_entry\(", t) and _count(r"0x0080", t)
+    and "FORBIDDEN" in t)
+# The name "both" is kept for the COUNTS key and the report pin, and it now
+# means "builds an entry AND SETS 0x0080", which is what GAP 1 always meant.
+SRC_MODULES_WITH_BOTH = SRC_MODULES_SETTING_DEATH_TIMER
 
 # Round 86 re-pin.  Section [5] counts our own src/, so unlike every other
 # section in this file its numbers move when we write code -- that is the
@@ -768,7 +789,12 @@ SRC_MODULES_WITH_DEATH_TIMER_BIT_NAMES = tuple(sorted(
     f for f, t in _src.items() if _count(r"0x0080", t)))
 SRC_MODULES_WITH_BOTH_NAMES = tuple(sorted(
     f for f, t in _src.items()
-    if _count(r"make_remote_actor_entry\(", t) and _count(r"0x0080", t)))
+    if _count(r"make_remote_actor_entry\(", t) and _count(r"0x0080", t)
+    and "FORBIDDEN" not in t))
+SRC_MODULES_FORBIDDING_DEATH_TIMER_NAMES = tuple(sorted(
+    f for f, t in _src.items()
+    if _count(r"make_remote_actor_entry\(", t) and _count(r"0x0080", t)
+    and "FORBIDDEN" in t))
 
 # GAP 2's guard was green and its sentence was false, which is worse than red.
 # Round 85 asserted "no call site anywhere passes current_hp = 0" by grepping
@@ -788,28 +814,45 @@ guard("make_runtime_remote_actors" in _v141,
       "v141 already implements the derived-bit-0x02 actor-entry carrier")
 guard("make_remote_actor_entry" in _v141,
       "v141 already implements the actor-entry serializer (0x5E21D0)")
-guard(SRC_ACTOR_ENTRY_SITES == 5,
-      "src/ builds actor entries at exactly 5 call sites (4 spawns + the "
-      "round-86 re-send)")
-guard(SRC_ACTOR_STREAM_SITES == 5,
-      "src/ sends the actor-entry carrier at exactly 5 call sites")
-guard(SRC_MODULES_WITH_ACTOR_ENTRY == 4
+# Round 96 re-pin, 5 -> 6.  REMOTE-PLAYER-ENCODER-001 added the sixth actor-
+# entry call site: remote_player_hypothesis.py builds an actor_type 2 entry
+# for the multiplayer chunk-2 visibility probe.  Section [5] counts our own
+# src/, so its numbers move when we write code -- that is the point of it --
+# and it is re-pinned deliberately rather than loosened, with the new module
+# named beside the count.
+guard(SRC_ACTOR_ENTRY_SITES == 6,
+      "src/ builds actor entries at exactly 6 call sites (4 spawns + the "
+      "round-86 death re-send + the round-96 remote-player probe)")
+guard(SRC_ACTOR_STREAM_SITES == 6,
+      "src/ sends the actor-entry carrier at exactly 6 call sites")
+guard(SRC_MODULES_WITH_ACTOR_ENTRY == 5
       and SRC_MODULES_WITH_ACTOR_ENTRY_NAMES == (
-          "population.py", "runtimeres_death_hypothesis.py", "scenario.py",
+          "population.py", "remote_player_hypothesis.py",
+          "runtimeres_death_hypothesis.py", "scenario.py",
           "scene_object.py"),
-      "4 named src/ modules build actor entries %s"
+      "5 named src/ modules build actor entries %s"
       % (SRC_MODULES_WITH_ACTOR_ENTRY_NAMES,))
-guard(SRC_MODULES_WITH_DEATH_TIMER_BIT == 3
+guard(SRC_MODULES_WITH_DEATH_TIMER_BIT == 4
       and SRC_MODULES_WITH_DEATH_TIMER_BIT_NAMES == (
-          "runtime.py", "runtimeres_death_hypothesis.py",
+          "remote_player_hypothesis.py", "runtime.py",
+          "runtimeres_death_hypothesis.py",
           "stats_progression_hypothesis.py"),
-      "3 named src/ modules mention BasicAttr bit 0x0080 %s"
+      "4 named src/ modules mention BasicAttr bit 0x0080 %s"
       % (SRC_MODULES_WITH_DEATH_TIMER_BIT_NAMES,))
 guard(SRC_MODULES_WITH_BOTH == 1
       and SRC_MODULES_WITH_BOTH_NAMES == ("runtimeres_death_hypothesis.py",),
       "GAP 1 CLOSED in round 86: exactly ONE src/ module both builds an actor "
-      "entry AND sets bit 0x0080, and it is runtimeres_death_hypothesis.py "
-      "(round 85 counted zero and named this as the missing emitter)")
+      "entry AND SETS bit 0x0080, and it is runtimeres_death_hypothesis.py "
+      "(round 85 counted zero and named this as the missing emitter; round 96 "
+      "made SET precise so a module that only FORBIDS the bit does not count)")
+guard(SRC_MODULES_FORBIDDING_DEATH_TIMER == 1
+      and SRC_MODULES_FORBIDDING_DEATH_TIMER_NAMES == (
+          "remote_player_hypothesis.py",),
+      "round 96: exactly ONE src/ module builds an actor entry AND names bit "
+      "0x0080 ONLY to forbid it, and it is remote_player_hypothesis.py -- the "
+      "second actor-entry builder is the HYP-PF-025 visibility lane, NOT a "
+      "second death emitter %s"
+      % (SRC_MODULES_FORBIDDING_DEATH_TIMER_NAMES,))
 guard(SRC_ZERO_HP_SITES == 0 and V141_ZERO_HP_SITES == 0
       and SRC_ZERO_HP_CONST_MODULES == ("runtimeres_death_hypothesis.py",),
       "GAP 2 CLOSED in round 86: the literal `current_hp = 0` still appears "
@@ -881,9 +924,13 @@ COUNTS = {
     "src_actor_stream_call_sites": SRC_ACTOR_STREAM_SITES,
     "src_vital_stream_call_sites": SRC_VITAL_STREAM_SITES,
     "src_modules_building_actor_entries": SRC_MODULES_WITH_ACTOR_ENTRY,
-    "src_modules_setting_basicattr_bit_0x0080": SRC_MODULES_WITH_DEATH_TIMER_BIT,
+    "src_modules_mentioning_basicattr_bit_0x0080": SRC_MODULES_WITH_DEATH_TIMER_BIT,
     "src_modules_doing_both": SRC_MODULES_WITH_BOTH,
     "src_modules_doing_both_names": list(SRC_MODULES_WITH_BOTH_NAMES),
+    "src_modules_forbidding_basicattr_bit_0x0080":
+        SRC_MODULES_FORBIDDING_DEATH_TIMER,
+    "src_modules_forbidding_names":
+        list(SRC_MODULES_FORBIDDING_DEATH_TIMER_NAMES),
     "src_modules_passing_zero_hp_by_named_constant":
         list(SRC_ZERO_HP_CONST_MODULES),
     "server_call_sites_emitting_zero_current_hp": SRC_ZERO_HP_SITES

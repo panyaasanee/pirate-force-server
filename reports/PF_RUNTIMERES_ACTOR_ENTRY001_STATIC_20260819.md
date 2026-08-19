@@ -255,21 +255,25 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
   "gscn_runtime_protocol_req_id": 28271,
   "gscn_runtime_protocol_res_id": 28317,
   "gscn_runtime_protocol_res_sizeof": 40,
-  "guards": 151,
+  "guards": 152,
   "or_0x40_on_offset_0x70_sites": 3,
   "runtimeres_literal_occurrences_in_image": 0,
   "server_call_sites_emitting_zero_current_hp": 0,
-  "src_actor_entry_call_sites": 5,
-  "src_actor_stream_call_sites": 5,
-  "src_modules_building_actor_entries": 4,
+  "src_actor_entry_call_sites": 6,
+  "src_actor_stream_call_sites": 6,
+  "src_modules_building_actor_entries": 5,
   "src_modules_doing_both": 1,
   "src_modules_doing_both_names": [
     "runtimeres_death_hypothesis.py"
   ],
+  "src_modules_forbidding_basicattr_bit_0x0080": 1,
+  "src_modules_forbidding_names": [
+    "remote_player_hypothesis.py"
+  ],
+  "src_modules_mentioning_basicattr_bit_0x0080": 4,
   "src_modules_passing_zero_hp_by_named_constant": [
     "runtimeres_death_hypothesis.py"
   ],
-  "src_modules_setting_basicattr_bit_0x0080": 3,
   "src_vital_stream_call_sites": 14,
   "vt20_dispatch_shapes_image_wide": 387,
   "vt20_dispatch_shapes_in_updateattrvital_handler": 0,
@@ -435,3 +439,42 @@ section 1 pins both side by side.
 No claim in this report changes. No guard was loosened: the census guard is
 re-pinned at 14 rather than widened to a range, for the same reason ERRATUM 1
 gives.
+
+---
+
+## ERRATUM 3 — round 96: a SECOND src/ module now builds actor entries, and the "both" census learned to tell SET from FORBID
+
+**Appended 2026-08-20 (round 96). Nothing above this line has been rewritten
+except `RUNTIMERES_COUNTS`, which is a live mirror of a tool run and is
+re-pinned in the same change that moves it, exactly as ERRATUM 1 describes.**
+
+`REMOTE-PLAYER-ENCODER-001` (`HYP-PF-025`, multiplayer chunk 2) added
+`src/pirateforce_foundation/remote_player_hypothesis.py`, the first `src/`
+module to compose `actor_type 2` (`CNetActor`) actor-entry frames. It builds
+actor entries and it sends the carrier, so four of this file's `src/` counts
+moved together: `src_actor_entry_call_sites` **5 -> 6**,
+`src_actor_stream_call_sites` **5 -> 6**,
+`src_modules_building_actor_entries` **4 -> 5** (the new name sorts in as the
+second entry), and the count of modules that *mention* bit `0x0080` **3 -> 4**.
+
+**The load-bearing half is what did NOT move.** `src_modules_doing_both` is
+still **1** and still names only `runtimeres_death_hypothesis.py`, because
+GAP 1 was always about which module *SETS* the death timer, and the new lane
+never does: it names bit `0x0080` exactly once, as
+`BASIC_BIT_DEATH_TIMER_FORBIDDEN`, and every use of that constant is a
+fail-closed guard that refuses the bit. Round 96 made the "both" measure
+precise rather than a substring match — a module SETS `0x0080` only if it
+builds an entry, mentions the bit, and does **not** carry the `FORBIDDEN`
+marker — so the count stays exactly one and stays the death lane. A new
+mirror key, `src_modules_forbidding_basicattr_bit_0x0080` = **1**
+(`remote_player_hypothesis.py`), records the second actor-entry builder as
+what it is: a visibility probe that forbids the death bit, not a second death
+emitter. The COUNTS key that used to be named
+`src_modules_setting_basicattr_bit_0x0080` is renamed to
+`src_modules_mentioning_basicattr_bit_0x0080`, because a substring count was
+only ever a count of mentions; the SET claim lives in `src_modules_doing_both`
+and in the new GAP-1 guard, which now says "SETS" in as many words.
+
+No claim in this report changes. No guard was loosened: every moved count is
+re-pinned to its new exact value with the new module named beside it, and one
+guard was ADDED (the forbid census), which is why `guards` moved **151 -> 152**.

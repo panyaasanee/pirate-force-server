@@ -2328,6 +2328,106 @@
           "active_claim_marker": true
         }
       ]
+    },
+    {
+      "id": "HYP-PF-025",
+      "kind": "protocol_hypothesis",
+      "introduced_checkpoint": "REMOTE-PLAYER-ENCODER-001",
+      "exact_value_or_transform": "Behind the explicit remote-player opt-in scenario only (scenarios/remote_player_hypothesis_visibility_probe.json, response_policy compose_actor_type_2_remote_player_probe_frames_no_write_no_close, reached only through the new CLI flag --remote-player-hypothesis-scenario, which requires an explicit existing --db and is mutually exclusive with every other scenario mode), answer ONE accepted 34-byte ascii12 chat-input frame with FIVE GSCN_RunTimeProtocolRes id 0x6E9D version 4 frames over the actor-entry carrier (inherited change mask 0x00 at PC offset 11, derived change mask 0x02 at PC offset 13 selecting the actor-entry collection at object +0x1C, count 1 per frame -- the V43 ErrorData=28317 lesson), and EVERY frame carries actor_type 2, CNetActor, the remote-player branch of the client actor factory jump table at 0x446B2C -- the first actor_type 2 bytes in this project's history; the word 'player' appears nowhere in the image, so 'remote player' is an INFERRED reading of the proven class hierarchy. THE DESIGN IS OURS, NOT THE ORIGINAL SERVER'S, WHICH IS UNRECOVERABLE: no corpus holds one server-to-client capture of a remote human player. Three synthetic probe identities in the 0x00A0_xxxx band (a design choice with no proven meaning, chosen to collide with nothing: outside the frozen NPC band 0x2001..0x2000+len(placements) and below the 0x10000000 character space) anchored at placement 0 of the frozen hash-pinned PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS (115 rows, SHA-256 22D7430E..9618, nearest to the frozen V135 spawn: template 1, P_MALE_002_000_SP1, 'Navy Transfer' -- the same pinned answer HYP-PF-023 uses). The five steps, labelled HYP_PF_025_REMOTE_PLAYER_<STEP> and spaced 0.0 then 15.0 s (not 6.0: the round-84 photography lesson): SPAWN_BARE (identity A 0x00A00001: ActorAttr 0x12AD carrying BasicAttr mask 0x030D -- bit 0x0001 the UTF-16LE name 'ProbePlayer01' at +0x28, the field no encoder in this tree ever put on the ActorAttr wire and the field the name board reads at 0x5BD624..0x5BD633 -- HP 100/100, scene 1/0, the 64-bit ActorAttr mask 0 and the +0x1BC extra-group byte 1, plus a full-mask 0xFF MovementAttr 0x2067 at the placement-0 XYZ; 169-byte PC pinned by sha256), SPAWN_AVATAR (identity B 0x00A00002 at X+150: the same ActorAttr shape plus the selected character's OPAQUE characters.avatar_wire replayed as AvatarAttr 0x16A0 with its identity rebound to B through actor_wire.bind_common_attr_identity, riding LAST in the entry so an independent walker can find its boundary; the pin for this one step is a SKELETON pin, 172 bytes sha-pinned, because the avatar tail is per-character database content -- the tail is structurally checked instead: common-Attr prefix 0x0B / bit 0x01 / 0x32 and the rebound identity), MOVE_A_1 (identity A again -> the client update path vtable +0x20: ONE MovementAttr, mask 0x01 position-only, X+300; 61-byte PC), MOVE_A_2 (mask 0x03 position+heading pi/2; 66-byte PC), and NEGATIVE_CONTROL (identity C 0x00A00003 at X-150: a deliberately WRONG-CLASS NPCAttr 0x0AD5 straight from legacy.make_npc_attr, name 'ProbeControl03', plus full-mask movement; 206-byte PC -- the bind thunk 0x4697B0 gates on CNetNPC so the client must parse and drop it in silence, and a NAME over that actor falsifies chunk 1's most expensive claim and stops the lane). The CHUNK2 static round closed the three questions that shaped this encoder: ActorAttr 64-bit mask 0 is LEGAL (0x4667AD/0x466B5C are short-circuits, not error paths) but the actor-entry pipe binds through vtable +0x24 = 0x464F30, a CopyTo with zero mask tests in 143 instructions (the masked merge at +0x30 = 0x465E60 is never called on this pipe), so the 43 gated fields land as ctor defaults and BasicAttr must always carry the name and HP pair -- HP 0 is the death predicate at 0x43BD7A/0x43BDAA, which is why HP < 1 is refused by name; the MovementAttr mask merge 0x467130 runs against the PREVIOUS RuntimeRes frame's collection copy (singleton [0x01081A90]+0x154), so MOVE_A_1's unsent fields reach the actor as ctor zeros and that is the recorded prediction; and bind +0x38 never swaps the attr pointer, so re-sending a known identity updates values and leaks nothing.",
+      "scope": "Server-side emission of actor_type 2 actor-entry frames to the ONE connected client, behind the one remote-player opt-in scenario only; three synthetic probe identities and never the player's own (a probe/selected-identity collision is refused by name before one byte composes); no second connection, no broadcast, no send_lock change, no touch of population.py, scene_object.py or scene_load.py (the readiness audit's 52 pinned tests are NOT re-proven and W01/W02/W04/W05/W10 are NOT touched -- this lane closes part of W03 only: that actor_type need not be 4); the AvatarAttr is replayed opaque and never composed field-by-field; no DB write, no socket action, no despawn path, no claim about rendering, interest management, cadence, interpolation or PvP (chunk 3, not approved); the HYP-PF-022/023/024 lanes and their bytes are untouched; no production or default-mode path exists.",
+      "status": "active",
+      "provenance": "Opened by the chief's round 96 (2026-08-20) under the owner's explicit multiplayer chunk-2 approval of 2026-08-19 11:45 (sequence 1 -> 2 -> 3; chunk 1 closed by MPAUDIT-FOLLOWUP-001 at round 78; chunk 3 NOT approved and not designed here), across two same-round milestones exactly as HYP-PF-023 was built: REMOTE-PLAYER-ENCODER-001 is the composer, the scenario, the app.py flag, a 129-guard pure-stdlib offline verifier (138 with --binary against the read-only image sha 96272114..B623) and 63 tests; REMOTE-PLAYER-DISPATCH-001 is the runtime.py branch plus a 162-guard headless replay through the real dispatcher on a throwaway database copy and 25 more tests. It rests on the round-90 design draft (drafts/MULTIPLAYER_CHUNK2_VISIBILITY_DESIGN_R90.md, kept as a draft) whose section 10 named three questions that change the encoder's SHAPE and required them closed before any code: the three CHUNK2 static findings closed them from bytes and are imported verbatim into reports/ so this entry's citations resolve inside the repository (the round-87/93 EVIDENCE-VISIBLE lesson). Two of the draft's design choices were deliberately changed and the report records why: the avatar rides last (walker boundary) and the spacing is 15 s (the round-84 camera lesson). The composition is a DESIGNED hypothesis: no capture in any corpus shows actor_type 2 in either direction.",
+      "evidence_refs": [
+        "reports/PF_REMOTE_PLAYER_ENCODER001_ACTOR_TYPE_2_VISIBILITY_20260820.md",
+        "reports/PF_CHUNK2_Q1_ACTORATTR_MASK_FINDINGS_20260819.md",
+        "reports/PF_CHUNK2_Q2_MOVEMENT_MERGE_FINDINGS_20260819.md",
+        "reports/PF_CHUNK2_Q3_BIND_THUNK_FINDINGS_20260819.md",
+        "reports/PF_MPAUDIT_FOLLOWUP001_ACTOR_TYPE_DISPATCH_STATIC_20260818.md",
+        "reports/PF_MULTIPLAYER_READINESS_AUDIT001_SINGLE_PLAYER_ASSUMPTIONS_20260818.md",
+        "reports/PF_RUNTIMERES_ACTOR_ENTRY001_STATIC_20260819.md",
+        "reports/PF_MOVE_PROJECT001_REMOTE_MOVEMENT_PROJECTION_STATIC_20260818.md",
+        "reports/PF_OBJECT_POP002_AUTHORITATIVE_SCENE_ACTOR_RUNTIME_PASS_20260816.md",
+        "scenarios/remote_player_hypothesis_visibility_probe.json",
+        "tools/verify_remote_player_encoder.py",
+        "tools/pf_remote_player_headless_replay.py",
+        "tests/test_remote_player_hypothesis.py",
+        "tests/test_remote_player_dispatch.py"
+      ],
+      "accepted_ceiling": "Composing, and dispatching, the exact five-frame actor_type 2 profile the chunk-1 and chunk-2 static readings say the client's factory and bind gates will route, behind the explicit opt-in only, with the ActorAttr's BasicAttr prefix byte-identical to the same span of the frozen client-proven legacy.make_npc_attr projection (the shared BasicAttr::Serial 0x4656F0 base makes that a free oracle). The ceiling is the WIRE and DISPATCHER layer: five frames are proven to leave the real make_state_class dispatcher on a throwaway copy of the database, in the pinned order with the pinned labels and 0/15/15/15/15 delays, carrying actor_type 2 on every frame, identities A/B/A/A/C, the name bit, HP 100/100, the pinned movement masks FF/FF/01/03/FF and the pinned f32 positions, the avatar tail last and rebound to B, and BasicAttr bit 0x0080 nowhere -- all re-read by an INDEPENDENT tag walker written inside tools/pf_remote_player_headless_replay.py that does not import the module's decoder, with every frame reproducing its module pin and its scenario-file pin (169/61/66/206-byte PCs sha-pinned in full; the avatar-bearing frame skeleton-pinned at 172 bytes with the tail structurally checked), and the dispatcher's bytes compared to an independently composed sweep with ==. It does NOT reach the client layer by one millimetre, and it does not reach a socket either: no server process was booted and no byte of actor_type 2 has ever been on a network.",
+      "evidence_gap": "NO CLIENT HAS EVER BEEN SHOWN ONE BYTE OF ACTOR_TYPE 2, from this project or -- as far as any corpus shows -- from the original server. Whether the client accepts the frames at all, whether ANYTHING renders, what it looks like (a person, a box, a fallback model), whether the name board fills from BasicAttr +0x28, whether A-versus-B answers the AvatarAttr question, whether MOVE_A_1/MOVE_A_2 move and turn the actor or teleport it, and whether the negative control stays NAMELESS are all unmeasured and are exactly the queued attended test, WHICH HAS NOT RUN. The set of ActorAttr mask bits a CNetActor NEEDS in order to render is unknown (this profile ships mask 0 knowing the 43 gated fields land as ctor defaults through the CopyTo -- informative in both directions but proof of neither). Whether the replayed AvatarAttr is ACCEPTED under a foreign identity is unknown (the rebind is proven at the byte layer only; AvatarAttr::Serial 0x464560 was not read to the end for embedded identity copies -- design draft question 12, open). Ground Z at the offset positions is unchecked; a floating probe does not falsify visibility. There is NO WAY TO DESPAWN a probe on this lane (one entry per frame means no next generation to fall out of; DeleteActorVital 0x36DB is NOT a despawn frame per the audit) -- a probe stays until the client disconnects, and that is written into the attended runbook. The 229 unresolved vtable +0x20 dispatch sites from round 85 are inherited, not narrowed. This lane has never been driven through a real server process over TCP: the proof stops at the dispatcher, one layer below the socket.",
+      "falsification": "Retire or redesign this lane if a real client rejects or errors on the frames (an ErrorData=28317 stream error falsifies the envelope reading or the ActorAttr-inside-actor-entry composition -- design draft question 15, and the first falsification listed there); if the NEGATIVE_CONTROL actor shows the name 'ProbeControl03' (which falsifies chunk 1's proven claim that the NPCAttr bind thunk 0x4697B0 gates on CNetNPC and drops wrong-class attrs in silence -- the whole lane stops, and every chunk-1 conclusion is re-opened); if the ActorAttr's BasicAttr prefix ever stops reproducing legacy.make_npc_attr byte for byte; if actor_type 2 with a bound ActorAttr and a name produces a LABELLED actor while the control also does (ambiguous control = no experiment); if the SPAWN frames take the update path or the MOVE frames take the spawn path (which would falsify the 0x446F30 found/not-found reading); or if this lane is ever observed to write any database row, take any socket action, or emit BasicAttr bit 0x0080. A client that accepts the frames but renders NOTHING for A and B alike does not falsify the wire claim -- it answers the visibility question in the negative and is recorded as a result, not a failure.",
+      "stop_rule": "Compose only the pinned five frames, only for the three pinned probe identities in the 0x00A0_xxxx band, only actor_type 2, only the movement masks 0xFF/0x01/0x03, only behind the one opt-in scenario file, and only with the lane's identity-compared wire unlock. ONE-SHOT: never a second sweep in a session (the identities would take the update path and the spawns would stop being spawns). Never target the player's own actor and refuse an identity collision by name. Never emit BasicAttr bit 0x0080 (HYP-PF-023's field), never compose an AvatarAttr field by field (replay only), never send NPCAttr inside actor_type 2 outside the one negative-control step, never touch actor_type 3 (the CMyActor singleton). What is forbidden is WIDENING: a sixth frame, a fourth identity, another actor_type, another movement mask, a name-field variant (the draft's GT-029 idea), a multi-frame cadence probe (the draft's GT-030 idea), or a despawn mechanism is a NEW VERSION of this entry -- one tracked slot remains -- or a new entry. Do not enable production or default-mode exposure. Stop and record if the first attended observation shows the client rejecting the frames or the control showing a name.",
+      "production_allowed": false,
+      "expiry": {
+        "tracked_versions": [
+          "REMOTE-PLAYER-ENCODER-001",
+          "REMOTE-PLAYER-DISPATCH-001"
+        ],
+        "decision": "Opened 2026-08-20 (chief round 96) under the owner's chunk-2 approval of 2026-08-19 11:45. Two versions are tracked because two same-round milestones built it and the second changed what the lane can DO (a byte can leave the dispatcher), exactly as HYP-PF-023's encoder/dispatch pair is tracked: REMOTE-PLAYER-ENCODER-001 is the composer (129 offline verifier guards, 63 tests) and REMOTE-PLAYER-DISPATCH-001 is the runtime.py branch (162 replay guards through the real dispatcher on a throwaway database copy, 25 tests, one-shot). Proven offline against the frozen legacy.make_npc_attr BasicAttr-prefix oracle, through the real dispatcher, and -- with --binary -- against the read-only client image; never driven over TCP and never seen by a client. ONE version of the three remains. Confirm the client-observable layer as the queued attended visibility test (GT-030 in the chief's queue) -- specifically whether anything renders for A, whether B differs from A, whether the name boards fill, whether the move frames move, and whether the control stays nameless -- before any retire, freeze or extend decision, and do not flip the movement/remote_player_movement_projection coverage row until it has run. The chunk-2 exit condition stands apart from this entry: when chunk 2 is judged done, the owner decides chunk 3; nothing here pre-approves it."
+      },
+      "max_versions": 3,
+      "extension_approval_ref": null,
+      "source_refs": [
+        {
+          "path": "src/pirateforce_foundation/remote_player_hypothesis.py",
+          "required_markers": [
+            "PF-HYPOTHESIS-LEDGER: HYP-PF-025 active",
+            "REMOTE_PLAYER_ACTOR_TYPE = 2",
+            "production_allowed = False",
+            "encode_remote_player_actor_attr",
+            "encode_remote_player_entry",
+            "build_remote_player_sweep",
+            "validate_remote_player_sweep",
+            "require_remote_player_hypothesis_scenario",
+            "remote_player_wire_unlock",
+            "BASIC_BIT_NAME = 0x0001",
+            "BASIC_BIT_DEATH_TIMER_FORBIDDEN = 0x0080",
+            "REMOTE_PLAYER_SPACING_SECONDS = 15.0",
+            "REMOTE_PLAYER_STEP_ORDER",
+            "avatar_tail_excluded_from_pin",
+            "this_is_our_design_not_the_original_servers_which_is_unrecoverable"
+          ],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/runtime.py",
+          "required_markers": [
+            "PF-HYPOTHESIS-LEDGER: HYP-PF-025 active",
+            "_dispatch_remote_player_hypothesis",
+            "remote_player_hypothesis_visibility_probe_sent",
+            "remote_player_hypothesis_already_sent_no_reply",
+            "remote_player_hypothesis_wrong_sequence_no_reply",
+            "remote_player_hypothesis_no_selected_no_reply",
+            "remote_player_hypothesis_compose_refused_no_reply_",
+            "build_remote_player_sweep"
+          ],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/app.py",
+          "required_markers": [
+            "PF-HYPOTHESIS-LEDGER: HYP-PF-025 active",
+            "--remote-player-hypothesis-scenario requires an explicit "
+          ],
+          "active_claim_marker": true
+        },
+        {
+          "path": "scenarios/remote_player_hypothesis_visibility_probe.json",
+          "required_markers": [
+            "\"hypothesis_id\": \"HYP-PF-025\"",
+            "\"hypothesis_id_is_registered_in_the_ledger\": true",
+            "\"production_allowed\": false",
+            "\"test_only\": true",
+            "\"one_shot\": true",
+            "\"database_write\": \"none\"",
+            "\"socket_action\": \"none\"",
+            "\"actor_type\": 2",
+            "\"avatar_tail_excluded_from_pin\": true",
+            "this_is_our_design_not_the_original_servers_which_is_unrecoverable"
+          ],
+          "active_claim_marker": true
+        }
+      ]
     }
   ]
 }

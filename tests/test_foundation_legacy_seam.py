@@ -67,7 +67,26 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers TWO deliberate movements, both of them attended-runtime results
+    # This pin covers ONE deliberate movement (chief round 96, 2026-08-20):
+    # movement/remote_player_movement_projection stays in_progress but gains four
+    # evidence refs and two test refs for REMOTE-PLAYER-ENCODER-001 +
+    # REMOTE-PLAYER-DISPATCH-001 (HYP-PF-025) -- the first actor_type 2 (CNetActor)
+    # frames this tree can compose and dispatch: the five-frame visibility probe
+    # (ActorAttr carrying the BasicAttr name bit for the first time on that wire, an
+    # opaque replayed AvatarAttr rebound to a probe identity and riding last, two
+    # lone-MovementAttr update frames for a known identity, and a wrong-class NPCAttr
+    # negative control), proven at the wire/dispatcher layer only (129-guard offline
+    # verifier, 162-guard headless replay, 88 lane tests).  The new evidence includes
+    # the three imported CHUNK2 static findings whose Q2 result also refines this
+    # row's own apply/merge sentence: 0x467130 completes the just-deserialized attr
+    # against the PREVIOUS frame's collection copy, and the actor bind is the
+    # mask-blind CopyTo at +0x24 = 0x464F30.  The status deliberately does NOT move:
+    # no client has ever been shown one byte of actor_type 2, the queued attended
+    # visibility test has not run, and a remote HUMAN player still needs chunk 3.
+    # The design is ours; the original server is unrecoverable.
+    #
+    # Previous pin EFCDB531..5A21 covered TWO deliberate movements, both of them
+    # attended-runtime results
     # from big rounds #4 and #5 (2026-08-19, tree 11fea4f; both lanes landed at 6891372),
     # and it is the first pin this project has moved on the strength of what was on a
     # screen rather than on what was in the image.
@@ -375,7 +394,7 @@ GRADE_SUBSET_SHA256 = (
     # 26D752FE..BA9A (round 65) occupied_destination_policy not_started ->
     # in_progress under HYP-PF-017 (ITEM-SWAP-001); see its lineage note before that
     # for round 53's 78558E56..6DC8.
-    "EFCDB5317B9EB6FFE9D3655ED3D2DD5298535B88EFB6E81E352168CB34F15A21"
+    "56EE376C667BA8233C5348F8E79F1E2DCD2529C55AED74951E051EC44E859394"
 )
 
 

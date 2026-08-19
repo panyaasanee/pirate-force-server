@@ -1,0 +1,177 @@
+{
+  "schema": 1,
+  "id": "remote_player_hypothesis_visibility_probe",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-025",
+  "hypothesis_id_is_registered_in_the_ledger": true,
+  "design_not_recovery": "this_is_our_design_not_the_original_servers_which_is_unrecoverable",
+  "entry": {
+    "flow": "full_writable_character",
+    "required_sequence": "selected_and_runtime_ready",
+    "response_policy": "compose_actor_type_2_remote_player_probe_frames_no_write_no_close"
+  },
+  "dispatch": {
+    "wired": true,
+    "wiring_owner": "remote_player_dispatch_001_round_96",
+    "app_policy_when_lane_disabled": "no_frames_composed_and_the_encoder_raises_if_called_directly",
+    "frames_per_accepted_request": 5,
+    "step_order": [
+      "SPAWN_BARE",
+      "SPAWN_AVATAR",
+      "MOVE_A_1",
+      "MOVE_A_2",
+      "NEGATIVE_CONTROL"
+    ],
+    "spacing_seconds": 15.0,
+    "first_frame_delay_seconds": 0.0,
+    "delay_semantics": "gap_before_each_send_on_a_cumulative_deadline",
+    "action_label_prefix": "HYP_PF_025_REMOTE_PLAYER_",
+    "action_labels": [
+      "HYP_PF_025_REMOTE_PLAYER_SPAWN_BARE",
+      "HYP_PF_025_REMOTE_PLAYER_SPAWN_AVATAR",
+      "HYP_PF_025_REMOTE_PLAYER_MOVE_A_1",
+      "HYP_PF_025_REMOTE_PLAYER_MOVE_A_2",
+      "HYP_PF_025_REMOTE_PLAYER_NEGATIVE_CONTROL"
+    ],
+    "one_shot": true,
+    "socket_action": "none"
+  },
+  "wire": {
+    "vital_id": 28317,
+    "vital_version": 4,
+    "envelope": "gscn_runtime_protocol_res_v4_actor_entry_collection",
+    "inherited_change_mask": 0,
+    "derived_change_mask": 2,
+    "derived_object_offset": 28,
+    "actor_type": 2,
+    "actor_type_semantics": "cnetactor_the_remote_player_branch",
+    "attr_ids": [
+      4781,
+      5792,
+      8295,
+      2773
+    ],
+    "field_order_rule": "ascending_mask_bit_within_each_block",
+    "basic_mask_probe": 781,
+    "basic_name_bit": 1,
+    "actor_attr_mask_probe": 0,
+    "actor_attr_extra_group_value": 1,
+    "movement_masks": [
+      255,
+      1,
+      3
+    ],
+    "death_timer_bit_forbidden": 128,
+    "avatar_attr_policy": "opaque_replay_of_the_selected_characters_avatar_wire_rebound_to_probe_b_and_always_the_last_attr_of_its_entry",
+    "chain": {
+      "inbound_handler": 6176864,
+      "actor_reconcile": 4484912,
+      "identity_lookup": 4481392,
+      "spawn_when_unknown": 4483472,
+      "update_when_known_vtable_slot": 32,
+      "bind_thunk_actor_attr_gates": "cnetactor",
+      "bind_thunk_npc_attr_gates": "cnetnpc_so_frame_5_must_drop",
+      "bind_is_copy_to_not_masked_merge": true,
+      "movement_merge_is_against_the_previous_frame_only": true
+    }
+  },
+  "probe": {
+    "source": "port_royal_unambiguous_placements_frozen_v141",
+    "selection_rule": "nearest_placement_to_the_frozen_v135_player_spawn",
+    "anchor_placement_index": 0,
+    "anchor_template_id": 1,
+    "anchor_npc_identity": 8193,
+    "anchor_visual_preset": "P_MALE_002_000_SP1",
+    "anchor_source_name": "Navy Transfer",
+    "identities": {
+      "A": 10485761,
+      "B": 10485762,
+      "C": 10485763
+    },
+    "names": {
+      "A": "ProbePlayer01",
+      "B": "ProbePlayer02",
+      "C": "ProbeControl03"
+    },
+    "identity_band_is_a_design_choice_with_no_proven_meaning": true,
+    "x_offsets": {
+      "B": 150.0,
+      "C": -150.0,
+      "move": 300.0
+    },
+    "move_heading_radians": 1.5707963267948966,
+    "hp_alive": 100,
+    "hp_max": 100,
+    "hp_floor": 1,
+    "scene_id": 1,
+    "scene_sequence": 0,
+    "per_step": {
+      "SPAWN_BARE": {
+        "basic_mask": 781,
+        "movement_mask": 255,
+        "pc_size": 169,
+        "pc_sha256": "2D45DB50F86B529CCB22AD31C67BCD232EF289CB72A653360B546923EAB76466",
+        "frame_size": 181,
+        "frame_sha256": "30E80C5C920E094F625196968D30389113B5C6F6160078CB71795B1E43C5A06A"
+      },
+      "SPAWN_AVATAR": {
+        "basic_mask": 781,
+        "movement_mask": 255,
+        "avatar_tail_excluded_from_pin": true,
+        "pc_skeleton_size": 172,
+        "pc_skeleton_sha256": "F4F72429FE91DCAD15D98FA325E02F64821024CD2900C93F6F78EF0EAB815E75"
+      },
+      "MOVE_A_1": {
+        "movement_mask": 1,
+        "pc_size": 61,
+        "pc_sha256": "F81490F852AD70E7C9101E8E5DC52DA4AC3EE2027D032DCA392A613413F8743F",
+        "frame_size": 72,
+        "frame_sha256": "FFFBFDDF972BFF587A0AAB6F745EC2760D71F36BCE25F34D94275CF9706EB7CF"
+      },
+      "MOVE_A_2": {
+        "movement_mask": 3,
+        "pc_size": 66,
+        "pc_sha256": "2DED86222CB7D7DCDC0778E88F4F711E5C3692EF791438BF719A995A455239C7",
+        "frame_size": 77,
+        "frame_sha256": "2369FD47F6F58327C32735C3055A1C9BC03F2E2F9A3952FBBED9A67A5CA53AA4"
+      },
+      "NEGATIVE_CONTROL": {
+        "basic_mask": 781,
+        "movement_mask": 255,
+        "pc_size": 206,
+        "pc_sha256": "9F73EEE1F170347B6345772E2D667D6F035B5801FEE165C441DA073762FF07C9",
+        "frame_size": 218,
+        "frame_sha256": "32825C8E207026758936FBDE4FAE00511D2160FDE13C4AB16B927B3083479688"
+      }
+    },
+    "baseline_crosscheck": "the_actor_attr_basic_prefix_reproduces_legacy_make_npc_attr_byte_for_byte"
+  },
+  "persisted_post_state": {
+    "database_write": "none"
+  },
+  "capabilities": [
+    "emit_gscn_runtimeprotocolres_0x6e9d_derived_mask_bit_0x02_actor_entries",
+    "put_actor_type_2_cnetactor_on_the_actor_entry_wire_for_the_first_time",
+    "emit_basicattr_bit_0x0001_the_name_on_the_actor_attr_wire_for_the_first_time",
+    "replay_the_selected_characters_opaque_avatar_attr_under_a_probe_identity",
+    "re_send_a_known_identity_with_a_lone_movement_attr_mask_0x01_and_0x03",
+    "ship_a_wrong_class_npc_attr_as_the_negative_control_of_the_experiment",
+    "reproduce_the_frozen_make_npc_attr_basic_prefix_byte_for_byte",
+    "refuse_to_return_a_sweep_that_is_not_the_pinned_five_frame_plan"
+  ],
+  "nonclaims": [
+    "this_is_our_design_not_the_original_servers_which_is_unrecoverable",
+    "no_client_has_ever_been_shown_one_byte_of_this_profile",
+    "no_claim_that_actor_type_2_renders_at_all_or_renders_as_a_person",
+    "no_claim_about_which_actor_attr_mask_bits_a_cnetactor_needs_to_render",
+    "no_claim_that_the_avatar_attr_is_accepted_under_a_foreign_identity",
+    "no_claim_that_the_name_board_fills_from_basicattr_0x28_on_screen",
+    "no_despawn_path_exists_on_this_lane_a_probe_stays_until_disconnect",
+    "ground_z_at_the_offset_positions_is_unchecked_floating_does_not_falsify",
+    "no_interest_management_no_cadence_no_interpolation_that_is_chunk_3",
+    "no_second_connection_no_broadcast_no_send_lock_no_population_py_change",
+    "the_229_unresolved_vtable_0x20_dispatch_sites_are_inherited_not_narrowed",
+    "production_dispatch_wiring_the_wiring_is_opt_in_and_production_allowed_is_false"
+  ]
+}
