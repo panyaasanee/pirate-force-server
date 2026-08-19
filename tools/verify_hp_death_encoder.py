@@ -141,6 +141,38 @@ BINARY_GUARDS = (
         "the actor caches the same Attr pointer at +0x348 and in its +0x130 "
         "collection",
     ),
+    # DEATH-ESCALATE-001's five.  Source:
+    # reports/PF_RESCUE_AND_DEATH_ESCALATION_STATIC_20260819.md section 8.
+    (
+        0x44E58D,
+        "8b068b503c8bceffd284c00f8486000000",
+        "CMyActor::Update calls vtable +0x3C (the timer-elapsed predicate) and "
+        "skips the whole block when it is false",
+    ),
+    (
+        0x44E5BD,
+        "6860d8f000b908070901e844216500",
+        "... and the ONE thing behind that predicate is OpenWindow of "
+        "L\"Common_Death\" at 0xF0D860",
+    ),
+    (
+        0x454A7A,
+        "0f57c00f2f4058722e",
+        "0x454A70 is `xorps xmm0,xmm0; comiss xmm0,[attr+0x58]; jb` -- an "
+        "UNORDERED compare takes the jb, so a NaN timer returns FALSE",
+    ),
+    (
+        0x454AA5,
+        "33d2395044",
+        "... and the value it finally compares is [attr+0x44], current HP, "
+        "against 0",
+    ),
+    (
+        0x4656A3,
+        "84c07806d94658d95f58",
+        "BasicAttr::Merge copies +0x58 FORWARD when bit 0x0080 is CLEAR, which "
+        "is why the elapsed frame carries the bit instead of dropping it",
+    ),
 )
 DURATION_DYING_NAME = "DURATION_DYING"
 
@@ -437,7 +469,34 @@ def main() -> int:
             >= sp.DURATION_DYING_IMAGE_DEFAULT - sp.DURATION_DYING_WINDOW_MARGIN,
         )
         _lo, _hi, last = sp.decode_actor_attr(frames[-1][1], unlock)
-        if profile.ends_dead:
+        if profile.ends_dead and profile.elapsed_step_labels:
+            # DEATH-ESCALATE-001.  A profile that carries an elapsed step ends
+            # on the OTHER predicate, and the difference is the whole point:
+            # HP == 0 with timer > 0 is 0x454AC0 (dying, window open, no
+            # animation); HP == 0 with timer <= 0 is 0x454A70, the one
+            # CMyActor::Update reads before it opens L"Common_Death".  Reading
+            # the wrong one here would let a lane that never escalates pass.
+            check(
+                "%s ends with the timer elapsed, on the bytes" % profile.name,
+                last["hp_current"] == 0
+                and last["hp_death_timer"] <= 0.0
+                and struct.pack("<f", last["hp_death_timer"])
+                == sp.HP_DEATH_TIMER_ELAPSED_WIRE_BYTES[1:]
+                and profile.step_order[-1] == profile.elapsed_step_labels[-1]
+                and "HP_RESTORED" not in profile.step_order,
+            )
+            kill_index = profile.step_order.index("HP_ZERO")
+            _lo, _hi, killed = sp.decode_actor_attr(
+                frames[kill_index][1], unlock,
+            )
+            check(
+                "%s is dying on the kill frame and only there" % profile.name,
+                killed["hp_current"] == 0
+                and killed["hp_death_timer"] > 0.0
+                and profile.step_order.index(profile.elapsed_step_labels[0])
+                == kill_index + 1,
+            )
+        elif profile.ends_dead:
             check(
                 "%s ends with the character dead, on the bytes" % profile.name,
                 last["hp_current"] == 0 and last["hp_death_timer"] > 0.0
@@ -610,6 +669,104 @@ def main() -> int:
         except ValueError as exc:
             rejected = "unknown_step_label" in str(exc)
         check("step index %r is refused" % (index,), rejected)
+
+    print("-- 5b. the elapsed band is closed by default (DEATH-ESCALATE-001) --")
+    hold_profile = sp.HP_DEATH_PROFILE_DYING_HOLD
+    elapsed_index = hold_profile.step_order.index("TIMER_ELAPSED")
+
+    def _elapsed_fields(**overrides):
+        fields = sp.hp_death_step_fields(
+            legacy, actor, elapsed_index, hold_profile,
+        )
+        fields.update(overrides)
+        return fields
+
+    elapsed_refusals = (
+        (None, {}, "death_timer_not_positive",
+         "no label at all keeps the pre-checkpoint behaviour"),
+        ("HP_ZERO", {}, "death_timer_elapsed_outside_the_pinned_final_step",
+         "the value cannot be smuggled onto the kill frame"),
+        ("BASELINE", {}, "death_timer_elapsed_outside_the_pinned_final_step",
+         "nor onto the baseline"),
+        ("NOPE", {}, "unknown_step_label",
+         "a label the profile does not know is not a quiet no-op"),
+        ("TIMER_ELAPSED", {"hp_death_timer": -0.0},
+         "death_timer_elapsed_is_not_the_pinned_zero",
+         "negative zero packs to four other bytes"),
+        ("TIMER_ELAPSED", {"hp_death_timer": -1.0},
+         "death_timer_elapsed_is_not_the_pinned_zero",
+         "a negative timer would satisfy the predicate and is still refused"),
+        ("TIMER_ELAPSED", {"hp_death_timer": float("nan")},
+         "death_timer_not_finite",
+         "NaN is unordered at 0x454A7D and makes the predicate FALSE"),
+        ("TIMER_ELAPSED", {"hp_current": 100},
+         "death_timer_elapsed_without_zero_hp",
+         "an elapsed frame with HP left is inert"),
+    )
+    for label, overrides, reason, why in elapsed_refusals:
+        produced = None
+        message = ""
+        try:
+            produced = sp.make_hp_death_response(
+                legacy, actor, _elapsed_fields(**overrides), unlock,
+                hold_profile, label,
+            )
+        except ValueError as exc:
+            message = str(exc)
+        check(
+            "elapsed refusal: %s (%s)" % (why, reason),
+            produced is None and reason in message, message,
+        )
+    for label in (None, "HP_ZERO", "HP_RESTORED"):
+        sweep_fields = sp.hp_death_step_fields(
+            legacy, actor, 2, sp.HP_DEATH_PROFILE_DEATH_SWEEP,
+        )
+        sweep_fields["hp_death_timer"] = 0.0
+        produced = None
+        try:
+            produced = sp.make_hp_death_response(
+                legacy, actor, sweep_fields, unlock,
+                sp.HP_DEATH_PROFILE_DEATH_SWEEP, label,
+            )
+        except ValueError:
+            pass
+        check(
+            "death_sweep cannot open the elapsed band with label %r" % (label,),
+            produced is None,
+        )
+    for candidate in (1, 0, "true", None, 1.0):
+        produced = None
+        message = ""
+        try:
+            produced = sp.encode_actor_attr(
+                legacy, actor.identity_lo, actor.identity_hi,
+                _elapsed_fields(), unlock, candidate,
+            )
+        except ValueError as exc:
+            message = str(exc)
+        check(
+            "the elapsed gate argument %r is not a bool" % (candidate,),
+            produced is None and "elapsed_gate_is_not_a_bool" in message,
+            message,
+        )
+    check(
+        "the four DEATH-ESCALATE-001 rejections are declared",
+        all(
+            name in sp.HP_DEATH_REJECTIONS for name in (
+                "elapsed_gate_is_not_a_bool",
+                "death_timer_elapsed_is_not_the_pinned_zero",
+                "death_timer_elapsed_outside_the_pinned_final_step",
+                "death_timer_elapsed_without_zero_hp",
+            )
+        ),
+    )
+    check(
+        "the pinned elapsed value is tag 0x2A and four zero bytes",
+        sp.HP_DEATH_TIMER_ELAPSED_WIRE_BYTES == bytes.fromhex("2a00000000")
+        and sp.HP_DEATH_TIMER_ELAPSED_SECONDS == 0.0
+        and struct.pack("<f", sp.HP_DEATH_TIMER_ELAPSED_SECONDS)
+        == sp.HP_DEATH_TIMER_ELAPSED_WIRE_BYTES[1:],
+    )
 
     print("-- 6. containment --")
     module_name = "stats_progression_hypothesis"

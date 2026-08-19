@@ -645,9 +645,11 @@ def _require_step_plan() -> None:
 
 
 # ---------------------------------------------------------------- encoder
-def _encode_scalar(legacy: Any, field: AttrField, value: Any) -> bytes:
+def _encode_scalar(
+    legacy: Any, field: AttrField, value: Any, allow_elapsed: bool = False,
+) -> bytes:
     if field.kind == "f32":
-        return _encode_death_timer(legacy, field, value)
+        return _encode_death_timer(legacy, field, value, allow_elapsed)
     if type(value) is not int or type(value) is bool:
         raise ValueError(
             "stats progression field rejected: value_type_not_integer"
@@ -689,6 +691,7 @@ def _encode_wstring(legacy: Any, value: Any) -> bytes:
 
 def _encode_block(
     legacy: Any, fields: tuple[AttrField, ...], values: dict[str, Any],
+    allow_elapsed: bool = False,
 ) -> tuple[int, bytes]:
     """Return ``(mask, body)`` for one block, fields in ascending bit order."""
     mask = 0
@@ -700,14 +703,16 @@ def _encode_block(
         if field.kind == "wstring":
             body += _encode_wstring(legacy, values[field.name])
         else:
-            body += _encode_scalar(legacy, field, values[field.name])
+            body += _encode_scalar(
+                legacy, field, values[field.name], allow_elapsed,
+            )
     return mask, body
 
 
 # PF-HYPOTHESIS-LEDGER: HYP-PF-020 active
 def encode_actor_attr(
     legacy: Any, identity_lo: int, identity_hi: int, fields: dict[str, Any],
-    lethal: Any = None,
+    lethal: Any = None, allow_elapsed_death_timer: bool = False,
 ) -> bytes:
     """Compose one sparse mask-gated ``ActorAttr`` body from named fields.
 
@@ -723,6 +728,15 @@ def encode_actor_attr(
     progression path.  With ``None`` the field table is exactly the 23
     progression fields and the death-timer bit 0x0080 is an ``unknown_field``
     like any other unimplemented name; only the unlock token widens the table.
+
+    ``allow_elapsed_death_timer`` is DEATH-ESCALATE-001's second gate and is
+    ``False`` on every path that existed before it, including the whole
+    ``death_sweep`` profile: with it False the death timer must be a POSITIVE
+    float that clears the L"Main_Dead" window gate, exactly as HYP-PF-022's
+    first version recorded, and 0.0 is still ``death_timer_not_positive``.
+    Only a step profile that names an elapsed step hands it in, and even then
+    the only non-positive value that survives is a positive zero whose four
+    wire bytes are all zero (see ``_encode_death_timer``).
     """
     _require_field_table()
     _require_ascending_gate_pins()
@@ -747,7 +761,19 @@ def encode_actor_attr(
             raise ValueError(
                 "stats progression field rejected: identity_outside_qword"
             )
-    basic_mask, basic_body = _encode_block(legacy, basic_fields, fields)
+    if allow_elapsed_death_timer is not True and (
+        allow_elapsed_death_timer is not False
+    ):
+        raise ValueError(
+            "hp death field rejected: elapsed_gate_is_not_a_bool"
+        )
+    if allow_elapsed_death_timer and lethal is None:
+        # The elapsed gate is meaningless without the lethal table and must
+        # never be reachable from a progression call site.
+        raise ValueError("hp death field rejected: lethal_lane_locked")
+    basic_mask, basic_body = _encode_block(
+        legacy, basic_fields, fields, allow_elapsed_death_timer,
+    )
     actor_mask, actor_body = _encode_block(legacy, ACTOR_ATTR_FIELDS, fields)
     if actor_mask >= ACTOR_ATTR_MASK_LOW_HALF_LIMIT:
         raise ValueError(
@@ -1298,6 +1324,15 @@ HP_DEATH_TIMER_TAG = 0x2A
 HP_DEATH_TIMER_WIDTH = 4
 HP_DEATH_TIMER_GATE_PIN = 0x4657AE
 
+# DEATH-ESCALATE-001.  The one non-positive value this lane may put at +0x58,
+# and the five bytes it becomes.  0.0f is chosen over a negative because
+# `comiss` at 0x454A7D only needs an ORDERED `0.0 <= timer` to fail its `jb`,
+# so zero is the smallest value that satisfies the predicate, and because it
+# is the value BasicAttr's own constructor writes at 0x464B0E -- the elapsed
+# frame therefore puts the object back to the float it was born with.
+HP_DEATH_TIMER_ELAPSED_SECONDS = 0.0
+HP_DEATH_TIMER_ELAPSED_WIRE_BYTES = bytes.fromhex("2a00000000")
+
 # Client-binary VAs proven in HP-DEATH-001 and in this lane's own static pass;
 # documentation-grade constants, never dereferenced.
 IS_DEAD_PLAYER_VA = 0x454AC0            # CNetActor/CMyActor vtable +0x40
@@ -1337,6 +1372,28 @@ IS_DEAD_ELAPSED_PLAYER_VA = IS_DEAD_PLAYER_TIMER_ELAPSED_VA   # 0x454A70
 # predicate turns true, and nothing in this project has ever seen it.
 COMMON_DEATH_LITERAL_VA = 0xF0D860
 
+# DEATH-ESCALATE-001 pins.  All documentation-grade, never dereferenced, and
+# every one of them re-asserted as a byte span by tools/verify_hp_death_encoder.py
+# when a client image is handed in.  Source:
+# reports/PF_RESCUE_AND_DEATH_ESCALATION_STATIC_20260819.md sections 3.1-3.4.
+COMMON_DEATH_OPEN_SITE_VA = 0x44E5C7       # the single OpenWindow(Common_Death)
+MY_ACTOR_UPDATE_ELAPSED_CALL_VA = 0x44E58D  # CMyActor::Update calls vt+0x3C
+ELAPSED_PREDICATE_COMISS_VA = 0x454A7D     # comiss xmm0(0.0), [attr+0x58]
+ELAPSED_PREDICATE_JB_VA = 0x454A81         # jb -> return FALSE (also on NaN)
+ELAPSED_PREDICATE_HP_COMPARE_VA = 0x454AA5  # cmp [attr+0x44], 0
+ACTOR_HP_SELECTOR_OFFSET = 0x358           # [actor+0x358] must be 0
+# The merge trap.  BasicAttr::Merge is the vtable +0x24 slot the inbound
+# UpdateAttrVital handler calls as `incoming->vt[+0x24](existing)`, and its
+# polarity is the opposite of the intuitive one: A BIT THAT IS SET MEANS THE
+# WIRE VALUE WINS, A BIT THAT IS CLEAR MEANS THE OLD VALUE IS COPIED FORWARD.
+# Dropping bit 0x0080 from a later frame therefore does NOT reset the timer --
+# it PRESERVES whatever was last sent, forever.  That is why the elapsed step
+# carries the bit explicitly instead of omitting it.
+BASIC_ATTR_MERGE_VA = 0x465610
+BASIC_ATTR_MERGE_CALL_SITE_VA = 0x5F2504
+BASIC_ATTR_MERGE_TIMER_COPY_FORWARD_VA = 0x4656A3
+BASIC_ATTR_CTOR_TIMER_INIT_VA = 0x464B0E   # movss [obj+0x58], 0.0f
+
 # The value compiled into the image for DURATION_DYING, and the gate the death
 # window is behind.  See the block comment above.
 DURATION_DYING_IMAGE_DEFAULT = 20
@@ -1368,6 +1425,11 @@ HP_DEATH_REJECTIONS = (
     "death_timer_without_hp_current",
     "unknown_step_label",
     "unknown_step_profile",
+    # DEATH-ESCALATE-001 adds four, and all four are closed by default.
+    "elapsed_gate_is_not_a_bool",
+    "death_timer_elapsed_is_not_the_pinned_zero",
+    "death_timer_elapsed_outside_the_pinned_final_step",
+    "death_timer_elapsed_without_zero_hp",
 )
 
 
@@ -1438,21 +1500,57 @@ def _require_lethal_field_table() -> None:
         raise RuntimeError("HYP-PF-022 gate pin order contradicts mask order")
 
 
-def _encode_death_timer(legacy: Any, field: AttrField, value: Any) -> bytes:
+def _encode_death_timer(
+    legacy: Any, field: AttrField, value: Any, allow_elapsed: bool = False,
+) -> bytes:
     """Encode the one float this project is allowed to put at BasicAttr +0x58.
 
     Every rejection here produces no bytes.  The value must be a real ``float``
     (``int`` and ``bool`` are refused so "1" can never become a timer by
-    accident), finite, strictly greater than the 0.0f ``IsDead`` compares
-    against, exactly representable in 32 bits so the wire value is the pinned
-    value, and at least the death-window gate ``DURATION_DYING - 0.5`` computed
-    from the value compiled into the client image.
+    accident), finite, and exactly representable in 32 bits so the wire value
+    is the pinned value.  After that there are exactly TWO admissible bands,
+    and which of them is open depends on ``allow_elapsed``:
+
+      * ARMED -- ``value > 0.0`` and at least the death-window gate
+        ``DURATION_DYING - 0.5`` computed from the value compiled into the
+        client image.  This is the only band HYP-PF-022's first version had,
+        and it is the only band ``death_sweep`` may use.
+      * ELAPSED -- the single value ``0.0``, and only with ``allow_elapsed``.
+        This is DEATH-ESCALATE-001's addition and it exists because the client
+        does not lower this float by itself: GT-021 held the downed window for
+        over four minutes without escalating, and the static pass found no
+        per-frame writer of +0x58 at all.
+
+    THREE THINGS HERE ARE TRAPS, and each is a rejection rather than a comment:
+
+      1. NaN IS NOT AN ELAPSED TIMER.  ``0x454A7D`` is
+         ``comiss xmm0(0.0), [attr+0x58]`` followed by ``jb`` at ``0x454A81``:
+         an unordered compare sets CF=1, the ``jb`` is taken, and the predicate
+         returns FALSE.  A NaN therefore does the exact opposite of what
+         somebody reaching for "not a number" would expect, so it is refused
+         with ``death_timer_not_finite`` before any byte exists.
+      2. NEGATIVE ZERO IS NOT ZERO ON THE WIRE.  ``-0.0 == 0.0`` is True in
+         Python but packs to ``00 00 00 80``, which is four different bytes
+         from the pinned ``00 00 00 00``.  The encoded bytes are compared to
+         ``HP_DEATH_TIMER_ELAPSED_WIRE_BYTES`` rather than the float compared
+         to zero, so ``-0.0`` is refused.
+      3. A NEGATIVE TIMER WOULD SATISFY THE PREDICATE AND IS STILL REFUSED.
+         ``comiss`` only needs ordered ``<= 0.0``, so -1.0 would work in the
+         client; this lane emits ONE pinned elapsed value so that the bytes a
+         tester sees are the bytes this repository wrote down, and anything
+         else is ``death_timer_elapsed_is_not_the_pinned_zero``.
     """
     if type(value) is not float:
         raise ValueError("hp death field rejected: death_timer_not_float")
-    if value != value or value in (float("inf"), float("-inf")):
+    if value != value:
+        raise ValueError(
+            "hp death field rejected: death_timer_not_finite -- NaN is "
+            "UNORDERED against the 0.0f at 0x454A7D, so the jb at 0x454A81 is "
+            "taken and the timer-elapsed predicate returns false"
+        )
+    if value in (float("inf"), float("-inf")):
         raise ValueError("hp death field rejected: death_timer_not_finite")
-    if not value > 0.0:
+    if not value > 0.0 and not allow_elapsed:
         raise ValueError("hp death field rejected: death_timer_not_positive")
     encoded = legacy.f32tag(value)
     if (
@@ -1465,6 +1563,15 @@ def _encode_death_timer(legacy: Any, field: AttrField, value: Any) -> bytes:
         raise ValueError(
             "hp death field rejected: death_timer_not_exactly_representable"
         )
+    if not value > 0.0:
+        if encoded != HP_DEATH_TIMER_ELAPSED_WIRE_BYTES:
+            raise ValueError(
+                "hp death field rejected: "
+                "death_timer_elapsed_is_not_the_pinned_zero -- the elapsed "
+                "step emits exactly tag 0x2A followed by four zero bytes, and "
+                "negative zero packs to 00 00 00 80"
+            )
+        return encoded
     if value < DURATION_DYING_IMAGE_DEFAULT - DURATION_DYING_WINDOW_MARGIN:
         raise ValueError(
             "hp death field rejected: death_timer_below_the_death_window_gate"
@@ -1565,11 +1672,25 @@ HP_DEATH_DYING_HOLD_STEPS = (
     # The same armed frame as death_sweep except for the four f32 bytes of the
     # timer itself -- also asserted, not assumed.
     ("TIMER_ARMED", {HP_DEATH_TIMER_NAME: HP_DEATH_DYING_HOLD_TIMER_SECONDS}),
-    # The kill, and the LAST frame.  There is deliberately no restoring step:
-    # the whole question this profile asks is what the client does once the
-    # countdown reaches zero, and a restoring frame is precisely the thing that
-    # would stop that from ever being observable.
+    # The kill.  There is deliberately no restoring step in this profile: the
+    # whole question it asks is what the client does once the countdown reaches
+    # zero, and a restoring frame is precisely the thing that would stop that
+    # from ever being observable.
     ("HP_ZERO", {"hp_current": HP_DEATH_HP_CURRENT}),
+    # DEATH-ESCALATE-001, and the LAST frame.  GT-021 answered the question the
+    # three-frame version was written to ask, and the answer was a negative:
+    # the downed window held for over four minutes and never escalated, so THE
+    # CLIENT DOES NOT LOWER THIS FLOAT BY ITSELF.  This frame lowers it, and it
+    # carries BOTH bits on purpose -- 0x0004 with current HP still 0 and
+    # 0x0080 with 0.0f -- because BasicAttr::Merge copies a field FORWARD when
+    # its bit is clear (0x4656A3), so omitting the bit would leave 20.0 latched
+    # in the client forever rather than clearing it.  What this step composes
+    # is the pair the timer-elapsed predicate 0x454A70 reads; whether the
+    # L"Common_Death" window then appears on a screen is unobserved.
+    (
+        "TIMER_ELAPSED",
+        {HP_DEATH_TIMER_NAME: HP_DEATH_TIMER_ELAPSED_SECONDS},
+    ),
 )
 HP_DEATH_DYING_HOLD_STEP_ORDER = tuple(
     label for label, _fields in HP_DEATH_DYING_HOLD_STEPS
@@ -1578,6 +1699,13 @@ HP_DEATH_DYING_HOLD_STEP_FIELDS = {
     label: dict(fields) for label, fields in HP_DEATH_DYING_HOLD_STEPS
 }
 HP_DEATH_DYING_HOLD_LETHAL_STEP_LABELS = ("HP_ZERO",)
+# "Lethal" in this module has always meant the DYING predicate 0x454AC0
+# (HP == 0 AND timer > 0), and TIMER_ELAPSED is deliberately NOT in that tuple:
+# it is the frame that makes the OTHER predicate, 0x454A70 (HP == 0 AND
+# timer <= 0), true, and the two can never be true on one snapshot.  The
+# elapsed labels are their own tuple so no reader has to guess which of the two
+# a step means, and so that the encoder's elapsed gate has exactly one source.
+HP_DEATH_DYING_HOLD_ELAPSED_STEP_LABELS = ("TIMER_ELAPSED",)
 HP_DEATH_DYING_HOLD_SPACING_SECONDS = 6.0
 HP_DEATH_DYING_HOLD_FIRST_DELAY_SECONDS = 0.0
 HP_DEATH_DYING_HOLD_ACTION_LABEL_PREFIX = "HYP_PF_022_DYING_HOLD_"
@@ -1591,6 +1719,10 @@ HP_DEATH_DYING_HOLD_CAPABILITIES = (
     "hold_the_character_dead_so_the_countdown_can_run_to_zero",
     "reproduce_the_proven_player_wire_baseline_projection_byte_exactly",
     "decode_every_composed_body_back_to_the_requested_fields",
+    # DEATH-ESCALATE-001
+    "drive_the_death_timer_to_a_pinned_zero_in_a_fourth_frame",
+    "carry_both_mask_bits_on_the_elapsed_frame_because_merge_copies_forward",
+    "refuse_nan_negative_zero_and_every_other_non_pinned_elapsed_value",
 )
 HP_DEATH_DYING_HOLD_NONCLAIMS = (
     # The four this profile is REQUIRED to state, first and in plain words.
@@ -1610,6 +1742,13 @@ HP_DEATH_DYING_HOLD_NONCLAIMS = (
     "any_recovery_path_out_of_the_state_this_profile_leaves_behind",
     "production_dispatch_wiring",
     "production_baseline_behavior",
+    # DEATH-ESCALATE-001 states its own limit first and in plain words: this
+    # profile SENDS the values a static read names as the branch condition.
+    # It does not observe the branch being taken.
+    "that_the_common_death_window_appears_this_lane_only_sends_the_values",
+    "that_the_character_is_dead_or_revivable_nothing_here_observes_a_screen",
+    "the_death_animation_or_targetisdead_this_transport_cannot_reach_0x4437c0",
+    "any_client_behavior_after_the_elapsed_frame_including_the_rescue_buttons",
 )
 
 
@@ -1694,21 +1833,66 @@ def _require_hp_death_step_plan(profile: Any = None) -> None:
     timer = plan["TIMER_ARMED"].get(HP_DEATH_TIMER_NAME)
     if type(timer) is not float or timer != profile.timer_seconds:
         raise RuntimeError("HYP-PF-022 the armed step is not the profile timer")
+    if type(profile.elapsed_step_labels) is not tuple:
+        raise RuntimeError("HYP-PF-022 elapsed_step_labels is not a tuple")
+    if profile.elapsed_step_labels and not profile.ends_dead:
+        raise RuntimeError(
+            "HYP-PF-022 only a profile that ends dead may carry an elapsed step"
+        )
+    if ("TIMER_ELAPSED" in order) != bool(profile.elapsed_step_labels):
+        raise RuntimeError(
+            "HYP-PF-022 the elapsed step and the elapsed label tuple disagree"
+        )
     if profile.ends_dead:
         if "HP_RESTORED" in order:
             raise RuntimeError(
                 "HYP-PF-022 a profile that ends dead must carry no restore step"
-            )
-        if order[-1] != "HP_ZERO":
-            raise RuntimeError(
-                "HYP-PF-022 a profile that ends dead must end on the kill frame"
             )
         if timer < DURATION_DYING_IMAGE_DEFAULT - DURATION_DYING_WINDOW_MARGIN:
             raise RuntimeError(
                 "HYP-PF-022 a profile that ends dead must clear the "
                 "death-window gate"
             )
+        if not profile.elapsed_step_labels:
+            if order[-1] != "HP_ZERO":
+                raise RuntimeError(
+                    "HYP-PF-022 a profile that ends dead must end on the kill "
+                    "frame"
+                )
+            return
+        # DEATH-ESCALATE-001's own contract, enforced clause by clause.
+        if profile.elapsed_step_labels != ("TIMER_ELAPSED",):
+            raise RuntimeError(
+                "HYP-PF-022 exactly one step may be the elapsed step"
+            )
+        if order[-1] != "TIMER_ELAPSED":
+            raise RuntimeError(
+                "HYP-PF-022 a profile with an elapsed step must end on it"
+            )
+        if order.index("TIMER_ELAPSED") != killed + 1:
+            raise RuntimeError(
+                "HYP-PF-022 the elapsed step must follow the kill immediately"
+            )
+        elapsed = plan["TIMER_ELAPSED"].get(HP_DEATH_TIMER_NAME)
+        if type(elapsed) is not float:
+            raise RuntimeError(
+                "HYP-PF-022 the elapsed step does not lower the death timer"
+            )
+        if elapsed != elapsed:
+            raise RuntimeError(
+                "HYP-PF-022 a NaN elapsed timer is unordered at 0x454A7D and "
+                "makes the predicate FALSE, which is the opposite of the "
+                "intent"
+            )
+        if struct.pack("<f", elapsed) != HP_DEATH_TIMER_ELAPSED_WIRE_BYTES[1:]:
+            raise RuntimeError(
+                "HYP-PF-022 the elapsed timer is not the pinned positive zero"
+            )
         return
+    if profile.elapsed_step_labels:
+        raise RuntimeError(
+            "HYP-PF-022 a profile that ends alive may not carry an elapsed step"
+        )
     if "HP_RESTORED" not in order:
         raise RuntimeError("HYP-PF-022 the sweep does not end alive")
     restored = order.index("HP_RESTORED")
@@ -1846,6 +2030,13 @@ HP_DEATH_DYING_HOLD_PROBE_ATTR_BODY_SHA256 = {
     "HP_ZERO": (
         "857AC3F2D1CFBCB717FAC62B27DE78617344D4E2A7D74BB00DE6FD2F8E488873"
     ),
+    # DEATH-ESCALATE-001.  Same length as the kill frame and the same mask:
+    # the escalation differs from the frame before it in FOUR BYTES, the f32
+    # of the timer, and in nothing else.  A test asserts that difference by
+    # diffing the two bodies rather than by trusting this comment.
+    "TIMER_ELAPSED": (
+        "087B0086B27DFCCC05375DF72ABE3C848DB66784A85DAACAAB9D1108BC500C57"
+    ),
 }
 HP_DEATH_DYING_HOLD_PROBE_PC_SHA256 = {
     "BASELINE": (
@@ -1856,6 +2047,9 @@ HP_DEATH_DYING_HOLD_PROBE_PC_SHA256 = {
     ),
     "HP_ZERO": (
         "1099931C80FAA0394BE1DADCA587ED890A04ED7C72118F1888D6708CF9967E44"
+    ),
+    "TIMER_ELAPSED": (
+        "7C1951CE3090F219D374E19227110E57A40A3EBF3A4EC2A93F139A12718E7F35"
     ),
 }
 HP_DEATH_DYING_HOLD_PROBE_FRAME_SHA256 = {
@@ -1868,18 +2062,26 @@ HP_DEATH_DYING_HOLD_PROBE_FRAME_SHA256 = {
     "HP_ZERO": (
         "77E98AD69434C112FD4D7B6F29B04DCCE306B42187E92B3BDB91383F0C1B200D"
     ),
+    "TIMER_ELAPSED": (
+        "FE5A6D9B05FC4ECE72C0D066D1AAF373B8C4D5269D8594EA182E6AAB60EA0CD4"
+    ),
 }
 HP_DEATH_DYING_HOLD_PROBE_ATTR_BODY_SIZE = {
-    "BASELINE": 73, "TIMER_ARMED": 78, "HP_ZERO": 78,
+    "BASELINE": 73, "TIMER_ARMED": 78, "HP_ZERO": 78, "TIMER_ELAPSED": 78,
 }
 HP_DEATH_DYING_HOLD_PROBE_PC_SIZE = {
-    "BASELINE": 106, "TIMER_ARMED": 111, "HP_ZERO": 111,
+    "BASELINE": 106, "TIMER_ARMED": 111, "HP_ZERO": 111, "TIMER_ELAPSED": 111,
 }
 HP_DEATH_DYING_HOLD_PROBE_FRAME_SIZE = {
-    "BASELINE": 117, "TIMER_ARMED": 122, "HP_ZERO": 122,
+    "BASELINE": 117, "TIMER_ARMED": 122, "HP_ZERO": 122, "TIMER_ELAPSED": 122,
 }
+# The escalation carries the SAME mask as the kill frame, and that is the
+# single most load-bearing number in this table: 0x038C keeps bit 0x0080 set,
+# and BasicAttr::Merge copies a field forward when its bit is CLEAR, so a
+# frame that dropped the bit would leave 20.0 latched in the client forever.
 HP_DEATH_DYING_HOLD_PROBE_BASIC_MASK = {
     "BASELINE": 0x030C, "TIMER_ARMED": 0x038C, "HP_ZERO": 0x038C,
+    "TIMER_ELAPSED": 0x038C,
 }
 # Tag 0x2A + 20.0f little-endian.  The four value bytes are the ONLY difference
 # between this profile's armed frame and death_sweep's.
@@ -1918,6 +2120,18 @@ class HpDeathStepProfile:
     probe_frame_size: dict
     probe_basic_mask: dict
     timer_wire_bytes: bytes
+    # DEATH-ESCALATE-001.  Defaulted, and the default is CLOSED: a profile that
+    # does not name an elapsed step cannot compose a non-positive timer at all,
+    # which is what keeps ``death_sweep``'s recorded refusal set byte-identical
+    # to the one HYP-PF-022's first version wrote down.  It is last in the
+    # field list on purpose so every positional construction in the tests and
+    # in the verifier keeps working unchanged.
+    elapsed_step_labels: tuple[str, ...] = ()
+
+    @property
+    def allows_elapsed_timer(self) -> bool:
+        """The single source of the encoder's elapsed gate."""
+        return bool(self.elapsed_step_labels)
 
     @property
     def step_order(self) -> tuple[str, ...]:
@@ -1971,6 +2185,7 @@ HP_DEATH_PROFILE_DYING_HOLD = HpDeathStepProfile(
     HP_DEATH_DYING_HOLD_PROBE_FRAME_SIZE,
     HP_DEATH_DYING_HOLD_PROBE_BASIC_MASK,
     HP_DEATH_DYING_HOLD_TIMER_WIRE_BYTES,
+    HP_DEATH_DYING_HOLD_ELAPSED_STEP_LABELS,
 )
 HP_DEATH_PROFILES = {
     HP_DEATH_PROFILE_DEATH_SWEEP_NAME: HP_DEATH_PROFILE_DEATH_SWEEP,
@@ -2021,9 +2236,54 @@ def _require_pinned_death_composition(
 
 
 # PF-HYPOTHESIS-LEDGER: HYP-PF-022 active
+def _require_hp_death_elapsed_gate(
+    profile: Any, step_label: Any, fields: dict[str, Any],
+) -> bool:
+    """Decide, once and in one place, whether this frame may carry 0.0f.
+
+    DEATH-ESCALATE-001.  Three refusals live here rather than in the encoder
+    because only this function knows WHICH STEP is being composed, and the
+    whole point of the checkpoint is that exactly one step in exactly one
+    profile may lower the death timer:
+
+      * a label that is not in the profile's own step order is
+        ``unknown_step_label`` -- a typo must not quietly mean "closed", which
+        is the failure mode that would delete this lane without a red test;
+      * a non-positive timer on any other step is
+        ``death_timer_elapsed_outside_the_pinned_final_step``, so the value
+        cannot be smuggled onto the kill frame or the baseline;
+      * an elapsed frame whose current HP is not 0 is
+        ``death_timer_elapsed_without_zero_hp``, because BOTH engine
+        predicates read ``u32[attr+0x44] == 0`` first and a timer-only frame
+        is inert -- an inert frame that a tester is told is the escalation is
+        worse than no frame at all.
+
+    ``step_label is None`` keeps every pre-DEATH-ESCALATE-001 caller exactly as
+    it was: the gate is closed, and the encoder refuses 0.0 with
+    ``death_timer_not_positive`` as it always has.
+    """
+    if step_label is None:
+        return False
+    if type(step_label) is not str or step_label not in profile.step_order:
+        raise ValueError("hp death step rejected: unknown_step_label")
+    allow_elapsed = step_label in profile.elapsed_step_labels
+    timer = fields.get(HP_DEATH_TIMER_NAME)
+    non_positive = type(timer) is float and not timer > 0.0
+    if non_positive and not allow_elapsed:
+        raise ValueError(
+            "hp death field rejected: "
+            "death_timer_elapsed_outside_the_pinned_final_step"
+        )
+    if allow_elapsed and non_positive and fields.get("hp_current") != 0:
+        raise ValueError(
+            "hp death field rejected: death_timer_elapsed_without_zero_hp"
+        )
+    return allow_elapsed
+
+
 def make_hp_death_response(
     legacy: Any, actor: StatsProgressionActor, fields: dict[str, Any],
-    lethal: Any, profile: Any = None,
+    lethal: Any, profile: Any = None, step_label: Any = None,
 ) -> tuple[bytes, bytes]:
     """Compose ``(pc, frame)`` for one UpdateAttrVital frame of the death sweep.
 
@@ -2038,9 +2298,20 @@ def make_hp_death_response(
     ``profile`` selects the step plan whose contract is enforced; it defaults to
     ``death_sweep``, and the unlock token is the same one for every profile --
     a second plan must not mean a second key.
+
+    ``step_label`` is DEATH-ESCALATE-001's gate and it defaults to ``None``,
+    which means CLOSED: with no label the composer behaves exactly as it did
+    before that checkpoint and a non-positive death timer is refused by the
+    encoder itself.  A label opens the elapsed band only when the profile names
+    that label as its elapsed step, so the one frame allowed to carry 0.0f is
+    the one the profile wrote down -- not any frame a caller happens to pass
+    the value on.  The label is checked against the profile's own step order
+    first, because a typo that silently meant "closed" would be the quietest
+    possible way to lose this lane.
     """
     require_hp_death_lethal_unlock(lethal)
     profile = _resolve_hp_death_profile(profile)
+    allow_elapsed = _require_hp_death_elapsed_gate(profile, step_label, fields)
     if legacy.UPDATE_ATTR_VITAL != UPDATE_ATTR_VITAL_ID:
         raise RuntimeError(
             "HYP-PF-022 UpdateAttrVital id drift against the frozen module"
@@ -2050,6 +2321,7 @@ def make_hp_death_response(
     _require_player_wire_crosscheck(legacy, actor)
     body = encode_actor_attr(
         legacy, actor.identity_lo, actor.identity_hi, fields, lethal,
+        allow_elapsed,
     )
     payload = make_stats_progression_attr_payload(legacy, body)
     pc, frame = legacy.make_runtime_vitals([
@@ -2077,8 +2349,14 @@ def make_hp_death_step_response(
     require_hp_death_lethal_unlock(lethal)
     profile = _resolve_hp_death_profile(profile)
     fields = hp_death_step_fields(legacy, actor, step_index, profile)
-    pc, frame = make_hp_death_response(legacy, actor, fields, lethal, profile)
+    # The label is read from the profile BEFORE the frame is composed, because
+    # it is the elapsed gate's only key (DEATH-ESCALATE-001): the numbered API
+    # can therefore never open the elapsed band on a step the profile did not
+    # name, and no caller of this function had to change to keep that true.
     label = profile.step_order[step_index]
+    pc, frame = make_hp_death_response(
+        legacy, actor, fields, lethal, profile, label,
+    )
     _require_pinned_death_composition(
         actor, label, hp_death_attr_body(pc), pc, frame, profile,
     )
@@ -2141,7 +2419,7 @@ def _expected_death_scenario(profile: Any) -> dict[str, Any]:
     profile = _resolve_hp_death_profile(profile)
     step_order = profile.step_order
     step_fields = profile.step_fields
-    return {
+    document = {
         "schema": 1,
         "id": profile.scenario_id,
         "test_only": True,
@@ -2253,6 +2531,42 @@ def _expected_death_scenario(profile: Any) -> dict[str, Any]:
         "capabilities": list(profile.capabilities),
         "nonclaims": list(profile.nonclaims),
     }
+    if not profile.elapsed_step_labels:
+        return document
+    # DEATH-ESCALATE-001.  These three keys exist ONLY in a profile that names
+    # an elapsed step, and that is a deliberate choice rather than an omission:
+    # death_sweep's scenario file is one of this lane's own regression pins, so
+    # the checkpoint that added a fourth frame to the OTHER profile must not
+    # rewrite a byte of it, and a reader of a file WITHOUT these keys can
+    # conclude from their absence that the lane behind it cannot compose a
+    # non-positive timer at all.  Every address below is documentation-grade
+    # and is re-asserted against the client image by
+    # tools/verify_hp_death_encoder.py --binary.
+    document["dispatch"]["elapsed_steps"] = list(profile.elapsed_step_labels)
+    document["wire"]["timer_elapsed_predicate"] = {
+        "is_dead_elapsed_player": IS_DEAD_ELAPSED_PLAYER_VA,
+        "comiss_against_zero": ELAPSED_PREDICATE_COMISS_VA,
+        "jb_returns_false_including_on_nan": ELAPSED_PREDICATE_JB_VA,
+        "current_hp_compare": ELAPSED_PREDICATE_HP_COMPARE_VA,
+        "actor_hp_selector_offset": ACTOR_HP_SELECTOR_OFFSET,
+        "my_actor_update_call_site": MY_ACTOR_UPDATE_ELAPSED_CALL_VA,
+        "common_death_window_literal": COMMON_DEATH_LITERAL_VA,
+        "common_death_open_site": COMMON_DEATH_OPEN_SITE_VA,
+        "rule": "current_hp_zero_and_death_timer_at_most_zero",
+        "elapsed_value_seconds": HP_DEATH_TIMER_ELAPSED_SECONDS,
+        "elapsed_wire_bytes": HP_DEATH_TIMER_ELAPSED_WIRE_BYTES.hex(),
+    }
+    document["wire"]["merge"] = {
+        "basic_attr_merge": BASIC_ATTR_MERGE_VA,
+        "merge_call_site": BASIC_ATTR_MERGE_CALL_SITE_VA,
+        "timer_copy_forward": BASIC_ATTR_MERGE_TIMER_COPY_FORWARD_VA,
+        "ctor_timer_init": BASIC_ATTR_CTOR_TIMER_INIT_VA,
+        "rule": "a_set_bit_takes_the_wire_value_a_clear_bit_copies_the_old_one",
+        "why_the_elapsed_frame_carries_both_bits": (
+            "dropping_bit_0x0080_preserves_the_armed_timer_forever"
+        ),
+    }
+    return document
 
 
 def _expected_death_sweep() -> dict[str, Any]:

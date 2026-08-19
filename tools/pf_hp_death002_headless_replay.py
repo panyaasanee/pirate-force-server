@@ -32,9 +32,21 @@ canonical database is never opened: everything runs on a fresh temporary
 SQLite file that is deleted on exit.  No repository file is written unless
 ``--evidence <path>`` is handed in.
 
+DEATH-ESCALATE-001 (round 89) added the second profile to this tool rather than
+a second tool, because the question it asks is the SAME question one frame
+later: ``--profile dying_hold`` boots the other opt-in scenario and proves that
+the dispatcher answers with FOUR frames of which the third satisfies the dying
+predicate ``0x454AC0`` and the fourth satisfies the timer-elapsed predicate
+``0x454A70`` (``HP == 0`` AND ``timer <= 0``), with mask bit 0x0080 STILL SET
+on that fourth frame -- because ``BasicAttr::Merge`` copies the field forward
+when the bit is clear, so a frame that dropped it would silently preserve the
+armed 20.0 instead of clearing it.  The client-layer question -- whether
+``L"Common_Death"`` then appears on a screen -- is GT-023, attended, not run.
+
 Usage:
     py -3 tools/pf_hp_death002_headless_replay.py
     py -3 tools/pf_hp_death002_headless_replay.py --json
+    py -3 tools/pf_hp_death002_headless_replay.py --profile dying_hold
     py -3 tools/pf_hp_death002_headless_replay.py --evidence reports/hp_death002_headless.json
 
 Exit 0 = every wire guard held.  Exit 1 = at least one drifted, with the list.
@@ -66,6 +78,11 @@ from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
 
 SCENARIO = ROOT / "scenarios" / "hp_death_hypothesis_death_sweep.json"
+DYING_HOLD_SCENARIO = ROOT / "scenarios" / "hp_death_hypothesis_dying_hold.json"
+SCENARIO_BY_PROFILE = {
+    "death_sweep": SCENARIO,
+    "dying_hold": DYING_HOLD_SCENARIO,
+}
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 
 # ---------------------------------------------------------------------------
@@ -131,6 +148,14 @@ def main() -> int:
     evidence_path = None
     if "--evidence" in sys.argv:
         evidence_path = Path(sys.argv[sys.argv.index("--evidence") + 1])
+    profile_name = "death_sweep"
+    if "--profile" in sys.argv:
+        profile_name = sys.argv[sys.argv.index("--profile") + 1]
+    if profile_name not in SCENARIO_BY_PROFILE:
+        print("unknown profile %r; pick one of %s"
+              % (profile_name, sorted(SCENARIO_BY_PROFILE)))
+        return 2
+    scenario_path = SCENARIO_BY_PROFILE[profile_name]
 
     failures: list[str] = []
     guards = 0
@@ -147,7 +172,12 @@ def main() -> int:
                 print("  FAIL  %s %s" % (label, detail))
 
     legacy = load_legacy(LEGACY_PATH)
-    scenario = sp.load_hp_death_hypothesis_scenario(SCENARIO)
+    scenario = sp.load_hp_death_hypothesis_scenario(scenario_path)
+    # Every pin below is read off the PROFILE rather than off the module's
+    # death_sweep constants, so the two profiles run the same guards instead of
+    # the second one getting a weaker copy of them.
+    profile = sp.hp_death_profile_for_scenario(scenario)
+    step_order = profile.step_order
 
     with tempfile.TemporaryDirectory() as tmp:
         db_path = Path(tmp) / "hp_death002.sqlite3"
@@ -191,10 +221,10 @@ def main() -> int:
             legacy.parse_outer(CHAT_INPUT_PROBE_REQUEST_PCS["probe1"])
         )
         check("the dispatcher answered with four frames",
-              len(actions) == len(sp.HP_DEATH_STEP_ORDER), str(len(actions)))
+              len(actions) == len(step_order), str(len(actions)))
         check("in the scenario's pinned order",
               [label for label, _p, _f, _d in actions]
-              == [sp.HP_DEATH_ACTION_LABEL_PREFIX + label
+              == [profile.action_label_prefix + label
                   for label in scenario.step_order])
         check("and named the sweep event exactly once",
               state.events.count("hp_death_hypothesis_death_sweep_sent") == 1)
@@ -204,7 +234,7 @@ def main() -> int:
         rows = []
         lethal_labels = []
         for index, (label, pc, frame, delay) in enumerate(actions):
-            step = sp.HP_DEATH_STEP_ORDER[index]
+            step = step_order[index]
             parsed = legacy.parse_outer(pc)
             check("frame %s parses with the frozen v141 outer parser" % step,
                   parsed is not None)
@@ -217,8 +247,8 @@ def main() -> int:
             body = sp.hp_death_attr_body(pc)
             read = walk_basic_block(body)
             check("frame %s carries the pinned BasicAttr mask 0x%04X"
-                  % (step, sp.HP_DEATH_PROBE_BASIC_MASK[step]),
-                  read["basic_mask"] == sp.HP_DEATH_PROBE_BASIC_MASK[step],
+                  % (step, profile.probe_basic_mask[step]),
+                  read["basic_mask"] == profile.probe_basic_mask[step],
                   hex(read["basic_mask"]))
             hp_current = read["fields"].get(0x0004)
             timer = read["fields"].get(0x0080)
@@ -247,13 +277,13 @@ def main() -> int:
         if not want_json:
             print("-- 3. the death predicate, on the wire --")
         check("exactly one frame satisfies IsDead (hp==0 AND timer>0)",
-              lethal_labels == list(sp.HP_DEATH_LETHAL_STEP_LABELS),
+              lethal_labels == list(profile.lethal_step_labels),
               str(lethal_labels))
-        armed = rows[sp.HP_DEATH_STEP_ORDER.index("TIMER_ARMED")]
+        armed = rows[step_order.index("TIMER_ARMED")]
         check("the armed frame carries the timer but is NOT lethal",
-              armed["death_timer_bit_0x0080"] == sp.HP_DEATH_TIMER_SECONDS
+              armed["death_timer_bit_0x0080"] == profile.timer_seconds
               and armed["client_is_dead_predicate"] is False)
-        killed = rows[sp.HP_DEATH_STEP_ORDER.index("HP_ZERO")]
+        killed = rows[step_order.index("HP_ZERO")]
         check("the lethal frame carries current HP == 0",
               killed["hp_current_bit_0x0004"] == 0)
         check("the lethal frame carries a positive death timer",
@@ -265,26 +295,57 @@ def main() -> int:
         check("the baseline frame carries no death bit at all",
               rows[0]["death_timer_bit_0x0080"] is None
               and not rows[0]["basic_mask"] & sp.HP_DEATH_TIMER_MASK_BIT)
-        check("the sweep ends with the character alive on the wire",
-              rows[-1]["hp_current_bit_0x0004"] > 0)
+        if not profile.ends_dead:
+            check("the sweep ends with the character alive on the wire",
+                  rows[-1]["hp_current_bit_0x0004"] > 0)
+        elif not profile.elapsed_step_labels:
+            check("the profile ends with the character dying on the wire",
+                  rows[-1]["hp_current_bit_0x0004"] == 0
+                  and rows[-1]["death_timer_bit_0x0080"] > 0.0)
+        else:
+            # DEATH-ESCALATE-001, and the four guards that are the checkpoint.
+            last = rows[-1]
+            check("the profile ends on the elapsed step it declared",
+                  last["step"] == profile.elapsed_step_labels[-1]
+                  and last["step"] == step_order[-1])
+            check("the last frame satisfies the timer-elapsed predicate "
+                  "0x454A70 (hp == 0 AND timer <= 0)",
+                  last["hp_current_bit_0x0004"] == 0
+                  and last["death_timer_bit_0x0080"] is not None
+                  and last["death_timer_bit_0x0080"] <= 0.0)
+            check("the elapsed timer is the pinned POSITIVE zero on the wire, "
+                  "tag 0x2A and four zero bytes",
+                  bytes.fromhex(last["attr_body_hex"]).find(
+                      sp.HP_DEATH_TIMER_ELAPSED_WIRE_BYTES) >= 0
+                  and struct.pack("<f", last["death_timer_bit_0x0080"])
+                  == sp.HP_DEATH_TIMER_ELAPSED_WIRE_BYTES[1:])
+            check("mask bit 0x0080 is STILL SET on the elapsed frame, because "
+                  "BasicAttr::Merge 0x4656A3 copies a CLEARED field forward",
+                  bool(last["basic_mask"] & sp.HP_DEATH_TIMER_MASK_BIT)
+                  and last["basic_mask"]
+                  == rows[step_order.index("HP_ZERO")]["basic_mask"])
+            check("the dying predicate 0x454AC0 was true on the kill frame "
+                  "and is false on the elapsed one -- they are exclusive",
+                  killed["client_is_dead_predicate"] is True
+                  and last["client_is_dead_predicate"] is False)
 
         if not want_json:
             print("-- 4. pins and discipline --")
         check("every frame reproduces its module pin",
               all(row["attr_body_sha256"]
-                  == sp.HP_DEATH_PROBE_ATTR_BODY_SHA256[row["step"]]
+                  == profile.probe_attr_body_sha256[row["step"]]
                   and row["pc_sha256"]
-                  == sp.HP_DEATH_PROBE_PC_SHA256[row["step"]]
+                  == profile.probe_pc_sha256[row["step"]]
                   and row["frame_sha256"]
-                  == sp.HP_DEATH_PROBE_FRAME_SHA256[row["step"]]
+                  == profile.probe_frame_sha256[row["step"]]
                   for row in rows))
         check("every frame reproduces its scenario pin",
-              all(json.loads(SCENARIO.read_text(encoding="utf-8"))
+              all(json.loads(scenario_path.read_text(encoding="utf-8"))
                   ["probe"]["per_step"][row["step"]]["pc_sha256"]
                   == row["pc_sha256"] for row in rows))
         check("the spacing is the scenario's spacing",
               [row["delay_seconds"] for row in rows]
-              == [sp.HP_DEATH_FIRST_DELAY_SECONDS]
+              == [profile.first_delay_seconds]
               + [scenario.spacing_seconds] * (len(rows) - 1))
         check("the sweep wrote nothing to the database",
               hashlib.sha256(db_path.read_bytes()).hexdigest().upper()
@@ -293,9 +354,13 @@ def main() -> int:
               all(len(action) == 4 for action in actions))
 
     verdict = {
-        "milestone": "HP-DEATH-002",
+        "milestone": (
+            "DEATH-ESCALATE-001" if profile.elapsed_step_labels
+            else "HP-DEATH-002"
+        ),
+        "profile": profile.name,
         "hypothesis_id": sp.HP_DEATH_HYPOTHESIS_ID,
-        "scenario": SCENARIO.relative_to(ROOT).as_posix(),
+        "scenario": scenario_path.relative_to(ROOT).as_posix(),
         "layer": "wire_only_no_client_no_socket_no_server_process",
         "guards_run": guards,
         "failures": failures,
@@ -328,6 +393,10 @@ def main() -> int:
         if failures:
             print("RESULT: FAIL - %d guard(s) drifted: %s"
                   % (len(failures), failures))
+        elif profile.elapsed_step_labels:
+            print("RESULT: PASS - DEATH-ESCALATE-001 dying_hold proven at the "
+                  "wire layer: four frames, the last one satisfying the "
+                  "timer-elapsed predicate (client layer = GT-023, not run)")
         else:
             print("RESULT: PASS - HP-DEATH-002 death sweep proven at the "
                   "wire layer (client layer = GT-019, not run)")

@@ -13,11 +13,12 @@
   "dispatch": {
     "trigger": "accepted_chat_input_frame_exact_ascii12_shape",
     "trigger_classifier": "classify_chat_input_attempt",
-    "frames_per_accepted_request": 3,
+    "frames_per_accepted_request": 4,
     "step_order": [
       "BASELINE",
       "TIMER_ARMED",
-      "HP_ZERO"
+      "HP_ZERO",
+      "TIMER_ELAPSED"
     ],
     "step_fields": {
       "BASELINE": {},
@@ -26,6 +27,9 @@
       },
       "HP_ZERO": {
         "hp_current": 0
+      },
+      "TIMER_ELAPSED": {
+        "hp_death_timer": 0.0
       }
     },
     "lethal_steps": [
@@ -39,10 +43,14 @@
     "action_labels": [
       "HYP_PF_022_DYING_HOLD_BASELINE",
       "HYP_PF_022_DYING_HOLD_TIMER_ARMED",
-      "HYP_PF_022_DYING_HOLD_HP_ZERO"
+      "HYP_PF_022_DYING_HOLD_HP_ZERO",
+      "HYP_PF_022_DYING_HOLD_TIMER_ELAPSED"
     ],
     "one_shot": false,
-    "socket_action": "none"
+    "socket_action": "none",
+    "elapsed_steps": [
+      "TIMER_ELAPSED"
+    ]
   },
   "wire": {
     "vital_id": 12442,
@@ -86,6 +94,27 @@
       "reaches_dead_state_sync": false,
       "dead_state_sync": 4470720,
       "dead_state_sync_only_reachable_from": 4548263
+    },
+    "timer_elapsed_predicate": {
+      "is_dead_elapsed_player": 4541040,
+      "comiss_against_zero": 4541053,
+      "jb_returns_false_including_on_nan": 4541057,
+      "current_hp_compare": 4541093,
+      "actor_hp_selector_offset": 856,
+      "my_actor_update_call_site": 4515213,
+      "common_death_window_literal": 15784032,
+      "common_death_open_site": 4515271,
+      "rule": "current_hp_zero_and_death_timer_at_most_zero",
+      "elapsed_value_seconds": 0.0,
+      "elapsed_wire_bytes": "2a00000000"
+    },
+    "merge": {
+      "basic_attr_merge": 4609552,
+      "merge_call_site": 6235396,
+      "timer_copy_forward": 4609699,
+      "ctor_timer_init": 4606734,
+      "rule": "a_set_bit_takes_the_wire_value_a_clear_bit_copies_the_old_one",
+      "why_the_elapsed_frame_carries_both_bits": "dropping_bit_0x0080_preserves_the_armed_timer_forever"
     }
   },
   "probe": {
@@ -125,6 +154,15 @@
         "pc_sha256": "1099931C80FAA0394BE1DADCA587ED890A04ED7C72118F1888D6708CF9967E44",
         "frame_size": 122,
         "frame_sha256": "77E98AD69434C112FD4D7B6F29B04DCCE306B42187E92B3BDB91383F0C1B200D"
+      },
+      "TIMER_ELAPSED": {
+        "lethal": false,
+        "attr_body_size": 78,
+        "attr_body_sha256": "087B0086B27DFCCC05375DF72ABE3C848DB66784A85DAACAAB9D1108BC500C57",
+        "pc_size": 111,
+        "pc_sha256": "7C1951CE3090F219D374E19227110E57A40A3EBF3A4EC2A93F139A12718E7F35",
+        "frame_size": 122,
+        "frame_sha256": "FE5A6D9B05FC4ECE72C0D066D1AAF373B8C4D5269D8594EA182E6AAB60EA0CD4"
       }
     }
   },
@@ -137,7 +175,10 @@
     "arm_the_timer_at_the_duration_dying_value_compiled_into_the_image",
     "hold_the_character_dead_so_the_countdown_can_run_to_zero",
     "reproduce_the_proven_player_wire_baseline_projection_byte_exactly",
-    "decode_every_composed_body_back_to_the_requested_fields"
+    "decode_every_composed_body_back_to_the_requested_fields",
+    "drive_the_death_timer_to_a_pinned_zero_in_a_fourth_frame",
+    "carry_both_mask_bits_on_the_elapsed_frame_because_merge_copies_forward",
+    "refuse_nan_negative_zero_and_every_other_non_pinned_elapsed_value"
   ],
   "nonclaims": [
     "no_client_has_ever_been_shown_one_byte_of_this_profile",
@@ -153,6 +194,10 @@
     "what_the_client_does_when_the_countdown_reaches_zero",
     "any_recovery_path_out_of_the_state_this_profile_leaves_behind",
     "production_dispatch_wiring",
-    "production_baseline_behavior"
+    "production_baseline_behavior",
+    "that_the_common_death_window_appears_this_lane_only_sends_the_values",
+    "that_the_character_is_dead_or_revivable_nothing_here_observes_a_screen",
+    "the_death_animation_or_targetisdead_this_transport_cannot_reach_0x4437c0",
+    "any_client_behavior_after_the_elapsed_frame_including_the_rescue_buttons"
   ]
 }

@@ -15,8 +15,17 @@ question askable for the first time, and it is not one the diagnostic can ask:
     WHAT HAPPENS WHEN THE COUNTDOWN RUNS OUT?
 
 That is what the ``dying_hold`` profile exists for, and it is the whole reason
-it has no restoring step.  Three things an attended tester is asked to look at,
-in this order:
+it has no restoring step.
+
+DEATH-ESCALATE-001 (round 89) then answered question 1 below with a NEGATIVE,
+and that answer is why this profile now has a fourth frame.  GT-021 ran the
+three-frame version against a real client on 2026-08-19: the downed window held
+for over four minutes and the countdown never escalated, so THE CLIENT DOES NOT
+LOWER THIS FLOAT BY ITSELF.  The fourth frame lowers it, to the pinned 0.0f, and
+it carries both mask bits on purpose, because ``BasicAttr::Merge`` copies a
+field FORWARD when its bit is clear -- omitting bit 0x0080 would latch 20.0 in
+the client forever rather than clear it.  Three questions an attended tester is
+asked to look at, in this order:
 
   1. does the countdown on screen actually move?
   2. when it reaches zero, does the client cross from "dying" (``0x454AC0``:
@@ -27,10 +36,15 @@ in this order:
 
 What this file proves, all of it offline and none of it about a screen:
 
-  * the ``death_sweep`` profile did not move one byte across the refactor: same
-    step order, same 60.0 s timer, same twelve sha256 pins;
-  * ``dying_hold`` is the three-step plan it claims to be, at 20.0 s, with one
-    lethal step, ending on the kill;
+  * the ``death_sweep`` profile did not move one byte across either change:
+    same step order, same 60.0 s timer, same twelve sha256 pins, and a scenario
+    file on disk that DEATH-ESCALATE-001 did not rewrite;
+  * ``dying_hold`` is the four-step plan it claims to be, at 20.0 s, with one
+    lethal step, one elapsed step, ending on the escalation;
+  * the elapsed band is closed by default and has exactly one key: the step
+    label the profile itself names.  NaN, negative zero, any other non-pinned
+    value, the value on any other step, and the value on a profile that ends
+    alive are all refusals, and each one is asserted here;
   * the two profiles' BASELINE frames are byte-identical, and their TIMER_ARMED
     frames differ only inside the four f32 bytes of the timer value;
   * the step-plan validator RAISES on four separately broken profiles -- a
@@ -201,15 +215,30 @@ class DeathSweepDidNotMoveTests(_Base):
 
 
 class DyingHoldPlanTests(_Base):
-    def test_the_plan_is_three_steps_that_end_on_the_kill(self):
+    def test_the_plan_is_four_steps_that_end_on_the_escalation(self):
         profile = sp.HP_DEATH_PROFILE_DYING_HOLD
         self.assertEqual(
-            profile.step_order, ("BASELINE", "TIMER_ARMED", "HP_ZERO"),
+            profile.step_order,
+            ("BASELINE", "TIMER_ARMED", "HP_ZERO", "TIMER_ELAPSED"),
         )
-        self.assertEqual(profile.step_order[-1], "HP_ZERO")
+        self.assertEqual(profile.step_order[-1], "TIMER_ELAPSED")
         self.assertNotIn("HP_RESTORED", profile.step_order)
         self.assertIs(profile.ends_dead, True)
         self.assertEqual(profile.lethal_step_labels, ("HP_ZERO",))
+        self.assertEqual(profile.elapsed_step_labels, ("TIMER_ELAPSED",))
+        self.assertIs(profile.allows_elapsed_timer, True)
+        # The escalation follows the kill IMMEDIATELY: nothing may sit between
+        # the frame that zeroes HP and the frame that lowers the timer, because
+        # anything in between is a frame a tester would have to explain.
+        self.assertEqual(
+            profile.step_order.index("TIMER_ELAPSED"),
+            profile.step_order.index("HP_ZERO") + 1,
+        )
+        self.assertIs(sp.HP_DEATH_PROFILE_DEATH_SWEEP.allows_elapsed_timer,
+                      False)
+        self.assertEqual(
+            sp.HP_DEATH_PROFILE_DEATH_SWEEP.elapsed_step_labels, (),
+        )
 
     def test_the_timer_is_the_value_compiled_into_the_client_image(self):
         profile = sp.HP_DEATH_PROFILE_DYING_HOLD
@@ -228,7 +257,16 @@ class DyingHoldPlanTests(_Base):
         self.assertEqual(sp.IS_DYING_PLAYER_VA, 0x454AC0)
         self.assertEqual(sp.IS_DEAD_ELAPSED_PLAYER_VA, 0x454A70)
 
-    def test_exactly_one_step_is_lethal_and_it_is_the_last_one(self):
+    def test_exactly_one_step_is_lethal_and_it_is_no_longer_the_last(self):
+        """"Lethal" here means DYING, and the last frame is deliberately not.
+
+        ``hp_death_step_is_lethal`` asks the 0x454AC0 question: HP == 0 AND
+        timer > 0.  On TIMER_ELAPSED the timer is 0.0, so that predicate is
+        FALSE and the OTHER one (0x454A70, HP == 0 AND timer <= 0) is true
+        instead.  The two can never be true on one snapshot, so a reader who
+        expects the last frame of a profile that ends dead to report "lethal"
+        is reading the wrong predicate, and this test pins that on purpose.
+        """
         profile = sp.HP_DEATH_PROFILE_DYING_HOLD
         lethal = [
             label for index, label in enumerate(profile.step_order)
@@ -236,14 +274,33 @@ class DyingHoldPlanTests(_Base):
         ]
         self.assertEqual(lethal, ["HP_ZERO"])
         self.assertEqual(lethal, list(profile.lethal_step_labels))
-        self.assertEqual(profile.step_order[-1], lethal[-1])
+        self.assertNotEqual(profile.step_order[-1], lethal[-1])
+        self.assertIs(
+            sp.hp_death_step_is_lethal(
+                profile.step_order.index("TIMER_ELAPSED"), profile,
+            ),
+            False,
+        )
 
-    def test_the_last_frame_leaves_the_character_dead_on_the_wire(self):
+    def test_the_kill_frame_leaves_the_character_dying_on_the_wire(self):
         bodies = self._bodies(sp.HP_DEATH_PROFILE_DYING_HOLD)
         body = bodies["HP_ZERO"][0]
         _lo, _hi, fields = sp.decode_actor_attr(body, self.unlock)
         self.assertEqual(fields["hp_current"], 0)
         self.assertEqual(fields["hp_death_timer"], 20.0)
+
+    def test_the_last_frame_lowers_the_timer_and_keeps_hp_at_zero(self):
+        bodies = self._bodies(sp.HP_DEATH_PROFILE_DYING_HOLD)
+        body = bodies["TIMER_ELAPSED"][0]
+        _lo, _hi, fields = sp.decode_actor_attr(body, self.unlock)
+        self.assertEqual(fields["hp_current"], 0)
+        self.assertEqual(fields["hp_death_timer"], 0.0)
+        # Positive zero, not negative zero: they compare equal in Python and
+        # are four different bytes on the wire.
+        self.assertEqual(
+            struct.pack("<f", fields["hp_death_timer"]),
+            bytes.fromhex("00000000"),
+        )
 
     def test_the_armed_frame_carries_the_bit_without_the_kill(self):
         fields = sp.hp_death_step_fields(
@@ -252,9 +309,9 @@ class DyingHoldPlanTests(_Base):
         self.assertEqual(fields["hp_death_timer"], 20.0)
         self.assertEqual(fields["hp_current"], 100)
 
-    def test_a_step_index_outside_the_shorter_plan_is_refused(self):
+    def test_a_step_index_outside_the_plan_is_refused(self):
         profile = sp.HP_DEATH_PROFILE_DYING_HOLD
-        for index in (-1, 3, 4, True, 1.0, "0"):
+        for index in (-1, 4, 5, True, 1.0, "0"):
             with self.assertRaises(ValueError):
                 sp.hp_death_step_fields(
                     self.legacy, self.actor, index, profile,
@@ -334,8 +391,10 @@ class StepPlanValidatorTrapTests(_Base):
     KILL = {"hp_current": 0}
     RESTORE = {"hp_current": 100}
 
+    ELAPSED = {sp.HP_DEATH_TIMER_NAME: 0.0}
+
     def _mutant(self, name, steps, ends_dead, timer,
-                lethal=("HP_ZERO",)):
+                lethal=("HP_ZERO",), elapsed=()):
         base = sp.HP_DEATH_PROFILE_DYING_HOLD
         return sp.HpDeathStepProfile(
             name, base.scenario_id, timer, steps, lethal, ends_dead,
@@ -345,7 +404,7 @@ class StepPlanValidatorTrapTests(_Base):
             base.probe_attr_body_sha256, base.probe_pc_sha256,
             base.probe_frame_sha256, base.probe_attr_body_size,
             base.probe_pc_size, base.probe_frame_size,
-            base.probe_basic_mask, base.timer_wire_bytes,
+            base.probe_basic_mask, base.timer_wire_bytes, elapsed,
         )
 
     def _refused(self, mutant):
@@ -436,6 +495,216 @@ class StepPlanValidatorTrapTests(_Base):
         for candidate in (object(), "dying_hold", 1, True, {}):
             with self.assertRaises(RuntimeError):
                 sp._require_hp_death_step_plan(candidate)
+
+
+class ElapsedStepPlanTrapTests(StepPlanValidatorTrapTests):
+    """DEATH-ESCALATE-001's own clauses, one mutant per clause.
+
+    The three-frame contract could be broken in four ways and the validator
+    caught all four.  A fourth frame that lowers the timer adds eight more, and
+    every one of them is a way to ship something that looks like an escalation
+    and is not: a frame in the wrong place, a value that is not the pinned
+    zero, or a declaration that disagrees with the plan it declares.
+    """
+
+    ARMED_20 = {sp.HP_DEATH_TIMER_NAME: 20.0}
+    KILL = {"hp_current": 0}
+
+    def _hold(self, *steps, ends_dead=True, elapsed=("TIMER_ELAPSED",)):
+        return self._mutant(
+            "trap_elapsed", steps, ends_dead, 20.0,
+            ("HP_ZERO",), elapsed,
+        )
+
+    def test_every_elapsed_clause_has_a_mutant_that_breaks_it(self):
+        base = (
+            ("BASELINE", {}), ("TIMER_ARMED", self.ARMED_20),
+            ("HP_ZERO", self.KILL),
+        )
+        for label, mutant in (
+            ("an ends-alive plan that names an elapsed step", self._hold(
+                *base, ("TIMER_ELAPSED", self.ELAPSED),
+                ("HP_RESTORED", {"hp_current": 100}), ends_dead=False,
+            )),
+            ("a declared elapsed step the order does not contain", self._hold(
+                *base,
+            )),
+            ("an elapsed step the declaration does not name", self._hold(
+                *base, ("TIMER_ELAPSED", self.ELAPSED), elapsed=(),
+            )),
+            ("two elapsed labels", self._hold(
+                *base, ("TIMER_ELAPSED", self.ELAPSED),
+                elapsed=("TIMER_ELAPSED", "HP_ZERO"),
+            )),
+            ("an elapsed step that is not last", self._mutant(
+                "trap_elapsed_not_last", (
+                    ("BASELINE", {}), ("TIMER_ARMED", self.ARMED_20),
+                    ("HP_ZERO", self.KILL),
+                    ("TIMER_ELAPSED", self.ELAPSED),
+                    ("HP_RESTORED", {"hp_current": 100}),
+                ), True, 20.0, ("HP_ZERO",), ("TIMER_ELAPSED",),
+            )),
+            ("an elapsed step that does not follow the kill", self._mutant(
+                "trap_elapsed_before_kill", (
+                    ("BASELINE", {}), ("TIMER_ELAPSED", self.ELAPSED),
+                    ("TIMER_ARMED", self.ARMED_20), ("HP_ZERO", self.KILL),
+                ), True, 20.0, ("HP_ZERO",), ("TIMER_ELAPSED",),
+            )),
+            ("an elapsed value that is not the pinned zero", self._hold(
+                *base, ("TIMER_ELAPSED", {sp.HP_DEATH_TIMER_NAME: -1.0}),
+            )),
+            ("a negative zero, which is four other bytes", self._hold(
+                *base, ("TIMER_ELAPSED", {sp.HP_DEATH_TIMER_NAME: -0.0}),
+            )),
+            ("a NaN, which makes the predicate FALSE", self._hold(
+                *base, ("TIMER_ELAPSED", {sp.HP_DEATH_TIMER_NAME: float("nan")}),
+            )),
+            ("an elapsed step that does not lower the timer at all", self._hold(
+                *base, ("TIMER_ELAPSED", {"hp_max": 100}),
+            )),
+        ):
+            with self.subTest(trap=label):
+                with self.assertRaises(RuntimeError):
+                    sp._require_hp_death_step_plan(mutant)
+
+    def test_the_shipped_profile_still_passes_the_widened_validator(self):
+        self.assertIsNone(
+            sp._require_hp_death_step_plan(sp.HP_DEATH_PROFILE_DYING_HOLD),
+        )
+
+
+class ElapsedGateTests(_Base):
+    """The gate itself: one key, one value, one step, and closed by default."""
+
+    def _fields(self, index, **overrides):
+        fields = sp.hp_death_step_fields(
+            self.legacy, self.actor, index, sp.HP_DEATH_PROFILE_DYING_HOLD,
+        )
+        fields.update(overrides)
+        return fields
+
+    def _refusal(self, index, label, expected, **overrides):
+        with self.assertRaises(ValueError) as caught:
+            sp.make_hp_death_response(
+                self.legacy, self.actor, self._fields(index, **overrides),
+                self.unlock, sp.HP_DEATH_PROFILE_DYING_HOLD, label,
+            )
+        self.assertIn(expected, str(caught.exception))
+
+    def test_with_no_label_the_gate_is_closed_exactly_as_it_always_was(self):
+        # Every caller that existed before DEATH-ESCALATE-001 passes no label.
+        self._refusal(
+            3, None, "death_timer_not_positive",
+        )
+
+    def test_the_value_cannot_be_smuggled_onto_another_step(self):
+        for label in ("BASELINE", "TIMER_ARMED", "HP_ZERO"):
+            with self.subTest(step=label):
+                self._refusal(
+                    3, label,
+                    "death_timer_elapsed_outside_the_pinned_final_step",
+                )
+
+    def test_a_label_the_profile_does_not_know_is_refused(self):
+        for label in ("NOPE", "HP_RESTORED", "timer_elapsed", 1, True, 1.0):
+            with self.subTest(label=label):
+                self._refusal(3, label, "unknown_step_label")
+
+    def test_negative_zero_and_every_other_value_are_not_the_pinned_zero(self):
+        for value in (-0.0, -1.0, -0.5):
+            with self.subTest(value=value):
+                self._refusal(
+                    3, "TIMER_ELAPSED",
+                    "death_timer_elapsed_is_not_the_pinned_zero",
+                    hp_death_timer=value,
+                )
+
+    def test_a_nan_is_refused_because_it_makes_the_predicate_false(self):
+        self._refusal(
+            3, "TIMER_ELAPSED", "death_timer_not_finite",
+            hp_death_timer=float("nan"),
+        )
+
+    def test_an_elapsed_frame_whose_hp_is_not_zero_is_inert_and_refused(self):
+        self._refusal(
+            3, "TIMER_ELAPSED", "death_timer_elapsed_without_zero_hp",
+            hp_current=100,
+        )
+
+    def test_the_death_sweep_profile_can_never_open_the_gate(self):
+        fields = sp.hp_death_step_fields(
+            self.legacy, self.actor, 2, sp.HP_DEATH_PROFILE_DEATH_SWEEP,
+        )
+        fields["hp_death_timer"] = 0.0
+        for label in (None, "HP_ZERO", "HP_RESTORED"):
+            with self.subTest(label=label):
+                with self.assertRaises(ValueError):
+                    sp.make_hp_death_response(
+                        self.legacy, self.actor, fields, self.unlock,
+                        sp.HP_DEATH_PROFILE_DEATH_SWEEP, label,
+                    )
+
+    def test_the_gate_argument_of_the_encoder_is_a_bool_or_nothing(self):
+        fields = sp.hp_death_step_fields(
+            self.legacy, self.actor, 3, sp.HP_DEATH_PROFILE_DYING_HOLD,
+        )
+        for candidate in (1, 0, "true", None, 1.0):
+            with self.subTest(candidate=candidate):
+                with self.assertRaises(ValueError) as caught:
+                    sp.encode_actor_attr(
+                        self.legacy, self.actor.identity_lo,
+                        self.actor.identity_hi, fields, self.unlock, candidate,
+                    )
+                self.assertIn("elapsed_gate_is_not_a_bool",
+                              str(caught.exception))
+
+    def test_the_gate_is_meaningless_without_the_lethal_token(self):
+        with self.assertRaises(ValueError) as caught:
+            sp.encode_actor_attr(
+                self.legacy, self.actor.identity_lo, self.actor.identity_hi,
+                {"hp_current": 0}, None, True,
+            )
+        self.assertIn("lethal_lane_locked", str(caught.exception))
+
+    def test_the_escalation_differs_from_the_kill_only_inside_the_f32(self):
+        bodies = self._bodies(sp.HP_DEATH_PROFILE_DYING_HOLD)
+        kill = bodies["HP_ZERO"][0]
+        elapsed = bodies["TIMER_ELAPSED"][0]
+        self.assertEqual(len(kill), len(elapsed))
+        at = kill.index(sp.HP_DEATH_DYING_HOLD_TIMER_WIRE_BYTES) + 1
+        differing = [
+            index for index, (left, right) in enumerate(zip(kill, elapsed))
+            if left != right
+        ]
+        # 20.0f is 00 00 A0 41 and 0.0f is 00 00 00 00, so TWO of the four
+        # value bytes coincide.  The load-bearing claim is not how many bytes
+        # moved but that NOTHING outside the f32 did: not the tag, not the
+        # mask, not one other field, not the envelope.
+        self.assertEqual(len(differing), 2)
+        self.assertLessEqual(set(differing), set(range(at, at + 4)))
+        self.assertEqual(kill[at - 1], sp.HP_DEATH_TIMER_TAG)
+        self.assertEqual(kill[at - 1:at + 4],
+                         sp.HP_DEATH_DYING_HOLD_TIMER_WIRE_BYTES)
+        self.assertEqual(elapsed[at - 1:at + 4],
+                         sp.HP_DEATH_TIMER_ELAPSED_WIRE_BYTES)
+        # The mask is byte-identical, and that is the whole point: a cleared
+        # bit 0x0080 would make BasicAttr::Merge copy the armed 20.0 forward.
+        for body in (kill, elapsed):
+            self.assertEqual(
+                int.from_bytes(
+                    body[BASIC_MASK_OFFSET:BASIC_MASK_OFFSET + 2], "little",
+                ),
+                0x038C,
+            )
+
+    def test_the_four_new_rejections_are_declared(self):
+        for name in (
+            "elapsed_gate_is_not_a_bool",
+            "death_timer_elapsed_is_not_the_pinned_zero",
+            "death_timer_elapsed_outside_the_pinned_final_step",
+            "death_timer_elapsed_without_zero_hp",
+        ):
+            self.assertIn(name, sp.HP_DEATH_REJECTIONS)
 
 
 class DyingHoldFailsClosedTests(_Base):
@@ -559,8 +828,35 @@ class ScenarioFileMatchesTheEncoderTests(_Base):
         self.assertEqual(raw["id"], "hp_death_hypothesis_dying_hold")
         self.assertEqual(raw["dispatch"]["step_order"],
                          list(profile.step_order))
-        self.assertEqual(raw["dispatch"]["frames_per_accepted_request"], 3)
+        self.assertEqual(raw["dispatch"]["frames_per_accepted_request"], 4)
         self.assertEqual(raw["dispatch"]["lethal_steps"], ["HP_ZERO"])
+        self.assertEqual(raw["dispatch"]["elapsed_steps"], ["TIMER_ELAPSED"])
+        self.assertEqual(
+            raw["dispatch"]["step_fields"]["TIMER_ELAPSED"],
+            {"hp_death_timer": 0.0},
+        )
+        self.assertEqual(
+            raw["dispatch"]["action_labels"][-1],
+            "HYP_PF_022_DYING_HOLD_TIMER_ELAPSED",
+        )
+        elapsed = raw["wire"]["timer_elapsed_predicate"]
+        self.assertEqual(elapsed["is_dead_elapsed_player"], 0x454A70)
+        self.assertEqual(elapsed["comiss_against_zero"], 0x454A7D)
+        self.assertEqual(elapsed["jb_returns_false_including_on_nan"], 0x454A81)
+        self.assertEqual(elapsed["current_hp_compare"], 0x454AA5)
+        self.assertEqual(elapsed["actor_hp_selector_offset"], 0x358)
+        self.assertEqual(elapsed["common_death_window_literal"], 0xF0D860)
+        self.assertEqual(elapsed["common_death_open_site"], 0x44E5C7)
+        self.assertEqual(elapsed["elapsed_value_seconds"], 0.0)
+        self.assertEqual(elapsed["elapsed_wire_bytes"], "2a00000000")
+        self.assertEqual(
+            elapsed["rule"], "current_hp_zero_and_death_timer_at_most_zero",
+        )
+        merge = raw["wire"]["merge"]
+        self.assertEqual(merge["basic_attr_merge"], 0x465610)
+        self.assertEqual(merge["merge_call_site"], 0x5F2504)
+        self.assertEqual(merge["timer_copy_forward"], 0x4656A3)
+        self.assertEqual(merge["ctor_timer_init"], 0x464B0E)
         self.assertNotIn("HP_RESTORED", raw["dispatch"]["step_fields"])
         self.assertNotIn("HP_RESTORED", raw["dispatch"]["step_order"])
         self.assertNotIn(
@@ -591,6 +887,13 @@ class ScenarioFileMatchesTheEncoderTests(_Base):
             self.assertEqual(
                 raw["probe"]["per_step"][label]["pc_sha256"], expected, label,
             )
+        # DEATH-ESCALATE-001 added three keys to the OTHER file and none to
+        # this one, and their absence is load bearing: a lane whose scenario
+        # file has no elapsed block cannot compose a non-positive timer at all.
+        self.assertNotIn("elapsed_steps", raw["dispatch"])
+        self.assertNotIn("timer_elapsed_predicate", raw["wire"])
+        self.assertNotIn("merge", raw["wire"])
+        self.assertEqual(raw["dispatch"]["frames_per_accepted_request"], 4)
 
 
 if __name__ == "__main__":

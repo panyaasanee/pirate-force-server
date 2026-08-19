@@ -140,7 +140,26 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # sweep, which no capture has ever shown.  Proven offline through the real dispatcher; no
 # client has ever seen one of these frames, and no client has ever been observed to play
 # the death animation by anything in this project.  That is GT-022.  Count moves to 30.
-CANONICAL_CONTENT_SHA256 = "EE1CE2A2F68770D07CA25F40136E32B6A6E85C155AED195DE3FE6D0E5CF90879"
+# -> D69DA821.. (2026-08-19 DEATH-ESCALATE-001: HYP-PF-022 AMENDED, no entry added and no
+# entry index moved -- count stays 30).  Three things changed in that one entry.  First, the
+# dying_hold profile gains a FOURTH frame, TIMER_ELAPSED, which lowers the f32 at BasicAttr
+# +0x58 to a pinned POSITIVE zero (tag 0x2A and four zero bytes) while current HP stays 0, so
+# the OTHER engine predicate becomes true: vtable +0x3C = 0x454A70, HP == 0 AND timer <= 0,
+# the one CMyActor::Update reads at 0x44E58D before the single OpenWindow of L"Common_Death"
+# at 0x44E5C7.  It exists because of a MEASURED NEGATIVE, not a guess: GT-021 held the downed
+# window on a real client for over four minutes without escalating, so the client does not
+# lower this float by itself.  THE FRAME KEEPS MASK BIT 0x0080 SET ON PURPOSE, because
+# BasicAttr::Merge copies a field FORWARD when its bit is clear (0x4656A3), so dropping the
+# bit would latch the armed 20.0 forever rather than clear it.  Second, the stop rule is
+# CORRECTED: it had said "do not ship a sweep that does not end on a revive frame", which the
+# dying_hold profile of DYING-HOLD-001 had already contradicted in the tree, so the rule now
+# states the bound that is actually enforced -- ends-alive profiles must end on a restore,
+# ends-dead profiles must end on the kill or on one pinned elapsed step that immediately
+# follows it, at most one elapsed step, one admissible elapsed value, and the band is
+# unreachable without naming the step.  Third, tracked_versions now names all three
+# checkpoints (HP-DEATH-002, DYING-HOLD-001, DEATH-ESCALATE-001), which FILLS max_versions:
+# a fourth widening of this lane needs a new entry or an extension approval, not a profile.
+CANONICAL_CONTENT_SHA256 = "D69DA821AE0583C7640C23A48722D248D484FAD8077B9CED3B9C606343C56F55"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(

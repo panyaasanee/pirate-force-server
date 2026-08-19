@@ -7,6 +7,10 @@
 !/reports/
 /reports/*
 !/reports/PF_DAMAGE_MODEL001_CLIENT_HIT_RESULT_EXPECTATION_20260819.md
+# DEATH-ESCALATE-001 cites this one from HYP-PF-022's evidence_refs, and round 87's
+# lesson was that "the file exists on the author's machine" is not "the file is in the
+# repository" -- only the second one is evidence for whoever clones this next.
+!/reports/PF_RESCUE_AND_DEATH_ESCALATION_STATIC_20260819.md
 !/reports/PF_HOTBAR001_SET_ITEM_HOTKEY_STATIC_CHECKPOINT_20260816.md
 !/reports/PF_COMBAT_BIND001_EA7D_BEHAVIOR_SELECTION_STATIC_CHECKPOINT_20260816.md
 !/reports/PF_COMBAT_KNOCK001_STATIC_CONSUMER_BINDING_CHECKPOINT_20260816.md
