@@ -12,8 +12,28 @@ under `src/pirateforce_foundation`; it does not create a gameplay V142.
 Run deterministic verification:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\verify_foundation.ps1
+py -3 -m pytest tests -q
+py -3 tools\verify_hypothesis_ledger.py
+py -3 tools\verify_functional_coverage.py
 ```
+
+Those three, plus the per-lane verifiers a change touches, are what decides
+green here. Run them on Windows: this project verifies on two machines and only
+the Windows one has the client image several verifiers read, and its console is
+code page 874, which has caught tool output that was green in a UTF-8 sandbox
+and fatal there.
+
+> **`tools\verify_foundation.ps1` is NOT the gate, and it cannot pass.** It was
+> the gate when this line was first written and it has been advertised as the
+> gate ever since. Its deterministic-release step pins a set of 79 archive
+> members inline, while `tools\build_foundation_release.py` now emits **105**;
+> the 79 are all still present and 26 members have been added since the pin, so
+> the step's set comparison fails on every run. Round 93 re-derived both numbers
+> rather than repeating them (build the archive, read `namelist()`, diff against
+> the inline set). Re-pinning it to 105 would make it green again, and that is
+> deliberately not done here: a member census that is widened whenever it
+> disagrees with the tree has stopped being a census, and whether this script
+> should be re-pinned or retired outright is a decision rather than a repair.
 
 Run the persistent lifecycle adapter (after offline gates pass):
 

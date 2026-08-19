@@ -93,7 +93,10 @@ def main():
             dedup_skips += 1
     print(f"\ngate: writes={len(writes)} dedup_skips={dedup_skips} (initial=BEFORE row)")
     mv = [r["pos"][5] for r in exact]
-    print(f"moving flag: 1×{mv.count(1)} 0×{mv.count(0)} other×{len([v for v in mv if v not in (0,1)])}")
+    # ASCII only in anything this tool prints: the Windows gate console is code
+    # page 874 and U+00D7 / U+00B1 have no mapping there, so print() would raise
+    # UnicodeEncodeError and kill the run. "x" and "+/-" carry the same meaning.
+    print(f"moving flag: 1 x{mv.count(1)} 0 x{mv.count(0)} other x{len([v for v in mv if v not in (0,1)])}")
 
     # ordinal spacing via heartbeat counter (heartbeats between successive TargetPos)
     hbs = [r["hb"] for r in exact]
@@ -106,7 +109,7 @@ def main():
     final = writes[-1]["cand"] if writes else cur
     match = all(abs(a - b) < 1e-4 for a, b in zip(final, AFTER))
     print(f"\nfinal simulated position = {final}")
-    print(f"matches GT-005 AFTER row (±1e-4): {match}")
+    print(f"matches GT-005 AFTER row (+/-1e-4): {match}")
 
     # per-frame table
     print("\nidx  hb   x            y            z        heading   moving  write")
@@ -149,9 +152,9 @@ def main():
     with store.connect_read_only() as db:
         fin = db.execute("SELECT x,y,z,heading,updated_at FROM character_positions WHERE character_id=?", (cid,)).fetchone()
     ok = all(abs(fin[k] - v) < 1e-4 for k, v in zip(("x", "y", "z", "heading"), AFTER))
-    print(f"DB layer: save_position succeeded ×{db_writes} (each verified rowcount==1 by store)")
+    print(f"DB layer: save_position succeeded x{db_writes} (each verified rowcount==1 by store)")
     print(f"DB final row x={fin['x']:.10f} y={fin['y']:.10f} z={fin['z']} h={fin['heading']:.10f}")
-    print(f"DB final row matches GT-005 AFTER (±1e-4): {ok}")
+    print(f"DB final row matches GT-005 AFTER (+/-1e-4): {ok}")
 
     # canonical untouched proof
     hsh = hashlib.sha256(open(src_db, "rb").read()).hexdigest().upper()

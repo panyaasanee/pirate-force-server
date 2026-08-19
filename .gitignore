@@ -367,3 +367,60 @@
 /drafts/*
 !/drafts/DAMAGE_MODEL_UNKNOWNS_R90_STATIC.md
 !/drafts/DAMAGE_MODEL_LANE1_DESIGN_20260819.md
+
+# Round 93.  THIRTY-THREE files, written by the chief in one edit for the reason
+# round 84 and round 86 both record: lanes do not write their own allowlist
+# lines.  This is the same debt round 87 paid once and did not finish paying.
+# Round 87 swept the hypothesis ledger's refs against check-ignore and added the
+# one report it found.  Nothing swept the coverage matrix, because the check it
+# added lives beside verify_hypothesis_ledger.py and reads the ledger only, so
+# the matrix kept its own copy of the defect for six more days: thirty-three of
+# the one hundred and twelve paths cited by docs/FUNCTIONAL_COVERAGE.json were
+# invisible to version control, cited by seventeen capability rows across eight
+# domains, and NINE of those rows are graded runtime_pass.  A fresh clone has
+# never contained the evidence behind those nine claims, and running the
+# coverage verifier on one exits 2 with a missing-reference error -- which is to
+# say our own gate has not been reproducible from git on any machine, and the
+# reason nobody noticed is that everybody runs it on the disk that wrote the
+# files.  They are added rather than the references dropped, because the
+# references are the part that is correct.  These are the Codex-era capture and
+# reverse-engineering write-ups from 2026-08-13 to 2026-08-15, 240 KB of
+# markdown in total, and they are the primary record of what the client was
+# observed doing before this project started keeping a ledger.
+# The test that found them is tests/test_functional_coverage.py, added in the
+# same commit, and it is a test rather than a verifier guard for the same reason
+# the ledger one is: it has to ask git, and the verifier stays runnable with the
+# standard library and no repository.
+!/reports/PF_RE_V100_Current_Scene_Music_20260814.md
+!/reports/PF_RE_V101_Empty_Backpack_and_Second_Password_20260814.md
+!/reports/PF_RE_V102_Inventory_Unlock_20260814.md
+!/reports/PF_RE_V103_One_Item_Backpack_20260814.md
+!/reports/PF_RE_V104_ItemOperate_Request_Capture_20260814.md
+!/reports/PF_RE_V105_ItemOperate_Response_Version_Boundary_20260814.md
+!/reports/PF_RE_V106_ItemOperate_V2_Accepted_Removal_Boundary_20260814.md
+!/reports/PF_RE_V111_to_V115_Inventory_Monster_Shop_20260814.md
+!/reports/PF_RE_V116_to_V120_Cash_Monster_and_Shop_20260814.md
+!/reports/PF_RE_V121_to_V122_Final_Buy_Cash_Update_20260814.md
+!/reports/PF_RE_V123_Starter_Blade_Equip_From_Bag_Capture_20260814.md
+!/reports/PF_RE_V124_Quest_Action1_Tracker_Boundary_20260814.md
+!/reports/PF_RE_V125_Quest_OpenAccept_Op2_Capture_20260814.md
+!/reports/PF_RE_V126_Failed_Operational_P91_Mistarget_20260814.md
+!/reports/PF_RE_V127_Quest_Accept_P30_G_Negative_Boundary_20260814.md
+!/reports/PF_RE_V128_Wield_Z_ActionVital_Capture_20260814.md
+!/reports/PF_RE_V129_Quest3020_Accept_Travel_Negative_Boundary_20260815.md
+!/reports/PF_RE_V130_Equipped_Blade_Negative_Boundary_20260815.md
+!/reports/PF_RE_V131_TeleportCheck_Challenge_Echo_Capture_20260815.md
+!/reports/PF_RE_V132_Tab_SelectTarget_Negative_Boundary_20260815.md
+!/reports/PF_RE_V133_P70_Relation_Display_Negative_Boundary_20260815.md
+!/reports/PF_RE_V134_Q3020_Conversation_Handshake_Operational_Negative_20260815.md
+!/reports/PF_RE_V135_Q3020_Conversation_Handshake_Pass_20260815.md
+!/reports/PF_RE_V136_Q3020_MARKER1_Compositional_Docking_Pass_20260815.md
+!/reports/PF_RE_V137_MARKER1_TeleportVital_Transport_Pass_20260815.md
+!/reports/PF_RE_V138_MARKER1_Nearest20_Population_Reapply_Pass_20260815.md
+!/reports/PF_RE_V139_P86_Interaction_Operational_Negative_20260815.md
+!/reports/PF_RE_V140_P86_Synthetic_Harness_Interaction_Pass_20260815.md
+!/reports/PF_RE_V67_to_V87_Walk_Gait_20260813.md
+!/reports/PF_RE_V92_Runtime_and_V93_Five_Proven_Walkers_20260814.md
+!/reports/PF_RE_V93_Runtime_and_V94_Local_Population_Streaming_20260814.md
+!/reports/PF_RE_V96_Runtime_and_V97_NPCConversation_20260814.md
+!/reports/PF_RE_V99_ShowMessage_and_Fast_Entry_20260814.md

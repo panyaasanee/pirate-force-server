@@ -126,3 +126,34 @@ Canonical DB was only read; its sha256 after the run = `B5557E9F..C9ED`
   commit (same discipline as MOVE-AUTHORITY-001's cap[2] flip).
 - Green criteria unchanged (gate 108: pytest 477/0, canonGuard=0, ledger 23,
   domains 8).
+
+## Appended erratum (round 93, 2026-08-20): the tool this report pins was edited, and the manifest line was left alone on purpose
+
+The tool `tools/pf_move_cadence001_headless_replay.py` printed the multiplication
+sign and the plus-minus sign on four of its output lines (96, 109, 152, 154).
+The console on the machine that runs this project's gate is code page 874, which
+cannot encode either character, and an unmappable character does not degrade to a
+question mark -- `print()` raises, so the tool would have died mid-run and taken
+its test down with it, on the Windows machine only.  Round 86 learned this the
+expensive way with an emoji in a different tool; round 92 found these four lines
+still sitting here and round 93 replaced the two characters with `x` and `+/-`.
+The words carry the meaning and no sentence changed.
+
+Three consequences are recorded rather than smoothed over:
+
+- The tool's bytes moved from `7947 | C78D7C43CAAFAA6982AD8DB7D8637DC8A33F2357BB73D88C986CB59EAB4F4A8C`
+  to `8190 | 12AF6098B3A3256063BDF237E561D827399871207C9B9705331E7914830AED86`.
+  The line in `.manifest` beside this report still pins the FIRST pair, and that
+  is deliberate: an evidence manifest records the bytes that produced the
+  evidence, and the run recorded in `reports/move_cadence001_smoke/replay_output.txt`
+  was produced by those bytes and by no others.  Re-pinning it to today's file
+  would make the manifest agree with the working tree and disagree with history,
+  which is the opposite of what it is for.
+- `reports/move_cadence001_smoke/replay_output.txt` therefore still contains the
+  two characters, because it is a transcript of a run that happened rather than a
+  file this project regenerates.  Its pinned size and hash are unchanged.
+- **The replay was not re-run.**  Round 93 proved only that what the tool prints
+  is now encodable on both machines; it did not execute it, so nothing here
+  re-states that the cadence findings above still reproduce.  That check needs
+  the GT-005 captures and a throwaway copy of the database, and it is queued
+  rather than claimed.

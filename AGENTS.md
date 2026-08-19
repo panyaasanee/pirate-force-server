@@ -111,15 +111,32 @@ interaction. Passing a regression does not expand any historical evidence ceilin
 
 ## Verification
 
-Before accepting a material Foundation implementation change run:
+Before accepting a material Foundation implementation change run, on Windows:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\verify_foundation.ps1
+py -3 -m pytest tests -q
+py -3 tools\verify_hypothesis_ledger.py
+py -3 tools\verify_functional_coverage.py
 ```
 
-The verifier must cover legacy self-test, modular tests, malformed/negative paths,
-migration atomicity/checksum, account/session isolation, deterministic archive,
-forbidden Git paths and diff hygiene.
+plus every per-lane verifier and headless replay the change touches, plus the
+guards the commit job applies around them: the canonical database hash is read
+before and after and must not move, `current/pf_login_game_server_v141.py` must
+be clean, `git diff --check` must be silent, and every path the change adds must
+come back NOT ignored from `git check-ignore`.
+
+> **`tools\verify_foundation.ps1` is NOT that gate and cannot pass.** Its
+> deterministic-release step pins 79 archive members inline while
+> `tools\build_foundation_release.py` emits 105 (all 79 still present, 26 added
+> since the pin), so its set comparison fails on every run. Round 93 re-derived
+> both numbers rather than restating them. It is left red rather than re-pinned,
+> because re-pinning a census to whatever the tree currently holds is how a
+> census stops being one; retire-or-re-pin is an open decision.
+
+Between them those checks must still cover what this section has always
+demanded: legacy self-test, modular tests, malformed/negative paths, migration
+atomicity/checksum, account/session isolation, deterministic archive, forbidden
+Git paths and diff hygiene.
 
 Use the T0-T3 tiers in `docs/WORKFLOW.md`: focused tests are the editing loop and
 the full verifier runs once after a stable implementation diff. Docs-only wording

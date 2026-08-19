@@ -3,6 +3,8 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
+import shutil
+import subprocess
 import tempfile
 import unittest
 
@@ -398,6 +400,171 @@ class FunctionalCoverageTests(unittest.TestCase):
             and (cap["evidence_refs"] or cap["test_refs"])
         ]
         self.assertEqual(carrying, [])
+
+
+class CoverageEvidenceIsVisibleToVersionControlTests(unittest.TestCase):
+    """Every path the coverage matrix cites has to be IN the repository.
+
+    Round 87 wrote this check for the hypothesis ledger after finding a report
+    that had been ignored since the day it was written while two active entries
+    cited it as evidence.  The check it added lives beside
+    verify_hypothesis_ledger.py and reads the ledger only, so the coverage
+    matrix -- the other file in this repository that publishes claims backed by
+    named documents -- kept its own copy of the same defect.
+
+    Round 93 swept it and found thirty-three of one hundred and twelve cited
+    paths excluded by .gitignore, cited by seventeen capability rows across
+    eight domains, nine of them graded runtime_pass.  Every one of those files
+    existed on the disk that wrote it, so test_declared_refs_all_exist above --
+    which asks the filesystem -- was green for all thirty-three.  Existence on
+    the author's machine and presence in the repository are different
+    properties, and only the second one is what the word evidence means to
+    whoever clones this next.  The practical cost was concrete rather than
+    theoretical: verify_functional_coverage.py exits 2 on a fresh clone, so the
+    gate this project calls green could not be reproduced from git anywhere.
+
+    The remedy when this goes red is to ADD AN ALLOWLIST LINE to .gitignore.
+    Do not drop the reference to make it green: the reference is the part that
+    is correct, and dropping it deletes the only record of what a claim rests
+    on.  That is the same instruction round 87 left on the ledger check, and it
+    is repeated here because this is where the next reader will be standing.
+
+    This is a test rather than a guard inside verify_functional_coverage.py on
+    purpose.  It is the one question in this area that cannot be answered from
+    the working tree alone -- it has to ask git -- and the verifier stays
+    runnable with the standard library and no repository.
+    """
+
+    def _git(self, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["git", "--no-optional-locks", *args],
+            cwd=ROOT, capture_output=True, text=True,
+        )
+
+    def setUp(self) -> None:
+        if shutil.which("git") is None:
+            self.skipTest("git is not on PATH")
+        if self._git("rev-parse", "--is-inside-work-tree").returncode != 0:
+            self.skipTest("not a git work tree")
+
+    @staticmethod
+    def _cited_paths() -> list[tuple[str, str, str]]:
+        """(domain, capability, ref) for every ref the matrix publishes."""
+        raw = json.loads(DEFAULT_MATRIX.read_text(encoding="utf-8"))
+        cited: list[tuple[str, str, str]] = []
+        for domain in raw["domains"]:
+            for cap in domain["capabilities"]:
+                for ref in list(cap["evidence_refs"]) + list(cap["test_refs"]):
+                    cited.append((domain["id"], cap["id"], ref))
+        return cited
+
+    @staticmethod
+    def _ignored(paths, cwd) -> set[str]:
+        """Which of these paths does git exclude?  Batched, and NOT over stdin.
+
+        The first version of this helper passed the paths to check-ignore on
+        stdin, and the trap below caught what that costs: subprocess text mode
+        translates the separator to CRLF on Windows, git then compares a path
+        with a carriage return glued to it, matches nothing, and the sweep
+        reports a clean bill of health on the one machine that runs the gate.
+        A silent false green is worse than the defect it was written to find,
+        so the paths go in argv, where nothing rewrites them, in chunks that
+        stay well inside the Windows command line limit.  The trap and the
+        sweep call THIS function rather than each keeping their own copy of the
+        invocation, because the version that went wrong was the copy the trap
+        was not exercising.
+        """
+        found: set[str] = set()
+        paths = list(paths)
+        for start in range(0, len(paths), 50):
+            chunk = paths[start:start + 50]
+            result = subprocess.run(
+                ["git", "--no-optional-locks", "check-ignore", "--", *chunk],
+                cwd=str(cwd), capture_output=True, text=True,
+            )
+            if result.returncode not in (0, 1):
+                raise AssertionError(
+                    f"check-ignore failed to run: {result.returncode} {result.stderr!r}"
+                )
+            for line in result.stdout.splitlines():
+                line = line.strip().replace("\\", "/")
+                if line:
+                    found.add(line)
+        return found
+
+    def test_no_cited_path_is_excluded_by_gitignore(self) -> None:
+        cited = self._cited_paths()
+        self.assertGreater(
+            len(cited), 100, "the sweep found suspiciously few refs to check"
+        )
+        ignored = self._ignored((ref for _, _, ref in cited), ROOT)
+        offenders = sorted(
+            (domain, cap, ref)
+            for domain, cap, ref in cited
+            if ref.replace("\\", "/") in ignored
+        )
+        self.assertEqual(
+            offenders, [],
+            "the coverage matrix cites files that version control cannot see, "
+            "so a fresh clone would not contain the evidence these rows rest "
+            "on and the coverage verifier exits non-zero on one. Add an "
+            "allowlist line to .gitignore -- do NOT drop the reference, "
+            "because the reference is the part that is correct: "
+            + repr(offenders),
+        )
+
+    def test_every_cited_path_exists_on_disk_too(self) -> None:
+        # Deliberately kept next to the visibility check rather than relying on
+        # test_declared_refs_all_exist: the pair of properties is the point,
+        # and a reader who deletes one should see the other lose its meaning.
+        missing = [
+            (domain, cap, ref)
+            for domain, cap, ref in self._cited_paths()
+            if not (ROOT / ref).is_file()
+        ]
+        self.assertEqual(missing, [], f"the matrix cites missing paths: {missing!r}")
+
+    def test_the_guard_actually_fires_on_an_ignored_path(self) -> None:
+        """A check that has never been seen to fail is not a check."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "init", "-q", str(root)], capture_output=True
+                ).returncode, 0,
+            )
+            (root / "ignored.md").write_text("evidence", encoding="utf-8")
+            (root / "visible.md").write_text("evidence", encoding="utf-8")
+            (root / ".gitignore").write_text("ignored.md\n", encoding="utf-8")
+            reported = self._ignored(["ignored.md", "visible.md"], root)
+        self.assertIn("ignored.md", reported, "check-ignore missed an ignored file")
+        self.assertNotIn("visible.md", reported, "check-ignore over-reported")
+
+    def test_the_thirty_three_files_round_93_added_are_still_visible(self) -> None:
+        """The specific debt this check was written for, pinned by name.
+
+        The sweep above would catch these again if somebody removed their
+        allowlist lines, but it would report them as three of thirty-three
+        anonymous paths.  This test names the failure mode instead: these are
+        the Codex-era capture write-ups that back nine runtime_pass rows, and
+        they have been dropped from .gitignore by accident once already, in
+        round 81, when four lanes edited that file in the same round.
+        """
+        pinned = [
+            "reports/PF_RE_V67_to_V87_Walk_Gait_20260813.md",
+            "reports/PF_RE_V92_Runtime_and_V93_Five_Proven_Walkers_20260814.md",
+            "reports/PF_RE_V135_Q3020_Conversation_Handshake_Pass_20260815.md",
+            "reports/PF_RE_V137_MARKER1_TeleportVital_Transport_Pass_20260815.md",
+        ]
+        cited = {ref for _, _, ref in self._cited_paths()}
+        for ref in pinned:
+            with self.subTest(ref=ref):
+                self.assertIn(ref, cited, "the matrix stopped citing a pinned report")
+                self.assertTrue((ROOT / ref).is_file(), ref)
+                self.assertNotEqual(
+                    self._git("check-ignore", "-q", ref).returncode, 0,
+                    f"{ref} is ignored again -- see the round 93 block in .gitignore",
+                )
 
 
 if __name__ == "__main__":
