@@ -498,3 +498,9 @@
 # below is red when a count moves in either direction.  tests/ and docs/ are
 # already allow-listed wholesale, so only the tool needs a line here.
 !/tools/pf_pytest_precondition_census.py
+
+# R113 (cloud): LOOT-ROLL-001 - the server-side loot roller (GT-037, Door 2 of
+# the round-100 loot design).  src/tests/golden are allow-listed wholesale;
+# only the verifier tool and the report need their own lines here.
+!/tools/verify_loot_roller.py
+!/reports/PF_LOOT_ROLL001_SERVER_SIDE_ROLLER_20260820.md
