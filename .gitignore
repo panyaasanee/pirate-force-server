@@ -520,3 +520,11 @@
 !/tools/verify_npc_hp_link_encoder.py
 !/tools/pf_npc_hp_link_headless_replay.py
 !/reports/PF_NPC_HP_LINK029_GT027_RERUN_ATTENDED_RESULT_20260820.md
+
+# MOVE-AUTHORITY-002 (HYP-PF-030, chief round 116).  The first lane in this
+# tree that REFUSES a durable write instead of composing bytes: the server
+# stops persisting a reported position that exceeds our own movement budget,
+# and emits nothing either way.  src/tests/scenarios are allow-listed
+# wholesale; only the verifier tool and the report need their own lines here.
+!/tools/verify_move_authority_gate.py
+!/reports/PF_MOVE_AUTHORITY002_SERVER_SIDE_GATE_20260821.md

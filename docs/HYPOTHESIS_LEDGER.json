@@ -2793,6 +2793,95 @@
      "active_claim_marker": false
     }
    ]
+  },
+  {
+   "id": "HYP-PF-030",
+   "kind": "protocol_hypothesis",
+   "introduced_checkpoint": "MOVE-AUTHORITY-002",
+   "exact_value_or_transform": "Behind the explicit move-authority opt-in scenario only (scenarios/move_authority_hypothesis_speed_gate.json, reached only through the new CLI flag --move-authority-hypothesis-scenario, which requires an explicit existing --db and is mutually exclusive with every other scenario mode), decide for each accepted singleton TargetPosVital (0x2A90) reading whether the durable position checkpoint may be written, and WITHHOLD THE WRITE when it may not. The decision is a pure function of the last ADMITTED reading, the new reading, the caller-measured elapsed seconds and the frozen budgets of the profile (max_step_units 2000.0, max_speed_units_per_second 1200.0, max_vertical_step_units 400.0, speed_tolerance_ratio 0.25, min_measurable_elapsed_seconds 0.5, enforce_moving_flag FALSE, teleport_grace_reports 1). The ladder, in this order: malformed argument or unknown policy -> malformed_report; any non-finite coordinate -> nonfinite_component; grace window open -> teleport_grace; no previously admitted position -> anchor; no displacement -> stationary; moving flag zero while the reading moved -> moving_flag_inconsistent (OFF in the shipped profile); |dz| over budget -> vertical_over_budget; one step over budget -> step_over_budget; elapsed missing, unusable or negative -> nonpositive_elapsed; elapsed below the measurable floor -> clock_too_coarse (admitted, because dividing by clock granularity manufactures a speed); horizontal/elapsed over max_speed*(1+tolerance) -> speed_over_budget; otherwise within_budget. Clock-free checks precede clock-dependent ones so a verdict reachable without a clock never needs one. The baseline is SEEDED FROM THE AUTHORITATIVE CHARACTER ROW, so the first reading of a connection is measured like every other one, and it advances only on readings the gate admitted AND the durable write then survived, so neither a refused reading nor a checkpoint that raised can become the ground the next reading is measured against. Grace is granted only when the server itself moved the player (an outbound action whose label carries TELEPORT), never because a connection is young. Every reading appends exactly one named event to the in-memory state.events list (move_authority_hypothesis_<reason>_admitted or _no_write); nothing prints it and this lane emits no frame, so a console watcher sees nothing. NO BYTES ARE COMPOSED ON ANY PATH: for the frame in hand the gated and ungated sessions return the same action list. The withheld write IS visible in the position bytes of the next login's StartGame, which the frozen projector composes from the character row; that is proven headless here, not left to the attended test.",
+   "scope": "Server-side REFUSAL of one durable position write behind the one opt-in scenario only. The lane adds no frame, no vital, no wire field and no socket action; it changes no response, no error and no timing. With the scenario absent the checkpoint path is exactly the frozen one MOVE-AUTHORITY-001 characterized, and none of the lane's counters or events exist in any session.",
+   "status": "active",
+   "provenance": "Opened by the chief's round 116 (2026-08-21, cloud) under the owner's standing pre-approval of 2026-08-19 for gameplay behavior built under the house pattern (opt-in scenario, production_allowed false, fail closed, ledger/verifier/tests, headless proof). It stands on MOVE-AUTHORITY-001 (round 72), which characterized the TargetPosVital transport byte-exact from the read-only client image and cross-checked it against current/pf_login_game_server_v141.py's parse_v141_refresh_target_pos, and which deliberately stopped at 'the authority model itself is uncaptured'. This entry is that model. It is OUR design: the original server was never published and its movement policy is unrecoverable. Two of the shipped budgets were falsified by committed evidence before this checkpoint was committed, by replaying the authentic per-reading table of MOVE-CADENCE-001 (reports/move_cadence001_smoke/replay_output.txt) through this ladder: enforcing the moving flag would have refused 23 of that walk's 29 readings, and treating a below-floor elapsed as evidence of speed refused an ordinary reading because two readings shared one heartbeat. Both now ship the other way, and the replay is a test.",
+   "evidence_refs": [
+    "scenarios/move_authority_hypothesis_speed_gate.json",
+    "tools/verify_move_authority_gate.py",
+    "tests/test_move_authority_hypothesis.py",
+    "tests/test_move_authority_dispatch.py",
+    "reports/PF_MOVE_AUTHORITY002_SERVER_SIDE_GATE_20260821.md",
+    "tests/test_move_authority_targetpos_static.py",
+    "reports/PF_MOVE_AUTHORITY001_TARGETPOS_PRODUCER_STATIC_20260818.md",
+    "reports/PF_MOVE_CADENCE001_CHECKPOINT_CADENCE_PER_WALK_HEADLESS_20260818.md"
+   ],
+   "accepted_ceiling": "Withholding a durable write behind the explicit opt-in only, on budgets this project chose, with every verdict named and every reading accounted for. Proven at the wire/DB layer headless: 43 offline tests plus subtests for the ladder, its order, the permission-token discipline and a replay of the one authentic 29-reading walk this project holds; 20 dispatch tests driving the real make_state_class against a throwaway SQLite database, including the seeded baseline, the post-write recording, the teleport-reopened grace, the unchanged action list and the changed next-login StartGame bytes; an 87-guard offline verifier that re-derives the arithmetic with its own hypot and is itself executed by the suite, with a mutated copy proving it can go red. NOT driven over TCP and never seen by a client.",
+   "evidence_gap": "NO CLIENT HAS EVER BEEN RUN AGAINST THIS LANE. What a real client does when the position it reported is quietly not persisted is undecidable from static analysis and from any headless run, and it is the one question that decides whether refusing the write is a usable authority model at all. Five gaps are known and stated rather than hidden: (1) exactly one reading per server-initiated teleport is admitted WITHOUT being measured, because the gate's baseline is stale by definition at that moment, so a client that lies in that window writes an arbitrary position and reconnecting re-arms it once -- closing it needs the teleport's destination, which the frozen dispatcher publishes only as an action label; (2) readings arriving faster than min_measurable_elapsed_seconds are bounded only by max_step_units each, so a burst can outrun the speed budget; (3) vertical speed is unbounded, only horizontal displacement is divided by time; (4) lifecycle.exit is a second writer of the same row, dead in the server today and pinned by a test so a future logout lane cannot reintroduce the bypass silently; (5) one event per reading grows an unbounded in-memory list. The budgets themselves are validated against exactly one authentic walk (29 readings, one route, one boot) and against no other movement anywhere: no player speed column exists in the client const data, and the world unit is not convertible to any real-world measure from anything we hold.",
+   "falsification": "Retire or redesign this lane if an attended run shows a real client's ordinary walk being refused by these budgets, or shows that a withheld write produces a worse client experience than the unvalidated acceptance it replaces (for example a rubber-band the client never recovers from). A single frame that the gate refuses and the ungated path accepts, on a walk a person judges ordinary, falsifies the shipped budgets even though it does not falsify the mechanism.",
+   "stop_rule": "Refuse writes only; compose nothing, ever. No corrective reposition may be sent on this lane's behalf under any circumstances, because no captured frame, producer or client-side consumer for a server-initiated correction exists. Only the pinned budgets, only behind the opt-in scenario, only on the singleton TargetPosVital path, and never in a session that has any other scenario mode loaded. Grace may be granted only in response to a server-initiated move, never on connection age. Do not move any coverage row grade on this entry.",
+   "production_allowed": false,
+   "expiry": {
+    "tracked_versions": [
+     "MOVE-AUTHORITY-002"
+    ],
+    "decision": "Opened 2026-08-21 (chief round 116, cloud) under the owner's standing gameplay pre-approval. One version is tracked because one milestone built the policy module, the scenario, the CLI flag, the runtime gate, the 87-guard verifier, the report and 63 tests in one round, including the two budget corrections an adversarial review and the authentic-walk replay forced before anything was committed. TWO of the three versions remain. One of them is expected to be spent on whatever the attended test returns: if a real client's ordinary walk is refused, the budgets move; if the withheld write is invisible to the client while it plays, the lane is a candidate for a corrective-projection design that would need its own entry, not this one. The one-reading grace bypass and the burst gap are the other two candidates for that version. Confirm the client-observable layer as the queued attended movement-authority test before any retire, freeze or extend decision, and do not move any coverage row grade until it has run."
+   },
+   "max_versions": 3,
+   "extension_approval_ref": null,
+   "source_refs": [
+    {
+     "path": "src/pirateforce_foundation/move_authority_hypothesis.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-030 active",
+      "production_allowed = False",
+      "def evaluate_move_report(",
+      "def load_move_authority_hypothesis_scenario(",
+      "def require_move_authority_hypothesis_scenario(",
+      "MOVE_AUTHORITY_CHECKPOINT = \"MOVE-AUTHORITY-002\"",
+      "REASON_SPEED_OVER_BUDGET = \"speed_over_budget\"",
+      "REASON_MOVING_FLAG_INCONSISTENT = \"moving_flag_inconsistent\"",
+      "MAY NOT: send a corrective reposition",
+      "NOT the source of any threshold here",
+      "REASON_CLOCK_TOO_COARSE = \"clock_too_coarse\"",
+      "KNOWN BYPASS, stated rather than hidden"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "src/pirateforce_foundation/runtime.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-030 active",
+      "def _move_authority_verdict(",
+      "def _move_authority_record_admitted(",
+      "def _move_authority_note_server_moves(",
+      "move_authority_hypothesis_scenario=None,",
+      "require_move_authority_hypothesis_scenario(",
+      "self.move_authority_last_accepted_xyz = None",
+      "move_authority_hypothesis_{verdict.reason}_no_write"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "src/pirateforce_foundation/app.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-030 active",
+      "--move-authority-hypothesis-scenario requires an explicit ",
+      "load_move_authority_hypothesis_scenario",
+      "move_authority_hypothesis_scenario=move_authority_hypothesis"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "scenarios/move_authority_hypothesis_speed_gate.json",
+     "required_markers": [
+      "\"hypothesis_id\": \"HYP-PF-030\"",
+      "\"production_allowed\": false",
+      "\"test_only\": true",
+      "\"corrective_frame_policy\": \"never_emitted\"",
+      "original_server_movement_policy",
+      "corrective_reposition_wire_shape",
+      "client_observable_acceptance"
+     ],
+     "active_claim_marker": false
+    }
+   ]
   }
  ]
 }
