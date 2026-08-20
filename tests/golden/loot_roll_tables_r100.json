@@ -1,0 +1,274 @@
+{
+  "schema": 1,
+  "provenance": {
+    "milestone": "LOOT-ROLL-001",
+    "factpack": "FACTPACK_R100_CONSTDATA_MONSTER_LOOT.md section 5 (LOOT), the committed round-100 derived fact pack",
+    "factpack_location_on_the_bridge": "pf_bridge/FACTPACK_R100_CONSTDATA_MONSTER_LOOT.md",
+    "design_draft": "drafts/MONSTER_SPAWN_LOOT_STATIC_AND_DESIGN_R100_20260820.md sections 1, 3 (Door 2), 4, 5",
+    "const_data_of_record": "B_CONSTDATA_TH.pc_.dec, 8443000 bytes, sha256 496DFB2EF2CF517482A7B426C9DD5EDF0278564FE11195B96F36DF90607F0D2D, self-identifying as client data version 1.41.0000 built 2014-12-11",
+    "the_real_tables_are_far_larger": "DROPS_NORMAL ships 267 rows x 121 cols; DROPS_EQUIPMENT 53 x 44; DROPS_SPECIALLY 584 x 64; E_DROPS_QUALITY 26 x 9; MOBS 3210 x 54. This file carries 2 published DROPS_NORMAL rows, 1 published DROPS_EQUIPMENT row (itself truncated, see its note), 1 published DROPS_SPECIALLY row, all 26 E_DROPS_QUALITY rows, and zero mined MOBS rows.",
+    "this_machine_has_no_const_data": "The client image and the const-data blob do NOT exist on this machine and are never required. Every published number below was copied by hand out of the committed fact pack, which is the only permitted data source for this checkpoint. Nothing here was re-mined, and nothing here may be treated as a complete table.",
+    "row_source_field": "Every row carries a 'source' field: 'factpack_r100_section_5' means the numbers are printed in that fact pack section; 'composed_for_test' means WE invented the row to exercise a code path and it is NOT mined data.",
+    "drops_activity_deliberately_absent": "DROPS_ACTIVITY (003, 4 rows) is published in the same fact pack section but is NOT carried here: this checkpoint does not implement event-time bonus layering, so carrying its rows would imply support that does not exist.",
+    "drops_quest_deliberately_absent": "DROPS_QUEST (096) is NOT carried and NOT implemented. The fact pack proves only 311 of 2478 referenced quest sets exist client-side, so a quest roll would be invention. The roller refuses it by name.",
+    "nonclaim": "This file is a documented excerpt for tests, not the shipped tables, and the roller that reads it is OUR reconstruction. The original server's roll order and RNG are unrecoverable forever."
+  },
+  "tables": {
+    "DROPS_NORMAL": [
+      {
+        "n_ID": 1,
+        "source": "factpack_r100_section_5",
+        "note": "Fact pack: 'Row n_ID=1: item0(money) rate 100 min 15 max 25; money rate 50 min 5 max 10; money rate 20 min 5 max 10.' Three money slots; the shipped row has 30 slot columns and the remaining 27 are padding.",
+        "slots": [
+          {"n_ITEM": 0, "f_RATE": 100.0, "n_MIN": 15, "n_MAX": 25},
+          {"n_ITEM": 0, "f_RATE": 50.0, "n_MIN": 5, "n_MAX": 10},
+          {"n_ITEM": 0, "f_RATE": 20.0, "n_MIN": 5, "n_MAX": 10}
+        ]
+      },
+      {
+        "n_ID": 1001,
+        "source": "factpack_r100_section_5",
+        "note": "Fact pack: 'Row n_ID=1001 (used by Port Royal hostiles via 2701001): 2400046 (consumable 46) 30 pct x1; 2400047 15 pct x1; 2600701 (misc 701) 0.5 pct x1; 2600751 0.5 pct x1; money 1 pct x1.' 'x1' is read as n_MIN=n_MAX=1.",
+        "slots": [
+          {"n_ITEM": 2400046, "f_RATE": 30.0, "n_MIN": 1, "n_MAX": 1},
+          {"n_ITEM": 2400047, "f_RATE": 15.0, "n_MIN": 1, "n_MAX": 1},
+          {"n_ITEM": 2600701, "f_RATE": 0.5, "n_MIN": 1, "n_MAX": 1},
+          {"n_ITEM": 2600751, "f_RATE": 0.5, "n_MIN": 1, "n_MAX": 1},
+          {"n_ITEM": 0, "f_RATE": 1.0, "n_MIN": 1, "n_MAX": 1}
+        ]
+      },
+      {
+        "n_ID": 9002,
+        "source": "composed_for_test",
+        "note": "COMPOSED, NOT MINED. Slot 0 carries item prefix 23, which is not one of the four item-category prefixes, so the roller must refuse it by name. Slot 1 is a padding slot (item 0, rate 0, min 0, max 0) and must be skipped without a draw and without a refusal.",
+        "slots": [
+          {"n_ITEM": 2300005, "f_RATE": 100.0, "n_MIN": 1, "n_MAX": 1},
+          {"n_ITEM": 0, "f_RATE": 0.0, "n_MIN": 0, "n_MAX": 0}
+        ]
+      },
+      {
+        "n_ID": 9003,
+        "source": "composed_for_test",
+        "note": "COMPOSED, NOT MINED. The rate-boundary and quantity-clamp bench: a 0 pct slot that must never drop, a 100 pct slot that must always drop, and a fractional 0.5 pct slot whose threshold is exactly 0.005 with a five-wide quantity span.",
+        "slots": [
+          {"n_ITEM": 2400046, "f_RATE": 0.0, "n_MIN": 1, "n_MAX": 1},
+          {"n_ITEM": 2400047, "f_RATE": 100.0, "n_MIN": 1, "n_MAX": 1},
+          {"n_ITEM": 2600701, "f_RATE": 0.5, "n_MIN": 3, "n_MAX": 7}
+        ]
+      }
+    ],
+    "DROPS_EQUIPMENT": [
+      {
+        "n_ID": 1,
+        "source": "factpack_r100_section_5",
+        "note": "Fact pack: 'Row n_ID=1: rate 50 pct, 1 item, 15 equipment entries (2200201, 2200401, ... all EQUIPMENT_BASE refs) weight 100 each.' TRUNCATED EXCERPT: the shipped row carries 15 entries; the fact pack prints only the first two ids, so only those two are carried here. Rolling this row here is NOT rolling the shipped row.",
+        "f_DROPS_RATE": 50.0,
+        "n_NUMBER_MIN": 1,
+        "n_NUMBER_MAX": 1,
+        "entries": [
+          {"n_ITEM": 2200201, "n_WEIGHT": 100},
+          {"n_ITEM": 2200401, "n_WEIGHT": 100}
+        ]
+      },
+      {
+        "n_ID": 9001,
+        "source": "composed_for_test",
+        "note": "COMPOSED, NOT MINED. Unequal weights (1 and 3, total 4) so a test can enumerate the exact cumulative boundary at 0.25, a rate of 100 pct so the gate always opens, and a fixed count of 2 so the multi-pick path runs.",
+        "f_DROPS_RATE": 100.0,
+        "n_NUMBER_MIN": 2,
+        "n_NUMBER_MAX": 2,
+        "entries": [
+          {"n_ITEM": 2200201, "n_WEIGHT": 1},
+          {"n_ITEM": 2200401, "n_WEIGHT": 3}
+        ]
+      },
+      {
+        "n_ID": 9004,
+        "source": "composed_for_test",
+        "note": "COMPOSED, NOT MINED. Every weight is zero, so the weighted walk has no positive total and must refuse by name instead of picking entry 0 by accident.",
+        "f_DROPS_RATE": 100.0,
+        "n_NUMBER_MIN": 1,
+        "n_NUMBER_MAX": 1,
+        "entries": [
+          {"n_ITEM": 2200201, "n_WEIGHT": 0},
+          {"n_ITEM": 2200401, "n_WEIGHT": 0}
+        ]
+      }
+    ],
+    "DROPS_SPECIALLY": [
+      {
+        "n_ID": 1,
+        "source": "factpack_r100_section_5",
+        "note": "Fact pack: 'Row n_ID=1: rate 100 pct, 1-3 items, 2600041 w15 / 2600042 w40 / 2600043 w45.' Weights total 100, so the cumulative boundaries are 0.15 and 0.55.",
+        "f_DROPS_RATE": 100.0,
+        "n_NUMBER_MIN": 1,
+        "n_NUMBER_MAX": 3,
+        "entries": [
+          {"n_ITEM": 2600041, "n_WEIGHT": 15},
+          {"n_ITEM": 2600042, "n_WEIGHT": 40},
+          {"n_ITEM": 2600043, "n_WEIGHT": 45}
+        ]
+      }
+    ],
+    "E_DROPS_QUALITY": [
+      {"n_ID": 1, "source": "factpack_r100_section_5", "n_MOB_RANK": 1, "n_MOB_LEVELMIN": 1, "n_MOB_LEVELMAX": 15, "band_published": true, "n_WEIGHT_W": 80, "n_WEIGHT_G": 20, "n_WEIGHT_B": 0, "n_WEIGHT_P": 0, "n_WEIGHT_O": 0},
+      {"n_ID": 2, "source": "factpack_r100_section_5", "n_MOB_RANK": 1, "n_MOB_LEVELMIN": 16, "n_MOB_LEVELMAX": 30, "band_published": true, "n_WEIGHT_W": 80, "n_WEIGHT_G": 20, "n_WEIGHT_B": 0, "n_WEIGHT_P": 0, "n_WEIGHT_O": 0},
+      {"n_ID": 3, "source": "factpack_r100_section_5", "n_MOB_RANK": 1, "n_MOB_LEVELMIN": 31, "n_MOB_LEVELMAX": 50, "band_published": true, "n_WEIGHT_W": 50, "n_WEIGHT_G": 50, "n_WEIGHT_B": 0, "n_WEIGHT_P": 0, "n_WEIGHT_O": 0},
+      {"n_ID": 4, "source": "factpack_r100_section_5", "n_MOB_RANK": 1, "n_MOB_LEVELMIN": 51, "n_MOB_LEVELMAX": 80, "band_published": true, "n_WEIGHT_W": 60, "n_WEIGHT_G": 40, "n_WEIGHT_B": 0, "n_WEIGHT_P": 0, "n_WEIGHT_O": 0},
+      {"n_ID": 5, "source": "factpack_r100_section_5", "n_MOB_RANK": 1, "n_MOB_LEVELMIN": 81, "n_MOB_LEVELMAX": 100, "band_published": true, "n_WEIGHT_W": 70, "n_WEIGHT_G": 30, "n_WEIGHT_B": 0, "n_WEIGHT_P": 0, "n_WEIGHT_O": 0},
+      {"n_ID": 6, "source": "factpack_r100_section_5", "n_MOB_RANK": 1, "n_MOB_LEVELMIN": 101, "n_MOB_LEVELMAX": 120, "band_published": true, "n_WEIGHT_W": 75, "n_WEIGHT_G": 25, "n_WEIGHT_B": 0, "n_WEIGHT_P": 0, "n_WEIGHT_O": 0},
+      {"n_ID": 7, "source": "factpack_r100_section_5", "n_MOB_RANK": 1, "n_MOB_LEVELMIN": 121, "n_MOB_LEVELMAX": 130, "band_published": true, "n_WEIGHT_W": 75, "n_WEIGHT_G": 25, "n_WEIGHT_B": 0, "n_WEIGHT_P": 0, "n_WEIGHT_O": 0},
+      {"n_ID": 8, "source": "factpack_r100_section_5", "n_MOB_RANK": 1, "n_MOB_LEVELMIN": 131, "n_MOB_LEVELMAX": 999, "band_published": true, "n_WEIGHT_W": 75, "n_WEIGHT_G": 25, "n_WEIGHT_B": 0, "n_WEIGHT_P": 0, "n_WEIGHT_O": 0},
+      {"n_ID": 101, "source": "factpack_r100_section_5", "n_MOB_RANK": 2, "n_MOB_LEVELMIN": 1, "n_MOB_LEVELMAX": 125, "band_published": true, "n_WEIGHT_W": 0, "n_WEIGHT_G": 100, "n_WEIGHT_B": 0, "n_WEIGHT_P": 0, "n_WEIGHT_O": 0},
+      {"n_ID": 102, "source": "factpack_r100_section_5", "n_MOB_RANK": 2, "n_MOB_LEVELMIN": 126, "n_MOB_LEVELMAX": 999, "band_published": true, "n_WEIGHT_W": 0, "n_WEIGHT_G": 98, "n_WEIGHT_B": 2, "n_WEIGHT_P": 0, "n_WEIGHT_O": 0},
+      {"n_ID": 201, "source": "factpack_r100_section_5", "n_MOB_RANK": 4, "n_MOB_LEVELMIN": 1, "n_MOB_LEVELMAX": 125, "band_published": true, "n_WEIGHT_W": 0, "n_WEIGHT_G": 0, "n_WEIGHT_B": 100, "n_WEIGHT_P": 0, "n_WEIGHT_O": 0},
+      {"n_ID": 202, "source": "factpack_r100_section_5", "n_MOB_RANK": 4, "n_MOB_LEVELMIN": 126, "n_MOB_LEVELMAX": 999, "band_published": true, "n_WEIGHT_W": 0, "n_WEIGHT_G": 0, "n_WEIGHT_B": 98, "n_WEIGHT_P": 2, "n_WEIGHT_O": 0},
+      {"n_ID": 301, "source": "factpack_r100_section_5", "n_MOB_RANK": 8, "n_MOB_LEVELMIN": null, "n_MOB_LEVELMAX": null, "band_published": false, "n_WEIGHT_W": 0, "n_WEIGHT_G": 0, "n_WEIGHT_B": 0, "n_WEIGHT_P": 100, "n_WEIGHT_O": 0},
+      {"n_ID": 401, "source": "factpack_r100_section_5", "n_MOB_RANK": 16, "n_MOB_LEVELMIN": null, "n_MOB_LEVELMAX": null, "band_published": false, "n_WEIGHT_W": 0, "n_WEIGHT_G": 0, "n_WEIGHT_B": 0, "n_WEIGHT_P": 100, "n_WEIGHT_O": 0},
+      {"n_ID": 501, "source": "factpack_r100_section_5", "n_MOB_RANK": 32, "n_MOB_LEVELMIN": null, "n_MOB_LEVELMAX": null, "band_published": false, "n_WEIGHT_W": 0, "n_WEIGHT_G": 0, "n_WEIGHT_B": 0, "n_WEIGHT_P": 100, "n_WEIGHT_O": 0},
+      {"n_ID": 601, "source": "factpack_r100_section_5", "n_MOB_RANK": 64, "n_MOB_LEVELMIN": 1, "n_MOB_LEVELMAX": 50, "band_published": true, "n_WEIGHT_W": 0, "n_WEIGHT_G": 70, "n_WEIGHT_B": 30, "n_WEIGHT_P": 0, "n_WEIGHT_O": 0},
+      {"n_ID": 602, "source": "factpack_r100_section_5", "n_MOB_RANK": 64, "n_MOB_LEVELMIN": 51, "n_MOB_LEVELMAX": 70, "band_published": true, "n_WEIGHT_W": 0, "n_WEIGHT_G": 80, "n_WEIGHT_B": 20, "n_WEIGHT_P": 0, "n_WEIGHT_O": 0},
+      {"n_ID": 603, "source": "factpack_r100_section_5", "n_MOB_RANK": 64, "n_MOB_LEVELMIN": 71, "n_MOB_LEVELMAX": 125, "band_published": true, "n_WEIGHT_W": 0, "n_WEIGHT_G": 90, "n_WEIGHT_B": 10, "n_WEIGHT_P": 0, "n_WEIGHT_O": 0},
+      {"n_ID": 604, "source": "factpack_r100_section_5", "n_MOB_RANK": 64, "n_MOB_LEVELMIN": 126, "n_MOB_LEVELMAX": 999, "band_published": true, "n_WEIGHT_W": 0, "n_WEIGHT_G": 90, "n_WEIGHT_B": 8, "n_WEIGHT_P": 2, "n_WEIGHT_O": 0},
+      {"n_ID": 701, "source": "factpack_r100_section_5", "n_MOB_RANK": 128, "n_MOB_LEVELMIN": 1, "n_MOB_LEVELMAX": 130, "band_published": true, "n_WEIGHT_W": 0, "n_WEIGHT_G": 0, "n_WEIGHT_B": 90, "n_WEIGHT_P": 10, "n_WEIGHT_O": 0},
+      {"n_ID": 702, "source": "factpack_r100_section_5", "n_MOB_RANK": 128, "n_MOB_LEVELMIN": 131, "n_MOB_LEVELMAX": 999, "band_published": true, "n_WEIGHT_W": 0, "n_WEIGHT_G": 0, "n_WEIGHT_B": 90, "n_WEIGHT_P": 10, "n_WEIGHT_O": 0},
+      {"n_ID": 801, "source": "factpack_r100_section_5", "n_MOB_RANK": 256, "n_MOB_LEVELMIN": null, "n_MOB_LEVELMAX": null, "band_published": false, "n_WEIGHT_W": 0, "n_WEIGHT_G": 0, "n_WEIGHT_B": 0, "n_WEIGHT_P": 100, "n_WEIGHT_O": 0},
+      {"n_ID": 901, "source": "factpack_r100_section_5", "n_MOB_RANK": 512, "n_MOB_LEVELMIN": null, "n_MOB_LEVELMAX": null, "band_published": false, "n_WEIGHT_W": 0, "n_WEIGHT_G": 70, "n_WEIGHT_B": 30, "n_WEIGHT_P": 0, "n_WEIGHT_O": 0},
+      {"n_ID": 1001, "source": "factpack_r100_section_5", "n_MOB_RANK": 1024, "n_MOB_LEVELMIN": null, "n_MOB_LEVELMAX": null, "band_published": false, "n_WEIGHT_W": 0, "n_WEIGHT_G": 0, "n_WEIGHT_B": 0, "n_WEIGHT_P": 100, "n_WEIGHT_O": 0},
+      {"n_ID": 1101, "source": "factpack_r100_section_5", "n_MOB_RANK": 2048, "n_MOB_LEVELMIN": null, "n_MOB_LEVELMAX": null, "band_published": false, "n_WEIGHT_W": 0, "n_WEIGHT_G": 95, "n_WEIGHT_B": 5, "n_WEIGHT_P": 0, "n_WEIGHT_O": 0},
+      {"n_ID": 1201, "source": "factpack_r100_section_5", "n_MOB_RANK": 4096, "n_MOB_LEVELMIN": null, "n_MOB_LEVELMAX": null, "band_published": false, "n_WEIGHT_W": 0, "n_WEIGHT_G": 700, "n_WEIGHT_B": 299, "n_WEIGHT_P": 1, "n_WEIGHT_O": 0}
+    ],
+    "MOBS": [
+      {
+        "n_ID": 900001,
+        "source": "composed_for_test",
+        "label": "composed_rank1_level27_full_house",
+        "note": "COMPOSED, NOT MINED. Shaped after the fact pack's Port Royal hostile profile (level 27, drop refs 2701001 / 5400001) but every field is ours: the drop-set ids are re-pointed at rows this excerpt actually carries, and the rank is set to 1 so an E_DROPS_QUALITY row exists. This is the mob the pinned deterministic roll uses.",
+        "n_RANK": 1,
+        "n_LEVEL_MIN": 27,
+        "n_LEVEL_MAX": 27,
+        "n_DROPS_NORMAL": 2701001,
+        "n_DROPS_EQUIPMENT": 5400001,
+        "n_DROPS_SPECIALLY": 2800001,
+        "n_DROPS_QUEST": 8700035
+      },
+      {
+        "n_ID": 900002,
+        "source": "composed_for_test",
+        "label": "composed_rank4096_boss_unnormalized_quality",
+        "note": "COMPOSED, NOT MINED. Rank 4096 and level 64 so the quality selector lands on row 1201, whose weights sum to 1000 rather than 100.",
+        "n_RANK": 4096,
+        "n_LEVEL_MIN": 64,
+        "n_LEVEL_MAX": 66,
+        "n_DROPS_NORMAL": 0,
+        "n_DROPS_EQUIPMENT": 5409001,
+        "n_DROPS_SPECIALLY": 0,
+        "n_DROPS_QUEST": 0
+      },
+      {
+        "n_ID": 900003,
+        "source": "composed_for_test",
+        "label": "composed_rank0_no_quality_row",
+        "note": "COMPOSED, NOT MINED. Rank 0 (1506 of the 3210 shipped MOBS rows carry rank 0) has no E_DROPS_QUALITY row at all, so a dropped equipment item must carry a named quality refusal and no invented quality.",
+        "n_RANK": 0,
+        "n_LEVEL_MIN": 27,
+        "n_LEVEL_MAX": 27,
+        "n_DROPS_NORMAL": 0,
+        "n_DROPS_EQUIPMENT": 5400001,
+        "n_DROPS_SPECIALLY": 0,
+        "n_DROPS_QUEST": 0
+      },
+      {
+        "n_ID": 900004,
+        "source": "composed_for_test",
+        "label": "composed_wrong_prefix_in_the_normal_field",
+        "note": "COMPOSED, NOT MINED. n_DROPS_NORMAL carries prefix 28 (DROPS_SPECIALLY) instead of 27, which must refuse by name rather than resolve into the wrong table.",
+        "n_RANK": 1,
+        "n_LEVEL_MIN": 27,
+        "n_LEVEL_MAX": 27,
+        "n_DROPS_NORMAL": 2801001,
+        "n_DROPS_EQUIPMENT": 0,
+        "n_DROPS_SPECIALLY": 0,
+        "n_DROPS_QUEST": 0
+      },
+      {
+        "n_ID": 900005,
+        "source": "composed_for_test",
+        "label": "composed_low_part_absent_from_this_excerpt",
+        "note": "COMPOSED, NOT MINED. Prefix 27 is correct but low part 99999 is in no loaded row, which is exactly the shape of a real reference into a table this excerpt does not carry.",
+        "n_RANK": 1,
+        "n_LEVEL_MIN": 27,
+        "n_LEVEL_MAX": 27,
+        "n_DROPS_NORMAL": 2799999,
+        "n_DROPS_EQUIPMENT": 0,
+        "n_DROPS_SPECIALLY": 0,
+        "n_DROPS_QUEST": 0
+      },
+      {
+        "n_ID": 900006,
+        "source": "composed_for_test",
+        "label": "composed_rate_boundary_bench",
+        "note": "COMPOSED, NOT MINED. Points at composed DROPS_NORMAL row 9003 (0 pct / 100 pct / 0.5 pct).",
+        "n_RANK": 1,
+        "n_LEVEL_MIN": 27,
+        "n_LEVEL_MAX": 27,
+        "n_DROPS_NORMAL": 2709003,
+        "n_DROPS_EQUIPMENT": 0,
+        "n_DROPS_SPECIALLY": 0,
+        "n_DROPS_QUEST": 0
+      },
+      {
+        "n_ID": 900007,
+        "source": "composed_for_test",
+        "label": "composed_unknown_item_category_prefix",
+        "note": "COMPOSED, NOT MINED. Points at composed DROPS_NORMAL row 9002, whose first slot carries item prefix 23.",
+        "n_RANK": 1,
+        "n_LEVEL_MIN": 27,
+        "n_LEVEL_MAX": 27,
+        "n_DROPS_NORMAL": 2709002,
+        "n_DROPS_EQUIPMENT": 0,
+        "n_DROPS_SPECIALLY": 0,
+        "n_DROPS_QUEST": 0
+      },
+      {
+        "n_ID": 900008,
+        "source": "composed_for_test",
+        "label": "composed_no_drop_sets_at_all",
+        "note": "COMPOSED, NOT MINED. Every drop field is 0, the commonest shape in the shipped table (1817 of 3210 rows carry no normal set). Each zero must produce its own named refusal, never a silent skip.",
+        "n_RANK": 0,
+        "n_LEVEL_MIN": 20,
+        "n_LEVEL_MAX": 20,
+        "n_DROPS_NORMAL": 0,
+        "n_DROPS_EQUIPMENT": 0,
+        "n_DROPS_SPECIALLY": 0,
+        "n_DROPS_QUEST": 0
+      },
+      {
+        "n_ID": 900009,
+        "source": "composed_for_test",
+        "label": "composed_zero_weight_equipment_row",
+        "note": "COMPOSED, NOT MINED. Points at composed DROPS_EQUIPMENT row 9004, whose weights are all zero.",
+        "n_RANK": 1,
+        "n_LEVEL_MIN": 27,
+        "n_LEVEL_MAX": 27,
+        "n_DROPS_NORMAL": 0,
+        "n_DROPS_EQUIPMENT": 5409004,
+        "n_DROPS_SPECIALLY": 0,
+        "n_DROPS_QUEST": 0
+      },
+      {
+        "n_ID": 900010,
+        "source": "composed_for_test",
+        "label": "composed_money_only_normal_set",
+        "note": "COMPOSED, NOT MINED. Points at published DROPS_NORMAL row 1, which is three money slots and nothing else.",
+        "n_RANK": 1,
+        "n_LEVEL_MIN": 27,
+        "n_LEVEL_MAX": 27,
+        "n_DROPS_NORMAL": 2700001,
+        "n_DROPS_EQUIPMENT": 0,
+        "n_DROPS_SPECIALLY": 0,
+        "n_DROPS_QUEST": 0
+      }
+    ]
+  }
+}
