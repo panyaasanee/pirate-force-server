@@ -270,11 +270,11 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
   "src_modules_forbidding_names": [
     "remote_player_hypothesis.py"
   ],
-  "src_modules_mentioning_basicattr_bit_0x0080": 4,
+  "src_modules_mentioning_basicattr_bit_0x0080": 5,
   "src_modules_passing_zero_hp_by_named_constant": [
     "runtimeres_death_hypothesis.py"
   ],
-  "src_vital_stream_call_sites": 14,
+  "src_vital_stream_call_sites": 15,
   "vt20_dispatch_shapes_image_wide": 387,
   "vt20_dispatch_shapes_in_updateattrvital_handler": 0,
   "vt20_dispatch_shapes_with_vtable_load": 230
@@ -478,3 +478,20 @@ and in the new GAP-1 guard, which now says "SETS" in as many words.
 No claim in this report changes. No guard was loosened: every moved count is
 re-pinned to its new exact value with the new module named beside it, and one
 guard was ADDED (the forbid census), which is why `guards` moved **151 -> 152**.
+
+## NOTE — round 97 (2026-08-20): two live-mirror counts move for DAMAGE-HP-LINK-001
+
+`src_vital_stream_call_sites` moves **14 -> 15** and
+`src_modules_mentioning_basicattr_bit_0x0080` moves **4 -> 5**, because
+`damage_hp_link_hypothesis.py` (HYP-PF-026, the hit -> bleed -> die link lane)
+ships both of its carriers through ONE `make_runtime_vitals` seam and names bit
+`0x0080` for its two lethal frames — the same death-timer field, byte-identical
+to the HYP-PF-022 composer's output, gated behind the lane's own pinned lethal
+steps. The new module builds **no actor entries**, so `src_actor_entry_call_sites`,
+`src_actor_stream_call_sites`, `src_modules_doing_both` (the SET census) and the
+forbid census are all untouched: the death-chain claims of this report do not
+move. This is a NOTE rather than an erratum because no published sentence was
+wrong — the two moved numbers live in the `RUNTIMERES_COUNTS` block, which is a
+live mirror of a tool run and is expected to move when we write code; both are
+re-pinned in the tool with the new module named beside the count, and the
+`guards` total stays **152** (two values re-pinned, no guard added or removed).

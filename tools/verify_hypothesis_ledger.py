@@ -229,7 +229,27 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # pinned because its tail is per-character database content.  No client has ever been
 # shown one byte of actor_type 2; that is the queued attended visibility test, and the
 # movement/remote_player_movement_projection coverage row does not move until it runs.
-CANONICAL_CONTENT_SHA256 = "7A0F49A23B5AFB799122F206DAF00E0D910D9129D16F903BC27795252098ABF9"
+#
+# ROUND 97 APPEND (HYP-PF-026, DAMAGE-HP-LINK-001).  Entry 33 is appended -- no earlier
+# entry moved, no earlier index changed -- and the canonical content hash below is
+# re-pinned for the same reason every earlier append re-pinned it: the pin exists so the
+# ledger cannot drift SILENTLY, not so it can never grow.  The entry registers the middle
+# piece of the hit -> bleed -> die loop: EIGHT frames behind one opt-in scenario,
+# alternating the CHitResult damage frames GT-024 proved on a real screen (-63, the MISS
+# control, -379 -- byte-identical to the HYP-PF-024 composer's own output) with ActorAttr
+# hp frames GT-019 proved on a real screen (100 -> 37 -> 0 + death timer 20.0, then timer
+# 0.0 -- byte-identical to the HYP-PF-022 composer's own output), where the hp values are
+# DERIVED by a server-held balance ladder (100, 100, 37, 37, 37, 37, 0, 0) that real
+# arithmetic must reproduce on every composition.  The arithmetic and the link are OURS:
+# no capture shows damage linked to hit points, and round 83 proved the client never
+# subtracts, which is exactly why the server must say both halves itself.  The lane is
+# deliberately NARROWER than every neighbour: the dispatcher refuses any selected identity
+# other than the canonical smoke identity the pins were computed for, so a tester sees the
+# pinned bytes byte for byte or nothing.  One-shot, production_allowed false, no database
+# write (hit points have no column and this lane adds none), 15-second spacing (the
+# round-84 camera lesson).  No client has ever been shown one byte of this sweep; that is
+# the queued attended link test (GT-031), and no coverage row grade moves until it runs.
+CANONICAL_CONTENT_SHA256 = "9841B53DA9BB212F02A9DB3590FE777CD2CB58C75F90860FB569FEB1238DB598"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -358,6 +378,14 @@ EXPECTED_IDS = (
     # holds a remote-human-player capture, so the entry's first nonclaim is
     # that this is our design, checked against our client, not a recovery.
     "HYP-PF-025",
+    # HYP-PF-026 (the hit -> bleed -> die link: our own damage arithmetic
+    # applied to a server-held HP balance, told to the client over the two
+    # carriers GT-024 and GT-019 already proved on a real screen) is appended
+    # so every existing entry index stays stable.  Like its two parent lanes
+    # it is a DESIGNED value: no capture links damage to hit points in either
+    # direction and the client provably never subtracts (round 83), so the
+    # entry's first nonclaim is that the link is ours, not a recovery.
+    "HYP-PF-026",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -396,6 +424,7 @@ EXPECTED_META = {
     "HYP-PF-025": (
         "protocol_hypothesis", "REMOTE-PLAYER-ENCODER-001", "active",
     ),
+    "HYP-PF-026": ("protocol_hypothesis", "DAMAGE-HP-LINK-001", "active"),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}
 STATUSES = {"active", "frozen", "retired", "harness_only", "expired_pending_decision"}

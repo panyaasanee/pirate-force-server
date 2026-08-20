@@ -1,0 +1,269 @@
+{
+  "schema": 1,
+  "id": "damage_hp_link_hypothesis_link_sweep",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-026",
+  "hypothesis_id_is_registered_in_the_ledger": true,
+  "design_not_recovery": "this_is_our_design_not_the_original_servers_which_is_unrecoverable",
+  "entry": {
+    "flow": "full_writable_character",
+    "required_sequence": "selected_and_runtime_ready",
+    "response_policy": "compose_linked_damage_and_hp_frames_from_our_own_arithmetic_no_write_no_close"
+  },
+  "dispatch": {
+    "wired": true,
+    "wiring_owner": "damage_hp_link_001_round_97",
+    "app_policy_when_lane_disabled": "no_frames_composed_and_the_encoder_raises_if_called_directly",
+    "frames_per_accepted_request": 8,
+    "step_order": [
+      "HP_BASELINE",
+      "HIT_WEAK",
+      "HP_AFTER_WEAK",
+      "MISS",
+      "HP_AFTER_MISS",
+      "HIT_STRONG",
+      "HP_ZERO_DYING",
+      "DYING_ELAPSED"
+    ],
+    "spacing_seconds": 15.0,
+    "first_frame_delay_seconds": 0.0,
+    "delay_semantics": "gap_before_each_send_on_a_cumulative_deadline",
+    "action_label_prefix": "HYP_PF_026_HP_LINK_",
+    "action_labels": [
+      "HYP_PF_026_HP_LINK_HP_BASELINE",
+      "HYP_PF_026_HP_LINK_HIT_WEAK",
+      "HYP_PF_026_HP_LINK_HP_AFTER_WEAK",
+      "HYP_PF_026_HP_LINK_MISS",
+      "HYP_PF_026_HP_LINK_HP_AFTER_MISS",
+      "HYP_PF_026_HP_LINK_HIT_STRONG",
+      "HYP_PF_026_HP_LINK_HP_ZERO_DYING",
+      "HYP_PF_026_HP_LINK_DYING_ELAPSED"
+    ],
+    "one_shot": true,
+    "socket_action": "none"
+  },
+  "wire": {
+    "envelope_vital_id": 28317,
+    "envelope_vital_version": 4,
+    "envelope": "gscn_runtime_protocol_res_v4_vitaldata_collection",
+    "base_change_mask": 2,
+    "derived_change_mask": 0,
+    "chit_result_vital_id": 5879,
+    "chit_result_vital_version": 0,
+    "header_wire_size": 22,
+    "header_reserved_value": 0,
+    "hit_element_wire_size": 37,
+    "hit_entry_count": 1,
+    "damage_field": {
+      "name": "damage_wire",
+      "object_offset": 8,
+      "wire_tag": 20,
+      "width": "i32_read_signed",
+      "safe_band": [
+        -1000000,
+        0
+      ]
+    },
+    "flag_field": {
+      "name": "result_flags",
+      "object_offset": 28,
+      "wire_tag": 18,
+      "width": "u16",
+      "value_allowlist": [
+        0,
+        1
+      ],
+      "forbidden_mask": 61828
+    },
+    "yaw_field": {
+      "name": "reaction_yaw",
+      "object_offset": 24,
+      "wire_tag": 42,
+      "pinned_value": 0.0
+    },
+    "update_attr_vital_id": 12442,
+    "update_attr_vital_version": 0,
+    "actor_attr_id": 4781,
+    "attr_collection": "tag12_u16_count_tag12_u16_attr_id_tag14_u32_length_then_body",
+    "field_order_rule": "ascending_mask_bit_within_each_block",
+    "extra_group_flag_value": 1,
+    "hp_fields": {
+      "hp_current": {
+        "mask_bit": 4,
+        "object_offset": 68,
+        "wire_tag": 20,
+        "width": "u32"
+      },
+      "hp_max": {
+        "mask_bit": 8,
+        "object_offset": 72,
+        "wire_tag": 20,
+        "width": "u32"
+      },
+      "hp_death_timer": {
+        "mask_bit": 128,
+        "object_offset": 88,
+        "wire_tag": 42,
+        "width": "f32"
+      },
+      "scene_id": {
+        "mask_bit": 256,
+        "object_offset": 92,
+        "wire_tag": 18,
+        "width": "u16"
+      },
+      "scene_sequence": {
+        "mask_bit": 512,
+        "object_offset": 96,
+        "wire_tag": 50,
+        "width": "qword"
+      },
+      "cash": {
+        "mask_bit": 2048,
+        "object_offset": 168,
+        "wire_tag": 50,
+        "width": "qword"
+      },
+      "character_name": {
+        "mask_bit": 16777216,
+        "object_offset": 356,
+        "wire_tag": 72,
+        "width": "wstring"
+      }
+    },
+    "formula": {
+      "owner": "this_project_not_the_original_server",
+      "deterministic": true,
+      "uses_random": false,
+      "atk_base": 100,
+      "k_atk_str": 7,
+      "k_atk_lv": 3,
+      "def_base": 10,
+      "k_def_con": 2,
+      "k_def_lv": 1,
+      "min_hit": 1,
+      "defender": {
+        "name": "PLAYER_BASELINE",
+        "level": 7,
+        "ability_con": 22
+      },
+      "attackers": {
+        "MOB_WEAK": {
+          "level": 1,
+          "ability_str": 3
+        },
+        "MOB_STRONG": {
+          "level": 20,
+          "ability_str": 40
+        }
+      }
+    },
+    "hp_ladder": {
+      "start": 100,
+      "max": 100,
+      "floor": 0,
+      "ladder": [
+        100,
+        100,
+        37,
+        37,
+        37,
+        37,
+        0,
+        0
+      ],
+      "clamp_step": "HP_ZERO_DYING",
+      "applies_on": "the_hp_frame_that_follows_each_hit_frame"
+    },
+    "timer": {
+      "name": "hp_death_timer",
+      "dying_seconds": 20.0,
+      "elapsed_seconds": 0.0,
+      "duration_dying_image_default": 20,
+      "window_margin_seconds": 0.5,
+      "elapsed_wire_bytes": "2a00000000"
+    }
+  },
+  "probe": {
+    "rule": "the_players_own_actor_is_both_performer_and_target",
+    "position_source": "frozen_v135_player_spawn",
+    "pins_are_composed_from_a_fixed_probe_identity": true,
+    "identity_lo": 268500993,
+    "identity_hi": 0,
+    "per_step": {
+      "HP_BASELINE": {
+        "pc_size": 106,
+        "pc_sha256": "DB3CE0B5D14196181EF9EA26A0D435E0489212634334CB562F840E368B5F0049",
+        "frame_size": 117,
+        "frame_sha256": "04E2B40152B633A48C84713B1C24A2910B7AB84E178E268094C0D10B179D9FBC"
+      },
+      "HIT_WEAK": {
+        "pc_size": 84,
+        "pc_sha256": "D824597F0C9AC24F64BE665699A83FF38A792C3342BCAC70202C3F46B5B584D4",
+        "frame_size": 95,
+        "frame_sha256": "D0C0C33C9A3ED9A5C8C1C6BCFBBBFB4762793D053002CD97C9A6C9576C98F999"
+      },
+      "HP_AFTER_WEAK": {
+        "pc_size": 106,
+        "pc_sha256": "EFF10D939CA54436CF3DC3BF6E534BC8599944E83313F0475D14D4D100EFA75E",
+        "frame_size": 117,
+        "frame_sha256": "4DEC1F6040A42F3FEF7B9A7EAE519F2B75006AB9217322E2CA088FCBFE2B87CD"
+      },
+      "MISS": {
+        "pc_size": 84,
+        "pc_sha256": "A1A746E4C2D4A35448531FD878E17A93AE5F2FB778C4A343D288D04621EEB77A",
+        "frame_size": 95,
+        "frame_sha256": "AC009503A61ACD2ADCB87C93B12A4C96AB1D6FC7F7313163B093158011EF558C"
+      },
+      "HP_AFTER_MISS": {
+        "pc_size": 106,
+        "pc_sha256": "EFF10D939CA54436CF3DC3BF6E534BC8599944E83313F0475D14D4D100EFA75E",
+        "frame_size": 117,
+        "frame_sha256": "4DEC1F6040A42F3FEF7B9A7EAE519F2B75006AB9217322E2CA088FCBFE2B87CD"
+      },
+      "HIT_STRONG": {
+        "pc_size": 84,
+        "pc_sha256": "D7A708CBA4642452848D90523852235779D41F8E7869C57F386AE8AC3C285665",
+        "frame_size": 95,
+        "frame_sha256": "910669B9029C1E082740BC820BD33E5C1C89E1C2F26924EA2A44FF86C2415FD9"
+      },
+      "HP_ZERO_DYING": {
+        "pc_size": 111,
+        "pc_sha256": "1099931C80FAA0394BE1DADCA587ED890A04ED7C72118F1888D6708CF9967E44",
+        "frame_size": 122,
+        "frame_sha256": "77E98AD69434C112FD4D7B6F29B04DCCE306B42187E92B3BDB91383F0C1B200D"
+      },
+      "DYING_ELAPSED": {
+        "pc_size": 111,
+        "pc_sha256": "7C1951CE3090F219D374E19227110E57A40A3EBF3A4EC2A93F139A12718E7F35",
+        "frame_size": 122,
+        "frame_sha256": "FE5A6D9B05FC4ECE72C0D066D1AAF373B8C4D5269D8594EA182E6AAB60EA0CD4"
+      }
+    }
+  },
+  "persisted_post_state": {
+    "database_write": "none"
+  },
+  "capabilities": [
+    "run_our_damage_arithmetic_against_a_server_held_hp_balance",
+    "emit_the_floating_number_and_the_shrinking_hp_bar_for_one_client",
+    "link_the_two_proven_carriers_chitresult_and_updateattrvital_in_one_sweep",
+    "clamp_the_balance_at_the_floor_on_exactly_one_pinned_step",
+    "end_in_the_proven_dying_window_and_the_pinned_elapsed_frame",
+    "refuse_every_value_whose_client_meaning_this_project_cannot_name"
+  ],
+  "nonclaims": [
+    "this_is_our_design_not_the_original_servers_which_is_unrecoverable",
+    "no_capture_shows_damage_linked_to_hit_points_in_either_direction",
+    "the_client_does_not_subtract_damage_that_is_why_the_server_must_say_both_halves",
+    "no_claim_the_original_server_ever_linked_these_frames",
+    "no_database_write_no_hp_column_exists_and_none_is_added",
+    "wire_and_dispatch_layer_only_no_client_has_seen_these_bytes",
+    "one_shot_per_process",
+    "no_claim_about_any_death_window_exit_path",
+    "miss_control_proves_only_that_our_arithmetic_holds_not_that_the_client_checks_it",
+    "production_dispatch_wiring_the_wiring_is_opt_in_and_production_allowed_is_false",
+    "production_baseline_behavior"
+  ]
+}

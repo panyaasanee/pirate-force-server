@@ -441,3 +441,10 @@
 !/reports/PF_CHUNK2_Q1_ACTORATTR_MASK_FINDINGS_20260819.md
 !/reports/PF_CHUNK2_Q2_MOVEMENT_MERGE_FINDINGS_20260819.md
 !/reports/PF_CHUNK2_Q3_BIND_THUNK_FINDINGS_20260819.md
+
+# DAMAGE-HP-LINK-001 (HYP-PF-026, chief round 97).  The hit -> bleed -> die link
+# lane: our damage arithmetic against a server-held HP balance, told to the client
+# over the two carriers GT-024 and GT-019 already proved on a real screen.
+!/tools/verify_damage_hp_link_encoder.py
+!/tools/pf_damage_hp_link_headless_replay.py
+!/reports/PF_DAMAGE_HP_LINK001_HIT_BLEED_DIE_LINK_20260820.md

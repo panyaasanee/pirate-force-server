@@ -17,6 +17,9 @@ from .model import Position
 from .population_scenario import load_population_scenario
 from .runtime import make_state_class
 from .runtime_console import install_runtime_console
+from .damage_hp_link_hypothesis import (
+    load_damage_hp_link_hypothesis_scenario,
+)
 from .damage_model_hypothesis import (
     load_damage_model_hypothesis_scenario,
 )
@@ -68,6 +71,7 @@ def main() -> int:
     pre.add_argument('--hp-death-hypothesis-scenario')
     pre.add_argument('--runtimeres-death-hypothesis-scenario')
     pre.add_argument('--damage-model-hypothesis-scenario')
+    pre.add_argument('--damage-hp-link-hypothesis-scenario')
     pre.add_argument('--remote-player-hypothesis-scenario')
     pre.add_argument(
         '--second-password-mode', choices=SECOND_PASSWORD_MODES,
@@ -167,6 +171,21 @@ def main() -> int:
         )
         if known.damage_model_hypothesis_scenario else None
     )
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-026 active
+    # DAMAGE-HP-LINK-001.  The middle piece of the hit -> bleed -> die loop:
+    # the server runs OUR damage arithmetic against a server-held HP balance
+    # and tells the one client both halves -- the floating number (CHitResult
+    # 0x16F7, proven rendering at GT-024) and the shrinking HP bar
+    # (UpdateAttrVital/ActorAttr hp_current, proven rendering at GT-019) --
+    # ending in the proven dying window.  OUR design, not the original
+    # server's, which is unrecoverable.  Refused alongside every other mode
+    # and demands an explicit existing --db.
+    damage_hp_link_hypothesis = (
+        load_damage_hp_link_hypothesis_scenario(
+            known.damage_hp_link_hypothesis_scenario
+        )
+        if known.damage_hp_link_hypothesis_scenario else None
+    )
     # PF-HYPOTHESIS-LEDGER: HYP-PF-025 active
     # REMOTE-PLAYER-ENCODER-001 + REMOTE-PLAYER-DISPATCH-001.  The lane that
     # puts actor_type 2 (CNetActor, the remote-player branch) on the actor-
@@ -186,7 +205,8 @@ def main() -> int:
         channel_message_hypothesis, delete_actor_hypothesis,
         delete_refresh_hypothesis, stats_progression_hypothesis,
         hp_death_hypothesis, runtimeres_death_hypothesis,
-        damage_model_hypothesis, remote_player_hypothesis,
+        damage_model_hypothesis, damage_hp_link_hypothesis,
+        remote_player_hypothesis,
     )) > 1:
         pre.error(
             '--scenario, --scene-load-scenario, --population-scenario, and '
@@ -199,6 +219,7 @@ def main() -> int:
             '--hp-death-hypothesis-scenario/'
             '--runtimeres-death-hypothesis-scenario/'
             '--damage-model-hypothesis-scenario/'
+            '--damage-hp-link-hypothesis-scenario/'
             '--remote-player-hypothesis-scenario are mutually exclusive'
         )
     if item_move_capture is not None and not known.db:
@@ -237,6 +258,11 @@ def main() -> int:
             '--damage-model-hypothesis-scenario requires an explicit '
             'existing --db'
         )
+    if damage_hp_link_hypothesis is not None and not known.db:
+        pre.error(
+            '--damage-hp-link-hypothesis-scenario requires an explicit '
+            'existing --db'
+        )
     if remote_player_hypothesis is not None and not known.db:
         pre.error(
             '--remote-player-hypothesis-scenario requires an explicit '
@@ -273,6 +299,8 @@ def main() -> int:
             if runtimeres_death_hypothesis is not None else
             'damage-model-hypothesis'
             if damage_model_hypothesis is not None else
+            'damage-hp-link-hypothesis'
+            if damage_hp_link_hypothesis is not None else
             'remote-player-hypothesis'
             if remote_player_hypothesis is not None else
             'foundation'
@@ -295,6 +323,7 @@ def main() -> int:
         or hp_death_hypothesis is not None
         or runtimeres_death_hypothesis is not None
         or damage_model_hypothesis is not None
+        or damage_hp_link_hypothesis is not None
         or remote_player_hypothesis is not None
     ):
         if not Path(db_path).is_file():
@@ -311,6 +340,7 @@ def main() -> int:
             or hp_death_hypothesis is not None
             or runtimeres_death_hypothesis is not None
             or damage_model_hypothesis is not None
+            or damage_hp_link_hypothesis is not None
             or remote_player_hypothesis is not None
         ):
             store.migrate()
@@ -353,6 +383,9 @@ def main() -> int:
         # DAMAGE-DISPATCH-001.  None unless the flag was handed in, and
         # make_state_class refuses it alongside every other mode a second time.
         damage_model_hypothesis_scenario=damage_model_hypothesis,
+        # DAMAGE-HP-LINK-001.  None unless the flag was handed in, and
+        # make_state_class refuses it alongside every other mode a second time.
+        damage_hp_link_hypothesis_scenario=damage_hp_link_hypothesis,
         # REMOTE-PLAYER-DISPATCH-001.  None unless the flag was handed in, and
         # make_state_class refuses it alongside every other mode a second time.
         remote_player_hypothesis_scenario=remote_player_hypothesis,

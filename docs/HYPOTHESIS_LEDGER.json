@@ -2428,6 +2428,101 @@
           "active_claim_marker": true
         }
       ]
+    },
+    {
+      "id": "HYP-PF-026",
+      "kind": "protocol_hypothesis",
+      "introduced_checkpoint": "DAMAGE-HP-LINK-001",
+      "exact_value_or_transform": "Behind the explicit damage-hp-link opt-in scenario only (scenarios/damage_hp_link_hypothesis_link_sweep.json, reached only through the new CLI flag --damage-hp-link-hypothesis-scenario, which requires an explicit existing --db and is mutually exclusive with every other scenario mode), answer ONE accepted 34-byte ascii12 chat-input frame with EIGHT GSCN_RunTimeProtocolRes id 0x6E9D version 4 frames over the VitalData collection (BASE change mask 0x02, object +0x18), alternating the two carriers this project has already proven on a real screen and linking them for the first time with a server-held hit-point balance: HP_BASELINE (UpdateAttrVital 0x309A version 0 carrying ActorAttr 0x12AD, hp_current 100 and hp_max 100 with the full proven baseline field set -- byte-identical to the HYP-PF-022 BASELINE a real client accepted at GT-019), HIT_WEAK (CHitResult 0x16F7 version 0, damage -63, flags 0x0001 -- byte-identical to the HYP-PF-024 HIT_WEAK a real client rendered at GT-024), HP_AFTER_WEAK (hp_current 37 = 100 - 63, the first hit-point value this tree has ever DERIVED rather than pinned by hand), MISS (damage 0, flags 0x0000, the control), HP_AFTER_MISS (hp_current 37 again: a miss moves nothing, and the frame is deliberately byte-identical to HP_AFTER_WEAK), HIT_STRONG (damage -379, flags 0x0001), HP_ZERO_DYING (hp_current 0 plus BasicAttr bit 0x0080 death timer 20.0f in ONE frame -- the exact combination GT-019 proved sufficient to render the dying window -- with 37 - 379 clamped at the floor, the only step allowed to clamp), and DYING_ELAPSED (death timer 0.0f, the frame GT-023 proved closes Main_Dead and opens Common_Death). The balance ladder (100, 100, 37, 37, 37, 37, 0, 0) is re-walked by real arithmetic on every composition and the sweep is refused if it does not reproduce. THE ARITHMETIC IS OURS AND THE LINK IS OURS, NOT THE ORIGINAL SERVER'S, WHICH IS UNRECOVERABLE: no capture in any corpus shows damage linked to hit points in either direction, and round 83 proved the client never subtracts -- which is exactly why the server must say both halves itself. The formula constants, the CHitResult layout and the ActorAttr field table are COPIED from the HYP-PF-024 and HYP-PF-022 lanes with drift tests and cross-lane byte-equality guards, never imported: every hit frame is byte-identical to the damage lane's own composer for the same identity and every hp frame is byte-identical to the hp-death lane's own composer for the same fields, so this lane can drift from its parents only by turning two verifiers red at once. Labels HYP_PF_026_HP_LINK_<STEP>, spacing 0.0 then 15.0 s (the round-84 photography lesson), one-shot, and pc sizes 106/84/106/84/106/84/111/111 sha-pinned in module and scenario alike for the pinned identity.",
+      "scope": "Server-side emission of the one pinned eight-frame link sweep to the ONE connected client, behind the one opt-in scenario only, for the canonical smoke identity 0x10010001 ONLY: this lane is deliberately NARROWER than every neighbour -- the dispatcher refuses by name (damage_hp_link_hypothesis_identity_not_pinned_no_reply) unless the selected actor IS the identity the pins were computed for, so an attended tester sees the pinned bytes byte for byte or nothing. Both CHitResult frames make the player both performer and target (the proven GT-024 ground); the hp frames address the player's own ActorAttr (the proven GT-019 ground). No NPC target, no second identity, no persistence: hp_current is a wire field and a server-held ladder inside one sweep, NOT a database column -- no schema change, no write path, and the balance does not survive the sweep, the session or the process. No socket action, no broadcast, no change to the HYP-PF-022/023/024/025 lanes or their bytes, no death-window exit path of any kind, and no production or default-mode path exists.",
+      "status": "active",
+      "provenance": "Opened by the chief's round 97 (2026-08-20) under the owner's standing damage-model approval of 2026-08-19 11:45 (our own formula, one signed i32 and one flag word per target) and the standing pre-approval for newly found gameplay functions under the standard pattern. It is the designed MIDDLE PIECE of the hit -> bleed -> die loop whose two ends are already client-proven: GT-024 proved the floating number renders (and that HP does not move, confirmed by two witnesses), GT-019 proved hp_current 0 plus a positive death timer renders the dying window, and GT-023 proved timer 0.0 completes it. Round 83 proved the client computes no damage of its own; DAMAGE-MODEL-001 decoded the CHitResult contract from the image; HYP-PF-022 decoded the ActorAttr hp path. This entry links those proven pieces with our own arithmetic: one module (composer + ladder + validator), one scenario, the runtime.py dispatch branch, a 270-guard pure-stdlib offline verifier that recomposes every pin and drives every named refusal, a 198-guard headless replay through the real dispatcher on a throwaway copy of the database whose independent walker re-derives the ladder FROM THE BYTES (walker-read hp values must equal walker-read damage arithmetic applied to the walker-read baseline), and 185 tests including cross-lane byte-equality against both parent lanes' own composers.",
+      "evidence_refs": [
+        "reports/PF_DAMAGE_HP_LINK001_HIT_BLEED_DIE_LINK_20260820.md",
+        "reports/PF_DAMAGE_MODEL001_CLIENT_HIT_RESULT_EXPECTATION_20260819.md",
+        "reports/PF_DAMAGE_ENCODER001_OUR_OWN_HIT_RESULT_20260819.md",
+        "reports/PF_DAMAGE_NPC_TARGET001_SECOND_PROFILE_20260820.md",
+        "reports/PF_HP_DEATH001_HP_DEATH_AND_RESPAWN_STATIC_20260819.md",
+        "reports/PF_HP_DEATH002_GT019_CLIENT_DERIVED_DEATH_RUNTIME_PASS_20260819.md",
+        "scenarios/damage_hp_link_hypothesis_link_sweep.json",
+        "tools/verify_damage_hp_link_encoder.py",
+        "tools/pf_damage_hp_link_headless_replay.py",
+        "tests/test_damage_hp_link_hypothesis.py",
+        "tests/test_damage_hp_link_dispatch.py"
+      ],
+      "accepted_ceiling": "Composing, and dispatching, the exact eight-frame link sweep behind the explicit opt-in only, with every hit frame byte-identical to the HYP-PF-024 composer's output and every hp frame byte-identical to the HYP-PF-022 composer's output for the same inputs, the balance ladder re-derived by real arithmetic at composition time and again FROM THE DISPATCHED BYTES by an independent tag walker inside tools/pf_damage_hp_link_headless_replay.py that never imports the module's decoder. The ceiling is the WIRE and DISPATCHER layer: eight frames are proven to leave the real make_state_class dispatcher on a throwaway copy of the database, in the pinned order with the pinned labels and 0/15x7 delays, hash-equal to the module and scenario pins, one-shot, refusing every foreign identity by name. It does NOT reach the client layer by one millimetre and has never touched a socket.",
+      "evidence_gap": "NO CLIENT HAS EVER BEEN SHOWN ONE BYTE OF THIS SWEEP. Whether the HP bar tracks 100 -> 37 -> 0 on a real screen, whether the bar moves at the hp frames rather than at the hit frames, whether the number and the bar are visibly simultaneous or visibly ordered, whether the dying window opens at HP_ZERO_DYING exactly as GT-019's isolated frame did when it arrives seventh in a linked sweep, and whether Common_Death opens at DYING_ELAPSED exactly as GT-023's did are all unmeasured and are exactly the queued attended test, WHICH HAS NOT RUN. The interleaving itself is the new claim and its client-observable half is entirely open: both parent observations were made in isolation, never in one sweep. Whether a real client re-renders an hp_current equal to the value it already holds (the HP_AFTER_MISS control) is unknown and informative either way. This lane has never been driven through a real server process over TCP: the proof stops at the dispatcher.",
+      "falsification": "Retire or redesign this lane if a real client rejects or errors on the sweep (an ErrorData=28317 stream error falsifies the two-carrier interleaving inside one session); if the HP bar moves at a hit frame BEFORE the linked hp frame arrives (which would falsify round 83's proof that the client never subtracts -- the single most valuable possible negative, and the whole reading of the damage lane re-opens); if the bar shows any value other than 100/37/0 in that order; if the dying window fails to open at HP_ZERO_DYING or Common_Death fails to follow DYING_ELAPSED (which would mean the GT-019/GT-023 behaviours do not compose); if the hit frames ever stop reproducing the damage lane's bytes or the hp frames the hp-death lane's bytes; or if this lane is ever observed to write any database row, take any socket action, or fire for an identity other than the pinned one. A client that renders the numbers but never moves the bar does not falsify the wire claim -- it answers the link question in the negative and is recorded as a result, not a failure.",
+      "stop_rule": "Compose only the pinned eight frames, only for the pinned identity 0x10010001, only the pinned values (-63, 0, -379; 100, 37, 0; 20.0, 0.0), only behind the one opt-in scenario file, and only with the lane's identity-compared wire unlock. ONE-SHOT per process. The clamp may happen at HP_ZERO_DYING and nowhere else; lethal fields may ride only the two pinned lethal steps; healing (positive damage) is refused by name because its semantics were never observed. What is forbidden is WIDENING: another target, another identity, a persistent balance, a database column, a regeneration or any death-window exit mechanism, jitter, or a second profile is a NEW VERSION of this entry -- two tracked slots remain -- or a new entry. Do not enable production or default-mode exposure. Stop and record if the first attended observation shows the bar moving without the hp frame.",
+      "production_allowed": false,
+      "expiry": {
+        "tracked_versions": [
+          "DAMAGE-HP-LINK-001"
+        ],
+        "decision": "Opened 2026-08-20 (chief round 97) under the owner's standing damage-model approval of 2026-08-19 11:45; one version is tracked because one milestone built the whole lane (composer + dispatch + 270-guard verifier + 198-guard replay + 185 tests) in one round. Proven offline against both parent lanes' own composers as byte oracles and through the real dispatcher on a throwaway database copy; never driven over TCP and never seen by a client. TWO versions of the three remain. Confirm the client-observable layer as the queued attended link test (GT-031 in the chief's queue) -- specifically whether the HP bar tracks 100 -> 37 -> 0, whether it moves at the hp frames and not at the hit frames, and whether the dying window and Common_Death open exactly as their isolated proofs did -- before any retire, freeze or extend decision, and do not move any coverage row grade until it has run."
+      },
+      "max_versions": 3,
+      "extension_approval_ref": null,
+      "source_refs": [
+        {
+          "path": "src/pirateforce_foundation/damage_hp_link_hypothesis.py",
+          "required_markers": [
+            "PF-HYPOTHESIS-LEDGER: HYP-PF-026 active",
+            "production_allowed = False",
+            "build_damage_hp_link_sweep",
+            "validate_damage_hp_link_sweep",
+            "require_damage_hp_link_hypothesis_scenario",
+            "damage_hp_link_wire_unlock",
+            "apply_hit_to_balance",
+            "HP_LINK_BALANCE_LADDER = (100, 100, 37, 37, 37, 37, 0, 0)",
+            "HP_LINK_HP_START = 100",
+            "HP_LINK_DYING_TIMER_SECONDS = 20.0",
+            "DAMAGE_HP_LINK_SPACING_SECONDS = 15.0",
+            "CHIT_RESULT_VITAL_ID = 0x16F7",
+            "HP_LINK_UPDATE_ATTR_VITAL_ID = 0x309A",
+            "HP_LINK_ACTOR_ATTR_ID = 0x12AD",
+            "this_is_our_design_not_the_original_servers_which_is_unrecoverable",
+            "the_client_does_not_subtract_damage_that_is_why_the_server_must_say_both_halves"
+          ],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/runtime.py",
+          "required_markers": [
+            "PF-HYPOTHESIS-LEDGER: HYP-PF-026 active",
+            "_dispatch_damage_hp_link_hypothesis",
+            "damage_hp_link_hypothesis_link_sweep_sent",
+            "damage_hp_link_hypothesis_already_sent_no_reply",
+            "damage_hp_link_hypothesis_wrong_sequence_no_reply",
+            "damage_hp_link_hypothesis_no_selected_no_reply",
+            "damage_hp_link_hypothesis_identity_not_pinned_no_reply",
+            "build_damage_hp_link_sweep"
+          ],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/app.py",
+          "required_markers": [
+            "PF-HYPOTHESIS-LEDGER: HYP-PF-026 active",
+            "--damage-hp-link-hypothesis-scenario requires an explicit "
+          ],
+          "active_claim_marker": true
+        },
+        {
+          "path": "scenarios/damage_hp_link_hypothesis_link_sweep.json",
+          "required_markers": [
+            "\"hypothesis_id\": \"HYP-PF-026\"",
+            "\"hypothesis_id_is_registered_in_the_ledger\": true",
+            "\"production_allowed\": false",
+            "\"test_only\": true",
+            "\"one_shot\": true",
+            "\"database_write\": \"none\"",
+            "\"socket_action\": \"none\"",
+            "this_is_our_design_not_the_original_servers_which_is_unrecoverable"
+          ],
+          "active_claim_marker": true
+        }
+      ]
     }
   ]
 }

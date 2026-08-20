@@ -832,12 +832,20 @@ guard(SRC_MODULES_WITH_ACTOR_ENTRY == 5
           "scene_object.py"),
       "5 named src/ modules build actor entries %s"
       % (SRC_MODULES_WITH_ACTOR_ENTRY_NAMES,))
-guard(SRC_MODULES_WITH_DEATH_TIMER_BIT == 4
+# Round 97 re-pin, 4 -> 5.  DAMAGE-HP-LINK-001 added the fifth mention:
+# damage_hp_link_hypothesis.py names bit 0x0080 because its two lethal frames
+# (HP_ZERO_DYING, DYING_ELAPSED) carry the death timer the client's IsDead
+# predicates read -- the same field, byte-identical to the HYP-PF-022
+# composer's output, gated behind the lane's own pinned lethal steps.  It
+# does NOT build actor entries, so the SET/FORBID censuses below are
+# untouched: this lane rides the VitalData carrier only.
+guard(SRC_MODULES_WITH_DEATH_TIMER_BIT == 5
       and SRC_MODULES_WITH_DEATH_TIMER_BIT_NAMES == (
+          "damage_hp_link_hypothesis.py",
           "remote_player_hypothesis.py", "runtime.py",
           "runtimeres_death_hypothesis.py",
           "stats_progression_hypothesis.py"),
-      "4 named src/ modules mention BasicAttr bit 0x0080 %s"
+      "5 named src/ modules mention BasicAttr bit 0x0080 %s"
       % (SRC_MODULES_WITH_DEATH_TIMER_BIT_NAMES,))
 guard(SRC_MODULES_WITH_BOTH == 1
       and SRC_MODULES_WITH_BOTH_NAMES == ("runtimeres_death_hypothesis.py",),
@@ -867,8 +875,14 @@ guard(SRC_ZERO_HP_SITES == 0 and V141_ZERO_HP_SITES == 0
 # what did NOT move: the actor-entry counts below are unchanged, because the
 # damage lane rides the BASE change mask (object +0x18) and never touches the
 # derived actor-entry collection (+0x1C) this file is otherwise about.
-guard(SRC_VITAL_STREAM_SITES == 14,
-      "src/ sends the VitalData carrier (make_runtime_vitals) at 14 call sites")
+# Round 97 re-pin, 14 -> 15.  DAMAGE-HP-LINK-001 added the fifteenth call
+# site: damage_hp_link_hypothesis.py ships both of its carriers (CHitResult
+# 0x16F7 and UpdateAttrVital 0x309A) through ONE composition seam over this
+# same VitalData collection.  Re-pinned deliberately, with the module named
+# beside the count, for the same reason as the round-90 and round-96 re-pins
+# above: a census that quietly widens stops being a census.
+guard(SRC_VITAL_STREAM_SITES == 15,
+      "src/ sends the VitalData carrier (make_runtime_vitals) at 15 call sites")
 guard(_count(r"make_runtime_remote_actors\(",
              _src.get("stats_progression_hypothesis.py", "")) == 0
       and _count(r"make_runtime_vitals\(",

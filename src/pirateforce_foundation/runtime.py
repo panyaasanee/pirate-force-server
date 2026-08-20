@@ -73,6 +73,14 @@ from .population import (
     build_port_royal_initial_population,
     build_port_royal_membership_transition,
 )
+from .damage_hp_link_hypothesis import (
+    DAMAGE_HP_LINK_EVENT_NAME,
+    HP_LINK_PROBE_IDENTITY_HI,
+    HP_LINK_PROBE_IDENTITY_LO,
+    build_damage_hp_link_sweep,
+    damage_hp_link_wire_unlock,
+    require_damage_hp_link_hypothesis_scenario,
+)
 from .damage_model_hypothesis import (
     DAMAGE_MODEL_NPC_SCENARIO_ID,
     build_damage_model_sweep,
@@ -138,6 +146,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                      hp_death_hypothesis_scenario=None,
                      runtimeres_death_hypothesis_scenario=None,
                      damage_model_hypothesis_scenario=None,
+                     damage_hp_link_hypothesis_scenario=None,
                      remote_player_hypothesis_scenario=None,
                      second_password_mode="required",
                      monotonic_clock=None,
@@ -153,6 +162,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         hp_death_hypothesis_scenario,
         runtimeres_death_hypothesis_scenario,
         damage_model_hypothesis_scenario,
+        damage_hp_link_hypothesis_scenario,
         remote_player_hypothesis_scenario,
     ))
     if active_modes > 1:
@@ -161,8 +171,9 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             "hypothesis, logout hypothesis, chat input hypothesis, channel "
             "message hypothesis, delete actor hypothesis, delete refresh "
             "hypothesis, stats progression hypothesis, hp death hypothesis, "
-            "runtimeres death hypothesis, damage model hypothesis, and "
-            "remote player hypothesis scenarios are mutually exclusive"
+            "runtimeres death hypothesis, damage model hypothesis, damage "
+            "hp link hypothesis, and remote player hypothesis scenarios "
+            "are mutually exclusive"
         )
     # DELETE-REFRESH-001 and HYP-PF-015 key on the same vital id 0x36DB, so
     # they must never be able to see the same frame: the mutual-exclusion
@@ -266,6 +277,23 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         )
         damage_model_unlock = damage_model_wire_unlock(
             damage_model_hypothesis_scenario
+        )
+    # DAMAGE-HP-LINK-001 (HYP-PF-026; the ledger annotation for this lane
+    # lives once per file, on the dispatch method below).  Same shape as the
+    # lanes above: the wire unlock token is derived ONCE, here, from the
+    # allowlisted scenario object.  It is the only value in this process that
+    # lets the link lane compose either of its two carriers, and with no
+    # scenario it stays None, the dispatch branch below does not exist, and
+    # the encoder cannot emit a byte.
+    damage_hp_link_unlock = None
+    if damage_hp_link_hypothesis_scenario is not None:
+        damage_hp_link_hypothesis_scenario = (
+            require_damage_hp_link_hypothesis_scenario(
+                damage_hp_link_hypothesis_scenario
+            )
+        )
+        damage_hp_link_unlock = damage_hp_link_wire_unlock(
+            damage_hp_link_hypothesis_scenario
         )
     # REMOTE-PLAYER-DISPATCH-001 (HYP-PF-025; the ledger annotation for this
     # lane lives once per file, on the dispatch method below).  Same shape as
@@ -386,6 +414,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.hp_death_sweep_count = 0
                 self.runtimeres_death_sweep_count = 0
                 self.damage_model_sweep_count = 0
+                self.damage_hp_link_sweep_count = 0
                 self.remote_player_sweep_count = 0
                 self.delete_actor_soft_delete_count = 0
                 self.delete_refresh_list_rebuild_count = 0
@@ -1535,6 +1564,93 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             self.events.append(event)
             return actions
 
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-026 active
+        # DAMAGE-HP-LINK-001.  Registered by the round-97 ledger append; this
+        # annotation and that entry's source_refs bind each other both ways.
+        def _dispatch_damage_hp_link_hypothesis(self, parsed):
+            """Answer one accepted chat input frame with the hit -> bleed ->
+            die link sweep.
+
+            This is the lane that makes the damage lane's number COST
+            something.  Round 83 proved the client computes nothing and never
+            subtracts damage from hit points, and GT-024 confirmed on a real
+            screen that the floating number leaves the HP bar untouched.  So
+            if a hit is ever to reduce HP, the server must say both halves
+            itself, and this lane is that sentence said once, end to end:
+
+              * HP_BASELINE     ActorAttr, hp 100/100      (balance 100)
+              * HIT_WEAK        CHitResult  -63, flags 0x0001
+              * HP_AFTER_WEAK   ActorAttr, hp_current 37   (100 - 63)
+              * MISS            CHitResult    0, flags 0x0000  -- control
+              * HP_AFTER_MISS   ActorAttr, hp_current 37   (a miss moves nothing)
+              * HIT_STRONG      CHitResult -379, flags 0x0001
+              * HP_ZERO_DYING   ActorAttr, hp_current 0 + death timer 20.0
+                                (37 - 379 clamped at the floor)
+              * DYING_ELAPSED   ActorAttr, death timer 0.0
+
+            The arithmetic is OURS (the same constants the damage lane pins,
+            copied with drift tests, never imported), applied to a server-held
+            balance whose whole ladder is refused unless it reproduces.  The
+            original server's link between these frames is unrecoverable and
+            is not claimed.
+
+            IDENTITY IS PINNED.  Every neighbouring lane validates a live
+            sweep structurally because live bytes depend on the session's
+            identity; this lane goes one step narrower and refuses to fire at
+            all unless the selected actor IS the canonical smoke identity the
+            pins were computed for, so the bytes a tester sees are the pinned
+            bytes, byte for byte, or nothing.
+
+            ONE-SHOT, same reason as the damage lane: the value of the ladder
+            is that a tester can predict every number before it appears.
+
+            The lane touches no store, takes no socket action, adds no HP
+            column anywhere, and composes nothing when the scenario is absent.
+            """
+            self.rx_frames += 1
+            classification = classify_chat_input_attempt(legacy, parsed)
+            if classification != "ascii12":
+                self.events.append(
+                    f"damage_hp_link_hypothesis_{classification}_no_reply"
+                )
+                return []
+            if self.foundation.selected is None:
+                self.events.append(
+                    "damage_hp_link_hypothesis_no_selected_no_reply"
+                )
+                return []
+            if not self.teleport_sent or not self.runtime_ack_sent:
+                self.events.append(
+                    "damage_hp_link_hypothesis_wrong_sequence_no_reply"
+                )
+                return []
+            if self.damage_hp_link_sweep_count:
+                self.events.append(
+                    "damage_hp_link_hypothesis_already_sent_no_reply"
+                )
+                return []
+            selected = self.foundation.selected
+            identity_lo = getattr(selected, "identity_lo", None)
+            identity_hi = getattr(selected, "identity_hi", None)
+            if (
+                identity_lo != HP_LINK_PROBE_IDENTITY_LO
+                or identity_hi != HP_LINK_PROBE_IDENTITY_HI
+            ):
+                self.events.append(
+                    "damage_hp_link_hypothesis_identity_not_pinned_no_reply"
+                )
+                return []
+            actions = build_damage_hp_link_sweep(
+                legacy, identity_lo, identity_hi,
+                damage_hp_link_unlock, damage_hp_link_hypothesis_scenario,
+            )
+            self.damage_hp_link_sweep_count += 1
+            event = "damage_hp_link_hypothesis_link_sweep_sent"
+            if event != DAMAGE_HP_LINK_EVENT_NAME:
+                raise RuntimeError("HYP-PF-026 sweep event name drift")
+            self.events.append(event)
+            return actions
+
         # PF-HYPOTHESIS-LEDGER: HYP-PF-025 active
         # REMOTE-PLAYER-DISPATCH-001.  Registered by the round-96 ledger
         # append; this annotation and that entry's source_refs bind each
@@ -1939,6 +2055,16 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # app.py refuses the flags together, which is why the ordering
                 # of these branches cannot matter.
                 return self._dispatch_damage_model_hypothesis(parsed)
+            if (
+                damage_hp_link_hypothesis_scenario is not None
+                and nested_id == CHAT_INPUT_VITAL_ID
+            ):
+                # DAMAGE-HP-LINK-001.  This lane and the five above are keyed
+                # on the same vital id, so they must never be able to see the
+                # same frame: make_state_class refuses any pair outright and
+                # app.py refuses the flags together, which is why the ordering
+                # of these branches cannot matter.
+                return self._dispatch_damage_hp_link_hypothesis(parsed)
             if (
                 remote_player_hypothesis_scenario is not None
                 and nested_id == CHAT_INPUT_VITAL_ID
