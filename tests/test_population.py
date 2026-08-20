@@ -10,6 +10,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "tests"))
+
+# The v94 provenance test below reads two capture files under backups/, a tree
+# that only exists on the bridge.  Actions run #3 (2026-08-20) found it with a
+# FileNotFoundError on a fresh clone.  See tests/pf_preconditions.py.
+from pf_preconditions import BACKUPS_TREE  # noqa: E402
 
 from pirateforce_foundation.legacy_bridge import load_legacy
 from pirateforce_foundation.population import (
@@ -186,6 +192,29 @@ class PopulationTransitionTests(unittest.TestCase):
                         self.legacy, initial, value,
                     )
 
+    def test_the_v94_provenance_paths_are_declared_machine_local(self):
+        """Always runs, on every machine, clone or bridge.
+
+        The exact-content test below can only run where backups/ exists.  This
+        one keeps a real assertion on the same golden data everywhere: the two
+        provenance paths must still be the ones the precondition registry says
+        are machine-local, so that nobody can move the evidence into the
+        repository - or out of it - without this test noticing.
+        """
+        provenance = self.golden["provenance"]
+        for key in ("raw_path", "live_path"):
+            with self.subTest(key=key):
+                declared = provenance[key]
+                self.assertTrue(
+                    declared.startswith("backups/"),
+                    "%s no longer points into the machine-local tree: %s"
+                    % (key, declared),
+                )
+                self.assertEqual(
+                    (ROOT / declared).parents[2], BACKUPS_TREE.paths[0],
+                )
+
+    @BACKUPS_TREE.skip_unless_present()
     def test_natural_v94_provenance_is_exact_and_read_only(self):
         provenance = self.golden["provenance"]
         raw = ROOT / provenance["raw_path"]

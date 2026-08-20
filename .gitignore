@@ -488,3 +488,13 @@
 # directory is excluded, so the directory itself is reopened first.
 !/.github/
 !/.github/**
+
+# SKIP-CENSUS-001 (chief round 106, Panya order 2026-08-20 ~15:45).  Actions run
+# #3 was the first time this suite ran anywhere but Panya's bridge, and four
+# tests went red reaching for evidence a fresh clone cannot have - FINDINGS R12
+# measured on a second machine at last.  The repair is a declared skip, and the
+# danger a declared skip introduces is that a real test drifts into the skip pile
+# unnoticed, so every allowed skip is pinned by module and count and the census
+# below is red when a count moves in either direction.  tests/ and docs/ are
+# already allow-listed wholesale, so only the tool needs a line here.
+!/tools/pf_pytest_precondition_census.py

@@ -335,6 +335,13 @@ py -3 -m pytest tests/test_multiplayer_readiness_audit.py -q
 
 The test parses the `AUDIT_COUNTS` block below out of this file and compares it to a live run of the verifier, so no number here can drift away from the tree. **Every number in the block is compared exactly** (this changed in round 84 — see the erratum at the foot of this document; the six `*_at_head` numbers used to be compared with `>=` and that is how a stale figure survived).
 
+**Re-pin, chief round 106 (2026-08-20): `package_b_pinned_test_functions` 52 -> 53.** Not drift and not a
+correction: `tests/test_population.py` is one of the six package-B pinned files, and round 106 added one test to
+it (`test_the_v94_provenance_paths_are_declared_machine_local`) so that the v94 provenance still has an assertion
+on a machine whose `backups/` tree does not exist. The pinned-impact number counts test functions in those files,
+so it had to move in the same commit as the test - which is the rule this block exists to enforce. Re-derived on
+the gate machine by `py -3 tools/pf_multiplayer_readiness_audit.py --json`, computed and not quoted.
+
 The `*_at_head` numbers describe commit `5cc0eda` and nothing else. They are pinned as constants in the verifier next to that commit and re-derived from it on every run with `git ls-tree` / `git cat-file`, so they can be proven wrong. The *live* suite size is reported by the verifier as `tests_total_files_today` / `tests_total_functions_today` and is deliberately not published here: a number that moves whenever anyone adds a test does not belong in a document that is not re-published when they do.
 
 ```json AUDIT_COUNTS
@@ -367,7 +374,7 @@ The `*_at_head` numbers describe commit `5cc0eda` and nothing else. They are pin
   "package_b_files_new": 2,
   "package_b_sites_covered": 6,
   "package_b_pinned_test_files": 6,
-  "package_b_pinned_test_functions": 52,
+  "package_b_pinned_test_functions": 53,
   "package_a_closure_test_files_at_head": 29,
   "package_a_closure_test_functions_at_head": 351,
   "package_b_closure_test_files_at_head": 27,

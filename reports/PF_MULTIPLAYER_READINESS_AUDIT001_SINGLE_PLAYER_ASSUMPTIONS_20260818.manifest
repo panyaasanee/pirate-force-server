@@ -63,6 +63,10 @@ Pirate Force ServerProject\tests\test_single_session_limitation.py|6245|76D9F0B1
 #
 # Verifier + regression test shipped with this report:
 #   (ref, unpinned) tools/pf_multiplayer_readiness_audit.py
-#   (ref, unpinned) tests/test_multiplayer_readiness_audit.py (24 tests, 26 subtests)
+#   (ref, unpinned) tests/test_multiplayer_readiness_audit.py (24 tests, 26 subtests
+#       as shipped 2026-08-18; 26 tests, 25 subtests after chief round 106 split the
+#       login-capture interlock into one test that needs the untracked capture and one
+#       that asserts on every machine, because Actions run #3 went red on the third
+#       subtest of test_interlock_facts_match from a fresh clone that has no capture)
 # Report (this file's sibling):
 #   (ref, unpinned) reports/PF_MULTIPLAYER_READINESS_AUDIT001_SINGLE_PLAYER_ASSUMPTIONS_20260818.md

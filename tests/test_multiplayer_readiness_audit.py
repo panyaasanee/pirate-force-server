@@ -46,6 +46,9 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+
+from pf_preconditions import LOGIN_REQ_CAPTURE  # noqa: E402
 TOOL = ROOT / "tools" / "pf_multiplayer_readiness_audit.py"
 REPORT = (
     ROOT / "reports"
@@ -212,13 +215,48 @@ class ExactCountTests(unittest.TestCase):
                 self.assertEqual(len(block["per_file"]), block["files"])
 
     def test_interlock_facts_match(self):
+        """The two facts the tool re-derives from tracked source alone.
+
+        ``login_req_capture_guard`` used to be a third key here.  It is not a
+        fact about tracked source: it is a fact about an untracked capture, so
+        on a fresh clone the tool honestly answered "skipped (untracked capture
+        absent)" while the pinned report still said "reproduced", and Actions
+        run #3 went red on the difference.  It now has two tests of its own
+        below, one for each machine, and NEITHER of them is weaker than this
+        line was.
+        """
         for key in (
             "checkpoint_calls_at_try_depth_zero",
             "game_listener_try_blocks_without_except",
-            "login_req_capture_guard",
         ):
             with self.subTest(key=key):
                 self.assertEqual(self.report[key], self.tool[key])
+
+    @LOGIN_REQ_CAPTURE.skip_unless_present()
+    def test_the_login_capture_guard_reproduces_where_the_capture_exists(self):
+        """On the bridge: exactly the assertion that used to live above."""
+        self.assertEqual(
+            self.report["login_req_capture_guard"],
+            self.tool["login_req_capture_guard"],
+        )
+        self.assertEqual(self.tool["login_req_capture_guard"], "reproduced")
+
+    def test_the_login_capture_guard_states_which_machine_it_is_on(self):
+        """Runs everywhere, and is an assertion on both machines.
+
+        Where the capture exists the tool must say ``reproduced`` - anything
+        else (``drifted``, ``missing id``, ``unreadable``) is a real failure
+        and is caught here as well as above.  Where it does not exist the tool
+        must say exactly ``skipped (untracked capture absent)`` and nothing
+        else, and the report's pin must still read ``reproduced``, because the
+        pin records what the bridge measured, not what this machine can see.
+        """
+        answer = self.tool["login_req_capture_guard"]
+        if LOGIN_REQ_CAPTURE.present:
+            self.assertEqual(answer, "reproduced")
+        else:
+            self.assertEqual(answer, "skipped (untracked capture absent)")
+            self.assertEqual(self.report["login_req_capture_guard"], "reproduced")
 
 
 class HistoricalSuiteSizeTests(unittest.TestCase):

@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "why": [
+    "A skipped check is not a passed check.  Actions run #3 (2026-08-20) was the",
+    "first time this suite ran on a machine that is not Panya's bridge, and four",
+    "tests went red because they reached for evidence that a clone cannot have.",
+    "The fix is a skip with a declared reason - but an unpinned skip is how a real",
+    "test drifts into the skip pile without anybody noticing, so every skip this",
+    "suite is allowed to produce is written down here, by module, with a count.",
+    "tools/pf_pytest_precondition_census.py compares this file against what pytest",
+    "actually reported and goes red when they disagree IN EITHER DIRECTION.",
+    "",
+    "HOW AN ENTRY IS EVALUATED (computed on the spot, never quoted):",
+    "  expected = 0        if the module was excluded from this pytest selection",
+    "  expected = 0        if the precondition's artifact IS present on this machine",
+    "  expected = 'count'  otherwise",
+    "So the same pin file is correct on the bridge (all artifacts present, nothing",
+    "excluded: 1 skip total) and on a fresh clone in CI (artifacts absent, the",
+    "client/corpus modules excluded: 4 skips).  Neither number is hand-typed for a",
+    "machine; both fall out of the same rule.",
+    "",
+    "TO CHANGE A NUMBER HERE you must change it in the same commit as the test that",
+    "moved it, exactly as COVERAGE_EVIDENCE_DEBT_PIN says about itself.  Round 105",
+    "spent a whole round on two pins that were measured before a fix and published",
+    "after it; do not add a third."
+  ],
+  "preconditions": [
+    {
+      "key": "canonical_db",
+      "module": "tests/test_damage_hp_link_dispatch.py",
+      "count": 2,
+      "tests": [
+        "HeadlessReplayToolTests::test_the_replay_tool_runs_clean_against_the_real_dispatcher",
+        "HeadlessReplayToolTests::test_the_replay_tools_output_is_pure_ascii"
+      ],
+      "note": "Both run the replay tool with no --db, so the tool falls back to the canonical database and exits 2 without it.  test_the_replay_tool_refuses_a_missing_database_in_pure_ascii covers the cp874 and exit-code contract on every machine and must never be added to this list."
+    },
+    {
+      "key": "backups_tree",
+      "module": "tests/test_population.py",
+      "count": 1,
+      "tests": [
+        "PopulationTransitionTests::test_natural_v94_provenance_is_exact_and_read_only"
+      ],
+      "note": "Reads two v94 capture files under backups/.  test_the_v94_provenance_paths_are_declared_machine_local keeps a real assertion on the same golden data everywhere."
+    },
+    {
+      "key": "login_req_capture",
+      "module": "tests/test_multiplayer_readiness_audit.py",
+      "count": 1,
+      "tests": [
+        "ExactCountTests::test_the_login_capture_guard_reproduces_where_the_capture_exists"
+      ],
+      "note": "test_the_login_capture_guard_states_which_machine_it_is_on asserts on BOTH machines - 'reproduced' where the capture exists, exactly 'skipped (untracked capture absent)' where it does not - so nothing goes silent here."
+    }
+  ],
+  "design_skips": [
+    {
+      "reason": "runtime.py now carries the dispatcher branch",
+      "module": "tests/test_runtimeres_death_hypothesis.py",
+      "count": 1,
+      "note": "Not a missing artifact: the test guarded a transitional state that the source has since left behind.  It is pinned so it cannot quietly become two."
+    }
+  ]
+}

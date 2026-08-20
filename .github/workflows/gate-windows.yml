@@ -309,7 +309,14 @@ jobs:
             '',
             'Also NOT run: the tests/ modules that read the client image or the capture',
             'corpus.  They are excluded BY NAME and the complete list is printed by the',
-            'gate step below.  Nothing is dropped quietly.'
+            'gate step below.  Nothing is dropped quietly.',
+            '',
+            'Inside the modules that DO run, individual tests that need evidence a clone',
+            'cannot have now skip with a declared reason instead of failing (run #3,',
+            '2026-08-20).  Every one of those skips is named, counted and PINNED in',
+            'docs/PYTEST_SKIP_PINS.json, and the skip_census step is red if a count moves',
+            'in either direction.  A skipped check is still not a passed check - the point',
+            'of the census is that you can see exactly which ones they are.'
           )
           $lines | ForEach-Object { Write-Host $_ }
           $md = @('## Checks this runner cannot perform', '', '```') + $lines + @('```')
@@ -379,7 +386,32 @@ jobs:
           $excluded | ForEach-Object { Write-Host "    - $_" }
           $ignoreArgs = @()
           foreach ($m in $excluded) { $ignoreArgs += '--ignore'; $ignoreArgs += $m }
-          Step 'pytest_subset'  { py -3 -m pytest tests -q -p no:cacheprovider @ignoreArgs }
+
+          # -rs is load-bearing, not decoration: it makes pytest print every
+          # skip with its reason, which is the input the census below reads.
+          # Run #3 (2026-08-20) was red here on four tests that reached for
+          # evidence a clone cannot have; they now skip with a declared reason,
+          # and the census makes sure a skip can never be mistaken for a pass.
+          $tmp = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { $env:TEMP }
+          $pytestLog    = Join-Path $tmp 'pf_pytest_subset.txt'
+          $excludedFile = Join-Path $tmp 'pf_pytest_excluded.txt'
+          $excluded | Set-Content -Path $excludedFile -Encoding ascii
+          Step 'pytest_subset'  { py -3 -m pytest tests -q -rs -p no:cacheprovider @ignoreArgs 2>&1 | Tee-Object -FilePath $pytestLog }
+
+          # ---- 5b. the skip census: a skipped check is not a passed check ---
+          # Printed IN FULL, by name and reason, before it is graded.  The
+          # counts are pinned in docs/PYTEST_SKIP_PINS.json and the census is
+          # red if any of them moves in EITHER direction - a test drifting into
+          # the skip pile is exactly as much of a defect as one drifting out.
+          Write-Host ''
+          Write-Host '--- skip census (every skip named, with its reason) ---'
+          $censusText = & py -3 tools\pf_pytest_precondition_census.py --report $pytestLog --excluded $excludedFile 2>&1
+          $censusText | ForEach-Object { Write-Host "  $_" }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            $md = @('## Skip census', '', '```') + ($censusText | ForEach-Object { "$_" }) + @('```')
+            $md | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          }
+          Step 'skip_census'    { py -3 tools\pf_pytest_precondition_census.py --report $pytestLog --excluded $excludedFile }
 
           # ---- 6. coverage, with its evidence debt pinned --------------------
           Write-Host ''

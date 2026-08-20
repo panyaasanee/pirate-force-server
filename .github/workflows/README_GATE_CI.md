@@ -94,6 +94,7 @@ and exit 0 would be the failure.
 | `corpus` | `py -3 tools\pf_capture_corpus.py` | exit 0 | **NO** - needs untracked `backups/**/capture_v131` |
 | `hlhold` | `py -3 tools\pf_hp_death002_headless_replay.py --profile dying_hold` | exit 0 | yes |
 | `pytest` | `py -3 -m pytest tests -q` | exit 0 | **partial** - client-free subset only, 39 modules excluded by name |
+| `skip_census` | `py -3 tools\pf_pytest_precondition_census.py --report <pytest -rs log> --excluded <list>` | exit 0: every skip declared, named and matching its pin | yes (added round 106; 42 modules is the count the grep produces today, not the 39 written above) |
 | `seam` | `py -3 -m pytest tests\test_foundation_legacy_seam.py -q` | exit 0 | yes |
 | `ledger` | `py -3 tools\verify_hypothesis_ledger.py` | exit 0, `entries=31` | yes |
 | `coverage` | `py -3 tools\verify_functional_coverage.py` | exit 0, `OPEN DOMAINS 8` | **NO, and not for a runner reason** - see below |
@@ -300,6 +301,91 @@ Steps never yet executed on a runner, in run order: `cp874 static tripwire`
 (now expected to pass), `Declare what this runner CANNOT check`, `THE GATE`.
 Expect run #3 to be the first to reach them.
 
+> **SUPERSEDED by run #3, below.** All three did run, and all three behaved as
+> written here. The paragraph stays because the prediction is part of the record.
+
+### Run #3 (2026-08-20, HEAD `7f893b8`): `THE GATE` runs, and the last red is the honest one
+
+21 of 22 steps green. `THE GATE` executed in full for the first time, in 3m50s.
+Both pins round 105 lowered came back green (`coverage_debt` exit 0, `coverage`
+exit 0), `release_determinism` produced identical A/B build hashes, and
+`replayx exit=2 expect=2` proved the non-zero expectation machinery works.
+
+The one red was `pytest_subset`: `4 failed, 912 passed, 1486 subtests passed in
+217s`. All four failures were the same defect, and it was not a runner defect
+and not a flake - it was **the repository, telling the truth about itself for
+the first time**. Four tests reach for evidence that a clone cannot contain:
+
+| test | needs |
+|---|---|
+| `test_damage_hp_link_dispatch.py::HeadlessReplayToolTests::test_the_replay_tool_runs_clean_against_the_real_dispatcher` | the canonical database |
+| `test_damage_hp_link_dispatch.py::HeadlessReplayToolTests::test_the_replay_tools_output_is_pure_ascii` | the canonical database |
+| `test_multiplayer_readiness_audit.py::ExactCountTests::test_interlock_facts_match` | the untracked LOGIN capture |
+| `test_population.py::PopulationTransitionTests::test_natural_v94_provenance_is_exact_and_read_only` | the machine-local `backups/` tree |
+
+**Read the second one carefully.** Its message is `AssertionError: 2 != 0`, and
+the test is named `..._is_pure_ascii`, so the log invites you to read `2` as a
+count of non-ASCII bytes. It is not. It is a **return code**: the tool exits 2
+when there is no database, at `tools/pf_damage_hp_link_headless_replay.py:481`,
+and the failing line is `assertEqual(completed.returncode, 0)`. A test whose
+first assertion is not the thing its name promises will misdescribe its own
+failure. That is now a rule in this project.
+
+This is `pf_bridge/FINDINGS_R12_GATE_NOT_REPRODUCIBLE_FROM_GIT.md` measured on
+a second machine for the first time. R12 said in August "the gate passes because
+of THIS MACHINE, not because of the repository", but measured it by simulation.
+Run #3 is the number:
+
+| | the bridge | this runner |
+|---|---|---|
+| | 1,860 passed, 1 skipped | 912 passed, 1,486 subtests, 4 failed |
+
+**Round 106's repair, per Panya's ruling: at the test, never at the CI side.**
+An `--ignore` entry would have made those four disappear from the runner while
+the suite still printed a healthy-looking number. Instead each one now declares
+its precondition through `tests/pf_preconditions.py` and skips with a reason
+that begins `[precondition:<key>]`, on *every* machine - and three new tests
+were added so that skipping does not take a still-checkable property down with
+it (the replay tool's cp874 output and exit-code contract are now proved on the
+refusal path, which a clone can reach; the v94 provenance paths are still
+asserted to be machine-local; the login-capture guard is still asserted to say
+exactly `skipped (untracked capture absent)` where the capture is missing).
+
+The new `skip_census` step is the other half. See the next section.
+
+## The skip census - "a skipped check is not a passed check"
+
+`tools/pf_pytest_precondition_census.py` reads the `-rs` transcript that
+`pytest_subset` now tees to disk, groups every skip, prints them **by name with
+their reason**, and grades them against `docs/PYTEST_SKIP_PINS.json`. Each pin
+is evaluated, never quoted:
+
+```
+expected = 0            if the module was excluded from this selection
+expected = 0            if the precondition's artifact IS present here
+expected = pinned count otherwise
+```
+
+so one pin file is correct on both machines: 1 skip on the bridge (a design
+skip, not a missing artifact), 4 on a fresh clone in CI. It is red when a count
+moves **in either direction** - a real test drifting *into* the skip pile is at
+least as dangerous as one drifting out - and red on a skip that carries no
+declared precondition at all, which is how an undeclared skip gets caught the
+first time somebody writes one.
+
+**Known and deliberately not yet fixed:** the `--ignore` list still hides 42
+modules from this runner, and the census cannot see what was never collected.
+Round 106 measured that hole rather than closing it
+(`pf_bridge/FACTPACK_R106_PYTEST_EXCLUSION_INVENTORY.md`): nine of the 42 are
+false positives of the `GameClient|capture_v141` grep - seven of them matched
+because their docstring says the words "no GameClient" - and pass 100% on a
+fresh clone with no artifacts at all. Removing those nine returns 398 tests to
+the runner without editing a single test. That is the first item of the next
+round; it was left out of this one because it can only be verified on Linux and
+Python 3.10 here, and shipping an unverified 398-test expansion alongside the
+fix that had to land would be the same "green on one machine" mistake this
+whole milestone is about.
+
 ## Two runner requirements that are not obvious
 
 - **`fetch-depth: 0`.** `tools/pf_multiplayer_readiness_audit.py` runs
@@ -405,6 +491,28 @@ You do not need a branch. Recipes 1-4 all depend on the encoding being armed;
 the `SELF-CHECK` step re-proves that on every run by asserting that
 `print('\U0001F534')` fails and that exit code 23 propagates. If either
 assertion stops holding, the job goes red immediately.
+
+### 6. The skip census
+
+This one has already been seen red, on purpose, before it shipped:
+`tests/test_pytest_precondition_census.py` plants one extra skip, removes one
+pinned skip, moves a skip onto a machine that has the artifact, adds a skip with
+no declared reason, and adds one naming a precondition that is not in the
+registry - and requires the census to refuse each. To see it red in CI instead:
+
+```
+# add to any test method in a module the runner actually runs:
+    def test_planted(self):
+        self.skipTest("no reason at all")
+# expected: skip_census exit=1, "UNDECLARED SKIP: tests/... skipped 1 test(s)"
+```
+
+The reverse direction matters more and is the harder one to remember to check:
+delete `@CANONICAL_DB_PRECONDITION.skip_unless_present()` from one of the two
+guarded tests in `tests/test_damage_hp_link_dispatch.py` and the census goes red
+with `PIN DRIFT ... pinned 2, observed 1`. **That** is the failure mode the pin
+exists for - a test quietly leaving the guarded set, on a machine where nobody
+would have noticed it stopped running.
 
 ---
 

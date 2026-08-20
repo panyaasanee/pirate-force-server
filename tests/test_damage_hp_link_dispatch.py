@@ -59,6 +59,16 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "tests"))
+
+# Actions run #3 (2026-08-20) went red here on a fresh clone: the two tests
+# below run the replay tool with no arguments, the tool then defaults to the
+# canonical database, and a clone has no canonical database - so the tool
+# returned 2 and the assertions read that 2 as a failure.  The precondition
+# registry states that dependency out loud instead.  See tests/pf_preconditions.py.
+from pf_preconditions import (  # noqa: E402
+    CANONICAL_DB as CANONICAL_DB_PRECONDITION,
+)
 
 from pirateforce_foundation.chat_input_hypothesis import (  # noqa: E402
     CHAT_INPUT_PROBE_REQUEST_PCS,
@@ -915,6 +925,7 @@ class HeadlessReplayToolTests(unittest.TestCase):
     @unittest.skipUnless(
         REPLAY_TOOL.exists(),
         "tools/pf_damage_hp_link_headless_replay.py is not written yet")
+    @CANONICAL_DB_PRECONDITION.skip_unless_present()
     def test_the_replay_tool_runs_clean_against_the_real_dispatcher(self):
         completed = self._run()
         self.assertEqual(
@@ -927,6 +938,7 @@ class HeadlessReplayToolTests(unittest.TestCase):
     @unittest.skipUnless(
         REPLAY_TOOL.exists(),
         "tools/pf_damage_hp_link_headless_replay.py is not written yet")
+    @CANONICAL_DB_PRECONDITION.skip_unless_present()
     def test_the_replay_tools_output_is_pure_ascii(self):
         """cp874 on a Windows console turns one non-ASCII byte into a crash."""
         completed = self._run()
@@ -934,6 +946,37 @@ class HeadlessReplayToolTests(unittest.TestCase):
         self.assertTrue(
             all(byte < 128 for byte in completed.stdout),
             "the tool printed a non-ASCII byte",
+        )
+        completed.stdout.decode("ascii")
+        completed.stderr.decode("ascii")
+
+    @unittest.skipUnless(
+        REPLAY_TOOL.exists(),
+        "tools/pf_damage_hp_link_headless_replay.py is not written yet")
+    def test_the_replay_tool_refuses_a_missing_database_in_pure_ascii(self):
+        """Runs on EVERY machine, fresh clone included.
+
+        The two tests above need the canonical database and skip without it.
+        Skipping must not take the cp874 tripwire and the exit-code contract
+        down with them, so this test exercises the one path a clone can reach:
+        point the tool at a database that certainly is not there and require a
+        named refusal, exit 2, and not one byte above 0x7F.  Round 105's
+        lesson, applied to skips: a check that vanishes on the second machine
+        is a check that only ever tested the first one.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "there-is-no-database-here.sqlite3"
+            self.assertFalse(missing.exists())
+            completed = self._run("--db", str(missing))
+        self.assertEqual(
+            completed.returncode, 2,
+            completed.stdout.decode("utf-8", "replace")
+            + completed.stderr.decode("utf-8", "replace"),
+        )
+        self.assertIn(b"no database file at", completed.stdout)
+        self.assertTrue(
+            all(byte < 128 for byte in completed.stdout),
+            "the tool printed a non-ASCII byte on its refusal path",
         )
         completed.stdout.decode("ascii")
         completed.stderr.decode("ascii")
