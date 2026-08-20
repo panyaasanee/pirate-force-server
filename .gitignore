@@ -489,6 +489,13 @@
 !/.github/
 !/.github/**
 
+# ---- subagent definitions, so a cloud round has the same specialists a bridge
+# round had.  Claude Code picks these up automatically from the cloned repo.
+# Both lines are needed: line 1 of this file is `/*`, and git does not descend
+# into a directory it has already excluded.
+!/.claude/
+!/.claude/**
+
 # SKIP-CENSUS-001 (chief round 106, Panya order 2026-08-20 ~15:45).  Actions run
 # #3 was the first time this suite ran anywhere but Panya's bridge, and four
 # tests went red reaching for evidence a fresh clone cannot have - FINDINGS R12
@@ -504,3 +511,12 @@
 # only the verifier tool and the report need their own lines here.
 !/tools/verify_loot_roller.py
 !/reports/PF_LOOT_ROLL001_SERVER_SIDE_ROLLER_20260820.md
+
+# NPC-HP-LINK-001 (HYP-PF-029, chief round 111).  The first lane in this tree
+# that moves a TARGET's hit points: eight frames alternating the VitalData hit
+# carrier with the actor-entry target carrier over a server-held balance ladder.
+# The two tools shipped with it were invisible to git until this block landed,
+# which made the ledger cite files a fresh clone could not have.
+!/tools/verify_npc_hp_link_encoder.py
+!/tools/pf_npc_hp_link_headless_replay.py
+!/reports/PF_NPC_HP_LINK029_GT027_RERUN_ATTENDED_RESULT_20260820.md
