@@ -250,8 +250,20 @@ class TestTheAnswer(unittest.TestCase):
         self.assertEqual(counts["actionable_server_gaps"], 0)
         # Round 96: the two src/ actor-entry counts moved 5 -> 6 when the
         # remote-player probe was added; the death-chain claims above did not.
-        self.assertEqual(counts["src_actor_stream_call_sites"], 6)
-        self.assertEqual(counts["src_actor_entry_call_sites"], 6)
+        # Round 99: they move 6 -> 7 for NPC-HOSTILE-001 (HYP-PF-027), which
+        # spawns the same frozen NPC 0x2001 plus a five-byte faction splice.
+        # The new module builds an entry but NEVER names the death-timer bit
+        # (it forbids every non-0x070C bit by strict mask equality), so the
+        # SET and FORBID censuses above are BOTH unmoved -- exactly the guard
+        # that proves the third actor-entry builder is not a third timer
+        # emitter.
+        self.assertEqual(counts["src_actor_stream_call_sites"], 7)
+        self.assertEqual(counts["src_actor_entry_call_sites"], 7)
+        self.assertEqual(counts["src_modules_building_actor_entries"], 6)
+        self.assertIn(
+            "npc_hostile_hypothesis.py",
+            counts["src_modules_building_actor_entries_names"],
+        )
         # gap 2 is the one worth keeping a test on.  The round-85 measure -
         # the literal `current_hp = 0` - is STILL zero, because the encoder
         # passes its zero through a named constant.  That guard was about to

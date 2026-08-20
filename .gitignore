@@ -454,3 +454,12 @@
 !/tools/verify_damage_hp_link_encoder.py
 !/tools/pf_damage_hp_link_headless_replay.py
 !/reports/PF_DAMAGE_HP_LINK001_HIT_BLEED_DIE_LINK_20260820.md
+
+# NPC-HOSTILE-001 (HYP-PF-027, chief round 99).  Door A of the mob-aggro design:
+# make the first Port Royal placement PRESENT as hostile, pairing the SCENE-005
+# player faction 1 on the StartGame entry with a five-byte BasicAttr faction
+# splice on the proven HYP-PF-023 spawn.  Our composition, not the original
+# server's, which is unrecoverable.
+!/tools/verify_npc_hostile_encoder.py
+!/tools/pf_npc_hostile_headless_replay.py
+!/reports/PF_NPC_HOSTILE001_DOOR_A_HOSTILE_PRESENTATION_20260820.md

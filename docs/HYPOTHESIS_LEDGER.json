@@ -2523,6 +2523,98 @@
           "active_claim_marker": true
         }
       ]
+    },
+    {
+      "id": "HYP-PF-027",
+      "kind": "protocol_hypothesis",
+      "introduced_checkpoint": "NPC-HOSTILE-001",
+      "exact_value_or_transform": "Behind the explicit npc-hostile opt-in scenario only (scenarios/npc_hostile_hypothesis_faction_pairing.json, reached only through the new CLI flag --npc-hostile-hypothesis-scenario, which requires an explicit existing --db and is mutually exclusive with every other scenario mode), deliver BOTH halves of the SCENE-005 faction pairing that a real client already rendered as hostile. ENTRY HALF: recompose the full-writable StartGame response through the frozen player_wire.make_actor_attr_with_basic_faction serializer -- the exact SCENE-005/SCENE-007 probe, which accepts ONLY faction 1, scene_seq 0, scene_id 1 or 2 -- and ONLY when the selected character is the canonical smoke identity 0x10010001/0 the pins were computed for; any other identity or any serializer refusal or any length drift falls back to the byte-identical production StartGame with a named event. SWEEP HALF: answer ONE accepted 34-byte ascii12 chat-input frame with ONE GSCN_RunTimeProtocolRes id 0x6E9D version 4 actor-entry frame (derived change mask bit 0x02, object +0x1C, actor_type 4 CNetNPC) for the frozen Port Royal placement NPC 0x2001 -- the HYP-PF-023 SPAWN body (alive HP 100/100, full-mask MovementAttr, visual preset) plus EXACTLY a five-byte BasicAttr faction splice: bit 0x0400 (u32 tag 0x14 at object +0x68) carrying value 6, in ascending mask-bit order after the 0x0200 scene sequence, widening the BasicAttr mask by exactly one bit from 0x030C to 0x070C. THE FACTION VALUES ARE OURS, NOT THE ORIGINAL SERVER'S, WHICH IS UNRECOVERABLE: SCENE-005 rendered the pair (player 1, NPC 6) hostile on a real screen and the arena-v2 negative proved NPC 6 alone against the constructor-default player 0 is neutral, which is exactly why both halves must be sent. The HOSTILE_SPAWN body is COPIED from the HYP-PF-023 SPAWN composer with a cross-lane byte-equality guard, never imported: the composed PC is byte-identical to the parent lane's own SPAWN PC except the five faction bytes at the ascending-order splice and the one mask bit, so this lane can drift from its parent only by turning two verifiers red at once. Label HYP_PF_027_NPC_HOSTILE_HOSTILE_SPAWN, first delay 0.0 then spacing 15.0 s (the round-84 photography lesson; only one frame here), one-shot, and pc size 178 / frame size 190 sha-pinned in module and scenario alike for the pinned probe.",
+      "scope": "Server-side emission of the one pinned hostile-spawn frame plus the frozen faction-1 StartGame recomposition to the ONE connected client, behind the one opt-in scenario only, for the canonical smoke identity 0x10010001 ONLY on the entry side and the frozen Port Royal placement NPC 0x2001 ONLY on the sweep side: the sweep dispatcher refuses by name (npc_hostile_hypothesis_player_identity_not_pinned_no_reply) unless the selected actor IS the pinned smoke identity, and refuses by name (npc_hostile_hypothesis_player_faction_not_applied_no_reply) unless the entry half actually applied the faction-1 StartGame -- half a pairing re-runs the arena-v2 proven neutral and answers nothing. The NPC faction is pinned to 6 and the player faction to 1; every other value refuses by name, and both are OUR composition. No attack, no behavior id, no movement beyond the placement itself, no name bit on the spawn, no second identity, no persistence: faction is a wire field, NOT a database column -- no schema change, no write path. No socket action, no broadcast, no change to the HYP-PF-022/023/024/025/026 lanes or their bytes, and no production or default-mode path exists.",
+      "status": "active",
+      "provenance": "Opened by the chief's round 99 (2026-08-20) under the owner's standing pre-approval for newly found gameplay functions under the standard pattern (opt-in, production_allowed false, fail closed, ledger/verifier/matrix, headless proof), and directly on the round-98 mob-aggro design draft (drafts/MOB_AGGRO_SERVER_AI_STATIC_AND_DESIGN_R98_20260820.md) which named Door A -- hostile presentation -- as the sole proven-ground first checkpoint. SCENE-005 proved the relation pair (player 1, NPC 6) renders hostile on a real screen; the arena-v2 negative and the 1,023-call relation-comparator trace proved NPC 6 against the constructor-default player 0 is neutral; HYP-PF-023 proved the actor-entry pipe delivers a spawn for NPC 0x2001 a real client renders (GT-022/GT-025). This entry pairs those proven pieces: one module (composer + splice + validator + the runtime entry recomposition), one scenario, the runtime.py dispatch branch, a 63-guard pure-stdlib offline verifier that recomposes the pin, diffs byte-for-byte against the parent lane's own SPAWN composer and drives every named refusal, a 52-guard headless replay through the real dispatcher on a throwaway copy of the database whose independent walker reads the faction field back FROM THE BYTES, and tests including the cross-lane byte-equality and the exact-allowlist scenario traps.",
+      "evidence_refs": [
+        "reports/PF_NPC_HOSTILE001_DOOR_A_HOSTILE_PRESENTATION_20260820.md",
+        "drafts/MOB_AGGRO_SERVER_AI_STATIC_AND_DESIGN_R98_20260820.md",
+        "reports/PF_SCENE005_FACTION1_HOSTILE_RELATION_RUNTIME_PASS_20260815.md",
+        "reports/PF_FOUNDATION_ARENA_V2_FACTION_ONLY_NEGATIVE_20260815.md",
+        "reports/PF_RELATION_COMPARATOR_RUNTIME_TRACE_20260815.md",
+        "reports/PF_RUNTIMERES_ACTOR_ENTRY001_STATIC_20260819.md",
+        "scenarios/npc_hostile_hypothesis_faction_pairing.json",
+        "tools/verify_npc_hostile_encoder.py",
+        "tools/pf_npc_hostile_headless_replay.py",
+        "tests/test_npc_hostile_hypothesis.py",
+        "tests/test_npc_hostile_dispatch.py"
+      ],
+      "accepted_ceiling": "Composing, and dispatching, the exact one hostile-spawn frame plus the frozen faction-1 StartGame recomposition behind the explicit opt-in only, with the spawn PC byte-identical to the HYP-PF-023 SPAWN composer's output except the five faction bytes and the one mask bit, proven by cross-lane equality against the parent's own composer and re-read from the dispatched bytes by an independent tag walker inside tools/pf_npc_hostile_headless_replay.py that never imports the module's decoder. The ceiling is the WIRE and DISPATCHER layer: the frame is proven to leave the real make_state_class dispatcher on a throwaway copy of the database, with the pinned label and 0.0 delay, hash-equal to the module and scenario pins, one-shot, refusing every foreign identity and every unapplied pairing by name; and the StartGame is proven to carry the frozen faction-1 ActorAttr bytes for the pinned identity and the production bytes for any other. It does NOT reach the client layer by one millimetre and has never touched a socket.",
+      "evidence_gap": "NO CLIENT HAS EVER BEEN SHOWN ONE BYTE OF THIS PROFILE. Whether the real client renders NPC 0x2001 as hostile -- red outline, red Tab target panel/arrow (there is no name board; this spawn carries no name bit) -- when the server declares its faction the way SCENE-005 rendered a faction on the scene-load NPC 0x203D is unmeasured and is exactly the queued attended test, GT-032, WHICH HAS NOT RUN. SCENE-005 proved the relation on a SCENE-LOAD NPC and on a faction injected onto the LOCAL PLAYER; whether the same pair renders hostile on an actor-entry-PROJECTED NPC is the open question, and a negative (no hostile presentation from a spawn-time faction bit on this pipe) is itself informative and would redirect Door A. This lane has never been driven through a real server process over TCP: the proof stops at the dispatcher.",
+      "falsification": "Retire or redesign this lane if a real client rejects or errors on the frame (an ErrorData=28317 stream error falsifies the actor-entry envelope for this shape); if the projected NPC 0x2001 does NOT present as hostile while the SCENE-005 scene-load pairing still does (which would mean a spawn-time faction bit on the actor-entry pipe does not reach the relation read, and Door A must be set some other way); if the spawn frame ever stops reproducing the HYP-PF-023 SPAWN composer's bytes plus exactly the splice; or if this lane is ever observed to write any database row, take any socket action, carry any BasicAttr bit other than the pinned 0x070C mask, or fire for an identity other than the pinned ones. A client that renders the spawn but shows it neutral does not falsify the wire claim -- it answers the hostility question in the negative and is recorded as a result, not a failure.",
+      "stop_rule": "Compose only the one pinned hostile-spawn frame, only for the pinned probe NPC 0x2001, only with the pinned faction values (NPC 6, player 1), only for the pinned smoke identity 0x10010001 on the entry side, only behind the one opt-in scenario file, and only with the lane's identity-compared wire unlock. ONE-SHOT per process. What is forbidden is WIDENING: another NPC target, another faction value, a name bit on the spawn, an attack or behavior id, movement beyond the placement, a persistent faction, a database column, or a second profile is a NEW VERSION of this entry -- two tracked slots remain -- or a new entry. Do not enable production or default-mode exposure. Stop and record if the first attended observation shows the projected NPC neutral while the scene-load pairing still renders hostile.",
+      "production_allowed": false,
+      "expiry": {
+        "tracked_versions": [
+          "NPC-HOSTILE-001"
+        ],
+        "decision": "Opened 2026-08-20 (chief round 99) under the owner's standing gameplay pre-approval of 2026-08-19; one version is tracked because one milestone built the whole lane (composer + splice + runtime entry recomposition + dispatch + 63-guard verifier + 52-guard replay + tests) in one round. Proven offline against the parent lane's own SPAWN composer as a byte oracle and through the real dispatcher on a throwaway database copy; never driven over TCP and never seen by a client. TWO versions of the three remain. Confirm the client-observable layer as the queued attended test (GT-032 in the chief's queue) -- specifically whether the projected NPC 0x2001 presents as hostile the way the SCENE-005 scene-load NPC did -- before any retire, freeze or extend decision, and do not move any coverage row grade until it has run."
+      },
+      "max_versions": 3,
+      "extension_approval_ref": null,
+      "source_refs": [
+        {
+          "path": "src/pirateforce_foundation/npc_hostile_hypothesis.py",
+          "required_markers": [
+            "PF-HYPOTHESIS-LEDGER: HYP-PF-027 active",
+            "production_allowed = False",
+            "build_npc_hostile_sweep",
+            "validate_npc_hostile_sweep",
+            "require_npc_hostile_hypothesis_scenario",
+            "npc_hostile_wire_unlock",
+            "encode_hostile_npc_attr",
+            "NPC_HOSTILE_BASIC_MASK = HYP23_SPAWN_BASIC_MASK | BASIC_BIT_FACTION",
+            "NPC_HOSTILE_NPC_FACTION_VALUE = 6",
+            "NPC_HOSTILE_PLAYER_PAIR_FACTION = 1",
+            "NPC_HOSTILE_PROBE_ACTOR_IDENTITY = 0x2001",
+            "faction_values_1_and_6_are_our_composition_not_the_original_servers_which_is_unrecoverable"
+          ],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/runtime.py",
+          "required_markers": [
+            "PF-HYPOTHESIS-LEDGER: HYP-PF-027 active",
+            "_dispatch_npc_hostile_hypothesis",
+            "_npc_hostile_start_game_response",
+            "npc_hostile_hypothesis_faction_pairing_sent",
+            "npc_hostile_hypothesis_already_sent_no_reply",
+            "npc_hostile_hypothesis_wrong_sequence_no_reply",
+            "npc_hostile_hypothesis_no_selected_no_reply",
+            "npc_hostile_hypothesis_player_identity_not_pinned_no_reply",
+            "npc_hostile_hypothesis_player_faction_not_applied_no_reply",
+            "build_npc_hostile_sweep"
+          ],
+          "active_claim_marker": true
+        },
+        {
+          "path": "src/pirateforce_foundation/app.py",
+          "required_markers": [
+            "PF-HYPOTHESIS-LEDGER: HYP-PF-027 active",
+            "--npc-hostile-hypothesis-scenario requires an explicit "
+          ],
+          "active_claim_marker": true
+        },
+        {
+          "path": "scenarios/npc_hostile_hypothesis_faction_pairing.json",
+          "required_markers": [
+            "\"hypothesis_id\": \"HYP-PF-027\"",
+            "\"hypothesis_id_is_registered_in_the_ledger\": true",
+            "\"production_allowed\": false",
+            "\"test_only\": true",
+            "\"one_shot\": true",
+            "\"database_write\": \"none\"",
+            "faction_values_1_and_6_are_our_composition_not_the_original_servers_which_is_unrecoverable"
+          ],
+          "active_claim_marker": true
+        }
+      ]
     }
   ]
 }

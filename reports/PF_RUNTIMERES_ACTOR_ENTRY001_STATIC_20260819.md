@@ -259,9 +259,17 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
   "or_0x40_on_offset_0x70_sites": 3,
   "runtimeres_literal_occurrences_in_image": 0,
   "server_call_sites_emitting_zero_current_hp": 0,
-  "src_actor_entry_call_sites": 6,
-  "src_actor_stream_call_sites": 6,
-  "src_modules_building_actor_entries": 5,
+  "src_actor_entry_call_sites": 7,
+  "src_actor_stream_call_sites": 7,
+  "src_modules_building_actor_entries": 6,
+  "src_modules_building_actor_entries_names": [
+    "npc_hostile_hypothesis.py",
+    "population.py",
+    "remote_player_hypothesis.py",
+    "runtimeres_death_hypothesis.py",
+    "scenario.py",
+    "scene_object.py"
+  ],
   "src_modules_doing_both": 1,
   "src_modules_doing_both_names": [
     "runtimeres_death_hypothesis.py"
@@ -495,3 +503,27 @@ wrong — the two moved numbers live in the `RUNTIMERES_COUNTS` block, which is 
 live mirror of a tool run and is expected to move when we write code; both are
 re-pinned in the tool with the new module named beside the count, and the
 `guards` total stays **152** (two values re-pinned, no guard added or removed).
+
+## NOTE — round 99 (2026-08-20): three live-mirror counts move for NPC-HOSTILE-001
+
+`src_actor_entry_call_sites` moves **6 -> 7**, `src_actor_stream_call_sites`
+moves **6 -> 7**, and `src_modules_building_actor_entries` moves **5 -> 6**,
+because `npc_hostile_hypothesis.py` (HYP-PF-027, the mob-aggro Door A
+hostile-presentation lane) spawns the SAME frozen NPC `0x2001` this report's
+death lane kills — the identical HYP-PF-023 SPAWN body plus exactly a
+five-byte BasicAttr faction splice (bit `0x0400`, u32 value 6, our
+composition per SCENE-005).
+
+Note the THIRD category this creates alongside the round-96 SET/FORBID
+split: the new module builds an actor entry and **never names the
+death-timer bit at all**. Its walker requires the BasicAttr mask to equal
+`0x070C` exactly, which forbids every other bit *structurally* rather than
+by name, so `src_modules_mentioning_basicattr_bit_0x0080` stays **5**, the
+SET census stays exactly the death lane, and the forbid census stays exactly
+the visibility probe. All three timer censuses staying put is the design
+working, not an omission. This is a NOTE rather than an erratum because no
+published sentence was wrong — the moved numbers live in the
+`RUNTIMERES_COUNTS` block, a live mirror of a tool run that is expected to
+move when we write code; all three are re-pinned in the tool with the new
+module named beside the count, and the `guards` total stays **152** (three
+values re-pinned, no guard added or removed).

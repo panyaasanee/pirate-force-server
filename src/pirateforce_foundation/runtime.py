@@ -89,6 +89,15 @@ from .damage_model_hypothesis import (
     resolve_actor as resolve_damage_model_actor,
 )
 from .population_scenario import require_population_scenario
+from .npc_hostile_hypothesis import (
+    NPC_HOSTILE_PLAYER_FACTION_WIRE_DELTA,
+    NPC_HOSTILE_PLAYER_IDENTITY_HI,
+    NPC_HOSTILE_PLAYER_IDENTITY_LO,
+    build_npc_hostile_sweep,
+    npc_hostile_wire_unlock,
+    require_npc_hostile_hypothesis_scenario,
+    resolve_probe as resolve_npc_hostile_probe,
+)
 from .remote_player_hypothesis import (
     build_remote_player_sweep,
     remote_player_wire_unlock,
@@ -148,6 +157,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                      damage_model_hypothesis_scenario=None,
                      damage_hp_link_hypothesis_scenario=None,
                      remote_player_hypothesis_scenario=None,
+                     npc_hostile_hypothesis_scenario=None,
                      second_password_mode="required",
                      monotonic_clock=None,
                      close_timer_factory=None):
@@ -164,6 +174,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         damage_model_hypothesis_scenario,
         damage_hp_link_hypothesis_scenario,
         remote_player_hypothesis_scenario,
+        npc_hostile_hypothesis_scenario,
     ))
     if active_modes > 1:
         raise ValueError(
@@ -172,8 +183,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             "message hypothesis, delete actor hypothesis, delete refresh "
             "hypothesis, stats progression hypothesis, hp death hypothesis, "
             "runtimeres death hypothesis, damage model hypothesis, damage "
-            "hp link hypothesis, and remote player hypothesis scenarios "
-            "are mutually exclusive"
+            "hp link hypothesis, remote player hypothesis, and npc hostile "
+            "hypothesis scenarios are mutually exclusive"
         )
     # DELETE-REFRESH-001 and HYP-PF-015 key on the same vital id 0x36DB, so
     # they must never be able to see the same frame: the mutual-exclusion
@@ -320,6 +331,32 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             remote_player_hypothesis_scenario
         )
         remote_player_probes = resolve_remote_player_probes(legacy)
+    # NPC-HOSTILE-DISPATCH (HYP-PF-027; the ledger annotation for this lane
+    # lives once per file, on the dispatch method below).  Same shape as the
+    # lanes above: the wire unlock token is derived ONCE, here, from the
+    # allowlisted scenario object, and it is the only value in this process
+    # that lets anything put BasicAttr bit 0x0400 on the actor-entry wire.
+    # The probe is resolved ONCE, here, so a drift in the frozen placement
+    # source refuses at construction time rather than mid-session.
+    #
+    # This lane rides the SAME carrier and the SAME probe as the death lane
+    # (0x6E9D, derived mask bit 0x02, NPC 0x2001) but asks a different
+    # question: does a spawn-time faction field make the placement PRESENT
+    # as hostile, paired with the SCENE-005 player faction on the entry side.
+    # The mutual exclusion above keeps the lanes from ever seeing the same
+    # frame.
+    npc_hostile_unlock = None
+    npc_hostile_probe = None
+    if npc_hostile_hypothesis_scenario is not None:
+        npc_hostile_hypothesis_scenario = (
+            require_npc_hostile_hypothesis_scenario(
+                npc_hostile_hypothesis_scenario
+            )
+        )
+        npc_hostile_unlock = npc_hostile_wire_unlock(
+            npc_hostile_hypothesis_scenario
+        )
+        npc_hostile_probe = resolve_npc_hostile_probe(legacy)
     if delete_actor_hypothesis_scenario is not None:
         delete_actor_hypothesis_scenario = (
             require_delete_actor_hypothesis_scenario(
@@ -416,6 +453,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.damage_model_sweep_count = 0
                 self.damage_hp_link_sweep_count = 0
                 self.remote_player_sweep_count = 0
+                self.npc_hostile_sweep_count = 0
+                self.npc_hostile_player_faction_start_sent = False
                 self.delete_actor_soft_delete_count = 0
                 self.delete_refresh_list_rebuild_count = 0
                 self.transport_socket_closer = None
@@ -1738,6 +1777,157 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             )
             return actions
 
+        def _npc_hostile_start_game_response(self, pc, frame):
+            """The entry half of HYP-PF-027: the SCENE-005 player faction.
+
+            The relation the client renders is a PAIR: the arena-v2 negative
+            proved an NPC faction of 6 alone, against the unmodified player's
+            constructor-default 0, presents as neutral.  So under this lane's
+            opt-in scenario the full-writable StartGame response is recomposed
+            through the frozen ``player_wire.make_actor_attr_with_basic_
+            faction`` serializer -- the exact SCENE-005/SCENE-007 probe, which
+            accepts ONLY faction 1 -- and ONLY when the selected character is
+            the canonical smoke identity the pins were computed for.
+
+            FAIL CLOSED, in the direction of production: any other identity,
+            and any serializer refusal, returns the untouched production
+            bytes with a named event, and the sweep dispatch below then
+            refuses by name -- the tester sees the full proven pairing or no
+            experiment at all, never a half-paired one.
+            """
+            selected = self.foundation.selected
+            if (
+                getattr(selected, "identity_lo", None)
+                != NPC_HOSTILE_PLAYER_IDENTITY_LO
+                or getattr(selected, "identity_hi", None)
+                != NPC_HOSTILE_PLAYER_IDENTITY_HI
+            ):
+                self.events.append(
+                    "npc_hostile_hypothesis_player_identity_not_pinned_"
+                    "production_start_game"
+                )
+                return pc, frame
+            try:
+                faction_pc, faction_frame = self.foundation.projector.start_game(
+                    selected,
+                    basic_faction=(
+                        npc_hostile_hypothesis_scenario.player_pair_faction
+                    ),
+                    backpack=self.foundation.backpack,
+                )
+            except (ValueError, RuntimeError, TypeError) as exc:
+                self.events.append(
+                    "npc_hostile_hypothesis_player_faction_compose_refused_"
+                    f"production_start_game_{exc!r}"
+                )
+                return pc, frame
+            # The faction-1 response must be the production response plus
+            # exactly one tagged u32 (five bytes).  Anything else means the
+            # frozen serializer drifted, and production bytes go out instead.
+            if len(faction_pc) != len(pc) + NPC_HOSTILE_PLAYER_FACTION_WIRE_DELTA:
+                self.events.append(
+                    "npc_hostile_hypothesis_player_faction_length_drift_"
+                    "production_start_game"
+                )
+                return pc, frame
+            self.npc_hostile_player_faction_start_sent = True
+            self.events.append(
+                "npc_hostile_hypothesis_player_faction1_start_game_sent"
+            )
+            return faction_pc, faction_frame
+
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-027 active
+        # NPC-HOSTILE-DISPATCH.  Registered by the round-99 ledger append;
+        # this annotation and that entry's source_refs bind each other both
+        # ways.
+        def _dispatch_npc_hostile_hypothesis(self, parsed):
+            """Answer one accepted chat input frame with the hostile spawn.
+
+            This is Door A of the mob-aggro design (round-98 draft): make the
+            first Port Royal placement PRESENT as hostile, on proven ground
+            only.  The answer is ONE frame -- the HYP-PF-023 SPAWN for the
+            same frozen probe (NPC 0x2001, alive, placed) with EXACTLY the
+            five-byte BasicAttr faction splice (bit 0x0400, u32 value 6) --
+            paired with the SCENE-005 player faction 1 that the entry hook
+            above already put on this session's StartGame.  Both values are
+            OUR composition; the original server's faction assignment is
+            unrecoverable.
+
+            The request side is the same accepted 34-byte ascii12 shape every
+            other sweep reuses: the one client action an attended tester can
+            fire on demand, with every refusal guard already proven.  Nothing
+            in the request is read.
+
+            THE PAIRING IS REQUIRED.  If the entry hook fell back to the
+            production StartGame -- wrong identity, serializer refusal, length
+            drift -- this dispatch refuses by name and composes nothing: an
+            NPC faction against the constructor-default player faction is the
+            arena-v2 proven NEGATIVE, and sending it would re-run a known
+            neutral and answer nothing.
+
+            ONE-SHOT: a second spawn for an identity the client already knows
+            would take the vtable +0x20 update path and turn the experiment
+            into a different one.  A repeat trigger is refused with a named
+            event and no bytes.
+
+            The lane touches no store, takes no socket action, and composes
+            nothing at all when the scenario is absent.
+            """
+            self.rx_frames += 1
+            classification = classify_chat_input_attempt(legacy, parsed)
+            if classification != "ascii12":
+                self.events.append(
+                    f"npc_hostile_hypothesis_{classification}_no_reply"
+                )
+                return []
+            if self.foundation.selected is None:
+                self.events.append(
+                    "npc_hostile_hypothesis_no_selected_no_reply"
+                )
+                return []
+            if not self.teleport_sent or not self.runtime_ack_sent:
+                self.events.append(
+                    "npc_hostile_hypothesis_wrong_sequence_no_reply"
+                )
+                return []
+            if self.npc_hostile_sweep_count:
+                self.events.append(
+                    "npc_hostile_hypothesis_already_sent_no_reply"
+                )
+                return []
+            selected = self.foundation.selected
+            if (
+                getattr(selected, "identity_lo", None)
+                != NPC_HOSTILE_PLAYER_IDENTITY_LO
+                or getattr(selected, "identity_hi", None)
+                != NPC_HOSTILE_PLAYER_IDENTITY_HI
+            ):
+                self.events.append(
+                    "npc_hostile_hypothesis_player_identity_not_pinned_no_reply"
+                )
+                return []
+            if not self.npc_hostile_player_faction_start_sent:
+                self.events.append(
+                    "npc_hostile_hypothesis_player_faction_not_applied_no_reply"
+                )
+                return []
+            try:
+                actions = build_npc_hostile_sweep(
+                    legacy, npc_hostile_probe, npc_hostile_unlock,
+                    npc_hostile_hypothesis_scenario,
+                )
+            except (ValueError, RuntimeError) as exc:
+                self.events.append(
+                    "npc_hostile_hypothesis_compose_refused_no_reply_"
+                    f"{exc!r}"
+                )
+                return []
+            self.npc_hostile_sweep_count += 1
+            self.events.append(
+                "npc_hostile_hypothesis_faction_pairing_sent"
+            )
+            return actions
+
         # PF-HYPOTHESIS-LEDGER: HYP-PF-015 active
         def _dispatch_delete_actor_hypothesis(self, parsed):
             """Soft-delete one owned character behind the explicit opt-in.
@@ -2076,6 +2266,16 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # why the ordering of these branches cannot matter.
                 return self._dispatch_remote_player_hypothesis(parsed)
             if (
+                npc_hostile_hypothesis_scenario is not None
+                and nested_id == CHAT_INPUT_VITAL_ID
+            ):
+                # NPC-HOSTILE-DISPATCH.  This lane and the six above are
+                # keyed on the same vital id, so they must never be able to
+                # see the same frame: make_state_class refuses any pair
+                # outright and app.py refuses the flags together, which is
+                # why the ordering of these branches cannot matter.
+                return self._dispatch_npc_hostile_hypothesis(parsed)
+            if (
                 delete_actor_hypothesis_scenario is not None
                 and nested_id == DELETE_ACTOR_VITAL_ID
             ):
@@ -2151,6 +2351,15 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     self.events.append("foundation_start_game_rejected_no_reply")
                     return []
                 self._sync_frozen_inventory_state()
+                if npc_hostile_hypothesis_scenario is not None:
+                    # NPC-HOSTILE-DISPATCH (HYP-PF-027): the entry half of the
+                    # SCENE-005 pairing.  Recompose the same StartGame response
+                    # through the frozen faction-1 serializer, or fall back to
+                    # the byte-identical production response with a named
+                    # event -- in which case the sweep below refuses by name.
+                    pc, frame = self._npc_hostile_start_game_response(
+                        pc, frame,
+                    )
                 self.start_game_reply_sent = True
                 self.events.append("start_game_res_scene_identity_sent")
                 load_only = scene_load_scenario is not None

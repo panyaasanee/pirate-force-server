@@ -590,8 +590,14 @@ class RemotePlayerDispatchTests(unittest.TestCase):
             "remote_player_hypothesis_scenario=remote_player_hypothesis,",
             source,
         )
+        # Round 99: NPC-HOSTILE-001 (HYP-PF-027) was appended AFTER this lane,
+        # so the remote-player flag is no longer the last line of the
+        # mutual-exclusion message -- it now ends the list with a trailing
+        # slash and the npc-hostile flag carries the "are mutually exclusive"
+        # tail.  The flag still appears in the message; this assertion tracks
+        # the append rather than pinning a stale terminal position.
         self.assertIn(
-            "'--remote-player-hypothesis-scenario are mutually exclusive'",
+            "'--remote-player-hypothesis-scenario/'",
             source,
         )
         # Exactly one, for the same reason as the runtime.py assertion above.

@@ -249,7 +249,26 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # write (hit points have no column and this lane adds none), 15-second spacing (the
 # round-84 camera lesson).  No client has ever been shown one byte of this sweep; that is
 # the queued attended link test (GT-031), and no coverage row grade moves until it runs.
-CANONICAL_CONTENT_SHA256 = "9841B53DA9BB212F02A9DB3590FE777CD2CB58C75F90860FB569FEB1238DB598"
+#
+# ROUND 99 APPEND (HYP-PF-027, NPC-HOSTILE-001).  Entry 34 is appended -- no earlier
+# entry moved, no earlier index changed -- and the canonical content hash below is
+# re-pinned for the same reason every earlier append re-pinned it: the pin exists so the
+# ledger cannot drift SILENTLY, not so it can never grow.  The entry registers Door A of
+# the round-98 mob-aggro design: make the first Port Royal placement PRESENT as hostile,
+# on proven ground only.  ONE actor-entry frame -- the HYP-PF-023 SPAWN for the frozen NPC
+# 0x2001, byte-identical to the parent lane's own SPAWN composer except a five-byte
+# BasicAttr faction splice (bit 0x0400, u32 value 6, widening the mask 0x030C -> 0x070C) --
+# paired with the SCENE-005 player faction 1 recomposed onto the pinned smoke identity's
+# StartGame through the frozen faction serializer.  Both halves are required: the arena-v2
+# negative proved NPC 6 alone against the constructor-default player 0 is neutral, so a
+# half-paired sweep re-runs a proven neutral and answers nothing, and the dispatcher
+# refuses it by name.  The faction values are OUR composition -- the pair SCENE-005
+# rendered hostile on a real screen -- and the original server's assignment is
+# unrecoverable, which is the entry's first nonclaim.  One-shot, production_allowed false,
+# no database write (faction has no column and this lane adds none).  No client has ever
+# been shown one byte of this profile; that is the queued attended test (GT-032), and no
+# coverage row grade moves until it runs.
+CANONICAL_CONTENT_SHA256 = "E2253C31E4DBBD3E484AF4000E841516573D7BFFA57EFAC9735C195DF71363D5"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -386,6 +405,15 @@ EXPECTED_IDS = (
     # direction and the client provably never subtracts (round 83), so the
     # entry's first nonclaim is that the link is ours, not a recovery.
     "HYP-PF-026",
+    # HYP-PF-027 (NPC-HOSTILE-001, the mob-aggro Door A checkpoint: make the
+    # first Port Royal placement PRESENT as hostile by pairing the SCENE-005
+    # player faction 1 on the StartGame entry with a five-byte BasicAttr
+    # faction splice, bit 0x0400 value 6, on the proven HYP-PF-023 spawn) is
+    # appended so every existing entry index stays stable.  Both faction
+    # values are OUR composition -- the pair a real client rendered hostile
+    # in SCENE-005 -- and the original server's faction assignment is
+    # unrecoverable, which is the entry's first nonclaim.
+    "HYP-PF-027",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -425,6 +453,7 @@ EXPECTED_META = {
         "protocol_hypothesis", "REMOTE-PLAYER-ENCODER-001", "active",
     ),
     "HYP-PF-026": ("protocol_hypothesis", "DAMAGE-HP-LINK-001", "active"),
+    "HYP-PF-027": ("protocol_hypothesis", "NPC-HOSTILE-001", "active"),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}
 STATUSES = {"active", "frozen", "retired", "harness_only", "expired_pending_decision"}

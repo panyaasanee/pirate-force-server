@@ -15,6 +15,9 @@ from .item_move_hypothesis import load_item_move_hypothesis_scenario
 from .logout_hypothesis import load_logout_hypothesis_scenario
 from .model import Position
 from .population_scenario import load_population_scenario
+from .npc_hostile_hypothesis import (
+    load_npc_hostile_hypothesis_scenario,
+)
 from .runtime import make_state_class
 from .runtime_console import install_runtime_console
 from .damage_hp_link_hypothesis import (
@@ -73,6 +76,7 @@ def main() -> int:
     pre.add_argument('--damage-model-hypothesis-scenario')
     pre.add_argument('--damage-hp-link-hypothesis-scenario')
     pre.add_argument('--remote-player-hypothesis-scenario')
+    pre.add_argument('--npc-hostile-hypothesis-scenario')
     pre.add_argument(
         '--second-password-mode', choices=SECOND_PASSWORD_MODES,
         default='required',
@@ -199,6 +203,21 @@ def main() -> int:
         )
         if known.remote_player_hypothesis_scenario else None
     )
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-027 active
+    # NPC-HOSTILE-001 + NPC-HOSTILE-DISPATCH.  Door A of the mob-aggro design:
+    # the lane that makes the first Port Royal placement PRESENT as hostile,
+    # pairing the SCENE-005 player faction 1 on the StartGame entry with a
+    # five-byte faction splice (BasicAttr bit 0x0400, value 6) on the proven
+    # HYP-PF-023 spawn.  Both values are OUR composition; the original
+    # server's faction assignment is unrecoverable.  Registered by the
+    # round-99 ledger append; it is refused alongside every other mode and
+    # demands an explicit existing --db.
+    npc_hostile_hypothesis = (
+        load_npc_hostile_hypothesis_scenario(
+            known.npc_hostile_hypothesis_scenario
+        )
+        if known.npc_hostile_hypothesis_scenario else None
+    )
     if sum(value is not None for value in (
         scenario, scene_load, population, item_move_capture,
         item_move_hypothesis, logout_hypothesis, chat_input_hypothesis,
@@ -206,7 +225,7 @@ def main() -> int:
         delete_refresh_hypothesis, stats_progression_hypothesis,
         hp_death_hypothesis, runtimeres_death_hypothesis,
         damage_model_hypothesis, damage_hp_link_hypothesis,
-        remote_player_hypothesis,
+        remote_player_hypothesis, npc_hostile_hypothesis,
     )) > 1:
         pre.error(
             '--scenario, --scene-load-scenario, --population-scenario, and '
@@ -220,7 +239,8 @@ def main() -> int:
             '--runtimeres-death-hypothesis-scenario/'
             '--damage-model-hypothesis-scenario/'
             '--damage-hp-link-hypothesis-scenario/'
-            '--remote-player-hypothesis-scenario are mutually exclusive'
+            '--remote-player-hypothesis-scenario/'
+            '--npc-hostile-hypothesis-scenario are mutually exclusive'
         )
     if item_move_capture is not None and not known.db:
         pre.error('--item-move-capture-scenario requires an explicit existing --db')
@@ -268,6 +288,11 @@ def main() -> int:
             '--remote-player-hypothesis-scenario requires an explicit '
             'existing --db'
         )
+    if npc_hostile_hypothesis is not None and not known.db:
+        pre.error(
+            '--npc-hostile-hypothesis-scenario requires an explicit '
+            'existing --db'
+        )
     db_path = known.db or str(
         root / (
             'state/object_population_v94.sqlite3' if population is not None
@@ -303,6 +328,8 @@ def main() -> int:
             if damage_hp_link_hypothesis is not None else
             'remote-player-hypothesis'
             if remote_player_hypothesis is not None else
+            'npc-hostile-hypothesis'
+            if npc_hostile_hypothesis is not None else
             'foundation'
         )
         install_runtime_console(
@@ -325,6 +352,7 @@ def main() -> int:
         or damage_model_hypothesis is not None
         or damage_hp_link_hypothesis is not None
         or remote_player_hypothesis is not None
+        or npc_hostile_hypothesis is not None
     ):
         if not Path(db_path).is_file():
             raise FileNotFoundError(db_path)
@@ -342,6 +370,7 @@ def main() -> int:
             or damage_model_hypothesis is not None
             or damage_hp_link_hypothesis is not None
             or remote_player_hypothesis is not None
+            or npc_hostile_hypothesis is not None
         ):
             store.migrate()
             store.expire_open_sessions()
@@ -389,6 +418,9 @@ def main() -> int:
         # REMOTE-PLAYER-DISPATCH-001.  None unless the flag was handed in, and
         # make_state_class refuses it alongside every other mode a second time.
         remote_player_hypothesis_scenario=remote_player_hypothesis,
+        # NPC-HOSTILE-DISPATCH.  None unless the flag was handed in, and
+        # make_state_class refuses it alongside every other mode a second time.
+        npc_hostile_hypothesis_scenario=npc_hostile_hypothesis,
         # PF-HYPOTHESIS-LEDGER: HYP-PF-009 active
         second_password_mode=known.second_password_mode,
     )

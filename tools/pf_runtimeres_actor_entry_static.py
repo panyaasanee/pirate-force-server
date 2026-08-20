@@ -820,17 +820,28 @@ guard("make_remote_actor_entry" in _v141,
 # src/, so its numbers move when we write code -- that is the point of it --
 # and it is re-pinned deliberately rather than loosened, with the new module
 # named beside the count.
-guard(SRC_ACTOR_ENTRY_SITES == 6,
-      "src/ builds actor entries at exactly 6 call sites (4 spawns + the "
-      "round-86 death re-send + the round-96 remote-player probe)")
-guard(SRC_ACTOR_STREAM_SITES == 6,
-      "src/ sends the actor-entry carrier at exactly 6 call sites")
-guard(SRC_MODULES_WITH_ACTOR_ENTRY == 5
+# Round 99 re-pin, 6 -> 7.  NPC-HOSTILE-001 (HYP-PF-027, the mob-aggro Door A
+# checkpoint) added the seventh call site: npc_hostile_hypothesis.py spawns
+# the SAME frozen NPC 0x2001 as the death lane, plus exactly a five-byte
+# BasicAttr faction splice (bit 0x0400, value 6).  Note the THIRD category
+# this creates in the SET/FORBID census below: the new module builds an
+# entry and never NAMES the death-timer bit at all -- its walker requires
+# the BasicAttr mask to equal 0x070C exactly, which forbids every other bit
+# structurally rather than by name.  Both timer censuses therefore stay
+# where round 97 pinned them, and that is correct, not an omission.
+guard(SRC_ACTOR_ENTRY_SITES == 7,
+      "src/ builds actor entries at exactly 7 call sites (4 spawns + the "
+      "round-86 death re-send + the round-96 remote-player probe + the "
+      "round-99 hostile spawn)")
+guard(SRC_ACTOR_STREAM_SITES == 7,
+      "src/ sends the actor-entry carrier at exactly 7 call sites")
+guard(SRC_MODULES_WITH_ACTOR_ENTRY == 6
       and SRC_MODULES_WITH_ACTOR_ENTRY_NAMES == (
-          "population.py", "remote_player_hypothesis.py",
+          "npc_hostile_hypothesis.py", "population.py",
+          "remote_player_hypothesis.py",
           "runtimeres_death_hypothesis.py", "scenario.py",
           "scene_object.py"),
-      "5 named src/ modules build actor entries %s"
+      "6 named src/ modules build actor entries %s"
       % (SRC_MODULES_WITH_ACTOR_ENTRY_NAMES,))
 # Round 97 re-pin, 4 -> 5.  DAMAGE-HP-LINK-001 added the fifth mention:
 # damage_hp_link_hypothesis.py names bit 0x0080 because its two lethal frames
@@ -938,6 +949,11 @@ COUNTS = {
     "src_actor_stream_call_sites": SRC_ACTOR_STREAM_SITES,
     "src_vital_stream_call_sites": SRC_VITAL_STREAM_SITES,
     "src_modules_building_actor_entries": SRC_MODULES_WITH_ACTOR_ENTRY,
+    # Round 99: the names are surfaced beside the count so the standing test
+    # can pin WHICH modules build entries, not just how many -- the round-99
+    # hostile lane (npc_hostile_hypothesis.py) is the seventh call site.
+    "src_modules_building_actor_entries_names":
+        list(SRC_MODULES_WITH_ACTOR_ENTRY_NAMES),
     "src_modules_mentioning_basicattr_bit_0x0080": SRC_MODULES_WITH_DEATH_TIMER_BIT,
     "src_modules_doing_both": SRC_MODULES_WITH_BOTH,
     "src_modules_doing_both_names": list(SRC_MODULES_WITH_BOTH_NAMES),

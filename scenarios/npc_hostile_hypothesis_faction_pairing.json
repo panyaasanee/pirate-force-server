@@ -1,0 +1,124 @@
+{
+  "schema": 1,
+  "id": "npc_hostile_hypothesis_faction_pairing",
+  "profile": "faction_pairing",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-027",
+  "hypothesis_id_is_registered_in_the_ledger": true,
+  "lethal": false,
+  "entry": {
+    "flow": "full_writable_character",
+    "required_sequence": "selected_and_runtime_ready",
+    "response_policy": "compose_one_hostile_spawn_actor_entry_frame_no_write_no_close",
+    "player_start_game": {
+      "basic_faction": 1,
+      "serializer": "player_wire_make_actor_attr_with_basic_faction_frozen_scene005_probe",
+      "identity_pinned_lo": 268500993,
+      "identity_pinned_hi": 0,
+      "wire_delta_bytes": 5,
+      "fallback_when_not_pinned": "production_start_game_bytes_and_the_sweep_refuses_by_name"
+    }
+  },
+  "dispatch": {
+    "wired": true,
+    "wiring_owner": "npc_hostile_dispatch_001_round_99",
+    "app_policy_when_lane_disabled": "no_frames_composed_and_the_encoder_raises_if_called_directly",
+    "frames_per_accepted_request": 1,
+    "step_order": [
+      "HOSTILE_SPAWN"
+    ],
+    "spacing_seconds": 15.0,
+    "first_frame_delay_seconds": 0.0,
+    "delay_semantics": "gap_before_each_send_on_a_cumulative_deadline",
+    "action_label_prefix": "HYP_PF_027_NPC_HOSTILE_",
+    "action_labels": [
+      "HYP_PF_027_NPC_HOSTILE_HOSTILE_SPAWN"
+    ],
+    "one_shot": true,
+    "socket_action": "none",
+    "requires_player_faction_start_game": true
+  },
+  "wire": {
+    "vital_id": 28317,
+    "vital_version": 4,
+    "envelope": "gscn_runtime_protocol_res_v4_actor_entry_collection",
+    "inherited_change_mask": 0,
+    "derived_change_mask": 2,
+    "derived_object_offset": 28,
+    "actor_type": 4,
+    "attr_ids": [
+      2773,
+      8295
+    ],
+    "field_order_rule": "ascending_mask_bit_within_each_block",
+    "faction_field": {
+      "name": "faction",
+      "block": "basic",
+      "mask_bit": 1024,
+      "object_offset": 104,
+      "wire_tag": 20,
+      "width": "u32"
+    },
+    "relation": {
+      "lookup": 4857168,
+      "player_side_value": 1,
+      "npc_side_value": 6,
+      "proven_hostile_pair": "scene005_player_faction_1_npc_faction_6",
+      "proven_neutral_pair": "arena_v2_npc_faction_6_alone_against_the_constructor_default_player_faction_0",
+      "values_are_our_composition": true
+    },
+    "chain": {
+      "inbound_handler": 6176864,
+      "actor_reconcile": 4484912,
+      "identity_lookup": 4481392,
+      "spawn_when_unknown": 4483472
+    }
+  },
+  "probe": {
+    "source": "port_royal_unambiguous_placements_frozen_v141",
+    "selection_rule": "nearest_placement_to_the_frozen_v135_player_spawn",
+    "identity_formula": "0x2000_plus_placement_index_plus_1",
+    "placement_index": 0,
+    "template_id": 1,
+    "actor_identity": 8193,
+    "visual_preset": "P_MALE_002_000_SP1",
+    "source_name": "Navy Transfer",
+    "per_step": {
+      "HOSTILE_SPAWN": {
+        "basic_mask": 1804,
+        "faction_value": 6,
+        "pc_size": 178,
+        "pc_sha256": "A85DD9F7C11D5F7B5C7779E0C9B0C5032459458A103B5282D42CDDEB8C7FC21B",
+        "frame_size": 190,
+        "frame_sha256": "BB2B59486989C69B083436AC694A4085594ED4A386C4144AB227C7616C6D5983"
+      }
+    },
+    "hp_alive": 100,
+    "hp_max": 100,
+    "scene_id": 1,
+    "scene_sequence": 0,
+    "baseline_crosscheck": "the_hostile_npc_attr_body_reproduces_legacy_make_npc_attr_byte_for_byte_except_the_five_byte_faction_splice"
+  },
+  "persisted_post_state": {
+    "database_write": "none"
+  },
+  "capabilities": [
+    "emit_gscn_runtimeprotocolres_0x6e9d_derived_mask_bit_0x02_actor_entries",
+    "append_basicattr_faction_bit_0x0400_to_the_proven_hyp_pf_023_spawn_body",
+    "reproduce_the_frozen_make_npc_attr_body_byte_for_byte_except_the_five_byte_faction_splice",
+    "recompose_the_start_game_actor_attr_with_the_frozen_faction_1_serializer_for_the_pinned_identity_only",
+    "refuse_any_basicattr_mask_that_is_not_exactly_the_spawn_mask_plus_the_faction_bit"
+  ],
+  "nonclaims": [
+    "no_client_has_ever_been_shown_one_byte_of_this_profile",
+    "client_rendering_of_a_hostile_presentation_on_an_npc_pending_gt032",
+    "faction_values_1_and_6_are_our_composition_not_the_original_servers_which_is_unrecoverable",
+    "that_the_relation_pair_1_6_behaves_on_an_actor_entry_projected_npc_as_it_did_in_scene005",
+    "no_name_board_this_spawn_carries_no_name_bit_the_observables_are_outline_and_target_panel",
+    "no_aggro_no_threat_table_no_chase_no_attack_door_b_stays_closed",
+    "no_persistence_faction_has_no_write_path_and_this_lane_opens_none",
+    "production_dispatch_wiring_the_wiring_is_opt_in_and_production_allowed_is_false",
+    "production_baseline_behavior"
+  ]
+}
