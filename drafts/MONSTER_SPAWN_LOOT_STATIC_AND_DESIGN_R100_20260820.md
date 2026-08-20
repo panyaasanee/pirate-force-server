@@ -173,6 +173,23 @@ them. Whether DropThing arrives via an undecoded `0x6E9D` sub-object (the unexam
 derived bits 0x04 `+0x24` / 0x08 `+0x20`), via its own vital, or via scene data is
 [UNKNOWN]. **This is the blocker for a real ground-loot loop.**
 
+> **ERRATUM (chief cloud round 115, 2026-08-21 ~04:3x +07:00).** "names proven in the
+> 521-class registration table" above is over-stated for two of the three names, and
+> that phrase must not be cited as registration evidence. Re-derived from the primary:
+> `DropThingBoard` (`pf_bridge/FACTPACK_L2_CLASSCENSUS001_20260820.tsv:482`) and
+> `DropThingGameObj` (`:483`) both carry `literal_kind=none` and
+> `in_round86_census=False`, and the 521 population is defined
+> (`FACTPACK_L2_CLASSCENSUS001_20260820.md:34`) as classes carrying BOTH an RTTI type
+> descriptor AND a runtime name literal in `.rdata`. With no literal at all, those two
+> cannot be in that join: they are RTTI type descriptors only. Only
+> `DropThingModule_Client` (`:484`, literal `0x00F0BAD0`) and `PickupTerrainThing`
+> (`:1003`, literal `0x00F3093C`) are in it, and even for those the census warns at
+> `:134` that membership "is not proof that any particular row is registered".
+> The derived ids are unaffected (arithmetic only, [DERIVED]). **This makes Door 3's
+> NEGATIVE verdict stronger, not weaker** -- the door stays closed for the same reason
+> and with less evidence behind the object family than this paragraph claimed. Full
+> erratum: `pf_bridge/FACTPACK_R100_INREPO_LOOT_SPAWN_GAPLIST.md`, ERRATUM E1.
+
 ### Door 4 -- PICKUP REQUEST. No known path. [NEGATIVE / STATIC name-only]
 `PickupTerrainThing` is a registered client class (registration `0xBEE5E5`, derived id
 0x4543) with no serializer pinned, no capture, and no server handler. It is a name-grade
