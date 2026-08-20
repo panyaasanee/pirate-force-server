@@ -138,6 +138,13 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      # actions: read is REQUIRED - this job reads the GATE JOB's conclusion
+      # via actions/runs/<id>/jobs, and listing a run's jobs needs it.
+      # Without it the gh api call exits 1 and the job dies before deciding.
+      # Measured 2026-08-20 ~21:5x: run #1 on pirate-force-server failed at
+      # exactly that call.  reap looked green only because it had no pull
+      # request to loop over, so it never reached the same call.
+      actions: read
     steps:
       - name: Merge on green, close on red, close on anything that goes wrong
         shell: bash
@@ -362,6 +369,13 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      # actions: read is REQUIRED - this job reads the GATE JOB's conclusion
+      # via actions/runs/<id>/jobs, and listing a run's jobs needs it.
+      # Without it the gh api call exits 1 and the job dies before deciding.
+      # Measured 2026-08-20 ~21:5x: run #1 on pirate-force-server failed at
+      # exactly that call.  reap looked green only because it had no pull
+      # request to loop over, so it never reached the same call.
+      actions: read
     steps:
       - name: Finish or close every stale claude/* pull request
         shell: bash
