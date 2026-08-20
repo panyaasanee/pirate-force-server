@@ -374,6 +374,12 @@
 /drafts/*
 !/drafts/DAMAGE_MODEL_UNKNOWNS_R90_STATIC.md
 !/drafts/DAMAGE_MODEL_LANE1_DESIGN_20260819.md
+# Round 98.  The mob-aggro / server-AI static-RE and design draft, un-ignored so a
+# fresh clone holds the one document that maps the client's combat FSM, the attack
+# behavior-lookup path, and the faction/hostility wire field.  It cites no ledger
+# entry and moves no coverage grade; it is tracked because the cloud-readiness rule
+# is that everything a future chief must read lives in version control, not on one disk.
+!/drafts/MOB_AGGRO_SERVER_AI_STATIC_AND_DESIGN_R98_20260820.md
 
 # Round 93.  THIRTY-THREE files, written by the chief in one edit for the reason
 # round 84 and round 86 both record: lanes do not write their own allowlist
