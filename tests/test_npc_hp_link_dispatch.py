@@ -189,10 +189,26 @@ class AppFlagTests(unittest.TestCase):
         )
 
     def test_the_flag_is_named_in_the_mutual_exclusion_message(self):
-        source = APP_SOURCE_PATH.read_text(encoding="utf-8")
+        """Asserted on the message the CLI actually prints, not on source text.
+
+        The pin used to be the whole tail of the message, which broke when
+        MOVE-AUTHORITY-002 (chief round 116) appended its own flag after this
+        one.  Two independent substring checks on the source would have let a
+        future round move this flag into a different message and stay green, so
+        this reads the one string argparse emits instead.
+        """
+        other = ROOT / "scenarios" / "damage_model_hypothesis_hit_sweep.json"
+        result = _run_app([
+            FLAG, str(SCENARIO_PATH),
+            "--damage-model-hypothesis-scenario", str(other),
+        ])
+        self.assertEqual(result.returncode, 2, result.stderr)
+        message = result.stderr
+        self.assertIn("--npc-hp-link-hypothesis-scenario", message)
+        self.assertIn("mutually exclusive", message)
         self.assertIn(
-            "'--npc-hp-link-hypothesis-scenario are mutually exclusive'",
-            source,
+            "--npc-hp-link-hypothesis-scenario",
+            message[:message.index("mutually exclusive")],
         )
 
     def test_the_lane_is_refused_alongside_every_other_scenario_mode(self):
@@ -296,8 +312,21 @@ class DispatchBranchWiringTests(unittest.TestCase):
             source.count("PF-HYPOTHESIS-LEDGER: HYP-PF-029 active"), 1)
 
     def test_the_lane_is_named_in_the_runtime_mutual_exclusion_refusal(self):
-        source = RUNTIME_SOURCE_PATH.read_text(encoding="utf-8")
-        self.assertIn("npc hp link hypothesis scenarios are mutually", source)
+        """The raised message itself, so two half-truths cannot pass for one."""
+        from pirateforce_foundation.runtime import make_state_class
+        with self.assertRaises(ValueError) as raised:
+            make_state_class(
+                load_legacy(LEGACY_PATH), None, None,
+                npc_hp_link_hypothesis_scenario=object(),
+                damage_model_hypothesis_scenario=object(),
+            )
+        message = str(raised.exception)
+        self.assertIn("npc hp link hypothesis", message)
+        self.assertIn("mutually exclusive", message)
+        self.assertIn(
+            "npc hp link hypothesis",
+            message[:message.index("mutually exclusive")],
+        )
 
     def test_the_branch_emits_the_modules_event_name_and_only_that_one(self):
         source = RUNTIME_SOURCE_PATH.read_text(encoding="utf-8")

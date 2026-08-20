@@ -12,6 +12,9 @@ from .delete_actor_hypothesis import load_delete_actor_hypothesis_scenario
 from .delete_refresh_hypothesis import load_delete_refresh_hypothesis_scenario
 from .item_move_capture import load_item_move_capture_scenario
 from .item_move_hypothesis import load_item_move_hypothesis_scenario
+from .move_authority_hypothesis import (
+    load_move_authority_hypothesis_scenario,
+)
 from .logout_hypothesis import load_logout_hypothesis_scenario
 from .model import Position
 from .population_scenario import load_population_scenario
@@ -81,12 +84,27 @@ def main() -> int:
     pre.add_argument('--remote-player-hypothesis-scenario')
     pre.add_argument('--npc-hostile-hypothesis-scenario')
     pre.add_argument('--npc-hp-link-hypothesis-scenario')
+    pre.add_argument('--move-authority-hypothesis-scenario')
     pre.add_argument(
         '--second-password-mode', choices=SECOND_PASSWORD_MODES,
         default='required',
     )
     pre.add_argument('--capture-root')
     known, remaining = pre.parse_known_args(); sys.argv = [sys.argv[0], *remaining]
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-030 active
+    # MOVE-AUTHORITY-002.  The only lane in this file that can REFUSE a
+    # durable write instead of composing bytes: behind this flag the server
+    # stops persisting a reported position that exceeds our own movement
+    # budget, and emits nothing either way (no corrective-reposition frame has
+    # ever been captured, so none is invented).  With the flag absent the
+    # checkpoint path is exactly the one MOVE-AUTHORITY-001 characterized.
+    # Refused alongside every other mode and demands an explicit existing --db.
+    move_authority_hypothesis = (
+        load_move_authority_hypothesis_scenario(
+            known.move_authority_hypothesis_scenario
+        )
+        if known.move_authority_hypothesis_scenario else None
+    )
     scenario = load_scenario(known.scenario) if known.scenario else None
     # PF-HYPOTHESIS-LEDGER: HYP-PF-007 frozen
     # PF-HYPOTHESIS-LEDGER: GEO-PF-002 frozen
@@ -258,7 +276,7 @@ def main() -> int:
         hp_death_hypothesis, runtimeres_death_hypothesis,
         damage_model_hypothesis, damage_hp_link_hypothesis,
         remote_player_hypothesis, npc_hostile_hypothesis,
-        npc_hp_link_hypothesis,
+        npc_hp_link_hypothesis, move_authority_hypothesis,
     )) > 1:
         pre.error(
             '--scenario, --scene-load-scenario, --population-scenario, and '
@@ -274,7 +292,8 @@ def main() -> int:
             '--damage-hp-link-hypothesis-scenario/'
             '--remote-player-hypothesis-scenario/'
             '--npc-hostile-hypothesis-scenario/'
-            '--npc-hp-link-hypothesis-scenario are mutually exclusive'
+            '--npc-hp-link-hypothesis-scenario/'
+            '--move-authority-hypothesis-scenario are mutually exclusive'
         )
     if item_move_capture is not None and not known.db:
         pre.error('--item-move-capture-scenario requires an explicit existing --db')
@@ -330,6 +349,11 @@ def main() -> int:
     if npc_hp_link_hypothesis is not None and not known.db:
         pre.error(
             '--npc-hp-link-hypothesis-scenario requires an explicit '
+            'existing --db'
+        )
+    if move_authority_hypothesis is not None and not known.db:
+        pre.error(
+            '--move-authority-hypothesis-scenario requires an explicit '
             'existing --db'
         )
     db_path = known.db or str(
@@ -395,6 +419,7 @@ def main() -> int:
         or remote_player_hypothesis is not None
         or npc_hostile_hypothesis is not None
         or npc_hp_link_hypothesis is not None
+        or move_authority_hypothesis is not None
     ):
         if not Path(db_path).is_file():
             raise FileNotFoundError(db_path)
@@ -414,6 +439,7 @@ def main() -> int:
             or remote_player_hypothesis is not None
             or npc_hostile_hypothesis is not None
             or npc_hp_link_hypothesis is not None
+            or move_authority_hypothesis is not None
         ):
             store.migrate()
             store.expire_open_sessions()
@@ -472,6 +498,9 @@ def main() -> int:
         # landed the CLI flag loaded a scenario the runtime never received and
         # an attended tester could not reach the lane at all.
         npc_hp_link_hypothesis_scenario=npc_hp_link_hypothesis,
+        # MOVE-AUTHORITY-002.  None unless the flag was handed in, and
+        # make_state_class refuses it alongside every other mode a second time.
+        move_authority_hypothesis_scenario=move_authority_hypothesis,
         # PF-HYPOTHESIS-LEDGER: HYP-PF-009 active
         second_password_mode=known.second_password_mode,
     )

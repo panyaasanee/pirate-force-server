@@ -1,0 +1,34 @@
+{
+  "schema": 1,
+  "id": "move_authority_hypothesis_speed_gate",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-030",
+  "entry": {
+    "flow": "full_writable_character",
+    "required_sequence": "selected_only",
+    "report_transport": "target_pos_vital_0x2A90_singleton",
+    "corrective_frame_policy": "never_emitted"
+  },
+  "policy": {
+    "max_step_units": 2000.0,
+    "max_speed_units_per_second": 1200.0,
+    "max_vertical_step_units": 400.0,
+    "speed_tolerance_ratio": 0.25,
+    "min_measurable_elapsed_seconds": 0.5,
+    "enforce_moving_flag": false,
+    "teleport_grace_reports": 1
+  },
+  "capabilities": [
+    "refuse_position_checkpoint_when_report_exceeds_our_budget",
+    "record_named_verdict_event_for_every_report"
+  ],
+  "nonclaims": [
+    "original_server_movement_policy",
+    "corrective_reposition_wire_shape",
+    "client_observable_acceptance",
+    "vertical_speed_is_unbounded",
+    "unit_of_measure_of_client_world_coordinates",
+    "production_baseline_behavior"
+  ]
+}

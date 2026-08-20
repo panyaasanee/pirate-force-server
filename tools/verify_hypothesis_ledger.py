@@ -294,7 +294,15 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # append also carries the HYP-PF-024 GT-027 amendment (that test HAS now run) and the
 # provenance caveat on the 2026-08-20 attended negative, which is testimony plus screenshots
 # and not a re-derivable receipt.  No coverage row grade moves on it.
-CANONICAL_CONTENT_SHA256 = "AB31E0F0DDCB4A9BB5688E1B63C5006F88B9C7D20224CDCF6EEC03DCE9E0C7C1"
+# -> 39AB04EB.. (2026-08-21 chief round 116, cloud: HYP-PF-030 appended --
+# MOVE-AUTHORITY-002, the server-side gate that decides whether a reported
+# position may be persisted at all.  It is the first lane here that answers
+# with a WITHHELD WRITE instead of bytes: it composes nothing on any path,
+# so the gated and ungated sessions return the same action list for the same
+# frame and only the character row differs.  Opened under the owner's
+# standing gameplay pre-approval; count moves 36 -> 37 and no earlier entry
+# is touched.  No coverage row grade moves on it.
+CANONICAL_CONTENT_SHA256 = "39AB04EB1E42938239D5F5F6BB2CEC7B381AAC6BAD6F2FDA7972A02FFF2728AE"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -449,6 +457,13 @@ EXPECTED_IDS = (
     # for the same reason every entry since HYP-PF-011 was: appending keeps
     # every earlier entry index stable for the index-based fixtures.
     "HYP-PF-029",
+    # HYP-PF-030 (the server-side movement-authority gate, chief round 116 on
+    # the cloud, under the owner's standing gameplay pre-approval) is appended
+    # for the same reason: appending keeps every earlier entry index stable.
+    # It is the first entry in this ledger whose lane composes no bytes at all
+    # -- it can only WITHHOLD a durable write -- so nothing downstream of it
+    # reads a frame pin.
+    "HYP-PF-030",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -493,6 +508,7 @@ EXPECTED_META = {
         "protocol_hypothesis", "LOGOUT-RETURN-SELECT-001", "active",
     ),
     "HYP-PF-029": ("protocol_hypothesis", "NPC-HP-LINK-001", "active"),
+    "HYP-PF-030": ("protocol_hypothesis", "MOVE-AUTHORITY-002", "active"),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}
 STATUSES = {"active", "frozen", "retired", "harness_only", "expired_pending_decision"}

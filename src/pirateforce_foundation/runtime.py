@@ -90,6 +90,9 @@ from .damage_model_hypothesis import (
     require_damage_model_hypothesis_scenario,
     resolve_actor as resolve_damage_model_actor,
 )
+from .move_authority_hypothesis import (
+    evaluate_move_report, require_move_authority_hypothesis_scenario,
+)
 from .population_scenario import require_population_scenario
 from .npc_hostile_hypothesis import (
     NPC_HOSTILE_PLAYER_FACTION_WIRE_DELTA,
@@ -168,6 +171,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                      remote_player_hypothesis_scenario=None,
                      npc_hostile_hypothesis_scenario=None,
                      npc_hp_link_hypothesis_scenario=None,
+                     move_authority_hypothesis_scenario=None,
                      second_password_mode="required",
                      monotonic_clock=None,
                      close_timer_factory=None):
@@ -186,6 +190,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         remote_player_hypothesis_scenario,
         npc_hostile_hypothesis_scenario,
         npc_hp_link_hypothesis_scenario,
+        move_authority_hypothesis_scenario,
     ))
     if active_modes > 1:
         raise ValueError(
@@ -195,8 +200,18 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             "hypothesis, stats progression hypothesis, hp death hypothesis, "
             "runtimeres death hypothesis, damage model hypothesis, damage "
             "hp link hypothesis, remote player hypothesis, npc hostile "
-            "hypothesis, and npc hp link hypothesis scenarios are mutually "
-            "exclusive"
+            "hypothesis, npc hp link hypothesis, and move authority "
+            "hypothesis scenarios are mutually exclusive"
+        )
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-030 active
+    # MOVE-AUTHORITY-002.  Re-checked here even though app.py already loaded
+    # it: a caller that hands in a lookalike profile must not be able to gate
+    # durable writes on budgets this project did not issue.
+    if move_authority_hypothesis_scenario is not None:
+        move_authority_hypothesis_scenario = (
+            require_move_authority_hypothesis_scenario(
+                move_authority_hypothesis_scenario
+            )
         )
     # DELETE-REFRESH-001 and HYP-PF-015 key on the same vital id 0x36DB, so
     # they must never be able to see the same frame: the mutual-exclusion
@@ -495,6 +510,19 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.npc_hostile_sweep_count = 0
                 self.npc_hostile_player_faction_start_sent = False
                 self.npc_hp_link_sweep_count = 0
+                # MOVE-AUTHORITY-002 (HYP-PF-030): the gate keeps its own
+                # accepted-position memory so a REFUSED report can never
+                # become the baseline the next report is measured against.
+                self.move_authority_accept_count = 0
+                self.move_authority_refusal_count = 0
+                self.move_authority_last_verdict = None
+                self.move_authority_last_accepted_xyz = None
+                self.move_authority_last_accepted_at = None
+                # Zero on purpose.  Grace is granted when THE SERVER moves
+                # the player, never because a connection is young: two
+                # unmeasured writes at the start of every connection would be
+                # an unbounded bypass a client could re-arm by reconnecting.
+                self.move_authority_grace_remaining = 0
                 self.delete_actor_soft_delete_count = 0
                 self.delete_refresh_list_rebuild_count = 0
                 self.transport_socket_closer = None
@@ -2246,6 +2274,17 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             ]
 
         def _checkpoint_exact_target(self, target) -> None:
+            verdict = None
+            stamp = None
+            if move_authority_hypothesis_scenario is not None:
+                verdict, stamp = self._move_authority_verdict(target)
+                if not verdict.accepted:
+                    self.move_authority_refusal_count += 1
+                    self.move_authority_last_verdict = verdict
+                    self.events.append(
+                        f"move_authority_hypothesis_{verdict.reason}_no_write"
+                    )
+                    return
             x, y, z, heading, _flags, _moving = target
             selected = self.foundation.selected
             candidate = Position(
@@ -2255,6 +2294,82 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             )
             if candidate != selected.position:
                 self.foundation.checkpoint(candidate)
+            if verdict is not None:
+                # Only now.  A checkpoint that raised (a stale or stolen lease
+                # is the frozen path's own refusal) must not leave an event
+                # saying the reading was admitted, a counter saying it was, or
+                # a baseline pointing where no row points.
+                self._move_authority_record_admitted(verdict, target, stamp)
+
+        def _move_authority_verdict(self, target):
+            """MOVE-AUTHORITY-002 (HYP-PF-030): decide, do not reply.
+
+            Reached only when the opt-in move-authority scenario is loaded.
+            Nothing is composed, queued or sent either way, because no
+            corrective-reposition frame has ever been captured (see
+            ``move_authority_hypothesis`` for why inventing one is refused).
+
+            The baseline is seeded from the AUTHORITATIVE ROW, not from
+            whatever the client reports first, so the first reading of a
+            connection is measured like every other one; and the baseline
+            advances only on readings this gate admitted, so a refused reading
+            can never become the ground the next one is measured against.
+            """
+            policy = move_authority_hypothesis_scenario.policy
+            now = monotonic_clock()
+            if self.move_authority_last_accepted_xyz is None:
+                position = self.foundation.selected.position
+                self.move_authority_last_accepted_xyz = (
+                    float(position.x), float(position.y), float(position.z),
+                )
+                self.move_authority_last_accepted_at = now
+            grace = self.move_authority_grace_remaining > 0
+            elapsed = now - self.move_authority_last_accepted_at
+            verdict = evaluate_move_report(
+                self.move_authority_last_accepted_xyz,
+                target, elapsed, policy, grace=grace,
+            )
+            return verdict, now
+
+        def _move_authority_record_admitted(self, verdict, target, stamp):
+            """Commit the admitted reading, after the durable write survived."""
+            if self.move_authority_grace_remaining > 0:
+                self.move_authority_grace_remaining -= 1
+            self.move_authority_accept_count += 1
+            self.move_authority_last_verdict = verdict
+            if len(target) >= 3:
+                self.move_authority_last_accepted_xyz = (
+                    float(target[0]), float(target[1]), float(target[2]),
+                )
+            self.move_authority_last_accepted_at = stamp
+            self.events.append(
+                f"move_authority_hypothesis_{verdict.reason}_admitted"
+            )
+
+        def _move_authority_note_server_moves(self, actions) -> None:
+            """Reopen the grace window when THE SERVER moved the player.
+
+            The gate measures a client's reading against the last position it
+            admitted.  When the frozen dispatcher teleports the player itself
+            -- scene entry, and the V137 marker transport mid-session, which
+            lands about 2340 units away horizontally and 448 vertically -- the
+            next honest reading is far from that baseline through no fault of
+            the client, and without this the durable row would stay frozen for
+            the rest of the session.  The server knows when it did that: the
+            action it queued carries TELEPORT in its label.  Grace is therefore
+            tied to a server-initiated move and to nothing else.
+            """
+            for action in actions or ():
+                if action and "TELEPORT" in action[0]:
+                    self.move_authority_grace_remaining = (
+                        move_authority_hypothesis_scenario.policy
+                        .teleport_grace_reports
+                    )
+                    self.events.append(
+                        "move_authority_hypothesis_grace_reopened_after_"
+                        "server_teleport"
+                    )
+                    return
 
         def _dispatch_object_population_target(self, parsed, target):
             """Own the exact TargetPos lane for the opt-in V94 capability."""
@@ -2342,6 +2457,12 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             return inherited_actions + population_actions
 
         def dispatch(self, parsed):
+            actions = self._dispatch_with_lanes(parsed)
+            if move_authority_hypothesis_scenario is not None:
+                self._move_authority_note_server_moves(actions)
+            return actions
+
+        def _dispatch_with_lanes(self, parsed):
             nested_id = parsed.nested_id
             if logout_hypothesis_scenario is not None and self.logout_acknowledged:
                 # After the acknowledged logout (HYP-PF-012 lane below) the

@@ -67,7 +67,27 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers ONE deliberate movement (chief round 96, 2026-08-20):
+    # This pin covers ONE deliberate movement (chief round 116, 2026-08-21,
+    # cloud): movement/local_player_movement_authority stays in_progress but
+    # gains one evidence ref and two test refs for MOVE-AUTHORITY-002
+    # (HYP-PF-030) -- the first lane in this tree that answers with a WITHHELD
+    # DURABLE WRITE instead of bytes.  Behind its opt-in scenario the server
+    # decides, per reported TargetPosVital singleton, whether the position
+    # checkpoint may be written at all, and refuses it by name when the report
+    # exceeds our own step, vertical or speed budget; the refused reading never
+    # becomes the baseline the next report is measured against.  Nothing is
+    # composed on any path -- for the same frame the gated and ungated sessions
+    # return the same action list -- because no captured frame, producer or
+    # client-side consumer for a server-initiated corrective reposition exists,
+    # so none is invented.  Proven headless at the wire/DB layer only: 48 lane
+    # tests and a 78-guard offline verifier.  The status deliberately does NOT
+    # move: no client has ever been run against this lane, the budgets are ours
+    # and are unvalidated against any real walk (the client const data has mob
+    # speed columns in unknown units and no player speed column), and the
+    # queued attended test has not run.
+    #
+    # Previous pin 56EE376C..9394 covered ONE deliberate movement (chief round
+    # 96, 2026-08-20):
     # movement/remote_player_movement_projection stays in_progress but gains four
     # evidence refs and two test refs for REMOTE-PLAYER-ENCODER-001 +
     # REMOTE-PLAYER-DISPATCH-001 (HYP-PF-025) -- the first actor_type 2 (CNetActor)
@@ -394,7 +414,7 @@ GRADE_SUBSET_SHA256 = (
     # 26D752FE..BA9A (round 65) occupied_destination_policy not_started ->
     # in_progress under HYP-PF-017 (ITEM-SWAP-001); see its lineage note before that
     # for round 53's 78558E56..6DC8.
-    "56EE376C667BA8233C5348F8E79F1E2DCD2529C55AED74951E051EC44E859394"
+    "1850460345789A13BA5CB8ECB659B4A7E08DCFF303E098C4ABD53A3208D56432"
 )
 
 
