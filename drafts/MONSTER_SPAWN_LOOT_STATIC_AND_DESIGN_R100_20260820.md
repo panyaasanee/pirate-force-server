@@ -360,3 +360,35 @@ construct path. The `mob_aggro_and_server_ai` coverage row stays `not_started`.
   nothing on the wire and touches no DB. Full RE provenance for section 1/2/6 is in this
   round's three worker fact packs; the packs are working notes, and every number they
   carry is re-derivable from the cited const-data tables and binary VAs.
+
+---
+
+## ERRATUM 1 (appended by chief round 102, 2026-08-20) - the Q4 corroboration overstated
+
+The Q4 paragraph above says "neither carried-debt singleton can silently blank the CORE
+damage numbers" and calls `[localplayer+0x420]` a byte "gating a SECONDARY combat-text
+routine (0x43fde0) ... but not the primary damage sprites (pool 0x102dca4 is ungated
+by it)".  A round-102 static pass (FACTPACK_R102_TARGETVITAL_AND_FXNUMBER_GATES_STATIC,
+byte-exact, 41/41 guards) refutes the safety claim for the numbers this project
+actually photographs:
+
+- The CHitResult display chain proven in FINDINGS-R93 and re-confirmed on screen by
+  GT-024/GT-027 is `0x750770 -> 0x43FDE0 -> 0x43FBB0 -> FxNumber ctor 0xA7C010 ->
+  glyph builder 0xA7EBA0`.  The floating 63/379/MISS! the testers photograph are
+  drawn by exactly the routine this draft called "SECONDARY" (`0x43FDE0`).
+- That routine is hard-gated at `0x43FE2C` (`cmp byte [localplayer+0x420]` -> `je`
+  no-draw): byte == 0 silences EVERY damage number and the MISS marker, with nothing
+  visible in any server log.
+- The byte is a user toggle: input command `0x27` flips it (`0x42C68A
+  mov [eax+0x420],cl` after `sete cl`), and it defaults ON at object init
+  (`0x44CAC2 mov byte [esi+0x420],1`, ctor `0x44C990`).
+
+CORRECTED CLAIM: `[localplayer+0x420]` DOES gate the CHitResult-driven damage numbers
+end-to-end.  A stray hotkey that lands on input command 0x27 (the round-8 attended
+session already proved unfocused keystrokes reach the hotkey map) will blank all
+damage numbers for that session while the wire stays byte-identical - which is the
+leading explanation for the GT-027 tester sessions that saw no numbers while the
+Panya-driven session saw all four.  What remains UNKNOWN and out of scope here is the
+separate "pool 0x102dca4" path this draft mentioned: its characterization is neither
+re-verified nor refuted by the round-102 pass, and no claim about it survives this
+erratum.  The original Q4 text above is kept unchanged per house norm.
