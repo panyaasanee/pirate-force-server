@@ -45,9 +45,18 @@ env:
   PYTHONUTF8: '0'
   PYTHONDONTWRITEBYTECODE: '1'
   # The number of docs/FUNCTIONAL_COVERAGE.json evidence_refs that a fresh
-  # clone does NOT contain.  Measured 2026-08-19 against HEAD 47c7211.
-  # This is real debt, pinned so that it cannot grow unnoticed.  See README.
-  COVERAGE_EVIDENCE_DEBT_PIN: '33'
+  # clone does NOT contain.
+  #   Was '33', measured 2026-08-19 against HEAD 47c7211 - STALE-EPOCH by the
+  #   time Actions first ran this file: commit 2992998 (round 93) tracked all
+  #   33 cited reports ("The files are added and the references kept"), and the
+  #   debt re-derives to 0 at every commit from 2992998 through HEAD (checked
+  #   commit-by-commit, round 105).  The pin predates the fix because this
+  #   workflow sat ignored by git until round 103 opened .github/.
+  # At 0 the real verifier below becomes BLOCKING (by this file's own design);
+  # tools/verify_functional_coverage.py re-verified exit 0 at HEAD before the
+  # flip.  Re-derive: walk evidence_refs in docs/FUNCTIONAL_COVERAGE.json,
+  # count refs absent from `git ls-files` - the exact code in the debt step.
+  COVERAGE_EVIDENCE_DEBT_PIN: '0'
 
 jobs:
   gate:
@@ -197,16 +206,27 @@ jobs:
           # docs/ and reports/ are excluded because a markdown file is never
           # printed to a console.
           #
-          # The three files pinned below are the pre-existing occurrences as of
-          # 2026-08-19: all of them sit in comments, docstrings or a JSON
-          # artifact payload, none reach print().  The counts are PINNED, so one
-          # NEW unmappable character anywhere in tools/, src/ or current/ turns
-          # this step red - and so does a change to one of the three.
+          # The files pinned below are the pre-existing occurrences: all of
+          # them sit in comments, docstrings or a JSON artifact payload, none
+          # reach print().  The counts are PINNED, so one NEW unmappable
+          # character anywhere in tools/, src/ or current/ turns this step red
+          # - and so does a change to one of them, in EITHER direction: debt
+          # going down unannounced is a red too, same principle as
+          # COVERAGE_EVIDENCE_DEBT_PIN.  That is exactly what felled Actions
+          # run #2 (2026-08-20): the cadence file was pinned at 6 from a
+          # 2026-08-19 measurement, but commit 2992998 (round 93) had already
+          # removed its six characters (U+00D7 and U+00B1); this workflow sat
+          # ignored by git until round 103, so the pin never saw the fix land.
+          # The row is kept at 0 rather than deleted: the name in this table is
+          # the record that this file once carried the trap and was cleaned,
+          # and any NEW unmappable character there goes red immediately.
+          # Counts below re-derived at HEAD, round 105: cadence 0, name-thunk 1
+          # (U+1F534 line 166), census 3 (U+1F534 lines 33/111/235).
           $py = @'
           import pathlib, subprocess, sys
 
           ALLOWED = {
-              "tools/pf_move_cadence001_headless_replay.py": 6,
+              "tools/pf_move_cadence001_headless_replay.py": 0,
               "tools/pf_vital_name_thunk_static.py": 1,
               "tools/pf_vital_thunk_census_static.py": 3,
           }

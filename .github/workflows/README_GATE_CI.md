@@ -148,15 +148,25 @@ this on the first run.
 The workflow therefore does two things instead of pretending:
 
 1. A blocking step counts the unreachable `evidence_refs` and compares the count
-   against `COVERAGE_EVIDENCE_DEBT_PIN` (currently `33`) at the top of the
-   workflow. **If the debt grows, the job goes red** - a new claim was just
-   backed by evidence nobody who clones this repository can read. If the debt
-   shrinks, the job also goes red, telling you to lower the pin in the same
-   commit. This is the same pinned-count idiom the seam test already uses for
+   against `COVERAGE_EVIDENCE_DEBT_PIN` (currently `0`; was `33` when this
+   section was written) at the top of the workflow. **If the debt grows, the
+   job goes red** - a new claim was just backed by evidence nobody who clones
+   this repository can read. If the debt shrinks, the job also goes red,
+   telling you to lower the pin in the same commit. This is the same
+   pinned-count idiom the seam test already uses for
    `MANIFEST_DEBT_RUNTIME_PASS`.
 2. `verify_functional_coverage.py` itself is run for its log value but is **not
    blocking** while the pin is non-zero. Set the pin to `0` (after un-ignoring
    the 33 reports) and it becomes blocking automatically.
+
+*(Superseded 2026-08-20, round 105: the debt is paid. Commit `2992998`
+(round 93) tracked all 33 cited reports - "The files are added and the
+references kept" - and the debt re-derives to 0 at every commit from `2992998`
+through HEAD. The 33-of-112 story above happened, but it describes the tree as
+of `47c7211` (2026-08-19); this file predates the fix because it sat gitignored
+until round 103. The pin is now `0`, so by rule 2 above
+`verify_functional_coverage.py` is **blocking** - re-verified exit 0 at HEAD
+before the flip. The "cloud chief will hit this" prediction is retired.)*
 
 ---
 
@@ -181,13 +191,15 @@ The workflow therefore does two things instead of pretending:
 
    | file | count |
    |---|---|
-   | `tools/pf_move_cadence001_headless_replay.py` | 6 |
+   | `tools/pf_move_cadence001_headless_replay.py` | 0 *(was 6; cleaned at `2992998`, round 93 - see the RESOLVED note below)* |
    | `tools/pf_vital_name_thunk_static.py` | 1 |
    | `tools/pf_vital_thunk_census_static.py` | 3 |
 
    `src/` and `current/` are currently 100% clean. The counts are pinned, so one
    **new** unmappable character anywhere in that scope turns the job red and
-   names the file, line and codepoint.
+   names the file, line and codepoint - and a count that *drops* is a red too
+   until the pin is lowered in the same commit, which is what Actions run #2
+   proved for real (see the Run #2 postmortem).
 
    `tests/` is **out of scope on purpose**: several modules carry non-ASCII test
    *data* deliberately (fullwidth latin in `test_player_name.py`, U+00E9 in
@@ -201,6 +213,14 @@ U+00D7 and U+00B1 on lines 96, 109, 152 and 154. Neither character is
 cp874-encodable. That tool would die on the bridge console the moment anyone
 ran it - it is simply not in the gate's tool list today. Chief's call; the file
 was not touched.
+
+**RESOLVED (2026-08-20, round 105 note): it exploded, and it was already
+defused.** Commit `2992998` (round 93) removed all six characters from that
+file; a fresh scan at HEAD finds 0. The paragraph above stays as history. The
+pin in the workflow kept saying `6` because this file predates round 93 and sat
+gitignored until round 103 - that stale pin is what turned Actions run #2 red
+at the `cp874 static tripwire` step, a *correct* red under this step's own
+"debt may not move unannounced" rule. Pin lowered to 0 in round 105.
 
 ---
 
@@ -252,6 +272,33 @@ then green again" means red caused by a planted defect in the *repository*
 (the recipes above), not by the pipeline's own exit-code handling. That proof
 is still owed, in this order: fix to green first, then plant a red, then
 revert to green.
+
+### Run #2 (2026-08-20, HEAD `6bd1b95`): a correct red from a stale-epoch pin
+
+`SELF-CHECK` passed (the run #1 fix works on the real runner). The run then
+died at `cp874 static tripwire`: `RED tools/pf_move_cadence001_headless_replay.py
+got=0 pinned=6`. The tree was right and the pin was wrong - commit `2992998`
+(round 93) had removed the six unmappable characters, but this workflow's pin
+was measured on 2026-08-19, before that fix, and the file sat gitignored until
+round 103, so the pin never saw the fix land. **The tripwire worked exactly as
+designed**: a pinned count that moves in either direction without the pin
+moving in the same commit is a red, the same principle as
+`COVERAGE_EVIDENCE_DEBT_PIN`. Round 105 lowered the pin to 0 (keeping the row
+as a record), audited every other hardcoded number in the workflow for the
+same stale-epoch defect, and found one more: `COVERAGE_EVIDENCE_DEBT_PIN` was
+still `33`, also measured at `47c7211`, also paid off by that same commit
+`2992998` ("the files are added and the references kept") - it re-derives to 0
+at every commit since. It was lowered to 0 in the same round *before* run #3
+could go red on it. Consequence of that flip, by this workflow's own design:
+`verify_functional_coverage.py` is now blocking (re-verified exit 0 at HEAD).
+
+**Run #2 does NOT satisfy the deliberate-red item either** - the red was real
+and repository-caused, but it was not *planted*. The order still stands: green
+first, then a planted red, then green again.
+
+Steps never yet executed on a runner, in run order: `cp874 static tripwire`
+(now expected to pass), `Declare what this runner CANNOT check`, `THE GATE`.
+Expect run #3 to be the first to reach them.
 
 ## Two runner requirements that are not obvious
 
@@ -342,10 +389,15 @@ git commit -am 'prove the evidence-debt pin fires'
 git push -u origin ci/prove-red-covdebt
 ```
 
-Expected: `NOT in a fresh clone : 34 (pinned at 33)` and the step exits 1.
+Expected: `NOT in a fresh clone : 1 (pinned at 0)` and the step exits 1.
+*(This recipe originally read `34 (pinned at 33)`; the pin moved to 0 in
+round 105 when the debt was found paid - see the coverage-debt section.)*
 
 *Rehearsed offline: running the extracted script with `pin=32` against the real
-repository exits 1, with `pin=33` exits 0.*
+repository exits 1, with `pin=33` exits 0. (Both numbers are from the
+2026-08-19 tree at `47c7211`, where the debt really was 33 - the rehearsal
+stands as history; at HEAD the equivalent pair is `pin=1` red / `pin=0`
+green.)*
 
 ### 5. The self-checks (these run on every job, unprompted)
 
@@ -368,14 +420,19 @@ assertion stops holding, the job goes red immediately.
   `--self-test-only` all pass on a clone-only tree.
 - `mpaudit` exits 1 without git history and 0 with it, without the client image.
 - `coverage` exits 2 on a clone-only tree; 33 of 112 `evidence_refs` are
-  untracked; the ledger's 99 refs are all tracked.
+  untracked; the ledger's 99 refs are all tracked. *(Measured at `47c7211`,
+  2026-08-19. Superseded round 105: the debt is 0 from `2992998` onward and
+  `verify_functional_coverage.py` exits 0 at HEAD - see the coverage-debt
+  section.)*
 - `verify_foundation.ps1`'s release-member list is 79 vs 105 actually built.
 - Both Python scripts embedded in the workflow were extracted from the YAML and
   run against the real repository: the cp874 tripwire passes at the pinned
   counts, and going red was rehearsed by injecting U+1F534 into
   `src/pirateforce_foundation/__init__.py` in a throwaway copy, which produced
   the exact `RED ... got=1 pinned=0 / line 6: codepoint 0x1f534` output. The
-  coverage-debt script exits 0 at pin 33 and 1 at pin 32.
+  coverage-debt script exits 0 at pin 33 and 1 at pin 32. *(All measured at
+  `47c7211`, 2026-08-19; both pins re-derived and lowered to 0 in round 105 -
+  the re-derivation code and results are in the workflow's own comments.)*
 - The YAML parses, contains zero non-ASCII bytes, has no trailing whitespace and
   no tabs, so `git diff --check` has nothing to flag.
 
