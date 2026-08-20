@@ -172,6 +172,18 @@ jobs:
           }
           Write-Host "self-check 2 PASS: U+1F534 kills the process (exit $LASTEXITCODE) - cp874 is armed"
 
+          # Both self-checks passed.  The last native command above exited 1 ON
+          # PURPOSE - that nonzero exit IS the proof that the tripwire is armed.
+          # The Actions pwsh wrapper ends every step with the last $LASTEXITCODE,
+          # and Write-Host does not reset it, so without the next line this step
+          # reports a failure that its own log says did not happen.  Run #1
+          # (HEAD 2de7d11, 2026-08-20) went red in exactly this way - a false
+          # red made by the pipeline itself, the mirror image of the round-142
+          # false green.  Reset explicitly.  Every other step was audited for
+          # the same trap: the static tripwire's success path leaves exit 0 and
+          # THE GATE already ends with an explicit exit.
+          exit 0
+
       # ------------------------------------------------------------------
       - name: cp874 static tripwire (tools/, src/, current/)
         run: |

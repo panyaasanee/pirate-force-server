@@ -31,6 +31,10 @@ sha256) and deliberately does not reproduce the stale member list.
 
 ## BLOCKER - this workflow cannot run until `.gitignore` is changed
 
+> **RESOLVED 2026-08-20 (round 103, commit `2de7d11`):** the two-line allowlist
+> below was committed together with both files; `git ls-files .github` now
+> returns 2 lines. The section is kept as history, per house norm.
+
 `.gitignore` line 1 is `/*`: the repository is an allowlist, and everything at
 the root is excluded unless a later line re-includes it. `.github/` is not
 re-included, so **git cannot see these two files at all**:
@@ -219,6 +223,36 @@ was not touched.
 - The setup steps that *should* stop on any error use `$ErrorActionPreference =
   'Stop'` plus explicit `throw` on non-zero.
 
+### Run #1 (2026-08-20, HEAD `2de7d11`): a false red from exactly this trap
+
+The first Actions run ever went red in 24 seconds, in the `SELF-CHECK` step,
+with a log whose last two content lines say both self-checks **PASSED**. The
+cause is the rule two bullets up, applied to a step that did not follow it:
+the step's last native command is `py -3 -c "print('\U0001F534')"`, which
+exits 1 **on purpose** - that nonzero exit is the proof the tripwire is armed -
+and the Actions `pwsh` wrapper ends every step with the last `$LASTEXITCODE`.
+`Write-Host` does not reset it. So the step reported a failure its own log
+says did not happen: a **false red manufactured by the pipeline itself**, the
+mirror image of the round-142 false green. Fixed by ending the step with an
+explicit `exit 0` once both checks have passed. Every other step was audited
+for the same trap in the same round: the `cp874 static tripwire` step's
+success path leaves `$LASTEXITCODE` at 0, `THE GATE` already ends with an
+explicit `exit`, and the remaining steps end on cmdlets, not native commands.
+
+What run #1 **did** prove, on a real `windows-latest` runner: full-history
+checkout (6s), setup-python 3.14, the `py -3` shim, the pip install (11s), and
+the entire environment assertion - `chcp 874` works on the runner image,
+`py -3` is the pinned 3.14 series, and stdout is exactly `cp874 strict`. The
+prior guess that an English-language runner might refuse code page 874 was
+wrong. Several "NOT proven" bullets below are therefore superseded for the
+setup steps; the gate steps after `SELF-CHECK` have still never executed.
+
+**Run #1 does NOT satisfy the deliberate-red checklist item.** "Seen red once,
+then green again" means red caused by a planted defect in the *repository*
+(the recipes above), not by the pipeline's own exit-code handling. That proof
+is still owed, in this order: fix to green first, then plant a red, then
+revert to green.
+
 ## Two runner requirements that are not obvious
 
 - **`fetch-depth: 0`.** `tools/pf_multiplayer_readiness_audit.py` runs
@@ -351,6 +385,9 @@ assertion stops holding, the job goes red immediately.
   because `.github/` is gitignored and the files have never been committed or
   pushed. Every claim about `windows-latest` behaviour is inference from the
   file contents plus Linux measurements.
+  *(Superseded 2026-08-20: run #1 exists - see "Run #1" above. The setup steps
+  through the environment assertion are now measured on `windows-latest`; the
+  steps after `SELF-CHECK` still are not.)*
 - **Nothing was run on Windows.** All measurements are Linux/CPython 3.10.12 in
   the session sandbox. The bridge is CPython 3.14.7. Version-specific behaviour
   differences were not tested.
