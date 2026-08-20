@@ -23,7 +23,17 @@ name: gate-windows
 
 on:
   push:
-    branches: ['**']
+    # This WAS branches: ['**'].  branches-ignore with a single name means the
+    # same thing minus one branch, and that one branch is the point: the
+    # publish-status job at the bottom of this file PUSHES to `ci-status`, so
+    # under ['**'] this workflow would trigger itself, run the whole gate on a
+    # branch that has no source tree at all, and publish again.  GitHub does not
+    # start a workflow from a push made with GITHUB_TOKEN, which would also stop
+    # the loop - but that is a rule about a credential, enforced somewhere we
+    # cannot see, and it would stop protecting us the day someone publishes with
+    # a PAT instead.  This line is the belt; the `if` on publish-status is the
+    # braces.  Both are cheap and neither depends on the other being right.
+    branches-ignore: ['ci-status']
   pull_request:
   workflow_dispatch:
 
@@ -551,3 +561,130 @@ jobs:
             exit 1
           }
           exit 0
+
+  # ====================================================================
+  # PUBLISH THE VERDICT WHERE A CLOUD CHIEF CAN ACTUALLY READ IT.
+  #
+  # WHY THIS EXISTS.  A chief running in a Claude Code Routine has no GitHub
+  # credential inside its sandbox at all: git works there only because a proxy
+  # injects credentials on the way out.  So that chief cannot ask the Actions
+  # API whether a run was green - not with gh, not with curl, not with a
+  # connector nobody has verified.  But it can run `git fetch`, and we have
+  # measured that it can.  The runner is the one who knows the verdict, so the
+  # runner writes the verdict down in the one channel that is proven to reach
+  # both sides.  Findings R108 has the reasoning and the alternatives that were
+  # rejected; Panya approved this shape ("path D") on 2026-08-20 ~19:10.
+  #
+  # HOW A CHIEF READS IT - the whole protocol, three lines:
+  #   git fetch origin ci-status
+  #   SHA=$(git rev-parse origin/claude/rNNN-whatever)
+  #   git show "origin/ci-status:ci/$SHA.json"
+  # `git show` exits 128 with "does not exist" when there is no verdict for
+  # that commit.  THAT IS THE ANSWER "I DO NOT KNOW", AND IT MUST BE READ AS
+  # "DO NOT MERGE".  It is never to be read as green.
+  #
+  # THERE IS DELIBERATELY NO ci/latest.json.  An earlier draft wrote one and it
+  # was removed before this ever ran, because it is a loaded gun: a chief that
+  # reads "latest" gets a verdict about SOME commit, learns the word "success",
+  # and merges a commit that this file never spoke about.  That failure is
+  # silent, it looks exactly like success, and it is the most expensive mistake
+  # this design is capable of making.  Every verdict here is named by the SHA it
+  # is about, so asking the wrong question cannot return the right-looking
+  # answer.  To ask "is this thing alive at all", list the directory:
+  #   git ls-tree --name-only origin/ci-status ci/
+  # ====================================================================
+  publish-status:
+    needs: [gate]
+    # always(): the whole value of this job is that it also reports RED.  A job
+    # that only spoke when the news was good would teach a chief to treat
+    # silence as failure, and silence here means "no information", which is a
+    # different thing that must stay different.
+    #
+    # The ref guard is the braces to the branches-ignore belt at the top of this
+    # file.  Two independent things must both fail before this job can push to
+    # the branch that triggers it.
+    if: always() && github.ref_name != 'ci-status'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # The file-level default is contents: read.  A job-level block REPLACES
+      # it, so this one line is what makes the push below possible, and it is
+      # scoped to this job alone - the gate above still cannot write anything.
+      contents: write
+    steps:
+      - name: Publish the verdict to the ci-status branch
+        # bash, explicitly.  `defaults.run.shell` at the top of this file is
+        # pwsh, and `set -euo pipefail` under pwsh is not an error - it is a
+        # command not found, ignored, followed by a script that keeps running
+        # after its first failure.  This line is load-bearing.
+        shell: bash
+        env:
+          # Everything crosses into the script as an environment variable
+          # rather than as ${{ }} interpolated into the shell text, so a value
+          # that ever contains a quote is data and not code.
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CONCLUSION: ${{ needs.gate.result }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          RUN_ID: ${{ github.run_id }}
+          # On a pull_request event github.sha is the SHA of an ephemeral merge
+          # commit that exists only inside this run.  Publishing a verdict under
+          # that name would file it under a commit no chief can ever resolve.
+          # Use the real head of the branch instead; on every other event
+          # github.sha already IS that commit.
+          SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+
+          # needs.gate.result is one of: success, failure, cancelled, skipped.
+          # Only the first word is green.  This is stated here as well as in the
+          # chief's prompt, because a reader of this branch should not have to
+          # go and find out elsewhere what these words mean.
+          echo "publishing verdict '$CONCLUSION' for commit $SHA (event: $EVENT)"
+
+          git init -q status_repo
+          cd status_repo
+          git config user.name  'gate-windows'
+          git config user.email 'gate-windows@users.noreply.github.com'
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+
+          # ci-status is an ORPHAN branch and stays one: it must not carry the
+          # history of main, both because it has no reason to and because A'
+          # walks the graph.  A fresh `git init` has no commits, so --orphan on
+          # the very first run is a no-op that simply keeps the unborn HEAD;
+          # rehearsed against a local bare repo before this was written.
+          if git fetch -q origin ci-status 2>/dev/null; then
+            git checkout -q FETCH_HEAD -b ci-status
+          else
+            echo "ci-status does not exist yet - creating it as an orphan branch"
+            git checkout -q --orphan ci-status
+          fi
+
+          mkdir -p ci
+          printf '{"sha":"%s","conclusion":"%s","event":"%s","ref":"%s","run_id":"%s","utc":"%s"}\n' \
+            "$SHA" "$CONCLUSION" "$EVENT" "$REF" "$RUN_ID" \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "ci/$SHA.json"
+          git add ci
+
+          # --allow-empty, because a re-run of the same commit with the same
+          # verdict in the same second would otherwise leave nothing staged and
+          # `git commit` would exit 1 into set -e, turning a harmless repeat into
+          # a missing verdict.
+          git commit -q --allow-empty -m "ci: $CONCLUSION $SHA"
+
+          # Two runs can finish between one fetch and one push.  Rebase and try
+          # again, three times, and NEVER force: this branch is append-only and
+          # a force push here would delete verdicts that other commits are
+          # relying on.  Same rule as the Windows sync.
+          pushed=0
+          for attempt in 1 2 3; do
+            if git push -q origin ci-status; then pushed=1; break; fi
+            echo "push attempt $attempt lost a race - rebasing and retrying"
+            git pull -q --rebase origin ci-status
+          done
+          if [ "$pushed" -ne 1 ]; then
+            echo "::error::could not publish the verdict for $SHA after three attempts"
+            exit 1
+          fi
+          echo "published ci/$SHA.json = $CONCLUSION"
