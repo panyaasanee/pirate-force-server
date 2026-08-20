@@ -2,7 +2,13 @@
 
 - **date:** 2026-08-20 (chief round 95)
 - **milestone:** DAMAGE-NPC-TARGET-001 — the third and FINAL tracked version of HYP-PF-024 (budget now 3/3, ZERO remain)
-- **claim grade:** wire + dispatcher layer only (headless-proven); the client layer is GT-027, attended, NOT run
+- **claim grade:** wire + dispatcher layer only (headless-proven); the client layer is GT-027, attended
+- **AMENDED 2026-08-21:** the line above originally read "the client layer is GT-027, attended, NOT run". GT-027 HAS
+  since run. The attended rerun of 2026-08-20, driven by Panya, is recorded in
+  `reports/PF_NPC_HP_LINK029_GT027_RERUN_ATTENDED_RESULT_20260820.md`: the number rendered over the NPC, and 505 points
+  of cumulative damage did not move the target's HP bar by one unit. Read that report's provenance caveat before citing
+  it -- the result is testimony plus surviving screenshots, not a re-derivable receipt, and it is a client-observable
+  layer result only. Nothing else in this document changed.
 - **whose numbers these are:** OURS. The original server is closed, was never published, and cannot be read. Nothing in
   this document is evidence about the original server's damage rules.
 

@@ -100,6 +100,13 @@ from .npc_hostile_hypothesis import (
     require_npc_hostile_hypothesis_scenario,
     resolve_probe as resolve_npc_hostile_probe,
 )
+from .npc_hp_link_hypothesis import (
+    NPC_HP_LINK_EVENT_NAME,
+    build_npc_hp_link_sweep,
+    npc_hp_link_wire_unlock,
+    require_npc_hp_link_hypothesis_scenario,
+    resolve_npc_hp_link_target,
+)
 from .remote_player_hypothesis import (
     build_remote_player_sweep,
     remote_player_wire_unlock,
@@ -160,6 +167,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                      damage_hp_link_hypothesis_scenario=None,
                      remote_player_hypothesis_scenario=None,
                      npc_hostile_hypothesis_scenario=None,
+                     npc_hp_link_hypothesis_scenario=None,
                      second_password_mode="required",
                      monotonic_clock=None,
                      close_timer_factory=None):
@@ -177,6 +185,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         damage_hp_link_hypothesis_scenario,
         remote_player_hypothesis_scenario,
         npc_hostile_hypothesis_scenario,
+        npc_hp_link_hypothesis_scenario,
     ))
     if active_modes > 1:
         raise ValueError(
@@ -185,8 +194,9 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             "message hypothesis, delete actor hypothesis, delete refresh "
             "hypothesis, stats progression hypothesis, hp death hypothesis, "
             "runtimeres death hypothesis, damage model hypothesis, damage "
-            "hp link hypothesis, remote player hypothesis, and npc hostile "
-            "hypothesis scenarios are mutually exclusive"
+            "hp link hypothesis, remote player hypothesis, npc hostile "
+            "hypothesis, and npc hp link hypothesis scenarios are mutually "
+            "exclusive"
         )
     # DELETE-REFRESH-001 and HYP-PF-015 key on the same vital id 0x36DB, so
     # they must never be able to see the same frame: the mutual-exclusion
@@ -359,6 +369,33 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             npc_hostile_hypothesis_scenario
         )
         npc_hostile_probe = resolve_npc_hostile_probe(legacy)
+    # NPC-HP-LINK-002 (HYP-PF-029; the ledger annotation for this lane lives
+    # once per file, on the dispatch method below).  Same shape as the lanes
+    # above: the wire unlock token is derived ONCE, here, from the allowlisted
+    # scenario object, and it is the only value in this process that lets the
+    # target-link lane compose either of its two carriers.  With no scenario it
+    # stays None, the dispatch branch below does not exist, and the encoder
+    # cannot emit a byte.  The frozen Port Royal target is resolved ONCE, here,
+    # so a drift in the frozen placement source refuses at construction time
+    # rather than mid-session.
+    #
+    # This lane ALTERNATES the two collections of 0x6E9D that its parents ride
+    # one at a time -- the VitalData/CHitResult carrier of HYP-PF-024 and the
+    # actor-entry/NPCAttr carrier of HYP-PF-023 -- against the SAME frozen
+    # probe those lanes drive (NPC 0x2001).  The mutual exclusion above keeps
+    # the lanes from ever seeing the same frame.
+    npc_hp_link_unlock = None
+    npc_hp_link_target = None
+    if npc_hp_link_hypothesis_scenario is not None:
+        npc_hp_link_hypothesis_scenario = (
+            require_npc_hp_link_hypothesis_scenario(
+                npc_hp_link_hypothesis_scenario
+            )
+        )
+        npc_hp_link_unlock = npc_hp_link_wire_unlock(
+            npc_hp_link_hypothesis_scenario
+        )
+        npc_hp_link_target = resolve_npc_hp_link_target(legacy)
     if delete_actor_hypothesis_scenario is not None:
         delete_actor_hypothesis_scenario = (
             require_delete_actor_hypothesis_scenario(
@@ -457,6 +494,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.remote_player_sweep_count = 0
                 self.npc_hostile_sweep_count = 0
                 self.npc_hostile_player_faction_start_sent = False
+                self.npc_hp_link_sweep_count = 0
                 self.delete_actor_soft_delete_count = 0
                 self.delete_refresh_list_rebuild_count = 0
                 self.transport_socket_closer = None
@@ -1974,6 +2012,97 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             )
             return actions
 
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-029 active
+        # NPC-HP-LINK-002.  The dispatch branch NPC-HP-LINK-001 deliberately
+        # withheld; this annotation and the HYP-PF-029 entry's source_refs
+        # bind each other both ways.
+        def _dispatch_npc_hp_link_hypothesis(self, parsed):
+            """Answer one accepted chat input frame with the TARGET link sweep.
+
+            This is the missing middle piece.  HYP-PF-024 puts a number on the
+            screen and GT-024 proved the client draws it; HYP-PF-026 links that
+            number to hit points but only for the PLAYER's own actor on the
+            base VitalData carrier.  Nothing in this tree had ever moved a
+            TARGET's hit points -- and on 2026-08-20 an attended test proved on
+            video that 505 points of damage delivered as CHitResult frames
+            moved a target's HP bar by exactly zero.  The client computes
+            nothing, so the server must say BOTH halves, and this lane says
+            them alternately, about one frozen NPC, end to end:
+
+              * TARGET_SPAWN          NPCAttr, hp 100/100, alive, placed
+              * HIT_WEAK              CHitResult  -63, flags 0x0001
+              * TARGET_HP_AFTER_WEAK  NPCAttr, hp_current 37   (100 - 63)
+              * MISS                  CHitResult    0, flags 0x0000 -- control
+              * TARGET_HP_AFTER_MISS  NPCAttr, hp_current 37   (a miss moves
+                                      nothing; byte-identical to the frame
+                                      before it, on purpose)
+              * HIT_STRONG            CHitResult -379, flags 0x0001
+              * TARGET_HP_ZERO_DYING  NPCAttr, hp_current 0 + death timer 20.0
+                                      (37 - 379 clamped at the floor)
+              * TARGET_DYING_ELAPSED  NPCAttr, death timer 0.0
+
+            The performer of every hit frame stays the session's OWN selected
+            actor -- one side of a CHitResult must be the player or the
+            six-stage visibility filter at 0x43FEF0 draws nothing -- and the
+            target is the frozen Port Royal placement 0x2001 resolved once at
+            construction.  The balance ladder is OURS and is re-walked by real
+            arithmetic on every composition; a sweep that does not reproduce
+            it is refused by the encoder before it can reach this method.
+
+            The request side is the same accepted 34-byte ascii12 shape every
+            neighbouring sweep reuses: the one client action an attended tester
+            can fire on demand, with every refusal guard already proven.
+            Nothing in the request is read.
+
+            ONE-SHOT, the same reason as both parents: the value of the ladder
+            is that a tester can predict 100 -> 37 -> 0 before it appears, and
+            a second sweep interleaved with the first turns a legible sequence
+            into noise -- and would spawn again an identity the client already
+            knows, which is a different experiment.
+
+            The lane touches no store, takes no socket action, adds no HP
+            column anywhere, and composes nothing at all when the scenario is
+            absent.
+            """
+            self.rx_frames += 1
+            classification = classify_chat_input_attempt(legacy, parsed)
+            if classification != "ascii12":
+                self.events.append(
+                    f"npc_hp_link_hypothesis_{classification}_no_reply"
+                )
+                return []
+            if self.foundation.selected is None:
+                self.events.append(
+                    "npc_hp_link_hypothesis_no_selected_no_reply"
+                )
+                return []
+            if not self.teleport_sent or not self.runtime_ack_sent:
+                self.events.append(
+                    "npc_hp_link_hypothesis_wrong_sequence_no_reply"
+                )
+                return []
+            if self.npc_hp_link_sweep_count:
+                self.events.append(
+                    "npc_hp_link_hypothesis_already_sent_no_reply"
+                )
+                return []
+            selected = self.foundation.selected
+            actions = build_npc_hp_link_sweep(
+                legacy, npc_hp_link_target,
+                selected.identity_lo, selected.identity_hi,
+                npc_hp_link_unlock, npc_hp_link_hypothesis_scenario,
+            )
+            self.npc_hp_link_sweep_count += 1
+            # The event name is the module's constant, written out here once
+            # and compared, exactly as the parent link lane does: renaming the
+            # published event is an immediate RuntimeError rather than a string
+            # that quietly drifted away from the ledger and the tests.
+            event = "npc_hp_link_hypothesis_target_sweep_sent"
+            if event != NPC_HP_LINK_EVENT_NAME:
+                raise RuntimeError("HYP-PF-029 sweep event name drift")
+            self.events.append(event)
+            return actions
+
         # PF-HYPOTHESIS-LEDGER: HYP-PF-015 active
         def _dispatch_delete_actor_hypothesis(self, parsed):
             """Soft-delete one owned character behind the explicit opt-in.
@@ -2321,6 +2450,16 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # outright and app.py refuses the flags together, which is
                 # why the ordering of these branches cannot matter.
                 return self._dispatch_npc_hostile_hypothesis(parsed)
+            if (
+                npc_hp_link_hypothesis_scenario is not None
+                and nested_id == CHAT_INPUT_VITAL_ID
+            ):
+                # NPC-HP-LINK-002.  This lane and the seven above are keyed
+                # on the same vital id, so they must never be able to see the
+                # same frame: make_state_class refuses any pair outright and
+                # app.py refuses the flags together, which is why the ordering
+                # of these branches cannot matter.
+                return self._dispatch_npc_hp_link_hypothesis(parsed)
             if (
                 delete_actor_hypothesis_scenario is not None
                 and nested_id == DELETE_ACTOR_VITAL_ID

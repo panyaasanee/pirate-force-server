@@ -1,0 +1,339 @@
+{
+  "schema": 1,
+  "id": "npc_hp_link_hypothesis_target_sweep",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-029",
+  "checkpoint": "NPC-HP-LINK-001",
+  "hypothesis_id_is_registered_in_the_ledger": true,
+  "design_not_recovery": "this_is_our_design_not_the_original_servers_which_is_unrecoverable",
+  "spacing_decision_comment": "six_seconds_not_fifteen_stretching_spacing_for_the_tester_is_wasted_effort_because_the_event_is_short_the_fix_is_recording_video_panya_20260820",
+  "undecidable_from_static_analysis": "whether_the_client_renders_the_intermediate_value_37_on_the_targets_hp_bar_is_the_queued_attended_test_the_only_thing_proven_so_far_is_the_negative_505_damage_and_the_bar_did_not_move",
+  "entry": {
+    "flow": "full_writable_character",
+    "required_sequence": "selected_and_runtime_ready",
+    "response_policy": "compose_linked_damage_and_target_hp_frames_from_our_own_arithmetic_no_write_no_close"
+  },
+  "dispatch": {
+    "wired": true,
+    "wiring_owner": "npc_hp_link_002_round_111",
+    "app_policy_when_lane_disabled": "no_frames_composed_and_the_encoder_raises_if_called_directly",
+    "runtime_dispatch_branch": "runtime_py_dispatch_npc_hp_link_hypothesis_reached_from_the_app_flag_through_make_state_class",
+    "frames_per_accepted_request": 8,
+    "trigger": "one_accepted_34_byte_ascii12_chat_input_frame",
+    "step_order": [
+      "TARGET_SPAWN",
+      "HIT_WEAK",
+      "TARGET_HP_AFTER_WEAK",
+      "MISS",
+      "TARGET_HP_AFTER_MISS",
+      "HIT_STRONG",
+      "TARGET_HP_ZERO_DYING",
+      "TARGET_DYING_ELAPSED"
+    ],
+    "step_kinds": [
+      "actor",
+      "hit",
+      "actor",
+      "hit",
+      "actor",
+      "hit",
+      "actor",
+      "actor"
+    ],
+    "miss_steps": [
+      "MISS"
+    ],
+    "lethal_steps": [
+      "TARGET_HP_ZERO_DYING",
+      "TARGET_DYING_ELAPSED"
+    ],
+    "spacing_seconds": 6.0,
+    "first_frame_delay_seconds": 0.0,
+    "delay_semantics": "gap_before_each_send_on_a_cumulative_deadline",
+    "action_label_prefix": "HYP_PF_029_NPC_HP_LINK_",
+    "action_labels": [
+      "HYP_PF_029_NPC_HP_LINK_TARGET_SPAWN",
+      "HYP_PF_029_NPC_HP_LINK_HIT_WEAK",
+      "HYP_PF_029_NPC_HP_LINK_TARGET_HP_AFTER_WEAK",
+      "HYP_PF_029_NPC_HP_LINK_MISS",
+      "HYP_PF_029_NPC_HP_LINK_TARGET_HP_AFTER_MISS",
+      "HYP_PF_029_NPC_HP_LINK_HIT_STRONG",
+      "HYP_PF_029_NPC_HP_LINK_TARGET_HP_ZERO_DYING",
+      "HYP_PF_029_NPC_HP_LINK_TARGET_DYING_ELAPSED"
+    ],
+    "one_shot": true,
+    "socket_action": "none"
+  },
+  "wire": {
+    "envelope_vital_id": 28317,
+    "envelope_vital_version": 4,
+    "envelope": "gscn_runtime_protocol_res_v4_two_collections",
+    "hit_carrier": {
+      "collection": "vitaldata",
+      "base_change_mask": 2,
+      "derived_change_mask": 0,
+      "object_offset": 24,
+      "chit_result_vital_id": 5879,
+      "chit_result_vital_version": 0,
+      "header_wire_size": 22,
+      "header_reserved_value": 0,
+      "hit_element_wire_size": 37,
+      "hit_entry_count": 1,
+      "damage_field": {
+        "name": "damage_wire",
+        "object_offset": 8,
+        "wire_tag": 20,
+        "width": "i32_read_signed",
+        "safe_band": [
+          -1000000,
+          0
+        ]
+      },
+      "flag_field": {
+        "name": "result_flags",
+        "object_offset": 28,
+        "wire_tag": 18,
+        "width": "u16",
+        "value_allowlist": [
+          0,
+          1
+        ],
+        "forbidden_mask": 61828
+      },
+      "yaw_field": {
+        "name": "reaction_yaw",
+        "object_offset": 24,
+        "wire_tag": 42,
+        "pinned_value": 0.0
+      }
+    },
+    "target_carrier": {
+      "collection": "actor_entries",
+      "inherited_change_mask": 0,
+      "derived_change_mask": 2,
+      "object_offset": 28,
+      "actor_type": 4,
+      "attr_ids": [
+        2773,
+        8295
+      ],
+      "field_order_rule": "ascending_mask_bit_within_each_block",
+      "hp_fields": {
+        "hp_current": {
+          "mask_bit": 4,
+          "object_offset": 68,
+          "wire_tag": 20,
+          "width": "u32"
+        },
+        "hp_max": {
+          "mask_bit": 8,
+          "object_offset": 72,
+          "wire_tag": 20,
+          "width": "u32"
+        },
+        "hp_death_timer": {
+          "mask_bit": 128,
+          "object_offset": 88,
+          "wire_tag": 42,
+          "width": "f32"
+        },
+        "scene_id": {
+          "mask_bit": 256,
+          "object_offset": 92,
+          "wire_tag": 18,
+          "width": "u16"
+        },
+        "scene_sequence": {
+          "mask_bit": 512,
+          "object_offset": 96,
+          "wire_tag": 50,
+          "width": "qword"
+        }
+      },
+      "polarity": {
+        "dying_latch_predicate": 4439456,
+        "dying_latch_vtable_slot": 64,
+        "dying_latch_rule": "current_hp_zero_and_death_timer_greater_than_zero",
+        "dying_latch_value_seconds": 20.0,
+        "death_task_predicate": 4439408,
+        "death_task_vtable_slot": 60,
+        "death_task_rule": "current_hp_zero_and_death_timer_less_than_or_equal_to_zero",
+        "death_task_value_seconds": 0.0,
+        "zero_float_constant": 15767708,
+        "elapsed_wire_bytes": "2a00000000"
+      }
+    },
+    "formula": {
+      "owner": "this_project_not_the_original_server",
+      "deterministic": true,
+      "uses_random": false,
+      "atk_base": 100,
+      "k_atk_str": 7,
+      "k_atk_lv": 3,
+      "def_base": 10,
+      "k_def_con": 2,
+      "k_def_lv": 1,
+      "min_hit": 1,
+      "defender": {
+        "name": "PLAYER_BASELINE",
+        "level": 7,
+        "ability_con": 22
+      },
+      "attackers": {
+        "MOB_WEAK": {
+          "level": 1,
+          "ability_str": 3
+        },
+        "MOB_STRONG": {
+          "level": 20,
+          "ability_str": 40
+        }
+      },
+      "pinned_damage_wire": {
+        "MOB_WEAK": -63,
+        "MOB_STRONG": -379
+      }
+    },
+    "hp_ladder": {
+      "owner": "the_target_not_the_player",
+      "start": 100,
+      "max": 100,
+      "floor": 0,
+      "ladder": [
+        100,
+        100,
+        37,
+        37,
+        37,
+        37,
+        0,
+        0
+      ],
+      "clamp_step": "TARGET_HP_ZERO_DYING",
+      "applies_on": "the_actor_frame_that_follows_each_hit_frame"
+    }
+  },
+  "probe": {
+    "rule": "the_performer_is_the_players_own_actor_and_the_target_is_the_frozen_port_royal_placement_identity",
+    "target_source": "port_royal_unambiguous_placements_frozen_v141",
+    "target_selection_rule": "nearest_placement_to_the_frozen_v135_player_spawn",
+    "target_identity_formula": "0x2000_plus_placement_index_plus_1",
+    "target_placement_index": 0,
+    "target_template_id": 1,
+    "target_identity_lo": 8193,
+    "target_identity_hi": 0,
+    "target_visual_preset": "P_MALE_002_000_SP1",
+    "target_source_name": "Navy Transfer",
+    "position_source": "frozen_v135_player_spawn",
+    "pins_are_composed_from_a_fixed_probe_identity": true,
+    "performer_probe_identity_lo": 268500993,
+    "performer_probe_identity_hi": 0,
+    "scene_id": 1,
+    "scene_sequence": 0,
+    "parent_pin_sources": {
+      "TARGET_SPAWN": [
+        "HYP-PF-023",
+        "SPAWN"
+      ],
+      "TARGET_HP_ZERO_DYING": [
+        "HYP-PF-023",
+        "DYING_LATCH"
+      ],
+      "TARGET_DYING_ELAPSED": [
+        "HYP-PF-023",
+        "DEATH_TASK"
+      ],
+      "HIT_WEAK": [
+        "HYP-PF-024",
+        "HIT_WEAK"
+      ],
+      "MISS": [
+        "HYP-PF-024",
+        "MISS"
+      ],
+      "HIT_STRONG": [
+        "HYP-PF-024",
+        "HIT_STRONG"
+      ]
+    },
+    "per_step": {
+      "TARGET_SPAWN": {
+        "pc_size": 173,
+        "pc_sha256": "8965DCF2574B733B119741D2350FB5BAB6D416A9168113AA3E95A5F2FBAC698C",
+        "frame_size": 185,
+        "frame_sha256": "E7E2B0C671C1B023F5FD6FAE4D6489CC670F648DBD3802A67B760816A78AB0C4"
+      },
+      "HIT_WEAK": {
+        "pc_size": 84,
+        "pc_sha256": "D07A4F48E56085982E511FF24E4C4C079DF1318E60A7386BF1B93F5D54A8A4C3",
+        "frame_size": 95,
+        "frame_sha256": "0B4537B6240F7C202B5FAF1A9BADCB0E0F7BAFC40191724DFDE953F797F89706"
+      },
+      "TARGET_HP_AFTER_WEAK": {
+        "pc_size": 115,
+        "pc_sha256": "D455806EAAB39E46E1E671515286E6D61054CF9B49D2ADA900CE8D62D951F651",
+        "frame_size": 126,
+        "frame_sha256": "5DF25D7E42D46875D98F55C439142AA1EE479E3D3D157F28F591B9FB17EE2349"
+      },
+      "MISS": {
+        "pc_size": 84,
+        "pc_sha256": "36702C4201652DBB84C5F712515D28729AC994D07353AAE069D53E454DDD3891",
+        "frame_size": 95,
+        "frame_sha256": "E369DDC41CA253CBE3ABD5474760C2F0F4C9D76FD12A7BD1783B1D68D67E7458"
+      },
+      "TARGET_HP_AFTER_MISS": {
+        "pc_size": 115,
+        "pc_sha256": "D455806EAAB39E46E1E671515286E6D61054CF9B49D2ADA900CE8D62D951F651",
+        "frame_size": 126,
+        "frame_sha256": "5DF25D7E42D46875D98F55C439142AA1EE479E3D3D157F28F591B9FB17EE2349"
+      },
+      "HIT_STRONG": {
+        "pc_size": 84,
+        "pc_sha256": "237CB09D44742068F8304FF02CFDA4E61E1045719DE00BE06F0B2CBAAA1E41A5",
+        "frame_size": 95,
+        "frame_sha256": "3363C2A44878732D97F204987963B277E47DAF4016F6BDA27D0E92E2F0128FA9"
+      },
+      "TARGET_HP_ZERO_DYING": {
+        "pc_size": 120,
+        "pc_sha256": "451D73AD2AB0360D206DDD3A3C4CED9A7A328FFD8455B84C4018A27B635D21EA",
+        "frame_size": 131,
+        "frame_sha256": "CDBFED6788E418110C1D8FE177BE9D4275DC7FF376A8E654F3B734C14BCDA2E4"
+      },
+      "TARGET_DYING_ELAPSED": {
+        "pc_size": 120,
+        "pc_sha256": "0116A7300814CA53F38668B2CAA193123324360F172EE2A9F9B5791BDE81BF0C",
+        "frame_size": 131,
+        "frame_sha256": "D545EC392D880D96BBC669A1F5646741268E8D0E29FD32B90474FF080160D1A0"
+      }
+    }
+  },
+  "persisted_post_state": {
+    "database_write": "none"
+  },
+  "capabilities": [
+    "run_our_damage_arithmetic_against_a_server_held_balance_for_a_target",
+    "move_a_targets_hit_points_which_no_lane_in_this_tree_has_ever_done",
+    "alternate_the_vitaldata_hit_carrier_and_the_actor_entry_target_carrier",
+    "address_every_frame_of_the_sweep_at_the_one_frozen_placement_identity",
+    "clamp_the_balance_at_the_floor_on_exactly_one_pinned_step",
+    "end_in_the_proven_dying_latch_then_the_pinned_death_task_frame",
+    "refuse_every_value_whose_client_meaning_this_project_cannot_name"
+  ],
+  "nonclaims": [
+    "this_is_our_design_not_the_original_servers_which_is_unrecoverable",
+    "no_capture_shows_a_targets_hit_points_moving_in_response_to_damage_in_either_direction",
+    "the_client_does_not_subtract_damage_that_is_why_the_server_must_say_both_halves",
+    "whether_the_client_renders_the_intermediate_value_37_on_the_targets_hp_bar_is_undecidable_from_static_analysis_and_is_the_queued_attended_test",
+    "the_only_thing_proven_so_far_is_the_negative_505_damage_and_the_bar_did_not_move",
+    "no_claim_the_original_server_ever_linked_these_frames",
+    "no_database_write_no_hp_column_exists_and_none_is_added",
+    "wire_layer_only_no_client_has_seen_these_bytes",
+    "one_shot_per_process",
+    "no_claim_about_any_death_window_exit_path",
+    "miss_control_proves_only_that_our_arithmetic_holds_not_that_the_client_checks_it",
+    "the_runtime_dispatch_branch_exists_and_is_driven_headless_only_never_over_tcp_and_never_by_a_client",
+    "production_dispatch_wiring_the_wiring_is_opt_in_and_production_allowed_is_false",
+    "production_baseline_behavior"
+  ]
+}

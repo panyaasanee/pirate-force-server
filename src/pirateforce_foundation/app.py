@@ -18,6 +18,9 @@ from .population_scenario import load_population_scenario
 from .npc_hostile_hypothesis import (
     load_npc_hostile_hypothesis_scenario,
 )
+from .npc_hp_link_hypothesis import (
+    load_npc_hp_link_hypothesis_scenario,
+)
 from .runtime import make_state_class
 from .runtime_console import install_runtime_console
 from .damage_hp_link_hypothesis import (
@@ -77,6 +80,7 @@ def main() -> int:
     pre.add_argument('--damage-hp-link-hypothesis-scenario')
     pre.add_argument('--remote-player-hypothesis-scenario')
     pre.add_argument('--npc-hostile-hypothesis-scenario')
+    pre.add_argument('--npc-hp-link-hypothesis-scenario')
     pre.add_argument(
         '--second-password-mode', choices=SECOND_PASSWORD_MODES,
         default='required',
@@ -218,6 +222,34 @@ def main() -> int:
         )
         if known.npc_hostile_hypothesis_scenario else None
     )
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-029 active
+    # NPC-HP-LINK-001.  The first lane in this tree that moves a TARGET's hit
+    # points: eight GSCN_RunTimeProtocolRes 0x6E9D v4 frames alternating the
+    # VitalData hit carrier (CHitResult 0x16F7, BASE mask 0x02 at +0x18) with
+    # the actor-entry target carrier (DERIVED mask 0x02 at +0x1C, actor_type 4)
+    # against the one frozen Port Royal placement identity 0x2001, over a
+    # server-held balance ladder 100/100/37/37/37/37/0/0.  THE ARITHMETIC AND
+    # THE LINK ARE OURS, NOT THE ORIGINAL SERVER'S, WHICH IS UNRECOVERABLE: no
+    # capture shows a target's hit points moving in response to damage in
+    # either direction, and round 83 proved the client never subtracts -- which
+    # is exactly why the server must say both halves itself.  Whether the
+    # client renders the intermediate value 37 on the target's bar is
+    # UNDECIDABLE from static analysis and is the queued attended test; the
+    # only thing proven so far is the negative (505 damage, bar did not move),
+    # recorded with its provenance caveat in
+    # reports/PF_NPC_HP_LINK029_GT027_RERUN_ATTENDED_RESULT_20260820.md --
+    # testimony plus screenshots, client-observable layer only, never to be
+    # cited as wire-layer evidence.
+    # This checkpoint wires the FLAG only: the flag is refused alongside every
+    # other mode and demands an explicit existing --db, and the runtime.py
+    # dispatch branch is deliberately a separate checkpoint, so the loaded
+    # scenario is not handed to make_state_class below.
+    npc_hp_link_hypothesis = (
+        load_npc_hp_link_hypothesis_scenario(
+            known.npc_hp_link_hypothesis_scenario
+        )
+        if known.npc_hp_link_hypothesis_scenario else None
+    )
     if sum(value is not None for value in (
         scenario, scene_load, population, item_move_capture,
         item_move_hypothesis, logout_hypothesis, chat_input_hypothesis,
@@ -226,6 +258,7 @@ def main() -> int:
         hp_death_hypothesis, runtimeres_death_hypothesis,
         damage_model_hypothesis, damage_hp_link_hypothesis,
         remote_player_hypothesis, npc_hostile_hypothesis,
+        npc_hp_link_hypothesis,
     )) > 1:
         pre.error(
             '--scenario, --scene-load-scenario, --population-scenario, and '
@@ -240,7 +273,8 @@ def main() -> int:
             '--damage-model-hypothesis-scenario/'
             '--damage-hp-link-hypothesis-scenario/'
             '--remote-player-hypothesis-scenario/'
-            '--npc-hostile-hypothesis-scenario are mutually exclusive'
+            '--npc-hostile-hypothesis-scenario/'
+            '--npc-hp-link-hypothesis-scenario are mutually exclusive'
         )
     if item_move_capture is not None and not known.db:
         pre.error('--item-move-capture-scenario requires an explicit existing --db')
@@ -293,6 +327,11 @@ def main() -> int:
             '--npc-hostile-hypothesis-scenario requires an explicit '
             'existing --db'
         )
+    if npc_hp_link_hypothesis is not None and not known.db:
+        pre.error(
+            '--npc-hp-link-hypothesis-scenario requires an explicit '
+            'existing --db'
+        )
     db_path = known.db or str(
         root / (
             'state/object_population_v94.sqlite3' if population is not None
@@ -330,6 +369,8 @@ def main() -> int:
             if remote_player_hypothesis is not None else
             'npc-hostile-hypothesis'
             if npc_hostile_hypothesis is not None else
+            'npc-hp-link-hypothesis'
+            if npc_hp_link_hypothesis is not None else
             'foundation'
         )
         install_runtime_console(
@@ -353,6 +394,7 @@ def main() -> int:
         or damage_hp_link_hypothesis is not None
         or remote_player_hypothesis is not None
         or npc_hostile_hypothesis is not None
+        or npc_hp_link_hypothesis is not None
     ):
         if not Path(db_path).is_file():
             raise FileNotFoundError(db_path)
@@ -371,6 +413,7 @@ def main() -> int:
             or damage_hp_link_hypothesis is not None
             or remote_player_hypothesis is not None
             or npc_hostile_hypothesis is not None
+            or npc_hp_link_hypothesis is not None
         ):
             store.migrate()
             store.expire_open_sessions()
@@ -421,6 +464,14 @@ def main() -> int:
         # NPC-HOSTILE-DISPATCH.  None unless the flag was handed in, and
         # make_state_class refuses it alongside every other mode a second time.
         npc_hostile_hypothesis_scenario=npc_hostile_hypothesis,
+        # NPC-HP-LINK-003 joins the flag to the branch.  The runtime.py branch
+        # _dispatch_npc_hp_link_hypothesis exists (NPC-HP-LINK-002), so the
+        # loaded scenario is handed through here exactly as every sibling lane
+        # hands its own: None unless the flag was given, and make_state_class
+        # refuses it alongside every other mode a second time.  Until this line
+        # landed the CLI flag loaded a scenario the runtime never received and
+        # an attended tester could not reach the lane at all.
+        npc_hp_link_hypothesis_scenario=npc_hp_link_hypothesis,
         # PF-HYPOTHESIS-LEDGER: HYP-PF-009 active
         second_password_mode=known.second_password_mode,
     )

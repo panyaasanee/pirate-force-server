@@ -281,7 +281,20 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # field values default to zero (no client producer), an explicit nonclaim.  One-shot,
 # production_allowed false, no database write beyond the session close.  No client has ever
 # been shown one byte of this profile; no coverage row grade moves until GT-033 runs.
-CANONICAL_CONTENT_SHA256 = "BA5FE4A6F259C4A6CE146B60812834E80A00BC6D76D84E6F0F0E866C171109FD"
+# ROUND 111 APPEND (HYP-PF-029, NPC-HP-LINK-001/002/003).  Entry 36 is appended -- no earlier
+# entry moved, no earlier index changed -- and the canonical content hash below is re-pinned
+# for the same reason every earlier append re-pinned it.  The entry registers the first lane in
+# this tree that moves a TARGET's hit points: eight GSCN_RunTimeProtocolRes 0x6E9D v4 frames
+# alternating the VitalData hit carrier (CHitResult 0x16F7, BASE mask 0x02 at +0x18) with the
+# actor-entry target carrier (DERIVED mask 0x02 at +0x1C, actor_type 4) against the frozen Port
+# Royal placement identity 0x2001, over a server-held balance ladder 100/100/37/37/37/37/0/0.
+# THE ARITHMETIC AND THE LINK ARE OURS; the original server is unrecoverable.  Three tracked
+# versions, budget now 3/3: the composer, the runtime.py dispatch branch, and the app.py
+# flag-to-branch join that also corrected the scenario file's stale dispatch block.  The same
+# append also carries the HYP-PF-024 GT-027 amendment (that test HAS now run) and the
+# provenance caveat on the 2026-08-20 attended negative, which is testimony plus screenshots
+# and not a re-derivable receipt.  No coverage row grade moves on it.
+CANONICAL_CONTENT_SHA256 = "AB31E0F0DDCB4A9BB5688E1B63C5006F88B9C7D20224CDCF6EEC03DCE9E0C7C1"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -431,6 +444,11 @@ EXPECTED_IDS = (
     # the owner's standing pre-approval, GT-033 variant B) is likewise
     # appended so all prior entry indices stay stable.
     "HYP-PF-028",
+    # HYP-PF-029 (the NPC target hit-point link, chief round 111 under the
+    # owner's standing damage-model approval of 2026-08-19 11:45) is appended
+    # for the same reason every entry since HYP-PF-011 was: appending keeps
+    # every earlier entry index stable for the index-based fixtures.
+    "HYP-PF-029",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -474,6 +492,7 @@ EXPECTED_META = {
     "HYP-PF-028": (
         "protocol_hypothesis", "LOGOUT-RETURN-SELECT-001", "active",
     ),
+    "HYP-PF-029": ("protocol_hypothesis", "NPC-HP-LINK-001", "active"),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}
 STATUSES = {"active", "frozen", "retired", "harness_only", "expired_pending_decision"}
