@@ -114,6 +114,55 @@ LOGOUT_CLOSE_DELAY_MS = 250
 LOGOUT_RESPONSE_POLICY_ACK_ONLY = "ack_only"
 LOGOUT_RESPONSE_POLICY_WORLDINFO_FIRST = "worldinfo_response_first"
 
+# HYP-PF-028 (LOGOUT-RETURN-SELECT-001): the return-select-server response.
+# Round-100 static RE (agent D, pf_bridge/FACTPACK_R100_LOGOUT_TRANSITION_
+# STATIC.md) proved with a mechanism that an ECHO cannot transition the client:
+# every vital echoed inside GSCN_RunTimeProtocolRes is consumed by the inbound
+# actor-vital RECONCILE pass 0x446F30, which only adds/updates/removes actor
+# vitals and never switches scene/state/connection.  The real transition is
+# driven by a session/connection orchestrator (vtable 0xf45030) that waits on a
+# mode+timer and then tears down the game connection.  ReturnSelectServerVital
+# (0x709E) is the strongest-NAMED candidate for the "return to character
+# select" direction, but agent D found NO client code path that consumes 0x709E
+# to drive cStateSelectServer, so static cannot decide whether sending it
+# transitions the client -- that is exactly the queued attended A/B (GT-033).
+# This scenario answers a captured LogoutVital with a well-formed 0x709E vital
+# (then the pinned ack, then the proven clean close), so an attended run can
+# observe whether the real client acts on it.  The 0x709E body is composed from
+# the client's OWN serializer field layout (below); the original server's
+# actual return-select response is unrecoverable and this is our design.
+LOGOUT_RESPONSE_POLICY_RETURN_SELECT_FIRST = "return_select_server_first"
+
+# ReturnSelectServerVital wire body, decoded from the client serializer
+# 0x5e69f0 (descriptor table 0xf304ec slot2) by the round-101 static pass, the
+# same method agent D used on LogoutVital's 0x5e6820.  The serializer writes,
+# in order:
+#   field1  object +0x14  wire tag 0x08  u8            -> 08 <v>
+#   field2  object +0x18  wire tag 0x32  8-byte scalar  -> 32 <8 bytes>
+#   field3  object +0x20  wire tag 0x44  std::string    -> 44 <u32 len><data>
+# EVERY TAG BYTE (0x08 / 0x32 / 0x44) IS READ FROM THE CLIENT'S OWN SERIALIZER;
+# nothing structural is invented.  No producer in the client sets these fields
+# to any non-zero content (the id-getter 0x5e6960 has zero callers and no
+# consumer keys on 0x709E), so the field VALUES default to zero and the string
+# is empty -- an explicit nonclaim, the same honest default agent D applied.
+# The all-zero form is therefore the minimal well-formed body: 16 bytes.
+RETURN_SELECT_SERVER_VITAL_ID = 0x709E
+RETURN_SELECT_SERVER_BODY = bytes.fromhex(
+    "0800" "32" "0000000000000000" "44" "00000000"
+)
+RETURN_SELECT_SERVER_BODY_SIZE = 16
+# Composed GSCN_RunTimeProtocolRes v4 (one vital, version 0, the 16-byte body),
+# deterministic: 38-byte PC / 48-byte frame.  Pinned so the module, verifier,
+# replay and scenario all agree byte-for-byte.
+RETURN_SELECT_SERVER_RESPONSE_PC_SIZE = 38
+RETURN_SELECT_SERVER_RESPONSE_FRAME_SIZE = 48
+RETURN_SELECT_SERVER_RESPONSE_PC_SHA256 = (
+    "A4C8DF4299EA7C3A5EE5554D1D29D7F8C1A2B51031CA210CBEB9AF2AD9D4CA9E"
+)
+RETURN_SELECT_SERVER_RESPONSE_FRAME_SHA256 = (
+    "08C2A925BD67CD3D0AFA7992F98D472ED8FD22787756521A5DF8CBF174E5CB8E"
+)
+
 WORLDINFO_VITAL_ID = 0x3D4B
 WORLDINFO_FULL_VITAL_COUNT = 3
 WORLDINFO_RECORD_SIZE = 123
@@ -490,11 +539,111 @@ _EXPECTED_WORLDINFO_FIRST = {
     ],
 }
 
+# PF-HYPOTHESIS-LEDGER: HYP-PF-028 active
+_PROFILE_RETURN_SELECT = LogoutHypothesisScenario(
+    "logout_hypothesis_return_select_server_subcode01_03",
+    "HYP-PF-028",
+    LOGOUT_REQUEST_PC_SHA256[1],
+    LOGOUT_REQUEST_PC_SHA256[3],
+    LOGOUT_ACK_PC_SHA256[1],
+    LOGOUT_ACK_PC_SHA256[3],
+    LOGOUT_ACK_FRAME_SHA256[1],
+    LOGOUT_ACK_FRAME_SHA256[3],
+    LOGOUT_POST_ACK_ACTION_CLOSE_SOCKET,
+    LOGOUT_CLOSE_DELAY_MS,
+    LOGOUT_RESPONSE_POLICY_RETURN_SELECT_FIRST,
+)
+
+# HYP-PF-028 exact allowlist: the unchanged PF-012 request/ack pins and the
+# unchanged PF-013 close lever, plus the single new pre-ack action -- compose
+# and send one well-formed ReturnSelectServerVital (0x709E) whose body is the
+# client serializer's own field layout with all fields zero.  No response byte
+# is invented under this scenario either: the 0x709E tags come from the client
+# serializer and the values are the honest zero default (0x709E has no client
+# producer), fully pinned below.
+_EXPECTED_RETURN_SELECT = {
+    "schema": 1,
+    "id": _PROFILE_RETURN_SELECT.scenario_id,
+    "test_only": True,
+    "production_allowed": False,
+    "hypothesis_id": _PROFILE_RETURN_SELECT.hypothesis_id,
+    "entry": {
+        "flow": "full_writable_character",
+        "required_sequence": "selected_and_runtime_ready",
+        "response_policy": LOGOUT_RESPONSE_POLICY_RETURN_SELECT_FIRST,
+        "return_select_source": (
+            "client_serializer_0x5e69f0_field_layout_all_zero_no_client_"
+            "producer_values_default_zero"
+        ),
+        "post_ack_policy": "dispatch_silent_then_server_clean_socket_close",
+        "post_ack_action": LOGOUT_POST_ACK_ACTION_CLOSE_SOCKET,
+        "close_delay_ms": LOGOUT_CLOSE_DELAY_MS,
+    },
+    "requests": {
+        "subcode01": {
+            "pc_size": 34,
+            "pc_sha256": LOGOUT_REQUEST_PC_SHA256[1],
+        },
+        "subcode03": {
+            "pc_size": 34,
+            "pc_sha256": LOGOUT_REQUEST_PC_SHA256[3],
+        },
+    },
+    "composed_responses": {
+        "return_select_first": {
+            "vital_id": RETURN_SELECT_SERVER_VITAL_ID,
+            "body_size": RETURN_SELECT_SERVER_BODY_SIZE,
+            "pc_size": RETURN_SELECT_SERVER_RESPONSE_PC_SIZE,
+            "pc_sha256": RETURN_SELECT_SERVER_RESPONSE_PC_SHA256,
+            "frame_size": RETURN_SELECT_SERVER_RESPONSE_FRAME_SIZE,
+            "frame_sha256": RETURN_SELECT_SERVER_RESPONSE_FRAME_SHA256,
+        },
+        "subcode01": {
+            "pc_size": 36,
+            "pc_sha256": LOGOUT_ACK_PC_SHA256[1],
+            "frame_size": 46,
+            "frame_sha256": LOGOUT_ACK_FRAME_SHA256[1],
+        },
+        "subcode03": {
+            "pc_size": 36,
+            "pc_sha256": LOGOUT_ACK_PC_SHA256[3],
+            "frame_size": 46,
+            "frame_sha256": LOGOUT_ACK_FRAME_SHA256[3],
+        },
+    },
+    "persisted_post_state": {
+        "sessions_closed_at": (
+            "written_before_return_select_response_bytes_are_queued"
+        ),
+        "position_rewrite": "none",
+    },
+    "capabilities": [
+        "compose_well_formed_return_select_server_vital_from_client_"
+        "serializer_field_layout",
+        "send_return_select_server_vital_before_the_pinned_logout_ack",
+        "acknowledge_exact_captured_logout_requests_after_clean_close",
+        "silence_connection_after_acknowledged_logout",
+        "server_initiated_clean_socket_close_after_acknowledged_logout",
+    ],
+    "nonclaims": [
+        "original_server_response_policy",
+        "return_select_server_field_values_and_string_semantics",
+        "client_consumes_0x709e_or_transitions_to_character_select",
+        "client_observable_exit_or_character_select_return",
+        "logout_outside_runtime_ready_sequence",
+        "subcodes_other_than_01_and_03",
+        "production_baseline_behavior",
+    ],
+}
+
 _EXPECTED_BY_ID = {
     _PROFILE_ECHO.scenario_id: (_EXPECTED_ECHO, _PROFILE_ECHO),
     _PROFILE_ACK_CLOSE.scenario_id: (_EXPECTED_ACK_CLOSE, _PROFILE_ACK_CLOSE),
     _PROFILE_WORLDINFO_FIRST.scenario_id: (
         _EXPECTED_WORLDINFO_FIRST, _PROFILE_WORLDINFO_FIRST,
+    ),
+    _PROFILE_RETURN_SELECT.scenario_id: (
+        _EXPECTED_RETURN_SELECT, _PROFILE_RETURN_SELECT,
     ),
 }
 
@@ -529,12 +678,21 @@ def load_logout_hypothesis_scenario(path: str | Path) -> LogoutHypothesisScenari
 def require_logout_hypothesis_scenario(value: Any) -> LogoutHypothesisScenario:
     if type(value) is not LogoutHypothesisScenario or value not in (
         _PROFILE_ECHO, _PROFILE_ACK_CLOSE, _PROFILE_WORLDINFO_FIRST,
+        _PROFILE_RETURN_SELECT,
     ):
         raise ValueError("logout hypothesis scenario object exceeds the allowlist")
     for subcode in LOGOUT_SUBCODES:
         digest = hashlib.sha256(LOGOUT_REQUEST_PCS[subcode]).hexdigest().upper()
         if digest != LOGOUT_REQUEST_PC_SHA256[subcode]:
             raise RuntimeError("logout hypothesis request fixture drift")
+    if (
+        len(RETURN_SELECT_SERVER_BODY) != RETURN_SELECT_SERVER_BODY_SIZE
+        or RETURN_SELECT_SERVER_BODY[0] != 0x08
+        or RETURN_SELECT_SERVER_BODY[2] != 0x32
+        or RETURN_SELECT_SERVER_BODY[11] != 0x44
+        or RETURN_SELECT_SERVER_BODY[12:] != b"\x00\x00\x00\x00"
+    ):
+        raise RuntimeError("logout hypothesis return-select body fixture drift")
     for probe, payload in WORLDINFO_PROBE_PAYLOADS.items():
         digest = hashlib.sha256(payload).hexdigest().upper()
         if (
@@ -581,6 +739,38 @@ def make_logout_ack_response(legacy: Any, subcode: int) -> tuple[bytes, bytes]:
         != LOGOUT_ACK_FRAME_SHA256[subcode]
     ):
         raise RuntimeError("HYP-PF-012 response frame drift")
+    return pc, frame
+
+
+# HYP-PF-028 composer (the ledger annotation for this id lives once on the
+# profile above; the required marker for this file is that active annotation).
+def make_return_select_server_response(legacy: Any) -> tuple[bytes, bytes]:
+    """Compose and independently pin the designed ReturnSelectServerVital.
+
+    One GSCN_RunTimeProtocolRes v4 vital, id 0x709E, version 0, carrying the
+    16-byte body the client's own serializer 0x5e69f0 produces for an all-zero
+    instance.  Relative to any other RuntimeRes the only bytes that differ are
+    the nested id (0x709E) and the pinned body; the envelope constants are the
+    same the frozen ``make_runtime_vitals`` writes for every accepted response.
+    Zero content bytes are invented: the tags are the client serializer's own,
+    the field values are the honest zero default (0x709E has no client
+    producer).  Deterministic 38-byte PC / 48-byte frame, hash-pinned.
+    """
+    pc, frame = legacy.make_runtime_vitals([
+        (RETURN_SELECT_SERVER_VITAL_ID, 0, RETURN_SELECT_SERVER_BODY),
+    ])
+    if (
+        len(pc) != RETURN_SELECT_SERVER_RESPONSE_PC_SIZE
+        or hashlib.sha256(pc).hexdigest().upper()
+        != RETURN_SELECT_SERVER_RESPONSE_PC_SHA256
+    ):
+        raise RuntimeError("HYP-PF-028 response PC drift")
+    if (
+        len(frame) != RETURN_SELECT_SERVER_RESPONSE_FRAME_SIZE
+        or hashlib.sha256(frame).hexdigest().upper()
+        != RETURN_SELECT_SERVER_RESPONSE_FRAME_SHA256
+    ):
+        raise RuntimeError("HYP-PF-028 response frame drift")
     return pc, frame
 
 

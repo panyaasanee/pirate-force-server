@@ -60,12 +60,14 @@ from .delete_refresh_hypothesis import (
 )
 from .logout_hypothesis import (
     LOGOUT_POST_ACK_ACTION_CLOSE_SOCKET,
+    LOGOUT_RESPONSE_POLICY_RETURN_SELECT_FIRST,
     LOGOUT_RESPONSE_POLICY_WORLDINFO_FIRST,
     LOGOUT_VITAL_ID,
     WORLDINFO_VITAL_ID,
     classify_logout_attempt,
     classify_worldinfo_frame,
     make_logout_ack_response,
+    make_return_select_server_response,
     make_worldinfo_first_response,
     require_logout_hypothesis_scenario,
 )
@@ -967,6 +969,20 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     "logout_hypothesis_worldinfo_missing_no_reply"
                 )
                 return []
+            # PF-HYPOTHESIS-LEDGER: HYP-PF-028 active
+            # The return_select_first shape composes one well-formed
+            # ReturnSelectServerVital (0x709E) from the client serializer's own
+            # field layout with all fields zero.  Unlike worldinfo_first it has
+            # no per-connection precondition -- the body is a fixed template, so
+            # no session ever fails closed for a "missing" payload here -- but
+            # like every other shape the bytes are composed and pinned before
+            # the lease is touched and nothing is queued unless the close
+            # commits.  Static (agent D) proved this is the named-candidate the
+            # attended A/B (GT-033) must decide; the server invents no content.
+            return_select_first = (
+                logout_hypothesis_scenario.response_policy
+                == LOGOUT_RESPONSE_POLICY_RETURN_SELECT_FIRST
+            )
             # The designed responses are fully composed and pinned before
             # the lease is touched; no bytes are queued unless the clean
             # close commits.
@@ -974,6 +990,11 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             if worldinfo_first:
                 worldinfo_response = make_worldinfo_first_response(
                     legacy, self.worldinfo_last_payload,
+                )
+            return_select_response = None
+            if return_select_first:
+                return_select_response = make_return_select_server_response(
+                    legacy,
                 )
             pc, frame = make_logout_ack_response(legacy, subcode)
             try:
@@ -1025,6 +1046,31 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         ),
                         (
                             f"HYP_PF_016_LOGOUT_SUBCODE{subcode:02d}"
+                            "_ACK_THEN_SERVER_SOCKET_CLOSE",
+                            pc, frame, 0.0,
+                        ),
+                    ]
+                # HYP-PF-028 emit (the ledger annotation for this id lives once
+                # on the compose branch above).
+                if return_select_first:
+                    # ReturnSelectServerVital first, pinned ack second, FIN
+                    # last: same deterministic in-order send on the one TCP
+                    # stream.  This is the GT-033 variant B frame -- the named
+                    # char-select candidate -- delivered so an attended run can
+                    # observe whether the real client transitions on it.
+                    self.events.append(
+                        f"logout_hypothesis_subcode{subcode:02d}"
+                        "_return_select_response_before_ack"
+                    )
+                    rss_pc, rss_frame = return_select_response
+                    return [
+                        (
+                            f"HYP_PF_028_LOGOUT_SUBCODE{subcode:02d}"
+                            "_RETURN_SELECT_SERVER_RESPONSE_FIRST",
+                            rss_pc, rss_frame, 0.0,
+                        ),
+                        (
+                            f"HYP_PF_028_LOGOUT_SUBCODE{subcode:02d}"
                             "_ACK_THEN_SERVER_SOCKET_CLOSE",
                             pc, frame, 0.0,
                         ),

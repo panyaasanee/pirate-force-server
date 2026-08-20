@@ -470,3 +470,13 @@
 !/tools/verify_npc_hostile_encoder.py
 !/tools/pf_npc_hostile_headless_replay.py
 !/reports/PF_NPC_HOSTILE001_DOOR_A_HOSTILE_PRESENTATION_20260820.md
+
+# LOGOUT-RETURN-SELECT-001 (HYP-PF-028, chief round 101).  The server half of
+# GT-033 variant B: answer a captured LogoutVital with a well-formed
+# ReturnSelectServerVital (0x709E) response whose 16-byte body is the client
+# serializer's own field layout with every field zero, then the unchanged
+# PF-012 ack and PF-013 close.  Our design, not the original server's response,
+# which is unrecoverable; no client has ever been shown one byte of it.
+!/tools/verify_logout_return_select_encoder.py
+!/tools/pf_logout_return_select_headless_replay.py
+!/reports/PF_LOGOUT_RETURN_SELECT001_HYP028_20260820.md

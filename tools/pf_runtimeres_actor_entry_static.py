@@ -892,8 +892,17 @@ guard(SRC_ZERO_HP_SITES == 0 and V141_ZERO_HP_SITES == 0
 # same VitalData collection.  Re-pinned deliberately, with the module named
 # beside the count, for the same reason as the round-90 and round-96 re-pins
 # above: a census that quietly widens stops being a census.
-guard(SRC_VITAL_STREAM_SITES == 15,
-      "src/ sends the VitalData carrier (make_runtime_vitals) at 15 call sites")
+# Round 101 re-pin, 15 -> 16.  LOGOUT-RETURN-SELECT-001 (HYP-PF-028) added the
+# sixteenth call site: logout_hypothesis.py now holds TWO make_runtime_vitals
+# sites, the pre-existing make_logout_ack_response and the new
+# make_return_select_server_response, which ships the designed
+# ReturnSelectServerVital 0x709E over this same VitalData collection.  This is
+# a vital-collection carrier only; NOTHING in the actor-entry counts below
+# moves (this lane builds no actor entry and touches no derived +0x1C
+# collection), which is the guard that this re-pin does not quietly widen the
+# actor-entry census.
+guard(SRC_VITAL_STREAM_SITES == 16,
+      "src/ sends the VitalData carrier (make_runtime_vitals) at 16 call sites")
 guard(_count(r"make_runtime_remote_actors\(",
              _src.get("stats_progression_hypothesis.py", "")) == 0
       and _count(r"make_runtime_vitals\(",

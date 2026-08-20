@@ -282,7 +282,7 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
   "src_modules_passing_zero_hp_by_named_constant": [
     "runtimeres_death_hypothesis.py"
   ],
-  "src_vital_stream_call_sites": 15,
+  "src_vital_stream_call_sites": 16,
   "vt20_dispatch_shapes_image_wide": 387,
   "vt20_dispatch_shapes_in_updateattrvital_handler": 0,
   "vt20_dispatch_shapes_with_vtable_load": 230

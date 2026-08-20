@@ -268,7 +268,20 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # no database write (faction has no column and this lane adds none).  No client has ever
 # been shown one byte of this profile; that is the queued attended test (GT-032), and no
 # coverage row grade moves until it runs.
-CANONICAL_CONTENT_SHA256 = "E2253C31E4DBBD3E484AF4000E841516573D7BFFA57EFAC9735C195DF71363D5"
+# ROUND 101 APPEND (HYP-PF-028, LOGOUT-RETURN-SELECT-001).  Entry 35 is appended -- no
+# earlier entry moved, no earlier index changed -- and the canonical content hash below is
+# re-pinned for the same reason every earlier append re-pinned it.  The entry registers the
+# server half of GT-033 variant B: answer a captured LogoutVital with a well-formed
+# ReturnSelectServerVital (0x709E) response whose 16-byte body is the client serializer
+# 0x5e69f0's own field layout (descriptor 0xf304ec slot2) with every field zero, then the
+# unchanged PF-012 ack and PF-013 close.  Round-100 static RE (agent D) proved an echo
+# cannot transition the client and named 0x709E the strongest candidate while finding no
+# client consumer, so whether the client transitions on 0x709E is undecidable statically
+# and is the queued attended A/B (GT-033).  Every tag byte is read from the client; the
+# field values default to zero (no client producer), an explicit nonclaim.  One-shot,
+# production_allowed false, no database write beyond the session close.  No client has ever
+# been shown one byte of this profile; no coverage row grade moves until GT-033 runs.
+CANONICAL_CONTENT_SHA256 = "BA5FE4A6F259C4A6CE146B60812834E80A00BC6D76D84E6F0F0E866C171109FD"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -414,6 +427,10 @@ EXPECTED_IDS = (
     # in SCENE-005 -- and the original server's faction assignment is
     # unrecoverable, which is the entry's first nonclaim.
     "HYP-PF-027",
+    # HYP-PF-028 (return-select-server logout response, chief round 101 under
+    # the owner's standing pre-approval, GT-033 variant B) is likewise
+    # appended so all prior entry indices stay stable.
+    "HYP-PF-028",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -454,6 +471,9 @@ EXPECTED_META = {
     ),
     "HYP-PF-026": ("protocol_hypothesis", "DAMAGE-HP-LINK-001", "active"),
     "HYP-PF-027": ("protocol_hypothesis", "NPC-HOSTILE-001", "active"),
+    "HYP-PF-028": (
+        "protocol_hypothesis", "LOGOUT-RETURN-SELECT-001", "active",
+    ),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}
 STATUSES = {"active", "frozen", "retired", "harness_only", "expired_pending_decision"}
