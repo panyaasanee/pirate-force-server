@@ -1,0 +1,489 @@
+# Pirate Force - Windows gate on GitHub Actions.
+#
+# WHY THIS FILE EXISTS.  The gate that decides whether this project is green
+# runs on Panya's Windows bridge under `py -3` on a code page 874 console.
+# Round 142 proved that "green" is machine-dependent: tools/pf_vital_thunk_
+# census_static.py printed U+1F534, which has no cp874 mapping, print() raised
+# UnicodeEncodeError, and the tool died having reported nothing at all.  The
+# Linux sandbox was green on the same bytes.  If a cloud chief gates on Linux,
+# that class of failure becomes invisible and the word "green" changes meaning
+# silently.  This workflow keeps the Windows meaning of the word.
+#
+# WHAT IT IS NOT.  This is NOT the whole gate.  Seven checks in the real gate
+# read evidence that is not in this repository and never can be (a 14.7 MB
+# client image, an untracked capture corpus, the canonical database).  Those
+# are SKIPPED HERE, LOUDLY, BY NAME, WITH A REASON, in the log and in the job
+# summary.  A skipped check is not a passed check.  Read README_GATE_CI.md in
+# this directory before you treat a green tick here as a gate pass.
+#
+# ASCII ONLY, on purpose: this file describes a code page bug and must not
+# contain one.
+
+name: gate-windows
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: pwsh
+
+env:
+  # Reproduce the bridge console exactly.  ':strict' is the load-bearing half:
+  # without it an unmappable character degrades into '?' and the round-142 bug
+  # becomes invisible again.  PYTHONLEGACYWINDOWSSTDIO stops CPython from
+  # bypassing the code page with its UTF-8 console writer.  PYTHONUTF8=0 stops
+  # UTF-8 mode from overriding both.
+  PYTHONIOENCODING: 'cp874:strict'
+  PYTHONLEGACYWINDOWSSTDIO: '1'
+  PYTHONUTF8: '0'
+  PYTHONDONTWRITEBYTECODE: '1'
+  # The number of docs/FUNCTIONAL_COVERAGE.json evidence_refs that a fresh
+  # clone does NOT contain.  Measured 2026-08-19 against HEAD 47c7211.
+  # This is real debt, pinned so that it cannot grow unnoticed.  See README.
+  COVERAGE_EVIDENCE_DEBT_PIN: '33'
+
+jobs:
+  gate:
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      # ------------------------------------------------------------------
+      - name: Checkout (FULL history - not optional)
+        uses: actions/checkout@v4
+        with:
+          # tools/pf_multiplayer_readiness_audit.py runs `git ls-tree 5cc0eda`
+          # to re-derive a historical suite size.  With the default shallow
+          # fetch that command exits 128 and the whole audit exits 1.  Measured.
+          fetch-depth: 0
+
+      # ------------------------------------------------------------------
+      - name: Pin the interpreter to the bridge's series
+        uses: actions/setup-python@v5
+        with:
+          # Panya's `py -3` is CPython 3.14.7 (pf_diag_out.txt line 179).  Pin
+          # the series; the patch level may drift with the runner image.
+          python-version: '3.14'
+
+      # ------------------------------------------------------------------
+      - name: Make `py -3` mean the pinned interpreter
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # The runner image ships its own py.exe launcher.  Left alone, `py -3`
+          # would silently select the image's Python instead of the one pinned
+          # above - a divergence of exactly the kind this workflow exists to
+          # prevent.  Shim it so every `py -3` below is the pinned interpreter.
+          $shim = Join-Path $env:RUNNER_TEMP 'pyshim'
+          New-Item -ItemType Directory -Force -Path $shim | Out-Null
+          $target = (Get-Command python).Source
+          $cmd = @"
+          @echo off
+          setlocal enabledelayedexpansion
+          set "ARGS="
+          :loop
+          if "%~1"=="" goto run
+          if "%~1"=="-3" (shift & goto loop)
+          set ARGS=!ARGS! "%~1"
+          shift
+          goto loop
+          :run
+          "$target" %ARGS%
+          exit /b %ERRORLEVEL%
+          "@
+          Set-Content -LiteralPath (Join-Path $shim 'py.cmd') -Value $cmd -Encoding ASCII
+          "$shim" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          Write-Host "py -3 shimmed to: $target"
+
+      # ------------------------------------------------------------------
+      - name: Install the packages the suite imports
+        # pip renders progress with characters cp874 cannot encode.  Under the
+        # job-level cp874:strict that is a crash in pip itself, which would be a
+        # false red that says nothing about this repository.  Scope UTF-8 to
+        # this step only; the gate steps keep cp874.
+        env:
+          PYTHONIOENCODING: 'utf-8'
+          PYTHONLEGACYWINDOWSSTDIO: '0'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          # The repository carries no requirements.txt, no pyproject.toml and no
+          # conftest.py; tests reach src/ by sys.path.insert(0, ROOT/"src").
+          # These three are every third-party name imported anywhere under
+          # tests/ or tools/.
+          py -3 -m pip install --disable-pip-version-check --quiet --upgrade pip
+          if ($LASTEXITCODE -ne 0) { throw 'pip self-upgrade failed' }
+          py -3 -m pip install --disable-pip-version-check --quiet pytest capstone pefile
+          if ($LASTEXITCODE -ne 0) { throw 'dependency install failed' }
+          py -3 -m pip list | Select-String -Pattern 'pytest|capstone|pefile' | Out-Host
+
+      # ------------------------------------------------------------------
+      - name: Assert the environment is the one we think it is
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+
+          chcp 874 | Out-Host
+          $cp = ((chcp) -replace '[^0-9]', '')
+          if ($cp -ne '874') { throw "CONSOLE CODE PAGE IS '$cp', EXPECTED 874" }
+
+          $ver = (py -3 -c "import sys;print('%d.%d.%d' % sys.version_info[:3])")
+          if ($LASTEXITCODE -ne 0) { throw 'the py -3 shim is broken' }
+          Write-Host "py -3 -> $ver"
+          if ($ver -notlike '3.14.*') { throw "INTERPRETER IS $ver, EXPECTED the 3.14 series" }
+
+          $enc = (py -3 -c "import sys;print(sys.stdout.encoding, sys.stdout.errors)")
+          if ($LASTEXITCODE -ne 0) { throw 'could not read the stdout encoding' }
+          Write-Host "stdout encoding -> $enc"
+          if ($enc -notmatch '(?i)^cp874\s+strict$') {
+            throw "STDOUT IS '$enc', EXPECTED 'cp874 strict' - the cp874 tripwire would be disarmed"
+          }
+
+      # ------------------------------------------------------------------
+      - name: SELF-CHECK - prove both tripwires are armed before trusting them
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+
+          # 1. A nonzero native exit must be observable.  This is the same
+          #    self-check tools/verify_foundation.ps1 opens with, and it is here
+          #    for the same reason: a gate that cannot see a failure is a
+          #    printout, not a gate.
+          py -3 -c "raise SystemExit(23)" 2>&1 | Out-Null
+          if ($LASTEXITCODE -ne 23) {
+            throw "SELF-CHECK FAILED: native exit did not propagate (saw '$LASTEXITCODE', expected 23)"
+          }
+          Write-Host 'self-check 1 PASS: native exit codes propagate'
+
+          # 2. Printing a character with no cp874 mapping must KILL the process.
+          #    If this succeeds, the encoding configuration has been defeated by
+          #    the runner image and every cp874 result below is a false
+          #    negative.  U+1F534 is the exact character that took round 142
+          #    red.  It is written as an escape so this file stays ASCII.
+          py -3 -c "print('\U0001F534')" 2>&1 | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            throw 'SELF-CHECK FAILED: U+1F534 printed cleanly - the cp874 tripwire is DISARMED'
+          }
+          Write-Host "self-check 2 PASS: U+1F534 kills the process (exit $LASTEXITCODE) - cp874 is armed"
+
+      # ------------------------------------------------------------------
+      - name: cp874 static tripwire (tools/, src/, current/)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+
+          # Scope note.  Only executable Python that the gate can run is
+          # scanned.  tests/ is excluded because several modules carry
+          # non-ASCII test DATA on purpose (fullwidth latin in
+          # test_player_name.py, U+00E9 in test_character_identity_binding.py).
+          # docs/ and reports/ are excluded because a markdown file is never
+          # printed to a console.
+          #
+          # The three files pinned below are the pre-existing occurrences as of
+          # 2026-08-19: all of them sit in comments, docstrings or a JSON
+          # artifact payload, none reach print().  The counts are PINNED, so one
+          # NEW unmappable character anywhere in tools/, src/ or current/ turns
+          # this step red - and so does a change to one of the three.
+          $py = @'
+          import pathlib, subprocess, sys
+
+          ALLOWED = {
+              "tools/pf_move_cadence001_headless_replay.py": 6,
+              "tools/pf_vital_name_thunk_static.py": 1,
+              "tools/pf_vital_thunk_census_static.py": 3,
+          }
+
+          tracked = subprocess.run(["git", "ls-files"], check=True,
+                                   capture_output=True, text=True).stdout.split("\n")
+          found, detail, scanned = {}, {}, 0
+          for rel in tracked:
+              rel = rel.strip()
+              if not rel.endswith(".py"):
+                  continue
+              if not rel.startswith(("tools/", "src/", "current/")):
+                  continue
+              p = pathlib.Path(rel)
+              if not p.is_file():
+                  continue
+              scanned += 1
+              for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+                  for ch in line:
+                      try:
+                          ch.encode("cp874")
+                      except UnicodeEncodeError:
+                          found[rel] = found.get(rel, 0) + 1
+                          detail.setdefault(rel, []).append((n, hex(ord(ch))))
+
+          print("scanned %d tracked .py files under tools/, src/, current/" % scanned)
+          bad = []
+          for rel in sorted(set(found) | set(ALLOWED)):
+              got, want = found.get(rel, 0), ALLOWED.get(rel, 0)
+              print("  %s %-52s got=%d pinned=%d" % ("ok " if got == want else "RED", rel, got, want))
+              if got != want:
+                  bad.append(rel)
+                  for n, cp in detail.get(rel, [])[:20]:
+                      print("        line %d: codepoint %s" % (n, cp))
+          if bad:
+              print("")
+              print("CP874 TRIPWIRE RED.  A character with no code page 874 mapping does not")
+              print("degrade into '?' on the bridge console - it raises UnicodeEncodeError")
+              print("inside print() and kills the tool mid-report.  Remove the character or,")
+              print("if it is provably unreachable from any print(), raise the pin in")
+              print(".github/workflows/gate-windows.yml in the same commit and say why.")
+              sys.exit(1)
+          print("cp874 static tripwire PASS")
+          '@
+          $f = Join-Path $env:RUNNER_TEMP 'cp874_tripwire.py'
+          Set-Content -LiteralPath $f -Value $py -Encoding UTF8
+          py -3 $f
+          if ($LASTEXITCODE -ne 0) { throw 'cp874 static tripwire is RED' }
+
+      # ------------------------------------------------------------------
+      - name: Declare what this runner CANNOT check, and why
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $lines = @(
+            'SKIPPED CHECKS - these are NOT passes.  Each one is skipped because the',
+            'evidence it reads is not in this repository and cannot be put there.',
+            '',
+            'Needs ..\GameClient\GameClient.local.bin (14,759,424 bytes, untracked, a',
+            'sibling of the repo root on the bridge machine).  Each of these exits 1',
+            'with FileNotFoundError on a clean checkout - measured, not assumed:',
+            '  latchver    tools/pf_runtimeres_death_encoder_static.py',
+            '  runtimeres  tools/pf_runtimeres_actor_entry_static.py',
+            '  damage      tools/pf_damage_hit_result_static.py',
+            '  hpstatic    tools/pf_hp_death_respawn_static.py',
+            '  census      tools/pf_vital_thunk_census_static.py',
+            '  stats       tools/pf_stats_progression_static.py   (also needs capstone)',
+            '',
+            'Needs an untracked capture corpus under backups/:',
+            '  corpus      tools/pf_capture_corpus.py - scans backups/v131_teleport',
+            '              check_challenge_echo_20260815_011204/capture_v131',
+            '',
+            'Needs the canonical database and the bridge, neither of which is in git:',
+            '  canonGuard  sha256 of state/pirateforce.sqlite3 compared against',
+            '              pf_bridge/CANON_SHA.txt.  Both live outside the repository.',
+            '',
+            'Runs below but is VACUOUS on a fresh checkout - nothing is ever dirty in',
+            'CI, so it cannot fire here; it only has teeth on the bridge worktree:',
+            '  v141Guard   git status --short -- current/pf_login_game_server_v141.py',
+            '  diffcheck   git diff --check',
+            '',
+            'Also NOT run: the tests/ modules that read the client image or the capture',
+            'corpus.  They are excluded BY NAME and the complete list is printed by the',
+            'gate step below.  Nothing is dropped quietly.'
+          )
+          $lines | ForEach-Object { Write-Host $_ }
+          $md = @('## Checks this runner cannot perform', '', '```') + $lines + @('```')
+          $md | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+
+      # ------------------------------------------------------------------
+      - name: THE GATE
+        run: |
+          # Mirrors the runnable subset of the bridge job
+          # (pf_bridge/done/147_round91_latchonly.ps1).  Same shape on purpose:
+          # never let PowerShell decide what failed, only $LASTEXITCODE decides,
+          # and the verdict is one aggregate at the end.
+          #
+          # 'Continue' is deliberate and is NOT a hole.  With 'Stop' plus 2>&1,
+          # a native command that writes one byte to stderr becomes a
+          # terminating NativeCommandError - git does this for CRLF notices -
+          # and a warning would masquerade as a gate failure.  Every exit code
+          # below is captured and compared by hand instead.
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $ProgressPreference = 'SilentlyContinue'
+
+          $results = [ordered]@{}
+          function Step($name, $block, $expect = 0) {
+            Write-Host ''
+            Write-Host "--- $name (expect exit $expect) ---"
+            & $block 2>&1 | Select-Object -Last 6 | ForEach-Object { Write-Host "  $name> $_" }
+            $rc = $LASTEXITCODE
+            if ($null -eq $rc) { $rc = 999 }
+            $script:results[$name] = @{ rc = $rc; expect = $expect }
+            Write-Host "  $name exit=$rc"
+          }
+
+          # ---- 1. compile everything a fresh clone contains -----------------
+          Step 'pycompile_v141' { py -3 -m py_compile current\pf_login_game_server_v141.py }
+          Step 'compileall'     { py -3 -m compileall -q src tests tools }
+
+          # ---- 2. the frozen legacy snapshot's own self-test ----------------
+          Step 'v141_selftest'  { py -3 current\pf_login_game_server_v141.py --self-test-only }
+
+          # ---- 3. the lane verifiers that need no client image --------------
+          Step 'ledger'         { py -3 tools\verify_hypothesis_ledger.py }
+          Step 'replay3'        { py -3 tools\pf_runtimeres_death_headless_replay.py }
+          Step 'replay2'        { py -3 tools\pf_runtimeres_death_headless_replay.py --profile dying_latch_only }
+          # replayx is a NEGATIVE: an unknown profile must be REJECTED with 2.
+          # Exit 0 here would mean the validator accepts anything at all.
+          Step 'replayx'        { py -3 tools\pf_runtimeres_death_headless_replay.py --profile nonsense } 2
+          Step 'dmenc'          { py -3 tools\verify_damage_model_encoder.py }
+          Step 'dmreplay'       { py -3 tools\pf_damage_model_headless_replay.py }
+          Step 'hpenc'          { py -3 tools\verify_hp_death_encoder.py }
+          Step 'hlhold'         { py -3 tools\pf_hp_death002_headless_replay.py --profile dying_hold }
+          # mpaudit needs real git history - see fetch-depth: 0 at the top.
+          Step 'mpaudit'        { py -3 tools\pf_multiplayer_readiness_audit.py }
+
+          # ---- 4. the seam --------------------------------------------------
+          Step 'seam'           { py -3 -m pytest tests\test_foundation_legacy_seam.py -q -p no:cacheprovider }
+
+          # ---- 5. pytest, client-free subset, exclusions printed in full -----
+          Write-Host ''
+          Write-Host '--- building the pytest exclusion list (printed, never silent) ---'
+          $excluded = @(
+            Select-String -Path 'tests\*.py' -Pattern 'GameClient|capture_v141' -List |
+              ForEach-Object { 'tests/' + (Split-Path $_.Path -Leaf) } |
+              Sort-Object -Unique
+          ) | Where-Object { $_ -ne 'tests/test_foundation_legacy_seam.py' }
+          Write-Host "EXCLUDED FROM pytest ($($excluded.Count) modules - each reads the client image or the capture corpus):"
+          $excluded | ForEach-Object { Write-Host "    - $_" }
+          $ignoreArgs = @()
+          foreach ($m in $excluded) { $ignoreArgs += '--ignore'; $ignoreArgs += $m }
+          Step 'pytest_subset'  { py -3 -m pytest tests -q -p no:cacheprovider @ignoreArgs }
+
+          # ---- 6. coverage, with its evidence debt pinned --------------------
+          Write-Host ''
+          Write-Host '--- coverage evidence reachability (pinned debt) ---'
+          $covPy = @'
+          import json, pathlib, subprocess, sys
+          pin = int(sys.argv[1])
+          tracked = set(subprocess.run(["git", "ls-files"], check=True,
+                                       capture_output=True, text=True).stdout.split("\n"))
+          refs = set()
+          def walk(o):
+              if isinstance(o, dict):
+                  for k, v in o.items():
+                      if k == "evidence_refs" and isinstance(v, list):
+                          refs.update(x for x in v if isinstance(x, str))
+                      else:
+                          walk(v)
+              elif isinstance(o, list):
+                  for v in o:
+                      walk(v)
+          walk(json.loads(pathlib.Path("docs/FUNCTIONAL_COVERAGE.json").read_text(encoding="utf-8")))
+          missing = sorted(r for r in refs if r not in tracked)
+          print("evidence_refs total  : %d" % len(refs))
+          print("NOT in a fresh clone : %d  (pinned at %d)" % (len(missing), pin))
+          for m in missing:
+              print("    unreachable: %s" % m)
+          if len(missing) != pin:
+              print("")
+              print("COVERAGE EVIDENCE DEBT MOVED.  The matrix cites reports that a fresh")
+              print("clone does not contain, so tools/verify_functional_coverage.py cannot")
+              print("pass here.  If the debt went DOWN, lower COVERAGE_EVIDENCE_DEBT_PIN in")
+              print("this workflow in the same commit.  If it went UP, a claim was just")
+              print("backed by evidence nobody who clones this repository can read.")
+              sys.exit(1)
+          sys.exit(0)
+          '@
+          $covFile = Join-Path $env:RUNNER_TEMP 'coverage_debt.py'
+          Set-Content -LiteralPath $covFile -Value $covPy -Encoding UTF8
+          py -3 $covFile $env:COVERAGE_EVIDENCE_DEBT_PIN
+          $results['coverage_debt'] = @{ rc = $LASTEXITCODE; expect = 0 }
+          Write-Host "  coverage_debt exit=$($results['coverage_debt'].rc)"
+
+          # The real verifier only becomes blocking once the debt reaches zero.
+          # Until then it exits 2 on the FIRST unreachable ref and is run for its
+          # log value alone.  This is stated out loud, not hidden.
+          if ([int]$env:COVERAGE_EVIDENCE_DEBT_PIN -eq 0) {
+            Step 'coverage'     { py -3 tools\verify_functional_coverage.py }
+          } else {
+            Write-Host ''
+            Write-Host "--- coverage (NOT BLOCKING: evidence debt is pinned at $env:COVERAGE_EVIDENCE_DEBT_PIN, not 0) ---"
+            py -3 tools\verify_functional_coverage.py 2>&1 | Select-Object -Last 4 | ForEach-Object { Write-Host "  coverage> $_" }
+            Write-Host "  coverage exit=$LASTEXITCODE  (nonzero is EXPECTED while the debt is nonzero)"
+          }
+
+          # ---- 7. git hygiene -----------------------------------------------
+          Write-Host ''
+          Write-Host '--- git hygiene ---'
+          $tracked = git ls-files
+          $results['git_lsfiles'] = @{ rc = $LASTEXITCODE; expect = 0 }
+          $forbidden = $tracked | Where-Object {
+            $_ -match '^(references|evidence|backups|packages|derived|analysis|history|v77_video_frames|capture[^/]*)/' -or
+            $_ -match '\.(zip|7z|rar|exe|dll|pyd|pyc|bin|db|sqlite|sqlite3|png|jpe?g|gif|mp4|pcap|cap)$'
+          }
+          if ($forbidden) {
+            $forbidden | ForEach-Object { Write-Host "  FORBIDDEN TRACKED PATH> $_" }
+            $results['forbidden_paths'] = @{ rc = 1; expect = 0 }
+          } else {
+            Write-Host '  no forbidden tracked paths'
+            $results['forbidden_paths'] = @{ rc = 0; expect = 0 }
+          }
+
+          $ignoreGuard = 0
+          foreach ($probe in @('src/__probe.exe','tests/__probe.png','docs/__probe.zip','src/__probe.bin')) {
+            git check-ignore -q --no-index -- $probe
+            if ($LASTEXITCODE -ne 0) { Write-Host "  GITIGNORE FAILED FOR $probe"; $ignoreGuard = 1 }
+          }
+          $results['ignoreGuard'] = @{ rc = $ignoreGuard; expect = 0 }
+          Write-Host "  ignoreGuard=$ignoreGuard"
+
+          git diff --check
+          $results['diffcheck'] = @{ rc = $LASTEXITCODE; expect = 0 }
+          $v141Dirty = (git status --short -- 'current/pf_login_game_server_v141.py' | Out-String).Trim()
+          $results['v141Guard'] = @{ rc = $(if ($v141Dirty) { 1 } else { 0 }); expect = 0 }
+          Write-Host "  v141Guard=$($results['v141Guard'].rc) (vacuous on a clean checkout)"
+
+          # ---- 8. deterministic release -------------------------------------
+          # The BYTE-FOR-BYTE half only.  The member-list assertion inside
+          # tools/verify_foundation.ps1 is deliberately NOT reproduced: that list
+          # pins 79 members while the builder now emits 105, so it would fail on
+          # any current checkout.  See README_GATE_CI.md.
+          Write-Host ''
+          Write-Host '--- deterministic release archive ---'
+          $qa = Join-Path $env:RUNNER_TEMP ('pf-rel-' + [Guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Force -Path $qa | Out-Null
+          $a = Join-Path $qa 'a.zip'; $b = Join-Path $qa 'b.zip'
+          py -3 tools\build_foundation_release.py --output $a | Out-Null
+          $rcA = $LASTEXITCODE
+          py -3 tools\build_foundation_release.py --output $b | Out-Null
+          $rcB = $LASTEXITCODE
+          $det = 1
+          if ($rcA -eq 0 -and $rcB -eq 0) {
+            $ha = (Get-FileHash -LiteralPath $a -Algorithm SHA256).Hash
+            $hb = (Get-FileHash -LiteralPath $b -Algorithm SHA256).Hash
+            Write-Host "  build A sha=$ha"
+            Write-Host "  build B sha=$hb"
+            if ($ha -ceq $hb) { $det = 0 } else { Write-Host '  RED: two builds of the same tree differ' }
+          } else {
+            Write-Host "  RED: a release build failed (A=$rcA B=$rcB)"
+          }
+          Remove-Item -LiteralPath $qa -Recurse -Force -ErrorAction SilentlyContinue
+          $results['release_determinism'] = @{ rc = $det; expect = 0 }
+          Write-Host "  release_determinism=$det"
+
+          # ---- 9. the verdict ------------------------------------------------
+          Write-Host ''
+          Write-Host '=== GATE SUMMARY (windows-latest, PARTIAL - see the skipped list above) ==='
+          $rows = @('| check | exit | expected | verdict |', '| --- | --- | --- | --- |')
+          $allGreen = $true
+          foreach ($k in $results.Keys) {
+            $rc = $results[$k].rc
+            $ex = $results[$k].expect
+            $ok = ($rc -eq $ex)
+            if (-not $ok) { $allGreen = $false }
+            $verdict = $(if ($ok) { 'GREEN' } else { 'RED' })
+            Write-Host ("  {0,-22} exit={1,-5} expect={2,-5} {3}" -f $k, $rc, $ex, $verdict)
+            $rows += "| $k | $rc | $ex | $verdict |"
+          }
+          Write-Host ''
+          Write-Host "ALL GREEN (partial gate) = $allGreen"
+
+          $summary = @('## Windows gate result (PARTIAL)', '',
+                       "**allGreen over the runnable subset = $allGreen**", '') + $rows
+          $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+
+          if (-not $allGreen) {
+            Write-Host '::error::Windows gate RED - see the table above for the failing check'
+            exit 1
+          }
+          exit 0

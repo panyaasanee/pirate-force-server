@@ -480,3 +480,11 @@
 !/tools/verify_logout_return_select_encoder.py
 !/tools/pf_logout_return_select_headless_replay.py
 !/reports/PF_LOGOUT_RETURN_SELECT001_HYP028_20260820.md
+
+# GO-LIVE (chief round 103, Panya order 2026-08-20 ~12:30).  The deny-all rule on
+# line one hid the entire .github/ directory: the Windows gate workflow existed
+# on disk but was never tracked, so a push would have carried no CI and Actions
+# would never have run once.  A negation cannot re-include a file whose parent
+# directory is excluded, so the directory itself is reopened first.
+!/.github/
+!/.github/**
