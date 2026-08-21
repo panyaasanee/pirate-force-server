@@ -317,7 +317,21 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # moves 37 -> 38 and no earlier entry is touched.  No client has ever been
 # shown an unsolicited 0x709E push; that is GT-033 variant C, queued, not
 # run, and no coverage row grade moves on it.)
-CANONICAL_CONTENT_SHA256 = "A76FD0C45B671FA6831177230CA4AB88F932468B997E741CE94260743DF61998"
+# -> 41D132EF.. (2026-08-21, cloud round 122: GEO-PF-006 appended --
+# HOSTILE-NATIVE-001, the GT-034 observation geometry, on the owner's
+# explicit decision of 11:04 (+07:00): target 0x201F Tornado Eagle, relocate
+# the placement point instead of walking or teleporting.  The read-only
+# scene-load player is placed at the frozen bg0001 P30 row +100 X, same Y,
+# same Z -- the identical trick the P0 observation point uses -- with
+# heading pi from the v141 _heading_to_player convention so the character
+# faces the placement.  Same map is established at the strongest level the
+# committed data allows (P0 and P30 are rows of the single frozen 115-row
+# bg0001/Port Royal table); the numeric scene id, native render, client
+# standing position and camera orientation are all explicit nonclaims
+# pending the GT-034 attended verdict.  No spawn, no splice, no write, no
+# runtime change; count moves 38 -> 39 and no earlier entry is touched.
+# No coverage row grade moves on it.)
+CANONICAL_CONTENT_SHA256 = "41D132EF09D71A784AE825B570940355BCF99488257101F530E4C2DB7F8AC725"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -487,6 +501,14 @@ EXPECTED_IDS = (
     # to the HYP-PF-028 pins -- and what is designed is the delivery policy
     # only, which no capture has ever shown.
     "HYP-PF-031",
+    # GEO-PF-006 (HOSTILE-NATIVE-001: the GT-034 observation geometry --
+    # read-only scene-load player at bg0001 P30 "Tornado Eagle" +100X, same
+    # Y, same Z, heading pi toward the placement -- opened on the owner's
+    # explicit GT-034 decision of 2026-08-21 11:04) is appended after the
+    # HYP block, out of GEO numeric adjacency, for the same reason every
+    # entry since HYP-PF-011 was: appending keeps every earlier entry index
+    # stable for the index-based fixtures.
+    "GEO-PF-006",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -535,6 +557,7 @@ EXPECTED_META = {
     "HYP-PF-031": (
         "protocol_hypothesis", "LOGOUT-CHAT-PUSH-001", "active",
     ),
+    "GEO-PF-006": ("test_geometry", "HOSTILE-NATIVE-001", "harness_only"),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}
 STATUSES = {"active", "frozen", "retired", "harness_only", "expired_pending_decision"}

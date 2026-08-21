@@ -110,6 +110,43 @@ class SceneLoadTests(unittest.TestCase):
                     self.legacy,self.character.identity_lo,self.character.identity_hi,
                     values[0],values[1],self.character.name,values[2],
                 )
+    def test_tornado_eagle_p30_load_only_places_and_faces_the_placement(self):
+        self.scenario=load_scene_load_scenario(
+            ROOT/"scenarios/port_royal_tornado_eagle_p30_load_only.json"
+        )
+        self.assertEqual(self.scenario.position,
+            Position(1,0,1847.5244140625,-7837.69775390625,931.0413208007812,3.141592653589793))
+        self.assertIsNone(self.scenario.remote_actor)
+        self.assertIsNone(self.scenario.player_basic_faction)
+        self.assertIsNone(self.scenario.action_ack)
+        before=self.digest(); state=self.state()
+        self.assertEqual(state.population_indices,())
+        state.dispatch(self.legacy.parse_outer(self.legacy._synthetic_client_login_pc()))
+        actions=state.dispatch(self.legacy.parse_outer(self.legacy._synthetic_start_game_pc(self.character.selector)))
+        self.assertEqual([a[0] for a in actions],["SCENE2_LOAD_ONLY_SELECTED_START_GAME","SCENE2_LOAD_ONLY_TELEPORT_MARKER2_ONCE"])
+        self.assertEqual(actions[1][1:3],self.legacy.make_login_teleport(1,0,1847.5244140625,-7837.69775390625,931.0413208007812))
+        self.assertIn(make_actor_attr_with_name(
+            self.legacy,self.character.identity_lo,self.character.identity_hi,1,0,
+            self.character.name,
+        ),actions[0][1])
+        movement=self.projector.movement_attr(self.character,self.scenario.position)
+        self.assertIn(movement,actions[0][1])
+        self.assertIn(self.legacy.f32tag(3.141592653589793),movement)
+        self.assertEqual(self.digest(),before)
+    def test_tornado_eagle_strict_profile(self):
+        original=json.loads((ROOT/"scenarios/port_royal_tornado_eagle_p30_load_only.json").read_text())
+        for mutate in (
+            lambda d:d["entry"]["position"].update(x=1747.5244140625),
+            lambda d:d["entry"]["position"].update(z=223.292),
+            lambda d:d["entry"]["position"].update(heading=0),
+            lambda d:d["entry"].update(scene_id=2),
+            lambda d:d.update(nonclaims=[n for n in d["nonclaims"] if n!="native_render"]),
+            lambda d:d.update(remote_actor={}),
+            lambda d:d.update(population="legacy"),
+        ):
+            data=copy.deepcopy(original); mutate(data); path=Path(self.tmp.name)/"bad-eagle.json"
+            path.write_text(json.dumps(data),encoding="utf-8")
+            with self.assertRaises(ValueError): load_scene_load_scenario(path)
     def test_modes_mutually_exclusive(self):
         with self.assertRaises(ValueError):
             make_state_class(self.legacy,self.lifecycle,self.projector,scenario=object(),scene_load_scenario=self.scenario)
