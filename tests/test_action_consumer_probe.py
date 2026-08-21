@@ -4,6 +4,10 @@ ROOT=Path(__file__).resolve().parents[1]
 SPEC=importlib.util.spec_from_file_location("pf_action_consumer_probe",ROOT/"tools/pf_action_consumer_probe.py")
 P=importlib.util.module_from_spec(SPEC);sys.modules[SPEC.name]=P;SPEC.loader.exec_module(P)
 
+# Two tests below read the proprietary ../GameClient install tree and the
+# client image, which are never committed.  See tests/pf_preconditions.py.
+from pf_preconditions import CLIENT_IMAGE, GAME_INSTALL_TREE
+
 class ConsumerProbeTests(unittest.TestCase):
  def config(self,name="pf_action_consumer_probe_config.json"):return P.load_config(ROOT/"tools"/name)
  def synthetic(self,root,config):
@@ -33,6 +37,9 @@ class ConsumerProbeTests(unittest.TestCase):
   self.assertNotIn("update completion ambiguity or thread mismatch",source)
   self.assertIn("Number.isFinite",source)
  def test_exact_real_binary_guards_both_profiles(self):
+  # Reads both proprietary binaries under ../GameClient; the local image lives
+  # inside that tree, so client_image is the stricter single key.  See tests/pf_preconditions.py.
+  CLIENT_IMAGE.require(self)
   P.guard_binary(ROOT.parent/"GameClient/GameClient.bin",self.config())
   P.guard_binary(ROOT.parent/"GameClient/GameClient.local.bin",self.config("pf_action_consumer_probe_local_config.json"))
  def test_config_and_binary_guards(self):
@@ -47,6 +54,9 @@ class ConsumerProbeTests(unittest.TestCase):
   for values in ((0,0),(1,-1),(1,math.inf),(1,math.nan)):
    with self.assertRaises(ValueError):P.validate_runtime_options(*values)
   P.validate_runtime_options(1,0)
+  # From here on validate_output_path resolves ../GameClient/GameClient.bin
+  # strictly; the proprietary install tree is never committed.  See tests/pf_preconditions.py.
+  GAME_INSTALL_TREE.require(self)
   client=ROOT.parent/"GameClient/GameClient.bin";config=ROOT/"tools/pf_action_consumer_probe_config.json"
   with tempfile.TemporaryDirectory() as td:
    safe=Path(td).resolve();good=(safe/"run/events.jsonl").resolve();self.assertEqual(P.validate_output_path(good,client,config,safe),good)

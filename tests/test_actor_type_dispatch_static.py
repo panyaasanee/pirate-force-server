@@ -39,10 +39,17 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+
+# ../GameClient/GameClient.local.bin is a proprietary binary that is never in
+# a fresh clone; every load_tool() test reads it.  See tests/pf_preconditions.py.
+from pf_preconditions import CLIENT_IMAGE  # noqa: E402
+
 TOOL = ROOT / "tools" / "pf_actor_type_dispatch_static.py"
 REPORT = (
     ROOT / "reports"
@@ -82,6 +89,10 @@ class ArtifactsExistTests(unittest.TestCase):
     def test_report_manifest_tool_and_client_all_exist(self):
         for path in (REPORT, MANIFEST, TOOL, CLIENT):
             with self.subTest(path=path.name):
+                if path is CLIENT:
+                    # Only the client image may be absent on a clone; the three
+                    # tracked files must exist everywhere.  See tests/pf_preconditions.py.
+                    CLIENT_IMAGE.require(self)
                 self.assertTrue(path.is_file(), path)
 
     def test_the_report_carries_a_machine_readable_counts_block(self):
@@ -95,6 +106,9 @@ class ArtifactsExistTests(unittest.TestCase):
         self.assertIn(CLIENT_SHA, text)
 
 
+# Every test below runs the verifier, and the verifier reads the client image
+# at import - nothing here can run without it.  See tests/pf_preconditions.py.
+@CLIENT_IMAGE.skip_unless_present()
 class VerifierRunsCleanTests(unittest.TestCase):
     """Every guard in the verifier must hold against the pinned binary."""
 
@@ -114,11 +128,16 @@ class VerifierRunsCleanTests(unittest.TestCase):
 class ReportMatchesTheBinaryTests(unittest.TestCase):
     """Every number printed in the report is the number the verifier counted."""
 
+    # The two comparisons need the live COUNTS, which come off the client
+    # image; the prose test below reads only the report and must keep running.
+    # See tests/pf_preconditions.py.
+    @CLIENT_IMAGE.skip_unless_present()
     def test_every_reported_key_exists_in_the_live_counts(self):
         reported = report_counts()
         live = load_tool().COUNTS
         self.assertEqual(sorted(reported), sorted(live))
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_every_reported_value_matches_exactly(self):
         reported = report_counts()
         live = load_tool().COUNTS
@@ -132,6 +151,9 @@ class ReportMatchesTheBinaryTests(unittest.TestCase):
         self.assertIn("%d guards" % total, text)
 
 
+# The five classes below all read the client image through load_tool(); the
+# binary is proprietary and never in a clone.  See tests/pf_preconditions.py.
+@CLIENT_IMAGE.skip_unless_present()
 class DispatchShapeTests(unittest.TestCase):
     """Conclusion 1: the client knows exactly five actor_type values, 2..6."""
 
@@ -164,6 +186,7 @@ class DispatchShapeTests(unittest.TestCase):
         self.assertEqual(tool.rd(tool.SET_ACTOR_TYPE, 10).hex(), "8a442404884110c20400")
 
 
+@CLIENT_IMAGE.skip_unless_present()
 class RemotePlayerBranchTests(unittest.TestCase):
     """Conclusion 2: actor_type 2 is CNetActor and CMyActor derives from it."""
 
@@ -195,6 +218,7 @@ class RemotePlayerBranchTests(unittest.TestCase):
         self.assertEqual(instructions[0x4469FD], ("jne", hex(tool.FACTORY_DEFAULT)))
 
 
+@CLIENT_IMAGE.skip_unless_present()
 class AttrClassGateTests(unittest.TestCase):
     """Conclusion 3: the Attr the server emits today cannot bind to actor_type 2."""
 
@@ -227,6 +251,7 @@ class AttrClassGateTests(unittest.TestCase):
                 self.assertEqual(tool.name_hash(name), spec[0])
 
 
+@CLIENT_IMAGE.skip_unless_present()
 class NameSourceTests(unittest.TestCase):
     """Question 4: the on-screen name comes from the bound Attr, not from login."""
 
@@ -266,6 +291,7 @@ class NameSourceTests(unittest.TestCase):
         self.assertEqual(tool.wstr(tool.BOARD_TEMPLATE), "board01")
 
 
+@CLIENT_IMAGE.skip_unless_present()
 class ServerCrossCheckTests(unittest.TestCase):
     """Conclusion 4: our server has only ever emitted one of the five values."""
 

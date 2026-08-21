@@ -45,6 +45,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+# The skip reason must carry the [precondition:...] token - see tests/pf_preconditions.py.
+sys.path.insert(0, str(ROOT / "tests"))
+from pf_preconditions import CLIENT_IMAGE  # noqa: E402
 
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 from pirateforce_foundation import runtimeres_death_hypothesis as rdh  # noqa: E402
@@ -538,8 +541,11 @@ class VerifierTests(unittest.TestCase):
     """Run the real verifier against the real image."""
 
     def test_the_verifier_runs_clean_and_opens_its_regression_gate(self):
-        if not _client_image_present():
-            self.skipTest("GameClient.local.bin is not available here")
+        # The guard condition must be the SAME probe the census oracle asks
+        # (the canonical sibling image), or a machine holding only a staging
+        # copy makes the pin drift red while nothing is wrong.  R121 adversary
+        # finding; the old three-candidate probe lived here.
+        CLIENT_IMAGE.require(self)
         spec = importlib.util.spec_from_file_location(
             "pf_runtimeres_death_encoder_static", TOOL)
         module = importlib.util.module_from_spec(spec)
@@ -762,17 +768,6 @@ class DyingLatchOnlyProfileTests(unittest.TestCase):
         # And the real thing still composes after the allowlist was handled.
         self.assertEqual(len(self.latch_only()[3]), 2)
 
-
-def _client_image_present() -> bool:
-    for cand in (
-        ROOT.parent / "GameClient" / "GameClient.local.bin",
-        ROOT / "GameClient" / "GameClient.local.bin",
-        ROOT / "packages" / ".v134_staging_20260815_0355"
-        / "GameClient.local.bin",
-    ):
-        if cand.is_file():
-            return True
-    return False
 
 
 if __name__ == "__main__":

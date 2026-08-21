@@ -37,6 +37,10 @@ import pefile
 
 from tools.pf_client_ui_assets import model_names, models_named
 
+# The proprietary client image and its install tree cannot be in a fresh
+# clone; every test that reads them is guarded below.  See tests/pf_preconditions.py.
+from pf_preconditions import CLIENT_IMAGE, GAME_INSTALL_TREE
+
 ROOT = Path(__file__).resolve().parents[1]
 BINARY = ROOT.parent / "GameClient" / "GameClient.local.bin"
 BINARY_SHA = "9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623"
@@ -96,24 +100,31 @@ def _call_target(pe: pefile.PE, va: int) -> int:
 class SplitOperateVerbPanelsStaticTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.pe = pefile.PE(str(BINARY), fast_load=True)
+        # Only parse the PE when the client image exists; the Data/ asset tests
+        # below carry their own game_install_tree guard.  See tests/pf_preconditions.py.
+        cls.pe = pefile.PE(str(BINARY), fast_load=True) if CLIENT_IMAGE.present else None
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_binary_hash_is_the_pinned_client(self):
         self.assertEqual(hashlib.sha256(BINARY.read_bytes()).hexdigest().upper(), BINARY_SHA)
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_op6_still_has_exactly_four_call_sites(self):
         # 002 regression: op6 remains a four-site family.
         self.assertEqual(_callers_of(self.pe, OP6_FACTORY), OP6_SITES)
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_two_op6_sites_are_gated_by_verb_0x16(self):
         # bytes 83 F8 16 = cmp eax,0x16 immediately before the dialog+op6 sequence.
         self.assertEqual(_read_va(self.pe, 0x5A349B, 0x5A349E), bytes([0x83, 0xF8, 0x16]))  # site C
         self.assertEqual(_read_va(self.pe, 0x5BA183, 0x5BA186), bytes([0x83, 0xF8, 0x16]))  # site D
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_both_verb0x16_bodies_share_the_numeric_dialog_helper(self):
         self.assertEqual(_call_target(self.pe, 0x5A34E2), DIALOG_HELPER)  # site C
         self.assertEqual(_call_target(self.pe, 0x5BA1D0), DIALOG_HELPER)  # site D
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_the_two_verb0x16_sites_live_in_distinct_functions(self):
         # site C is inside the inventory dispatcher; site D is a separate panel fn.
         self.assertTrue(DISP_START <= SITE_C < DISP_END)
@@ -126,12 +137,14 @@ class SplitOperateVerbPanelsStaticTests(unittest.TestCase):
         self.assertEqual(_read_va(self.pe, PANEL_D_START, PANEL_D_START + 13).hex(),
                          "6aff68cacdb90064a100000000")
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_verb0x16_bodies_are_byte_identical(self):
         for label, (start, end, expected) in SPANS.items():
             data = _read_va(self.pe, start, end)
             self.assertEqual(len(data), end - start, label)
             self.assertEqual(hashlib.sha256(data).hexdigest().upper(), expected, label)
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_dispatcher_verb_switch_ladder(self):
         disp = _instructions(self.pe, DISP_START, DISP_END)
         self.assertEqual(disp[0x5A349B], ("cmp", "eax, 0x16"))  # verb 0x16 -> op6
@@ -139,10 +152,12 @@ class SplitOperateVerbPanelsStaticTests(unittest.TestCase):
         self.assertIn("eax, 2", cmps)      # verb 2 = MOVE (op4)
         self.assertIn("eax, 0x16", cmps)   # verb 0x16 = op6
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_dialog_id_0x12_is_a_stack_local_not_a_call_argument(self):
         # C7 84 24 80 01 00 00 12 00 00 00 = mov dword [esp+0x180], 0x12
         self.assertEqual(_read_va(self.pe, 0x5A34D7, 0x5A34E2).hex(), "c784248001000012000000")
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_0x42AB40_is_a_temp_object_destructor_not_a_dialog_opener(self):
         # SEH prologue 6A FF 68 53 53 B8 00 64 A1 00 00 00 00, two vtable stores,
         # and free/dtor 0x88D060 — a teardown, not an "open dialog by id".
@@ -151,6 +166,8 @@ class SplitOperateVerbPanelsStaticTests(unittest.TestCase):
         self.assertEqual(_read_va(self.pe, 0x42ABAC, 0x42ABB0), bytes.fromhex("FCB8F000"))  # vtable 0xF0B8FC
         self.assertEqual(_call_target(self.pe, 0x42AB83), 0x88D060)
 
+    # These two read Data/ files in the install tree, not the binary itself.
+    @GAME_INSTALL_TREE.skip_unless_present()
     def test_the_numeric_dialog_is_a_generic_reusable_control(self):
         # caption is NOT baked into a split-specific model; it's the shared NumInput.
         # The set comes from tools/pf_client_ui_assets, which is the SAME counter
@@ -166,6 +183,7 @@ class SplitOperateVerbPanelsStaticTests(unittest.TestCase):
         self.assertNotIn(b"split", body)
         self.assertNotIn(b"divide", body)
 
+    @GAME_INSTALL_TREE.skip_unless_present()
     def test_the_caption_text_table_is_packed_and_not_statically_readable(self):
         self.assertEqual(TEXTDATA.read_bytes()[:4], b"$pcz")
 

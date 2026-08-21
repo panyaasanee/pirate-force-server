@@ -350,6 +350,15 @@ BACKUPS_TREE = Precondition(
     "it holds pre-migration runtime snapshots that only exist on the bridge",
 )
 
+EVIDENCE_TREE = Precondition(
+    "evidence_tree",
+    [ROOT / "evidence"],
+    "the machine-local evidence/ capture tree",
+    "it holds the live-session capture transcripts (v74-v83) that "
+    "tools/pf_structural_corpus_audit_config.json pins as sources; the "
+    "allowlist .gitignore keeps the whole tree out on purpose",
+)
+
 # Kept in step with tools/pf_multiplayer_readiness_audit.LOGIN_REQ_CAPTURE by
 # test_pytest_precondition_census.py, which compares the two strings and goes
 # red if either side moves alone.
@@ -446,6 +455,7 @@ REGISTRY = {
         CLIENT_IMAGE,
         CAPTURE_V141,
         BACKUPS_TREE,
+        EVIDENCE_TREE,
         LOGIN_REQ_CAPTURE,
         BRIDGE_SIBLING,
         GAME_INSTALL_TREE,

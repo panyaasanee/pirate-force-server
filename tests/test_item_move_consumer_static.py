@@ -8,6 +8,10 @@ import unittest
 import capstone
 import pefile
 
+# Both proprietary client binaries live in ../GameClient and can never be in a
+# fresh clone; every test below reads them.  See tests/pf_preconditions.py.
+from pf_preconditions import CLIENT_IMAGE, GAME_INSTALL_TREE
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -68,6 +72,10 @@ def _instructions(pe: pefile.PE, start: int, end: int):
 
 
 class ItemMoveConsumerStaticTests(unittest.TestCase):
+    # Reads GameClient.bin from the proprietary install tree AND the patched
+    # local image; the local image lives inside that tree, so client_image is
+    # the stricter single key.  See tests/pf_preconditions.py.
+    @CLIENT_IMAGE.skip_unless_present()
     def test_exact_original_and_local_spans_are_identical(self):
         observed = {}
         for filename, whole_hash in BINARIES.items():
@@ -89,6 +97,9 @@ class ItemMoveConsumerStaticTests(unittest.TestCase):
             observed["GameClient.bin"], observed["GameClient.local.bin"],
         )
 
+    # Disassembles GameClient.bin from the proprietary install tree, which is
+    # never committed.  See tests/pf_preconditions.py.
+    @GAME_INSTALL_TREE.skip_unless_present()
     def test_result_routes_by_identity_and_incoming_slot_not_old_quantity(self):
         pe = pefile.PE(
             str(ROOT.parent / "GameClient" / "GameClient.bin"), fast_load=True,
@@ -115,6 +126,9 @@ class ItemMoveConsumerStaticTests(unittest.TestCase):
         self.assertEqual(clear[0x59FBCE], ("cmp", "eax, dword ptr [esp + 0x20]"))
         self.assertFalse(any("+ 0x36]" in operands for _, operands in clear.values()))
 
+    # Disassembles GameClient.bin from the proprietary install tree, which is
+    # never committed.  See tests/pf_preconditions.py.
+    @GAME_INSTALL_TREE.skip_unless_present()
     def test_slot_payload_is_replaced_with_a_complete_itemattr_clone(self):
         pe = pefile.PE(
             str(ROOT.parent / "GameClient" / "GameClient.bin"), fast_load=True,

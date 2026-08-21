@@ -3,11 +3,17 @@ from pathlib import Path
 import capstone,pefile
 ROOT=Path(__file__).resolve().parents[1]
 S=importlib.util.spec_from_file_location("pf_knockdown_consumer_probe",ROOT/"tools/pf_knockdown_consumer_probe.py");P=importlib.util.module_from_spec(S);S.loader.exec_module(P)
+# Two tests below read the proprietary client binaries in ../GameClient,
+# which are never committed.  See tests/pf_preconditions.py.
+from pf_preconditions import CLIENT_IMAGE
 class KnockdownProbeTests(unittest.TestCase):
  def cfg(self,n="pf_knockdown_consumer_probe_config.json"):return P.load_config(ROOT/"tools"/n)
  def ev(self,k,s,**kw):
   a={"codec_enter":"0x100ebf0","codec_complete":"0x100ebf0","consumer_enter":"0x1010700","manager_return":"0xd3cad0","actor40_dispatch":"0xd443f0","queue_enter":"0xd60c90","consumer_complete":"0x1010700"};c={"thread_id":7,"sequence":s,"invocation":1,"address":a[k],"object":"0x2000","caller":"0x3000","raw_qword_18":"0x10010001","raw_u32_20":278,"raw_u32_24":4,"raw_f32_28":1.0,"raw_f32_2c":2.0,"raw_f32_30":3.0,"raw_f32_34":4.0};extra={"codec_enter":{"direction":"read"},"codec_complete":{"direction":"read"},"consumer_enter":{},"manager_return":{"receiver":"0x4000","wrapper":"0x5000","manager_caller":"0x1010761"},"actor40_dispatch":{"receiver":"0x4000","wrapper":"0x5000","dispatch_caller":"0x1010769","wrapper_vtable":"0x17cf7dc","wrapper_flags":0x40000005},"queue_enter":{"receiver":"0x4000","wrapper":"0x5000","queue_caller":"0xd4440c","queue_argument":1},"consumer_complete":{"result_bool":1,"completion_path":"queued"}}[k];return {"schema":1,"event":k,"timestamp":"t",**c,**extra,**kw}
  def test_profiles_actual_binaries_boundaries_relocations_cross_pair(self):
+  # Reads both proprietary binaries under ../GameClient; the local image lives
+  # inside that tree, so client_image is the stricter single key.  See tests/pf_preconditions.py.
+  CLIENT_IMAGE.require(self)
   a=self.cfg();b=self.cfg("pf_knockdown_consumer_probe_local_config.json");self.assertEqual(a["hooks"],b["hooks"]);P.guard_binary(ROOT.parent/"GameClient/GameClient.bin",a);P.guard_binary(ROOT.parent/"GameClient/GameClient.local.bin",b)
   with self.assertRaises(ValueError):P.guard_binary(ROOT.parent/"GameClient/GameClient.local.bin",a)
   with self.assertRaises(ValueError):P.guard_binary(ROOT.parent/"GameClient/GameClient.bin",b)
@@ -59,6 +65,9 @@ class KnockdownProbeTests(unittest.TestCase):
    q=P.CaptureState();q.accept({"event":"probe_ready","address":"0xcc0000"});q.accept({"event":"probe_error","reason":reason})
    with self.assertRaisesRegex(RuntimeError,reason):q.ensure_success()
  def test_output_alias_and_safe_root(self):
+  # validate_output_path resolves the proprietary client image strictly, and a
+  # clone cannot carry it.  See tests/pf_preconditions.py.
+  CLIENT_IMAGE.require(self)
   c=ROOT.parent/"GameClient/GameClient.local.bin";g=ROOT/"tools/pf_knockdown_consumer_probe_local_config.json";p=P.DEFAULT_CAPTURE_ROOT/"x.jsonl";self.assertEqual(P.validate_output_path(p,c,g),p.resolve())
   with self.assertRaises(ValueError):P.validate_output_path(ROOT/"x",c,g)
   with self.assertRaises(ValueError):P.validate_output_path(g,c,g)

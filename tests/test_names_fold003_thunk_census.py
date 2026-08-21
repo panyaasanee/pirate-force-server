@@ -61,6 +61,10 @@ ARTIFACT = (
 CLIENT = ROOT.parent / "GameClient" / "GameClient.local.bin"
 CLIENT_SHA = "9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623"
 
+# The skip reason must carry the [precondition:...] token - see tests/pf_preconditions.py.
+sys.path.insert(0, str(ROOT / "tests"))
+from pf_preconditions import CLIENT_IMAGE  # noqa: E402
+
 # ---- half (ก) -------------------------------------------------------------
 # 🔴 ERRATUM against the NAMES-FOLD-003 brief: the population of v141-inherited
 # rows without a slot was 49, not 38.  38 is how many CLEARED the rule.
@@ -128,7 +132,8 @@ def client_available() -> bool:
 
 
 SKIP_REASON = (
-    f"the read-only client image is not at {CLIENT} with sha256 {CLIENT_SHA[:16]}..., "
+    CLIENT_IMAGE.reason
+    + f" (expected at {CLIENT} with sha256 {CLIENT_SHA[:16]}...), "
     f"so the two static verifiers cannot run here. This is a SKIP, not a pass: "
     f"the Windows release gate (py -3) is where these must be green."
 )

@@ -20,6 +20,7 @@ Run just this file:
 from __future__ import annotations
 
 import ast
+import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -35,6 +36,10 @@ from tools.pf_client_ui_assets import (
 ROOT = Path(__file__).resolve().parents[1]
 TOOL = ROOT / "tools" / "pf_split_operate_verb_panels_static.py"
 SIBLING_TEST = ROOT / "tests" / "test_split_operate_verb_panels_static.py"
+
+# The skip reason must carry the [precondition:...] token - see tests/pf_preconditions.py.
+sys.path.insert(0, str(ROOT / "tests"))
+from pf_preconditions import GAME_INSTALL_TREE  # noqa: E402
 
 
 def _fake_model_dir(root: Path) -> Path:
@@ -166,18 +171,25 @@ class SharedCounterTests(unittest.TestCase):
         self.assertEqual(printed, [])
 
 
+# Not a skip-as-escape-hatch: this class asserts facts about the game install
+# tree, which is legitimately absent on a machine that has only the repository.
+# Every guard that MATTERS is above and runs on a throwaway tree.  The decorator
+# skips each test method with the tokenized reason - see tests/pf_preconditions.py.
+@GAME_INSTALL_TREE.skip_unless_present()
 class RealAssetTests(unittest.TestCase):
     """The live numbers, so the definition is anchored to something real."""
 
-    def setUp(self):
-        if not DEFAULT_MODEL_DIR.is_dir():
-            # Not a skip-as-escape-hatch: this class asserts facts about the game
-            # install tree, which is legitimately absent on a machine that has
-            # only the repository.  Every guard that MATTERS is above and runs
-            # on a throwaway tree.
-            self.skipTest("game install tree not present beside the repository")
+    def _require_model_dir(self):
+        # Stricter than the registry guard on purpose: an install tree that
+        # exists but lacks Data/GUI/Model is a partial tree, and that is a
+        # FAILURE to verify, not a missing precondition.
+        self.assertTrue(
+            DEFAULT_MODEL_DIR.is_dir(),
+            "the game install tree exists but %s does not - a partial tree is "
+            "a failure, not a skip" % DEFAULT_MODEL_DIR)
 
     def test_the_two_old_denominators_really_did_differ(self):
+        self._require_model_dir()
         whole_directory = len(list(DEFAULT_MODEL_DIR.iterdir()))
         models = len(model_files(DEFAULT_MODEL_DIR))
         self.assertGreater(whole_directory, models,
@@ -186,6 +198,7 @@ class RealAssetTests(unittest.TestCase):
                            "deleting anything")
 
     def test_the_published_negative_still_holds(self):
+        self._require_model_dir()
         self.assertEqual(models_named(("split", "divide"), DEFAULT_MODEL_DIR), [])
         self.assertIn("common_numinput.model", model_names(DEFAULT_MODEL_DIR))
 

@@ -29,6 +29,11 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+# Two tests below read machine-local evidence a fresh clone cannot have: the
+# pinned wire corpus under backups/ and the proprietary client image beside the
+# clone.  See tests/pf_preconditions.py.
+from pf_preconditions import BACKUPS_TREE, CLIENT_IMAGE
+
 from tools.pf_capture_corpus import DEFAULT_TABLE, CaptureCorpus, CaptureCorpusError
 from tools.pf_teleportcheck_0x4477_static import (
     CORPUS_SET,
@@ -146,6 +151,9 @@ class RealCorpusTests(unittest.TestCase):
         self.assertEqual(spec["file_count"], len(EXPECTED_INBOUND_COUNT))
 
     def test_the_wire_guards_all_pass_on_the_real_corpus(self):
+        # The pinned corpus lives under the machine-local backups/ tree, which
+        # only exists on the bridge.  See tests/pf_preconditions.py.
+        BACKUPS_TREE.require(self)
         guards = Guards()
         wire_guards(guards)
         self.assertEqual(guards.failures, [])
@@ -290,6 +298,11 @@ class ExitCodeTests(unittest.TestCase):
                 tool.CaptureCorpus.load = original
 
     def test_the_real_run_still_passes(self):
+        # main([]) reads the proprietary client image beside the clone AND the
+        # backups/ wire corpus; neither can be committed.  See tests/pf_preconditions.py.
+        # Also reads backups/: a machine with the image but no backups/ fails
+        # loudly instead of skipping - no real machine has that shape.
+        CLIENT_IMAGE.require(self)
         self.assertEqual(main([]), 0)
 
 

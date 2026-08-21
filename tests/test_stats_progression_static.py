@@ -43,13 +43,18 @@ The lane stays in_progress and never flips to runtime_pass here.
 from __future__ import annotations
 
 import struct
+import sys
 import unittest
 from pathlib import Path
 
 import capstone
-import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+# The proprietary client image cannot be in a fresh clone; every test that reads
+# it carries its own @CLIENT_IMAGE guard below - see tests/pf_preconditions.py.
+sys.path.insert(0, str(ROOT / "tests"))
+from pf_preconditions import CLIENT_IMAGE
+
 BINARY_CANDIDATES = [
     ROOT.parent / "GameClient" / "GameClient.local.bin",
     ROOT / "GameClient" / "GameClient.local.bin",
@@ -59,9 +64,6 @@ BINARY = next((p for p in BINARY_CANDIDATES if p.is_file()), BINARY_CANDIDATES[0
 BINARY_SHA = "9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623"
 SERVER = ROOT / "current" / "pf_login_game_server_v141.py"
 SRC_DIR = ROOT / "src"
-
-if not BINARY.is_file():
-    pytest.skip("client binary %s not present" % BINARY, allow_module_level=True)
 
 ONCE_INIT = 0x89C080
 ID_ASSIGN = 0x89BD00
@@ -535,7 +537,9 @@ class _Image:
         return out
 
 
-IMG = _Image(BINARY)
+# Only map the image when the client binary exists; the pure-python and
+# server-source tests below must still run without it - see tests/pf_preconditions.py.
+IMG = _Image(BINARY) if CLIENT_IMAGE.present else None
 
 
 class StatsProgressionStatic(unittest.TestCase):
@@ -547,11 +551,15 @@ class StatsProgressionStatic(unittest.TestCase):
     def setUpClass(cls):
         import hashlib
         cls.img = IMG
-        got = hashlib.sha256(IMG.data).hexdigest().upper()
-        assert got == BINARY_SHA, "client binary drifted: %s" % got
-        assert IMG.image_base == 0x400000
+        # Shared state only; this is not a skip site - the guarded tests below
+        # skip one by one via @CLIENT_IMAGE.  See tests/pf_preconditions.py.
+        if CLIENT_IMAGE.present:
+            got = hashlib.sha256(IMG.data).hexdigest().upper()
+            assert got == BINARY_SHA, "client binary drifted: %s" % got
+            assert IMG.image_base == 0x400000
 
     # -- 1 -------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_registration_thunks_have_the_nameid_hash_shape(self):
         for nm, nva, tva, slot, _g, _v, _s, _n, _ss, _ser in COHORT:
             self.assertEqual(self.img.cstr(nva), nm)
@@ -571,6 +579,7 @@ class StatsProgressionStatic(unittest.TestCase):
         self.assertEqual(self.img.cstr(0xF48F14), "CRevertSkilltVital")
 
     # -- 2 -------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_hash_anchor_reproduces_the_three_ids_v141_already_committed(self):
         for nm, want in V141_ANCHORS.items():
             self.assertEqual(_name_id(nm), want, nm)
@@ -587,11 +596,13 @@ class StatsProgressionStatic(unittest.TestCase):
         self.assertEqual(len(set(derived.values())), 14)
 
     # -- 4 -------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_ids_are_runtime_assigned_never_code_immediates(self):
         for nm, *_ in COHORT:
             self.assertEqual(self.img.imm16_hits(EXPECT_IDS[nm]), [], nm)
 
     # -- 5 -------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_each_id_slot_has_one_writer_and_one_reader(self):
         for nm, _n, tva, slot, getid, _v, _s, _nd, _ss, _ser in COHORT:
             self.assertEqual(
@@ -602,6 +613,7 @@ class StatsProgressionStatic(unittest.TestCase):
                              b"\x66\xa1" + struct.pack("<I", slot) + b"\xc3", nm)
 
     # -- 6 -------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_vtables_carry_cohort_const_getid_sizeof_and_serializer(self):
         for nm, _n, _t, _sl, getid, vt, size, _nd, serslot, ser in COHORT:
             self.assertEqual(self.img.dw(vt + 0x10), getid, nm)
@@ -615,12 +627,14 @@ class StatsProgressionStatic(unittest.TestCase):
                 self.assertEqual(b[5], 0xC3, nm)
 
     # -- 7 -------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_attribute_and_fightattr_carry_no_wire_fields_at_all(self):
         self.assertEqual(self.img.dw(0xF0E850 + 0x34), NOOP_SER)   # Attribute
         self.assertEqual(self.img.dw(0xF0E8E0 + 0x34), NOOP_SER)   # FightAttr
         self.assertEqual(self.img.rd(NOOP_SER, 3), b"\xc2\x08\x00")
 
     # -- 8 -------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_type_nodes_name_the_classes_and_encode_the_hierarchy(self):
         def reg_site(node):
             pat = b"\xb9" + struct.pack("<I", node) + b"\xe8"
@@ -663,6 +677,7 @@ class StatsProgressionStatic(unittest.TestCase):
             self.assertEqual(self.img.cstr(rec + 8, 160), ".?AV%s@@" % nm)
 
     # -- 9 -------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_serializer_chain_follows_the_class_chain(self):
         self.assertEqual(self.img.dmap(0x466243, 8).get(0x466243), ("call", "0x4656f0"))
         self.assertEqual(self.img.dmap(0x4656FF, 8).get(0x4656FF), ("call", "0x467790"))
@@ -670,6 +685,7 @@ class StatsProgressionStatic(unittest.TestCase):
         self.assertEqual(self.img.dmap(0x7520C3, 8).get(0x7520C3), ("call", "0x467790"))
 
     # -- 10 ------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_every_serializer_decodes_to_its_pinned_field_list(self):
         for nm, (lo, hi) in SER_BOUNDS.items():
             self.assertEqual(self.img.decode_serializer(lo, hi), SCHEMA[nm], nm)
@@ -679,6 +695,7 @@ class StatsProgressionStatic(unittest.TestCase):
                     self.assertEqual(TAG_WIDTH.get(e[3]), e[4], (nm, e))
 
     # -- 11 ------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_dirty_mask_headers_are_where_the_decode_says(self):
         self.assertEqual(SCHEMA["DBAttribute"][0], ("s", "esi", 0x20, 0x0B, 1))
         self.assertEqual(SCHEMA["BasicAttr"][0], ("s", "esi", 0x70, 0x12, 2))
@@ -688,6 +705,7 @@ class StatsProgressionStatic(unittest.TestCase):
         self.assertTrue(self.img.bytes_at(*ANCHORS["actorattr_mask64"]))
 
     # -- 12 ------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_every_named_progression_field_is_present_and_gated(self):
         present = {(nm, e[2]) for nm, sc in SCHEMA.items() for e in sc}
         for owner, off, _bit, tag, meaning in NAMED_FIELDS:
@@ -699,6 +717,7 @@ class StatsProgressionStatic(unittest.TestCase):
         self.assertTrue(self.img.bytes_at(*GATE_EBX_100))
 
     # -- 13 ------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_level_is_basicattr_u16_at_0x5E(self):
         self.assertEqual(self.img.cstr(0xF0E65C), "GetLv")
         self.assertTrue(self.img.bytes_at(*ANCHORS["GetLv_registration"]))
@@ -710,6 +729,7 @@ class StatsProgressionStatic(unittest.TestCase):
             self.assertTrue(self.img.bytes_at(va, hexb), hex(va))
 
     # -- 14 ------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_hp_and_mp_pairs_feed_the_two_named_hud_bars(self):
         hud = self.img.parse_widget_binder(*HUD_BINDER)
         for name, slot in HUD_EXPECT.items():
@@ -729,6 +749,7 @@ class StatsProgressionStatic(unittest.TestCase):
         self.assertEqual(self.img.wstr(0xF14EEC), "n_STAMINAMAX")
 
     # -- 15 ------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_experience_is_the_actorattr_qword_at_0xA0(self):
         self.assertEqual(self.img.wstr(0xF152AC), "STANDARD_STATUS")
         self.assertEqual(self.img.wstr(0xF14C00), "n_EXP_CURRENTLV")
@@ -741,6 +762,7 @@ class StatsProgressionStatic(unittest.TestCase):
         self.assertTrue(self.img.bytes_at(*ANCHORS["GetCash_reads_0xA8"]))
 
     # -- 16 ------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_class_and_skill_points(self):
         self.assertEqual(self.img.cstr(0xF0E530), "GetClass")
         self.assertTrue(self.img.bytes_at(*ANCHORS["GetClass_reads_0x8C"]))
@@ -752,6 +774,7 @@ class StatsProgressionStatic(unittest.TestCase):
         self.assertEqual(SCHEMA["ActorAttr"][5], ("s", "esi", 0x7C, 0x19, 4))
 
     # -- 17 ------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_five_primary_attributes_are_named_by_the_char_info_panel(self):
         for lbl in ("STR", "CON", "DEX", "INT", "PER"):
             self.assertTrue(self.img.bytes_at(*ANCHORS["getter_" + lbl]), lbl)
@@ -769,6 +792,7 @@ class StatsProgressionStatic(unittest.TestCase):
                          [0x182, 0x184, 0x186, 0x188, 0x18A])
 
     # -- 18 ------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_actorattr_0x80_is_the_unspent_allocation_point_pool(self):
         self.assertTrue(self.img.bytes_at(*ANCHORS["point_pool_spinner"]))
         self.assertTrue(self.img.bytes_at(*ANCHORS["point_pool_gate"]))
@@ -778,6 +802,7 @@ class StatsProgressionStatic(unittest.TestCase):
         self.assertEqual(SCHEMA["ActorAttr"][6], ("s", "esi", 0x80, 0x12, 2))
 
     # -- 19 ------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_static_data_schema_declares_exactly_five_primary_attributes(self):
         for va, want in TABLE_LITERALS.items():
             self.assertEqual(self.img.wstr(va), want, hex(va))
@@ -786,6 +811,7 @@ class StatsProgressionStatic(unittest.TestCase):
             ["n_STRENGH", "n_CONSTITUTION", "n_AGILITY", "n_INTELLECT", "n_PERCEPTION"])
 
     # -- 20 ------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_abilitydepolyall_wire_order_is_str_con_dex_int_per(self):
         self.assertEqual(SCHEMA["AbilityDepolyAll"],
                          [("s", "esi", 0x14 + 2 * k, 0x0F, 2) for k in range(5)])
@@ -796,6 +822,7 @@ class StatsProgressionStatic(unittest.TestCase):
         self.assertEqual(self.img.dmap(0x57F772, 8).get(0x57F772), ("call", hex(UI_SEND)))
 
     # -- 21 ------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_abilitydepoly_has_exactly_one_fixed_producer(self):
         self.assertTrue(self.img.bytes_at(*ANCHORS["depoly_ctor"]))
         self.assertTrue(self.img.bytes_at(*ANCHORS["depoly_producer"]))
@@ -806,6 +833,7 @@ class StatsProgressionStatic(unittest.TestCase):
         self.assertEqual(self.img.dmap(0x57F84C, 8).get(0x57F84C), ("call", hex(UI_SEND)))
 
     # -- 22 ------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_skill_verbs_and_update_transport(self):
         self.assertEqual(SCHEMA["CLearnSkillVital"],
                          [("s", "esi", 0x14, 0x14, 4), ("s", "esi", 0x18, 0x0B, 1)])
@@ -819,6 +847,7 @@ class StatsProgressionStatic(unittest.TestCase):
         self.assertEqual(self.img.dw(0xF303E0 + 0x1C), 0x5F2400)
 
     # -- 23 ------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_addexp_addabilitypoint_addskillpoint_grant_nothing(self):
         for nm, (nva, site, _handler) in SCRIPT_BINDINGS.items():
             self.assertEqual(self.img.cstr(nva), nm)

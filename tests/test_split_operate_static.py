@@ -17,6 +17,10 @@ from pathlib import Path
 import capstone
 import pefile
 
+# The proprietary client image cannot be in a fresh clone; every test that
+# reads it is guarded below.  See tests/pf_preconditions.py.
+from pf_preconditions import CLIENT_IMAGE
+
 ROOT = Path(__file__).resolve().parents[1]
 BINARY = ROOT.parent / "GameClient" / "GameClient.local.bin"
 BINARY_SHA = "9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623"
@@ -48,13 +52,17 @@ def _instructions(pe: pefile.PE, start: int, end: int):
 class SplitOperateStaticTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.pe = pefile.PE(str(BINARY), fast_load=True)
+        # Only parse the PE when the client image exists; the server-source test
+        # below must still run without it.  See tests/pf_preconditions.py.
+        cls.pe = pefile.PE(str(BINARY), fast_load=True) if CLIENT_IMAGE.present else None
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_binary_hash_is_the_pinned_client(self):
         self.assertEqual(
             hashlib.sha256(BINARY.read_bytes()).hexdigest().upper(), BINARY_SHA
         )
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_spans_are_byte_identical(self):
         for label, (start, end, expected) in SPANS.items():
             data = _read_va(self.pe, start, end)
@@ -63,6 +71,7 @@ class SplitOperateStaticTests(unittest.TestCase):
                 hashlib.sha256(data).hexdigest().upper(), expected, label
             )
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_id_is_runtime_assigned_not_a_code_immediate(self):
         # 0x4BED (ItemOperateVitalReq id) is assigned at startup via the id-slot,
         # never emitted as a code immediate. Same wall as the ECHO/TELEPORT cohort.
@@ -76,12 +85,14 @@ class SplitOperateStaticTests(unittest.TestCase):
         # get-id stub reads the same slot
         self.assertEqual(_read_va(self.pe, 0x5E5AE0, 0x5E5AE7).hex().upper(), "66A114200801C3")
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_vtable_is_shared_vitaldata_cohort(self):
         vt = struct.unpack("<8I", _read_va(self.pe, 0xF30374, 0xF30394))
         self.assertEqual(vt[2], 0x401B20)  # +0x08 shared framework const
         self.assertEqual(vt[4], 0x5E5AE0)  # +0x10 get-id
         self.assertEqual(vt[6], 0x5E5AF0)  # +0x18 serializer
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_serializer_field_map(self):
         s = _instructions(self.pe, 0x5E5AF0, 0x5E5B60)
         self.assertEqual(s[0x5E5B03], ("lea", "eax, [esi + 0x14]"))   # operation @+0x14
@@ -94,10 +105,12 @@ class SplitOperateStaticTests(unittest.TestCase):
         self.assertEqual(s[0x5E5B23], ("push", "0x32"))               # tag 0x32
         self.assertEqual(s[0x5E5B1D], ("push", "8"))                  # width 8
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_constructor_default_operation_is_one(self):
         # ctor 0x5E5B60 initializes obj+0x14 = 1 before any producer overwrites it.
         self.assertEqual(_read_va(self.pe, 0x5E5B87, 0x5E5B8B).hex().upper(), "C6401401")
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_operation_producer_immediates(self):
         # The full operation space present in the image: {3,4,5,6} (plus ctor default 1).
         for op, va in {3: 0x59F79E, 4: 0x59F7E5, 5: 0x59F84B, 6: 0x59F895}.items():
@@ -107,6 +120,7 @@ class SplitOperateStaticTests(unittest.TestCase):
         # op5 also written from a second (equipment UI) callsite
         self.assertEqual(_read_va(self.pe, 0x5A25D1, 0x5A25D5), bytes([0xC6, 0x40, 0x14, 0x05]))
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_move_and_quantity_field_usage(self):
         mov = _instructions(self.pe, 0x59F7C0, 0x59F800)
         self.assertEqual(mov[0x59F7DD], ("mov", "dword ptr [eax + 0x18], ecx"))  # move: value32=dest slot

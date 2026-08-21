@@ -7,6 +7,10 @@ from pathlib import Path
 import capstone
 import pefile
 
+# The proprietary client binaries in ../GameClient can never be in a fresh
+# clone; only the tests that read them are guarded.  See tests/pf_preconditions.py.
+from pf_preconditions import CLIENT_IMAGE
+
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("pf_behavior_entry_probe", ROOT / "tools/pf_behavior_entry_probe.py")
 P = importlib.util.module_from_spec(SPEC)
@@ -39,6 +43,11 @@ class BehaviorEntryProbeTests(unittest.TestCase):
         event.update(changes)
         return event
 
+    # guard_binary and the relocation scan read GameClient.bin from the
+    # proprietary install tree AND the patched local image; the local image
+    # lives inside that tree, so client_image is the stricter single key.
+    # See tests/pf_preconditions.py.
+    @CLIENT_IMAGE.skip_unless_present()
     def test_exact_profiles_disk_guards_and_hook_provenance(self):
         original = self.config()
         local = self.config("pf_behavior_entry_probe_local_config.json")
@@ -156,6 +165,9 @@ class BehaviorEntryProbeTests(unittest.TestCase):
         self.assertIn("_consumer.finalize_capture(state, script, session)", launcher)
         self.assertNotIn("session.detach()", launcher)
 
+    # validate_output_path resolves the client with strict=True, so it needs the
+    # proprietary local image on disk.  See tests/pf_preconditions.py.
+    @CLIENT_IMAGE.skip_unless_present()
     def test_output_is_confined_and_guarded(self):
         client = ROOT.parent / "GameClient/GameClient.local.bin"
         config = ROOT / "tools/pf_behavior_entry_probe_local_config.json"

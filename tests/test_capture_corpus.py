@@ -37,6 +37,11 @@ from pathlib import Path
 import tempfile
 import unittest
 
+# Some tests below read the untracked capture trees themselves (capture_v141/
+# and the machine-local backups/ tree), which a fresh clone cannot have.
+# See tests/pf_preconditions.py.
+from pf_preconditions import CAPTURE_V141
+
 from tools.pf_capture_corpus import (
     DEFAULT_TABLE,
     ROOT,
@@ -141,6 +146,11 @@ class PinnedFilesTests(unittest.TestCase):
         self.corpus = CaptureCorpus.load()
 
     def test_every_pinned_capture_is_present_and_byte_identical(self) -> None:
+        # The pinned files live in the untracked capture_v141/ and backups/
+        # trees, produced on the bridge only.  See tests/pf_preconditions.py.
+        # Also reads backups/: a machine with the corpus but no backups/ fails
+        # loudly instead of skipping - no real machine has that shape.
+        CAPTURE_V141.require(self)
         for name in sorted(self.corpus.sets):
             with self.subTest(set=name):
                 try:
@@ -150,6 +160,11 @@ class PinnedFilesTests(unittest.TestCase):
                 self.assertEqual(len(resolved), len(self.corpus[name]))
 
     def test_no_capture_exists_outside_the_pinned_set(self) -> None:
+        # Scanning for strays needs the scanned trees to exist: capture_v141/
+        # and backups/ are untracked bridge evidence.  See tests/pf_preconditions.py.
+        # Also reads backups/: a machine with the corpus but no backups/ fails
+        # loudly instead of skipping - no real machine has that shape.
+        CAPTURE_V141.require(self)
         for name in sorted(self.corpus.sets):
             with self.subTest(set=name):
                 strays = self.corpus[name].strays()
@@ -159,6 +174,11 @@ class PinnedFilesTests(unittest.TestCase):
                     % (name, strays, FIX_HINT))
 
     def test_no_pinned_capture_has_vanished(self) -> None:
+        # On a clone without the untracked capture_v141/ and backups/ trees
+        # every pinned file has "vanished".  See tests/pf_preconditions.py.
+        # Also reads backups/: a machine with the corpus but no backups/ fails
+        # loudly instead of skipping - no real machine has that shape.
+        CAPTURE_V141.require(self)
         for name in sorted(self.corpus.sets):
             with self.subTest(set=name):
                 self.assertFalse(self.corpus[name].vanished())
@@ -166,6 +186,9 @@ class PinnedFilesTests(unittest.TestCase):
     def test_hashes_are_reproducible(self) -> None:
         # Spot-check the hashing itself against one small pinned file so a
         # broken sha256_of cannot make every comparison vacuously pass.
+        # The file it hashes is untracked bridge evidence under capture_v141/.
+        # See tests/pf_preconditions.py.
+        CAPTURE_V141.require(self)
         holder = self.corpus["game_v141_archived"]
         entry = min(holder.files, key=lambda item: item["size"])
         path = ROOT / entry["path"]
@@ -186,6 +209,9 @@ class LiveFileExclusionTests(unittest.TestCase):
         # If they stopped matching, the exclusion would be dead weight and the
         # next reader would delete it.  They DO match GAME_*.txt - that is why
         # the old glob counted them.
+        # scan() refuses to run when the untracked capture_v141/ tree is not
+        # there to scan.  See tests/pf_preconditions.py.
+        CAPTURE_V141.require(self)
         scanned = set(self.holder.scan())
         for live in LIVE_FILES:
             with self.subTest(path=live):

@@ -2,6 +2,10 @@ import importlib.util, json, sys, tempfile, unittest, zipfile
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
+# Two tests below read the pinned capture transcripts under evidence/, which the
+# allowlist .gitignore keeps out of every clone.  See tests/pf_preconditions.py.
+sys.path.insert(0,str(ROOT/"tests"))
+from pf_preconditions import EVIDENCE_TREE
 SPEC=importlib.util.spec_from_file_location("pf_structural_corpus_audit",ROOT/"tools/pf_structural_corpus_audit.py")
 P=importlib.util.module_from_spec(SPEC); sys.modules[SPEC.name]=P; SPEC.loader.exec_module(P)
 
@@ -12,6 +16,7 @@ class StructuralCorpusAuditTests(unittest.TestCase):
   for bad in ("STRUCTURAL_IDS nope", "2026-08-13T19:23:44.411 RECV broken", "STRUCTURAL_IDS [(1, 2, 'x')] OUTER version=0 mask=0x00 count=0 nested_version=None", "STRUCTURAL_IDS [(0, 1, 'x'), (15, 2, 'y')] OUTER version=0 mask=0x02 count=99 nested_version=0"):
    with self.assertRaises(ValueError): P.parse_lines([bad])
  def test_exact_guarded_corpus_and_determinism(self):
+  EVIDENCE_TREE.require(self)
   config=P.load_config(P.DEFAULT_CONFIG); one=P.audit(config); two=P.audit(config)
   self.assertEqual(one,two); self.assertEqual(one["eligible_original_server_to_client_frames"],0)
   self.assertTrue(one["no_eligible_original_server_to_client_frames"]); self.assertFalse(one["bounded_target_negative"]); self.assertGreater(one["totals"]["decoded_frames"],0)
@@ -24,6 +29,7 @@ class StructuralCorpusAuditTests(unittest.TestCase):
     path=Path(td)/"c.json"; path.write_text(json.dumps(data))
     with self.assertRaises(ValueError): P.load_config(path)
  def test_zip_member_guard_and_safe_output(self):
+  EVIDENCE_TREE.require(self)
   config=P.load_config(P.DEFAULT_CONFIG); source=next(x for x in config["sources"] if x["container"]=="zip")
   self.assertIn("STRUCTURAL_IDS",P.source_text(source))
   with self.assertRaises(ValueError): P.output_path(ROOT/"reports/out.json")

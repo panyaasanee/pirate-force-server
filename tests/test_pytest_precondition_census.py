@@ -17,6 +17,7 @@ this milestone is about.
 """
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import subprocess
@@ -44,6 +45,135 @@ def load_tool():
 
 def skip_line(module, line, reason):
     return "SKIPPED [1] %s:%d: %s" % (module, line, reason)
+
+
+# -- statically counting the skips a module can produce ----------------------
+#
+# Round 121 replaced a substring count of "X.require(" / "X.skip_unless_
+# present(" with this walker, because the guard population outgrew the
+# one-call-per-test shape the substring count assumed: a CLASS decorator is one
+# source site that skips every test method under it.  The rules here mirror
+# what unittest actually does, so the number this computes is the number of
+# SKIPPED lines pytest prints on a machine where the artifact is absent:
+#
+#   * a guard decorator on a class        -> one skip per "def test_*" in it
+#   * a guard decorator on a test method  -> one skip
+#   * a guard call inside a test body     -> one skip (require / skipTest /
+#     pytest.skip - inside a subTest counts the same: pytest reports it)
+#
+# "Referencing the constant" follows one level of module-scope indirection on
+# purpose: a module may build its reason string once (SKIP_REASON =
+# CLIENT_IMAGE.reason + "...") or wrap its probe in a helper function, and the
+# guard site then names only the alias.  The fixpoint below resolves those.
+# Guards hidden anywhere else (setUp, setUpClass, module-level pytest.skip)
+# are deliberately NOT counted: those shapes produce skips that cannot be
+# pinned per test name, so a module using them goes red here until it is
+# restructured.
+
+def _referenced_names(node):
+    """Real ``ast.Name`` identifiers under ``node`` - never string literals.
+
+    Occurrences that are only ever read as ``<name>.present`` are reported
+    separately: probing presence is data flow (a setUpClass building shared
+    state, a conditional import), not a guard site, and treating it as one
+    would make every such helper an alias of the constant.  R121 adversary
+    findings: a constant inside a quoted string must not count, and
+    ``IMG = _Image(BINARY) if CLIENT_IMAGE.present else None`` must not make
+    ``IMG`` a guard alias.
+    """
+    presence_only = set()
+    for parent in ast.walk(node):
+        if (isinstance(parent, ast.Attribute) and parent.attr == "present"
+                and isinstance(parent.value, ast.Name)):
+            presence_only.add(id(parent.value))
+    plain, probed = set(), set()
+    for inner in ast.walk(node):
+        if isinstance(inner, ast.Name):
+            (probed if id(inner) in presence_only else plain).add(inner.id)
+    return plain, probed
+
+
+def _guard_aliases(tree, constant):
+    """Module-scope names that stand for ``constant``, to a fixpoint."""
+    names = {constant, constant + "_PRECONDITION"}
+    changed = True
+    while changed:
+        changed = False
+        for node in tree.body:
+            if isinstance(node, ast.Assign):
+                targets = tuple(
+                    t.id for t in node.targets if isinstance(t, ast.Name))
+                plain, _probed = _referenced_names(node.value)
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                targets = (node.name,)
+                plain, _probed = _referenced_names(node)
+            else:
+                continue
+            if plain & names:
+                for target in targets:
+                    if target not in names:
+                        names.add(target)
+                        changed = True
+    return names
+
+
+def _mentions(node, names):
+    plain, _probed = _referenced_names(node)
+    return bool(plain & names)
+
+
+_GUARD_CALL_NAMES = ("require", "skipTest", "skip")
+
+
+def _is_guard_call(node, names):
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    attr = func.attr if isinstance(func, ast.Attribute) else getattr(
+        func, "id", None)
+    if attr not in _GUARD_CALL_NAMES:
+        return False
+    return _mentions(node, names)
+
+
+def guarded_tests(source, constant):
+    """``(uses, names)`` - the skips ``source`` declares for ``constant``.
+
+    ``uses`` is the number of SKIPPED lines an artifact-absent run produces;
+    ``names`` lists the guarded tests as ``Class::method`` (a class decorator
+    contributes every test method under it), so the pin file's name lists can
+    be re-derived from source instead of trusted.
+    """
+    tree = ast.parse(source)
+    names = _guard_aliases(tree, constant)
+    uses = 0
+    guarded = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        methods = [n for n in node.body
+                   if isinstance(n, ast.FunctionDef)
+                   and n.name.startswith("test")]
+        for decorator in node.decorator_list:
+            if _mentions(decorator, names):
+                uses += len(methods)
+                guarded.extend(
+                    "%s::%s" % (node.name, m.name) for m in methods)
+        for method in methods:
+            for decorator in method.decorator_list:
+                if _mentions(decorator, names):
+                    uses += 1
+                    guarded.append("%s::%s" % (node.name, method.name))
+            for inner in ast.walk(method):
+                if _is_guard_call(inner, names):
+                    uses += 1
+                    guarded.append("%s::%s" % (node.name, method.name))
+    return uses, guarded
+
+
+def counted_guard_uses(source, constant):
+    """How many tests ``source`` declares as guarded by ``constant``."""
+    return guarded_tests(source, constant)[0]
 
 
 ALL_PRESENT = {key: True for key in pre.REGISTRY}
@@ -411,16 +541,13 @@ class PinFileTests(unittest.TestCase):
         for entry in self.pins["preconditions"]:
             source = (ROOT / entry["module"]).read_text(encoding="utf-8")
             constant = entry["key"].upper()
-            uses = sum(
-                source.count("%s.%s(" % (name, verb))
-                for name in (constant, constant + "_PRECONDITION")
-                for verb in ("require", "skip_unless_present")
-            )
+            uses = counted_guard_uses(source, constant)
             with self.subTest(key=entry["key"], module=entry["module"]):
                 self.assertEqual(
                     uses, entry["count"],
-                    "%s pins %d skip(s) for %r but the module uses that guard "
-                    "%d time(s)"
+                    "%s pins %d skip(s) for %r but the source declares %d "
+                    "guarded test(s) for it (see counted_guard_uses at the "
+                    "top of this file for what counts)"
                     % (entry["module"], entry["count"], entry["key"], uses),
                 )
 
@@ -431,6 +558,32 @@ class PinFileTests(unittest.TestCase):
                 name = dotted.split("::")[-1]
                 with self.subTest(test=name):
                     self.assertIn("def %s(" % name, source)
+
+    def test_the_pinned_names_are_the_tests_the_source_actually_guards(self):
+        """Moving a guard to a different test cannot leave the pins green.
+
+        The runtime census compares counts, and counts do not move when a
+        guard slides from pinned test A to unpinned test B in the same module
+        (R121 adversary finding).  The names do move, so they are re-derived
+        from source here and compared as sets.  The pin file's dotted names
+        may carry a nested-class prefix; the walker reports the immediate
+        class, so only the ``Class::method`` tail is compared.
+        """
+        for entry in self.pins["preconditions"]:
+            source = (ROOT / entry["module"]).read_text(encoding="utf-8")
+            _uses, guarded = guarded_tests(source, entry["key"].upper())
+            pinned = sorted(
+                "::".join(("%s" % d).split("::")[-2:]) if "::" in d else d
+                for d in entry["tests"])
+            derived = sorted(
+                g.split(".")[-1] if "." in g.split("::")[0] else g
+                for g in guarded)
+            with self.subTest(key=entry["key"], module=entry["module"]):
+                self.assertEqual(
+                    pinned, derived,
+                    "%s / %s: the pinned names and the guards in the source "
+                    "disagree" % (entry["module"], entry["key"]),
+                )
 
 
 class CensusVerdictTests(unittest.TestCase):

@@ -46,11 +46,19 @@ import importlib.util
 import io
 import json
 import re
+import sys
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+
+# load_tool() makes the verifier read ../GameClient/GameClient.local.bin, a
+# proprietary binary that can never be in a fresh clone, so every test that
+# calls it must say so and skip without it.  See tests/pf_preconditions.py.
+from pf_preconditions import CLIENT_IMAGE  # noqa: E402
+
 TOOL = ROOT / "tools" / "pf_hp_death_respawn_static.py"
 REPORT = (
     ROOT / "reports"
@@ -90,6 +98,9 @@ def report_counts() -> dict:
 class ArtifactsExistTests(unittest.TestCase):
     """The four files of this milestone must ship together."""
 
+    # CLIENT is one of the four, and it can never be in a fresh clone, so the
+    # whole shipping check needs the artifact.  See tests/pf_preconditions.py.
+    @CLIENT_IMAGE.skip_unless_present()
     def test_report_manifest_tool_and_client_all_exist(self):
         for path in (REPORT, MANIFEST, TOOL, CLIENT):
             with self.subTest(path=path.name):
@@ -116,13 +127,18 @@ class ArtifactsExistTests(unittest.TestCase):
 class VerifierRunsCleanTests(unittest.TestCase):
     """Every guard in the verifier must hold against the pinned binary."""
 
+    # Method-level guards, not a class one: the pure-stdlib check below reads
+    # only the tool's source and must keep running.  See tests/pf_preconditions.py.
+    @CLIENT_IMAGE.skip_unless_present()
     def test_the_verifier_imports_without_exiting(self):
         tool = load_tool()
         self.assertEqual(tool.FAILS, [], tool.FAILS)
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_the_verifier_read_the_pinned_client_image(self):
         self.assertEqual(load_tool().SHA, CLIENT_SHA)
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_the_verifier_actually_asserted_something(self):
         tool = load_tool()
         self.assertGreaterEqual(tool.NGUARD, 150)
@@ -138,9 +154,13 @@ class VerifierRunsCleanTests(unittest.TestCase):
 class ReportMatchesTheBinaryTests(unittest.TestCase):
     """Every number printed in the report is the number the verifier counted."""
 
+    # Method-level guards, not a class one: the prose-headline check below
+    # reads only the report and must keep running.  See tests/pf_preconditions.py.
+    @CLIENT_IMAGE.skip_unless_present()
     def test_every_reported_key_exists_in_the_live_counts(self):
         self.assertEqual(sorted(report_counts()), sorted(load_tool().COUNTS))
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_every_reported_value_matches_exactly(self):
         reported = report_counts()
         live = load_tool().COUNTS
@@ -153,6 +173,9 @@ class ReportMatchesTheBinaryTests(unittest.TestCase):
         self.assertIn("**%d guards, exit 0**" % report_counts()["guards"], text)
 
 
+# Every test reads the verifier's live run over the client image, which a
+# fresh clone never has.  See tests/pf_preconditions.py.
+@CLIENT_IMAGE.skip_unless_present()
 class HpFieldIdentityTests(unittest.TestCase):
     """Conclusion 1: which field is current HP and which is max."""
 
@@ -173,6 +196,8 @@ class HpFieldIdentityTests(unittest.TestCase):
         self.assertEqual(counts["basicattr_wire_fields_total"], 12)
 
 
+# Same dependency as above: nothing here runs without the client image.
+@CLIENT_IMAGE.skip_unless_present()
 class DeathDerivationTests(unittest.TestCase):
     """Conclusion 2: the client derives death from the HP value, not from a frame."""
 
@@ -197,6 +222,8 @@ class DeathDerivationTests(unittest.TestCase):
                           "ReliveVital"])
 
 
+# Same dependency as above: nothing here runs without the client image.
+@CLIENT_IMAGE.skip_unless_present()
 class VerbFamilyTests(unittest.TestCase):
     """Conclusion 3: ReliveVital is request-only."""
 
@@ -230,6 +257,8 @@ class VerbFamilyTests(unittest.TestCase):
                              counts["registered_protocol_classes"])
 
 
+# Same dependency as above: nothing here runs without the client image.
+@CLIENT_IMAGE.skip_unless_present()
 class ServerGapTests(unittest.TestCase):
     """Conclusion 5: our side has none of it, and the gap is one mask bit."""
 

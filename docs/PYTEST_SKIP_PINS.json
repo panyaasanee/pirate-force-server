@@ -46,6 +46,205 @@
   ],
   "preconditions": [
     {
+      "key": "client_image",
+      "module": "tests/test_action_consumer_probe.py",
+      "count": 1,
+      "tests": [
+        "ConsumerProbeTests::test_exact_real_binary_guards_both_profiles"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "game_install_tree",
+      "module": "tests/test_action_consumer_probe.py",
+      "count": 1,
+      "tests": [
+        "ConsumerProbeTests::test_safe_output_and_runtime_options"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "game_install_tree",
+      "module": "tests/test_action_producer_probe.py",
+      "count": 1,
+      "tests": [
+        "ActionProducerProbeTests::test_runtime_options_and_output_path_are_strict"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "client_image",
+      "module": "tests/test_actor_type_dispatch_static.py",
+      "count": 30,
+      "tests": [
+        "ArtifactsExistTests::test_report_manifest_tool_and_client_all_exist",
+        "AttrClassGateTests::test_actorattr_gates_on_cnetactor_only",
+        "AttrClassGateTests::test_basicattr_binds_to_nothing",
+        "AttrClassGateTests::test_every_attr_id_is_reproduced_from_its_name_literal",
+        "AttrClassGateTests::test_movementattr_gates_on_the_common_ancestor_so_it_binds_everywhere",
+        "AttrClassGateTests::test_npcattr_gates_on_cnetnpc_only",
+        "AttrClassGateTests::test_the_two_gates_are_different_classes",
+        "DispatchShapeTests::test_actor_type_is_one_byte_at_record_offset_0x10",
+        "DispatchShapeTests::test_exactly_five_branches",
+        "DispatchShapeTests::test_out_of_range_values_build_no_actor",
+        "DispatchShapeTests::test_the_jump_table_holds_exactly_those_five_branch_heads",
+        "DispatchShapeTests::test_the_range_check_rebases_by_two_and_caps_at_four",
+        "NameSourceTests::test_getname_reads_the_wstring_at_attr_plus_0x28",
+        "NameSourceTests::test_label_name_is_fed_attr_plus_0x28",
+        "NameSourceTests::test_the_board_update_bails_out_when_no_attr_is_bound",
+        "NameSourceTests::test_the_two_actor_families_expose_different_attr_slots",
+        "NameSourceTests::test_the_widget_literals_are_the_ones_the_report_names",
+        "RemotePlayerBranchTests::test_branch_three_builds_cmyactor_the_local_player",
+        "RemotePlayerBranchTests::test_branch_two_builds_cnetactor",
+        "RemotePlayerBranchTests::test_cmyactor_derives_from_cnetactor",
+        "RemotePlayerBranchTests::test_cnetnpc_is_a_sibling_of_cnetactor_not_an_ancestor",
+        "RemotePlayerBranchTests::test_only_one_local_player_may_exist",
+        "ReportMatchesTheBinaryTests::test_every_reported_key_exists_in_the_live_counts",
+        "ReportMatchesTheBinaryTests::test_every_reported_value_matches_exactly",
+        "ServerCrossCheckTests::test_the_remote_player_value_is_one_of_the_untried_ones",
+        "ServerCrossCheckTests::test_the_untried_values_are_the_other_four",
+        "ServerCrossCheckTests::test_v141_emits_exactly_one_actor_type",
+        "VerifierRunsCleanTests::test_the_verifier_actually_asserted_something",
+        "VerifierRunsCleanTests::test_the_verifier_imports_without_exiting",
+        "VerifierRunsCleanTests::test_the_verifier_read_the_pinned_client_image"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "client_image",
+      "module": "tests/test_behavior_entry_probe.py",
+      "count": 2,
+      "tests": [
+        "BehaviorEntryProbeTests::test_exact_profiles_disk_guards_and_hook_provenance",
+        "BehaviorEntryProbeTests::test_output_is_confined_and_guarded"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "client_image",
+      "module": "tests/test_behavior_lookup_probe.py",
+      "count": 3,
+      "tests": [
+        "BehaviorLookupProbeTests::test_exact_profiles_and_disk_guards",
+        "BehaviorLookupProbeTests::test_hook_is_instruction_aligned_and_has_no_relocations",
+        "BehaviorLookupProbeTests::test_output_is_confined_and_rejects_guard_alias"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "client_image",
+      "module": "tests/test_behavior_range_gate_probe.py",
+      "count": 2,
+      "tests": [
+        "BehaviorRangeGateProbeTests::test_output_confined",
+        "BehaviorRangeGateProbeTests::test_profiles_guards_instructions_and_relocations"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "capture_v141",
+      "module": "tests/test_capture_corpus.py",
+      "count": 5,
+      "tests": [
+        "LiveFileExclusionTests::test_the_live_tails_still_match_the_pattern",
+        "PinnedFilesTests::test_every_pinned_capture_is_present_and_byte_identical",
+        "PinnedFilesTests::test_hashes_are_reproducible",
+        "PinnedFilesTests::test_no_capture_exists_outside_the_pinned_set",
+        "PinnedFilesTests::test_no_pinned_capture_has_vanished"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "client_image",
+      "module": "tests/test_chat_channel_family_static.py",
+      "count": 11,
+      "tests": [
+        "ChatChannelFamilyStaticTests::test_binary_hash_and_spans_are_the_pinned_client",
+        "ChatChannelFamilyStaticTests::test_channel_ids_are_runtime_assigned_never_code_immediates",
+        "ChatChannelFamilyStaticTests::test_class_hierarchy_from_the_type_node_registration_block",
+        "ChatChannelFamilyStaticTests::test_client_routing_into_channelmodule_client",
+        "ChatChannelFamilyStaticTests::test_codecs_and_bidirectional_serializer_shape",
+        "ChatChannelFamilyStaticTests::test_each_id_slot_has_one_writer_and_one_get_id_reader",
+        "ChatChannelFamilyStaticTests::test_every_channel_wire_schema_decodes_byte_exact",
+        "ChatChannelFamilyStaticTests::test_join_leave_membership_lifecycle_is_result_gated",
+        "ChatChannelFamilyStaticTests::test_seventeen_name_literals_and_one_registration_block",
+        "ChatChannelFamilyStaticTests::test_vtable_slots_and_two_converging_name_paths",
+        "ChatChannelFamilyStaticTests::test_whisper_is_the_only_channel_with_a_recipient_field"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "game_install_tree",
+      "module": "tests/test_client_ui_asset_inventory.py",
+      "count": 2,
+      "tests": [
+        "RealAssetTests::test_the_published_negative_still_holds",
+        "RealAssetTests::test_the_two_old_denominators_really_did_differ"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "client_image",
+      "module": "tests/test_damage_hit_result_static.py",
+      "count": 53,
+      "tests": [
+        "AngleNotDamageTests::test_it_goes_to_the_reaction_spawners_and_to_sin_cos",
+        "AngleNotDamageTests::test_the_damage_offset_and_the_angle_offset_are_different_fields",
+        "AngleNotDamageTests::test_the_f32_at_plus_0x18_is_declared_not_a_damage_number",
+        "AngleNotDamageTests::test_the_pi_constant_backing_the_angle_reading_is_really_pi",
+        "ArtifactsExistTests::test_the_binary_the_tool_chose_exists_and_is_the_pinned_one",
+        "DisplayPathTests::test_abs_is_the_only_arithmetic_and_the_scale_is_one",
+        "DisplayPathTests::test_the_abs_sequence_bytes_are_contiguous_and_exact",
+        "DisplayPathTests::test_the_dispatcher_is_only_ever_called_from_the_two_hit_handlers",
+        "DisplayPathTests::test_the_path_is_the_one_we_think_it_is",
+        "DisplayPathTests::test_the_value_is_stored_verbatim_then_printed_with_percent_d",
+        "DyingAndReviveTests::test_duration_dying_is_an_integer_config_with_one_reader",
+        "DyingAndReviveTests::test_dying_and_dead_are_two_different_predicates",
+        "DyingAndReviveTests::test_relive_vital_is_request_only",
+        "DyingAndReviveTests::test_the_downed_window_and_the_death_window_are_different",
+        "DyingAndReviveTests::test_the_gate_constant_is_a_double",
+        "DyingAndReviveTests::test_the_one_button_sends_action_0xea7c",
+        "HeaderFieldTableTests::test_the_array_hangs_off_plus_0x2c",
+        "HeaderFieldTableTests::test_the_class_identity",
+        "HeaderFieldTableTests::test_the_header_field_table_matches_exactly_and_in_order",
+        "HeaderFieldTableTests::test_the_wire_id_is_the_hash_of_the_in_image_literal",
+        "HitElementTableTests::test_the_count_is_a_u16",
+        "HitElementTableTests::test_the_element_field_table_matches_exactly_and_in_order",
+        "HitElementTableTests::test_the_last_field_ends_inside_the_stride",
+        "HitElementTableTests::test_the_stride_is_thirty_two_and_was_read_out_of_the_bytes",
+        "HitElementTableTests::test_the_stride_proof_bytes_are_really_there",
+        "NoArithmeticNegativeTests::test_every_function_on_the_path_is_byte_frozen",
+        "NoArithmeticNegativeTests::test_no_accessor_caller_lives_in_a_combat_function",
+        "NoArithmeticNegativeTests::test_the_attribute_apply_loop_is_a_verbatim_copy",
+        "NoArithmeticNegativeTests::test_the_derived_stat_accessors_are_ui_only",
+        "NoArithmeticNegativeTests::test_the_hit_handler_never_reads_or_writes_hp",
+        "NoArithmeticNegativeTests::test_the_multiply_divide_encodings_are_absent_where_claimed",
+        "NoArithmeticNegativeTests::test_the_two_headline_negatives_are_stated_flatly",
+        "ResultFlagsTests::test_no_semantic_bit_label_is_claimed",
+        "ResultFlagsTests::test_the_flags_field_is_a_u16_at_plus_0x1c",
+        "ResultFlagsTests::test_the_knocked_literal_is_quoted_from_the_image",
+        "SignedDamageFieldTests::test_all_four_signed_compare_sites_are_named",
+        "SignedDamageFieldTests::test_the_branch_really_is_jge_and_not_jae",
+        "SignedDamageFieldTests::test_the_damage_field_is_named_and_signed",
+        "SignedDamageFieldTests::test_the_field_the_ui_reads_is_the_field_the_wire_carries",
+        "TagMapTests::test_no_tag_is_used_with_two_widths",
+        "TagMapTests::test_the_codec_and_its_tag_check_are_named",
+        "TagMapTests::test_the_five_tags_this_family_uses",
+        "TagMapTests::test_vector3_is_three_f32_fields_not_a_tag",
+        "TrapTests::test_flipping_a_byte_anywhere_in_a_frozen_span_breaks_its_hash",
+        "TrapTests::test_flipping_the_abs_instruction_breaks_its_byte_guard",
+        "TrapTests::test_flipping_the_stride_byte_breaks_the_stride_proof",
+        "TrapTests::test_smuggling_a_mulss_into_a_zero_arithmetic_span_is_caught",
+        "TrapTests::test_the_real_binary_survived_every_trap",
+        "VerifierRunsCleanTests::test_the_binary_on_disk_is_unchanged_after_the_run",
+        "VerifierRunsCleanTests::test_the_report_claims_nothing_about_the_original_server",
+        "VerifierRunsCleanTests::test_the_reported_guard_count_matches_the_run",
+        "VerifierRunsCleanTests::test_the_verifier_actually_asserted_something",
+        "VerifierRunsCleanTests::test_the_verifier_imports_without_exiting"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
       "key": "canonical_db",
       "module": "tests/test_damage_hp_link_dispatch.py",
       "count": 2,
@@ -56,22 +255,41 @@
       "note": "Both run the replay tool with no --db, so the tool falls back to the canonical database and exits 2 without it.  test_the_replay_tool_refuses_a_missing_database_in_pure_ascii covers the cp874 and exit-code contract on every machine and must never be added to this list."
     },
     {
-      "key": "backups_tree",
-      "module": "tests/test_population.py",
-      "count": 1,
+      "key": "client_image",
+      "module": "tests/test_delete_refresh_static.py",
+      "count": 8,
       "tests": [
-        "PopulationTransitionTests::test_natural_v94_provenance_is_exact_and_read_only"
+        "DeleteRefreshStaticTests::test_every_static_guard_reproduced",
+        "DeleteRefreshStaticTests::test_no_client_observable_claim_is_recorded_here",
+        "DeleteRefreshStaticTests::test_only_the_select_actor_apply_can_refill_the_list",
+        "DeleteRefreshStaticTests::test_the_acknowledgement_still_cannot_do_any_of_it",
+        "DeleteRefreshStaticTests::test_the_guards_ran_against_the_pinned_client_image",
+        "DeleteRefreshStaticTests::test_the_lane_constants_match_the_binary",
+        "DeleteRefreshStaticTests::test_the_page_variable_has_exactly_26_references",
+        "DeleteRefreshStaticTests::test_the_register_write_lives_in_the_state_enter_hook"
       ],
-      "note": "Reads two v94 capture files under backups/.  test_the_v94_provenance_paths_are_declared_machine_local keeps a real assertion on the same golden data everywhere."
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
     },
     {
-      "key": "login_req_capture",
-      "module": "tests/test_multiplayer_readiness_audit.py",
+      "key": "client_image",
+      "module": "tests/test_equip_state_static.py",
       "count": 1,
       "tests": [
-        "ExactCountTests::test_the_login_capture_guard_reproduces_where_the_capture_exists"
+        "EquipStateStaticTests::test_exact_original_and_local_spans_are_identical"
       ],
-      "note": "test_the_login_capture_guard_states_which_machine_it_is_on asserts on BOTH machines - 'reproduced' where the capture exists, exactly 'skipped (untracked capture absent)' where it does not - so nothing goes silent here."
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "game_install_tree",
+      "module": "tests/test_equip_state_static.py",
+      "count": 4,
+      "tests": [
+        "EquipStateStaticTests::test_character_equipment_ui_requests_collection_bag_not_equipped_bag",
+        "EquipStateStaticTests::test_item_operate_result_optional_bag_is_plain_not_collection",
+        "EquipStateStaticTests::test_registered_equipped_bag_has_only_the_shared_itembag_shape",
+        "EquipStateStaticTests::test_startgame_imports_all_attrs_but_has_no_equipped_specific_lookup"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
     },
     {
       "key": "original_schema_history",
@@ -83,6 +301,147 @@
       "note": "The first entry whose artifact is inside git rather than beside it: the test reads migrations/001_initial.sql out of commit 5c200e2, which a shallow clone does not carry.  Measured 2026-08-21 (round 118): a cloud clone failed it with a bare CalledProcessError, which reads as a red main on a tree nobody touched; the same commit was 1206 passed / 4 skipped after git fetch --unshallow.  The gate checks out with fetch-depth: 0 and the bridge holds the whole history, so on both machines that decide anything this expects ZERO skips and the assertions run at full strength.  The guard names the BLOB and not only the commit, because a partial clone has the commit and not the blob."
     },
     {
+      "key": "client_image",
+      "module": "tests/test_hit_result_probe.py",
+      "count": 2,
+      "tests": [
+        "HitResultProbeTests::test_hook_spans_do_not_overlap_pe_relocations",
+        "HitResultProbeTests::test_real_binary_guards_both_profiles"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "game_install_tree",
+      "module": "tests/test_hit_result_probe.py",
+      "count": 1,
+      "tests": [
+        "HitResultProbeTests::test_safe_output"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "client_image",
+      "module": "tests/test_hp_death_respawn_static.py",
+      "count": 20,
+      "tests": [
+        "ArtifactsExistTests::test_report_manifest_tool_and_client_all_exist",
+        "DeathDerivationTests::test_all_four_predicates_are_named",
+        "DeathDerivationTests::test_no_death_notification_verb_exists_for_the_local_player",
+        "DeathDerivationTests::test_the_count_of_predicates_matches_the_named_set",
+        "HpFieldIdentityTests::test_basicattr_field_count_is_measured_from_the_serializer",
+        "HpFieldIdentityTests::test_current_and_max_hp_are_the_pair_the_server_already_emits",
+        "HpFieldIdentityTests::test_the_death_timer_is_a_third_distinct_field",
+        "ReportMatchesTheBinaryTests::test_every_reported_key_exists_in_the_live_counts",
+        "ReportMatchesTheBinaryTests::test_every_reported_value_matches_exactly",
+        "ServerGapTests::test_exactly_one_of_the_three_predicate_fields_is_missing",
+        "ServerGapTests::test_the_death_timer_bit_is_never_emitted",
+        "ServerGapTests::test_zero_hp_is_never_sent",
+        "ServerGapTests::test_zero_server_encoders_for_all_three_verbs",
+        "VerbFamilyTests::test_relive_vital_has_no_client_side_decoder",
+        "VerbFamilyTests::test_the_census_adds_up",
+        "VerbFamilyTests::test_the_ids_are_the_name_hash_of_the_in_image_literals",
+        "VerbFamilyTests::test_the_other_two_do_have_handlers",
+        "VerifierRunsCleanTests::test_the_verifier_actually_asserted_something",
+        "VerifierRunsCleanTests::test_the_verifier_imports_without_exiting",
+        "VerifierRunsCleanTests::test_the_verifier_read_the_pinned_client_image"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "client_image",
+      "module": "tests/test_item_move_consumer_static.py",
+      "count": 1,
+      "tests": [
+        "ItemMoveConsumerStaticTests::test_exact_original_and_local_spans_are_identical"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "game_install_tree",
+      "module": "tests/test_item_move_consumer_static.py",
+      "count": 2,
+      "tests": [
+        "ItemMoveConsumerStaticTests::test_result_routes_by_identity_and_incoming_slot_not_old_quantity",
+        "ItemMoveConsumerStaticTests::test_slot_payload_is_replaced_with_a_complete_itemattr_clone"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "client_image",
+      "module": "tests/test_item_order_static.py",
+      "count": 1,
+      "tests": [
+        "ItemOrderStaticTests::test_exact_original_and_local_spans_are_identical"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "game_install_tree",
+      "module": "tests/test_item_order_static.py",
+      "count": 1,
+      "tests": [
+        "ItemOrderStaticTests::test_item_identity_is_the_tree_key_and_writer_uses_successor_order"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "client_image",
+      "module": "tests/test_knockdown_consumer_probe.py",
+      "count": 2,
+      "tests": [
+        "KnockdownProbeTests::test_output_alias_and_safe_root",
+        "KnockdownProbeTests::test_profiles_actual_binaries_boundaries_relocations_cross_pair"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "client_image",
+      "module": "tests/test_login_vital_req_static.py",
+      "count": 23,
+      "tests": [
+        "AccountIsAVariableTests::test_a_different_argument_produces_a_different_account_field",
+        "AccountIsAVariableTests::test_the_argument_test_decodes_to_the_bytes_the_corpus_has",
+        "AccountIsAVariableTests::test_the_documented_probe_argument_is_the_one_the_tool_measured",
+        "AccountIsAVariableTests::test_the_model_can_name_the_argument_for_any_account",
+        "AccountIsAVariableTests::test_the_model_refuses_input_it_cannot_honestly_encode",
+        "AccountIsAVariableTests::test_the_password_argument_reaches_the_wire_verbatim",
+        "AccountIsAVariableTests::test_the_recovered_hex_table_is_exactly_hexadecimal",
+        "CorpusTests::test_the_archived_corpus_was_actually_read",
+        "CorpusTests::test_the_body_parser_rejects_a_damaged_frame",
+        "CorpusTests::test_the_corpus_still_has_exactly_one_account_value",
+        "CorpusTests::test_the_same_account_opens_the_game_listener_handshake",
+        "CorpusTests::test_the_whole_corpus_reproduces_from_two_launcher_arguments",
+        "EvidenceExistsTests::test_every_input_and_output_exists",
+        "FrameShapeTests::test_the_account_is_a_wide_string_at_0x14_with_tag_0x48",
+        "FrameShapeTests::test_the_frame_has_exactly_two_fields",
+        "FrameShapeTests::test_the_password_is_a_narrow_string_at_0x30_with_tag_0x44",
+        "FrameShapeTests::test_the_password_is_not_hashed",
+        "FrameShapeTests::test_the_two_fields_are_serialized_account_first",
+        "ReportMatchesTheBinaryTests::test_every_published_value_matches_the_measurement",
+        "ReportMatchesTheBinaryTests::test_the_report_publishes_every_key_the_tool_measures",
+        "VerifierRunsCleanTests::test_the_verifier_imports_without_a_drifted_guard",
+        "VerifierRunsCleanTests::test_the_verifier_read_the_pinned_client_build",
+        "VerifierRunsCleanTests::test_the_verifier_runs_a_non_trivial_number_of_guards"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "client_image",
+      "module": "tests/test_move_authority_targetpos_static.py",
+      "count": 8,
+      "tests": [
+        "MoveAuthorityTargetPosStaticTests::test_binary_hash_is_the_pinned_client",
+        "MoveAuthorityTargetPosStaticTests::test_class_id_is_runtime_assigned",
+        "MoveAuthorityTargetPosStaticTests::test_ctor_field_layout",
+        "MoveAuthorityTargetPosStaticTests::test_identity_name_and_single_registration",
+        "MoveAuthorityTargetPosStaticTests::test_producer_is_factory_constructed",
+        "MoveAuthorityTargetPosStaticTests::test_spans_are_byte_identical",
+        "MoveAuthorityTargetPosStaticTests::test_vtable_slots",
+        "MoveAuthorityTargetPosStaticTests::test_wire_schema_is_four_f32_then_two_u8"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
       "key": "audit_head_history",
       "module": "tests/test_multiplayer_readiness_audit.py",
       "count": 3,
@@ -92,6 +451,285 @@
         "HistoricalSuiteSizeTests::test_the_pin_is_re_derived_from_the_commit_it_names"
       ],
       "note": "All three run tools/pf_multiplayer_readiness_audit.py, which re-derives its published suite size from commit 5cc0eda and fails its own historical pin when git cannot hand that commit over.  Separate key from original_schema_history because a clone can hold one commit and not the other: measured 2026-08-21, a clone of the cloud round's own shape held 5cc0eda and not 5c200e2, so one shared key would have skipped these three where they could run.  Do not read a fixed distance out of this note - where a given --depth grafts moves with every commit on main, and the day 5cc0eda falls outside a cloud clone these three skip for a measured reason instead of running, which is the design and not a surprise.  test_two_runs_produce_identical_output stays unguarded on purpose, but not because it is strong: it compares the tool's stdout across two runs and asserts nothing about the exit code, so it is equally green over a tool that fails identically twice.  It is unguarded because it is true everywhere, not because it is evidence."
+    },
+    {
+      "key": "login_req_capture",
+      "module": "tests/test_multiplayer_readiness_audit.py",
+      "count": 1,
+      "tests": [
+        "ExactCountTests::test_the_login_capture_guard_reproduces_where_the_capture_exists"
+      ],
+      "note": "test_the_login_capture_guard_states_which_machine_it_is_on asserts on BOTH machines - 'reproduced' where the capture exists, exactly 'skipped (untracked capture absent)' where it does not - so nothing goes silent here."
+    },
+    {
+      "key": "client_image",
+      "module": "tests/test_names_fold003_thunk_census.py",
+      "count": 5,
+      "tests": [
+        "ToolRunTests::test_both_tools_print_nothing_the_windows_console_cannot_encode",
+        "ToolRunTests::test_census_tool_shares_the_thunk_tools_acceptance_gate",
+        "ToolRunTests::test_census_verifier_runs_clean_against_the_committed_artifact",
+        "ToolRunTests::test_thunk_verifier_runs_clean_and_reports_half_alpha",
+        "ToolRunTests::test_thunk_verifier_still_reproduces_the_three_round62_pins"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "backups_tree",
+      "module": "tests/test_population.py",
+      "count": 1,
+      "tests": [
+        "PopulationTransitionTests::test_natural_v94_provenance_is_exact_and_read_only"
+      ],
+      "note": "Reads two v94 capture files under backups/.  test_the_v94_provenance_paths_are_declared_machine_local keeps a real assertion on the same golden data everywhere."
+    },
+    {
+      "key": "client_image",
+      "module": "tests/test_remote_movement_projection_static.py",
+      "count": 10,
+      "tests": [
+        "RemoteMovementProjectionStaticTests::test_binary_hash_is_the_pinned_client",
+        "RemoteMovementProjectionStaticTests::test_class_id_is_runtime_assigned",
+        "RemoteMovementProjectionStaticTests::test_class_token_used_by_three_downcast_consumers",
+        "RemoteMovementProjectionStaticTests::test_delta_mask_sets_bit_per_differing_field",
+        "RemoteMovementProjectionStaticTests::test_identity_name_and_single_registration",
+        "RemoteMovementProjectionStaticTests::test_projection_apply_merge_is_mask_gated",
+        "RemoteMovementProjectionStaticTests::test_reset_primes_full_mask",
+        "RemoteMovementProjectionStaticTests::test_spans_are_byte_identical",
+        "RemoteMovementProjectionStaticTests::test_vtable_slots",
+        "RemoteMovementProjectionStaticTests::test_wire_schema_header_and_serial"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "client_image",
+      "module": "tests/test_runtimeres_actor_entry_static.py",
+      "count": 19,
+      "tests": [
+        "TestReportMatchesTheBinary::test_every_number_in_the_report_comes_from_the_tool",
+        "TestReportMatchesTheBinary::test_the_report_states_the_guard_count_it_actually_has",
+        "TestTheAnswer::test_a_first_sight_actor_takes_the_spawn_path_and_cannot_dead_sync",
+        "TestTheAnswer::test_the_actor_entry_dispatcher_has_exactly_one_caller",
+        "TestTheAnswer::test_the_actor_type_gate_is_2_through_6",
+        "TestTheAnswer::test_the_res_id_matches_the_number_the_client_reported_live",
+        "TestTheAnswer::test_the_server_gap_was_three_specific_zeros_and_round_86_closed_them",
+        "TestTheAnswer::test_the_string_RuntimeRes_is_not_in_the_image_at_all",
+        "TestTheAnswer::test_the_three_round83_targets_have_the_entry_counts_claimed",
+        "TestTheAnswer::test_the_two_predicates_have_opposite_timer_polarity",
+        "TestTheAnswer::test_updateattrvital_cannot_reach_the_death_chain",
+        "TestTraps::test_the_real_binary_survived_every_trap",
+        "TestTraps::test_trap1_flipping_a_byte_in_a_frozen_span_breaks_its_hash",
+        "TestTraps::test_trap2_neutering_the_only_call_site_breaks_the_census",
+        "TestTraps::test_trap3_a_planted_vtable_pointer_is_caught",
+        "TestTraps::test_trap4_a_spliced_vt20_dispatch_breaks_the_negative",
+        "TestTraps::test_trap5_corrupting_the_die_literal_is_caught",
+        "TestVerifierItself::test_it_sweeps_both_executable_sections",
+        "TestVerifierItself::test_the_verifier_runs_clean_against_the_pinned_image"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "client_image",
+      "module": "tests/test_runtimeres_death_hypothesis.py",
+      "count": 1,
+      "tests": [
+        "VerifierTests::test_the_verifier_runs_clean_and_opens_its_regression_gate"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "client_image",
+      "module": "tests/test_skill_trigger_probe.py",
+      "count": 2,
+      "tests": [
+        "SkillTriggerProbeTests::test_output_confined_and_aliases",
+        "SkillTriggerProbeTests::test_profiles_guards_boundaries_and_relocations"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "client_image",
+      "module": "tests/test_split_operate_family_static.py",
+      "count": 8,
+      "tests": [
+        "SplitOperateFamilyStaticTests::test_binary_hash_is_the_pinned_client",
+        "SplitOperateFamilyStaticTests::test_dispatcher_is_one_contiguous_function",
+        "SplitOperateFamilyStaticTests::test_exactly_one_op6_site_is_the_inventory_verb0x16",
+        "SplitOperateFamilyStaticTests::test_op4_and_op3_have_one_call_site_each",
+        "SplitOperateFamilyStaticTests::test_op6_factory_operation_and_calling_contract",
+        "SplitOperateFamilyStaticTests::test_op6_has_exactly_four_call_sites",
+        "SplitOperateFamilyStaticTests::test_spans_are_byte_identical",
+        "SplitOperateFamilyStaticTests::test_verb0x16_opens_positive_quantity_dialog_then_op6"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "client_image",
+      "module": "tests/test_split_operate_static.py",
+      "count": 8,
+      "tests": [
+        "SplitOperateStaticTests::test_binary_hash_is_the_pinned_client",
+        "SplitOperateStaticTests::test_constructor_default_operation_is_one",
+        "SplitOperateStaticTests::test_id_is_runtime_assigned_not_a_code_immediate",
+        "SplitOperateStaticTests::test_move_and_quantity_field_usage",
+        "SplitOperateStaticTests::test_operation_producer_immediates",
+        "SplitOperateStaticTests::test_serializer_field_map",
+        "SplitOperateStaticTests::test_spans_are_byte_identical",
+        "SplitOperateStaticTests::test_vtable_is_shared_vitaldata_cohort"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "client_image",
+      "module": "tests/test_split_operate_verb_panels_static.py",
+      "count": 9,
+      "tests": [
+        "SplitOperateVerbPanelsStaticTests::test_0x42AB40_is_a_temp_object_destructor_not_a_dialog_opener",
+        "SplitOperateVerbPanelsStaticTests::test_binary_hash_is_the_pinned_client",
+        "SplitOperateVerbPanelsStaticTests::test_both_verb0x16_bodies_share_the_numeric_dialog_helper",
+        "SplitOperateVerbPanelsStaticTests::test_dialog_id_0x12_is_a_stack_local_not_a_call_argument",
+        "SplitOperateVerbPanelsStaticTests::test_dispatcher_verb_switch_ladder",
+        "SplitOperateVerbPanelsStaticTests::test_op6_still_has_exactly_four_call_sites",
+        "SplitOperateVerbPanelsStaticTests::test_the_two_verb0x16_sites_live_in_distinct_functions",
+        "SplitOperateVerbPanelsStaticTests::test_two_op6_sites_are_gated_by_verb_0x16",
+        "SplitOperateVerbPanelsStaticTests::test_verb0x16_bodies_are_byte_identical"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "game_install_tree",
+      "module": "tests/test_split_operate_verb_panels_static.py",
+      "count": 2,
+      "tests": [
+        "SplitOperateVerbPanelsStaticTests::test_the_caption_text_table_is_packed_and_not_statically_readable",
+        "SplitOperateVerbPanelsStaticTests::test_the_numeric_dialog_is_a_generic_reusable_control"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "client_image",
+      "module": "tests/test_stats_progression_static.py",
+      "count": 22,
+      "tests": [
+        "StatsProgressionStatic::test_abilitydepoly_has_exactly_one_fixed_producer",
+        "StatsProgressionStatic::test_abilitydepolyall_wire_order_is_str_con_dex_int_per",
+        "StatsProgressionStatic::test_actorattr_0x80_is_the_unspent_allocation_point_pool",
+        "StatsProgressionStatic::test_addexp_addabilitypoint_addskillpoint_grant_nothing",
+        "StatsProgressionStatic::test_attribute_and_fightattr_carry_no_wire_fields_at_all",
+        "StatsProgressionStatic::test_class_and_skill_points",
+        "StatsProgressionStatic::test_dirty_mask_headers_are_where_the_decode_says",
+        "StatsProgressionStatic::test_each_id_slot_has_one_writer_and_one_reader",
+        "StatsProgressionStatic::test_every_named_progression_field_is_present_and_gated",
+        "StatsProgressionStatic::test_every_serializer_decodes_to_its_pinned_field_list",
+        "StatsProgressionStatic::test_experience_is_the_actorattr_qword_at_0xA0",
+        "StatsProgressionStatic::test_five_primary_attributes_are_named_by_the_char_info_panel",
+        "StatsProgressionStatic::test_hash_anchor_reproduces_the_three_ids_v141_already_committed",
+        "StatsProgressionStatic::test_hp_and_mp_pairs_feed_the_two_named_hud_bars",
+        "StatsProgressionStatic::test_ids_are_runtime_assigned_never_code_immediates",
+        "StatsProgressionStatic::test_level_is_basicattr_u16_at_0x5E",
+        "StatsProgressionStatic::test_registration_thunks_have_the_nameid_hash_shape",
+        "StatsProgressionStatic::test_serializer_chain_follows_the_class_chain",
+        "StatsProgressionStatic::test_skill_verbs_and_update_transport",
+        "StatsProgressionStatic::test_static_data_schema_declares_exactly_five_primary_attributes",
+        "StatsProgressionStatic::test_type_nodes_name_the_classes_and_encode_the_hierarchy",
+        "StatsProgressionStatic::test_vtables_carry_cohort_const_getid_sizeof_and_serializer"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "evidence_tree",
+      "module": "tests/test_structural_corpus_audit.py",
+      "count": 2,
+      "tests": [
+        "StructuralCorpusAuditTests::test_exact_guarded_corpus_and_determinism",
+        "StructuralCorpusAuditTests::test_zip_member_guard_and_safe_output"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "backups_tree",
+      "module": "tests/test_teleportcheck_0x4477_corpus.py",
+      "count": 1,
+      "tests": [
+        "RealCorpusTests::test_the_wire_guards_all_pass_on_the_real_corpus"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "client_image",
+      "module": "tests/test_teleportcheck_0x4477_corpus.py",
+      "count": 1,
+      "tests": [
+        "ExitCodeTests::test_the_real_run_still_passes"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "client_image",
+      "module": "tests/test_ui_state_refresh_static.py",
+      "count": 25,
+      "tests": [
+        "ArtifactsExistTests::test_report_manifest_tool_and_client_all_exist",
+        "CharacterListBufferTests::test_only_thirty_two_instructions_in_text_form_that_offset",
+        "CharacterListBufferTests::test_that_caller_is_inside_the_selectactorvital_apply",
+        "CharacterListBufferTests::test_the_append_has_exactly_one_caller_and_it_is_createactorvital",
+        "CharacterListBufferTests::test_the_bulk_fill_has_exactly_one_caller",
+        "CharacterListBufferTests::test_the_list_lives_in_one_singleton_field",
+        "CharacterListBufferTests::test_there_is_no_erase_by_key_path",
+        "DeleteAckTests::test_only_field_values_three_and_four_reach_the_list",
+        "DeleteAckTests::test_the_delete_ack_id_and_handler_are_the_ones_reported",
+        "DeleteAckTests::test_the_handler_calls_no_list_mutator_and_no_transition",
+        "DeleteAckTests::test_the_handler_never_writes_the_page_variable",
+        "LogoutTests::test_logout_apply_is_the_reported_one",
+        "LogoutTests::test_logout_never_requests_a_state_transition",
+        "LogoutTests::test_the_only_window_it_drives_is_the_logout_confirm",
+        "ReportMatchesTheBinaryTests::test_every_reported_key_exists_in_the_live_counts",
+        "ReportMatchesTheBinaryTests::test_every_reported_value_matches_exactly",
+        "TransitionGraphTests::test_exactly_eighteen_transition_sites",
+        "TransitionGraphTests::test_only_three_live_inside_a_vital_apply",
+        "TransitionGraphTests::test_six_of_the_enumerated_vitals_do_nothing_when_sent_inbound",
+        "TransitionGraphTests::test_the_character_select_screen_is_cstatecreateactor",
+        "TransitionGraphTests::test_the_five_character_select_gated_vitals",
+        "VerifierRunsCleanTests::test_the_server_cross_check_ran",
+        "VerifierRunsCleanTests::test_the_verifier_actually_asserted_something",
+        "VerifierRunsCleanTests::test_the_verifier_imports_without_a_failed_guard",
+        "VerifierRunsCleanTests::test_the_verifier_read_the_pinned_client_image"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "client_image",
+      "module": "tests/test_use_drop_sell_static.py",
+      "count": 13,
+      "tests": [
+        "UseDropSellStaticTests::test_binary_hash_is_the_pinned_client",
+        "UseDropSellStaticTests::test_dialog_resource_0x12_is_actually_an_eh_trylevel",
+        "UseDropSellStaticTests::test_item_operate_producer_callsite_enumeration",
+        "UseDropSellStaticTests::test_no_vendor_or_price_context_at_any_item_operate_producer",
+        "UseDropSellStaticTests::test_op3_callback_result_gate_and_identity_latch",
+        "UseDropSellStaticTests::test_op3_caller_is_a_modal_dialog_callback",
+        "UseDropSellStaticTests::test_op3_factory_is_identity_only_stdcall_ret8",
+        "UseDropSellStaticTests::test_op6_site_a_is_a_third_verb16_gate_with_two_handles",
+        "UseDropSellStaticTests::test_op6_site_b_is_context_mode_gated_not_verb_gated",
+        "UseDropSellStaticTests::test_panel_d_verb2_latches_then_opens_a_confirm",
+        "UseDropSellStaticTests::test_sell_rides_stall_blackmarket_and_store_classes",
+        "UseDropSellStaticTests::test_spans_are_byte_identical",
+        "UseDropSellStaticTests::test_use_rides_its_own_useitemvital_class"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "client_image",
+      "module": "tests/test_vital_id_resolve_scope.py",
+      "count": 5,
+      "tests": [
+        "ToolRunTests::test_it_actually_asserted_something",
+        "ToolRunTests::test_it_read_the_pinned_client_image",
+        "ToolRunTests::test_section_two_has_exactly_three_targets",
+        "ToolRunTests::test_the_scope_is_printed_where_a_human_will_see_it",
+        "ToolRunTests::test_the_verifier_exits_clean"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
     }
   ],
   "design_skips": [

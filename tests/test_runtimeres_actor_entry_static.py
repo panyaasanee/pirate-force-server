@@ -48,11 +48,19 @@ import io
 import json
 import re
 import struct
+import sys
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+
+# load_tool() makes the verifier read ../GameClient/GameClient.local.bin, a
+# proprietary binary that can never be in a fresh clone, so every test that
+# calls it must say so and skip without it.  See tests/pf_preconditions.py.
+from pf_preconditions import CLIENT_IMAGE  # noqa: E402
+
 TOOL = ROOT / "tools" / "pf_runtimeres_actor_entry_static.py"
 REPORT = (
     ROOT / "reports"
@@ -117,6 +125,9 @@ def flipped(tool, va, mask=0x01):
 
 
 class TestVerifierItself(unittest.TestCase):
+    # Method-level guards, not a class one: the source-only check below runs
+    # fine without the client image.  See tests/pf_preconditions.py.
+    @CLIENT_IMAGE.skip_unless_present()
     def test_the_verifier_runs_clean_against_the_pinned_image(self):
         tool = load_tool()
         self.assertEqual(tool.FAILS, [], "a static guard drifted")
@@ -132,12 +143,16 @@ class TestVerifierItself(unittest.TestCase):
             self.assertNotIn(banned + "\n", src)
         self.assertNotIn("import capstone", src)
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_it_sweeps_both_executable_sections(self):
         """Round 83's sweep only knew about .text.  This image has two."""
         tool = load_tool()
         self.assertEqual([s[0] for s in tool.EXEC_SECS], [".text", ".code"])
 
 
+# Every test compares the report against a live run over the client image,
+# which a fresh clone never has.  See tests/pf_preconditions.py.
+@CLIENT_IMAGE.skip_unless_present()
 class TestReportMatchesTheBinary(unittest.TestCase):
     def test_every_number_in_the_report_comes_from_the_tool(self):
         tool = load_tool()
@@ -157,6 +172,9 @@ class TestTheAnswer(unittest.TestCase):
     """Restate the load-bearing conclusions independently of the report prose,
     so a silent edit to either file cannot quietly change them."""
 
+    # Method-level guards, not a class one: the erratum test below reads only
+    # the report and must keep running.  See tests/pf_preconditions.py.
+    @CLIENT_IMAGE.skip_unless_present()
     def test_the_string_RuntimeRes_is_not_in_the_image_at_all(self):
         tool = load_tool()
         for missing in ("RuntimeRes", "RunTimeRes", "RuntimeProtocol"):
@@ -164,12 +182,14 @@ class TestTheAnswer(unittest.TestCase):
                              "%r unexpectedly present" % missing)
         self.assertEqual(tool.cstr(0xF2FFF8), "GSCN_RunTimeProtocolRes")
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_the_res_id_matches_the_number_the_client_reported_live(self):
         tool = load_tool()
         self.assertEqual(tool.name_id("GSCN_RunTimeProtocolRes"), 0x6E9D)
         self.assertEqual(0x6E9D, 28317)
         self.assertEqual(tool.name_id("GSCN_RunTimeProtocolReq"), 0x6E6F)
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_the_three_round83_targets_have_the_entry_counts_claimed(self):
         tool = load_tool()
         self.assertEqual(tool.entry_points(0x4437C0),
@@ -182,6 +202,7 @@ class TestTheAnswer(unittest.TestCase):
                          {"direct_calls": [], "tail_jumps": [],
                           "pointer_slots": [0xF0F054]})
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_the_actor_entry_dispatcher_has_exactly_one_caller(self):
         tool = load_tool()
         self.assertEqual(tool.entry_points(0x446F30),
@@ -191,6 +212,7 @@ class TestTheAnswer(unittest.TestCase):
         self.assertTrue(0x5E4060 <= 0x5E4085 < 0x5E41CD)
         self.assertEqual(tool.dw(0xF2FFC0 + 0x1C), 0x5E4060)
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_updateattrvital_cannot_reach_the_death_chain(self):
         tool = load_tool()
         self.assertEqual(tool.vt20_dispatch_sites(0x5F2400, 0x5F261A), [])
@@ -198,6 +220,7 @@ class TestTheAnswer(unittest.TestCase):
             self.assertFalse(
                 any(0x5F2400 <= c < 0x5F261A for c in tool.calls_to(target)))
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_the_two_predicates_have_opposite_timer_polarity(self):
         tool = load_tool()
         # +0x40 uses `movss xmm0,[attr+0x58] ; comiss xmm0,[0xF0989C]`
@@ -208,6 +231,7 @@ class TestTheAnswer(unittest.TestCase):
                       tool.span(0x43BD70, 0x43BD9E))
         self.assertEqual(struct.unpack("<f", tool.rd(0xF0989C, 4))[0], 0.0)
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_a_first_sight_actor_takes_the_spawn_path_and_cannot_dead_sync(self):
         tool = load_tool()
         # the spawn apply goes through vtable +0x10 ...
@@ -216,12 +240,14 @@ class TestTheAnswer(unittest.TestCase):
         # ... and 0x4437C0 still has exactly one caller, which is not it
         self.assertEqual(tool.calls_to(0x4437C0), [0x444705])
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_the_actor_type_gate_is_2_through_6(self):
         tool = load_tool()
         self.assertIn(bytes.fromhex("0fb6401083c0fe"), tool.span(0x4469C0, 0x4469E0))
         self.assertEqual([tool.dw(0x446B2C + i * 4) for i in range(5)],
                          [0x4469E1, 0x4469F7, 0x446A3D, 0x446A5A, 0x446A77])
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_the_server_gap_was_three_specific_zeros_and_round_86_closed_them(self):
         """Round 85 wrote three zeros here and called them the server-side gap.
 
@@ -317,6 +343,9 @@ class TestTheAnswer(unittest.TestCase):
                         "the erratum must come after the claim it corrects")
 
 
+# Every trap mutates an in-memory copy of the client image, so none of them
+# can run without the real bytes.  See tests/pf_preconditions.py.
+@CLIENT_IMAGE.skip_unless_present()
 class TestTraps(unittest.TestCase):
     """A verifier that cannot be made to fail is not a verifier."""
 

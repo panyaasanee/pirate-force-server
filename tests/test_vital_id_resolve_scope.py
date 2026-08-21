@@ -66,6 +66,10 @@ from tools.pf_vital_names import (  # noqa: E402  (path juggling above)
     parse_v141_names,
 )
 
+# The skip reason must carry the [precondition:...] token - see tests/pf_preconditions.py.
+sys.path.insert(0, str(ROOT / "tests"))
+from pf_preconditions import CLIENT_IMAGE  # noqa: E402
+
 TOOL_SRC = TOOL.read_text(encoding="utf-8")
 
 #: module-level constants this file lifts out of the tool and pins
@@ -240,8 +244,7 @@ def _why_skipped():
                 "thunks and cannot run without it. The pure-stdlib scope tests in "
                 "this file still ran.")
     if not CLIENT.is_file():
-        return (f"the read-only client image {CLIENT} is not present (it lives "
-                "outside the repo and is never committed). The pure-stdlib scope "
+        return (CLIENT_IMAGE.reason + ". The pure-stdlib scope "
                 "tests in this file still ran.")
     return None
 

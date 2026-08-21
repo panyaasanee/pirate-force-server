@@ -5,6 +5,10 @@ import capstone, pefile
 ROOT=Path(__file__).resolve().parents[1]
 S=importlib.util.spec_from_file_location("pf_skill_trigger_probe",ROOT/"tools/pf_skill_trigger_probe.py");P=importlib.util.module_from_spec(S);S.loader.exec_module(P)
 
+# Two tests below read the proprietary client binaries in ../GameClient,
+# which are never committed.  See tests/pf_preconditions.py.
+from pf_preconditions import CLIENT_IMAGE
+
 class SkillTriggerProbeTests(unittest.TestCase):
     def config(self,name="pf_skill_trigger_probe_config.json"):return P.load_config(ROOT/"tools"/name)
     def event(self,kind,seq,**kw):
@@ -13,6 +17,10 @@ class SkillTriggerProbeTests(unittest.TestCase):
         shape={"codec_enter":{**common,"direction":"read"},"codec_complete":{**common,"direction":"read"},"consumer_enter":common,"consumer_submission":{**common,"submitted_object":"0x3000","submission_caller":"0xec1885"},"consumer_complete":{**common,"result_bool":1}}[kind]
         return {"schema":1,"event":kind,"timestamp":"t",**shape,**kw}
     def test_profiles_guards_boundaries_and_relocations(self):
+        # Reads both proprietary binaries under ../GameClient; the local image
+        # lives inside that tree, so client_image is the stricter single key.
+        # See tests/pf_preconditions.py.
+        CLIENT_IMAGE.require(self)
         a=self.config();b=self.config("pf_skill_trigger_probe_local_config.json");self.assertEqual(a["hooks"],b["hooks"])
         P.guard_binary(ROOT.parent/"GameClient/GameClient.bin",a);P.guard_binary(ROOT.parent/"GameClient/GameClient.local.bin",b)
         with self.assertRaises(ValueError):P.guard_binary(ROOT.parent/"GameClient/GameClient.local.bin",a)
@@ -56,6 +64,9 @@ class SkillTriggerProbeTests(unittest.TestCase):
         for s in ("Memory.write","writeU","writeS","writePointer","NativeFunction","Interceptor.replace","sendInput"):self.assertNotIn(s,src)
         launcher=Path(P.__file__).read_text();self.assertIn("_consumer.finalize_capture(state,script,session)",launcher);self.assertNotIn("session.detach()",launcher)
     def test_output_confined_and_aliases(self):
+        # validate_output_path resolves the proprietary client image strictly,
+        # and a clone cannot carry it.  See tests/pf_preconditions.py.
+        CLIENT_IMAGE.require(self)
         client=ROOT.parent/"GameClient/GameClient.local.bin";cfg=ROOT/"tools/pf_skill_trigger_probe_local_config.json";safe=P.DEFAULT_CAPTURE_ROOT/"x.jsonl"
         self.assertEqual(P.validate_output_path(safe,client,cfg),safe.resolve())
         with self.assertRaises(ValueError):P.validate_output_path(ROOT/"x.jsonl",client,cfg)

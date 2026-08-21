@@ -37,6 +37,10 @@ from pathlib import Path
 import capstone
 import pefile
 
+# The proprietary client image cannot be in a fresh clone; every test that
+# reads it is guarded below.  See tests/pf_preconditions.py.
+from pf_preconditions import CLIENT_IMAGE
+
 ROOT = Path(__file__).resolve().parents[1]
 BINARY = ROOT.parent / "GameClient" / "GameClient.local.bin"
 BINARY_SHA = "9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623"
@@ -119,17 +123,23 @@ def _decode_targetpos(nested: bytes):
 class MoveAuthorityTargetPosStaticTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.pe = pefile.PE(str(BINARY), fast_load=True)
+        # Only parse the PE when the client image exists; the capture-replay
+        # and server tests below must still run without it.  See
+        # tests/pf_preconditions.py.
+        cls.pe = pefile.PE(str(BINARY), fast_load=True) if CLIENT_IMAGE.present else None
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_binary_hash_is_the_pinned_client(self):
         self.assertEqual(hashlib.sha256(BINARY.read_bytes()).hexdigest().upper(), BINARY_SHA)
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_spans_are_byte_identical(self):
         for label, (start, end, expected) in SPANS.items():
             data = _read_va(self.pe, start, end)
             self.assertEqual(len(data), end - start, label)
             self.assertEqual(hashlib.sha256(data).hexdigest().upper(), expected, label)
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_identity_name_and_single_registration(self):
         self.assertEqual(_read_va(self.pe, NAME_VA, NAME_VA + 15), b"TargetPosVital\x00")
         # registration pushes the name string and stores the id into the id-slot
@@ -138,6 +148,7 @@ class MoveAuthorityTargetPosStaticTests(unittest.TestCase):
             "681808f300e8f6dccaff8bc8e86fd9caff66a3e01f0801c3",
         )
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_class_id_is_runtime_assigned(self):
         # 0x2A90 never appears as a code immediate (rel32 tails excluded)
         self.assertEqual(_dword_immediate_hits(self.pe, CLASS_ID), [])
@@ -150,12 +161,14 @@ class MoveAuthorityTargetPosStaticTests(unittest.TestCase):
         self.assertEqual(sites, [GETID])
         self.assertEqual(_read_va(self.pe, GETID, GETID + 7).hex(), "66a1e01f0801c3")
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_vtable_slots(self):
         slots = [struct.unpack("<I", _read_va(self.pe, VTABLE + k * 4, VTABLE + k * 4 + 4))[0] for k in range(8)]
         self.assertEqual(slots[2], 0x401B20)   # shared VitalData const cohort
         self.assertEqual(slots[4], GETID)      # +0x10 get-id
         self.assertEqual(slots[6], SERIALIZER)  # +0x18 serializer
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_ctor_field_layout(self):
         ctor = _instructions(self.pe, CTOR, CTOR + 0x3D)
         self.assertEqual(_read_va(self.pe, 0x5E506C, 0x5E5072), bytes.fromhex("c7003002f300"))  # store vtable
@@ -166,6 +179,7 @@ class MoveAuthorityTargetPosStaticTests(unittest.TestCase):
         self.assertEqual(ctor[0x5E5086], ("mov", "byte ptr [eax + 0x24], cl"))       # moving
         self.assertEqual(ctor[0x5E5089], ("mov", "byte ptr [eax + 0x25], cl"))       # mask
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_wire_schema_is_four_f32_then_two_u8(self):
         # field serializer signature: stdcall(tag, ptr, width) ret 0xC
         self.assertEqual(_read_va(self.pe, 0x89A63D, 0x89A640), bytes([0xC2, 0x0C, 0x00]))
@@ -186,6 +200,7 @@ class MoveAuthorityTargetPosStaticTests(unittest.TestCase):
         self.assertEqual(v3[0x5F34A8], ("lea", "eax, [esi + 4]"))
         self.assertEqual(v3[0x5F34B7], ("add", "esi, 8"))
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_producer_is_factory_constructed(self):
         # object is allocated (0x28 bytes) then constructed at exactly two sites;
         # get-id/serializer are vtable-dispatched (no direct E8 callers).
