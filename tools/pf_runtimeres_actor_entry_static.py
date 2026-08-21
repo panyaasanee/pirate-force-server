@@ -762,14 +762,33 @@ SRC_MODULES_WITH_DEATH_TIMER_BIT = sum(
 # which is the fact GAP 1 was pinned to; the FORBID measure names the new
 # lane so a reader sees the second actor-entry builder is not a second death
 # emitter.
+#
+# Round 111 correction, HYP-PF-029 / NPC-HP-LINK-001.  The round-96 test above
+# was written as `"FORBIDDEN" not in t`, a substring search over the WHOLE
+# module, which is not a question about bit 0x0080 at all.  The round-111 lane
+# exposed that: npc_hp_link_hypothesis.py names the bit as
+# BASIC_BIT_DEATH_TIMER and genuinely SETS it (`basic_mask |=
+# BASIC_BIT_DEATH_TIMER` inside its own _compose_npc_attr, emitted as the
+# tag-0x2A f32 on its seventh step), and it composes its own NPCAttr body
+# rather than delegating to the death lane -- yet it also happens to carry
+# FLAGS_FORBIDDEN_MASK = 0xF184, an unrelated NPCAttr *flags* validity mask,
+# so the crude substring filed a real timer emitter under FORBID.  That
+# classification was a measurement artefact, not a fact about the code, and it
+# is the expensive kind: it held the SET census at 1 and green while the
+# sentence "exactly ONE module SETS the bit" had already stopped being true --
+# the same failure GAP 2 records two comments below.  The discriminator is now
+# tied to the bit itself: a module FORBIDS 0x0080 only if it binds that value
+# to a constant whose own name says FORBIDDEN.
+DEATH_TIMER_FORBIDDEN_CONST = re.compile(
+    r"(?m)^[A-Z0-9_]*FORBIDDEN[A-Z0-9_]*\s*=\s*0x0080\b")
 SRC_MODULES_SETTING_DEATH_TIMER = sum(
     1 for t in _src.values()
     if _count(r"make_remote_actor_entry\(", t) and _count(r"0x0080", t)
-    and "FORBIDDEN" not in t)
+    and not DEATH_TIMER_FORBIDDEN_CONST.search(t))
 SRC_MODULES_FORBIDDING_DEATH_TIMER = sum(
     1 for t in _src.values()
     if _count(r"make_remote_actor_entry\(", t) and _count(r"0x0080", t)
-    and "FORBIDDEN" in t)
+    and DEATH_TIMER_FORBIDDEN_CONST.search(t))
 # The name "both" is kept for the COUNTS key and the report pin, and it now
 # means "builds an entry AND SETS 0x0080", which is what GAP 1 always meant.
 SRC_MODULES_WITH_BOTH = SRC_MODULES_SETTING_DEATH_TIMER
@@ -790,11 +809,11 @@ SRC_MODULES_WITH_DEATH_TIMER_BIT_NAMES = tuple(sorted(
 SRC_MODULES_WITH_BOTH_NAMES = tuple(sorted(
     f for f, t in _src.items()
     if _count(r"make_remote_actor_entry\(", t) and _count(r"0x0080", t)
-    and "FORBIDDEN" not in t))
+    and not DEATH_TIMER_FORBIDDEN_CONST.search(t)))
 SRC_MODULES_FORBIDDING_DEATH_TIMER_NAMES = tuple(sorted(
     f for f, t in _src.items()
     if _count(r"make_remote_actor_entry\(", t) and _count(r"0x0080", t)
-    and "FORBIDDEN" in t))
+    and DEATH_TIMER_FORBIDDEN_CONST.search(t)))
 
 # GAP 2's guard was green and its sentence was false, which is worse than red.
 # Round 85 asserted "no call site anywhere passes current_hp = 0" by grepping
@@ -829,19 +848,29 @@ guard("make_remote_actor_entry" in _v141,
 # the BasicAttr mask to equal 0x070C exactly, which forbids every other bit
 # structurally rather than by name.  Both timer censuses therefore stay
 # where round 97 pinned them, and that is correct, not an omission.
-guard(SRC_ACTOR_ENTRY_SITES == 7,
-      "src/ builds actor entries at exactly 7 call sites (4 spawns + the "
+# Round 111 re-pin, 7 -> 8.  NPC-HP-LINK-001 (HYP-PF-029) added the eighth
+# call site: npc_hp_link_hypothesis.py walks the frozen Port Royal NPC 0x2001
+# down a server-held ladder, 100, 100, 37, 37, 37, 37, 0, 0, across eight
+# frames that alternate two carriers.  It is the first lane in this tree that
+# moves a TARGET's hit points rather than the local player's, and it exists
+# because the attended test on 2026-08-20 delivered 505 points of damage as
+# CHitResult frames and moved the target's HP bar by exactly zero: the client
+# renders what it is told and does not subtract, so the server has to say both
+# halves itself.  Unlike the round-99 hostile spawn this lane DOES name and
+# SET the death-timer bit -- see the SET census below, which moves with it.
+guard(SRC_ACTOR_ENTRY_SITES == 8,
+      "src/ builds actor entries at exactly 8 call sites (4 spawns + the "
       "round-86 death re-send + the round-96 remote-player probe + the "
-      "round-99 hostile spawn)")
-guard(SRC_ACTOR_STREAM_SITES == 7,
-      "src/ sends the actor-entry carrier at exactly 7 call sites")
-guard(SRC_MODULES_WITH_ACTOR_ENTRY == 6
+      "round-99 hostile spawn + the round-111 NPC HP ladder)")
+guard(SRC_ACTOR_STREAM_SITES == 8,
+      "src/ sends the actor-entry carrier at exactly 8 call sites")
+guard(SRC_MODULES_WITH_ACTOR_ENTRY == 7
       and SRC_MODULES_WITH_ACTOR_ENTRY_NAMES == (
-          "npc_hostile_hypothesis.py", "population.py",
-          "remote_player_hypothesis.py",
+          "npc_hostile_hypothesis.py", "npc_hp_link_hypothesis.py",
+          "population.py", "remote_player_hypothesis.py",
           "runtimeres_death_hypothesis.py", "scenario.py",
           "scene_object.py"),
-      "6 named src/ modules build actor entries %s"
+      "7 named src/ modules build actor entries %s"
       % (SRC_MODULES_WITH_ACTOR_ENTRY_NAMES,))
 # Round 97 re-pin, 4 -> 5.  DAMAGE-HP-LINK-001 added the fifth mention:
 # damage_hp_link_hypothesis.py names bit 0x0080 because its two lethal frames
@@ -850,27 +879,59 @@ guard(SRC_MODULES_WITH_ACTOR_ENTRY == 6
 # composer's output, gated behind the lane's own pinned lethal steps.  It
 # does NOT build actor entries, so the SET/FORBID censuses below are
 # untouched: this lane rides the VitalData carrier only.
-guard(SRC_MODULES_WITH_DEATH_TIMER_BIT == 5
+# Round 111 re-pin, 5 -> 6.  NPC-HP-LINK-001 (HYP-PF-029) added the sixth
+# mention: npc_hp_link_hypothesis.py declares BASIC_BIT_DEATH_TIMER = 0x0080
+# and carries the 20.0f timer on the two lethal steps at the foot of its
+# ladder, because a target the client is to read as dead needs the same field
+# the HYP-PF-022 composer emits.  Unlike damage_hp_link_hypothesis.py this
+# lane ALSO builds actor entries, so the SET census below moves with it -- it
+# is the first module since round 86 to do both.
+guard(SRC_MODULES_WITH_DEATH_TIMER_BIT == 6
       and SRC_MODULES_WITH_DEATH_TIMER_BIT_NAMES == (
           "damage_hp_link_hypothesis.py",
+          "npc_hp_link_hypothesis.py",
           "remote_player_hypothesis.py", "runtime.py",
           "runtimeres_death_hypothesis.py",
           "stats_progression_hypothesis.py"),
-      "5 named src/ modules mention BasicAttr bit 0x0080 %s"
+      "6 named src/ modules mention BasicAttr bit 0x0080 %s"
       % (SRC_MODULES_WITH_DEATH_TIMER_BIT_NAMES,))
-guard(SRC_MODULES_WITH_BOTH == 1
-      and SRC_MODULES_WITH_BOTH_NAMES == ("runtimeres_death_hypothesis.py",),
-      "GAP 1 CLOSED in round 86: exactly ONE src/ module both builds an actor "
-      "entry AND SETS bit 0x0080, and it is runtimeres_death_hypothesis.py "
-      "(round 85 counted zero and named this as the missing emitter; round 96 "
-      "made SET precise so a module that only FORBIDS the bit does not count)")
+# Round 111 re-pin, 1 -> 2, and the sentence changes shape rather than just
+# its number.  Round 86 could say "exactly ONE module SETS the bit" because
+# there was exactly one; that is no longer the fact, and a count of 2 under a
+# sentence that still said ONE would be a guard that had quietly stopped
+# meaning anything.  What GAP 1 was actually pinned to is that the death lane
+# is STILL a timer emitter, and that every module which sets the bit is named
+# here, so a future lane cannot start emitting a death timer without turning
+# this line red.  Both members are therefore named:
+# runtimeres_death_hypothesis.py, the round-86 emitter GAP 1 was opened for,
+# and npc_hp_link_hypothesis.py, the round-111 target-HP lane, which sets the
+# bit in its own composer and does not delegate to the death lane's.
+guard(SRC_MODULES_WITH_BOTH == 2
+      and SRC_MODULES_WITH_BOTH_NAMES == (
+          "npc_hp_link_hypothesis.py",
+          "runtimeres_death_hypothesis.py"),
+      "GAP 1 CLOSED in round 86 and still closed: the src/ modules that both "
+      "build an actor entry AND SET bit 0x0080 are exactly these two, the "
+      "round-86 death emitter and the round-111 NPC HP ladder %s (round 85 "
+      "counted zero and named the death lane as the missing emitter; round 96 "
+      "made SET precise so a module that only FORBIDS the bit does not count; "
+      "round 111 made FORBID precise, see DEATH_TIMER_FORBIDDEN_CONST, and "
+      "re-pinned this census upward rather than leaving it green at 1)"
+      % (SRC_MODULES_WITH_BOTH_NAMES,))
+# Round 111: this count does NOT move, and the reason it does not move is the
+# whole point of the correction above.  With the round-96 whole-file substring
+# the round-111 lane landed here, which would have read as "a second module
+# names the bit only to refuse it" about a module whose seventh step carries a
+# 20.0f death timer -- false, and false in the direction that hides a timer
+# emitter.  With the discriminator tied to the bit, the FORBID census is again
+# exactly the one module that binds 0x0080 to a FORBIDDEN-named constant.
 guard(SRC_MODULES_FORBIDDING_DEATH_TIMER == 1
       and SRC_MODULES_FORBIDDING_DEATH_TIMER_NAMES == (
           "remote_player_hypothesis.py",),
-      "round 96: exactly ONE src/ module builds an actor entry AND names bit "
-      "0x0080 ONLY to forbid it, and it is remote_player_hypothesis.py -- the "
-      "second actor-entry builder is the HYP-PF-025 visibility lane, NOT a "
-      "second death emitter %s"
+      "round 96, re-derived in round 111: exactly ONE src/ module builds an "
+      "actor entry AND names bit 0x0080 ONLY to forbid it, and it is "
+      "remote_player_hypothesis.py -- that actor-entry builder is the "
+      "HYP-PF-025 visibility lane, NOT a death emitter %s"
       % (SRC_MODULES_FORBIDDING_DEATH_TIMER_NAMES,))
 guard(SRC_ZERO_HP_SITES == 0 and V141_ZERO_HP_SITES == 0
       and SRC_ZERO_HP_CONST_MODULES == ("runtimeres_death_hypothesis.py",),
@@ -901,8 +962,17 @@ guard(SRC_ZERO_HP_SITES == 0 and V141_ZERO_HP_SITES == 0
 # moves (this lane builds no actor entry and touches no derived +0x1C
 # collection), which is the guard that this re-pin does not quietly widen the
 # actor-entry census.
-guard(SRC_VITAL_STREAM_SITES == 16,
-      "src/ sends the VitalData carrier (make_runtime_vitals) at 16 call sites")
+# Round 111 re-pin, 16 -> 17.  NPC-HP-LINK-001 (HYP-PF-029) added the
+# seventeenth call site: npc_hp_link_hypothesis.py holds ONE make_runtime_vitals
+# site beside its ONE make_remote_actor_entry site, because the eight frames of
+# its ladder alternate the two carriers against the same frozen NPC 0x2001 --
+# the UpdateAttrVital half says the number, the actor-entry half re-states the
+# whole body.  This is the first re-pin in this block where the actor-entry
+# counts above move in the SAME commit, and they do, deliberately: unlike the
+# round-90, round-97 and round-101 lanes this one is not a vital-collection
+# carrier only.
+guard(SRC_VITAL_STREAM_SITES == 17,
+      "src/ sends the VitalData carrier (make_runtime_vitals) at 17 call sites")
 guard(_count(r"make_runtime_remote_actors\(",
              _src.get("stats_progression_hypothesis.py", "")) == 0
       and _count(r"make_runtime_vitals\(",
@@ -916,11 +986,21 @@ guard(_count(r"make_runtime_remote_actors\(",
 # whether these frames produce a visible death is a runtime question that only
 # GT-022 can answer, and it is still unanswered.  Do not read 0 as "done".
 ACTIONABLE_GAPS = 0
+# Round 111.  This guard used to read SRC_MODULES_WITH_BOTH == 1, which fused
+# two different claims into one number: that the round-86 emitter closed the
+# gaps, and that nobody else had since become a timer emitter.  The first is
+# what the sentence promises; the second was an accident of there being only
+# one.  NPC-HP-LINK-001 made them come apart, so they are now asserted apart --
+# the death lane must still be present (the gaps stay closed), and the full
+# SET membership is pinned above by name, where a new emitter is legible.
+# Relaxing this to ">= 1" would have swallowed the new lane silently; it is
+# instead the exact-tuple guard above that carries the census.
 guard(ACTIONABLE_GAPS == 0
-      and SRC_MODULES_WITH_BOTH == 1
+      and "runtimeres_death_hypothesis.py" in SRC_MODULES_WITH_BOTH_NAMES
       and bool(SRC_ZERO_HP_CONST_MODULES),
-      "all THREE round-85 emitter gaps are closed by one module -- this is a "
-      "statement about our source, NOT about anything observed on a screen")
+      "all THREE round-85 emitter gaps are closed by runtimeres_death_"
+      "hypothesis.py and stay closed -- this is a statement about our source, "
+      "NOT about anything observed on a screen")
 
 # ------------------------------------------------------------------- results
 COUNTS = {
@@ -961,6 +1041,8 @@ COUNTS = {
     # Round 99: the names are surfaced beside the count so the standing test
     # can pin WHICH modules build entries, not just how many -- the round-99
     # hostile lane (npc_hostile_hypothesis.py) is the seventh call site.
+    # Round 111: the eighth is the NPC HP ladder (npc_hp_link_hypothesis.py),
+    # HYP-PF-029 / NPC-HP-LINK-001, the first lane here to move a target's HP.
     "src_modules_building_actor_entries_names":
         list(SRC_MODULES_WITH_ACTOR_ENTRY_NAMES),
     "src_modules_mentioning_basicattr_bit_0x0080": SRC_MODULES_WITH_DEATH_TIMER_BIT,

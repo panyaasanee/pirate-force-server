@@ -231,18 +231,36 @@ class TestTheAnswer(unittest.TestCase):
         us something.  See ERRATUM 1 in the report.
         """
         counts = load_tool().COUNTS
-        # gap 1 and gap 3: exactly one module now does both, and it is named,
-        # so adding a second emitter is a red line that says whose file it is
-        # rather than an arithmetic disagreement about a bare count.
-        self.assertEqual(counts["src_modules_doing_both"], 1)
+        # gap 1 and gap 3: the modules that do both are named, so a new
+        # emitter is a red line that says whose file it is rather than an
+        # arithmetic disagreement about a bare count.
+        # Round 111, HYP-PF-029 / NPC-HP-LINK-001, 1 -> 2.  This is the red
+        # line doing its job: npc_hp_link_hypothesis.py is the second module
+        # to both build an actor entry and SET bit 0x0080.  It is the first
+        # lane in this tree that moves a TARGET's hit points, walking the
+        # frozen NPC 0x2001 down 100, 100, 37, 37, 37, 37, 0, 0, and it exists
+        # because an attended test on 2026-08-20 delivered 505 points of
+        # damage as CHitResult frames and moved the target's HP bar by exactly
+        # zero -- the client renders, it does not subtract, so the server has
+        # to say both halves itself.  The count is re-pinned upward WITH both
+        # names, never widened.
+        self.assertEqual(counts["src_modules_doing_both"], 2)
         self.assertEqual(counts["src_modules_doing_both_names"],
-                         ["runtimeres_death_hypothesis.py"])
+                         ["npc_hp_link_hypothesis.py",
+                          "runtimeres_death_hypothesis.py"])
         # Round 96: a second module (remote_player_hypothesis.py) now builds
         # actor entries and MENTIONS bit 0x0080, but only to FORBID it, so the
-        # SET census above must still be exactly the death lane while the new
         # forbid census names the visibility probe.  This is the guard that
         # would catch a future actor_type 2 lane quietly emitting the death
         # timer.
+        # Round 111: this count does NOT move, and that took a repair.  The
+        # round-96 discriminator asked whether the whole module text contained
+        # the substring "FORBIDDEN", and npc_hp_link_hypothesis.py carries an
+        # unrelated FLAGS_FORBIDDEN_MASK = 0xF184, so a lane that genuinely
+        # sets the death timer was filed under FORBID -- a measurement
+        # artefact that held the SET census green at 1 while its sentence had
+        # already stopped being true.  The tool now tests the bit itself
+        # (DEATH_TIMER_FORBIDDEN_CONST), so FORBID means what it says.
         self.assertEqual(counts["src_modules_forbidding_basicattr_bit_0x0080"],
                          1)
         self.assertEqual(counts["src_modules_forbidding_names"],
@@ -257,11 +275,20 @@ class TestTheAnswer(unittest.TestCase):
         # SET and FORBID censuses above are BOTH unmoved -- exactly the guard
         # that proves the third actor-entry builder is not a third timer
         # emitter.
-        self.assertEqual(counts["src_actor_stream_call_sites"], 7)
-        self.assertEqual(counts["src_actor_entry_call_sites"], 7)
-        self.assertEqual(counts["src_modules_building_actor_entries"], 6)
+        # Round 111: they move 7 -> 8 for NPC-HP-LINK-001 (HYP-PF-029), the
+        # fourth actor-entry builder outside the spawn path.  Unlike the
+        # round-99 hostile lane this one DOES name and SET the death-timer
+        # bit, so the SET census above moves in the same commit -- which is
+        # why both are asserted here and neither was widened.
+        self.assertEqual(counts["src_actor_stream_call_sites"], 8)
+        self.assertEqual(counts["src_actor_entry_call_sites"], 8)
+        self.assertEqual(counts["src_modules_building_actor_entries"], 7)
         self.assertIn(
             "npc_hostile_hypothesis.py",
+            counts["src_modules_building_actor_entries_names"],
+        )
+        self.assertIn(
+            "npc_hp_link_hypothesis.py",
             counts["src_modules_building_actor_entries_names"],
         )
         # gap 2 is the one worth keeping a test on.  The round-85 measure -
