@@ -19,6 +19,26 @@
     "client/corpus modules excluded: 4 skips).  Neither number is hand-typed for a",
     "machine; both fall out of the same rule.",
     "",
+    "ONE ARTIFACT IS NOT A FILE (round 118, 2026-08-21).  original_schema_history and",
+    "audit_head_history are commits, not paths: the evidence is INSIDE git, and what a",
+    "machine can lack is the DEPTH of the clone that holds it.  A cloud round clones",
+    "shallow, so tests that read a historical blob died with a raw CalledProcessError",
+    "and read as a red main on a tree nobody had touched.  Both machines that decide",
+    "anything hold the whole history - the gate checks out with fetch-depth: 0 - so",
+    "these two keys are present there and expect ZERO skips, exactly like a bridge",
+    "artifact that is present.  Same rule, different kind of artifact.",
+    "",
+    "AND ONE WARNING THAT COST A REWRITE.  A path either exists or it does not, but",
+    "git can fail to answer for reasons that have nothing to do with the clone: no",
+    "git on the machine, not a work tree, a corrupt object store, a wrong SHA.  The",
+    "first draft called every one of those 'absent', which meant the guarded tests",
+    "skipped and THIS census - asking the same object the same broken question -",
+    "agreed and printed PASS.  Deleting .git made the whole suite green.  So those",
+    "two keys are classified rather than tested: only a repository that says it is",
+    "SHALLOW, or a partial clone that cannot produce the object, may skip; anything",
+    "else FAILS the test with the measured reason.  A skip here is a statement about",
+    "the clone, never about the machine.",
+    "",
     "TO CHANGE A NUMBER HERE you must change it in the same commit as the test that",
     "moved it, exactly as COVERAGE_EVIDENCE_DEBT_PIN says about itself.  Round 105",
     "spent a whole round on two pins that were measured before a fix and published",
@@ -52,6 +72,26 @@
         "ExactCountTests::test_the_login_capture_guard_reproduces_where_the_capture_exists"
       ],
       "note": "test_the_login_capture_guard_states_which_machine_it_is_on asserts on BOTH machines - 'reproduced' where the capture exists, exactly 'skipped (untracked capture absent)' where it does not - so nothing goes silent here."
+    },
+    {
+      "key": "original_schema_history",
+      "module": "tests/test_foundation.py",
+      "count": 1,
+      "tests": [
+        "FoundationTests::test_upgrade_from_original_foundation_schema"
+      ],
+      "note": "The first entry whose artifact is inside git rather than beside it: the test reads migrations/001_initial.sql out of commit 5c200e2, which a shallow clone does not carry.  Measured 2026-08-21 (round 118): a cloud clone failed it with a bare CalledProcessError, which reads as a red main on a tree nobody touched; the same commit was 1206 passed / 4 skipped after git fetch --unshallow.  The gate checks out with fetch-depth: 0 and the bridge holds the whole history, so on both machines that decide anything this expects ZERO skips and the assertions run at full strength.  The guard names the BLOB and not only the commit, because a partial clone has the commit and not the blob."
+    },
+    {
+      "key": "audit_head_history",
+      "module": "tests/test_multiplayer_readiness_audit.py",
+      "count": 3,
+      "tests": [
+        "VerifierRunsCleanTests::test_the_verifier_exits_zero_as_a_subprocess",
+        "VerifierRunsCleanTests::test_the_json_mode_is_valid_json_and_hides_private_keys",
+        "HistoricalSuiteSizeTests::test_the_pin_is_re_derived_from_the_commit_it_names"
+      ],
+      "note": "All three run tools/pf_multiplayer_readiness_audit.py, which re-derives its published suite size from commit 5cc0eda and fails its own historical pin when git cannot hand that commit over.  Separate key from original_schema_history because a clone can hold one commit and not the other: measured 2026-08-21, a clone of the cloud round's own shape held 5cc0eda and not 5c200e2, so one shared key would have skipped these three where they could run.  Do not read a fixed distance out of this note - where a given --depth grafts moves with every commit on main, and the day 5cc0eda falls outside a cloud clone these three skip for a measured reason instead of running, which is the design and not a surprise.  test_two_runs_produce_identical_output stays unguarded on purpose, but not because it is strong: it compares the tool's stdout across two runs and asserts nothing about the exit code, so it is equally green over a tool that fails identically twice.  It is unguarded because it is true everywhere, not because it is evidence."
     }
   ],
   "design_skips": [

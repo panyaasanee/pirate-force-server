@@ -48,7 +48,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 
-from pf_preconditions import LOGIN_REQ_CAPTURE  # noqa: E402
+from pf_preconditions import AUDIT_HEAD_HISTORY, LOGIN_REQ_CAPTURE  # noqa: E402
 TOOL = ROOT / "tools" / "pf_multiplayer_readiness_audit.py"
 REPORT = (
     ROOT / "reports"
@@ -92,6 +92,11 @@ class VerifierRunsCleanTests(unittest.TestCase):
     """The scan itself is the primary guard; everything else compares to it."""
 
     def test_the_verifier_exits_zero_as_a_subprocess(self):
+        # The tool re-derives a suite size from commit 5cc0eda and fails the
+        # historical pin when git cannot hand it over, which is the right
+        # answer for the tool and the wrong one for a test that never got to
+        # run.  Measured 2026-08-21 on a depth-1 clone.
+        AUDIT_HEAD_HISTORY.require(self)
         completed = subprocess.run(
             [sys.executable, str(TOOL)],
             cwd=str(ROOT), capture_output=True, text=True,
@@ -103,6 +108,8 @@ class VerifierRunsCleanTests(unittest.TestCase):
         self.assertIn("all multiplayer-readiness audit guards reproduced", completed.stdout)
 
     def test_the_json_mode_is_valid_json_and_hides_private_keys(self):
+        # Same reason as above: --json exits non-zero without the commit.
+        AUDIT_HEAD_HISTORY.require(self)
         completed = subprocess.run(
             [sys.executable, str(TOOL), "--json"],
             cwd=str(ROOT), capture_output=True, text=True,
@@ -275,6 +282,9 @@ class HistoricalSuiteSizeTests(unittest.TestCase):
 
     def test_the_pin_is_re_derived_from_the_commit_it_names(self):
         # The whole point: this is what makes "61 test files" falsifiable.
+        # It is also the one test here that cannot even be attempted without
+        # the commit itself, so it says so rather than failing.
+        AUDIT_HEAD_HISTORY.require(self)
         self.assertEqual(self.tool["historical_pin"],
                          "reproduced from " + self.module.HEAD_COMMIT)
         self.assertEqual(self.report["measured_at_head"],

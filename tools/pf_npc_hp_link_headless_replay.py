@@ -37,11 +37,21 @@ WHY THIS FILE DOES NOT DRIVE make_state_class
 ----------------------------------------------
 Its neighbours (``pf_damage_hp_link_headless_replay.py`` and friends) boot the
 real dispatcher because their lanes have a ``runtime.py`` dispatch branch.
-**HYP-PF-029 does not.**  NPC-HP-LINK-001 wires the ``app.py`` FLAG only; the
-runtime dispatch branch is deliberately a separate checkpoint, so there is no
-dispatcher to drive and this file does not pretend there is one.  The proof
-stops at the COMPOSER, and that limit is stated in the verdict rather than
-smoothed over.
+
+ERRATUM, round 118 (2026-08-21).  This paragraph used to say "HYP-PF-029 does
+not", and that stopped being true when NPC-HP-LINK-002 added the branch:
+``runtime.py`` now dispatches this lane (the branch keyed on
+``CHAT_INPUT_VITAL_ID`` that returns ``_dispatch_npc_hp_link_hypothesis``), and
+``tests/test_npc_hp_link_dispatch.py`` guards it.  The old sentence was left
+standing after that landed and would have told the next reader something false
+about the tree.
+
+WHAT IS STILL TRUE is the limit: this file proves the COMPOSER and stops there.
+The honest statement of why is that it has not been extended to drive the
+dispatcher - not that anyone decided it should not be.  The dispatcher does have
+its own tests (`tests/test_npc_hp_link_dispatch.py`), so nothing is unguarded;
+extending this file is available work, not a closed question.  The limit is
+stated in the verdict rather than smoothed over.
 
 NO DATABASE, NO SOCKET, AND BOTH ARE MEASURED
 ----------------------------------------------
