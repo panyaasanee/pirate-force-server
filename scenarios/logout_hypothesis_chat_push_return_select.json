@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "id": "logout_hypothesis_chat_push_return_select",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-031",
+  "entry": {
+    "flow": "full_writable_character",
+    "required_sequence": "selected_and_runtime_ready",
+    "response_policy": "chat_push_return_select",
+    "trigger": "one_accepted_ascii12_chat_input_frame_request_body_never_read",
+    "return_select_source": "client_serializer_0x5e69f0_field_layout_all_zero_no_client_producer_values_default_zero",
+    "logout_vital_policy": "no_reply_named_event_the_lane_stays_one_question",
+    "one_shot": true,
+    "post_ack_action": "none",
+    "close_delay_ms": 0,
+    "socket_action": "none"
+  },
+  "requests": {
+    "chat_trigger": {
+      "vital_id": 44114,
+      "payload_size": 34,
+      "classification": "ascii12"
+    }
+  },
+  "composed_responses": {
+    "chat_push_return_select": {
+      "vital_id": 28830,
+      "body_size": 16,
+      "pc_size": 38,
+      "pc_sha256": "A4C8DF4299EA7C3A5EE5554D1D29D7F8C1A2B51031CA210CBEB9AF2AD9D4CA9E",
+      "frame_size": 48,
+      "frame_sha256": "08C2A925BD67CD3D0AFA7992F98D472ED8FD22787756521A5DF8CBF174E5CB8E"
+    }
+  },
+  "persisted_post_state": {
+    "database_write": "none",
+    "position_rewrite": "none"
+  },
+  "capabilities": [
+    "push_the_pinned_return_select_server_vital_unsolicited_on_one_accepted_chat_input_trigger",
+    "compose_well_formed_return_select_server_vital_from_client_serializer_field_layout",
+    "refuse_a_second_trigger_on_the_same_session_by_name",
+    "refuse_a_logout_vital_under_this_scenario_by_name_with_no_reply"
+  ],
+  "nonclaims": [
+    "original_server_response_policy",
+    "original_server_ever_pushed_an_unsolicited_vital",
+    "return_select_server_field_values_and_string_semantics",
+    "client_consumes_0x709e_or_transitions_to_character_select",
+    "client_observable_exit_or_character_select_return",
+    "chat_request_body_semantics_the_trigger_is_never_read",
+    "logout_vital_acknowledgement_under_this_scenario",
+    "production_baseline_behavior"
+  ]
+}

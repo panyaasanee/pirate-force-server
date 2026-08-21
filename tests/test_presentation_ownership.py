@@ -59,9 +59,24 @@ UNKNOWN_CHAT_VITAL_PATTERN = r"(?i)AC52|44114"
 # hash at import time to keep this list at two entries and the scanner green --
 # that was deliberately NOT done, because it would leave the repository asserting
 # "one module touches 0xAC52" when two do.  The scanner is supposed to notice.
+#
+# The 2026-08-21 movement (HYP-PF-031, LOGOUT-CHAT-PUSH-001) is likewise
+# deliberate: logout_hypothesis.py now names 0xAC52 as its chat-push TRIGGER
+# id -- a pinned COPY, never an import (the HYP-PF-027 rule), bound to the
+# chat module's own constant by tests/test_logout_chat_push_hypothesis.py --
+# because the GT-033 attended trigger is blocked (the tester cannot click the
+# HOME menu item, so LogoutVital never arrives) and one accepted ascii12 chat
+# frame is the one client action the tester can fire on demand.  The module
+# still composes no chat byte and echoes nothing: the classifier reads the
+# trigger's nested payload only to accept the ascii12 predicate, no request
+# byte is copied into the response or any store, and the only frame the lane
+# pushes is the frozen HYP-PF-028 0x709E response.  The id could have been left out of the module by moving the pin
+# into runtime.py alone -- that was deliberately NOT done, for the round-76
+# reason: it would leave the repository asserting fewer owners than exist.
 CHAT_VITAL_ALLOWED_MODULES = [
     "channel_message_hypothesis.py",
     "chat_input_hypothesis.py",
+    "logout_hypothesis.py",
     "runtime.py",
 ]
 
