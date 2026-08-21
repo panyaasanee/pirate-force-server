@@ -2950,6 +2950,67 @@
      "active_claim_marker": false
     }
    ]
+  },
+  {
+   "id": "GEO-PF-006",
+   "kind": "test_geometry",
+   "introduced_checkpoint": "HOSTILE-NATIVE-001",
+   "exact_value_or_transform": "Place the read-only scene-load player at bg0001 P30 (actor 0x201F Tornado Eagle, row XYZ 1747.5244140625,-7837.69775390625,931.0413208007812) plus 100 X, same Y, same Z: (1847.5244140625,-7837.69775390625,931.0413208007812), heading pi facing -X toward the placement.",
+   "scope": "GT-034 HOSTILE-NATIVE-001 load-only observation scenario; no spawn, no splice, no write.",
+   "status": "harness_only",
+   "provenance": "Synthetic observation geometry derived from the frozen bg0001/Port Royal placement table row 30 by the same +100X trick the P0 observation point uses; heading from the v141 _heading_to_player convention (+X=0, -X=pi).",
+   "evidence_refs": [
+    "current/pf_login_game_server_v141.py",
+    "scenarios/port_royal_tornado_eagle_p30_load_only.json"
+   ],
+   "accepted_ceiling": "Attended observation placement only; the lane answers whether the client renders 0x201F hostile natively at scene-load.",
+   "evidence_gap": "No client-observable evidence for 0x201F exists anywhere; whether the client renders the placement, stands the player at the delivered position, or orients its camera from the heading float is unmeasured (the R119 -8553/-2579 client-position anomaly is open).",
+   "falsification": "The GT-034 attended run resolves the lane in either direction: native red, or no native hostility (which redirects Door A and is recorded as a result, not a failure).",
+   "stop_rule": "Never promote the +100X point or the pi heading as authentic world data; never enable outside the read-only load-only scenario; a negative GT-034 result redirects Door A, it does not loosen this geometry.",
+   "production_allowed": false,
+   "expiry": {
+    "tracked_versions": [
+     "V141"
+    ],
+    "decision": "Harness-only observation geometry pending the GT-034 attended verdict."
+   },
+   "max_versions": 3,
+   "extension_approval_ref": null,
+   "source_refs": [
+    {
+     "path": "scenarios/port_royal_tornado_eagle_p30_load_only.json",
+     "required_markers": [
+      "bg0001_p30_plus100x_samey_samez_observation_trick",
+      "v141_heading_to_player_convention_pi_facing_minus_x_toward_p30",
+      "\"x\": 1847.5244140625"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "src/pirateforce_foundation/scene_load.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: GEO-PF-006 harness_only",
+      "bg0001_p30_plus100x_samey_samez_observation_trick",
+      "1847.5244140625, -7837.69775390625, 931.0413208007812, math.pi"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "current/pf_login_game_server_v141.py",
+     "required_markers": [
+      "def _heading_to_player",
+      "(30, 31, 1747.5244140625, -7837.69775390625, 931.0413208007812, 'M011_000_000_SP3', 'Tornado Eagle')"
+     ],
+     "active_claim_marker": true,
+     "immutable": true,
+     "sha256": "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22",
+     "immutable_anchors": [
+      "def _heading_to_player",
+      "(30, 31, 1747.5244140625, -7837.69775390625, 931.0413208007812, 'M011_000_000_SP3', 'Tornado Eagle')"
+     ]
+    }
+   ],
+   "authentic": false
   }
  ]
 }

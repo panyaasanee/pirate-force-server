@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "port_royal_tornado_eagle_p30_load_only",
+  "test_only": true,
+  "entry": {
+    "flow": "full_existing_character",
+    "required_character_name": "Arena01",
+    "scene_id": 1,
+    "scene_seq": 0,
+    "position": {
+      "x": 1847.5244140625,
+      "y": -7837.69775390625,
+      "z": 931.0413208007812,
+      "heading": 3.141592653589793,
+      "coordinate_provenance": "bg0001_p30_plus100x_samey_samez_observation_trick",
+      "heading_provenance": "v141_heading_to_player_convention_pi_facing_minus_x_toward_p30"
+    }
+  },
+  "persistence": "read_only_existing_character",
+  "population": "none",
+  "capabilities": ["scene_load"],
+  "nonclaims": ["scene_seq_provenance", "scene_id_numeric_provenance", "heading_mapping", "camera_orientation", "native_render", "client_standing_position", "population", "interaction", "monster", "faction", "travel", "combat"]
+}

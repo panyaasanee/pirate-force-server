@@ -37,6 +37,7 @@ def load_scene_load_scenario(path: str | Path) -> SceneLoadScenario:
     # PF-HYPOTHESIS-LEDGER: DIAG-PF-001 frozen
     # PF-HYPOTHESIS-LEDGER: GEO-PF-002 frozen
     # PF-HYPOTHESIS-LEDGER: GEO-PF-003 frozen
+    # PF-HYPOTHESIS-LEDGER: GEO-PF-006 harness_only
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     if type(data) is not dict or set(data) not in ({
         "schema", "id", "test_only", "entry", "persistence", "population",
@@ -55,15 +56,20 @@ def load_scene_load_scenario(path: str | Path) -> SceneLoadScenario:
     if (
         type(data["schema"]) is not int
         or data["schema"] != 1
-        or data["id"] not in {"scene2_load_only_marker2", "scene2_fighting_fish_soldier_p60", "scene2_fighting_fish_soldier_p60_hp3857", "scene2_fighting_fish_soldier_p60_hp3857_player_faction1", "port_royal_fighting_fish_soldier_p60_hp3857_player_faction1_ea7d_ack"}
+        or data["id"] not in {"scene2_load_only_marker2", "scene2_fighting_fish_soldier_p60", "scene2_fighting_fish_soldier_p60_hp3857", "scene2_fighting_fish_soldier_p60_hp3857_player_faction1", "port_royal_fighting_fish_soldier_p60_hp3857_player_faction1_ea7d_ack", "port_royal_tornado_eagle_p30_load_only"}
         or data["test_only"] is not True
         or data["persistence"] != "read_only_existing_character"
         or data["population"] != "none"
-        or data["capabilities"] != (["scene_load"] if data["id"] == "scene2_load_only_marker2" else (["scene_load", "spawn", "target", "action_ack"] if data["id"].endswith("_ea7d_ack") else ["scene_load", "spawn", "target"]))
+        or data["capabilities"] != (["scene_load"] if data["id"] in {"scene2_load_only_marker2", "port_royal_tornado_eagle_p30_load_only"} else (["scene_load", "spawn", "target", "action_ack"] if data["id"].endswith("_ea7d_ack") else ["scene_load", "spawn", "target"]))
         or data["nonclaims"] != (
             ["scene_seq_provenance", "heading_mapping", "population",
              "authentic_player_faction", "attack", "travel", "combat"]
             if data["id"] in {"scene2_fighting_fish_soldier_p60_hp3857_player_faction1", "port_royal_fighting_fish_soldier_p60_hp3857_player_faction1_ea7d_ack"}
+            else ["scene_seq_provenance", "scene_id_numeric_provenance",
+                  "heading_mapping", "camera_orientation", "native_render",
+                  "client_standing_position", "population", "interaction",
+                  "monster", "faction", "travel", "combat"]
+            if data["id"] == "port_royal_tornado_eagle_p30_load_only"
             else ["scene_seq_provenance", "heading_mapping", "population", "interaction",
                   "monster", "faction", "travel", "combat"]
         )
@@ -80,19 +86,35 @@ def load_scene_load_scenario(path: str | Path) -> SceneLoadScenario:
     }:
         raise ValueError("scene-load position is incomplete or has unknown fields")
     values = (position["x"], position["y"], position["z"], position["heading"])
-    fish_profile = data["id"] != "scene2_load_only_marker2"
+    eagle = data["id"] == "port_royal_tornado_eagle_p30_load_only"
+    fish_profile = data["id"] not in {"scene2_load_only_marker2", "port_royal_tornado_eagle_p30_load_only"}
     scene007 = data["id"].endswith("_ea7d_ack")
-    expected_player = ((0, 0, 931, 0) if scene007 else
+    # GT-034 HOSTILE-NATIVE-001: the bg0001 P30 row 0x201F "Tornado Eagle"
+    # sits at (1747.5244140625, -7837.69775390625, 931.0413208007812).  The
+    # player is placed +100 X at the row's own Z -- the point V127/V128
+    # runtime-passing lanes stood a live client on -- with heading pi from
+    # the remote-NPC heading convention (v141 _heading_to_player, +X=0,
+    # -X=pi) so the delivered facing points at the placement.  This is the
+    # first nonzero local-player spawn heading in the lineage: whether the
+    # client applies it to the avatar or the camera is unmeasured (the V134
+    # camera workaround suggests the initial camera faces +X regardless),
+    # and native render / camera orientation / standing position are all
+    # declared nonclaims below.
+    expected_player = (
+        (1847.5244140625, -7837.69775390625, 931.0413208007812, math.pi) if eagle else
+        (0, 0, 931, 0) if scene007 else
         ((21321.0059, 9227.1123, 590.6788, 0) if fish_profile else (26905, 21185, 1680, 0)))
     expected_coordinate_provenance = (
+        "bg0001_p30_plus100x_samey_samez_observation_trick" if eagle else
         "v74_exact_port_royal_targetpos" if scene007 else
         ("synthetic_p60_minus100x_minus50y_samez" if fish_profile else "scene2_marker2")
     )
     expected_heading_provenance = (
+        "v141_heading_to_player_convention_pi_facing_minus_x_toward_p30" if eagle else
         "v74_exact_targetpos_zero" if scene007 else
         ("constructor_zero" if fish_profile else "direction8_unmapped_constructor_zero")
     )
-    expected_scene = 1 if scene007 else 2
+    expected_scene = 1 if (scene007 or eagle) else 2
     if (
         entry["flow"] != "full_existing_character"
         or entry["required_character_name"] != "Arena01"
