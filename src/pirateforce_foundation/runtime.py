@@ -60,6 +60,7 @@ from .delete_refresh_hypothesis import (
 )
 from .logout_hypothesis import (
     LOGOUT_POST_ACK_ACTION_CLOSE_SOCKET,
+    LOGOUT_RESPONSE_POLICY_CHAT_PUSH_RETURN_SELECT,
     LOGOUT_RESPONSE_POLICY_RETURN_SELECT_FIRST,
     LOGOUT_RESPONSE_POLICY_WORLDINFO_FIRST,
     LOGOUT_VITAL_ID,
@@ -497,6 +498,9 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.logout_ack_count = 0
                 self.logout_acknowledged = False
                 self.logout_close_scheduled = False
+                # HYP-PF-031 one-shot latch: the unsolicited return-select
+                # push may leave this session exactly once.
+                self.logout_chat_push_count = 0
                 self.worldinfo_last_payload = None
                 self.worldinfo_stored_count = 0
                 self.chat_input_echo_count = 0
@@ -1183,6 +1187,114 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             self.worldinfo_last_payload = parsed.nested_payload
             self.worldinfo_stored_count += 1
             self.events.append("logout_worldinfo_full_form_stored_no_reply")
+            return []
+
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-031 active
+        # LOGOUT-CHAT-PUSH-001.  Registered in docs/HYPOTHESIS_LEDGER.json;
+        # this annotation and that entry's source_refs bind each other both
+        # ways.
+        def _dispatch_logout_chat_push_hypothesis(self, parsed):
+            """Push the pinned ReturnSelectServerVital on one chat trigger.
+
+            THE BLOCKER THIS LANE EXISTS FOR.  GT-033 (attended) is stuck at
+            the trigger, not at the response: the tester cannot click the
+            client's HOME menu item, so the client never sends LogoutVital
+            0x1B40, and both existing logout response-policy shapes -- the
+            PF-013 ack+close and the PF-028 return-select-first -- REPLY to
+            that request and therefore can never fire in the attended
+            session.  What the tester CAN do reliably is type into chat
+            (Return focuses the chat box), and the chat-input trigger path
+            is already proven end to end by HYP-PF-027, which answers one
+            accepted ascii12 chat-input frame with a composed spawn frame.
+
+            THE QUESTION.  HYP-PF-028's frozen ReturnSelectServerVital
+            (0x709E) response has never been delivered to a client because
+            its request pairing never happens.  This lane decouples the two:
+            one accepted 34-byte ascii12 chat-input frame makes the server
+            push the byte-identical hash-pinned PF-028 response UNSOLICITED
+            -- no LogoutVital request, no ack, no close -- exactly once, so
+            an attended run can observe whether the response ALONE causes
+            the client screen transition.  A negative is valuable too: it
+            would say 0x709E does not transition the client even without
+            request pairing, strengthening the reading that the operative
+            lever is a connection teardown, not a response vital.
+
+            NOTHING NEW GOES ON THE WIRE.  The pushed bytes are composed by
+            the unchanged HYP-PF-028 composer, which refuses on any drift
+            from the pinned 38-byte PC / 48-byte frame sha256 before a byte
+            can be queued; a compose refusal here is a named no-reply event.
+            Nothing in the chat request is read (the request is a trigger,
+            not an input), no store call exists on this path, no session
+            lease is touched, and no socket action is taken.
+
+            ONE-SHOT: the value of an unsolicited push is that one frame
+            maps to one on-screen observation; a second push would turn a
+            legible A/B into noise.  A repeat trigger is refused with a
+            named event and no bytes.
+
+            The lane composes nothing at all when the scenario is absent,
+            and a LogoutVital under this scenario is deliberately NOT
+            answered (see the routing branch below): the session asks
+            exactly one question.
+            """
+            self.rx_frames += 1
+            classification = classify_chat_input_attempt(legacy, parsed)
+            if classification != "ascii12":
+                self.events.append(
+                    f"logout_chat_push_hypothesis_{classification}_no_reply"
+                )
+                return []
+            if self.foundation.selected is None:
+                self.events.append(
+                    "logout_chat_push_hypothesis_no_selected_no_reply"
+                )
+                return []
+            if not self.teleport_sent or not self.runtime_ack_sent:
+                self.events.append(
+                    "logout_chat_push_hypothesis_wrong_sequence_no_reply"
+                )
+                return []
+            if self.logout_chat_push_count:
+                self.events.append(
+                    "logout_chat_push_hypothesis_already_sent_no_reply"
+                )
+                return []
+            # The composer independently re-pins the 0x709E PC/frame sha256
+            # against the frozen HYP-PF-028 constants and raises on any
+            # drift, so no unpinned byte can reach the queue on this path.
+            try:
+                pc, frame = make_return_select_server_response(legacy)
+            except (ValueError, RuntimeError) as exc:
+                self.events.append(
+                    "logout_chat_push_hypothesis_compose_refused_no_reply_"
+                    f"{exc!r}"
+                )
+                return []
+            self.logout_chat_push_count += 1
+            self.events.append(
+                "logout_chat_push_hypothesis_return_select_pushed"
+            )
+            return [(
+                "HYP_PF_031_LOGOUT_CHAT_PUSH_RETURN_SELECT_SERVER_UNSOLICITED",
+                pc, frame, 0.0,
+            )]
+
+        def _dispatch_logout_chat_push_logout_no_reply(self, parsed):
+            """Deliberately leave a LogoutVital unanswered under HYP-PF-031.
+
+            The chat-push scenario asks ONE question -- does the unsolicited
+            0x709E response transition the client -- and answering a later
+            LogoutVital with any of the request-paired shapes (PF-012 ack,
+            PF-013 close, PF-016/PF-028 response-first) would contaminate
+            the attended evidence with a second stimulus.  So the frame is
+            counted and refused by name: no reply, no write, no close, and
+            the pre-existing logout profiles keep their own behavior only
+            under their own scenario files.
+            """
+            self.rx_frames += 1
+            self.events.append(
+                "logout_chat_push_hypothesis_logout_vital_no_reply"
+            )
             return []
 
         # PF-HYPOTHESIS-LEDGER: HYP-PF-014 active
@@ -2472,6 +2584,31 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.rx_frames += 1
                 self.events.append("logout_hypothesis_post_ack_frame_no_reply")
                 return []
+            if (
+                logout_hypothesis_scenario is not None
+                and logout_hypothesis_scenario.response_policy
+                == LOGOUT_RESPONSE_POLICY_CHAT_PUSH_RETURN_SELECT
+                and nested_id == LOGOUT_VITAL_ID
+            ):
+                # HYP-PF-031 only: the chat-push scenario deliberately does
+                # NOT answer LogoutVital -- the lane stays one-question --
+                # so the request-paired logout dispatch below must never see
+                # this frame under this policy.  Under the four request-
+                # paired logout profiles this branch is unreachable and
+                # 0x1B40 keeps its pinned dispatch, byte-identical.
+                return self._dispatch_logout_chat_push_logout_no_reply(parsed)
+            if (
+                logout_hypothesis_scenario is not None
+                and logout_hypothesis_scenario.response_policy
+                == LOGOUT_RESPONSE_POLICY_CHAT_PUSH_RETURN_SELECT
+                and nested_id == CHAT_INPUT_VITAL_ID
+            ):
+                # HYP-PF-031 only: the chat-input frame is this scenario's
+                # TRIGGER.  The logout scenario mode is mutually exclusive
+                # with every chat-keyed lane at construction (make_state_class
+                # refuses any pair outright and app.py refuses the flags
+                # together), so no other lane can see the same frame.
+                return self._dispatch_logout_chat_push_hypothesis(parsed)
             if logout_hypothesis_scenario is not None and nested_id == LOGOUT_VITAL_ID:
                 return self._dispatch_logout_hypothesis(parsed)
             if (

@@ -302,7 +302,22 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # frame and only the character row differs.  Opened under the owner's
 # standing gameplay pre-approval; count moves 36 -> 37 and no earlier entry
 # is touched.  No coverage row grade moves on it.
-CANONICAL_CONTENT_SHA256 = "39AB04EB1E42938239D5F5F6BB2CEC7B381AAC6BAD6F2FDA7972A02FFF2728AE"
+# -> 225C4C49.. (2026-08-21, cloud: HYP-PF-031 appended -- LOGOUT-CHAT-PUSH-001,
+# the unsolicited chat-triggered push of the frozen HYP-PF-028
+# ReturnSelectServerVital.  GT-033 is blocked at the TRIGGER (the attended
+# tester cannot click the HOME menu item, so LogoutVital never arrives and the
+# request-paired shapes can never fire), and the chat-input trigger is proven
+# end to end by HYP-PF-027, so this lane decouples the pinned 0x709E response
+# from its request pairing: one accepted ascii12 chat frame pushes it
+# unsolicited, exactly once, with no ack, no close, no write and no socket
+# action, and a LogoutVital under this scenario is deliberately left
+# unanswered so the session asks exactly one question.  Not one content byte
+# is new -- the pushed frame is byte-identical to the HYP-PF-028 pins -- and
+# what is designed is the DELIVERY POLICY only, an explicit nonclaim.  Count
+# moves 37 -> 38 and no earlier entry is touched.  No client has ever been
+# shown an unsolicited 0x709E push; that is GT-033 variant C, queued, not
+# run, and no coverage row grade moves on it.)
+CANONICAL_CONTENT_SHA256 = "A76FD0C45B671FA6831177230CA4AB88F932468B997E741CE94260743DF61998"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -464,6 +479,14 @@ EXPECTED_IDS = (
     # -- it can only WITHHOLD a durable write -- so nothing downstream of it
     # reads a frame pin.
     "HYP-PF-030",
+    # HYP-PF-031 (LOGOUT-CHAT-PUSH-001: the unsolicited chat-triggered push
+    # of the frozen HYP-PF-028 ReturnSelectServerVital, opened on the GT-033
+    # trigger blocker under the owner's standing gameplay pre-approval) is
+    # appended for the same reason: appending keeps every earlier entry index
+    # stable.  It composes no new byte -- the pushed frame is byte-identical
+    # to the HYP-PF-028 pins -- and what is designed is the delivery policy
+    # only, which no capture has ever shown.
+    "HYP-PF-031",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -509,6 +532,9 @@ EXPECTED_META = {
     ),
     "HYP-PF-029": ("protocol_hypothesis", "NPC-HP-LINK-001", "active"),
     "HYP-PF-030": ("protocol_hypothesis", "MOVE-AUTHORITY-002", "active"),
+    "HYP-PF-031": (
+        "protocol_hypothesis", "LOGOUT-CHAT-PUSH-001", "active",
+    ),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}
 STATUSES = {"active", "frozen", "retired", "harness_only", "expired_pending_decision"}

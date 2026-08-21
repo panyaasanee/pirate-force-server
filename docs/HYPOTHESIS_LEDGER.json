@@ -2882,6 +2882,74 @@
      "active_claim_marker": false
     }
    ]
+  },
+  {
+   "id": "HYP-PF-031",
+   "kind": "protocol_hypothesis",
+   "introduced_checkpoint": "LOGOUT-CHAT-PUSH-001",
+   "exact_value_or_transform": "Behind the explicit chat-push logout opt-in scenario only (scenarios/logout_hypothesis_chat_push_return_select.json, id logout_hypothesis_chat_push_return_select, loaded through the shared --logout-hypothesis-scenario flag, which requires an explicit existing --db and is mutually exclusive with every other scenario mode and with the four pre-existing logout profiles), answer ONE accepted 34-byte ascii12 chat-input frame (vital id 0xAC52, the GT-006 decode, classified by the same proven classifier every chat-triggered lane reuses) from a runtime-ready session by PUSHING the byte-identical hash-pinned HYP-PF-028 ReturnSelectServerVital (id 0x709E) response UNSOLICITED -- no LogoutVital request pairing, no PF-012 ack, no PF-013 close -- exactly once per session. The pushed bytes are composed by the unchanged HYP-PF-028 composer make_return_select_server_response, which re-pins the deterministic 38-byte PC (sha256 A4C8DF4299EA7C3A5EE5554D1D29D7F8C1A2B51031CA210CBEB9AF2AD9D4CA9E) / 48-byte frame (sha256 08C2A925BD67CD3D0AFA7992F98D472ED8FD22787756521A5DF8CBF174E5CB8E) before a byte can be queued and raises on any drift; a compose refusal at dispatch is a named no-reply event. NOT ONE CONTENT BYTE IS NEW: the 16-byte body is the client serializer 0x5e69f0's own field layout with every field zero, exactly as HYP-PF-028 pinned it. What is new is the DELIVERY POLICY ONLY, and it is OUR design: no capture shows the original server pushing an unsolicited vital, and the entry's nonclaims say so. No request byte is copied into the response or any store -- the proven classifier reads the nested payload only to accept the ascii12 predicate (the request is a trigger, not an input) -- no store call exists on the path, the session lease is never touched, and no socket action is taken. A LogoutVital (0x1B40) arriving while this scenario is active is deliberately NOT answered -- counted and refused with the named event logout_chat_push_hypothesis_logout_vital_no_reply -- so the session asks exactly one question and the attended evidence carries one stimulus.",
+   "scope": "Server-side emission of the one pinned 0x709E response, unsolicited, to the ONE connected client, behind the one opt-in chat-push scenario only, only for an accepted ascii12 chat-input trigger and only from a runtime-ready session (selected character, teleport_sent and runtime_ack_sent both set). The dispatcher refuses by name every wrong chat shape (logout_chat_push_hypothesis_<classification>_no_reply), unselected session (logout_chat_push_hypothesis_no_selected_no_reply), wrong sequence (logout_chat_push_hypothesis_wrong_sequence_no_reply), repeat trigger (logout_chat_push_hypothesis_already_sent_no_reply), compose drift (logout_chat_push_hypothesis_compose_refused_no_reply), and every LogoutVital under this scenario (logout_chat_push_hypothesis_logout_vital_no_reply). The lane writes no database row at all -- not even the session close the request-paired profiles commit -- takes no socket action, schedules no timer, and composes nothing when the scenario is absent. No change to the HYP-PF-012/013/016/028 logout profiles or their bytes, and no production or default-mode path exists.",
+   "status": "active",
+   "provenance": "Opened 2026-08-21 under the owner's standing pre-approval for newly found gameplay functions under the standard pattern (opt-in, production_allowed false, fail closed, ledger/verifier binding, headless proof), and directly on the GT-033 blocker: the attended tester cannot click the client's HOME menu item, so the client never sends LogoutVital 0x1B40 and neither queued GT-033 variant (the PF-013 close nor the PF-028 return-select-first response) can ever fire, because both REPLY to a request that never arrives. The tester CAN reliably type into chat (Return focuses the chat box), and the chat-input trigger path is proven end to end by HYP-PF-027, which answers one accepted ascii12 frame with a composed spawn frame. This entry adds one new response-policy profile to the existing logout module, the runtime dispatch branch that pushes the frozen PF-028 bytes on that trigger, the routing branch that deliberately leaves LogoutVital unanswered under this scenario, one scenario file, 15 tests including the exact-allowlist tamper traps, and a 31-guard headless replay through the real dispatcher on a throwaway copy of the database whose independent walker reads the 0x709E frame back FROM THE BYTES. No new offline encoder verifier is added because the pushed bytes are the unchanged HYP-PF-028 composition already covered guard-for-guard by tools/verify_logout_return_select_encoder.py.",
+   "evidence_refs": [
+    "scenarios/logout_hypothesis_chat_push_return_select.json",
+    "tests/test_logout_chat_push_hypothesis.py",
+    "tools/pf_logout_chat_push_headless_replay.py",
+    "tools/verify_logout_return_select_encoder.py"
+   ],
+   "accepted_ceiling": "Pushing the exact one pinned 0x709E response, unsolicited, exactly once, behind the explicit opt-in only, with the response PC/frame byte-identical to the HYP-PF-028 pins. The ceiling is the WIRE and DISPATCHER layer: the push is proven to leave the real make_state_class dispatcher on a throwaway copy of the database as exactly one action with zero delay and no socket action, with NO table changing row count and closed_at staying NULL, the repeat trigger and both captured LogoutVital forms refused by name, re-read from the dispatched bytes by an independent tag walker inside tools/pf_logout_chat_push_headless_replay.py that never asks the module to decode. It does NOT reach the client layer by one millimetre and has never touched a socket.",
+   "evidence_gap": "NO CLIENT HAS EVER BEEN SHOWN AN UNSOLICITED 0x709E PUSH. Whether the real client acts on a ReturnSelectServerVital that arrives without any request pairing -- transitions to the character-select screen, ignores it, or errors -- is unmeasured and is exactly the queued attended test, GT-033 variant C, WHICH HAS NOT RUN. Round-100 static RE found NO client code path that consumes 0x709E, so the most likely outcome is that the client ignores the push (it rides the same inbound reconcile pass as any other vital); that negative is itself informative and would strengthen the reading that the operative transition lever is a connection teardown, not a response vital. Whether an unsolicited server-initiated vital is even well-tolerated by the client's inbound loop outside a request/response rhythm is likewise unmeasured -- the frozen v141 transport already pushes heartbeats, but no vital-bearing unsolicited RuntimeRes of this shape has ever been sent by this project outside the request-paired lanes. This lane has never been driven through a real server process over TCP: the proof stops at the dispatcher.",
+   "falsification": "Retire or redesign this lane if a real client rejects or errors on the unsolicited push (an ErrorData=28317 stream error falsifies the envelope for this delivery), if the pushed bytes ever stop reproducing the pinned 38-byte PC / 48-byte frame, or if this lane is ever observed to write any database row, take any inline socket action, answer a LogoutVital, read a chat request byte, or push more than once per session. A client that receives the push but does NOT transition does not falsify the wire claim -- it answers the GT-033 variant C question in the negative and is recorded as a result, not a failure.",
+   "stop_rule": "Push only the one pinned 0x709E response, only on an accepted ascii12 chat trigger, only from a runtime-ready session, only once per session, only behind the one opt-in scenario file, and never answer a LogoutVital under this scenario. What is forbidden is WIDENING: a second push, another vital id, any non-zero body field, any read of the chat request body, any database write, any socket action, an ack or close bolted onto the push, a production or default-mode path, or a second delivery profile is a NEW VERSION of this entry -- two tracked slots remain -- or a new entry. Do not enable production exposure. Stop and record if the first attended observation shows the client transitioning, which would upgrade 0x709E from candidate to confirmed and redirect the whole logout-transition investigation.",
+   "production_allowed": false,
+   "expiry": {
+    "tracked_versions": [
+     "LOGOUT-CHAT-PUSH-001"
+    ],
+    "decision": "Opened 2026-08-21 under the owner's standing gameplay pre-approval; one version is tracked because one milestone built the whole lane (profile + dispatch branch + LogoutVital no-reply routing + scenario + 15 tests + 31-guard headless replay) in one round. Proven offline and through the real dispatcher on a throwaway database copy; never driven over TCP and never seen by a client. TWO versions of the three remain. Confirm the client-observable layer as the queued attended test (GT-033 variant C) -- specifically whether the unsolicited 0x709E push alone transitions the client to character select -- before any retire, freeze or extend decision, and do not move any coverage row grade until it has run."
+   },
+   "max_versions": 3,
+   "extension_approval_ref": null,
+   "source_refs": [
+    {
+     "path": "src/pirateforce_foundation/logout_hypothesis.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-031 active",
+      "LOGOUT_RESPONSE_POLICY_CHAT_PUSH_RETURN_SELECT = \"chat_push_return_select\"",
+      "logout_hypothesis_chat_push_return_select",
+      "CHAT_PUSH_TRIGGER_VITAL_ID = 0xAC52",
+      "original_server_ever_pushed_an_unsolicited_vital",
+      "no_reply_named_event_the_lane_stays_one_question"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "src/pirateforce_foundation/runtime.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-031 active",
+      "_dispatch_logout_chat_push_hypothesis",
+      "_dispatch_logout_chat_push_logout_no_reply",
+      "LOGOUT_RESPONSE_POLICY_CHAT_PUSH_RETURN_SELECT",
+      "HYP_PF_031_LOGOUT_CHAT_PUSH_RETURN_SELECT_SERVER_UNSOLICITED",
+      "logout_chat_push_hypothesis_already_sent_no_reply",
+      "logout_chat_push_hypothesis_logout_vital_no_reply",
+      "self.logout_chat_push_count = 0"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "scenarios/logout_hypothesis_chat_push_return_select.json",
+     "required_markers": [
+      "\"hypothesis_id\": \"HYP-PF-031\"",
+      "\"production_allowed\": false",
+      "\"response_policy\": \"chat_push_return_select\"",
+      "\"test_only\": true",
+      "client_consumes_0x709e_or_transitions_to_character_select",
+      "original_server_ever_pushed_an_unsolicited_vital"
+     ],
+     "active_claim_marker": false
+    }
+   ]
   }
  ]
 }

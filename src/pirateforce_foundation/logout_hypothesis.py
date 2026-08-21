@@ -133,6 +133,36 @@ LOGOUT_RESPONSE_POLICY_WORLDINFO_FIRST = "worldinfo_response_first"
 # actual return-select response is unrecoverable and this is our design.
 LOGOUT_RESPONSE_POLICY_RETURN_SELECT_FIRST = "return_select_server_first"
 
+# HYP-PF-031 (LOGOUT-CHAT-PUSH-001): the unsolicited chat-triggered push.
+# GT-033 is BLOCKED at the trigger, not at the response: the attended tester
+# cannot click the client's HOME menu item, so the client never emits
+# LogoutVital 0x1B40 and neither GT-033 variant (the PF-013 close nor the
+# PF-028 response-first shape) can ever fire -- both REPLY to a request that
+# never arrives.  The tester CAN reliably type into chat (Return focuses the
+# chat box), and the chat-input trigger path is already proven end to end:
+# HYP-PF-027 answers one accepted 34-byte ascii12 chat-input frame with a
+# composed spawn frame a headless replay reads back from the bytes.  This
+# policy therefore decouples the frozen PF-028 response from its request
+# pairing: ONE accepted ascii12 chat-input frame makes the server push the
+# already-pinned ReturnSelectServerVital (0x709E) response UNSOLICITED --
+# no LogoutVital needed, exactly once per session -- so an attended run can
+# observe whether the response ALONE causes the client screen transition.
+# No new byte is composed: the pushed frame is the byte-identical hash-pinned
+# HYP-PF-028 composition (38-byte PC / 48-byte frame, pins above).  Nothing
+# in the chat request is read, no store is touched, no session lease is
+# closed and no socket action is taken; and if the client DOES later send a
+# LogoutVital while this scenario is active, the lane deliberately does NOT
+# answer it (named no-reply event), so the session asks exactly one question.
+LOGOUT_RESPONSE_POLICY_CHAT_PUSH_RETURN_SELECT = "chat_push_return_select"
+
+# The trigger vital id, copied from the proven GT-006 chat-input decode --
+# never imported: an encoder does not import a neighbouring lane (the
+# HYP-PF-027 rule).  The tests pin this copy against the chat module's own
+# constant so the two cannot drift apart silently.
+CHAT_PUSH_TRIGGER_VITAL_ID = 0xAC52
+CHAT_PUSH_TRIGGER_PAYLOAD_SIZE = 34
+CHAT_PUSH_TRIGGER_CLASSIFICATION = "ascii12"
+
 # ReturnSelectServerVital wire body, decoded from the client serializer
 # 0x5e69f0 (descriptor table 0xf304ec slot2) by the round-101 static pass, the
 # same method agent D used on LogoutVital's 0x5e6820.  The serializer writes,
@@ -636,6 +666,95 @@ _EXPECTED_RETURN_SELECT = {
     ],
 }
 
+# PF-HYPOTHESIS-LEDGER: HYP-PF-031 active
+_PROFILE_CHAT_PUSH = LogoutHypothesisScenario(
+    "logout_hypothesis_chat_push_return_select",
+    "HYP-PF-031",
+    LOGOUT_REQUEST_PC_SHA256[1],
+    LOGOUT_REQUEST_PC_SHA256[3],
+    LOGOUT_ACK_PC_SHA256[1],
+    LOGOUT_ACK_PC_SHA256[3],
+    LOGOUT_ACK_FRAME_SHA256[1],
+    LOGOUT_ACK_FRAME_SHA256[3],
+    LOGOUT_POST_ACK_ACTION_NONE,
+    0,
+    LOGOUT_RESPONSE_POLICY_CHAT_PUSH_RETURN_SELECT,
+)
+
+# HYP-PF-031 exact allowlist: no new response byte exists under this scenario
+# either -- the one pushed frame is the byte-identical hash-pinned HYP-PF-028
+# composition -- and no ack, no close and no write exists at all.  What is new
+# is the DELIVERY POLICY only: the response rides an accepted chat-input
+# trigger instead of a LogoutVital request pairing, one-shot, and a LogoutVital
+# under this scenario is deliberately not answered so the session asks exactly
+# one question (GT-033 variant C: does the response ALONE transition the
+# client, without request pairing).
+_EXPECTED_CHAT_PUSH = {
+    "schema": 1,
+    "id": _PROFILE_CHAT_PUSH.scenario_id,
+    "test_only": True,
+    "production_allowed": False,
+    "hypothesis_id": _PROFILE_CHAT_PUSH.hypothesis_id,
+    "entry": {
+        "flow": "full_writable_character",
+        "required_sequence": "selected_and_runtime_ready",
+        "response_policy": LOGOUT_RESPONSE_POLICY_CHAT_PUSH_RETURN_SELECT,
+        "trigger": (
+            "one_accepted_ascii12_chat_input_frame_request_body_never_read"
+        ),
+        "return_select_source": (
+            "client_serializer_0x5e69f0_field_layout_all_zero_no_client_"
+            "producer_values_default_zero"
+        ),
+        "logout_vital_policy": (
+            "no_reply_named_event_the_lane_stays_one_question"
+        ),
+        "one_shot": True,
+        "post_ack_action": LOGOUT_POST_ACK_ACTION_NONE,
+        "close_delay_ms": 0,
+        "socket_action": "none",
+    },
+    "requests": {
+        "chat_trigger": {
+            "vital_id": CHAT_PUSH_TRIGGER_VITAL_ID,
+            "payload_size": CHAT_PUSH_TRIGGER_PAYLOAD_SIZE,
+            "classification": CHAT_PUSH_TRIGGER_CLASSIFICATION,
+        },
+    },
+    "composed_responses": {
+        "chat_push_return_select": {
+            "vital_id": RETURN_SELECT_SERVER_VITAL_ID,
+            "body_size": RETURN_SELECT_SERVER_BODY_SIZE,
+            "pc_size": RETURN_SELECT_SERVER_RESPONSE_PC_SIZE,
+            "pc_sha256": RETURN_SELECT_SERVER_RESPONSE_PC_SHA256,
+            "frame_size": RETURN_SELECT_SERVER_RESPONSE_FRAME_SIZE,
+            "frame_sha256": RETURN_SELECT_SERVER_RESPONSE_FRAME_SHA256,
+        },
+    },
+    "persisted_post_state": {
+        "database_write": "none",
+        "position_rewrite": "none",
+    },
+    "capabilities": [
+        "push_the_pinned_return_select_server_vital_unsolicited_on_one_"
+        "accepted_chat_input_trigger",
+        "compose_well_formed_return_select_server_vital_from_client_"
+        "serializer_field_layout",
+        "refuse_a_second_trigger_on_the_same_session_by_name",
+        "refuse_a_logout_vital_under_this_scenario_by_name_with_no_reply",
+    ],
+    "nonclaims": [
+        "original_server_response_policy",
+        "original_server_ever_pushed_an_unsolicited_vital",
+        "return_select_server_field_values_and_string_semantics",
+        "client_consumes_0x709e_or_transitions_to_character_select",
+        "client_observable_exit_or_character_select_return",
+        "chat_request_body_semantics_the_trigger_is_never_read",
+        "logout_vital_acknowledgement_under_this_scenario",
+        "production_baseline_behavior",
+    ],
+}
+
 _EXPECTED_BY_ID = {
     _PROFILE_ECHO.scenario_id: (_EXPECTED_ECHO, _PROFILE_ECHO),
     _PROFILE_ACK_CLOSE.scenario_id: (_EXPECTED_ACK_CLOSE, _PROFILE_ACK_CLOSE),
@@ -644,6 +763,9 @@ _EXPECTED_BY_ID = {
     ),
     _PROFILE_RETURN_SELECT.scenario_id: (
         _EXPECTED_RETURN_SELECT, _PROFILE_RETURN_SELECT,
+    ),
+    _PROFILE_CHAT_PUSH.scenario_id: (
+        _EXPECTED_CHAT_PUSH, _PROFILE_CHAT_PUSH,
     ),
 }
 
@@ -678,7 +800,7 @@ def load_logout_hypothesis_scenario(path: str | Path) -> LogoutHypothesisScenari
 def require_logout_hypothesis_scenario(value: Any) -> LogoutHypothesisScenario:
     if type(value) is not LogoutHypothesisScenario or value not in (
         _PROFILE_ECHO, _PROFILE_ACK_CLOSE, _PROFILE_WORLDINFO_FIRST,
-        _PROFILE_RETURN_SELECT,
+        _PROFILE_RETURN_SELECT, _PROFILE_CHAT_PUSH,
     ):
         raise ValueError("logout hypothesis scenario object exceeds the allowlist")
     for subcode in LOGOUT_SUBCODES:

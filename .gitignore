@@ -481,6 +481,14 @@
 !/tools/pf_logout_return_select_headless_replay.py
 !/reports/PF_LOGOUT_RETURN_SELECT001_HYP028_20260820.md
 
+# GT-033 variant C (HYP-PF-031): the GT-033 A/B trigger is blocked -- the
+# attended tester cannot click the HOME menu item, so LogoutVital never
+# arrives -- so this lane pushes the byte-identical pinned 0x709E response
+# UNSOLICITED on one accepted ascii12 chat-input trigger, exactly once, with
+# no ack, no close and no write.  The delivery policy is our design; no
+# client has ever been shown an unsolicited 0x709E push.
+!/tools/pf_logout_chat_push_headless_replay.py
+
 # GO-LIVE (chief round 103, Panya order 2026-08-20 ~12:30).  The deny-all rule on
 # line one hid the entire .github/ directory: the Windows gate workflow existed
 # on disk but was never tracked, so a push would have carried no CI and Actions
