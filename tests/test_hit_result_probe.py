@@ -8,6 +8,10 @@ import unittest
 import pefile
 from pathlib import Path
 
+# The proprietary client binaries in ../GameClient can never be in a fresh
+# clone; only the tests that read them are guarded.  See tests/pf_preconditions.py.
+from pf_preconditions import CLIENT_IMAGE, GAME_INSTALL_TREE
+
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("pf_hit_result_probe", ROOT / "tools/pf_hit_result_probe.py")
 P = importlib.util.module_from_spec(SPEC)
@@ -44,10 +48,18 @@ class HitResultProbeTests(unittest.TestCase):
         self.assertEqual(local["hooks"]["target_vfunc_bits5_6"]["va"], 0x750903)
         self.assertNotIn("target_queue", local["hooks"])
 
+    # Hashes GameClient.bin from the proprietary install tree AND the patched
+    # local image; the local image lives inside that tree, so client_image is
+    # the stricter single key.  See tests/pf_preconditions.py.
+    @CLIENT_IMAGE.skip_unless_present()
     def test_real_binary_guards_both_profiles(self):
         P.guard_binary(ROOT.parent / "GameClient/GameClient.bin", self.config())
         P.guard_binary(ROOT.parent / "GameClient/GameClient.local.bin", self.config("pf_hit_result_probe_local_config.json"))
 
+    # Parses relocations out of both proprietary client binaries; the local
+    # image lives inside the install tree, so client_image is the stricter
+    # single key.  See tests/pf_preconditions.py.
+    @CLIENT_IMAGE.skip_unless_present()
     def test_hook_spans_do_not_overlap_pe_relocations(self):
         for filename in ("GameClient.bin", "GameClient.local.bin"):
             image = ROOT.parent / "GameClient" / filename
@@ -136,6 +148,9 @@ class HitResultProbeTests(unittest.TestCase):
         self.assertIn("_consumer.finalize_capture(state, script, session)", source)
         self.assertNotIn("session.detach()", source)
 
+    # validate_output_path resolves the client with strict=True, so it needs
+    # GameClient.bin from the proprietary install tree.  See tests/pf_preconditions.py.
+    @GAME_INSTALL_TREE.skip_unless_present()
     def test_safe_output(self):
         client = ROOT.parent / "GameClient/GameClient.bin"
         config = ROOT / "tools/pf_hit_result_probe_config.json"

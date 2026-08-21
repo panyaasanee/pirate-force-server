@@ -6,6 +6,10 @@ from pathlib import Path
 import capstone
 import pefile
 
+# The proprietary client binaries in ../GameClient can never be in a fresh
+# clone; only the tests that read them are guarded.  See tests/pf_preconditions.py.
+from pf_preconditions import CLIENT_IMAGE
+
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("pf_behavior_lookup_probe", ROOT / "tools/pf_behavior_lookup_probe.py")
 P = importlib.util.module_from_spec(SPEC)
@@ -16,6 +20,10 @@ class BehaviorLookupProbeTests(unittest.TestCase):
     def config(self, name="pf_behavior_lookup_probe_config.json"):
         return P.load_config(ROOT / "tools" / name)
 
+    # guard_binary hashes GameClient.bin from the proprietary install tree AND
+    # the patched local image; the local image lives inside that tree, so
+    # client_image is the stricter single key.  See tests/pf_preconditions.py.
+    @CLIENT_IMAGE.skip_unless_present()
     def test_exact_profiles_and_disk_guards(self):
         original = self.config()
         local = self.config("pf_behavior_lookup_probe_local_config.json")
@@ -28,6 +36,10 @@ class BehaviorLookupProbeTests(unittest.TestCase):
             P.guard_binary(ROOT.parent / "GameClient/GameClient.bin", local)
         self.assertEqual(P.DEFAULT_CAPTURE_ROOT.name, "capture_behavior_lookup")
 
+    # Parses relocations out of both proprietary client binaries; the local
+    # image lives inside the install tree, so client_image is the stricter
+    # single key.  See tests/pf_preconditions.py.
+    @CLIENT_IMAGE.skip_unless_present()
     def test_hook_is_instruction_aligned_and_has_no_relocations(self):
         hook = P.EXACT_HOOKS["numeric_lookup"]
         code = bytes.fromhex(hook["code"])
@@ -100,6 +112,9 @@ class BehaviorLookupProbeTests(unittest.TestCase):
         for forbidden in ("Memory.write", "writeU", "writeS", "writePointer", "NativeFunction", "Interceptor.replace", "sendInput"):
             self.assertNotIn(forbidden, source)
 
+    # validate_output_path resolves the client with strict=True, so it needs the
+    # proprietary local image on disk.  See tests/pf_preconditions.py.
+    @CLIENT_IMAGE.skip_unless_present()
     def test_output_is_confined_and_rejects_guard_alias(self):
         client = ROOT.parent / "GameClient/GameClient.local.bin"
         config = ROOT / "tools/pf_behavior_lookup_probe_local_config.json"

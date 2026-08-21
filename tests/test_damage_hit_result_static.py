@@ -53,11 +53,19 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import io
+import sys
 import unittest
 from contextlib import contextmanager, redirect_stdout
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+
+# load_tool() makes the verifier read ../GameClient/GameClient.local.bin, a
+# proprietary binary that can never be in a fresh clone, so every test that
+# calls it must say so and skip without it.  See tests/pf_preconditions.py.
+from pf_preconditions import CLIENT_IMAGE  # noqa: E402
+
 TOOL = ROOT / "tools" / "pf_damage_hit_result_static.py"
 CLIENT_SHA = "9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623"
 
@@ -108,6 +116,8 @@ class ArtifactsExistTests(unittest.TestCase):
     def test_the_tool_exists(self):
         self.assertTrue(TOOL.is_file(), TOOL)
 
+    # Needs the client image itself, unlike the tool-exists check above.
+    @CLIENT_IMAGE.skip_unless_present()
     def test_the_binary_the_tool_chose_exists_and_is_the_pinned_one(self):
         tool = load_tool()
         self.assertTrue(Path(tool.BIN).is_file(), tool.BIN)
@@ -118,13 +128,18 @@ class ArtifactsExistTests(unittest.TestCase):
 class VerifierRunsCleanTests(unittest.TestCase):
     """Every guard in the verifier must hold against the pinned binary."""
 
+    # Method-level guards, not a class one: the two source-only checks below
+    # run fine without the client image.  See tests/pf_preconditions.py.
+    @CLIENT_IMAGE.skip_unless_present()
     def test_the_verifier_imports_without_exiting(self):
         tool = load_tool()
         self.assertEqual(tool.FAILS, [], tool.FAILS)
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_the_verifier_actually_asserted_something(self):
         self.assertGreaterEqual(load_tool().NGUARD, 200)
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_the_reported_guard_count_matches_the_run(self):
         tool = load_tool()
         self.assertEqual(tool.RESULT["guards"], tool.NGUARD)
@@ -145,12 +160,14 @@ class VerifierRunsCleanTests(unittest.TestCase):
             with self.subTest(banned=banned):
                 self.assertNotIn(banned, source)
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_the_binary_on_disk_is_unchanged_after_the_run(self):
         """It is permanent read-only evidence.  Prove the run did not touch it."""
         tool = load_tool()
         digest = hashlib.sha256(Path(tool.BIN).read_bytes()).hexdigest().upper()
         self.assertEqual(digest, CLIENT_SHA)
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_the_report_claims_nothing_about_the_original_server(self):
         tool = load_tool()
         self.assertIsNone(tool.RESULT["claims_about_original_server"])
@@ -161,6 +178,9 @@ class VerifierRunsCleanTests(unittest.TestCase):
         self.assertIn("DAMAGE-MODEL-001", docstring)
 
 
+# Every class below reads the pinned client image through load_tool(); a fresh
+# clone cannot hold that binary.  See tests/pf_preconditions.py.
+@CLIENT_IMAGE.skip_unless_present()
 class TagMapTests(unittest.TestCase):
     """Conclusion 1: one tag byte then a fixed-width payload."""
 
@@ -199,6 +219,7 @@ class TagMapTests(unittest.TestCase):
         self.assertNotIn("vector3", load_tool().RESULT["tag_map"])
 
 
+@CLIENT_IMAGE.skip_unless_present()
 class HeaderFieldTableTests(unittest.TestCase):
     """Conclusion 2a: the CHitResult header, in emission order."""
 
@@ -242,6 +263,7 @@ class HeaderFieldTableTests(unittest.TestCase):
         self.assertEqual(cls["array_read"], "0x0074FF60")
 
 
+@CLIENT_IMAGE.skip_unless_present()
 class HitElementTableTests(unittest.TestCase):
     """Conclusion 2b: the 32-byte hit entry."""
 
@@ -290,6 +312,7 @@ class HitElementTableTests(unittest.TestCase):
         self.assertLess(0x1C + 2, load_tool().RESULT["hit_element"]["stride"])
 
 
+@CLIENT_IMAGE.skip_unless_present()
 class SignedDamageFieldTests(unittest.TestCase):
     """Conclusion 3: element +0x08 is read SIGNED."""
 
@@ -333,6 +356,7 @@ class SignedDamageFieldTests(unittest.TestCase):
         self.assertEqual(wire[0]["width"], 4)
 
 
+@CLIENT_IMAGE.skip_unless_present()
 class AngleNotDamageTests(unittest.TestCase):
     """Conclusion 4: element +0x18 is a yaw angle, not a magnitude."""
 
@@ -359,6 +383,7 @@ class AngleNotDamageTests(unittest.TestCase):
         self.assertNotEqual(element["damage"]["offset"], element["angle"]["offset"])
 
 
+@CLIENT_IMAGE.skip_unless_present()
 class ResultFlagsTests(unittest.TestCase):
     """element +0x1C is a bitfield - and the bits are deliberately unnamed."""
 
@@ -378,6 +403,7 @@ class ResultFlagsTests(unittest.TestCase):
             load_tool().RESULT["hit_element"]["flags"]["bit_labels_claimed"])
 
 
+@CLIENT_IMAGE.skip_unless_present()
 class DisplayPathTests(unittest.TestCase):
     """Conclusion 5: abs() and "%d", nothing else."""
 
@@ -421,6 +447,7 @@ class DisplayPathTests(unittest.TestCase):
         self.assertEqual(tool.rd(0xA7EC02, 2), b"\x2b\xc2")    # sub eax, edx
 
 
+@CLIENT_IMAGE.skip_unless_present()
 class NoArithmeticNegativeTests(unittest.TestCase):
     """Conclusion 6: the client computes nothing and never mutates HP."""
 
@@ -493,6 +520,7 @@ class NoArithmeticNegativeTests(unittest.TestCase):
                                          % (hex(caller), lo, hi))
 
 
+@CLIENT_IMAGE.skip_unless_present()
 class DyingAndReviveTests(unittest.TestCase):
     """The downed phase, its one button, and the request-only revive verb."""
 
@@ -542,6 +570,7 @@ class DyingAndReviveTests(unittest.TestCase):
         self.assertEqual(tool.COUNTS["relive_vital_inbound_handlers"], 0)
 
 
+@CLIENT_IMAGE.skip_unless_present()
 class TrapTests(unittest.TestCase):
     """A guard that cannot fail is not a guard.
 

@@ -44,21 +44,23 @@ from __future__ import annotations
 
 import hashlib
 import struct
+import sys
 import unittest
 from pathlib import Path
 
 import capstone
 import pefile
-import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+# The proprietary client image cannot be in a fresh clone; every test that reads
+# it carries its own @CLIENT_IMAGE guard below - see tests/pf_preconditions.py.
+sys.path.insert(0, str(ROOT / "tests"))
+from pf_preconditions import CLIENT_IMAGE
+
 BINARY = ROOT.parent / "GameClient" / "GameClient.local.bin"
 BINARY_SHA = "9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623"
 SERVER = ROOT / "current" / "pf_login_game_server_v141.py"
 CHAT_MOD = ROOT / "src" / "pirateforce_foundation" / "chat_input_hypothesis.py"
-
-if not BINARY.is_file():
-    pytest.skip("client binary %s not present" % BINARY, allow_module_level=True)
 
 ONCE_INIT = 0x89C080
 ID_ASSIGN = 0x89BD00
@@ -383,11 +385,13 @@ def _decode_message_wire(payload: bytes):
 class ChatChannelFamilyStaticTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        if not BINARY.is_file():
-            raise unittest.SkipTest("client binary %s not present" % BINARY)
-        cls.pe = pefile.PE(str(BINARY), fast_load=True)
+        # Only parse the PE when the client image exists; the pure-python and
+        # server-source tests below must still run without it.  This is shared
+        # state, not a skip site - see tests/pf_preconditions.py.
+        cls.pe = pefile.PE(str(BINARY), fast_load=True) if CLIENT_IMAGE.present else None
 
     # -- 1 ----------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_binary_hash_and_spans_are_the_pinned_client(self):
         self.assertEqual(hashlib.sha256(BINARY.read_bytes()).hexdigest().upper(), BINARY_SHA)
         for label, (start, end, expected) in SPANS.items():
@@ -396,6 +400,7 @@ class ChatChannelFamilyStaticTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(data).hexdigest().upper(), expected, label)
 
     # -- 2 ----------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_seventeen_name_literals_and_one_registration_block(self):
         for nm, nva, tva, slot, _g, _v, _s, _z, _n in FAMILY:
             self.assertEqual(_cstr(self.pe, nva), nm)
@@ -429,6 +434,7 @@ class ChatChannelFamilyStaticTests(unittest.TestCase):
         self.assertEqual(len(set(derived.values())), 17)       # no intra-family collision
 
     # -- 5 ----------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_channel_ids_are_runtime_assigned_never_code_immediates(self):
         for nm, *_ in FAMILY:
             v = EXPECT_IDS[nm]
@@ -436,6 +442,7 @@ class ChatChannelFamilyStaticTests(unittest.TestCase):
             self.assertEqual(_imm16_hits(self.pe, v), [], nm)
 
     # -- 6 ----------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_each_id_slot_has_one_writer_and_one_get_id_reader(self):
         for nm, _nva, tva, slot, getid, _v, _s, _z, _n in FAMILY:
             self.assertEqual(
@@ -446,6 +453,7 @@ class ChatChannelFamilyStaticTests(unittest.TestCase):
                              b"\x66\xa1" + struct.pack("<I", slot) + b"\xc3", nm)
 
     # -- 7 ----------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_vtable_slots_and_two_converging_name_paths(self):
         for nm, _nva, _t, _sl, getid, vt, ser, size, node in FAMILY:
             self.assertEqual(_dword(self.pe, vt + 0x08), COHORT_CONST, nm)
@@ -468,6 +476,7 @@ class ChatChannelFamilyStaticTests(unittest.TestCase):
             self.assertEqual(NODE_NAME[node], nm)
 
     # -- 8 ----------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_class_hierarchy_from_the_type_node_registration_block(self):
         parsed = {}
         for tva in range(0xBF74F0, 0xBF7AB0, 0x40):
@@ -510,6 +519,7 @@ class ChatChannelFamilyStaticTests(unittest.TestCase):
                           "Channel_LocalVital", "CBoardcastVital"})
 
     # -- 9 ----------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_codecs_and_bidirectional_serializer_shape(self):
         # wstring codec: tag 0x48, field = u32 byte-length + 2*len bytes, ret 4
         w = _instructions(self.pe, WSTR_W, WSTR_W + 0x70)
@@ -528,6 +538,7 @@ class ChatChannelFamilyStaticTests(unittest.TestCase):
             self.assertTrue(b"\x84\xdb" in body or b"\x80\x7c\x24\x08\x00" in body, hex(ser))
 
     # -- 10 ---------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_every_channel_wire_schema_decodes_byte_exact(self):
         for ser, want in SCHEMA.items():
             self.assertEqual(_decode_serializer(self.pe, ser), want, hex(ser))
@@ -555,6 +566,7 @@ class ChatChannelFamilyStaticTests(unittest.TestCase):
         self.assertEqual(enc("") + enc("PFCHATPROBE1"), GT006_PAYLOAD)
 
     # -- 12 ---------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_whisper_is_the_only_channel_with_a_recipient_field(self):
         triples = [nm for nm, *r in FAMILY
                    if sum(1 for e in SCHEMA[r[5]] if e[0] == "w") >= 3]
@@ -585,6 +597,7 @@ class ChatChannelFamilyStaticTests(unittest.TestCase):
         self.assertEqual(_read_va(self.pe, 0x6599AD, 0x6599AF), b"\x6a\x18")
 
     # -- 13 ---------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_join_leave_membership_lifecycle_is_result_gated(self):
         for nm in ("Channel_JoinCustomChannelVital",
                    "Channel_OnActorJoinCustomChannelVital",
@@ -616,6 +629,7 @@ class ChatChannelFamilyStaticTests(unittest.TestCase):
         self.assertEqual(SCHEMA[0x65B450][-1][1], 0x24)
 
     # -- 14 ---------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_client_routing_into_channelmodule_client(self):
         h = _instructions(self.pe, PLAIN_HOOK, PLAIN_HOOK + 0x60)
         self.assertEqual(h[PLAIN_HOOK], ("mov", "eax, dword ptr [0x1032ec4]"))

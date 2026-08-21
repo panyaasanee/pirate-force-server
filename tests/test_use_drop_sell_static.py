@@ -57,29 +57,23 @@ from __future__ import annotations
 import hashlib
 import re
 import struct
+import sys
 import unittest
 from pathlib import Path
 
 import capstone
-
-try:  # pragma: no cover - environment shim
-    import pytest
-except ImportError:  # pragma: no cover
-    pytest = None
-
 import pefile
 
 ROOT = Path(__file__).resolve().parents[1]
+# The proprietary client image cannot be in a fresh clone; every test that reads
+# it carries its own @CLIENT_IMAGE guard below - see tests/pf_preconditions.py.
+sys.path.insert(0, str(ROOT / "tests"))
+from pf_preconditions import CLIENT_IMAGE
+
 BINARY = ROOT.parent / "GameClient" / "GameClient.local.bin"
 BINARY_SHA = "9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623"
 SERVER = ROOT / "current" / "pf_login_game_server_v141.py"
 FOUNDATION_RUNTIME = ROOT / "src" / "pirateforce_foundation" / "runtime.py"
-
-if not BINARY.is_file():  # pragma: no cover - packaging layout without the binary
-    _reason = f"client binary not reachable: {BINARY}"
-    if pytest is not None:
-        pytest.skip(_reason, allow_module_level=True)
-    raise unittest.SkipTest(_reason)
 
 # --- ItemOperate producer map (SPLIT-OPERATE-001/002/003 anchors) -------------
 ITEM_OPERATE_ALLOC = 0x59F0D0
@@ -264,13 +258,18 @@ def _item_operate_wire(operation: int, value32: int, qword: int) -> bytes:
 class UseDropSellStaticTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.pe = pefile.PE(str(BINARY), fast_load=True)
+        # Only parse the PE when the client image exists; the pure-python and
+        # server-source tests below must still run without it.  This is shared
+        # state, not a skip site - see tests/pf_preconditions.py.
+        cls.pe = pefile.PE(str(BINARY), fast_load=True) if CLIENT_IMAGE.present else None
 
     # -- 1 ------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_binary_hash_is_the_pinned_client(self):
         self.assertEqual(hashlib.sha256(BINARY.read_bytes()).hexdigest().upper(), BINARY_SHA)
 
     # -- 2 ------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_spans_are_byte_identical(self):
         for label, (start, end, expected) in SPANS.items():
             blob = _read_va(self.pe, start, end)
@@ -278,6 +277,7 @@ class UseDropSellStaticTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(blob).hexdigest().upper(), expected, label)
 
     # -- 3 ------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_item_operate_producer_callsite_enumeration(self):
         # the whole ItemOperate producer surface, recomputed by e8 scan
         self.assertEqual(_callers_of(self.pe, ITEM_OPERATE_ALLOC), ALLOC_SITES)
@@ -290,6 +290,7 @@ class UseDropSellStaticTests(unittest.TestCase):
                          [0x57D0A7, 0x57D220, 0x57D277])
 
     # -- 4 ------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_op3_factory_is_identity_only_stdcall_ret8(self):
         f = _instructions(self.pe, OP3_FACTORY, OP3_FACTORY + 0x40)
         # operation immediate 3 and the two-dword identity store
@@ -305,6 +306,7 @@ class UseDropSellStaticTests(unittest.TestCase):
         self.assertEqual(_read_va(self.pe, 0x59F8AB, 0x59F8AE), bytes([0xC2, 0x0C, 0x00]))
 
     # -- 5 ------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_op3_caller_is_a_modal_dialog_callback(self):
         # the function is int3-padded on both sides and 0x3E bytes long
         self.assertEqual(_read_va(self.pe, OP3_CALLBACK - 1, OP3_CALLBACK), b"\xcc")
@@ -320,6 +322,7 @@ class UseDropSellStaticTests(unittest.TestCase):
         self.assertEqual(reg[0x405D79], ("mov", "dword ptr [esi + 0x12cc], eax"))
 
     # -- 6 ------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_op3_callback_result_gate_and_identity_latch(self):
         cb = _instructions(self.pe, OP3_CALLBACK, OP3_CALLBACK_END)
         self.assertEqual(cb[0x5B9CE4], ("cmp", "dword ptr [eax + 0x94], 1"))
@@ -335,6 +338,7 @@ class UseDropSellStaticTests(unittest.TestCase):
                          ["0x5b9cf4", "0x5b9d19", "0x5b9dab", "0x5ba107"])
 
     # -- 7 ------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_panel_d_verb2_latches_then_opens_a_confirm(self):
         d = _instructions(self.pe, FN_D[0], 0x5BA220)
         self.assertEqual(_read_va(self.pe, FN_D[0], FN_D[0] + 13).hex(),
@@ -350,6 +354,7 @@ class UseDropSellStaticTests(unittest.TestCase):
         self.assertEqual(_call_target(self.pe, 0x5BA208), OP6_FACTORY)
 
     # -- 8 ------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_op6_site_a_is_a_third_verb16_gate_with_two_handles(self):
         self.assertEqual(_read_va(self.pe, FN_A[0], FN_A[0] + 13).hex(),
                          "6aff68688db90064a100000000")
@@ -369,6 +374,7 @@ class UseDropSellStaticTests(unittest.TestCase):
         self.assertEqual(_call_target(self.pe, 0x57D277), OP5_FACTORY)
 
     # -- 9 ------------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_op6_site_b_is_context_mode_gated_not_verb_gated(self):
         self.assertEqual(_read_va(self.pe, FN_B[0], FN_B[0] + 13).hex(),
                          "6aff68e390b90064a100000000")
@@ -391,6 +397,7 @@ class UseDropSellStaticTests(unittest.TestCase):
         self.assertEqual(_call_target(self.pe, 0x58294D), OP6_FACTORY)
 
     # -- 10 -----------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_no_vendor_or_price_context_at_any_item_operate_producer(self):
         for label, (lo, hi) in (("A", FN_A), ("B", FN_B), ("C", FN_C), ("D", FN_D),
                                 ("op3cb", (OP3_CALLBACK, OP3_CALLBACK_END))):
@@ -403,6 +410,7 @@ class UseDropSellStaticTests(unittest.TestCase):
         )
 
     # -- 11 -----------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_use_rides_its_own_useitemvital_class(self):
         self.assertEqual(_read_va(self.pe, USEITEM_NAME, USEITEM_NAME + 13), b"UseItemVital\x00")
         self.assertEqual(_pattern_sites(self.pe, "68" + struct.pack("<I", USEITEM_NAME).hex()),
@@ -433,6 +441,7 @@ class UseDropSellStaticTests(unittest.TestCase):
         self.assertNotIn(bytes([0x6A, 0x14]), _read_va(self.pe, USEITEM_SERIAL, 0x6C01A3))
 
     # -- 12 -----------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_sell_rides_stall_blackmarket_and_store_classes(self):
         for name, name_va, reg_call in OTHER_TRANSPORT_CLASSES:
             self.assertEqual(_cstr(self.pe, name_va), name)
@@ -457,6 +466,7 @@ class UseDropSellStaticTests(unittest.TestCase):
             self.assertFalse(0x6C0000 <= site < 0x790000, hex(site))
 
     # -- 13 -----------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
     def test_dialog_resource_0x12_is_actually_an_eh_trylevel(self):
         # the EHRec anchor fixes the trylevel slot for both functions
         d = _instructions(self.pe, 0x5A2A70, 0x5A2AB0)

@@ -19,6 +19,10 @@ assert SPEC.loader is not None
 sys.modules[SPEC.name] = PROBE
 SPEC.loader.exec_module(PROBE)
 
+# One test below reads the proprietary ../GameClient install tree, which is
+# never committed.  See tests/pf_preconditions.py.
+from pf_preconditions import GAME_INSTALL_TREE
+
 
 class ActionProducerProbeTests(unittest.TestCase):
     def config(self):
@@ -148,6 +152,10 @@ class ActionProducerProbeTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 PROBE.validate_runtime_options(pid, duration)
         PROBE.validate_runtime_options(1, 0.0)
+        # From here on validate_output_path resolves ../GameClient/GameClient.bin
+        # strictly; the proprietary install tree is never committed.
+        # See tests/pf_preconditions.py.
+        GAME_INSTALL_TREE.require(self)
         config_path = ROOT / "tools/pf_action_producer_probe_config.json"
         client = ROOT.parent / "GameClient/GameClient.bin"
         with tempfile.TemporaryDirectory() as raw_root:

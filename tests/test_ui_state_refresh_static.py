@@ -45,10 +45,17 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+
+# ../GameClient/GameClient.local.bin is a proprietary binary that is never in
+# a fresh clone; every load_tool() test reads it.  See tests/pf_preconditions.py.
+from pf_preconditions import CLIENT_IMAGE  # noqa: E402
+
 TOOL = ROOT / "tools" / "pf_ui_state_refresh_static.py"
 REPORT = (
     ROOT / "reports"
@@ -88,6 +95,10 @@ class ArtifactsExistTests(unittest.TestCase):
     def test_report_manifest_tool_and_client_all_exist(self):
         for path in (REPORT, MANIFEST, TOOL, CLIENT):
             with self.subTest(path=path.name):
+                if path is CLIENT:
+                    # Only the client image may be absent on a clone; the three
+                    # tracked files must exist everywhere.  See tests/pf_preconditions.py.
+                    CLIENT_IMAGE.require(self)
                 self.assertTrue(path.is_file(), path)
 
     def test_the_report_carries_a_machine_readable_counts_block(self):
@@ -108,6 +119,9 @@ class ArtifactsExistTests(unittest.TestCase):
         self.assertNotIn("capstone", source.replace("capstone was used", ""))
 
 
+# Every test below runs the verifier, and the verifier reads the client image
+# at import - nothing here can run without it.  See tests/pf_preconditions.py.
+@CLIENT_IMAGE.skip_unless_present()
 class VerifierRunsCleanTests(unittest.TestCase):
     """Every guard in the verifier must hold against the pinned binary."""
 
@@ -130,9 +144,14 @@ class VerifierRunsCleanTests(unittest.TestCase):
 class ReportMatchesTheBinaryTests(unittest.TestCase):
     """Every number printed in the report is the number the verifier counted."""
 
+    # The two comparisons need the live COUNTS, which come off the client
+    # image; the prose test below reads only the report and must keep running.
+    # See tests/pf_preconditions.py.
+    @CLIENT_IMAGE.skip_unless_present()
     def test_every_reported_key_exists_in_the_live_counts(self):
         self.assertEqual(sorted(report_counts()), sorted(load_tool().COUNTS))
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_every_reported_value_matches_exactly(self):
         reported = report_counts()
         live = load_tool().COUNTS
@@ -145,6 +164,9 @@ class ReportMatchesTheBinaryTests(unittest.TestCase):
         self.assertIn("%d guards" % report_counts()["guards_total"], text)
 
 
+# The four classes below all read the client image through load_tool(); the
+# binary is proprietary and never in a clone.  See tests/pf_preconditions.py.
+@CLIENT_IMAGE.skip_unless_present()
 class CharacterListBufferTests(unittest.TestCase):
     """Conclusion 1+2: one buffer, three mutators, zero erase paths."""
 
@@ -175,6 +197,7 @@ class CharacterListBufferTests(unittest.TestCase):
         self.assertEqual(load_tool().COUNTS["plus_0x180_instructions_in_text"], 32)
 
 
+@CLIENT_IMAGE.skip_unless_present()
 class DeleteAckTests(unittest.TestCase):
     """Conclusion 3: the delete acknowledgement repaints and nothing else."""
 
@@ -204,6 +227,7 @@ class DeleteAckTests(unittest.TestCase):
         self.assertEqual(tool.refs32(0x107A2C0, lo, hi), [])
 
 
+@CLIENT_IMAGE.skip_unless_present()
 class LogoutTests(unittest.TestCase):
     """Conclusion 4: LogoutVital is a dialog controller."""
 
@@ -221,6 +245,7 @@ class LogoutTests(unittest.TestCase):
         self.assertEqual(load_tool().wstr(0xF2FDAC), "SystemSetting_LogoutConfirm")
 
 
+@CLIENT_IMAGE.skip_unless_present()
 class TransitionGraphTests(unittest.TestCase):
     """Conclusion 5: eighteen transitions, three of them network-reachable."""
 

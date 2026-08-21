@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 import struct
+import sys
 import unittest
 
 import capstone
@@ -10,6 +11,12 @@ import pefile
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+
+# Every span check reads ../GameClient/GameClient.bin (and one also reads
+# GameClient.local.bin) - proprietary binaries that can never be in a fresh
+# clone, so those tests must say so and skip.  See tests/pf_preconditions.py.
+from pf_preconditions import CLIENT_IMAGE, GAME_INSTALL_TREE  # noqa: E402
 
 BINARIES = {
     "GameClient.bin": "C528BF43070E2789170F41B6E3E28CCEC6B57BDC594EE73DFA061188A5D1E4BD",
@@ -148,6 +155,9 @@ def _raw_va_refs(pe: pefile.PE, value: int) -> list[int]:
 
 class EquipStateStaticTests(unittest.TestCase):
     def test_exact_original_and_local_spans_are_identical(self):
+        # Needs BOTH binaries, but the local image lives inside the install
+        # tree, so client_image is the stricter single key.  See tests/pf_preconditions.py.
+        CLIENT_IMAGE.require(self)
         observed = {}
         for filename, whole_hash in BINARIES.items():
             path = ROOT.parent / "GameClient" / filename
@@ -167,6 +177,9 @@ class EquipStateStaticTests(unittest.TestCase):
             observed["GameClient.bin"], observed["GameClient.local.bin"],
         )
 
+    # Reads GameClient.bin out of the proprietary install tree, which a fresh
+    # clone never has.  See tests/pf_preconditions.py.
+    @GAME_INSTALL_TREE.skip_unless_present()
     def test_registered_equipped_bag_has_only_the_shared_itembag_shape(self):
         pe = pefile.PE(
             str(ROOT.parent / "GameClient" / "GameClient.bin"), fast_load=True,
@@ -216,6 +229,7 @@ class EquipStateStaticTests(unittest.TestCase):
             _raw_va_refs(pe, EQUIPPED_ID_GLOBAL), [0x469E82, 0xBD96A3],
         )
 
+    @GAME_INSTALL_TREE.skip_unless_present()
     def test_startgame_imports_all_attrs_but_has_no_equipped_specific_lookup(self):
         pe = pefile.PE(
             str(ROOT.parent / "GameClient" / "GameClient.bin"), fast_load=True,
@@ -249,6 +263,7 @@ class EquipStateStaticTests(unittest.TestCase):
         self.assertNotIn(struct.pack("<I", EQUIPPED_ID_GLOBAL), start_bytes)
         self.assertNotIn(struct.pack("<I", COLLECTION_ID_GLOBAL), start_bytes)
 
+    @GAME_INSTALL_TREE.skip_unless_present()
     def test_character_equipment_ui_requests_collection_bag_not_equipped_bag(self):
         pe = pefile.PE(
             str(ROOT.parent / "GameClient" / "GameClient.bin"), fast_load=True,
@@ -297,6 +312,7 @@ class EquipStateStaticTests(unittest.TestCase):
         self.assertEqual(ui[0x5833FE], ("shl", "edx, cl"))
         self.assertNotIn(struct.pack("<I", EQUIPPED_NAME), ui_bytes)
 
+    @GAME_INSTALL_TREE.skip_unless_present()
     def test_item_operate_result_optional_bag_is_plain_not_collection(self):
         pe = pefile.PE(
             str(ROOT.parent / "GameClient" / "GameClient.bin"), fast_load=True,

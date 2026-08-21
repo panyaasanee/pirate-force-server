@@ -45,6 +45,11 @@ import re
 import unittest
 from pathlib import Path
 
+# The proprietary client image cannot be in a fresh clone, and load_tool()
+# cannot even import the verifier without it; every test that goes through
+# load_tool() is guarded below.  See tests/pf_preconditions.py.
+from pf_preconditions import CLIENT_IMAGE
+
 ROOT = Path(__file__).resolve().parents[1]
 TOOL = ROOT / "tools" / "pf_login_vital_req_static.py"
 REPORT = (
@@ -76,9 +81,13 @@ class EvidenceExistsTests(unittest.TestCase):
     """Nothing below means anything if the evidence is not on disk."""
 
     def test_every_input_and_output_exists(self):
-        for path in (REPORT, MANIFEST, TOOL, CLIENT):
+        for path in (REPORT, MANIFEST, TOOL):
             with self.subTest(path=path.name):
                 self.assertTrue(path.is_file(), f"missing {path}")
+        # The client image is checked last so the tracked inputs above are
+        # still asserted on every machine.  See tests/pf_preconditions.py.
+        CLIENT_IMAGE.require(self)
+        self.assertTrue(CLIENT.is_file(), f"missing {CLIENT}")
 
     def test_the_manifest_pins_the_client_image_this_report_read(self):
         text = MANIFEST.read_text(encoding="utf-8")
@@ -93,6 +102,9 @@ class EvidenceExistsTests(unittest.TestCase):
         self.assertIn(DRAFT_NAME, text)
 
 
+# Every test below imports the verifier, which reads the client image at module
+# level and dies without it.  See tests/pf_preconditions.py.
+@CLIENT_IMAGE.skip_unless_present()
 class VerifierRunsCleanTests(unittest.TestCase):
     """The tool is the evidence; if it does not pass, nothing else matters."""
 
@@ -111,6 +123,7 @@ class VerifierRunsCleanTests(unittest.TestCase):
         self.assertEqual(tool.COUNTS["client_sha256"], CLIENT_SHA)
 
 
+@CLIENT_IMAGE.skip_unless_present()  # setUpClass imports the verifier
 class ReportMatchesTheBinaryTests(unittest.TestCase):
     """Every number in the report is the tool's number, key by key."""
 
@@ -129,6 +142,7 @@ class ReportMatchesTheBinaryTests(unittest.TestCase):
                 self.assertEqual(self.published[key], self.tool.COUNTS[key])
 
 
+@CLIENT_IMAGE.skip_unless_present()  # setUpClass imports the verifier
 class FrameShapeTests(unittest.TestCase):
     """Conclusion 1-3, restated independently of the report prose."""
 
@@ -160,6 +174,7 @@ class FrameShapeTests(unittest.TestCase):
         self.assertEqual(body[5 + 4], 0x44)
 
 
+@CLIENT_IMAGE.skip_unless_present()  # setUpClass imports the verifier
 class AccountIsAVariableTests(unittest.TestCase):
     """Conclusion 4 - the answer to G8, restated as executable statements."""
 
@@ -215,6 +230,7 @@ class AccountIsAVariableTests(unittest.TestCase):
             self.tool.encode_hex_argument("ก")     # > 0xFF account character
 
 
+@CLIENT_IMAGE.skip_unless_present()  # setUpClass imports the verifier
 class CorpusTests(unittest.TestCase):
     """The corpus half of G8, and the numbers GT-020 is expected to move."""
 

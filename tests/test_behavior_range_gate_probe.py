@@ -7,6 +7,10 @@ from pathlib import Path
 import capstone
 import pefile
 
+# The proprietary client binaries in ../GameClient can never be in a fresh
+# clone; only the tests that read them are guarded.  See tests/pf_preconditions.py.
+from pf_preconditions import CLIENT_IMAGE
+
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("pf_behavior_range_gate_probe", ROOT / "tools/pf_behavior_range_gate_probe.py")
 P = importlib.util.module_from_spec(SPEC)
@@ -26,6 +30,11 @@ class BehaviorRangeGateProbeTests(unittest.TestCase):
         }
         base.update(shapes[kind]); base.update(fields); return base
 
+    # guard_binary and the relocation scan read GameClient.bin from the
+    # proprietary install tree AND the patched local image; the local image
+    # lives inside that tree, so client_image is the stricter single key.
+    # See tests/pf_preconditions.py.
+    @CLIENT_IMAGE.skip_unless_present()
     def test_profiles_guards_instructions_and_relocations(self):
         original = self.config(); local = self.config("pf_behavior_range_gate_probe_local_config.json")
         self.assertEqual(original["hooks"], local["hooks"])
@@ -121,6 +130,9 @@ class BehaviorRangeGateProbeTests(unittest.TestCase):
         self.assertIn("_consumer.finalize_capture(state, script, session)", launcher)
         self.assertNotIn("session.detach()", launcher)
 
+    # validate_output_path resolves the client with strict=True, so it needs the
+    # proprietary local image on disk.  See tests/pf_preconditions.py.
+    @CLIENT_IMAGE.skip_unless_present()
     def test_output_confined(self):
         client = ROOT.parent / "GameClient/GameClient.local.bin"; config = ROOT / "tools/pf_behavior_range_gate_probe_local_config.json"
         safe = P.DEFAULT_CAPTURE_ROOT / "capture.jsonl"

@@ -46,6 +46,10 @@ from pathlib import Path
 import capstone
 import pefile
 
+# The proprietary client image cannot be in a fresh clone; every test that
+# reads it is guarded below.  See tests/pf_preconditions.py.
+from pf_preconditions import CLIENT_IMAGE
+
 ROOT = Path(__file__).resolve().parents[1]
 BINARY = ROOT.parent / "GameClient" / "GameClient.local.bin"
 BINARY_SHA = "9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623"
@@ -175,17 +179,22 @@ def _decode_movement_wire(w: bytes):
 class RemoteMovementProjectionStaticTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.pe = pefile.PE(str(BINARY), fast_load=True)
+        # Only parse the PE when the client image exists; the two server/wire
+        # tests below must still run without it.  See tests/pf_preconditions.py.
+        cls.pe = pefile.PE(str(BINARY), fast_load=True) if CLIENT_IMAGE.present else None
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_binary_hash_is_the_pinned_client(self):
         self.assertEqual(hashlib.sha256(BINARY.read_bytes()).hexdigest().upper(), BINARY_SHA)
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_spans_are_byte_identical(self):
         for label, (start, end, expected) in SPANS.items():
             data = _read_va(self.pe, start, end)
             self.assertEqual(len(data), end - start, label)
             self.assertEqual(hashlib.sha256(data).hexdigest().upper(), expected, label)
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_identity_name_and_single_registration(self):
         self.assertEqual(_read_va(self.pe, NAME_VA, NAME_VA + 13), b"MovementAttr\x00")
         self.assertEqual(
@@ -193,6 +202,7 @@ class RemoteMovementProjectionStaticTests(unittest.TestCase):
             "6840e8f000e8662cccff8bc8e8df28ccff66a3a8340301c3",
         )
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_class_id_is_runtime_assigned(self):
         # 0x2067 never appears as a code immediate (rel32 tails excluded)
         self.assertEqual(_dword_immediate_hits(self.pe, CLASS_ID), [])
@@ -201,6 +211,7 @@ class RemoteMovementProjectionStaticTests(unittest.TestCase):
         self.assertEqual(_pattern_sites(self.pe, "66a1" + struct.pack("<I", ID_SLOT).hex()), [GETID])
         self.assertEqual(_read_va(self.pe, GETID, GETID + 7).hex(), "66a1a8340301c3")
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_class_token_used_by_three_downcast_consumers(self):
         # the MovementAttr is-a reference is pushed at exactly the three consumers
         # that must downcast an incoming attr before touching its fields.
@@ -209,6 +220,7 @@ class RemoteMovementProjectionStaticTests(unittest.TestCase):
             [0x465466, DELTA + 0x1A, APPLY + 0x15],
         )
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_vtable_slots(self):
         slot = lambda off: struct.unpack("<I", _read_va(self.pe, VTABLE + off, VTABLE + off + 4))[0]
         self.assertEqual(slot(0x08), 0x401B20)  # shared framework const cohort
@@ -218,10 +230,12 @@ class RemoteMovementProjectionStaticTests(unittest.TestCase):
         self.assertEqual(slot(0x30), APPLY)     # apply/merge
         self.assertEqual(slot(0x34), SERIAL)    # Serial
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_reset_primes_full_mask(self):
         # mov al,0xff; mov [ecx+0x20],al; mov [ecx+0x4c],al; ret
         self.assertEqual(_read_va(self.pe, RESET, RESET + 9).hex(), "b0ff88412088414cc3")
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_wire_schema_header_and_serial(self):
         # codec 0x89A600 signature: stdcall(tag, ptr, width) ret 0xC
         self.assertEqual(_read_va(self.pe, 0x89A63D, 0x89A640), bytes([0xC2, 0x0C, 0x00]))
@@ -254,6 +268,7 @@ class RemoteMovementProjectionStaticTests(unittest.TestCase):
         self.assertEqual(ser[0x467275], ("add", "esi, 0x48"))
         self.assertEqual(ser[0x467285], ("ret", "8"))
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_projection_apply_merge_is_mask_gated(self):
         m = _instructions(self.pe, APPLY, APPLY + 0x90)
         # downcast guard
@@ -279,6 +294,7 @@ class RemoteMovementProjectionStaticTests(unittest.TestCase):
         self.assertEqual(m[0x4671B4], ("fstp", "dword ptr [esi + 0x48]"))
         self.assertEqual(m[0x4671B9], ("ret", "4"))
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_delta_mask_sets_bit_per_differing_field(self):
         d = _instructions(self.pe, DELTA, DELTA + 0xF0)
         self.assertEqual(d[DELTA + 0x1A], ("push", "0x103346c"))

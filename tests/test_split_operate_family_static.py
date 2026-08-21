@@ -31,6 +31,10 @@ from pathlib import Path
 import capstone
 import pefile
 
+# The proprietary client image cannot be in a fresh clone; every test that
+# reads it is guarded below.  See tests/pf_preconditions.py.
+from pf_preconditions import CLIENT_IMAGE
+
 ROOT = Path(__file__).resolve().parents[1]
 BINARY = ROOT.parent / "GameClient" / "GameClient.local.bin"
 BINARY_SHA = "9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623"
@@ -87,17 +91,22 @@ def _callers_of(pe: pefile.PE, target: int) -> list[int]:
 class SplitOperateFamilyStaticTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.pe = pefile.PE(str(BINARY), fast_load=True)
+        # Only parse the PE when the client image exists; the server-source test
+        # below must still run without it.  See tests/pf_preconditions.py.
+        cls.pe = pefile.PE(str(BINARY), fast_load=True) if CLIENT_IMAGE.present else None
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_binary_hash_is_the_pinned_client(self):
         self.assertEqual(hashlib.sha256(BINARY.read_bytes()).hexdigest().upper(), BINARY_SHA)
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_spans_are_byte_identical(self):
         for label, (start, end, expected) in SPANS.items():
             data = _read_va(self.pe, start, end)
             self.assertEqual(len(data), end - start, label)
             self.assertEqual(hashlib.sha256(data).hexdigest().upper(), expected, label)
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_op6_factory_operation_and_calling_contract(self):
         # operation immediate = 6; value32=3rd arg (handle); qword=(1st,2nd args)=qty; ret 0xC
         self.assertEqual(_read_va(self.pe, 0x59F895, 0x59F899), bytes([0xC6, 0x40, 0x14, 0x06]))
@@ -107,9 +116,11 @@ class SplitOperateFamilyStaticTests(unittest.TestCase):
         self.assertEqual(o6[0x59F89C], ("mov", "dword ptr [eax + 0x24], ecx"))  # qword high = qty high
         self.assertEqual(_read_va(self.pe, 0x59F8AB, 0x59F8AE), bytes([0xC2, 0x0C, 0x00]))  # ret 0xC
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_op6_has_exactly_four_call_sites(self):
         self.assertEqual(_callers_of(self.pe, OP6_FACTORY), OP6_SITES)
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_op4_and_op3_have_one_call_site_each(self):
         # cross-check: the move producer is reached from the single verb-2 site,
         # op3 from a single site — so op6's four sites are a real family, not an
@@ -117,6 +128,7 @@ class SplitOperateFamilyStaticTests(unittest.TestCase):
         self.assertEqual(_callers_of(self.pe, OP4_FACTORY), [0x005A3491])
         self.assertEqual(_callers_of(self.pe, OP3_FACTORY), [0x005B9D0C])
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_dispatcher_is_one_contiguous_function(self):
         # prologue + no int3 boundary through the op6 site + next prologue at DISP_END
         self.assertEqual(_read_va(self.pe, 0x5A2A70, 0x5A2A7D).hex(), "558bec83e4f86aff68d7afb900")
@@ -130,6 +142,7 @@ class SplitOperateFamilyStaticTests(unittest.TestCase):
                 break
         self.assertEqual(nxt, DISP_END)
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_exactly_one_op6_site_is_the_inventory_verb0x16(self):
         # op4-move (verb 2) is inside the dispatcher; exactly one op6 site is too,
         # and it is verb 0x16. The other three op6 sites are outside.
@@ -137,6 +150,7 @@ class SplitOperateFamilyStaticTests(unittest.TestCase):
         inside = [s for s in OP6_SITES if DISP_START <= s < DISP_END]
         self.assertEqual(inside, [VERB16_OP6_SITE])
 
+    @CLIENT_IMAGE.skip_unless_present()
     def test_verb0x16_opens_positive_quantity_dialog_then_op6(self):
         self.assertEqual(_read_va(self.pe, 0x5A349B, 0x5A349E), bytes([0x83, 0xF8, 0x16]))  # cmp eax,0x16
         self.assertEqual(_read_va(self.pe, 0x5A34D7, 0x5A34E2).hex(), "c784248001000012000000")  # dlg res 0x12

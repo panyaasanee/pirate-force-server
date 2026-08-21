@@ -35,6 +35,10 @@ TOOL = ROOT / "tools" / "verify_delete_refresh_static.py"
 CLIENT = ROOT.parent / "GameClient" / "GameClient.local.bin"
 CLIENT_SHA = "9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623"
 
+# The skip reason must carry the [precondition:...] token - see tests/pf_preconditions.py.
+sys.path.insert(0, str(ROOT / "tests"))
+from pf_preconditions import CLIENT_IMAGE  # noqa: E402
+
 sys.path.insert(0, str(ROOT / "src"))
 from pirateforce_foundation.delete_refresh_hypothesis import (  # noqa: E402
     CLIENT_SHA256,
@@ -52,9 +56,7 @@ def _load_tool():
     return module
 
 
-@unittest.skipUnless(
-    CLIENT.is_file(), "read-only client image is not available in this checkout",
-)
+@CLIENT_IMAGE.skip_unless_present()
 class DeleteRefreshStaticTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
