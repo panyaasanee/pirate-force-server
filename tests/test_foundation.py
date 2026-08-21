@@ -13,6 +13,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "tests"))
+
+# One test below reads the original schema out of git history, which a shallow
+# clone does not carry.  Round 118 measured that as a hard failure on an
+# untouched main.  See tests/pf_preconditions.py.
+from pf_preconditions import (  # noqa: E402
+    ORIGINAL_SCHEMA_COMMIT,
+    ORIGINAL_SCHEMA_HISTORY,
+)
+
 from pirateforce_foundation.actor_wire import read_identity, read_selector
 from pirateforce_foundation.legacy_bridge import LegacyProjector, load_legacy
 from pirateforce_foundation.lifecycle import CharacterLifecycle
@@ -242,9 +252,14 @@ class FoundationTests(unittest.TestCase):
             SQLiteStore(good_db, good_dir).migrate()
 
     def test_upgrade_from_original_foundation_schema(self):
+        # The original schema exists only in git history, so this test needs a
+        # clone deep enough to hold it.  On a shallow clone the git call used
+        # to die with a bare CalledProcessError, which reads as "main is red"
+        # when nothing is wrong with main at all.  See tests/pf_preconditions.py.
+        ORIGINAL_SCHEMA_HISTORY.require(self)
         legacy_db = Path(self.tmp.name) / "legacy.sqlite3"
         original_sql = subprocess.run(
-            ["git", "show", "5c200e2:migrations/001_initial.sql"],
+            ["git", "show", ORIGINAL_SCHEMA_COMMIT + ":migrations/001_initial.sql"],
             cwd=ROOT, check=True, capture_output=True, text=True,
         ).stdout
         db = sqlite3.connect(legacy_db)

@@ -272,14 +272,18 @@ def main():
     lines = []
     lines.append("PYTEST SKIP CENSUS - %d skip(s) on this machine" % total)
     lines.append("  modules excluded from the selection: %d" % len(excluded))
+    # Width from the longest key rather than a constant: round 118 added
+    # original_schema_history (23 characters) and the hand-picked 18 turned the
+    # table the gate pastes into GITHUB_STEP_SUMMARY into a ragged list.
+    width = max([len(key) for key in REGISTRY] + [18])
     lines.append("  artifacts this machine has:")
     for key in sorted(REGISTRY):
-        lines.append("    %-18s %s" % (
-            key, "present" if REGISTRY[key].present else "ABSENT"))
+        lines.append("    %-*s %s" % (
+            width, key, "present" if REGISTRY[key].present else "ABSENT"))
     if observed_pre:
         lines.append("  skipped for a declared precondition:")
         for (key, module), count in sorted(observed_pre.items()):
-            lines.append("    %-18s %-52s x%d" % (key, module, count))
+            lines.append("    %-*s %-52s x%d" % (width, key, module, count))
     if observed_design:
         lines.append("  skipped by design (not a missing artifact):")
         for (reason, module), count in sorted(observed_design.items()):
