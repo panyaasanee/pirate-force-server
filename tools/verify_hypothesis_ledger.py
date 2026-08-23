@@ -331,7 +331,31 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # pending the GT-034 attended verdict.  No spawn, no splice, no write, no
 # runtime change; count moves 38 -> 39 and no earlier entry is touched.
 # No coverage row grade moves on it.)
-CANONICAL_CONTENT_SHA256 = "41D132EF09D71A784AE825B570940355BCF99488257101F530E4C2DB7F8AC725"
+# -> 2CBF3F72.. (2026-08-23, cloud round 123: FOUR evidence_gap AMENDMENTS,
+# no entry added or removed, count stays 39, no status/kind/checkpoint moves,
+# recording the first attended results delivered against four lanes in the
+# overnight big round of 2026-08-22/23 (+07:00), each consumed from the
+# tester's own notes in pf_bridge/notes_to_chief/:
+# HYP-PF-024 -- GT-038 A/B PASS: the figure renders with AND without target
+# selection (red 379 untargeted arm, red 63 plus reaction 63 targeted arm),
+# selection is not a necessary condition, exactly the round-102 static
+# prediction; HYP-PF-027 -- GT-032 passed earlier (big round 12) and GT-043
+# measured that the red outline/target panel surfaces only AFTER Tab-select,
+# not from the hostility frame alone; HYP-PF-030 -- GT-041 ran 122 reports,
+# zero over budget, so the refusal branch stayed unexercised while last-wire
+# -wins persistence proved client-tolerated (relog returns to the last wire
+# position, 2187.65 units short of the local-only position); HYP-PF-031 --
+# GT-033 variant C delivered the unsolicited 0x709E to a runtime-ready
+# client and NOTHING persistent happened, the measured outcome matching the
+# round-100 static reading for this state.  Every amendment narrows an
+# evidence gap with a measured attended fact and widens nothing; the round's
+# adversarial reviewer then tightened two phrasings before commit -- the
+# GT-043 blind window is 0-3.524 s of any duration, not "sub-second", and
+# the GT-038 boot was HEAD-with-clean-worktree whose green was established
+# retroactively through the GT-041 resolver, not a resolver-first boot --
+# and the pin is re-pinned so the ledger cannot drift silently, not so it
+# can never learn.)
+CANONICAL_CONTENT_SHA256 = "2CBF3F729DC857B316F83C6E801D1647CE4F8C892100D91B0208161FA8D68247"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
