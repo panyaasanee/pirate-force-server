@@ -355,7 +355,24 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # retroactively through the GT-041 resolver, not a resolver-first boot --
 # and the pin is re-pinned so the ledger cannot drift silently, not so it
 # can never learn.)
-CANONICAL_CONTENT_SHA256 = "2CBF3F729DC857B316F83C6E801D1647CE4F8C892100D91B0208161FA8D68247"
+# -> 25C526E2.. (2026-08-23, cloud round 124: HYP-PF-032 appended --
+# GROUND-LOOT-001, the GT-045 render probe.  The first attended ground-drop
+# evidence ever held (frame measurement 2026-08-23: a loot object stood on
+# the ground 0.633 s with a floating label, vanishing in the same frame as
+# the green received-item chat line) says the client CAN draw such a thing;
+# the only shipped pipe for non-actor world-positioned records is RuntimeRes
+# derived bit 0x08 -> the 0x5F85B0 list, whose field table survived the
+# GT-042 adversarial re-derive, releasing encoder permission for exactly
+# those rows.  The new lane emits TWO pinned single-element frames (near
+# +30X and far +800X of the V135 placement) at the first TargetPos after
+# runtime ack, once per session, behind --ground-loot-hypothesis-scenario
+# only -- one element per frame because V43 measured ErrorData=28317 on a
+# combined multi-record derived-mask collection, and the round's adversary
+# flagged a count=2 draft as the likeliest way the attended run measures
+# the count instead of the rendering -- and claims nothing about rendering:
+# that is attended GT-045, and a wire-proven negative at both coordinates
+# retires the candidate as a complete answer.)
+CANONICAL_CONTENT_SHA256 = "58549E5BA14D7624694CDF2C8C78CF299BED2FD2BB575B3A72A9F06F21F9D860"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -533,6 +550,15 @@ EXPECTED_IDS = (
     # entry since HYP-PF-011 was: appending keeps every earlier entry index
     # stable for the index-based fixtures.
     "GEO-PF-006",
+    # HYP-PF-032 (GROUND-LOOT-001: the GT-045 bit-0x08 render probe -- two
+    # pinned single-element RuntimeRes derived-bit-0x08 frames of re-derived
+    # 0x5F85B0 shape at scene load, near and far of the V135 placement,
+    # behind --ground-loot-hypothesis-scenario only.  Whether the client
+    # draws anything for that list is the attended question; no capture has
+    # ever shown the original server using this bit.)  Appended at the end,
+    # after GEO-PF-006, to keep every earlier entry index stable for the
+    # index-based fixtures.
+    "HYP-PF-032",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -582,6 +608,7 @@ EXPECTED_META = {
         "protocol_hypothesis", "LOGOUT-CHAT-PUSH-001", "active",
     ),
     "GEO-PF-006": ("test_geometry", "HOSTILE-NATIVE-001", "harness_only"),
+    "HYP-PF-032": ("protocol_hypothesis", "GROUND-LOOT-001", "active"),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}
 STATUSES = {"active", "frozen", "retired", "harness_only", "expired_pending_decision"}

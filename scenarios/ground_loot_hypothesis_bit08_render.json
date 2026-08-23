@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "id": "ground_loot_hypothesis_bit08_render",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-032",
+  "entry": {
+    "flow": "full_writable_character",
+    "required_sequence": "selected_only",
+    "trigger": "first_target_pos_after_runtime_ack",
+    "emission": "two_single_element_runtimeres_derived_bit08_frames_v43_shape"
+  },
+  "elements": [
+    {
+      "element_key": 1,
+      "payload_dword": 2600001,
+      "position": {"x": -9209.95703125, "y": -2830.045166015625, "z": 223.29209899902344},
+      "coordinate_provenance": "v135_default_boot_placement_plus_30x_same_y_same_z"
+    },
+    {
+      "element_key": 2,
+      "payload_dword": 2600001,
+      "position": {"x": -8439.95703125, "y": -2830.045166015625, "z": 223.29209899902344},
+      "coordinate_provenance": "v135_default_boot_placement_plus_800x_same_y_same_z"
+    }
+  ],
+  "frame_pins": {
+    "pc_size_each": 44,
+    "frame_size_each": 54,
+    "near_pc_sha256": "A3570BC9185BEF70ABB3810448F6E3F605437B2F1BFAB1DF474882AD3661EA03",
+    "near_frame_sha256": "A9D4F13409DF636C40FEA7FE7DEA38DD542D09E140BB073FBDD367B5758A5AE0",
+    "far_pc_sha256": "4B14A026763F53FFD65210C2F2BCC0122B096A6877455C84DAAED71366F07F3A",
+    "far_frame_sha256": "B13942BBCC933B4E135BCD40FE0C3D39B4EF053C31892F1F8EC929F702223989"
+  },
+  "capabilities": [
+    "emit_two_single_element_runtimeres_derived_bit08_frames_at_scene_load"
+  ],
+  "nonclaims": [
+    "bit08_list_is_ground_loot",
+    "payload_dword_is_an_item_template_id",
+    "client_renders_anything_for_bit08",
+    "drawing_implies_pickup",
+    "bit08_entry_lifetime_or_removal",
+    "original_server_ever_sent_bit08",
+    "unit_of_measure_of_client_world_coordinates",
+    "production_baseline_behavior"
+  ]
+}

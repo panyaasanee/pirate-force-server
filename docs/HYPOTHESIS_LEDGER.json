@@ -3011,6 +3011,84 @@
     }
    ],
    "authentic": false
+  },
+  {
+   "id": "HYP-PF-032",
+   "kind": "protocol_hypothesis",
+   "introduced_checkpoint": "GROUND-LOOT-001",
+   "exact_value_or_transform": "Behind the explicit ground-loot opt-in scenario only (scenarios/ground_loot_hypothesis_bit08_render.json, id ground_loot_hypothesis_bit08_render, loaded through --ground-loot-hypothesis-scenario, which requires an explicit existing --db and is mutually exclusive with every other scenario mode), emit TWO extra GSCN_RunTimeProtocolRes frames at the house scene-load moment (first exact TargetPos after the runtime ack), exactly once per session, ONE element per frame: each frame is msg id 0x6E9D, version 4, inherited VitalData mask 0, DERIVED change-mask bit 0x08 (the one unexamined sub-object at client +0x20 whose parser is VA 0x5F85B0), then the re-derived 0x5F85B0 list shape with tag12 u16 count 1 and one element -- tag14 u32 key (+0x10), tag0B u8 dirty mask 0x12 (position 0x10 + dword 0x02), tag14 u32 payload dword 2600001, and three tag2A f32 world coordinates. Single-element frames are deliberate, not convenience: V43 measured a real client raising ErrorData=28317 on a combined multi-record derived-mask RuntimeRes collection, and the shipped fix (make_port_royal_npc_single_packets) is one record per frame; the round-124 adversarial review flagged a count=2 draft as the likeliest way the attended run measures the count instead of the rendering, and the draft was reshaped before commit. Element 1 sits 30 units +X of the V135 default-boot player placement, element 2 sits 800 units +X, both on the player's own Y/Z, so an attended tester can tell does-not-draw apart from draws-off-screen. Each pc is 44 bytes and each frame 54 bytes, pinned per element in the composer (near pc sha256 A3570BC9185BEF70ABB3810448F6E3F605437B2F1BFAB1DF474882AD3661EA03 / frame A9D4F13409DF636C40FEA7FE7DEA38DD542D09E140BB073FBDD367B5758A5AE0; far pc 4B14A026763F53FFD65210C2F2BCC0122B096A6877455C84DAAED71366F07F3A / frame B13942BBCC933B4E135BCD40FE0C3D39B4EF053C31892F1F8EC929F702223989), which re-asserts them and the V135_PLAYER_* baseline before any byte can be queued and raises on drift; a compose refusal at dispatch is the named no-reply event ground_loot_compose_refused_no_reply and latches the one-shot so drift can never retry itself onto the wire. The frames RIDE ALONGSIDE the inherited dispatch of the triggering TargetPos (appended after super()'s actions, near at 0.0 then far at 0.10 s), so the frozen population and the position checkpoint stay byte-for-byte untouched.",
+   "scope": "Server-side emission of the two pinned single-element bit-0x08 frames to the ONE connected client, behind the one opt-in scenario only, only at the first exact TargetPos after runtime ack from a runtime-ready session (selected character, teleport_sent and runtime_ack_sent both set, durable TargetPos parse), exactly once per session. The lane writes no database row of its own, takes no socket action, schedules no timer, reads no request byte beyond the shared TargetPos parse the baseline already performs, and composes nothing when the scenario is absent. The envelope is restated from the proven sibling encoder make_runtime_remote_actors (bit 0x02); only the derived mask byte and the list body differ.",
+   "status": "active",
+   "provenance": "Opened 2026-08-23 (chief cloud round 124) under the owner's standing pre-approval for newly found gameplay functions under the standard pattern (opt-in, production_allowed false, fail closed, ledger/verifier binding, headless proof), on the first ground-drop evidence this project has ever held: the attended frame measurement of 2026-08-23 (notes 20260823_0800) proves the real client CAN draw a loot object standing on the ground for 0.633 s with a floating name label, and GT-040/GT-042 static work (adversarially re-derived, span [0x005F85B0,0x005F8869) sha256 ce0a58f7..) proves derived bit 0x08 is the one shipped pipe for non-actor records that carry a world position. Whether the client RENDERS anything for that pipe is exactly the queued attended test GT-045, which this lane exists to unblock. The 0x5F85B0 field table survived GT-042 re-derive from both the write path 0x89A600 and the read path 0x89A640; the encoder permission for surviving rows was released by GT-042 PASS (chief round 123).",
+   "evidence_refs": [
+    "scenarios/ground_loot_hypothesis_bit08_render.json",
+    "tests/test_ground_loot_hypothesis.py",
+    "tests/test_ground_loot_dispatch.py",
+    "tools/pf_ground_loot_headless_replay.py"
+   ],
+   "accepted_ceiling": "Emitting the exact two pinned 44-byte pc / 54-byte frames, exactly once, behind the explicit opt-in only. The ceiling is the WIRE and DISPATCHER layer: the frames are proven to leave the real make_state_class dispatcher on a throwaway copy of the database as two appended actions (0.0 and 0.10 s) with no socket action, re-read from the dispatched bytes by an independent tag walker inside tools/pf_ground_loot_headless_replay.py that never asks the module to decode. It does NOT reach the client layer by one millimetre: no claim that the client parses, keeps, draws or ages the two elements is made here.",
+   "evidence_gap": "NO CLIENT HAS EVER BEEN SHOWN A BIT-0x08 FRAME by this project, and bit 0x08 = ground loot is UNPROVEN: the list is only proven to carry non-actor records with a world position, and could be markers, waypoints, FX anchors or anything else. The payload dword is NOT known to be an item template id (no committed artifact maps the one observed drop, Red leaves Hammer, to any numeric id; 2600001 is a loot-roller-style placeholder). Whether the client renders anything, at which distances, and whether an entry persists or expires is exactly attended test GT-045, WHICH HAS NOT RUN. A wire-proven attended NEGATIVE at both coordinates permanently retires this candidate and is a complete answer, not a failure. This lane has never been driven through a real server process over TCP: the proof stops at the dispatcher.",
+   "falsification": "Retire or redesign this lane if a real client rejects or errors on either frame (an ErrorData=28317 stream error falsifies the envelope or the list shape for this delivery even in the V43-safe single-record form), if the emitted bytes ever stop reproducing the pinned pcs/frames, or if this lane is ever observed to write any database row, take any socket action, emit more than the two frames per session, or emit with the scenario absent. A client that receives the frames but draws nothing does not falsify the wire claim -- it answers GT-045 in the negative and is recorded as a result, not a failure.",
+   "stop_rule": "Emit only the two pinned single-element frames, only at the first exact TargetPos after runtime ack, only once per session, only behind the one opt-in scenario file. What is forbidden is WIDENING: more elements or frames, a multi-element count in one frame (the V43-rejected shape), other element masks (0x04/0x08/0x20 fields stay unsent), another derived bit, any nonzero inherited mask, any database write, any socket action, a removal/update frame, a production or default-mode path, or a second coordinate profile is a NEW VERSION of this entry -- two tracked slots remain -- or a new entry. Do not enable production exposure. Do not move the npc_interaction/monster_spawn_and_loot coverage row on the strength of this lane: sending a candidate frame proves no loot behavior, and the row stays not_started until an attended result exists. Stop and record if GT-045 shows the client drawing, which would upgrade bit 0x08 from candidate to confirmed and redirect the ground-loot investigation onto entry lifetime and pickup (GT-046).",
+   "production_allowed": false,
+   "expiry": {
+    "tracked_versions": [
+     "GROUND-LOOT-001"
+    ],
+    "decision": "Opened 2026-08-23 under the owner's standing gameplay pre-approval; one version is tracked because one round built the whole lane (module + scenario + app/runtime wiring + tests + headless replay) at once. Proven offline and through the real dispatcher on a throwaway database copy; never driven over TCP and never seen by a client. TWO versions of the three remain. Confirm the client-observable layer as the queued attended test GT-045 -- does the client draw anything at either coordinate -- before any retire, freeze or extend decision, and do not move any coverage row grade until it has run."
+   },
+   "max_versions": 3,
+   "extension_approval_ref": null,
+   "source_refs": [
+    {
+     "path": "src/pirateforce_foundation/ground_loot_hypothesis.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-032 active",
+      "GROUND_LOOT_CHECKPOINT = \"GROUND-LOOT-001\"",
+      "ground_loot_hypothesis_bit08_render",
+      "GROUND_LOOT_DERIVED_BIT = 0x08",
+      "bit08_list_is_ground_loot",
+      "payload_dword_is_an_item_template_id",
+      "production_allowed = False"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "src/pirateforce_foundation/runtime.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-032 active",
+      "GROUND_LOOT_BIT08_RENDER_NEAR_ONCE",
+      "GROUND_LOOT_BIT08_RENDER_FAR_ONCE",
+      "hyp_pf_032_ground_loot_bit08_pair_committed",
+      "ground_loot_compose_refused_no_reply",
+      "self.ground_loot_pair_sent = False",
+      "require_ground_loot_hypothesis_scenario"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "src/pirateforce_foundation/app.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-032 active",
+      "--ground-loot-hypothesis-scenario requires an explicit ",
+      "load_ground_loot_hypothesis_scenario",
+      "ground_loot_hypothesis_scenario=ground_loot_hypothesis"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "scenarios/ground_loot_hypothesis_bit08_render.json",
+     "required_markers": [
+      "\"hypothesis_id\": \"HYP-PF-032\"",
+      "\"production_allowed\": false",
+      "\"test_only\": true",
+      "client_renders_anything_for_bit08",
+      "original_server_ever_sent_bit08",
+      "first_target_pos_after_runtime_ack"
+     ],
+     "active_claim_marker": false
+    }
+   ]
   }
  ]
 }
