@@ -1,7 +1,10 @@
 """Governed designed echo-ack for the chat input frame ``UNKNOWN_0xAC52``.
 
-The vital id 0xAC52 (44114) is unknown to the server registry; the only name
-this module uses for it is the proven UI action behind it: GT-006 (grade B,
+The vital id 0xAC52 (44114) is absent from the v141 registry; the project
+names table has since resolved it to ``Channel_LocalTalkMessageVital``
+(``docs/PF_VITAL_NAMES.json``, RESOLVE-001).  This module keeps its
+capture-era identifier ``UNKNOWN_0xAC52`` and stands on the proven UI action
+behind it: GT-006 (grade B,
 ``reports/PF_GT006_CHAT_INPUT_UNKNOWN_FRAME_WIRE_CAPTURE_20260817.md``)
 captured that typing an ASCII message into the client's chat box and pressing
 Enter emits exactly one 34-byte payload vital id 0xAC52, version 0,

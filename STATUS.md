@@ -69,9 +69,10 @@ short of `complete`. A narrow fixture, golden, or single controlled run earns
 - **Chat: INCOMPLETE** — next missing behavior: `client_chat_input`. The
   server-originated system message is observed, emitted by the frozen legacy seam
   rather than owned by a Foundation module. One client chat request is now
-  captured — an undecoded 34-byte vital `0xAC52` unknown to the server registry
-  that nothing dispatches or answers — and routing, persistence and moderation
-  are not started.
+  captured — an undecoded 34-byte vital `0xAC52`, absent from the v141 registry
+  and since resolved to `Channel_LocalTalkMessageVital` by the project names
+  table (RESOLVE-001), that nothing dispatches or answers — and routing,
+  persistence and moderation are not started.
 - **NPC interaction: INCOMPLETE** — next missing behavior:
   `quest_accept_and_progress`. The conversation handshake and one operation/action
   docking sequence are `runtime_pass`; quest state, shop transactions, and monster
