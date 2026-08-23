@@ -79,34 +79,63 @@ DERIVED_BIT = 0x08
 ELEMENT_MASK = 0x12
 PC_SIZE = 44
 FRAME_SIZE = 54
-NEAR_PC_SHA = (
-    "A3570BC9185BEF70ABB3810448F6E3F605437B2F1BFAB1DF474882AD3661EA03"
+# Masked-template pins: sha256 over the 44-byte pc with the twelve
+# coordinate payload bytes zeroed.  Coordinates are trigger-relative since
+# the attended GT-045 run measured the persisted DB position ~700 units
+# away from the V135 constants the first version pinned absolutes from.
+COORD_SPANS = ((30, 34), (35, 39), (40, 44))
+NEAR_PC_TEMPLATE_SHA = (
+    "915331D5103215675E246B0011B054C9D4F7D2C4D48C8E2B010A45C3D0F5FC33"
 )
-NEAR_FRAME_SHA = (
-    "A9D4F13409DF636C40FEA7FE7DEA38DD542D09E140BB073FBDD367B5758A5AE0"
+FAR_PC_TEMPLATE_SHA = (
+    "DC6A8FE62BC2C89B92AFA8060D2CEC5DCCDF23D81A242F95AA354C5BD48F8A14"
 )
-FAR_PC_SHA = (
-    "4B14A026763F53FFD65210C2F2BCC0122B096A6877455C84DAAED71366F07F3A"
+# The 54-byte frame is the content-independent 10-byte snappy-literal
+# header + the pc, so the frame template zeroes the same spans shifted +10.
+FRAME_COORD_SHIFT = 10
+NEAR_FRAME_TEMPLATE_SHA = (
+    "199B695E6FD30D26140D5EB719A6F526EAD199141A2B84BBF990CB6AD9DDC9D2"
 )
-FAR_FRAME_SHA = (
-    "B13942BBCC933B4E135BCD40FE0C3D39B4EF053C31892F1F8EC929F702223989"
+FAR_FRAME_TEMPLATE_SHA = (
+    "D8A0BD6BC857A8508D09A550814FC1685F0388F8650F028482A20EB5785EDCE1"
 )
 NEAR_LABEL = "GROUND_LOOT_BIT08_RENDER_NEAR_ONCE"
 FAR_LABEL = "GROUND_LOOT_BIT08_RENDER_FAR_ONCE"
 LANE_LABELS = (NEAR_LABEL, FAR_LABEL)
 PAIR_EVENT = "hyp_pf_032_ground_loot_bit08_pair_committed"
 # The frozen profile's two elements, restated here so the walker's element
-# comparison shares nothing with the module: key, payload dword, x, y, z.
-# One frame per element -- near first, far second.
+# comparison shares nothing with the module: key, payload dword, x_offset
+# added to the triggering TargetPos x.  One frame per element -- near
+# first, far second.
 EXPECTED_ELEMENTS = (
-    (1, 2600001, -9209.95703125, -2830.045166015625, 223.29209899902344),
-    (2, 2600001, -8439.95703125, -2830.045166015625, 223.29209899902344),
+    (1, 2600001, 30.0),
+    (2, 2600001, 800.0),
 )
 EXPECTED_DELAYS = (0.0, 0.10)
-EXPECTED_SHAS = (
-    (NEAR_PC_SHA, NEAR_FRAME_SHA),
-    (FAR_PC_SHA, FAR_FRAME_SHA),
+EXPECTED_TEMPLATE_SHAS = (NEAR_PC_TEMPLATE_SHA, FAR_PC_TEMPLATE_SHA)
+EXPECTED_FRAME_TEMPLATE_SHAS = (
+    NEAR_FRAME_TEMPLATE_SHA, FAR_FRAME_TEMPLATE_SHA,
 )
+
+
+def masked_pc_sha(pc: bytes) -> str:
+    masked = bytearray(pc)
+    for start, end in COORD_SPANS:
+        masked[start:end] = b"\x00" * (end - start)
+    return hashlib.sha256(bytes(masked)).hexdigest().upper()
+
+
+def masked_frame_sha(frame: bytes) -> str:
+    masked = bytearray(frame)
+    for start, end in COORD_SPANS:
+        masked[start + FRAME_COORD_SHIFT:end + FRAME_COORD_SHIFT] = (
+            b"\x00" * (end - start)
+        )
+    return hashlib.sha256(bytes(masked)).hexdigest().upper()
+
+
+def f32_exact(value: float) -> float:
+    return struct.unpack("<f", struct.pack("<f", float(value)))[0]
 
 
 class WalkError(ValueError):
@@ -254,17 +283,23 @@ def main() -> int:
           and ELEMENT_MASK == G.GROUND_LOOT_ELEMENT_MASK
           and PC_SIZE == G.GROUND_LOOT_PC_SIZE
           and FRAME_SIZE == G.GROUND_LOOT_FRAME_SIZE
-          and NEAR_PC_SHA == G.GROUND_LOOT_NEAR_PC_SHA256
-          and NEAR_FRAME_SHA == G.GROUND_LOOT_NEAR_FRAME_SHA256
-          and FAR_PC_SHA == G.GROUND_LOOT_FAR_PC_SHA256
-          and FAR_FRAME_SHA == G.GROUND_LOOT_FAR_FRAME_SHA256)
+          and COORD_SPANS == G.GROUND_LOOT_COORD_SPANS
+          and FRAME_COORD_SHIFT == G.GROUND_LOOT_FRAME_COORD_SHIFT
+          and NEAR_PC_TEMPLATE_SHA
+          == G.GROUND_LOOT_NEAR_PC_TEMPLATE_SHA256
+          and FAR_PC_TEMPLATE_SHA
+          == G.GROUND_LOOT_FAR_PC_TEMPLATE_SHA256
+          and NEAR_FRAME_TEMPLATE_SHA
+          == G.GROUND_LOOT_NEAR_FRAME_TEMPLATE_SHA256
+          and FAR_FRAME_TEMPLATE_SHA
+          == G.GROUND_LOOT_FAR_FRAME_TEMPLATE_SHA256)
     check("the scenario is the allowlisted HYP-PF-032 profile",
           scenario.hypothesis_id == "HYP-PF-032"
           and scenario.scenario_id == "ground_loot_hypothesis_bit08_render"
           and len(scenario.elements) == 2)
     check("this reader's frozen elements agree with the profile's",
           tuple(
-              (e.element_key, e.payload_dword, e.x, e.y, e.z)
+              (e.element_key, e.payload_dword, e.x_offset)
               for e in scenario.elements
           ) == EXPECTED_ELEMENTS)
 
@@ -328,10 +363,15 @@ def main() -> int:
             print("-- 2. the first exact TargetPos, two appended "
                   "single-element frames --")
         before = table_row_counts(db_path)
-        expected_frames = G.make_ground_loot_frames(legacy, scenario)
         position = state.foundation.selected.position
+        trigger_xyz = (
+            f32_exact(position.x), f32_exact(position.y),
+            f32_exact(position.z),
+        )
+        expected_frames = G.make_ground_loot_frames(
+            legacy, scenario, trigger_xyz)
         trigger = legacy.parse_outer(target_pos_pc(
-            legacy, position.x, position.y, position.z))
+            legacy, trigger_xyz[0], trigger_xyz[1], trigger_xyz[2]))
         actions = state.dispatch(trigger)
         ground = [a for a in actions if a[0] in LANE_LABELS]
 
@@ -357,16 +397,27 @@ def main() -> int:
               str([a[3] for a in ground]))
         check("no socket action rides any action",
               all(len(a) == 4 for a in actions))
-        check("each emitted pc and frame matches its size and sha256 pins",
+        check("each emitted pc and frame matches its size and "
+              "masked-template pin",
               len(ground) == 2 and all(
                   len(bytes(action[1])) == PC_SIZE
-                  and hashlib.sha256(bytes(action[1])).hexdigest().upper()
-                  == pc_sha
+                  and masked_pc_sha(bytes(action[1])) == pc_template
                   and len(bytes(action[2])) == FRAME_SIZE
-                  and hashlib.sha256(bytes(action[2])).hexdigest().upper()
-                  == frame_sha
-                  for action, (pc_sha, frame_sha)
-                  in zip(ground, EXPECTED_SHAS)
+                  and masked_frame_sha(bytes(action[2])) == frame_template
+                  for action, pc_template, frame_template
+                  in zip(ground, EXPECTED_TEMPLATE_SHAS,
+                         EXPECTED_FRAME_TEMPLATE_SHAS)
+              ))
+        check("each emitted pc carries trigger+offset coordinates, "
+              "byte-exact",
+              len(ground) == 2 and all(
+                  b"".join(bytes(action[1])[s:e] for s, e in COORD_SPANS)
+                  == struct.pack(
+                      "<fff",
+                      f32_exact(trigger_xyz[0] + x_offset),
+                      trigger_xyz[1], trigger_xyz[2])
+                  for action, (_key, _dword, x_offset)
+                  in zip(ground, EXPECTED_ELEMENTS)
               ))
         check("frame == frame_pc(pc) on both dispatched PCs",
               len(ground) == 2 and all(
@@ -382,7 +433,7 @@ def main() -> int:
             print("-- 3. the independent walker, byte zero to the end, both "
                   "frames --")
         walked = []
-        for ordinal, (key, dword, x, y, z) in enumerate(EXPECTED_ELEMENTS):
+        for ordinal, (key, dword, x_offset) in enumerate(EXPECTED_ELEMENTS):
             read = None
             error = ""
             try:
@@ -396,15 +447,15 @@ def main() -> int:
                   read is not None, error)
             if read is None:
                 continue
-            wire_xyz = tuple(
-                struct.unpack("<f", struct.pack("<f", value))[0]
-                for value in (x, y, z)
+            wire_xyz = (
+                f32_exact(trigger_xyz[0] + x_offset),
+                trigger_xyz[1], trigger_xyz[2],
             )
             check("walked frame %d: key %d, mask 0x12, dword %d"
                   % (ordinal, key, dword),
                   read["key"] == key and read["mask"] == ELEMENT_MASK
                   and read["dword"] == dword, str(read))
-            check("walked frame %d position equals the frozen coordinates"
+            check("walked frame %d position equals trigger+offset"
                   % ordinal,
                   read["position"] == wire_xyz, str(read))
 
@@ -425,6 +476,50 @@ def main() -> int:
         final = table_row_counts(db_path)
         check("NO table changed row count across the whole probe",
               final == before)
+
+        if not want_json:
+            print("-- 4b. a second session, a SHIFTED trigger: the frames "
+                  "must follow the trigger, not any constant --")
+        state2 = state_type("ground_loot_shift")
+        state2.dispatch(legacy.parse_outer(
+            legacy._synthetic_client_login_pc("ground_loot_shift")))
+        characters2 = store.list_characters(state2.foundation.account_id)
+        if not characters2:
+            created2 = state2.dispatch(
+                legacy.parse_outer(legacy._V25_REAL_CREATE_PC))
+            assert created2 and created2[0][0] == "FOUNDATION_CREATE_COMMITTED"
+            characters2 = store.list_characters(state2.foundation.account_id)
+        start2 = state2.dispatch(legacy.parse_outer(
+            legacy._synthetic_start_game_pc(characters2[-1].selector)))
+        assert start2
+        state2.runtime_ack_sent = True
+        shifted_xyz = (
+            f32_exact(trigger_xyz[0] + 1000.0),
+            f32_exact(trigger_xyz[1] - 250.0),
+            f32_exact(trigger_xyz[2] + 5.0),
+        )
+        actions2 = state2.dispatch(legacy.parse_outer(target_pos_pc(
+            legacy, shifted_xyz[0], shifted_xyz[1], shifted_xyz[2])))
+        ground2 = [a for a in actions2 if a[0] in LANE_LABELS]
+        check("the shifted trigger also emits exactly two frames",
+              len(ground2) == 2, str([a[0] for a in actions2]))
+        check("the shifted frames carry shifted-trigger+offset coordinates, "
+              "byte-exact (trigger-relative, not constant)",
+              len(ground2) == 2 and all(
+                  b"".join(bytes(action[1])[s:e] for s, e in COORD_SPANS)
+                  == struct.pack(
+                      "<fff",
+                      f32_exact(shifted_xyz[0] + x_offset),
+                      shifted_xyz[1], shifted_xyz[2])
+                  for action, (_key, _dword, x_offset)
+                  in zip(ground2, EXPECTED_ELEMENTS)
+              ))
+        check("the shifted frames still match the masked-template pins",
+              len(ground2) == 2 and all(
+                  masked_pc_sha(bytes(action[1])) == template_sha
+                  for action, template_sha
+                  in zip(ground2, EXPECTED_TEMPLATE_SHAS)
+              ))
 
         results.append({
             "action_labels": [a[0] for a in ground],
@@ -464,14 +559,16 @@ def main() -> int:
                   % (len(failures), failures))
         return 1
     if not want_json:
-        print("RESULT: PASS - the real dispatcher appends the two pinned "
-              "single-element bit-0x08 frames (near 0.0, far 0.10; count=1 "
-              "each, the V43-safe shape) exactly once after the inherited "
-              "actions of the first exact TargetPos, the independent walker "
-              "reads both frozen elements back from byte zero, nothing is "
-              "committed, the second TargetPos adds nothing, and the source "
-              "database is untouched (whether the client renders anything "
-              "is GT-045, attended, not run)")
+        print("RESULT: PASS - the real dispatcher appends the two "
+              "masked-template-pinned single-element bit-0x08 frames "
+              "(near 0.0, far 0.10; count=1 each, the V43-safe shape) "
+              "exactly once after the inherited actions of the first exact "
+              "TargetPos, coordinates are trigger+30X/+800X byte-exact and "
+              "follow a shifted trigger, the independent walker reads both "
+              "elements back from byte zero, nothing is committed, the "
+              "second TargetPos adds nothing, and the source database is "
+              "untouched (whether the client renders anything is GT-045, "
+              "attended, not run)")
     return 0
 
 

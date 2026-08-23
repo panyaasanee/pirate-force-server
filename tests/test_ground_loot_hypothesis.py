@@ -105,7 +105,7 @@ class GroundLootScenarioTests(unittest.TestCase):
         self.assertIn("exceeds_allowlist", str(caught.exception))
 
     def test_an_int_where_a_float_is_expected_is_refused(self):
-        tampered = self.body.replace('"x": -9209.95703125', '"x": -9209', 1)
+        tampered = self.body.replace('"x_offset": 30.0', '"x_offset": 30', 1)
         self.assertNotEqual(tampered, self.body)
         with self.assertRaises(ValueError) as caught:
             glh.load_ground_loot_hypothesis_scenario(self._write(tampered))
@@ -140,7 +140,7 @@ class GroundLootScenarioTests(unittest.TestCase):
             tuple(
                 glh.GroundLootElement(
                     element.element_key, element.payload_dword,
-                    element.x, element.y, element.z,
+                    element.x_offset,
                 )
                 for element in glh._BIT08_RENDER.elements
             ),
@@ -156,26 +156,41 @@ class GroundLootScenarioTests(unittest.TestCase):
 
 
 # The GT-042 re-derived element table, restated HERE so the composition test
-# below shares no code with the module's _element_wire: key 1 near the V135
-# spawn (+30 on X only), key 2 far (+800 on X only), both carrying the
-# OUR-DESIGN payload dword 2600001 under element mask 0x12 (position+dword).
-# Each element travels in its OWN frame, count=1 -- the V43 lesson.
+# below shares no code with the module's _element_wire: key 1 near the
+# TRIGGERING TargetPos (+30 on X only), key 2 far (+800 on X only), both
+# carrying the OUR-DESIGN payload dword 2600001 under element mask 0x12
+# (position+dword).  Coordinates are trigger-relative since the attended
+# GT-045 run measured the persisted DB position ~700 units away from the
+# V135 constants the first version pinned absolutes from.  Each element
+# travels in its OWN frame, count=1 -- the V43 lesson.
 EXPECTED_ELEMENTS = (
-    (1, 2600001, -9209.95703125, -2830.045166015625, 223.29209899902344),
-    (2, 2600001, -8439.95703125, -2830.045166015625, 223.29209899902344),
+    (1, 2600001, 30.0),
+    (2, 2600001, 800.0),
 )
-EXPECTED_PIN_PAIRS = (
-    ("A3570BC9185BEF70ABB3810448F6E3F605437B2F1BFAB1DF474882AD3661EA03",
-     "A9D4F13409DF636C40FEA7FE7DEA38DD542D09E140BB073FBDD367B5758A5AE0"),
-    ("4B14A026763F53FFD65210C2F2BCC0122B096A6877455C84DAAED71366F07F3A",
-     "B13942BBCC933B4E135BCD40FE0C3D39B4EF053C31892F1F8EC929F702223989"),
+# The GT-045-measured real spawn, used here as one concrete trigger.
+TRIGGER = (-8553.947265625, -2579.68896484375, 186.0)
+EXPECTED_TEMPLATE_PINS = (
+    "915331D5103215675E246B0011B054C9D4F7D2C4D48C8E2B010A45C3D0F5FC33",
+    "DC6A8FE62BC2C89B92AFA8060D2CEC5DCCDF23D81A242F95AA354C5BD48F8A14",
 )
+EXPECTED_FRAME_TEMPLATE_PINS = (
+    "199B695E6FD30D26140D5EB719A6F526EAD199141A2B84BBF990CB6AD9DDC9D2",
+    "D8A0BD6BC857A8508D09A550814FC1685F0388F8650F028482A20EB5785EDCE1",
+)
+COORD_SPANS = ((30, 34), (35, 39), (40, 44))
+FRAME_COORD_SHIFT = 10
 SNAPPY_MAGIC = 0x5F253EAC
 
 
-def independent_pc(element) -> bytes:
+def f32_exact(value: float) -> float:
+    return struct.unpack("<f", struct.pack("<f", float(value)))[0]
+
+
+def independent_pc(element, trigger) -> bytes:
     """One 44-byte single-element pc, from struct alone -- no module helper."""
-    key, dword, x, y, z = element
+    key, dword, x_offset = element
+    x = f32_exact(trigger[0] + x_offset)
+    y, z = f32_exact(trigger[1]), f32_exact(trigger[2])
     pc = bytearray()
     pc += b"\x12" + struct.pack("<H", 0x6E9D)   # msg id
     pc += b"\x14" + struct.pack("<I", 0)        # envelope u32
@@ -208,39 +223,80 @@ class GroundLootCompositionTests(unittest.TestCase):
         self.scenario = glh.load_ground_loot_hypothesis_scenario(SCENARIO_PATH)
 
     def test_the_composed_pcs_equal_the_independent_struct_rebuild(self):
-        frames = glh.make_ground_loot_frames(self.legacy, self.scenario)
+        frames = glh.make_ground_loot_frames(
+            self.legacy, self.scenario, TRIGGER)
         self.assertEqual(len(frames), 2)
         for (pc, frame), element in zip(frames, EXPECTED_ELEMENTS):
             with self.subTest(element_key=element[0]):
-                self.assertEqual(pc, independent_pc(element))
+                self.assertEqual(pc, independent_pc(element, TRIGGER))
                 self.assertEqual(frame, independent_frame(independent_pc(
-                    element)))
+                    element, TRIGGER)))
 
-    def test_all_six_pins_hold_on_the_composed_bytes(self):
-        frames = glh.make_ground_loot_frames(self.legacy, self.scenario)
+    def test_the_masked_template_pins_hold_on_the_composed_bytes(self):
+        frames = glh.make_ground_loot_frames(
+            self.legacy, self.scenario, TRIGGER)
         self.assertEqual(
-            EXPECTED_PIN_PAIRS,
-            (
-                (glh.GROUND_LOOT_NEAR_PC_SHA256,
-                 glh.GROUND_LOOT_NEAR_FRAME_SHA256),
-                (glh.GROUND_LOOT_FAR_PC_SHA256,
-                 glh.GROUND_LOOT_FAR_FRAME_SHA256),
-            ),
+            EXPECTED_TEMPLATE_PINS,
+            (glh.GROUND_LOOT_NEAR_PC_TEMPLATE_SHA256,
+             glh.GROUND_LOOT_FAR_PC_TEMPLATE_SHA256),
         )
-        for (pc, frame), (pc_sha, frame_sha) in zip(
-                frames, EXPECTED_PIN_PAIRS):
-            with self.subTest(pc_sha=pc_sha):
+        self.assertEqual(
+            EXPECTED_FRAME_TEMPLATE_PINS,
+            (glh.GROUND_LOOT_NEAR_FRAME_TEMPLATE_SHA256,
+             glh.GROUND_LOOT_FAR_FRAME_TEMPLATE_SHA256),
+        )
+        self.assertEqual(COORD_SPANS, glh.GROUND_LOOT_COORD_SPANS)
+        self.assertEqual(
+            FRAME_COORD_SHIFT, glh.GROUND_LOOT_FRAME_COORD_SHIFT)
+        for (pc, frame), template_sha, frame_template_sha in zip(
+                frames, EXPECTED_TEMPLATE_PINS,
+                EXPECTED_FRAME_TEMPLATE_PINS):
+            with self.subTest(template_sha=template_sha):
                 self.assertEqual(len(pc), glh.GROUND_LOOT_PC_SIZE)
                 self.assertEqual(len(pc), 44)
-                self.assertEqual(_sha(pc), pc_sha)
+                masked = bytearray(pc)
+                for start, end in COORD_SPANS:
+                    masked[start:end] = b"\x00" * (end - start)
+                self.assertEqual(_sha(bytes(masked)), template_sha)
                 self.assertEqual(len(frame), glh.GROUND_LOOT_FRAME_SIZE)
                 self.assertEqual(len(frame), 54)
-                self.assertEqual(_sha(frame), frame_sha)
+                masked_frame = bytearray(frame)
+                for start, end in COORD_SPANS:
+                    masked_frame[
+                        start + FRAME_COORD_SHIFT:end + FRAME_COORD_SHIFT
+                    ] = b"\x00" * (end - start)
+                self.assertEqual(
+                    _sha(bytes(masked_frame)), frame_template_sha)
                 self.assertEqual(frame, self.legacy.frame_pc(pc))
 
+    def test_the_coordinates_follow_the_trigger_not_any_constant(self):
+        other = (f32_exact(TRIGGER[0] + 1234.5),
+                 f32_exact(TRIGGER[1] - 67.0),
+                 f32_exact(TRIGGER[2] + 8.0))
+        for trigger in (TRIGGER, other):
+            frames = glh.make_ground_loot_frames(
+                self.legacy, self.scenario, trigger)
+            for (pc, _), (_key, _dword, x_offset) in zip(
+                    frames, EXPECTED_ELEMENTS):
+                with self.subTest(trigger=trigger, x_offset=x_offset):
+                    self.assertEqual(
+                        b"".join(pc[s:e] for s, e in COORD_SPANS),
+                        struct.pack(
+                            "<fff",
+                            f32_exact(trigger[0] + x_offset),
+                            f32_exact(trigger[1]), f32_exact(trigger[2])),
+                    )
+
     def test_the_tag_bytes_and_field_order_match_the_rederived_table(self):
-        frames = glh.make_ground_loot_frames(self.legacy, self.scenario)
-        for (pc, _), (key, dword, x, y, z) in zip(frames, EXPECTED_ELEMENTS):
+        frames = glh.make_ground_loot_frames(
+            self.legacy, self.scenario, TRIGGER)
+        expected_coords = tuple(
+            (f32_exact(TRIGGER[0] + x_offset), f32_exact(TRIGGER[1]),
+             f32_exact(TRIGGER[2]))
+            for _key, _dword, x_offset in EXPECTED_ELEMENTS
+        )
+        for (pc, _), (key, dword, _x_offset), (x, y, z) in zip(
+                frames, EXPECTED_ELEMENTS, expected_coords):
             with self.subTest(element_key=key):
                 # Envelope: u16tag(0x12) id, u32tag(0x14) 0, u8tag(0x08)
                 # version 4, u8tag(0x0B) inherited mask 0, u8tag(0x0B)
@@ -274,15 +330,33 @@ class GroundLootCompositionTests(unittest.TestCase):
                     )
                 self.assertEqual(at + 27, len(pc))
 
-    def test_a_moved_v135_placement_refuses_to_compose_by_name(self):
-        class _MovedLegacy:
-            V135_PLAYER_X = self.legacy.V135_PLAYER_X + 1.0
-            V135_PLAYER_Y = self.legacy.V135_PLAYER_Y
-            V135_PLAYER_Z = self.legacy.V135_PLAYER_Z
+    def test_a_non_finite_trigger_refuses_to_compose_by_name(self):
+        for bad in (
+            (float("nan"), TRIGGER[1], TRIGGER[2]),
+            (TRIGGER[0], float("inf"), TRIGGER[2]),
+            (TRIGGER[0], TRIGGER[1], float("-inf")),
+        ):
+            with self.subTest(trigger=bad):
+                with self.assertRaises(RuntimeError) as caught:
+                    glh.make_ground_loot_frames(
+                        self.legacy, self.scenario, bad)
+                self.assertIn("not_finite", str(caught.exception))
 
+    def test_a_malformed_trigger_refuses_to_compose_by_name(self):
+        for bad in (None, (), (1.0, 2.0), "abc", (1.0, 2.0, "z")):
+            with self.subTest(trigger=bad):
+                with self.assertRaises(RuntimeError) as caught:
+                    glh.make_ground_loot_frames(
+                        self.legacy, self.scenario, bad)
+                self.assertIn("trigger_malformed", str(caught.exception))
+
+    def test_an_f32_overflowing_offset_refuses_to_compose_by_name(self):
+        # Finite as a double, infinite after the f32 round-trip
+        # (f32 max is about 3.40282e38).
+        huge = (3.5e38, 0.0, 0.0)
         with self.assertRaises(RuntimeError) as caught:
-            glh.make_ground_loot_frames(_MovedLegacy(), self.scenario)
-        self.assertIn("placement_drift", str(caught.exception))
+            glh.make_ground_loot_frames(self.legacy, self.scenario, huge)
+        self.assertIn("offset_overflow", str(caught.exception))
 
     def test_the_composer_refuses_a_lookalike_before_composing(self):
         lookalike = glh.GroundLootScenario(
@@ -291,7 +365,7 @@ class GroundLootCompositionTests(unittest.TestCase):
             glh._BIT08_RENDER.elements,
         )
         with self.assertRaises(ValueError) as caught:
-            glh.make_ground_loot_frames(self.legacy, lookalike)
+            glh.make_ground_loot_frames(self.legacy, lookalike, TRIGGER)
         self.assertIn("not_allowlisted", str(caught.exception))
 
 

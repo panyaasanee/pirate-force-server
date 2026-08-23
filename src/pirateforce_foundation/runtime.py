@@ -2941,6 +2941,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 try:
                     frames = make_ground_loot_frames(
                         legacy, ground_loot_hypothesis_scenario,
+                        tuple(durable_target[:3]),
                     )
                 except RuntimeError:
                     # Drift refuses forever: latch so the refusal cannot

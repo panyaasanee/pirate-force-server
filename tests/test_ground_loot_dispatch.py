@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+import struct
 import sys
 import tempfile
 import unittest
@@ -169,9 +170,17 @@ class GroundLootDispatchTests(unittest.TestCase):
 
     # ----- the pair fires once, byte-exact, appended after ------------------
 
+    def _trigger_xyz(self, state):
+        position = state.foundation.selected.position
+        return tuple(
+            struct.unpack("<f", struct.pack("<f", value))[0]
+            for value in (position.x, position.y, position.z)
+        )
+
     def test_the_dispatcher_forwards_the_composers_bytes_exactly(self):
         state = self._state("gld01")
-        expected = glh.make_ground_loot_frames(self.legacy, self.scenario)
+        expected = glh.make_ground_loot_frames(
+            self.legacy, self.scenario, self._trigger_xyz(state))
         actions = state.dispatch(self._trigger(state))
         ground = self._ground_actions(actions)
         self.assertEqual(len(ground), 2)
@@ -183,25 +192,52 @@ class GroundLootDispatchTests(unittest.TestCase):
                 (FAR_LABEL, expected[1][0], expected[1][1], 0.10),
             ],
         )
-        for (_, pc, frame, _), (pc_sha, frame_sha) in zip(ground, (
-            (glh.GROUND_LOOT_NEAR_PC_SHA256,
-             glh.GROUND_LOOT_NEAR_FRAME_SHA256),
-            (glh.GROUND_LOOT_FAR_PC_SHA256,
-             glh.GROUND_LOOT_FAR_FRAME_SHA256),
+        for (_, pc, frame, _), template_sha in zip(ground, (
+            glh.GROUND_LOOT_NEAR_PC_TEMPLATE_SHA256,
+            glh.GROUND_LOOT_FAR_PC_TEMPLATE_SHA256,
         )):
             self.assertEqual(len(pc), glh.GROUND_LOOT_PC_SIZE)
             self.assertEqual(len(frame), glh.GROUND_LOOT_FRAME_SIZE)
+            masked = bytearray(bytes(pc))
+            for start, end in glh.GROUND_LOOT_COORD_SPANS:
+                masked[start:end] = b"\x00" * (end - start)
             self.assertEqual(
-                hashlib.sha256(bytes(pc)).hexdigest().upper(), pc_sha,
-            )
-            self.assertEqual(
-                hashlib.sha256(bytes(frame)).hexdigest().upper(), frame_sha,
+                hashlib.sha256(bytes(masked)).hexdigest().upper(),
+                template_sha,
             )
             self.assertEqual(
                 bytes(frame), self.legacy.frame_pc(bytes(pc)),
             )
         self.assertEqual(state.events.count(PAIR_EVENT), 1)
         self.assertIs(state.ground_loot_pair_sent, True)
+
+    def test_the_dispatched_coordinates_follow_the_trigger(self):
+        """The frames must place near/far relative to the TRIGGERING
+        TargetPos, wherever it is -- the attended GT-045 run measured the
+        persisted DB position ~700 units away from the V135 constants the
+        first version pinned absolutes from."""
+        state = self._state("gld13")
+        base = self._trigger_xyz(state)
+        shifted = tuple(
+            struct.unpack("<f", struct.pack("<f", value))[0]
+            for value in (base[0] + 1000.0, base[1] - 250.0, base[2] + 5.0)
+        )
+        actions = state.dispatch(self.legacy.parse_outer(self._target_pos_pc(
+            shifted[0], shifted[1], shifted[2],
+        )))
+        ground = self._ground_actions(actions)
+        self.assertEqual(len(ground), 2)
+        for (_, pc, _, _), x_offset in zip(ground, (30.0, 800.0)):
+            pc = bytes(pc)
+            self.assertEqual(
+                b"".join(pc[s:e] for s, e in glh.GROUND_LOOT_COORD_SPANS),
+                struct.pack(
+                    "<fff",
+                    struct.unpack(
+                        "<f", struct.pack("<f", shifted[0] + x_offset))[0],
+                    shifted[1], shifted[2],
+                ),
+            )
 
     def test_the_pair_is_appended_after_the_inherited_actions(self):
         gated = self._state("gld02")
@@ -295,12 +331,12 @@ class GroundLootDispatchTests(unittest.TestCase):
 
     def test_a_drifted_composition_latches_by_name_and_emits_nothing(self):
         state = self._state("gld09")
-        pinned = glh.GROUND_LOOT_NEAR_PC_SHA256
-        glh.GROUND_LOOT_NEAR_PC_SHA256 = "00" * 32
+        pinned = glh.GROUND_LOOT_NEAR_PC_TEMPLATE_SHA256
+        glh.GROUND_LOOT_NEAR_PC_TEMPLATE_SHA256 = "00" * 32
         try:
             actions = state.dispatch(self._trigger(state))
         finally:
-            glh.GROUND_LOOT_NEAR_PC_SHA256 = pinned
+            glh.GROUND_LOOT_NEAR_PC_TEMPLATE_SHA256 = pinned
         self.assertEqual(self._ground_actions(actions), [])
         self.assertEqual(state.events.count(COMPOSE_REFUSED_EVENT), 1)
         self.assertNotIn(PAIR_EVENT, state.events)
@@ -315,7 +351,8 @@ class GroundLootDispatchTests(unittest.TestCase):
 
     def test_with_the_scenario_absent_nothing_composes(self):
         state = self._state("gld10", pair=False)
-        expected = glh.make_ground_loot_frames(self.legacy, self.scenario)
+        expected = glh.make_ground_loot_frames(
+            self.legacy, self.scenario, self._trigger_xyz(state))
         actions = state.dispatch(self._trigger(state))
         labels = [row[0] for row in actions]
         self.assertNotIn(NEAR_LABEL, labels)
