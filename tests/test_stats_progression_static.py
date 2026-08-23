@@ -42,9 +42,12 @@ The lane stays in_progress and never flips to runtime_pass here.
 """
 from __future__ import annotations
 
+import ast
+import re
 import struct
 import sys
 import unittest
+import warnings
 from pathlib import Path
 
 import capstone
@@ -871,7 +874,43 @@ class StatsProgressionStatic(unittest.TestCase):
                               if 0x460EC0 <= c < 0x4614C0])
 
     # -- 24 ------------------------------------------------------------------
-    def test_server_side_progression_gap_is_total(self):
+    # The ONE deliberate exception to the "no progression verb name under
+    # src/" negative, as exact (file, verb, occurrence count) triples.  This
+    # is the TEST's own copy; test 24 below also re-reads the identical
+    # constant out of tools/pf_stats_progression_static.py (the tool twin of
+    # this guard, which the cloud cannot run because it needs the client
+    # image) and asserts the two copies are equal, so the twins cannot drift
+    # apart silently.
+    LEARN_SKILL_RESULT_SRC_EXCEPTIONS = (
+        ("learn_skill_result_hypothesis.py", "CLearnSkillVital", 1),
+        ("learn_skill_result_hypothesis.py", "CLearnSkillResultVital", 1),
+    )
+
+    def test_server_side_progression_gap_names_its_one_exception(self):
+        """LEARN-SKILL-RESULT-001 deliberately changed what this guard asserts.
+
+        Until 2026-08-23 this test asserted the strongest possible negative:
+        no progression verb NAME appeared anywhere under src/, so the "5
+        verbs, 0 encoders, 0 dispatch" statement of STATS-PROG-001 was true
+        by construction.  LEARN-SKILL-RESULT-001 (HYP-PF-033) is the
+        milestone that builds the OUTBOUND encoder for exactly ONE of the
+        five verbs -- CLearnSkillResultVital 0x673C, whose body shape GT-050
+        closed byte-exactly -- so this assertion had to move rather than be
+        worked around.  (It was NOT worked around: no derived name, no
+        obfuscated spelling -- the one owning module names the class in its
+        docstring on purpose.)  The exception is pinned three ways so it
+        cannot quietly widen: exact occurrence COUNTS per (file, verb), so a
+        new mention of either verb in the owning module -- say, an inbound
+        0x36AA implementation -- trips this guard again; every allowed
+        mention must sit inside that module's DOCSTRING, so no code path may
+        name a verb; and the identical triple list is re-read out of the
+        tool twin tools/pf_stats_progression_static.py, which enforces the
+        same triples on the bridge, so the two guards cannot drift apart.
+        The frozen v141 module still names no verb and no cohort id, the
+        other four verbs still have zero encoders and zero dispatch anywhere
+        under src/, and the HYP-PF-020 progression lane itself still names
+        none of them.
+        """
         src = SERVER.read_text(encoding="utf-8", errors="replace")
         up = src.upper()
         for nm, *_ in COHORT:
@@ -888,8 +927,58 @@ class StatsProgressionStatic(unittest.TestCase):
                 if "__pycache__" in p.parts:
                     continue
                 t = p.read_text(encoding="utf-8", errors="replace")
-                hits += [(p.name, v) for v in PROGRESSION_VERBS if v in t]
-        self.assertEqual(hits, [])
+                for v in PROGRESSION_VERBS:
+                    # Trailing identifier-boundary lookahead, exactly as the
+                    # tool twin counts: "AbilityDepoly" must not count
+                    # "AbilityDepolyAll", and a NEW mention of an allowed
+                    # verb must move the count and fail this assertion.
+                    n = len(re.findall(re.escape(v) + r"(?![A-Za-z0-9_])", t))
+                    if n:
+                        hits.append((p.name, v, n))
+        self.assertEqual(
+            sorted(hits), sorted(self.LEARN_SKILL_RESULT_SRC_EXCEPTIONS),
+        )
+        # Context restriction: every allowed mention sits inside the owning
+        # module's DOCSTRING (the title line and the inbound-0x36AA
+        # nonclaim).  A verb name appearing in executable code -- constants,
+        # dispatch, an inbound handler -- is not covered by this exception.
+        owner = SRC_DIR / "pirateforce_foundation" / "learn_skill_result_hypothesis.py"
+        docstring = ast.get_docstring(
+            ast.parse(owner.read_text(encoding="utf-8")), clean=False,
+        )
+        for _file, verb, count in self.LEARN_SKILL_RESULT_SRC_EXCEPTIONS:
+            self.assertEqual(
+                len(re.findall(re.escape(verb) + r"(?![A-Za-z0-9_])", docstring)),
+                count,
+                f"{verb} mention moved outside the module docstring",
+            )
+        # Twin binding: the tool's exception constant is the SAME triples.
+        # The tool's own (pre-existing) docstring ASCII art carries a "\-"
+        # escape that ast.parse flags as a DeprecationWarning; that is the
+        # tool's cosmetic debt, not this guard's finding, so it is silenced
+        # for exactly this parse.
+        tool = ROOT / "tools" / "pf_stats_progression_static.py"
+        tool_exceptions = None
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tool_tree = ast.parse(tool.read_text(encoding="utf-8"))
+        for node in ast.walk(tool_tree):
+            if isinstance(node, ast.Assign) and any(
+                isinstance(target, ast.Name)
+                and target.id == "LEARN_SKILL_RESULT_SRC_EXCEPTIONS"
+                for target in node.targets
+            ):
+                tool_exceptions = ast.literal_eval(node.value)
+        self.assertIsNotNone(
+            tool_exceptions,
+            "tools/pf_stats_progression_static.py lost its "
+            "LEARN_SKILL_RESULT_SRC_EXCEPTIONS constant",
+        )
+        self.assertEqual(
+            sorted(tool_exceptions),
+            sorted(self.LEARN_SKILL_RESULT_SRC_EXCEPTIONS),
+        )
 
     # -- 25 ------------------------------------------------------------------
     def test_gap_numbers_are_exactly_what_the_report_states(self):

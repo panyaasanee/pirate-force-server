@@ -94,6 +94,12 @@ from .damage_model_hypothesis import (
 from .ground_loot_hypothesis import (
     make_ground_loot_frames, require_ground_loot_hypothesis_scenario,
 )
+from .learn_skill_result_hypothesis import (
+    LEARN_SKILL_RESULT_ACTION_LABEL_PREFIX,
+    LEARN_SKILL_RESULT_FIRST_DELAY_SECONDS,
+    make_learn_skill_result_step_response,
+    require_learn_skill_result_hypothesis_scenario,
+)
 from .move_authority_hypothesis import (
     evaluate_move_report, require_move_authority_hypothesis_scenario,
 )
@@ -177,6 +183,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                      npc_hp_link_hypothesis_scenario=None,
                      move_authority_hypothesis_scenario=None,
                      ground_loot_hypothesis_scenario=None,
+                     learn_skill_result_hypothesis_scenario=None,
                      second_password_mode="required",
                      monotonic_clock=None,
                      close_timer_factory=None):
@@ -197,6 +204,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         npc_hp_link_hypothesis_scenario,
         move_authority_hypothesis_scenario,
         ground_loot_hypothesis_scenario,
+        learn_skill_result_hypothesis_scenario,
     ))
     if active_modes > 1:
         raise ValueError(
@@ -207,8 +215,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             "runtimeres death hypothesis, damage model hypothesis, damage "
             "hp link hypothesis, remote player hypothesis, npc hostile "
             "hypothesis, npc hp link hypothesis, move authority "
-            "hypothesis, and ground loot hypothesis scenarios are "
-            "mutually exclusive"
+            "hypothesis, ground loot hypothesis, and learn skill result "
+            "hypothesis scenarios are mutually exclusive"
         )
     # PF-HYPOTHESIS-LEDGER: HYP-PF-030 active
     # MOVE-AUTHORITY-002.  Re-checked here even though app.py already loaded
@@ -227,6 +235,15 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         ground_loot_hypothesis_scenario = (
             require_ground_loot_hypothesis_scenario(
                 ground_loot_hypothesis_scenario
+            )
+        )
+    # LEARN-SKILL-RESULT-001.  Re-checked here even though app.py already
+    # loaded it: a caller that hands in a lookalike profile must not be able
+    # to put bytes this project did not pin onto a live socket.
+    if learn_skill_result_hypothesis_scenario is not None:
+        learn_skill_result_hypothesis_scenario = (
+            require_learn_skill_result_hypothesis_scenario(
+                learn_skill_result_hypothesis_scenario
             )
         )
     # DELETE-REFRESH-001 and HYP-PF-015 key on the same vital id 0x36DB, so
@@ -526,6 +543,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.chat_input_echo_count = 0
                 self.channel_message_sweep_count = 0
                 self.stats_progression_sweep_count = 0
+                self.learn_skill_result_sweep_count = 0
                 self.hp_death_sweep_count = 0
                 self.runtimeres_death_sweep_count = 0
                 self.damage_model_sweep_count = 0
@@ -1535,6 +1553,75 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             self.stats_progression_sweep_count += 1
             self.events.append(
                 "stats_progression_hypothesis_xp_sweep_sent"
+            )
+            return actions
+
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-033 active
+        def _dispatch_learn_skill_result_hypothesis(self, parsed):
+            """Answer one accepted chat input frame with the 0x673C sweep.
+
+            LEARN-SKILL-RESULT-001.  The request side is deliberately the
+            SAME accepted shape the HYP-PF-014 echo lane classifies (exact
+            34-byte ascii12 frame): it is the only client action an attended
+            tester can trigger on demand, and reusing it means every guard
+            here is one the project has already proven -- wrong shape, wrong
+            envelope, no selected character and not-yet-runtime-ready all
+            fail closed with no reply and no write.  Nothing in the request
+            is read: the request is a trigger, not an input, and the answer
+            is composed entirely from the module's own frozen step plan.
+
+            The answer is one 0x673C vital frame per step, in the scenario's
+            order, spaced by ``spacing_seconds`` so an attended reader can
+            attribute one on-screen effect (if any ever appears) to one
+            frame: the count=0 edge with trailing 0, count=1 with trailing
+            0, the same count=1 body with only the trailing byte moved to 1,
+            and the count=3 multi-record body with varied opaque values
+            under trailing 0 and again under trailing 1.  The body
+            shape is the GT-050-proven one; the record SEMANTICS are unknown
+            and unnamed, and the values are this project's own design.
+            Every frame is composed, re-decoded and hash-pinned before any
+            of them is queued.  The lane touches no store (learned skills
+            have no table), takes no socket action, and is not one-shot.
+            """
+            self.rx_frames += 1
+            classification = classify_chat_input_attempt(legacy, parsed)
+            if classification != "ascii12":
+                self.events.append(
+                    f"learn_skill_result_hypothesis_{classification}_no_reply"
+                )
+                return []
+            if self.foundation.selected is None:
+                self.events.append(
+                    "learn_skill_result_hypothesis_no_selected_no_reply"
+                )
+                return []
+            if not self.teleport_sent or not self.runtime_ack_sent:
+                self.events.append(
+                    "learn_skill_result_hypothesis_wrong_sequence_no_reply"
+                )
+                return []
+            actions = []
+            for index, label in enumerate(
+                learn_skill_result_hypothesis_scenario.step_order
+            ):
+                pc, frame = make_learn_skill_result_step_response(
+                    legacy, index,
+                )
+                # The frozen V141 sender accumulates these onto one deadline
+                # (send_deadline += delay, then sleep to it), so this field is
+                # the gap before each send: 0.0 for the first frame and the
+                # full spacing for every later one.
+                delay = (
+                    LEARN_SKILL_RESULT_FIRST_DELAY_SECONDS if index == 0
+                    else learn_skill_result_hypothesis_scenario.spacing_seconds
+                )
+                actions.append((
+                    LEARN_SKILL_RESULT_ACTION_LABEL_PREFIX + label,
+                    pc, frame, delay,
+                ))
+            self.learn_skill_result_sweep_count += 1
+            self.events.append(
+                "learn_skill_result_hypothesis_learn_sweep_sent"
             )
             return actions
 
@@ -2738,6 +2825,17 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # app.py refuses the flags together, which is why the ordering
                 # of these branches cannot matter.
                 return self._dispatch_npc_hp_link_hypothesis(parsed)
+            if (
+                learn_skill_result_hypothesis_scenario is not None
+                and nested_id == CHAT_INPUT_VITAL_ID
+            ):
+                # LEARN-SKILL-RESULT-001.  This lane and the other chat-
+                # input-keyed sweep lanes above are keyed on the same vital
+                # id, so they must never be able to see the same frame:
+                # make_state_class refuses any pair outright and app.py
+                # refuses the flags together, which is why the ordering of
+                # these branches cannot matter.
+                return self._dispatch_learn_skill_result_hypothesis(parsed)
             if (
                 delete_actor_hypothesis_scenario is not None
                 and nested_id == DELETE_ACTOR_VITAL_ID

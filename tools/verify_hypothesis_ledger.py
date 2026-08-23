@@ -372,7 +372,26 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # the count instead of the rendering -- and claims nothing about rendering:
 # that is attended GT-045, and a wire-proven negative at both coordinates
 # retires the candidate as a complete answer.)
-CANONICAL_CONTENT_SHA256 = "22D2BBA0707A678096AC52FB05F8BFBFCA663BFABEE7ED18F75634B30D178661"
+# -> 22D2BBA0.. (2026-08-23, cloud: HYP-PF-033 appended --
+# LEARN-SKILL-RESULT-001, the first server-side encoder for one of the five
+# progression verbs.  GT-050 (letter 20260824_0055, jobs 1-3 closed) proved
+# the CLearnSkillResultVital 0x673C body shape byte-exactly from the
+# read-only client image -- u16 tag 0x12 count, then count 12-byte-stride
+# records of (u32 tag 0x14, u16 tag 0x12, u32 tag 0x14), then u8 tag 0x0B at
+# object+0x2C; top serializer [0x00756100,0x00756156) sha256 c6a66b70..,
+# nested WRITE loop sha256 35eaeb47.., nested READ loop sha256 0c78744e..,
+# W/R agreeing -- and this lane implements exactly that shape behind
+# --learn-skill-result-hypothesis-scenario: five pinned frames per accepted
+# ascii12 chat trigger (count 0/1/3, both trailing values, the count=1 pair
+# differing in exactly the one unexplained trailing byte), through the frozen
+# v141 make_runtime_vitals envelope.  The record SEMANTICS are unknown and
+# deliberately unnamed (opaque triples named by wire position only), the
+# trailing u8 meaning is unknown, the version byte 0 is our design, the
+# inbound 0x36AA direction is NOT implemented, and no client has ever seen a
+# 0x673C frame -- that is the queued attended ticket, and no coverage row
+# grade moves on this append.  Count moves 40 -> 41 and no earlier entry is
+# touched.)
+CANONICAL_CONTENT_SHA256 = "0265A2C8BDFE98EDAB87DB36F3A8785F36D697012A637E72E317C5BEAD638742"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -559,6 +578,13 @@ EXPECTED_IDS = (
     # after GEO-PF-006, to keep every earlier entry index stable for the
     # index-based fixtures.
     "HYP-PF-032",
+    # HYP-PF-033 (LEARN-SKILL-RESULT-001: the CLearnSkillResultVital 0x673C
+    # encoder lane -- five pinned frames of the GT-050-proven body shape
+    # behind --learn-skill-result-hypothesis-scenario, record semantics
+    # unknown and unnamed, inbound 0x36AA not implemented, no client has
+    # ever seen one).  Appended at the end to keep every earlier entry index
+    # stable for the index-based fixtures.
+    "HYP-PF-033",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -609,6 +635,9 @@ EXPECTED_META = {
     ),
     "GEO-PF-006": ("test_geometry", "HOSTILE-NATIVE-001", "harness_only"),
     "HYP-PF-032": ("protocol_hypothesis", "GROUND-LOOT-001", "active"),
+    "HYP-PF-033": (
+        "protocol_hypothesis", "LEARN-SKILL-RESULT-001", "active",
+    ),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}
 STATUSES = {"active", "frozen", "retired", "harness_only", "expired_pending_decision"}

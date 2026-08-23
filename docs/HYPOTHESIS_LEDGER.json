@@ -3090,6 +3090,83 @@
      "active_claim_marker": false
     }
    ]
+  },
+  {
+   "id": "HYP-PF-033",
+   "kind": "protocol_hypothesis",
+   "introduced_checkpoint": "LEARN-SKILL-RESULT-001",
+   "exact_value_or_transform": "Behind the explicit learn-skill-result opt-in scenario only (scenarios/learn_skill_result_hypothesis_learn_sweep.json, id learn_skill_result_hypothesis_learn_sweep, loaded through --learn-skill-result-hypothesis-scenario, which requires an explicit existing --db and is mutually exclusive with every other scenario mode), answer one accepted chat-input frame (the exact 34-byte ascii12 shape the HYP-PF-014 lane already classifies; nothing in the request is read) with FIVE pinned CLearnSkillResultVital 0x673C frames through the frozen v141 make_runtime_vitals one-vital GSCN_RunTimeProtocolRes v4 collection envelope, spaced 3.0 s on the cumulative send deadline (first frame 0.0): COUNT0_TRAIL0, COUNT1_TRAIL0, COUNT1_TRAIL1, COUNT3_TRAIL0, COUNT3_TRAIL1. Each body is EXACTLY the GT-050-proven wire order -- u16 tag 0x12 count, then count records of (u32 tag 0x14 record+0, u16 tag 0x12 record+4, u32 tag 0x14 record+8; object stride 12, wire 13 bytes per record), then the trailing u8 tag 0x0B at object+0x2C -- and nothing else. The record VALUES are OUR DESIGN, chosen only to be tellable-apart and to exercise the proven widths (an all-zero record, an all-maximum record 0xFFFFFFFF/0xFFFF/0xFFFFFFFF, and two mid-range triples); the count=1 pair differs in exactly one wire byte, the trailing u8, isolating the one unexplained byte, and both trailing values 0 and 1 are sent because nobody can say what either means. The per-vital u8 version byte is 0, OUR DESIGN with no pin. Every frame is composed, re-decoded by the module's own strict decoder and hash-pinned (payload, pc and frame sha256 plus sizes, absolute pins because the composition takes no per-session input) in the module AND the scenario file from the same live computation before any of them is queued; a pin mismatch refuses rather than emitting.",
+   "scope": "Server-side emission of the five pinned 0x673C frames to the ONE connected client that sent the accepted trigger, behind the one opt-in scenario only, from a runtime-ready session (selected character, teleport_sent and runtime_ack_sent both set). The lane writes no database row (learned skills have no table and this lane opens none), takes no socket action, schedules no timer, is not one-shot, and composes nothing when the scenario is absent. The inbound direction -- the client->server CLearnSkillVital 0x36AA request, any learn rule, any handler -- is deliberately NOT implemented anywhere in this lane.",
+   "status": "active",
+   "provenance": "Opened 2026-08-23 under the owner's standing pre-approval for newly found gameplay functions under the standard pattern (opt-in, production_allowed false, fail closed, ledger/verifier binding, offline proof), on the GT-050 static closure of the 0x673C body shape (letter pf_bridge/notes_to_chief/20260824_0055_GT050-RESULT-CLEARNRESULT-CLOSED-TRIGGER-DIRECTION-UNRESOLVED.md, read against the read-only client image sha256 9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623): top serializer [0x00756100,0x00756156) len 86 sha256 c6a66b70cc80a48b84ecc433f10aa7696eb8c2a261affd677692a6ab9c90fe94; nested WRITE loop [0x00755D30,0x00755E1E) len 238 sha256 35eaeb4718fc91dcc4b22ab13a0b1d9557834f83c735befb01cfe01bc6654944; nested READ loop [0x00756070,0x007560FB) len 139 sha256 0c78744ea4659a8a0d36a8a4015a4a9ce5904f15ccea7e8b14ccdcfbad70f3b3; the WRITE and READ loops agree on the one body order implemented here, the seven _invalid_parameter_noinfo sites are container-invariant error calls rather than wire fields, and the post-READ call 0x0077FC30 is a stride-12 vector append rather than a serializer. The vital id 0x673C and the *vital-base* envelope family were already pinned by STATS-PROG-001 (tests/test_stats_progression_static.py cohort row).",
+   "evidence_refs": [
+    "scenarios/learn_skill_result_hypothesis_learn_sweep.json",
+    "tests/test_learn_skill_result_hypothesis.py"
+   ],
+   "accepted_ceiling": "Emitting the five pinned frames, in the pinned order and spacing, behind the explicit opt-in only. The ceiling is the WIRE and DISPATCHER layer: the frames are proven to leave the real make_state_class dispatcher on a throwaway temp database, every dispatched body re-decodes to the declared opaque triples and trailing byte, and all fifteen per-step hash pins hold in module and scenario. It does NOT reach the client layer by one millimetre: no claim that any client parses, accepts, or shows anything for a 0x673C frame is made here, and this lane has never been driven through a real server process over TCP.",
+   "evidence_gap": "NO CLIENT HAS EVER BEEN SHOWN A 0x673C FRAME by this project and no capture holds one in either direction (PF_FIELD_VALIDATION rows W/R both NOT_OBSERVED). The SEMANTICS of the three record members are NOT known -- they are encoded as opaque declared triples named by wire position only (record_u32_0/record_u16_4/record_u32_8) and nothing may name them skill ids, levels or anything else until evidence exists. The trailing u8 meaning is unknown. The per-vital version byte 0 is our design with no pin. The inbound CLearnSkillVital 0x36AA direction has no handler and no learn rule anywhere in this tree, and GT-050 itself left the TriggerCastSkillVital natural direction unresolved. Whether a real client accepts these frames, errors on them, or shows anything is exactly the attended GT ticket this lane exists to unblock, WHICH HAS NOT RUN.",
+   "falsification": "Retire or redesign this lane if a real client rejects or errors on any of the five frames (an ErrorData stream error falsifies the envelope, the version byte or the body shape for this delivery), if the emitted bytes ever stop reproducing the pinned payloads/pcs/frames, or if this lane is ever observed to write any database row, take any socket action, answer anything but the accepted ascii12 trigger, or emit with the scenario absent. A client that accepts the frames but shows nothing does not falsify the wire claim -- it is an attended result about the unknown semantics, recorded as a result, not a failure.",
+   "stop_rule": "Emit only the five pinned frames, only in answer to the accepted ascii12 chat-input trigger, only behind the one opt-in scenario file. What is forbidden is WIDENING: different record values, more or fewer steps, another trailing value, a nonzero version byte, any inbound handling of CLearnSkillVital 0x36AA or any other vital, any semantic NAME for the three record members or the trailing byte, any database write, any socket action, or a production or default-mode path is a NEW VERSION of this entry -- two tracked slots remain -- or a new entry. Do not enable production exposure. Do not move the combat/skill_use coverage row grade on the strength of this lane: sending a result frame proves no skill behavior, and the row stays in_progress until an attended result exists.",
+   "production_allowed": false,
+   "expiry": {
+    "tracked_versions": [
+     "LEARN-SKILL-RESULT-001"
+    ],
+    "decision": "Opened 2026-08-23 under the owner's standing gameplay pre-approval; one version is tracked because one round built the whole lane (module + scenario + app/runtime wiring + tests + ledger/coverage binding) at once. Proven offline and through the real dispatcher on a throwaway temp database; never driven over TCP and never seen by a client. Confirm the client-observable layer as the queued attended GT ticket -- does a real client accept a 0x673C frame at all, and does anything on screen move -- before any retire, freeze or extend decision, and do not move any coverage row grade until it has run."
+   },
+   "max_versions": 3,
+   "extension_approval_ref": null,
+   "source_refs": [
+    {
+     "path": "src/pirateforce_foundation/learn_skill_result_hypothesis.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-033 active",
+      "LEARN_SKILL_RESULT_CHECKPOINT = \"LEARN-SKILL-RESULT-001\"",
+      "learn_skill_result_hypothesis_learn_sweep",
+      "LEARN_SKILL_RESULT_VITAL_ID = 0x673C",
+      "record_u32_0",
+      "any_meaning_for_the_three_record_members",
+      "any_meaning_for_the_trailing_u8",
+      "production_allowed = False"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "src/pirateforce_foundation/runtime.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-033 active",
+      "learn_skill_result_hypothesis_learn_sweep_sent",
+      "learn_skill_result_hypothesis_wrong_sequence_no_reply",
+      "self.learn_skill_result_sweep_count = 0",
+      "require_learn_skill_result_hypothesis_scenario",
+      "LEARN_SKILL_RESULT_ACTION_LABEL_PREFIX"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "src/pirateforce_foundation/app.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-033 active",
+      "--learn-skill-result-hypothesis-scenario requires an explicit ",
+      "load_learn_skill_result_hypothesis_scenario",
+      "learn_skill_result_hypothesis_scenario=learn_skill_result_hypothesis"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "scenarios/learn_skill_result_hypothesis_learn_sweep.json",
+     "required_markers": [
+      "\"hypothesis_id\": \"HYP-PF-033\"",
+      "\"production_allowed\": false",
+      "\"test_only\": true",
+      "any_meaning_for_the_three_record_members",
+      "any_meaning_for_the_trailing_u8",
+      "our_design_no_capture_or_static_pin_fixes_it",
+      "the_inbound_clearn_skill_request_0x36AA_or_any_learn_rule"
+     ],
+     "active_claim_marker": false
+    }
+   ]
   }
  ]
 }
