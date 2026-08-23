@@ -1,0 +1,186 @@
+{
+  "schema": 1,
+  "id": "learn_skill_result_hypothesis_learn_sweep",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-033",
+  "entry": {
+    "flow": "full_writable_character",
+    "required_sequence": "selected_and_runtime_ready",
+    "response_policy": "compose_pinned_learn_skill_result_vital_sweep_no_write_no_close"
+  },
+  "dispatch": {
+    "trigger": "accepted_chat_input_frame_exact_ascii12_shape",
+    "trigger_classifier": "classify_chat_input_attempt",
+    "frames_per_accepted_request": 5,
+    "step_order": [
+      "COUNT0_TRAIL0",
+      "COUNT1_TRAIL0",
+      "COUNT1_TRAIL1",
+      "COUNT3_TRAIL0",
+      "COUNT3_TRAIL1"
+    ],
+    "step_records": {
+      "COUNT0_TRAIL0": [],
+      "COUNT1_TRAIL0": [
+        {
+          "record_u32_0": 1000001,
+          "record_u16_4": 11,
+          "record_u32_8": 2000001
+        }
+      ],
+      "COUNT1_TRAIL1": [
+        {
+          "record_u32_0": 1000001,
+          "record_u16_4": 11,
+          "record_u32_8": 2000001
+        }
+      ],
+      "COUNT3_TRAIL0": [
+        {
+          "record_u32_0": 0,
+          "record_u16_4": 0,
+          "record_u32_8": 0
+        },
+        {
+          "record_u32_0": 4294967295,
+          "record_u16_4": 65535,
+          "record_u32_8": 4294967295
+        },
+        {
+          "record_u32_0": 305419896,
+          "record_u16_4": 4660,
+          "record_u32_8": 1616928864
+        }
+      ],
+      "COUNT3_TRAIL1": [
+        {
+          "record_u32_0": 0,
+          "record_u16_4": 0,
+          "record_u32_8": 0
+        },
+        {
+          "record_u32_0": 4294967295,
+          "record_u16_4": 65535,
+          "record_u32_8": 4294967295
+        },
+        {
+          "record_u32_0": 305419896,
+          "record_u16_4": 4660,
+          "record_u32_8": 1616928864
+        }
+      ]
+    },
+    "step_trailing_u8": {
+      "COUNT0_TRAIL0": 0,
+      "COUNT1_TRAIL0": 0,
+      "COUNT1_TRAIL1": 1,
+      "COUNT3_TRAIL0": 0,
+      "COUNT3_TRAIL1": 1
+    },
+    "spacing_seconds": 3.0,
+    "first_frame_delay_seconds": 0.0,
+    "delay_semantics": "gap_before_each_send_on_a_cumulative_deadline",
+    "action_label_prefix": "HYP_PF_033_LEARN_SKILL_RESULT_",
+    "action_labels": [
+      "HYP_PF_033_LEARN_SKILL_RESULT_COUNT0_TRAIL0",
+      "HYP_PF_033_LEARN_SKILL_RESULT_COUNT1_TRAIL0",
+      "HYP_PF_033_LEARN_SKILL_RESULT_COUNT1_TRAIL1",
+      "HYP_PF_033_LEARN_SKILL_RESULT_COUNT3_TRAIL0",
+      "HYP_PF_033_LEARN_SKILL_RESULT_COUNT3_TRAIL1"
+    ],
+    "one_shot": false,
+    "socket_action": "none"
+  },
+  "wire": {
+    "vital_id": 26428,
+    "vital_version": 0,
+    "vital_version_provenance": "our_design_no_capture_or_static_pin_fixes_it",
+    "envelope": "gscn_runtime_protocol_res_v4_one_vital_collection",
+    "body_order": [
+      "u16_tag_0x12_count",
+      "per_record_u32_tag_0x14_then_u16_tag_0x12_then_u32_tag_0x14",
+      "u8_tag_0x0B_at_object_0x2C"
+    ],
+    "record_object_stride": 12,
+    "record_wire_size": 13,
+    "provenance": {
+      "ticket": "GT-050",
+      "letter": "pf_bridge/notes_to_chief/20260824_0055_GT050-RESULT-CLEARNRESULT-CLOSED-TRIGGER-DIRECTION-UNRESOLVED.md",
+      "top_serializer_va": "0x00756100",
+      "top_serializer_len": 86,
+      "top_serializer_sha256": "c6a66b70cc80a48b84ecc433f10aa7696eb8c2a261affd677692a6ab9c90fe94",
+      "write_loop_va": "0x00755D30",
+      "write_loop_len": 238,
+      "write_loop_sha256": "35eaeb4718fc91dcc4b22ab13a0b1d9557834f83c735befb01cfe01bc6654944",
+      "read_loop_va": "0x00756070",
+      "read_loop_len": 139,
+      "read_loop_sha256": "0c78744ea4659a8a0d36a8a4015a4a9ce5904f15ccea7e8b14ccdcfbad70f3b3"
+    }
+  },
+  "probe": {
+    "per_step": {
+      "COUNT0_TRAIL0": {
+        "payload_size": 5,
+        "payload_sha256": "3471BA20F3F76A77DB882AF849AF4FF7BA0567DA391A120F566FA71B855CEB25",
+        "pc_size": 27,
+        "pc_sha256": "A5A485A286789275A3C147465F36FCA60B4A60BA215BC2B3AD2C9425CF951B6F",
+        "frame_size": 37,
+        "frame_sha256": "B92F0DBE0DD2B6FB01DBFB5419C2BCCB97A9401116BFDB28AE6B926362268F14"
+      },
+      "COUNT1_TRAIL0": {
+        "payload_size": 18,
+        "payload_sha256": "F04EF2383EB1F8C7E14B9F96D6DD5FC097D2D148BEB1ED7CC2BA4D95324B46BE",
+        "pc_size": 40,
+        "pc_sha256": "037D795209105CA1FDA42AF5B295561828C7CCB1A802E0FF5891FB01F5F75AB2",
+        "frame_size": 50,
+        "frame_sha256": "0A6A7D93EB7CECF09BD657252AE10FEBB83271AA853208B85D9BC734916F7A7A"
+      },
+      "COUNT1_TRAIL1": {
+        "payload_size": 18,
+        "payload_sha256": "BEA315E33E5C8403AF9A902F67C4C574224CAF581E08289043D79B580C473073",
+        "pc_size": 40,
+        "pc_sha256": "1AC59863E7D8C5EF4DAC479B56B7D08703889B0AEC00938E039A83A550E7A353",
+        "frame_size": 50,
+        "frame_sha256": "1A213A98F458DE2A12BF664533C0D918AAB7B890EDA7C096D6DF150FC9DF3D77"
+      },
+      "COUNT3_TRAIL0": {
+        "payload_size": 44,
+        "payload_sha256": "55BAE4B6C9522D978F449A0A574FC8C5B594AC35523C0841644ED09E0BE47C59",
+        "pc_size": 66,
+        "pc_sha256": "43E0CA9DA70CB2A95467FF3E88D4485E128547943FF8B87F77EEE78E352BF926",
+        "frame_size": 77,
+        "frame_sha256": "0EE12033D6A917B75B578AD2E4BF1935D597FB5D8CE5D47224EC63BB81CE718A"
+      },
+      "COUNT3_TRAIL1": {
+        "payload_size": 44,
+        "payload_sha256": "E249658720DCE4D6CBE6E26A9400336D13FBBCEF8AE91FC759EBCD8A82009FEB",
+        "pc_size": 66,
+        "pc_sha256": "6707ED55E005B1A7BA79BCCAF9CD32908E5A215BE17DAC02D0DAFCB6A9119479",
+        "frame_size": 77,
+        "frame_sha256": "C445872E4EA632567B85D06001CE951532F42B0FA058DAC9DA40CF5E60612D87"
+      }
+    }
+  },
+  "persisted_post_state": {
+    "database_write": "none"
+  },
+  "capabilities": [
+    "compose_the_gt050_proven_0x673C_body_shape",
+    "emit_count_0_1_and_3_record_frames_with_both_trailing_values",
+    "decode_every_composed_body_back_to_the_declared_triples",
+    "repeatable_sweep_per_session_no_state_change"
+  ],
+  "nonclaims": [
+    "any_meaning_for_the_three_record_members",
+    "any_meaning_for_the_trailing_u8",
+    "the_inbound_clearn_skill_request_0x36AA_or_any_learn_rule",
+    "the_vital_version_byte_which_is_our_design",
+    "client_acceptance_or_rendering_pending_the_attended_gt_ticket",
+    "any_wire_observation_of_0x673C_in_either_direction",
+    "original_server_learn_skill_behavior",
+    "skill_persistence_or_database_write",
+    "production_dispatch_wiring",
+    "production_baseline_behavior"
+  ]
+}

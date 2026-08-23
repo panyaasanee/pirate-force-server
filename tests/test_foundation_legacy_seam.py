@@ -67,7 +67,31 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers ONE deliberate movement (chief round 116, 2026-08-21,
+    # This pin covers ONE deliberate movement (LEARN-SKILL-RESULT-001,
+    # 2026-08-23, cloud): combat/skill_use stays in_progress but gains one
+    # evidence ref (scenarios/learn_skill_result_hypothesis_learn_sweep.json)
+    # and one test ref (tests/test_learn_skill_result_hypothesis.py) for
+    # HYP-PF-033 -- the first server-side encoder for one of the five
+    # progression verbs.  GT-050 closed the CLearnSkillResultVital 0x673C
+    # body shape byte-exactly from the read-only client image (u16 tag 0x12
+    # count, then count 12-byte-stride records of u32 tag 0x14 / u16 tag
+    # 0x12 / u32 tag 0x14, then u8 tag 0x0B at object+0x2C; W and R loops
+    # agree), and behind --learn-skill-result-hypothesis-scenario one
+    # accepted ascii12 trigger is answered with five pinned frames -- count
+    # 0/1/3, both trailing values, the count=1 pair differing in exactly the
+    # one unexplained trailing byte -- through the frozen v141
+    # make_runtime_vitals envelope, every frame hash-pinned and re-decoded
+    # before it is queued.  The record SEMANTICS stay unknown and unnamed
+    # (opaque triples named by wire position only), the inbound 0x36AA
+    # direction is NOT implemented, and the status deliberately does NOT
+    # move: no client has ever seen a 0x673C frame -- that is the queued
+    # attended GT ticket.  The ledger GROWS: HYP-PF-033 appended, count
+    # 40 -> 41, every existing index stable.  The STATS-PROG-001 static
+    # guard test 24 was amended in the same commit to name its one exact
+    # exception rather than be worked around.
+    #
+    # Previous pin 18504603..6432 covered ONE deliberate movement (chief
+    # round 116, 2026-08-21,
     # cloud): movement/local_player_movement_authority stays in_progress but
     # gains one evidence ref and two test refs for MOVE-AUTHORITY-002
     # (HYP-PF-030) -- the first lane in this tree that answers with a WITHHELD
@@ -414,7 +438,7 @@ GRADE_SUBSET_SHA256 = (
     # 26D752FE..BA9A (round 65) occupied_destination_policy not_started ->
     # in_progress under HYP-PF-017 (ITEM-SWAP-001); see its lineage note before that
     # for round 53's 78558E56..6DC8.
-    "1850460345789A13BA5CB8ECB659B4A7E08DCFF303E098C4ABD53A3208D56432"
+    "2BC8A93CF3BB1E21B40E5CC206F68921231CEBCDC2A9E119DFA2D0C5AA75F407"
 )
 
 

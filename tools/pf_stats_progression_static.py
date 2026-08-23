@@ -109,6 +109,7 @@ Exit 0 = all static guards reproduced; nonzero = a guard drifted.
 """
 import hashlib
 import os
+import re
 import struct
 import sys
 
@@ -138,6 +139,25 @@ BIN = sys.argv[1] if len(sys.argv) > 1 else _default_bin()
 EXPECT_SHA = "9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623"
 SERVER_SRC = os.path.normpath(os.path.join(_ROOT, "current", "pf_login_game_server_v141.py"))
 SRC_DIR = os.path.normpath(os.path.join(_ROOT, "src"))
+
+# LEARN-SKILL-RESULT-001 (HYP-PF-033, 2026-08-23): the ONE deliberate exception
+# to this tool's "no progression verb name anywhere under src/" negative.  That
+# milestone built the outbound encoder for exactly one of the five verbs --
+# CLearnSkillResultVital 0x673C, whose body shape GT-050 closed byte-exactly --
+# and its module names that class once in its docstring title and names
+# CLearnSkillVital once, in the docstring NONCLAIM that says the inbound
+# direction is NOT implemented.  The triples below are (file, verb, exact
+# occurrence count), counted with a trailing identifier-boundary lookahead so a
+# mention inside a longer class name is never miscounted; ANY new occurrence of
+# either verb in that file, and any occurrence of any verb in any other file,
+# trips the guard again.  tests/test_stats_progression_static.py test 24
+# re-reads this constant with ast.literal_eval and pins its own scan to the
+# SAME triples, so the tool and the cloud-runnable test cannot drift apart
+# silently.
+LEARN_SKILL_RESULT_SRC_EXCEPTIONS = (
+    ("learn_skill_result_hypothesis.py", "CLearnSkillVital", 1),
+    ("learn_skill_result_hypothesis.py", "CLearnSkillResultVital", 1),
+)
 
 data = open(BIN, "rb").read()
 sha = hashlib.sha256(data).hexdigest().upper()
@@ -1404,20 +1424,34 @@ if os.path.isdir(SRC_DIR):
                 continue
             t = open(os.path.join(root, f), "r", encoding="utf-8", errors="replace").read()
             for v in verbs:
-                if v in t:
-                    src_hits.append((f, v))
+                # Trailing identifier-boundary lookahead: "AbilityDepoly" must
+                # not count "AbilityDepolyAll" occurrences, and a NEW mention
+                # of an allowed verb must move the count and trip the guard.
+                n = len(re.findall(re.escape(v) + r"(?![A-Za-z0-9_])", t))
+                if n:
+                    src_hits.append((f, v, n))
 check("src/pirateforce_foundation/ contains no encoder, decoder or dispatch for any "
-      "progression verb either", not src_hits, str(src_hits))
+      "progression verb EXCEPT the one named LEARN-SKILL-RESULT-001 exception "
+      "(HYP-PF-033: the CLearnSkillResultVital outbound encoder module, whose "
+      "docstring also names CLearnSkillVital once, in the nonclaim that the "
+      "inbound direction is NOT implemented) -- exact (file, verb, count) "
+      "triples, so any new occurrence anywhere trips this again",
+      sorted(src_hits) == sorted(LEARN_SKILL_RESULT_SRC_EXCEPTIONS),
+      str(sorted(src_hits)))
 named_emitted = [f for f in NAMED_FIELDS if f[4] in ("hp current", "hp max")]
 print("        gap: 14 client classes  ->  0 ids declared server-side")
 print("        gap: 19 named progression fields  ->  %d emitted server-side (%s)"
       % (len(named_emitted), ", ".join(f[4] for f in named_emitted)))
-print("        gap: 5 progression verbs  ->  0 encoded, 0 dispatched server-side")
+print("        gap: 5 progression verbs  ->  1 encoded outbound-only behind an "
+      "opt-in flag (CLearnSkillResultVital 0x673C, LEARN-SKILL-RESULT-001 / "
+      "HYP-PF-033), 4 with no server implementation, inbound 0 for all five")
 check("progression gap size: 14 classes client-side, 0 ids declared server-side; "
       "19 named progression fields, 2 emitted (the HP pair, already runtime-proven "
-      "for a different lane); 5 progression verbs, 0 with any server implementation",
+      "for a different lane); 5 progression verbs, 1 with an outbound-only opt-in "
+      "encoder (LEARN-SKILL-RESULT-001) and 4 with no server implementation",
       len(COHORT) == 14 and len(NAMED_FIELDS) == 19
-      and len(named_emitted) == 2 and not id_present and not src_hits)
+      and len(named_emitted) == 2 and not id_present
+      and sorted(src_hits) == sorted(LEARN_SKILL_RESULT_SRC_EXCEPTIONS))
 
 print()
 print("guards run: %d" % n_guard)
