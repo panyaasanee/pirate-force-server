@@ -14,23 +14,24 @@
     {
       "element_key": 1,
       "payload_dword": 2600001,
-      "position": {"x": -9209.95703125, "y": -2830.045166015625, "z": 223.29209899902344},
-      "coordinate_provenance": "v135_default_boot_placement_plus_30x_same_y_same_z"
+      "x_offset": 30.0,
+      "coordinate_provenance": "triggering_target_pos_plus_30x_same_y_same_z"
     },
     {
       "element_key": 2,
       "payload_dword": 2600001,
-      "position": {"x": -8439.95703125, "y": -2830.045166015625, "z": 223.29209899902344},
-      "coordinate_provenance": "v135_default_boot_placement_plus_800x_same_y_same_z"
+      "x_offset": 800.0,
+      "coordinate_provenance": "triggering_target_pos_plus_800x_same_y_same_z"
     }
   ],
   "frame_pins": {
     "pc_size_each": 44,
     "frame_size_each": 54,
-    "near_pc_sha256": "A3570BC9185BEF70ABB3810448F6E3F605437B2F1BFAB1DF474882AD3661EA03",
-    "near_frame_sha256": "A9D4F13409DF636C40FEA7FE7DEA38DD542D09E140BB073FBDD367B5758A5AE0",
-    "far_pc_sha256": "4B14A026763F53FFD65210C2F2BCC0122B096A6877455C84DAAED71366F07F3A",
-    "far_frame_sha256": "B13942BBCC933B4E135BCD40FE0C3D39B4EF053C31892F1F8EC929F702223989"
+    "coordinate_bytes_masked": "pc[30:34]+pc[35:39]+pc[40:44]",
+    "near_pc_template_sha256": "915331D5103215675E246B0011B054C9D4F7D2C4D48C8E2B010A45C3D0F5FC33",
+    "far_pc_template_sha256": "DC6A8FE62BC2C89B92AFA8060D2CEC5DCCDF23D81A242F95AA354C5BD48F8A14",
+    "near_frame_template_sha256": "199B695E6FD30D26140D5EB719A6F526EAD199141A2B84BBF990CB6AD9DDC9D2",
+    "far_frame_template_sha256": "D8A0BD6BC857A8508D09A550814FC1685F0388F8650F028482A20EB5785EDCE1"
   },
   "capabilities": [
     "emit_two_single_element_runtimeres_derived_bit08_frames_at_scene_load"
