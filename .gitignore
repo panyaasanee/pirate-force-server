@@ -541,3 +541,4 @@
 # opt-in bit-0x08 render lane.  src/tests/scenarios are allow-listed
 # wholesale; only the tool needs its own line here.
 !/tools/pf_ground_loot_headless_replay.py
+!/tools/pf_external_registry.py

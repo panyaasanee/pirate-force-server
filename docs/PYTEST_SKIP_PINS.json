@@ -730,6 +730,26 @@
         "ToolRunTests::test_the_verifier_exits_clean"
       ],
       "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "external_re_tables",
+      "module": "tests/test_external_registry.py",
+      "count": 12,
+      "tests": [
+        "DeliverableSnapshotTests::test_cli_stats_and_message_exit_zero",
+        "DeliverableSnapshotTests::test_cross_check_holds_and_summary_matches_the_letter",
+        "DeliverableSnapshotTests::test_golden_trigger_cast_skill_vital",
+        "MutationRefusalTests::test_broken_name_join_is_refused",
+        "MutationRefusalTests::test_claim_moved_outside_its_span_is_refused",
+        "MutationRefusalTests::test_dropped_row_fails_the_row_pin",
+        "MutationRefusalTests::test_garbage_hex_in_an_undelta_column_is_refused",
+        "MutationRefusalTests::test_non_ascii_byte_is_refused",
+        "MutationRefusalTests::test_non_integer_order_is_a_refusal_not_a_traceback",
+        "MutationRefusalTests::test_renamed_header_column_is_refused",
+        "MutationRefusalTests::test_sha_pin_catches_any_edit_when_active",
+        "MutationRefusalTests::test_unmutated_copy_still_passes_without_sha"
+      ],
+      "note": "R131: the Codex RE deliverable tables live in the pf_bridge SIBLING repo; the single-repo gate checkout cannot have them, the cloud clone and the bridge both do. First consumer: tools/pf_external_registry.py."
     }
   ],
   "design_skips": [

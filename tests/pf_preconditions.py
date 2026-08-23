@@ -392,6 +392,27 @@ GAME_INSTALL_TREE = Precondition(
     "committed",
 )
 
+# The Codex RE deliverable tables, committed to pf_bridge main on 2026-08-23
+# (Panya ruling 20:39 +07:00).  They are tracked files - but in the SIBLING
+# repository, so a machine that clones only this repository (the Windows gate
+# checks out exactly one repo) cannot have them.  The cloud clone and the
+# bridge both hold pf_bridge beside this clone, so the guarded tests run at
+# full strength on both machines that matter.
+EXTERNAL_RE_TABLES = Precondition(
+    "external_re_tables",
+    [SIBLING / "pf_bridge" / "external" / name for name in (
+        "PF_PROTOCOL_REGISTRY.tsv",
+        "PF_SERIALIZER_FIELDS.tsv",
+        "PF_RUNTIME_CLASSMAP.tsv",
+        "PF_FIELD_VALIDATION.tsv",
+        "PF_INPUT_INVENTORY.tsv",
+    )],
+    "the Codex RE deliverable tables ../pf_bridge/external/PF_*.tsv",
+    "they live in the pf_bridge sibling repository, which the single-repo "
+    "gate checkout does not have; tools/pf_external_registry.py is their "
+    "only consumer and pins their sha256s",
+)
+
 # The pre-Foundation schema commit.  tests/test_foundation.py reads
 # migrations/001_initial.sql out of it to prove that a database created by the
 # original schema still upgrades, so the test cannot invent the bytes: they
@@ -459,6 +480,7 @@ REGISTRY = {
         LOGIN_REQ_CAPTURE,
         BRIDGE_SIBLING,
         GAME_INSTALL_TREE,
+        EXTERNAL_RE_TABLES,
         ORIGINAL_SCHEMA_HISTORY,
         AUDIT_HEAD_HISTORY,
     )
