@@ -94,6 +94,12 @@ from .damage_model_hypothesis import (
 from .ground_loot_hypothesis import (
     make_ground_loot_frames, require_ground_loot_hypothesis_scenario,
 )
+from .learn_skill_request_hypothesis import (
+    LEARN_SKILL_REQUEST_VITAL_ID,
+    classify_learn_skill_request_attempt,
+    decode_learn_skill_request_payload,
+    require_learn_skill_request_hypothesis_scenario,
+)
 from .learn_skill_result_hypothesis import (
     LEARN_SKILL_RESULT_ACTION_LABEL_PREFIX,
     LEARN_SKILL_RESULT_FIRST_DELAY_SECONDS,
@@ -184,6 +190,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                      move_authority_hypothesis_scenario=None,
                      ground_loot_hypothesis_scenario=None,
                      learn_skill_result_hypothesis_scenario=None,
+                     learn_skill_request_hypothesis_scenario=None,
                      second_password_mode="required",
                      monotonic_clock=None,
                      close_timer_factory=None):
@@ -205,6 +212,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         move_authority_hypothesis_scenario,
         ground_loot_hypothesis_scenario,
         learn_skill_result_hypothesis_scenario,
+        learn_skill_request_hypothesis_scenario,
     ))
     if active_modes > 1:
         raise ValueError(
@@ -215,8 +223,9 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             "runtimeres death hypothesis, damage model hypothesis, damage "
             "hp link hypothesis, remote player hypothesis, npc hostile "
             "hypothesis, npc hp link hypothesis, move authority "
-            "hypothesis, ground loot hypothesis, and learn skill result "
-            "hypothesis scenarios are mutually exclusive"
+            "hypothesis, ground loot hypothesis, learn skill result "
+            "hypothesis, and learn skill request hypothesis scenarios are "
+            "mutually exclusive"
         )
     # PF-HYPOTHESIS-LEDGER: HYP-PF-030 active
     # MOVE-AUTHORITY-002.  Re-checked here even though app.py already loaded
@@ -244,6 +253,15 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         learn_skill_result_hypothesis_scenario = (
             require_learn_skill_result_hypothesis_scenario(
                 learn_skill_result_hypothesis_scenario
+            )
+        )
+    # LEARN-SKILL-REQUEST-001.  Re-checked here even though app.py already
+    # loaded it: a caller that hands in a lookalike profile must not be able
+    # to open an inbound decode path this project did not pin.
+    if learn_skill_request_hypothesis_scenario is not None:
+        learn_skill_request_hypothesis_scenario = (
+            require_learn_skill_request_hypothesis_scenario(
+                learn_skill_request_hypothesis_scenario
             )
         )
     # DELETE-REFRESH-001 and HYP-PF-015 key on the same vital id 0x36DB, so
@@ -544,6 +562,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.channel_message_sweep_count = 0
                 self.stats_progression_sweep_count = 0
                 self.learn_skill_result_sweep_count = 0
+                self.learn_skill_request_accepted_count = 0
+                self.learn_skill_request_last_fields = None
                 self.hp_death_sweep_count = 0
                 self.runtimeres_death_sweep_count = 0
                 self.damage_model_sweep_count = 0
@@ -1624,6 +1644,53 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 "learn_skill_result_hypothesis_learn_sweep_sent"
             )
             return actions
+
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-034 active
+        def _dispatch_learn_skill_request_hypothesis(self, parsed):
+            """Strictly decode one inbound 0x36AA request; reply with nothing.
+
+            LEARN-SKILL-REQUEST-001.  The lane is deliberately decode-only:
+            an accepted request is decoded to the two opaque declared values
+            (named by object offset only -- no semantics are known), counted
+            and recorded on the session state, and NOTHING is sent back --
+            no learn rule exists and none is invented, and the sibling
+            result-vital composer is never called from here.  Every refusal
+            -- wrong envelope, truncation, a wrong tag, trailing bytes --
+            is a named no-reply event.  The guards mirror the sibling sweep
+            lane: no selected character and not-yet-runtime-ready both fail
+            closed with no reply and no write.  No path here touches the
+            database.
+            """
+            self.rx_frames += 1
+            classification = classify_learn_skill_request_attempt(
+                legacy, parsed,
+            )
+            if classification != "exact_request":
+                self.events.append(
+                    f"learn_skill_request_hypothesis_{classification}_no_reply"
+                )
+                return []
+            if self.foundation.selected is None:
+                self.events.append(
+                    "learn_skill_request_hypothesis_no_selected_no_reply"
+                )
+                return []
+            if not self.teleport_sent or not self.runtime_ack_sent:
+                self.events.append(
+                    "learn_skill_request_hypothesis_wrong_sequence_no_reply"
+                )
+                return []
+            fields = decode_learn_skill_request_payload(
+                bytes(parsed.nested_payload)
+            )
+            self.learn_skill_request_last_fields = (
+                fields.request_u32_0x14, fields.request_u8_0x18,
+            )
+            self.learn_skill_request_accepted_count += 1
+            self.events.append(
+                "learn_skill_request_hypothesis_decoded_no_reply"
+            )
+            return []
 
         # PF-HYPOTHESIS-LEDGER: HYP-PF-022 active
         def _dispatch_hp_death_hypothesis(self, parsed):
@@ -2836,6 +2903,15 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # refuses the flags together, which is why the ordering of
                 # these branches cannot matter.
                 return self._dispatch_learn_skill_result_hypothesis(parsed)
+            if (
+                learn_skill_request_hypothesis_scenario is not None
+                and nested_id == LEARN_SKILL_REQUEST_VITAL_ID
+            ):
+                # LEARN-SKILL-REQUEST-001.  Keyed on its own vital id 0x36AA,
+                # which no other lane keys on; with the scenario absent this
+                # branch does not exist and a 0x36AA frame falls through to
+                # the frozen v141 default path exactly as before.
+                return self._dispatch_learn_skill_request_hypothesis(parsed)
             if (
                 delete_actor_hypothesis_scenario is not None
                 and nested_id == DELETE_ACTOR_VITAL_ID
