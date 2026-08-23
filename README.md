@@ -26,11 +26,12 @@ and fatal there.
 > **`tools\verify_foundation.ps1` is NOT the gate, and it cannot pass.** It was
 > the gate when this line was first written and it has been advertised as the
 > gate ever since. Its deterministic-release step pins a set of 79 archive
-> members inline, while `tools\build_foundation_release.py` now emits **105**;
-> the 79 are all still present and 26 members have been added since the pin, so
-> the step's set comparison fails on every run. Round 93 re-derived both numbers
-> rather than repeating them (build the archive, read `namelist()`, diff against
-> the inline set). Re-pinning it to 105 would make it green again, and that is
+> members inline, while `tools\build_foundation_release.py` emits more (**105**
+> at round 93's re-derivation, **122** as of 2026-08-23; all 79 pinned members
+> still present each time), so the step's set comparison fails on every run.
+> Both counts were re-derived rather than repeated (build the archive, read
+> `namelist()`, diff against the inline set) — re-derive again before citing a
+> current number. Re-pinning it to the current count would make it green again, and that is
 > deliberately not done here: a member census that is widened whenever it
 > disagrees with the tree has stopped being a census, and whether this script
 > should be re-pinned or retired outright is a decision rather than a repair.

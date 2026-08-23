@@ -127,9 +127,10 @@ come back NOT ignored from `git check-ignore`.
 
 > **`tools\verify_foundation.ps1` is NOT that gate and cannot pass.** Its
 > deterministic-release step pins 79 archive members inline while
-> `tools\build_foundation_release.py` emits 105 (all 79 still present, 26 added
-> since the pin), so its set comparison fails on every run. Round 93 re-derived
-> both numbers rather than restating them. It is left red rather than re-pinned,
+> `tools\build_foundation_release.py` emits more (105 at round 93's
+> re-derivation, 122 as of 2026-08-23; all 79 still present each time), so its
+> set comparison fails on every run. Both counts were re-derived rather than
+> restated; re-derive again before citing a current number. It is left red rather than re-pinned,
 > because re-pinning a census to whatever the tree currently holds is how a
 > census stops being one; retire-or-re-pin is an open decision.
 
