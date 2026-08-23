@@ -86,10 +86,17 @@ not let it silently become an implementation milestone.
   rollback, and no-mode regressions. Use this inner loop while editing.
 - **T2 — domain integration:** only the neighboring lifecycle, repository, wire,
   or platform boundary affected by the change.
-- **T3 — full acceptance:** `tools\verify_foundation.ps1`, deterministic release,
-  and V141 immutability. Run once after the diff is frozen and before accepting an
-  implementation checkpoint. Rerun only after a material corrective changes code,
-  tests, migrations, release membership, or verifier behavior.
+- **T3 — full acceptance:** `py -3 -m pytest tests -q`,
+  `py -3 tools\verify_hypothesis_ledger.py` (its sha256 guard is what enforces
+  V141 immutability), `py -3 tools\verify_functional_coverage.py`, and release
+  determinism checked the way the Actions gate checks it: run
+  `py -3 tools\build_foundation_release.py --output <a>` twice and compare the
+  two archives' sha256. (`tools\verify_foundation.ps1` is NOT this tier and
+  cannot pass: its release step pins a member census the build has outgrown;
+  see the warning block in `AGENTS.md` for the re-derived numbers.) Run once
+  after the diff is frozen and before accepting an implementation checkpoint.
+  Rerun only after a material corrective changes code, tests, migrations,
+  release membership, or verifier behavior.
 - Docs-only wording or manifest corrections use T0 plus exact artifact rehash. They
   do not require T3 unless they change a verifier, canonical ledger, release input,
   or executable contract.

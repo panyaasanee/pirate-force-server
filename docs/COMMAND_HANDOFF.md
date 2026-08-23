@@ -1,6 +1,6 @@
 # Pirate Force Command Handoff
 
-Updated: 2026-08-16
+Updated: 2026-08-23
 
 ## Mandatory visible server console
 
@@ -692,10 +692,15 @@ paths, with no replacement clone/worktree/project folder.
 - Preserve frozen V141 and all currently accepted Foundation, Arena, relation, and
   Scene behavior.
 - Build a focused version only after evidence establishes one isolated delta.
-- Run focused tests during iteration. Run `tools\verify_foundation.ps1` once after
-  a stable material implementation diff. Obtain independent audit according to the
-  workflow risk tier, then perform controlled local GameClient runtime only when
-  the claim needs it.
+- Run focused tests during iteration. After a stable material implementation
+  diff, run the real acceptance set once: `py -3 -m pytest tests -q`,
+  `py -3 tools\verify_hypothesis_ledger.py`,
+  `py -3 tools\verify_functional_coverage.py`, plus every per-lane verifier and
+  headless replay the change touches, plus the commit-job guards `AGENTS.md`
+  lists. (`tools\verify_foundation.ps1` is NOT that gate and cannot pass; see
+  the warning block in `AGENTS.md`.) Obtain independent audit
+  according to the workflow risk tier, then perform controlled local GameClient
+  runtime only when the claim needs it.
 
 ## Runtime discipline learned from prior rounds
 

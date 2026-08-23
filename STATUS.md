@@ -1,6 +1,6 @@
 # Pirate Force Server — Foundation Status
 
-Updated: 2026-08-19
+Updated: 2026-08-23
 
 Execution is governed by `docs/WORKFLOW.md`: one active milestone, Cloud-first
 sanitized work, Local-only proprietary/runtime work, tiered verification,
@@ -12,6 +12,9 @@ file-only. Hidden/background-only server runs are no longer accepted.
 AI-provider transfer is governed by `docs/AI_TRANSFER_HANDOFF_20260817.md` and
 `docs/AI_WORKSPACE_LEASE.json`: use the existing canonical worktrees only, allow one
 active executor, and never create a competing clone/worktree/project directory.
+One correction when reading that dated handoff: its section-10 "full
+authoritative local gate" (`tools\verify_foundation.ps1`) is superseded — that
+script cannot pass; the acceptance set `AGENTS.md` declares is the gate.
 
 ## Functional coverage
 
