@@ -77,10 +77,11 @@ statically, byte-exact, from the read-only client binary:
 
   * SERVER GAP. v141 (immutable, read-only here) contains no `Channel_` token
     at all and none of the 17 ids. Only src/pirateforce_foundation/
-    chat_input_hypothesis.py touches one of them, 0xAC52, and explicitly calls
-    it "UNKNOWN_0xAC52 ... unknown to the server registry", echoing an opaque
-    pinned blob without decoding it. 1 of 17 channels is touched, 0 of 17 are
-    decoded server-side.
+    chat_input_hypothesis.py touches one of them, 0xAC52, keeps its
+    capture-era identifier "UNKNOWN_0xAC52" (absent from the v141 registry;
+    resolved to Channel_LocalTalkMessageVital by the project names table,
+    RESOLVE-001), and echoes an opaque pinned blob without decoding it.
+    1 of 17 channels is touched, 0 of 17 are decoded server-side.
 
 NOT CLAIMED: nothing about the ORIGINAL server's routing behaviour. No two
 concurrent sessions have ever existed in this project, so fan-out, membership
@@ -935,19 +936,20 @@ print("\n-- 16. server cross-check (read-only) — the size of the routing gap -
 src = open(SERVER_SRC, "r", encoding="utf-8", errors="replace").read()
 check("v141 (immutable) contains no `Channel_` token at all — none of the 17 client "
       "channel classes exists server-side", "Channel_" not in src)
-present = [n for n, *_ in FAMILY if ("0x%04X" % EXPECT_IDS[n]) in src.upper()]
+present = [n for n, *_ in FAMILY if ("0x%04X" % EXPECT_IDS[n]).upper() in src.upper()]
 check("v141 declares none of the 17 channel wire ids", not present, str(present))
 if os.path.isfile(CHAT_MOD):
     chat = open(CHAT_MOD, "r", encoding="utf-8", errors="replace").read()
     check("the ONLY server-side touch of the family is chat_input_hypothesis.py, and "
           "it handles exactly one id, 0xAC52 = Channel_LocalTalkMessageVital",
           "CHAT_INPUT_VITAL_ID = 0xAC52" in chat
-          and not any(("0x%04X" % EXPECT_IDS[n]) in chat.upper()
+          and not any(("0x%04X" % EXPECT_IDS[n]).upper() in chat.upper()
                       for n, *_ in FAMILY if n != "Channel_LocalTalkMessageVital"))
-    check("that module still calls 0xAC52 UNKNOWN and treats the payload as an opaque "
-          "pinned blob — it never decodes the two wstrings this round names",
+    check("that module still keeps the UNKNOWN_0xAC52 identifier and treats the payload "
+          "as an opaque pinned blob — it never decodes the two wstrings this round names",
           "UNKNOWN_0xAC52" in chat
-          and "unknown to the server registry" in chat
+          and "absent from the v141 registry" in chat
+          and "Channel_LocalTalkMessageVital" in chat
           and "compared as one opaque pinned blob" in chat)
     check("the payload this round decodes field-by-field is byte-identical to the "
           "capture that module pins (CHAT_INPUT_PROBE_PAYLOADS['probe1'])",

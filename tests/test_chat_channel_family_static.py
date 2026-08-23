@@ -675,15 +675,16 @@ class ChatChannelFamilyStaticTests(unittest.TestCase):
         src = SERVER.read_text(encoding="utf-8", errors="replace")
         self.assertNotIn("Channel_", src)
         for nm, *_ in FAMILY:
-            self.assertNotIn("0x%04X" % EXPECT_IDS[nm], src.upper(), nm)
+            self.assertNotIn(("0x%04X" % EXPECT_IDS[nm]).upper(), src.upper(), nm)
         chat = CHAT_MOD.read_text(encoding="utf-8", errors="replace")
         self.assertIn("CHAT_INPUT_VITAL_ID = 0xAC52", chat)
         self.assertIn("UNKNOWN_0xAC52", chat)
-        self.assertIn("unknown to the server registry", chat)
+        self.assertIn("absent from the v141 registry", chat)
+        self.assertIn("Channel_LocalTalkMessageVital", chat)
         self.assertIn("compared as one opaque pinned blob", chat)
         for nm, *_ in FAMILY:
             if nm != "Channel_LocalTalkMessageVital":
-                self.assertNotIn("0x%04X" % EXPECT_IDS[nm], chat.upper(), nm)
+                self.assertNotIn(("0x%04X" % EXPECT_IDS[nm]).upper(), chat.upper(), nm)
         flat = chat.replace('"', "").replace("\n", "").replace(" ", "").upper()
         self.assertIn(GT006_PAYLOAD.hex().upper(), flat)
 
