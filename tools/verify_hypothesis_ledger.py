@@ -391,7 +391,32 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # 0x673C frame -- that is the queued attended ticket, and no coverage row
 # grade moves on this append.  Count moves 40 -> 41 and no earlier entry is
 # touched.)
-CANONICAL_CONTENT_SHA256 = "0265A2C8BDFE98EDAB87DB36F3A8785F36D697012A637E72E317C5BEAD638742"
+# -> 0265A2C8.. (2026-08-24, cloud: HYP-PF-034 appended --
+# LEARN-SKILL-REQUEST-001, the inbound half of the learn-skill lane and the
+# first server-side inbound decoder for any of the five progression verbs.
+# The CLearnSkillVital 0x36AA body shape comes from COMMITTED ARTIFACTS ONLY
+# (pf_bridge/external/PF_SERIALIZER_FIELDS.tsv, four byte-symmetric W/R rows:
+# u32 tag 0x14 at object+0x14 then u8 tag 0x0B at object+0x18, both gates
+# ALWAYS, serializer span [0x00755AC0,0x00755B13) len 83 sha256 b9948741..,
+# re-verified against the image by GT-050 job 1 and adversarially re-derived
+# by job 2).  Behind --learn-skill-request-hypothesis-scenario the dispatcher
+# STRICTLY DECODES one accepted inbound 0x36AA frame, counts it and records
+# the two opaque decoded values on the session state -- and sends NOTHING
+# back: no learn rule exists and none is invented, and no database row is
+# written.  The natural direction of 0x36AA is UNPROVEN (the client carries
+# both W and R codecs; nobody has seen it on a wire), the field semantics are
+# unknown and deliberately unnamed (request_u32_0x14/request_u8_0x18), the
+# acceptance envelope is our design copied from captured requests of other
+# vitals, and no coverage row grade moves on this append.  Count moves
+# 41 -> 42, and ONE dated amendment corrects entry 41's evidence_gap in the
+# same commit: its tree-scoped sentence "the inbound 0x36AA direction has no
+# handler ... anywhere in this tree" became false the moment HYP-PF-034
+# landed, so it now reads "had no handler ... when this entry was opened
+# [AMENDED 2026-08-24: HYP-PF-034 added a strict opt-in DECODE-ONLY
+# handler ...]" -- the adversary review of the same round caught that the
+# first draft of this append certified the stale sentence under a fresh
+# canonical sha.  No other field of any earlier entry is touched.)
+CANONICAL_CONTENT_SHA256 = "DA6FED38A178E6FAC72310A35B94C1DF36920C645E5756427E6931BBC8493743"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -585,6 +610,14 @@ EXPECTED_IDS = (
     # ever seen one).  Appended at the end to keep every earlier entry index
     # stable for the index-based fixtures.
     "HYP-PF-033",
+    # HYP-PF-034 (LEARN-SKILL-REQUEST-001: the CLearnSkillVital 0x36AA
+    # inbound strict-decoder lane -- decode, count and record only, no
+    # reply, no learn rule, no write, behind
+    # --learn-skill-request-hypothesis-scenario; field semantics unknown
+    # and unnamed, natural direction UNPROVEN, envelope acceptance our
+    # design).  Appended at the end to keep every earlier entry index
+    # stable for the index-based fixtures.
+    "HYP-PF-034",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -637,6 +670,9 @@ EXPECTED_META = {
     "HYP-PF-032": ("protocol_hypothesis", "GROUND-LOOT-001", "active"),
     "HYP-PF-033": (
         "protocol_hypothesis", "LEARN-SKILL-RESULT-001", "active",
+    ),
+    "HYP-PF-034": (
+        "protocol_hypothesis", "LEARN-SKILL-REQUEST-001", "active",
     ),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}

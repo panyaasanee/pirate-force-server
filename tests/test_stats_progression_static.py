@@ -874,42 +874,45 @@ class StatsProgressionStatic(unittest.TestCase):
                               if 0x460EC0 <= c < 0x4614C0])
 
     # -- 24 ------------------------------------------------------------------
-    # The ONE deliberate exception to the "no progression verb name under
-    # src/" negative, as exact (file, verb, occurrence count) triples.  This
-    # is the TEST's own copy; test 24 below also re-reads the identical
-    # constant out of tools/pf_stats_progression_static.py (the tool twin of
-    # this guard, which the cloud cannot run because it needs the client
-    # image) and asserts the two copies are equal, so the twins cannot drift
-    # apart silently.
+    # The deliberate exceptions to the "no progression verb name under src/"
+    # negative, as exact (file, verb, occurrence count) triples -- one owning
+    # module per lane (HYP-PF-033 outbound encoder, HYP-PF-034 inbound strict
+    # decoder), docstring mentions only.  This is the TEST's own copy; test 24
+    # below also re-reads the identical constant out of
+    # tools/pf_stats_progression_static.py (the tool twin of this guard, which
+    # the cloud cannot run because it needs the client image) and asserts the
+    # two copies are equal, so the twins cannot drift apart silently.
     LEARN_SKILL_RESULT_SRC_EXCEPTIONS = (
         ("learn_skill_result_hypothesis.py", "CLearnSkillVital", 1),
         ("learn_skill_result_hypothesis.py", "CLearnSkillResultVital", 1),
+        ("learn_skill_request_hypothesis.py", "CLearnSkillVital", 1),
     )
 
     def test_server_side_progression_gap_names_its_one_exception(self):
-        """LEARN-SKILL-RESULT-001 deliberately changed what this guard asserts.
+        """The learn-skill lanes deliberately changed what this guard asserts.
 
         Until 2026-08-23 this test asserted the strongest possible negative:
         no progression verb NAME appeared anywhere under src/, so the "5
         verbs, 0 encoders, 0 dispatch" statement of STATS-PROG-001 was true
-        by construction.  LEARN-SKILL-RESULT-001 (HYP-PF-033) is the
-        milestone that builds the OUTBOUND encoder for exactly ONE of the
-        five verbs -- CLearnSkillResultVital 0x673C, whose body shape GT-050
-        closed byte-exactly -- so this assertion had to move rather than be
-        worked around.  (It was NOT worked around: no derived name, no
-        obfuscated spelling -- the one owning module names the class in its
-        docstring on purpose.)  The exception is pinned three ways so it
-        cannot quietly widen: exact occurrence COUNTS per (file, verb), so a
-        new mention of either verb in the owning module -- say, an inbound
-        0x36AA implementation -- trips this guard again; every allowed
-        mention must sit inside that module's DOCSTRING, so no code path may
-        name a verb; and the identical triple list is re-read out of the
-        tool twin tools/pf_stats_progression_static.py, which enforces the
-        same triples on the bridge, so the two guards cannot drift apart.
-        The frozen v141 module still names no verb and no cohort id, the
-        other four verbs still have zero encoders and zero dispatch anywhere
-        under src/, and the HYP-PF-020 progression lane itself still names
-        none of them.
+        by construction.  LEARN-SKILL-RESULT-001 (HYP-PF-033) built the
+        OUTBOUND encoder for CLearnSkillResultVital 0x673C, and
+        LEARN-SKILL-REQUEST-001 (HYP-PF-034, 2026-08-24) built the INBOUND
+        strict decoder for CLearnSkillVital 0x36AA (decode-count-and-record
+        only: no reply, no learn rule, no write) -- so this assertion had to
+        move rather than be worked around.  (It was NOT worked around: no
+        derived name, no obfuscated spelling -- each owning module names its
+        class in its docstring on purpose.)  The exceptions are pinned three
+        ways so they cannot quietly widen: exact occurrence COUNTS per
+        (file, verb), so a new mention of either verb in an owning module
+        trips this guard again; every allowed mention must sit inside the
+        owning module's DOCSTRING, so no code path may name a verb; and the
+        identical triple list is re-read out of the tool twin
+        tools/pf_stats_progression_static.py, which enforces the same
+        triples on the bridge, so the two guards cannot drift apart.  The
+        frozen v141 module still names no verb and no cohort id, the other
+        three verbs still have zero encoders, zero decoders and zero
+        dispatch anywhere under src/, and the HYP-PF-020 progression lane
+        itself still names none of them.
         """
         src = SERVER.read_text(encoding="utf-8", errors="replace")
         up = src.upper()
@@ -938,19 +941,23 @@ class StatsProgressionStatic(unittest.TestCase):
         self.assertEqual(
             sorted(hits), sorted(self.LEARN_SKILL_RESULT_SRC_EXCEPTIONS),
         )
-        # Context restriction: every allowed mention sits inside the owning
-        # module's DOCSTRING (the title line and the inbound-0x36AA
-        # nonclaim).  A verb name appearing in executable code -- constants,
-        # dispatch, an inbound handler -- is not covered by this exception.
-        owner = SRC_DIR / "pirateforce_foundation" / "learn_skill_result_hypothesis.py"
-        docstring = ast.get_docstring(
-            ast.parse(owner.read_text(encoding="utf-8")), clean=False,
-        )
-        for _file, verb, count in self.LEARN_SKILL_RESULT_SRC_EXCEPTIONS:
+        # Context restriction: every allowed mention sits inside its owning
+        # module's DOCSTRING (title lines and nonclaims).  A verb name
+        # appearing in executable code -- constants, dispatch, a handler
+        # body -- is not covered by these exceptions.
+        docstrings = {}
+        for file, verb, count in self.LEARN_SKILL_RESULT_SRC_EXCEPTIONS:
+            if file not in docstrings:
+                owner = SRC_DIR / "pirateforce_foundation" / file
+                docstrings[file] = ast.get_docstring(
+                    ast.parse(owner.read_text(encoding="utf-8")), clean=False,
+                )
             self.assertEqual(
-                len(re.findall(re.escape(verb) + r"(?![A-Za-z0-9_])", docstring)),
+                len(re.findall(
+                    re.escape(verb) + r"(?![A-Za-z0-9_])", docstrings[file],
+                )),
                 count,
-                f"{verb} mention moved outside the module docstring",
+                f"{verb} mention moved outside the {file} docstring",
             )
         # Twin binding: the tool's exception constant is the SAME triples.
         # The tool's own (pre-existing) docstring ASCII art carries a "\-"

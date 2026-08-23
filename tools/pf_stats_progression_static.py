@@ -140,23 +140,29 @@ EXPECT_SHA = "9627211412AC60D50AD189CE5A629443CE928EC23A9F8D219DFB2B157028B623"
 SERVER_SRC = os.path.normpath(os.path.join(_ROOT, "current", "pf_login_game_server_v141.py"))
 SRC_DIR = os.path.normpath(os.path.join(_ROOT, "src"))
 
-# LEARN-SKILL-RESULT-001 (HYP-PF-033, 2026-08-23): the ONE deliberate exception
-# to this tool's "no progression verb name anywhere under src/" negative.  That
-# milestone built the outbound encoder for exactly one of the five verbs --
-# CLearnSkillResultVital 0x673C, whose body shape GT-050 closed byte-exactly --
-# and its module names that class once in its docstring title and names
-# CLearnSkillVital once, in the docstring NONCLAIM that says the inbound
-# direction is NOT implemented.  The triples below are (file, verb, exact
-# occurrence count), counted with a trailing identifier-boundary lookahead so a
-# mention inside a longer class name is never miscounted; ANY new occurrence of
-# either verb in that file, and any occurrence of any verb in any other file,
-# trips the guard again.  tests/test_stats_progression_static.py test 24
-# re-reads this constant with ast.literal_eval and pins its own scan to the
-# SAME triples, so the tool and the cloud-runnable test cannot drift apart
-# silently.
+# The deliberate exceptions to this tool's "no progression verb name anywhere
+# under src/" negative -- one owning module per lane, docstring mentions only:
+#   * LEARN-SKILL-RESULT-001 (HYP-PF-033, 2026-08-23) built the outbound
+#     encoder for CLearnSkillResultVital 0x673C, whose body shape GT-050
+#     closed byte-exactly; its module names that class once in its docstring
+#     title and names CLearnSkillVital once, in the docstring NONCLAIM about
+#     the inbound direction.
+#   * LEARN-SKILL-REQUEST-001 (HYP-PF-034, 2026-08-24) built the inbound
+#     strict DECODER for CLearnSkillVital 0x36AA (decode-count-and-record
+#     only: no reply, no learn rule, no write) from the committed delivery
+#     tables GT-050 re-verified; its module names that class once, in its
+#     docstring title.
+# The triples below are (file, verb, exact occurrence count), counted with a
+# trailing identifier-boundary lookahead so a mention inside a longer class
+# name is never miscounted; ANY new occurrence of either verb in those files,
+# and any occurrence of any verb in any other file, trips the guard again.
+# tests/test_stats_progression_static.py test 24 re-reads this constant with
+# ast.literal_eval and pins its own scan to the SAME triples, so the tool and
+# the cloud-runnable test cannot drift apart silently.
 LEARN_SKILL_RESULT_SRC_EXCEPTIONS = (
     ("learn_skill_result_hypothesis.py", "CLearnSkillVital", 1),
     ("learn_skill_result_hypothesis.py", "CLearnSkillResultVital", 1),
+    ("learn_skill_request_hypothesis.py", "CLearnSkillVital", 1),
 )
 
 data = open(BIN, "rb").read()
@@ -1431,11 +1437,12 @@ if os.path.isdir(SRC_DIR):
                 if n:
                     src_hits.append((f, v, n))
 check("src/pirateforce_foundation/ contains no encoder, decoder or dispatch for any "
-      "progression verb EXCEPT the one named LEARN-SKILL-RESULT-001 exception "
-      "(HYP-PF-033: the CLearnSkillResultVital outbound encoder module, whose "
-      "docstring also names CLearnSkillVital once, in the nonclaim that the "
-      "inbound direction is NOT implemented) -- exact (file, verb, count) "
-      "triples, so any new occurrence anywhere trips this again",
+      "progression verb EXCEPT the two named lane exceptions (HYP-PF-033: the "
+      "CLearnSkillResultVital outbound encoder module, whose docstring also "
+      "names CLearnSkillVital once, in its inbound nonclaim; HYP-PF-034: the "
+      "CLearnSkillVital inbound strict-decoder module, decode-only, named "
+      "once in its docstring title) -- exact (file, verb, count) triples, so "
+      "any new occurrence anywhere trips this again",
       sorted(src_hits) == sorted(LEARN_SKILL_RESULT_SRC_EXCEPTIONS),
       str(sorted(src_hits)))
 named_emitted = [f for f in NAMED_FIELDS if f[4] in ("hp current", "hp max")]
@@ -1444,11 +1451,15 @@ print("        gap: 19 named progression fields  ->  %d emitted server-side (%s)
       % (len(named_emitted), ", ".join(f[4] for f in named_emitted)))
 print("        gap: 5 progression verbs  ->  1 encoded outbound-only behind an "
       "opt-in flag (CLearnSkillResultVital 0x673C, LEARN-SKILL-RESULT-001 / "
-      "HYP-PF-033), 4 with no server implementation, inbound 0 for all five")
+      "HYP-PF-033), 4 with no server implementation; inbound: 1 strict opt-in "
+      "decoder (CLearnSkillVital 0x36AA, LEARN-SKILL-REQUEST-001 / HYP-PF-034, "
+      "decode-only, no reply, no learn rule, no write), 0 for the other four")
 check("progression gap size: 14 classes client-side, 0 ids declared server-side; "
       "19 named progression fields, 2 emitted (the HP pair, already runtime-proven "
       "for a different lane); 5 progression verbs, 1 with an outbound-only opt-in "
-      "encoder (LEARN-SKILL-RESULT-001) and 4 with no server implementation",
+      "encoder (LEARN-SKILL-RESULT-001), 1 with an inbound-only opt-in strict "
+      "decoder (LEARN-SKILL-REQUEST-001, decode-only) and 3 with no server "
+      "implementation in either direction",
       len(COHORT) == 14 and len(NAMED_FIELDS) == 19
       and len(named_emitted) == 2 and not id_present
       and sorted(src_hits) == sorted(LEARN_SKILL_RESULT_SRC_EXCEPTIONS))

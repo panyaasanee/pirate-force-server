@@ -1,0 +1,96 @@
+{
+  "schema": 1,
+  "id": "learn_skill_request_hypothesis_decode_probe",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-034",
+  "entry": {
+    "flow": "full_writable_character",
+    "required_sequence": "selected_and_runtime_ready",
+    "response_policy": "decode_count_and_record_no_reply_no_write"
+  },
+  "dispatch": {
+    "trigger": "inbound_one_vital_0x36AA_request_frame",
+    "trigger_classifier": "classify_learn_skill_request_attempt",
+    "frames_emitted_per_accepted_request": 0,
+    "accepted_event": "learn_skill_request_hypothesis_decoded_no_reply",
+    "one_shot": false,
+    "socket_action": "none"
+  },
+  "wire": {
+    "vital_id": 13994,
+    "vital_version": 0,
+    "vital_version_provenance": "our_design_no_capture_or_static_pin_fixes_it",
+    "envelope": "gscn_runtime_protocol_req_one_vital_client_request_our_acceptance_design_for_this_vital",
+    "body_order": [
+      "u32_tag_0x14_at_object_0x14",
+      "u8_tag_0x0B_at_object_0x18"
+    ],
+    "payload_wire_size": 7,
+    "provenance": {
+      "ticket": "GT-050",
+      "letter": "pf_bridge/notes_to_chief/20260824_0055_GT050-RESULT-CLEARNRESULT-CLOSED-TRIGGER-DIRECTION-UNRESOLVED.md",
+      "delivery_table": "pf_bridge/external/PF_SERIALIZER_FIELDS.tsv",
+      "delivery_rows": "W_and_R_byte_symmetric_gate_ALWAYS",
+      "serializer_va": "0x00755AC0",
+      "serializer_len": 83,
+      "serializer_sha256": "b99487413ffa79784deda46283aafc2f3954d98a85362d35304b745d6c062fc4"
+    }
+  },
+  "probe": {
+    "per_probe": {
+      "ZERO": {
+        "fields": {
+          "request_u32_0x14": 0,
+          "request_u8_0x18": 0
+        },
+        "payload_size": 7,
+        "payload_sha256": "7FC03DE103971ADD441303C4EDAEF1EDF2D379D5070A53B6A8481AF159F4C84B",
+        "request_pc_size": 27,
+        "request_pc_sha256": "007EC69962A76EFAD7636442B392F904291BC2037B9CEACC3DED33929EAE9563"
+      },
+      "MID": {
+        "fields": {
+          "request_u32_0x14": 1000001,
+          "request_u8_0x18": 11
+        },
+        "payload_size": 7,
+        "payload_sha256": "B182A5CB1F0153B43B780F644D4AEC5D99142912185B760EBEC31C00D9B6EFDF",
+        "request_pc_size": 27,
+        "request_pc_sha256": "88EFC1A85A625FFF9ABDC7E2886051D34C24E1116165B7433D6D0B5FDC93E6F5"
+      },
+      "MAX": {
+        "fields": {
+          "request_u32_0x14": 4294967295,
+          "request_u8_0x18": 255
+        },
+        "payload_size": 7,
+        "payload_sha256": "0E79D47C2600DB964304F37F5F260F9A3B84DD7582A61F42F8049379C9385265",
+        "request_pc_size": 27,
+        "request_pc_sha256": "1CFD9DAA3C1E59EE8009017E1F32A13BBCF20F8BD5108CE0287889F4805E8CAA"
+      }
+    }
+  },
+  "persisted_post_state": {
+    "database_write": "none"
+  },
+  "capabilities": [
+    "decode_the_delivery_table_0x36AA_body_shape",
+    "refuse_malformed_bodies_by_named_reason",
+    "count_and_record_accepted_requests_per_session",
+    "repeatable_per_session_no_reply_no_persisted_state_change"
+  ],
+  "nonclaims": [
+    "the_natural_direction_of_0x36AA_which_static_did_not_prove",
+    "any_meaning_for_the_two_request_fields",
+    "any_learn_rule_or_any_result_response",
+    "the_request_envelope_for_0x36AA_which_was_never_captured",
+    "the_vital_version_byte_which_is_our_design",
+    "client_send_behavior_pending_the_bridge_direction_proof",
+    "any_wire_observation_of_0x36AA_in_either_direction",
+    "original_server_learn_skill_behavior",
+    "skill_persistence_or_database_write",
+    "production_dispatch_wiring",
+    "production_baseline_behavior"
+  ]
+}

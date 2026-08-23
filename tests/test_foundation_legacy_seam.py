@@ -67,7 +67,29 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers ONE deliberate movement (LEARN-SKILL-RESULT-001,
+    # This pin covers ONE deliberate movement (LEARN-SKILL-REQUEST-001,
+    # 2026-08-24, cloud): combat/skill_use stays in_progress but gains one
+    # evidence ref (scenarios/learn_skill_request_hypothesis_decode_probe
+    # .json) and one test ref (tests/test_learn_skill_request_hypothesis.py)
+    # for HYP-PF-034 -- the INBOUND half of the learn-skill lane and the
+    # first server-side inbound decoder for any of the five progression
+    # verbs.  The CLearnSkillVital 0x36AA body shape comes from COMMITTED
+    # ARTIFACTS ONLY (PF_SERIALIZER_FIELDS.tsv, four byte-symmetric W/R
+    # rows re-verified by GT-050 jobs 1-2: u32 tag 0x14 at object+0x14 then
+    # u8 tag 0x0B at object+0x18, 7 bytes), and behind
+    # --learn-skill-request-hypothesis-scenario one accepted inbound frame
+    # is strictly decoded, counted and recorded -- and NOTHING is sent back
+    # and nothing is written: no learn rule exists and none is invented.
+    # The field semantics stay unknown and unnamed, the natural direction
+    # of 0x36AA is UNPROVEN (the direction census is bridge work, queued),
+    # and the status deliberately does NOT move.  The ledger GROWS:
+    # HYP-PF-034 appended, count 41 -> 42, every existing index stable.
+    # The STATS-PROG-001 static guard test 24 gained its third exact
+    # exception triple (its second owning module) in the same commit rather
+    # than be worked around.
+    #
+    # Previous pin 2BC8A93C..F407 covered ONE deliberate movement
+    # (LEARN-SKILL-RESULT-001,
     # 2026-08-23, cloud): combat/skill_use stays in_progress but gains one
     # evidence ref (scenarios/learn_skill_result_hypothesis_learn_sweep.json)
     # and one test ref (tests/test_learn_skill_result_hypothesis.py) for
@@ -438,7 +460,7 @@ GRADE_SUBSET_SHA256 = (
     # 26D752FE..BA9A (round 65) occupied_destination_policy not_started ->
     # in_progress under HYP-PF-017 (ITEM-SWAP-001); see its lineage note before that
     # for round 53's 78558E56..6DC8.
-    "2BC8A93CF3BB1E21B40E5CC206F68921231CEBCDC2A9E119DFA2D0C5AA75F407"
+    "AAC38258FBDBACBA4A7CF104A75F41E48B487C0B0C3AE656A18B4245132A51CD"
 )
 
 
