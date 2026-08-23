@@ -10,6 +10,9 @@ from .channel_message_hypothesis import load_channel_message_hypothesis_scenario
 from .chat_input_hypothesis import load_chat_input_hypothesis_scenario
 from .delete_actor_hypothesis import load_delete_actor_hypothesis_scenario
 from .delete_refresh_hypothesis import load_delete_refresh_hypothesis_scenario
+from .ground_loot_hypothesis import (
+    load_ground_loot_hypothesis_scenario,
+)
 from .item_move_capture import load_item_move_capture_scenario
 from .item_move_hypothesis import load_item_move_hypothesis_scenario
 from .move_authority_hypothesis import (
@@ -85,6 +88,7 @@ def main() -> int:
     pre.add_argument('--npc-hostile-hypothesis-scenario')
     pre.add_argument('--npc-hp-link-hypothesis-scenario')
     pre.add_argument('--move-authority-hypothesis-scenario')
+    pre.add_argument('--ground-loot-hypothesis-scenario')
     pre.add_argument(
         '--second-password-mode', choices=SECOND_PASSWORD_MODES,
         default='required',
@@ -104,6 +108,21 @@ def main() -> int:
             known.move_authority_hypothesis_scenario
         )
         if known.move_authority_hypothesis_scenario else None
+    )
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-032 active
+    # GROUND-LOOT-001.  Behind this flag the dispatcher emits ONE extra
+    # RuntimeRes frame at the first TargetPos after the runtime ack: derived
+    # change-mask bit 0x08 carrying two 0x5F85B0 list elements (position +
+    # dword), so an attended tester can answer GT-045 -- does the client draw
+    # anything on the ground for that list?  The frame is pinned byte-exact
+    # in the module and nothing else changes; with the flag absent the boot
+    # is byte-for-byte the production baseline.  Refused alongside every
+    # other mode and demands an explicit existing --db.
+    ground_loot_hypothesis = (
+        load_ground_loot_hypothesis_scenario(
+            known.ground_loot_hypothesis_scenario
+        )
+        if known.ground_loot_hypothesis_scenario else None
     )
     scenario = load_scenario(known.scenario) if known.scenario else None
     # PF-HYPOTHESIS-LEDGER: HYP-PF-007 frozen
@@ -277,6 +296,7 @@ def main() -> int:
         damage_model_hypothesis, damage_hp_link_hypothesis,
         remote_player_hypothesis, npc_hostile_hypothesis,
         npc_hp_link_hypothesis, move_authority_hypothesis,
+        ground_loot_hypothesis,
     )) > 1:
         pre.error(
             '--scenario, --scene-load-scenario, --population-scenario, and '
@@ -293,7 +313,8 @@ def main() -> int:
             '--remote-player-hypothesis-scenario/'
             '--npc-hostile-hypothesis-scenario/'
             '--npc-hp-link-hypothesis-scenario/'
-            '--move-authority-hypothesis-scenario are mutually exclusive'
+            '--move-authority-hypothesis-scenario/'
+            '--ground-loot-hypothesis-scenario are mutually exclusive'
         )
     if item_move_capture is not None and not known.db:
         pre.error('--item-move-capture-scenario requires an explicit existing --db')
@@ -356,6 +377,11 @@ def main() -> int:
             '--move-authority-hypothesis-scenario requires an explicit '
             'existing --db'
         )
+    if ground_loot_hypothesis is not None and not known.db:
+        pre.error(
+            '--ground-loot-hypothesis-scenario requires an explicit '
+            'existing --db'
+        )
     db_path = known.db or str(
         root / (
             'state/object_population_v94.sqlite3' if population is not None
@@ -395,6 +421,8 @@ def main() -> int:
             if npc_hostile_hypothesis is not None else
             'npc-hp-link-hypothesis'
             if npc_hp_link_hypothesis is not None else
+            'ground-loot-hypothesis'
+            if ground_loot_hypothesis is not None else
             'foundation'
         )
         install_runtime_console(
@@ -420,6 +448,7 @@ def main() -> int:
         or npc_hostile_hypothesis is not None
         or npc_hp_link_hypothesis is not None
         or move_authority_hypothesis is not None
+        or ground_loot_hypothesis is not None
     ):
         if not Path(db_path).is_file():
             raise FileNotFoundError(db_path)
@@ -440,6 +469,7 @@ def main() -> int:
             or npc_hostile_hypothesis is not None
             or npc_hp_link_hypothesis is not None
             or move_authority_hypothesis is not None
+            or ground_loot_hypothesis is not None
         ):
             store.migrate()
             store.expire_open_sessions()
@@ -501,6 +531,9 @@ def main() -> int:
         # MOVE-AUTHORITY-002.  None unless the flag was handed in, and
         # make_state_class refuses it alongside every other mode a second time.
         move_authority_hypothesis_scenario=move_authority_hypothesis,
+        # GROUND-LOOT-001.  None unless the flag was handed in, and
+        # make_state_class refuses it alongside every other mode a second time.
+        ground_loot_hypothesis_scenario=ground_loot_hypothesis,
         # PF-HYPOTHESIS-LEDGER: HYP-PF-009 active
         second_password_mode=known.second_password_mode,
     )

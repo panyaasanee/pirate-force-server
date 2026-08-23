@@ -91,6 +91,9 @@ from .damage_model_hypothesis import (
     require_damage_model_hypothesis_scenario,
     resolve_actor as resolve_damage_model_actor,
 )
+from .ground_loot_hypothesis import (
+    make_ground_loot_frames, require_ground_loot_hypothesis_scenario,
+)
 from .move_authority_hypothesis import (
     evaluate_move_report, require_move_authority_hypothesis_scenario,
 )
@@ -173,6 +176,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                      npc_hostile_hypothesis_scenario=None,
                      npc_hp_link_hypothesis_scenario=None,
                      move_authority_hypothesis_scenario=None,
+                     ground_loot_hypothesis_scenario=None,
                      second_password_mode="required",
                      monotonic_clock=None,
                      close_timer_factory=None):
@@ -192,6 +196,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         npc_hostile_hypothesis_scenario,
         npc_hp_link_hypothesis_scenario,
         move_authority_hypothesis_scenario,
+        ground_loot_hypothesis_scenario,
     ))
     if active_modes > 1:
         raise ValueError(
@@ -201,8 +206,9 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             "hypothesis, stats progression hypothesis, hp death hypothesis, "
             "runtimeres death hypothesis, damage model hypothesis, damage "
             "hp link hypothesis, remote player hypothesis, npc hostile "
-            "hypothesis, npc hp link hypothesis, and move authority "
-            "hypothesis scenarios are mutually exclusive"
+            "hypothesis, npc hp link hypothesis, move authority "
+            "hypothesis, and ground loot hypothesis scenarios are "
+            "mutually exclusive"
         )
     # PF-HYPOTHESIS-LEDGER: HYP-PF-030 active
     # MOVE-AUTHORITY-002.  Re-checked here even though app.py already loaded
@@ -212,6 +218,15 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         move_authority_hypothesis_scenario = (
             require_move_authority_hypothesis_scenario(
                 move_authority_hypothesis_scenario
+            )
+        )
+    # GROUND-LOOT-001.  Re-checked here even though app.py already loaded
+    # it: a caller that hands in a lookalike profile must not be able to put
+    # bytes this module did not pin onto a live socket.
+    if ground_loot_hypothesis_scenario is not None:
+        ground_loot_hypothesis_scenario = (
+            require_ground_loot_hypothesis_scenario(
+                ground_loot_hypothesis_scenario
             )
         )
     # DELETE-REFRESH-001 and HYP-PF-015 key on the same vital id 0x36DB, so
@@ -501,6 +516,11 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # HYP-PF-031 one-shot latch: the unsolicited return-select
                 # push may leave this session exactly once.
                 self.logout_chat_push_count = 0
+                # GROUND-LOOT-001 one-shot latch: the bit-0x08 pair frame
+                # may leave this session exactly once, and a refused
+                # composition latches too so drift can never retry itself
+                # onto the wire.
+                self.ground_loot_pair_sent = False
                 self.worldinfo_last_payload = None
                 self.worldinfo_stored_count = 0
                 self.chat_input_echo_count = 0
@@ -2897,6 +2917,50 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.scene_action_ack_sent = True
                 self.events.append("scene007_ea7d_no_damage_action_ack_sent")
                 return [("SCENE007_EA7D_ACTION_ACK_ONCE", pc, frame, 0.0)]
+            # PF-HYPOTHESIS-LEDGER: HYP-PF-032 active
+            # GROUND-LOOT-001 (GT-045): at the house scene-load moment --
+            # first exact TargetPos after the runtime ack -- emit the two
+            # pinned single-element RuntimeRes derived-bit-0x08 frames
+            # (near, then far), exactly once per session.  ONE element per
+            # frame on purpose: V43 measured ErrorData=28317 on a combined
+            # multi-record derived-mask collection, and the attended run
+            # must measure rendering, not the count.  The frames RIDE
+            # ALONGSIDE the inherited dispatch (appended to the same action
+            # list), so the frozen population and the position checkpoint
+            # of the triggering frame stay byte-for-byte untouched.
+            ground_loot_actions = []
+            if (
+                ground_loot_hypothesis_scenario is not None
+                and not self.ground_loot_pair_sent
+                and self.runtime_ack_sent
+                and self.teleport_sent
+                and self.foundation.selected is not None
+                and nested_id == legacy.TARGET_POS_VITAL
+                and durable_target is not None
+            ):
+                try:
+                    frames = make_ground_loot_frames(
+                        legacy, ground_loot_hypothesis_scenario,
+                    )
+                except RuntimeError:
+                    # Drift refuses forever: latch so the refusal cannot
+                    # retry itself onto the wire on a later frame.
+                    self.ground_loot_pair_sent = True
+                    self.events.append(
+                        "ground_loot_compose_refused_no_reply"
+                    )
+                else:
+                    self.ground_loot_pair_sent = True
+                    self.events.append(
+                        "hyp_pf_032_ground_loot_bit08_pair_committed"
+                    )
+                    (near_pc, near_frame), (far_pc, far_frame) = frames
+                    ground_loot_actions = [
+                        ("GROUND_LOOT_BIT08_RENDER_NEAR_ONCE",
+                         near_pc, near_frame, 0.0),
+                        ("GROUND_LOOT_BIT08_RENDER_FAR_ONCE",
+                         far_pc, far_frame, 0.10),
+                    ]
             arena_actions = []
             suppress_inherited_population = (
                 self.arena_scenario is not None
@@ -3011,5 +3075,5 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     self.events.append(
                         f"arena_{version}_p30_target_kind2_captured_no_reply"
                     )
-            return actions + arena_actions
+            return actions + arena_actions + ground_loot_actions
     return PersistentGameSessionState

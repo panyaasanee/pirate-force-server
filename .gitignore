@@ -536,3 +536,8 @@
 # wholesale; only the verifier tool and the report need their own lines here.
 !/tools/verify_move_authority_gate.py
 !/reports/PF_MOVE_AUTHORITY002_SERVER_SIDE_GATE_20260821.md
+
+# GROUND-LOOT-001 (HYP-PF-032, GT-045): the headless replay proof for the
+# opt-in bit-0x08 render lane.  src/tests/scenarios are allow-listed
+# wholesale; only the tool needs its own line here.
+!/tools/pf_ground_loot_headless_replay.py
