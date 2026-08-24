@@ -15,7 +15,7 @@ of a silent one.  This module closes it.
 
 WHAT IT DOES
 ------------
-1. Loads the five committed tables STRICTLY: exact header, exact row count,
+1. Loads the eight committed tables STRICTLY: exact header, exact row count,
    exact file sha256, ASCII-only bytes.  Any deviation raises; there is no
    "best effort" mode.  The pins mean "the tables this code was written
    against"; when the bridge regenerates the deliverable the pins move in the
@@ -42,6 +42,42 @@ CROSS-CHECKS (all measured against the 2026-08-23 tables, all exact)
   * the 16 messages whose registry serializer_va is UNKNOWN are exactly the
     16 whose 32 field rows (W and R) carry no span - nobody else is spanless.
 
+CROSS-CHECKS ADDED BY R145, once the last three tables reached the remote
+--------------------------------------------------------------------------
+IMPORTANT (R145 adversary pass): all eight tables are ONE static pass over ONE
+image.  PF_TAG_CENSUS is a GROUP BY over PF_SERIALIZER_FIELDS, and
+PF_PROTOCOL_PRIORITY.serializer_blockers / serializer_status is a projection of
+that same field_offset column.  So these checks verify INTERNAL CONSISTENCY -
+that a projection has not been hand-edited out of sync with its source, and
+that nothing is malformed - NOT that two independent derivations agreed.  A
+re-run of the same Codex pass passes all of them by construction.
+  * field_offset grammar: every one of the 6,931 cells matches exactly one of
+    nine classes (+0x, DEREF, STACK@, N/A, N+_bytes, UNKNOWN, PHI, RET, OBJ+),
+    with the per-class counts pinned - so a garbage offset cannot slip in;
+  * PF_TAG_CENSUS: FIXED width per tag agrees with all 2,783 rows carrying it,
+    frequency_in_A2 equals the row count, source stays IMAGE (a group-by that
+    must still match its own source table);
+  * PF_PROTOCOL_PRIORITY: same 519 messages, 338 CLOSED / 181 OPEN, and each
+    row is self-consistent - serializer_status is OPEN iff serializer_blockers
+    is non-empty, and that blocker set is exactly the UNKNOWN(...) reasons in
+    the message's field_offset rows.  This OPEN set equals the static-open set
+    the GT-047 guard pins by digest, but BOTH come from field_offset, so this
+    is the same evidence twice, not a second witness;
+  * PF_DATA_EVIDENCE -> PF_INPUT_INVENTORY, the one genuine foreign join:
+    every one of the 290 rows matches an inventory row on id/path/size/digest
+    (case-folded), parse split pinned 287 PASS / 3 NONSTANDARD_GRAMMAR.
+
+  A WIDTH IS NOT A TYPE.  proven_semantics is UNKNOWN for 9 of the 11 tags;
+  only 0x12 (uint16) and 0x2A (float32) are named, and this module pins that
+  split so a later table cannot quietly start claiming meanings.
+
+  NOT COVERED (adversary A5/A6/A7): a same-width tag swap on two field rows
+  (both len 4, e.g. 0x14 <-> 0x19) is invisible - the census pins totals and
+  widths, not per-row tag identity, and 9 of 11 tags are UNKNOWN so no
+  semantic ordering exists to violate.  390 of 401 distinct field tags are not
+  named by the census at all; only the 11 FIXED-width ones are width-checked.
+  These are the province of --verify-spans against the image, not this mode.
+
 WHAT THIS TOOL DOES NOT CLAIM
 -----------------------------
   * It does not claim the tables are TRUE.  They are another agent's derived
@@ -64,6 +100,7 @@ import argparse
 import csv
 import hashlib
 import json
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -84,7 +121,12 @@ UNKNOWN = "UNKNOWN"
 # bridge regenerates the deliverable and a fresh clone goes red on the sha
 # pins, this repository alone can still answer "which deliverable was the
 # code written against" (adversary finding, round R131).
-PF_BRIDGE_PIN_COMMIT = "284d98667080e89407120f2b298ba47532449a31"
+PF_BRIDGE_PIN_COMMIT = "579b468168beb6646dad0746b1f93dbe9a6af86b"
+# R145 re-pinned from 284d986 (five tables) to the commit that published the
+# last three, 2026-08-24 09:29 (+07:00).  `git rev-parse 579b468:external`
+# and `origin/main:external` were the same tree object when this was written,
+# so the pin names the revision the eight-table read was measured against and
+# nothing after it changed the directory.
 
 # ---------------------------------------------------------------------------
 # Pins: the deliverable snapshot this module was written against.
@@ -142,6 +184,41 @@ PINS = {
         "header": ("source", "source_id", "relative_path", "size", "sha256",
                    "role"),
     },
+    # The last three tables of the eight-table deliverable.  R131 whitelisted
+    # them in pf_bridge/.gitignore and asked the bridge to add them; the bridge
+    # did on 2026-08-24 09:29 (+07:00), commit 579b468, and R145 is the first
+    # round whose clone can read them.  Rows here are DATA rows, header
+    # excluded, and they sum to the 820 the bridge letter of 2026-08-23 20:39
+    # pinned by hand: 519 + 290 + 11.
+    "PF_PROTOCOL_PRIORITY.tsv": {
+        "rows": 519,
+        "sha256": "d9174bc27ebc1159a7b66ba3fc36b0d6025ecf72d9d963c3deee9bb780c3de55",
+        "header": (
+            "message", "priority", "matched_groups", "matched_keywords",
+            "matched_keyword", "registry_identity_status",
+            "registry_identity_missing", "serializer_status",
+            "serializer_blockers", "structural_status", "capture_status",
+            "blocker", "source",
+        ),
+    },
+    "PF_DATA_EVIDENCE.tsv": {
+        "rows": 290,
+        "sha256": "fbcd7bf14fd33c7340c6fd70f4a0aa5f1a6f7719c429335540383eab1ccf5b1f",
+        "header": (
+            "source", "evidence_id", "relative_path", "size", "sha256",
+            "document_kind", "parse_status", "root_tag", "element_count",
+            "record_tag", "record_count", "attribute_names", "parser_detail",
+        ),
+    },
+    "PF_TAG_CENSUS.tsv": {
+        "rows": 11,
+        "sha256": "63bc9a039b5b35e5b2e1f08ce99e91b05da6e6959b5b4f173eac66b88aea337a",
+        "header": (
+            "tag", "len", "len_status_for_tag", "frequency_in_A2",
+            "proven_semantics", "example_1", "example_2", "example_3",
+            "source",
+        ),
+    },
 }
 
 # Cross-check pins (counts measured 2026-08-23; see module docstring).
@@ -152,6 +229,45 @@ SPANLESS_FIELD_ROWS = 32       # exactly the W+R rows of those 16 messages
 EMPTY_TAG_ROWS = 202           # tag == EMPTY, every one carries a real span
 KNOWN_GETTER_ROWS = 504        # 519 - 15 UNKNOWN getters
 KNOWN_VTABLE_ROWS = 502        # 519 - 17 UNKNOWN vtables
+
+# Cross-check pins for the three tables that arrived on 2026-08-24 (R145).
+# Every number below was measured on the committed tables, never assumed.
+#
+# HONESTY NOTE (R145 adversary pass, DEFECT 1/2/4): all eight tables come from
+# ONE static pass over ONE image (source=IMAGE on every row).  Two of the late
+# three are literally re-shapings of PF_SERIALIZER_FIELDS.tsv, measured here:
+#   * PF_PROTOCOL_PRIORITY.serializer_blockers is the per-message, deduped,
+#     " | "-joined set of the UNKNOWN(...) reasons in field_offset, and
+#     serializer_status is just "OPEN iff blockers != N/A" (reproduced 519/519);
+#   * PF_TAG_CENSUS is a GROUP BY tag over the same field rows (len is the one
+#     distinct len per tag; frequency_in_A2 is the row count).
+# So the checks below verify INTERNAL CONSISTENCY - that a projection has not
+# been hand-edited out of sync with its source, that nothing is malformed, that
+# the one genuine foreign join (evidence -> inventory) holds.  They are NOT
+# corroboration by an independent derivation, and a re-run of the same Codex
+# pass would pass all of them by construction.  The only check that could
+# distinguish "self-consistent" from "true" is --verify-spans against the real
+# image, which runs on the bridge alone.
+CENSUS_TAG_ROWS = 11           # PF_TAG_CENSUS.tsv data rows
+CENSUS_COVERED_FIELD_ROWS = 2783   # serializer rows whose tag the census names
+SERIALIZER_STATUS_CLOSED = 338     # PF_PROTOCOL_PRIORITY.tsv serializer_status
+SERIALIZER_STATUS_OPEN = 181       # = the static-open set the GT-047 guard pins
+EVIDENCE_ROWS = 290
+# Full parse_status split, not just PASS: the other three rows must stay
+# NONSTANDARD_GRAMMAR, they cannot quietly become anything (adversary D1).
+EVIDENCE_PARSE_STATUS = {"PASS": 287, "NONSTANDARD_GRAMMAR": 3}
+# field_offset is otherwise read only for the substring "UNKNOWN(".  Without a
+# grammar gate 75% of its cells can turn to garbage silently (adversary A3/D3).
+# Every cell matches exactly one class; the per-class counts are pinned.
+FIELD_OFFSET_GRAMMAR = (
+    ("plus_hex", 1726), ("unknown", 3191), ("deref", 668), ("stack", 569),
+    ("phi", 286), ("na", 278), ("ret", 161), ("obj", 52),
+)
+# The two tags the deliverable is willing to name.  Every other tag's
+# proven_semantics is UNKNOWN, and a width is not a type: nothing in this
+# repository may turn a census length into a field type (Panya's standing
+# rule about labels the evidence does not carry; GT-052 closed the same way).
+CENSUS_PROVEN_SEMANTICS = {"0x12": "uint16", "0x2A": "float32"}
 
 
 class ExternalRegistryError(RuntimeError):
@@ -233,6 +349,65 @@ def serializer_fields(base=None, check_sha=True):
     return _dicts(header, rows)
 
 
+def tag_census(base=None, check_sha=True):
+    """tag -> census row dict, exactly CENSUS_TAG_ROWS entries."""
+    header, rows = load_table("PF_TAG_CENSUS.tsv", base, check_sha)
+    out = {}
+    for row in _dicts(header, rows):
+        if row["tag"] in out:
+            _fail("duplicate census tag %r" % row["tag"])
+        out[row["tag"]] = row
+    return out
+
+
+def protocol_priority(base=None, check_sha=True):
+    """message -> priority row dict, one per registered message."""
+    header, rows = load_table("PF_PROTOCOL_PRIORITY.tsv", base, check_sha)
+    out = {}
+    for row in _dicts(header, rows):
+        if row["message"] in out:
+            _fail("duplicate priority message %r" % row["message"])
+        out[row["message"]] = row
+    return out
+
+
+def data_evidence(base=None, check_sha=True):
+    """Every data-evidence row as a dict, in file order."""
+    header, rows = load_table("PF_DATA_EVIDENCE.tsv", base, check_sha)
+    return _dicts(header, rows)
+
+
+def input_inventory(base=None, check_sha=True):
+    """source_id -> inventory row dict (one of the original five tables)."""
+    header, rows = load_table("PF_INPUT_INVENTORY.tsv", base, check_sha)
+    out = {}
+    for row in _dicts(header, rows):
+        out[row["source_id"]] = row
+    return out
+
+
+# field_offset grammar: one anchored pattern per class.  A cell that matches
+# none is a malformed offset, not a silent pass (adversary A3/D3, R145).
+_FIELD_OFFSET_CLASSES = (
+    ("plus_hex", re.compile(r"^\+0x[0-9A-Fa-f]+$")),
+    ("deref", re.compile(r"^DEREF\(")),
+    ("stack", re.compile(r"^STACK@")),
+    ("na", re.compile(r"^N/A$")),
+    ("nbytes", re.compile(r"^\d+\+N_bytes$")),
+    ("unknown", re.compile(r"^UNKNOWN\(")),
+    ("phi", re.compile(r"^PHI\(")),
+    ("ret", re.compile(r"^RET\(")),
+    ("obj", re.compile(r"^OBJ\+0x[0-9A-Fa-f]+(\+0x[0-9A-Fa-f]+)*$")),
+)
+
+
+def _field_offset_class(value):
+    for name, pattern in _FIELD_OFFSET_CLASSES:
+        if pattern.match(value):
+            return name
+    return None
+
+
 def fields_for(message, direction=None, base=None, check_sha=True):
     rows = [r for r in serializer_fields(base, check_sha) if r["message"] == message]
     if direction is not None:
@@ -263,6 +438,11 @@ def _int(value, what):
 
 
 _HEX_DIGITS = frozenset("0123456789abcdef")
+# PF_DATA_EVIDENCE.tsv writes its file digests in UPPER case; its true
+# counterpart, PF_INPUT_INVENTORY.tsv (the join in check 4), writes the SAME
+# digest for the same file in lower case.  The join case-folds; the shape gate
+# here pins evidence as upper so the table cannot silently change convention.
+_UPPER_HEX_DIGITS = frozenset("0123456789ABCDEF")
 
 
 def _check_hex_or_unknown(value, what, allow_pipe=False):
@@ -383,8 +563,10 @@ def cross_check(base=None, check_sha=True):
     if empty_tag != EMPTY_TAG_ROWS:
         _fail("%d EMPTY-tag rows, pin says %d" % (empty_tag, EMPTY_TAG_ROWS))
 
+    census_summary = _cross_check_late_tables(base, check_sha, registry, fields)
+
     directions = Counter(r["direction(W/R)"] for r in fields)
-    return {
+    summary = {
         "messages": len(registry),
         "field_rows": len(fields),
         "field_groups": len(groups),
@@ -396,6 +578,175 @@ def cross_check(base=None, check_sha=True):
             (r["span_start"], r["span_end"], r["span_sha256"])
             for r in fields if r["span_start"] != UNKNOWN
         )),
+    }
+    summary.update(census_summary)
+    return summary
+
+
+def _cross_check_late_tables(base, check_sha, registry, fields):
+    """Verify the three tables that arrived 2026-08-24 for INTERNAL CONSISTENCY.
+
+    Read the honesty note above the pins first.  Two of these three tables are
+    re-shapings of PF_SERIALIZER_FIELDS.tsv, so most checks here assert that a
+    projection still matches its source (a hand-edit to one file and not the
+    other goes red) rather than that two independent passes agreed - they did
+    not.  The one genuine foreign join is evidence -> input_inventory.
+    """
+    census = tag_census(base, check_sha)
+    priority = protocol_priority(base, check_sha)
+    evidence = data_evidence(base, check_sha)
+    inventory = input_inventory(base, check_sha)
+
+    if len(census) != CENSUS_TAG_ROWS:
+        _fail("tag census names %d tags, pin says %d"
+              % (len(census), CENSUS_TAG_ROWS))
+
+    # (0) field_offset grammar gate: every cell matches exactly one class, and
+    # the per-class counts are pinned.  Without this the column is read only
+    # for the substring "UNKNOWN(" and any other edit is invisible.
+    grammar = Counter()
+    for row in fields:
+        cls = _field_offset_class(row["field_offset"])
+        if cls is None:
+            _fail("%s/%s #%s: field_offset %r matches no known class"
+                  % (row["message"], row["direction(W/R)"], row["order"],
+                     row["field_offset"]))
+        grammar[cls] += 1
+    for cls, want in FIELD_OFFSET_GRAMMAR:
+        if grammar[cls] != want:
+            _fail("field_offset class %s: %d cells, pin says %d"
+                  % (cls, grammar[cls], want))
+
+    # (1) census FIXED width per tag matches every field row carrying it.
+    covered = 0
+    per_tag = Counter()
+    for row in fields:
+        tag = row["tag"]
+        entry = census.get(tag)
+        if entry is None:
+            continue
+        covered += 1
+        per_tag[tag] += 1
+        where = "%s/%s #%s" % (row["message"], row["direction(W/R)"], row["order"])
+        want = _int(entry["len"], "census %s len" % tag)
+        got = _int(row["len"], "%s len" % where)
+        if got != want:
+            _fail("%s: tag %s len %d, census pins %d" % (where, tag, got, want))
+        if entry["len_status_for_tag"] != "FIXED":
+            _fail("census %s: len_status_for_tag %r, only FIXED is pinned"
+                  % (tag, entry["len_status_for_tag"]))
+    if covered != CENSUS_COVERED_FIELD_ROWS:
+        _fail("%d field rows carry a census tag, pin says %d"
+              % (covered, CENSUS_COVERED_FIELD_ROWS))
+
+    # (2) census frequency_in_A2 is the row count for that tag (a group-by of
+    # the same table - a consistency check, not a corroboration), and its
+    # proven_semantics stays UNKNOWN except the two named tags.  The source
+    # column is the provenance claim; it must not drift from IMAGE (A5 D).
+    for tag, entry in census.items():
+        want = _int(entry["frequency_in_A2"], "census %s frequency_in_A2" % tag)
+        if per_tag[tag] != want:
+            _fail("census %s: frequency_in_A2 %d, serializer table has %d rows"
+                  % (tag, want, per_tag[tag]))
+        sem = entry["proven_semantics"]
+        pinned = CENSUS_PROVEN_SEMANTICS.get(tag, UNKNOWN)
+        if sem != pinned:
+            _fail("census %s: proven_semantics %r, pin says %r - a new "
+                  "semantic claim must be reviewed, never absorbed silently"
+                  % (tag, sem, pinned))
+        if entry["source"] != "IMAGE":
+            _fail("census %s: source %r, pin says IMAGE" % (tag, entry["source"]))
+
+    # (3) priority names the same messages, splits them 338/181, and every
+    # row is self-consistent: serializer_status is OPEN iff serializer_blockers
+    # is not N/A, and the blocker set is exactly the UNKNOWN(...) reasons the
+    # field_offset column carries for that message.  This is a projection of
+    # PF_SERIALIZER_FIELDS - it catches a priority table hand-edited out of
+    # sync with the field rows, NOT an independently derived agreement.
+    if set(priority) != set(registry):
+        _fail("priority table names %d messages the registry does not, and "
+              "misses %d it does"
+              % (len(set(priority) - set(registry)),
+                 len(set(registry) - set(priority))))
+    reasons_by_message = {}
+    for row in fields:
+        found = re.findall(r"UNKNOWN\(([^)]*)\)", row["field_offset"])
+        if found:
+            reasons_by_message.setdefault(row["message"], set()).update(found)
+    status = Counter()
+    for name, row in priority.items():
+        st = row["serializer_status"]
+        status[st] += 1
+        blockers = row["serializer_blockers"]
+        has_blockers = blockers != "N/A"
+        if (st == "OPEN") != has_blockers:
+            _fail("priority %s: serializer_status %r but serializer_blockers %r "
+                  "- OPEN must carry blockers, CLOSED must not" % (name, st, blockers))
+        if has_blockers:
+            want = set(blockers.split(" | "))
+            got = reasons_by_message.get(name, set())
+            if want != got:
+                _fail("priority %s: serializer_blockers %r are not the UNKNOWN() "
+                      "reasons in its field_offset rows (%r)" % (name, want, sorted(got)))
+    if status["CLOSED"] != SERIALIZER_STATUS_CLOSED:
+        _fail("priority: %d CLOSED, pin says %d"
+              % (status["CLOSED"], SERIALIZER_STATUS_CLOSED))
+    if status["OPEN"] != SERIALIZER_STATUS_OPEN:
+        _fail("priority: %d OPEN, pin says %d"
+              % (status["OPEN"], SERIALIZER_STATUS_OPEN))
+    if len(status) != 2:
+        _fail("priority: serializer_status has %d distinct values, pin says 2 "
+              "(CLOSED, OPEN): %r" % (len(status), sorted(status)))
+    open_by_priority = set(
+        name for name, row in priority.items() if row["serializer_status"] == "OPEN")
+    open_by_fields = set(
+        row["message"] for row in fields if "UNKNOWN(" in row["field_offset"])
+    open_delta = len(open_by_priority ^ open_by_fields)
+    if open_delta:
+        _fail("static-open sets disagree by %d messages between the priority "
+              "table and the serializer field_offset column" % open_delta)
+
+    # (4) evidence -> input_inventory, the one genuine foreign join: every
+    # evidence row is an inventory row (same id, path, size, digest) plus four
+    # parse columns.  Assert the join holds and the parse split is fully pinned.
+    ids = set()
+    parse = Counter()
+    for row in evidence:
+        eid = row["evidence_id"]
+        if eid in ids:
+            _fail("duplicate evidence_id %r" % eid)
+        ids.add(eid)
+        sha = row["sha256"]
+        if len(sha) != 64 or not set(sha) <= _UPPER_HEX_DIGITS:
+            _fail("%s: sha256 %r is not 64 upper-case hex chars" % (eid, sha))
+        inv = inventory.get(eid)
+        if inv is None:
+            _fail("evidence %s has no matching PF_INPUT_INVENTORY source_id" % eid)
+        if row["relative_path"] != inv["relative_path"]:
+            _fail("evidence %s: relative_path %r != inventory %r"
+                  % (eid, row["relative_path"], inv["relative_path"]))
+        if row["size"] != inv["size"]:
+            _fail("evidence %s: size %r != inventory %r"
+                  % (eid, row["size"], inv["size"]))
+        if sha.lower() != inv["sha256"].lower():
+            _fail("evidence %s: sha256 does not match inventory (case-folded)" % eid)
+        parse[row["parse_status"]] += 1
+    if len(evidence) != EVIDENCE_ROWS:
+        _fail("%d evidence rows, pin says %d" % (len(evidence), EVIDENCE_ROWS))
+    if dict(parse) != EVIDENCE_PARSE_STATUS:
+        _fail("evidence parse_status split %r, pin says %r"
+              % (dict(parse), EVIDENCE_PARSE_STATUS))
+
+    return {
+        "census_tags": len(census),
+        "census_covered_field_rows": covered,
+        "field_offset_classes": len(grammar),
+        "priority_serializer_closed": status["CLOSED"],
+        "priority_serializer_open": status["OPEN"],
+        "static_open_set_symmetric_difference": open_delta,
+        "evidence_rows": len(evidence),
+        "evidence_joined_to_inventory": len(ids),
+        "evidence_parse_pass": parse["PASS"],
     }
 
 
