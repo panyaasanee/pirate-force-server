@@ -500,7 +500,17 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # PF_SERIALIZER_FIELDS rows 859-862 / GT-040 part C / GT-042, leaving
 # GT-046 only the producer, trigger and outbound-queueing facts it proved).
 # No other field of any entry is touched.)
-CANONICAL_CONTENT_SHA256 = "1A5E6AA64042BDAD5BA388DBA09044DCD24745E51EA0A47BDD4EBB31BC10F83C"
+# (Re-pinned 2026-08-24, chief cloud round R153, SCENARIO-COMPOSE-001: no
+# entry was added or removed -- count stays 44 -- and exactly ONE field of
+# exactly TWO entries moves: exact_value_or_transform of HYP-PF-032 and of
+# HYP-PF-036 each gains a dated AMENDED BY clause recording the owner
+# ruling (Panya 2026-08-24) that the ground-loot spawner and the pickup
+# listener may share one boot as the single allow-listed pair in
+# runtime.py COMPOSABLE_SCENARIO_LANE_PAIRS, with every other combination
+# still refused and unattributable composed observations ruled NO-RESULT.
+# This is the ruling the R151 re-pin above said the composition would
+# require.  No other field of any entry is touched.)
+CANONICAL_CONTENT_SHA256 = "85664702B16BCA901DB3BA27A5BD8A00D32E39EAE3B1A0341544F022681DB575"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(

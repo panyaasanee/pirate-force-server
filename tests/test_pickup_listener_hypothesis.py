@@ -883,27 +883,130 @@ class DispatchTests(unittest.TestCase):
         for event in state.events:
             self.assertNotIn("pickup_listener_hypothesis", event)
 
-    # ----- mutual exclusion ------------------------------------------------
+    # ----- scenario composition (SCENARIO-COMPOSE-001) ---------------------
     # The pickup+ground_loot pair matters most: composing the HYP-PF-032
     # spawner (the lane that could put a ground object on a client screen)
     # with THIS listener in one boot is exactly what an attended pickup
-    # test would want, and exactly what the mutual-exclusion pattern
-    # forbids without an owner ruling (see the HYP-PF-036 ledger entry's
-    # falsification).  Both halves are behavioral, not source-substring.
+    # test wants -- one experiment in two halves, not two experiments.
+    # Until 2026-08-24 the mutual-exclusion pattern forbade the pair
+    # without an owner ruling; Panya issued that ruling on 2026-08-24
+    # (chief cloud round R153), scoped to an explicit allow-list holding
+    # exactly this one pair.  These tests prove BOTH halves of the ruling:
+    # the pair composes and both lanes behave in the composed boot, and
+    # nothing outside the pair got looser.
 
-    def test_the_lane_refuses_the_ground_loot_spawner_in_the_same_state(self):
-        ground_loot = load_ground_loot_hypothesis_scenario(
+    def _ground_loot_scenario(self):
+        return load_ground_loot_hypothesis_scenario(
             ROOT / "scenarios" / "ground_loot_hypothesis_bit08_render.json"
         )
+
+    def _composed_state(self, login):
+        composed_type = make_state_class(
+            self.legacy, self.lifecycle, self.projector,
+            pickup_listener_hypothesis_scenario=self.scenario,
+            ground_loot_hypothesis_scenario=self._ground_loot_scenario(),
+        )
+        state = composed_type(login)
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_client_login_pc()
+        ))
+        actions = state.dispatch(self.legacy.parse_outer(
+            self.legacy._V25_REAL_CREATE_PC
+        ))
+        self.assertEqual(actions[0][0], "FOUNDATION_CREATE_COMMITTED")
+        characters = self.store.list_characters(state.foundation.account_id)
+        actions = state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_start_game_pc(characters[0].selector)
+        ))
+        self.assertEqual(actions[0][0], "FOUNDATION_SELECTED_START_GAME")
+        state.runtime_ack_sent = True
+        return state
+
+    def _target_pos_trigger(self, state):
+        position = state.foundation.selected.position
+        legacy = self.legacy
+        return legacy.parse_outer(
+            legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_REQ)
+            + legacy.u32tag(0x14, 0)
+            + legacy.u8tag(0x08, 0)
+            + legacy.u8tag(0x0B, 2)
+            + legacy.u16tag(0x12, 1)
+            + legacy.u16tag(0x12, legacy.TARGET_POS_VITAL)
+            + legacy.u8tag(0x0B, 0)
+            + legacy.f32tag(position.x) + legacy.f32tag(position.y)
+            + legacy.f32tag(position.z) + legacy.f32tag(0.0)
+            + legacy.u8tag(0x0B, 1)
+            + legacy.u8tag(0x0B, 0)
+        )
+
+    def test_the_allow_listed_pair_composes_and_both_lanes_run(self):
+        state = self._composed_state("cmp01")
+        # Listener half: an accepted probe frame is decoded and counted in
+        # the composed boot exactly as it is alone, with no reply.
+        self.assertEqual(state.dispatch(self._request("MID")), [])
+        self.assertEqual(state.pickup_listener_accepted_count, 1)
+        # Spawner half: the first exact TargetPos still fires the one-shot
+        # bit-0x08 pair in the same composed session.
+        self.assertIs(state.ground_loot_pair_sent, False)
+        actions = state.dispatch(self._target_pos_trigger(state))
+        labels = [action[0] for action in actions]
+        self.assertIn("GROUND_LOOT_BIT08_RENDER_NEAR_ONCE", labels)
+        self.assertIn("GROUND_LOOT_BIT08_RENDER_FAR_ONCE", labels)
+        self.assertIs(state.ground_loot_pair_sent, True)
+        # Attribution discipline (the ruling's condition): each half's
+        # observables carry its own name, so a composed-round letter can
+        # say which lane caused what.
+        self.assertEqual(state.pickup_listener_accepted_count, 1)
+
+    def test_a_third_lane_still_breaks_the_composed_pair(self):
         with self.assertRaises(ValueError) as raised:
             make_state_class(
                 self.legacy, self.lifecycle, self.projector,
                 pickup_listener_hypothesis_scenario=self.scenario,
-                ground_loot_hypothesis_scenario=ground_loot,
+                ground_loot_hypothesis_scenario=self._ground_loot_scenario(),
+                skill_attr_hypothesis_scenario=object(),
             )
         self.assertIn("mutually exclusive", str(raised.exception))
 
-    def test_the_cli_flag_refuses_the_ground_loot_flag_in_the_same_boot(self):
+    def test_a_pair_off_the_allow_list_is_still_refused(self):
+        with self.assertRaises(ValueError) as raised:
+            make_state_class(
+                self.legacy, self.lifecycle, self.projector,
+                pickup_listener_hypothesis_scenario=self.scenario,
+                skill_attr_hypothesis_scenario=object(),
+            )
+        self.assertIn("mutually exclusive", str(raised.exception))
+
+    def test_the_cli_accepts_the_pair_and_still_demands_a_db(self):
+        from pirateforce_foundation import app
+        saved = sys.argv[:]
+        try:
+            sys.argv = [
+                "app.py",
+                "--pickup-listener-hypothesis-scenario",
+                str(SCENARIO_PATH),
+                "--ground-loot-hypothesis-scenario",
+                str(
+                    ROOT / "scenarios"
+                    / "ground_loot_hypothesis_bit08_render.json"
+                ),
+            ]
+            buf = io.StringIO()
+            with contextlib.redirect_stderr(buf):
+                with self.assertRaises(SystemExit) as ctx:
+                    app.main()
+            self.assertEqual(ctx.exception.code, 2)
+            # The exclusivity gate let the pair through; the refusal is the
+            # NEXT gate in line, each lane's explicit-db requirement, so
+            # composition loosened nothing about database handling.
+            self.assertNotIn("mutually exclusive", buf.getvalue())
+            self.assertIn(
+                "requires an explicit existing --db", buf.getvalue(),
+            )
+        finally:
+            sys.argv = saved
+
+    def test_the_cli_still_refuses_a_pair_off_the_allow_list(self):
         from pirateforce_foundation import app
         saved = sys.argv[:]
         try:
@@ -911,10 +1014,10 @@ class DispatchTests(unittest.TestCase):
                 "app.py", "--db", "x",
                 "--pickup-listener-hypothesis-scenario",
                 str(SCENARIO_PATH),
-                "--ground-loot-hypothesis-scenario",
+                "--skill-attr-hypothesis-scenario",
                 str(
                     ROOT / "scenarios"
-                    / "ground_loot_hypothesis_bit08_render.json"
+                    / "skill_attr_hypothesis_attr_sweep.json"
                 ),
             ]
             buf = io.StringIO()
