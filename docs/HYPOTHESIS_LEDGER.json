@@ -3244,6 +3244,85 @@
      "active_claim_marker": false
     }
    ]
+  },
+  {
+   "id": "HYP-PF-035",
+   "kind": "protocol_hypothesis",
+   "introduced_checkpoint": "SKILL-ATTR-001",
+   "exact_value_or_transform": "Behind the explicit skill-attr opt-in scenario only (scenarios/skill_attr_hypothesis_attr_sweep.json, id skill_attr_hypothesis_attr_sweep, loaded through --skill-attr-hypothesis-scenario, which requires an explicit existing --db and is mutually exclusive with every other scenario mode), answer one accepted chat-input frame (the exact 34-byte ascii12 shape the HYP-PF-014 lane already classifies; nothing in the request is read) from a session whose selected actor IS the canonical smoke identity 0x10010001/0 with TWO pinned UpdateAttrVital 0x309A frames through the frozen v141 make_runtime_vitals one-vital GSCN_RunTimeProtocolRes v4 collection envelope, spaced 3.0 s on the cumulative send deadline (first frame 0.0): COUNT0_EMPTY, then COUNT1_KEY1.  Each payload is EXACTLY the RE-061-pinned attr-collection layout -- u16 tag 0x12 attr_count 1, u16 tag 0x12 attr_class_id 0x1661, u32 tag 0x14 body_len, body -- and each body is EXACTLY the RE-061-pinned serializer order of client codec 0x7520B0: the DBAttribute chain first (u8 tag 0x0B db_mask, always 0x01 here; u64 tag 0x32 identity, the pinned probe identity), then u16 tag 0x12 record_count, then per record u16 tag 0x12 key / u16 tag 0x12 opaque_u16 / u32 tag 0x14 opaque_u32 (11 wire bytes per record), and nothing else.  COUNT0_EMPTY carries record_count 0; COUNT1_KEY1 carries one record with key=1, opaque_u16=0, opaque_u32=0 -- ARBITRARY PINNED PROBE VALUES, OUR DESIGN, chosen only to be minimal, and NOT claimed meaningful.  The per-vital u8 version byte is 0, OUR DESIGN with no pin.  Every frame is composed, unwrapped and re-decoded by the module's own strict decoder and hash-pinned (body, payload, pc and frame sha256 plus sizes, absolute pins because the composition takes no per-session input beyond the refused-unless-pinned identity) in the module AND the scenario file from the same live computation, and additionally frozen as GOLDEN full-hex pc and frame strings in the lane test, before any of them is queued; a pin mismatch refuses rather than emitting.",
+   "scope": "Server-side emission of the two pinned 0x309A frames carrying the 0x1661 attr block to the ONE connected client that sent the accepted trigger, behind the one opt-in scenario only, from a runtime-ready session (selected character, teleport_sent and runtime_ack_sent both set) whose selected identity is the pinned probe -- any other identity is a named no-reply refusal, so no frame ever names an identity the session does not hold.  The lane writes no database row (skill state has no table and this lane opens none), takes no socket action, schedules no timer, is not one-shot, and composes nothing when the scenario is absent.  No inbound handling of any skill vital is added, no learn rule exists here, and the sibling learn-skill lanes (HYP-PF-033/034) are untouched.",
+   "status": "active",
+   "provenance": "Opened 2026-08-24 under the owner's standing pre-approval for newly found gameplay functions under the standard pattern (opt-in, production_allowed false, fail closed, ledger/verifier binding, offline proof), on the RE-061 static closure of the skill-attr gate and wire form (letter pf_bridge/notes_to_chief/20260824_1437_RE-061-RESULT-SKILLATTR-GATE-PINNED.md, read against the read-only client image sha256 9627211412ac60d50ad189ce5a629443ce928ec23a9f8d219dfb2b157028b623): attr body serializer [0x007520B0,0x00752281) len 465 sha256 9227cc6009fff2f20c79a3b19c395f9623d87f68a4ee3462e541aed62aa7e906 (attr-family serializer slot is vtable +0x34, not +0x18); DBAttribute chain 0x467790; outer carrier UpdateAttrVital 0x309A via wrapper 0x5E42C0 tail-jumping the shared attr-collection codec 0x463DE0; class id 0x1661 derived at init (registration thunk 0xC0C530, store 0x108A32C, getter 0x751BF0); inbound apply REAL -- handler [0x005F2400,0x005F261A) len 538 sha256 65a7095cc493e33988f816efcd63d48220ee9cf39437e543389d54e3718acfaf calls incoming attr vtable+0x24 = 0x751C70 len 72 sha256 1e8d5b2e6a7814bc88cec812188d05a8673aa5d3c69e9ba9c963a2d0cd98738e, and bind thunk 0x4698B0 reads [actor+0x3E8] as the target; the Skill_Main2 controller ctor 0x760DE0 reads that same actor slot and controller init 0x761ED0 returns false when the derived container is absent (cmp [esi+0x88],0 at 0x761F3B, xor al,al ret at 0x761EE7) -- the GT-058 K-does-not-open finding's leading static explanation.  The outer vital id 0x309A and the envelope family were already committed v141 constants and are drift-checked, never re-derived.",
+   "evidence_refs": [
+    "scenarios/skill_attr_hypothesis_attr_sweep.json",
+    "tests/test_skill_attr_hypothesis.py"
+   ],
+   "accepted_ceiling": "Emitting the two pinned frames, in the pinned order and spacing, behind the explicit opt-in only, for the pinned probe identity only.  The ceiling is the WIRE and DISPATCHER layer: the frames are proven to leave the real make_state_class dispatcher on a throwaway temp database, every dispatched payload unwraps and re-decodes to the declared identity and records, and all per-step hash pins hold in module, scenario and the golden full-hex test pins.  It does NOT reach the client layer by one millimetre: no claim that any client parses, accepts, applies or shows anything for one of these frames is made here, no claim that the K key's behavior changes, and this lane has never been driven through a real server process over TCP.",
+   "evidence_gap": "NO CLIENT HAS EVER BEEN SHOWN ONE OF THESE FRAMES by this project and no capture holds the 0x1661 attr block in either direction (PF_FIELD_VALIDATION rows NOT_OBSERVED; RE-061 corpus verdict UNANSWERABLE, eligible original-server frames 0).  ONE PACKET IS NOT PROVEN SUFFICIENT to open the skill window: RE-061 pins the attr container as a falsifiable PREREQUISITE of the 0x761ED0 gate, which has base/UI checks before and after it, and whether [actor+0x3E8] is actually null at runtime under the GT-058 conditions was never observed -- both halves are exactly the queued attended work.  The SEMANTICS of the two opaque record members are NOT known -- they are encoded as declared values named by wire position and width only (opaque_u16/opaque_u32) and nothing may name them levels, cooldowns, slots or anything else until evidence exists; no key VALUE is claimed meaningful and the probe record key=1/0/0 is arbitrary.  The db_mask policy (always 0x01, identity present) is our composition choice over the proven gate bit, not an observed original-server behavior.  The per-vital version byte 0 is our design with no pin.",
+   "falsification": "Retire or redesign this lane if a real client rejects or errors on either frame (an ErrorData stream error falsifies the envelope, the version byte, the collection layout or the body shape for this delivery), if the emitted bytes ever stop reproducing the pinned bodies/payloads/pcs/frames, or if this lane is ever observed to write any database row, take any socket action, fire for a non-pinned identity, answer anything but the accepted ascii12 trigger, or emit with the scenario absent.  A client that accepts the frames while K still does nothing does NOT falsify the wire claim -- it is the attended answer that the prerequisite is not sufficient (or not the blocking check), recorded as a result, not a failure; a client whose skill window OPENS after one of these frames upgrades the gate hypothesis and is likewise a recorded result.",
+   "stop_rule": "Emit only the two pinned frames, only in answer to the accepted ascii12 chat-input trigger, only for the pinned probe identity, only behind the one opt-in scenario file.  What is forbidden is WIDENING: different record values, more or fewer steps, another db_mask value, records for another identity, a nonzero version byte, any inbound handling of the 0x1661 block or any other attr class, any semantic NAME for the two opaque members or any key value, any database write, any socket action, or a production or default-mode path is a NEW VERSION of this entry -- two tracked slots remain -- or a new entry.  Do not enable production exposure.  Do not move the combat/skill_use coverage row grade on the strength of this lane: composing the attr block proves no skill behavior, and the row stays in_progress until an attended result exists.",
+   "production_allowed": false,
+   "expiry": {
+    "tracked_versions": [
+     "SKILL-ATTR-001"
+    ],
+    "decision": "Opened 2026-08-24 under the owner's standing gameplay pre-approval; one version is tracked because one round built the whole lane (module + scenario + app/runtime wiring + tests + ledger/coverage binding) at once.  Proven offline and through the real dispatcher on a throwaway temp database; never driven over TCP and never seen by a client.  Confirm the client-observable layer as the queued attended GT ticket -- does a real client accept a 0x309A frame carrying the 0x1661 block at all, and does the K key's behavior change after either variant -- before any retire, freeze or extend decision, and do not move any coverage row grade until it has run."
+   },
+   "max_versions": 3,
+   "extension_approval_ref": null,
+   "source_refs": [
+    {
+     "path": "src/pirateforce_foundation/skill_attr_hypothesis.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-035 active",
+      "SKILL_ATTR_CHECKPOINT = \"SKILL-ATTR-001\"",
+      "skill_attr_hypothesis_attr_sweep",
+      "SKILL_ATTR_ID = 0x1661",
+      "UPDATE_ATTR_VITAL_ID = 0x309A",
+      "opaque_u16",
+      "one_packet_sufficient_to_open_the_skill_window",
+      "any_meaning_for_the_two_opaque_record_fields",
+      "production_allowed = False"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "src/pirateforce_foundation/runtime.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-035 active",
+      "skill_attr_hypothesis_attr_sweep_sent",
+      "skill_attr_hypothesis_wrong_sequence_no_reply",
+      "skill_attr_hypothesis_identity_not_pinned_no_reply",
+      "self.skill_attr_sweep_count = 0",
+      "require_skill_attr_hypothesis_scenario",
+      "SKILL_ATTR_ACTION_LABEL_PREFIX"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "src/pirateforce_foundation/app.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-035 active",
+      "--skill-attr-hypothesis-scenario requires an explicit ",
+      "load_skill_attr_hypothesis_scenario",
+      "skill_attr_hypothesis_scenario=skill_attr_hypothesis"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "scenarios/skill_attr_hypothesis_attr_sweep.json",
+     "required_markers": [
+      "\"hypothesis_id\": \"HYP-PF-035\"",
+      "\"production_allowed\": false",
+      "\"test_only\": true",
+      "one_packet_sufficient_to_open_the_skill_window",
+      "any_meaning_for_the_two_opaque_record_fields",
+      "our_design_no_capture_or_static_pin_fixes_it",
+      "original_server_skill_attr_behavior_which_is_unrecoverable"
+     ],
+     "active_claim_marker": false
+    }
+   ]
   }
  ]
 }

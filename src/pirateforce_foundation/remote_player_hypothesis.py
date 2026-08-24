@@ -179,11 +179,15 @@ LOCAL_PLAYER_ACTOR_TYPE = 3        # CMyActor singleton, global 0x1032EC4 - NEVE
 ACTOR_ATTR_ID = 0x12AD             # [PROVEN VA=0xF0E7A0 vtable; v141:416]
 AVATAR_ATTR_ID = 0x16A0            # [PROVEN VA=0xF0E088 vtable; v141:2372]
 SKILL_ATTR_ID = 0x1661             # the skill attr, CMyActor-only bind 0x4698B0 - NEVER
-# NOTE: the exact class token for 0x1661 is deliberately NOT spelled out in this
-# tree.  tools/pf_stats_progression_static.py asserts src/ carries zero tokens
-# for any progression verb (that class is one of the five it tracks), and this
-# lane must not be the thing that falsifies that standing negative.  We refuse
-# the id, not the name.
+# NOTE: the exact class token for 0x1661 is deliberately NOT spelled out in
+# THIS file.  THIS lane refuses the id, not the name, and must not become an
+# emitter for it.
+# AMENDED 2026-08-24 (HYP-PF-035): the standing negative "src/ carries zero
+# tokens for that class" is superseded -- the HYP-PF-035 module now names it
+# (docstring only, twice) and emits the 0x1661 block behind its own opt-in
+# scenario.  tools/pf_stats_progression_static.py carries the exact exception
+# triple for that one module; every other src/ file, this one included, stays
+# at zero tokens, which is why this note still avoids the literal.
 
 # BasicAttr, mask +0x70, u16 tag 0x12.  Only the bits this lane emits.
 BASIC_ATTR_MASK_TAG = 0x12
