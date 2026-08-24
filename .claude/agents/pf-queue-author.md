@@ -48,7 +48,8 @@ She may open the queue two days from now with no memory of this round. Write for
 - A round copies the database, so the character's position resets to spawn every boot.
 - The canonical database is never opened; verify its sha before and after.
 - A round that ends because the person stopped playing still needs a teardown, and the
-  teardown template refuses a boot stamp older than 180 minutes.
+  teardown template refuses a boot stamp older than 420 minutes (raised from 180 on
+  2026-08-20, TEMPLATE_teardown_generic.ps1:135).
 
 **ASCII only in the entry itself** where it will be echoed to a cp874 console; Thai
 prose in the descriptive fields is fine and preferred.

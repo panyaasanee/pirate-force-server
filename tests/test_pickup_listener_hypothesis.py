@@ -890,10 +890,13 @@ class DispatchTests(unittest.TestCase):
     # test wants -- one experiment in two halves, not two experiments.
     # Until 2026-08-24 the mutual-exclusion pattern forbade the pair
     # without an owner ruling; Panya issued that ruling on 2026-08-24
-    # (chief cloud round R153), scoped to an explicit allow-list holding
-    # exactly this one pair.  These tests prove BOTH halves of the ruling:
-    # the pair composes and both lanes behave in the composed boot, and
-    # nothing outside the pair got looser.
+    # (chief cloud round R153), scoped to an explicit allow-list.  A
+    # second ruling the same day (~21:1x +07:00, chief cloud round R155)
+    # added exactly one triple: this pair plus item_operate_res (proven
+    # in tests/test_item_operate_res_hypothesis.py).  These tests prove
+    # BOTH halves of the pair ruling: the pair composes and both lanes
+    # behave in the composed boot, and nothing outside the allow-list
+    # got looser.
 
     def _ground_loot_scenario(self):
         return load_ground_loot_hypothesis_scenario(
@@ -958,7 +961,11 @@ class DispatchTests(unittest.TestCase):
         # say which lane caused what.
         self.assertEqual(state.pickup_listener_accepted_count, 1)
 
-    def test_a_third_lane_still_breaks_the_composed_pair(self):
+    def test_a_third_lane_off_the_allow_list_still_breaks_the_pair(self):
+        # R155 note: ONE specific triple (this pair + item_operate_res) is
+        # now allow-listed by a second owner ruling -- proven in
+        # tests/test_item_operate_res_hypothesis.py.  Any OTHER third lane
+        # on top of the pair, like skill_attr here, still refuses.
         with self.assertRaises(ValueError) as raised:
             make_state_class(
                 self.legacy, self.lifecycle, self.projector,

@@ -19,14 +19,18 @@ what the seam *is*, not that any particular capability works.  A change that
 re-points the legacy module, flattens the subclass, makes the modes composable,
 or grows the manifest-debt list has to say so in the same commit.
 
-Saying so (SCENARIO-COMPOSE-001, owner ruling by Panya 2026-08-24, chief
-cloud round R153): make_state_class modes became composable for the first
-time -- for EXACTLY ONE allow-listed pair, ground_loot_hypothesis_scenario
-with pickup_listener_hypothesis_scenario (runtime.py
-COMPOSABLE_SCENARIO_LANE_PAIRS).  None of the five SCENARIO_MODES below is
-in that pair, so fact 2 and the pairwise sweep in this file stay true of
-those five exactly as written; the pair's own composition and the
-still-refused combinations are proven in tests/test_pickup_listener_hypothesis.py.
+Saying so (SCENARIO-COMPOSE-001, owner rulings by Panya 2026-08-24):
+make_state_class modes became composable for an exact allow-list only --
+first (chief cloud round R153) the pair ground_loot_hypothesis_scenario
+with pickup_listener_hypothesis_scenario, then (chief cloud round R155)
+that same pair plus item_operate_res_hypothesis_scenario as the one
+allowed triple (runtime.py COMPOSABLE_SCENARIO_LANE_SETS; renamed from
+COMPOSABLE_SCENARIO_LANE_PAIRS when the first non-pair member arrived).
+None of the five SCENARIO_MODES below is in either allow-listed set, so
+fact 2 and the pairwise sweep in this file stay true of those five exactly
+as written; the pair's composition is proven in
+tests/test_pickup_listener_hypothesis.py, the triple's (and the
+still-refused combinations) in tests/test_item_operate_res_hypothesis.py.
 """
 
 import ast
