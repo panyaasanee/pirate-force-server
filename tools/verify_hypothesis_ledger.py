@@ -534,7 +534,21 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # what the screen shows, no new field semantics, the id scheme is not
 # wire-confirmed, and no client has ever seen frames 2 or 3 -- that is the
 # attended ticket.  Count moves 44 -> 45 and no earlier entry is touched.)
-CANONICAL_CONTENT_SHA256 = "4E1218BEF13B460E6ECEC052A0452504540689CDF4A1EF22175FF0D0086826B7"
+# -> 6FB4024D.. (2026-08-24, chief cloud round R155, SCENARIO-COMPOSE-001
+# TRIPLE: no entry added or removed -- count stays 45 -- and exactly ONE
+# field of exactly THREE entries moves: exact_value_or_transform of
+# HYP-PF-032, HYP-PF-036 and HYP-PF-037 each gains a dated AMENDED BY
+# clause recording the owner ruling (Panya 2026-08-24 ~21:1x +07:00,
+# letter 20260824_2120 section 2, "combine the 3 scenarios") that the
+# ground-loot spawner, the pickup listener and the ItemOperateVitalRes
+# sweep may share one boot as the single allow-listed TRIPLE beside the
+# R153 pair.  The runtime constant was renamed
+# COMPOSABLE_SCENARIO_LANE_PAIRS -> COMPOSABLE_SCENARIO_LANE_SETS when
+# its first non-pair member arrived; membership stays exact-set (the
+# triple does not admit its sub-pairs), every other combination stays
+# refused, and unattributable composed observations stay NO-RESULT.  No
+# other field of any entry is touched.)
+CANONICAL_CONTENT_SHA256 = "6FB4024DF193CC5E5589BD11034215548BBEF7C98D7AC803F69F86D4CF6D1B03"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(

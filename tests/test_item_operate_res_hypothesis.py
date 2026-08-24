@@ -658,16 +658,17 @@ class DispatchTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def _state_type(self, *, sweep=True):
+    def _state_type(self, *, sweep=True, extra_lanes=None):
         return make_state_class(
             self.legacy, self.lifecycle, self.projector,
             item_operate_res_hypothesis_scenario=(
                 self.scenario if sweep else None
             ),
+            **(extra_lanes or {}),
         )
 
-    def _state(self, login, *, sweep=True, ready=True):
-        state = self._state_type(sweep=sweep)(login)
+    def _state(self, login, *, sweep=True, ready=True, extra_lanes=None):
+        state = self._state_type(sweep=sweep, extra_lanes=extra_lanes)(login)
         state.dispatch(self.legacy.parse_outer(
             self.legacy._synthetic_client_login_pc()
         ))
@@ -1052,17 +1053,113 @@ class DispatchTests(unittest.TestCase):
                     )
                 self.assertIn("mutually exclusive", str(raised.exception))
 
-    def test_the_lane_is_not_in_the_composable_pair_allowlist(self):
-        # SCENARIO-COMPOSE-001 admitted exactly one pair, and this lane is
-        # not in it: composing it with either half of the pair must refuse
-        # exactly like any other combination (the GT-063 ticket's own
-        # warning -- adding this lane to a composed boot needs a NEW owner
-        # ruling, never chief convenience).
+    def test_the_lane_sits_only_in_the_allow_listed_triple(self):
+        # SCENARIO-COMPOSE-001 amendment (owner ruling, Panya 2026-08-24
+        # ~21:1x +07:00, chief cloud round R155): this lane joined the
+        # allow-list EXACTLY ONCE, as the third member of the one allowed
+        # triple beside the R153 pair.  No pair containing this lane is
+        # allow-listed, so membership stays exact-set: the triple being
+        # allowed does not loosen anything pairwise.
         from pirateforce_foundation.runtime import (
-            COMPOSABLE_SCENARIO_LANE_PAIRS,
+            COMPOSABLE_SCENARIO_LANE_SETS,
         )
-        for pair in COMPOSABLE_SCENARIO_LANE_PAIRS:
-            self.assertNotIn("item_operate_res_hypothesis_scenario", pair)
+        containing = [
+            member for member in COMPOSABLE_SCENARIO_LANE_SETS
+            if "item_operate_res_hypothesis_scenario" in member
+        ]
+        self.assertEqual(containing, [frozenset({
+            "ground_loot_hypothesis_scenario",
+            "pickup_listener_hypothesis_scenario",
+            "item_operate_res_hypothesis_scenario",
+        })])
+
+    def test_a_sub_pair_of_the_triple_is_still_refused(self):
+        # The triple ruling does NOT admit its sub-pairs: this lane with
+        # only ONE of the other two members must refuse exactly like any
+        # other off-list combination (the pickup half is already covered by
+        # the every-other-mode sweep above; this is the ground-loot half).
+        from pirateforce_foundation.ground_loot_hypothesis import (
+            load_ground_loot_hypothesis_scenario,
+        )
+        with self.assertRaises(ValueError) as raised:
+            make_state_class(
+                self.legacy, self.lifecycle, self.projector,
+                item_operate_res_hypothesis_scenario=self.scenario,
+                ground_loot_hypothesis_scenario=(
+                    load_ground_loot_hypothesis_scenario(
+                        ROOT / "scenarios"
+                        / "ground_loot_hypothesis_bit08_render.json"
+                    )
+                ),
+            )
+        self.assertIn("mutually exclusive", str(raised.exception))
+
+    def test_the_allow_listed_triple_composes_and_all_three_lanes_run(self):
+        # The positive half of the R155 ruling: the triple boots, and each
+        # lane's own observable still fires under its own name in the
+        # composed session (the attribution discipline the ruling demands).
+        from pirateforce_foundation.ground_loot_hypothesis import (
+            load_ground_loot_hypothesis_scenario,
+        )
+        from pirateforce_foundation.pickup_listener_hypothesis import (
+            PICKUP_LISTENER_PROBE_FIELDS,
+            compose_pickup_listener_probe_pc,
+            load_pickup_listener_hypothesis_scenario,
+        )
+        state = self._state("triple01", extra_lanes={
+            "ground_loot_hypothesis_scenario": (
+                load_ground_loot_hypothesis_scenario(
+                    ROOT / "scenarios"
+                    / "ground_loot_hypothesis_bit08_render.json"
+                )
+            ),
+            "pickup_listener_hypothesis_scenario": (
+                load_pickup_listener_hypothesis_scenario(
+                    ROOT / "scenarios"
+                    / "pickup_listener_hypothesis_decode_probe.json"
+                )
+            ),
+        })
+        # This lane: one accepted chat trigger still sweeps the three
+        # pinned frames under the HYP-PF-037 labels.
+        actions = state.dispatch(self._trigger())
+        self.assertEqual(
+            [action[0] for action in actions],
+            [
+                ITEM_OPERATE_RES_ACTION_LABEL_PREFIX + label
+                for label in ITEM_OPERATE_RES_STEP_ORDER
+            ],
+        )
+        self.assertEqual(state.item_operate_res_sweep_count, 1)
+        # Listener lane: an accepted probe frame is decoded and counted
+        # with no reply, exactly as it is alone.
+        probe = self.legacy.parse_outer(compose_pickup_listener_probe_pc(
+            self.legacy, PICKUP_LISTENER_PROBE_FIELDS["MID"],
+        ))
+        self.assertEqual(state.dispatch(probe), [])
+        self.assertEqual(state.pickup_listener_accepted_count, 1)
+        # Spawner lane: the first exact TargetPos still fires the one-shot
+        # bit-0x08 pair in the same composed session.
+        legacy = self.legacy
+        position = state.foundation.selected.position
+        target_pos = legacy.parse_outer(
+            legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_REQ)
+            + legacy.u32tag(0x14, 0)
+            + legacy.u8tag(0x08, 0)
+            + legacy.u8tag(0x0B, 2)
+            + legacy.u16tag(0x12, 1)
+            + legacy.u16tag(0x12, legacy.TARGET_POS_VITAL)
+            + legacy.u8tag(0x0B, 0)
+            + legacy.f32tag(position.x) + legacy.f32tag(position.y)
+            + legacy.f32tag(position.z) + legacy.f32tag(0.0)
+            + legacy.u8tag(0x0B, 1)
+            + legacy.u8tag(0x0B, 0)
+        )
+        self.assertIs(state.ground_loot_pair_sent, False)
+        labels = [action[0] for action in state.dispatch(target_pos)]
+        self.assertIn("GROUND_LOOT_BIT08_RENDER_NEAR_ONCE", labels)
+        self.assertIn("GROUND_LOOT_BIT08_RENDER_FAR_ONCE", labels)
+        self.assertIs(state.ground_loot_pair_sent, True)
 
     def test_a_scenario_object_outside_the_allowlist_is_refused(self):
         for bad in (

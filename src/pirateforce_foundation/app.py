@@ -43,7 +43,7 @@ from .npc_hp_link_hypothesis import (
     load_npc_hp_link_hypothesis_scenario,
 )
 from .runtime import (
-    COMPOSABLE_SCENARIO_LANE_PAIRS,
+    COMPOSABLE_SCENARIO_LANE_SETS,
     make_state_class,
     make_stdout_event_exporter,
 )
@@ -432,7 +432,7 @@ def main() -> int:
         ) if value is not None
     )
     if len(active_lane_flags) > 1 and (
-            active_lane_flags not in COMPOSABLE_SCENARIO_LANE_PAIRS):
+            active_lane_flags not in COMPOSABLE_SCENARIO_LANE_SETS):
         pre.error(
             '--scenario, --scene-load-scenario, --population-scenario, and '
             '--item-move-capture-scenario/--item-move-hypothesis-scenario/'
@@ -455,8 +455,11 @@ def main() -> int:
             '--skill-attr-hypothesis-scenario/'
             '--pickup-listener-hypothesis-scenario/'
             '--item-operate-res-hypothesis-scenario are mutually exclusive '
-            '(the one allow-listed pair: --ground-loot-hypothesis-scenario '
-            'with --pickup-listener-hypothesis-scenario)'
+            '(allow-listed sets only: the pair '
+            '--ground-loot-hypothesis-scenario with '
+            '--pickup-listener-hypothesis-scenario, and that same pair '
+            'plus --item-operate-res-hypothesis-scenario as the one '
+            'allowed triple)'
         )
     if item_move_capture is not None and not known.db:
         pre.error('--item-move-capture-scenario requires an explicit existing --db')

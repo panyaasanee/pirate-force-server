@@ -192,20 +192,36 @@ def _active_arena_version(scenario) -> str:
     return "V2" if scenario.basic_faction is not None else "V1"
 
 
-# SCENARIO-COMPOSE-001 (owner ruling, Panya 2026-08-24, chief cloud round
-# R153): the ONLY lane pair allowed to share one boot.  The pair is one
-# experiment in two halves, not two experiments -- the HYP-PF-032 spawner
-# puts the ground object on the client screen and the HYP-PF-036 listener
-# hears the click back, and the halves are structurally disjoint: the
-# spawner rides alongside the TargetPos dispatch and latches on
+# SCENARIO-COMPOSE-001 (owner rulings, Panya 2026-08-24): the lane sets
+# allowed to share one boot -- exactly one pair and exactly one triple.
+# The pair (first ruling, chief cloud round R153) is one experiment in
+# two halves, not two experiments -- the HYP-PF-032 spawner puts the
+# ground object on the client screen and the HYP-PF-036 listener hears
+# the click back, and the halves are structurally disjoint: the spawner
+# rides alongside the TargetPos dispatch and latches on
 # ground_loot_pair_sent, the listener keys on its own vital id 0x4543,
-# and neither reads the other's state.  Every other combination of two or
-# more lanes stays refused exactly as before, and a pair enters this set
-# only through another owner ruling, never by convenience.
-COMPOSABLE_SCENARIO_LANE_PAIRS = frozenset({
+# and neither reads the other's state.  The triple (second ruling, ~21:1x
+# +07:00, chief cloud round R155) adds the HYP-PF-037 ItemOperateVitalRes
+# sweep to that same boot for the attended GT-060+GT-063 combined round:
+# the sweep only ever fires on its own accepted chat trigger and writes
+# no shared state, so the three lanes stay attributable -- and the
+# owner's condition stands that a composed-round observation that cannot
+# be attributed to one lane is NO-RESULT.  Membership is EXACT-SET: the
+# triple being allowed does NOT allow its sub-pairs (item_operate_res
+# with only one of the other two stays refused).  Every other
+# combination of two or more lanes stays refused exactly as before, and
+# a set enters this list only through another owner ruling, never by
+# convenience.  (Constant renamed from COMPOSABLE_SCENARIO_LANE_PAIRS in
+# R155 when the first non-pair member arrived.)
+COMPOSABLE_SCENARIO_LANE_SETS = frozenset({
     frozenset({
         "ground_loot_hypothesis_scenario",
         "pickup_listener_hypothesis_scenario",
+    }),
+    frozenset({
+        "ground_loot_hypothesis_scenario",
+        "pickup_listener_hypothesis_scenario",
+        "item_operate_res_hypothesis_scenario",
     }),
 })
 
@@ -342,11 +358,12 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
              item_operate_res_hypothesis_scenario),
         ) if value is not None
     )
-    # SCENARIO-COMPOSE-001: exactly the allow-listed pair passes; any other
-    # combination of two or more lanes is refused with the same message as
-    # always, so nothing outside the ruling got looser.
+    # SCENARIO-COMPOSE-001: exactly the allow-listed sets pass (one pair,
+    # one triple); any other combination of two or more lanes is refused
+    # with the same message as always, so nothing outside the rulings got
+    # looser.
     if len(active_lanes) > 1 and (
-            active_lanes not in COMPOSABLE_SCENARIO_LANE_PAIRS):
+            active_lanes not in COMPOSABLE_SCENARIO_LANE_SETS):
         raise ValueError(
             "Arena, scene-load, population, item-move capture, item-move "
             "hypothesis, logout hypothesis, chat input hypothesis, channel "
