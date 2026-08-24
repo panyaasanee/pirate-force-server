@@ -21,6 +21,9 @@ from .learn_skill_request_hypothesis import (
 from .learn_skill_result_hypothesis import (
     load_learn_skill_result_hypothesis_scenario,
 )
+from .item_operate_res_hypothesis import (
+    load_item_operate_res_hypothesis_scenario,
+)
 from .pickup_listener_hypothesis import (
     load_pickup_listener_hypothesis_scenario,
 )
@@ -109,6 +112,7 @@ def main() -> int:
     pre.add_argument('--learn-skill-request-hypothesis-scenario')
     pre.add_argument('--skill-attr-hypothesis-scenario')
     pre.add_argument('--pickup-listener-hypothesis-scenario')
+    pre.add_argument('--item-operate-res-hypothesis-scenario')
     # EVENT-EXPORT-001: opt-in, default off, so a boot without the flag is
     # byte-for-byte and line-for-line the production baseline.
     pre.add_argument('--export-events', action='store_true')
@@ -208,6 +212,25 @@ def main() -> int:
             known.pickup_listener_hypothesis_scenario
         )
         if known.pickup_listener_hypothesis_scenario else None
+    )
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-037 active
+    # ITEMOP-RES-GREENLINE-001.  Behind this flag one accepted chat-input
+    # frame from the pinned probe identity is answered with the three-frame
+    # pinned ItemOperateVitalRes 0x4C13 sweep (the RE-059 capture-replay
+    # control, then the proven bag-update shape carrying the RE-060
+    # consumable 2400901 at quantity 1 and 5) so the attended GT-063 ticket
+    # can watch whether any of them raises the green message-id-131 chat
+    # line; every frame goes through the V111-accepted golden codec, the
+    # affected_identity_count stays 0 (the only captured value; count>0 is
+    # statically open as RE-064), and nothing here claims what the screen
+    # shows.  With the flag absent the boot is byte-for-byte the production
+    # baseline.  Refused alongside every other mode and demands an explicit
+    # existing --db.
+    item_operate_res_hypothesis = (
+        load_item_operate_res_hypothesis_scenario(
+            known.item_operate_res_hypothesis_scenario
+        )
+        if known.item_operate_res_hypothesis_scenario else None
     )
     scenario = load_scenario(known.scenario) if known.scenario else None
     # PF-HYPOTHESIS-LEDGER: HYP-PF-007 frozen
@@ -404,6 +427,8 @@ def main() -> int:
              learn_skill_request_hypothesis),
             ("skill_attr_hypothesis_scenario", skill_attr_hypothesis),
             ("pickup_listener_hypothesis_scenario", pickup_listener_hypothesis),
+            ("item_operate_res_hypothesis_scenario",
+             item_operate_res_hypothesis),
         ) if value is not None
     )
     if len(active_lane_flags) > 1 and (
@@ -428,7 +453,8 @@ def main() -> int:
             '--learn-skill-result-hypothesis-scenario/'
             '--learn-skill-request-hypothesis-scenario/'
             '--skill-attr-hypothesis-scenario/'
-            '--pickup-listener-hypothesis-scenario are mutually exclusive '
+            '--pickup-listener-hypothesis-scenario/'
+            '--item-operate-res-hypothesis-scenario are mutually exclusive '
             '(the one allow-listed pair: --ground-loot-hypothesis-scenario '
             'with --pickup-listener-hypothesis-scenario)'
         )
@@ -518,6 +544,11 @@ def main() -> int:
             '--pickup-listener-hypothesis-scenario requires an explicit '
             'existing --db'
         )
+    if item_operate_res_hypothesis is not None and not known.db:
+        pre.error(
+            '--item-operate-res-hypothesis-scenario requires an explicit '
+            'existing --db'
+        )
     db_path = known.db or str(
         root / (
             'state/object_population_v94.sqlite3' if population is not None
@@ -567,6 +598,8 @@ def main() -> int:
             if skill_attr_hypothesis is not None else
             'pickup-listener-hypothesis'
             if pickup_listener_hypothesis is not None else
+            'item-operate-res-hypothesis'
+            if item_operate_res_hypothesis is not None else
             'foundation'
         )
         if (
@@ -605,6 +638,7 @@ def main() -> int:
         or learn_skill_request_hypothesis is not None
         or skill_attr_hypothesis is not None
         or pickup_listener_hypothesis is not None
+        or item_operate_res_hypothesis is not None
     ):
         if not Path(db_path).is_file():
             raise FileNotFoundError(db_path)
@@ -630,6 +664,7 @@ def main() -> int:
             or learn_skill_request_hypothesis is not None
             or skill_attr_hypothesis is not None
             or pickup_listener_hypothesis is not None
+            or item_operate_res_hypothesis is not None
         ):
             store.migrate()
             store.expire_open_sessions()
@@ -706,6 +741,9 @@ def main() -> int:
         # PICKUP-LISTENER-001.  None unless the flag was handed in, and
         # make_state_class refuses it alongside every other mode a second time.
         pickup_listener_hypothesis_scenario=pickup_listener_hypothesis,
+        # ITEMOP-RES-GREENLINE-001.  None unless the flag was handed in, and
+        # make_state_class refuses it alongside every other mode a second time.
+        item_operate_res_hypothesis_scenario=item_operate_res_hypothesis,
         # EVENT-EXPORT-001.  None unless --export-events was handed in: the
         # default boot keeps the plain in-memory events list and writes no
         # extra console line at all.

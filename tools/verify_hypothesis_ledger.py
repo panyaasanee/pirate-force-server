@@ -510,7 +510,31 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # still refused and unattributable composed observations ruled NO-RESULT.
 # This is the ruling the R151 re-pin above said the composition would
 # require.  No other field of any entry is touched.)
-CANONICAL_CONTENT_SHA256 = "85664702B16BCA901DB3BA27A5BD8A00D32E39EAE3B1A0341544F022681DB575"
+# -> 85664702.. (2026-08-24, chief cloud round R154: HYP-PF-037 appended --
+# ITEMOP-RES-GREENLINE-001, the pinned ItemOperateVitalRes 0x4C13 sweep the
+# attended GT-063 ticket fires to learn which shape puts the green
+# message-id-131 chat line ('received [ $V1 ] * $V2' -- an ASCII rendering
+# of the Thai template, kept ASCII here for cp874 discipline) on the real
+# screen.  Opened by the owner's
+# explicit GT-063 approval (letter 20260824_1831 section 2) on GT-049 (the
+# green line is emitted from the INBOUND 0x4C13 handler chain 0x005EF5E0 ->
+# 0x005CC309: the server decides), RE-059 (all five captured 0x4C13 frames
+# byte-exact; version 2, affected_identity_count 0 in every one) and RE-060
+# (the item table id scheme, candidate 100%-hit).  Behind
+# --item-operate-res-hypothesis-scenario one accepted ascii12 chat trigger
+# from the pinned smoke identity is answered with THREE frames through the
+# V111-accepted golden codec: the RE-059 frame-1 capture replay (dual
+# derivation, committed hex == codec output, re-compared every
+# composition), then the same proven bag-update shape carrying the RE-060
+# consumable 2400901 at quantity 1 and at quantity 5.  The ticket draft's
+# affected_identity_count=1 frames were deliberately NOT built: the
+# per-element shape is a static candidate with the R13 direct call
+# 0x005ED2F0 unresolved, so that dimension went to the bridge as RE-064
+# instead of onto a socket.  NONCLAIMS carried in the entry: nothing about
+# what the screen shows, no new field semantics, the id scheme is not
+# wire-confirmed, and no client has ever seen frames 2 or 3 -- that is the
+# attended ticket.  Count moves 44 -> 45 and no earlier entry is touched.)
+CANONICAL_CONTENT_SHA256 = "4E1218BEF13B460E6ECEC052A0452504540689CDF4A1EF22175FF0D0086826B7"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -730,6 +754,16 @@ EXPECTED_IDS = (
     # end to keep every earlier entry index stable for the index-based
     # fixtures.
     "HYP-PF-036",
+    # HYP-PF-037 (ITEMOP-RES-GREENLINE-001: the pinned ItemOperateVitalRes
+    # 0x4C13 three-frame sweep behind --item-operate-res-hypothesis-scenario
+    # for the pinned smoke identity only -- the RE-059 capture-replay
+    # control plus the proven bag-update shape at quantity 1 and 5;
+    # affected_identity_count stays 0 in every frame (count>0 is statically
+    # open as RE-064), nothing is claimed about what the screen shows, and
+    # no client has ever seen frames 2 or 3 -- that is the attended GT-063
+    # ticket).  Appended at the end to keep every earlier entry index
+    # stable for the index-based fixtures.
+    "HYP-PF-037",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -791,6 +825,9 @@ EXPECTED_META = {
     ),
     "HYP-PF-036": (
         "protocol_hypothesis", "PICKUP-LISTENER-001", "active",
+    ),
+    "HYP-PF-037": (
+        "protocol_hypothesis", "ITEMOP-RES-GREENLINE-001", "active",
     ),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}

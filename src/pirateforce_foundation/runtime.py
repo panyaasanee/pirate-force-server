@@ -113,6 +113,14 @@ from .pickup_listener_hypothesis import (
     decode_pickup_listener_payload,
     require_pickup_listener_hypothesis_scenario,
 )
+from .item_operate_res_hypothesis import (
+    ITEM_OPERATE_RES_ACTION_LABEL_PREFIX,
+    ITEM_OPERATE_RES_FIRST_DELAY_SECONDS,
+    ITEM_OPERATE_RES_PROBE_IDENTITY_HI,
+    ITEM_OPERATE_RES_PROBE_IDENTITY_LO,
+    make_item_operate_res_step_response,
+    require_item_operate_res_hypothesis_scenario,
+)
 from .skill_attr_hypothesis import (
     SKILL_ATTR_ACTION_LABEL_PREFIX,
     SKILL_ATTR_FIRST_DELAY_SECONDS,
@@ -284,6 +292,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                      learn_skill_request_hypothesis_scenario=None,
                      skill_attr_hypothesis_scenario=None,
                      pickup_listener_hypothesis_scenario=None,
+                     item_operate_res_hypothesis_scenario=None,
                      event_exporter=None,
                      second_password_mode="required",
                      monotonic_clock=None,
@@ -329,6 +338,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             ("skill_attr_hypothesis_scenario", skill_attr_hypothesis_scenario),
             ("pickup_listener_hypothesis_scenario",
              pickup_listener_hypothesis_scenario),
+            ("item_operate_res_hypothesis_scenario",
+             item_operate_res_hypothesis_scenario),
         ) if value is not None
     )
     # SCENARIO-COMPOSE-001: exactly the allow-listed pair passes; any other
@@ -346,8 +357,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             "hypothesis, npc hp link hypothesis, move authority "
             "hypothesis, ground loot hypothesis, learn skill result "
             "hypothesis, learn skill request hypothesis, skill attr "
-            "hypothesis, and pickup listener hypothesis scenarios are "
-            "mutually exclusive"
+            "hypothesis, pickup listener hypothesis, and item operate res "
+            "hypothesis scenarios are mutually exclusive"
         )
     # PF-HYPOTHESIS-LEDGER: HYP-PF-030 active
     # MOVE-AUTHORITY-002.  Re-checked here even though app.py already loaded
@@ -402,6 +413,15 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         pickup_listener_hypothesis_scenario = (
             require_pickup_listener_hypothesis_scenario(
                 pickup_listener_hypothesis_scenario
+            )
+        )
+    # ITEMOP-RES-GREENLINE-001.  Re-checked here even though app.py already
+    # loaded it: a caller that hands in a lookalike profile must not be able
+    # to put bytes this project did not pin onto a live socket.
+    if item_operate_res_hypothesis_scenario is not None:
+        item_operate_res_hypothesis_scenario = (
+            require_item_operate_res_hypothesis_scenario(
+                item_operate_res_hypothesis_scenario
             )
         )
     # DELETE-REFRESH-001 and HYP-PF-015 key on the same vital id 0x36DB, so
@@ -719,6 +739,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.pickup_listener_records = []
                 self.pickup_listener_refusals = []
                 self.skill_attr_sweep_count = 0
+                self.item_operate_res_sweep_count = 0
                 self.hp_death_sweep_count = 0
                 self.runtimeres_death_sweep_count = 0
                 self.damage_model_sweep_count = 0
@@ -2005,6 +2026,87 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             )
             return actions
 
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-037 active
+        def _dispatch_item_operate_res_hypothesis(self, parsed):
+            """Answer one accepted chat input frame with the greenline sweep.
+
+            ITEMOP-RES-GREENLINE-001.  The request side is deliberately the
+            SAME accepted shape the HYP-PF-014 echo lane classifies (exact
+            34-byte ascii12 frame): it is the only client action an attended
+            tester can trigger on demand, and reusing it means every guard
+            here is one the project has already proven -- wrong shape, wrong
+            envelope, no selected character and not-yet-runtime-ready all
+            fail closed with no reply and no write.  Nothing in the request
+            is read: the request is a trigger, not an input, and the answer
+            is composed entirely from the module's own frozen step plan.
+
+            IDENTITY IS PINNED, the HYP-PF-026 lesson: the sweep frames are
+            hash-pinned absolutely, so the lane refuses to fire at all
+            unless the selected actor IS the canonical smoke identity -- a
+            tester sees the pinned bytes byte for byte or nothing.
+
+            The answer is one ItemOperateVitalRes 0x4C13 frame per step, in
+            the scenario's order, spaced by ``spacing_seconds``: the RE-059
+            capture replay control, then the proven bag-update shape
+            carrying the RE-060 consumable at quantity 1, then at quantity
+            5.  WHAT THE SCREEN SHOWS for any of them is exactly the
+            attended GT-063 question this lane exists to unblock; nothing
+            here claims a green line appears.  Every frame is composed,
+            re-decoded and hash-pinned before any of them is queued.  The
+            lane touches no store, takes no socket action, and is not
+            one-shot.
+            """
+            self.rx_frames += 1
+            classification = classify_chat_input_attempt(legacy, parsed)
+            if classification != "ascii12":
+                self.events.append(
+                    f"item_operate_res_hypothesis_{classification}_no_reply"
+                )
+                return []
+            if self.foundation.selected is None:
+                self.events.append(
+                    "item_operate_res_hypothesis_no_selected_no_reply"
+                )
+                return []
+            if not self.teleport_sent or not self.runtime_ack_sent:
+                self.events.append(
+                    "item_operate_res_hypothesis_wrong_sequence_no_reply"
+                )
+                return []
+            selected = self.foundation.selected
+            identity_lo = getattr(selected, "identity_lo", None)
+            identity_hi = getattr(selected, "identity_hi", None)
+            if (
+                identity_lo != ITEM_OPERATE_RES_PROBE_IDENTITY_LO
+                or identity_hi != ITEM_OPERATE_RES_PROBE_IDENTITY_HI
+            ):
+                self.events.append(
+                    "item_operate_res_hypothesis_identity_not_pinned_no_reply"
+                )
+                return []
+            actions = []
+            for index, label in enumerate(
+                item_operate_res_hypothesis_scenario.step_order
+            ):
+                pc, frame = make_item_operate_res_step_response(legacy, index)
+                # The frozen V141 sender accumulates these onto one deadline
+                # (send_deadline += delay, then sleep to it), so this field is
+                # the gap before each send: 0.0 for the first frame and the
+                # full spacing for every later one.
+                delay = (
+                    ITEM_OPERATE_RES_FIRST_DELAY_SECONDS if index == 0
+                    else item_operate_res_hypothesis_scenario.spacing_seconds
+                )
+                actions.append((
+                    ITEM_OPERATE_RES_ACTION_LABEL_PREFIX + label,
+                    pc, frame, delay,
+                ))
+            self.item_operate_res_sweep_count += 1
+            self.events.append(
+                "item_operate_res_hypothesis_greenline_sweep_sent"
+            )
+            return actions
+
         # PF-HYPOTHESIS-LEDGER: HYP-PF-022 active
         def _dispatch_hp_death_hypothesis(self, parsed):
             """Answer one accepted chat input frame with the death sweep.
@@ -3227,6 +3329,17 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # together, which is why the ordering of these branches
                 # cannot matter.
                 return self._dispatch_skill_attr_hypothesis(parsed)
+            if (
+                item_operate_res_hypothesis_scenario is not None
+                and nested_id == CHAT_INPUT_VITAL_ID
+            ):
+                # ITEMOP-RES-GREENLINE-001.  This lane and the other chat-
+                # input-keyed sweep lanes above are keyed on the same vital
+                # id, so they must never be able to see the same frame:
+                # make_state_class refuses any pair outright and app.py
+                # refuses the flags together, which is why the ordering of
+                # these branches cannot matter.
+                return self._dispatch_item_operate_res_hypothesis(parsed)
             if (
                 learn_skill_request_hypothesis_scenario is not None
                 and nested_id == LEARN_SKILL_REQUEST_VITAL_ID

@@ -1,0 +1,135 @@
+{
+  "schema": 1,
+  "id": "item_operate_res_greenline_sweep",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-037",
+  "entry": {
+    "flow": "full_writable_character",
+    "required_sequence": "selected_and_runtime_ready",
+    "response_policy": "compose_pinned_item_operate_res_greenline_sweep_no_write_no_close"
+  },
+  "dispatch": {
+    "trigger": "accepted_chat_input_frame_exact_ascii12_shape",
+    "trigger_classifier": "classify_chat_input_attempt",
+    "frames_per_accepted_request": 3,
+    "step_order": [
+      "ITEMOP_RES_CTRL_CAPTURE_REPLAY",
+      "ITEMOP_RES_BAGUPD_ID2400901_QTY1",
+      "ITEMOP_RES_BAGUPD_ID2400901_QTY5"
+    ],
+    "step_items": {
+      "ITEMOP_RES_CTRL_CAPTURE_REPLAY": {
+        "identity": 1,
+        "template_id": 2600001,
+        "quantity": 2,
+        "slot": 2,
+        "raw_u8_38": 0,
+        "raw_u8_39": 255,
+        "detail_present": 0
+      },
+      "ITEMOP_RES_BAGUPD_ID2400901_QTY1": {
+        "identity": 2,
+        "template_id": 2400901,
+        "quantity": 1,
+        "slot": 1,
+        "raw_u8_38": 0,
+        "raw_u8_39": 255,
+        "detail_present": 0
+      },
+      "ITEMOP_RES_BAGUPD_ID2400901_QTY5": {
+        "identity": 2,
+        "template_id": 2400901,
+        "quantity": 5,
+        "slot": 1,
+        "raw_u8_38": 0,
+        "raw_u8_39": 255,
+        "detail_present": 0
+      }
+    },
+    "identity_policy": "refuse_unless_selected_is_the_pinned_probe",
+    "probe_identity_lo": 268500993,
+    "probe_identity_hi": 0,
+    "spacing_seconds": 3.0,
+    "first_frame_delay_seconds": 0.0,
+    "delay_semantics": "gap_before_each_send_on_a_cumulative_deadline",
+    "action_label_prefix": "HYP_PF_037_",
+    "action_labels": [
+      "HYP_PF_037_ITEMOP_RES_CTRL_CAPTURE_REPLAY",
+      "HYP_PF_037_ITEMOP_RES_BAGUPD_ID2400901_QTY1",
+      "HYP_PF_037_ITEMOP_RES_BAGUPD_ID2400901_QTY5"
+    ],
+    "one_shot": false,
+    "socket_action": "none"
+  },
+  "wire": {
+    "vital_id": 19475,
+    "vital_version": 2,
+    "vital_version_provenance": "capture_pinned_all_five_re059_frames_carry_2",
+    "envelope": "gscn_runtime_protocol_res_v4_one_vital_collection",
+    "codec": "inventory_make_item_move_delta_response_the_v111_accepted_golden",
+    "affected_identity_count_policy": "always_zero_the_only_captured_value_count_gt_zero_is_statically_open_re064",
+    "provenance": {
+      "greenline_ticket": "GT-049",
+      "greenline_letter": "pf_bridge/notes_to_chief/20260824_0923_GT049-RESULT-ID131-INBOUND-ITEMOPERATE.md",
+      "handler_va": "0x005EF5E0",
+      "emitter_va": "0x005CC309",
+      "message_id": 131,
+      "frames_ticket": "RE-059",
+      "frames_letter": "pf_bridge/notes_to_chief/20260824_1413_RE-059-RESULT-EXTRACTED-5-OF-5.md",
+      "capture_frame1_message_sha256": "60756925E095A507ACFFD49ECF013DAF50C706429A0FA4DA9B73CC66B6E27496",
+      "item_scheme_ticket": "RE-060",
+      "item_scheme_letter": "pf_bridge/notes_to_chief/20260824_1422_RE-060-RESULT-PINNED-5-CODES.md"
+    }
+  },
+  "probe": {
+    "per_step": {
+      "ITEMOP_RES_CTRL_CAPTURE_REPLAY": {
+        "message_size": 54,
+        "message_sha256": "60756925E095A507ACFFD49ECF013DAF50C706429A0FA4DA9B73CC66B6E27496",
+        "pc_size": 71,
+        "pc_sha256": "DF40B49DC179DB07A006FC4989273D6F97529DAE6FF7D0DE692815435A1CD2F9",
+        "frame_size": 82,
+        "frame_sha256": "45C38CB7331EAF0EA8A06191DEFBD039733FB3EAD88E6142C08AEB1F6ACFE10E"
+      },
+      "ITEMOP_RES_BAGUPD_ID2400901_QTY1": {
+        "message_size": 54,
+        "message_sha256": "A6B59308BE17181B88EF796127CDD4E33E1C3420D7BDF7ABA5C2B74060E12BBC",
+        "pc_size": 71,
+        "pc_sha256": "CA0367388B08FEFAC085035C63C06FB3FC8B9209A6B7DC6A125E585373F9797C",
+        "frame_size": 82,
+        "frame_sha256": "7369D96011D362B641FCB91E3A16B407C4E5EE80976A9482E835396D11CC6DCE"
+      },
+      "ITEMOP_RES_BAGUPD_ID2400901_QTY5": {
+        "message_size": 54,
+        "message_sha256": "6D09CFF552F3F88B362EDE354AD6D743B5F8E348C20FF718457A7AB01A4F83F1",
+        "pc_size": 71,
+        "pc_sha256": "2D6928A8503F3CFC6BB0A300709BEAD52F532541A1117EE21E36FD5C7FA80529",
+        "frame_size": 82,
+        "frame_sha256": "7DB4971018AA00E120919D561ED4E20ED305619E7B439A685AD2B1E6C9840FFB"
+      }
+    }
+  },
+  "persisted_post_state": {
+    "database_write": "none"
+  },
+  "capabilities": [
+    "replay_the_re059_captured_frame_1_byte_exact_at_message_layer",
+    "emit_the_proven_bag_update_shape_for_the_re060_consumable",
+    "probe_the_quantity_channel_of_message_id_131",
+    "decode_every_composed_message_back_to_its_declared_item",
+    "repeatable_sweep_per_session_no_state_change"
+  ],
+  "nonclaims": [
+    "anything_about_what_the_screen_shows",
+    "any_new_field_semantics_beyond_the_golden_codec",
+    "the_re060_item_scheme_which_is_candidate_not_wire_confirmed",
+    "original_server_pickup_response_behavior_which_is_unrecoverable",
+    "any_item_entering_the_bag_or_the_database",
+    "byte_exactness_of_the_15_byte_envelope_prefix_not_committed",
+    "any_affected_identity_count_gt_zero_shape_open_as_re064",
+    "client_acceptance_or_rendering_pending_the_attended_gt_ticket",
+    "production_dispatch_wiring",
+    "production_baseline_behavior"
+  ]
+}
