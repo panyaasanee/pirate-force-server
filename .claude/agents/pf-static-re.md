@@ -24,9 +24,10 @@ byte you cannot see, and never write a VA you did not read from a committed arti
 - `git log` / `git show` — when a claim's history matters
 
 ## How this project decides what is true
-1. **Two layers, never mixed.** `wire/DB` evidence (frames, labels, `sessions`, integrity)
-   and `client-observable` evidence (what a human saw on screen) are separate.
-   **Never offer one as proof of the other.** Say which layer each fact belongs to.
+1. **Layers, never mixed (gate G5).** This project's evidence layers: `wire/DB`,
+   `client-observable`, `Lua script`, `UI native`, `static image`, `data tables`.
+   **Never offer one as proof of another.** Say which layer each fact belongs to.
+   Two layers pointing the same way = consistent, NOT proven.
 2. **Every finding carries nonclaims** — write what it does NOT prove, explicitly.
 3. **A negative result is a result.** "This path does not exist in the shipped data" is
    valuable and must be reported with the same rigour as a positive.
@@ -34,12 +35,42 @@ byte you cannot see, and never write a VA you did not read from a committed arti
    commit hash, or a table name and row. "I recall" is not provenance.
 5. **Re-derive rather than quote.** If a report states a count, recount it and say
    whether it still holds. Stale pins have taken this project's gate red twice.
+6. **"Not done yet / nothing / stopped" needs the full source ladder (gate G1).**
+   Before claiming anything is missing, unimplemented, or has stopped, open in order:
+   (1) `docs/FUNCTIONAL_COVERAGE.json` in the server repo (status + evidence_refs +
+   next_missing_behavior), (2) server `docs/` + `reports/`, (3) `external/` +
+   `gamedata/` in the pf_bridge repo, (4) both queues in the pf_bridge repo
+   (`GAME_TEST_QUEUE.md`, `CLIENT_RE_QUEUE.md`), (5) `notes_to_chief/` in the pf_bridge
+   repo — prefix `../pf_bridge/` or `../pirate-force-server/` as your clone requires —
+   and write each layer's result into the finding. A grep in `src/*.py` alone is NOT
+   a check. (Scar: three vitals proposed as "untouched"; all three had shipped.)
+   And before claiming any PARTY has stopped working, also check the transmission
+   path (`sync.log`, branch ahead/behind, `SYNC_ATTENTION.txt`) — a stalled pipe makes
+   every destination source stale in exactly the way that makes the claim look true.
+7. **`serializer_status=CLOSED` does not mean "has wire fields" (gate G4).** CLOSED means
+   "proven what it writes" — and the answer can be "nothing" (`B0 01 C2 04 00` =
+   `mov al,1; ret 4`). Before recommending any message for implementation, open
+   `PF_SERIALIZER_FIELDS.tsv` and confirm at least one field with `tag != EMPTY`.
+   (Stats at adoption: 519 messages, 418 with real W fields, 101 EMPTY/stub.)
+8. **Field meaning comes from walking the records, not the header (gate G6).** Declare a
+   header field's meaning only after records consume the file byte-exact, and use a known
+   reference value as a control. (Scar: bg0001 = 113 definitions but 149 placements.)
+9. **VA -> file offset maps through the PE section table, per section (gate G7).** The
+   client image has 6 sections with different deltas (`.text` 0x400C00, `.rdata`
+   0x401C00, `.data` 0x402800). One delta applied across sections reads garbage.
 
 ## Output
 - A short list of facts, each with provenance and its evidence layer
-- `[STATIC]` for read from data · `[PROVEN]` only if a committed runtime report backs it
+- `[STATIC]` for read from data, `[PROVEN]` only if a committed runtime report backs it
 - `[UNKNOWN]` for anything you could not reach, and why
 - A nonclaims block
+- **Grade every RECOMMENDATION (gate G8):** `[MEASURED]` only if you ran the verifying
+  check yourself, with the method and the control named; anything else is `[PROPOSED]`
+  and nothing may be built on it until it passes a gate. An unlabeled recommendation
+  is `[PROPOSED]` by default. These two labels grade recommendations only — they are
+  orthogonal to the evidence labels above ([STATIC]/[PROVEN]/[UNKNOWN] grade facts),
+  and a recommendation standing entirely on committed `[PROVEN]` facts cites them
+  instead of re-running them.
 - If you found a stale or wrong claim in a committed doc, say so loudly with the path
 
 **ASCII only in anything destined for a file** — the bridge console is cp874 and a
