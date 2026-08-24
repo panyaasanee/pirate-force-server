@@ -1,5 +1,6 @@
 """Lifecycle-aware V141 state factory for the real legacy TCP listeners."""
 import math
+import sys
 import threading
 import time
 
@@ -183,6 +184,82 @@ def _active_arena_version(scenario) -> str:
     return "V2" if scenario.basic_faction is not None else "V1"
 
 
+# SCENARIO-COMPOSE-001 (owner ruling, Panya 2026-08-24, chief cloud round
+# R153): the ONLY lane pair allowed to share one boot.  The pair is one
+# experiment in two halves, not two experiments -- the HYP-PF-032 spawner
+# puts the ground object on the client screen and the HYP-PF-036 listener
+# hears the click back, and the halves are structurally disjoint: the
+# spawner rides alongside the TargetPos dispatch and latches on
+# ground_loot_pair_sent, the listener keys on its own vital id 0x4543,
+# and neither reads the other's state.  Every other combination of two or
+# more lanes stays refused exactly as before, and a pair enters this set
+# only through another owner ruling, never by convenience.
+COMPOSABLE_SCENARIO_LANE_PAIRS = frozenset({
+    frozenset({
+        "ground_loot_hypothesis_scenario",
+        "pickup_listener_hypothesis_scenario",
+    }),
+})
+
+
+class _EventEchoList(list):
+    """EVENT-EXPORT-001: an events list that echoes every append.
+
+    Every event this build records -- dispatch and reject alike -- reaches
+    the state through ``self.events.append`` and through nothing else, so
+    swapping the freshly-initialized empty list for this one covers all of
+    them without touching a single append site.  Equality, slicing and
+    ``len`` are inherited from ``list``, so code and tests that compare
+    event lists see no difference.
+    """
+
+    def __init__(self, exporter):
+        super().__init__()
+        self._exporter = exporter
+
+    def append(self, item):
+        super().append(item)
+        self._exporter(item)
+
+
+def make_stdout_event_exporter(stream=None):
+    """EVENT-EXPORT-001: one ASCII line per recorded event.
+
+    The bridge console is cp874: every character written here is forced
+    into printable 7-bit ASCII (backslashreplace for non-ASCII, then a
+    ``\\xNN`` escape for every remaining control character, newlines
+    included), so no event payload can ever kill the console or break the
+    one-line-per-event contract.  The line format is ``PF-EVENT <seq>
+    <event>`` with seq counting from 1 per exporter; app.py builds exactly
+    one exporter per process, so in a real boot the numbering is
+    process-wide.  A diagnostic may never alter dispatch: any failure
+    inside the export (a dead or closed stream, a hostile ``str``) is
+    swallowed whole -- the echoed line is lost, the in-memory events list
+    stays authoritative, and the frame's dispatch proceeds untouched.
+    """
+    counter = {"seq": 0}
+
+    def export(event):
+        try:
+            out = stream if stream is not None else sys.stdout
+            counter["seq"] += 1
+            text = str(event).encode(
+                "ascii", "backslashreplace",
+            ).decode("ascii")
+            text = "".join(
+                ch if " " <= ch <= "~" else "\\x%02x" % ord(ch)
+                for ch in text
+            )
+            out.write("PF-EVENT %d %s\n" % (counter["seq"], text))
+            out.flush()
+        except Exception:
+            # Losing one diagnostic line beats burning a one-shot latch or
+            # killing the game listener thread mid-frame.
+            pass
+
+    return export
+
+
 def make_state_class(legacy, lifecycle, projector, scenario=None,
                      scene_load_scenario=None, session_factory=None,
                      connection_bindings=None, population_scenario=None,
@@ -207,32 +284,58 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                      learn_skill_request_hypothesis_scenario=None,
                      skill_attr_hypothesis_scenario=None,
                      pickup_listener_hypothesis_scenario=None,
+                     event_exporter=None,
                      second_password_mode="required",
                      monotonic_clock=None,
                      close_timer_factory=None):
-    active_modes = sum(value is not None for value in (
-        scenario, scene_load_scenario, population_scenario,
-        item_move_capture_scenario, item_move_hypothesis_scenario,
-        logout_hypothesis_scenario, chat_input_hypothesis_scenario,
-        channel_message_hypothesis_scenario,
-        delete_actor_hypothesis_scenario,
-        delete_refresh_hypothesis_scenario,
-        stats_progression_hypothesis_scenario,
-        hp_death_hypothesis_scenario,
-        runtimeres_death_hypothesis_scenario,
-        damage_model_hypothesis_scenario,
-        damage_hp_link_hypothesis_scenario,
-        remote_player_hypothesis_scenario,
-        npc_hostile_hypothesis_scenario,
-        npc_hp_link_hypothesis_scenario,
-        move_authority_hypothesis_scenario,
-        ground_loot_hypothesis_scenario,
-        learn_skill_result_hypothesis_scenario,
-        learn_skill_request_hypothesis_scenario,
-        skill_attr_hypothesis_scenario,
-        pickup_listener_hypothesis_scenario,
-    ))
-    if active_modes > 1:
+    active_lanes = frozenset(
+        name for name, value in (
+            ("scenario", scenario),
+            ("scene_load_scenario", scene_load_scenario),
+            ("population_scenario", population_scenario),
+            ("item_move_capture_scenario", item_move_capture_scenario),
+            ("item_move_hypothesis_scenario", item_move_hypothesis_scenario),
+            ("logout_hypothesis_scenario", logout_hypothesis_scenario),
+            ("chat_input_hypothesis_scenario", chat_input_hypothesis_scenario),
+            ("channel_message_hypothesis_scenario",
+             channel_message_hypothesis_scenario),
+            ("delete_actor_hypothesis_scenario",
+             delete_actor_hypothesis_scenario),
+            ("delete_refresh_hypothesis_scenario",
+             delete_refresh_hypothesis_scenario),
+            ("stats_progression_hypothesis_scenario",
+             stats_progression_hypothesis_scenario),
+            ("hp_death_hypothesis_scenario", hp_death_hypothesis_scenario),
+            ("runtimeres_death_hypothesis_scenario",
+             runtimeres_death_hypothesis_scenario),
+            ("damage_model_hypothesis_scenario",
+             damage_model_hypothesis_scenario),
+            ("damage_hp_link_hypothesis_scenario",
+             damage_hp_link_hypothesis_scenario),
+            ("remote_player_hypothesis_scenario",
+             remote_player_hypothesis_scenario),
+            ("npc_hostile_hypothesis_scenario",
+             npc_hostile_hypothesis_scenario),
+            ("npc_hp_link_hypothesis_scenario",
+             npc_hp_link_hypothesis_scenario),
+            ("move_authority_hypothesis_scenario",
+             move_authority_hypothesis_scenario),
+            ("ground_loot_hypothesis_scenario",
+             ground_loot_hypothesis_scenario),
+            ("learn_skill_result_hypothesis_scenario",
+             learn_skill_result_hypothesis_scenario),
+            ("learn_skill_request_hypothesis_scenario",
+             learn_skill_request_hypothesis_scenario),
+            ("skill_attr_hypothesis_scenario", skill_attr_hypothesis_scenario),
+            ("pickup_listener_hypothesis_scenario",
+             pickup_listener_hypothesis_scenario),
+        ) if value is not None
+    )
+    # SCENARIO-COMPOSE-001: exactly the allow-listed pair passes; any other
+    # combination of two or more lanes is refused with the same message as
+    # always, so nothing outside the ruling got looser.
+    if len(active_lanes) > 1 and (
+            active_lanes not in COMPOSABLE_SCENARIO_LANE_PAIRS):
         raise ValueError(
             "Arena, scene-load, population, item-move capture, item-move "
             "hypothesis, logout hypothesis, chat input hypothesis, channel "
@@ -557,6 +660,11 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
     class PersistentGameSessionState(legacy.GameSessionState):
         def __init__(self, token: str):
             super().__init__(token)
+            if event_exporter is not None:
+                # EVENT-EXPORT-001: installed before any dispatch can run,
+                # so the echo list sees every event of the session from the
+                # first frame on, dispatch and reject alike.
+                self.events = _EventEchoList(event_exporter)
             self.foundation = (
                 session_factory(token) if session_factory is not None
                 else FoundationSession(

@@ -18,6 +18,15 @@ These tests freeze that state.  They are deliberately structural: they assert
 what the seam *is*, not that any particular capability works.  A change that
 re-points the legacy module, flattens the subclass, makes the modes composable,
 or grows the manifest-debt list has to say so in the same commit.
+
+Saying so (SCENARIO-COMPOSE-001, owner ruling by Panya 2026-08-24, chief
+cloud round R153): make_state_class modes became composable for the first
+time -- for EXACTLY ONE allow-listed pair, ground_loot_hypothesis_scenario
+with pickup_listener_hypothesis_scenario (runtime.py
+COMPOSABLE_SCENARIO_LANE_PAIRS).  None of the five SCENARIO_MODES below is
+in that pair, so fact 2 and the pairwise sweep in this file stay true of
+those five exactly as written; the pair's own composition and the
+still-refused combinations are proven in tests/test_pickup_listener_hypothesis.py.
 """
 
 import ast

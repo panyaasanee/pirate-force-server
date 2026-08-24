@@ -39,7 +39,11 @@ from .npc_hostile_hypothesis import (
 from .npc_hp_link_hypothesis import (
     load_npc_hp_link_hypothesis_scenario,
 )
-from .runtime import make_state_class
+from .runtime import (
+    COMPOSABLE_SCENARIO_LANE_PAIRS,
+    make_state_class,
+    make_stdout_event_exporter,
+)
 from .runtime_console import install_runtime_console
 from .damage_hp_link_hypothesis import (
     load_damage_hp_link_hypothesis_scenario,
@@ -105,6 +109,9 @@ def main() -> int:
     pre.add_argument('--learn-skill-request-hypothesis-scenario')
     pre.add_argument('--skill-attr-hypothesis-scenario')
     pre.add_argument('--pickup-listener-hypothesis-scenario')
+    # EVENT-EXPORT-001: opt-in, default off, so a boot without the flag is
+    # byte-for-byte and line-for-line the production baseline.
+    pre.add_argument('--export-events', action='store_true')
     pre.add_argument(
         '--second-password-mode', choices=SECOND_PASSWORD_MODES,
         default='required',
@@ -365,19 +372,42 @@ def main() -> int:
         )
         if known.npc_hp_link_hypothesis_scenario else None
     )
-    if sum(value is not None for value in (
-        scenario, scene_load, population, item_move_capture,
-        item_move_hypothesis, logout_hypothesis, chat_input_hypothesis,
-        channel_message_hypothesis, delete_actor_hypothesis,
-        delete_refresh_hypothesis, stats_progression_hypothesis,
-        hp_death_hypothesis, runtimeres_death_hypothesis,
-        damage_model_hypothesis, damage_hp_link_hypothesis,
-        remote_player_hypothesis, npc_hostile_hypothesis,
-        npc_hp_link_hypothesis, move_authority_hypothesis,
-        ground_loot_hypothesis, learn_skill_result_hypothesis,
-        learn_skill_request_hypothesis, skill_attr_hypothesis,
-        pickup_listener_hypothesis,
-    )) > 1:
+    # SCENARIO-COMPOSE-001 (owner ruling, Panya 2026-08-24): the same named
+    # allow-list the runtime gate consults, so the two gates cannot drift.
+    active_lane_flags = frozenset(
+        name for name, value in (
+            ("scenario", scenario),
+            ("scene_load_scenario", scene_load),
+            ("population_scenario", population),
+            ("item_move_capture_scenario", item_move_capture),
+            ("item_move_hypothesis_scenario", item_move_hypothesis),
+            ("logout_hypothesis_scenario", logout_hypothesis),
+            ("chat_input_hypothesis_scenario", chat_input_hypothesis),
+            ("channel_message_hypothesis_scenario", channel_message_hypothesis),
+            ("delete_actor_hypothesis_scenario", delete_actor_hypothesis),
+            ("delete_refresh_hypothesis_scenario", delete_refresh_hypothesis),
+            ("stats_progression_hypothesis_scenario",
+             stats_progression_hypothesis),
+            ("hp_death_hypothesis_scenario", hp_death_hypothesis),
+            ("runtimeres_death_hypothesis_scenario",
+             runtimeres_death_hypothesis),
+            ("damage_model_hypothesis_scenario", damage_model_hypothesis),
+            ("damage_hp_link_hypothesis_scenario", damage_hp_link_hypothesis),
+            ("remote_player_hypothesis_scenario", remote_player_hypothesis),
+            ("npc_hostile_hypothesis_scenario", npc_hostile_hypothesis),
+            ("npc_hp_link_hypothesis_scenario", npc_hp_link_hypothesis),
+            ("move_authority_hypothesis_scenario", move_authority_hypothesis),
+            ("ground_loot_hypothesis_scenario", ground_loot_hypothesis),
+            ("learn_skill_result_hypothesis_scenario",
+             learn_skill_result_hypothesis),
+            ("learn_skill_request_hypothesis_scenario",
+             learn_skill_request_hypothesis),
+            ("skill_attr_hypothesis_scenario", skill_attr_hypothesis),
+            ("pickup_listener_hypothesis_scenario", pickup_listener_hypothesis),
+        ) if value is not None
+    )
+    if len(active_lane_flags) > 1 and (
+            active_lane_flags not in COMPOSABLE_SCENARIO_LANE_PAIRS):
         pre.error(
             '--scenario, --scene-load-scenario, --population-scenario, and '
             '--item-move-capture-scenario/--item-move-hypothesis-scenario/'
@@ -398,7 +428,9 @@ def main() -> int:
             '--learn-skill-result-hypothesis-scenario/'
             '--learn-skill-request-hypothesis-scenario/'
             '--skill-attr-hypothesis-scenario/'
-            '--pickup-listener-hypothesis-scenario are mutually exclusive'
+            '--pickup-listener-hypothesis-scenario are mutually exclusive '
+            '(the one allow-listed pair: --ground-loot-hypothesis-scenario '
+            'with --pickup-listener-hypothesis-scenario)'
         )
     if item_move_capture is not None and not known.db:
         pre.error('--item-move-capture-scenario requires an explicit existing --db')
@@ -537,6 +569,14 @@ def main() -> int:
             if pickup_listener_hypothesis is not None else
             'foundation'
         )
+        if (
+            ground_loot_hypothesis is not None
+            and pickup_listener_hypothesis is not None
+        ):
+            # SCENARIO-COMPOSE-001: the one allow-listed pair boots under a
+            # composed label so the console title never claims only half
+            # the experiment.
+            mode = 'ground-loot-hypothesis+pickup-listener-hypothesis'
         install_runtime_console(
             root, known.capture_root, db_path, mode,
         )
@@ -666,6 +706,12 @@ def main() -> int:
         # PICKUP-LISTENER-001.  None unless the flag was handed in, and
         # make_state_class refuses it alongside every other mode a second time.
         pickup_listener_hypothesis_scenario=pickup_listener_hypothesis,
+        # EVENT-EXPORT-001.  None unless --export-events was handed in: the
+        # default boot keeps the plain in-memory events list and writes no
+        # extra console line at all.
+        event_exporter=(
+            make_stdout_event_exporter() if known.export_events else None
+        ),
         # PF-HYPOTHESIS-LEDGER: HYP-PF-009 active
         second_password_mode=known.second_password_mode,
     )
