@@ -454,7 +454,53 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # and no client has ever seen one of these frames -- that is the queued
 # attended ticket, and no coverage row grade moves on this append.  Count
 # moves 42 -> 43 and no earlier entry is touched.)
-CANONICAL_CONTENT_SHA256 = "4ABBBE861635712205FF2CAB2EB7F20C54246B0275E3AB2EF02FA4E7772C48DA"
+# -> 4ABBBE86.. (2026-08-24, cloud round R151: HYP-PF-036 appended --
+# PICKUP-LISTENER-001, the inbound strict decoder for the
+# PickupTerrainThing pickup request.  The codec is statically CLOSED
+# (PF_SERIALIZER_FIELDS rows 859-862: u32 tag 0x14 at object+0x14, u8 tag
+# 0x08 at object+0x18, span [0x005E5E30,0x005E5E83) len 83 sha256
+# 8e439d4f..) and GT-046 (letter 20260823_1435) proved the client-outbound
+# mouse-click producer 0x006B0639 whose +0x14 dword is copied from the
+# selected live runtime drop-object -- but THE VITAL ID 0x4543 IS DERIVED
+# from the validated name-hash only (FACTPACK_L2_CLASSCENSUS001 row 1003;
+# the runtime id slot 0x0108202C is zero on disk) and NO capture holds
+# this vital in either direction (PF_FIELD_VALIDATION rows 102-103), a
+# nonclaim carried loudly in the module docstring, this entry and the lane
+# tests.  Behind --pickup-listener-hypothesis-scenario one accepted
+# inbound frame is strictly decoded, counted and recorded (count,
+# object_ref_u32, opaque_u8, raw body hex on the in-memory session record
+# list, one ASCII event line per frame) -- and NOTHING is sent back and
+# nothing is written: no pickup rule exists and none is invented, and the
+# server side is listen-only.  The field semantics beyond the GT-046
+# source proof stay unknown and unnamed, monster-drop pickup is NOT
+# claimed explained (the FightingDrop* family is undecoded), and the
+# monster_spawn_and_loot coverage row grade does NOT move -- the row
+# gains only evidence/test refs plus the 15:20-erratum wording correction,
+# with the GRADE_SUBSET_SHA256 pin moved in the same change (the R147
+# scar).  Count moves 43 -> 44 and no earlier entry is touched.)
+#
+# (Re-pinned 2026-08-24, same round R151, pre-commit adversary pass: no
+# entry was added or removed -- count stays 44 -- and THREE fields of the
+# new HYP-PF-036 entry are amended before its first commit.  falsification
+# and expiry.decision are reworded because their first drafts presupposed
+# an attended click that current rules make unreachable: the attended
+# opcode question is now explicitly CONDITIONAL on a rendered clickable
+# drop-object being proven first (chained after GT-045's eye test, which
+# stands at CLIENT NO-RESULT), a same-boot composition of the HYP-PF-032
+# ground-loot spawner with this listener is named as requiring an owner
+# ruling rather than a weakened mutual exclusion, and every outcome now
+# records that ZERO frames cannot distinguish a wrong derived id from no
+# clickable object having existed.  exact_value_or_transform trades "the
+# proven natural direction is client-outbound" for "the ONLY PROVEN
+# PRODUCER is client-outbound": GT-046 proved a producer exists, not that
+# the message never travels server-to-client -- the class carries a full R
+# codec and sits in the inbound CreateById prototype tree per RE-056.  The
+# module docstring and the loot_roll amendment carry the same corrections
+# (the loot_roll amendment also re-attributes the field-table pin to
+# PF_SERIALIZER_FIELDS rows 859-862 / GT-040 part C / GT-042, leaving
+# GT-046 only the producer, trigger and outbound-queueing facts it proved).
+# No other field of any entry is touched.)
+CANONICAL_CONTENT_SHA256 = "1A5E6AA64042BDAD5BA388DBA09044DCD24745E51EA0A47BDD4EBB31BC10F83C"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -664,6 +710,16 @@ EXPECTED_IDS = (
     # ever seen one).  Appended at the end to keep every earlier entry
     # index stable for the index-based fixtures.
     "HYP-PF-035",
+    # HYP-PF-036 (PICKUP-LISTENER-001: the PickupTerrainThing inbound
+    # strict-decoder lane -- decode, count and record only, no reply, no
+    # pickup rule, no write, behind --pickup-listener-hypothesis-scenario;
+    # the vital id 0x4543 is DERIVED from the name-hash and has never been
+    # observed on any wire, object_ref_u32 carries only the GT-046 source
+    # proof and opaque_u8 is never interpreted, monster-drop pickup may
+    # ride the undecoded FightingDrop* family instead).  Appended at the
+    # end to keep every earlier entry index stable for the index-based
+    # fixtures.
+    "HYP-PF-036",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -722,6 +778,9 @@ EXPECTED_META = {
     ),
     "HYP-PF-035": (
         "protocol_hypothesis", "SKILL-ATTR-001", "active",
+    ),
+    "HYP-PF-036": (
+        "protocol_hypothesis", "PICKUP-LISTENER-001", "active",
     ),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}

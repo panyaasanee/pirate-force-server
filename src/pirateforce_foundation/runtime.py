@@ -106,6 +106,12 @@ from .learn_skill_result_hypothesis import (
     make_learn_skill_result_step_response,
     require_learn_skill_result_hypothesis_scenario,
 )
+from .pickup_listener_hypothesis import (
+    PICKUP_LISTENER_VITAL_ID,
+    classify_pickup_listener_attempt,
+    decode_pickup_listener_payload,
+    require_pickup_listener_hypothesis_scenario,
+)
 from .skill_attr_hypothesis import (
     SKILL_ATTR_ACTION_LABEL_PREFIX,
     SKILL_ATTR_FIRST_DELAY_SECONDS,
@@ -200,6 +206,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                      learn_skill_result_hypothesis_scenario=None,
                      learn_skill_request_hypothesis_scenario=None,
                      skill_attr_hypothesis_scenario=None,
+                     pickup_listener_hypothesis_scenario=None,
                      second_password_mode="required",
                      monotonic_clock=None,
                      close_timer_factory=None):
@@ -223,6 +230,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         learn_skill_result_hypothesis_scenario,
         learn_skill_request_hypothesis_scenario,
         skill_attr_hypothesis_scenario,
+        pickup_listener_hypothesis_scenario,
     ))
     if active_modes > 1:
         raise ValueError(
@@ -234,8 +242,9 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             "hp link hypothesis, remote player hypothesis, npc hostile "
             "hypothesis, npc hp link hypothesis, move authority "
             "hypothesis, ground loot hypothesis, learn skill result "
-            "hypothesis, learn skill request hypothesis, and skill attr "
-            "hypothesis scenarios are mutually exclusive"
+            "hypothesis, learn skill request hypothesis, skill attr "
+            "hypothesis, and pickup listener hypothesis scenarios are "
+            "mutually exclusive"
         )
     # PF-HYPOTHESIS-LEDGER: HYP-PF-030 active
     # MOVE-AUTHORITY-002.  Re-checked here even though app.py already loaded
@@ -281,6 +290,15 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         skill_attr_hypothesis_scenario = (
             require_skill_attr_hypothesis_scenario(
                 skill_attr_hypothesis_scenario
+            )
+        )
+    # PICKUP-LISTENER-001.  Re-checked here even though app.py already
+    # loaded it: a caller that hands in a lookalike profile must not be able
+    # to open an inbound decode path this project did not pin.
+    if pickup_listener_hypothesis_scenario is not None:
+        pickup_listener_hypothesis_scenario = (
+            require_pickup_listener_hypothesis_scenario(
+                pickup_listener_hypothesis_scenario
             )
         )
     # DELETE-REFRESH-001 and HYP-PF-015 key on the same vital id 0x36DB, so
@@ -583,6 +601,15 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.learn_skill_result_sweep_count = 0
                 self.learn_skill_request_accepted_count = 0
                 self.learn_skill_request_last_fields = None
+                # PICKUP-LISTENER-001 (HYP-PF-036) observability surface:
+                # accepted decodes append (count, object_ref_u32, opaque_u8,
+                # raw body hex) to the record list; classification refusals
+                # append (reason, raw body hex) to the refusal list.  Both
+                # are in-memory only and never persisted.
+                self.pickup_listener_accepted_count = 0
+                self.pickup_listener_last_fields = None
+                self.pickup_listener_records = []
+                self.pickup_listener_refusals = []
                 self.skill_attr_sweep_count = 0
                 self.hp_death_sweep_count = 0
                 self.runtimeres_death_sweep_count = 0
@@ -1709,6 +1736,80 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             self.learn_skill_request_accepted_count += 1
             self.events.append(
                 "learn_skill_request_hypothesis_decoded_no_reply"
+            )
+            return []
+
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-036 active
+        def _dispatch_pickup_listener_hypothesis(self, parsed):
+            """Strictly decode one inbound 0x4543 pickup frame; reply nothing.
+
+            PICKUP-LISTENER-001.  The lane is deliberately decode-count-and-
+            record only: an accepted frame is decoded to the two declared
+            values (object_ref_u32, proven by GT-046 job 5 to be copied from
+            the selected live runtime drop-object, NOT claimed to be an
+            element_key; opaque_u8, meaning unknown, never interpreted),
+            counted, appended to the in-memory record list with its raw body
+            hex, and logged as ONE ASCII event line -- and NOTHING is sent
+            back: no pickup rule exists and none is invented.  Every byte
+            mismatch is a named refusal drawn from the module's frozen
+            rejection registry, recorded on the refusal list with its raw
+            body hex, no-reply, no-crash.  The guards mirror the HYP-PF-034
+            template lane: no selected character and not-yet-runtime-ready
+            both fail closed with no reply and no write.  No path here
+            touches the database.
+
+            THE OPCODE 0x4543 IS DERIVED (name-hash; runtime id slot
+            0x0108202C is zero on disk) AND HAS NEVER BEEN OBSERVED ON ANY
+            WIRE; if the real id differs this branch never fires and the
+            frame keeps the frozen fall-through behavior recorded in the
+            module docstring.
+            """
+            self.rx_frames += 1
+            classification = classify_pickup_listener_attempt(
+                legacy, parsed,
+            )
+            if classification != "exact_pickup":
+                body = parsed.nested_payload
+                body_hex = (
+                    bytes(body).hex().upper()
+                    if type(body) in (bytes, bytearray) else ""
+                )
+                self.pickup_listener_refusals.append(
+                    (classification, body_hex)
+                )
+                self.events.append(
+                    f"pickup_listener_hypothesis_{classification}_no_reply"
+                )
+                return []
+            if self.foundation.selected is None:
+                self.events.append(
+                    "pickup_listener_hypothesis_no_selected_no_reply"
+                )
+                return []
+            if not self.teleport_sent or not self.runtime_ack_sent:
+                self.events.append(
+                    "pickup_listener_hypothesis_wrong_sequence_no_reply"
+                )
+                return []
+            body = bytes(parsed.nested_payload)
+            fields = decode_pickup_listener_payload(body)
+            self.pickup_listener_last_fields = (
+                fields.object_ref_u32, fields.opaque_u8,
+            )
+            self.pickup_listener_accepted_count += 1
+            body_hex = body.hex().upper()
+            self.pickup_listener_records.append((
+                self.pickup_listener_accepted_count,
+                fields.object_ref_u32,
+                fields.opaque_u8,
+                body_hex,
+            ))
+            self.events.append(
+                "pickup_listener_hypothesis_decoded_no_reply_"
+                f"count{self.pickup_listener_accepted_count}_"
+                f"object_ref_0x{fields.object_ref_u32:08X}_"
+                f"opaque_u8_0x{fields.opaque_u8:02X}_"
+                f"payload_{body_hex}"
             )
             return []
 
@@ -3027,6 +3128,20 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # branch does not exist and a 0x36AA frame falls through to
                 # the frozen v141 default path exactly as before.
                 return self._dispatch_learn_skill_request_hypothesis(parsed)
+            if (
+                pickup_listener_hypothesis_scenario is not None
+                and nested_id == PICKUP_LISTENER_VITAL_ID
+            ):
+                # PICKUP-LISTENER-001.  Keyed on its own DERIVED vital id
+                # 0x4543 (name-hash; never observed on any wire), which no
+                # other lane keys on, hooked exactly the way 0x36AA is
+                # hooked above; with the scenario absent this branch does
+                # not exist and a 0x4543 frame falls through to the frozen
+                # v141 default path exactly as before: the first runtime
+                # request earns the one-time empty RuntimeRes ack, every
+                # later unmatched vital returns no reply and no per-vital
+                # event.
+                return self._dispatch_pickup_listener_hypothesis(parsed)
             if (
                 delete_actor_hypothesis_scenario is not None
                 and nested_id == DELETE_ACTOR_VITAL_ID
