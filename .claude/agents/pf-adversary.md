@@ -31,7 +31,26 @@ Every one of these happened here. Check for each shape by name.
    naive quoting; a character with no code page 874 mapping raises inside `print()` and
    kills a tool mid-report.
 8. **Evidence layer laundering.** A wire fact quietly presented as proof that the game
-   renders something.
+   renders something. The layers here: wire/DB, client-observable, Lua script,
+   UI native, static image, data tables. A Lua-layer stub was once merged with a
+   native-UI hotkey symptom into one claim. **Ask: is every piece of evidence tagged
+   with its layer? Two layers agreeing is consistency, not proof.**
+9. **"Nobody has done this yet" from a single source.** Three vitals were proposed as
+   untouched; all three had shipped 9-10 days earlier — `docs/FUNCTIONAL_COVERAGE.json`
+   was never opened. And "cc stopped working" was once claimed while cc was running
+   30/30 — the *pipe* was stalled, not the sender. **Ask of every
+   missing/stopped/unimplemented claim: which of the G1 source ladder
+   (FUNCTIONAL_COVERAGE.json, docs+reports, external/+gamedata/, both queues,
+   notes_to_chief) was actually opened, and what did each layer say? And for any
+   "X stopped" claim: was the transmission path itself checked (`sync.log`,
+   ahead/behind, `SYNC_ATTENTION.txt`), or only the destination?**
+10. **CLOSED read as "knows the wire".** A serializer marked CLOSED was proposed for
+    implementation; its body was `mov al,1; ret 4` — it writes nothing on the wire.
+    **Ask: does the `PF_SERIALIZER_FIELDS.tsv` row show any `tag != EMPTY`?**
+11. **An unlabeled proposal treated as a measurement.** Measured facts and untested
+    suggestions were mixed in one report and could not be told apart afterwards.
+    **Ask: is every actionable claim labeled `[MEASURED]` (method + control named) or
+    `[PROPOSED]`? Unlabeled counts as `[PROPOSED]`.**
 
 ## Method
 For each defect: **a concrete failure scenario** — inputs or state, then the wrong
