@@ -67,7 +67,33 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers ONE deliberate movement (R147 re-land by R148,
+    # This pin covers ONE deliberate movement (SKILL-ATTR-001,
+    # 2026-08-24, cloud): combat/skill_use stays in_progress but gains one
+    # evidence ref (scenarios/skill_attr_hypothesis_attr_sweep.json) and
+    # one test ref (tests/test_skill_attr_hypothesis.py) for HYP-PF-035 --
+    # the server-side encoder for the 0x1661 skill-attr block RE-061
+    # pinned byte-exactly from the read-only client image as the Skill
+    # window controller gate's prerequisite (body serializer 0x7520B0:
+    # DBAttribute u8 mask + u64 identity, u16 record_count, per record
+    # u16 key / u16 opaque / u32 opaque; carrier UpdateAttrVital 0x309A
+    # attr collection with class id 0x1661; window gate init 0x761ED0
+    # returns false when the container derived from [actor+0x3E8] is
+    # absent -- the leading static explanation of GT-058's K-does-not-
+    # open finding).  Behind --skill-attr-hypothesis-scenario one accepted
+    # ascii12 trigger from the pinned smoke identity is answered with two
+    # pinned frames (record_count 0, then one arbitrary probe record
+    # key=1/0/0), every frame hash-pinned in module and scenario plus
+    # golden full-hex test pins.  The opaque field semantics stay unknown
+    # and unnamed, one packet is NOT claimed sufficient to open the
+    # window, and the status deliberately does NOT move: no client has
+    # ever seen one of these frames -- that is the queued attended GT
+    # ticket.  The ledger GROWS: HYP-PF-035 appended, count 42 -> 43,
+    # every existing index stable.  The STATS-PROG-001 static guard test
+    # 24 gained its fourth exact exception triple (its third owning
+    # module) in the same change rather than be worked around.
+    #
+    # Previous pin 203CF083..B6DC covered ONE deliberate movement (R147
+    # re-land by R148,
     # 2026-08-24, cloud): combat/monster_spawn_and_loot not_started ->
     # in_progress.  The entry was stale -- loot work had in fact begun
     # (door 2 roll: loot_roll.py LOOT-ROLL-001; door 3 render hypothesis:
@@ -478,7 +504,7 @@ GRADE_SUBSET_SHA256 = (
     # 26D752FE..BA9A (round 65) occupied_destination_policy not_started ->
     # in_progress under HYP-PF-017 (ITEM-SWAP-001); see its lineage note before that
     # for round 53's 78558E56..6DC8.
-    "203CF08339C4D0313FC35E851EAF166D4EAACD8694AAB3C4364ADD9A5F65B6DC"
+    "E443800F08FB33BE569B44FCAD3DDF09D79A9E48D73057D0F6E8FC8A14B2FC06"
 )
 
 

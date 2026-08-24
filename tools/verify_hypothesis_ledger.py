@@ -433,7 +433,28 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # now carries an inline dated [AMENDED 2026-08-24 GT-055/R143 ...] marker
 # renaming the field to string8 while changing no rule.  No other field of
 # any entry is touched.)
-CANONICAL_CONTENT_SHA256 = "9E2A5D34CF100B2C873A401F506118A19C1D8B5AFFD2C51034C54CC4EC96A707"
+# -> 9E2A5D34.. (2026-08-24, cloud: HYP-PF-035 appended -- SKILL-ATTR-001,
+# the server-side encoder for the 0x1661 skill-attr block carried by the
+# UpdateAttrVital 0x309A attr collection.  RE-061 (letter 20260824_1437)
+# pinned, byte-exactly from the read-only client image, both the wire form
+# (attr body serializer 0x7520B0: DBAttribute chain u8 tag 0x0B mask /
+# u64 tag 0x32 identity, then u16 tag 0x12 record_count, then per record
+# u16 tag 0x12 key / u16 tag 0x12 opaque / u32 tag 0x14 opaque; carrier
+# collection 0x463DE0: u16 count / u16 class id 0x1661 / u32 body_len) and
+# the Skill window gate this lane exists to probe: controller init 0x761ED0
+# returns false when the container derived from [actor+0x3E8] is absent --
+# the leading static explanation of the GT-058 K-does-not-open finding.
+# Behind --skill-attr-hypothesis-scenario one accepted ascii12 chat trigger
+# from the pinned smoke identity is answered with TWO pinned frames
+# (record_count 0, then one arbitrary probe record key=1/0/0) through the
+# frozen v141 make_runtime_vitals envelope, every frame hash-pinned in
+# module and scenario plus golden full-hex test pins.  NONCLAIMS carried in
+# the entry: one packet is NOT proven sufficient to open the window, the
+# two opaque record fields are unnamed, the version byte 0 is our design,
+# and no client has ever seen one of these frames -- that is the queued
+# attended ticket, and no coverage row grade moves on this append.  Count
+# moves 42 -> 43 and no earlier entry is touched.)
+CANONICAL_CONTENT_SHA256 = "4ABBBE861635712205FF2CAB2EB7F20C54246B0275E3AB2EF02FA4E7772C48DA"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -635,6 +656,14 @@ EXPECTED_IDS = (
     # design).  Appended at the end to keep every earlier entry index
     # stable for the index-based fixtures.
     "HYP-PF-034",
+    # HYP-PF-035 (SKILL-ATTR-001: the 0x1661 skill-attr block encoder lane
+    # riding the UpdateAttrVital 0x309A attr collection -- two pinned
+    # frames behind --skill-attr-hypothesis-scenario for the pinned smoke
+    # identity only; opaque record field semantics unknown and unnamed, one
+    # packet NOT claimed sufficient to open the skill window, no client has
+    # ever seen one).  Appended at the end to keep every earlier entry
+    # index stable for the index-based fixtures.
+    "HYP-PF-035",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -690,6 +719,9 @@ EXPECTED_META = {
     ),
     "HYP-PF-034": (
         "protocol_hypothesis", "LEARN-SKILL-REQUEST-001", "active",
+    ),
+    "HYP-PF-035": (
+        "protocol_hypothesis", "SKILL-ATTR-001", "active",
     ),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}

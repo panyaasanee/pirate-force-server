@@ -1,0 +1,124 @@
+{
+  "schema": 1,
+  "id": "skill_attr_hypothesis_attr_sweep",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-035",
+  "entry": {
+    "flow": "full_writable_character",
+    "required_sequence": "selected_and_runtime_ready",
+    "response_policy": "compose_pinned_skill_attr_update_attr_vital_sweep_no_write_no_close"
+  },
+  "dispatch": {
+    "trigger": "accepted_chat_input_frame_exact_ascii12_shape",
+    "trigger_classifier": "classify_chat_input_attempt",
+    "frames_per_accepted_request": 2,
+    "step_order": [
+      "COUNT0_EMPTY",
+      "COUNT1_KEY1"
+    ],
+    "step_records": {
+      "COUNT0_EMPTY": [],
+      "COUNT1_KEY1": [
+        {
+          "key": 1,
+          "opaque_u16": 0,
+          "opaque_u32": 0
+        }
+      ]
+    },
+    "identity_policy": "refuse_unless_selected_is_the_pinned_probe",
+    "probe_identity_lo": 268500993,
+    "probe_identity_hi": 0,
+    "spacing_seconds": 3.0,
+    "first_frame_delay_seconds": 0.0,
+    "delay_semantics": "gap_before_each_send_on_a_cumulative_deadline",
+    "action_label_prefix": "HYP_PF_035_SKILL_ATTR_",
+    "action_labels": [
+      "HYP_PF_035_SKILL_ATTR_COUNT0_EMPTY",
+      "HYP_PF_035_SKILL_ATTR_COUNT1_KEY1"
+    ],
+    "one_shot": false,
+    "socket_action": "none"
+  },
+  "wire": {
+    "carrier_vital_id": 12442,
+    "attr_class_id": 5729,
+    "vital_version": 0,
+    "vital_version_provenance": "our_design_no_capture_or_static_pin_fixes_it",
+    "envelope": "gscn_runtime_protocol_res_v4_one_vital_collection",
+    "payload_order": [
+      "u16_tag_0x12_attr_count_1",
+      "u16_tag_0x12_attr_class_id_0x1661",
+      "u32_tag_0x14_body_len",
+      "attr_body"
+    ],
+    "body_order": [
+      "u8_tag_0x0B_db_mask_0x01",
+      "u64_tag_0x32_identity",
+      "u16_tag_0x12_record_count",
+      "per_record_u16_tag_0x12_key_then_u16_tag_0x12_opaque_u16_then_u32_tag_0x14_opaque_u32"
+    ],
+    "record_wire_size": 11,
+    "provenance": {
+      "ticket": "RE-061",
+      "letter": "pf_bridge/notes_to_chief/20260824_1437_RE-061-RESULT-SKILLATTR-GATE-PINNED.md",
+      "serializer_va": "0x007520B0",
+      "serializer_len": 465,
+      "serializer_sha256": "9227cc6009fff2f20c79a3b19c395f9623d87f68a4ee3462e541aed62aa7e906",
+      "apply_va": "0x00751C70",
+      "apply_len": 72,
+      "apply_sha256": "1e8d5b2e6a7814bc88cec812188d05a8673aa5d3c69e9ba9c963a2d0cd98738e",
+      "handler_va": "0x005F2400",
+      "handler_len": 538,
+      "handler_sha256": "65a7095cc493e33988f816efcd63d48220ee9cf39437e543389d54e3718acfaf",
+      "window_gate_init_va": "0x00761ED0",
+      "actor_slot_offset": "0x3E8"
+    }
+  },
+  "probe": {
+    "per_step": {
+      "COUNT0_EMPTY": {
+        "body_size": 14,
+        "body_sha256": "524FEA50CFF0091A1C59F1C200F8188866537ACA060605C96868C882F4B90B3B",
+        "payload_size": 25,
+        "payload_sha256": "F9FF70C890CE0DEF0E518F22B8EBB1725A2CEF52E38F6D4CAF0FF820D629E458",
+        "pc_size": 47,
+        "pc_sha256": "53964014F74102513B76A512CD62F1789D375625838BF4235A55E55CDADDAC00",
+        "frame_size": 57,
+        "frame_sha256": "62BDFD389A618E12E784A58C8E8D1411BA86E0536D136EE6EE63DEB22173718F"
+      },
+      "COUNT1_KEY1": {
+        "body_size": 25,
+        "body_sha256": "9AA0F18736C239528B4CB2D61197A46EB570907A19316AE019C2C86E38B5D8CD",
+        "payload_size": 36,
+        "payload_sha256": "6EA7986777BE67BE884E5846A45D0BAFC20FD0CBE2B34D75283381ECF705EF16",
+        "pc_size": 58,
+        "pc_sha256": "46330301695F235D4B84A4A79BA20AD4D021886BCBDF95D80960E9DFBA449E6A",
+        "frame_size": 68,
+        "frame_sha256": "489331F80430F700638BA660B1D1292CCBC9BB7AB62160FD7A6E8D4AE0B1722E"
+      }
+    }
+  },
+  "persisted_post_state": {
+    "database_write": "none"
+  },
+  "capabilities": [
+    "compose_the_re061_proven_0x1661_attr_body_shape",
+    "emit_record_count_0_and_1_frames_for_the_pinned_probe_identity",
+    "decode_every_composed_body_back_to_the_declared_records",
+    "repeatable_sweep_per_session_no_state_change"
+  ],
+  "nonclaims": [
+    "one_packet_sufficient_to_open_the_skill_window",
+    "any_meaning_for_the_two_opaque_record_fields",
+    "any_meaning_for_the_record_key_values",
+    "the_vital_version_byte_which_is_our_design",
+    "client_acceptance_or_rendering_pending_the_attended_gt_ticket",
+    "any_wire_observation_of_the_0x1661_attr_block_in_either_direction",
+    "original_server_skill_attr_behavior_which_is_unrecoverable",
+    "skill_persistence_or_database_write",
+    "production_dispatch_wiring",
+    "production_baseline_behavior"
+  ]
+}

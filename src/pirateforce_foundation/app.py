@@ -21,6 +21,9 @@ from .learn_skill_request_hypothesis import (
 from .learn_skill_result_hypothesis import (
     load_learn_skill_result_hypothesis_scenario,
 )
+from .skill_attr_hypothesis import (
+    load_skill_attr_hypothesis_scenario,
+)
 from .move_authority_hypothesis import (
     load_move_authority_hypothesis_scenario,
 )
@@ -97,6 +100,7 @@ def main() -> int:
     pre.add_argument('--ground-loot-hypothesis-scenario')
     pre.add_argument('--learn-skill-result-hypothesis-scenario')
     pre.add_argument('--learn-skill-request-hypothesis-scenario')
+    pre.add_argument('--skill-attr-hypothesis-scenario')
     pre.add_argument(
         '--second-password-mode', choices=SECOND_PASSWORD_MODES,
         default='required',
@@ -160,6 +164,22 @@ def main() -> int:
             known.learn_skill_request_hypothesis_scenario
         )
         if known.learn_skill_request_hypothesis_scenario else None
+    )
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-035 active
+    # SKILL-ATTR-001.  Behind this flag one accepted chat-input frame from
+    # the pinned probe identity is answered with the two-frame pinned
+    # 0x1661 attr-block sweep inside UpdateAttrVital 0x309A (record count 0,
+    # then one arbitrary probe record) whose body shape RE-061 pinned; the
+    # opaque field semantics stay unknown and unnamed, one packet is NOT
+    # claimed sufficient to open the skill window, and nothing else changes.
+    # With the flag absent the boot is byte-for-byte the production
+    # baseline.  Refused alongside every other mode and demands an explicit
+    # existing --db.
+    skill_attr_hypothesis = (
+        load_skill_attr_hypothesis_scenario(
+            known.skill_attr_hypothesis_scenario
+        )
+        if known.skill_attr_hypothesis_scenario else None
     )
     scenario = load_scenario(known.scenario) if known.scenario else None
     # PF-HYPOTHESIS-LEDGER: HYP-PF-007 frozen
@@ -334,7 +354,7 @@ def main() -> int:
         remote_player_hypothesis, npc_hostile_hypothesis,
         npc_hp_link_hypothesis, move_authority_hypothesis,
         ground_loot_hypothesis, learn_skill_result_hypothesis,
-        learn_skill_request_hypothesis,
+        learn_skill_request_hypothesis, skill_attr_hypothesis,
     )) > 1:
         pre.error(
             '--scenario, --scene-load-scenario, --population-scenario, and '
@@ -354,7 +374,8 @@ def main() -> int:
             '--move-authority-hypothesis-scenario/'
             '--ground-loot-hypothesis-scenario/'
             '--learn-skill-result-hypothesis-scenario/'
-            '--learn-skill-request-hypothesis-scenario are mutually exclusive'
+            '--learn-skill-request-hypothesis-scenario/'
+            '--skill-attr-hypothesis-scenario are mutually exclusive'
         )
     if item_move_capture is not None and not known.db:
         pre.error('--item-move-capture-scenario requires an explicit existing --db')
@@ -432,6 +453,11 @@ def main() -> int:
             '--learn-skill-request-hypothesis-scenario requires an explicit '
             'existing --db'
         )
+    if skill_attr_hypothesis is not None and not known.db:
+        pre.error(
+            '--skill-attr-hypothesis-scenario requires an explicit '
+            'existing --db'
+        )
     db_path = known.db or str(
         root / (
             'state/object_population_v94.sqlite3' if population is not None
@@ -477,6 +503,8 @@ def main() -> int:
             if learn_skill_result_hypothesis is not None else
             'learn-skill-request-hypothesis'
             if learn_skill_request_hypothesis is not None else
+            'skill-attr-hypothesis'
+            if skill_attr_hypothesis is not None else
             'foundation'
         )
         install_runtime_console(
@@ -505,6 +533,7 @@ def main() -> int:
         or ground_loot_hypothesis is not None
         or learn_skill_result_hypothesis is not None
         or learn_skill_request_hypothesis is not None
+        or skill_attr_hypothesis is not None
     ):
         if not Path(db_path).is_file():
             raise FileNotFoundError(db_path)
@@ -528,6 +557,7 @@ def main() -> int:
             or ground_loot_hypothesis is not None
             or learn_skill_result_hypothesis is not None
             or learn_skill_request_hypothesis is not None
+            or skill_attr_hypothesis is not None
         ):
             store.migrate()
             store.expire_open_sessions()
@@ -598,6 +628,9 @@ def main() -> int:
         # LEARN-SKILL-REQUEST-001.  None unless the flag was handed in, and
         # make_state_class refuses it alongside every other mode a second time.
         learn_skill_request_hypothesis_scenario=learn_skill_request_hypothesis,
+        # SKILL-ATTR-001.  None unless the flag was handed in, and
+        # make_state_class refuses it alongside every other mode a second time.
+        skill_attr_hypothesis_scenario=skill_attr_hypothesis,
         # PF-HYPOTHESIS-LEDGER: HYP-PF-009 active
         second_password_mode=known.second_password_mode,
     )

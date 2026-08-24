@@ -106,6 +106,14 @@ from .learn_skill_result_hypothesis import (
     make_learn_skill_result_step_response,
     require_learn_skill_result_hypothesis_scenario,
 )
+from .skill_attr_hypothesis import (
+    SKILL_ATTR_ACTION_LABEL_PREFIX,
+    SKILL_ATTR_FIRST_DELAY_SECONDS,
+    SKILL_ATTR_PROBE_IDENTITY_HI,
+    SKILL_ATTR_PROBE_IDENTITY_LO,
+    make_skill_attr_step_response,
+    require_skill_attr_hypothesis_scenario,
+)
 from .move_authority_hypothesis import (
     evaluate_move_report, require_move_authority_hypothesis_scenario,
 )
@@ -191,6 +199,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                      ground_loot_hypothesis_scenario=None,
                      learn_skill_result_hypothesis_scenario=None,
                      learn_skill_request_hypothesis_scenario=None,
+                     skill_attr_hypothesis_scenario=None,
                      second_password_mode="required",
                      monotonic_clock=None,
                      close_timer_factory=None):
@@ -213,6 +222,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         ground_loot_hypothesis_scenario,
         learn_skill_result_hypothesis_scenario,
         learn_skill_request_hypothesis_scenario,
+        skill_attr_hypothesis_scenario,
     ))
     if active_modes > 1:
         raise ValueError(
@@ -224,8 +234,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             "hp link hypothesis, remote player hypothesis, npc hostile "
             "hypothesis, npc hp link hypothesis, move authority "
             "hypothesis, ground loot hypothesis, learn skill result "
-            "hypothesis, and learn skill request hypothesis scenarios are "
-            "mutually exclusive"
+            "hypothesis, learn skill request hypothesis, and skill attr "
+            "hypothesis scenarios are mutually exclusive"
         )
     # PF-HYPOTHESIS-LEDGER: HYP-PF-030 active
     # MOVE-AUTHORITY-002.  Re-checked here even though app.py already loaded
@@ -262,6 +272,15 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         learn_skill_request_hypothesis_scenario = (
             require_learn_skill_request_hypothesis_scenario(
                 learn_skill_request_hypothesis_scenario
+            )
+        )
+    # SKILL-ATTR-001.  Re-checked here even though app.py already loaded
+    # it: a caller that hands in a lookalike profile must not be able to
+    # put bytes this project did not pin onto a live socket.
+    if skill_attr_hypothesis_scenario is not None:
+        skill_attr_hypothesis_scenario = (
+            require_skill_attr_hypothesis_scenario(
+                skill_attr_hypothesis_scenario
             )
         )
     # DELETE-REFRESH-001 and HYP-PF-015 key on the same vital id 0x36DB, so
@@ -564,6 +583,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.learn_skill_result_sweep_count = 0
                 self.learn_skill_request_accepted_count = 0
                 self.learn_skill_request_last_fields = None
+                self.skill_attr_sweep_count = 0
                 self.hp_death_sweep_count = 0
                 self.runtimeres_death_sweep_count = 0
                 self.damage_model_sweep_count = 0
@@ -1691,6 +1711,90 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 "learn_skill_request_hypothesis_decoded_no_reply"
             )
             return []
+
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-035 active
+        def _dispatch_skill_attr_hypothesis(self, parsed):
+            """Answer one accepted chat input frame with the attr-block sweep.
+
+            SKILL-ATTR-001.  The request side is deliberately the SAME
+            accepted shape the HYP-PF-014 echo lane classifies (exact
+            34-byte ascii12 frame): it is the only client action an attended
+            tester can trigger on demand, and reusing it means every guard
+            here is one the project has already proven -- wrong shape, wrong
+            envelope, no selected character and not-yet-runtime-ready all
+            fail closed with no reply and no write.  Nothing in the request
+            is read: the request is a trigger, not an input, and the answer
+            is composed entirely from the module's own frozen step plan.
+
+            IDENTITY IS PINNED, the HYP-PF-026 lesson: the sweep frames are
+            hash-pinned absolutely, and the pinned attr body carries the
+            canonical smoke identity in its DBAttribute chain, so the lane
+            refuses to fire at all unless the selected actor IS that
+            identity -- a tester sees the pinned bytes byte for byte or
+            nothing, and no frame ever names an identity the session does
+            not hold.
+
+            The answer is one UpdateAttrVital 0x309A frame per step, in the
+            scenario's order, spaced by ``spacing_seconds``: the empty
+            record set (count 0), then one arbitrary probe record (key=1,
+            both opaque fields 0 -- NOT claimed meaningful).  Whether either
+            frame changes what the K key does is exactly the attended
+            question this lane exists to unblock; RE-061's nonclaim stands
+            that one packet is NOT proven sufficient.  Every frame is
+            composed, re-decoded and hash-pinned before any of them is
+            queued.  The lane touches no store (skill state has no table),
+            takes no socket action, and is not one-shot.
+            """
+            self.rx_frames += 1
+            classification = classify_chat_input_attempt(legacy, parsed)
+            if classification != "ascii12":
+                self.events.append(
+                    f"skill_attr_hypothesis_{classification}_no_reply"
+                )
+                return []
+            if self.foundation.selected is None:
+                self.events.append(
+                    "skill_attr_hypothesis_no_selected_no_reply"
+                )
+                return []
+            if not self.teleport_sent or not self.runtime_ack_sent:
+                self.events.append(
+                    "skill_attr_hypothesis_wrong_sequence_no_reply"
+                )
+                return []
+            selected = self.foundation.selected
+            identity_lo = getattr(selected, "identity_lo", None)
+            identity_hi = getattr(selected, "identity_hi", None)
+            if (
+                identity_lo != SKILL_ATTR_PROBE_IDENTITY_LO
+                or identity_hi != SKILL_ATTR_PROBE_IDENTITY_HI
+            ):
+                self.events.append(
+                    "skill_attr_hypothesis_identity_not_pinned_no_reply"
+                )
+                return []
+            actions = []
+            for index, label in enumerate(
+                skill_attr_hypothesis_scenario.step_order
+            ):
+                pc, frame = make_skill_attr_step_response(legacy, index)
+                # The frozen V141 sender accumulates these onto one deadline
+                # (send_deadline += delay, then sleep to it), so this field is
+                # the gap before each send: 0.0 for the first frame and the
+                # full spacing for every later one.
+                delay = (
+                    SKILL_ATTR_FIRST_DELAY_SECONDS if index == 0
+                    else skill_attr_hypothesis_scenario.spacing_seconds
+                )
+                actions.append((
+                    SKILL_ATTR_ACTION_LABEL_PREFIX + label,
+                    pc, frame, delay,
+                ))
+            self.skill_attr_sweep_count += 1
+            self.events.append(
+                "skill_attr_hypothesis_attr_sweep_sent"
+            )
+            return actions
 
         # PF-HYPOTHESIS-LEDGER: HYP-PF-022 active
         def _dispatch_hp_death_hypothesis(self, parsed):
@@ -2903,6 +3007,17 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # refuses the flags together, which is why the ordering of
                 # these branches cannot matter.
                 return self._dispatch_learn_skill_result_hypothesis(parsed)
+            if (
+                skill_attr_hypothesis_scenario is not None
+                and nested_id == CHAT_INPUT_VITAL_ID
+            ):
+                # SKILL-ATTR-001.  This lane and the other chat-input-keyed
+                # sweep lanes above are keyed on the same vital id, so they
+                # must never be able to see the same frame: make_state_class
+                # refuses any pair outright and app.py refuses the flags
+                # together, which is why the ordering of these branches
+                # cannot matter.
+                return self._dispatch_skill_attr_hypothesis(parsed)
             if (
                 learn_skill_request_hypothesis_scenario is not None
                 and nested_id == LEARN_SKILL_REQUEST_VITAL_ID
