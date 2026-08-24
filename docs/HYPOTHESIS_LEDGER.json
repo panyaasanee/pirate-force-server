@@ -3404,6 +3404,85 @@
      "active_claim_marker": false
     }
    ]
+  },
+  {
+   "id": "HYP-PF-037",
+   "kind": "protocol_hypothesis",
+   "introduced_checkpoint": "ITEMOP-RES-GREENLINE-001",
+   "exact_value_or_transform": "Behind the explicit item-operate-res opt-in scenario only (scenarios/item_operate_res_greenline_sweep.json, id item_operate_res_greenline_sweep, loaded through --item-operate-res-hypothesis-scenario, which requires an explicit existing --db and is mutually exclusive with every other scenario mode), answer one accepted chat-input frame (the exact 34-byte ascii12 shape the HYP-PF-014 lane already classifies; nothing in the request is read) from a session whose selected actor IS the canonical smoke identity 0x10010001/0 with THREE pinned ItemOperateVitalRes 0x4C13 frames through the frozen v141 make_runtime_vitals envelope, every one composed by the V111-accepted golden codec inventory.make_item_move_delta_response and hash-pinned at message, PC and frame layer: (1) ITEMOP_RES_CTRL_CAPTURE_REPLAY, the byte-exact message-layer replay of RE-059 captured frame 1 (committed hex, 54 bytes, sha256 60756925E095A507ACFFD49ECF013DAF50C706429A0FA4DA9B73CC66B6E27496), whose dual derivation -- committed capture bytes on one side, the golden codec over ItemAttrState(1, 2600001, 2, 2) on the other -- is re-compared on every composition; (2) ITEMOP_RES_BAGUPD_ID2400901_QTY1, the same proven bag-update shape carrying the RE-060-decoded consumable item id 2400901 (table 24 ITEM_CONSUMABLES, n_ID 901; the canonical smoke backpack item at identity 2, slot 1) at quantity 1; (3) ITEMOP_RES_BAGUPD_ID2400901_QTY5, identical at quantity 5, probing the count channel of client message id 131.  The vital version byte is 2, CAPTURE-PINNED by all five RE-059 frames, and affected_identity_count stays 0 in every frame -- the only value ever captured; the count>0 per-element shape is statically OPEN (candidate u64 tag 0x32 + u8 tag 0x08 with the R13 direct-call 0x005ED2F0 membership unresolved) and is deliberately NOT composed, queued instead as the bridge static ticket RE-064.  The sweep is spaced 3.0 seconds, repeatable, writes no row and takes no socket action.",
+   "scope": "Server-side emission of the three pinned 0x4C13 frames to the ONE connected client that sent the accepted trigger, behind the one opt-in scenario only, from a runtime-ready session (selected character, teleport_sent and runtime_ack_sent both set) whose selected identity is the pinned probe -- any other identity is a named no-reply refusal.  The lane writes no database row, takes no socket action, schedules no timer, is not one-shot, and composes nothing outside the frozen three-step plan.",
+   "status": "active",
+   "provenance": "Opened 2026-08-24 by the owner's explicit GT-063 approval (letter pf_bridge/notes_to_chief/20260824_1831_PANYA-RULINGS-combine-scenarios-and-open-GT-063.md section 2) on three closed tickets: GT-049 (letter 20260824_0923, static: message id 131, template 'received [ $V1 ] * $V2' (an ASCII rendering of the Thai template in TEXTDATA_TH__MESSAGE.tsv row 131, kept ASCII here for cp874 console discipline), emitted from the INBOUND 0x4C13 handler chain 0x005EF5E0 -> 0x005CC309), RE-059 (letter 20260824_1413: all five real captured 0x4C13 frames extracted byte-exactly; all version 2, affected_identity_count 0), and RE-060 (letter 20260824_1422: the item table id scheme full_id/100000 -> table, full_id%100000 -> n_ID, candidate 100%-hit evidence).  The ticket draft's affected_identity_count=1 frames were NOT built: the per-element shape is a static candidate only (PF_SERIALIZER_FIELDS.tsv rows 769-794) with the R13 direct call 0x005ED2F0 unresolved, so that dimension went back to the bridge as RE-064 instead of onto a socket.",
+   "evidence_refs": [
+    "scenarios/item_operate_res_greenline_sweep.json",
+    "tests/test_item_operate_res_hypothesis.py"
+   ],
+   "accepted_ceiling": "Emitting the three pinned frames, in the pinned order and spacing, behind the explicit opt-in only, for the pinned probe identity only.  The ceiling is the WIRE and DISPATCHER layer: the frames are proven to leave the real make_state_class dispatcher on a throwaway temp database, every dispatched message re-decodes to its declared plan item, the control step re-proves the capture/codec dual derivation on every composition, and all per-step hash pins hold in module, scenario and the golden full-hex test pins.  It does NOT reach the client layer by one millimetre: no claim that any client parses, accepts, applies or shows anything for one of these frames.",
+   "evidence_gap": "WHAT THE SCREEN SHOWS IS UNKNOWN AND IS THE WHOLE QUESTION: no one has ever recorded the screen state while a 0x4C13 frame travelled (RE-059 extracted the bytes, not the effects), and no capture holds a quantity-5 or id-2400901 bag-update variant -- frames 2 and 3 are this project's own probe design.  Which wire field feeds $V1/$V2 of message id 131 is not committed anywhere (GT-049 pinned the chain, not the field binding).  The RE-060 id scheme is candidate 100%-hit evidence, not wire-confirmed.  The affected_identity_count>0 element shape is statically OPEN (RE-064).  All of these are exactly the queued attended GT-063 observation or the queued bridge static work, and no coverage row grade moves on this module alone.",
+   "falsification": "Retire or redesign this lane if a real client rejects or errors on the control frame -- noting the attribution limit: the replay is byte-exact at the MESSAGE layer only, and the captured 15-byte PC envelope prefix has never been compared to the frozen v141 prefix this lane rides (that comparison is queued as a rider on RE-064), so an ErrorData on the control frame indicts the envelope prefix, the session context, or both, without attribution until that 15-byte comparison is made -- if the emitted bytes ever stop reproducing the pinned messages/pcs/frames, or if this lane is ever observed to write any database row, take any socket action, fire for a non-pinned identity, answer anything but the accepted ascii12 trigger, or emit with the scenario absent.  A client that accepts all three frames while showing nothing does NOT falsify the wire claim -- it is the attended NO-RESULT the GT-063 ticket already anticipates (P2), and the redirect is a new shape sweep, not a rerun.",
+   "stop_rule": "Emit only the three pinned frames, only in answer to the accepted ascii12 chat-input trigger, only for the pinned probe identity, only behind the one opt-in scenario file.  What is forbidden is WIDENING: a different item id, quantity, slot or identity, more or fewer steps, any affected_identity_count other than 0, any removal, any merge or swap shape, any inbound handling, any semantic NAME for R4 or the raw item bytes, any database write, any socket action, or a production or default-mode path is a NEW VERSION of this entry -- two tracked slots remain -- or a new entry.  The count>0 dimension in particular may not be composed until RE-064 closes the R13 membership question with byte-walked evidence.",
+   "production_allowed": false,
+   "expiry": {
+    "tracked_versions": [
+     "ITEMOP-RES-GREENLINE-001"
+    ],
+    "decision": "Opened 2026-08-24 under the owner's explicit GT-063 approval; one version is tracked because one round built the whole lane (module + scenario + app/runtime wiring + tests + ledger/coverage binding) at once.  Proven offline and through the real dispatcher on a throwaway temp database; never driven over TCP and never seen by a client.  Confirm the client-observable layer as the attended GT-063 ticket -- which of the three shapes, if any, puts the green message-id-131 line on the real screen -- before any retire, freeze or extend decision, and do not move any coverage row grade until it has run."
+   },
+   "max_versions": 3,
+   "extension_approval_ref": null,
+   "source_refs": [
+    {
+     "path": "src/pirateforce_foundation/item_operate_res_hypothesis.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-037 active",
+      "ITEM_OPERATE_RES_CHECKPOINT = \"ITEMOP-RES-GREENLINE-001\"",
+      "item_operate_res_greenline_sweep",
+      "ITEM_OPERATE_RES_VITAL_ID = 0x4C13",
+      "ITEM_OPERATE_RES_VITAL_VERSION = 2",
+      "CAPTURE_FRAME1_MESSAGE_HEX",
+      "anything_about_what_the_screen_shows",
+      "any_affected_identity_count_gt_zero_shape_open_as_re064",
+      "production_allowed = False"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "src/pirateforce_foundation/runtime.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-037 active",
+      "item_operate_res_hypothesis_greenline_sweep_sent",
+      "item_operate_res_hypothesis_wrong_sequence_no_reply",
+      "item_operate_res_hypothesis_identity_not_pinned_no_reply",
+      "self.item_operate_res_sweep_count = 0",
+      "require_item_operate_res_hypothesis_scenario",
+      "ITEM_OPERATE_RES_ACTION_LABEL_PREFIX"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "src/pirateforce_foundation/app.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-037 active",
+      "--item-operate-res-hypothesis-scenario requires an explicit ",
+      "load_item_operate_res_hypothesis_scenario",
+      "item_operate_res_hypothesis_scenario=item_operate_res_hypothesis"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "scenarios/item_operate_res_greenline_sweep.json",
+     "required_markers": [
+      "\"hypothesis_id\": \"HYP-PF-037\"",
+      "\"production_allowed\": false",
+      "\"test_only\": true",
+      "anything_about_what_the_screen_shows",
+      "capture_pinned_all_five_re059_frames_carry_2",
+      "the_re060_item_scheme_which_is_candidate_not_wire_confirmed",
+      "original_server_pickup_response_behavior_which_is_unrecoverable"
+     ],
+     "active_claim_marker": false
+    }
+   ]
   }
  ]
 }

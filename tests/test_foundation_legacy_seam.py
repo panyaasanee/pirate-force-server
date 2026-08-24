@@ -76,7 +76,35 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers ONE deliberate movement (PICKUP-LISTENER-001,
+    # This pin covers ONE deliberate movement (ITEMOP-RES-GREENLINE-001,
+    # 2026-08-24, chief cloud round R154): presentation/
+    # system_message_display stays in_progress but gains one evidence ref
+    # (scenarios/item_operate_res_greenline_sweep.json) and one test ref
+    # (tests/test_item_operate_res_hypothesis.py) for HYP-PF-037 -- the
+    # pinned ItemOperateVitalRes 0x4C13 sweep the attended GT-063 ticket
+    # fires to learn which shape puts the green message-id-131 chat line
+    # ("received [ $V1 ] * $V2" -- an ASCII rendering of the Thai template,
+    # kept ASCII here for cp874 discipline; GT-049: emitted from the INBOUND 0x4C13
+    # handler chain 0x005EF5E0 -> 0x005CC309, so the server decides) on
+    # the real screen.  Behind --item-operate-res-hypothesis-scenario one
+    # accepted ascii12 trigger from the pinned smoke identity is answered
+    # with THREE frames through the V111-accepted golden codec
+    # (inventory.make_item_move_delta_response): the RE-059 frame-1
+    # capture replay, whose dual derivation -- committed capture hex on
+    # one side, the codec over ItemAttrState(1, 2600001, 2, 2) on the
+    # other -- is re-compared at every composition, then the same proven
+    # bag-update shape carrying the RE-060 consumable 2400901 at quantity
+    # 1 and at quantity 5.  The vital version byte 2 is CAPTURE-PINNED
+    # (all five RE-059 frames), affected_identity_count stays 0 in every
+    # frame (the count>0 element shape is statically OPEN -- R13
+    # membership -- and went to the bridge as RE-064 instead of onto a
+    # socket), and the status deliberately does NOT move: nobody has ever
+    # recorded what a screen shows for any of these frames -- that is
+    # exactly the attended GT-063 question.  The ledger GROWS: HYP-PF-037
+    # appended, count 44 -> 45, every existing index stable.
+    #
+    # Previous pin BC582520..297C covered ONE deliberate movement
+    # (PICKUP-LISTENER-001,
     # 2026-08-24, cloud round R151): npc_interaction/monster_spawn_and_loot
     # stays in_progress but gains two evidence refs
     # (src/pirateforce_foundation/pickup_listener_hypothesis.py and
@@ -541,7 +569,7 @@ GRADE_SUBSET_SHA256 = (
     # 26D752FE..BA9A (round 65) occupied_destination_policy not_started ->
     # in_progress under HYP-PF-017 (ITEM-SWAP-001); see its lineage note before that
     # for round 53's 78558E56..6DC8.
-    "BC5825200B431E4E817ADEC0738C84E9619D60B5F04E3E97C60DB666F5F7297C"
+    "3903439722086B1A33878569FF9C371C0A8FA40FAC5A2CB5A038C710BDEDF60C"
 )
 
 

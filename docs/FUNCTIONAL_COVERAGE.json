@@ -912,10 +912,12 @@
           "status": "in_progress",
           "evidence_refs": [
             "reports/PF_RE_V99_ShowMessage_and_Fast_Entry_20260814.md",
-            "reports/PF_DEMO_FULLLOOP001_CANONICAL_PORT_ROYAL_RUNTIME_PASS_20260817.md"
+            "reports/PF_DEMO_FULLLOOP001_CANONICAL_PORT_ROYAL_RUNTIME_PASS_20260817.md",
+            "scenarios/item_operate_res_greenline_sweep.json"
           ],
           "test_refs": [
-            "tests/test_system_message_wire.py"
+            "tests/test_system_message_wire.py",
+            "tests/test_item_operate_res_hypothesis.py"
           ],
           "notes": "The authentic system panel rendered the one-string ShowMessageVital in runtime passes. Wire shape and emission ownership stay graded in chat/server_system_message; this row tracks only the presentation surface, whose panel routing rules, fonts, and display limits are unmeasured."
         },
