@@ -2,9 +2,17 @@
 
 This module deliberately stops at the nested record boundary.  In particular, it
 does not identify an outer envelope, dispatch the request, build a response, or
-mutate character state.  Requiring the input to end with the declared UTF-16LE
+mutate character state.  Requiring the input to end with the declared string
 payload is a host-side safety rule; it is not a claim about client codec EOF
 handling.
+
+The trailing 0x44 field is a string8 (one byte per char), not a UTF-16LE
+wstring: GT-055 (STRING-CODEC-DECISION-001, 2026-08-24) decided the full wire
+shape ``44 | uint32le byte_len | N raw string8 bytes`` from the GT-018 capture
+(32 contiguous ASCII bytes, no interleaved NULs; corroborated by GT-010/011),
+matching PF_SERIALIZER_FIELDS rows that bind this field to the
+``basic_string<char>`` helpers 0x0089A6D0/0x0089A740.  The parser previously
+required an even byte length under the superseded UTF-16LE reading.
 """
 from dataclasses import dataclass
 import struct
@@ -23,7 +31,7 @@ class DeleteActorVitalRequest:
     op: int
     selector: int
     field_u32: int
-    opaque_utf16le: bytes
+    opaque_string8: bytes
 
 
 class _Cursor:
@@ -55,8 +63,8 @@ class _Cursor:
 def parse_delete_actor_vital_request(raw: bytes) -> DeleteActorVitalRequest:
     """Parse one exact producer-backed request profile and reject trailing data.
 
-    The ``0x44`` field contains a uint32 byte length followed by opaque, even-sized
-    UTF-16LE code-unit bytes.  The raw bytes are retained without decoding so their
+    The ``0x44`` field contains a uint32 byte length followed by that many raw
+    string8 bytes (GT-055).  The raw bytes are retained without decoding so their
     representation is lossless.  The declared length is bounded by the supplied
     input and never drives an allocation.
     """
@@ -87,15 +95,13 @@ def parse_delete_actor_vital_request(raw: bytes) -> DeleteActorVitalRequest:
     if field_u32 != 0:
         raise ValueError("DeleteActorVital producer uint32 must be zero")
 
-    cursor.expect(0x44, "wstring")
+    cursor.expect(0x44, "string8")
     byte_length = cursor.u32le()
-    if byte_length & 1:
-        raise ValueError("DeleteActorVital UTF-16LE byte length must be even")
-    opaque_utf16le = cursor._take(byte_length)
+    opaque_string8 = cursor._take(byte_length)
     if cursor.offset != len(raw):
         raise ValueError("trailing data after DeleteActorVital nested record")
-    if op == 2 and opaque_utf16le:
-        raise ValueError("DeleteActorVital op 2 requires an empty UTF-16LE field")
+    if op == 2 and opaque_string8:
+        raise ValueError("DeleteActorVital op 2 requires an empty string8 field")
 
     return DeleteActorVitalRequest(
         vital_id=vital_id,
@@ -103,5 +109,5 @@ def parse_delete_actor_vital_request(raw: bytes) -> DeleteActorVitalRequest:
         op=op,
         selector=selector,
         field_u32=field_u32,
-        opaque_utf16le=opaque_utf16le,
+        opaque_string8=opaque_string8,
     )

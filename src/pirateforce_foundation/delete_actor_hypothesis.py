@@ -4,8 +4,12 @@ The nested request record, its id, version, and both producer op values are
 the accepted DELETE-003 grade-A static decode
 (reports/PF_DELETE003_PRODUCER_OUTER_FRAMING_NEGATIVE_20260816.md): UI path
 ``0x4E6190 -> 0x4B2990`` submits op 1 with the selector and an opaque
-UI-derived wstring; path ``0x4B47A0`` submits op 2 with an empty wstring.
-No natural 0x36DB wire was ever captured (bounded corpus negative), so both
+UI-derived string; path ``0x4B47A0`` submits op 2 with an empty string.
+(The wire field is a string8, not a wstring: GT-055, 2026-08-24, superseding
+the "wstring" wording the DELETE-003 report used.)
+No natural 0x36DB wire existed at design time (bounded corpus negative then;
+attended GT-010 later produced the first natural 0x36DB and confirmed the
+request envelope), so both
 the outer request envelope accepted here and the response composed here are
 *designed hypotheses*, opened 2026-08-18 under the project owner's explicit
 Lane-1 Option-B decision of 2026-08-18 00:52 (which supersedes the DELETE-003
@@ -59,10 +63,21 @@ from .delete_actor import (
 )
 
 
-# Designed probe requests (no captured 0x36DB wire exists anywhere in the
-# corpus): op 1, selector 0, with the empty wstring and with the DELETE-003
-# disposable character name as the opaque UI string.  Deterministic, pinned
-# end to end for tests and replay tooling.
+# Designed probe requests (no captured 0x36DB wire existed anywhere in the
+# corpus at design time; GT-010 later produced the first natural 0x36DB and
+# confirmed the request envelope): op 1, selector 0, with the empty string
+# field and with the deltst01 payload below.  Deterministic, pinned end to
+# end for tests and replay tooling.
+#
+# PINNED-BY-HISTORY (GT-055, 2026-08-24): the deltst01 probe's 16 payload
+# bytes are the UTF-16LE encoding of the DELETE-003 name "DelTst01", built
+# before GT-055 decided the 0x44 field is a string8.  Under the decided
+# codec those bytes read as a 16-byte NUL-interleaved string8 blob, NOT the
+# 8-char name.  The bytes are deliberately kept (hash pins downstream depend
+# on them; the server never decodes the field and the opaque value is
+# unclaimed).  Whether an attended replay should instead send a re-derived
+# 8-byte string8 form is an OPEN question recorded in round R143 -- do not
+# read this probe as "the name as the client would send it".
 DELETE_ACTOR_PROBE_NESTED_PAYLOADS = {
     "op1_selector0_empty": bytes.fromhex(
         "0801080014000000004400000000"
