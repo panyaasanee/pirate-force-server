@@ -1,0 +1,101 @@
+{
+  "schema": 1,
+  "id": "pickup_listener_hypothesis_decode_probe",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-036",
+  "entry": {
+    "flow": "full_writable_character",
+    "required_sequence": "selected_and_runtime_ready",
+    "response_policy": "decode_count_and_record_no_reply_no_write"
+  },
+  "dispatch": {
+    "trigger": "inbound_one_vital_0x4543_pickup_frame",
+    "trigger_classifier": "classify_pickup_listener_attempt",
+    "frames_emitted_per_accepted_request": 0,
+    "accepted_event": "pickup_listener_hypothesis_decoded_no_reply",
+    "one_shot": false,
+    "socket_action": "none"
+  },
+  "wire": {
+    "vital_id": 17731,
+    "vital_id_provenance": "derived_from_name_hash_never_observed_on_wire",
+    "vital_version": 0,
+    "vital_version_provenance": "our_design_no_capture_or_static_pin_fixes_it",
+    "envelope": "gscn_runtime_protocol_req_one_vital_client_request_our_acceptance_design_for_this_vital",
+    "body_order": [
+      "u32_tag_0x14_at_object_0x14",
+      "u8_tag_0x08_at_object_0x18"
+    ],
+    "payload_wire_size": 7,
+    "provenance": {
+      "ticket": "GT-046",
+      "letter": "pf_bridge/notes_to_chief/20260823_1435_GT046-PASS-outbound-mouseclick-runtime-drop-object.md",
+      "registry": "pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv",
+      "delivery_table": "pf_bridge/external/PF_SERIALIZER_FIELDS.tsv",
+      "delivery_rows": "W_and_R_byte_symmetric_gate_ALWAYS",
+      "derived_id_source": "pf_bridge/FACTPACK_L2_CLASSCENSUS001_20260820.tsv",
+      "capture_status": "not_observed_in_either_direction_pf_field_validation_rows_102_103",
+      "serializer_va": "0x005E5E30",
+      "serializer_len": 83,
+      "serializer_sha256": "8e439d4f3ff1479e723b220d8dd78a262b41df3b74839da9d4cb728f69773066"
+    }
+  },
+  "probe": {
+    "per_probe": {
+      "ZERO": {
+        "fields": {
+          "object_ref_u32": 0,
+          "opaque_u8": 0
+        },
+        "payload_size": 7,
+        "payload_sha256": "B2398619DB817C08B9CA007A8A85D88B28630FC0A6332D7C0096CFCB47BC9083",
+        "request_pc_size": 27,
+        "request_pc_sha256": "76BC9F9264A9342D5ADE0D84EA3832925641FA2612E453FB9D8B6B5F4BE8249F"
+      },
+      "MID": {
+        "fields": {
+          "object_ref_u32": 305419896,
+          "opaque_u8": 42
+        },
+        "payload_size": 7,
+        "payload_sha256": "33DBDBF7B68DCD2DDD15791104B3BE5174C2B1235AFFED11619CBD78460BC971",
+        "request_pc_size": 27,
+        "request_pc_sha256": "850177F9BFA1157F51488768458373D19881281930365759CDEF3EFFF26F5923"
+      },
+      "MAX": {
+        "fields": {
+          "object_ref_u32": 4294967295,
+          "opaque_u8": 255
+        },
+        "payload_size": 7,
+        "payload_sha256": "7F29F214B667DEFD573881FD22EC9B0B6D93A26D7ABB13631AC8D4DAD8630890",
+        "request_pc_size": 27,
+        "request_pc_sha256": "D643151C90FF47365C5286746FC7EB6D2E084C3023D2905AB264B12A104182AB"
+      }
+    }
+  },
+  "persisted_post_state": {
+    "database_write": "none"
+  },
+  "capabilities": [
+    "decode_the_delivery_table_pickup_body_shape",
+    "refuse_malformed_bodies_by_named_reason",
+    "count_and_record_accepted_pickups_per_session",
+    "repeatable_per_session_no_reply_no_persisted_state_change"
+  ],
+  "nonclaims": [
+    "the_runtime_vital_id_which_is_hash_derived_never_observed",
+    "any_wire_observation_of_this_vital_in_either_direction",
+    "any_meaning_for_object_ref_u32_beyond_the_gt046_source_proof",
+    "any_meaning_for_opaque_u8",
+    "any_pickup_rule_or_any_response_frame",
+    "monster_drop_pickup_which_may_ride_the_fightingdrop_family",
+    "the_request_envelope_which_was_never_captured",
+    "the_vital_version_byte_which_is_our_design",
+    "original_server_pickup_behavior",
+    "item_grant_or_database_write",
+    "production_dispatch_wiring",
+    "production_baseline_behavior"
+  ]
+}

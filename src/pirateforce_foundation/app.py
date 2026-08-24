@@ -21,6 +21,9 @@ from .learn_skill_request_hypothesis import (
 from .learn_skill_result_hypothesis import (
     load_learn_skill_result_hypothesis_scenario,
 )
+from .pickup_listener_hypothesis import (
+    load_pickup_listener_hypothesis_scenario,
+)
 from .skill_attr_hypothesis import (
     load_skill_attr_hypothesis_scenario,
 )
@@ -101,6 +104,7 @@ def main() -> int:
     pre.add_argument('--learn-skill-result-hypothesis-scenario')
     pre.add_argument('--learn-skill-request-hypothesis-scenario')
     pre.add_argument('--skill-attr-hypothesis-scenario')
+    pre.add_argument('--pickup-listener-hypothesis-scenario')
     pre.add_argument(
         '--second-password-mode', choices=SECOND_PASSWORD_MODES,
         default='required',
@@ -180,6 +184,23 @@ def main() -> int:
             known.skill_attr_hypothesis_scenario
         )
         if known.skill_attr_hypothesis_scenario else None
+    )
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-036 active
+    # PICKUP-LISTENER-001.  Behind this flag one inbound frame carrying the
+    # DERIVED PickupTerrainThing vital id 0x4543 (name-hash; the runtime id
+    # slot is zero on disk and NO capture holds this vital in either
+    # direction) in the accepted one-vital envelope is strictly decoded
+    # (u32 tag 0x14 then u8 tag 0x08, the statically closed delivery-table
+    # shape; GT-046 proved the client-outbound mouse-click producer),
+    # counted and recorded on the session -- and NOTHING is sent back and
+    # nothing is written; the server side is listen-only.  With the flag
+    # absent the boot is byte-for-byte the production baseline.  Refused
+    # alongside every other mode and demands an explicit existing --db.
+    pickup_listener_hypothesis = (
+        load_pickup_listener_hypothesis_scenario(
+            known.pickup_listener_hypothesis_scenario
+        )
+        if known.pickup_listener_hypothesis_scenario else None
     )
     scenario = load_scenario(known.scenario) if known.scenario else None
     # PF-HYPOTHESIS-LEDGER: HYP-PF-007 frozen
@@ -355,6 +376,7 @@ def main() -> int:
         npc_hp_link_hypothesis, move_authority_hypothesis,
         ground_loot_hypothesis, learn_skill_result_hypothesis,
         learn_skill_request_hypothesis, skill_attr_hypothesis,
+        pickup_listener_hypothesis,
     )) > 1:
         pre.error(
             '--scenario, --scene-load-scenario, --population-scenario, and '
@@ -375,7 +397,8 @@ def main() -> int:
             '--ground-loot-hypothesis-scenario/'
             '--learn-skill-result-hypothesis-scenario/'
             '--learn-skill-request-hypothesis-scenario/'
-            '--skill-attr-hypothesis-scenario are mutually exclusive'
+            '--skill-attr-hypothesis-scenario/'
+            '--pickup-listener-hypothesis-scenario are mutually exclusive'
         )
     if item_move_capture is not None and not known.db:
         pre.error('--item-move-capture-scenario requires an explicit existing --db')
@@ -458,6 +481,11 @@ def main() -> int:
             '--skill-attr-hypothesis-scenario requires an explicit '
             'existing --db'
         )
+    if pickup_listener_hypothesis is not None and not known.db:
+        pre.error(
+            '--pickup-listener-hypothesis-scenario requires an explicit '
+            'existing --db'
+        )
     db_path = known.db or str(
         root / (
             'state/object_population_v94.sqlite3' if population is not None
@@ -505,6 +533,8 @@ def main() -> int:
             if learn_skill_request_hypothesis is not None else
             'skill-attr-hypothesis'
             if skill_attr_hypothesis is not None else
+            'pickup-listener-hypothesis'
+            if pickup_listener_hypothesis is not None else
             'foundation'
         )
         install_runtime_console(
@@ -534,6 +564,7 @@ def main() -> int:
         or learn_skill_result_hypothesis is not None
         or learn_skill_request_hypothesis is not None
         or skill_attr_hypothesis is not None
+        or pickup_listener_hypothesis is not None
     ):
         if not Path(db_path).is_file():
             raise FileNotFoundError(db_path)
@@ -558,6 +589,7 @@ def main() -> int:
             or learn_skill_result_hypothesis is not None
             or learn_skill_request_hypothesis is not None
             or skill_attr_hypothesis is not None
+            or pickup_listener_hypothesis is not None
         ):
             store.migrate()
             store.expire_open_sessions()
@@ -631,6 +663,9 @@ def main() -> int:
         # SKILL-ATTR-001.  None unless the flag was handed in, and
         # make_state_class refuses it alongside every other mode a second time.
         skill_attr_hypothesis_scenario=skill_attr_hypothesis,
+        # PICKUP-LISTENER-001.  None unless the flag was handed in, and
+        # make_state_class refuses it alongside every other mode a second time.
+        pickup_listener_hypothesis_scenario=pickup_listener_hypothesis,
         # PF-HYPOTHESIS-LEDGER: HYP-PF-009 active
         second_password_mode=known.second_password_mode,
     )

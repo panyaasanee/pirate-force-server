@@ -67,7 +67,35 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers ONE deliberate movement (SKILL-ATTR-001,
+    # This pin covers ONE deliberate movement (PICKUP-LISTENER-001,
+    # 2026-08-24, cloud round R151): npc_interaction/monster_spawn_and_loot
+    # stays in_progress but gains two evidence refs
+    # (src/pirateforce_foundation/pickup_listener_hypothesis.py and
+    # scenarios/pickup_listener_hypothesis_decode_probe.json) and one test
+    # ref (tests/test_pickup_listener_hypothesis.py) for HYP-PF-036 -- the
+    # inbound strict decoder for the PickupTerrainThing pickup request.
+    # The codec is statically CLOSED (PF_SERIALIZER_FIELDS rows 859-862:
+    # u32 tag 0x14 at object+0x14, u8 tag 0x08 at object+0x18, serializer
+    # span [0x005E5E30,0x005E5E83) sha256 8e439d4f..) and GT-046 proved
+    # the client-outbound mouse-click producer 0x006B0639 -- but the vital
+    # id 0x4543 is DERIVED from the name-hash only and has NEVER been
+    # observed on any wire (the runtime id slot is zero on disk; the
+    # capture corpus holds zero frames of it in either direction), which
+    # is why the lane is decode-count-and-record ONLY behind
+    # --pickup-listener-hypothesis-scenario: no reply, no pickup rule, no
+    # write, listen-only.  The same change corrects the row's notes per
+    # the 2026-08-23 15:20 erratum letter (the 'pre-placed quest-object
+    # system' reading of PickupTerrainThing is retracted -- GT-046 job 5
+    # proved +0x14 comes from a live runtime drop-object -- while the
+    # FightingDrop* monster-drop caution stands); notes are excluded from
+    # this digest, the ref additions are what move it.  The status
+    # deliberately does NOT move: no client frame of this vital has ever
+    # been observed and the attended opcode question has not run.  The
+    # ledger GROWS: HYP-PF-036 appended, count 43 -> 44, every existing
+    # index stable.
+    #
+    # Previous pin E443800F..FC06 covered ONE deliberate movement
+    # (SKILL-ATTR-001,
     # 2026-08-24, cloud): combat/skill_use stays in_progress but gains one
     # evidence ref (scenarios/skill_attr_hypothesis_attr_sweep.json) and
     # one test ref (tests/test_skill_attr_hypothesis.py) for HYP-PF-035 --
@@ -504,7 +532,7 @@ GRADE_SUBSET_SHA256 = (
     # 26D752FE..BA9A (round 65) occupied_destination_policy not_started ->
     # in_progress under HYP-PF-017 (ITEM-SWAP-001); see its lineage note before that
     # for round 53's 78558E56..6DC8.
-    "E443800F08FB33BE569B44FCAD3DDF09D79A9E48D73057D0F6E8FC8A14B2FC06"
+    "BC5825200B431E4E817ADEC0738C84E9619D60B5F04E3E97C60DB666F5F7297C"
 )
 
 

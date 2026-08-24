@@ -3323,6 +3323,87 @@
      "active_claim_marker": false
     }
    ]
+  },
+  {
+   "id": "HYP-PF-036",
+   "kind": "protocol_hypothesis",
+   "introduced_checkpoint": "PICKUP-LISTENER-001",
+   "exact_value_or_transform": "Behind the explicit pickup-listener opt-in scenario only (scenarios/pickup_listener_hypothesis_decode_probe.json, id pickup_listener_hypothesis_decode_probe, loaded through --pickup-listener-hypothesis-scenario, which requires an explicit existing --db and is mutually exclusive with every other scenario mode), STRICTLY DECODE one inbound PickupTerrainThing frame in the accepted one-vital GSCN_RunTimeProtocolReq envelope (outer version 0, outer mask 0x02, vital_count 1, nested version 0) to the two declared values -- u32 tag 0x14 at object+0x14 named object_ref_u32 (GT-046 job 5: the client copies it from the selected live runtime drop-object [ptr+0x10]; NOT claimed to be an element_key), then u8 tag 0x08 at object+0x18 named opaque_u8 (meaning unknown, never interpreted), payload exactly 7 bytes, the byte-symmetric statically CLOSED W/R delivery-table shape -- then count the accepted frame, append (count, object_ref_u32, opaque_u8, raw body hex) to the in-memory session record list, emit ONE ASCII event line, and send NOTHING back. THE VITAL ID 0x4543 (17731) IS DERIVED FROM THE VALIDATED NAME-HASH ONLY AND HAS NEVER BEEN OBSERVED ON ANY WIRE: the runtime id slot 0x0108202C is zero on disk and the capture corpus holds ZERO PickupTerrainThing frames in either direction. Every refusal is a named no-reply event drawn from a frozen rejection tuple (wrong envelope, truncation, a wrong tag at either position, trailing bytes) and is recorded with its raw body hex on the in-memory refusal list. The module also carries a test-side encoder (decoder-inverse-checked) and a probe-frame composer used only to build test inputs; the server never emits this vital -- the ONLY PROVEN PRODUCER is client-outbound (GT-046 proved a producer exists, not that the message never travels server-to-client: the class carries a full R codec and sits in the inbound CreateById prototype tree per RE-056) and the server side is listen-only.",
+   "scope": "Server-side decode-count-and-record of inbound frames bearing the DERIVED vital id 0x4543 from the ONE connected client, behind the one opt-in scenario only, from a runtime-ready session (selected character, teleport_sent and runtime_ack_sent both set). The lane writes no database row, sends no frame, grants no item, removes nothing from any scene, takes no socket action, schedules no timer, and decodes nothing when the scenario is absent: in default mode a 0x4543 frame falls through to the frozen v141 path exactly as before this module existed (first runtime request earns the one-time empty RuntimeRes ack; every later unmatched vital returns no reply and no per-vital event), which also keeps an attended run under a WRONG derived opcode interpretable.",
+   "status": "active",
+   "provenance": "Opened 2026-08-24 (round R151) under the owner's standing pre-approval for newly found gameplay functions under the standard pattern (opt-in, production_allowed false, fail closed, ledger/verifier binding, offline proof), with the target named by the owner-confirmed correction letter pf_bridge/notes_to_chief/20260824_1244_CORRECTION-3-picks-were-duplicates-real-target-is-monster_spawn_and_loot.md (monster_spawn_and_loot is the one not_started-family capability with every piece proven) and the R147 monster_spawn_and_loot gate analysis recorded in docs/FUNCTIONAL_COVERAGE.json (re-landed R148: doors 2/3/4b-5 built, delivery is the gap), on COMMITTED ARTIFACTS ONLY (no client image was read this round): pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv line 52 (PickupTerrainThing name_va 0x00F3093C, reg_site 0x00BEE5E0, serializer 0x005E5E30, handler 0x005EF640, vtable 0x00F3005C); pf_bridge/external/PF_SERIALIZER_FIELDS.tsv rows 859-862 (statically CLOSED codec, exactly 2 fields, W and R mirrored, gate ALWAYS: u32 tag 0x14 at +0x14 and u8 tag 0x08 at +0x18, span [0x005E5E30,0x005E5E83) len 83 sha256 8e439d4f3ff1479e723b220d8dd78a262b41df3b74839da9d4cb728f69773066); the GT-046 producer proof (letter pf_bridge/notes_to_chief/20260823_1435_GT046-PASS-outbound-mouseclick-runtime-drop-object.md: created at 0x006B0639 on the WM_LBUTTONDOWN path, queued outbound at 0x006B0653, +0x14 copied from the selected live runtime drop-object) as corrected by the same-day 15:20 erratum letter (the pre-placed quest-object reading is retracted); the derived id 0x4543 from pf_bridge/FACTPACK_L2_CLASSCENSUS001_20260820.tsv row 1003; and the NOT_OBSERVED capture status from pf_bridge/external/PF_FIELD_VALIDATION.tsv rows 102-103.",
+   "evidence_refs": [
+    "scenarios/pickup_listener_hypothesis_decode_probe.json",
+    "tests/test_pickup_listener_hypothesis.py"
+   ],
+   "accepted_ceiling": "Strict decode, count and record of the statically closed delivery-table body shape behind the explicit opt-in only. The ceiling is the WIRE and DISPATCHER layer: probe frames are proven to be decoded by the real make_state_class dispatcher on a throwaway temp database, the decoded values round-trip the module's own encoder, and the module/scenario probe pins hold. It does NOT reach the client layer by one millimetre: no frame of this vital has ever been observed in either direction, the opcode itself is a hash derivation and not an observation, and this lane has never been driven through a real server process over TCP.",
+   "evidence_gap": "THE OPCODE IS DERIVED, NEVER OBSERVED: the runtime vital id slot 0x0108202C is zero on disk, 0x4543 rests entirely on the validated name-hash derivation, and no capture holds a PickupTerrainThing frame in either direction (PF_FIELD_VALIDATION rows 102-103, NOT_OBSERVED) -- whether a real client actually sends this id when a player clicks a ground object is exactly the queued attended question. The MEANING of object_ref_u32 beyond the GT-046 source proof (copied from the selected live runtime drop-object) is NOT known -- in particular it is NOT claimed to be an element_key or any scene-table row id, and whether the runtime object was instantiated from scene data or wire is unproven. The MEANING of opaque_u8 is NOT known and it is never interpreted. This lane is NOT claimed to explain monster-drop pickup: the undecoded FightingDropModule_Client/FightingDropNotify family (GT-046 job 6) may carry that behavior instead. The request ENVELOPE for this vital has never been captured; the accepted envelope and the per-vital version byte 0 are this project's own acceptance design copied from captured requests of other vitals. No pickup rule is known and none is implemented.",
+   "falsification": "THE ATTENDED TEST IS CONDITIONAL ON AN UNBUILT PREREQUISITE: no attended click can run until a rendered, clickable drop-object is proven to exist on a real client screen -- chain it after GT-045's eye test, which currently stands at WIRE PASS / CLIENT NO-RESULT (render unconfirmed), and note that scene-native clickables are unproven and that this lane's own mutual exclusion excludes the HYP-PF-032 ground-loot spawner (--ground-loot-hypothesis-scenario) from the same boot, so composing spawner+listener in one session requires an explicit owner ruling first (the mutual-exclusion pattern is not to be weakened for it). Given that prerequisite: an attended click whose frame arrives with a DIFFERENT opcode refutes the derived id 0x4543 and retires or redesigns this lane, though ZERO frames arriving refutes nothing -- it cannot distinguish a wrong derived id from no clickable drop-object having existed (or none having been clicked) and must be recorded as no-evidence; an attended frame arriving on 0x4543 whose body violates the 2-field codec (wrong tags, wrong widths, extra bytes) refutes the codec mirror or the acceptance envelope for this delivery, though again an ABSENCE of such frames confirms nothing for the same reason; an attended frame that arrives on 0x4543 and decodes cleanly upgrades both the derived id and the codec mirror into observed claims -- and until one arrives, the zero-frame state supports neither the upgrade nor the refutation. Also retire or redesign, UNCONDITIONALLY, if the decoder ever returns a partial result or accepts trailing bytes, or if this lane is ever observed to send any frame, write any database row, take any socket action, or decode with the scenario absent.",
+   "stop_rule": "Decode, count and record only, only for inbound frames bearing the derived id 0x4543 in the accepted envelope, only behind the one opt-in scenario file. What is forbidden is WIDENING: answering anything (including any of the GT-046 status/message responses 0xFC/0xFD/0xFE), inventing any pickup rule, granting any item, removing anything from any scene, renaming object_ref_u32 to claim table semantics, interpreting opaque_u8, accepting any other envelope or version byte, any database write, any socket action, or a production or default-mode path is a NEW VERSION of this entry -- two tracked slots remain -- or a new entry. Do not enable production exposure. Do not move the npc_interaction/monster_spawn_and_loot coverage row grade on the strength of this lane: decoding a synthetic probe of a derived opcode proves no pickup behavior, and the row stays in_progress until an attended result exists.",
+   "production_allowed": false,
+   "expiry": {
+    "tracked_versions": [
+     "PICKUP-LISTENER-001"
+    ],
+    "decision": "Opened 2026-08-24 (round R151) under the owner's standing gameplay pre-approval; one version is tracked because one round built the whole lane (module + scenario + app/runtime wiring + tests + ledger/coverage binding) at once. Proven offline and through the real dispatcher on a throwaway temp database; never driven over TCP, and NO frame of this vital has ever been observed anywhere -- the opcode itself is derived. The attended opcode question is CONDITIONAL on a prerequisite this project has not proven: a rendered, clickable drop-object on a real client screen. Chain it after GT-045's eye test (Door 3 render, currently CLIENT NO-RESULT); the HYP-PF-032 ground-loot spawner cannot share a boot with this listener under the mutual-exclusion pattern, so a spawner+listener composition requires an explicit owner ruling rather than a weakened exclusion, and scene-native clickables are unproven. Only once such an object exists and is clicked: a different opcode retires the derivation, a clean 0x4543 decode upgrades it, and a 0x4543 body the codec refuses retires the mirror -- while ZERO frames is NO EVIDENCE in any direction, because it cannot distinguish a wrong derived id from no clickable object. Before any retire, freeze or extend decision, get that conditional attended run or an owner ruling that its prerequisite cannot be staged."
+   },
+   "max_versions": 3,
+   "extension_approval_ref": null,
+   "source_refs": [
+    {
+     "path": "src/pirateforce_foundation/pickup_listener_hypothesis.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-036 active",
+      "PICKUP_LISTENER_CHECKPOINT = \"PICKUP-LISTENER-001\"",
+      "pickup_listener_hypothesis_decode_probe",
+      "PICKUP_LISTENER_VITAL_ID = 0x4543",
+      "derived_from_name_hash_never_observed_on_wire",
+      "object_ref_u32",
+      "opaque_u8",
+      "monster_drop_pickup_which_may_ride_the_fightingdrop_family",
+      "production_allowed = False"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "src/pirateforce_foundation/runtime.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-036 active",
+      "pickup_listener_hypothesis_decoded_no_reply",
+      "pickup_listener_hypothesis_wrong_sequence_no_reply",
+      "self.pickup_listener_accepted_count = 0",
+      "self.pickup_listener_records = []",
+      "require_pickup_listener_hypothesis_scenario",
+      "PICKUP_LISTENER_VITAL_ID"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "src/pirateforce_foundation/app.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-036 active",
+      "--pickup-listener-hypothesis-scenario requires an explicit ",
+      "load_pickup_listener_hypothesis_scenario",
+      "pickup_listener_hypothesis_scenario=pickup_listener_hypothesis"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "scenarios/pickup_listener_hypothesis_decode_probe.json",
+     "required_markers": [
+      "\"hypothesis_id\": \"HYP-PF-036\"",
+      "\"production_allowed\": false",
+      "\"test_only\": true",
+      "the_runtime_vital_id_which_is_hash_derived_never_observed",
+      "any_meaning_for_object_ref_u32_beyond_the_gt046_source_proof",
+      "any_meaning_for_opaque_u8",
+      "our_design_no_capture_or_static_pin_fixes_it",
+      "monster_drop_pickup_which_may_ride_the_fightingdrop_family",
+      "any_pickup_rule_or_any_response_frame"
+     ],
+     "active_claim_marker": false
+    }
+   ]
   }
  ]
 }

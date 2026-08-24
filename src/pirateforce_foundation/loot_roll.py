@@ -20,6 +20,26 @@ no item/object type; ``DropThing*`` and ``PickupTerrainThing`` are registration
 NAMES with no transport, serializer, producer or capture).  A roll result
 therefore cannot reach a player today, by design and by measurement.
 
+    AMENDED 2026-08-24: the round-100 sentence above is SUPERSEDED for
+    ``PickupTerrainThing``.  Since 2026-08-23 that class has a pinned
+    serializer field table (0x005E5E30, two fields: u32 tag 0x14 at
+    object+0x14, u8 tag 0x08 at object+0x18 -- pinned by
+    pf_bridge/external/PF_SERIALIZER_FIELDS.tsv rows 859-862, GT-040
+    part C, adversarially re-derived by GT-042) and a pinned producer
+    (0x006B0639, the WM_LBUTTONDOWN mouse-click path, outbound queueing
+    at 0x006B0653, object+0x14 copied from the selected live runtime
+    drop-object -- GT-046, letter pf_bridge/notes_to_chief/
+    20260823_1435_GT046-PASS-outbound-mouseclick-runtime-drop-object.md);
+    the only proven PRODUCER is client-outbound (a producer proof is not
+    a proof the message never travels the other way).  Only "no capture
+    frames" remains true --
+    the corpus still holds zero PickupTerrainThing frames in either
+    direction, and its runtime vital id stays hash-DERIVED (0x4543), never
+    observed.  PICKUP-LISTENER-001 (HYP-PF-036) now carries the opt-in
+    inbound decoder for that shape; monster-drop pickup may still ride the
+    undecoded ``FightingDrop*`` family instead (GT-046 job 6), so a roll
+    result still cannot reach a player through any proven loop today.
+
 PROVENANCE OF EVERY CLAIM THE CODE MAKES
 ----------------------------------------
 The single permitted data source is the committed round-100 fact pack
