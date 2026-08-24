@@ -67,7 +67,25 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers ONE deliberate movement (LEARN-SKILL-REQUEST-001,
+    # This pin covers ONE deliberate movement (R147 re-land by R148,
+    # 2026-08-24, cloud): combat/monster_spawn_and_loot not_started ->
+    # in_progress.  The entry was stale -- loot work had in fact begun
+    # (door 2 roll: loot_roll.py LOOT-ROLL-001; door 3 render hypothesis:
+    # ground_loot_hypothesis.py GROUND-LOOT-001, GT-045 WIRE PASS / CLIENT
+    # NO-RESULT; door 4b/5 carrier: inventory.py ItemOperateVitalRes 0x4C13
+    # already ships and is client-accepted) -- so the row gains six
+    # evidence refs and three test refs and records the true next missing
+    # behavior (whether a 0x4C13 acquire body fires the client id-131 green
+    # line; bridge tickets RE-059/RE-060 already queued, do not duplicate).
+    # The original commit (4bf8da6, chief round R147) moved these grade
+    # fields WITHOUT moving this pin -- exactly the mistake this pin exists
+    # to force into the open -- and the gate correctly went red (run
+    # 32696299639) and the PR was auto-closed with the branch kept.  R148
+    # re-lands the same edit with the pin moved in the same commit.  No
+    # code, ledger or scenario changes ride along.
+    #
+    # Previous pin AAC38258..51CD covered ONE deliberate movement
+    # (LEARN-SKILL-REQUEST-001,
     # 2026-08-24, cloud): combat/skill_use stays in_progress but gains one
     # evidence ref (scenarios/learn_skill_request_hypothesis_decode_probe
     # .json) and one test ref (tests/test_learn_skill_request_hypothesis.py)
@@ -460,7 +478,7 @@ GRADE_SUBSET_SHA256 = (
     # 26D752FE..BA9A (round 65) occupied_destination_policy not_started ->
     # in_progress under HYP-PF-017 (ITEM-SWAP-001); see its lineage note before that
     # for round 53's 78558E56..6DC8.
-    "AAC38258FBDBACBA4A7CF104A75F41E48B487C0B0C3AE656A18B4245132A51CD"
+    "203CF08339C4D0313FC35E851EAF166D4EAACD8694AAB3C4364ADD9A5F65B6DC"
 )
 
 
