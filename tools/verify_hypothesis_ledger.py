@@ -548,7 +548,30 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # triple does not admit its sub-pairs), every other combination stays
 # refused, and unattributable composed observations stay NO-RESULT.  No
 # other field of any entry is touched.)
-CANONICAL_CONTENT_SHA256 = "6FB4024DF193CC5E5589BD11034215548BBEF7C98D7AC803F69F86D4CF6D1B03"
+# -> 5629F715.. (2026-08-24, chief cloud round R156: no entry added or
+# removed -- count stays 45 -- and exactly THREE fields of exactly ONE
+# entry move: evidence_gap, falsification and stop_rule of HYP-PF-037 are
+# updated for the RE-064 closure (letter 20260824_2241): the per-element
+# shape behind affected_identity_count>0 is byte-walk PINNED (per element
+# u64 tag 0x32 then u8 tag 0x08; the count is a u8 tag 0x08 behind a
+# signed initial gate; the R13 direct call 0x005ED2F0 is a loop-internal
+# collection-insert helper consuming no wire tag -- the TRAILER
+# prediction was falsified), and the 15-byte PC envelope prefix rider is
+# answered IDENTICAL 15/15 (capture PC ordinal 101 against the exact
+# v141 candidate -- a static FILE comparison: it zeroes the
+# capture-vs-v141 prefix difference, while the lane's runtime-emitted
+# prefix stays uncommitted per the module nonclaim).  The module and
+# scenario keep their version-001 refusal tokens (statically_open_re064
+# and the shape_open_as_re064 nonclaim, both required markers) verbatim:
+# the refusal is unchanged, and the evidence_gap now says explicitly
+# that the closure is recorded in the ledger, not in those frozen
+# strings.  No count>0 frame is composed and no code file moves: the
+# stop_rule still forbids that dimension as a NEW VERSION gated on the
+# attended GT-063 confirmation and an owner ruling, per the entry's
+# expiry decision.  Adversary round: 3 findings (marker/prose coherence,
+# prefix layer overreach, dropped 'statically' qualifier) all folded in
+# before commit.  No other field of any entry is touched.)
+CANONICAL_CONTENT_SHA256 = "5629F7153E23A93150F5033636F00025D67FEDEEB0965F6913AD299E3F7E24EA"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
