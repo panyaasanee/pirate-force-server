@@ -100,10 +100,20 @@ class Precondition:
         """The exact string a skipped test reports.
 
         The ``[precondition:<key>]`` prefix is load-bearing: the census tool
-        keys off it.  Do not reformat it.
+        keys off it.  Do not reformat it.  The missing filenames are named at
+        the end so a partially-present clone (e.g. a bridge with five of the
+        eight external tables) says WHICH files it lacks instead of an
+        undifferentiated "not in a fresh clone" (R145 adversary, defect 8).
         """
-        return "[precondition:%s] %s is not in a fresh clone - %s" % (
-            self.key, self.what, self.why,
+        missing = self.missing
+        tail = ""
+        if missing and len(missing) != len(self.paths):
+            tail = " [missing %d/%d: %s]" % (
+                len(missing), len(self.paths),
+                ", ".join(p.name for p in missing),
+            )
+        return "[precondition:%s] %s is not in a fresh clone - %s%s" % (
+            self.key, self.what, self.why, tail,
         )
 
     def skip_unless_present(self):
@@ -406,6 +416,13 @@ EXTERNAL_RE_TABLES = Precondition(
         "PF_RUNTIME_CLASSMAP.tsv",
         "PF_FIELD_VALIDATION.tsv",
         "PF_INPUT_INVENTORY.tsv",
+        # The last three of the eight, on the remote since 2026-08-24
+        # (pf_bridge 579b468).  They are listed here, not only in the tool's
+        # PINS, because a clone that has five tables and not eight must skip
+        # rather than half-run: the R145 cross-checks join across all three.
+        "PF_PROTOCOL_PRIORITY.tsv",
+        "PF_DATA_EVIDENCE.tsv",
+        "PF_TAG_CENSUS.tsv",
     )],
     "the Codex RE deliverable tables ../pf_bridge/external/PF_*.tsv",
     "they live in the pf_bridge sibling repository, which the single-repo "
