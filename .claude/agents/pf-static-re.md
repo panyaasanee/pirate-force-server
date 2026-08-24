@@ -20,7 +20,10 @@ byte you cannot see, and never write a VA you did not read from a committed arti
 - `docs/EXPERIMENT_LEDGER.md`, `docs/FUNCTIONAL_COVERAGE.json` — what is claimed and at what grade
 - `reports/` for whatever is tracked
 - In the sibling repo `../pf_bridge/`: `FACTPACK_*`, `FINDINGS_R*`, `VITAL_REGISTRY_FROM_CLIENT_BINARY_20260817.tsv`,
-  `factpack_L1/blocks_256.tsv` + `MANIFEST.md` + `TIMING.md`, `drafts/`, `rounds/`
+  `factpack_L1/blocks_256.tsv` + `MANIFEST.md` + `TIMING.md`, `drafts/`, `rounds/`,
+  `external/` (the Codex RE deliverable tables, including `PF_SERIALIZER_FIELDS.tsv`
+  that rule 7 sends you to), `gamedata/`, `GAME_TEST_QUEUE.md`, `CLIENT_RE_QUEUE.md`,
+  and `notes_to_chief/` (the G1 ladder of rule 6 walks all of these)
 - `git log` / `git show` — when a claim's history matters
 
 ## How this project decides what is true
