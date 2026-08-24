@@ -416,7 +416,24 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # handler ...]" -- the adversary review of the same round caught that the
 # first draft of this append certified the stale sentence under a fresh
 # canonical sha.  No other field of any earlier entry is touched.)
-CANONICAL_CONTENT_SHA256 = "DA6FED38A178E6FAC72310A35B94C1DF36920C645E5756427E6931BBC8493743"
+#
+# (Re-pinned 2026-08-24, chief round R143, GT-055 STRING-CODEC-DECISION-001:
+# no entry was added or removed -- count stays 42 -- and ONE dated amendment
+# is appended to HYP-PF-015's exact_value_or_transform: the DeleteActorVital
+# 0x44 field is a string8 (basic_string<char>, uint32le byte length, any
+# parity), not the "opaque even-length UTF-16LE wstring" the entry recorded,
+# decided by the attended GT-055 result from the GT-018/GT-010/GT-011 raw
+# captures plus the PF_SERIALIZER_FIELDS delivery rows.  The parser change
+# lands in the same commit: parse_delete_actor_vital_request renames
+# opaque_utf16le -> opaque_string8 and drops the even-length refusal.  The
+# same round's adversary review caught that the first re-pin certified the
+# stale phrase "the opaque wstring" still standing in FOUR places (HYP-PF-015
+# evidence_gap + stop_rule, HYP-PF-021 scope + stop_rule) -- the exact
+# failure shape the R140 note above records -- so each of those four sites
+# now carries an inline dated [AMENDED 2026-08-24 GT-055/R143 ...] marker
+# renaming the field to string8 while changing no rule.  No other field of
+# any entry is touched.)
+CANONICAL_CONTENT_SHA256 = "9E2A5D34CF100B2C873A401F506118A19C1D8B5AFFD2C51034C54CC4EC96A707"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
