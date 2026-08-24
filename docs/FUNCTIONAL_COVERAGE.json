@@ -563,7 +563,7 @@
           "status": "not_started",
           "evidence_refs": [],
           "test_refs": [],
-          "notes": "Scene actors are projected placements that never react to the player. No aggro radius, threat table, chase, or attack loop exists on the server."
+          "notes": "R157: the server-side decision half now exists as pure, unwired logic: src/pirateforce_foundation/mob_aggro.py (MOB-AGGRO-001, tests/test_mob_aggro.py) implements the per-NPC record and deterministic tick from drafts/MOB_AGGRO_SERVER_AI_STATIC_AND_DESIGN_R98_20260820.md section 5 -- threat table (abs of DAMAGE-MODEL-001 i32, saturating), proximity floor, highest-threat-lowest-identity selection, tick-counted attack cadence, leash break/return, absorbing death. All rules are OUR design (nonclaims in the module header); production_allowed=False, no scenario, no module in src/ imports it, and its attack decision is named INTENT_ATTACK_UNDELIVERABLE because Door B (attack transport) remains unproven -- zero captures, zero encoders, every behavior lookup observed returned null. The row stays not_started per the round-98 rule: it moves only when a real client is watched reacting to a frame we sent, and NO INTENT IS WIRED TO AN EMITTER yet -- client-renderable movement frames DO exist (npc_locomotion_presentation and teleport_transport are runtime_pass in this file), so approach/leash-return delivery is a wiring decision awaiting an owner ruling, not missing evidence. What IS missing evidence: Door B -- the CActorTask_UseBehavior/PlayActionEvent ctor walk needs the client image and is queued on the bridge as CLIENT_RE_QUEUE RE-065 (opened by R157)."
         },
         {
           "id": "pvp_engagement",
