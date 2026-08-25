@@ -25,9 +25,16 @@ RE-DERIVED here from the same static anchors, in general form, and the tests
 pin this module's constants against the probe lanes' constants value by value.
 This module imports NO probe lane; like ``field_mobs`` it takes the frozen V141
 serializers as a passed-in ``legacy`` handle, and it takes ``mob_aggro`` the
-same way, because that module states in its own docstring that nothing in
-``src/`` imports it and that its dispatch reachability is False.  Passing it in
-keeps both statements true and still gives the COO the wiring that was ordered.
+same way.  BUT SAID PLAINLY, because an adversarial review was right to call
+the softer version a dodge: passing a handle keeps mob_aggro's IMPORT claim
+true and does NOT keep its REACHABILITY claim true.  A ``runtime.py`` that
+passes ``mob_aggro`` in has made a lane whose own ``production_allowed`` is
+False reachable from production dispatch, and no static scan of ``src/`` can
+see that edge, because it is an argument.  So the threat handle is OPTIONAL
+here and the wiring line this lane hands the chief passes ``None``: the damage
+half ships without touching a probe lane at all, and whether v4 also folds
+threat - which means either wiring mob_aggro in or promoting it - is written up
+for the COO rather than smuggled in through an argument default.
 
 WHERE THE EVIDENCE FOR EACH HALF COMES FROM, AND WHERE IT STOPS.
 
@@ -37,11 +44,25 @@ WHERE THE EVIDENCE FOR EACH HALF COMES FROM, AND WHERE IT STOPS.
   server must say both halves itself.  This module says both halves and refuses
   to let them disagree: the number announced is the number subtracted, always,
   including when the subtraction is clamped (see the floor, below).
-* The bar.  GT-035 (2026-08-25, two observers, two runs, PASS both layers)
-  watched a REAL hostile's bar walk 3857 -> 2893 -> 2893 -> 771 on a real
-  client, driven by exactly this frame pair.  That is the strongest evidence
-  this project has for anything in combat, and it is evidence for the SHAPE:
-  hit frame announces, actor frame applies.
+* The bar.  GT-035 (2026-08-25) watched a target's bar walk
+  3857 -> 2893 -> 2893 -> 771 on a real client, driven by a frame pair of this
+  SHAPE: hit frame announces, actor frame applies.  Four limits on that
+  sentence, each one written here because an adversarial review of this module
+  found the first draft had blurred it:
+    - it is the CLIENT-OBSERVABLE layer only.  The report
+      (reports/PF_HOSTILE_HP_LINK038_GT035_ATTENDED_RESULT_20260825.md) says on
+      its own first lines that it must NEVER be cited as wire-layer evidence.
+      This module's wire layer is the byte pins in its tests, not GT-035.
+    - two observers agree on the TAIL of the ladder.  The first rung (3857 and
+      the -964 that moves it) is SINGLE-SOURCE, from the run-2 video.
+    - the frames GT-035 watched were NOT hostile: HYP-PF-038 composes its body
+      with no faction field (BasicAttr mask 0x030D).  The body this module
+      refreshes is the field_mobs hostile body (mask 0x070D), five bytes longer.
+      field_mobs' own nonclaim therefore still stands here and is repeated in
+      MOB_COMBAT_NONCLAIMS: named AND hostile together has never been observed.
+    - "hostile" itself is unproven at the client: the target's name label
+      rendered in the colour this client uses for PLAYERS, which is why RE-067
+      is open.
 * What is NOT proven and is not claimed here: that a player's own click can
   reach this driver.  The inbound side is the SCENE-007 EA7D ActionVital the
   client already sends for an action on a target (``action_ack.py``), and no
@@ -69,8 +90,12 @@ WHAT THE PLAYER SEES THAT THEY DID NOT SEE YESTERDAY.  Nothing yet, and this
 paragraph is honest rather than promotional: the module sends nothing, because
 the dispatch file that would call it (``runtime.py``) belongs to the chief.
 What it delivers is that the wiring is now ONE call - see MOB_COMBAT_WIRING -
-instead of a lane to design.  The moment that call exists, hitting a monster in
-Port Royal moves that monster's bar, on a build booted with no scenario flag.
+instead of a lane to design.  [PROPOSED, not measured] once that call exists,
+hitting a monster in Port Royal moves that monster's bar on a flagless build.
+It is PROPOSED rather than MEASURED for a named reason: nobody has yet observed
+a real attack input producing the inbound EA7D shape this driver reads, and in
+GT-035 nobody attacked anything - every frame was emitted by the server after
+the player typed one line of chat.
 
 NOTHING IS INSTALLED.  No socket, no clock, no randomness, no database, no
 global state, no import-time side effect.  Every function is a pure function of
@@ -109,9 +134,19 @@ MOB_COMBAT_LANE = "B_COMBAT"
 # finds it rather than only in a PR body.
 MOB_COMBAT_WIRING = (
     "runtime.py: on an EA7D ActionVital whose target is a field-mob identity, "
-    "call mob_combat.attack_from_observed_action(...) and send the two frames "
-    "it returns, in order (announce first, bar second)."
+    "call mob_combat.attack_from_observed_action(legacy, None, ledger, None, "
+    "fields, performer, attacker); commit the returned step with "
+    "mob_combat.commit_step(ledger_now, step) and send step.frames in order "
+    "(announce first, bar second) only if the commit is accepted; on "
+    "REFUSE_LEDGER_STALE re-read the ledger and re-run the call."
 )
+# Written out because a reader of the line above should not have to guess: the
+# second argument is the THREAT handle and passing None is the supported
+# production wiring for v4.  Passing mob_aggro instead makes the threat fold
+# happen - and makes runtime.py import a lane whose own production_allowed is
+# False.  That is a decision for the chief and the COO, not something this
+# module should smuggle in through an argument, so the default wiring does not.
+MOB_COMBAT_THREAT_HANDLE_IS_OPTIONAL = True
 
 # ---------------------------------------------------------------------------
 # The damage formula.  Copied value-for-value, WITH provenance, from the lanes
@@ -178,6 +213,15 @@ MOB_COMBAT_NONCLAIMS = (
     "name colour is not claimed by this lane; RE-067 owns it and is open",
     "the client's draw distance is still unmeasured, so a monster hit from "
     "far away may move a bar nobody can see",
+    "named AND hostile in one body has never been sent and never been "
+    "observed: field_mobs' nonclaim, inherited here, because the bar frame "
+    "this driver refreshes IS that body (mask 0x070D, not GT-035's 0x030D)",
+    "until the death half lands, every monster a player fights converges to "
+    "1 HP and stays there: it absorbs nothing further and the server answers "
+    "further hits with silence",
+    "the announce frame carries the monster's own world position; for the "
+    "sparse bg0001 rows that can be ~12,000 units from a spawning player, and "
+    "a neighbouring lane measured no model drawn at that distance",
     "threat is only recorded while the mob's aggro phase is idle or aggro: "
     "mob_aggro absorbs damage silently in its return and dead phases, by that "
     "module's declared design, and this driver does not override it",
@@ -193,8 +237,11 @@ REFUSE_TARGET_NOT_IN_LEDGER = "target_not_in_ledger"
 REFUSE_DUPLICATE_LEDGER_IDENTITY = "duplicate_ledger_identity"
 REFUSE_BALANCE_ABOVE_MAX = "balance_above_max"
 REFUSE_BALANCE_BELOW_FLOOR = "balance_below_floor"
-REFUSE_DAMAGE_NOT_POSITIVE = "damage_not_positive"
 REFUSE_DAMAGE_WIRE_POSITIVE = "damage_wire_positive"
+REFUSE_LEDGER_NOT_SORTED = "ledger_not_sorted"
+REFUSE_LEDGER_STALE = "ledger_stale"
+REFUSE_LEDGER_ROW_DISAGREES_WITH_ROSTER = "ledger_row_disagrees_with_roster"
+REFUSE_OUTCOME_SELF_CONTRADICTORY = "outcome_self_contradictory"
 REFUSE_DAMAGE_WIRE_OUT_OF_RANGE = "damage_wire_out_of_range"
 REFUSE_FLAGS_NOT_ALLOWLISTED = "flags_not_allowlisted"
 REFUSE_FLAGS_DISAGREE_WITH_DAMAGE = "flags_disagree_with_damage"
@@ -212,8 +259,11 @@ MOB_COMBAT_REFUSAL_REASONS = (
     REFUSE_DUPLICATE_LEDGER_IDENTITY,
     REFUSE_BALANCE_ABOVE_MAX,
     REFUSE_BALANCE_BELOW_FLOOR,
-    REFUSE_DAMAGE_NOT_POSITIVE,
     REFUSE_DAMAGE_WIRE_POSITIVE,
+    REFUSE_LEDGER_NOT_SORTED,
+    REFUSE_LEDGER_STALE,
+    REFUSE_LEDGER_ROW_DISAGREES_WITH_ROSTER,
+    REFUSE_OUTCOME_SELF_CONTRADICTORY,
     REFUSE_DAMAGE_WIRE_OUT_OF_RANGE,
     REFUSE_FLAGS_NOT_ALLOWLISTED,
     REFUSE_FLAGS_DISAGREE_WITH_DAMAGE,
@@ -344,6 +394,7 @@ class CombatLedger:
     """
 
     balances: tuple[MobBalance, ...]
+    generation: int = 0
 
     def __post_init__(self) -> None:
         if type(self.balances) is not tuple:
@@ -363,7 +414,13 @@ class CombatLedger:
         ordered = tuple(sorted(
             self.balances, key=lambda row: row.actor_identity))
         if ordered != self.balances:
-            object.__setattr__(self, "balances", ordered)
+            # REFUSED rather than silently re-sorted, which is what the first
+            # draft did: this module promises no silent coercion, and the
+            # sibling mob_aggro.MobAiState refuses this exact shape by name.
+            raise MobCombatContractError(
+                REFUSE_LEDGER_NOT_SORTED,
+                "ledger rows must be given in ascending identity order")
+        _require_int(self.generation, "generation", 0, 2 ** 62)
 
     def identities(self) -> tuple[int, ...]:
         return tuple(row.actor_identity for row in self.balances)
@@ -383,15 +440,29 @@ class CombatLedger:
             raise MobCombatContractError(
                 REFUSE_TYPE_NOT_TYPED_RECORD, "replacement must be a MobBalance")
         self.balance_of(balance.actor_identity)
-        return CombatLedger(tuple(
-            balance if row.actor_identity == balance.actor_identity else row
-            for row in self.balances
-        ))
+        return CombatLedger(
+            tuple(
+                balance if row.actor_identity == balance.actor_identity else row
+                for row in self.balances
+            ),
+            self.generation + 1,
+        )
 
 
 @dataclass(frozen=True)
 class HitOutcome:
-    """What one hit did, in numbers a report can print without re-deriving."""
+    """What one hit did, in numbers a report can print without re-deriving.
+
+    VALIDATED ON CONSTRUCTION, and that is not decoration.  ``apply_hit`` is not
+    the only thing that will ever build one of these: the chief's wiring and the
+    death lane that attaches at ``death_due`` both will.  Until an adversarial
+    review pointed it out, this was the one record in the module with no
+    ``__post_init__``, so a hand-built outcome could announce -1 on the wire
+    while subtracting 964 from the balance, and every downstream function -
+    ``announce_frames``, ``apply_threat``, ``describe_step`` - would have taken
+    it.  The invariant the module is proudest of lives HERE now, not in the one
+    function that happens to get it right.
+    """
 
     attacker_identity: int
     target_identity: int
@@ -404,6 +475,50 @@ class HitOutcome:
     clamped_by: int
     at_floor: bool
     death_due: bool
+    no_room: bool = False
+
+    def __post_init__(self) -> None:
+        _require_identity(self.attacker_identity, "attacker identity")
+        _require_identity(self.target_identity, "target identity")
+        if self.attacker_identity == self.target_identity:
+            raise MobCombatContractError(
+                REFUSE_PERFORMER_IS_THE_TARGET,
+                "the performer and the target must differ")
+        _require_int(self.max_hp, "max hp", 1, 0xFFFFFFFF)
+        _require_int(self.damage, "damage", 0, -DAMAGE_WIRE_MIN)
+        _require_int(self.clamped_by, "clamped by", 0, 2 * -DAMAGE_WIRE_MIN)
+        for label, value in (("hp before", self.hp_before),
+                             ("hp after", self.hp_after)):
+            _require_int(value, label, HP_FLOOR, self.max_hp)
+        for label, value in (("at floor", self.at_floor),
+                             ("death due", self.death_due),
+                             ("no room", self.no_room)):
+            if type(value) is not bool:
+                raise MobCombatContractError(
+                    REFUSE_TYPE_NOT_TYPED_RECORD, "%s must be a bool" % label)
+        require_damage_and_flags_agree(self.damage_wire, self.flags)
+        checks = (
+            (self.damage_wire == -self.damage,
+             "the announced number %d is not the subtracted number %d" % (
+                 self.damage_wire, self.damage)),
+            (self.hp_before - self.hp_after == self.damage,
+             "the balance moved %d while the hit says %d" % (
+                 self.hp_before - self.hp_after, self.damage)),
+            (self.at_floor == (self.hp_after == HP_FLOOR),
+             "at_floor disagrees with hp_after %d" % self.hp_after),
+            (self.death_due == self.at_floor,
+             "death_due and at_floor must agree while the death half is "
+             "missing"),
+            (not self.no_room or (self.damage == 0 and self.clamped_by > 0),
+             "no_room means a real hit landed on a monster with nothing left "
+             "to lose"),
+            (self.no_room or self.damage > 0 or self.clamped_by == 0,
+             "a hit that moved nothing must say why"),
+        )
+        for holds, detail in checks:
+            if not holds:
+                raise MobCombatContractError(
+                    REFUSE_OUTCOME_SELF_CONTRADICTORY, detail)
 
     @property
     def applied(self) -> int:
@@ -448,6 +563,14 @@ def damage_to_wire(damage: int) -> int:
 
 
 def require_damage_wire(value: Any) -> int:
+    # The lower bound is checked FIRST and by name.  With _require_int first,
+    # a value below the window reported a plain range error and
+    # REFUSE_DAMAGE_WIRE_OUT_OF_RANGE became unreachable - a named refusal that
+    # cannot occur is a lie told to whoever counts them.
+    if type(value) is int and type(value) is not bool and value < DAMAGE_WIRE_MIN:
+        raise MobCombatContractError(
+            REFUSE_DAMAGE_WIRE_OUT_OF_RANGE,
+            "damage wire %d is outside the proven window" % value)
     wire = _require_int(value, "damage wire", DAMAGE_WIRE_MIN, 0x7FFFFFFF)
     if wire > DAMAGE_WIRE_MAX:
         raise MobCombatContractError(
@@ -455,10 +578,6 @@ def require_damage_wire(value: Any) -> int:
             "a positive damage number has never been sent and its meaning is "
             "unknown; got %d" % wire,
         )
-    if wire < DAMAGE_WIRE_MIN:
-        raise MobCombatContractError(
-            REFUSE_DAMAGE_WIRE_OUT_OF_RANGE,
-            "damage wire %d is outside the proven window" % wire)
     return wire
 
 
@@ -533,21 +652,24 @@ def apply_hit(
     applied = requested if requested <= room else room
     clamped_by = requested - applied
     if applied == 0:
-        # Already at the floor: nothing moves, and the caller is told to stop
-        # announcing numbers that do not land.
+        # Already at the floor.  The outcome records a real hit that landed on
+        # a monster with nothing left to lose, and NOTHING is composed for it:
+        # an earlier draft answered this case with a MISS frame, which told the
+        # client the player had missed when the formula said 964.  While the
+        # death half is missing this is a dead end by construction, and the
+        # honest wire answer to a dead end is silence.
         outcome = HitOutcome(
             attacker, target, 0, 0, FLAGS_MISS, balance.current_hp,
-            balance.current_hp, balance.max_hp, clamped_by, True, True,
+            balance.current_hp, balance.max_hp, clamped_by, True, True, True,
         )
         return ledger, outcome
     moved = MobBalance(
         balance.actor_identity, balance.max_hp, balance.current_hp - applied)
     outcome = HitOutcome(
-        attacker, target, applied, -applied, FLAGS_HIT,
+        attacker, target, applied, damage_to_wire(applied), FLAGS_HIT,
         balance.current_hp, moved.current_hp, moved.max_hp,
-        clamped_by, moved.at_floor, moved.at_floor,
+        clamped_by, moved.at_floor, moved.at_floor, False,
     )
-    require_damage_and_flags_agree(outcome.damage_wire, outcome.flags)
     return ledger.with_balance(moved), outcome
 
 
@@ -579,6 +701,18 @@ def apply_threat(aggro: Any, aggro_state: Any, outcome: HitOutcome) -> Any:
         return aggro_state
     return apply_damage_threat(
         aggro_state, outcome.attacker_identity, outcome.damage_wire)
+
+
+def threat_was_recorded(before: Any, after: Any) -> bool:
+    """Did the fold actually land, or did the aggro lane drop it silently?
+
+    ``mob_aggro`` returns the state UNCHANGED, without complaint, for a mob in
+    its return or dead phase.  That is its declared design, not a bug, but a
+    driver that cannot tell the difference reports a monster as aggroed when it
+    is not.  ``strike`` records the answer on the step so a console line or a
+    report can say it out loud.
+    """
+    return after is not before
 
 
 def encode_hit_entry(
@@ -740,7 +874,21 @@ def bar_frames(
 
 @dataclass(frozen=True)
 class CombatStep:
-    """One hit, end to end: the new ledger, the new threat, the two frames."""
+    """One hit, end to end: the new ledger, the new threat, the two frames.
+
+    ``base_generation`` is the generation of the ledger this step was computed
+    FROM, and :func:`commit_step` is what makes it load-bearing.  A step is a
+    read-modify-write of a value nobody owns; two players actioning the same
+    monster in the same tick both read 3857, both compute 964, both announce
+    -964, and one write is lost - 1928 announced, 964 subtracted.  The
+    per-call invariant survives; the pair does not.  So the caller must commit,
+    and a commit against a ledger that has moved underneath it is refused by
+    name rather than silently applied.
+
+    ``threat_recorded`` is False when the aggro lane dropped the fold (no
+    handle passed, or a mob in its return/dead phase), so nothing downstream
+    has to infer it from an unchanged state object.
+    """
 
     ledger: CombatLedger
     aggro_state: Any
@@ -749,11 +897,44 @@ class CombatStep:
     announce_frame: bytes
     bar_pc: bytes
     bar_frame: bytes
+    base_generation: int = 0
+    threat_recorded: bool = False
 
     @property
-    def frames(self) -> tuple[bytes, bytes]:
-        """Announce first, bar second - the order GT-035 watched."""
+    def frames(self) -> tuple[bytes, ...]:
+        """Announce first, bar second - the order GT-035 watched.
+
+        EMPTY when the hit landed on a monster with nothing left to lose: this
+        lane has no death half yet, and it answers a dead end with silence
+        rather than with a MISS it did not compute.
+        """
+        if not self.announce_frame:
+            return ()
         return (self.announce_frame, self.bar_frame)
+
+
+def commit_step(current: CombatLedger, step: CombatStep) -> CombatLedger:
+    """Compare-and-swap: accept a step only against the ledger it was read from.
+
+    Returns the new ledger.  Refuses with :data:`REFUSE_LEDGER_STALE` when the
+    stored ledger has moved since the step was computed, in which case the
+    caller re-reads and re-runs - and sends nothing, because the frames of a
+    refused step describe a subtraction that did not happen.
+    """
+    if type(current) is not CombatLedger:
+        raise MobCombatContractError(
+            REFUSE_TYPE_NOT_TYPED_RECORD, "current must be a typed CombatLedger")
+    if type(step) is not CombatStep:
+        raise MobCombatContractError(
+            REFUSE_TYPE_NOT_TYPED_RECORD, "step must be a typed CombatStep")
+    if current.generation != step.base_generation:
+        raise MobCombatContractError(
+            REFUSE_LEDGER_STALE,
+            "this step was computed from generation %d and the ledger is at "
+            "generation %d: re-read and re-run, and send nothing" % (
+                step.base_generation, current.generation),
+        )
+    return step.ledger
 
 
 def strike(
@@ -770,14 +951,41 @@ def strike(
     """One hit on one monster: arithmetic, ledger, threat and both frames.
 
     This is the whole first half of M4 in one call, and it is the call the
-    wiring line at :data:`MOB_COMBAT_WIRING` makes.  It sends nothing: the
-    caller owns dispatch, and owes the frames in the order
-    :attr:`CombatStep.frames` returns them.
+    wiring line at :data:`MOB_COMBAT_WIRING` makes.  It sends nothing and it
+    STORES nothing: the caller owns dispatch, owes the frames in the order
+    :attr:`CombatStep.frames` returns them, and owes :func:`commit_step` before
+    sending any of them.
+
+    ``aggro`` may be None, which is the supported production wiring: the damage
+    half then runs without a probe lane being reachable from dispatch at all,
+    and ``threat_recorded`` on the step is False.
     """
+    if type(mob) is not FieldMob:
+        raise MobCombatContractError(
+            REFUSE_TYPE_NOT_TYPED_RECORD, "mob must be the typed FieldMob record")
+    row = ledger.balance_of(mob.actor_identity)
+    if row.max_hp != mob.max_hp:
+        # Caught by review, not by a crash: with a ledger row built from some
+        # other ceiling, the announced number came from the roster row and the
+        # bar frame from the ledger row, so the client saw "99" float while the
+        # bar fell 3856.
+        raise MobCombatContractError(
+            REFUSE_LEDGER_ROW_DISAGREES_WITH_ROSTER,
+            "identity 0x%X stands at a ceiling of %d in the ledger and %d in "
+            "the roster" % (mob.actor_identity, row.max_hp, mob.max_hp),
+        )
     damage = resolve_damage(attacker, mob_defender(mob))
     moved_ledger, outcome = apply_hit(
         ledger, attacker_identity, mob.actor_identity, damage)
-    moved_state = apply_threat(aggro, aggro_state, outcome)
+    if aggro is None:
+        moved_state = aggro_state
+    else:
+        moved_state = apply_threat(aggro, aggro_state, outcome)
+    if outcome.no_room:
+        return CombatStep(
+            moved_ledger, moved_state, outcome, b"", b"", b"", b"",
+            ledger.generation, False,
+        )
     announce_pc, announce_frame = announce_frames(
         legacy, attacker_identity, mob, outcome)
     bar_pc, bar_frame = bar_frames(
@@ -785,6 +993,7 @@ def strike(
     return CombatStep(
         moved_ledger, moved_state, outcome,
         announce_pc, announce_frame, bar_pc, bar_frame,
+        ledger.generation, threat_was_recorded(aggro_state, moved_state),
     )
 
 
@@ -804,8 +1013,13 @@ def attack_from_observed_action(
 
     ``action_fields`` is what ``action_ack.parse_scene006_ea7d`` returns: the
     target identity is ``field_qword_20``.  Returns None - not an exception -
-    when the target is not a monster this ledger opened, because a player
+    when the target is not a monster in the roster at all, because a player
     actioning a townsperson is an ordinary event and not a contract breach.
+
+    A target that IS in the roster but is NOT in the ledger is a different
+    thing entirely - a roster/ledger desync in which every hit on that monster
+    would silently do nothing forever - and it is REFUSED by name.  The first
+    draft returned None for both and documented only the first.
     """
     if type(action_fields) is not dict:
         raise MobCombatContractError(
@@ -821,7 +1035,11 @@ def attack_from_observed_action(
     for mob in mobs:
         if mob.actor_identity == target:
             if target not in ledger.identities():
-                return None
+                raise MobCombatContractError(
+                    REFUSE_TARGET_NOT_IN_LEDGER,
+                    "identity 0x%X is in the roster but not in this ledger: "
+                    "the two were built from different rosters" % target,
+                )
             return strike(
                 legacy, aggro, ledger, aggro_state, mob,
                 attacker_identity, attacker, faction=faction,
@@ -845,6 +1063,16 @@ def describe_step(step: CombatStep) -> tuple[str, ...]:
         "  frames: announce %d bytes, bar %d bytes" % (
             len(step.announce_frame), len(step.bar_frame)),
     ]
+    if outcome.no_room:
+        lines.append(
+            "  nothing sent: the target is at the floor %d and this lane has "
+            "no death half yet, so the wire stays silent rather than "
+            "answering MISS to a real hit of %d" % (HP_FLOOR, outcome.clamped_by))
+    if not step.threat_recorded and not outcome.no_room:
+        lines.append(
+            "  threat NOT recorded: no aggro handle was passed, or the mob is "
+            "in its return/dead phase, where mob_aggro absorbs damage by "
+            "design")
     if outcome.clamped_by:
         lines.append(
             "  clamped by %d at the floor %d: the death half owns what is "
@@ -881,12 +1109,15 @@ def pin_attacker() -> Combatant:
 def pin_document(
     legacy: Any, mob: FieldMob, attacker: Combatant | None = None,
 ) -> dict:
-    """The numbers a report should quote, computed rather than transcribed."""
+    """The numbers a report should quote, computed rather than transcribed.
+
+    Lives in ``scenarios/`` because that is where this project keeps its pins;
+    it is NOT a scenario, declares so in its own body, and no loader reads it.
+    """
     if attacker is None:
         attacker = pin_attacker()
     ledger = open_ledger()
-    step = strike(
-        legacy, _NoThreat(), ledger, None, mob, 0x750059, attacker)
+    step = strike(legacy, None, ledger, None, mob, 0x750059, attacker)
     outcome = step.outcome
     return {
         "pin_id": PIN_ID,
@@ -895,8 +1126,14 @@ def pin_document(
         "milestone": MOB_COMBAT_MILESTONE,
         "production_allowed": production_allowed,
         "test_only": test_only,
+        "not_a_scenario": True,
         "target_identity": mob.actor_identity,
-        "target_name": mob.display_name,
+        # ascii() for the same reason field_mobs.roster_report uses it: this
+        # gets printed on a code page 874 console, and a field scene's MOBS_TIP
+        # name is not guaranteed to be ASCII the way bg0001's thirteen are.
+        "target_name": ascii(mob.display_name),
+        "target_position": [mob.x, mob.y, mob.z],
+        "target_faction": field_mobs.FIELD_MOB_FACTION,
         "target_level": mob.level,
         "attacker_level": attacker.level,
         "attacker_ability_str": attacker.ability_str,
@@ -910,19 +1147,8 @@ def pin_document(
         "announce_frame_bytes": len(step.announce_frame),
         "bar_frame_bytes": len(step.bar_frame),
         "hp_floor": HP_FLOOR,
+        "threat_recorded": step.threat_recorded,
         "wiring": MOB_COMBAT_WIRING,
         "selection": "none_default_behaviour_no_scenario_flag",
         "nonclaims": list(MOB_COMBAT_NONCLAIMS),
     }
-
-
-class _NoThreat:
-    """The threat sink :func:`pin_document` uses so a pin needs no aggro state.
-
-    It satisfies the handle contract and returns the state it was given, which
-    is what "this pin measures the damage half only" means in code.
-    """
-
-    @staticmethod
-    def apply_damage_threat(state: Any, attacker_identity: int, damage: int):
-        return state

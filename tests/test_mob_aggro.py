@@ -589,6 +589,15 @@ class ContainmentTests(unittest.TestCase):
                     importers.append(path.name)
         self.assertEqual(importers, [])
         self.assertEqual(mentions, ["mob_combat.py"])
+        # And the part a scan of src/ can never see, pinned where it can be:
+        # passing this module IN as a handle would make it reachable from
+        # production dispatch through an argument.  So the damage driver's
+        # threat handle is optional and the wiring line it hands the chief
+        # passes None.  If that ever changes, this project has promoted a lane
+        # whose production_allowed is False, and this assertion says so first.
+        from pirateforce_foundation import mob_combat
+        self.assertIs(mob_combat.MOB_COMBAT_THREAT_HANDLE_IS_OPTIONAL, True)
+        self.assertNotIn("mob_aggro", mob_combat.MOB_COMBAT_WIRING)
 
     def test_the_module_declares_which_rules_are_ours(self):
         self.assertIn("[OUR DESIGN]", self.source)

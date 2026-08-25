@@ -17,9 +17,12 @@ driver that hands it the positive arithmetic value builds a monster that is
 hit, bleeds, repaints its bar and never decides it has an enemy.  The first
 draft of this module did exactly that.
 
-``test_the_bar_frame_is_the_hostile_body_with_a_lower_hp`` pins the wire half
-to the shape GT-035 watched move on a real screen: the bar frame differs from
-the spawn body only in HP, and carries no movement attribute.
+``test_the_bar_frame_is_the_hostile_body_with_a_lower_hp`` pins the refresh
+frame to the field_mobs hostile body at a lower HP, and pins that it carries no
+movement attribute - which is how GT-035's own refresh steps were composed.  It
+does NOT claim the frame is the one GT-035 watched: that lane's body carries no
+faction field, and this one does.  The difference is five bytes and it is
+written down in the module, in MOB_COMBAT_NONCLAIMS, and here.
 
 ``test_the_floor_holds_and_says_so`` pins the seam the death half attaches to.
 """
@@ -316,6 +319,32 @@ class MobCombatTests(unittest.TestCase):
             caught.exception.reason,
             mob_combat.REFUSE_FLAGS_DISAGREE_WITH_DAMAGE)
 
+    def test_the_bar_frame_differs_from_gt035s_by_exactly_the_faction(self):
+        # D1.  Stated as a test so nobody has to take the paragraph's word for
+        # it: the frame this production driver refreshes is NOT the frame the
+        # attended round watched.  It is five bytes longer and its BasicAttr
+        # mask carries bit 0x0400.
+        hp = self.mob.max_hp - 964
+        mine = field_mobs.hostile_npc_attr(
+            self.legacy, self.mob, current_hp=hp)
+        theirs = self.legacy.make_npc_attr(
+            self.mob.template_id, self.mob.actor_identity,
+            mob_combat.field_mobs.SCENE_ID,
+            mob_combat.field_mobs.SCENE_SEQUENCE,
+            self.mob.visual_preset, hp, self.mob.max_hp,
+            basic_name=self.mob.display_name,
+        )
+        self.assertEqual(
+            len(mine), len(theirs) + field_mobs.FACTION_SPLICE_BYTES)
+        self.assertIn(
+            bytes(self.legacy.u32tag(
+                field_mobs.FACTION_TAG, field_mobs.FIELD_MOB_FACTION)),
+            mine)
+        self.assertNotIn(
+            bytes(self.legacy.u32tag(
+                field_mobs.FACTION_TAG, field_mobs.FIELD_MOB_FACTION)),
+            theirs)
+
     def test_the_bar_frame_is_the_hostile_body_with_a_lower_hp(self):
         hp = self.mob.max_hp - 964
         pc, frame = bar_frames(self.legacy, self.mob, hp)
@@ -389,6 +418,166 @@ class MobCombatTests(unittest.TestCase):
         self.assertEqual(
             caught.exception.reason, mob_combat.REFUSE_ACTION_FIELDS_MALFORMED)
 
+    # -- what the adversarial review of 2026-08-26 broke -------------------
+
+    def test_an_outcome_cannot_announce_one_number_and_subtract_another(self):
+        # D4.  This record used to be the only unvalidated one in the module,
+        # and announce_frames / apply_threat / describe_step all took whatever
+        # they were handed.  apply_hit is not the only builder: the chief's
+        # wiring and the death lane both will be.
+        with self.assertRaises(MobCombatContractError) as caught:
+            mob_combat.HitOutcome(
+                PERFORMER, self.mob.actor_identity, 964, -1, FLAGS_HIT,
+                3857, 2893, 3857, 0, False, False)
+        self.assertEqual(
+            caught.exception.reason,
+            mob_combat.REFUSE_OUTCOME_SELF_CONTRADICTORY)
+        with self.assertRaises(MobCombatContractError):
+            # the balance moved 100 while the hit says 964
+            mob_combat.HitOutcome(
+                PERFORMER, self.mob.actor_identity, 964, -964, FLAGS_HIT,
+                3857, 3757, 3857, 0, False, False)
+        with self.assertRaises(MobCombatContractError):
+            # at_floor that does not agree with hp_after
+            mob_combat.HitOutcome(
+                PERFORMER, self.mob.actor_identity, 964, -964, FLAGS_HIT,
+                3857, 2893, 3857, 0, True, True)
+
+    def test_two_hits_in_one_tick_cannot_both_be_committed(self):
+        # The concurrency case: two players action the same monster before
+        # either write lands.  Without a compare-and-swap both announce -964
+        # and one subtraction is lost - 1928 announced, 964 subtracted.
+        ledger = open_ledger()
+        first = strike(
+            self.legacy, None, ledger, None, self.mob, PERFORMER,
+            self.attacker)
+        second = strike(
+            self.legacy, None, ledger, None, self.mob, PERFORMER + 1,
+            self.attacker)
+        self.assertEqual(first.base_generation, second.base_generation)
+        stored = mob_combat.commit_step(ledger, first)
+        self.assertEqual(stored.generation, ledger.generation + 1)
+        with self.assertRaises(MobCombatContractError) as caught:
+            mob_combat.commit_step(stored, second)
+        self.assertEqual(
+            caught.exception.reason, mob_combat.REFUSE_LEDGER_STALE)
+
+    def test_a_hit_with_no_room_left_sends_nothing_at_all(self):
+        # D5.  The first draft answered a real 964-damage hit on a floored
+        # monster with a MISS frame: the wire told the client the player had
+        # missed when the formula said otherwise.
+        thumping = Combatant(level=1000, ability_str=100000, ability_con=0)
+        ledger = open_ledger()
+        first = strike(
+            self.legacy, None, ledger, None, self.mob, PERFORMER, thumping)
+        self.assertEqual(first.outcome.hp_after, HP_FLOOR)
+        second = strike(
+            self.legacy, None, first.ledger, None, self.mob, PERFORMER,
+            thumping)
+        self.assertTrue(second.outcome.no_room)
+        self.assertEqual(second.frames, ())
+        self.assertEqual(second.announce_frame, b"")
+        self.assertGreater(second.outcome.clamped_by, 0)
+        self.assertTrue(
+            any("nothing sent" in line for line in describe_step(second)))
+
+    def test_a_dropped_threat_fold_is_recorded_not_inferred(self):
+        # D6.  mob_aggro absorbs damage silently in its return and dead phases
+        # - its declared design - so a driver that cannot tell reports a
+        # monster as aggroed when it is not.
+        ledger = open_ledger()
+        returning = mob_aggro.MobAiState(
+            phase=mob_aggro.PHASE_RETURN,
+            leash_origin=(self.mob.x, self.mob.y, self.mob.z),
+            threat=(), target_identity=None, ticks_since_attack=0)
+        step = strike(
+            self.legacy, mob_aggro, ledger, returning, self.mob, PERFORMER,
+            self.attacker)
+        self.assertLess(step.outcome.hp_after, self.mob.max_hp)
+        self.assertEqual(step.aggro_state.threat, ())
+        self.assertFalse(step.threat_recorded)
+        self.assertTrue(
+            any("threat NOT recorded" in line for line in describe_step(step)))
+
+    def test_the_threat_handle_is_optional_and_that_is_the_wiring(self):
+        # D8.  Passing mob_aggro in makes a lane whose production_allowed is
+        # False reachable from dispatch through an argument no static scan can
+        # see.  The supported production wiring passes None.
+        ledger = open_ledger()
+        step = strike(
+            self.legacy, None, ledger, None, self.mob, PERFORMER,
+            self.attacker)
+        self.assertFalse(step.threat_recorded)
+        self.assertEqual(len(step.frames), 2)
+        self.assertIn("None", mob_combat.MOB_COMBAT_WIRING)
+        self.assertIn("commit_step", mob_combat.MOB_COMBAT_WIRING)
+        self.assertTrue(mob_combat.MOB_COMBAT_THREAT_HANDLE_IS_OPTIONAL)
+
+    def test_a_ledger_row_from_another_roster_is_refused(self):
+        # D16.  With a mismatched ceiling the announced number came from the
+        # roster row and the bar frame from the ledger row.
+        row = MobBalance(self.mob.actor_identity, 100, 100)
+        with self.assertRaises(MobCombatContractError) as caught:
+            strike(
+                self.legacy, None, CombatLedger((row,)), None, self.mob,
+                PERFORMER, self.attacker)
+        self.assertEqual(
+            caught.exception.reason,
+            mob_combat.REFUSE_LEDGER_ROW_DISAGREES_WITH_ROSTER)
+
+    def test_a_roster_ledger_desync_is_refused_not_silently_ignored(self):
+        # D7.  This used to return None, indistinguishable from the ordinary
+        # "the player actioned a townsperson" case, and that line had never
+        # executed.
+        rows = tuple(
+            row for row in open_ledger().balances
+            if row.actor_identity != self.mob.actor_identity)
+        with self.assertRaises(MobCombatContractError) as caught:
+            attack_from_observed_action(
+                self.legacy, None, CombatLedger(rows), None,
+                {"field_qword_20": self.mob.actor_identity}, PERFORMER,
+                self.attacker)
+        self.assertEqual(
+            caught.exception.reason, mob_combat.REFUSE_TARGET_NOT_IN_LEDGER)
+
+    def test_an_unsorted_ledger_is_refused_not_quietly_re_sorted(self):
+        # D12.  The module promises no silent coercion; the sibling
+        # mob_aggro.MobAiState refuses this exact shape by name.
+        rows = open_ledger().balances
+        with self.assertRaises(MobCombatContractError) as caught:
+            CombatLedger(tuple(reversed(rows)))
+        self.assertEqual(
+            caught.exception.reason, mob_combat.REFUSE_LEDGER_NOT_SORTED)
+
+    def test_every_named_refusal_reason_can_actually_happen(self):
+        # D11.  Two of the eighteen names could not occur: one was raised
+        # nowhere and one sat behind an unreachable branch.  A named refusal
+        # that cannot happen is a lie told to whoever counts them.
+        tree = ast.parse(
+            (ROOT / "src/pirateforce_foundation/mob_combat.py").read_text(
+                encoding="utf-8"))
+        raised = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Raise):
+                continue
+            call = node.exc
+            if (isinstance(call, ast.Call)
+                    and getattr(call.func, "id", "") == "MobCombatContractError"
+                    and call.args
+                    and isinstance(call.args[0], ast.Name)):
+                raised.add(getattr(mob_combat, call.args[0].id))
+        self.assertEqual(
+            sorted(raised),
+            sorted(mob_combat.MOB_COMBAT_REFUSAL_REASONS),
+            "a refusal is declared and never raised, or raised and never "
+            "declared")
+        # and the one that used to be unreachable behind a range check
+        with self.assertRaises(MobCombatContractError) as caught:
+            mob_combat.require_damage_wire(mob_combat.DAMAGE_WIRE_MIN - 1)
+        self.assertEqual(
+            caught.exception.reason,
+            mob_combat.REFUSE_DAMAGE_WIRE_OUT_OF_RANGE)
+
     # -- the lane's own rules ---------------------------------------------
 
     def test_this_lane_needs_no_flag(self):
@@ -424,12 +613,25 @@ class MobCombatTests(unittest.TestCase):
                 "a production lane must not carry an unlock seam: %s" % name)
 
     def test_this_module_imports_no_probe_lane(self):
-        source = (ROOT / "src/pirateforce_foundation/mob_combat.py").read_text(
-            encoding="utf-8")
-        for line in source.splitlines():
-            if line.startswith(("import ", "from ")):
-                self.assertNotIn("hypothesis", line)
-                self.assertNotIn("mob_aggro", line)
+        # Walked with ast, not matched on line prefixes.  The first draft used
+        # startswith("import ", "from ") and an adversarial review showed three
+        # bypasses in one minute: an indented import inside a function, a
+        # parenthesised multi-line import, and both together.  A tripwire with
+        # a documented bypass is worse than none, because it is quoted.
+        tree = ast.parse(
+            (ROOT / "src/pirateforce_foundation/mob_combat.py").read_text(
+                encoding="utf-8"))
+        imported = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported.extend(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                imported.append(node.module or "")
+                imported.extend(alias.name for alias in node.names)
+        for name in imported:
+            self.assertNotIn("hypothesis", name)
+            self.assertNotIn("mob_aggro", name)
+        self.assertIn("field_mobs", imported)
 
     def test_determinism_two_runs_agree(self):
         def run():
@@ -488,7 +690,12 @@ class MobCombatTests(unittest.TestCase):
 
     def test_the_pin_document_computes_its_numbers(self):
         pin = pin_document(self.legacy, self.mob, self.attacker)
-        self.assertEqual(pin["target_name"], self.mob.display_name)
+        self.assertEqual(pin["target_name"], ascii(self.mob.display_name))
+        self.assertTrue(pin["not_a_scenario"])
+        self.assertEqual(
+            pin["target_position"], [self.mob.x, self.mob.y, self.mob.z])
+        self.assertEqual(pin["target_faction"], field_mobs.FIELD_MOB_FACTION)
+        self.assertFalse(pin["threat_recorded"])
         self.assertEqual(pin["max_hp"], self.mob.max_hp)
         self.assertEqual(pin["damage_wire"], -pin["damage"])
         self.assertEqual(pin["hp_after"], pin["max_hp"] - pin["damage"])

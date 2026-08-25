@@ -5,8 +5,15 @@
   "milestone": "MOB-COMBAT-001",
   "production_allowed": true,
   "test_only": false,
+  "not_a_scenario": true,
   "target_identity": 8223,
-  "target_name": "Tornado Eagle",
+  "target_name": "'Tornado Eagle'",
+  "target_position": [
+    1747.5244140625,
+    -7837.69775390625,
+    931.0413208007812
+  ],
+  "target_faction": 6,
   "target_level": 27,
   "attacker_level": 7,
   "attacker_ability_str": 132,
@@ -20,7 +27,8 @@
   "announce_frame_bytes": 95,
   "bar_frame_bytes": 159,
   "hp_floor": 1,
-  "wiring": "runtime.py: on an EA7D ActionVital whose target is a field-mob identity, call mob_combat.attack_from_observed_action(...) and send the two frames it returns, in order (announce first, bar second).",
+  "threat_recorded": false,
+  "wiring": "runtime.py: on an EA7D ActionVital whose target is a field-mob identity, call mob_combat.attack_from_observed_action(legacy, None, ledger, None, fields, performer, attacker); commit the returned step with mob_combat.commit_step(ledger_now, step) and send step.frames in order (announce first, bar second) only if the commit is accepted; on REFUSE_LEDGER_STALE re-read the ledger and re-run the call.",
   "selection": "none_default_behaviour_no_scenario_flag",
   "nonclaims": [
     "a real attack input has never been observed producing the EA7D ActionVital this driver reads; the inbound half is unproven",
@@ -29,6 +37,9 @@
     "the monster's constitution is OURS - no committed table carries one",
     "name colour is not claimed by this lane; RE-067 owns it and is open",
     "the client's draw distance is still unmeasured, so a monster hit from far away may move a bar nobody can see",
+    "named AND hostile in one body has never been sent and never been observed: field_mobs' nonclaim, inherited here, because the bar frame this driver refreshes IS that body (mask 0x070D, not GT-035's 0x030D)",
+    "until the death half lands, every monster a player fights converges to 1 HP and stays there: it absorbs nothing further and the server answers further hits with silence",
+    "the announce frame carries the monster's own world position; for the sparse bg0001 rows that can be ~12,000 units from a spawning player, and a neighbouring lane measured no model drawn at that distance",
     "threat is only recorded while the mob's aggro phase is idle or aggro: mob_aggro absorbs damage silently in its return and dead phases, by that module's declared design, and this driver does not override it"
   ]
 }
