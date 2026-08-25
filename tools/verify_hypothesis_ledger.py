@@ -571,7 +571,12 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # expiry decision.  Adversary round: 3 findings (marker/prose coherence,
 # prefix layer overreach, dropped 'statically' qualifier) all folded in
 # before commit.  No other field of any entry is touched.)
-CANONICAL_CONTENT_SHA256 = "3E3CAE2879B15C2B305048996E2DA225AC22B0696763EAC78C743AB314BB1EAD"
+# -> (2026-08-25, chief cloud round R162: HYP-PF-038 appended --
+# HOSTILE-HP-LINK-001, the first lane in this tree to move the hit points of a
+# hostile identity the CLIENT itself ships data for.  1 of 3 versions
+# consumed.  No other field of any entry is touched: this is an append, and
+# the index of every earlier entry is unchanged.)
+CANONICAL_CONTENT_SHA256 = "475CE05F4FCEFE5B3386C22D08D0E8DDAC11DAC48AB85B104F0B208DD92F65BA"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -801,6 +806,16 @@ EXPECTED_IDS = (
     # ticket).  Appended at the end to keep every earlier entry index
     # stable for the index-based fixtures.
     "HYP-PF-037",
+    # HYP-PF-038 (HOSTILE-HP-LINK-001: the seven-frame sweep behind
+    # --hostile-hp-link-hypothesis-scenario that asks the one question
+    # HYP-PF-029 left open -- whether a bar follows our arithmetic on a REAL
+    # hostile identity, 0x201F "Tornado Eagle" at the client's own 3857
+    # baseline -- with the target placed PLAYER-RELATIVE so a tester can see
+    # it, and with no lethal half anywhere: no floor balance, no death timer,
+    # no clamp.  The death half is GT-036's question and needs the next
+    # version of this slot.  Appended at the end to keep every earlier entry
+    # index stable for the index-based fixtures.
+    "HYP-PF-038",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -865,6 +880,9 @@ EXPECTED_META = {
     ),
     "HYP-PF-037": (
         "protocol_hypothesis", "ITEMOP-RES-GREENLINE-001", "active",
+    ),
+    "HYP-PF-038": (
+        "protocol_hypothesis", "HOSTILE-HP-LINK-001", "active",
     ),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}

@@ -24,6 +24,9 @@ from .learn_skill_result_hypothesis import (
 from .item_operate_res_hypothesis import (
     load_item_operate_res_hypothesis_scenario,
 )
+from .hostile_hp_link_hypothesis import (
+    load_hostile_hp_link_hypothesis_scenario,
+)
 from .pickup_listener_hypothesis import (
     load_pickup_listener_hypothesis_scenario,
 )
@@ -113,6 +116,7 @@ def main() -> int:
     pre.add_argument('--skill-attr-hypothesis-scenario')
     pre.add_argument('--pickup-listener-hypothesis-scenario')
     pre.add_argument('--item-operate-res-hypothesis-scenario')
+    pre.add_argument('--hostile-hp-link-hypothesis-scenario')
     # EVENT-EXPORT-001: opt-in, default off, so a boot without the flag is
     # byte-for-byte and line-for-line the production baseline.
     pre.add_argument('--export-events', action='store_true')
@@ -231,6 +235,19 @@ def main() -> int:
             known.item_operate_res_hypothesis_scenario
         )
         if known.item_operate_res_hypothesis_scenario else None
+    )
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-038 active
+    # HOSTILE-HP-LINK-001: the seven-frame sweep that asks whether a REAL
+    # hostile's HP bar follows our arithmetic -- placement 30, actor 0x201F,
+    # "Tornado Eagle", the client's own 3857 baseline -- with the target
+    # placed PLAYER-RELATIVE so a tester can actually see it, and with no
+    # lethal frame anywhere: one ticket, one claim.  Refused alongside every
+    # other mode and demands an explicit existing --db.
+    hostile_hp_link_hypothesis = (
+        load_hostile_hp_link_hypothesis_scenario(
+            known.hostile_hp_link_hypothesis_scenario
+        )
+        if known.hostile_hp_link_hypothesis_scenario else None
     )
     scenario = load_scenario(known.scenario) if known.scenario else None
     # PF-HYPOTHESIS-LEDGER: HYP-PF-007 frozen
@@ -429,6 +446,8 @@ def main() -> int:
             ("pickup_listener_hypothesis_scenario", pickup_listener_hypothesis),
             ("item_operate_res_hypothesis_scenario",
              item_operate_res_hypothesis),
+            ("hostile_hp_link_hypothesis_scenario",
+             hostile_hp_link_hypothesis),
         ) if value is not None
     )
     if len(active_lane_flags) > 1 and (
@@ -454,7 +473,8 @@ def main() -> int:
             '--learn-skill-request-hypothesis-scenario/'
             '--skill-attr-hypothesis-scenario/'
             '--pickup-listener-hypothesis-scenario/'
-            '--item-operate-res-hypothesis-scenario are mutually exclusive '
+            '--item-operate-res-hypothesis-scenario/'
+            '--hostile-hp-link-hypothesis-scenario are mutually exclusive '
             '(allow-listed sets only: the pair '
             '--ground-loot-hypothesis-scenario with '
             '--pickup-listener-hypothesis-scenario, and that same pair '
@@ -552,6 +572,11 @@ def main() -> int:
             '--item-operate-res-hypothesis-scenario requires an explicit '
             'existing --db'
         )
+    if hostile_hp_link_hypothesis is not None and not known.db:
+        pre.error(
+            '--hostile-hp-link-hypothesis-scenario requires an explicit '
+            'existing --db'
+        )
     db_path = known.db or str(
         root / (
             'state/object_population_v94.sqlite3' if population is not None
@@ -603,6 +628,8 @@ def main() -> int:
             if pickup_listener_hypothesis is not None else
             'item-operate-res-hypothesis'
             if item_operate_res_hypothesis is not None else
+            'hostile-hp-link-hypothesis'
+            if hostile_hp_link_hypothesis is not None else
             'foundation'
         )
         if (
@@ -642,6 +669,7 @@ def main() -> int:
         or skill_attr_hypothesis is not None
         or pickup_listener_hypothesis is not None
         or item_operate_res_hypothesis is not None
+        or hostile_hp_link_hypothesis is not None
     ):
         if not Path(db_path).is_file():
             raise FileNotFoundError(db_path)
@@ -668,6 +696,7 @@ def main() -> int:
             or skill_attr_hypothesis is not None
             or pickup_listener_hypothesis is not None
             or item_operate_res_hypothesis is not None
+            or hostile_hp_link_hypothesis is not None
         ):
             store.migrate()
             store.expire_open_sessions()
@@ -747,6 +776,13 @@ def main() -> int:
         # ITEMOP-RES-GREENLINE-001.  None unless the flag was handed in, and
         # make_state_class refuses it alongside every other mode a second time.
         item_operate_res_hypothesis_scenario=item_operate_res_hypothesis,
+        # HOSTILE-HP-LINK-001 joins the flag to the branch.  None unless the
+        # flag was handed in, and make_state_class refuses it alongside every
+        # other mode a second time.  Without this line the CLI flag would load
+        # a scenario the runtime never received and an attended tester could
+        # not reach the lane at all -- the exact gap NPC-HP-LINK-003 had to
+        # close on the sibling lane.
+        hostile_hp_link_hypothesis_scenario=hostile_hp_link_hypothesis,
         # EVENT-EXPORT-001.  None unless --export-events was handed in: the
         # default boot keeps the plain in-memory events list and writes no
         # extra console line at all.
