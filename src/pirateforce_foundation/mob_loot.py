@@ -126,8 +126,10 @@ MOB_LOOT_WIRING = (
     "kill that commit_death() ACCEPTED (a rejected compare-and-swap must not "
     "roll loot -- the monster it names is already dead and already looted):\n"
     "  1. roll = mob_loot.roll_drops(mob, rng)          # rng is the server's\n"
-    "  2. drops = mob_loot.place_drops(mob, record, roll, ledger.next_key, "
-    "position=<where it fell, or None for its placement position>)\n"
+    "  2. drops = mob_loot.place_drops(mob, death_step.record, roll, "
+    "ledger.next_key, position=<where it fell, or None for its placement "
+    "position>)   # death_step.record, NOT the outcome: the outcome is true "
+    "of a hit that landed on a corpse too\n"
     "  3. ledger_next = mob_loot.commit_drops(ledger_now, drops)   # CAS; a "
     "rejected commit means retry from step 2 with the fresh ledger, NOT "
     "re-roll (re-rolling gives the player a second roll for one kill)\n"
@@ -680,6 +682,7 @@ class DropLedger:
 
     drops: tuple = ()
     generation: int = 0
+    issued_through: int = DROP_KEY_BASE
 
     def __post_init__(self) -> None:
         if type(self.drops) is not tuple:
@@ -702,19 +705,34 @@ class DropLedger:
                 REFUSE_LEDGER_NOT_SORTED,
                 "ledger rows must be given in ascending key order")
         _require_int(self.generation, "generation", 0, 2 ** 62)
+        _require_int(
+            self.issued_through, "issued through", DROP_KEY_BASE, DROP_KEY_LIMIT)
+        for drop in self.drops:
+            if drop.drop_key >= self.issued_through:
+                raise MobLootContractError(
+                    REFUSE_KEY_OUTSIDE_THE_LANE_BLOCK,
+                    "drop key 0x%X is on the ground but the ledger says keys "
+                    "were only issued through 0x%X"
+                    % (drop.drop_key, self.issued_through))
 
     @property
     def next_key(self) -> int:
-        """The key a new drop may take.  Refuses when the block is spent."""
-        if not self.drops:
-            return DROP_KEY_BASE
-        candidate = self.drops[-1].drop_key + 1
-        if candidate >= DROP_KEY_LIMIT:
+        """The key a new drop may take.  Refuses when the block is spent.
+
+        A HIGH-WATER MARK, not ``max(key on the ground) + 1``, and the
+        difference is a bug the first draft of this module shipped: a player
+        who picks up the newest object removes the highest key from the
+        ledger, so a derived next key would hand THAT KEY to the next kill
+        while the client may still be holding the old object under it.  Keys
+        are never reused inside a run; the block is 1,048,576 wide and the
+        lane refuses rather than wrapping.
+        """
+        if self.issued_through >= DROP_KEY_LIMIT:
             raise MobLootContractError(
                 REFUSE_KEY_OUTSIDE_THE_LANE_BLOCK,
                 "this lane's key block is spent; nothing reuses a key while "
                 "the client may still hold it")
-        return candidate
+        return self.issued_through
 
     def get(self, drop_key: int) -> GroundDrop:
         for drop in self.drops:
@@ -833,7 +851,11 @@ def commit_drops(ledger_now: DropLedger, drops: Any) -> DropLedger:
                 "re-roll, that would give one kill two rolls" % drop.drop_key)
     merged = tuple(sorted(
         ledger_now.drops + incoming, key=lambda row: row.drop_key))
-    return DropLedger(merged, ledger_now.generation + 1)
+    issued = ledger_now.issued_through
+    for drop in incoming:
+        if drop.drop_key + 1 > issued:
+            issued = drop.drop_key + 1
+    return DropLedger(merged, ledger_now.generation + 1, issued)
 
 
 def take_drop(ledger_now: DropLedger, drop_key: int) -> tuple:
@@ -850,7 +872,12 @@ def take_drop(ledger_now: DropLedger, drop_key: int) -> tuple:
     taken = ledger_now.get(drop_key)
     remaining = tuple(
         drop for drop in ledger_now.drops if drop.drop_key != drop_key)
-    return DropLedger(remaining, ledger_now.generation + 1), taken
+    # issued_through is carried, never recomputed: see DropLedger.next_key.
+    return (
+        DropLedger(
+            remaining, ledger_now.generation + 1, ledger_now.issued_through),
+        taken,
+    )
 
 
 # ---------------------------------------------------------------------------

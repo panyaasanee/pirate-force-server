@@ -413,11 +413,38 @@ class MobLootTests(unittest.TestCase):
             commit_drops(ledger, drops)
         self.assertEqual(caught.exception.args[0], "ledger_stale")
 
-    def test_the_next_key_follows_the_highest_key_on_the_ground(self):
+    def test_the_next_key_follows_the_highest_key_ever_issued(self):
         _roll, _record, drops = self._one_kill()
         ledger = commit_drops(DropLedger(), drops)
         self.assertEqual(ledger.next_key, drops[-1].drop_key + 1)
         self.assertEqual(DropLedger().next_key, DROP_KEY_BASE)
+
+    def test_a_key_is_never_reused_after_its_drop_leaves_the_ground(self):
+        """The bug the first draft of this module shipped.
+
+        Taking the NEWEST drop off the ledger used to lower the next key,
+        because it was derived from the rows still on the ground.  The next
+        kill would then hand that same key to a different item while the
+        client may still be holding the old object under it -- two different
+        items, one key, and nothing raised anywhere.
+        """
+        _roll, _record, drops = self._one_kill()
+        ledger = commit_drops(DropLedger(), drops)
+        after_pickup, taken = take_drop(ledger, drops[-1].drop_key)
+        self.assertEqual(taken, drops[-1])
+        self.assertEqual(after_pickup.next_key, ledger.next_key)
+        emptied = after_pickup
+        for drop in drops[:-1]:
+            emptied, _taken = take_drop(emptied, drop.drop_key)
+        self.assertEqual(emptied.drops, ())
+        self.assertEqual(emptied.next_key, ledger.next_key)
+
+    def test_a_ledger_refuses_a_key_it_never_issued(self):
+        _roll, _record, drops = self._one_kill()
+        with self.assertRaises(MobLootContractError) as caught:
+            DropLedger(drops, 0, DROP_KEY_BASE)
+        self.assertEqual(
+            caught.exception.args[0], "key_outside_the_lane_block")
 
     def test_taking_a_drop_removes_exactly_that_row(self):
         _roll, _record, drops = self._one_kill()
