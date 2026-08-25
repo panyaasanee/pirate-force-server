@@ -1,4 +1,4 @@
-"""LANE-B: the monster a player kills leaves its own loot where it fell.
+"""LANE-B: the monster a player kills announces the name of its own loot.
 
 The load-bearing tests in this file are the byte tests and the primitive pins.
 

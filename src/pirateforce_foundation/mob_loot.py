@@ -684,7 +684,11 @@ class DropRoll:
 
     @property
     def placeable_count(self) -> int:
-        """How many of these can actually stand on the ground."""
+        """How many of these can actually be announced on the ground.
+
+        "Stand" would be the wrong word and this lane may not use it: nothing
+        stands anywhere -- see WHAT THE PLAYER SEES.
+        """
         return len(self.items)
 
 
@@ -816,7 +820,8 @@ def roll_drops(mob: Any, rng: Any) -> DropRoll:
 
 
 # ---------------------------------------------------------------------------
-# What stands on the ground.
+# The ledger.  "On the ground" below always means "announced at a coordinate",
+# never "an object exists there": GT-045 measured that no object does.
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
 class GroundDrop:
