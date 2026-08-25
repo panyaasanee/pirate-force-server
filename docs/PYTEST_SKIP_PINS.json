@@ -766,6 +766,12 @@
       "note": "R131: the Codex RE deliverable tables live in the pf_bridge SIBLING repo; the single-repo gate checkout cannot have them, the cloud clone and the bridge both do. First consumer: tools/pf_external_registry.py. R145: the last three tables reached the remote (pf_bridge 579b468) and the precondition now names all eight, so the count rose 12 -> 26 with the internal-consistency checks they made possible (field_offset grammar, evidence->inventory join, priority self-consistency)."
     }
   ],
+  "windows_gate_excluded_modules": {
+    "count": 48,
+    "workflow": ".github/workflows/gate-windows.yml",
+    "always_included": ["tests/test_foundation_legacy_seam.py"],
+    "note": "R170 (Panya ruling 2026-08-25 21:10 +07:00, item 4).  The Windows gate hides WHOLE modules with --ignore, chosen by grepping tests/*.py for a two-word pattern that also matches a COMMENT: writing that word into a test file deletes the module from the gate silently while the gate stays green.  The number was printed twice (the gate's EXCLUDED line, and the census line 'modules excluded from the selection') and graded nowhere - and it is graded in the dangerous direction, because tools/pf_pytest_precondition_census.py uses the exclusion list only to lower expectations to zero, so the more the gate hides the less there is to go red.  It is pinned here and re-derived from the workflow's own formula by tests/test_pytest_precondition_census.py::WindowsGateExclusionPinTests.  Move it only in the same commit that moves the list, and say which module moved and why.  ON THE NUMBER: the R168 letter reported 49 and the ruling quotes that figure; 49 is the RAW pattern-match count.  The gate puts tests/test_foundation_legacy_seam.py back (the -ne clause), so the count of modules actually hidden is 48 - the same off-by-one round 115 already caught and rejected once (43 vs 44), and the number the gate itself prints.  48 is what is pinned; if Panya wants the raw match count pinned instead, both this value and derive() move together."
+  },
   "design_skips": [
     {
       "reason": "runtime.py now carries the dispatcher branch",

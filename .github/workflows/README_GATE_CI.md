@@ -93,8 +93,8 @@ and exit 0 would be the failure.
 | `mpaudit` | `py -3 tools\pf_multiplayer_readiness_audit.py` | exit 0 | yes, **only with `fetch-depth: 0`** |
 | `corpus` | `py -3 tools\pf_capture_corpus.py` | exit 0 | **NO** - needs untracked `backups/**/capture_v131` |
 | `hlhold` | `py -3 tools\pf_hp_death002_headless_replay.py --profile dying_hold` | exit 0 | yes |
-| `pytest` | `py -3 -m pytest tests -q` | exit 0 | **partial** - client-free subset only, 39 modules excluded by name |
-| `skip_census` | `py -3 tools\pf_pytest_precondition_census.py --report <pytest -rs log> --excluded <list>` | exit 0: every skip declared, named and matching its pin | yes (added round 106; 42 modules is the count the grep produces today, not the 39 written above) |
+| `pytest` | `py -3 -m pytest tests -q` | exit 0 | **partial** - client-free subset only, **48** modules excluded by name (round 170: the number is now PINNED, see below) |
+| `skip_census` | `py -3 tools\pf_pytest_precondition_census.py --report <pytest -rs log> --excluded <list>` | exit 0: every skip declared, named and matching its pin | yes (added round 106) |
 | `seam` | `py -3 -m pytest tests\test_foundation_legacy_seam.py -q` | exit 0 | yes |
 | `ledger` | `py -3 tools\verify_hypothesis_ledger.py` | exit 0, `entries=31` | yes |
 | `coverage` | `py -3 tools\verify_functional_coverage.py` | exit 0, `OPEN DOMAINS 8` | **NO, and not for a runner reason** - see below |
@@ -611,3 +611,28 @@ sets them when writing the job.
 Optional, not required: `.gitattributes` has no rule for `*.yml`. Adding
 `*.yml text eol=lf` would match the treatment of `*.py`/`*.md`. GitHub Actions
 accepts either line ending, so this is tidiness, not correctness.
+
+
+## The number of modules the gate hides is pinned (round 170)
+
+This file carried **39** in one row and **42** in the row below it, the second written as a correction
+of the first, and by 2026-08-25 both were stale: the real figure at that point was **48**. That is the
+whole problem in one line - the gate hides WHOLE test modules with `--ignore`, the count was printed in
+two places and graded in none, and a number nobody checks drifts and then gets quoted.
+
+It is now pinned in `docs/PYTEST_SKIP_PINS.json` under `windows_gate_excluded_modules`, and enforced by
+`tests/test_pytest_precondition_census.py::WindowsGateExclusionPinTests`, which re-derives the list from
+this workflow's own `Select-String` line rather than retyping the pattern. Move the pin only in the same
+commit that moves the list, and say which module moved and why.
+
+**On the two numbers:** the raw pattern match is **49**; the exclusion step then puts
+`tests/test_foundation_legacy_seam.py` back, so **48** is what the gate actually hides and what its own
+`EXCLUDED FROM pytest (N modules ...)` line prints. 48 is the pinned figure. Round 115 settled the same
+off-by-one once already, at 43 vs 44.
+
+**What the pin does NOT do** - stated here because a half-closed hole reads like a closed one:
+- it pins the **size** of the list, not its **membership**: adding one module and removing another in the
+  same commit keeps the count at 48 and stays green;
+- it re-derives the list from the workflow's formula, so it would NOT catch a hand-edit that mutates
+  `$excluded` after the formula runs (the test does refuse the most obvious shape of that, `$excluded +=`);
+- it does not bring the 48 hidden modules back into the gate. Stage B of round 106 is still open.

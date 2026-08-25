@@ -259,10 +259,11 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
   "or_0x40_on_offset_0x70_sites": 3,
   "runtimeres_literal_occurrences_in_image": 0,
   "server_call_sites_emitting_zero_current_hp": 0,
-  "src_actor_entry_call_sites": 8,
-  "src_actor_stream_call_sites": 8,
-  "src_modules_building_actor_entries": 7,
+  "src_actor_entry_call_sites": 9,
+  "src_actor_stream_call_sites": 11,
+  "src_modules_building_actor_entries": 8,
   "src_modules_building_actor_entries_names": [
+    "hostile_hp_link_hypothesis.py",
     "npc_hostile_hypothesis.py",
     "npc_hp_link_hypothesis.py",
     "population.py",
@@ -271,8 +272,9 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
     "scenario.py",
     "scene_object.py"
   ],
-  "src_modules_doing_both": 2,
+  "src_modules_doing_both": 3,
   "src_modules_doing_both_names": [
+    "hostile_hp_link_hypothesis.py",
     "npc_hp_link_hypothesis.py",
     "runtimeres_death_hypothesis.py"
   ],
@@ -280,11 +282,11 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
   "src_modules_forbidding_names": [
     "remote_player_hypothesis.py"
   ],
-  "src_modules_mentioning_basicattr_bit_0x0080": 6,
+  "src_modules_mentioning_basicattr_bit_0x0080": 7,
   "src_modules_passing_zero_hp_by_named_constant": [
     "runtimeres_death_hypothesis.py"
   ],
-  "src_vital_stream_call_sites": 17,
+  "src_vital_stream_call_sites": 20,
   "vt20_dispatch_shapes_image_wide": 387,
   "vt20_dispatch_shapes_in_updateattrvital_handler": 0,
   "vt20_dispatch_shapes_with_vtable_load": 230
@@ -529,3 +531,53 @@ published sentence was wrong — the moved numbers live in the
 move when we write code; all three are re-pinned in the tool with the new
 module named beside the count, and the `guards` total stays **152** (three
 values re-pinned, no guard added or removed).
+
+## NOTE - round 170 (2026-08-25): six live-mirror counts move, and the census that was RED said nothing about the image
+
+The bridge runner working `RE-071` ran `py -3 tools/pf_runtimeres_actor_entry_static.py --json` and
+got **exit 1** while reporting that every binary control still matched, `0x446F30` included. That is
+exactly what a stale section-[5] census looks like from the outside, and it is worth naming as a
+failure mode: **a red line here can mean "we wrote code" and nothing whatever about the client
+image**, so a reader who takes the exit code as an image verdict is misled. The counts are re-pinned
+to the state of `src/` at this commit, deliberately and upward, never loosened.
+
+| count | was | now | which lane moved it |
+|---|---|---|---|
+| `src_actor_entry_call_sites` | 8 | **9** | HYP-PF-038 `hostile_hp_link_hypothesis.py` |
+| `src_actor_stream_call_sites` | 8 | **11** | HYP-PF-038 (1) + HYP-PF-032 `ground_loot_hypothesis.py` (2) |
+| `src_vital_stream_call_sites` | 17 | **20** | HYP-PF-033 `learn_skill_result_hypothesis.py`, HYP-PF-035 `skill_attr_hypothesis.py`, HYP-PF-038 |
+| `src_modules_building_actor_entries` | 7 | **8** | HYP-PF-038 |
+| `src_modules_mentioning_basicattr_bit_0x0080` | 6 | **7** | HYP-PF-038 |
+| `src_modules_doing_both` (SET) | 2 | **3** | HYP-PF-038 |
+
+Two things the table does not say and this note must:
+
+**`ground_loot_hypothesis.py` holds two carrier sites and ZERO actor-entry sites.** It rides
+`make_runtime_remote_actors` without ever building an entry, which is why the actor-stream count
+moves by three while the entry count moves by one, and why the module censuses do not name it.
+
+**The third SET member is not a timer emitter at all, and this census over-reports it on purpose.**
+`hostile_hp_link_hypothesis.py` binds `BASIC_BIT_DEATH_TIMER = 0x0080`, but no path in that module
+ORs the bit into an emitted mask: `_compose_npc_attr` raises when handed a timer, its `basic_mask`
+literal omits `0x0080`, and the remaining mention is a decoder guard that refuses the bit. The module
+states this itself - *"Bit 0x0080 above is named only so that every guard in this file can REFUSE
+it"*. That is exactly what `remote_player_hypothesis.py` does, except that one binds the value to a
+FORBIDDEN-named constant and therefore lands in the FORBID census; the discriminator keys on the
+constant NAME, so this lane lands under SET instead. **This is the mirror image of the round-111
+artefact** - there a real SET lane was filed under FORBID, here a FORBID lane is filed under SET.
+
+It is re-pinned rather than repaired by narrowing the discriminator, because narrowing is how a real
+emitter goes quiet: this census must be wrong in the direction that over-reports. The clean repair
+belongs to whoever owns that module - rename its constant with a FORBIDDEN marker and it classifies
+itself. Until then the guard's SENTENCE is looser than its count, which this report says out loud
+rather than leaving for a reader to trip over: **"which modules emit a death timer today" is a
+question about the composers, not about this number.**
+
+An earlier draft of this note claimed the composer "can emit the bit". That was read off a stale
+docstring rather than the body, and it is wrong; it is corrected here in the same commit that
+introduced it.
+
+This is a NOTE rather than an erratum because no published sentence was wrong - the six moved numbers
+live in the `RUNTIMERES_COUNTS` block, a live mirror of a tool run that is expected to move when we
+write code. All six are re-pinned in the tool with the lane named beside the count, and the `guards`
+total stays **152** (six values re-pinned, no guard added or removed).
