@@ -20,6 +20,7 @@ from __future__ import annotations
 import ast
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -584,6 +585,115 @@ class PinFileTests(unittest.TestCase):
                     "%s / %s: the pinned names and the guards in the source "
                     "disagree" % (entry["module"], entry["key"]),
                 )
+
+
+class WindowsGateExclusionPinTests(unittest.TestCase):
+    """The gate hides WHOLE modules with --ignore; that number is pinned here.
+
+    The census above grades the skips inside the modules that ran.  It never
+    sees a module the gate left out -- and the gate leaves modules out by
+    grepping tests/*.py for a token that also matches a COMMENT, so one word
+    typed into a test file deletes the whole module from the Windows gate while
+    the gate still prints green.  Worse, the exclusion list is fed to
+    tools/pf_pytest_precondition_census.py only to drop expectations to zero, so
+    hiding more makes less go red.  Panya's ruling of 2026-08-25 21:10 (+07:00)
+    was to pin the number; this is that pin.
+
+    WHAT IS AND IS NOT PINNED, stated here because a half-closed hole reads like
+    a closed one:
+      * only the SIZE of the list is pinned.  One module drifting in on its own,
+        or out on its own, is red.  One in AND one out in the same commit keeps
+        the count and stays GREEN.  Pinning membership instead would mean
+        editing this pin on every new lane, which is more than the ruling asked
+        for; the count is the cheap half and it is the half that was drifting.
+      * the list is re-derived from the workflow's own formula, so a hand-edit
+        that mutates $excluded AFTER the formula runs would not move the derived
+        number.  test_the_exclusion_list_is_not_mutated_after_the_formula
+        refuses the obvious shape of that ($excluded +=), and nothing here
+        refuses a cleverer one.  This pin does not read the gate's actual log.
+      * nothing here brings the hidden modules back into the gate.  Stage B of
+        round 106 is still open.
+
+    The pattern is READ OUT OF THE WORKFLOW and never retyped: a literal copy of
+    it in this file would exclude this very module from the gate that is
+    supposed to run this pin.  test_this_module_is_not_one_of_the_hidden_ones
+    watches for that -- but note honestly that it is a guard living INSIDE the
+    thing it guards: if the token is ever typed into this module, all three
+    tests here vanish from the gate together and nothing reports it.  It is a
+    tripwire, not a proof, and in that one respect it is no stronger than the
+    comment tests/test_external_registry.py relies on.
+    """
+
+    GATE = ROOT / ".github" / "workflows" / "gate-windows.yml"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.pins = json.loads(PINS.read_text(encoding="utf-8"))
+        cls.gate = cls.GATE.read_text(encoding="utf-8")
+
+    def derive(self):
+        r"""Rebuild the gate's own exclusion list from the workflow text.
+
+        Select-String is case-insensitive by default and -Path 'tests\*.py'
+        does not recurse, so tests/golden/ is out of scope on both machines.
+        """
+        found = re.search(
+            r"Select-String -Path 'tests\\\*\.py' -Pattern '([^']+)'", self.gate)
+        self.assertIsNotNone(
+            found,
+            "%s no longer builds its pytest exclusion list the way this pin "
+            "assumes; re-read the step and move the pin with it"
+            % self.pins["windows_gate_excluded_modules"]["workflow"])
+        rx = re.compile(found.group(1), re.IGNORECASE)
+        keep = set(re.findall(r"\$_ -ne '(tests/[^']+)'", self.gate))
+        hits = sorted(
+            "tests/" + path.name
+            for path in sorted((ROOT / "tests").glob("*.py"))
+            if rx.search(path.read_text(encoding="utf-8", errors="replace")))
+        return [m for m in hits if m not in keep], keep
+
+    def test_the_number_of_modules_the_gate_hides_is_pinned(self):
+        pin = self.pins["windows_gate_excluded_modules"]
+        excluded, _keep = self.derive()
+        self.assertEqual(
+            len(excluded), pin["count"],
+            "the Windows gate now hides %d test module(s), not the pinned %d.  "
+            "A module drifting INTO that list vanishes from the gate silently "
+            "and the gate still prints green, so move the pin in "
+            "docs/PYTEST_SKIP_PINS.json in the same commit that moves the list, "
+            "and say which module moved and why.  Current list:\n  %s"
+            % (len(excluded), pin["count"], "\n  ".join(excluded)))
+
+    def test_the_module_the_gate_puts_back_is_the_pinned_one(self):
+        """Re-including a module by name must not be a silent way to move the
+        count: the -ne clause is pinned too."""
+        pin = self.pins["windows_gate_excluded_modules"]
+        _excluded, keep = self.derive()
+        self.assertEqual(sorted(keep), sorted(pin["always_included"]))
+
+    def test_this_module_is_not_one_of_the_hidden_ones(self):
+        """A pin the gate never runs is not a pin.
+
+        Fail-open by construction: if the token reaches this module the gate
+        drops the module and this check goes with it.  See the class docstring.
+        """
+        excluded, _keep = self.derive()
+        self.assertNotIn("tests/" + Path(__file__).name, excluded)
+
+    def test_the_exclusion_list_is_not_mutated_after_the_formula(self):
+        """derive() reads the FORMULA; a later append would slip past it.
+
+        The count this class pins is computed from the Select-String pipeline
+        and the -ne clause.  Appending to $excluded further down the step would
+        hide one more module while the derived number stayed put, so the
+        obvious shape of that is refused here by name.
+        """
+        self.assertNotIn(
+            "$excluded +=", self.gate,
+            "gate-windows.yml now appends to $excluded after the exclusion "
+            "formula runs; the pin in docs/PYTEST_SKIP_PINS.json is derived "
+            "from the formula alone and would not see it.  Fold the addition "
+            "into the formula, or teach derive() to read the new shape.")
 
 
 class CensusVerdictTests(unittest.TestCase):

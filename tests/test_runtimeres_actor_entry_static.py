@@ -270,9 +270,26 @@ class TestTheAnswer(unittest.TestCase):
         # zero -- the client renders, it does not subtract, so the server has
         # to say both halves itself.  The count is re-pinned upward WITH both
         # names, never widened.
-        self.assertEqual(counts["src_modules_doing_both"], 2)
+        # Round 170: 2 -> 3, and the third member needs its own sentence
+        # because it is NOT a timer emitter.  HYP-PF-038
+        # (hostile_hp_link_hypothesis.py) builds an actor entry and binds
+        # BASIC_BIT_DEATH_TIMER = 0x0080, but its composer has no path that
+        # ORs the bit into an emitted mask at all: _compose_npc_attr RAISES
+        # when handed a timer and its basic_mask literal omits 0x0080.  The
+        # module names the bit only so its own guards can refuse it -- which
+        # is what remote_player_hypothesis.py does too, except that one binds
+        # the value to a FORBIDDEN-named constant and so lands in the FORBID
+        # census.  The discriminator keys on that constant name, so this lane
+        # lands here instead.  The count is re-pinned upward rather than the
+        # discriminator being narrowed, because narrowing it is how a real
+        # emitter goes quiet: this census must be wrong in the direction that
+        # over-reports.  A reader who needs "emits a timer today" must read
+        # the composer, not this number.  The clean repair, when someone owns
+        # that module, is to rename the constant with a FORBIDDEN marker.
+        self.assertEqual(counts["src_modules_doing_both"], 3)
         self.assertEqual(counts["src_modules_doing_both_names"],
-                         ["npc_hp_link_hypothesis.py",
+                         ["hostile_hp_link_hypothesis.py",
+                          "npc_hp_link_hypothesis.py",
                           "runtimeres_death_hypothesis.py"])
         # Round 96: a second module (remote_player_hypothesis.py) now builds
         # actor entries and MENTIONS bit 0x0080, but only to FORBID it, so the
@@ -306,9 +323,15 @@ class TestTheAnswer(unittest.TestCase):
         # round-99 hostile lane this one DOES name and SET the death-timer
         # bit, so the SET census above moves in the same commit -- which is
         # why both are asserted here and neither was widened.
-        self.assertEqual(counts["src_actor_stream_call_sites"], 8)
-        self.assertEqual(counts["src_actor_entry_call_sites"], 8)
-        self.assertEqual(counts["src_modules_building_actor_entries"], 7)
+        # Round 170: entry sites 8 -> 9 and stream sites 8 -> 11.  HYP-PF-038
+        # (hostile_hp_link_hypothesis.py) adds one of each; the other two
+        # stream sites are HYP-PF-032 (ground_loot_hypothesis.py), which holds
+        # TWO make_runtime_remote_actors sites and ZERO actor-entry sites --
+        # it rides the carrier without building an entry, which is why the
+        # module census moves by one while the stream count moves by three.
+        self.assertEqual(counts["src_actor_stream_call_sites"], 11)
+        self.assertEqual(counts["src_actor_entry_call_sites"], 9)
+        self.assertEqual(counts["src_modules_building_actor_entries"], 8)
         self.assertIn(
             "npc_hostile_hypothesis.py",
             counts["src_modules_building_actor_entries_names"],
