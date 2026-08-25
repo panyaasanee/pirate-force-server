@@ -13,8 +13,15 @@ walker in this file reads the 16-byte body back tag by tag (0x08 u8, 0x32
 8-byte scalar, 0x44 empty std::string) rather than trusting the module.
 
 It proves NOTHING about a client.  No client has ever been shown one byte of
-this profile; whether the real client transitions to character select on
-0x709E is GT-033 (attended, not run).  Round-100 static RE (agent D) proved an
+this profile.  Whether the real client transitions to character select on
+0x709E was GT-033 -- and GT-033 HAS NOW RUN, so do not restate it as pending:
+variant C (2026-08-23) and variant B (2026-08-25, jobs 1143-1146) both came
+back client-observable NEGATIVE, and chief closed the ticket ANSWERED in round
+166.  See reports/PF_GT033_LOGOUT_TRANSITION_AB_CLIENT_OBSERVABLE_NEGATIVE_
+20260825.md and the HYP-PF-028 evidence_gap.  Negative there is NOT "the
+teardown hypothesis is refuted" -- nobody proved the client ever saw the socket
+close -- but it is no longer an open question awaiting a tester.
+Round-100 static RE (agent D) proved an
 ECHO cannot transition the client (the inbound 0x446F30 reconcile pass never
 switches scene/state/connection) and named 0x709E the strongest candidate for
 the char-select direction while finding no client code that consumes it -- so
@@ -273,7 +280,8 @@ def main() -> int:
     print("RESULT: PASS - the return-select lane composes one well-formed "
           "0x709E vital from the client serializer's own field layout, keeps "
           "the PF-012/013 pins, refuses every driven tamper by name, and "
-          "claims nothing about a client (GT-033 is queued, not run)")
+          "claims nothing about a client (GT-033 variants B and C ran and "
+          "came back client-observable NEGATIVE; see the docstring)")
     return 0
 
 

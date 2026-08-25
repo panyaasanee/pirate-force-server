@@ -172,10 +172,67 @@ CHAT_PUSH_TRIGGER_CLASSIFICATION = "ascii12"
 #   field3  object +0x20  wire tag 0x44  std::string    -> 44 <u32 len><data>
 # EVERY TAG BYTE (0x08 / 0x32 / 0x44) IS READ FROM THE CLIENT'S OWN SERIALIZER;
 # nothing structural is invented.  No producer in the client sets these fields
-# to any non-zero content (the id-getter 0x5e6960 has zero callers and no
-# consumer keys on 0x709E), so the field VALUES default to zero and the string
+# to any non-zero content, so the field VALUES default to zero and the string
 # is empty -- an explicit nonclaim, the same honest default agent D applied.
 # The all-zero form is therefore the minimal well-formed body: 16 bytes.
+#
+# ---------------------------------------------------------------------------
+# RE-070 ERRATUM, round 168 (2026-08-25).  Two corrections, one of them against
+# a premise this module used to state as settled.  Neither changes one byte of
+# this lane; both change what may be claimed from it.
+#
+# (1) THE BROAD PHRASE "0x709E has no client producer" IS RETIRED.  It used to
+# appear twice further down this module and once in the lane's test.  What the
+# wire evidence actually says is narrower AND points the other way:
+#
+#   Codex's frozen capture accounting -- pf_bridge/external/PF_FIELD_VALIDATION
+#   .tsv rows 144-145, table sha256 080a5f32580df575632fee69d3f8faa6e2e745ad17
+#   75d05daf3e272e4e0941c3, pinned at tools/pf_external_registry.py -- records
+#   ReturnSelectServerVital as W observed 2 / parsed 2 / files 2 / VALIDATED,
+#   and R observed 0 / NOT_OBSERVED.  W is the client->server direction.  The
+#   two frames sit in the bridge-only files inventoried as PF_INPUT_INVENTORY
+#   .tsv rows 693 and 927 (sha256 2a43616bac2370cd68297ff533c9ef0c84498d1ea35e
+#   6d81957af81391efa3ab, block ordinal 6; and b79b22f9c69519a7baf560470af2e22
+#   48985ed648c8d3a2c7c1bf81053d53ee3, block ordinal 7).
+#
+#   PROVENANCE, stated plainly: this round did NOT hash those capture files.
+#   They do not exist on a cloud clone.  What is verifiable here is that two
+#   second-party tables written by Codex record these digests against those
+#   paths, and that both tables still match their registry pins.  That is a
+#   weaker claim than "measured", and it is the only one available.
+#
+#   Both sessions are character-select-stage sessions, and the outer envelope
+#   is GSCN_LoginProtocol 0x453A -- the one-vital request shape every captured
+#   character-select-stage request uses.  So the accurate statement is:
+#
+#     every observation of 0x709E anywhere in the corpus is the CLIENT SENDING
+#     IT AS A REQUEST at character select.  Not one frame has ever been seen
+#     travelling server -> client, which is the direction THIS LANE USES.
+#
+#   Read that as evidence about direction, never as support for the lane: it
+#   runs the other way from the only traffic anyone has measured.  The payload
+#   VALUES were not measured by that pass, so the zero default above stands.
+#   Caveat that travels with the word VALIDATED: GT-047 showed the validator
+#   accepts a mutated field_offset, so one validator pass is not on its own a
+#   reason to promote any schema claim.
+#
+# (2) A PREMISE THIS MODULE USED TO STATE IS NOW IN TENSION WITH THE REGISTRY.
+# The old wording asserted "the id-getter 0x5e6960 has zero callers and no
+# consumer keys on 0x709E".  But pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv
+# row 73 carries, for ReturnSelectServerVital: getter_va 0x005E6960 installed
+# at reg_site_va 0x00BEE880, and handler_va 0x005F1190 -- an address that is
+# UNIQUE to this row across all 519 rows, so it is not one of the shared stubs
+# that table reuses elsewhere (contrast serializer_va 0x0043BB80, shared by the
+# whole Attr cohort).  "Zero direct rel32 callers" is therefore not evidence of
+# "no producer": indirect dispatch through the descriptor table is exactly what
+# the registry describes.
+#
+#   NOT RESOLVED HERE, and deliberately not asserted either way: whether
+#   0x005F1190 is a semantic handler for 0x709E or an artefact of how that
+#   table was built.  Deciding it needs the client image, which a cloud clone
+#   does not have.  Until someone measures it, this module claims only that the
+#   old premise is no longer load-bearing.
+# ---------------------------------------------------------------------------
 RETURN_SELECT_SERVER_VITAL_ID = 0x709E
 RETURN_SELECT_SERVER_BODY = bytes.fromhex(
     "0800" "32" "0000000000000000" "44" "00000000"
@@ -589,8 +646,9 @@ _PROFILE_RETURN_SELECT = LogoutHypothesisScenario(
 # and send one well-formed ReturnSelectServerVital (0x709E) whose body is the
 # client serializer's own field layout with all fields zero.  No response byte
 # is invented under this scenario either: the 0x709E tags come from the client
-# serializer and the values are the honest zero default (0x709E has no client
-# producer), fully pinned below.
+# serializer and the values are the honest zero default (no client producer was
+# found for the field VALUES -- see the RE-070 erratum at the body pin above),
+# fully pinned below.
 _EXPECTED_RETURN_SELECT = {
     "schema": 1,
     "id": _PROFILE_RETURN_SELECT.scenario_id,
@@ -875,8 +933,11 @@ def make_return_select_server_response(legacy: Any) -> tuple[bytes, bytes]:
     the nested id (0x709E) and the pinned body; the envelope constants are the
     same the frozen ``make_runtime_vitals`` writes for every accepted response.
     Zero content bytes are invented: the tags are the client serializer's own,
-    the field values are the honest zero default (0x709E has no client
-    producer).  Deterministic 38-byte PC / 48-byte frame, hash-pinned.
+    the field values are the honest zero default (no client producer was found
+    for those VALUES -- see the RE-070 erratum at the body pin, which also
+    records that every observation of 0x709E in the corpus is the client
+    SENDING it at character select, never receiving it).  Deterministic
+    38-byte PC / 48-byte frame, hash-pinned.
     """
     pc, frame = legacy.make_runtime_vitals([
         (RETURN_SELECT_SERVER_VITAL_ID, 0, RETURN_SELECT_SERVER_BODY),
