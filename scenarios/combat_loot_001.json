@@ -1,0 +1,117 @@
+{
+  "build_order": "BUILD-006 / M5 first half",
+  "id": "port_royal_field_mob_loot_001",
+  "lane": "B_COMBAT",
+  "lane_constants": {
+    "drop_key_base": 1048576,
+    "drop_key_limit": 2097152,
+    "max_drops_per_kill": 16,
+    "refresh_ms": 500,
+    "scatter_step": 30.0
+  },
+  "measured": {
+    "ground_drop_persists": false,
+    "observed_ids_on_the_wire": [
+      2200423,
+      2600001
+    ],
+    "observed_lifetime_seconds": 0.633
+  },
+  "milestone": "MOB-LOOT-001",
+  "nonclaims": [
+    "1. Nothing dispatches this module.  runtime.py is the chief's file and MOB_LOOT_WIRING is a request, not a call site.  No player has seen one byte of this lane.",
+    "2. The objects DO NOT STAY.  The only attended run of this pipe measured 0.633 s and then nothing on the ground at either coordinate.  This lane makes loot APPEAR; it does not make it lie there waiting.",
+    "3. The client has never been shown a drop element for an id this lane chose.  Two ids have ever travelled (2200423 and 2600001) and both were hard-coded by the probe lane.  That a rolled id renders like 2200423 is an EXPECTATION from one column (n_DROPMODEL_TYPE), not a measurement.",
+    "4. There is no pickup.  The only proven PickupTerrainThing producer is client-outbound (GT-046) and its vital id is hash-DERIVED (0x4543), never observed; the corpus holds zero frames of it in either direction.  The ledger exists so the pickup half has somewhere to look up a key -- it is not evidence that a key can be picked up.",
+    "5. Ownership is bookkeeping only.  ``killer_identity`` is recorded because the second half will need it; the element has no owner field, so nothing on the wire enforces who may take a drop.",
+    "6. The quantity never reaches the client.  The element carries an item id and a position and nothing else, so a stack of five is drawn -- if it is drawn at all -- exactly like a stack of one.  The count lives in the ledger for the pickup half.",
+    "7. Money cannot be placed.  A money slot has no item id, and the element's only content field is one.  Rolled, recorded, never emitted -- and the reading that item id 0 means money is [INFERENCE], not proven.",
+    "8. DROPS_QUEST is refused by name, table and all: only 311 of the 2478 DROPS_QUEST sets the mobs reference exist client-side.",
+    "9. Item quality is not rolled.  E_DROPS_QUALITY exists and ``loot_roll`` implements it, but the element has nowhere to carry a quality, so rolling one here would produce a number no player could ever see.  The pickup half, which puts items in a bag, is where that belongs.",
+    "10. The ledger lives in the caller's process.  Nothing in this project persists a ground object across a restart, and this module writes no database row.",
+    "11. The element key block is ours and unproven.  Nobody has shown what the client does with a key it has never seen, or whether that key space is shared with anything else.",
+    "12. Whether re-emitting an element keeps the object on screen is UNMEASURED.  ``refresh_frames`` composes the frames; DROP_REFRESH_MS is a guess; re-emission may equally restart the drop effect each time."
+  ],
+  "production_allowed": true,
+  "refusals": [
+    "type_not_typed_record",
+    "value_not_int",
+    "value_out_of_range",
+    "identity_not_positive",
+    "position_not_finite",
+    "rng_has_no_random",
+    "draw_out_of_unit_interval",
+    "quantity_range_inverted",
+    "unknown_drop_set",
+    "unknown_item_id",
+    "roll_names_another_monster",
+    "key_outside_the_lane_block",
+    "ledger_not_sorted",
+    "duplicate_ledger_key",
+    "ledger_stale",
+    "drop_not_in_ledger",
+    "too_many_drops_for_one_kill",
+    "money_has_no_element",
+    "composed_bytes_off_pin",
+    "element_encoder_disagrees",
+    "position_off_the_f32_grid"
+  ],
+  "scenario": null,
+  "schema": 1,
+  "tables": {
+    "equipment_sets": [
+      5400001,
+      5400002,
+      5400003
+    ],
+    "item_ids": 63,
+    "normal_sets": [
+      2701001,
+      2701002,
+      2701003
+    ],
+    "scene": "bg0001",
+    "source_digests": {
+      "CONSTDATA_TH__DROPS_EQUIPMENT": "06909f73fa00122216443b2e7ea6e58d1357bbf0ae0bf1292f9207c02ca31dd3",
+      "CONSTDATA_TH__DROPS_NORMAL": "f8df1d7c948139390e64ccedd634088a6e1d6f6f3d019dc93aed490d278ab913",
+      "CONSTDATA_TH__DROPS_SPECIALLY": "458742f2c43635a3665bdd5757a4e2efd3634d39446bdbb5944f0e5132beeca1",
+      "CONSTDATA_TH__EQUIPMENT_BASE": "dc39d8b338f78870ac32741b8bd1ddbe5a4696b137378fcfe739721fb6924c97",
+      "CONSTDATA_TH__ITEM_CONSUMABLES": "04586d54730fee23b7120ec03d7e7b5b17345d23fe4c1d946e7e71222e698e29",
+      "CONSTDATA_TH__ITEM_MISC": "8cd1774d42230938d429f8fe849f1073467489daac9ac265689bfa70302d5292",
+      "CONSTDATA_TH__ITEM_QUEST": "9bb9ca8f416812cf724284146d704a8ece86f61e612cdd688005caf9f860a05c",
+      "CONSTDATA_TH__MOBS": "3c0d33d68f832eefda56c845495008338dcef56f4277584b9ca479b7e1b3916b",
+      "TEXTDATA_TH__EQUIPMENT_BASE_TIP": "8fc17fee3213f22dc0581a952c5e3385f317253f46cca6b08930a6808489dbe9",
+      "TEXTDATA_TH__ITEM_CONSUMABLES_TIP": "8f9fac6170750bbdc4410420498f60563e15653523f1a4461cbae1a84f1046dc",
+      "TEXTDATA_TH__ITEM_MISC_TIP": "163cf4d0862e7f5797d9dcb0e110e4f5cd78e089800b5e9328326499a5585ed2",
+      "TEXTDATA_TH__ITEM_QUEST_TIP": "2818474f4e9c3ce983d74edcb9dc8f7207e1a351c04bb7146de5aacdc098b346"
+    },
+    "specially_sets": [
+      2802208,
+      2802215,
+      2802219,
+      2802234,
+      2802236,
+      2802253,
+      2802264
+    ]
+  },
+  "test_only": false,
+  "wire": {
+    "element_field_order": [
+      "key_u32_tag14",
+      "dirty_mask_u8_tag0B",
+      "payload_u32_tag14",
+      "x_f32_tag2A",
+      "y_f32_tag2A",
+      "z_f32_tag2A"
+    ],
+    "element_mask": 18,
+    "elements_per_frame": 1,
+    "frame_size": 54,
+    "masked_pc_sha256": "564277BEA3FBE0A121C4D79CD318ED7778F23B10CFFFFDC091C84D5CDA87D1F1",
+    "pc_size": 44,
+    "runtime_derived_bit": 8,
+    "sample_frame_size": 54
+  },
+  "wiring": "runtime.py, immediately after the death frames of MOB-DEATH-001 for a kill that commit_death() ACCEPTED (a rejected compare-and-swap must not roll loot -- the monster it names is already dead and already looted):\n  1. roll = mob_loot.roll_drops(mob, rng)          # rng is the server's\n  2. drops = mob_loot.place_drops(mob, record, roll, ledger.next_key, position=<where it fell, or None for its placement position>)\n  3. ledger_next = mob_loot.commit_drops(ledger_now, drops)   # CAS; a rejected commit means retry from step 2 with the fresh ledger, NOT re-roll (re-rolling gives the player a second roll for one kill)\n  4. send every frame of mob_loot.drop_frames(legacy, drops) AFTER the dying frame, one frame each, in the order returned\n  5. nothing else: there is no pickup half yet, and the objects are gone from the screen in about half a second (GROUND_DROP_DOES_NOT_PERSIST).  If you want to try holding them, mob_loot.refresh_frames(legacy, ledger) re-emits the live ledger and DROP_REFRESH_MS is our unmeasured guess at the cadence; that is an experiment, not a shipped behaviour."
+}

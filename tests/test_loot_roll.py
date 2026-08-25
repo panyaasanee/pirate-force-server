@@ -743,14 +743,37 @@ class ContainmentTests(unittest.TestCase):
                     )
 
     def test_the_lane_is_not_reachable_from_production_dispatch(self):
+        # SHARPENED by MOB-LOOT-001 (lane B, 2026-08-26, round g627j0), NOT
+        # relaxed.  The old form searched for the SUBSTRING "loot_roll" in
+        # every src file, so it went red when mob_loot's docstring explained
+        # why it re-derives the three roll primitives instead of importing
+        # this module -- it counted a MENTION as an import.  The claim it was
+        # written to hold ("no module in src/ imports loot_roll", the sentence
+        # in this module's own docstring) is unchanged and is now checked two
+        # ways: no import statement names it anywhere in the tree, and no file
+        # contains a textual import line for it either.  A file that talks
+        # about this module is not a file that can reach it.
         self.assertIs(lr.production_allowed, False)
         self.assertIs(lr.LOOT_ROLL_DISPATCH_REACHABLE, False)
-        importers = sorted(
-            path.name for path in SRC_ROOT.glob("*.py")
-            if "loot_roll" in path.read_text(encoding="utf-8")
-            and path.name != "loot_roll.py"
-        )
-        self.assertEqual(importers, [])
+        importers = []
+        for path in sorted(SRC_ROOT.glob("*.py")):
+            if path.name == "loot_roll.py":
+                continue
+            source = path.read_text(encoding="utf-8")
+            for node in ast.walk(ast.parse(source)):
+                if isinstance(node, ast.ImportFrom):
+                    names = {alias.name for alias in node.names}
+                    if node.module == "loot_roll" or "loot_roll" in names:
+                        importers.append(path.name)
+                elif isinstance(node, ast.Import):
+                    if any("loot_roll" in alias.name for alias in node.names):
+                        importers.append(path.name)
+            for line in source.splitlines():
+                stripped = line.strip()
+                if (stripped.startswith(("import ", "from "))
+                        and "loot_roll" in stripped):
+                    importers.append(path.name)
+        self.assertEqual(sorted(set(importers)), [])
 
     def test_the_module_declares_which_readings_are_ours(self):
         self.assertIn(

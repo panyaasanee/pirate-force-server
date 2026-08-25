@@ -339,8 +339,12 @@ class FieldMobTests(unittest.TestCase):
         # WIDENED AGAIN by MOB-DEATH-001 (lane B, 2026-08-26, round 7ptoku):
         # the death half composes the corpse body out of this module's hostile
         # body too, and checks its own composer against it on every call.
+        # WIDENED AGAIN by MOB-LOOT-001 (lane B, 2026-08-26, round g627j0):
+        # the loot half rolls a dead monster's OWN drop sets, so it takes the
+        # roster row (a typed FieldMob) as its input and refuses a dict.  It
+        # still dispatches nothing -- the assertion below is what says so.
         self.assertEqual(
-            importers, ["mob_combat.py", "mob_death.py"],
+            importers, ["mob_combat.py", "mob_death.py", "mob_loot.py"],
             "field_mobs is wired; update the letter")
         for dispatch in ("runtime.py", "app.py"):
             body = (ROOT / "src/pirateforce_foundation" / dispatch).read_text(
