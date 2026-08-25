@@ -174,7 +174,10 @@ class LogoutReturnSelectRuntimeTests(unittest.TestCase):
         # field1 +0x14 tag 0x08 u8 ; field2 +0x18 tag 0x32 8-byte scalar ;
         # field3 +0x20 tag 0x44 std::string (empty).  Every tag byte is the
         # client serializer 0x5e69f0's own; the values are the honest zero
-        # default because 0x709E has no client producer.
+        # default because no client producer was found for those VALUES.  RE-070
+        # erratum: the wrapper id itself DOES have an outbound (W) producer --
+        # two frames in the frozen capture corpus -- so do not restate this as
+        # "0x709E has no client producer".  Inbound R is still NOT_OBSERVED.
         self.assertEqual(len(RETURN_SELECT_SERVER_BODY), 16)
         self.assertEqual(RETURN_SELECT_SERVER_BODY_SIZE, 16)
         self.assertEqual(RETURN_SELECT_SERVER_BODY[0], 0x08)

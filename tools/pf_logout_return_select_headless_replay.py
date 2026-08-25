@@ -14,8 +14,11 @@ file reads the 0x709E frame back from byte zero (envelope, nested vital id
 string) WITHOUT importing the module's composer for the read.
 
 It proves NOTHING about a client.  No client has ever been shown one byte of
-this profile; whether the real client transitions to character select on
-0x709E is GT-033 (attended, not run).  The response is OUR design; round-100
+this profile.  Whether the real client transitions to character select on
+0x709E was GT-033 -- and GT-033 HAS NOW RUN: variant C (2026-08-23) and
+variant B (2026-08-25) both came back client-observable NEGATIVE and chief
+closed the ticket ANSWERED in round 166.  Do not restate it as pending.
+The response is OUR design; round-100
 static RE (agent D) proved an echo cannot transition the client and named
 0x709E the strongest candidate while finding no client consumer, and the
 original server's return-select response is unknown and unrecoverable.
@@ -409,8 +412,8 @@ def main() -> int:
               "LogoutVital with the pinned 0x709E response then the PF-012 "
               "ack, commits closed_at before either byte, schedules the "
               "PF-013 close, touches only the sessions table on a throwaway "
-              "copy, and leaves the source database untouched (GT-033 is "
-              "queued, not run)")
+              "copy, and leaves the source database untouched (GT-033 "
+              "variants B and C ran; both client-observable NEGATIVE)")
     return 0
 
 
