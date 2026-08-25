@@ -80,6 +80,16 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
+    # ROUND 7ptoku (LANE-B, 2026-08-26 +07:00): moved deliberately, and this
+    # is what a deliberate movement looks like when it is NOT a grade change.
+    # Domain 3 / hp_death_and_respawn gains two refs -- tests/test_mob_death.py
+    # and scenarios/combat_death_001.json -- because MOB-DEATH-001 emits the
+    # same BasicAttr bit 0x0080 that row is about, on the actor-entry carrier,
+    # with no flag.  The row's STATUS does not move: this lane adds no runtime
+    # evidence and claims none.  An adversarial review found the prose
+    # amendment alone left the structured refs pointing only at the old lane,
+    # so a machine reading this file could not find the new one; the refs are
+    # graded fields, so fixing that has to move this digest.
     # This pin covers TWO deliberate movements that land in the same change
     # (chief cloud round R167, 2026-08-25 +07:00).  They are recorded below in
     # the order they were written, newest first.  R167 itself moves no grade
@@ -664,7 +674,10 @@ GRADE_SUBSET_SHA256 = (
     # 26D752FE..BA9A (round 65) occupied_destination_policy not_started ->
     # in_progress under HYP-PF-017 (ITEM-SWAP-001); see its lineage note before that
     # for round 53's 78558E56..6DC8.
-    "6CF4AE24A70C7DC8EE447310A640098615B5D9F68AB368D58717C501B4DB4553"
+    # 6CF4AE24..4553 is the parent digest, kept rather than dropped: it is the
+    # value round R167 recorded, and a re-pin that erases its parent takes the
+    # earlier movement's record with it.
+    "EB932A54B4958527BA172D34A81673B6B91AA54A0979372EED3A3525902C65DB"
 )
 
 

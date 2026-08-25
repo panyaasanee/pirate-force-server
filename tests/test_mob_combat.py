@@ -362,8 +362,17 @@ class MobCombatTests(unittest.TestCase):
         self.assertGreater(len(placed_pc), len(pc))
 
     def test_the_bar_frame_refuses_to_go_under_the_floor(self):
+        # ~~0 was under the floor~~ - with the floor at 0 it is ON it, and a
+        # LIVE body there satisfies neither side of the client's gate, so it
+        # is refused by its own name and handed to mob_death.
         with self.assertRaises(MobCombatContractError) as caught:
             bar_frames(self.legacy, self.mob, 0)
+        self.assertEqual(
+            caught.exception.reason,
+            mob_combat.REFUSE_BAR_FRAME_FOR_A_DEAD_BODY)
+        self.assertIn("mob_death", caught.exception.detail)
+        with self.assertRaises(MobCombatContractError) as caught:
+            bar_frames(self.legacy, self.mob, -1)
         self.assertEqual(
             caught.exception.reason, mob_combat.REFUSE_VALUE_OUT_OF_RANGE)
 
@@ -710,8 +719,11 @@ class MobCombatTests(unittest.TestCase):
             self.legacy, mob_aggro, ledger, state, self.mob,
             PERFORMER, thumping)
         lines = describe_step(step)
-        self.assertTrue(any("clamped by" in line for line in lines))
+        # ~~"clamped by"~~ with the floor at 0 the clamp is overkill, not a
+        # monster held one point above death, and the line says so.
+        self.assertTrue(any("overkill by" in line for line in lines))
         self.assertTrue(any("death due" in line for line in lines))
+        self.assertTrue(any("mob_death.kill" in line for line in lines))
 
 
 if __name__ == "__main__":

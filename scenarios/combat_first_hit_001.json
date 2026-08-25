@@ -1,6 +1,6 @@
 {
   "pin_id": "mob_combat_first_half_001",
-  "build_order": "BUILD-005 / M4 first half",
+  "build_order": "BUILD-005 / M4 first half, joined to the second",
   "lane": "B_COMBAT",
   "milestone": "MOB-COMBAT-001",
   "production_allowed": true,
@@ -26,19 +26,21 @@
   "fraction_after": 0.7500648172154524,
   "announce_frame_bytes": 95,
   "bar_frame_bytes": 159,
-  "hp_floor": 1,
+  "hp_floor": 0,
+  "death_due": false,
+  "death_handover": "mob_death.kill(legacy, mob, step.outcome, register)",
   "threat_recorded": false,
-  "wiring": "runtime.py: on an EA7D ActionVital whose target is a field-mob identity, call mob_combat.attack_from_observed_action(legacy, None, ledger, None, fields, performer, attacker); commit the returned step with mob_combat.commit_step(ledger_now, step) and send step.frames in order (announce first, bar second) only if the commit is accepted; on REFUSE_LEDGER_STALE re-read the ledger and re-run the call.",
+  "wiring": "runtime.py: on an EA7D ActionVital whose target is a field-mob identity, call mob_combat.attack_from_observed_action(legacy, None, ledger, None, fields, performer, attacker); commit the returned step with mob_combat.commit_step(ledger_now, step) and send step.frames in order (announce first, bar second) only if the commit is accepted; on REFUSE_LEDGER_STALE re-read the ledger and re-run the call; when step.death_due is True - the CombatStep property, NOT step.outcome.death_due, which is also True for a hit on something already dead - the step carries the announce frame ONLY and the kill is finished by mob_death.kill (see mob_death.MOB_DEATH_WIRING); a hit on something already dead carries NO frames at all and owes nothing.",
   "selection": "none_default_behaviour_no_scenario_flag",
   "nonclaims": [
     "a real attack input has never been observed producing the EA7D ActionVital this driver reads; the inbound half is unproven",
     "nothing dispatches this module: runtime.py belongs to the chief and the one wiring line has not been written",
-    "death is not delivered: the floor is 1 and RE-071's gate needs the timer field this lane does not send",
+    "death is delivered by mob_death, not by this module: what this lane claims is the arithmetic that reaches zero and the announce frame that says so, and the corpse itself has never been watched land",
     "the monster's constitution is OURS - no committed table carries one",
     "name colour is not claimed by this lane; RE-067 owns it and is open",
     "the client's draw distance is still unmeasured, so a monster hit from far away may move a bar nobody can see",
     "named AND hostile in one body has never been sent and never been observed: field_mobs' nonclaim, inherited here, because the bar frame this driver refreshes IS that body (mask 0x070D, not GT-035's 0x030D)",
-    "until the death half lands, every monster a player fights converges to 1 HP and stays there: it absorbs nothing further and the server answers further hits with silence",
+    "a monster this lane took to zero is finished by mob_death and by nothing else: until that call is made it lies at zero HP with no timer field, which is a state no client has been shown",
     "the announce frame carries the monster's own world position; for the sparse bg0001 rows that can be ~12,000 units from a spawning player, and a neighbouring lane measured no model drawn at that distance",
     "threat is only recorded while the mob's aggro phase is idle or aggro: mob_aggro absorbs damage silently in its return and dead phases, by that module's declared design, and this driver does not override it"
   ]

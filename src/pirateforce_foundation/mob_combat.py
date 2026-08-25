@@ -72,19 +72,31 @@ WHERE THE EVIDENCE FOR EACH HALF COMES FROM, AND WHERE IT STOPS.
   parsed, and the ticket that decides whether a real attack input produces it
   is the wiring step below, not a claim of this module.
 
-THE FLOOR, STATED LOUDLY BECAUSE IT IS THE SEAM.  ``HP_FLOOR`` is 1.  A hit
-that would take a monster to zero or below lands it at 1 instead, and the
-outcome says so in three fields (``clamped_by``, ``at_floor``, ``death_due``)
-rather than by silence.  This is not the HYP-PF-038 prohibition being
-re-imposed - the owner has approved crossing it to test death - it is the
-half-line the COO's own sequencing draws: RE-071 says the client's death gate
-is ``HP == 0 && timer <= 0`` -> 0x443990 -> CActorTask_Dead 0x472810, so an HP
-of zero without the timer field is a state whose client behaviour nobody in
-this project has observed.  The next lane-B round builds that, and it attaches
-exactly here: every hit that reaches the floor already carries ``death_due``,
-so the death lane's job is to answer the frame, not to re-do the arithmetic.
-``field_mobs.hostile_npc_attr`` refuses an HP of zero for the same reason, and
-this module would be refused by it even if the floor were removed by accident.
+THE FLOOR, STATED LOUDLY BECAUSE IT IS THE SEAM.  ``HP_FLOOR`` is 0, and the
+death half is what lowered it.
+
+    ~~Round mr1w26: the floor is 1.  A hit that would take a monster to zero
+    lands it at 1 instead, because an HP of zero without the timer field is a
+    state whose client behaviour nobody in this project has observed.  The
+    next lane-B round builds that, and it attaches exactly here.~~
+    STRUCK, NOT DELETED (round 7ptoku): that round is this one.  ``mob_death``
+    composes the two frames the client's gate reads, so the reason for
+    stopping at 1 is gone and a monster now reaches zero like it should.
+
+The rest of the paragraph still holds and is why the seam is where it is: the
+client's death gate is ``HP == 0 && timer <= 0`` -> 0x443990 ->
+CActorTask_Dead 0x472810, so HP zero is only ever HALF the state.  This module
+therefore still refuses to compose a LIVE body at zero - :func:`bar_frames`
+says so by name - and hands the killing blow to ``mob_death``, which owns the
+body that carries both halves.  ``field_mobs.hostile_npc_attr`` refuses an HP
+of zero for the same reason and stays untouched by this round.
+
+WHAT A KILLING BLOW RETURNS.  A hit that reaches zero composes the announce
+frame and NO bar frame: the bar of a dead monster is not a bar, it is a
+corpse, and the frames for it are ``mob_death.kill``'s to compose.  So on a
+killing blow ``CombatStep.frames`` is one frame long and ``death_due`` is
+True, which is the caller's signal to call the death lane - see
+MOB_COMBAT_WIRING.
 
 WHAT THE PLAYER SEES THAT THEY DID NOT SEE YESTERDAY.  Nothing yet, and this
 paragraph is honest rather than promotional: the module sends nothing, because
@@ -127,7 +139,7 @@ production_allowed = True
 test_only = False
 
 MOB_COMBAT_MILESTONE = "MOB-COMBAT-001"
-MOB_COMBAT_BUILD_ORDER = "BUILD-005 / M4 first half"
+MOB_COMBAT_BUILD_ORDER = "BUILD-005 / M4 first half, joined to the second"
 MOB_COMBAT_LANE = "B_COMBAT"
 
 # The one line this lane owes the chief, written where a reader of the module
@@ -138,7 +150,12 @@ MOB_COMBAT_WIRING = (
     "fields, performer, attacker); commit the returned step with "
     "mob_combat.commit_step(ledger_now, step) and send step.frames in order "
     "(announce first, bar second) only if the commit is accepted; on "
-    "REFUSE_LEDGER_STALE re-read the ledger and re-run the call."
+    "REFUSE_LEDGER_STALE re-read the ledger and re-run the call; when "
+    "step.death_due is True - the CombatStep property, NOT "
+    "step.outcome.death_due, which is also True for a hit on something "
+    "already dead - the step carries the announce frame ONLY and the kill is "
+    "finished by mob_death.kill (see mob_death.MOB_DEATH_WIRING); a hit on "
+    "something already dead carries NO frames at all and owes nothing."
 )
 # Written out because a reader of the line above should not have to guess: the
 # second argument is the THREAT handle and passing None is the supported
@@ -197,8 +214,13 @@ FLAGS_MISS = 0x0000
 FLAGS_HIT = 0x0001
 MOB_COMBAT_FLAGS_ALLOWLIST = (FLAGS_MISS, FLAGS_HIT)
 
-# The seam described at the top of this file.
-HP_FLOOR = 1
+# The seam described at the top of this file.  ~~1~~ -> 0: the death half
+# landed in round 7ptoku and owns everything at the floor, so a monster now
+# reaches the number the client's own gate reads.  The constant stays NAMED
+# rather than being replaced by a literal zero, because every check in this
+# module is written against it and a later round that has to raise it again
+# raises it in one place.
+HP_FLOOR = 0
 
 # What this lane does NOT claim.  Written as data so a report cannot quote the
 # module without quoting these too.
@@ -207,8 +229,9 @@ MOB_COMBAT_NONCLAIMS = (
     "ActionVital this driver reads; the inbound half is unproven",
     "nothing dispatches this module: runtime.py belongs to the chief and the "
     "one wiring line has not been written",
-    "death is not delivered: the floor is 1 and RE-071's gate needs the "
-    "timer field this lane does not send",
+    "death is delivered by mob_death, not by this module: what this lane "
+    "claims is the arithmetic that reaches zero and the announce frame that "
+    "says so, and the corpse itself has never been watched land",
     "the monster's constitution is OURS - no committed table carries one",
     "name colour is not claimed by this lane; RE-067 owns it and is open",
     "the client's draw distance is still unmeasured, so a monster hit from "
@@ -216,15 +239,32 @@ MOB_COMBAT_NONCLAIMS = (
     "named AND hostile in one body has never been sent and never been "
     "observed: field_mobs' nonclaim, inherited here, because the bar frame "
     "this driver refreshes IS that body (mask 0x070D, not GT-035's 0x030D)",
-    "until the death half lands, every monster a player fights converges to "
-    "1 HP and stays there: it absorbs nothing further and the server answers "
-    "further hits with silence",
+    "a monster this lane took to zero is finished by mob_death and by nothing "
+    "else: until that call is made it lies at zero HP with no timer field, "
+    "which is a state no client has been shown",
     "the announce frame carries the monster's own world position; for the "
     "sparse bg0001 rows that can be ~12,000 units from a spawning player, and "
     "a neighbouring lane measured no model drawn at that distance",
     "threat is only recorded while the mob's aggro phase is idle or aggro: "
     "mob_aggro absorbs damage silently in its return and dead phases, by that "
     "module's declared design, and this driver does not override it",
+)
+
+# Struck, not deleted.  Both of these were true of this module while the death
+# half did not exist, and a report that quoted them is not wrong about the
+# round it quoted - it is out of date, and the reason is written here rather
+# than lost with the line.
+MOB_COMBAT_RETIRED_NONCLAIMS = (
+    ("death is not delivered: the floor is 1 and RE-071's gate needs the "
+     "timer field this lane does not send",
+     "retired in round 7ptoku: mob_death sends that timer field and the "
+     "floor is 0"),
+    ("until the death half lands, every monster a player fights converges to "
+     "1 HP and stays there: it absorbs nothing further and the server answers "
+     "further hits with silence",
+     "retired in round 7ptoku: a monster now reaches 0 and mob_death turns it "
+     "into a corpse; the silence that remains is the silence owed to a hit on "
+     "something already dead"),
 )
 
 REFUSE_VALUE_NOT_INT = "value_not_int"
@@ -236,7 +276,12 @@ REFUSE_PERFORMER_IS_THE_TARGET = "performer_is_the_target"
 REFUSE_TARGET_NOT_IN_LEDGER = "target_not_in_ledger"
 REFUSE_DUPLICATE_LEDGER_IDENTITY = "duplicate_ledger_identity"
 REFUSE_BALANCE_ABOVE_MAX = "balance_above_max"
-REFUSE_BALANCE_BELOW_FLOOR = "balance_below_floor"
+# ~~REFUSE_BALANCE_BELOW_FLOOR~~ retired in round 7ptoku.  With the floor at 0
+# it sat behind a range check that already refuses everything below zero, and
+# this module's own rule is that a named refusal which cannot occur is a lie
+# told to whoever counts them.  The check it guarded is now the u32 range check
+# in MobBalance, by name REFUSE_VALUE_OUT_OF_RANGE.
+REFUSE_BAR_FRAME_FOR_A_DEAD_BODY = "bar_frame_for_a_dead_body"
 REFUSE_DAMAGE_WIRE_POSITIVE = "damage_wire_positive"
 REFUSE_LEDGER_NOT_SORTED = "ledger_not_sorted"
 REFUSE_LEDGER_STALE = "ledger_stale"
@@ -258,7 +303,7 @@ MOB_COMBAT_REFUSAL_REASONS = (
     REFUSE_TARGET_NOT_IN_LEDGER,
     REFUSE_DUPLICATE_LEDGER_IDENTITY,
     REFUSE_BALANCE_ABOVE_MAX,
-    REFUSE_BALANCE_BELOW_FLOOR,
+    REFUSE_BAR_FRAME_FOR_A_DEAD_BODY,
     REFUSE_DAMAGE_WIRE_POSITIVE,
     REFUSE_LEDGER_NOT_SORTED,
     REFUSE_LEDGER_STALE,
@@ -367,16 +412,14 @@ class MobBalance:
                 REFUSE_BALANCE_ABOVE_MAX,
                 "current hp %d is above max %d" % (self.current_hp, self.max_hp),
             )
-        if self.current_hp < HP_FLOOR:
-            raise MobCombatContractError(
-                REFUSE_BALANCE_BELOW_FLOOR,
-                "current hp %d is below the floor %d this half stops at; the "
-                "death half owns everything under it" % (
-                    self.current_hp, HP_FLOOR),
-            )
+        # ~~a named below-the-floor refusal~~ - see the comment on
+        # REFUSE_BAR_FRAME_FOR_A_DEAD_BODY.  With HP_FLOOR at 0 the u32 range
+        # check above IS the floor check, and a second name for it could never
+        # be raised.
 
     @property
     def at_floor(self) -> bool:
+        """True when this monster is at the floor, which is now zero: dead."""
         return self.current_hp == HP_FLOOR
 
     @property
@@ -507,8 +550,8 @@ class HitOutcome:
             (self.at_floor == (self.hp_after == HP_FLOOR),
              "at_floor disagrees with hp_after %d" % self.hp_after),
             (self.death_due == self.at_floor,
-             "death_due and at_floor must agree while the death half is "
-             "missing"),
+             "death_due and at_floor must agree: with the floor at zero they "
+             "are the same statement, and mob_death.kill reads death_due"),
             (not self.no_room or (self.damage == 0 and self.clamped_by > 0),
              "no_room means a real hit landed on a monster with nothing left "
              "to lose"),
@@ -652,12 +695,12 @@ def apply_hit(
     applied = requested if requested <= room else room
     clamped_by = requested - applied
     if applied == 0:
-        # Already at the floor.  The outcome records a real hit that landed on
-        # a monster with nothing left to lose, and NOTHING is composed for it:
-        # an earlier draft answered this case with a MISS frame, which told the
-        # client the player had missed when the formula said 964.  While the
-        # death half is missing this is a dead end by construction, and the
-        # honest wire answer to a dead end is silence.
+        # The target is already at the floor, which now means DEAD.  The
+        # outcome records a real hit that landed on a corpse, and NOTHING is
+        # composed for it: an earlier draft answered this case with a MISS
+        # frame, which told the client the player had missed when the formula
+        # said 964.  The honest wire answer to a hit on something already dead
+        # is silence - mob_death already sent that monster's last two frames.
         outcome = HitOutcome(
             attacker, target, 0, 0, FLAGS_MISS, balance.current_hp,
             balance.current_hp, balance.max_hp, clamped_by, True, True, True,
@@ -848,6 +891,18 @@ def bar_frames(
         raise MobCombatContractError(
             REFUSE_TYPE_NOT_TYPED_RECORD, "mob must be the typed FieldMob record")
     hp = _require_int(current_hp, "current hp", HP_FLOOR, mob.max_hp)
+    if hp == 0:
+        # The bar of a dead monster is not a bar.  A LIVE body at zero HP
+        # carries no death timer, so it satisfies neither side of the client's
+        # gate (0x43BD70 and 0x43BDA0 both read +0x58 only after +0x44 == 0):
+        # the monster would stand there at an empty bar forever.  The frames
+        # for a monster at zero belong to mob_death, which composes the body
+        # that carries both halves of the state.
+        raise MobCombatContractError(
+            REFUSE_BAR_FRAME_FOR_A_DEAD_BODY,
+            "current hp 0 is mob_death's to compose, not this lane's: call "
+            "mob_death.kill with the outcome that reached it",
+        )
     if type(with_movement) is not bool:
         raise MobCombatContractError(
             REFUSE_TYPE_NOT_TYPED_RECORD, "with_movement must be a bool")
@@ -904,13 +959,24 @@ class CombatStep:
     def frames(self) -> tuple[bytes, ...]:
         """Announce first, bar second - the order GT-035 watched.
 
-        EMPTY when the hit landed on a monster with nothing left to lose: this
-        lane has no death half yet, and it answers a dead end with silence
-        rather than with a MISS it did not compute.
+        EMPTY when the hit landed on a monster that is already dead: this lane
+        answers that with silence rather than with a MISS it did not compute.
+
+        ONE FRAME LONG on a killing blow.  The announce still floats the last
+        number, but there is no bar to repaint: the frames that drop the body
+        are ``mob_death.kill``'s, and ``outcome.death_due`` is the caller's
+        signal to go and get them.
         """
         if not self.announce_frame:
             return ()
+        if not self.bar_frame:
+            return (self.announce_frame,)
         return (self.announce_frame, self.bar_frame)
+
+    @property
+    def death_due(self) -> bool:
+        """True when the caller still owes this monster its two death frames."""
+        return self.outcome.death_due and not self.outcome.no_room
 
 
 def commit_step(current: CombatLedger, step: CombatStep) -> CombatLedger:
@@ -988,6 +1054,16 @@ def strike(
         )
     announce_pc, announce_frame = announce_frames(
         legacy, attacker_identity, mob, outcome)
+    if outcome.hp_after == HP_FLOOR:
+        # The killing blow.  The number still floats; the bar does not get
+        # repainted, because a body at zero with no death timer is a state the
+        # client's gate cannot read.  mob_death.kill composes what comes next
+        # and the step says so through death_due.
+        return CombatStep(
+            moved_ledger, moved_state, outcome,
+            announce_pc, announce_frame, b"", b"",
+            ledger.generation, threat_was_recorded(aggro_state, moved_state),
+        )
     bar_pc, bar_frame = bar_frames(
         legacy, mob, outcome.hp_after, faction=faction)
     return CombatStep(
@@ -1065,9 +1141,9 @@ def describe_step(step: CombatStep) -> tuple[str, ...]:
     ]
     if outcome.no_room:
         lines.append(
-            "  nothing sent: the target is at the floor %d and this lane has "
-            "no death half yet, so the wire stays silent rather than "
-            "answering MISS to a real hit of %d" % (HP_FLOOR, outcome.clamped_by))
+            "  nothing sent: the target is already dead at %d HP, so the wire "
+            "stays silent rather than answering MISS to a real hit of %d" % (
+                HP_FLOOR, outcome.clamped_by))
     if not step.threat_recorded and not outcome.no_room:
         lines.append(
             "  threat NOT recorded: no aggro handle was passed, or the mob is "
@@ -1075,12 +1151,12 @@ def describe_step(step: CombatStep) -> tuple[str, ...]:
             "design")
     if outcome.clamped_by:
         lines.append(
-            "  clamped by %d at the floor %d: the death half owns what is "
-            "under it (RE-071)" % (outcome.clamped_by, HP_FLOOR))
-    if outcome.death_due:
+            "  overkill by %d: the balance stops at %d and the announced "
+            "number is the number subtracted" % (outcome.clamped_by, HP_FLOOR))
+    if step.death_due:
         lines.append(
-            "  death due: this monster is at the floor and the next hit has "
-            "nowhere to go until the death lane lands")
+            "  death due: this monster is at 0 HP and owes two frames - call "
+            "mob_death.kill(legacy, mob, step.outcome, register) now")
     return tuple(lines)
 
 
@@ -1147,6 +1223,8 @@ def pin_document(
         "announce_frame_bytes": len(step.announce_frame),
         "bar_frame_bytes": len(step.bar_frame),
         "hp_floor": HP_FLOOR,
+        "death_due": step.death_due,
+        "death_handover": "mob_death.kill(legacy, mob, step.outcome, register)",
         "threat_recorded": step.threat_recorded,
         "wiring": MOB_COMBAT_WIRING,
         "selection": "none_default_behaviour_no_scenario_flag",
