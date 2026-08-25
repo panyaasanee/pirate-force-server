@@ -56,6 +56,30 @@ reachable from this clone.  So the census is delivered as a STAIRCASE of rungs::
 
     3 -> 20 -> 60 -> 115
 
+AMENDMENT 2026-08-26 00:2x (+07:00) - THE STAIRCASE IS CANCELLED AS THE
+SHIPPING PLAN.  The paragraph above stays because it is the reasoning that was
+true when it was written, and this project does not delete its own history.
+What changed is an owner ruling carried by CHARTER-02 (2026-08-25 23:45): send
+all 115 in one shot, do not climb.  The owner's stated reason is evidence this
+lane did not have - an earlier assistant had already climbed this ladder and
+115 gave no trouble, and the reduction to three was an experiment-isolation
+choice, not a client limit.  That is ``[owner, from direct experience]`` and
+not ``[measured this round]``, and it agrees with the one thing this lane can
+check for itself: ``:4292`` sends three actors through the SAME encoder that
+``make_v62_port_royal_population_snapshot()`` uses for all 115.
+
+What the staircase was guarding is now guarded more cheaply, per the same
+ruling: COUNT THE ACTORS THAT ACTUALLY ASSEMBLED, BEFORE SENDING, AND PRINT
+THAT NUMBER.  If the client truncates or refuses, one boot shows the number
+directly instead of three boots bracketing it.  See ``dispatch_report()`` and
+``census_console_line()``, and note the hard part of the ruling: the count that
+goes out must never quietly become something other than 115 - a shortfall has
+to arrive with its reason attached.
+
+``build_staircase()`` and ``nesting_break()`` stay in this module.  They are no
+longer the plan; they are the diagnostic to reach for if one shot comes back
+dead and somebody has to bracket the failure after all.
+
 WHAT THE STAIRCASE CAN AND CANNOT SEPARATE.  Within one anchor each rung is a
 strict prefix of the next, so the membership of a lower rung survives into
 every higher one.  That is the most this construction gives, and it is less
@@ -147,6 +171,24 @@ INITIAL_REAPPLY_MS = 3000
 # enough - do not also pass it as an argument.
 MEASURED_CLIENT_ACTOR_CEILING: int | None = None
 
+# The collection count the client reads sits in a fixed-width header that
+# ``make_runtime_remote_actors`` writes the same way every time (v141:1278-1284):
+# u16tag class id (3) + u32tag 0 (5) + u8tag 4 (2) + u8tag 0 (2) + u8tag 2 (2),
+# then the u16tag actor count (3).  Reading the count back out of the bytes is
+# the only way to compare what the wire SAYS against what was assembled.
+WIRE_COUNT_TAG_OFFSET = 14
+WIRE_HEADER_BYTES = 17
+COLLECTION_TAG = 0x12
+
+COUNT_SOURCE_FULL_CENSUS = "full_census"
+COUNT_SOURCE_MEASURED_CEILING = "measured_client_ceiling"
+COUNT_SOURCE_CALLER = "caller_requested"
+COUNT_SOURCES = (
+    COUNT_SOURCE_FULL_CENSUS,
+    COUNT_SOURCE_MEASURED_CEILING,
+    COUNT_SOURCE_CALLER,
+)
+
 DEFAULT_HP = 100
 HEADINGS = (0.0, math.pi / 2.0, math.pi, 3.0 * math.pi / 2.0)
 _FLOAT32_MAX = 3.4028234663852886e38
@@ -163,6 +205,8 @@ class WorldPopulationGeneration:
     anchor: tuple[float, float, float]
     pc: bytes
     frame: bytes
+    entry_bytes: tuple[int, ...] = ()
+    count_source: str = COUNT_SOURCE_CALLER
 
     @property
     def pc_bytes(self) -> int:
@@ -283,16 +327,48 @@ def build_world_population(
     legacy: Any,
     player_xyz: tuple[float, float, float],
     actor_count: int = DEFAULT_ACTOR_COUNT,
+    *,
+    scene_id: int,
+    count_source: str = COUNT_SOURCE_CALLER,
 ) -> WorldPopulationGeneration:
     """Build one rung of the census as a single RuntimeRes collection.
 
     Nothing is sent, scheduled or persisted here.  The caller owns dispatch,
     and owes the frame the reapply the accepted evidence was measured with
     (``INITIAL_REAPPLY_MS``).
+
+    ``scene_id`` HAS NO DEFAULT ON PURPOSE.  This table is bg0001's, built with
+    ``SCENE_ID`` fixed at 1 in every actor it encodes.  Once a player can be in
+    another scene, a caller that forgets which scene it is in would deliver
+    dock NPCs into that other map, and a module that merely REPORTS that hazard
+    (``world_scene_travel.population_source``) does not prevent it - the
+    refusal has to live where the frame is built.  So every caller states the
+    scene it is populating and this refuses anywhere but home.
+
+    ``count_source`` says WHY this count was chosen; it is recorded rather than
+    inferred, because the same number can be a measured ceiling in one boot and
+    a deliberate experiment in the next.
     """
+    if type(scene_id) is not int or scene_id != SCENE_ID:
+        raise ValueError(
+            f"the bg0001 census is only valid in scene {SCENE_ID}, "
+            f"not scene {scene_id!r}"
+        )
+    if count_source not in COUNT_SOURCES:
+        raise ValueError(f"unknown count source {count_source!r}")
     count = _require_actor_count(actor_count)
     ordered = census_order(legacy, player_xyz)[:count]
     entries = [_entry(legacy, placement) for placement in ordered]
+    for position, entry in enumerate(entries):
+        # An entry that encodes to nothing still counts in the collection's
+        # count field, so the client would be told N actors follow and given
+        # N-1 bodies - a stream-tail misalignment, which is the one refusal
+        # this client is documented to answer with (ErrorData=28317).
+        if type(entry) is not bytes or not entry:
+            raise ValueError(
+                f"placement {ordered[position].placement_index} encoded to an "
+                "empty actor entry"
+            )
     pc, frame = legacy.make_runtime_remote_actors(entries)
     return WorldPopulationGeneration(
         count,
@@ -301,6 +377,8 @@ def build_world_population(
         _require_anchor(player_xyz),
         pc,
         frame,
+        tuple(len(entry) for entry in entries),
+        count_source,
     )
 
 
@@ -326,7 +404,8 @@ def build_staircase(
         if current <= previous:
             raise ValueError("rungs must be strictly increasing")
     return tuple(
-        build_world_population(legacy, player_xyz, count) for count in checked
+        build_world_population(legacy, player_xyz, count, scene_id=SCENE_ID)
+        for count in checked
     )
 
 
@@ -369,6 +448,135 @@ def effective_actor_count(ceiling: Any = _UNSET) -> int:
     if type(ceiling) is not int or not 1 <= ceiling <= CENSUS_COUNT:
         raise ValueError(f"ceiling must be an integer in [1,{CENSUS_COUNT}]")
     return min(DEFAULT_ACTOR_COUNT, ceiling)
+
+
+def census_count_for_dispatch() -> tuple[int, str]:
+    """The count a flagless boot should send, and WHY that number.
+
+    One call, two values, so the caller never has to reconstruct the reason
+    from the number - which is exactly the inference that would misreport a
+    deliberate 20-actor rung as a client ceiling on a day when a ceiling of 20
+    happens to be recorded.
+    """
+    ceiling = MEASURED_CLIENT_ACTOR_CEILING
+    count = effective_actor_count()
+    if ceiling is not None and count < CENSUS_COUNT:
+        return (count, COUNT_SOURCE_MEASURED_CEILING)
+    return (count, COUNT_SOURCE_FULL_CENSUS)
+
+
+def wire_actor_count(generation: WorldPopulationGeneration) -> int:
+    """Read the collection count back out of the bytes that will be sent.
+
+    Everything else in this module counts what was ASSEMBLED.  This counts what
+    the client will be TOLD, which is the number that decides how many actor
+    bodies it tries to read.  The two are the same only if the encoder put
+    every entry in, and nothing else in this tree checks that.
+    """
+    if type(generation) is not WorldPopulationGeneration:
+        raise ValueError("wire actor count needs a WorldPopulationGeneration")
+    pc = generation.pc
+    if len(pc) < WIRE_HEADER_BYTES or pc[WIRE_COUNT_TAG_OFFSET] != COLLECTION_TAG:
+        raise ValueError("built frame does not carry the expected collection header")
+    return int.from_bytes(
+        pc[WIRE_COUNT_TAG_OFFSET + 1:WIRE_COUNT_TAG_OFFSET + 3], "little"
+    )
+
+
+def census_shortfall_reason(
+    assembled_count: int,
+    count_source: str = COUNT_SOURCE_CALLER,
+) -> str | None:
+    """Why fewer than the whole census went out, or None when none is missing.
+
+    CHARTER-02 forbids the shipped count from becoming something other than 115
+    without saying so.  The reason is taken from what the CALLER recorded when
+    it chose the count, not inferred from the number afterwards: the same 60
+    can be a measured client ceiling on one boot and a deliberate diagnostic
+    rung on the next, and a report that guesses between them is worse than one
+    that asks.
+    """
+    assembled = _require_actor_count(assembled_count)
+    if count_source not in COUNT_SOURCES:
+        raise ValueError(f"unknown count source {count_source!r}")
+    if assembled == CENSUS_COUNT:
+        return None
+    if count_source == COUNT_SOURCE_MEASURED_CEILING:
+        return f"{COUNT_SOURCE_MEASURED_CEILING}={assembled}"
+    return f"{COUNT_SOURCE_CALLER}={assembled}"
+
+
+def dispatch_report(generation: WorldPopulationGeneration) -> dict:
+    """Count what assembled BEFORE it goes out, and cross-check it against the
+    bytes.
+
+    This is the pre-send count CHARTER-02 requires in place of the staircase.
+    Three numbers have to agree, and each one can move without the others:
+
+    * ``assembled_count`` - how many placements this module put in the list.
+    * ``wire_actor_count`` - what the collection header will tell the client.
+    * ``body_bytes`` vs the sum of the per-entry lengths - whether that many
+      actor bodies are really in the payload.
+
+    The third is the one that catches a silently dropped body, which produces
+    exactly the stream-tail misalignment this client answers with
+    ``ErrorData=28317``.  A report that only counted its own input would print
+    ``115/115`` for that frame.
+    """
+    if type(generation) is not WorldPopulationGeneration:
+        raise ValueError("dispatch report needs a WorldPopulationGeneration")
+    assembled = len(generation.indices)
+    declared = wire_actor_count(generation)
+    body_bytes = generation.pc_bytes - WIRE_HEADER_BYTES
+    entry_bytes_total = sum(generation.entry_bytes)
+    bodies_intact = (
+        bool(generation.entry_bytes)
+        and len(generation.entry_bytes) == assembled
+        and body_bytes == entry_bytes_total
+        and all(generation.entry_bytes)
+    )
+    return {
+        "assembled_count": assembled,
+        "wire_actor_count": declared,
+        "census_count": CENSUS_COUNT,
+        "count_source": generation.count_source,
+        "shortfall_reason": census_shortfall_reason(
+            assembled, generation.count_source),
+        "counts_agree": declared == assembled,
+        "bodies_intact": bodies_intact,
+        "body_bytes": body_bytes,
+        "entry_bytes_total": entry_bytes_total,
+        "pc_bytes": generation.pc_bytes,
+        "frame_bytes": generation.frame_bytes,
+        "anchor": list(generation.anchor),
+        "initial_reapply_ms": INITIAL_REAPPLY_MS,
+    }
+
+
+def census_console_line(generation: WorldPopulationGeneration) -> str:
+    """The single ASCII line a boot prints before the census goes on the wire.
+
+    Without this line four boots of the same build are indistinguishable in a
+    log, which is the state BUILD-001 was written to end.  It carries the wire
+    count and the body check beside the assembled count, because those are the
+    two ways ``115`` can be printed over a frame that is not 115 actors.  The
+    bridge console is cp874, so this stays inside 7-bit ASCII deliberately.
+    """
+    report = dispatch_report(generation)
+    return (
+        "WORLD_CENSUS assembled={0}/{1} wire={2} bodies={3} pc={4}B frame={5}B "
+        "anchor=({6:.3f},{7:.3f},{8:.3f}) reapply_ms={9} source={10} "
+        "shortfall={11}".format(
+            report["assembled_count"], report["census_count"],
+            report["wire_actor_count"] if report["counts_agree"]
+            else "MISMATCH:%d" % report["wire_actor_count"],
+            "ok" if report["bodies_intact"] else "SHORT",
+            report["pc_bytes"], report["frame_bytes"],
+            report["anchor"][0], report["anchor"][1], report["anchor"][2],
+            report["initial_reapply_ms"], report["count_source"],
+            report["shortfall_reason"] or "none",
+        )
+    )
 
 
 def staircase_report(

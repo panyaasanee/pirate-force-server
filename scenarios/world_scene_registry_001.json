@@ -1,0 +1,183 @@
+{
+  "schema": 1,
+  "id": "world_scene_registry_001",
+  "lane": "A_WORLD",
+  "build_order": "BUILD-002 / SCENE-TRAVEL-001",
+  "test_only": false,
+  "production_allowed": true,
+  "selection": "none_default_behaviour_no_scenario_flag",
+  "not_a_scenario": "this file is a pin, not a switch - no flag loads it and no runtime path reads it until the chief wires world_scene_travel into runtime.py; it exists so the destination facts live in the repository instead of in a letter",
+  "wire_field": {
+    "name": "scene_id",
+    "carrier": "player_wire._make_actor_attr_with_name -> legacy.u16tag(0x12, scene_id), reached from legacy_bridge.start_game which reads it from the character's persisted position row",
+    "companion_field": "scene_seq",
+    "companion_value_measured": 0,
+    "candidate_reading": "the scene_id carried on the wire is the n_ID column of the client table CONSTDATA_TH__SCENE_NAME.tsv",
+    "candidate_reading_status": "CANDIDATE, NOT ESTABLISHED - two observations are consistent with it and with three rival readings that agree at exactly those two rows",
+    "identity_evidence": [
+      "table row n_ID=1 is model BG0001, and bg0001 is the map every boot in this project has ever rendered with scene_id=1",
+      "table row n_ID=2 is model BG0002, Prison Exile Island, and docs/EXPERIMENT_LEDGER.md:31 records SCENE-001 as a RUNTIME PASS in which the client loaded and rendered Prison Exile Island when this server sent scene_id=2"
+    ],
+    "rival_readings_not_excluded": [
+      "n_MARKER: equals n_ID on only 12 of 271 rows, and rows 1 and 2 are both inside those 12. Under this reading Bg1177 has NO addressable value at all, because its n_MARKER is 0.",
+      "n_CLINE_TYPE: same 12-row collapse. Under this reading Bg1177's value is 4294967295 (-1), not 278.",
+      "row ordinal in the shipped table: rows 1 and 2 are also the 1st and 2nd data rows. Under this reading Bg1177's value is 252, not 278."
+    ],
+    "what_would_settle_it": "static: find what consumes the ActorAttr scene field (+0x5C per v141:2307) and which table it indexes on a hit. That is RE-077 job T2, extended by the LANE-A rider of round jjxgz3 to cover the HIT path and not only the MISS path. Attended: GT-078 answers it empirically for this one row.",
+    "known_trap": "notes_to_chief/20260824_0038_GT053-RESULT-* refused a MAP_SCENE_LIST.n_ID join for exactly this reason - a numeric coincidence at a low row is not an identity."
+  },
+  "provenance": {
+    "scene_name_table": "pf_bridge/gamedata/tables/CONSTDATA_TH__SCENE_NAME.tsv",
+    "scene_name_table_sha256": "e38114a802576266ce37b2abcf8ebce3f105d7d5abaf4bc5ca066e7848c5d60b",
+    "scene_name_table_rows": 271,
+    "scene_index": "pf_bridge/gamedata/PF_GAMEDATA_SCENE_INDEX.tsv",
+    "scene_index_sha256": "c4016cf685671d4c7bbb1909bb300146afd802dd6b53f2d5e7b928249f26652d",
+    "extraction_round": "R132 scene decode, 289 scene folders",
+    "note": "the source files live in the bridge repository and are not readable from this repository, so nothing here can re-derive them; the hashes are what a bridge-side round re-checks.",
+    "reverify_on_the_bridge": "sha256sum gamedata/tables/CONSTDATA_TH__SCENE_NAME.tsv gamedata/PF_GAMEDATA_SCENE_INDEX.tsv gamedata/scene/Bg1177/Bg1177.placements.tsv",
+    "last_reverified": "2026-08-26 01:0x (+07:00), round jjxgz3, all four hashes matched"
+  },
+  "table_columns_pinned": [
+    "n_ID", "s_MODLE_ID", "s_IMAGENAME", "n_SCENE_WEATHER",
+    "n_SCENE_DAYANDNIGHT", "n_SCENE_TYPE", "n_SCENE_SUBTYPE", "n_CLINE_TYPE",
+    "n_CANGLIDE", "n_CANRIDE", "n_LIMIT_HEIGHT", "n_SAVE", "n_MARKER",
+    "n_CAMERA_TYPE", "n_COLLECT_MAP", "n_SCENE_LV", "n_VIDEO_NAME"
+  ],
+  "destinations": [
+    {
+      "n_id": 1,
+      "model_id": "BG0001",
+      "scene_name_source_utf8_hex": "e79a87e5aeb6e6b8af",
+      "scene_name_ascii": "Port Royal",
+      "image_name": "Bg0001_air",
+      "native_placement_count": 149,
+      "native_definition_count": 113,
+      "native_sha256": "026bbe32ca2b69853b1433d585de7e80bb67e7f713e086b9347fd10ad1dc2070",
+      "role": "home",
+      "status": "rendered_in_every_boot_of_this_project",
+      "table_row": {
+        "n_SCENE_WEATHER": 5, "n_SCENE_DAYANDNIGHT": 15, "n_SCENE_TYPE": 1,
+        "n_SCENE_SUBTYPE": 0, "n_CLINE_TYPE": 1, "n_CANGLIDE": 1,
+        "n_CANRIDE": 1, "n_LIMIT_HEIGHT": 30000, "n_SAVE": 1, "n_MARKER": 1,
+        "n_CAMERA_TYPE": 1, "n_COLLECT_MAP": 201, "n_SCENE_LV": 0,
+        "n_VIDEO_NAME": 0
+      },
+      "spawn": {
+        "x": -9239.95703125,
+        "y": -2830.045166015625,
+        "z": 223.29209899902344,
+        "provenance": "V135 new-character spawn, the position this runtime stands a fresh character on in every default boot"
+      },
+      "ground": null
+    },
+    {
+      "n_id": 2,
+      "model_id": "BG0002",
+      "scene_name_source_utf8_hex": "e79ba3e78d84e6b581e694bee5b3b6",
+      "scene_name_ascii": "Prison Exile Island",
+      "image_name": "Bg0002_air",
+      "native_placement_count": 106,
+      "native_definition_count": 46,
+      "native_sha256": "a649f4afab701df3698b9ffebbb83b77863531a9113c40b6f12f056b7f030b16",
+      "role": "proven_second_scene",
+      "status": "runtime_pass_SCENE_001_behind_a_scenario_flag",
+      "table_row": {
+        "n_SCENE_WEATHER": 1, "n_SCENE_DAYANDNIGHT": 15, "n_SCENE_TYPE": 2,
+        "n_SCENE_SUBTYPE": 0, "n_CLINE_TYPE": 2, "n_CANGLIDE": 1,
+        "n_CANRIDE": 1, "n_LIMIT_HEIGHT": 30000, "n_SAVE": 1, "n_MARKER": 2,
+        "n_CAMERA_TYPE": 1, "n_COLLECT_MAP": 202, "n_SCENE_LV": 0,
+        "n_VIDEO_NAME": 0
+      },
+      "spawn": {
+        "x": 26905.0,
+        "y": 21185.0,
+        "z": 1680.0,
+        "provenance": "scene2_marker2, the position scenarios/scene2_load_only.json stood a live client on in SCENE-001"
+      },
+      "ground": null
+    },
+    {
+      "n_id": 278,
+      "model_id": "Bg1177",
+      "scene_name_source_utf8_hex": "e6b299e78198e8b6b3e79083e5a0b4285445535429",
+      "scene_name_ascii": "beach football field (TEST)",
+      "image_name": "BgNull",
+      "native_placement_count": 9,
+      "native_definition_count": 26,
+      "native_sha256": "7dbe6618c21edbc3d23da2789b9b799e9a035f2c2dd91a3a889fb39cd524bfc2",
+      "role": "test_stage",
+      "status": "never_sent_to_any_client_by_this_project",
+      "table_row": {
+        "n_SCENE_WEATHER": 5, "n_SCENE_DAYANDNIGHT": 2, "n_SCENE_TYPE": 4,
+        "n_SCENE_SUBTYPE": 0, "n_CLINE_TYPE": 4294967295, "n_CANGLIDE": 0,
+        "n_CANRIDE": 0, "n_LIMIT_HEIGHT": 0, "n_SAVE": 0, "n_MARKER": 0,
+        "n_CAMERA_TYPE": 0, "n_COLLECT_MAP": 0, "n_SCENE_LV": 0,
+        "n_VIDEO_NAME": 0
+      },
+      "table_row_differences": {
+        "differs_from_both_measured_scenes_on": [
+          "n_SCENE_DAYANDNIGHT", "n_SCENE_TYPE", "n_CLINE_TYPE", "n_CANGLIDE",
+          "n_CANRIDE", "n_LIMIT_HEIGHT", "n_SAVE", "n_MARKER", "n_CAMERA_TYPE",
+          "n_COLLECT_MAP"
+        ],
+        "the_three_that_decide_whether_a_player_can_live_here": {
+          "n_SAVE": "0 - scenes 1 and 2 are 1. Whatever this flag gates, this scene is not marked the way a scene a character persists in is marked.",
+          "n_MARKER": "0 - no authored entry marker. There is no developer-blessed arrival point in this scene at all.",
+          "n_CAMERA_TYPE": "0 - only 10 of 271 rows carry 0, and the two comparable BgNull test scenes (259 Bg1163, 307 Bg1191) both carry 1. This one is unusual even among test scenes."
+        },
+        "n_LIMIT_HEIGHT": "0 against 30000 at both measured scenes, while the pinned spawn z is about -2493. If that column bounds height the way its name reads, this pairing is worth watching in the attended boot.",
+        "reading": "these are pinned as facts, not as predictions. None of them has a measured consequence in this project, and none of them is a reason to skip the attended check - they are the list of things to look at when it goes wrong."
+      },
+      "spawn": {
+        "x": -13270.0576171875,
+        "y": 22794.2734375,
+        "z": -2492.7685546875,
+        "provenance": "native placement index 4, 'Mob_set_02 04' - an authored position the scene's own developer placed something on, chosen over a synthetic point because it is the only kind of position in this scene with any evidence under it"
+      },
+      "superseded_spawn": {
+        "x": -12571.7366536458,
+        "y": 22893.2862413194,
+        "z": -2492.7685546875,
+        "provenance": "arithmetic mean of the nine native placements - the round jjxgz3 first choice, kept as history",
+        "why_superseded": "the centroid is 705 units from the nearest authored node, so it is the one point in this scene nobody ever placed anything on. Standing z here is derived from mobs up to 4216 units away, and the only calibration this project has for placement-z against an authored player spawn (18 CONSTDATA marker rows in scene 2) disagrees by up to 863 units at 365 units of separation."
+      },
+      "ground": {
+        "derived_from": "the nine native placements of this scene",
+        "placements_tsv": "pf_bridge/gamedata/scene/Bg1177/Bg1177.placements.tsv",
+        "placements_tsv_sha256": "4f09dfeaa5b75d65a09009fe0ad58b01a4e6644e1f2eb64b55af3d7e7c4a0f02",
+        "x_min": -14551.544921875,
+        "x_max": -8356.515625,
+        "y_min": 21667.37109375,
+        "y_max": 23876.79296875,
+        "z_min": -2492.76953125,
+        "z_max": -2492.767578125,
+        "z_spread": 0.001953125,
+        "extent_x": 6195.029296875,
+        "extent_y": 2209.421875,
+        "extent_x_named_records_only": 5548.267578125,
+        "closest_pair_distance": 305.2,
+        "farthest_pair_distance": 6203.8,
+        "record_shape_note": "records 5, 6 and 7 are 73 bytes where the other six are 97, carry no spawn-set name and no template id, and all three sit at the exact x_min. Excluding them moves extent_x to 5548.27 and the centroid by 990 units. Both extents are pinned so nobody has to trust one reading of a format nobody has fully decoded.",
+        "undecoded_columns": "each record also carries three more f32 that vary BY GROUP while z does not (0/500/800, 0/800/1200, 0/530/1800). If those are spawn radii, these records describe spawn volumes and their z is an authored reference height rather than a ground snap. Nobody has decoded them.",
+        "reading": "nine placements spread over 6195 x 2209 units share one z to within 0.002 units. Across all 251 scene folders with two or more placements, only six scenes are that flat, so this is signal and not a decoder default.",
+        "limit": "a .npc file carries NPC placements, not terrain. Flat placement z is evidence about where the developer put mobs, NOT a measurement of the ground mesh, and it says nothing about walls, water, sky or lighting. The eye check in the attended ticket is what decides whether this is the white flat stage the owner asked for."
+      }
+    }
+  ],
+  "capabilities": [
+    "scene_destination_lookup"
+  ],
+  "nonclaims": [
+    "no boot has ever sent scene_id 278 to this client, so nothing here proves the client accepts it",
+    "the n_ID reading of the wire field is a candidate, not an identity - three rival readings agree at rows 1 and 2 and disagree at 278",
+    "no claim about what happens to a character that is ALREADY live when the scene changes - that is RE-077 and it is open",
+    "no claim that the ground of Bg1177 is white, flat, walkable, or free of water",
+    "no claim that image_name BgNull loads, or that a null loading image is harmless",
+    "no claim that the nine placements of Bg1177 spawn anything - and this is NOT a claim that this project never populated another scene: SCENE-002..005 and GT-053 put a remote actor in scene 2, behind a flag",
+    "no claim that the bg0001 census of BUILD-001 is valid in any scene but bg0001",
+    "no claim about travel, walking between scenes, portals, or the client-side trigger that would start one",
+    "no claim that scene_seq must be 0 in a scene other than 1 - 0 is what was measured, at scene 1 and at scene 2",
+    "no claim that a character written into scene 278 can get back out by any in-game means; the only return path this lane provides is a server-side rewrite of the position row",
+    "no claim that this file changes anything a player sees; no runtime path reads it yet"
+  ]
+}
