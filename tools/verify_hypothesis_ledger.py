@@ -595,7 +595,28 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # inverted guard in the replay tool's docstring, and no artifact in this repo
 # naming the round) and 4 MEDIUM, all folded in before commit.  evidence_gap
 # is AMENDED, not replaced, per the house precedent at entries 33 and 39.)
-CANONICAL_CONTENT_SHA256 = "ACD07AA9787EC613EE0210F20EC1832CF3C77A76B0D1DA9A820D017C6A919186"
+# (R165, 2026-08-25, chief cloud: ONE ENTRY ADDED, HYP-PF-039
+# GROUND-LOOT-NAMEPROP-001, appended at the end so every earlier index
+# stays stable.  It is a SEPARATE lane -- own module, own flag, own lane
+# name, own latch, own labels, own scenario file, mutually exclusive with
+# every other mode including HYP-PF-032's -- that asks whether the
+# name-property selector RE-067 pinned reaches the floating item label, by
+# sending a CONTROL element (mask 0x12, no selector fields, pc 44 / frame
+# 54) and a TREATMENT element (mask 0x3A, gate at +0x1B and index 6 at
+# +0x1A, pc 48 / frame 58) at the SAME position with the SAME payload
+# dword.  An adversarial review reshaped it before commit: the first draft
+# sent two treatments at two offsets and three of its four outcomes were
+# unreadable, the name said 'colour' where RE-067 only pinned a text
+# property, and the delay was documented as a wire gap when the frozen
+# sender treats it as an accumulating deadline.  All three are corrected
+# here and in the entry.  THE ENTRY IS PUSHED FOR THE OWNER'S RULING AND
+# NOT MERGED ON THE STANDING PRE-APPROVAL: HYP-PF-032's expiry decision
+# demands an owner extension decision for any further wire change to that
+# lane and, unlike HYP-PF-029's, contains no 'or a new entry' clause, while
+# its stop_rule freezes the element fields this lane sends.  Nothing else
+# moved: no existing entry added to, removed or reordered, no stop_rule or
+# production_allowed touched anywhere else.)
+CANONICAL_CONTENT_SHA256 = "2982AAC1778E2655EBF74FEFBEED8FB06FEFB54423EE503FABA7584CBA585B35"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -835,6 +856,26 @@ EXPECTED_IDS = (
     # version of this slot.  Appended at the end to keep every earlier entry
     # index stable for the index-based fixtures.
     "HYP-PF-038",
+    # HYP-PF-039 (GROUND-LOOT-NAMEPROP-001: a SEPARATE lane behind
+    # --ground-loot-nameprop-scenario that asks whether the name-property
+    # selector RE-067 pinned -- the GATE at element +0x1B under dirty-mask
+    # bit 0x08 and the INDEX at +0x1A under bit 0x20 -- reaches the floating
+    # item name label.  It sends a CONTROL element (mask 0x12, the shape
+    # HYP-PF-032 already ships, so the client falls to the default property
+    # 0x34) and a TREATMENT element (mask 0x3A, gate 1, index 6) at the SAME
+    # position with the SAME payload dword, so the presence of the two
+    # selector fields is the only variable and every outcome is readable.
+    # The two lanes are mutually exclusive at boot and share no state.
+    # THE ENTRY'S OWN LEGITIMACY IS AN OPEN QUESTION FOR THE OWNER:
+    # HYP-PF-029's expiry decision allows "a new entry OR a scoped approval"
+    # and that clause authorised HYP-PF-038 at 3/3, but HYP-PF-032's says an
+    # extension decision from the owner is needed for ANY further wire change
+    # and offers no new-entry alternative, while its stop_rule freezes the
+    # very fields this lane sends.  The lane is therefore pushed for review
+    # and NOT merged on the standing pre-approval; see the entry's provenance
+    # and expiry.decision.  Appended at the end to keep every earlier entry
+    # index stable for the index-based fixtures.
+    "HYP-PF-039",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -902,6 +943,9 @@ EXPECTED_META = {
     ),
     "HYP-PF-038": (
         "protocol_hypothesis", "HOSTILE-HP-LINK-001", "active",
+    ),
+    "HYP-PF-039": (
+        "protocol_hypothesis", "GROUND-LOOT-NAMEPROP-001", "active",
     ),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}

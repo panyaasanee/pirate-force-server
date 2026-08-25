@@ -3591,6 +3591,89 @@
      "active_claim_marker": false
     }
    ]
+  },
+  {
+   "id": "HYP-PF-039",
+   "kind": "protocol_hypothesis",
+   "introduced_checkpoint": "GROUND-LOOT-NAMEPROP-001",
+   "exact_value_or_transform": "Behind the explicit name-property opt-in scenario only (scenarios/ground_loot_nameprop_probe.json, id ground_loot_nameprop_probe, loaded through --ground-loot-nameprop-scenario, which requires an explicit existing --db and is mutually exclusive with every other scenario mode INCLUDING HYP-PF-032's ground-loot lane and the allow-listed sets that lane belongs to), emit TWO extra GSCN_RunTimeProtocolRes frames at the house scene-load moment (first exact TargetPos after the runtime ack), exactly once per session, ONE element per frame, at THE SAME position and carrying THE SAME payload dword: a CONTROL and a TREATMENT.  Both frames are msg id 0x6E9D, version 4, inherited VitalData mask 0, DERIVED change-mask bit 0x08 (the 0x5F85B0 list at client +0x20), tag12 u16 count 1, one element.  The CONTROL element (key 3, delay 0.0) carries dirty mask 0x12 -- exactly the shape HYP-PF-032 already ships -- so it names no selector field and the client falls through to the DEFAULT UI text property 0x34.  The TREATMENT element (key 4, scheduler delay 1.50) carries dirty mask 0x3A: the same dword and position PLUS tag05 u8 name-property GATE 1 at +0x1B (bit 0x08) and tag08 u8 name-property INDEX 6 at +0x1A (bit 0x20), in the codec's own ascending-bit field order -- dword, gate, the three tag2A f32, index.  Payload dword 2200423 on both, x = trigger + 30.0 on both, Y and Z the trigger's own on both.  THE ONLY VARIABLE IS WHETHER THE TWO SELECTOR FIELDS ARE PRESENT.  Index 6 and not 1 because the element ctor at [0x005F82C0,0x005F83F9) already leaves +0x1A = 1, so gate=1,index=1 would be indistinguishable at the client from gate=1 with no index sent.  Because the masks differ the two frames differ in length and in coordinate spans, and EVERY pin is therefore per element: the control is pc 44 / frame 54 with coordinate payload bytes at [30:34]/[35:39]/[40:44], masked-template sha256 8657614E33073F5C1969AA6CB1FEAA441E0A1ED011F38AD13B22270183B8E26D and frame FB419334817234FFEA7A2A8A498E2C24DF7D223915783D5CBFBB87B2866BAD9D; the treatment is pc 48 / frame 58 with coordinate payload bytes at [32:36]/[37:41]/[42:46], masked-template sha256 34E4D5B285258FD8BE929704195F2C704B6B25A03ECDDC9F41C2D8E42C115FF2 and frame A91392DDC1F092DDFE7F5897E2A38CAB9C7C93646BB06BA5248F5161578E1D07.  Single-element frames are the V43 lesson restated, not convenience: a real client raised ErrorData=28317 on a combined multi-record derived-mask RuntimeRes collection and the shipped fix is one record per frame (make_port_royal_npc_single_packets).  THE 1.50 IS A SCHEDULER DEADLINE OFFSET AND NOT A WIRE GAP: the frozen v141 send loop accumulates an absolute deadline and a zero-delay action does not advance it, so realized_gap is about 1.50 minus however late the control frame was actually sent.  The project's own capture measures that lateness at about 85 ms on the sibling lane's 2026-08-25 pair (delays 0.0 and 0.10, realized 42 ms), which puts this lane's realized gap at about 1.41-1.44 s.  NO LAYER IN THIS TREE MEASURES THE REALIZED GAP -- only the attended capture can.  The offset buys margin: the label's measured lifetime is 0.2-0.4 s with +/-0.1 s of edge error, so even at three times the observed lateness the two labels cannot overlap and a video timestamp alone attributes each one; it also rules out the confound that a frame arriving 42 ms later DELETED the first element, if the client reads a count=1 collection as a complete list.  The composer refuses, by name and before composing, an element whose declared mask and written fields disagree in either direction (those guards are live, not decorative, because this lane emits two different masks), a gate of zero, an index outside the client's accepted 1..6 window, and an element count that does not match the pinned templates (zip would otherwise truncate and emit an unpinned element).  The frames RIDE ALONGSIDE the inherited dispatch of the triggering TargetPos (appended after super()'s actions), so the frozen population and the position checkpoint stay byte-for-byte untouched.  A compose refusal at dispatch is the named no-reply event ground_loot_nameprop_compose_refused_no_reply and latches the one-shot so drift can never retry itself onto the wire.",
+   "scope": "Server-side emission of the two pinned single-element frames to the ONE connected client, behind the one opt-in scenario only, only at the first exact TargetPos after runtime ack from a runtime-ready session (selected character, teleport_sent and runtime_ack_sent both set, durable TargetPos parse), exactly once per session.  The lane writes no database row of its own, takes no socket action, schedules no timer, reads no request byte beyond the shared TargetPos parse the baseline already performs, and composes nothing when the scenario is absent.  It has its OWN one-shot latch (ground_loot_nameprop_sent) and never reads or writes HYP-PF-032's latch; the two lanes cannot share a boot, so no observation can be ambiguous between them.  The envelope is restated unchanged from the proven sibling; what is new is the treatment element's dirty mask and the two fields that mask names.",
+   "status": "active",
+   "provenance": "Built 2026-08-25 (chief cloud round R165) on the newly pinned client function RE-067 reported (static, closed 2026-08-25 16:26 +07:00, verifier 54/54, client image sha256 9627211412ac60d50ad189ce5a629443ce928ec23a9f8d219dfb2b157028b623): CREATE selects the label's UI text property at [0x005F47FE,0x005F4822) and UPDATE at [0x005F4D04,0x005F4D5D), both through setter 0x005BACF0; the selection gates on element +0x1B and pushes the default property 0x34 when it is zero; when it is not zero it reads element +0x1A as a signed index, accepts only 1..6, and maps it through dword [index*4+0x00F30EC4] to 0x5D..0x62; the element ctor at [0x005F82C0,0x005F83F9) leaves +0x1B = 0 and +0x1A = 1; and the list codec [0x005F85B0,0x005F8869) sha256 ce0a58f7.. carries +0x1B under dirty-mask bit 0x08 and +0x1A under bit 0x20.  The codec's field order and tags are independently corroborated in this project by pf_bridge/external/PF_SERIALIZER_FIELDS.tsv, which pins the same write path in emission order.  HYP-PF-032 has only ever sent element mask 0x12, so neither selector field has ever been on the wire and every label this project has drawn was drawn with the default property.  THIS ENTRY IS NOT AUTHORISED BY THE STANDING GAMEPLAY PRE-APPROVAL AND MUST NOT BE MERGED ON IT.  An adversarial review of round R165 established the distinction that decides it: HYP-PF-029's expiry decision says a further widening needs 'a new entry OR a scoped approval', which is what authorised HYP-PF-038 as a fresh entry at 3/3; HYP-PF-032's expiry decision says 'ANY FURTHER WIRE CHANGE TO THIS LANE NEEDS AN EXTENSION DECISION FROM THE OWNER FIRST' and contains no new-entry clause at all, while its stop_rule names 'other element masks (0x04/0x08/0x20 fields stay unsent)' as precisely the frozen dimension this lane moves.  A separate lane on the SAME derived bit, through the SAME client parser 0x5F85B0, on those very fields, is a dependent version by every test available, and the project's policy text permits no new dependent version until a scoped approval, proof or retirement.  The lane is therefore built, proven at the wire and dispatcher layers, and PUSHED FOR THE OWNER'S RULING: she decides whether this becomes a fourth tracked version of HYP-PF-032 with a scoped extension_approval_ref naming HYP-PF-032 and ending at that checkpoint (the route tools/verify_hypothesis_ledger.py already enforces), stays a separate entry, or is retired.  Round R165's letter puts that question to her directly.",
+   "evidence_refs": [
+    "scenarios/ground_loot_nameprop_probe.json",
+    "tests/test_ground_loot_nameprop_hypothesis.py",
+    "tools/pf_ground_loot_nameprop_headless_replay.py"
+   ],
+   "accepted_ceiling": "Emitting the exact two pinned frames -- control pc 44 / frame 54, treatment pc 48 / frame 58 -- exactly once, behind the explicit opt-in only.  The ceiling is the WIRE and DISPATCHER layer: the frames are proven to leave the real make_state_class dispatcher on a throwaway copy of the database as two appended actions with no socket action, and are re-read from the dispatched bytes by an independent tag walker inside tools/pf_ground_loot_nameprop_headless_replay.py that never asks the module to decode -- the walker reads the gate byte and the index byte back out by hand, which is the only in-repo proof those fields are on the wire at all, and it is driven by tests/test_ground_loot_nameprop_hypothesis.py as a subprocess so that its guard count is a number something actually executes.  The same tool proves the control and the treatment share a byte-identical payload dword and byte-identical coordinates and differ ONLY in the element key, the mask byte and the two selector fields.  It does NOT reach the client layer by one millimetre: no claim that the client parses mask 0x3A, keeps the element, draws a label, or gives it any particular appearance is made or supported here.",
+   "evidence_gap": "NO CLIENT HAS EVER BEEN SHOWN ELEMENT MASK 0x3A by this project or by anyone we can observe.  Beyond that, three gaps must not be collapsed into one: (1) the join between the STATIC CREATE path and the CLIENT-OBSERVABLE floating label has never been made -- two layers agreeing is consistency, not proof, and if the observed label is a different widget this lane returns a negative for the wrong reason; (2) nothing at any layer says what UI text property 0x34 or 0x5D..0x62 MEAN -- they may select font, size, style, alignment or a whole preset, and RE-067 forbids by name the join to CONSTDATA_TH__FONT_COLOR.n_ID 1..57 because the numbers merely look similar; (3) the CREATE-selector half of this lane's foundation is SINGLE-SOURCE and not checkable at HEAD, because RE-067's verifier is not in version control -- no layer in this repository can re-derive 0x005F47FE, the gate compare, the 1..6 range check, the 0x00F30EC4 table or the 0x005BACF0 setter, and only the codec order and tags are independently corroborated.  The realized wire gap between the two frames is likewise unmeasured by anything here.",
+   "falsification": "Retire or redesign this lane if the emitted bytes ever stop reproducing the pinned pcs/frames, or if it is ever observed to write any database row, take any socket action, emit more than the two frames per session, emit with the scenario absent, or share a boot with HYP-PF-032.  A client that draws the CONTROL label and not the TREATMENT label does not falsify the wire claim -- it answers the V43 question for this shape, namely that this client rejects an element mask of 0x3A on this list, and that is a result.  A client that draws both with the same appearance answers the lane's own question in the negative, cleanly, because the control proves the pipe was alive.  A client that draws neither is a failed session or a geometry failure and is NOT a negative about the selector.  Retire this entry on the owner's word if she rules that a separate lane on HYP-PF-032's frozen element fields circumvents the ceiling she set.",
+   "stop_rule": "Emit only the two pinned frames, only at the first exact TargetPos after runtime ack, only once per session, only behind the one opt-in scenario file.  What is forbidden is WIDENING: more elements or frames, a multi-element count in one frame (the V43-rejected shape), the remaining element field 0x04 (+0x18), another derived bit, any nonzero inherited mask, an index outside 1..6, a gate of zero, a second geometry or timing profile, any database write, any socket action, an update or removal frame, a production or default-mode path, or composing this lane into a shared boot with any other lane -- each of those is a NEW VERSION of this entry.  Reaching the UPDATE path, where RE-067 measured that n_QUALITY can override the index, is a NEW VERSION and not a widening of this one: this lane only ever sends CREATE.  And no version of this entry may be opened at all while the owner's ruling described in provenance is outstanding.",
+   "production_allowed": false,
+   "expiry": {
+    "tracked_versions": [
+     "GROUND-LOOT-NAMEPROP-001"
+    ],
+    "decision": "1 of 3 versions consumed by GROUND-LOOT-NAMEPROP-001 (chief cloud round R165, 2026-08-25); one round built the whole lane (module + scenario + app/runtime wiring + tests + headless replay) at once.  TWO remain, AND NONE OF THEM MAY BE OPENED UNTIL THE OWNER HAS RULED ON WHETHER THIS ENTRY SHOULD EXIST AT ALL.  That question is not rhetorical and it is not the author's to answer: HYP-PF-032 stands at 3/3 with extension_approval_ref null, its expiry decision demands an owner extension decision for ANY further wire change to that lane and -- unlike HYP-PF-029's -- offers no 'or a new entry' alternative, and its stop_rule freezes the exact element fields this lane sends.  The sanctioned route, if the owner grants it, is to append GROUND-LOOT-001-v4-name-property-selector as HYP-PF-032's fourth tracked version together with an extension_approval_ref naming HYP-PF-032 and ending at that checkpoint, which tools/verify_hypothesis_ledger.py already validates.  If she rules the other way, retire this entry and delete the lane; the cost is one round and nothing on main has to be undone, which is why the code was pushed to a branch for review rather than merged.  Proven offline and through the real dispatcher on a throwaway database copy; never driven over TCP and never seen by a client."
+   },
+   "max_versions": 3,
+   "extension_approval_ref": null,
+   "source_refs": [
+    {
+     "path": "src/pirateforce_foundation/ground_loot_nameprop_hypothesis.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-039 active",
+      "GROUND_LOOT_NAMEPROP_CHECKPOINT = \"GROUND-LOOT-NAMEPROP-001\"",
+      "ground_loot_nameprop_probe",
+      "GROUND_LOOT_NAMEPROP_DERIVED_BIT = 0x08",
+      "GROUND_LOOT_NAMEPROP_CONTROL_MASK = 0x12",
+      "GROUND_LOOT_NAMEPROP_TREATMENT_MASK = 0x3A",
+      "GROUND_LOOT_NAMEPROP_TREATMENT_DELAY = 1.50",
+      "ui_text_property_is_a_colour",
+      "static_create_path_is_the_widget_the_observer_sees",
+      "scheduler_delay_is_a_wire_gap",
+      "production_allowed = False"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "src/pirateforce_foundation/runtime.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-039 active",
+      "GROUND_LOOT_NAMEPROP_LABELS",
+      "hyp_pf_039_ground_loot_nameprop_pair_committed",
+      "ground_loot_nameprop_compose_refused_no_reply",
+      "self.ground_loot_nameprop_sent = False",
+      "require_ground_loot_nameprop_scenario"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "src/pirateforce_foundation/app.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-039 active",
+      "--ground-loot-nameprop-scenario requires an explicit ",
+      "load_ground_loot_nameprop_scenario",
+      "ground_loot_nameprop_scenario=ground_loot_nameprop"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "scenarios/ground_loot_nameprop_probe.json",
+     "required_markers": [
+      "\"hypothesis_id\": \"HYP-PF-039\"",
+      "\"production_allowed\": false",
+      "\"test_only\": true",
+      "\"element_mask_hex\": \"0x12\"",
+      "\"element_mask_hex\": \"0x3A\"",
+      "ui_text_property_is_a_colour",
+      "client_accepts_element_mask_0x3A",
+      "actor_name_label_appearance",
+      "first_target_pos_after_runtime_ack"
+     ],
+     "active_claim_marker": false
+    }
+   ]
   }
  ]
 }

@@ -547,4 +547,11 @@
 # opt-in bit-0x08 render lane.  src/tests/scenarios are allow-listed
 # wholesale; only the tool needs its own line here.
 !/tools/pf_ground_loot_headless_replay.py
+# GROUND-LOOT-NAMEPROP-001 (HYP-PF-039, GT-069): the headless replay proof
+# for the SEPARATE opt-in selector lane -- a control element at mask 0x12
+# and a treatment element at mask 0x3A carrying the name-property gate at
+# +0x1B and the index at +0x1A.  Same shape as the line above:
+# src/tests/scenarios are allow-listed wholesale, only the tool needs its
+# own line here.
+!/tools/pf_ground_loot_nameprop_headless_replay.py
 !/tools/pf_external_registry.py
