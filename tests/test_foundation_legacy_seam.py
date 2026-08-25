@@ -80,7 +80,38 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers ONE deliberate movement (ITEMOP-RES-GREENLINE-001,
+    # This pin covers ONE deliberate movement (LOGOUT-TRANSITION-GT033-ANSWERED,
+    # 2026-08-25, chief cloud round R166): session_lifecycle/clean_logout
+    # stays in_progress -- its grade does NOT move and nobody claims the
+    # behaviour works -- but the row gains three evidence refs
+    # (scenarios/logout_hypothesis_ack_close.json,
+    # scenarios/logout_hypothesis_return_select_server.json,
+    # scenarios/logout_hypothesis_chat_push_return_select.json), one report
+    # ref (reports/PF_LOGOUT_RETURN_SELECT001_HYP028_20260820.md) and two
+    # test refs (tests/test_logout_return_select_hypothesis.py,
+    # tests/test_logout_chat_push_hypothesis.py).  Why now: the row's prose
+    # had stood untouched since 2026-08-18 and still named "0x3D4B-first"
+    # as the next design, while its evidence refs pointed only at the two
+    # shapes falsified that day.  The attended GT-033 runs of 2026-08-25
+    # (jobs 1143-1152, three cells of a four-cell table, same boot commit
+    # 06b62abd423cff9fc9c965d52178fd2fca62c38e, CODE_DELTA 0) falsified two
+    # further response shapes at the client-observable layer: HYP-PF-028
+    # put a hash-pinned ReturnSelectServerVital 0x709E on the wire ahead of
+    # the ack -- the real client received all 48 bytes, sha256 matching the
+    # pin, the first time in project history -- and did not transition;
+    # HYP-PF-013 (ack+close, differing by exactly that one frame) did not
+    # transition on subcode 03 and did not self-exit on subcode 01.  The
+    # wire/DB layer passed every run (closed_at committed before the
+    # response bytes were queued, OPEN_SESSIONS 0, integrity ok, canonical
+    # untouched).  0x3D4B-first was never run and is NOT resurrected here:
+    # the remaining branch is the orchestrator mode/timer (vtable
+    # 0xf45030), a static question queued on the bridge as RE-070.  Two
+    # response shapes stay untried and are recorded as nonclaims, not work:
+    # close without acking, and ack then stay silent without closing.  The
+    # ledger does NOT grow -- no hypothesis entry is added, amended or
+    # removed by this change.
+    #
+    # Previous pin 39034397..DEDF60C covered ONE deliberate movement (ITEMOP-RES-GREENLINE-001,
     # 2026-08-24, chief cloud round R154): presentation/
     # system_message_display stays in_progress but gains one evidence ref
     # (scenarios/item_operate_res_greenline_sweep.json) and one test ref
@@ -573,7 +604,7 @@ GRADE_SUBSET_SHA256 = (
     # 26D752FE..BA9A (round 65) occupied_destination_policy not_started ->
     # in_progress under HYP-PF-017 (ITEM-SWAP-001); see its lineage note before that
     # for round 53's 78558E56..6DC8.
-    "3903439722086B1A33878569FF9C371C0A8FA40FAC5A2CB5A038C710BDEDF60C"
+    "62505A105DAC35AF86CA4CA69F2BD81383D3EF2B36D8F12E54D50846BB760026"
 )
 
 
