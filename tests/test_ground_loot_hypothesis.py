@@ -158,24 +158,24 @@ class GroundLootScenarioTests(unittest.TestCase):
 # The GT-042 re-derived element table, restated HERE so the composition test
 # below shares no code with the module's _element_wire: key 1 near the
 # TRIGGERING TargetPos (+30 on X only), key 2 far (+800 on X only), both
-# carrying the OUR-DESIGN payload dword 2600001 under element mask 0x12
+# carrying the OUR-DESIGN payload dwords 2200423 / 2200003 under mask 0x12
 # (position+dword).  Coordinates are trigger-relative since the attended
 # GT-045 run measured the persisted DB position ~700 units away from the
 # V135 constants the first version pinned absolutes from.  Each element
 # travels in its OWN frame, count=1 -- the V43 lesson.
 EXPECTED_ELEMENTS = (
-    (1, 2600001, 30.0),
-    (2, 2600001, 800.0),
+    (1, 2200423, 30.0),
+    (2, 2200003, 800.0),
 )
 # The GT-045-measured real spawn, used here as one concrete trigger.
 TRIGGER = (-8553.947265625, -2579.68896484375, 186.0)
 EXPECTED_TEMPLATE_PINS = (
-    "915331D5103215675E246B0011B054C9D4F7D2C4D48C8E2B010A45C3D0F5FC33",
-    "DC6A8FE62BC2C89B92AFA8060D2CEC5DCCDF23D81A242F95AA354C5BD48F8A14",
+    "F9875639513F38E0D2603A53137D205AF47246447102B431665B27AE23BD4576",
+    "159DD1AB3074519EF95821DE6953697A03C035F35804024F8CD27FFFD22E39D7",
 )
 EXPECTED_FRAME_TEMPLATE_PINS = (
-    "199B695E6FD30D26140D5EB719A6F526EAD199141A2B84BBF990CB6AD9DDC9D2",
-    "D8A0BD6BC857A8508D09A550814FC1685F0388F8650F028482A20EB5785EDCE1",
+    "A67230FCC80A619F0ADBD35F99332DC3597768A28C603368D41D8DD0192E7902",
+    "6B0F7FA8B3685914B68503891A5E4CCCD988278B93F8BF72E3C2FB772EE33B1B",
 )
 COORD_SPANS = ((30, 34), (35, 39), (40, 44))
 FRAME_COORD_SHIFT = 10

@@ -43,11 +43,52 @@ PROVENANCE OF EVERY BYTE (layer-tagged; see docs/HYPOTHESIS_LEDGER.json)
 * [OUR DESIGN] Everything else: firing at the first TargetPos after the
   runtime ack (the house scene-load moment), sending exactly TWO elements
   (one near the triggering position, one far, so "does not draw" can be
-  told apart from "draws off-screen"), the element keys 1 and 2, the payload dword
-  2600001 (a loot-roller-style ITEM_MISC id; NOTHING proves +0x14 is an
-  item id at all), and the element mask 0x12 = 0x10|0x02 (position + the
-  one dword the GT-045 ticket names).  The original server is gone and
-  unrecoverable; none of this claims to reproduce it.
+  told apart from "draws off-screen"), the element keys 1 and 2, the payload
+  dwords 2200423 and 2200003, and the element mask 0x12 = 0x10|0x02
+  (position + the one dword the GT-045 ticket names).  NOTHING proves +0x14
+  is an item id at all -- that nonclaim is unchanged.
+* [MEASURED, attended GT-045 round 1104, 2026-08-24] With 2600001 on both
+  elements, an attended observer watched the client play a brown
+  ground-drop dust effect on the ground at the position this lane sent,
+  for about 0.45 s, and then nothing: no item model, no floating name, and
+  nothing left standing when she walked onto both coordinates afterwards.
+  That is the whole of what was seen.  The wire half measured byte-exact
+  in the same round (near = trigger+30.000, far = trigger+800.000, Y and Z
+  the trigger's own to the bit).
+* [MEASURED, committed tables] CONSTDATA_TH__ITEM_MISC n_ID=1 (the id that
+  round carried) has n_DROPMODEL_TYPE=0, and only 7 of that table's 1646
+  rows carry a drop model at all.  CONSTDATA_TH__EQUIPMENT_BASE carries one
+  on 925 of its 974 rows.  n_ID=423 there is the item the owner's reference
+  clip drops, and n_ID=3 is a starter weapon; both carry
+  n_DROPMODEL_TYPE=1.
+* [PROPOSED -- this is a hypothesis, not a finding] That the missing model
+  is explained by the id, i.e. that the client looks the payload dword up
+  in an item table and had no drop model to draw.  This lane now sends
+  2200423 on element 1 and 2200003 on element 2 to ask that question at a
+  screen.  What the change may NOT be read as:
+    - It is NOT a field experiment.  n_ID_MODEL=0 is a VALID model index,
+      not "absent": s_ID_ICON == ICON_<PARTS>_<n_ID_MODEL:03d>_<n_ID_MAP:03d>
+      holds on 376 of 376 parts-bearing EQUIPMENT_BASE rows, 18 rows across
+      6 model families carry a _000_ member, and every one of the 1646
+      ITEM_MISC rows has n_ID_MODEL=0 including the 7 that DO carry a drop
+      model.  So a model at element 1 says NOTHING about which of
+      n_ID_MODEL or n_DROPMODEL_TYPE the client reads.
+    - The two ids do NOT differ in one field.  They differ in 10 of 39
+      columns, four of them visual (s_ID_ICON, n_ID_MODEL, n_ID_MAP,
+      n_QUALITY).
+    - Moving 2600001 -> 2200423 also moves the TABLE CODE, 26 -> 22, and
+      RE-060 pinned that the client decodes full_id/100000 into a runtime
+      table-object lookup.  A positive therefore cannot separate "this item
+      has a drop model" from "code 22 resolves and code 26 does not".  The
+      same-table control that would separate them is 2600022 (ITEM_MISC,
+      n_DROPMODEL_TYPE=12); it is named in the GT-045 ticket as the next
+      experiment, deliberately NOT bundled into this one-shot round.
+    - Element 2 sits 800 units out, where a negative is equally explained
+      by distance.  It stays the off-screen control it always was.  Only
+      element 1 is readable, and it is readable only as "did anything get
+      drawn", never as a field verdict.
+  The original server is gone and unrecoverable; none of this claims to
+  reproduce it.
 * [PROVEN, and it reshaped this lane before it ever shipped] The two
   elements travel as TWO single-element frames, count=1 each, NOT as one
   count=2 collection.  V43 measured a real client raising ErrorData=28317
@@ -99,9 +140,22 @@ NONCLAIMS
   FX anchors or anything else.  A negative attended result (wire proven,
   nothing drawn at either coordinate) permanently retires this candidate
   and is a complete answer, not a failure.
-* The payload dword is NOT claimed to be an item template id, and no
-  committed artifact maps "Red leaves Hammer" (the one observed drop) to
-  any numeric id.
+* The payload dword is NOT claimed to be an item template id, and NOTHING
+  at any layer shows the client ever READS +0x14.  Round 1104 sent an id
+  with no drop model and still got the dust, so "the handler plays a
+  positional effect on record arrival and never touches the dword" fits
+  the evidence exactly as well as "the client looked the row up".  If that
+  is the true shape, both new ids produce dust, and a negative round would
+  retire the right explanation for the wrong reason.  The static question
+  that would settle it -- does the 0x5F85B0 read path at 0x89A640 ever
+  reach the item decoder RE-060 pinned -- is queued on the bridge, not
+  assumed here.
+* The observed drop DOES have an exact name match in the committed tables:
+  TEXTDATA_TH__EQUIPMENT_BASE_TIP n_ID=423 s_NAME is literally "Red leaves
+  Hammer".  RE-060 pinned that the client resolves display names from the
+  linked TEXTDATA TIP table, not from the CONSTDATA CJK s_NAME, so that is
+  the correct table to cite -- but a name match in a client table is still
+  not proof that +0x14 is the field the client looks that row up by.
 * Drawing is not pickup.  Pickup direction is a separate static question
   (GT-046, PickupTerrainThing) and this module does not touch it.
 * No aging/removal mechanism for the bit-0x08 list is known; whether the
@@ -154,12 +208,12 @@ class GroundLootScenario:
 
 _NEAR = GroundLootElement(
     element_key=1,
-    payload_dword=2600001,
+    payload_dword=2200423,
     x_offset=30.0,
 )
 _FAR = GroundLootElement(
     element_key=2,
-    payload_dword=2600001,
+    payload_dword=2200003,
     x_offset=800.0,
 )
 
@@ -186,16 +240,16 @@ GROUND_LOOT_COORD_SPANS = ((30, 34), (35, 39), (40, 44))
 # framing header stays as covered as it was under the v1 whole-frame pins.
 GROUND_LOOT_FRAME_COORD_SHIFT = 10
 GROUND_LOOT_NEAR_PC_TEMPLATE_SHA256 = (
-    "915331D5103215675E246B0011B054C9D4F7D2C4D48C8E2B010A45C3D0F5FC33"
+    "F9875639513F38E0D2603A53137D205AF47246447102B431665B27AE23BD4576"
 )
 GROUND_LOOT_FAR_PC_TEMPLATE_SHA256 = (
-    "DC6A8FE62BC2C89B92AFA8060D2CEC5DCCDF23D81A242F95AA354C5BD48F8A14"
+    "159DD1AB3074519EF95821DE6953697A03C035F35804024F8CD27FFFD22E39D7"
 )
 GROUND_LOOT_NEAR_FRAME_TEMPLATE_SHA256 = (
-    "199B695E6FD30D26140D5EB719A6F526EAD199141A2B84BBF990CB6AD9DDC9D2"
+    "A67230FCC80A619F0ADBD35F99332DC3597768A28C603368D41D8DD0192E7902"
 )
 GROUND_LOOT_FAR_FRAME_TEMPLATE_SHA256 = (
-    "D8A0BD6BC857A8508D09A550814FC1685F0388F8650F028482A20EB5785EDCE1"
+    "6B0F7FA8B3685914B68503891A5E4CCCD988278B93F8BF72E3C2FB772EE33B1B"
 )
 
 _EXPECTED = {
