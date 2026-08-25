@@ -61,8 +61,18 @@ class SceneRegistryTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.registry = load_scene_registry()
 
-    def test_the_registry_pins_exactly_the_three_scenes_that_have_evidence(self):
-        self.assertEqual(self.registry.ids, (1, 2, TEST_STAGE_SCENE_ID))
+    def test_the_registry_pins_exactly_the_scenes_that_have_evidence(self):
+        """Four since round 4fhdxv, when COO-DECISION 0246 named the M2 stage.
+
+        1 and 2 are the two this client has loaded.  278 is the stage the
+        owner asked for.  997 is FilmScene, which COO-DECISION 20260826_0246
+        section 1.2 named for M2 - a green screen with fog and environment
+        still on.  Round 4fhdxv pointed the travel gate at it and then pointed
+        it back at 278 after the adversary pass; 997 stays pinned with the
+        reasons on both sides, because the COO's ruling stands.  A fifth id
+        appearing here without a decision behind it is what this test is for.
+        """
+        self.assertEqual(self.registry.ids, (1, 2, TEST_STAGE_SCENE_ID, 997))
 
     def test_the_default_destination_is_still_home(self):
         # Nothing in this module may move where a player lands by existing.
