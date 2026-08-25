@@ -22,11 +22,27 @@ only an allowlisted scenario object hands out - a build the owner boots with no
 flags cannot reach one byte of it.  So the encoder is RE-DERIVED here, in
 general form, from the same static anchors, and ``tests/test_mob_death.py``
 pins every constant and the composed bytes against that probe lane value by
-value and byte by byte.  This module imports NO probe lane.  The owner has
-approved crossing the ad-hoc "never send HP 0" restriction in order to test
-death (COO CHARTER-02 / BUILD-005), so the restriction that remains is the one
-this module enforces itself: HP 0 may only be composed TOGETHER with the timer
-field, which is exactly the pair the client's gate reads.
+value and byte by byte.  This module imports NO probe lane.
+
+WHAT THE OWNER ACTUALLY APPROVED, AND WHAT IT DOES NOT COVER.  ~~"COO
+CHARTER-02 / BUILD-005"~~ was the wrong citation and the adversarial review of
+this round caught it: CHARTER-02 authorises this lane to work on the mob
+table, aggro, damage and death in parallel, and says nothing about HP 0 or bit
+0x0080.  The ruling that lifts a lethal restriction is the owner's of
+2026-08-25 18:15 (+07:00), section 3, and it is narrow: it exempts a lethal
+frame from HYP-PF-038's stop rule, keeps that lane's production_allowed False,
+keeps one shot per connection, keeps identity 0x201F, and then sequences the
+work - PROVE THE DEATH LOOP ON 0x201F FIRST, THEN move the target to a real
+mob from the game table, and do not merge the two steps into one round.
+
+This module is general and therefore reaches further than that ruling does.
+Two things keep it honest rather than quietly past it: its pin and its
+:data:`SANCTIONED_FIRST_TARGET_IDENTITY` are 0x201F, the sanctioned target, so
+the first wiring the chief writes is step one and not step two; and the letter
+for this round puts the widening question to the COO instead of answering it
+here.  The restriction this module enforces on itself either way: HP 0 may
+only be composed TOGETHER with the timer field, which is exactly the pair the
+client's gate reads.
 
 THE CHAIN, AND WHY IT IS TWO FRAMES AND NOT ONE.
 
@@ -38,10 +54,15 @@ THE CHAIN, AND WHY IT IS TWO FRAMES AND NOT ONE.
   right one and the vital carrier is not.
 * AN ACTOR CANNOT BE BORN DEAD.  The inbound handler looks the entry's 64-bit
   identity up: FOUND -> the apply-and-dead-sync path; NOT FOUND -> the spawn,
-  which never touches the dead sync.  A field mob is already on screen when a
-  player kills it, so this lane always takes the FOUND branch - but that is
-  also why a re-apply that re-sends a dead monster as a live body brings it
-  back to life, and why :func:`repopulation_entries` exists.
+  which never touches the dead sync.  A field mob a player is hitting is
+  already on that player's screen, so the KILL always takes the FOUND branch.
+  ~~"this lane always takes the FOUND branch"~~ is false, though, and the
+  counterexample is in this module: a client that connects AFTER the kill has
+  never seen the identity, so the corpse entry :func:`repopulation_entries`
+  hands it takes the spawn, gets no dead sync, and draws a body standing at
+  zero HP for that player alone.  Nothing here fixes that - it is written down
+  as a nonclaim and it is the chief's to solve at the census, because only the
+  census knows a client is new.
 * THE TIMER POLARITY IS INVERTED FROM INTUITION.  ``timer > 0`` is the DYING
   side (the latch); ``timer <= 0`` is the DEAD side (the task that builds
   CActorTask_Dead and plays the die animation).  Getting this backwards
@@ -51,9 +72,15 @@ THE CHAIN, AND WHY IT IS TWO FRAMES AND NOT ONE.
   ``BasicAttr.f32[+0x58]`` has NO writer anywhere in the image that decrements
   it - not float, not integer - and no display path reads it at all.  The
   number a tester watched belongs to a UI widget counting on its own clock.
-  So the field FREEZES at whatever the server last sent, and the second frame
-  is REQUIRED: without it the monster falls, shows a countdown, and then stands
-  there dying forever.
+  So the field FREEZES at whatever the server last sent.
+  ~~"the second frame is REQUIRED: without it the monster falls, shows a
+  countdown, and then stands there dying forever"~~ - STRUCK.  GT-029 measured
+  the opposite and GT-025 watched to t+240: when the widget's own count
+  reaches zero the number simply vanishes and the NPC GOES ON LYING THERE.
+  Nothing stands up.  What the frozen field actually means is that the actor's
+  stored timer stays 20.0, so the DEAD side of the gate is never satisfied by
+  the passage of time; if the death task is worth reaching at all, the server
+  is the only thing that can reach it.
 
 WHAT IS CLIENT-OBSERVABLE ALREADY, AND WHAT IS NOT.  READ THIS BEFORE WRITING
 ANY SENTENCE ABOUT A CORPSE.  Both frames have already been sent to a real
@@ -103,6 +130,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
+import struct
 from typing import Any
 
 from . import field_mobs
@@ -131,14 +159,26 @@ MOB_DEATH_LANE = "B_COMBAT"
 # finds it rather than only in a PR body.
 MOB_DEATH_WIRING = (
     "runtime.py: after mob_combat.commit_step accepts a step whose "
-    "outcome.death_due is True, call mob_death.kill(legacy, mob, "
-    "step.outcome, register); send step.frames (the announce) first, then "
+    "step.death_due is True - the CombatStep property, NOT "
+    "step.outcome.death_due, which is also True for a hit on something "
+    "already dead - call mob_death.kill(legacy, mob, step.outcome, register); "
+    "commit it with mob_death.commit_death(register_now, death_step) and send "
+    "nothing if that is refused; then send step.frames (the announce), then "
     "death_step.dying_frame, then death_step.dead_frame after "
-    "death_step.hold_ms; keep death_step.register and build every later "
-    "collection for this scene with mob_death.repopulation_entries(legacy, "
-    "roster, register, ledger=ledger) so a re-apply neither resurrects a "
-    "corpse nor heals a wounded monster back to its ceiling."
+    "death_step.hold_ms; keep the committed register and hand "
+    "mob_death.corpse_override(legacy, roster, register) to whatever builds "
+    "this scene's census, so the rebuild replaces those identities' entries "
+    "rather than re-sending them alive."
 )
+# The owner's own sequencing, carried here because a module that forgets it
+# will be read as having been granted more than it was.  The ruling of
+# 2026-08-25 18:15 (+07:00), section 3, lifts the lethal-frame restriction and
+# then says in terms: prove the death loop on identity 0x201F FIRST, and only
+# THEN move the target to a real mob from the game table - the two steps may
+# not be merged into one round.  This module is general, and its pin is 0x201F
+# for exactly that reason.  The chief's first wiring should name this identity
+# alone; widening it to the roster is a separate step and a separate ruling.
+SANCTIONED_FIRST_TARGET_IDENTITY = 0x201F
 
 # ---------------------------------------------------------------------------
 # The wire.  Every constant below is a static anchor carried WITH provenance
@@ -171,6 +211,9 @@ U32_TAG = 0x14
 NPC_ATTR_MASK_TAG = 0x0B
 NPC_BIT_TEMPLATE = 0x01
 NPC_BIT_VISUAL_PRESET = 0x04
+# Where the BasicAttr u16 mask VALUE sits: the DBAttribute mask (2 bytes) plus
+# the tagged identity (9) plus the mask's own tag byte.
+_MASK_VALUE_OFFSET = 2 + 9 + 1
 
 # The two sides of the gate.  Timer STRICTLY POSITIVE latches the dying state;
 # timer <= 0 is what lets the death task be constructed.  Read that twice: it
@@ -188,25 +231,58 @@ DEATH_TASK_GATE_VA = 0x443990          # builds the task when the gate holds
 DEATH_TASK_CTOR_VA = 0x472810          # CActorTask_Dead
 DEATH_ANIMATION_NAME_VA = 0xF0F060     # L"_F_DIE_000"
 DEATH_ANIMATION_NAME = "_F_DIE_000"
-# FACTPACK R102 pins a SECOND pair of predicates reading the same +0x58 field
-# (0x454A70 at vt+0x3C and 0x454AC0 at vt+0x40) plus the local player's
-# Main_Dead open-gate at 0x44A540.  This lane does not claim which actor class
-# each pair belongs to; it composes the field both pairs read.
+# A SECOND pair of predicates reads the same +0x58 field: 0x454A70 at vt+0x3C
+# and 0x454AC0 at vt+0x40, plus the local player's Main_Dead open-gate at
+# 0x44A540 (FACTPACK R102).  ~~This lane does not claim which actor class each
+# pair belongs to.~~ That hedge was an unopened file, not a fact gap: this
+# repository does say which, in three places, and they agree -
+# docs/FUNCTIONAL_COVERAGE.json (domain 3 / hp_death_and_respawn),
+# reports/PF_HP_DEATH001_HP_DEATH_AND_RESPAWN_STATIC_20260819.md and
+# reports/PF_CHUNK2_Q3_BIND_THUNK_FINDINGS_20260819.md put 0x454AC0/0x454A70 on
+# CNetActor and CMyActor, and 0x43BDA0/0x43BD70 on CNetNPC, CAvatarNPC and Pet.
+# So THE PAIR THIS LANE USES IS CLASS-DEPENDENT: the one above is right because
+# these monsters ship as actor_type 4 (CNetNPC-style), and a later round that
+# moves them to actor_type 2 must move to the other pair as well.
 R102_PREDICATE_VAS = (0x454A70, 0x454AC0, 0x44A540)
+NETNPC_PREDICATE_VAS = (DEATH_PREDICATE_VA, DYING_PREDICATE_VA)
+NETACTOR_PREDICATE_VAS = (0x454A70, 0x454AC0)
 
-# OURS, not measured: how long the fallen monster is left in the dying state
-# before the frame that finishes it.  Two frames processed inside one client
-# frame would race the per-frame update that consumes the latch, so the hold is
-# far above any plausible tick.  The ONLY spacing ever put on a client through
-# this carrier is GT-022's 6000 ms, and that number was chosen so a human with
-# a camera could keep up - six seconds between a monster falling and a monster
-# dying is not a game.  700 ms is far clear of any frame and is the only
-# death-adjacent duration this project has measured for anything (GT-030's
-# ~0.7 s animation on the other actor class), so the fall and the finish read
-# as one motion.
+# OURS, and MEASURED BY NOBODY.  How long the fallen monster is left in the
+# dying state before the frame that finishes it.
+#
+# ~~"700 ms is the only death-adjacent duration this project has measured
+# (GT-030's ~0.7 s animation)"~~  STRUCK BY THE ADVERSARIAL REVIEW OF THIS
+# ROUND, AND IT WAS RIGHT: GT-030 is the actor_type 2 remote-player
+# VISIBILITY test, it runs at 15 s a frame, its probes are pinned at HP 100
+# and nothing in it dies.  The only 0.x-second number near it is GT-030-R3's
+# side effect - an NPC DISAPPEARING in 0.6 s, which the queue says cannot be
+# told apart from despawn, replacement or occlusion, and which is why GT-072
+# is open.  There is no measured death animation anywhere in this project.
+# The sentence was a fabricated measurement inside a block labelled as an
+# assumption, which is worse than an unlabelled guess, and it is struck here
+# rather than deleted so the letter that already quoted it can be corrected
+# against something.
+#
+# What is actually known about spacing: GT-022 sent the two frames 6000 ms
+# apart, three times, and that number was chosen so a human with a camera
+# could keep up.  Six seconds between a monster falling and a monster dying
+# is not a game, so this lane does not inherit it.  700 ms is a round number
+# clear of any plausible client frame.  That is the whole justification.
 # [LANE-B ASSUMPTION - awaiting COO confirmation] - the letter for this round
 # carries the question and what has to be undone if the answer is different:
 # nothing but this one number, which no other value in the module depends on.
+#
+# AND THE HOLD MAY BE PROTECTING AGAINST NOTHING.  The first draft justified it
+# as "two frames in one client frame would race the per-frame update that
+# consumes the latch".  That mechanism is not in any artifact this lane cites:
+# 0x4437C0 is called synchronously from the attr-apply loop inside 0x4446F0,
+# not from a per-frame update, and the HYPOTHESIS_LEDGER's own evidence gap for
+# HYP-PF-023 records that the task gate at 0x443990 DOES NOT READ the 0x200
+# latch bit - so the dying latch is not a proven prerequisite for the death
+# task at all, and a single dead frame may open the gate on its own.  The hold
+# is kept because the fall is the half this project has actually watched and
+# sending the latch first is how it was watched; it is NOT kept because a race
+# was demonstrated.  See MOB_DEATH_NONCLAIMS.
 DEATH_TASK_HOLD_MS = 700
 
 MOB_DEATH_NONCLAIMS = (
@@ -238,6 +314,18 @@ MOB_DEATH_NONCLAIMS = (
     "drop ids in the roster are carried, not read, by this lane",
     "the register lives in the caller's process only; nothing in this project "
     "persists a monster's death across a server restart",
+    "the dying latch is NOT a proven prerequisite for the death task: the "
+    "HYP-PF-023 evidence gap records that the gate at 0x443990 does not read "
+    "the 0x200 bit, so the two-frame shape is how the fall was WATCHED, not a "
+    "chain anyone has shown to be required",
+    "a client that connects AFTER the kill has never seen the identity, so "
+    "the corpse entry takes the SPAWN branch, which never touches the "
+    "dead sync: that player sees a body standing at 0 HP, and nothing in this "
+    "lane re-sends it",
+    "the production census (world_population) reads neither the ledger nor "
+    "the register and re-asserts full HP for every placement it rebuilds; "
+    "until the chief wires the override this lane composes, the corpses this "
+    "module makes survive only until that census runs again",
 )
 
 REFUSE_VALUE_NOT_INT = "value_not_int"
@@ -259,6 +347,7 @@ REFUSE_DUPLICATE_REGISTER_IDENTITY = "duplicate_register_identity"
 REFUSE_REGISTER_ROW_DISAGREES_WITH_ROSTER = "register_row_disagrees_with_roster"
 REFUSE_LEDGER_DISAGREES_WITH_REGISTER = "ledger_disagrees_with_register"
 REFUSE_OUTCOME_DISAGREES_WITH_ROSTER = "outcome_disagrees_with_roster"
+REFUSE_REGISTER_STALE = "register_stale"
 # ~~REFUSE_HOLD_OUT_OF_RANGE~~ never declared as its own name: the hold is
 # checked by the same range check as every other integer here, which raises
 # REFUSE_VALUE_OUT_OF_RANGE, and a second name that can never be raised is a
@@ -283,6 +372,7 @@ MOB_DEATH_REFUSAL_REASONS = (
     REFUSE_REGISTER_ROW_DISAGREES_WITH_ROSTER,
     REFUSE_LEDGER_DISAGREES_WITH_REGISTER,
     REFUSE_OUTCOME_DISAGREES_WITH_ROSTER,
+    REFUSE_REGISTER_STALE,
 )
 
 _FLOAT32_MAX = 3.4028234663852886e38
@@ -321,6 +411,16 @@ def _require_identity(value: Any, label: str) -> int:
 
 
 def _require_timer(value: Any) -> float:
+    """The timer AS THE CLIENT WILL READ IT, not as Python holds it.
+
+    The return value is the f32 round trip, and every gate check in this
+    module runs on that rather than on the incoming double.  The reason is a
+    silent kill this lane nearly shipped: ``struct.pack("<f", 1e-46)`` is four
+    zero bytes, so a "strictly positive" dying timer under about 1.4e-45 goes
+    on the wire as 0.0 and composes a DEAD frame that passed a DYING check.
+    The two frames then come back byte-identical, the 0x200 latch is never
+    written, and nothing in the module or the console would have said so.
+    """
     if type(value) not in (int, float) or type(value) is bool:
         raise MobDeathContractError(
             REFUSE_TIMER_NOT_FINITE, "the death timer must be a number")
@@ -329,7 +429,12 @@ def _require_timer(value: Any) -> float:
         raise MobDeathContractError(
             REFUSE_TIMER_NOT_FINITE,
             "the death timer must be a finite float32 value")
-    return timer
+    return as_wire_float(timer)
+
+
+def as_wire_float(value: float) -> float:
+    """What ``legacy.f32tag`` will actually put on the wire, read back."""
+    return struct.unpack("<f", struct.pack("<f", value))[0]
 
 
 def _require_mob(mob: Any) -> FieldMob:
@@ -364,9 +469,19 @@ class DeathRegister:
     Sorted-tuple rather than a set or a dict for the reason ``CombatLedger``
     gives: two registers built from the same kills compare equal in any
     process, and no caller can mutate a record behind the lane's back.
+
+    ``generation`` is here for the reason ``CombatLedger`` has one, and the
+    first draft of this module did not have it.  A register is a value, so
+    "add a death" is a read-modify-write of something nobody owns: two players
+    killing two DIFFERENT monsters in the same tick both read the empty
+    register, both return a register of one, and whichever is stored second
+    erases the other kill.  Nothing raises - and the erased monster stands
+    back up at full HP on the next rebuild.  :func:`commit_death` is the
+    compare-and-swap that makes the loser retry instead.
     """
 
     records: tuple[DeathRecord, ...] = ()
+    generation: int = 0
 
     def __post_init__(self) -> None:
         if type(self.records) is not tuple:
@@ -389,6 +504,7 @@ class DeathRegister:
             raise MobDeathContractError(
                 REFUSE_REGISTER_NOT_SORTED,
                 "register rows must be given in ascending identity order")
+        _require_int(self.generation, "generation", 0, 2 ** 62)
 
     def identities(self) -> tuple[int, ...]:
         return tuple(row.actor_identity for row in self.records)
@@ -418,8 +534,12 @@ class DeathRegister:
                 "the same monster is a caller bug, not an event" % (
                     record.actor_identity),
             )
-        return DeathRegister(tuple(sorted(
-            self.records + (record,), key=lambda row: row.actor_identity)))
+        return DeathRegister(
+            tuple(sorted(
+                self.records + (record,),
+                key=lambda row: row.actor_identity)),
+            self.generation + 1,
+        )
 
 
 def _compose_body(
@@ -575,7 +695,82 @@ def corpse_npc_attr(
             "is %d" % (len(composed), len(live_reference)
                        + DEATH_TIMER_SPLICE_BYTES),
         )
+    # AND THE FIELD IS READ BACK, WHERE IT LANDED AND WHAT IT SAYS.  The two
+    # checks above are blind to both: an adversarial review swapped the
+    # composer for one that appends the f32 AFTER the faction field instead of
+    # after max HP, and the equality and the length both still passed while
+    # the body carried a lethal field in a position the serializer's
+    # ascending-bit order does not allow.  The docstring above claims the
+    # position; this is what makes the claim true rather than intended.
+    prefix = _compose_body(
+        legacy, mob, current_hp=hp, death_timer=None, faction=faction,
+        scene_id=scene_id, scene_sequence=scene_sequence, with_name=with_name,
+    )
+    cut = _timer_offset(legacy, mob, prefix, hp, with_name)
+    read_back = composed[cut:cut + DEATH_TIMER_SPLICE_BYTES]
+    mask_at = _MASK_VALUE_OFFSET
+    timerless_mask = int.from_bytes(prefix[mask_at:mask_at + 2], "little")
+    composed_mask = basic_mask_of(legacy, composed, mob.actor_identity)
+    if (read_back[:1] != bytes([DEATH_TIMER_TAG])
+            or composed_mask != timerless_mask | BASIC_BIT_DEATH_TIMER
+            or composed[:mask_at] != prefix[:mask_at]
+            or composed[mask_at + 2:cut] != prefix[mask_at + 2:cut]
+            or composed[cut + DEATH_TIMER_SPLICE_BYTES:] != prefix[cut:]):
+        raise MobDeathContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the corpse body is not the timerless body with bit 0x%04X set "
+            "and five bytes inserted at offset %d: the field landed somewhere "
+            "the BasicAttr serializer does not read it" % (
+                BASIC_BIT_DEATH_TIMER, cut),
+        )
+    if as_wire_float(struct.unpack("<f", read_back[1:])[0]) != timer:
+        raise MobDeathContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the composed timer reads back as %r and %r was asked for" % (
+                struct.unpack("<f", read_back[1:])[0], timer),
+        )
     return composed
+
+
+def _timer_offset(
+    legacy: Any,
+    mob: FieldMob,
+    timerless: bytes,
+    current_hp: int,
+    with_name: bool,
+) -> int:
+    """Where bit 0x0080 belongs: after max HP, before the scene id.
+
+    Computed from the frozen serializers rather than written down, because the
+    name field ahead of it is variable-length.  The head is checked against
+    the body it is measuring, so a drift in ``make_npc_attr``'s field order
+    refuses here instead of putting the timer in the wrong place.
+    """
+    head = (
+        bytes(legacy.u8tag(DB_ATTRIBUTE_MASK_TAG, DB_ATTRIBUTE_IDENTITY_MASK))
+        + bytes(legacy.qwordtag(IDENTITY_TAG, mob.actor_identity))
+    )
+    name = (
+        bytes(legacy.wstr_tag(mob.display_name))
+        if with_name and mob.display_name else b""
+    )
+    upto = (
+        len(head) + 3 + len(name)
+        + len(bytes(legacy.u32tag(U32_TAG, current_hp)))
+        + len(bytes(legacy.u32tag(U32_TAG, mob.max_hp)))
+    )
+    expected = (
+        head + timerless[len(head):len(head) + 3] + name
+        + bytes(legacy.u32tag(U32_TAG, current_hp))
+        + bytes(legacy.u32tag(U32_TAG, mob.max_hp))
+    )
+    if timerless[:upto] != expected:
+        raise MobDeathContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the BasicAttr block no longer opens with identity, mask, name "
+            "and the two HP fields, so the timer offset is stale",
+        )
+    return upto
 
 
 def death_actor_entry(
@@ -705,6 +900,13 @@ class DeathStep:
     dead_frame: bytes
     register: DeathRegister
     hold_ms: int = DEATH_TASK_HOLD_MS
+    base_generation: int = 0
+    # The timers AS COMPOSED, read back through the f32 round trip.  Carried on
+    # the step rather than looked up from the module constants, because a
+    # console line that prints the constant while the frame carries something
+    # else is a diagnostic that lies exactly when it is needed.
+    dying_timer: float = DYING_TIMER_SECONDS
+    dead_timer: float = DEAD_TIMER_SECONDS
 
     def __post_init__(self) -> None:
         for label, value in (("record", self.record),
@@ -723,6 +925,26 @@ class DeathStep:
                     REFUSE_TYPE_NOT_TYPED_RECORD,
                     "%s must be non-empty bytes" % label)
         _require_int(self.hold_ms, "hold ms", 0, 60_000)
+        _require_int(self.base_generation, "base generation", 0, 2 ** 62)
+        for label, value in (("dying timer", self.dying_timer),
+                             ("dead timer", self.dead_timer)):
+            if type(value) is not float or not math.isfinite(value):
+                raise MobDeathContractError(
+                    REFUSE_TIMER_NOT_FINITE, "%s must be a finite float" % label)
+        # The polarity, checked on the step and not only where the frames were
+        # composed: a caller that hand-builds a DeathStep gets the same gate.
+        if not self.dying_timer > 0.0 or self.dead_timer > 0.0:
+            raise MobDeathContractError(
+                REFUSE_TIMER_WRONG_SIDE_OF_THE_GATE,
+                "a step must carry a dying timer above zero and a dead timer "
+                "at or below it; got %r and %r" % (
+                    self.dying_timer, self.dead_timer),
+            )
+        if self.dying_frame == self.dead_frame:
+            raise MobDeathContractError(
+                REFUSE_TIMER_WRONG_SIDE_OF_THE_GATE,
+                "the two frames are byte-identical, so only one side of the "
+                "gate is on the wire")
         if not self.register.is_dead(self.record.actor_identity):
             raise MobDeathContractError(
                 REFUSE_NOT_DEAD,
@@ -730,17 +952,23 @@ class DeathStep:
 
     @property
     def frames(self) -> tuple[bytes, ...]:
-        """Dying first, dead second.  Never one without the other.
+        """Dying first, dead second.
 
-        The client freezes ``BasicAttr.f32[+0x58]`` at whatever the server last
-        sent (FACTPACK R102: no writer in the image decrements it), so a caller
-        that sends only the first frame leaves a monster dying forever.
+        Sent in this order because it is the order the fall was WATCHED in
+        (GT-022, GT-025) - not because the latch has been shown to be a
+        prerequisite for the death task.  The HYP-PF-023 evidence gap records
+        that the task gate does not read the latch bit at all.
         """
         return (self.dying_frame, self.dead_frame)
 
     @property
     def schedule(self) -> tuple[tuple[int, bytes], ...]:
-        """The same two frames with the delay each one owes, in milliseconds."""
+        """The two frames with the GAP each one waits after the previous send.
+
+        A gap, not a cumulative deadline: the dying frame goes out at once and
+        the dead frame ``hold_ms`` after IT, which at two frames is the same
+        number either way and stops being the same the moment a third appears.
+        """
         return ((0, self.dying_frame), (self.hold_ms, self.dead_frame))
 
 
@@ -794,6 +1022,35 @@ def kill(
             "reached %d may be finished here" % (
                 outcome.hp_after, outcome.max_hp, HP_WHEN_DEAD),
         )
+    # THE THREE CHECKS THE ADVERSARIAL REVIEW OF THIS ROUND FORCED, because
+    # death_due alone was never enough:
+    #  - no_room is a hit that landed on something ALREADY dead.  Its outcome
+    #    carries death_due=True (it is at the floor), so a wiring line reading
+    #    death_due sends a SECOND pair of lethal frames for a body already on
+    #    the ground - and with GT-029's widget, re-arms a 20-second countdown
+    #    over a corpse.  mob_combat.CombatStep.death_due is the property that
+    #    excludes this; this is the same exclusion, enforced where it cannot
+    #    be skipped by reading the wrong attribute.
+    #  - a zero-damage outcome kills nothing.  With HP_FLOOR now 0, an outcome
+    #    with hp_before == hp_after == 0 is CONSTRUCTIBLE for the first time,
+    #    and the first draft of this function accepted it and composed both
+    #    lethal frames for a monster nobody hit.
+    #  - a balance that did not move is not a kill either, whatever the flags
+    #    say.
+    if outcome.no_room:
+        raise MobDeathContractError(
+            REFUSE_OUTCOME_IS_NOT_A_KILL,
+            "this hit landed on a monster that was already dead (no_room); "
+            "read mob_combat.CombatStep.death_due, not outcome.death_due",
+        )
+    if outcome.damage <= 0 or outcome.hp_before <= outcome.hp_after:
+        raise MobDeathContractError(
+            REFUSE_OUTCOME_IS_NOT_A_KILL,
+            "this outcome moved nothing: damage %d, hp %d -> %d; a kill is a "
+            "hit that took a living monster to %d" % (
+                outcome.damage, outcome.hp_before, outcome.hp_after,
+                HP_WHEN_DEAD),
+        )
     if live.is_dead(mob.actor_identity):
         raise MobDeathContractError(
             REFUSE_ALREADY_DEAD,
@@ -811,8 +1068,38 @@ def kill(
         with_name=with_name)
     return DeathStep(
         record, dying_pc, dying_frame, dead_pc, dead_frame,
-        live.with_death(record), hold_ms,
+        live.with_death(record), hold_ms, live.generation,
+        _require_timer(dying_timer), _require_timer(dead_timer),
     )
+
+
+def commit_death(current: DeathRegister, step: DeathStep) -> DeathRegister:
+    """Compare-and-swap: accept a kill only against the register it was read from.
+
+    The mirror of ``mob_combat.commit_step``, and it exists for the same
+    reason.  Two kills computed from the same register both return a register
+    of one row, and storing them in turn loses one of them - silently, and on
+    a different monster from the one the second kill was about.  Returns the
+    new register; refuses with :data:`REFUSE_REGISTER_STALE` when the stored
+    register has moved, in which case the caller re-reads, re-runs, and sends
+    NOTHING, because the frames of a refused step describe a death the server
+    has not recorded.
+    """
+    if type(current) is not DeathRegister:
+        raise MobDeathContractError(
+            REFUSE_TYPE_NOT_TYPED_RECORD,
+            "current must be a typed DeathRegister")
+    if type(step) is not DeathStep:
+        raise MobDeathContractError(
+            REFUSE_TYPE_NOT_TYPED_RECORD, "step must be a typed DeathStep")
+    if current.generation != step.base_generation:
+        raise MobDeathContractError(
+            REFUSE_REGISTER_STALE,
+            "this kill was computed from generation %d and the register is at "
+            "generation %d: re-read and re-run, and send nothing" % (
+                step.base_generation, current.generation),
+        )
+    return step.register
 
 
 def live_roster(
@@ -831,6 +1118,26 @@ def live_roster(
         _require_mob(mob)
     dead = set(register.identities())
     return tuple(m for m in roster if m.actor_identity not in dead)
+
+
+def _balance_in(ledger: Any, actor_identity: int) -> int:
+    """One ledger row's current HP, with the other lane's refusal renamed.
+
+    ``CombatLedger.balance_of`` raises ``MobCombatContractError`` for an
+    identity it does not carry.  That is the right refusal in the wrong
+    module's name: this file promises every contract breach arrives as a
+    :class:`MobDeathContractError`, and a caller that catches ours would have
+    missed this one entirely.
+    """
+    try:
+        return ledger.balance_of(actor_identity).current_hp
+    except mob_combat.MobCombatContractError as exc:
+        raise MobDeathContractError(
+            REFUSE_LEDGER_DISAGREES_WITH_REGISTER,
+            "the ledger cannot answer for identity 0x%X (%s): the roster and "
+            "the ledger were built from different rosters" % (
+                actor_identity, exc.reason),
+        ) from exc
 
 
 def repopulation_entries(
@@ -881,7 +1188,7 @@ def repopulation_entries(
             if ledger is not None:
                 # balance_of raises mob_combat's own named refusal when the
                 # ledger and the roster were built from different rosters.
-                current_hp = ledger.balance_of(mob.actor_identity).current_hp
+                current_hp = _balance_in(ledger, mob.actor_identity)
                 if current_hp == HP_WHEN_DEAD:
                     # Dead in the arithmetic and alive in the register: the
                     # kill was computed and never finished.  Sending a live
@@ -903,7 +1210,7 @@ def repopulation_entries(
             # in the arithmetic.  Sending the corpse would be right on the
             # wire and wrong in the ledger, and the next hit on it would be
             # answered with a real damage number for a monster already down.
-            standing = ledger.balance_of(mob.actor_identity).current_hp
+            standing = _balance_in(ledger, mob.actor_identity)
             if standing != HP_WHEN_DEAD:
                 raise MobDeathContractError(
                     REFUSE_LEDGER_DISAGREES_WITH_REGISTER,
@@ -929,14 +1236,23 @@ def repopulation_frames(
     roster: tuple[FieldMob, ...],
     register: DeathRegister,
     *,
+    ledger: Any = None,
     faction: int = field_mobs.FIELD_MOB_FACTION,
     with_name: bool = True,
     dead_timer: float = DEAD_TIMER_SECONDS,
 ) -> tuple[bytes, bytes]:
-    """One collection for a whole scene, with the dead sent as corpses."""
+    """One collection for a whole scene, with the dead sent as corpses.
+
+    ``ledger`` is forwarded, and it was MISSING from this signature in the
+    first draft - so the module's own whole-scene helper was structurally
+    unable to take the safe path and silently re-sent every living monster at
+    its ceiling, which is the exact hazard :func:`repopulation_entries`
+    documents.  A convenience wrapper that cannot express the safe call is not
+    a convenience.
+    """
     entries = repopulation_entries(
-        legacy, roster, register, faction=faction, with_name=with_name,
-        dead_timer=dead_timer,
+        legacy, roster, register, ledger=ledger, faction=faction,
+        with_name=with_name, dead_timer=dead_timer,
     )
     if not entries:
         raise MobDeathContractError(
@@ -949,6 +1265,51 @@ def repopulation_frames(
     return pc, frame
 
 
+def corpse_override(
+    legacy: Any,
+    roster: tuple[FieldMob, ...],
+    register: DeathRegister,
+    *,
+    ledger: Any = None,
+    faction: int = field_mobs.FIELD_MOB_FACTION,
+    with_name: bool = True,
+    dead_timer: float = DEAD_TIMER_SECONDS,
+) -> dict[int, bytes]:
+    """Identity -> entry, for a census that must not stand the dead back up.
+
+    THIS IS THE FUNCTION THE REAL CARRIER NEEDS, and the first draft of this
+    module did not have it.  :func:`repopulation_entries` builds a collection
+    of THIS lane's thirteen monsters, but ``field_mobs`` says in its own
+    docstring that sending that collection alongside the scene census puts
+    thirteen identities on the wire twice, and that "the correct wiring is the
+    OVERRIDE, not the second collection".  The census the server actually
+    ships (``world_population``) rebuilds every placement at full HP, reads
+    neither the ledger nor this register, and takes no hook - so a wiring line
+    that says "build the collection with repopulation_entries" either drops
+    the other hundred-odd actors or gets ignored, and the corpses stand up
+    either way.
+
+    What comes back here is a lookup a census can apply to the entries it was
+    going to send anyway: for every identity in it, use THIS entry instead.
+    Identities the register does not carry are absent, so a census that
+    applies it verbatim changes nothing else.  When a ``ledger`` is passed the
+    living wounded are included too, at the HP the arithmetic holds.
+    """
+    entries = repopulation_entries(
+        legacy, roster, register, ledger=ledger, faction=faction,
+        with_name=with_name, dead_timer=dead_timer,
+    )
+    override: dict[int, bytes] = {}
+    for mob, entry in zip(roster, entries):
+        if register.is_dead(mob.actor_identity):
+            override[mob.actor_identity] = entry
+            continue
+        if ledger is not None and _balance_in(
+                ledger, mob.actor_identity) != mob.max_hp:
+            override[mob.actor_identity] = entry
+    return override
+
+
 def describe_death(step: DeathStep) -> tuple[str, ...]:
     """Console lines for a kill, in the shape the runtime console prints."""
     if type(step) is not DeathStep:
@@ -958,13 +1319,20 @@ def describe_death(step: DeathStep) -> tuple[str, ...]:
     return (
         "MOB-DEATH-001 kill: performer 0x%X -> target 0x%X (ceiling %d)" % (
             record.killer_identity, record.actor_identity, record.max_hp),
-        "  dying frame %d bytes, timer %.1f (> 0, latches 0x%X) - this is the "
-        "frame GT-022/GT-025 watched drop an NPC" % (
-            len(step.dying_frame), DYING_TIMER_SECONDS, DYING_LATCH_WRITE_VA),
-        "  dead frame %d bytes, timer %.1f (<= 0, gates 0x%X -> "
+        # The timers come off the STEP, not off the module constants: a line
+        # that prints 20.0 for a frame carrying something else is a diagnostic
+        # that lies exactly when it is needed.  And the GT-022/GT-025 sentence
+        # this line used to carry is gone - those runs watched a NAMELESS,
+        # FACTIONLESS body (mask 0x038C) and this frame is mask 0x078D, so
+        # "this is the frame they watched" contradicted nonclaim 6 twenty
+        # lines above it.
+        "  dying frame %d bytes, timer %r (> 0, latches 0x%X) - same SHAPE as "
+        "the frame GT-022/GT-025 watched drop an NPC, not the same body" % (
+            len(step.dying_frame), step.dying_timer, DYING_LATCH_WRITE_VA),
+        "  dead frame %d bytes, timer %r (<= 0, gates 0x%X -> "
         "CActorTask_Dead 0x%X) - gate is static; its effect has never been "
         "observed" % (
-            len(step.dead_frame), DEAD_TIMER_SECONDS, DEATH_TASK_GATE_VA,
+            len(step.dead_frame), step.dead_timer, DEATH_TASK_GATE_VA,
             DEATH_TASK_CTOR_VA),
         "  hold %d ms between them [LANE-B assumption, unmeasured]" % (
             step.hold_ms),
@@ -1034,7 +1402,23 @@ def pin_document(legacy: Any, mob: FieldMob, killer_identity: int = 0x750059) ->
         "death_predicate_va": "0x%X" % DEATH_PREDICATE_VA,
         "death_task_gate_va": "0x%X" % DEATH_TASK_GATE_VA,
         "death_task_ctor_va": "0x%X" % DEATH_TASK_CTOR_VA,
-        "death_animation": DEATH_ANIMATION_NAME,
+        # Named with what it is: the string the static chain ends at, NOT a
+        # thing anyone has watched play.  The first draft carried it as a bare
+        # top-level fact next to measured byte counts, which is how a pin gets
+        # quoted as evidence for the one claim this lane refuses to make.
+        "death_animation_named_by_the_static_chain_never_observed":
+            DEATH_ANIMATION_NAME,
+        "predicate_pair_is_class_dependent": {
+            "netnpc_actor_type_4_used_here": [
+                "0x%X" % va for va in NETNPC_PREDICATE_VAS],
+            "netactor_actor_type_2_not_used_here": [
+                "0x%X" % va for va in NETACTOR_PREDICATE_VAS],
+        },
+        "sanctioned_first_target_identity": "0x%X" % (
+            SANCTIONED_FIRST_TARGET_IDENTITY),
+        "pin_target_is_the_sanctioned_one": (
+            mob.actor_identity == SANCTIONED_FIRST_TARGET_IDENTITY),
+        "register_generation_after_the_kill": death.register.generation,
         "wiring": MOB_DEATH_WIRING,
         "selection": "none_default_behaviour_no_scenario_flag",
         "nonclaims": list(MOB_DEATH_NONCLAIMS),

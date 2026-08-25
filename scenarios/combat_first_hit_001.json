@@ -30,7 +30,7 @@
   "death_due": false,
   "death_handover": "mob_death.kill(legacy, mob, step.outcome, register)",
   "threat_recorded": false,
-  "wiring": "runtime.py: on an EA7D ActionVital whose target is a field-mob identity, call mob_combat.attack_from_observed_action(legacy, None, ledger, None, fields, performer, attacker); commit the returned step with mob_combat.commit_step(ledger_now, step) and send step.frames in order (announce first, bar second) only if the commit is accepted; on REFUSE_LEDGER_STALE re-read the ledger and re-run the call; when step.outcome.death_due is True the step carries the announce frame ONLY and the kill is finished by mob_death.kill - see mob_death.MOB_DEATH_WIRING.",
+  "wiring": "runtime.py: on an EA7D ActionVital whose target is a field-mob identity, call mob_combat.attack_from_observed_action(legacy, None, ledger, None, fields, performer, attacker); commit the returned step with mob_combat.commit_step(ledger_now, step) and send step.frames in order (announce first, bar second) only if the commit is accepted; on REFUSE_LEDGER_STALE re-read the ledger and re-run the call; when step.death_due is True - the CombatStep property, NOT step.outcome.death_due, which is also True for a hit on something already dead - the step carries the announce frame ONLY and the kill is finished by mob_death.kill (see mob_death.MOB_DEATH_WIRING); a hit on something already dead carries NO frames at all and owes nothing.",
   "selection": "none_default_behaviour_no_scenario_flag",
   "nonclaims": [
     "a real attack input has never been observed producing the EA7D ActionVital this driver reads; the inbound half is unproven",

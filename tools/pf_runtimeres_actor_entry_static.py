@@ -871,21 +871,28 @@ guard("make_remote_actor_entry" in _v141,
 # ground_loot_hypothesis.py does NOT do: it holds two make_runtime_remote_actors
 # sites and ZERO make_remote_actor_entry sites, so it rides the carrier without
 # building an entry, which is why the module censuses below do not name it.
-guard(SRC_ACTOR_ENTRY_SITES == 9,
-      "src/ builds actor entries at exactly 9 call sites (4 spawns + the "
+# Round 7ptoku re-pin, 9 -> 13 and 11 -> 16.  The lane-B build orders landed
+# four production modules that ride this carrier without a flag: field_mobs.py
+# (BUILD-004), mob_combat.py (M4 first half), mob_death.py (M4 second half) and
+# the world_* census work.  The numbers move; what the guard is FOR does not -
+# a new call site still has to be named here before it can go green.
+guard(SRC_ACTOR_ENTRY_SITES == 13,
+      "src/ builds actor entries at exactly 13 call sites (4 spawns + the "
       "round-86 death re-send + the round-96 remote-player probe + the "
       "round-99 hostile spawn + the round-111 NPC HP ladder + the "
-      "HYP-PF-038 hostile HP link)")
-guard(SRC_ACTOR_STREAM_SITES == 11,
-      "src/ sends the actor-entry carrier at exactly 11 call sites")
-guard(SRC_MODULES_WITH_ACTOR_ENTRY == 8
+      "HYP-PF-038 hostile HP link + the lane-B production modules)")
+guard(SRC_ACTOR_STREAM_SITES == 16,
+      "src/ sends the actor-entry carrier at exactly 16 call sites")
+guard(SRC_MODULES_WITH_ACTOR_ENTRY == 12
       and SRC_MODULES_WITH_ACTOR_ENTRY_NAMES == (
+          "field_mobs.py",
           "hostile_hp_link_hypothesis.py",
+          "mob_combat.py", "mob_death.py",
           "npc_hostile_hypothesis.py", "npc_hp_link_hypothesis.py",
           "population.py", "remote_player_hypothesis.py",
           "runtimeres_death_hypothesis.py", "scenario.py",
-          "scene_object.py"),
-      "8 named src/ modules build actor entries %s"
+          "scene_object.py", "world_population.py"),
+      "12 named src/ modules build actor entries %s"
       % (SRC_MODULES_WITH_ACTOR_ENTRY_NAMES,))
 # Round 97 re-pin, 4 -> 5.  DAMAGE-HP-LINK-001 added the fifth mention:
 # damage_hp_link_hypothesis.py names bit 0x0080 because its two lethal frames
@@ -905,15 +912,19 @@ guard(SRC_MODULES_WITH_ACTOR_ENTRY == 8
 # hostile_hp_link_hypothesis.py) adds the seventh mention.  Unlike the round-97
 # damage lane it ALSO builds an actor entry, so the SET census below moves with
 # it as well -- see the note there.
-guard(SRC_MODULES_WITH_DEATH_TIMER_BIT == 7
+# Round 7ptoku re-pin, 7 -> 8.  MOB-DEATH-001 (mob_death.py) adds the eighth
+# mention, and it is not like the others: it is production_allowed with NO
+# flag, so this is the first unflagged module in src/ to name the bit.
+guard(SRC_MODULES_WITH_DEATH_TIMER_BIT == 8
       and SRC_MODULES_WITH_DEATH_TIMER_BIT_NAMES == (
           "damage_hp_link_hypothesis.py",
           "hostile_hp_link_hypothesis.py",
+          "mob_death.py",
           "npc_hp_link_hypothesis.py",
           "remote_player_hypothesis.py", "runtime.py",
           "runtimeres_death_hypothesis.py",
           "stats_progression_hypothesis.py"),
-      "7 named src/ modules mention BasicAttr bit 0x0080 %s"
+      "8 named src/ modules mention BasicAttr bit 0x0080 %s"
       % (SRC_MODULES_WITH_DEATH_TIMER_BIT_NAMES,))
 # Round 111 re-pin, 1 -> 2, and the sentence changes shape rather than just
 # its number.  Round 86 could say "exactly ONE module SETS the bit" because
@@ -945,14 +956,23 @@ guard(SRC_MODULES_WITH_DEATH_TIMER_BIT == 7
 # its constant with a FORBIDDEN marker and it classifies itself correctly.
 # NOTE: until then the SENTENCE below is looser than the count -- a reader who needs
 # "which modules emit a death timer today" must read the composers, not this.
-guard(SRC_MODULES_WITH_BOTH == 3
+# Round 7ptoku re-pin, 3 -> 4, and this one changes what the sentence MEANS.
+# Every previous member was scenario-gated: to emit a death timer you needed a
+# flag.  MOB-DEATH-001 (mob_death.py) is production_allowed = True with no
+# scenario, no dispatch kwarg and no unlock, so the census is no longer "the
+# probe lanes that can emit a timer" - it is "the probe lanes, plus one lane
+# that emits on a build the owner boots with nothing".  A reader who took the
+# old count to mean the bit is unreachable without a flag must stop taking it
+# that way.
+guard(SRC_MODULES_WITH_BOTH == 4
       and SRC_MODULES_WITH_BOTH_NAMES == (
           "hostile_hp_link_hypothesis.py",
+          "mob_death.py",
           "npc_hp_link_hypothesis.py",
           "runtimeres_death_hypothesis.py"),
       "GAP 1 CLOSED in round 86 and still closed: the src/ modules that both "
       "build an actor entry AND name bit 0x0080 without a FORBIDDEN-named "
-      "constant are exactly these three, the round-86 death emitter, the "
+      "constant are exactly these four, the round-86 death emitter, the "
       "round-111 NPC HP ladder, and the HYP-PF-038 hostile HP link -- which "
       "names the bit ONLY to refuse it and has no composer path that emits it, "
       "so it is over-reported here on purpose "

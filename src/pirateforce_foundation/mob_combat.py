@@ -151,8 +151,11 @@ MOB_COMBAT_WIRING = (
     "mob_combat.commit_step(ledger_now, step) and send step.frames in order "
     "(announce first, bar second) only if the commit is accepted; on "
     "REFUSE_LEDGER_STALE re-read the ledger and re-run the call; when "
-    "step.outcome.death_due is True the step carries the announce frame ONLY "
-    "and the kill is finished by mob_death.kill - see mob_death.MOB_DEATH_WIRING."
+    "step.death_due is True - the CombatStep property, NOT "
+    "step.outcome.death_due, which is also True for a hit on something "
+    "already dead - the step carries the announce frame ONLY and the kill is "
+    "finished by mob_death.kill (see mob_death.MOB_DEATH_WIRING); a hit on "
+    "something already dead carries NO frames at all and owes nothing."
 )
 # Written out because a reader of the line above should not have to guess: the
 # second argument is the THREAT handle and passing None is the supported

@@ -354,6 +354,164 @@ class MobDeathTests(unittest.TestCase):
             any("already dead" in line
                 for line in mob_combat.describe_step(again)))
 
+    def test_a_hit_on_something_already_dead_is_not_a_kill(self):
+        # THE ONE THE ADVERSARIAL REVIEW EXECUTED.  A no_room outcome carries
+        # death_due=True (it IS at the floor), and commit_step accepts the
+        # step because the ledger did not move - so a wiring line reading
+        # outcome.death_due would send a SECOND pair of lethal frames at a
+        # body already on the ground.
+        step = self.killing_outcome()
+        again = strike(
+            self.legacy, None, step.ledger, None, self.mob, PERFORMER, LETHAL)
+        self.assertTrue(again.outcome.no_room)
+        self.assertTrue(again.outcome.death_due)   # the trap
+        self.assertFalse(again.death_due)          # the property that is safe
+        with self.assertRaises(MobDeathContractError) as caught:
+            kill(self.legacy, self.mob, again.outcome, DeathRegister())
+        self.assertEqual(
+            caught.exception.reason, mob_death.REFUSE_OUTCOME_IS_NOT_A_KILL)
+        self.assertIn("already dead", caught.exception.detail)
+
+    def test_an_outcome_that_moved_nothing_cannot_kill(self):
+        # With HP_FLOOR at 0 an outcome with hp_before == hp_after == 0 became
+        # CONSTRUCTIBLE for the first time this round, and the first draft of
+        # kill() accepted it and composed both lethal frames for a monster
+        # nobody hit.
+        untouched = mob_combat.HitOutcome(
+            PERFORMER, self.mob.actor_identity, 0, 0, mob_combat.FLAGS_MISS,
+            0, 0, self.mob.max_hp, 0, True, True, False)
+        with self.assertRaises(MobDeathContractError) as caught:
+            kill(self.legacy, self.mob, untouched, DeathRegister())
+        self.assertEqual(
+            caught.exception.reason, mob_death.REFUSE_OUTCOME_IS_NOT_A_KILL)
+        self.assertIn("moved nothing", caught.exception.detail)
+
+    def test_a_timer_that_underflows_to_zero_cannot_pass_as_dying(self):
+        # struct.pack("<f", 1e-46) is four zero bytes, so a "strictly
+        # positive" dying timer under ~1.4e-45 goes on the wire as 0.0 and
+        # composes a DEAD frame that passed a DYING check.  The gate reads the
+        # f32 round trip now, not the Python double.
+        for underflow in (1e-46, 1e-50, 1e-300):
+            self.assertGreater(underflow, 0.0)
+            self.assertEqual(mob_death.as_wire_float(underflow), 0.0)
+            with self.assertRaises(MobDeathContractError) as caught:
+                dying_frames(self.legacy, self.mob, death_timer=underflow)
+            self.assertEqual(
+                caught.exception.reason,
+                mob_death.REFUSE_TIMER_WRONG_SIDE_OF_THE_GATE)
+            with self.assertRaises(MobDeathContractError):
+                kill(self.legacy, self.mob, self.killing_outcome().outcome,
+                     DeathRegister(), dying_timer=underflow)
+        # and the smallest value that DOES survive the round trip is allowed
+        self.assertGreater(mob_death.as_wire_float(1e-44), 0.0)
+        dying_frames(self.legacy, self.mob, death_timer=1e-44)
+
+    def test_a_step_whose_frames_are_identical_is_refused(self):
+        step = self.killing_outcome()
+        death = kill(self.legacy, self.mob, step.outcome, DeathRegister())
+        with self.assertRaises(MobDeathContractError) as caught:
+            DeathStep(
+                death.record, death.dead_pc, death.dead_frame,
+                death.dead_pc, death.dead_frame, death.register,
+                death.hold_ms, 0, DYING_TIMER_SECONDS, DEAD_TIMER_SECONDS)
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_TIMER_WRONG_SIDE_OF_THE_GATE)
+
+    def test_two_kills_in_one_tick_cannot_lose_one_of_them(self):
+        # DeathRegister had no generation in the first draft: two players
+        # killing two DIFFERENT monsters both read the empty register, both
+        # returned a register of one, and whichever was stored second erased
+        # the other kill - silently, and the erased monster stands back up at
+        # full HP on the next rebuild.
+        other = [m for m in self.roster if m.placement_index != 30][0]
+        first = self.killing_outcome()
+        second = self.killing_outcome(other)
+        stored = DeathRegister()
+        a = kill(self.legacy, self.mob, first.outcome, stored)
+        b = kill(self.legacy, other, second.outcome, stored)
+        stored = mob_death.commit_death(stored, a)
+        with self.assertRaises(MobDeathContractError) as caught:
+            mob_death.commit_death(stored, b)
+        self.assertEqual(
+            caught.exception.reason, mob_death.REFUSE_REGISTER_STALE)
+        # the loser re-reads and re-runs, and now both deaths are recorded
+        redone = kill(self.legacy, other, second.outcome, stored)
+        stored = mob_death.commit_death(stored, redone)
+        self.assertEqual(
+            stored.identities(),
+            tuple(sorted((self.mob.actor_identity, other.actor_identity))))
+        self.assertEqual(stored.generation, 2)
+
+    def test_the_census_override_names_only_what_changed(self):
+        # repopulation_entries builds a collection of THIS lane's thirteen
+        # monsters, but field_mobs says the correct wiring is the OVERRIDE and
+        # not a second collection - and the census that actually ships
+        # (world_population) rebuilds every placement at full HP.
+        step = self.killing_outcome()
+        death = kill(self.legacy, self.mob, step.outcome, DeathRegister())
+        override = mob_death.corpse_override(
+            self.legacy, self.roster, death.register)
+        self.assertEqual(list(override), [self.mob.actor_identity])
+        self.assertEqual(
+            override[self.mob.actor_identity],
+            mob_death.death_actor_entry(
+                self.legacy, self.mob, death_timer=DEAD_TIMER_SECONDS))
+        # with a ledger, the living wounded are in it too, and nobody else is
+        weak = Combatant(level=7, ability_str=132, ability_con=0)
+        hurt = strike(
+            self.legacy, None, step.ledger, None,
+            [m for m in self.roster if m.placement_index != 30][0],
+            PERFORMER, weak)
+        wider = mob_death.corpse_override(
+            self.legacy, self.roster, death.register, ledger=hurt.ledger)
+        self.assertEqual(
+            sorted(wider),
+            sorted((self.mob.actor_identity,
+                    hurt.outcome.target_identity)))
+
+    def test_repopulation_frames_can_take_the_safe_path(self):
+        # The convenience wrapper had no ledger parameter at all, so the
+        # module's own whole-scene helper could not express the safe call.
+        weak = Combatant(level=7, ability_str=132, ability_con=0)
+        step = strike(
+            self.legacy, None, open_ledger(), None, self.mob, PERFORMER, weak)
+        safe_pc, _ = mob_death.repopulation_frames(
+            self.legacy, self.roster, DeathRegister(), ledger=step.ledger)
+        healed_pc, _ = mob_death.repopulation_frames(
+            self.legacy, self.roster, DeathRegister())
+        self.assertNotEqual(safe_pc, healed_pc)
+        entries = repopulation_entries(
+            self.legacy, self.roster, DeathRegister(), ledger=step.ledger)
+        self.assertEqual(
+            safe_pc, self.legacy.make_runtime_remote_actors(entries)[0])
+
+    def test_a_ledger_from_another_roster_refuses_in_this_lane_s_name(self):
+        # mob_combat's refusal is the right refusal in the wrong module's
+        # name, and a caller catching MobDeathContractError would have missed
+        # it entirely.
+        stranger = mob_combat.CombatLedger(
+            (mob_combat.MobBalance(0x9001, 10, 10),))
+        with self.assertRaises(MobDeathContractError) as caught:
+            repopulation_entries(
+                self.legacy, self.roster, DeathRegister(), ledger=stranger)
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_LEDGER_DISAGREES_WITH_REGISTER)
+
+    def test_the_console_prints_the_timers_that_were_sent(self):
+        # Not the module constants: a line that prints 20.0 for a frame
+        # carrying something else is a diagnostic that lies exactly when it
+        # is needed.
+        step = self.killing_outcome()
+        death = kill(
+            self.legacy, self.mob, step.outcome, DeathRegister(),
+            dying_timer=3.5, dead_timer=-1.0)
+        joined = "\n".join(describe_death(death))
+        self.assertIn("3.5", joined)
+        self.assertIn("-1.0", joined)
+        self.assertNotIn("20.0", joined)
+
     def test_the_step_cannot_carry_a_register_that_forgot_the_kill(self):
         step = self.killing_outcome()
         death = kill(self.legacy, self.mob, step.outcome, DeathRegister())
@@ -605,10 +763,16 @@ class MobDeathTests(unittest.TestCase):
             self.assertNotIn(claim, mob_combat.MOB_COMBAT_NONCLAIMS)
 
     def test_the_wiring_line_names_every_step_the_caller_owes(self):
-        for owed in ("mob_death.kill", "dying_frame", "dead_frame",
-                     "hold_ms", "repopulation_entries", "register"):
+        for owed in ("mob_death.kill", "commit_death", "dying_frame",
+                     "dead_frame", "hold_ms", "corpse_override", "register"):
             self.assertIn(owed, mob_death.MOB_DEATH_WIRING)
         self.assertIn("mob_death", mob_combat.MOB_COMBAT_WIRING)
+        # The wiring line must name the CombatStep property and warn off the
+        # outcome attribute of the same name: an adversarial review of this
+        # round found the first version naming outcome.death_due, which is
+        # also True for a hit on a monster that is already dead.
+        self.assertIn("step.death_due", mob_death.MOB_DEATH_WIRING)
+        self.assertIn("NOT step.outcome.death_due", mob_death.MOB_DEATH_WIRING)
 
     def test_the_hold_is_declared_as_ours_and_not_as_a_measurement(self):
         self.assertEqual(mob_death.DEATH_TASK_HOLD_MS, 700)
