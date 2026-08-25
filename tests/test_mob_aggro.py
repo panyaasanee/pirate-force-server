@@ -557,14 +557,47 @@ class ContainmentTests(unittest.TestCase):
             self.assertNotIn(banned, imported)
 
     def test_the_lane_is_not_reachable_from_production_dispatch(self):
+        # NARROWED by MOB-COMBAT-001 (lane B, 2026-08-26), and narrowed on
+        # purpose rather than deleted.  The claim this test defends is that
+        # nothing in src/ IMPORTS this module, so importing the production tree
+        # cannot drag a probe lane in.  Until MOB-COMBAT-001 that was testable
+        # by searching for the NAME, because nothing mentioned it either.  The
+        # damage driver mentions it - in prose and through a passed-in module
+        # handle, the same way field_mobs takes ``legacy`` - so the search is
+        # now for real imports, and the list of files allowed to even say the
+        # name is pinned so a new mention still has to be argued for here.
         self.assertIs(ma.production_allowed, False)
         self.assertIs(ma.MOB_AGGRO_DISPATCH_REACHABLE, False)
-        importers = sorted(
-            path.name for path in SRC_ROOT.glob("*.py")
-            if "mob_aggro" in path.read_text(encoding="utf-8")
-            and path.name != "mob_aggro.py"
-        )
+        importers = []
+        mentions = []
+        for path in sorted(SRC_ROOT.glob("*.py")):
+            if path.name == "mob_aggro.py":
+                continue
+            source = path.read_text(encoding="utf-8")
+            if "mob_aggro" not in source:
+                continue
+            mentions.append(path.name)
+            for node in ast.walk(ast.parse(source)):
+                if isinstance(node, ast.Import):
+                    names = [alias.name for alias in node.names]
+                elif isinstance(node, ast.ImportFrom):
+                    names = [node.module or ""] + [
+                        alias.name for alias in node.names]
+                else:
+                    continue
+                if any("mob_aggro" in name for name in names):
+                    importers.append(path.name)
         self.assertEqual(importers, [])
+        self.assertEqual(mentions, ["mob_combat.py"])
+        # And the part a scan of src/ can never see, pinned where it can be:
+        # passing this module IN as a handle would make it reachable from
+        # production dispatch through an argument.  So the damage driver's
+        # threat handle is optional and the wiring line it hands the chief
+        # passes None.  If that ever changes, this project has promoted a lane
+        # whose production_allowed is False, and this assertion says so first.
+        from pirateforce_foundation import mob_combat
+        self.assertIs(mob_combat.MOB_COMBAT_THREAT_HANDLE_IS_OPTIONAL, True)
+        self.assertNotIn("mob_aggro", mob_combat.MOB_COMBAT_WIRING)
 
     def test_the_module_declares_which_rules_are_ours(self):
         self.assertIn("[OUR DESIGN]", self.source)
