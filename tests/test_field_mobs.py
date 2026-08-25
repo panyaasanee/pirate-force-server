@@ -322,13 +322,27 @@ class FieldMobTests(unittest.TestCase):
     def test_it_declares_itself_shippable_and_installs_nothing(self) -> None:
         self.assertTrue(production_allowed)
         self.assertFalse(test_only)
+        # NARROWED by MOB-COMBAT-001 (lane B, 2026-08-26).  The damage driver
+        # builds its bar frame out of this module's hostile body, so "nothing
+        # in src/ mentions field_mobs" stopped being true the moment the two
+        # halves of M4 met.  What is still true, and is what this assertion is
+        # for, is that nothing DISPATCHES it: the tripwire now names the
+        # importers and separately pins that no dispatch file has picked either
+        # module up.  When the chief wires the one line, this goes red and the
+        # letter has to be rewritten - which is exactly the intent it had.
         source = (ROOT / "src/pirateforce_foundation").glob("*.py")
-        importers = [
+        importers = sorted(
             path.name for path in source
             if path.name != "field_mobs.py"
             and "field_mobs" in path.read_text(encoding="utf-8")
-        ]
-        self.assertEqual(importers, [], "field_mobs is wired; update the letter")
+        )
+        self.assertEqual(
+            importers, ["mob_combat.py"], "field_mobs is wired; update the letter")
+        for dispatch in ("runtime.py", "app.py"):
+            body = (ROOT / "src/pirateforce_foundation" / dispatch).read_text(
+                encoding="utf-8")
+            self.assertNotIn("field_mobs", body)
+            self.assertNotIn("mob_combat", body)
         self.assertEqual(PLAYER_PAIR_FACTION, 1)
         self.assertEqual(FIELD_MOB_FACTION, 6)
 
