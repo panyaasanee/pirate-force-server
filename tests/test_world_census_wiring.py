@@ -30,6 +30,8 @@ result anywhere in this project is 20.  That is GT-078, attended, not run.
 """
 from __future__ import annotations
 
+import dataclasses
+import hashlib
 import sys
 import tempfile
 import unittest
@@ -56,6 +58,33 @@ LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 GROUND_LOOT_SCENARIO = (
     ROOT / "scenarios" / "ground_loot_hypothesis_bit08_render.json"
 )
+
+# The wire, pinned as bytes, at ONE fixed anchor: (10.0, 20.0, 30.0).
+#
+# Why this exists.  Before it, the only stored byte check on this lane was
+# rung 3, and every other assertion compared the dispatcher's output to
+# build_world_population() -- the same producer, so a change inside the
+# producer moved both sides together.  Measured: mutating one entry of
+# HEADINGS, which mis-orients 28 of the 115 actors on the wire, left the whole
+# suite green.  These digests cover 100% of the delivered bytes at every rung
+# and that mutant turns them red.
+#
+# Rung 3's pc digest is the same value tests/golden/object_pop_002_baseline.json
+# carries for the frozen V134 collection.  That is not a coincidence to be
+# maintained by hand: it is the control rung being byte-identical to what
+# shipped, and if it ever stops matching, the census stopped being a superset
+# of the shipped wire.
+CENSUS_WIRE_SHA256 = {
+    3: ("3B77557DB6FDBAD9C5DA6338E1C31937004D4EAAD43FEFC956137C5B584B71CD",
+        "5D032431D84C41E38F045AD126243FD6F67CE2669AAB8C45E7FA36B49025CDBD"),
+    20: ("E1D2F7A0F69A74E9E5ECF490F666B75CA328A45EFDA33F99982CEE783F8FFC9F",
+         "63E194F0275567CE30299274D98EC9F16E278DA12D2A35C2F7833A68D88A1528"),
+    60: ("A554F55A23DB79006438BD9B2DD00F76767272874657F8E433699913049B808C",
+         "B66173DD2A256C6D30C721C4A719D33524215898D1BDB1CA08EB210A5B8FBB73"),
+    115: ("B972F4F4463DDBB28303BC1F694C7BA6DA1CDED76D656D0A79D12D636EC361A6",
+          "AD80E280F4908759F066A85204403723D07408EF353491585247667D73074EFE"),
+}
+PIN_ANCHOR = (10.0, 20.0, 30.0)
 
 INITIAL_PREFIX = "WORLD_CENSUS_INITIAL_"
 REAPPLY_PREFIX = "WORLD_CENSUS_REAPPLY_"
@@ -173,9 +202,16 @@ class WorldCensusWiringTests(unittest.TestCase):
         self.assertEqual([action[3] for action in census], [0.0, 3.0])
         # The same collection twice, exactly as the frozen branch does it: the
         # V138 nearest-20 runtime pass that was accepted was an initial plus a
-        # model-ready reapply, not a single frame.
-        self.assertEqual(census[0][1], census[1][1])
-        self.assertEqual(census[0][2], census[1][2])
+        # model-ready reapply, not a single frame.  Compared against an
+        # INDEPENDENT build rather than against each other -- the dispatcher
+        # queues one object twice, so census[0] == census[1] cannot fail and
+        # would be decoration.
+        independent = world_population.build_world_population(
+            self.legacy, (10.0, 20.0, 30.0), scene_id=1,
+        )
+        for action in census:
+            self.assertEqual(action[1], independent.pc)
+            self.assertEqual(action[2], independent.frame)
         self.assertEqual(
             census[1][3], world_population.INITIAL_REAPPLY_MS / 1000.0,
         )
@@ -193,12 +229,16 @@ class WorldCensusWiringTests(unittest.TestCase):
     def test_the_bookkeeping_the_frozen_branch_commits_is_committed(self):
         """Downstream frozen paths read this state; it has to match the wire."""
         state = self._state("census_books")
-        self.assertIs(state.npc_spawn_sent, False)
+        # The inherited branch is disarmed at construction, not from inside
+        # dispatch -- see the comment at that assignment for the two measured
+        # reasons why.
+        self.assertIs(state.npc_spawn_sent, True)
+        self.assertIsNone(state.population_indices)
+        self.assertIn("world_census_armed", state.events)
         actions = self._step(state)
         generation = world_population.build_world_population(
-            self.legacy, (10.0, 20.0, 30.0),
+            self.legacy, (10.0, 20.0, 30.0), scene_id=1,
         )
-        self.assertIs(state.npc_spawn_sent, True)
         self.assertIs(state.npc_idle_action_sent, False)
         self.assertEqual(state.population_indices, generation.indices)
         self.assertEqual(state.population_refresh_anchor, (10.0, 20.0, 30.0))
@@ -266,13 +306,15 @@ class WorldCensusWiringTests(unittest.TestCase):
         far = (30000.0, 25000.0, 1000.0)
         state = self._state("census_anchor")
         census = self._census(self._step(state, xyz=far))
-        expected = world_population.build_world_population(self.legacy, far)
+        expected = world_population.build_world_population(
+            self.legacy, far, scene_id=1,
+        )
         self.assertEqual(census[0][1], expected.pc)
         self.assertEqual(state.population_refresh_anchor, far)
         # Not a tautology: a different anchor really does order the census
         # differently, so this test can fail.
         near = world_population.build_world_population(
-            self.legacy, (10.0, 20.0, 30.0),
+            self.legacy, (10.0, 20.0, 30.0), scene_id=1,
         )
         self.assertNotEqual(expected.indices, near.indices)
 
@@ -397,6 +439,233 @@ class WorldCensusWiringTests(unittest.TestCase):
             ],
         )
         self.assertGreater(len(actions[0][1]), 504)
+
+
+    # ----- the wire itself, pinned as bytes at every rung -------------------
+
+    def test_every_rung_matches_its_pinned_wire_digest(self):
+        """The only assertion in this lane that a change to the BUILDER cannot
+        move with it.  See CENSUS_WIRE_SHA256 for the mutant that motivated it.
+        """
+        for rung, (pc_sha, frame_sha) in sorted(CENSUS_WIRE_SHA256.items()):
+            with self.subTest(rung=rung):
+                state = self._state(
+                    f"census_pin{rung}", world_census_actor_count=rung,
+                )
+                census = self._census(self._step(state, xyz=PIN_ANCHOR))
+                self.assertEqual(len(census), 2)
+                self.assertEqual(
+                    hashlib.sha256(census[0][1]).hexdigest().upper(), pc_sha,
+                )
+                self.assertEqual(
+                    hashlib.sha256(census[0][2]).hexdigest().upper(),
+                    frame_sha,
+                )
+
+    # ----- the two ways the trigger used to be wrong ------------------------
+
+    def test_the_census_fires_on_the_frame_that_sets_the_runtime_ack(self):
+        """No test in this file may pre-set runtime_ack_sent, and this is why.
+
+        v141 sets runtime_ack_sent INSIDE its dispatch (v141:3771) and only
+        then reaches its population branch (v141:4292), so the flag is false
+        on entry to the frame that arms it.  An earlier version of this wiring
+        read the flag BEFORE super().dispatch and therefore lost that frame
+        entirely: the frozen three-actor branch won the session, silently, with
+        world_census_refused still False and no event saying so.  A client that
+        reconnects mid-session sends TargetPos first, so that was not an exotic
+        shape.
+        """
+        state = self._state("census_ack", ready=False)
+        self.assertIs(state.runtime_ack_sent, False)
+        actions = self._step(state)
+        labels = [action[0] for action in actions]
+        self.assertIn("RUNTIME_RES_ACK_FIRST_REQ", labels)
+        self.assertIn(f"{INITIAL_PREFIX}115", labels)
+        for frozen in FROZEN_LABELS:
+            self.assertNotIn(frozen, labels)
+        self.assertEqual(state.world_census_actor_count, 115)
+
+    def test_a_target_pos_the_inherited_dispatcher_ignores_composes_nothing(self):
+        """The invariant v141:4416 relies on, restated as a test.
+
+        The frozen population branch sits under "outer_id is
+        GSCN_RunTimeProtocolReq and teleport_sent" (v141:3680), and
+        last_target_pos is assigned only inside that same block (v141:4259).
+        So population_indices being set implies last_target_pos is set, and
+        v141:4416 unpacks last_target_pos for any member of
+        population_indices.  A trigger without those conjuncts could set the
+        first without the second, and the next NPC click then raised TypeError
+        out of the listener thread -- which has no except clause (v141:7440).
+        """
+        pc = self._target_pos_pc((-9999.0, 8888.0, 777.0))
+        # Same body, different outer envelope: the inherited dispatcher does
+        # not look at this frame at all.
+        foreign = (
+            self.legacy.u16tag(0x12, self.legacy.GSCN_LOGIN_PROTOCOL)
+            + pc[len(self.legacy.u16tag(0x12, 0)):]
+        )
+        state = self._state("census_foreign")
+        actions = state.dispatch(self.legacy.parse_outer(foreign))
+        self.assertEqual(self._census(actions), [])
+        self.assertIsNone(state.population_indices)
+        self.assertIsNone(state.last_target_pos)
+        # And the click that used to kill the thread is now a no-op.
+        self.assertEqual(
+            state.dispatch(
+                self.legacy.parse_outer(self._choose_npc_pc(0x2002))
+            ),
+            [],
+        )
+        # A real frame afterwards still gets the census: nothing was latched.
+        self.assertEqual(len(self._census(self._step(state))), 2)
+
+    # ----- containment, part two -------------------------------------------
+
+    def test_the_second_password_lane_keeps_its_measured_population(self):
+        """HYP-PF-009 is an opt-in lane that is not a scenario object.
+
+        Its whole measurement is what this client does with an unsolicited
+        frame, and it was characterized against the three-actor baseline.  It
+        is contained by name because active_lanes cannot see it.
+        """
+        state = self._state("census_2pw", second_password_mode="bypass")
+        labels = [action[0] for action in self._step(state)]
+        self.assertEqual(self._census([(label,) for label in labels]), [])
+        for frozen in FROZEN_LABELS:
+            self.assertIn(frozen, labels)
+        self.assertIsNone(state.world_census_actor_count)
+        self.assertNotIn("world_census_armed", state.events)
+
+    def test_export_events_is_not_contained_because_it_sends_nothing(self):
+        """The other flag outside active_lanes, and the opposite ruling.
+
+        --export-events changes what is printed, never what is sent, and
+        GT-076 needs it on the staircase boots.  Containing it would make the
+        measurement boots differ from the boot being measured.
+        """
+        state = self._state(
+            "census_events",
+            event_exporter=lambda event: None,
+        )
+        labels = [action[0] for action in self._step(state)]
+        self.assertIn(f"{INITIAL_PREFIX}115", labels)
+
+    # ----- the refusal is byte-identical to what shipped --------------------
+
+    def test_a_refusal_queues_the_frozen_collection_byte_for_byte(self):
+        """Fail closed means the shipped wire, not an empty town.
+
+        The inherited branch is disarmed at construction, so a refusal cannot
+        fall through to it -- the fallback has to rebuild it.  The catch is
+        deliberately Exception, not a tuple: the builder reads two frozen
+        constants by plain attribute access and calls frozen serializers, so
+        drift arrives as AttributeError or struct.error as readily as
+        ValueError, and an escape unwinds out of a listener thread that has no
+        except clause.
+        """
+        original = world_population.build_world_population
+
+        def explode(*args, **kwargs):
+            raise AttributeError("V117_P30_EXACT_HP")
+
+        state = self._state("census_refused_bytes")
+        world_population.build_world_population = explode
+        try:
+            actions = self._step(state)
+        finally:
+            world_population.build_world_population = original
+        frozen_pc, frozen_frame, frozen_rows = (
+            self.legacy.make_v112_monster_shop_population_state()
+        )
+        self.assertEqual(
+            [(label, bytes(pc), bytes(frame), delay)
+             for label, pc, frame, delay in actions
+             if label in FROZEN_LABELS],
+            [
+                (FROZEN_LABELS[0], frozen_pc, frozen_frame, 0.0),
+                (FROZEN_LABELS[1], frozen_pc, frozen_frame, 3.00),
+            ],
+        )
+        self.assertEqual(self._census(actions), [])
+        self.assertIs(state.world_census_refused, True)
+        self.assertIs(state.world_census_sent, True)
+        self.assertEqual(
+            state.population_indices, tuple(row[0] for row in frozen_rows),
+        )
+        self.assertIn(
+            "world_census_compose_refused_AttributeError", state.events,
+        )
+        self.assertIn("world_census_fell_back_to_frozen_p0_p30_p91",
+                      state.events)
+        # Latched: the next step neither retries nor re-sends the fallback.
+        self.assertEqual(
+            [action[0] for action in self._step(state)
+             if action[0] in FROZEN_LABELS or action[0].startswith(
+                 "WORLD_CENSUS_")],
+            [],
+        )
+
+    # ----- away from home ---------------------------------------------------
+
+    def test_a_scene_that_is_not_home_gets_no_population_at_all(self):
+        """The bg0001 census encodes scene 1 into every actor it builds.
+
+        Delivering it into another map would put dock NPCs in a scene they do
+        not belong to, so this refuses rather than degrading to the frozen
+        three -- which carry scene 1 just the same.
+        """
+        state = self._state("census_away")
+        selected = state.foundation.selected
+        state.foundation.selected = dataclasses.replace(
+            selected, position=dataclasses.replace(
+                selected.position, scene_id=278,
+            ),
+        )
+        actions = self._step(state)
+        self.assertEqual(self._census(actions), [])
+        for frozen in FROZEN_LABELS:
+            self.assertNotIn(frozen, [action[0] for action in actions])
+        self.assertIs(state.world_census_sent, True)
+        self.assertIn("world_census_skipped_scene_278_not_home", state.events)
+
+
+    # ----- BUILD-002 slice 1: the teleport that used to be a literal 1 ------
+
+    def test_the_home_teleport_is_byte_identical_to_the_literal_it_replaced(self):
+        """runtime.py:3675 was ``make_login_teleport(1, 0)``.
+
+        It is now a table lookup, which is what lets a character whose row says
+        another scene land there.  For a character whose row says scene 1 --
+        every character that exists today -- the five arguments the table
+        returns are (1, 0, 0.0, 0.0, 0.0), so the frame on the wire has to be
+        the same bytes it has always been.  CHARTER-02's cumulative rule at the
+        smallest scale there is: this is the assertion that says the change
+        cannot cost a player anything.
+        """
+        state_type = make_state_class(
+            self.legacy, self.lifecycle, self.projector,
+        )
+        state = state_type("travel_home")
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_client_login_pc("travel_home")
+        ))
+        state.dispatch(self.legacy.parse_outer(self.legacy._V25_REAL_CREATE_PC))
+        character = self.store.list_characters(
+            state.foundation.account_id
+        )[-1]
+        actions = state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_start_game_pc(character.selector)
+        ))
+        teleport = [
+            action for action in actions
+            if action[0] == "V113_TELEPORT_SCENE1_STABLE_ZERO_TARGET_ONCE"
+        ]
+        self.assertEqual(len(teleport), 1)
+        expected_pc, expected_frame = self.legacy.make_login_teleport(1, 0)
+        self.assertEqual(teleport[0][1], expected_pc)
+        self.assertEqual(teleport[0][2], expected_frame)
+        self.assertEqual(teleport[0][3], 0.70)
 
 
 if __name__ == "__main__":

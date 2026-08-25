@@ -644,6 +644,16 @@ class NamePropDispatchTests(unittest.TestCase):
         state = self._state("nameprop_tail")
         actions = state.dispatch(self._trigger(state))
         self.assertEqual([a[0] for a in actions[-2:]], list(LANE_LABELS))
+        # Containment, asserted here and not only in the census lane's own
+        # file: this boot opted into a hypothesis, so it must still receive
+        # the frozen three-actor population it was measured against.
+        self.assertEqual(
+            [a[0] for a in actions if a[0].startswith("WORLD_CENSUS_")], [],
+        )
+        self.assertIn(
+            "V134_P0_P30_P91_ISOLATED_INITIAL_READY",
+            [a[0] for a in actions],
+        )
         # WORLD-CENSUS-001 moved the control.  A boot with NO lane is no
         # longer the inherited three-actor boot -- it sends the whole bg0001
         # census -- so the control is taken at census rung 3, which is pinned

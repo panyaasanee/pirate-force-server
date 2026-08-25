@@ -80,6 +80,21 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
+    # This pin covers ONE deliberate movement (WORLD-CENSUS-001, chief cloud
+    # round R173, 2026-08-26 +07:00): world/scene_actor_population_streaming
+    # gains ONE test ref, tests/test_world_census_wiring.py.  The row's STATUS
+    # DOES NOT MOVE and nothing here claims the census works: it stays
+    # runtime_pass for the nearest-20 wire it was graded on, because no client
+    # has been shown a 115-actor collection and the highest count with a
+    # recorded runtime result in this project is still 20.  What changed is
+    # that the DEFAULT boot now sends the whole 115-row bg0001 census instead
+    # of three placements -- wired in runtime.py, proven headless only -- so a
+    # row whose test refs did not include the test that drives that wire would
+    # have been silently wrong about its own coverage.  The row's notes record
+    # the same thing in prose, and prose is outside this digest by design.
+    # GT-078 is the attended ticket that could move the status; it has not run.
+    #   R167 / parent 6CF4AE24A70C7DC8EE447310A640098615B5D9F68AB368D58717C501B4DB4553
+    #
     # This pin covers TWO deliberate movements that land in the same change
     # (chief cloud round R167, 2026-08-25 +07:00).  They are recorded below in
     # the order they were written, newest first.  R167 itself moves no grade
@@ -664,7 +679,7 @@ GRADE_SUBSET_SHA256 = (
     # 26D752FE..BA9A (round 65) occupied_destination_policy not_started ->
     # in_progress under HYP-PF-017 (ITEM-SWAP-001); see its lineage note before that
     # for round 53's 78558E56..6DC8.
-    "6CF4AE24A70C7DC8EE447310A640098615B5D9F68AB368D58717C501B4DB4553"
+    "F80ADB72621F31B2E63EAED9DF6B553B96C79C8E26D6A3E0D3C3E83BE5710926"
 )
 
 

@@ -381,6 +381,13 @@ class PopulationAdapterTests(unittest.TestCase):
             [action[0] for action in actions],
             ["WORLD_CENSUS_INITIAL_3", "WORLD_CENSUS_REAPPLY_3"],
         )
+        # The golden's own labels are still what the frozen branch emits, and
+        # are still what a refusing session falls back to, so the key stays
+        # live rather than rotting into unread data.
+        self.assertEqual(golden["labels"], [
+            "V134_P0_P30_P91_ISOLATED_INITIAL_READY",
+            "V134_P0_P30_P91_ISOLATED_REAPPLY_READY",
+        ])
         self.assertEqual([action[3] for action in actions], golden["delays"])
         self.assertEqual([
             {

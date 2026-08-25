@@ -5,6 +5,7 @@ import threading
 import time
 
 from . import world_population
+from . import world_scene_travel
 
 from .model import Position
 from .inventory import (
@@ -300,37 +301,6 @@ def make_stdout_event_exporter(stream=None):
             pass
 
     return export
-
-
-def world_census_anchor(legacy, parsed, last_target_pos):
-    """The anchor the frozen population branch would have used, exactly.
-
-    v141 sets ``last_target_pos`` from the CURRENT frame (v141:4259) and only
-    then reaches its population branch (v141:4292), so the frozen anchor is
-    this frame's TargetPos when it parses and the previous one when it does
-    not.  This runs BEFORE ``super().dispatch``, so the current frame has to be
-    parsed here to reproduce that; reading ``self.last_target_pos`` alone would
-    anchor the census one step behind the player.
-
-    ``parse_target_pos_vital`` is the loose parse on purpose - the strict
-    ``parse_v141_refresh_target_pos`` used elsewhere in this dispatcher accepts
-    a narrower shape, and gating on it would leave boots whose first step is
-    not the exact refresh shape with no population at all.  v141's third
-    rejection (non-exact refresh shape) cannot apply here: it is reached only
-    once the V138/V139 destination sequence has run, and that sequence cannot
-    have run while the population has not been sent.
-    """
-    try:
-        pos = legacy.parse_target_pos_vital(parsed)
-    except Exception:
-        pos = None
-    if pos is not None and not all(math.isfinite(value) for value in pos[:4]):
-        pos = None
-    if pos is not None:
-        return (float(pos[0]), float(pos[1]), float(pos[2]))
-    if last_target_pos is not None:
-        return tuple(float(value) for value in last_target_pos[:3])
-    return None
 
 
 def make_state_class(legacy, lifecycle, projector, scenario=None,
@@ -787,7 +757,19 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
     # a lane that is measuring something else would silently change that
     # lane's control, so an opt-in boot keeps exactly the population it has
     # always had.  This is a containment rule, not a gate on the feature.
-    world_census_enabled = not active_lanes
+    #
+    # HYP-PF-009 is not a scenario object and so is not in active_lanes, but a
+    # --second-password-mode other than "required" is an opt-in measurement
+    # lane by every other test: it was characterized against the three-actor
+    # baseline, and its whole question is what this client does with an
+    # unsolicited frame.  Adding 17.9 KB of unmeasured population to that
+    # socket would confound it, so it is contained here by name.
+    # --export-events is deliberately NOT contained: it changes what is
+    # printed, never what is sent, and GT-076 needs it.
+    second_password_mode = require_second_password_mode(second_password_mode)
+    world_census_enabled = (
+        not active_lanes and second_password_mode == "required"
+    )
     # None means "the census, capped by whatever MEASURED_CLIENT_ACTOR_CEILING
     # says at call time".  An explicit count is the attended staircase
     # instrument (GT-076, the actor-ceiling staircase): it selects a rung,
@@ -797,7 +779,6 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
     # than on a live client's first step.
     if world_census_actor_count is not None:
         world_population.effective_actor_count(world_census_actor_count)
-    second_password_mode = require_second_password_mode(second_password_mode)
     if monotonic_clock is None:
         monotonic_clock = time.monotonic
     if close_timer_factory is None:
@@ -903,12 +884,38 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.second_password_bypass_last_sent_at = None
                 # WORLD-CENSUS-001 observability.  ``world_census_actor_count``
                 # is the number that actually went onto the wire this session,
-                # not the number that was asked for: a refusal leaves it None
-                # and latches, so the frozen three-actor branch runs instead of
-                # the census retrying itself on every step.
+                # not the number that was asked for.
                 self.world_census_actor_count = None
                 self.world_census_indices = None
+                self.world_census_sent = False
                 self.world_census_refused = False
+                if world_census_enabled:
+                    # The inherited P0/P30/P91 branch is disarmed HERE, at
+                    # construction, exactly the way the population and
+                    # scene-load lanes disarm it -- not from inside dispatch.
+                    #
+                    # Doing it from dispatch was wrong twice over, and both
+                    # were measured rather than argued.  (1) The frozen branch
+                    # reads runtime_ack_sent AFTER the same dispatch call has
+                    # set it (v141:3771 then v141:4292), so a pre-dispatch
+                    # check loses the transition frame and the three-actor
+                    # branch wins the session with nothing recording that it
+                    # did.  (2) The frozen branch lives under
+                    # "outer_id == GSCN_RunTimeProtocolReq and teleport_sent"
+                    # (v141:3680); a pre-dispatch trigger without those
+                    # conjuncts could set population_indices on a frame the
+                    # inherited dispatcher ignored, leaving last_target_pos
+                    # None -- and v141:4416 unpacks last_target_pos for any
+                    # member of population_indices, so the next NPC click
+                    # raised TypeError out of the listener thread.
+                    #
+                    # With the branch disarmed at init, the census composes
+                    # AFTER super().dispatch() from state the inherited
+                    # dispatcher has already updated on this frame, which is
+                    # the same state the frozen branch would have read.
+                    self.npc_spawn_sent = True
+                    self.population_indices = None
+                    self.events.append("world_census_armed")
                 if population_scenario is not None:
                     # The typed capability owns TargetPos population state.  The
                     # inherited dispatcher must remain permanently unable to
@@ -954,6 +961,46 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             if not callable(closer):
                 raise TypeError("transport socket closer must be callable")
             self.transport_socket_closer = closer
+
+        def _world_census_frozen_fallback(self, anchor):
+            """Queue the shipped three-actor collection after a census refusal.
+
+            The census disarms the inherited branch at construction, so a
+            refusal cannot simply fall through to it - by the time the refusal
+            happens that branch is already latched off for the session.  This
+            rebuilds exactly what it would have built, under exactly its
+            labels, schedule and bookkeeping, so a session that refuses is the
+            session this project shipped yesterday and not a session with an
+            empty town.
+
+            If even the frozen builder raises, nothing is queued and the
+            refusal is named: a listener thread that survives with no
+            population beats one that dies with a traceback.
+            """
+            try:
+                npc_pc, npc_frame, local_rows = (
+                    legacy.make_v112_monster_shop_population_state()
+                )
+            except Exception as error:
+                self.events.append(
+                    f"world_census_fallback_refused_{type(error).__name__}"
+                )
+                return []
+            self.world_census_sent = True
+            self.npc_idle_action_sent = False
+            self.population_indices = tuple(row[0] for row in local_rows)
+            self.population_refresh_anchor = anchor
+            self.events.append("world_census_fell_back_to_frozen_p0_p30_p91")
+            self.events.append(
+                "v112_isolated_population_indices_"
+                + "_".join(str(row[0]) for row in local_rows)
+            )
+            return [
+                ("V134_P0_P30_P91_ISOLATED_INITIAL_READY",
+                 npc_pc, npc_frame, 0.0),
+                ("V134_P0_P30_P91_ISOLATED_REAPPLY_READY",
+                 npc_pc, npc_frame, 3.00),
+            ]
 
         def _sync_frozen_inventory_state(self) -> None:
             backpack = self.foundation.backpack
@@ -3738,7 +3785,25 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             p.scene_id, p.scene_seq, p.x, p.y, p.z,
                         )
                     else:
-                        tp_pc, tp_frame = legacy.make_login_teleport(1, 0)
+                        # WORLD-SCENE-TRAVEL-001 (LANE-A BUILD-002 slice 1),
+                        # wired here because runtime.py is the chief's file.
+                        # The hardcoded 1 was the only thing pinning a default
+                        # boot to Port Royal; the guards RE-073 recorded all
+                        # live on opt-in lanes and never see this path.
+                        #
+                        # For scene 1 login_teleport_fields returns
+                        # (1, 0, 0.0, 0.0, 0.0), which is argument-for-argument
+                        # what the line above sent, so a player who stays home
+                        # receives the identical bytes.  A scene with no pinned
+                        # row raises rather than falling back silently: landing
+                        # somebody in a place nothing knows the shape of is
+                        # worse than refusing to boot.
+                        p = self.foundation.selected.position
+                        tp_pc, tp_frame = legacy.make_login_teleport(
+                            *world_scene_travel.login_teleport_fields(
+                                world_scene_travel.destination(p.scene_id)
+                            )
+                        )
                     actions.append((
                         "SCENE2_LOAD_ONLY_TELEPORT_MARKER2_ONCE" if load_only
                         else "V113_TELEPORT_SCENE1_STABLE_ZERO_TARGET_ONCE",
@@ -3956,73 +4021,6 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                      self.arena_scenario.reapply_ms / 1000.0),
                 ]
 
-            census_actions = []
-            if (
-                world_census_enabled
-                and not self.world_census_refused
-                and nested_id == legacy.TARGET_POS_VITAL
-                and self.runtime_ack_sent
-                and not self.npc_spawn_sent
-            ):
-                anchor = world_census_anchor(
-                    legacy, parsed, self.last_target_pos,
-                )
-                if anchor is not None:
-                    try:
-                        generation = world_population.build_world_population(
-                            legacy, anchor,
-                            world_population.effective_actor_count()
-                            if world_census_actor_count is None
-                            else world_population.effective_actor_count(
-                                world_census_actor_count
-                            ),
-                        )
-                    except (ValueError, KeyError, IndexError, TypeError) as error:
-                        # Fail closed to the shipped behaviour, not to silence:
-                        # leave npc_spawn_sent alone so the frozen three-actor
-                        # branch still runs on this very frame, and latch so a
-                        # refusal cannot retry itself onto the wire.
-                        self.world_census_refused = True
-                        self.events.append(
-                            f"world_census_compose_refused_{type(error).__name__}"
-                        )
-                    else:
-                        # Commit exactly the bookkeeping the frozen branch
-                        # commits (v141:4308-4311) before queueing anything, so
-                        # the V98/V112 interaction paths downstream see a
-                        # population that matches what was sent.  Setting
-                        # npc_spawn_sent is also what suppresses the inherited
-                        # three-actor branch for this session.
-                        self.npc_spawn_sent = True
-                        self.npc_idle_action_sent = False
-                        self.population_indices = generation.indices
-                        self.population_refresh_anchor = generation.anchor
-                        self.world_census_actor_count = generation.actor_count
-                        self.world_census_indices = generation.indices
-                        self.events.append(
-                            "world_census_committed_actors_"
-                            f"{generation.actor_count}_pc_{generation.pc_bytes}"
-                            f"_frame_{generation.frame_bytes}"
-                        )
-                        # The count goes in the LABEL, not only in an event:
-                        # v141 prints every queued action as "[G>] <label> (N
-                        # bytes)" at SEND time (v141:7762), so the attended
-                        # tester can tell four staircase boots apart from the
-                        # console alone, and a boot that composed but never
-                        # sent is visibly different from one that sent.
-                        census_actions = [
-                            (
-                                "WORLD_CENSUS_INITIAL_"
-                                f"{generation.actor_count}",
-                                generation.pc, generation.frame, 0.0,
-                            ),
-                            (
-                                "WORLD_CENSUS_REAPPLY_"
-                                f"{generation.actor_count}",
-                                generation.pc, generation.frame,
-                                world_population.INITIAL_REAPPLY_MS / 1000.0,
-                            ),
-                        ]
             actions = super().dispatch(parsed)
             if (
                 second_password_mode == "bypass"
@@ -4080,6 +4078,115 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 and self.foundation.selected is not None
             ):
                 self._checkpoint_exact_target(durable_target)
+
+            # WORLD-CENSUS-001.  Composed AFTER the inherited dispatch, on
+            # exactly the conjunction the frozen branch stands on: its own
+            # enclosing elif (v141:3680, outer_id + teleport_sent) and its own
+            # guard (v141:4292, runtime_ack_sent + last_target_pos).  There is
+            # no nested_id conjunct because the frozen branch has none either -
+            # it sits outside the TargetPos block, on any RuntimeReq frame once
+            # a position is known.  last_target_pos is read rather than
+            # re-parsed because super() has already set it from THIS frame
+            # (v141:4259), which is the anchor the frozen branch would use.
+            census_actions = []
+            if (
+                world_census_enabled
+                and not self.world_census_sent
+                and not self.world_census_refused
+                and parsed.outer_id == legacy.GSCN_RUNTIME_PROTOCOL_REQ
+                and self.teleport_sent
+                and self.runtime_ack_sent
+                and self.last_target_pos is not None
+                and self.foundation.selected is not None
+            ):
+                x, y, z, _heading = self.last_target_pos
+                anchor = (float(x), float(y), float(z))
+                scene_id = self.foundation.selected.position.scene_id
+                if scene_id != world_population.SCENE_ID:
+                    # Away from home the bg0001 census is not merely useless,
+                    # it is wrong: every actor in it is encoded with scene 1.
+                    # The inherited branch is already disarmed, so this sends
+                    # NOTHING rather than delivering dock NPCs into another
+                    # map.  Unreachable until BUILD-002 can move a default boot
+                    # off scene 1, which is the moment it stops being
+                    # unreachable.
+                    self.world_census_sent = True
+                    self.events.append(
+                        f"world_census_skipped_scene_{scene_id}_not_home"
+                    )
+                else:
+                    count, count_source = (
+                        world_population.census_count_for_dispatch()
+                        if world_census_actor_count is None
+                        else (
+                            world_population.effective_actor_count(
+                                world_census_actor_count
+                            ),
+                            world_population.COUNT_SOURCE_CALLER,
+                        )
+                    )
+                    try:
+                        generation = world_population.build_world_population(
+                            legacy, anchor, count,
+                            scene_id=scene_id, count_source=count_source,
+                        )
+                    except Exception as error:
+                        # Catch-all on purpose.  The builder reads frozen
+                        # constants by plain attribute access and calls frozen
+                        # serializers, so drift can arrive as AttributeError or
+                        # struct.error as easily as ValueError, and an escape
+                        # from here unwinds out of the listener thread
+                        # (v141:7440 has no except).  Fail closed to the wire
+                        # that shipped: rebuild the frozen three-actor
+                        # collection and queue it under its own labels, so a
+                        # refusing session is byte-for-byte the old session
+                        # rather than a session with no population at all.
+                        self.world_census_refused = True
+                        self.events.append(
+                            "world_census_compose_refused_"
+                            f"{type(error).__name__}"
+                        )
+                        census_actions = self._world_census_frozen_fallback(
+                            anchor,
+                        )
+                    else:
+                        self.world_census_sent = True
+                        self.npc_idle_action_sent = False
+                        self.population_indices = generation.indices
+                        self.population_refresh_anchor = generation.anchor
+                        self.world_census_actor_count = generation.actor_count
+                        self.world_census_indices = generation.indices
+                        self.events.append(
+                            "world_census_committed_actors_"
+                            f"{generation.actor_count}_pc_{generation.pc_bytes}"
+                            f"_frame_{generation.frame_bytes}"
+                        )
+                        # The lane's own console line, printed before the frame
+                        # is queued: it carries the wire count read back out of
+                        # the bytes and the body check beside the assembled
+                        # count, which is the difference between "115 actors
+                        # went out" and "the header says 115".  ASCII only --
+                        # the bridge console is cp874.
+                        print(world_population.census_console_line(generation))
+                        # The count is in the LABEL too: v141 prints every
+                        # queued action as "[G>] <label> (N bytes)" at SEND
+                        # time (v141:7762), so the attended tester can tell the
+                        # four staircase boots apart from the console alone,
+                        # and a boot that composed but never sent is visibly
+                        # different from one that sent.
+                        census_actions = [
+                            (
+                                "WORLD_CENSUS_INITIAL_"
+                                f"{generation.actor_count}",
+                                generation.pc, generation.frame, 0.0,
+                            ),
+                            (
+                                "WORLD_CENSUS_REAPPLY_"
+                                f"{generation.actor_count}",
+                                generation.pc, generation.frame,
+                                world_population.INITIAL_REAPPLY_MS / 1000.0,
+                            ),
+                        ]
 
             if self.arena_scenario is not None and self.arena_spawned:
                 if (

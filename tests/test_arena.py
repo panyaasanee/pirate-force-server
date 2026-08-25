@@ -262,18 +262,18 @@ class ArenaTests(unittest.TestCase):
             "world_census_committed_actors_115"
             f"_pc_{len(actions[0][1])}_frame_{len(actions[0][2])}"
         )
-        # The census event precedes the frame's own target_pos event because
-        # the census composes BEFORE the inherited dispatch runs - the same
-        # ordering the ground-loot and nameprop lanes already have.
-        # The trailing frozen event is v141's own text for "the population was
-        # already sent, nothing to do".  Its WORDING is now inaccurate on this
-        # path -- what was retained is the census, not P0/P30/P91 -- but it is
-        # frozen source and is pinned here so the inaccuracy is on the record
-        # rather than a surprise to whoever reads a live log next.
+        # The census event comes LAST because the census composes AFTER the
+        # inherited dispatch, from state that dispatch has already updated on
+        # this frame.  The middle event is v141's own text for "the population
+        # was already sent, nothing to do" -- it fires because the census
+        # disarms that branch at construction.  Its WORDING is inaccurate on
+        # this path (what was retained is the census, not P0/P30/P91) but it is
+        # frozen source, so it is pinned here to put the inaccuracy on the
+        # record rather than leave it a surprise to whoever reads a live log.
         self.assertEqual(normal.events[len(normal_before_events):], [
-            census_event,
             "target_pos_10.00_20.00_30.00",
             "v129_isolated_population_retained_p0_p30_p91",
+            census_event,
         ])
 
     def test_target_capture_is_observation_only(self):

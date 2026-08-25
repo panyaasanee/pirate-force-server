@@ -271,7 +271,7 @@
             "scenarios/logout_hypothesis_return_select_server.json",
             "scenarios/logout_hypothesis_chat_push_return_select.json",
             "reports/PF_LOGOUT_RETURN_SELECT001_HYP028_20260820.md",
-        "reports/PF_GT033_LOGOUT_TRANSITION_AB_CLIENT_OBSERVABLE_NEGATIVE_20260825.md"
+            "reports/PF_GT033_LOGOUT_TRANSITION_AB_CLIENT_OBSERVABLE_NEGATIVE_20260825.md"
           ],
           "test_refs": [
             "tests/test_logout_hypothesis.py",
@@ -385,9 +385,10 @@
           "test_refs": [
             "tests/test_population.py",
             "tests/test_population_adapter.py",
-            "tests/test_scene_object.py"
+            "tests/test_scene_object.py",
+            "tests/test_world_census_wiring.py"
           ],
-          "notes": "One nearest-20 initial generation plus one forward and one reverse refresh, byte-identical to the frozen V141 builder. Arbitrary scene sizes, streaming under load, and the original server's real population policy are unproven."
+          "notes": "One nearest-20 initial generation plus one forward and one reverse refresh, byte-identical to the frozen V141 builder. Arbitrary scene sizes, streaming under load, and the original server's real population policy are unproven. WORLD-CENSUS-001 (R173) changed what the DEFAULT boot sends from three placements to the whole 115-row bg0001 census, proven headless only: no client has been shown a 115-actor collection, the highest count with a recorded runtime result is still 20, and this status line therefore still describes the nearest-20 wire and not the census. GT-078 is the attended ticket that would move it."
         },
         {
           "id": "teleport_transport",
