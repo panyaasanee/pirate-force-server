@@ -193,6 +193,11 @@ GROUND_DROP_OBSERVED_LIFETIME_SECONDS = 0.633
 # money drop has nothing to put in it.  Rolled and recorded, never emitted.
 MONEY_ITEM_ID = 0
 MONEY_TAG = "INFERENCE_MONEY_SLOT"
+MONEY_AMOUNT_FROM_QUANTITY_SPAN = "AMOUNT_FROM_QUANTITY_SPAN"
+MONEY_AMOUNT_HAS_NO_COLUMN = "AMOUNT_HAS_NO_COLUMN"
+MONEY_AMOUNT_PROVENANCES = (
+    MONEY_AMOUNT_FROM_QUANTITY_SPAN, MONEY_AMOUNT_HAS_NO_COLUMN,
+)
 
 SOURCE_TABLE_NORMAL = "DROPS_NORMAL"
 SOURCE_TABLE_EQUIPMENT = "DROPS_EQUIPMENT"
@@ -228,7 +233,10 @@ MOB_LOOT_NONCLAIMS = (
     "ledger for the pickup half.",
     "7. Money cannot be placed.  A money slot has no item id, and the "
     "element's only content field is one.  Rolled, recorded, never emitted -- "
-    "and the reading that item id 0 means money is [INFERENCE], not proven.",
+    "and the reading that item id 0 means money is [INFERENCE], not proven.  "
+    "The recorded AMOUNT is not a currency amount either: a DROPS_NORMAL slot "
+    "carries a quantity span and a weighted entry carries no quantity column "
+    "at all, so every MoneyDrop says which of the two its number came from.",
     "8. DROPS_QUEST is refused by name, table and all: only 311 of the 2478 "
     "DROPS_QUEST sets the mobs reference exist client-side.",
     "9. Item quality is not rolled.  E_DROPS_QUALITY exists and "
@@ -244,6 +252,15 @@ MOB_LOOT_NONCLAIMS = (
     "12. Whether re-emitting an element keeps the object on screen is "
     "UNMEASURED.  ``refresh_frames`` composes the frames; DROP_REFRESH_MS is "
     "a guess; re-emission may equally restart the drop effect each time.",
+    "13. DELTA OR REPLACEMENT IS UNPROVEN, and it matters for every kill that "
+    "drops more than one object.  This lane sends one element per frame "
+    "because a multi-record derived-mask collection is the shape a real "
+    "client rejected; if the client treats each such frame as the WHOLE "
+    "ground list rather than as a change to it, the second object of a kill "
+    "removes the first and a player sees one item instead of three.  Nobody "
+    "has measured which it is: GT-045 sent its two elements far apart and at "
+    "a lifetime of 0.633 s the difference is not visible to an observer.  "
+    "This is the first question for whoever runs the attended entry.",
 )
 
 # ---------------------------------------------------------------------------
@@ -457,16 +474,31 @@ class DropItem:
 
 @dataclass(frozen=True)
 class MoneyDrop:
-    """A money slot that won its rate roll.  It can never reach the ground."""
+    """A money slot that won its rate roll.  It can never reach the ground.
+
+    ``amount`` is NOT a currency amount and this lane will not pretend it is.
+    A DROPS_NORMAL money slot has the slot's own quantity span and that span
+    is what is recorded (``AMOUNT_FROM_QUANTITY_SPAN``); a weighted entry in
+    DROPS_EQUIPMENT / DROPS_SPECIALLY has NO quantity column at all, so the
+    recorded amount is 1 by convention and says so in its provenance
+    (``AMOUNT_HAS_NO_COLUMN``).  Whoever builds the pickup half must read the
+    provenance before it converts either number into gold.
+    """
 
     amount: int
     source_table: str
     source_set_id: int
     source_index: int
+    amount_provenance: str = "AMOUNT_FROM_QUANTITY_SPAN"
     tag: str = MONEY_TAG
 
     def __post_init__(self) -> None:
         _require_int(self.amount, "amount", 1, 0xFFFFFFFF)
+        if self.amount_provenance not in MONEY_AMOUNT_PROVENANCES:
+            raise MobLootContractError(
+                REFUSE_TYPE_NOT_TYPED_RECORD,
+                "a money amount must say where it came from: %s"
+                % (MONEY_AMOUNT_PROVENANCES,))
         if self.source_table not in SOURCE_TABLES:
             raise MobLootContractError(
                 REFUSE_TYPE_NOT_TYPED_RECORD,
@@ -554,7 +586,8 @@ def _roll_normal(set_id, row, rng, items, money, refusals) -> int:
             continue
         if item_id == MONEY_ITEM_ID:
             money.append(MoneyDrop(
-                quantity, SOURCE_TABLE_NORMAL, set_id, index))
+                quantity, SOURCE_TABLE_NORMAL, set_id, index,
+                MONEY_AMOUNT_FROM_QUANTITY_SPAN))
             continue
         if item_id not in field_drop_tables.ITEMS:
             refusals.append((REFUSE_UNKNOWN_ITEM_ID, set_id, index))
@@ -585,7 +618,8 @@ def _roll_weighted(source, set_id, row, rng, items, money, refusals) -> int:
             continue
         index, item_id, _weight = entries[chosen]
         if item_id == MONEY_ITEM_ID:
-            money.append(MoneyDrop(1, source, set_id, index))
+            money.append(MoneyDrop(
+                1, source, set_id, index, MONEY_AMOUNT_HAS_NO_COLUMN))
             continue
         if item_id not in field_drop_tables.ITEMS:
             refusals.append((REFUSE_UNKNOWN_ITEM_ID, set_id, index))
@@ -1086,7 +1120,12 @@ def loot_report(mob: Any, roll: DropRoll) -> dict:
             for item in roll.items
         ],
         "money": [
-            {"amount": row.amount, "source": row.source_table, "tag": row.tag}
+            {
+                "amount": row.amount,
+                "amount_provenance": row.amount_provenance,
+                "source": row.source_table,
+                "tag": row.tag,
+            }
             for row in roll.money
         ],
         "draws": roll.draws,

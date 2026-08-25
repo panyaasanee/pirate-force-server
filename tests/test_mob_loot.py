@@ -311,6 +311,15 @@ class MobLootTests(unittest.TestCase):
         self.assertTrue(roll.money)
         for row in roll.money:
             self.assertEqual(row.tag, "INFERENCE_MONEY_SLOT")
+            self.assertIn(
+                row.amount_provenance,
+                ("AMOUNT_FROM_QUANTITY_SPAN", "AMOUNT_HAS_NO_COLUMN"))
+            if row.source_table == "DROPS_NORMAL":
+                self.assertEqual(
+                    row.amount_provenance, "AMOUNT_FROM_QUANTITY_SPAN")
+            else:
+                self.assertEqual(
+                    row.amount_provenance, "AMOUNT_HAS_NO_COLUMN")
         with self.assertRaises(MobLootContractError) as caught:
             money_element(self.legacy, roll.money[0])
         self.assertEqual(caught.exception.args[0], "money_has_no_element")
