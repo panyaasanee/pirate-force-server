@@ -53,7 +53,9 @@ class HypothesisLedgerTests(unittest.TestCase):
             "--second-password-mode",
             raw_by_id["HYP-PF-009"]["exact_value_or_transform"],
         )
-        self.assertEqual(raw_by_id["HYP-PF-009"]["max_versions"], 3)
+        # Ceiling raised 3 -> 5 by the owner ruling of 2026-08-25 ~18:15
+        # (+07:00); the value stays exact so drift is still caught.
+        self.assertEqual(raw_by_id["HYP-PF-009"]["max_versions"], 5)
         self.assertFalse(raw_by_id["HYP-PF-009"]["production_allowed"])
         self.assertEqual(raw_by_id["RET-PF-001"]["status"], "retired")
         self.assertTrue(all(item["production_allowed"] is False for item in self.raw["entries"]))

@@ -95,6 +95,11 @@ from .damage_model_hypothesis import (
 from .ground_loot_hypothesis import (
     make_ground_loot_frames, require_ground_loot_hypothesis_scenario,
 )
+from .ground_loot_nameprop_hypothesis import (
+    GROUND_LOOT_NAMEPROP_LABELS,
+    make_ground_loot_nameprop_frames,
+    require_ground_loot_nameprop_scenario,
+)
 from .learn_skill_request_hypothesis import (
     LEARN_SKILL_REQUEST_VITAL_ID,
     classify_learn_skill_request_attempt,
@@ -315,6 +320,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                      npc_hp_link_hypothesis_scenario=None,
                      move_authority_hypothesis_scenario=None,
                      ground_loot_hypothesis_scenario=None,
+                     ground_loot_nameprop_scenario=None,
                      learn_skill_result_hypothesis_scenario=None,
                      learn_skill_request_hypothesis_scenario=None,
                      skill_attr_hypothesis_scenario=None,
@@ -359,6 +365,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
              move_authority_hypothesis_scenario),
             ("ground_loot_hypothesis_scenario",
              ground_loot_hypothesis_scenario),
+            ("ground_loot_nameprop_scenario",
+             ground_loot_nameprop_scenario),
             ("learn_skill_result_hypothesis_scenario",
              learn_skill_result_hypothesis_scenario),
             ("learn_skill_request_hypothesis_scenario",
@@ -386,7 +394,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             "runtimeres death hypothesis, damage model hypothesis, damage "
             "hp link hypothesis, remote player hypothesis, npc hostile "
             "hypothesis, npc hp link hypothesis, move authority "
-            "hypothesis, ground loot hypothesis, learn skill result "
+            "hypothesis, ground loot hypothesis, ground loot nameprop, "
+            "learn skill result "
             "hypothesis, learn skill request hypothesis, skill attr "
             "hypothesis, pickup listener hypothesis, item operate res "
             "hypothesis, and hostile hp link hypothesis scenarios are "
@@ -409,6 +418,15 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         ground_loot_hypothesis_scenario = (
             require_ground_loot_hypothesis_scenario(
                 ground_loot_hypothesis_scenario
+            )
+        )
+    # GROUND-LOOT-NAMEPROP-001.  Same re-check for the selector lane: it is
+    # a SEPARATE lane from GROUND-LOOT-001 and never shares a boot with it,
+    # so a lookalike must not be able to reach a socket through either door.
+    if ground_loot_nameprop_scenario is not None:
+        ground_loot_nameprop_scenario = (
+            require_ground_loot_nameprop_scenario(
+                ground_loot_nameprop_scenario
             )
         )
     # LEARN-SKILL-RESULT-001.  Re-checked here even though app.py already
@@ -774,6 +792,10 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # composition latches too so drift can never retry itself
                 # onto the wire.
                 self.ground_loot_pair_sent = False
+                # GROUND-LOOT-NAMEPROP-001 one-shot latch, its own and never
+                # shared with the lane above: a refused composition latches
+                # too, so drift can never retry itself onto the wire.
+                self.ground_loot_nameprop_sent = False
                 self.worldinfo_last_payload = None
                 self.worldinfo_stored_count = 0
                 self.chat_input_echo_count = 0
@@ -3773,6 +3795,55 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         ("GROUND_LOOT_BIT08_RENDER_FAR_ONCE",
                          far_pc, far_frame, 0.10),
                     ]
+            # PF-HYPOTHESIS-LEDGER: HYP-PF-039 active
+            # GROUND-LOOT-NAMEPROP-001 (GT-069): the same trigger moment,
+            # but a SEPARATE lane that never shares a boot with the one
+            # above.  Two single-element bit-0x08 frames whose element mask
+            # is 0x3A -- dword, the name-property GATE at +0x1B, position,
+            # and the name-property INDEX at +0x1A -- so an attended tester
+            # can answer whether the selector RE-067 pinned actually reaches
+            # the floating item name label.  The two frames are 1.50 s apart
+            # on purpose: the label's measured lifetime is 0.2-0.4 s, and
+            # the previous round's 42 ms gap left the observer unable to say
+            # which element she had seen.  The frames RIDE ALONGSIDE the
+            # inherited dispatch, so the frozen population and the position
+            # checkpoint of the triggering frame stay byte-for-byte
+            # untouched.
+            nameprop_actions = []
+            if (
+                ground_loot_nameprop_scenario is not None
+                and not self.ground_loot_nameprop_sent
+                and self.runtime_ack_sent
+                and self.teleport_sent
+                and self.foundation.selected is not None
+                and nested_id == legacy.TARGET_POS_VITAL
+                and durable_target is not None
+            ):
+                try:
+                    nameprop_frames = make_ground_loot_nameprop_frames(
+                        legacy, ground_loot_nameprop_scenario,
+                        tuple(durable_target[:3]),
+                    )
+                except RuntimeError:
+                    # Drift refuses forever: latch so the refusal cannot
+                    # retry itself onto the wire on a later frame.
+                    self.ground_loot_nameprop_sent = True
+                    self.events.append(
+                        "ground_loot_nameprop_compose_refused_no_reply"
+                    )
+                else:
+                    self.ground_loot_nameprop_sent = True
+                    self.events.append(
+                        "hyp_pf_039_ground_loot_nameprop_pair_committed"
+                    )
+                    nameprop_actions = [
+                        (label, pc, frame, element.delay)
+                        for label, (pc, frame), element in zip(
+                            GROUND_LOOT_NAMEPROP_LABELS,
+                            nameprop_frames,
+                            ground_loot_nameprop_scenario.elements,
+                        )
+                    ]
             arena_actions = []
             suppress_inherited_population = (
                 self.arena_scenario is not None
@@ -3887,5 +3958,6 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     self.events.append(
                         f"arena_{version}_p30_target_kind2_captured_no_reply"
                     )
-            return actions + arena_actions + ground_loot_actions
+            return (actions + arena_actions + ground_loot_actions
+                    + nameprop_actions)
     return PersistentGameSessionState

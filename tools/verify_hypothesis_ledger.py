@@ -595,6 +595,52 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # inverted guard in the replay tool's docstring, and no artifact in this repo
 # naming the round) and 4 MEDIUM, all folded in before commit.  evidence_gap
 # is AMENDED, not replaced, per the house precedent at entries 33 and 39.)
+# -> (2026-08-25 chief round R167, cloud: this pin covers THREE changes that land
+# together and cannot be pinned separately.  (1) The R165 ground-loot-nameprop
+# lane is merged in: its branch was gate-green (run 32838572131, sha 13baff27..)
+# but no pull request was ever opened for it, so HYP-PF-039 had never reached
+# main; count 46 -> 47, appended at the end, every earlier index stable.
+# (2) The owner's ruling of 2026-08-25 ~18:15 (+07:00), recorded in
+# notes_to_chief/20260825_1815_PANYA-RULINGS-FOUR-quota-cap5-GT036-lethal-
+# scoped-GT030-rerun.md, raises the version ceiling from THREE to FIVE: policy
+# max_related_versions 3 -> 5, policy_text reworded from 'at most three' to 'at
+# most five' so the prose cannot contradict the number, and max_versions 3 -> 5
+# on every entry (all 47 after the append; all of them were exactly 3 before).
+# The old value is kept here on purpose: the ceiling WAS three from the ledger's
+# creation until this date, and no tracked_versions list is touched, so nothing
+# that was full becomes retroactively unfull -- HYP-PF-029 and HYP-PF-032 simply
+# go from 3/3 to 3/5.  (3) HYP-PF-039's arrival is recorded as a scoped note in
+# HYP-PF-032's evidence_gap per the owner's ruling of ~17:5x the same day: the
+# fields 032's stop_rule freezes are being explored by a DIFFERENT lane, and
+# 032 itself is neither extended nor overridden -- its stop_rule text is
+# untouched and its tracked_versions stay at three.  No status, kind,
+# checkpoint or production_allowed moves anywhere.
+#   The adversary pass on this same change forced four more edits before
+#   commit, all of them prose inside entries, none of them numbers:
+#   (a) every entry whose text still did three-version arithmetic carries a
+#   dated CEILING NOTE saying the sentence was written under the old ceiling
+#   and that no tracked_versions list moved -- the sentences themselves are
+#   kept, because they are the record of decisions taken at the time, and no
+#   stop_rule was edited to place a note (HYP-PF-024's note went to its
+#   expiry.decision for exactly that reason);
+#   (b) HYP-PF-032 carries a FREEZE NOTE: the ~17:5x ruling froze it at three
+#   and the ~18:15 ceiling raise does NOT unfreeze it, so its two arithmetic
+#   slots may not be opened without a fresh owner decision.  Without that
+#   note the raise would have quietly granted the one thing the earlier
+#   ruling forbade, in the same commit that says it did not;
+#   (c) HYP-PF-039 carries a BUDGET NOTE: the owner said 1/3 and measured her
+#   ceiling ruling over the 46 entries that existed then.  This is the 47th.
+#   Its max_versions reads 5 only because this verifier demands one exact
+#   ceiling for every entry; that is chief's INFERENCE and is labelled so,
+#   and the lane is worked as 1 of 3 until she says otherwise.  It also
+#   carries a MERGE NOTE retiring its own 'do not merge until the owner has
+#   ruled' sentence, which the ruling spent;
+#   (d) the claim that HYP-PF-032 offers no 'or a new entry' alternative is
+#   corrected in place: its expiry.decision has none, its stop_rule ends with
+#   one.  The two fields disagree, and that ambiguity -- not a prohibition --
+#   is what sent the question to the owner.)
+#
+# ---- lineage: R166 pin 8C700D42.. ----
 # -> 8C700D42.. (2026-08-25 chief round 166, cloud: HYP-PF-028 evidence_gap is
 # AMENDED, not replaced, per the same precedent.  No entry is added or removed,
 # count stays 46, no index shifts, no status/kind/checkpoint moves and no
@@ -618,7 +664,30 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # did so on 2026-08-23, as the HYP-PF-031 amendment two entries over already
 # recorded.  Adversary round on this change caught that omission and three
 # others before commit.)
-CANONICAL_CONTENT_SHA256 = "8C700D42E24F90C42A8744C925D85D15FBF989F08C6CB08AD5457BFF9E4B0A59"
+#
+# ---- lineage: R165 pin 2982AAC1.. (the branch merged by R167) ----
+# (R165, 2026-08-25, chief cloud: ONE ENTRY ADDED, HYP-PF-039
+# GROUND-LOOT-NAMEPROP-001, appended at the end so every earlier index
+# stays stable.  It is a SEPARATE lane -- own module, own flag, own lane
+# name, own latch, own labels, own scenario file, mutually exclusive with
+# every other mode including HYP-PF-032's -- that asks whether the
+# name-property selector RE-067 pinned reaches the floating item label, by
+# sending a CONTROL element (mask 0x12, no selector fields, pc 44 / frame
+# 54) and a TREATMENT element (mask 0x3A, gate at +0x1B and index 6 at
+# +0x1A, pc 48 / frame 58) at the SAME position with the SAME payload
+# dword.  An adversarial review reshaped it before commit: the first draft
+# sent two treatments at two offsets and three of its four outcomes were
+# unreadable, the name said 'colour' where RE-067 only pinned a text
+# property, and the delay was documented as a wire gap when the frozen
+# sender treats it as an accumulating deadline.  All three are corrected
+# here and in the entry.  THE ENTRY IS PUSHED FOR THE OWNER'S RULING AND
+# NOT MERGED ON THE STANDING PRE-APPROVAL: HYP-PF-032's expiry decision
+# demands an owner extension decision for any further wire change to that
+# lane and, unlike HYP-PF-029's, contains no 'or a new entry' clause, while
+# its stop_rule freezes the element fields this lane sends.  Nothing else
+# moved: no existing entry added to, removed or reordered, no stop_rule or
+# production_allowed touched anywhere else.)
+CANONICAL_CONTENT_SHA256 = "D3DE9243513D8EFD6FA17A8E4542FB37B5FA6674826B705CB3C33C5BF032D40E"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -858,6 +927,26 @@ EXPECTED_IDS = (
     # version of this slot.  Appended at the end to keep every earlier entry
     # index stable for the index-based fixtures.
     "HYP-PF-038",
+    # HYP-PF-039 (GROUND-LOOT-NAMEPROP-001: a SEPARATE lane behind
+    # --ground-loot-nameprop-scenario that asks whether the name-property
+    # selector RE-067 pinned -- the GATE at element +0x1B under dirty-mask
+    # bit 0x08 and the INDEX at +0x1A under bit 0x20 -- reaches the floating
+    # item name label.  It sends a CONTROL element (mask 0x12, the shape
+    # HYP-PF-032 already ships, so the client falls to the default property
+    # 0x34) and a TREATMENT element (mask 0x3A, gate 1, index 6) at the SAME
+    # position with the SAME payload dword, so the presence of the two
+    # selector fields is the only variable and every outcome is readable.
+    # The two lanes are mutually exclusive at boot and share no state.
+    # THE ENTRY'S OWN LEGITIMACY IS AN OPEN QUESTION FOR THE OWNER:
+    # HYP-PF-029's expiry decision allows "a new entry OR a scoped approval"
+    # and that clause authorised HYP-PF-038 at 3/3, but HYP-PF-032's says an
+    # extension decision from the owner is needed for ANY further wire change
+    # and offers no new-entry alternative in its expiry.decision (its stop_rule does offer one -- see the R167 correction in HYP-PF-039), while its stop_rule freezes the
+    # very fields this lane sends.  The lane is therefore pushed for review
+    # and NOT merged on the standing pre-approval; see the entry's provenance
+    # and expiry.decision.  Appended at the end to keep every earlier entry
+    # index stable for the index-based fixtures.
+    "HYP-PF-039",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -925,6 +1014,9 @@ EXPECTED_META = {
     ),
     "HYP-PF-038": (
         "protocol_hypothesis", "HOSTILE-HP-LINK-001", "active",
+    ),
+    "HYP-PF-039": (
+        "protocol_hypothesis", "GROUND-LOOT-NAMEPROP-001", "active",
     ),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}
@@ -1079,8 +1171,13 @@ class Entry:
         if value["production_allowed"] is not False:
             raise LedgerError(f"{ident} production_allowed must be false")
         max_versions = value["max_versions"]
-        if type(max_versions) is not int or max_versions != 3:
-            raise LedgerError(f"{ident} max_versions must be exactly 3")
+        # The ceiling was exactly 3 from this ledger's creation until
+        # 2026-08-25, when the owner raised it to 5 (ruling ~18:15 +07:00,
+        # applied by chief cloud round R167).  It stays an EXACT check, not a
+        # bound: an entry carrying any other number is drift, not a local
+        # exception.
+        if type(max_versions) is not int or max_versions != 5:
+            raise LedgerError(f"{ident} max_versions must be exactly 5")
         approval = value["extension_approval_ref"]
         approved_through = None
         if approval is not None:
@@ -1202,8 +1299,11 @@ def load_ledger(path: Path = DEFAULT_LEDGER, *, root: Path = ROOT) -> Ledger:
     if not isinstance(policy, dict):
         raise LedgerError("policy must be an object")
     _exact_fields(policy, {"max_related_versions", "approval_schema", "policy_text"}, "policy")
-    if policy["max_related_versions"] != 3 or type(policy["max_related_versions"]) is not int:
-        raise LedgerError("policy max_related_versions must be integer 3")
+    # Raised from 3 to 5 by the owner ruling of 2026-08-25 ~18:15 (+07:00);
+    # the policy_text carries the same history in prose so the two cannot
+    # drift apart.
+    if policy["max_related_versions"] != 5 or type(policy["max_related_versions"]) is not int:
+        raise LedgerError("policy max_related_versions must be integer 5")
     approval_schema = policy["approval_schema"]
     if not isinstance(approval_schema, dict):
         raise LedgerError("policy approval_schema must be an object")

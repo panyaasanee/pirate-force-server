@@ -80,6 +80,23 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
+    # This pin covers TWO deliberate movements that land in the same change
+    # (chief cloud round R167, 2026-08-25 +07:00).  They are recorded below in
+    # the order they were written, newest first.  R167 itself moves no grade
+    # field of its own: it merges the R165 ground-loot-nameprop lane, whose
+    # branch was gate-green (run 32838572131, sha 13baff27..) but never had a
+    # pull request opened for it, onto the R166 main line that had moved past
+    # it.  Both prose blocks are kept verbatim so neither movement loses its
+    # record; the digest below is recomputed over the merged document, which is
+    # the only value that can satisfy both.  BOTH PARENT DIGESTS ARE KEPT HERE,
+    # because a merge that recomputes a pin must not take its parents' pins out
+    # of the tree -- an auditor asking what main actually asserted at 017af1c,
+    # or what the lane branch asserted at 13baff27, has to be able to grep for
+    # it rather than reconstruct it from the reflog:
+    #   R166 / main   68F9C1454037A525C67C3F37B0DA41385AD3E21EF24661B02C1CB12B2F9FA8D5
+    #   R165 / lane   81DCC20F0B6DA6F3DD45885736F74A8A706127088A1EA6437CFC5B179AB25DF0
+    #   R154 / before 39034397..F60C (the shared ancestor both sides cite below)
+    #
     # This pin covers ONE deliberate movement
     # (LOGOUT-TRANSITION-GT033-ANSWERED, 2026-08-25, chief cloud round R166):
     # session_lifecycle/clean_logout stays in_progress -- its grade does NOT
@@ -124,8 +141,37 @@ GRADE_SUBSET_SHA256 = (
     # CANONICAL_CONTENT_SHA256 re-pin that ride in the same change.  The ledger
     # GROWS by nothing: count stays 46, no entry added, removed or reindexed.
     #
-    # Previous pin 39034397..F60C covered ONE deliberate movement
-    # (ITEMOP-RES-GREENLINE-001,
+    # This pin covers ONE deliberate movement (GROUND-LOOT-NAMEPROP-001,
+    # 2026-08-25, chief cloud round R165): npc_interaction/
+    # monster_spawn_and_loot stays in_progress but gains two evidence refs
+    # (src/pirateforce_foundation/ground_loot_nameprop_hypothesis.py and
+    # scenarios/ground_loot_nameprop_probe.json) and one test ref
+    # (tests/test_ground_loot_nameprop_hypothesis.py) for HYP-PF-039 -- a
+    # SEPARATE lane from GROUND-LOOT-001, mutually exclusive with it and
+    # with every other mode, that asks whether the name-property selector
+    # RE-067 pinned reaches the floating item label.  It sends a CONTROL
+    # element (mask 0x12, no selector fields) and a TREATMENT element (mask
+    # 0x3A, the gate at +0x1B and index 6 at +0x1A) at the SAME position
+    # with the SAME payload dword, so the presence of those two fields is
+    # the only variable.  RE-067 pinned that a zero gate makes the client
+    # use the default UI text property 0x34 and that an index of 1..6 maps
+    # through dword [index*4+0x00F30EC4] to 0x5D..0x62 -- property ids, NOT
+    # a palette, which is why the lane is NAMEPROP and not NAMECOLOR.  The
+    # attended question is GT-069, and the entry is pushed for the owner's
+    # ruling rather than merged (HYP-PF-032 is at 3/3 and its expiry
+    # decision has no new-entry clause).  R167 CORRECTS BOTH HALVES OF THAT
+    # PARENTHESIS: the entry was merged in the end, because the owner ruled at
+    # ~17:5x (+07:00) that it should exist as a new entry; 3/3 is now 3/5 after
+    # the ~18:15 ceiling raise, though HYP-PF-032 stays FROZEN at three by the
+    # earlier ruling and carries a note in the ledger saying so; and the
+    # new-entry claim is narrow-true at best -- 032's expiry.decision has no
+    # such clause, its stop_rule ends with one, and it was that disagreement
+    # between the two fields that sent the question to the owner.  Status, required and
+    # next_missing_behavior are untouched everywhere; only that one row's
+    # ref lists moved, which is what the digest is for.  Previous pin
+    # 39034397..F60C (round R154) recorded the movement described below.
+    # ---- lineage of the previous pin, kept verbatim ----
+    # This pin covered ONE deliberate movement (ITEMOP-RES-GREENLINE-001,
     # 2026-08-24, chief cloud round R154): presentation/
     # system_message_display stays in_progress but gains one evidence ref
     # (scenarios/item_operate_res_greenline_sweep.json) and one test ref
@@ -618,7 +664,7 @@ GRADE_SUBSET_SHA256 = (
     # 26D752FE..BA9A (round 65) occupied_destination_policy not_started ->
     # in_progress under HYP-PF-017 (ITEM-SWAP-001); see its lineage note before that
     # for round 53's 78558E56..6DC8.
-    "68F9C1454037A525C67C3F37B0DA41385AD3E21EF24661B02C1CB12B2F9FA8D5"
+    "6CF4AE24A70C7DC8EE447310A640098615B5D9F68AB368D58717C501B4DB4553"
 )
 
 

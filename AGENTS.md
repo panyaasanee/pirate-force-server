@@ -82,8 +82,14 @@ evidence makes a candidate highly probable, the current lane is genuinely blocke
 or the evidence cost has become disproportionate. Every guessed value must be
 labelled explicitly as a hypothesis, kept out of accepted baselines and production
 claims, and paired with a concrete proof or falsification plan and stop rule.
-Related hypotheses may accumulate across at most two or three experimental versions
-when that is necessary to keep the investigation moving. At that boundary, prove,
+Related hypotheses may accumulate across at most five experimental versions
+when that is necessary to keep the investigation moving.  The ceiling read "two or
+three" from this document's creation until 2026-08-25, when the owner raised it to
+five (~18:15 +07:00); the authoritative number is
+`docs/HYPOTHESIS_LEDGER.json` -> `policy.max_related_versions`, and this sentence
+must be re-read against it rather than quoted on its own.  An individual entry can
+still be frozen BELOW the ceiling by an owner ruling -- HYP-PF-032 is, as of
+2026-08-25 -- so a free slot in the arithmetic is not by itself permission. At that boundary, prove,
 retire or obtain explicit approval to extend them; do not let them silently become
 accepted behavior. This exception does not permit rewriting V141 or overstating an
 evidence grade.

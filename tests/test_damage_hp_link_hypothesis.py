@@ -1919,7 +1919,8 @@ class LedgerBindingTests(unittest.TestCase):
         self.assertEqual(entry["introduced_checkpoint"], "DAMAGE-HP-LINK-001")
         self.assertEqual(entry["status"], "active")
         self.assertIs(entry["production_allowed"], False)
-        self.assertEqual(entry["max_versions"], 3)
+        # 3 -> 5: owner ruling 2026-08-25 ~18:15 (+07:00), ledger-wide.
+        self.assertEqual(entry["max_versions"], 5)
         # tracked_versions lives INSIDE expiry -- the ledger verifier is
         # field-exact at the top level and would reject it anywhere else.
         self.assertEqual(
