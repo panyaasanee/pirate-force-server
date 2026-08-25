@@ -77,6 +77,9 @@ PERFORMER = 0x750059
 # Strong enough to reach zero in one hit, so a test does not have to loop the
 # ladder to get to the thing it is testing.
 LETHAL = Combatant(level=1000, ability_str=100000, ability_con=0)
+# What a caller passes to kill() for a target outside the owner's sanctioned
+# scope.  Tests that are not ABOUT the scope gate pass it and say why.
+WIDENED = "test-only: this assertion is not about the target scope"
 
 
 class MobDeathTests(unittest.TestCase):
@@ -429,14 +432,17 @@ class MobDeathTests(unittest.TestCase):
         second = self.killing_outcome(other)
         stored = DeathRegister()
         a = kill(self.legacy, self.mob, first.outcome, stored)
-        b = kill(self.legacy, other, second.outcome, stored)
+        # widened= because this test is about the compare-and-swap, not about
+        # the owner's target scope; the scope gate has its own test below.
+        b = kill(self.legacy, other, second.outcome, stored, widened=WIDENED)
         stored = mob_death.commit_death(stored, a)
         with self.assertRaises(MobDeathContractError) as caught:
             mob_death.commit_death(stored, b)
         self.assertEqual(
             caught.exception.reason, mob_death.REFUSE_REGISTER_STALE)
         # the loser re-reads and re-runs, and now both deaths are recorded
-        redone = kill(self.legacy, other, second.outcome, stored)
+        redone = kill(
+            self.legacy, other, second.outcome, stored, widened=WIDENED)
         stored = mob_death.commit_death(stored, redone)
         self.assertEqual(
             stored.identities(),
@@ -511,6 +517,168 @@ class MobDeathTests(unittest.TestCase):
         self.assertIn("3.5", joined)
         self.assertIn("-1.0", joined)
         self.assertNotIn("20.0", joined)
+
+    def test_a_target_outside_the_owners_scope_is_refused(self):
+        # The constant used to appear only in prose, a pin and a console line.
+        # Reporting is not a gate: the owner's ruling sequences the work
+        # (0x201F first, then real table mobs, not both in one round), so the
+        # module holds that scope where a wiring line cannot walk past it.
+        other = [m for m in self.roster if m.placement_index != 30][0]
+        outcome = self.killing_outcome(other).outcome
+        with self.assertRaises(MobDeathContractError) as caught:
+            kill(self.legacy, other, outcome, DeathRegister())
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
+        self.assertIn(mob_death.SANCTIONING_RULING, caught.exception.detail)
+        # the sanctioned target needs nothing passed at all
+        sanctioned = self.killing_outcome()
+        self.assertEqual(
+            self.mob.actor_identity, mob_death.SANCTIONED_FIRST_TARGET_IDENTITY)
+        kill(self.legacy, self.mob, sanctioned.outcome, DeathRegister())
+        # and a caller holding a later ruling names it
+        step = kill(self.legacy, other, outcome, DeathRegister(),
+                    widened=WIDENED)
+        self.assertTrue(step.register.is_dead(other.actor_identity))
+        for empty in ("", "   ", None, 7):
+            with self.assertRaises(MobDeathContractError):
+                kill(self.legacy, other, outcome, DeathRegister(),
+                     widened=empty)
+
+    def test_a_register_identity_with_no_roster_row_is_refused(self):
+        # live_roster() is exported from this same module and is exactly what
+        # a caller reaches for when the sentence is "build the census from the
+        # living" - and doing that used to return an EMPTY override, standing
+        # every corpse back up with no refusal anywhere.
+        step = self.killing_outcome()
+        death = kill(self.legacy, self.mob, step.outcome, DeathRegister())
+        living = live_roster(self.roster, death.register)
+        with self.assertRaises(MobDeathContractError) as caught:
+            repopulation_entries(self.legacy, living, death.register)
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_REGISTER_ROW_DISAGREES_WITH_ROSTER)
+        self.assertIn("0x201F", caught.exception.detail)
+        with self.assertRaises(MobDeathContractError):
+            mob_death.corpse_override(self.legacy, living, death.register)
+
+    def test_a_commit_cannot_drop_rows_from_a_same_length_lineage(self):
+        # generation == len(records) for every register built through this
+        # API, so two registers holding the same NUMBER of dead monsters carry
+        # the same generation while holding different monsters.  The counter
+        # says "nothing happened since"; it cannot say "nothing was lost".
+        other = [m for m in self.roster if m.placement_index != 30][0]
+        third = [m for m in self.roster if m.placement_index not in
+                 (30, other.placement_index)][0]
+        lineage_a = mob_death.commit_death(
+            DeathRegister(),
+            kill(self.legacy, other, self.killing_outcome(other).outcome,
+                 DeathRegister(), widened=WIDENED))
+        lineage_b = mob_death.commit_death(
+            DeathRegister(),
+            kill(self.legacy, third, self.killing_outcome(third).outcome,
+                 DeathRegister(), widened=WIDENED))
+        self.assertEqual(lineage_a.generation, lineage_b.generation)
+        self.assertNotEqual(lineage_a.identities(), lineage_b.identities())
+        stranger = kill(
+            self.legacy, self.mob, self.killing_outcome().outcome, lineage_b)
+        with self.assertRaises(MobDeathContractError) as caught:
+            mob_death.commit_death(lineage_a, stranger)
+        self.assertEqual(
+            caught.exception.reason, mob_death.REFUSE_REGISTER_STALE)
+        self.assertIn("drop", caught.exception.detail)
+
+    def test_the_read_back_catches_a_timer_in_the_wrong_place(self):
+        # The runtime guard, not the test's byte comparison.  A composer that
+        # appends the f32 after the faction field passes both the equality and
+        # the length check; only reading the field back out of the composed
+        # bytes catches it.
+        real = mob_death._compose_body
+
+        def misplaced(legacy, mob, *, death_timer, **kwargs):
+            body = real(legacy, mob, death_timer=None, **kwargs)
+            if death_timer is None:
+                return body
+            tail = (
+                bytes(legacy.u8tag(0x0B, 0x01 | 0x04))
+                + bytes(legacy.u16tag(0x12, mob.template_id))
+                + bytes(legacy.wstr_tag(mob.visual_preset))
+            )
+            at = len(body) - len(tail)
+            mask_at = 11 + 1
+            mask = int.from_bytes(body[mask_at:mask_at + 2], "little")
+            return (
+                body[:mask_at]
+                + int(mask | mob_death.BASIC_BIT_DEATH_TIMER).to_bytes(
+                    2, "little")
+                + body[mask_at + 2:at]
+                + bytes(legacy.f32tag(death_timer))
+                + body[at:]
+            )
+
+        mob_death._compose_body = misplaced
+        try:
+            with self.assertRaises(MobDeathContractError) as caught:
+                corpse_npc_attr(
+                    self.legacy, self.mob, death_timer=DEAD_TIMER_SECONDS)
+        finally:
+            mob_death._compose_body = real
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_COMPOSED_BYTES_OFF_PIN)
+
+    def test_a_hand_built_step_gets_the_same_polarity_gate(self):
+        step = self.killing_outcome()
+        death = kill(self.legacy, self.mob, step.outcome, DeathRegister())
+        for dying, dead in ((0.0, 0.0), (-1.0, 0.0), (20.0, 1.0)):
+            with self.assertRaises(MobDeathContractError) as caught:
+                DeathStep(
+                    death.record, death.dying_pc, death.dying_frame,
+                    death.dead_pc, death.dead_frame, death.register,
+                    death.hold_ms, 0, dying, dead)
+            self.assertEqual(
+                caught.exception.reason,
+                mob_death.REFUSE_TIMER_WRONG_SIDE_OF_THE_GATE)
+        with self.assertRaises(MobDeathContractError):
+            DeathStep(
+                death.record, death.dying_pc, death.dying_frame,
+                death.dead_pc, death.dead_frame, death.register,
+                death.hold_ms, -1, DYING_TIMER_SECONDS, DEAD_TIMER_SECONDS)
+
+    def test_the_timers_on_the_step_are_the_timers_in_the_frames(self):
+        # The step reads its timers off a field instead of a constant, which
+        # is only an improvement if the field agrees with the bytes.  Decoded
+        # out of the composed body, at the offset the module computes.
+        import struct as _struct
+        step = self.killing_outcome()
+        for dying, dead in ((DYING_TIMER_SECONDS, DEAD_TIMER_SECONDS),
+                            (3.5, -1.0)):
+            death = kill(
+                self.legacy, self.mob, step.outcome, DeathRegister(),
+                dying_timer=dying, dead_timer=dead)
+            for timer, frame in ((death.dying_timer, death.dying_frame),
+                                 (death.dead_timer, death.dead_frame)):
+                body = corpse_npc_attr(
+                    self.legacy, self.mob, death_timer=timer)
+                timerless = mob_death._compose_body(
+                    self.legacy, self.mob, current_hp=0, death_timer=None,
+                    faction=field_mobs.FIELD_MOB_FACTION,
+                    scene_id=1, scene_sequence=0, with_name=True)
+                cut = mob_death._timer_offset(
+                    self.legacy, self.mob, timerless, 0, True)
+                self.assertEqual(
+                    _struct.unpack("<f", body[cut + 1:cut + 5])[0], timer)
+                self.assertIn(body, frame)
+
+    def test_the_wiring_line_still_says_pass_the_ledger(self):
+        # A repair in this round rewrote the wiring line and dropped ledger=,
+        # which put back the silent healing the same round had just closed.
+        self.assertIn("ledger=ledger", mob_death.MOB_DEATH_WIRING)
+        self.assertIn("PASS THE LEDGER", mob_death.MOB_DEATH_WIRING)
+        committed = json.loads(
+            (ROOT / "scenarios/combat_death_001.json").read_bytes()
+            .decode("ascii"))
+        self.assertIn("ledger=ledger", committed["wiring"])
 
     def test_the_step_cannot_carry_a_register_that_forgot_the_kill(self):
         step = self.killing_outcome()

@@ -824,7 +824,7 @@ SRC_MODULES_FORBIDDING_DEATH_TIMER_NAMES = tuple(sorted(
 # well, and the sentence says which module carries it.
 SRC_ZERO_HP_CONST_MODULES = tuple(sorted(
     f for f, t in _src.items()
-    if _count(r"HP_ZERO\s*=\s*0\b", t)))
+    if _count(r"(?:HP_ZERO|HP_FLOOR|HP_WHEN_DEAD)\s*=\s*0\b", t)))
 
 guard(bool(_v141), "the read-only v141 snapshot opened for counting")
 guard(len(_src) >= 30, "the read-only src/ package opened for counting (%d modules)"
@@ -872,9 +872,11 @@ guard("make_remote_actor_entry" in _v141,
 # sites and ZERO make_remote_actor_entry sites, so it rides the carrier without
 # building an entry, which is why the module censuses below do not name it.
 # Round 7ptoku re-pin, 9 -> 13 and 11 -> 16.  The lane-B build orders landed
-# four production modules that ride this carrier without a flag: field_mobs.py
-# (BUILD-004), mob_combat.py (M4 first half), mob_death.py (M4 second half) and
-# the world_* census work.  The numbers move; what the guard is FOR does not -
+# three production modules that ride this carrier without a flag: field_mobs.py
+# (BUILD-004), mob_combat.py (M4 first half) and mob_death.py (M4 second half).
+# The fourth new name in the module census, world_population.py, is LANE-A's
+# (BUILD-002, commit f716215) and is named here because this census counts
+# every module, not because this round wrote it.  The numbers move; what the guard is FOR does not -
 # a new call site still has to be named here before it can go green.
 guard(SRC_ACTOR_ENTRY_SITES == 13,
       "src/ builds actor entries at exactly 13 call sites (4 spawns + the "
@@ -998,12 +1000,28 @@ guard(SRC_MODULES_FORBIDDING_DEATH_TIMER == 1
       "remote_player_hypothesis.py -- that actor-entry builder is the "
       "HYP-PF-025 visibility lane, NOT a death emitter %s"
       % (SRC_MODULES_FORBIDDING_DEATH_TIMER_NAMES,))
+# Round 7ptoku: the detector was spelled to ONE module's variable name
+# (`HP_ZERO = 0`) and therefore saw one module while three others had grown
+# their own named zero.  That is the third time this guard has been green with
+# a false sentence, which the comment above its round-86 version already calls
+# worse than red, so the fix is the detector and not the number: it now catches
+# HP_ZERO, HP_FLOOR and HP_WHEN_DEAD.  The census over-reports on purpose - two
+# of the six bind a floor that is zero rather than an emitted HP - because this
+# guard must be wrong in the direction that names too many, never too few.
 guard(SRC_ZERO_HP_SITES == 0 and V141_ZERO_HP_SITES == 0
-      and SRC_ZERO_HP_CONST_MODULES == ("runtimeres_death_hypothesis.py",),
-      "GAP 2 CLOSED in round 86: the literal `current_hp = 0` still appears "
-      "nowhere in src/ or v141, but runtimeres_death_hypothesis.py passes zero "
-      "through the named constant RUNTIMERES_DEATH_HP_ZERO -- the round-85 "
-      "sentence was about to stay green while ceasing to be true")
+      and SRC_ZERO_HP_CONST_MODULES == (
+          "damage_hp_link_hypothesis.py",
+          "hostile_hp_link_hypothesis.py",
+          "mob_combat.py",
+          "mob_death.py",
+          "npc_hp_link_hypothesis.py",
+          "runtimeres_death_hypothesis.py"),
+      "GAP 2 CLOSED in round 86 and re-derived in round 7ptoku: the literal "
+      "`current_hp = 0` still appears nowhere in src/ or v141, and the src/ "
+      "modules that pass zero through a NAMED constant are exactly these six "
+      "%s -- of which mob_combat.py and mob_death.py are the first that are "
+      "production_allowed with no flag"
+      % (SRC_ZERO_HP_CONST_MODULES,))
 # Round 90 re-pin, 13 -> 14.  DAMAGE-ENCODER-001 added the fourteenth call
 # site: damage_model_hypothesis.py ships CHitResult 0x16F7 over this same
 # VitalData carrier.  The number is meant to move when we write code -- that
@@ -1045,8 +1063,14 @@ guard(SRC_ZERO_HP_SITES == 0 and V141_ZERO_HP_SITES == 0
 # being a census.  The first two are vital-collection carriers only and move
 # nothing in the actor-entry counts; the third moves those counts too, and they
 # move above in the same commit.
-guard(SRC_VITAL_STREAM_SITES == 20,
-      "src/ sends the VitalData carrier (make_runtime_vitals) at 20 call sites")
+# Round 7ptoku re-pin, 20 -> 21.  MOB-COMBAT-001 (mob_combat.py, the previous
+# lane-B round) ships its CHitResult announce frame over this carrier.  The
+# five guards above were re-pinned in this round's first repair pass and THIS
+# one was left red, which would have exited 1 on the attended machine and taken
+# the whole test file with it - the tool cannot run on a cloud clone, so the
+# only thing that catches it here is reading it.
+guard(SRC_VITAL_STREAM_SITES == 21,
+      "src/ sends the VitalData carrier (make_runtime_vitals) at 21 call sites")
 guard(_count(r"make_runtime_remote_actors\(",
              _src.get("stats_progression_hypothesis.py", "")) == 0
       and _count(r"make_runtime_vitals\(",

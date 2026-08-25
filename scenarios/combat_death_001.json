@@ -45,7 +45,7 @@
   "sanctioned_first_target_identity": "0x201F",
   "pin_target_is_the_sanctioned_one": true,
   "register_generation_after_the_kill": 1,
-  "wiring": "runtime.py: after mob_combat.commit_step accepts a step whose step.death_due is True - the CombatStep property, NOT step.outcome.death_due, which is also True for a hit on something already dead - call mob_death.kill(legacy, mob, step.outcome, register); commit it with mob_death.commit_death(register_now, death_step) and send nothing if that is refused; then send step.frames (the announce), then death_step.dying_frame, then death_step.dead_frame after death_step.hold_ms; keep the committed register and hand mob_death.corpse_override(legacy, roster, register) to whatever builds this scene's census, so the rebuild replaces those identities' entries rather than re-sending them alive.",
+  "wiring": "runtime.py: after mob_combat.commit_step accepts a step whose step.death_due is True - the CombatStep property, NOT step.outcome.death_due, which is also True for a hit on something already dead - call mob_death.kill(legacy, mob, step.outcome, register); commit it with mob_death.commit_death(register_now, death_step) and send nothing if that is refused; then send step.frames (the announce), then death_step.dying_frame, then death_step.dead_frame after death_step.hold_ms; keep the committed register and hand mob_death.corpse_override(legacy, roster, register, ledger=ledger) to whatever builds this scene's census, so the rebuild replaces those identities' entries rather than re-sending them alive - PASS THE LEDGER, or the rebuild heals every wounded monster back to its ceiling as well.",
   "selection": "none_default_behaviour_no_scenario_flag",
   "nonclaims": [
     "the death animation _F_DIE_000 has never been observed by anyone in this project; GT-025 proved the lying pose belongs to the DYING frame and requires every reading of GT-022 as evidence of that animation to be withdrawn, so this lane claims the FALL and not the corpse",
@@ -60,6 +60,7 @@
     "the register lives in the caller's process only; nothing in this project persists a monster's death across a server restart",
     "the dying latch is NOT a proven prerequisite for the death task: the HYP-PF-023 evidence gap records that the gate at 0x443990 does not read the 0x200 bit, so the two-frame shape is how the fall was WATCHED, not a chain anyone has shown to be required",
     "a client that connects AFTER the kill has never seen the identity, so the corpse entry takes the SPAWN branch, which never touches the dead sync: that player sees a body standing at 0 HP, and nothing in this lane re-sends it",
-    "the production census (world_population) reads neither the ledger nor the register and re-asserts full HP for every placement it rebuilds; until the chief wires the override this lane composes, the corpses this module makes survive only until that census runs again"
+    "the production census (world_population) reads neither the ledger nor the register and re-asserts full HP for every placement it rebuilds, and it has no parameter to receive corpse_override at all; until somebody gives it one, STAYING down is not this lane's to claim - a corpse survives exactly until the next rebuild",
+    "name colour is not claimed by this lane either: the owner's own ruling warns that a death proven on the sanctioned target proves 'the target we built can die', not 'an enemy can die', because the label still renders in the client's PLAYER colour - RE-067 is open and owns that question"
   ]
 }

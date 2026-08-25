@@ -21,8 +21,16 @@ BasicAttr bit 0x0080 cannot even be NAMED without a lethal unlock token that
 only an allowlisted scenario object hands out - a build the owner boots with no
 flags cannot reach one byte of it.  So the encoder is RE-DERIVED here, in
 general form, from the same static anchors, and ``tests/test_mob_death.py``
-pins every constant and the composed bytes against that probe lane value by
-value and byte by byte.  This module imports NO probe lane.
+pins the composed bytes against that probe lane's own encoder, byte for byte,
+on both sides of the gate.  ~~"pins every constant"~~ is narrower than it
+sounded and is now said properly: the constants the probe lane also carries
+(the mask bits, the tag, the offset, the two predicate VAs, the two timers)
+are cross-pinned against it value by value; the ones only this lane names -
+the latch write, the task gate, the task ctor, the animation string and the
+three predicate tuples - exist in no probe lane and are pinned by nothing but
+this module's own pin document, which is a copy of itself.  Two of them are
+printed to a console as facts.  Treat them as transcribed, not derived.
+This module imports NO probe lane.
 
 WHAT THE OWNER ACTUALLY APPROVED, AND WHAT IT DOES NOT COVER.  ~~"COO
 CHARTER-02 / BUILD-005"~~ was the wrong citation and the adversarial review of
@@ -166,19 +174,26 @@ MOB_DEATH_WIRING = (
     "nothing if that is refused; then send step.frames (the announce), then "
     "death_step.dying_frame, then death_step.dead_frame after "
     "death_step.hold_ms; keep the committed register and hand "
-    "mob_death.corpse_override(legacy, roster, register) to whatever builds "
-    "this scene's census, so the rebuild replaces those identities' entries "
-    "rather than re-sending them alive."
+    "mob_death.corpse_override(legacy, roster, register, ledger=ledger) to "
+    "whatever builds this scene's census, so the rebuild replaces those "
+    "identities' entries rather than re-sending them alive - PASS THE LEDGER, "
+    "or the rebuild heals every wounded monster back to its ceiling as well."
 )
-# The owner's own sequencing, carried here because a module that forgets it
-# will be read as having been granted more than it was.  The ruling of
-# 2026-08-25 18:15 (+07:00), section 3, lifts the lethal-frame restriction and
-# then says in terms: prove the death loop on identity 0x201F FIRST, and only
-# THEN move the target to a real mob from the game table - the two steps may
-# not be merged into one round.  This module is general, and its pin is 0x201F
-# for exactly that reason.  The chief's first wiring should name this identity
-# alone; widening it to the roster is a separate step and a separate ruling.
+# The owner's own sequencing, ENFORCED rather than described, because the
+# first version of this constant appeared only in prose, a pin and a console
+# line - it reported, and reporting is not a gate.
+#
+# The ruling of 2026-08-25 18:15 (+07:00), section 3, lifts the lethal-frame
+# restriction and then says in terms: prove the death loop on identity 0x201F
+# FIRST, and only THEN move the target to a real mob from the game table - the
+# two steps may not be merged into one round.  So :func:`kill` REFUSES any
+# other identity unless the caller passes ``widened=`` with the name of the
+# ruling that widened it.  That is not a flag in the sense this lane refuses:
+# the sanctioned target works with nothing passed, on a build booted with no
+# arguments.  It is a lock on the SCOPE the owner set, held where a wiring
+# line cannot walk past it by accident.
 SANCTIONED_FIRST_TARGET_IDENTITY = 0x201F
+SANCTIONING_RULING = "PANYA-RULINGS-FOUR 2026-08-25 18:15 +07:00 section 3"
 
 # ---------------------------------------------------------------------------
 # The wire.  Every constant below is a static anchor carried WITH provenance
@@ -323,9 +338,14 @@ MOB_DEATH_NONCLAIMS = (
     "dead sync: that player sees a body standing at 0 HP, and nothing in this "
     "lane re-sends it",
     "the production census (world_population) reads neither the ledger nor "
-    "the register and re-asserts full HP for every placement it rebuilds; "
-    "until the chief wires the override this lane composes, the corpses this "
-    "module makes survive only until that census runs again",
+    "the register and re-asserts full HP for every placement it rebuilds, and "
+    "it has no parameter to receive corpse_override at all; until somebody "
+    "gives it one, STAYING down is not this lane's to claim - a corpse "
+    "survives exactly until the next rebuild",
+    "name colour is not claimed by this lane either: the owner's own ruling "
+    "warns that a death proven on the sanctioned target proves 'the target we "
+    "built can die', not 'an enemy can die', because the label still renders "
+    "in the client's PLAYER colour - RE-067 is open and owns that question",
 )
 
 REFUSE_VALUE_NOT_INT = "value_not_int"
@@ -348,6 +368,7 @@ REFUSE_REGISTER_ROW_DISAGREES_WITH_ROSTER = "register_row_disagrees_with_roster"
 REFUSE_LEDGER_DISAGREES_WITH_REGISTER = "ledger_disagrees_with_register"
 REFUSE_OUTCOME_DISAGREES_WITH_ROSTER = "outcome_disagrees_with_roster"
 REFUSE_REGISTER_STALE = "register_stale"
+REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE = "target_outside_the_sanctioned_scope"
 # ~~REFUSE_HOLD_OUT_OF_RANGE~~ never declared as its own name: the hold is
 # checked by the same range check as every other integer here, which raises
 # REFUSE_VALUE_OUT_OF_RANGE, and a second name that can never be raised is a
@@ -373,6 +394,7 @@ MOB_DEATH_REFUSAL_REASONS = (
     REFUSE_LEDGER_DISAGREES_WITH_REGISTER,
     REFUSE_OUTCOME_DISAGREES_WITH_ROSTER,
     REFUSE_REGISTER_STALE,
+    REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE,
 )
 
 _FLOAT32_MAX = 3.4028234663852886e38
@@ -983,6 +1005,7 @@ def kill(
     dying_timer: float = DYING_TIMER_SECONDS,
     dead_timer: float = DEAD_TIMER_SECONDS,
     with_name: bool = True,
+    widened: str | None = None,
 ) -> DeathStep:
     """Finish a monster that a hit already took to zero.
 
@@ -1051,6 +1074,21 @@ def kill(
                 outcome.damage, outcome.hp_before, outcome.hp_after,
                 HP_WHEN_DEAD),
         )
+    if mob.actor_identity != SANCTIONED_FIRST_TARGET_IDENTITY:
+        # The owner's sequencing, held as a gate.  A caller that has a ruling
+        # widening this names it; a caller that does not gets a refusal that
+        # says which ruling it is standing on and what it was allowed.
+        if type(widened) is not str or not widened.strip():
+            raise MobDeathContractError(
+                REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE,
+                "identity 0x%X is not the sanctioned first target 0x%X.  %s "
+                "says: prove the death loop on that identity FIRST, then move "
+                "to a real table mob, and do not merge the two steps.  If a "
+                "later ruling widened this, pass widened='<its name>' and say "
+                "so in the round note" % (
+                    mob.actor_identity, SANCTIONED_FIRST_TARGET_IDENTITY,
+                    SANCTIONING_RULING),
+            )
     if live.is_dead(mob.actor_identity):
         raise MobDeathContractError(
             REFUSE_ALREADY_DEAD,
@@ -1081,9 +1119,17 @@ def commit_death(current: DeathRegister, step: DeathStep) -> DeathRegister:
     of one row, and storing them in turn loses one of them - silently, and on
     a different monster from the one the second kill was about.  Returns the
     new register; refuses with :data:`REFUSE_REGISTER_STALE` when the stored
-    register has moved, in which case the caller re-reads, re-runs, and sends
-    NOTHING, because the frames of a refused step describe a death the server
-    has not recorded.
+    register has moved, in which case the caller sends NOTHING, because the
+    frames of a refused step describe a death the server has not recorded.
+
+    WHAT "RE-RUN" MEANS HERE, SPELLED OUT, because the sibling lane's identical
+    phrase means something different and following it wedges the world: re-read
+    the register and call :func:`kill` again with the SAME outcome you are
+    still holding.  Do NOT re-run ``mob_combat.strike`` - the ledger already
+    holds the kill, so it would answer ``no_room``, which :func:`kill` refuses
+    by name.  A caller that drops the outcome at this point has a monster at
+    zero in the ledger and absent from the register, which every later
+    ``repopulation_entries(..., ledger=...)`` refuses until someone repairs it.
     """
     if type(current) is not DeathRegister:
         raise MobDeathContractError(
@@ -1096,8 +1142,27 @@ def commit_death(current: DeathRegister, step: DeathStep) -> DeathRegister:
         raise MobDeathContractError(
             REFUSE_REGISTER_STALE,
             "this kill was computed from generation %d and the register is at "
-            "generation %d: re-read and re-run, and send nothing" % (
+            "generation %d: re-read the register, call kill() again with the "
+            "SAME outcome you are holding, and send nothing until this "
+            "returns - re-running strike() would answer no_room, because the "
+            "ledger already holds the kill" % (
                 step.base_generation, current.generation),
+        )
+    # A generation is a counter, and a counter is not a value.  Every register
+    # built through this API has generation == len(records), so two registers
+    # holding the same NUMBER of dead monsters carry the same generation even
+    # when they carry different monsters - and a step from one lineage would
+    # then commit over the other, dropping its rows without a word.  The
+    # counter says "nothing has happened since"; this says "and nothing has
+    # been lost".
+    if not set(current.identities()) <= set(step.register.identities()):
+        dropped = sorted(
+            set(current.identities()) - set(step.register.identities()))
+        raise MobDeathContractError(
+            REFUSE_REGISTER_STALE,
+            "committing this kill would drop %s from the register: the step "
+            "was computed from a different lineage that happens to be the "
+            "same length" % ", ".join("0x%X" % i for i in dropped),
         )
     return step.register
 
@@ -1180,6 +1245,25 @@ def repopulation_entries(
         raise MobDeathContractError(
             REFUSE_TYPE_NOT_TYPED_RECORD,
             "ledger must be a typed mob_combat.CombatLedger or None")
+    # EVERY DEAD IDENTITY MUST HAVE A ROW HERE.  Hand this the LIVING roster -
+    # which live_roster(), exported from this same module, is exactly what a
+    # caller reaches for when the sentence is "build the census from the
+    # living" - and without this check the corpses are simply absent from the
+    # result: the override comes back empty, every one of them stands back up
+    # at full HP on the rebuild, and nothing raises.  A skipped corpse is not
+    # a handled corpse.
+    missing = tuple(
+        identity for identity in register.identities()
+        if identity not in tuple(m.actor_identity for m in roster)
+    )
+    if missing:
+        raise MobDeathContractError(
+            REFUSE_REGISTER_ROW_DISAGREES_WITH_ROSTER,
+            "the register carries %s and this roster has no row for them: "
+            "pass the FULL roster, not the living one - the dead need entries "
+            "too, which is the whole point of this call" % (
+                ", ".join("0x%X" % i for i in missing)),
+        )
     entries = []
     for mob in roster:
         _require_mob(mob)
@@ -1254,10 +1338,10 @@ def repopulation_frames(
         legacy, roster, register, ledger=ledger, faction=faction,
         with_name=with_name, dead_timer=dead_timer,
     )
-    if not entries:
-        raise MobDeathContractError(
-            REFUSE_TYPE_NOT_TYPED_RECORD,
-            "a collection needs at least one entry")
+    # An empty collection is a COUNT that is out of range, not a type error:
+    # the old name said "this is not a typed record" about a perfectly typed
+    # empty roster, which is a refusal that misdescribes what happened.
+    _require_int(len(entries), "entry count", 1, 0xFFFF)
     pc, frame = legacy.make_runtime_remote_actors(entries)
     if frame != legacy.frame_pc(pc):
         raise MobDeathContractError(
@@ -1291,9 +1375,10 @@ def corpse_override(
 
     What comes back here is a lookup a census can apply to the entries it was
     going to send anyway: for every identity in it, use THIS entry instead.
-    Identities the register does not carry are absent, so a census that
-    applies it verbatim changes nothing else.  When a ``ledger`` is passed the
-    living wounded are included too, at the HP the arithmetic holds.
+    What is IN it: every identity the register carries, and - when a ``ledger``
+    is passed - every living monster standing below its ceiling, because the
+    census would otherwise heal those too.  Nothing else, so a census that
+    applies it verbatim changes nothing it was not going to get wrong.
     """
     entries = repopulation_entries(
         legacy, roster, register, ledger=ledger, faction=faction,
