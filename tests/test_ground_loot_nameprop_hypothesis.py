@@ -532,14 +532,18 @@ class NamePropDispatchTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def _state_type(self, *, lane=True):
+    def _state_type(self, *, lane=True, world_census_actor_count=None):
         return make_state_class(
             self.legacy, self.lifecycle, self.projector,
             ground_loot_nameprop_scenario=(self.scenario if lane else None),
+            world_census_actor_count=world_census_actor_count,
         )
 
-    def _state(self, login, *, lane=True, ready=True, select=True):
-        state = self._state_type(lane=lane)(login)
+    def _state(self, login, *, lane=True, ready=True, select=True,
+               world_census_actor_count=None):
+        state = self._state_type(
+            lane=lane, world_census_actor_count=world_census_actor_count,
+        )(login)
         state.dispatch(self.legacy.parse_outer(
             self.legacy._synthetic_client_login_pc(login)
         ))
@@ -640,11 +644,24 @@ class NamePropDispatchTests(unittest.TestCase):
         state = self._state("nameprop_tail")
         actions = state.dispatch(self._trigger(state))
         self.assertEqual([a[0] for a in actions[-2:]], list(LANE_LABELS))
-        control = self._state("nameprop_tail_ctl", lane=False)
+        # WORLD-CENSUS-001 moved the control.  A boot with NO lane is no
+        # longer the inherited three-actor boot -- it sends the whole bg0001
+        # census -- so the control is taken at census rung 3, which is pinned
+        # to be the exact frozen P0/P30/P91 collection this lane rides
+        # alongside.  The LABEL differs by design and is asserted separately;
+        # what this test is here to prove is that the lane displaces nothing
+        # on the wire, and that is a statement about bytes.
+        control = self._state(
+            "nameprop_tail_ctl", lane=False, world_census_actor_count=3,
+        )
         control_actions = control.dispatch(self._trigger(control))
         self.assertEqual(
-            [(a[0], a[1], a[2]) for a in actions[:-2]],
-            [(a[0], a[1], a[2]) for a in control_actions],
+            [a[0] for a in control_actions[-2:]],
+            ["WORLD_CENSUS_INITIAL_3", "WORLD_CENSUS_REAPPLY_3"],
+        )
+        self.assertEqual(
+            [(a[1], a[2]) for a in actions[:-2]],
+            [(a[1], a[2]) for a in control_actions],
         )
 
     def test_the_pair_is_one_shot(self):

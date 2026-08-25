@@ -69,10 +69,12 @@ class PopulationAdapterTests(unittest.TestCase):
             + self.legacy.u8tag(0x0B, 0)
         )
 
-    def state(self, *, scenario=True, ready=True, token="population"):
+    def state(self, *, scenario=True, ready=True, token="population",
+              world_census_actor_count=None):
         state_type = make_state_class(
             self.legacy, self.lifecycle, self.projector,
             population_scenario=self.scenario if scenario else None,
+            world_census_actor_count=world_census_actor_count,
         )
         state = state_type(token)
         state.dispatch(self.legacy.parse_outer(
@@ -356,13 +358,29 @@ class PopulationAdapterTests(unittest.TestCase):
             )
 
     def test_no_scenario_baseline_actions_remain_golden(self):
-        state, _ = self.state(scenario=False, token="baseline")
+        """WORLD-CENSUS-001 changed the LABEL of the no-scenario boot, and the
+        golden proves it did not change the BYTES at the control rung.
+
+        Before BUILD-001 was wired this boot emitted the frozen
+        ``V134_P0_P30_P91_ISOLATED_*`` pair.  It now emits the census, whose
+        rung 3 is pinned to the same three placements in the same frozen order
+        - so at ``world_census_actor_count=3`` this golden, captured from the
+        frozen branch, must still match the wire byte for byte and delay for
+        delay.  If it ever stops matching, the census is no longer a superset
+        of what shipped, and that is a defect and not a golden to refresh.
+        """
+        state, _ = self.state(
+            scenario=False, token="baseline", world_census_actor_count=3,
+        )
         self.assertNotIn("object_population_membership", state.__dict__)
         actions = state.dispatch(self.legacy.parse_outer(self.target_pc()))
         golden = json.loads((
             ROOT / "tests/golden/object_pop_002_baseline.json"
         ).read_text(encoding="utf-8"))
-        self.assertEqual([action[0] for action in actions], golden["labels"])
+        self.assertEqual(
+            [action[0] for action in actions],
+            ["WORLD_CENSUS_INITIAL_3", "WORLD_CENSUS_REAPPLY_3"],
+        )
         self.assertEqual([action[3] for action in actions], golden["delays"])
         self.assertEqual([
             {
@@ -373,6 +391,42 @@ class PopulationAdapterTests(unittest.TestCase):
             }
             for action in actions
         ], golden["actions"])
+
+    def test_no_scenario_boot_sends_the_whole_census_by_default(self):
+        """The default boot - no flag of any kind - is the census now.
+
+        This is the assertion the build order exists for.  It is deliberately
+        stated on the DEFAULT construction, with no ``world_census_actor_count``
+        handed in, because a lane that only works when a test passes an
+        argument is exactly the opt-in shape BUILD-001 was written to end.
+        """
+        state, _ = self.state(scenario=False, token="census")
+        actions = state.dispatch(self.legacy.parse_outer(self.target_pc()))
+        self.assertEqual(
+            [action[0] for action in actions],
+            ["WORLD_CENSUS_INITIAL_115", "WORLD_CENSUS_REAPPLY_115"],
+        )
+        self.assertEqual([action[3] for action in actions], [0.0, 3.0])
+        self.assertEqual(state.world_census_actor_count, 115)
+        self.assertEqual(len(state.population_indices), 115)
+        self.assertIs(state.npc_spawn_sent, True)
+
+    def test_the_population_scenario_boot_keeps_its_own_population(self):
+        """Containment: an opt-in lane is not silently repopulated.
+
+        Every hypothesis lane in this tree was measured against the frozen
+        three-actor baseline, and several pin actor identities inside the band
+        the census occupies.  A boot that opted into one of them must see the
+        population it has always seen.
+        """
+        state, _ = self.state(scenario=True, token="contained")
+        actions = state.dispatch(self.legacy.parse_outer(self.target_pc()))
+        self.assertEqual(
+            [action[0] for action in actions
+             if action[0].startswith("WORLD_CENSUS_")],
+            [],
+        )
+        self.assertIsNone(state.world_census_actor_count)
 
 
 if __name__ == "__main__":
