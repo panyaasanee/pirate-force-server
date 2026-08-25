@@ -566,3 +566,12 @@
 # own line here.
 !/tools/pf_ground_loot_nameprop_headless_replay.py
 !/tools/pf_external_registry.py
+
+# LANE-B FIELD-MOBS-001: the generator behind src/pirateforce_foundation/
+# field_mob_tables.py.  It reads four committed game tables on the bridge clone
+# and writes an ASCII-only roster module, and it is the only place the
+# selection rule, the two frozen controls it refuses on, and the
+# --verify-frozen re-derivation of the 115-row placement table live.  Same
+# shape as the lines above: src/tests/scenarios are allow-listed wholesale, so
+# only the tool needs its own line here.
+!/tools/pf_mine_scene_mob_roster.py
