@@ -184,6 +184,24 @@ class MobLootTests(unittest.TestCase):
             self.assertNotIn(
                 "hypothesis", name,
                 "a production lane may not import a scenario-gated probe")
+        # NAME-MATCHING ALONE CANNOT HOLD THIS.  The second adversarial pass
+        # reached both the probe lane and the roller with
+        # `import_module("pirateforce_foundation." + "loot_" + "roll")` and
+        # every name check in this file stayed green, because the name is not
+        # in the source as a string at all.  So the rule is now structural: a
+        # production lane in this project has NO business importing anything
+        # dynamically, and the machinery for it may not appear here.
+        for node in ast.walk(ast.parse(self.source)):
+            if isinstance(node, ast.Call):
+                func = node.func
+                target = getattr(func, "attr", getattr(func, "id", ""))
+                self.assertNotIn(
+                    target, ("import_module", "__import__"),
+                    "a production lane may not import dynamically; a name "
+                    "check cannot see through string arithmetic")
+            if isinstance(node, ast.Attribute):
+                self.assertNotEqual(node.attr, "import_module")
+        self.assertNotIn("importlib", imported)
 
     @staticmethod
     def _imported_names(source):
@@ -960,8 +978,25 @@ class MobLootTests(unittest.TestCase):
                 raised.add(str(first.value))
         # Names that reach a caller through a refusals LIST rather than a
         # raise: the roll records them per slot instead of aborting the kill.
+        #
+        # THE DECLARATION TUPLE IS EXCLUDED, and the second adversarial pass is
+        # why: MOB_LOOT_REFUSAL_REASONS is itself a tuple whose first element
+        # is a refusal constant, so the collector was whitelisting the head of
+        # the very list it was checking - a name placed first there needed no
+        # code path at all.
+        declaration = None
+        tree = ast.parse(self.source)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if getattr(target, "id", "") == "MOB_LOOT_REFUSAL_REASONS":
+                        declaration = node.value
+        self.assertIsNotNone(declaration)
+        declared_nodes = {id(node) for node in ast.walk(declaration)}
         recorded = set()
-        for node in ast.walk(ast.parse(self.source)):
+        for node in ast.walk(tree):
+            if id(node) in declared_nodes:
+                continue
             if isinstance(node, ast.Tuple) and node.elts:
                 head = node.elts[0]
                 if isinstance(head, ast.Name) and head.id in constants:
@@ -1069,8 +1104,9 @@ class MobLootTests(unittest.TestCase):
 
     def test_the_table_does_not_claim_the_model_column_draws_anything(self):
         header = TABLE_PATH.read_text(encoding="ascii")[:4000]
-        self.assertIn("NOT the switch that makes an item model appear", header)
-        self.assertIn("NO", header)
+        self.assertIn("NOT SUFFICIENT to make an item model", header)
+        self.assertIn("BOTH carry 1", header)
+        self.assertNotIn("NOT the switch", header)
 
     def test_a_zero_rate_slot_is_carried_rather_than_dropped(self):
         rates = [
@@ -1080,14 +1116,24 @@ class MobLootTests(unittest.TestCase):
         ]
         self.assertIn(0.0, rates)
 
-    def test_the_two_ids_that_travelled_are_still_what_the_tables_say(self):
-        """Control 2 of the generator, re-checked from the shipped module."""
-        self.assertEqual(
-            field_drop_tables.ITEMS.get(2200201, (0, 0, "", 0))[2], "Dagger")
-        models = {
-            item_id: row[3] for item_id, row in field_drop_tables.ITEMS.items()
-        }
-        self.assertTrue(any(value != 0 for value in models.values()))
+    def test_no_id_this_lane_can_emit_has_ever_been_on_a_wire(self):
+        """The true, stronger version of what this test used to check.
+
+        It was named for "the two ids that travelled" and then asserted that
+        2200201 is called Dagger -- an id that never travelled -- because
+        neither id that DID travel is in this table at all.  Green for the
+        wrong reason, and it hid the fact worth stating: the label evidence is
+        about the PIPE, and every id this lane can send is new to the client.
+        """
+        travelled = set(mob_loot.IDS_ON_THE_WIRE_GT045_V3) | set(
+            mob_loot.IDS_ON_THE_WIRE_ROUND_1104)
+        self.assertEqual(travelled & set(field_drop_tables.ITEMS), set())
+        self.assertIn(
+            "NOT ONE OF THE 63 IDS THIS LANE CAN EMIT",
+            " ".join(MOB_LOOT_NONCLAIMS))
+        self.assertTrue(
+            any(row[3] != 0 for row in field_drop_tables.ITEMS.values()),
+            "the model column is still carried as a table fingerprint")
 
 
 if __name__ == "__main__":

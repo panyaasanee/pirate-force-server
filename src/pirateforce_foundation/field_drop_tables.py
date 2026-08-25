@@ -14,12 +14,14 @@ sets the mobs reference exist client-side, so ~87 pct of that model is
 missing and any DROPS_QUEST row written here would be invention.
 13 roster row(s) name one; they are carried without it.
 
-``drop_model_type`` is copied for information and is NOT a claim, and
-in particular it is NOT the switch that makes an item model appear:
-GT-045 (CLOSED-ANSWERED 2026-08-25) put id 2200423, whose value here is
-1, on a real client's wire and measured a NAME LABEL, brown dust and NO
-MODEL AT ALL.  The column is carried as a fingerprint of the tables and
-as the pair this tool's control 2 compares; nothing more.
+``drop_model_type`` is copied for information and is NOT a claim.  In
+particular a nonzero value is NOT SUFFICIENT to make an item model
+appear: GT-045 (CLOSED-ANSWERED 2026-08-25) put ids 2200423 and
+2200003 on a real client's wire -- BOTH carry 1 -- and measured a name
+label, brown dust and no model under the label that was seen.  Neither
+of those ids is in the table below; no id in this file has ever been on
+a client's wire.  The column is carried as a fingerprint of the tables
+and as the pair this tool's control 2 compares; nothing more.
 
 SOURCES AND THEIR DIGESTS AT MINING TIME
     CONSTDATA_TH__DROPS_EQUIPMENT      06909f73fa00122216443b2e7ea6e58d1357bbf0ae0bf1292f9207c02ca31dd3
