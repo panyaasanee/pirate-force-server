@@ -858,19 +858,34 @@ guard("make_remote_actor_entry" in _v141,
 # renders what it is told and does not subtract, so the server has to say both
 # halves itself.  Unlike the round-99 hostile spawn this lane DOES name and
 # SET the death-timer bit -- see the SET census below, which moves with it.
-guard(SRC_ACTOR_ENTRY_SITES == 8,
-      "src/ builds actor entries at exactly 8 call sites (4 spawns + the "
+# Round 170 re-pin, 8 -> 9 and 8 -> 11.  Section [5] counts our own src/, so
+# these numbers move when we write code; they are re-pinned deliberately, never
+# loosened, and the lane that moved each one is named beside it.  Two lanes
+# landed since the round-111 pin and the bridge runner found this file exiting
+# 1 on a source census while every binary control still matched, which is the
+# failure mode a stale census has: it reports a red that says nothing about the
+# image.  Entry sites 8 -> 9: HOSTILE-HP-LINK-001 (HYP-PF-038,
+# hostile_hp_link_hypothesis.py) builds one actor entry for the frozen hostile
+# whose HP bar it moves.  Carrier sites 8 -> 11: the same lane sends one, and
+# GROUND-LOOT-001 (HYP-PF-032, ground_loot_hypothesis.py) sends two.  Note what
+# ground_loot_hypothesis.py does NOT do: it holds two make_runtime_remote_actors
+# sites and ZERO make_remote_actor_entry sites, so it rides the carrier without
+# building an entry, which is why the module censuses below do not name it.
+guard(SRC_ACTOR_ENTRY_SITES == 9,
+      "src/ builds actor entries at exactly 9 call sites (4 spawns + the "
       "round-86 death re-send + the round-96 remote-player probe + the "
-      "round-99 hostile spawn + the round-111 NPC HP ladder)")
-guard(SRC_ACTOR_STREAM_SITES == 8,
-      "src/ sends the actor-entry carrier at exactly 8 call sites")
-guard(SRC_MODULES_WITH_ACTOR_ENTRY == 7
+      "round-99 hostile spawn + the round-111 NPC HP ladder + the "
+      "HYP-PF-038 hostile HP link)")
+guard(SRC_ACTOR_STREAM_SITES == 11,
+      "src/ sends the actor-entry carrier at exactly 11 call sites")
+guard(SRC_MODULES_WITH_ACTOR_ENTRY == 8
       and SRC_MODULES_WITH_ACTOR_ENTRY_NAMES == (
+          "hostile_hp_link_hypothesis.py",
           "npc_hostile_hypothesis.py", "npc_hp_link_hypothesis.py",
           "population.py", "remote_player_hypothesis.py",
           "runtimeres_death_hypothesis.py", "scenario.py",
           "scene_object.py"),
-      "7 named src/ modules build actor entries %s"
+      "8 named src/ modules build actor entries %s"
       % (SRC_MODULES_WITH_ACTOR_ENTRY_NAMES,))
 # Round 97 re-pin, 4 -> 5.  DAMAGE-HP-LINK-001 added the fifth mention:
 # damage_hp_link_hypothesis.py names bit 0x0080 because its two lethal frames
@@ -886,14 +901,19 @@ guard(SRC_MODULES_WITH_ACTOR_ENTRY == 7
 # the HYP-PF-022 composer emits.  Unlike damage_hp_link_hypothesis.py this
 # lane ALSO builds actor entries, so the SET census below moves with it -- it
 # is the first module since round 86 to do both.
-guard(SRC_MODULES_WITH_DEATH_TIMER_BIT == 6
+# Round 170 re-pin, 6 -> 7.  HOSTILE-HP-LINK-001 (HYP-PF-038,
+# hostile_hp_link_hypothesis.py) adds the seventh mention.  Unlike the round-97
+# damage lane it ALSO builds an actor entry, so the SET census below moves with
+# it as well -- see the note there.
+guard(SRC_MODULES_WITH_DEATH_TIMER_BIT == 7
       and SRC_MODULES_WITH_DEATH_TIMER_BIT_NAMES == (
           "damage_hp_link_hypothesis.py",
+          "hostile_hp_link_hypothesis.py",
           "npc_hp_link_hypothesis.py",
           "remote_player_hypothesis.py", "runtime.py",
           "runtimeres_death_hypothesis.py",
           "stats_progression_hypothesis.py"),
-      "6 named src/ modules mention BasicAttr bit 0x0080 %s"
+      "7 named src/ modules mention BasicAttr bit 0x0080 %s"
       % (SRC_MODULES_WITH_DEATH_TIMER_BIT_NAMES,))
 # Round 111 re-pin, 1 -> 2, and the sentence changes shape rather than just
 # its number.  Round 86 could say "exactly ONE module SETS the bit" because
@@ -906,17 +926,42 @@ guard(SRC_MODULES_WITH_DEATH_TIMER_BIT == 6
 # runtimeres_death_hypothesis.py, the round-86 emitter GAP 1 was opened for,
 # and npc_hp_link_hypothesis.py, the round-111 target-HP lane, which sets the
 # bit in its own composer and does not delegate to the death lane's.
-guard(SRC_MODULES_WITH_BOTH == 2
+# Round 170 re-pin, 2 -> 3, and the third member needs its own sentence because
+# it is NOT a timer emitter at all.  HOSTILE-HP-LINK-001 (HYP-PF-038,
+# hostile_hp_link_hypothesis.py) builds an actor entry and binds
+# BASIC_BIT_DEATH_TIMER = 0x0080, but there is NO path in that module that ORs
+# the bit into an emitted mask: _compose_npc_attr raises when handed a timer,
+# its basic_mask literal omits 0x0080, and the only other mention is a decoder
+# guard that refuses the bit.  The module says so itself -- "Bit 0x0080 above is
+# named only so that every guard in this file can REFUSE it".  That is the same
+# thing remote_player_hypothesis.py does, except that one binds the value to a
+# FORBIDDEN-named constant and so lands in the FORBID census; the discriminator
+# keys on the constant NAME, so this lane lands here instead.  This is the
+# mirror image of the round-111 artefact (there a SET lane was filed under
+# FORBID; here a FORBID lane is filed under SET), and it is re-pinned rather
+# than repaired by narrowing the discriminator, because narrowing is how a real
+# emitter goes quiet: this census must be wrong in the direction that
+# over-reports.  The clean repair belongs to whoever owns that module -- rename
+# its constant with a FORBIDDEN marker and it classifies itself correctly.
+# NOTE: until then the SENTENCE below is looser than the count -- a reader who needs
+# "which modules emit a death timer today" must read the composers, not this.
+guard(SRC_MODULES_WITH_BOTH == 3
       and SRC_MODULES_WITH_BOTH_NAMES == (
+          "hostile_hp_link_hypothesis.py",
           "npc_hp_link_hypothesis.py",
           "runtimeres_death_hypothesis.py"),
       "GAP 1 CLOSED in round 86 and still closed: the src/ modules that both "
-      "build an actor entry AND SET bit 0x0080 are exactly these two, the "
-      "round-86 death emitter and the round-111 NPC HP ladder %s (round 85 "
+      "build an actor entry AND name bit 0x0080 without a FORBIDDEN-named "
+      "constant are exactly these three, the round-86 death emitter, the "
+      "round-111 NPC HP ladder, and the HYP-PF-038 hostile HP link -- which "
+      "names the bit ONLY to refuse it and has no composer path that emits it, "
+      "so it is over-reported here on purpose "
+      "%s (round 85 "
       "counted zero and named the death lane as the missing emitter; round 96 "
       "made SET precise so a module that only FORBIDS the bit does not count; "
       "round 111 made FORBID precise, see DEATH_TIMER_FORBIDDEN_CONST, and "
-      "re-pinned this census upward rather than leaving it green at 1)"
+      "re-pinned this census upward rather than leaving it green at 1; round "
+      "170 re-pinned it upward again for the same reason)"
       % (SRC_MODULES_WITH_BOTH_NAMES,))
 # Round 111: this count does NOT move, and the reason it does not move is the
 # whole point of the correction above.  With the round-96 whole-file substring
@@ -971,8 +1016,17 @@ guard(SRC_ZERO_HP_SITES == 0 and V141_ZERO_HP_SITES == 0
 # counts above move in the SAME commit, and they do, deliberately: unlike the
 # round-90, round-97 and round-101 lanes this one is not a vital-collection
 # carrier only.
-guard(SRC_VITAL_STREAM_SITES == 17,
-      "src/ sends the VitalData carrier (make_runtime_vitals) at 17 call sites")
+# Round 170 re-pin, 17 -> 20.  Three lanes landed since the round-111 pin, each
+# holding one make_runtime_vitals site: LEARN-SKILL-RESULT-001 (HYP-PF-033,
+# learn_skill_result_hypothesis.py), SKILL-ATTR-001 (HYP-PF-035,
+# skill_attr_hypothesis.py) and HOSTILE-HP-LINK-001 (HYP-PF-038,
+# hostile_hp_link_hypothesis.py).  Re-pinned deliberately rather than loosened,
+# for the same reason as every re-pin above: a census that quietly widens stops
+# being a census.  The first two are vital-collection carriers only and move
+# nothing in the actor-entry counts; the third moves those counts too, and they
+# move above in the same commit.
+guard(SRC_VITAL_STREAM_SITES == 20,
+      "src/ sends the VitalData carrier (make_runtime_vitals) at 20 call sites")
 guard(_count(r"make_runtime_remote_actors\(",
              _src.get("stats_progression_hypothesis.py", "")) == 0
       and _count(r"make_runtime_vitals\(",
