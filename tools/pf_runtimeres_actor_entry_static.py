@@ -943,7 +943,7 @@ guard(SRC_MODULES_WITH_DEATH_TIMER_BIT == 7
 # emitter goes quiet: this census must be wrong in the direction that
 # over-reports.  The clean repair belongs to whoever owns that module -- rename
 # its constant with a FORBIDDEN marker and it classifies itself correctly.
-# 🔴 Until then the SENTENCE below is looser than the count: a reader who needs
+# NOTE: until then the SENTENCE below is looser than the count -- a reader who needs
 # "which modules emit a death timer today" must read the composers, not this.
 guard(SRC_MODULES_WITH_BOTH == 3
       and SRC_MODULES_WITH_BOTH_NAMES == (
