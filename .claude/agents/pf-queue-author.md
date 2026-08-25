@@ -50,6 +50,21 @@ She may open the queue two days from now with no memory of this round. Write for
 - A round that ends because the person stopped playing still needs a teardown, and the
   teardown template refuses a boot stamp older than 420 minutes (raised from 180 on
   2026-08-20, TEMPLATE_teardown_generic.ps1:135).
+- **Camera vs facing are two different things, and getting the wording wrong cost this
+  project three attended rounds** (GT-045, closed R163). Right-click-drag rotates the
+  *camera only*: the character's facing does not move and **nothing is triggered**, so it
+  is safe at any point in a round, including before the trigger. `Q`/`E` turn the
+  *character* (the camera merely pans along) and therefore **emit TargetPosVital**, as
+  does `W/A/S/D`. Never write "do not rotate the camera" - write "do not change the
+  character's facing", and never use `Q`/`E` as the NO-CRASH liveness check: use
+  right-click-drag, which proves the client is alive without putting a byte on the wire.
+- **Every attended entry from R163 on must record the colour of every name label in
+  frame** (Panya's order, 2026-08-25). One line per label per image, "none" written out
+  rather than left blank; read colours from full-resolution stills only - never from a
+  contact sheet, a downscaled image, or video. Divergences from the original server's
+  screenshots go into REAL_SERVER_DIVERGENCE.tsv one row each. The tester records the
+  colour and nothing else: what decides a label's colour is unknown and is the whole
+  subject of RE-067, so no entry may ask the tester to infer a cause from a colour.
 
 **ASCII only in the entry itself** where it will be echoed to a cp874 console; Thai
 prose in the descriptive fields is fine and preferred.
