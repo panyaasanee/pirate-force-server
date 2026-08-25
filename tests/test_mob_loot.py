@@ -45,9 +45,13 @@ from pirateforce_foundation.mob_loot import (
     DROP_PC_SIZE,
     DROP_SCATTER_STEP,
     ELEMENT_MASK_POSITION_AND_DWORD,
+    DROP_FRAME_HEADER_PIN,
+    DROP_FRAME_HEADER_SIZE,
     GROUND_DROP_DOES_NOT_PERSIST,
     GROUND_LABEL_OBSERVED_LIFETIME_SECONDS,
-    NO_ITEM_MODEL_IS_DRAWN,
+    NO_MODEL_UNDER_THE_LABEL_THAT_WAS_SEEN,
+    WIRE_TO_SCREEN_SECONDS,
+    DropLedgerCell,
     MAX_DROPS_PER_KILL,
     MOB_LOOT_NONCLAIMS,
     MOB_LOOT_REFUSAL_REASONS,
@@ -87,7 +91,7 @@ TABLE_PATH = ROOT / "src" / "pirateforce_foundation" / "field_drop_tables.py"
 KILLER = 0x750059
 
 
-class _FixedRng(random.Random):
+class _FixedRng(random.Random, mob_loot._FixedStream):
     """An rng whose draws are a script.  Records what was asked of it.
 
     A SUBCLASS of random.Random since the lane now enforces the type rather
@@ -485,11 +489,11 @@ class MobLootTests(unittest.TestCase):
 
     def test_committing_the_same_keys_twice_is_refused_rather_than_merged(self):
         _roll, _record, drops = self._one_kill()
-        ledger = commit_drops(DropLedger(), drops, base_generation=0)
+        ledger = commit_drops(DropLedger(), drops, base_generation=0, kill_token=1)
         self.assertEqual(ledger.generation, 1)
         self.assertEqual(len(ledger.drops), len(drops))
         with self.assertRaises(MobLootContractError) as caught:
-            commit_drops(ledger, drops, base_generation=ledger.generation)
+            commit_drops(ledger, drops, base_generation=ledger.generation, kill_token=1)
         self.assertEqual(caught.exception.args[0], "mob_already_looted")
         second = DeathRecord(
             self.roster[1].actor_identity, KILLER, self.roster[1].max_hp)
@@ -500,12 +504,12 @@ class MobLootTests(unittest.TestCase):
                                self.roster[1].drops_normal, 1),), (), 0, ()),
             DROP_KEY_BASE)
         with self.assertRaises(MobLootContractError) as caught:
-            commit_drops(ledger, colliding, base_generation=ledger.generation)
+            commit_drops(ledger, colliding, base_generation=ledger.generation, kill_token=1)
         self.assertEqual(caught.exception.args[0], "ledger_stale")
 
     def test_the_next_key_follows_the_highest_key_ever_issued(self):
         _roll, _record, drops = self._one_kill()
-        ledger = commit_drops(DropLedger(), drops, base_generation=0)
+        ledger = commit_drops(DropLedger(), drops, base_generation=0, kill_token=1)
         self.assertEqual(ledger.next_key, drops[-1].drop_key + 1)
         self.assertEqual(DropLedger().next_key, DROP_KEY_BASE)
 
@@ -519,7 +523,7 @@ class MobLootTests(unittest.TestCase):
         items, one key, and nothing raised anywhere.
         """
         _roll, _record, drops = self._one_kill()
-        ledger = commit_drops(DropLedger(), drops, base_generation=0)
+        ledger = commit_drops(DropLedger(), drops, base_generation=0, kill_token=1)
         after_pickup, taken = take_drop(ledger, drops[-1].drop_key)
         self.assertEqual(taken, drops[-1])
         self.assertEqual(after_pickup.next_key, ledger.next_key)
@@ -538,7 +542,7 @@ class MobLootTests(unittest.TestCase):
 
     def test_taking_a_drop_removes_exactly_that_row(self):
         _roll, _record, drops = self._one_kill()
-        ledger = commit_drops(DropLedger(), drops, base_generation=0)
+        ledger = commit_drops(DropLedger(), drops, base_generation=0, kill_token=1)
         remaining, taken = take_drop(ledger, drops[0].drop_key)
         self.assertEqual(taken, drops[0])
         self.assertEqual(len(remaining.drops), len(drops) - 1)
@@ -645,7 +649,7 @@ class MobLootTests(unittest.TestCase):
 
     def test_refreshing_re_emits_the_live_ledger_in_key_order(self):
         _roll, _record, drops = self._one_kill()
-        ledger = commit_drops(DropLedger(), drops, base_generation=0)
+        ledger = commit_drops(DropLedger(), drops, base_generation=0, kill_token=1)
         refreshed = refresh_frames(self.legacy, ledger)
         self.assertEqual(refreshed, drop_frames(self.legacy, ledger.drops))
         with self.assertRaises(MobLootContractError) as caught:
@@ -709,7 +713,7 @@ class MobLootTests(unittest.TestCase):
         generation 2 with nothing raised.  Executed here as the refusal.
         """
         _roll, _record, drops = self._one_kill()
-        stored = commit_drops(DropLedger(), drops, base_generation=0)
+        stored = commit_drops(DropLedger(), drops, base_generation=0, kill_token=1)
         pruned, taken = take_drop(stored, drops[0].drop_key)
         second = self.roster[1]
         record = DeathRecord(second.actor_identity, KILLER, second.max_hp)
@@ -719,30 +723,30 @@ class MobLootTests(unittest.TestCase):
             (), 0, ())
         fresh = place_drops(second, record, roll, pruned.next_key)
         with self.assertRaises(MobLootContractError) as caught:
-            commit_drops(pruned, fresh, base_generation=stored.generation)
+            commit_drops(pruned, fresh, base_generation=stored.generation, kill_token=2)
         self.assertEqual(
             caught.exception.args[0], "ledger_generation_moved")
         accepted = commit_drops(
-            pruned, fresh, base_generation=pruned.generation)
+            pruned, fresh, base_generation=pruned.generation, kill_token=2)
         self.assertNotIn(
             taken.drop_key, [row.drop_key for row in accepted.drops])
 
     def test_a_commit_without_a_base_generation_is_refused(self):
         _roll, _record, drops = self._one_kill()
         with self.assertRaises(MobLootContractError) as caught:
-            commit_drops(DropLedger(), drops)
+            commit_drops(DropLedger(), drops, kill_token=1)
         self.assertEqual(
             caught.exception.args[0], "ledger_generation_moved")
 
     def test_one_corpse_cannot_be_looted_twice(self):
         roll, record, drops = self._one_kill()
-        ledger = commit_drops(DropLedger(), drops, base_generation=0)
+        ledger = commit_drops(DropLedger(), drops, base_generation=0, kill_token=1)
         emptied = ledger
         for drop in drops:
             emptied, _taken = take_drop(emptied, drop.drop_key)
         again = place_drops(self.mob, record, roll, emptied.next_key)
         with self.assertRaises(MobLootContractError) as caught:
-            commit_drops(emptied, again, base_generation=emptied.generation)
+            commit_drops(emptied, again, base_generation=emptied.generation, kill_token=1)
         self.assertEqual(caught.exception.args[0], "mob_already_looted")
 
     def test_the_envelope_is_pinned_at_run_time_not_only_in_a_test(self):
@@ -807,6 +811,100 @@ class MobLootTests(unittest.TestCase):
                 pin_document(self.legacy), indent=2, ensure_ascii=True,
                 sort_keys=True) + "\n")
 
+    def test_the_cell_is_the_thing_that_makes_a_race_lose(self):
+        """The answer to the question both adversarial passes asked.
+
+        A ledger is a frozen value, so ``base_generation`` alone could always
+        be satisfied from the same object the caller was holding - the two
+        passes each executed a scenario where a pruner and a kill both stored
+        generation 2 and a taken drop came back.  The cell owns the value and
+        does read-build-fold inside one lock, so a caller cannot supply a
+        stale generation or an already-issued key at all.
+        """
+        cell = DropLedgerCell()
+        record = DeathRecord(
+            self.mob.actor_identity, KILLER, self.mob.max_hp)
+        rng = random.Random(3)
+        first = cell.loot_a_kill(
+            self.mob, record, roll_drops(self.mob, rng), kill_token=1)
+        self.assertEqual(cell.ledger.generation, 1)
+        with self.assertRaises(MobLootContractError) as caught:
+            cell.loot_a_kill(
+                self.mob, record, roll_drops(self.mob, rng), kill_token=1)
+        self.assertEqual(caught.exception.args[0], "mob_already_looted")
+        self.assertEqual(
+            cell.ledger.generation, 1, "a refusal must not move the cell")
+        respawned = cell.loot_a_kill(
+            self.mob, record, roll_drops(self.mob, rng), kill_token=2)
+        keys = [row.drop_key for row in first] + [
+            row.drop_key for row in respawned]
+        self.assertEqual(len(set(keys)), len(keys))
+        for row in list(cell.ledger.drops):
+            cell.take(row.drop_key)
+        after = cell.loot_a_kill(
+            self.mob, record, roll_drops(self.mob, rng), kill_token=3)
+        for row in after:
+            self.assertNotIn(row.drop_key, keys)
+
+    def test_a_respawned_monster_killed_again_still_drops(self):
+        """The register used to brick the scene after 13 kills.
+
+        Identities are a static function of the roster, so a per-identity
+        register with no notion of WHICH death refuses every respawn kill -
+        and the domain this feeds is literally named hp_death_and_respawn.
+        """
+        cell = DropLedgerCell()
+        rolled = 0
+        for wave in range(1, 4):
+            for mob in self.roster:
+                record = DeathRecord(mob.actor_identity, KILLER, mob.max_hp)
+                drops = cell.loot_a_kill(
+                    mob, record, roll_drops(mob, random.Random(wave)),
+                    kill_token=wave)
+                rolled += len(drops)
+                for row in drops:            # the caller prunes; the label is
+                    cell.take(row.drop_key)  # off screen in under half a second
+        self.assertEqual(len(cell.ledger.looted), len(self.roster))
+        self.assertGreater(rolled, 0)
+
+    def test_a_key_that_was_issued_is_refused_even_if_the_caller_offers_it(self):
+        _roll, record, drops = self._one_kill()
+        ledger = commit_drops(
+            DropLedger(), drops, base_generation=0, kill_token=1)
+        pruned, _taken = take_drop(ledger, drops[0].drop_key)
+        replayed = place_drops(
+            self.mob, record, _roll, drops[0].drop_key)
+        with self.assertRaises(MobLootContractError) as caught:
+            commit_drops(
+                pruned, replayed, base_generation=pruned.generation,
+                kill_token=2)
+        self.assertEqual(
+            caught.exception.args[0], "key_outside_the_lane_block")
+
+    def test_the_frame_header_is_pinned_at_run_time_too(self):
+        """The first repair stopped at the pc; the dispatcher reads these."""
+        class _DriftedFraming:
+            MAGIC = 0xDEADBEEF
+
+            def __init__(self, real):
+                self._real = real
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+            def frame_pc(self, pc):
+                compressed = self._real.snappy_raw_literal(pc)
+                return struct.pack(
+                    "<II", self.MAGIC, len(compressed)) + compressed
+
+        _roll, _record, drops = self._one_kill()
+        with self.assertRaises(MobLootContractError) as caught:
+            drop_frames(_DriftedFraming(self.legacy), drops)
+        self.assertEqual(caught.exception.args[0], "composed_bytes_off_pin")
+        for _pc, frame in drop_frames(self.legacy, drops):
+            self.assertEqual(
+                frame[:DROP_FRAME_HEADER_SIZE], DROP_FRAME_HEADER_PIN)
+
     def test_the_lane_states_what_gt045_actually_measured(self):
         """The correction an adversarial pass forced, pinned so it cannot rot.
 
@@ -815,8 +913,15 @@ class MobLootTests(unittest.TestCase):
         opposite: a red NAME LABEL, no model at all, brown dust, ~0.2-0.3 s.
         """
         self.assertTrue(GROUND_DROP_DOES_NOT_PERSIST)
-        self.assertTrue(NO_ITEM_MODEL_IS_DRAWN)
-        self.assertEqual(GROUND_LABEL_OBSERVED_LIFETIME_SECONDS, (0.2, 0.3))
+        self.assertTrue(NO_MODEL_UNDER_THE_LABEL_THAT_WAS_SEEN)
+        # 0.30 s measured, +/-0.1 s mandatory => 0.2-0.4, and writing a single
+        # figure is forbidden by the letter that measured it.
+        self.assertEqual(GROUND_LABEL_OBSERVED_LIFETIME_SECONDS, (0.2, 0.4))
+        self.assertEqual(WIRE_TO_SCREEN_SECONDS, 0.12)
+        for forbidden in ("~0.25 s", "for about a quarter of a second"):
+            self.assertNotIn(
+                forbidden, self.source,
+                "a single-figure lifetime the measurement forbids")
         self.assertIn("NO OBJECT IS DRAWN", MOB_LOOT_NONCLAIMS[1])
         source = self.source
         self.assertNotIn("drew a MODEL and a", source.split("~~")[2:] and "" or source)

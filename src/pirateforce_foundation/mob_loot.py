@@ -37,25 +37,50 @@ it.  GT-045 is CLOSED-ANSWERED (chief R163, four attended rounds 11:48-13:30 on
 2026-08-25, jobs 1122-1136; letter ``pf_bridge/notes_to_chief/20260825_1340_
 GT045-ANSWERED-name-label-yes-model-no-plus-the-QE-rule-was-wrong.md``):
 
-  * [MEASURED] A floating NAME LABEL is drawn on the ground at the coordinate
-    the server sent, in RED text, readable in full -- "Red leaves Hammer" for
-    payload dword 2200423.  It lives ~0.2-0.3 s and then nothing is left.
-  * [MEASURED] NO ITEM MODEL IS DRAWN.  Confirmed in round 4, the round where
-    the character finally was not standing in front of the spot.  There is no
-    object under the label, no shadow, nothing to walk up to.
+  * [MEASURED, pixels not eyes -- the second letter,
+    ``20260825_1615_GT045-EVIDENCE-COMMITTED-namelabel-frame-plus-exact-wire-
+    to-screen-timing.md``, which is the citation that discharges R163's
+    evidence correction and must travel with the first one] A floating NAME
+    LABEL is drawn at the coordinate the server sent, in RED text, readable in
+    full: "Red leaves Hammer".  Frame-extracted at 30 fps: present at t =
+    249.733, gone by t = 250.067, LIFE 0.30 s -- and that letter's own
+    mandatory nonclaim says the recorder duplicates frames in threes, so the
+    real sampling is ~10 fps and 0.30 MEANS 0.2-0.4.  Writing 0.30, or 0.25,
+    or "about a quarter of a second", is forbidden by the measurement itself.
+  * [MEASURED, same letter] WIRE TO SCREEN is about 0.12 s -- and that is a
+    distance between "the sender logged the send" and "the camera caught the
+    frame", not a client render latency.
+  * [MEASURED, WITH ITS SCOPE] NO MODEL UNDER THE LABEL THAT WAS SEEN: no
+    object, no shadow, nothing to walk up to.  The SCOPE is real and this lane
+    may not widen it -- two elements went out 42 ms apart (NEAR 2200423,
+    n_ID_MODEL 0; FAR 2200003, n_ID_MODEL 2) and only ONE label is in the
+    frame.  Its text names 2200423, so the visible one is NEAR; whether FAR
+    drew anything at all is INDISTINGUISHABLE from "off camera" in that
+    evidence.  The one element ever confirmed to draw nothing under its label
+    is the one whose model-asset id is 0.
   * [MEASURED] BROWN DUST is drawn, immediately after the label.
   * [MEASURED, and it refutes what this module first wrote] ``n_DROPMODEL_TYPE
-    = 1`` IS NOT ENOUGH to make a model appear.  What is missing is the open
-    question of that ticket, and nobody may read GT-045 as having answered it.
+    = 1`` IS NOT SUFFICIENT to make a model appear -- BOTH GT-045 v3 ids carry
+    1.  "Not sufficient" is not "not the switch", and this lane says the
+    former; the column the two ids actually differ in is ``n_ID_MODEL``, which
+    nothing here mines and nothing here claims.  What makes a model appear is
+    the OPEN question of that ticket and nobody may read GT-045 as answering
+    it.
   * [MEASURED, and it is why the roll matters] The client resolved the NAME
     ITSELF from the payload dword -- this lane's shape never sends a name
     field.  That matches RE-066 (create path A at 0x00892580 reads s_NAME) and
     RE-060 (TEXTDATA TIP, n_ID 423 = "Red leaves Hammer").
+  * [NOT RE-VERIFIABLE FROM THIS REPO, and R163 made this nonclaim mandatory
+    forever] The round-3 screenshots the first letter cited contain no item
+    label in any frame, and the round-4 .mkv is over the repo's size cap and
+    is not committed.  What IS committed is the single extracted frame the
+    1615 letter added.  The client-observable layer of GT-045 rests on that
+    one frame.
 
 So the honest sentence for this round is: "the monster you killed announces the
-NAME of its own loot, in red text, where it fell, for about a quarter of a
+NAME of its own loot, in red text, where it fell, for two to four tenths of a
 second."  NOT "you can pick it up", and NOT "an item lies on the ground" --
-there is no object.  :func:`refresh_frames` exists so a caller CAN re-emit the
+nothing was under the one label anyone has seen.  :func:`refresh_frames` exists so a caller CAN re-emit the
 ledger, which is the only lever this lane has toward "it stays"; whether
 re-emission redraws the label, does nothing, or restarts the dust is UNMEASURED
 and is written as a nonclaim rather than as a feature.
@@ -139,6 +164,7 @@ import hashlib
 import math
 import random as _random
 import struct
+import threading
 from typing import Any
 
 from . import field_drop_tables
@@ -150,35 +176,41 @@ MOB_LOOT_BUILD_ORDER = "BUILD-006 / M5 first half"
 MOB_LOOT_LANE = "B_COMBAT"
 
 MOB_LOOT_WIRING = (
-    "runtime.py, for a kill that commit_death() ACCEPTED (a rejected "
-    "compare-and-swap must not roll loot -- the monster it names is already "
-    "dead and already looted):\n"
-    "  1. roll = mob_loot.roll_drops(mob, rng)   # rng MUST be a "
-    "random.Random INSTANCE the server owns, never the random module\n"
-    "  2. drops = mob_loot.place_drops(mob, death_step.record, roll, "
-    "ledger.next_key, position=<where it fell, or None for its placement "
-    "position>)   # death_step.record, NOT the outcome: the outcome is true "
-    "of a hit that landed on a corpse too.  next_key CAN REFUSE (the key "
-    "block is finite); catch it, do not let it escape into the death path\n"
-    "  3. ledger_next = mob_loot.commit_drops(ledger_now, drops, "
-    "base_generation=<the generation you READ at step 2>)   # CAS; a rejected "
-    "commit means rebuild from step 2 against the fresh ledger, NOT re-roll "
-    "(re-rolling gives the player a second roll for one kill)\n"
-    "  4. send every frame of mob_loot.drop_frames(legacy, drops) AFTER "
+    "runtime.py.  Hold ONE mob_loot.DropLedgerCell for the scene -- the cell "
+    "is the owner of the ledger and the reason this line is now three calls "
+    "instead of five: an earlier version asked you to carry a generation by "
+    "hand, and a caller holding a value can always satisfy that check against "
+    "the same object it is holding, which is not a lock at all.\n"
+    "  For a kill that commit_death() ACCEPTED:\n"
+    "  1. roll = mob_loot.roll_drops(mob, rng)   # rng must be a "
+    "random.Random the server owns; SystemRandom and the module-global stream "
+    "are refused by name\n"
+    "  2. drops = cell.loot_a_kill(mob, death_step.record, roll, "
+    "kill_token=death_step.register.generation, position=<where it fell, or "
+    "None for its placement position>)\n"
+    "     - death_step.record, NOT the outcome: the outcome is true of a hit "
+    "that landed on a corpse too.\n"
+    "     - the kill token must RISE with each real death.  The register "
+    "generation does; a constant would refuse every kill after the first, and "
+    "a respawned monster killed again is a NEW death and is accepted.\n"
+    "     - a refusal leaves the cell untouched.  ledger_generation_moved and "
+    "ledger_stale mean try again; mob_already_looted means this death was "
+    "already looted and you must NOT retry it in a loop.\n"
+    "  3. send every frame of mob_loot.drop_frames(legacy, drops) AFTER "
     "death_step.dead_frame -- i.e. after the whole death schedule including "
     "hold_ms -- one frame each, in the order returned.  NOT between the dying "
     "and dead frames: nothing measured says a derived-mask-0x08 RuntimeRes "
     "may be interleaved into another lane's typed lethal sequence for the "
-    "same actor, and the label lives ~0.25 s, so loot sent inside the hold is "
-    "gone before the corpse frame is\n"
-    "  5. PRUNE.  The ledger only grows here; nothing in this module expires "
-    "a row and the label is off screen in about a quarter of a second.  A "
-    "caller that never prunes turns refresh_frames into hundreds of frames "
-    "per second of a message a real client has been shown twice in its life.\n"
-    "  6. nothing else: there is no pickup half.  If you want to try holding "
-    "the label on screen, mob_loot.refresh_frames(legacy, ledger) re-emits the "
-    "live ledger and DROP_REFRESH_MS is our unmeasured guess at the cadence; "
-    "that is an experiment, not a shipped behaviour."
+    "same actor, and the label lives 0.2-0.4 s, so loot sent inside the hold "
+    "is gone before the corpse frame is.\n"
+    "  4. PRUNE THROUGH THE CELL (cell.take(key)).  Nothing in this module "
+    "expires a row and the label is off screen in under half a second; a "
+    "caller that never prunes grows the ledger without bound.  Pruning beside "
+    "the cell, on a value you kept, loses whatever a kill wrote in between.\n"
+    "  5. nothing else: there is no pickup half.  cell.frames(legacy) "
+    "re-emits the live ledger if you want to experiment with holding a label "
+    "on screen; DROP_REFRESH_MS is arithmetic, not a tested value, and the "
+    "arithmetic says the honest cadence costs 12.5 frames a second per row."
 )
 
 production_allowed = True
@@ -200,7 +232,7 @@ DROP_PC_SIZE = 44                        # one element, pinned by GT-045
 DROP_FRAME_SIZE = 54                     # the same pc, framed
 DROP_COORD_SPANS = ((30, 34), (35, 39), (40, 44))
 DROP_FRAME_COORD_SHIFT = 10
-# The 20 bytes in front of the element are the SAME for every drop this lane
+# The 17 bytes in front of the element are the SAME for every drop this lane
 # will ever send (message id, zero id, version, inherited mask, derived mask,
 # count of one), so unlike the element they can be pinned as literal bytes and
 # compared at RUN TIME, in the server, on every emission.  Without this the
@@ -217,6 +249,18 @@ DROP_ENVELOPE_PIN = bytes((
     0x12, 0x01, 0x00,              # u16 tag 0x12, ONE element
 ))
 DROP_ENVELOPE_SIZE = len(DROP_ENVELOPE_PIN)
+# And the ten bytes in front of the PC, for the same reason and because the
+# first adversarial repair stopped at the pc: the client's dispatcher reads
+# these FIRST.  For a fixed 44-byte pc they are entirely constant -- the V141
+# frame magic, the compressed length, and the snappy raw-literal header -- so
+# a shim that moved the magic or flipped the length byte order shipped 54
+# bytes that passed every length and coordinate check this lane had.
+DROP_FRAME_HEADER_PIN = bytes((
+    0xAC, 0x3E, 0x25, 0x5F,        # MAGIC 0x5F253EAC, little endian
+    0x2E, 0x00, 0x00, 0x00,        # compressed length, 46
+    0x2C, 0xAC,                    # snappy raw literal header for 44 bytes
+))
+DROP_FRAME_HEADER_SIZE = len(DROP_FRAME_HEADER_PIN)
 
 # The list codec's element field order, re-derived from the same span
 # [0x005F85B0,0x005F8869) sha256 ce0a58f7.. that GT-040/GT-042 pinned.
@@ -236,20 +280,37 @@ ELEMENT_FIELD_ORDER = (
 DROP_KEY_BASE = 0x00100000
 DROP_KEY_LIMIT = 0x00200000
 DROP_SCATTER_STEP = 30.0
-# Below the MEASURED label life (0.2-0.3 s), because a cadence above it
-# guarantees a gap with nothing on screen.  Still a guess about a mechanism
-# nobody has measured -- see NONCLAIM 12 -- not a tuned value.
-DROP_REFRESH_MS = 200
+# The arithmetic, written out rather than tuned: a re-emission is on screen
+# about WIRE_TO_SCREEN_SECONDS after it is sent, and the label it is meant to
+# replace may die as early as the LOW end of its range, so a cadence that
+# cannot leave a gap is at most (0.2 - 0.12) = 0.08 s.  That is 12.5 frames a
+# second PER LIVE ROW of a message a real client has been shown twice in its
+# life, which is the real reason this stays an experiment: the honest cadence
+# is unaffordable, and the affordable ones (200 ms, which this constant was
+# before an adversarial pass did the subtraction) are arithmetically
+# guaranteed to blink.  Whether re-emission redraws anything at all is
+# unmeasured either way -- NONCLAIM 12.
+DROP_REFRESH_MS = 80
 MAX_DROPS_PER_KILL = 16
 
 # [MEASURED, GT-045 CLOSED-ANSWERED, four attended rounds 2026-08-25]
 GROUND_DROP_DOES_NOT_PERSIST = True
-NO_ITEM_MODEL_IS_DRAWN = True
-# The label's life, as a RANGE because that is how it was measured: the
-# recorder duplicates frames in threes, so the real sampling is ~10 fps and
-# ~0.1 s of slack is mandatory.  The letter that measured it forbids writing a
-# single exact figure, and this lane obeys that rather than averaging it away.
-GROUND_LABEL_OBSERVED_LIFETIME_SECONDS = (0.2, 0.3)
+# Named for its SCOPE.  ~~NO_ITEM_MODEL_IS_DRAWN~~ was struck: it stated as a
+# universal what was measured of ONE element, whose model-asset id is 0, in a
+# frame where the second element cannot be told apart from off-camera.
+NO_MODEL_UNDER_THE_LABEL_THAT_WAS_SEEN = True
+# The label's life.  The frame extraction says 0.30 s; the letter that made
+# that measurement attaches a MANDATORY +/-0.1 s (the recorder duplicates
+# frames in threes, so the real sampling is ~10 fps) and forbids writing a
+# single exact figure.  0.30 therefore MEANS 0.2-0.4, and the first version of
+# this constant wrote (0.2, 0.3) -- it quoted the rule and then dropped half
+# the range the rule produces.
+GROUND_LABEL_MEASURED_SECONDS = 0.30
+GROUND_LABEL_FRAME_SLACK_SECONDS = 0.1
+GROUND_LABEL_OBSERVED_LIFETIME_SECONDS = (0.2, 0.4)
+# [MEASURED, same letter] Send to pixels.  NOT a render latency: it contains
+# socket travel, the recorder's queue and the same +/-0.1 s.
+WIRE_TO_SCREEN_SECONDS = 0.12
 # ~~0.633~~ IS STRUCK as a lifetime of THIS pipe and kept here so nobody
 # re-derives it: it comes from an external video of the ORIGINAL server
 # (2026-08-23 frame measurement, clip B) where the object vanished in the same
@@ -261,6 +322,15 @@ ORIGINAL_SERVER_PICKUP_TERMINATED_SECONDS = 0.633
 # round-100 fact pack, [INFERENCE] here, and it can never reach the ground
 # through this pipe -- the element's only content field is an ITEM ID, so a
 # money drop has nothing to put in it.  Rolled and recorded, never emitted.
+# Which ids have ever reached a real client, BY RUN, because merging the runs
+# is how the first version of this module produced a set that never existed:
+IDS_ON_THE_WIRE_GT045_V3 = (2200423, 2200003)   # four rounds, 2026-08-25
+IDS_ON_THE_WIRE_ROUND_1104 = (2600001,)         # a different run, 2026-08-24
+ID_WHOSE_LABEL_WAS_READ = 2200423
+# And the sentence that matters more than any of them: NOT ONE of the ids this
+# lane can emit is in those tuples.  Everything above is evidence about the
+# PIPE, never about an id this module will actually send.
+
 MONEY_ITEM_ID = 0
 MONEY_TAG = "INFERENCE_MONEY_SLOT"
 MONEY_AMOUNT_FROM_QUANTITY_SPAN = "AMOUNT_FROM_QUANTITY_SPAN"
@@ -287,7 +357,13 @@ MOB_LOOT_NONCLAIMS = (
     "model under it and nothing left afterwards.  This lane ANNOUNCES loot; "
     "it does not lay an item on the ground, and n_DROPMODEL_TYPE was measured "
     "NOT to be the switch that changes that.",
-    "3. The label evidence covers ONE id from ONE item table.  2200423 "
+    "3. NOT ONE OF THE 63 IDS THIS LANE CAN EMIT HAS EVER BEEN ON A "
+    "CLIENT'S WIRE.  Three ids have (2200423 and 2200003 in the GT-045 v3 "
+    "rounds; 2600001 in the earlier round 1104) and none of them is in "
+    "field_drop_tables.  The evidence is about the PIPE.  Everything this "
+    "lane says about what a player will read is an EXPECTATION from RE-066's "
+    "create path, and the label evidence itself covers ONE id from ONE item "
+    "table.  2200423 "
     "(EQUIPMENT_BASE) drew its name; 2600001 (ITEM_MISC) drew none in the run "
     "that carried it, and no id from ITEM_CONSUMABLES has ever been on this "
     "wire at all -- which is the table the roster's most frequent drop "
@@ -325,9 +401,10 @@ MOB_LOOT_NONCLAIMS = (
     "the client does with a key it has never seen, or whether that key space "
     "is shared with anything else.",
     "12. Whether re-emitting an element redraws the label is UNMEASURED.  "
-    "refresh_frames composes the frames; DROP_REFRESH_MS sits under the "
-    "measured label life so a cadence cannot guarantee a gap, which is not "
-    "the same as knowing that re-emission works.",
+    "DROP_REFRESH_MS is arithmetic (label life 0.2 s at its low end minus 0.12 "
+    "s of wire-to-screen), not a tested value, and at 80 ms it costs 12.5 "
+    "frames a second per live row.  A cadence that is affordable is "
+    "arithmetically guaranteed to blink.",
     "13. DELTA OR REPLACEMENT IS UNPROVEN, and it matters for every kill that "
     "drops more than one object.  This lane sends one element per frame "
     "because a multi-record derived-mask collection is the shape a real "
@@ -361,6 +438,17 @@ MOB_LOOT_NONCLAIMS = (
     "later; whether a RuntimeRes carrying a different derived mask clears, "
     "preserves or corrupts a live 0x5F85B0 entry is unknown, and a kill in "
     "the first seconds of a scene hits exactly that.",
+    "19a. THE LEDGER IS A VALUE AND SOMEBODY MUST OWN THE CELL.  "
+    "DropLedgerCell is that owner and is what MOB_LOOT_WIRING now hands the "
+    "chief: commit_drops on a bare value CANNOT provide atomicity, because a "
+    "caller holding the value can always satisfy base_generation from the "
+    "same object.  A caller that keeps using the value functions directly is "
+    "responsible for its own locking, and this lane cannot check that.",
+    "19b. THE REPLAY GUARD IS ONLY AS GOOD AS THE KILL TOKEN.  It refuses a "
+    "token it has already seen for an identity, so it needs the caller to "
+    "pass a token that RISES with each real death (death_step.register."
+    "generation).  Pass a constant and every kill after the first is refused; "
+    "pass a random number and a replay can slip through.",
     "19. THE LEDGER IS STATE BUILT FOR A HALF THAT DOES NOT EXIST YET.  Its "
     "keys, its compare-and-swap, take_drop, killer_identity and quantity all "
     "serve a pickup half whose transport is unidentified.  If the answer to "
@@ -434,7 +522,7 @@ class MobLootContractError(ValueError):
 
 
 def _require_int(value: Any, label: str, minimum: int, maximum: int) -> int:
-    if type(value) is not int or type(value) is bool:
+    if type(value) is not int:   # `type(x) is int` is already False for a bool
         raise MobLootContractError(
             REFUSE_VALUE_NOT_INT, "%s must be an int" % label)
     if not minimum <= value <= maximum:
@@ -453,7 +541,7 @@ def _require_identity(value: Any, label: str) -> int:
 
 
 def _require_float32(value: Any, label: str) -> float:
-    if type(value) not in (int, float) or type(value) is bool:
+    if type(value) not in (int, float):   # a bool is neither, by exact type
         raise MobLootContractError(
             REFUSE_POSITION_NOT_FINITE, "%s must be a finite number" % label)
     result = float(value)
@@ -469,7 +557,7 @@ def as_wire_float(value: float) -> float:
 
 
 def _require_draw(draw: Any) -> float:
-    if type(draw) not in (int, float) or type(draw) is bool:
+    if type(draw) not in (int, float):   # a bool is neither, by exact type
         raise MobLootContractError(
             REFUSE_DRAW_OUT_OF_UNIT_INTERVAL, "a draw must be a number")
     value = float(draw)
@@ -478,6 +566,14 @@ def _require_draw(draw: Any) -> float:
             REFUSE_DRAW_OUT_OF_UNIT_INTERVAL,
             "a draw must be in [0.0, 1.0), got %r" % (draw,))
     return value
+
+
+class _FixedStream:
+    """Marker a test subclasses to script the draw stream deliberately.
+
+    Nothing in ``src/`` inherits it; it exists so the type check above can be
+    EXACT for production callers without making the lane untestable.
+    """
 
 
 def _require_rng(rng: Any) -> Any:
@@ -490,11 +586,25 @@ def _require_rng(rng: Any) -> Any:
     every other consumer in the process.  Every test in this file injects a
     Random or a scripted stub, so no test would ever have noticed.
     """
-    if not isinstance(rng, _random.Random):
+    if type(rng) is not _random.Random and not isinstance(rng, _FixedStream):
+        # EXACT type, not isinstance: random.SystemRandom IS a Random and
+        # cannot be seeded, so it satisfies isinstance while making the
+        # determinism paragraph false.  Subclasses that a test injects to
+        # script the draws register themselves through _FixedStream.
         raise MobLootContractError(
             REFUSE_RNG_HAS_NO_RANDOM,
-            "roll_drops needs an injected random.Random INSTANCE; the "
-            "module-global random and any other object are refused")
+            "roll_drops needs a random.Random this caller owns: not a "
+            "SystemRandom (it cannot be seeded) and not an object that merely "
+            "has a .random()")
+    if rng is getattr(_random, "_inst", None):
+        # random._inst IS the object behind random.random().  isinstance
+        # accepts it, which is how the previous version of this check let the
+        # module-global stream in through the front door.
+        raise MobLootContractError(
+            REFUSE_RNG_HAS_NO_RANDOM,
+            "that is the module-global random stream itself; this lane's "
+            "draws must belong to the caller, not to every consumer in the "
+            "process")
     return rng
 
 
@@ -670,6 +780,23 @@ class DropRoll:
     def __post_init__(self) -> None:
         _require_int(self.mob_template_id, "template id", 1, 0xFFFFFFFF)
         _require_identity(self.mob_identity, "mob identity")
+        for label, container in (
+            ("items", self.items), ("money", self.money),
+            ("refusals", self.refusals),
+        ):
+            if type(container) is not tuple:
+                # Lists compare unequal to tuples, so a list here would make
+                # the "same seed, same roll" equality test pass for the wrong
+                # reason and fail for a caller that built one by hand.
+                raise MobLootContractError(
+                    REFUSE_TYPE_NOT_TYPED_RECORD,
+                    "%s must be a tuple, not %s"
+                    % (label, type(container).__name__))
+        for row in self.refusals:
+            if type(row) is not tuple or len(row) != 3:
+                raise MobLootContractError(
+                    REFUSE_TYPE_NOT_TYPED_RECORD,
+                    "a refusal row is (reason, set id, index)")
         for item in self.items:
             if type(item) is not DropItem:
                 raise MobLootContractError(
@@ -909,12 +1036,19 @@ class DropLedger:
             raise MobLootContractError(
                 REFUSE_TYPE_NOT_TYPED_RECORD, "looted must be a tuple")
         seen_mobs = set()
-        for identity in self.looted:
+        for row in self.looted:
+            if type(row) is not tuple or len(row) != 2:
+                raise MobLootContractError(
+                    REFUSE_TYPE_NOT_TYPED_RECORD,
+                    "a looted row is (identity, kill token), not %r" % (row,))
+            identity, token = row
             _require_identity(identity, "looted identity")
+            _require_int(token, "kill token", 0, 2 ** 62)
             if identity in seen_mobs:
                 raise MobLootContractError(
                     REFUSE_MOB_ALREADY_LOOTED,
-                    "identity 0x%X appears twice in the looted register"
+                    "identity 0x%X appears twice in the looted register; the "
+                    "register keeps ONE row per identity, the LAST kill token"
                     % identity)
             seen_mobs.add(identity)
         if tuple(sorted(self.looted)) != self.looted:
@@ -1038,24 +1172,36 @@ def place_drops(
 
 
 def commit_drops(
-    ledger_now: DropLedger, drops: Any, base_generation: Any = None,
+    ledger_now: DropLedger,
+    drops: Any,
+    base_generation: Any = None,
+    kill_token: Any = None,
+    mob_identity: Any = None,
 ) -> DropLedger:
-    """Compare-and-swap a kill's drops into the ledger.
+    """Fold one kill into the ledger VALUE.  Prefer :class:`DropLedgerCell`.
 
-    ~~"a compare-and-swap" by key overlap alone~~ WAS NOT ONE, and the first
-    draft of this module shipped it that way while copying the sibling lane's
-    prose word for word.  A GENERATION is a counter, and a counter is not a
-    value: an expiry pruner (mandatory here -- the label lives ~0.25 s) takes
-    key 0x100000 off ledger gen 1 and stores gen 2; a kill that read gen 1 and
-    holds the non-colliding key 0x100001 then commits, its merge puts the TAKEN
-    drop back on the ground, and both results report generation 2 with nothing
-    raised anywhere.  ``base_generation`` is the generation the caller READ, and
-    a caller that will not name it cannot win the race by writing.
+    ~~"a compare-and-swap"~~ IS STRUCK TWICE OVER, and both strikes are kept
+    because each was a real defect this module shipped:
 
-    It also refuses a second roll for a monster already in the ledger's LOOTED
-    register: ``mob_death`` enforces its own version of that inside the module
-    (REFUSE_DUPLICATE_REGISTER_IDENTITY) rather than in a sentence, and a
-    replayed accepted death would otherwise roll the same corpse twice.
+      1. The first draft compared key overlap only, so a pruner's ledger and a
+         kill's ledger could both report generation 2 with a taken drop back on
+         the ground.
+      2. ``base_generation`` did not fix that.  A caller holds the ledger
+         value, so ``base_generation=ledger_now.generation`` -- the most
+         natural line anyone will type, and the line this module's own first
+         tests typed -- satisfies the check ALWAYS.  There is no shared cell
+         here for a loser to lose against; this function cannot provide
+         atomicity because it is a pure function of a value nobody owns.
+
+    So this is now the FOLD, and :class:`DropLedgerCell` is the lock.  The
+    generation check stays because it catches an honest stale value, and the
+    LINEAGE check below catches what a counter cannot: two ledgers of the same
+    generation whose contents disagree.  ``kill_token`` is the caller's
+    identifier for the DEATH (``death_step.register.generation`` is the one to
+    use), so a REPLAY of one death is refused while a RESPAWNED monster killed
+    again -- a new death, a new token -- is not.  ``mob_identity`` is required
+    even for a roll that produced nothing, because the replay guard must cover
+    the ~38 pct of kills that drop nothing too.
     """
     if type(ledger_now) is not DropLedger:
         raise MobLootContractError(
@@ -1069,8 +1215,7 @@ def commit_drops(
     if base_generation is None:
         raise MobLootContractError(
             REFUSE_LEDGER_GENERATION_MOVED,
-            "commit_drops needs the generation the caller READ; passing none "
-            "is how a stale writer wins a race by writing")
+            "commit_drops needs the generation the caller READ")
     _require_int(base_generation, "base generation", 0, 2 ** 62)
     if ledger_now.generation != base_generation:
         raise MobLootContractError(
@@ -1079,29 +1224,52 @@ def commit_drops(
             "rebuild the drops against the current ledger and commit again -- "
             "do NOT re-roll, that would give one kill two rolls"
             % (base_generation, ledger_now.generation))
-    looted = set(ledger_now.looted)
-    for drop in incoming:
-        if drop.mob_identity in looted:
-            raise MobLootContractError(
-                REFUSE_MOB_ALREADY_LOOTED,
-                "identity 0x%X has already been looted; a replayed death does "
-                "not roll a second time" % drop.mob_identity)
+    if kill_token is None:
+        raise MobLootContractError(
+            REFUSE_MOB_ALREADY_LOOTED,
+            "commit_drops needs the kill's token (use "
+            "death_step.register.generation); without one, a replayed death "
+            "and a respawned monster's new death are the same thing")
+    _require_int(kill_token, "kill token", 0, 2 ** 62)
+    identities = {drop.mob_identity for drop in incoming}
+    if mob_identity is not None:
+        identities.add(_require_identity(mob_identity, "mob identity"))
+    if len(identities) != 1:
+        raise MobLootContractError(
+            REFUSE_ROLL_NAMES_ANOTHER_MONSTER,
+            "one commit is one kill: name exactly one monster, got %r"
+            % (sorted(identities),))
+    identity = identities.pop()
+    looted = dict(ledger_now.looted)
+    previous = looted.get(identity)
+    if previous is not None and previous >= kill_token:
+        raise MobLootContractError(
+            REFUSE_MOB_ALREADY_LOOTED,
+            "identity 0x%X was already looted for kill token %d; a REPLAY of "
+            "one death does not roll twice.  A respawn that is killed again "
+            "carries a HIGHER token and is accepted -- if this refuses a kill "
+            "you believe is new, the token is the thing that is wrong"
+            % (identity, previous))
     existing = {drop.drop_key for drop in ledger_now.drops}
     for drop in incoming:
         if drop.drop_key in existing:
             raise MobLootContractError(
                 REFUSE_LEDGER_STALE,
-                "drop key 0x%X is already on the ground; rebuild the drops "
-                "against the current ledger and commit again -- do NOT "
-                "re-roll, that would give one kill two rolls" % drop.drop_key)
+                "drop key 0x%X is already on the ground" % drop.drop_key)
+        if drop.drop_key < ledger_now.issued_through:
+            raise MobLootContractError(
+                REFUSE_KEY_OUTSIDE_THE_LANE_BLOCK,
+                "drop key 0x%X was issued before and may still be held by a "
+                "client under a different item; keys are never reused"
+                % drop.drop_key)
     merged = tuple(sorted(
         ledger_now.drops + incoming, key=lambda row: row.drop_key))
     issued = ledger_now.issued_through
     for drop in incoming:
         if drop.drop_key + 1 > issued:
             issued = drop.drop_key + 1
-    looted_next = tuple(sorted(
-        looted | {drop.mob_identity for drop in incoming}))
+    looted[identity] = kill_token
+    looted_next = tuple(sorted(looted.items()))
     return DropLedger(
         merged, ledger_now.generation + 1, issued, looted_next)
 
@@ -1129,6 +1297,78 @@ def take_drop(ledger_now: DropLedger, drop_key: int) -> tuple:
             ledger_now.looted),
         taken,
     )
+
+
+class DropLedgerCell:
+    """THE OWNER OF THE LEDGER.  Every mutation happens here, under a lock.
+
+    THE QUESTION THIS CLASS EXISTS TO ANSWER.  Two adversarial passes asked
+    the same thing in different words: a ``DropLedger`` is a frozen value, and
+    ``commit_drops`` returns a NEW value that some caller must store somewhere
+    this module has never seen.  WHO OWNS THE CELL?  While the answer was
+    "the chief, by hand", ``base_generation`` was not a compare-and-swap at
+    all -- the caller compared a value against the same object it already
+    held, so it could not lose, and a pruner and a kill could both store a
+    generation-2 ledger with different contents.  The cell is the answer: the
+    read, the build and the fold happen inside one lock, so a caller CANNOT
+    supply a stale generation, cannot allocate a key that another kill just
+    took, and cannot prune against a ledger that has moved.
+
+    It is deliberately tiny and it still does nothing on its own: no clock, no
+    socket, no thread, no expiry.  Pruning is still the caller's duty (there
+    is nothing in this lane that knows when a label has faded), but it is now
+    a duty performed THROUGH the cell instead of on a value beside it.
+    """
+
+    def __init__(self, ledger: Any = None) -> None:
+        if ledger is None:
+            ledger = DropLedger()
+        if type(ledger) is not DropLedger:
+            raise MobLootContractError(
+                REFUSE_TYPE_NOT_TYPED_RECORD,
+                "a cell holds a typed DropLedger")
+        self._ledger = ledger
+        self._lock = threading.Lock()
+
+    @property
+    def ledger(self) -> DropLedger:
+        """The current value.  A snapshot; storing it is not owning it."""
+        with self._lock:
+            return self._ledger
+
+    def loot_a_kill(
+        self,
+        mob: Any,
+        record: Any,
+        roll: DropRoll,
+        kill_token: Any,
+        position: Any = None,
+    ) -> tuple:
+        """Place and fold one accepted kill.  Returns the drops to send.
+
+        The whole read-modify-write is inside the lock, so the key block and
+        the generation are the cell's to hand out, never the caller's to
+        guess.  A refusal leaves the cell exactly as it was.
+        """
+        with self._lock:
+            current = self._ledger
+            drops = place_drops(
+                mob, record, roll, current.next_key, position=position)
+            self._ledger = commit_drops(
+                current, drops, base_generation=current.generation,
+                kill_token=kill_token,
+                mob_identity=getattr(record, "actor_identity", None))
+            return drops
+
+    def take(self, drop_key: int) -> Any:
+        """Remove one row -- a pickup, or the prune the caller owes."""
+        with self._lock:
+            self._ledger, taken = take_drop(self._ledger, drop_key)
+            return taken
+
+    def frames(self, legacy: Any) -> tuple:
+        """Re-emit every live row.  See :func:`refresh_frames` for the caveat."""
+        return refresh_frames(legacy, self.ledger)
 
 
 # ---------------------------------------------------------------------------
@@ -1224,6 +1464,15 @@ def drop_frames(legacy: Any, drops: Any) -> tuple:
                 REFUSE_COMPOSED_BYTES_OFF_PIN,
                 "a framed one-element ground message is %d bytes, composed %d"
                 % (DROP_FRAME_SIZE, len(frame)))
+        if frame[:DROP_FRAME_HEADER_SIZE] != DROP_FRAME_HEADER_PIN:
+            raise MobLootContractError(
+                REFUSE_COMPOSED_BYTES_OFF_PIN,
+                "the frame header is not the pinned header; the framing layer "
+                "moved under this lane and it refuses to emit")
+        if frame[DROP_FRAME_HEADER_SIZE:] != pc:
+            raise MobLootContractError(
+                REFUSE_COMPOSED_BYTES_OFF_PIN,
+                "the framed body is not the pc that was composed")
         shifted = b"".join(
             frame[start + DROP_FRAME_COORD_SHIFT:end + DROP_FRAME_COORD_SHIFT]
             for start, end in DROP_COORD_SPANS
@@ -1237,14 +1486,16 @@ def drop_frames(legacy: Any, drops: Any) -> tuple:
 
 
 def refresh_frames(legacy: Any, ledger: Any) -> tuple:
-    """Re-emit every live drop.  AN EXPERIMENT, NOT A BEHAVIOUR.
+    """Re-emit every live row.  AN EXPERIMENT, NOT A BEHAVIOUR.
 
-    The measured lifetime of a ground object is 0.633 s and the attended run
-    found nothing standing afterwards, so "it stays" is not something this
-    lane can deliver by composing bytes.  Re-emission is the only lever it
-    has, and whether it holds the object, restarts its effect or does nothing
-    at all is UNMEASURED (NONCLAIM 12).  ``DROP_REFRESH_MS`` is our guess at a
-    cadence and is not a measurement either.
+    ~~"The measured lifetime of a ground object is 0.633 s"~~ IS STRUCK: there
+    is no object, and 0.633 is an ORIGINAL-SERVER clip whose interval ended
+    because somebody picked the item up.  What was measured of THIS pipe is a
+    label that lives 0.2-0.4 s.  Re-emission is the only lever this lane has
+    toward "it stays", and whether it redraws the label, does nothing, or
+    restarts the dust is UNMEASURED (NONCLAIM 12).  ``DROP_REFRESH_MS`` is
+    arithmetic from the measured numbers, not a tuned or tested value, and the
+    arithmetic says the honest cadence is expensive.
     """
     if type(ledger) is not DropLedger:
         raise MobLootContractError(
@@ -1290,6 +1541,7 @@ def pin_document(legacy: Any) -> dict:
         "scenario": None,
         "wire": {
             "envelope_pin_hex": DROP_ENVELOPE_PIN.hex().upper(),
+            "frame_header_pin_hex": DROP_FRAME_HEADER_PIN.hex().upper(),
             "runtime_derived_bit": RUNTIME_DERIVED_BIT_GROUND_LIST,
             "element_mask": ELEMENT_MASK_POSITION_AND_DWORD,
             "element_field_order": list(ELEMENT_FIELD_ORDER),
@@ -1308,13 +1560,25 @@ def pin_document(legacy: Any) -> dict:
         },
         "measured": {
             "ground_drop_persists": not GROUND_DROP_DOES_NOT_PERSIST,
-            "item_model_is_drawn": not NO_ITEM_MODEL_IS_DRAWN,
+            "model_under_the_label_that_was_seen": (
+                not NO_MODEL_UNDER_THE_LABEL_THAT_WAS_SEEN),
             "name_label_is_drawn": True,
             "label_lifetime_seconds_range": list(
                 GROUND_LABEL_OBSERVED_LIFETIME_SECONDS),
-            "observed_ids_on_the_wire": [2200423, 2600001],
-            "ids_measured_to_draw_a_label": [2200423],
+            "label_lifetime_frame_measurement_seconds": (
+                GROUND_LABEL_MEASURED_SECONDS),
+            "label_lifetime_mandatory_slack_seconds": (
+                GROUND_LABEL_FRAME_SLACK_SECONDS),
+            "wire_to_screen_seconds": WIRE_TO_SCREEN_SECONDS,
+            "ids_on_the_wire_gt045_v3": list(IDS_ON_THE_WIRE_GT045_V3),
+            "ids_on_the_wire_round_1104": list(IDS_ON_THE_WIRE_ROUND_1104),
+            "id_whose_label_was_read": ID_WHOSE_LABEL_WAS_READ,
+            "emittable_ids_ever_on_a_wire": 0,
             "ticket": "GT-045 CLOSED-ANSWERED 2026-08-25 (chief R163)",
+            "client_observable_layer_is_re_verifiable_from_the_repo": (
+                "one extracted frame only; the round-4 video is over the "
+                "size cap and the round-3 screenshots carry no label"
+            ),
             "not_a_lifetime_of_this_pipe": {
                 "seconds": ORIGINAL_SERVER_PICKUP_TERMINATED_SECONDS,
                 "what_it_is": (
