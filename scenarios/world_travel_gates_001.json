@@ -1,0 +1,109 @@
+{
+  "schema": 1,
+  "id": "world_travel_gates_001",
+  "lane": "A_WORLD",
+  "build_order": "BUILD-002 second half / M2 - travel, the door out of town",
+  "test_only": false,
+  "production_allowed": true,
+  "selection": "none_default_behaviour_no_scenario_flag",
+  "not_a_scenario": "this file is a pin, not a switch - no flag loads it. It becomes reachable when the chief wires CORE-REQUEST-004 into runtime.py; until then a player walks past this spot and nothing happens.",
+  "written_at": "2026-08-26 04:3x (+07:00)",
+  "what_a_gate_is": "a place in one scene that, when a live player walks into it, makes the server send that player to another scene. It is the only mechanism in this project by which a PLAYER causes their own scene to change; everything before it changed the scene at login, which COO-DECISION 20260826_0150 ruled is waking up elsewhere and is not travel.",
+  "why_the_trigger_is_a_walk_and_not_a_command": "the server already sees the player walk. TargetPosVital reaches runtime.py:3949 on the default path with no flag and no scenario, and that call site is what writes the durable position row today. A walk-in zone therefore needs no new input channel, no new packet, and no client-side change - it reads a stream that is already flowing. A chat command would need chat_input, which is an opt-in hypothesis lane.",
+  "the_measured_facts_the_radii_come_from": {
+    "source": "MOVE-CADENCE-001, the 29-row replay table committed at reports/move_cadence001_smoke/replay_output.txt",
+    "authentic_walk_frames": 29,
+    "authentic_walk_distinct_writes": 19,
+    "authentic_walk_seconds": 302,
+    "step_units_recomputed_from_the_replay_this_round": {
+      "note": "move_authority_hypothesis.py describes this walk as 400-500 units per report. That is the prose; these are the numbers, recomputed in round 4fhdxv from the 29 rows of the committed replay table itself. tests/test_world_travel_gate.py re-derives them on every run, so they cannot drift in silence.",
+      "measured_over": "all 29 reported positions, not only the 19 that produced a write. This gate sees every report, so the dedup skips count.",
+      "largest_horizontal_step": 538.44,
+      "largest_step_between_frames": "226 -> 227",
+      "median_horizontal_step": 139.26,
+      "mean_horizontal_step": 192.27,
+      "steps_measured": 28,
+      "steps_that_moved_at_all": 18
+    },
+    "pinned_max_step_units": 2000.0,
+    "how_that_sets_fire_radius": "a straight walk through the centre of a 600-unit zone crosses a 1200-unit corridor. The largest step in the only authentic walk this project holds is 538.44 units, so that corridor is 2.23 of the worst real step and 8.6 of the median one: a crossing has to be missed twice over before the gate misses it. This is a margin, not a guarantee, and two ways past it are known and unbounded: a client that reports less often than this one did, and a player who clips the edge of the zone instead of walking through the middle. Nothing here closes either, and no attempt is made to pretend otherwise.",
+    "how_that_sets_settle_jump_units": "2000.0 is the largest single step this project already treats as possible for an honest client. A report that moves further than that in one hop is not a walk, and after a scene switch it is the arrival.",
+    "how_that_sets_settle_report_budget": "30 is one authentic walk's worth of frames (29). A client that has not jumped by then is not about to.",
+    "pinned_max_step_units_is_a_design_number_not_a_measurement": "2000.0 and the 400.0 vertical band are both taken from move_authority_hypothesis._SPEED_GATE_POLICY, whose own module docstring lists 'every numeric budget in the scenario file' under [OUR DESIGN] and says the 2000 sits 'several times above the only real walk we can measure -- which is headroom, not validation'. They are reused here because reusing a number this project already argued about beats inventing a second one, NOT because they were measured. Everything else in this block is measured."
+  },
+  "the_rule_that_prevents_a_ping_pong": "two rules, and both are needed. (1) after ANY scene switch this module causes, EVERY gate starts disarmed, and a gate arms only on a report further than arm_radius from its centre - so a player who lands inside a gate stands in it harmlessly. (2) a report whose step from the report before it exceeds settle.jump_units is a DISCONTINUITY: it may settle a transit, but it may never arm or fire a door and it resets every dwell. Without (2) a straggler frame carrying the pre-switch position - re-stamped with the new scene id by the runtime, because TargetPosVital carries no scene identity of its own - arms the return gate, and the next honest report sends the player straight back.",
+  "gates": [
+    {
+      "name": "port_royal_columbus_departure",
+      "role": "departure",
+      "from_scene_id": 1,
+      "to_scene_id": 278,
+      "centre": {
+        "x": -6961.044921875,
+        "y": -2562.861083984375,
+        "z": 207.54930114746094,
+        "provenance": "bg0001 census placement index 65, template 67, display name 'Columbus' - one of the 115 rows of BUILD-001's census. Recomputed in this round from current/pf_login_game_server_v141.py PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS, which tests/test_world_density.py already re-derives and pins. THE NAME IS NOT UNIQUE AND MUST NOT BE USED TO NAVIGATE: three census rows carry the display name 'Columbus' - indices 35, 65 and 140 - and the other two sit 19753.9 and 33248.9 units away. Eleven names in the census are duplicated. The gate is identified by INDEX AND COORDINATE, never by name. IT IS ALSO NOT ON SCREEN YET: at HEAD b587155 the default boot still sends three actors (P0, P30, P91) and index 65 is not one of the three, because pirate-force-server PR #41 - the census wiring - has not merged."
+      },
+      "centre_distances_measured_this_round": {
+        "to_v134_login_anchor_horizontal": 2289.24,
+        "to_v134_login_anchor_note": "the anchor pinned in world_scene_density_001.json as v141_V134_PLAYER_XYZ, y = -2780.045",
+        "to_v135_registry_home_spawn_horizontal": 2294.52,
+        "to_v135_registry_home_spawn_note": "the scene-1 spawn pinned in world_scene_registry_001.json and returned by home_return_position(), y = -2830.045. The two anchors are 50 units apart and BOTH are pinned in this repository; an earlier draft of this block quoted only the first and called it 'the login anchor'.",
+        "to_attended_measured_spawn_horizontal": 1592.99,
+        "to_attended_measured_spawn_note": "where an attended run actually found the character on 2026-08-23 (GT-045). This is the one that matters, because the login position comes from the DB row.",
+        "to_nearest_other_census_member_horizontal": 1074.6,
+        "nearest_other_census_member": "index 1, 'Sebastian'",
+        "what_these_do_and_do_not_establish": "they establish that no login position pinned in this repository is inside the zone, and that no second census actor is inside it either. They do NOT establish that the gate is out of the way: 1592.99 minus the 600-unit fire radius is 993 units of WALKING, which is inside the walk GT-078 asks the owner to take. That is what the dwell rule is for, and the dwell rule is the only thing standing between this gate and the M1 acceptance run."
+      },
+      "fire_radius_units": 600.0,
+      "arm_radius_units": 1200.0,
+      "vertical_band_units": 400.0,
+      "why_a_vertical_band_here": "this is the pinned max_vertical_step_units of the move-authority policy - the most this project already treats one reading as able to climb. bg0001 ground under this gate is nearly level: the login anchor z is 223.29, the attended spawn z is 186.0, the gate z is 207.55. A player on a roof 400 units up is not walking through this door.",
+      "arrival": "destination_spawn"
+    },
+    {
+      "name": "test_stage_landing_return",
+      "role": "return",
+      "from_scene_id": 278,
+      "to_scene_id": 1,
+      "centre": null,
+      "centre_source": "measured_at_runtime_from_the_first_report_after_the_switch",
+      "why_this_centre_cannot_be_pinned": "Nobody in this project has measured where a player stands after a CROSS-SCENE switch. V112 disproved that the login/bootstrap teleport's target vec3 positions the actor; V137 recorded the opposite for a post-init same-connection teleport (reports/PF_RE_V137_MARKER1_TeleportVital_Transport_Pass_20260815.md, carried as teleport_transport runtime_pass in docs/FUNCTIONAL_COVERAGE.json). Neither observation crossed a scene boundary, and scene 278 carries n_MARKER = 0 - no authored arrival point at all. A return gate pinned at the arrival coordinate would therefore be a door placed on a guess. This gate is anchored on the first position the client itself reports after the jump, which is the one coordinate in that scene anybody will have observed.",
+      "fire_radius_units": 600.0,
+      "arm_radius_units": 1200.0,
+      "vertical_band_units": null,
+      "why_no_vertical_band_here": "scene 278's only z evidence is the placement z of its own nine mobs, which says where a developer put an NPC and not how far above or below it the ground goes. A vertical test would be a number with weak evidence under it, and it would refuse a real return for an invented reason.",
+      "arrival": "remembered_home_row"
+    }
+  ],
+  "settle": {
+    "jump_units": 2000.0,
+    "report_budget": 30,
+    "what_settling_means": "the report on which the client's position jumps further than jump_units FROM THE REPORT BEFORE IT. An earlier draft measured the distance from the crossing row instead, which is cumulative displacement: a player who simply kept walking away from the door passed the test while still standing in the old scene, anchored the way home on a Port Royal coordinate, and could then bounce between the two scenes indefinitely. The adversary pass of round 4fhdxv demonstrated six durable-row rewrites in 48 reports from one straight walk.",
+    "what_happens_if_it_never_settles": "one WORLD_TRAVEL_STRANDED line naming the durable row and the row to restore, then the transit latch clears. THE GATES DO NOT RESUME: the return gate has no anchor and _anchor_on_first_sight refuses to invent one in a session that did the travelling, so the player has no door for the rest of the session. That is deliberate - anchoring on an old-scene coordinate would be worse - and it is the reason the attended ticket's teardown step is mandatory. Note also what this detector CANNOT see: RE-077 proved a client that cannot resolve the model parks at status 2 silently, and MOVE-CADENCE-001 measured a stationary client sending zero TargetPosVital in 42 frames. A client that parks and stops reporting never reaches the budget and the line never prints. This is a report counter, not a clock, and it is not a timeout."
+  },
+  "the_damage_this_can_do_stated_plainly": "a departure rewrites the durable position row to the destination scene. If the client never loads that scene, the character's row still says 278, and world_scene_entry will send them there again on every login. The recoveries that exist are (0) a session that opens with the player already in the destination anchors the way home on their first report, so a relog gives a walled-in character a door - this is the only one that needs no human, it is a GUESS with no jump observed under it (it logs under its own event name, WORLD_TRAVEL_RETURN_ANCHORED_UNVERIFIED, so a reader can tell the two apart), and it does NOT cover the worst case, because walking out and back needs a scene the client can actually load; (1) the WORLD_TRAVEL_DEPART line, which prints the exact row to restore - note that this row is the gate's own doorstep, so an operator who restores it puts the character back in the doorway, where the dwell rule is now what stops them re-firing; (2) world_scene_entry.return_ticket, built in round qumhmf and still not wired; (3) the teardown step of the attended ticket, which restores the row. CHARTER-02 rule 2 says a version that takes away what the last version could do is damage, so this is written here rather than discovered later.",
+  "capabilities": [
+    "player_initiated_scene_change",
+    "return_to_the_scene_departed_from"
+  ],
+  "nonclaims": [
+    "no claim that the client loads scene 278, renders it, or lets a player stand or walk in it - that is the attended eye check",
+    "no claim about WHERE in the destination scene a player lands. V112 and V137 disagree about whether a teleport target vec3 positions the actor, neither crossed a scene boundary, and 278 has no authored arrival marker",
+    "no claim that the client keeps or drops its remote actors across the switch. RE-077 closed T5 as a bounded negative and this lane does not upgrade it",
+    "no claim that a report always lands inside the zone when a player crosses it - the margin is stated above and it is a margin. The dwell rule makes a MISSED crossing harmless and a deliberate stop necessary, but it does not make either one certain",
+    "no claim that scene 997 FilmScene is a white map or effect-free. COO-DECISION 20260826_0246 requires it be called a green screen with fog and environment still on, and this pin uses that wording wherever it names it",
+    "no claim that this file changes anything a player sees until CORE-REQUEST-004 is wired into runtime.py",
+    "no claim that the actor at the gate coordinate is on screen. That needs pirate-force-server PR #41, which had not merged at HEAD b587155; until then the gate is a coordinate with no landmark standing on it. The name 'Columbus' is carried by three census rows and must never be used to navigate",
+    "no claim about heading. HYP-PF-007 (direction 8 to heading) is lane C's and was still open at 05:xx; every arrival here carries heading 0.0, which is what the one measured non-home entry used",
+    "no claim that the strand detector sees every strand. A client parked at status 2 stops reporting, and a detector that counts reports cannot count a report that never arrives",
+    "no claim that this gate is safe to run alongside the arena, ground-loot, nameprop or field-mob lanes. CORE-REQUEST-004 asks the chief for an explicit guard; until that guard exists, an attended round on any of those lanes can cross this gate"
+  ],
+  "dwell": {
+    "reports": 3,
+    "still_units": 1.0,
+    "what_a_dwell_is": "the number of CONSECUTIVE reports on which the player was inside the fire radius AND had not moved more than still_units since the report before. Crossing the zone is not enough; the player has to stop in it.",
+    "why_a_door_and_not_a_tripwire": "without this, the gate fires on the first report inside the zone, and 1592.99 minus 600 is 993 units of walking from the position an attended run actually found the character on - which is the middle of the walk GT-078 asks the owner to take to count NPCs. A door that opens because somebody walked past it on another errand would have eaten the M1 acceptance run on the evening M1 was due. It is also the only part of this design a player DOES rather than has done to them, which is what COO-DECISION 20260826_0150 asked M2 to be.",
+    "measured_backing": "recomputed in round 4fhdxv from the 29 rows of reports/move_cadence001_smoke/replay_output.txt: every run of consecutive identical positions during movement has length 1, and three stationary runs of length 3, 6 and 3 exist. So three identical reports is reachable by standing still and is not reachable by walking through. still_units is 1.0 because a stationary client in that table reports its position byte-identically, not approximately."
+  }
+}
