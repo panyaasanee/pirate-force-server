@@ -72,6 +72,44 @@ def normalise(module):
     return module.replace("\\", "/").lstrip("./")
 
 
+def gate_exclusion_drift(excluded, pins):
+    """Grade the list the CALLER actually excluded against the pinned one.
+
+    R172, adversary finding 1.  tests/test_pytest_precondition_census.py pins
+    the same list, but it re-derives it by parsing the Select-String formula out
+    of gate-windows.yml - so it grades the workflow's grammar.  Anything that
+    changes what the gate really hides WITHOUT changing that formula (an append
+    to $ignoreArgs after the loop, an `$excluded = $excluded + ...` assignment,
+    a different pytest target) leaves that pin green.  This function is the
+    other half: it reads the file the gate itself wrote and handed over on
+    --excluded, which is the artifact, not a second parse of the source.
+
+    Silent when the caller passed no list: the bridge runs the whole suite, and
+    "no --excluded" means "nothing was hidden", not "the pin is unsatisfied".
+    """
+    pin = pins.get("windows_gate_excluded_modules")
+    if not excluded or not pin or not pin.get("modules"):
+        return []
+    actual = set(normalise(m) for m in excluded)
+    pinned = set(normalise(m) for m in pin["modules"])
+    if actual == pinned:
+        return []
+    problems = []
+    for module in sorted(actual - pinned):
+        problems.append(
+            "GATE EXCLUSION DRIFT: %s was hidden from this run but is not in "
+            "docs/PYTEST_SKIP_PINS.json windows_gate_excluded_modules.modules."
+            "  A module that vanishes from the selection stops being able to "
+            "go red at all, so this is graded here rather than trusted."
+            % module)
+    for module in sorted(pinned - actual):
+        problems.append(
+            "GATE EXCLUSION DRIFT: %s is pinned as hidden but this run did not "
+            "hide it.  If it is back in the suite that is good news - move the "
+            "pin in the same commit and say so." % module)
+    return problems
+
+
 def parse(text):
     """Return [(module, count, reason)] for every SKIPPED line in a transcript."""
     found = []
@@ -267,6 +305,7 @@ def main():
         return 2
 
     problems, observed_pre, observed_design = census(text, excluded, pins)
+    problems = gate_exclusion_drift(excluded, pins) + problems
 
     total = sum(observed_pre.values()) + sum(observed_design.values())
     lines = []

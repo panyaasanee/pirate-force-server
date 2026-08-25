@@ -700,18 +700,19 @@ class WindowsGateExclusionPinTests(unittest.TestCase):
             sorted(set(pin["modules"])), sorted(pin["modules"]),
             "the pinned exclusion list repeats a module name")
 
-    def test_the_pinned_modules_are_real_files_outside_the_kept_list(self):
-        """A pin naming a module that no longer exists is a stale pin.
+    def test_the_pinned_list_is_not_empty(self):
+        """The one thing the set comparison above cannot say on its own.
 
-        Deleting a hidden module and forgetting the pin would otherwise leave a
-        name here forever, and the set comparison above would blame the gate.
+        R172 adversary finding 8: the first draft of this test looped over
+        pin["modules"] asserting each name was a real file, which is strictly
+        implied by the set comparison (derived is built by globbing real files
+        and subtracting keep) AND passes vacuously at zero entries.  The loop is
+        gone; the emptiness check is what was actually missing.
         """
         pin = self.pins["windows_gate_excluded_modules"]
-        _excluded, keep = self.derive()
-        for module in pin["modules"]:
-            with self.subTest(module=module):
-                self.assertTrue((ROOT / module).is_file(), module)
-                self.assertNotIn(module, keep)
+        self.assertGreater(
+            len(pin["modules"]), 0,
+            "an empty exclusion pin grades nothing and reads like a closed hole")
 
     def test_the_module_the_gate_puts_back_is_the_pinned_one(self):
         """Re-including a module by name must not be a silent way to move the
@@ -743,6 +744,79 @@ class WindowsGateExclusionPinTests(unittest.TestCase):
             "formula runs; the pin in docs/PYTEST_SKIP_PINS.json is derived "
             "from the formula alone and would not see it.  Fold the addition "
             "into the formula, or teach derive() to read the new shape.")
+
+
+class GateExclusionDriftTests(unittest.TestCase):
+    """The other half of the pin: grade the artifact, not the YAML grammar.
+
+    WindowsGateExclusionPinTests re-derives the list from the workflow's own
+    Select-String formula.  R172's adversary pass measured three mutations that
+    change what the gate really hides without touching that formula - an append
+    to $ignoreArgs after the loop, `$excluded = $excluded + ...` (which the
+    "$excluded +=" tripwire does not match), and simply pointing pytest at one
+    file - and all three left every derived-from-source test green.  The gate
+    writes its real list to a file and hands it over on --excluded; these tests
+    are about reading that file.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.module = load_tool()
+        cls.pins = json.loads(PINS.read_text(encoding="utf-8"))
+        cls.pinned = cls.pins["windows_gate_excluded_modules"]["modules"]
+
+    def test_the_real_list_matching_the_pin_is_silent(self):
+        self.assertEqual(
+            self.module.gate_exclusion_drift(list(self.pinned), self.pins), [])
+
+    def test_windows_separators_in_the_gates_file_are_the_same_modules(self):
+        """The gate writes Windows paths; the pin holds POSIX ones."""
+        windows = [m.replace("/", "\\") for m in self.pinned]
+        self.assertEqual(
+            self.module.gate_exclusion_drift(windows, self.pins), [])
+
+    def test_one_extra_module_hidden_is_drift(self):
+        """The dangerous direction: something stopped being able to go red."""
+        problems = self.module.gate_exclusion_drift(
+            list(self.pinned) + ["tests/test_foundation.py"], self.pins)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("GATE EXCLUSION DRIFT", problems[0])
+        self.assertIn("tests/test_foundation.py", problems[0])
+        self.assertIn("was hidden from this run", problems[0])
+
+    def test_one_module_no_longer_hidden_is_drift_too(self):
+        problems = self.module.gate_exclusion_drift(
+            list(self.pinned)[1:], self.pins)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("did not", problems[0])
+
+    def test_a_swap_that_keeps_the_count_is_two_problems_not_zero(self):
+        swapped = [m for m in self.pinned if m != self.pinned[3]]
+        swapped.append("tests/test_foundation.py")
+        problems = self.module.gate_exclusion_drift(swapped, self.pins)
+        self.assertEqual(len(problems), 2, problems)
+
+    def test_hiding_everything_is_drift(self):
+        """The third measured mutation: pytest pointed at a single file."""
+        everything = sorted(
+            "tests/" + p.name for p in (ROOT / "tests").glob("*.py"))
+        self.assertTrue(
+            self.module.gate_exclusion_drift(everything, self.pins))
+
+    def test_no_exclusion_list_at_all_stays_silent(self):
+        """The bridge runs the whole suite; that is not drift."""
+        self.assertEqual(self.module.gate_exclusion_drift([], self.pins), [])
+
+    def test_a_pin_file_without_the_block_stays_silent(self):
+        """Absent pin means unpinned, not violated - fail loud elsewhere."""
+        self.assertEqual(
+            self.module.gate_exclusion_drift(list(self.pinned), {}), [])
+
+    def test_the_drift_message_is_pure_ascii(self):
+        problems = self.module.gate_exclusion_drift(
+            list(self.pinned) + ["tests/test_foundation.py"], self.pins)
+        for problem in problems:
+            problem.encode("ascii")
 
 
 class CensusVerdictTests(unittest.TestCase):
