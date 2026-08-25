@@ -1,7 +1,7 @@
 {
  "schema": 1,
  "policy": {
-  "max_related_versions": 3,
+  "max_related_versions": 5,
   "approval_schema": {
    "required_fields": [
     "approval_id",
@@ -10,7 +10,7 @@
    ],
    "rule": "Any future approval must name exact ledger IDs and an approved-through checkpoint; a generic user-policy token is invalid."
   },
-  "policy_text": "Bounded, explicit hypotheses may advance blocked work for at most three related experimental versions; expired entries freeze existing emissions and permit no new dependent version until a scoped approval, proof, or retirement."
+  "policy_text": "Bounded, explicit hypotheses may advance blocked work for at most five related experimental versions; expired entries freeze existing emissions and permit no new dependent version until a scoped approval, proof, or retirement. CEILING HISTORY: this ceiling was THREE from the ledger's creation until 2026-08-25, and was raised to FIVE by the owner's ruling of that day (~18:15 +07:00, recorded in pf_bridge/notes_to_chief/20260825_1815_PANYA-RULINGS-FOUR-quota-cap5-GT036-lethal-scoped-GT030-rerun.md and whose CEILING CLAUSE ONLY was applied by chief cloud round R167 -- that letter carries four rulings and the other three (stop pricing rounds by quota; the GT-036 lethal exemption, which needs a HYP-PF-038 v2 that does not exist yet; and the GT-030 third run) produced no change in this repository and are tracked on the bridge, so this citation must not be read as 'the letter is fully consumed'). The raise is a ceiling change only: no tracked_versions list was touched, so an entry that stood at 3/3 now stands at 3/5 and nothing that was recorded as full is retroactively unrecorded."
  },
  "entries": [
   {
@@ -43,7 +43,7 @@
     ],
     "decision": "Expired and frozen after the existing diagnostic lineage; SCENE-013 is excluded because its offline corpus audit neither executed nor depended on this value."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -124,7 +124,7 @@
     ],
     "decision": "Expired and frozen after the existing diagnostic acknowledgement; SCENE-013 is excluded because its offline corpus audit neither executed nor depended on this response."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -190,7 +190,7 @@
     ],
     "decision": "Expired pending proof, retirement, or a scoped approval after the cumulative legacy lineage; existing emissions are frozen and non-production."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -236,7 +236,7 @@
     ],
     "decision": "Expired pending proof, retirement, or a scoped approval after the cumulative legacy lineage; the q3020-to-MARKER1 link is frozen and non-production."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -280,7 +280,7 @@
     ],
     "decision": "Expired pending proof, retirement, or a scoped approval after the cumulative legacy lineage; the transport composition is frozen and non-production."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -327,7 +327,7 @@
     ],
     "decision": "Expired pending proof, retirement, or a scoped approval after the cumulative legacy lineage; destination population and interaction are frozen and non-production."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -374,7 +374,7 @@
     ],
     "decision": "Expired pending proof, retirement, or a scoped approval; inherited transport defaults are frozen and cannot establish authentic sequence or heading."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -476,7 +476,7 @@
     ],
     "decision": "Active first bounded version; prove, retire, or explicitly review before any broader item-move lineage is added."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -582,7 +582,7 @@
     ],
     "decision": "The first one-shot timing was falsified live; the second poll-pulse timing passed after a 2.0-second rate-limit corrective. Retain as explicit non-production local-server composition without extending to a third timing."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -641,7 +641,7 @@
     ],
     "decision": "Opened 2026-08-17 by project-owner decision (M3 option A) as the first bounded version; prove with the first client-acceptance runtime (GT-002), then retire, freeze, or review before any broader item-move lineage. ITEM-MOVE-GEN-002 (2026-08-17) is the owner-approved M4 runtime hookup of the same bounded claim."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -730,7 +730,7 @@
     ],
     "decision": "Expired pending proof, retirement, or a scoped approval; the inherited diagnostic value is frozen and is not authentic spawn HP policy."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -806,7 +806,7 @@
     ],
     "decision": "Retired after the stable negative."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -863,9 +863,9 @@
      "ARENA-001",
      "ARENA-002"
     ],
-    "decision": "Harness-only and within the three-version limit."
+    "decision": "Harness-only and within the three-version limit. CEILING NOTE (chief cloud round R167, 2026-08-25 +07:00): the three-version arithmetic in the text above was written while policy.max_related_versions was 3. The owner raised the ceiling to 5 on 2026-08-25 ~18:15 (+07:00) (pf_bridge/notes_to_chief/20260825_1815_PANYA-RULINGS-FOUR-quota-cap5-GT036-lethal-scoped-GT030-rerun.md). That raise changed NO tracked_versions list anywhere, so every version this text counts as spent is still spent; only the number of REMAINING slots moved. Read the budget against max_versions, never against the word three. The sentence is kept as written because it is the record of a decision taken under the old ceiling."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -931,7 +931,7 @@
     ],
     "decision": "Expired pending proof, retirement, or a scoped approval; inherited harness geometry is frozen and remains non-authentic."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -1037,7 +1037,7 @@
     ],
     "decision": "Expired pending proof, retirement, or a scoped approval; inherited harness geometry is frozen, non-authentic, and non-production."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -1128,7 +1128,7 @@
     ],
     "decision": "Expired pending proof, retirement, or a scoped approval after the cumulative legacy prerequisite chain; existing geometry is frozen and non-authentic."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -1171,7 +1171,7 @@
     ],
     "decision": "Harness-only; V141 is characterization rather than a retirement decision."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -1222,7 +1222,7 @@
     ],
     "decision": "Opened 2026-08-17 by project-owner decision (item 14, option B) as a pending hypothesis; it advances only through the owner-approved precondition milestones named in the stop rule."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -1259,7 +1259,7 @@
     ],
     "decision": "Opened 2026-08-17 by project-owner decision (option A) as the first bounded version; prove the wire/DB layer headless, then confirm the client-observable layer in the attended big round before any retire/freeze/extend decision."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -1316,7 +1316,7 @@
     ],
     "decision": "Opened 2026-08-17 by the chief under the owner's standing pre-approval as the first bounded version; prove the wire/DB layer headless (ack byte-exact, then FIN inside the close window, closed_at committed before the ack), then confirm the client-observable layer as GT-008 in the attended big round before any retire/freeze/extend decision. 2026-08-18 attended GT-008 falsified the client-transition claim for this shape (see evidence_gap); the entry stays active as the wire-proven post-ack close mechanism only, available for composition with a future response-first design; do not re-queue an attended test for this shape alone."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -1382,7 +1382,7 @@
     ],
     "decision": "Opened 2026-08-17 by the chief under the owner's standing pre-approval as the first bounded version; prove the wire layer headless (echo byte-exact and repeatable, heartbeat unchanged, no DB write), then confirm the client-observable layer in the attended big round before any retire/freeze/extend decision. 2026-08-18 attended GT-009 confirmed the client-observable layer; the echo shape is client-accepted. Next bounded step (pre-approved gameplay): a speaker-name wstring variant per the CHAT-ECHO-002 research, as a new tracked version behind the same opt-in. 2026-08-18: CHAT-ECHO-002 opened as that second bounded version by the chief's implementation lane under the same standing pre-approval of 2026-08-17 18:2x and the research report reports/PF_CHAT_ECHO002_SPEAKER_FIELD_RESEARCH_20260818.md, behind its own separate scenario file; the variant is wire-layer headless-proven on a fresh scratch DB over real TCP (speaker echo byte-exact vs the new pins and repeatable, SHORT silent, no DB write, heartbeat unchanged -- reports/PF_CHAT_ECHO003_SPEAKER_WSTRING_VARIANT_HEADLESS_20260818.md); confirm the client-observable layer as GT-012 in attended big round #3 before any retire/freeze/extend decision."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -1453,7 +1453,7 @@
     ],
     "decision": "Opened 2026-08-18 by the chief under the owner's Lane-1 Option-B decision as the first bounded version; the wire/DB layer is headless-proven (delete ack byte-exact, commit-before-ack, op-2 and default-mode negatives, reuse cycle committed); confirm the client-observable layer in the attended big round before any retire/freeze/extend decision. 2026-08-18 attended GT-010 split the verdict: request side confirmed by the first natural 0x36DB, v1 response falsified live (28317 over-read); DELETE-SOFT-002 (trailing-mask v2 ack) opened and headless-proven the same round; confirm the client-observable layer via GT-011 before any retire/freeze/extend decision."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -1537,7 +1537,7 @@
     ],
     "decision": "Opened 2026-08-18 by the chief's implementation lane under the owner's standing pre-approval as the first bounded version; the wire/DB layer is headless-proven on a real server process over real TCP with a scratch DB (response-then-ack byte-exact and in order, closed_at committed before the response bytes, FIN after the ack inside the close window, fail-closed silence without a stored payload, heartbeat unchanged); confirm the client-observable layer as GT-013 in the attended big round before any retire/freeze/extend decision."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -1599,7 +1599,7 @@
     ],
     "decision": "Opened 2026-08-18 by the chief's implementation lane (round 65) under the owner's standing pre-approval as the first bounded version; the wire/DB layer is headless-proven on a real server process over real TCP with a scratch DB (two-item delta response byte-exact after the atomic commit, both persistence tables updated, canonical DB untouched); confirm the client-observable layer as GT-015 in the attended big round before any retire/freeze/extend decision."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -1694,7 +1694,7 @@
     ],
     "decision": "Opened 2026-08-18 by the chief's implementation lane (round 71) under the owner's standing pre-approval as the first bounded version; the wire/DB layer is headless-proven on a real server process over real TCP with scratch DBs (exact V111 direction byte-equal to the frozen golden after the atomic commit, generalized slot-7 instance committed with the same structure, different-template and no-profile cases fail closed, canonical DB untouched); confirm the generalized client-observable layer as a GT-015 ride-along observation in the attended big round before any retire/freeze/extend decision."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -1793,9 +1793,9 @@
      "CHAT-CHANNEL-002",
      "CHAT-CHANNEL-003"
     ],
-    "decision": "Opened 2026-08-18 by the chief's implementation lane (round 76) under the owner's standing pre-approval as the first bounded version. The codec layer is proven offline against the GT-006 capture and the two independent HYP-PF-014 pin sets. CHAT-CHANNEL-003 (2026-08-18, same standing pre-approval) is the second and -- barring a GT-016 finding that demands a different composition -- final version before the decision point: it adds the dispatch hookup behind its own scenario file so the five frames can actually reach a client, proven headless through the real dispatcher. Confirm the client-observable layer as GT-016 in attended big round #3 -- specifically which of the five channels render, with what channel tag, and whether 3.0 s spacing separates them on screen -- before any retire, freeze or extend decision. One version of the three remains."
+    "decision": "Opened 2026-08-18 by the chief's implementation lane (round 76) under the owner's standing pre-approval as the first bounded version. The codec layer is proven offline against the GT-006 capture and the two independent HYP-PF-014 pin sets. CHAT-CHANNEL-003 (2026-08-18, same standing pre-approval) is the second and -- barring a GT-016 finding that demands a different composition -- final version before the decision point: it adds the dispatch hookup behind its own scenario file so the five frames can actually reach a client, proven headless through the real dispatcher. Confirm the client-observable layer as GT-016 in attended big round #3 -- specifically which of the five channels render, with what channel tag, and whether 3.0 s spacing separates them on screen -- before any retire, freeze or extend decision. One version of the three remains. CEILING NOTE (chief cloud round R167, 2026-08-25 +07:00): the three-version arithmetic in the text above was written while policy.max_related_versions was 3. The owner raised the ceiling to 5 on 2026-08-25 ~18:15 (+07:00) (pf_bridge/notes_to_chief/20260825_1815_PANYA-RULINGS-FOUR-quota-cap5-GT036-lethal-scoped-GT030-rerun.md). That raise changed NO tracked_versions list anywhere, so every version this text counts as spent is still spent; only the number of REMAINING slots moved. Read the budget against max_versions, never against the word three. The sentence is kept as written because it is the record of a decision taken under the old ceiling."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -1882,9 +1882,9 @@
     "tracked_versions": [
      "STATS-PROG-002"
     ],
-    "decision": "Opened 2026-08-18 by the chief's implementation lane (round 78) under the owner's standing pre-approval as the first bounded version. Proven offline against the player_wire cross-check and through the real dispatcher; not driven over TCP and never seen by a client. Confirm the client-observable layer as GT-017 in the attended queue -- specifically whether the XP bar moves between the two experience frames, whether the level number updates, and whether each ability value lands on its own label -- before any retire, freeze or extend decision. Two versions of the three remain."
+    "decision": "Opened 2026-08-18 by the chief's implementation lane (round 78) under the owner's standing pre-approval as the first bounded version. Proven offline against the player_wire cross-check and through the real dispatcher; not driven over TCP and never seen by a client. Confirm the client-observable layer as GT-017 in the attended queue -- specifically whether the XP bar moves between the two experience frames, whether the level number updates, and whether each ability value lands on its own label -- before any retire, freeze or extend decision. Two versions of the three remain. CEILING NOTE (chief cloud round R167, 2026-08-25 +07:00): the three-version arithmetic in the text above was written while policy.max_related_versions was 3. The owner raised the ceiling to 5 on 2026-08-25 ~18:15 (+07:00) (pf_bridge/notes_to_chief/20260825_1815_PANYA-RULINGS-FOUR-quota-cap5-GT036-lethal-scoped-GT030-rerun.md). That raise changed NO tracked_versions list anywhere, so every version this text counts as spent is still spent; only the number of REMAINING slots moved. Read the budget against max_versions, never against the word three. The sentence is kept as written because it is the record of a decision taken under the old ceiling."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -1964,9 +1964,9 @@
     "tracked_versions": [
      "DELETE-REFRESH-001"
     ],
-    "decision": "Opened 2026-08-19 by the chief's implementation lane under the owner's standing pre-approval as the first bounded version, on the UI-REFRESH-001 static milestone plus this milestone's own byte-exact enter-hook finding. Proven offline through the real dispatcher on a temporary database; the headless TCP replay is written and ready but has not been run (server boot is LOCK-protected). Confirm the client-observable layer as GT-021 in the attended queue -- specifically whether the deleted row leaves the list, whether the freed slot becomes usable, and whether the delete/edit buttons respond again -- before any retire, freeze or extend decision. Two versions of the three remain."
+    "decision": "Opened 2026-08-19 by the chief's implementation lane under the owner's standing pre-approval as the first bounded version, on the UI-REFRESH-001 static milestone plus this milestone's own byte-exact enter-hook finding. Proven offline through the real dispatcher on a temporary database; the headless TCP replay is written and ready but has not been run (server boot is LOCK-protected). Confirm the client-observable layer as GT-021 in the attended queue -- specifically whether the deleted row leaves the list, whether the freed slot becomes usable, and whether the delete/edit buttons respond again -- before any retire, freeze or extend decision. Two versions of the three remain. CEILING NOTE (chief cloud round R167, 2026-08-25 +07:00): the three-version arithmetic in the text above was written while policy.max_related_versions was 3. The owner raised the ceiling to 5 on 2026-08-25 ~18:15 (+07:00) (pf_bridge/notes_to_chief/20260825_1815_PANYA-RULINGS-FOUR-quota-cap5-GT036-lethal-scoped-GT030-rerun.md). That raise changed NO tracked_versions list anywhere, so every version this text counts as spent is still spent; only the number of REMAINING slots moved. Read the budget against max_versions, never against the word three. The sentence is kept as written because it is the record of a decision taken under the old ceiling."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -2037,7 +2037,7 @@
     "tests/test_hp_death_dying_hold.py"
    ],
    "accepted_ceiling": "Composing the exact attribute pair the client's IsDead predicate reads, behind the explicit opt-in only, with the baseline field set byte-identical to the already client-accepted player_wire projection and the death field composed by the same code path. The ceiling is the WIRE layer: four frames are proven to leave the real make_state_class dispatcher, in order, carrying vital 0x309A and an ActorAttr collection whose BasicAttr block -- read back by an INDEPENDENT tag walker in tools/pf_hp_death002_headless_replay.py, not by the encoder's own decoder -- carries mask 0x030C then 0x038C, with bit 0x0004 == 0 and bit 0x0080 == 60.0f on exactly one of them, on a temporary database, with all twelve per-step hashes matching the scenario pins. It does NOT reach the client layer by one millimetre: no client has seen a frame carrying bit 0x0080. DEATH-ESCALATE-001 raises the same ceiling by one frame and not one inch further: the real dispatcher is proven to answer with FOUR dying_hold frames whose last one carries HP == 0 and the pinned positive zero with mask bit 0x0080 still set, read back by the independent tag walker in tools/pf_hp_death002_headless_replay.py --profile dying_hold. THIS SENDS THE VALUES THE STATIC READ NAMES AS THE BRANCH CONDITION; IT DOES NOT OBSERVE THE BRANCH BEING TAKEN. Whether L\"Common_Death\" then appears on a screen is GT-023.",
-   "evidence_gap": "BasicAttr bit 0x0080 has NEVER been observed on this project's wire in either direction, and no client has ever seen one of these frames. This lane has NOT been driven through a real server process over real TCP -- it is proven headless through the dispatcher only, on a temporary database. Whether a real client accepts a BasicAttr carrying the f32 at +0x58 at all, whether the HP bar empties, whether L\"Main_Dead\" opens, and whether the revive frame closes it again are all unmeasured and are exactly GT-019, which this milestone unblocks but does not answer. Three specific unknowns are called out rather than buried. FIRST: the deployed value of DURATION_DYING is not known -- only the value compiled into the image (20) is, and if a configuration raises it above 60.5 the window will not open even though IsDead is true. SECOND: the death ANIMATION path is not reachable from this transport and this lane does not claim it -- the dead-state sync 0x4437C0 (which latches [actor+0x70] |= 0x200, spawns CActorTask_Dead and plays L\"_F_DIE_000\") has exactly ONE caller in the image, 0x4566A7, which is the actor-entry update path, so an UpdateAttrVital cannot reach it; whether a RuntimeRes actor-entry update would is untested here. THIRD: the semantics of the +0x58 float beyond 'greater than zero' and 'at least DURATION_DYING - 0.5' are not decoded -- whether the client counts it down, and what happens when it reaches zero (the complementary predicate at vtable +0x3C, 0x454A70, covers timer <= 0), is not claimed. The original server's death rules, damage model, penalty (n_DEADLOSS is external data the client only displays) and respawn policy remain entirely uncaptured, and none of the three Relive verbs has an encoder here -- ReliveVital's inbound slot is the shared no-op 0x710440, so a server echo of it would change nothing anyway. GT-021 has since been run and answered part of this: a real client accepted the armed and kill frames and held the downed window for over four minutes without escalating, which is the measured negative DEATH-ESCALATE-001 was built on. What remains unmeasured is everything after the fourth frame: whether the client crosses into the timer-elapsed state, whether L\"Common_Death\" opens, whether any rescue or revive affordance appears, and what the character can do afterwards. None of it has been seen; all of it is GT-023.",
+   "evidence_gap": "BasicAttr bit 0x0080 has NEVER been observed on this project's wire in either direction, and no client has ever seen one of these frames. This lane has NOT been driven through a real server process over real TCP -- it is proven headless through the dispatcher only, on a temporary database. Whether a real client accepts a BasicAttr carrying the f32 at +0x58 at all, whether the HP bar empties, whether L\"Main_Dead\" opens, and whether the revive frame closes it again are all unmeasured and are exactly GT-019, which this milestone unblocks but does not answer. Three specific unknowns are called out rather than buried. FIRST: the deployed value of DURATION_DYING is not known -- only the value compiled into the image (20) is, and if a configuration raises it above 60.5 the window will not open even though IsDead is true. SECOND: the death ANIMATION path is not reachable from this transport and this lane does not claim it -- the dead-state sync 0x4437C0 (which latches [actor+0x70] |= 0x200, spawns CActorTask_Dead and plays L\"_F_DIE_000\") has exactly ONE caller in the image, 0x4566A7, which is the actor-entry update path, so an UpdateAttrVital cannot reach it; whether a RuntimeRes actor-entry update would is untested here. THIRD: the semantics of the +0x58 float beyond 'greater than zero' and 'at least DURATION_DYING - 0.5' are not decoded -- whether the client counts it down, and what happens when it reaches zero (the complementary predicate at vtable +0x3C, 0x454A70, covers timer <= 0), is not claimed. The original server's death rules, damage model, penalty (n_DEADLOSS is external data the client only displays) and respawn policy remain entirely uncaptured, and none of the three Relive verbs has an encoder here -- ReliveVital's inbound slot is the shared no-op 0x710440, so a server echo of it would change nothing anyway. GT-021 has since been run and answered part of this: a real client accepted the armed and kill frames and held the downed window for over four minutes without escalating, which is the measured negative DEATH-ESCALATE-001 was built on. What remains unmeasured is everything after the fourth frame: whether the client crosses into the timer-elapsed state, whether L\"Common_Death\" opens, whether any rescue or revive affordance appears, and what the character can do afterwards. None of it has been seen; all of it is GT-023. CEILING NOTE (chief cloud round R167, 2026-08-25 +07:00): the three-version arithmetic in the text above was written while policy.max_related_versions was 3. The owner raised the ceiling to 5 on 2026-08-25 ~18:15 (+07:00) (pf_bridge/notes_to_chief/20260825_1815_PANYA-RULINGS-FOUR-quota-cap5-GT036-lethal-scoped-GT030-rerun.md). That raise changed NO tracked_versions list anywhere, so every version this text counts as spent is still spent; only the number of REMAINING slots moved. Read the budget against max_versions, never against the word three. The sentence is kept as written because it is the record of a decision taken under the old ceiling.",
    "falsification": "Retire or redesign this lane if a real client rejects, ignores or desyncs on a frame carrying BasicAttr bit 0x0080 (a RuntimeRes stream error falsifies the f32 field or the tag), if the TIMER_ARMED frame kills the character (which would falsify the IsDead reading that the timer alone is not lethal), if the HP_ZERO frame does NOT produce a client-observable death state (which would falsify either the predicate reading or the apply chain 0x5F2400 -> 0x464F30 -> 0x464B40), if the REVIVE frame does not restore the character (which would falsify the unconditional-copy reading of 0x464B40 or the window-close path in 0x44A540), if the generic encoder ever stops reproducing player_wire.make_actor_attr_with_name byte for byte for the baseline field set, if a corrected HP-DEATH-001 or STATS-PROG-001 ever records a gate pin that does not ascend with its mask bit, or if this lane is ever observed to write any database row or take any socket action. Any observation that bit 0x0080 leaks out of a non-lethal scenario retires this entry immediately.",
    "stop_rule": "Compose only the 23 HYP-PF-020 fields plus the single death timer, only from an explicit named field set, only behind the existing hp-death opt-in scenario file, and only with the identity-compared unlock token. Do not add any Relive verb, do not handle any inbound death or respawn request, do not implement damage, penalty, corpse or respawn placement, do not persist HP or a death state or open a table for one, do not emit the death timer from any other scenario, do not ship a bare non-cumulative delta, and do not enable production or default-mode exposure. Step plans are bounded rather than banned, and the bound is exact: a profile that ends ALIVE must carry a restoring frame and end on it; a profile that ends DEAD must be behind its own opt-in scenario file and must end either on the kill frame or on a single pinned elapsed step that immediately follows the kill; at most one step may be an elapsed step; the only admissible elapsed value is the positive zero pinned in HP_DEATH_TIMER_ELAPSED_WIRE_BYTES; and no profile may reach the elapsed band without naming that step, which is what keeps death_sweep's refusal set byte-identical to the one this entry was opened with. The sweep is a diagnostic for GT-019, not a death feature. Stop and record if the first attended observation shows the client rejecting the frames, dying on the TIMER_ARMED frame, or failing to revive.",
    "production_allowed": false,
@@ -2047,9 +2047,9 @@
      "DYING-HOLD-001",
      "DEATH-ESCALATE-001"
     ],
-    "decision": "Opened 2026-08-19 by the chief's assistant lane under the owner's standing pre-approval as the first bounded version. Proven offline against the player_wire cross-check, through the real dispatcher on a temporary database, and against the read-only client image (66 verifier guards including 9 byte spans); not driven over TCP and never seen by a client. Confirm the client-observable layer as GT-019 in the attended queue -- specifically whether the TIMER_ARMED frame is inert, whether the HP_ZERO frame empties the HP bar and opens L\"Main_Dead\", and whether the REVIVE frame closes it -- before any retire, freeze or extend decision. Two versions of the three remain. DYING-HOLD-001 and DEATH-ESCALATE-001 are tracked as the second and third bounded versions of this entry rather than as new entries, because both add only a step plan behind the same unlock token, the same encoder, the same carrier and the same claim. That fills max_versions: a fourth widening of this lane needs a new entry or an extension approval, not another profile."
+    "decision": "Opened 2026-08-19 by the chief's assistant lane under the owner's standing pre-approval as the first bounded version. Proven offline against the player_wire cross-check, through the real dispatcher on a temporary database, and against the read-only client image (66 verifier guards including 9 byte spans); not driven over TCP and never seen by a client. Confirm the client-observable layer as GT-019 in the attended queue -- specifically whether the TIMER_ARMED frame is inert, whether the HP_ZERO frame empties the HP bar and opens L\"Main_Dead\", and whether the REVIVE frame closes it -- before any retire, freeze or extend decision. Two versions of the three remain. DYING-HOLD-001 and DEATH-ESCALATE-001 are tracked as the second and third bounded versions of this entry rather than as new entries, because both add only a step plan behind the same unlock token, the same encoder, the same carrier and the same claim. That fills max_versions: a fourth widening of this lane needs a new entry or an extension approval, not another profile. CEILING NOTE (chief cloud round R167, 2026-08-25 +07:00): the three-version arithmetic in the text above was written while policy.max_related_versions was 3. The owner raised the ceiling to 5 on 2026-08-25 ~18:15 (+07:00) (pf_bridge/notes_to_chief/20260825_1815_PANYA-RULINGS-FOUR-quota-cap5-GT036-lethal-scoped-GT030-rerun.md). That raise changed NO tracked_versions list anywhere, so every version this text counts as spent is still spent; only the number of REMAINING slots moved. Read the budget against max_versions, never against the word three. The sentence is kept as written because it is the record of a decision taken under the old ceiling."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -2138,9 +2138,9 @@
      "RUNTIMERES-DISPATCH-001",
      "RUNTIMERES-LATCHONLY-001"
     ],
-    "decision": "Opened 2026-08-19 (round 86) by the chief's lane workers under the owner's standing pre-approval. Two versions are tracked because two same-round milestones built it and the second one changed what the lane can do, exactly as HYP-PF-019's codec/dispatch pair is tracked: RUNTIMERES-ENCODER-001 is the composer (88 verifier guards, 39 tests, app.py refusing to boot while unwired) and RUNTIMERES-DISPATCH-001 is the runtime.py branch that lets a byte leave (64 replay guards, 25 tests, one-shot). Proven offline against the frozen legacy.make_npc_attr cross-check, through the real dispatcher on a temporary database, and against the read-only client image; not driven over TCP and never seen by a client. Confirm the client-observable layer as GT-022 in the attended queue -- specifically whether the probe NPC appears, whether the DYING_LATCH frame is a latch WITHOUT an animation, and whether the DEATH_TASK frame plays _F_DIE_000 -- before any retire, freeze or extend decision. One version of the three remains. ROUND 91: RUNTIMERES-LATCHONLY-001 is tracked as the THIRD version, which FILLS max_versions. It is counted as a version rather than waved through as a mere profile even though every byte it sends is a subset of the pinned frames, because it changes what the lane can DO on the wire: it can now end a session with an NPC latched dying and the death task never opened, which is a state no earlier version of this entry could produce. The honest accounting is the conservative one. A FOURTH widening of this lane therefore needs a new entry or a scoped extension approval, not another profile. Confirm the client-observable layer as GT-025 before any retire, freeze or extend decision, and do not flip the coverage row until it has run."
+    "decision": "Opened 2026-08-19 (round 86) by the chief's lane workers under the owner's standing pre-approval. Two versions are tracked because two same-round milestones built it and the second one changed what the lane can do, exactly as HYP-PF-019's codec/dispatch pair is tracked: RUNTIMERES-ENCODER-001 is the composer (88 verifier guards, 39 tests, app.py refusing to boot while unwired) and RUNTIMERES-DISPATCH-001 is the runtime.py branch that lets a byte leave (64 replay guards, 25 tests, one-shot). Proven offline against the frozen legacy.make_npc_attr cross-check, through the real dispatcher on a temporary database, and against the read-only client image; not driven over TCP and never seen by a client. Confirm the client-observable layer as GT-022 in the attended queue -- specifically whether the probe NPC appears, whether the DYING_LATCH frame is a latch WITHOUT an animation, and whether the DEATH_TASK frame plays _F_DIE_000 -- before any retire, freeze or extend decision. One version of the three remains. ROUND 91: RUNTIMERES-LATCHONLY-001 is tracked as the THIRD version, which FILLS max_versions. It is counted as a version rather than waved through as a mere profile even though every byte it sends is a subset of the pinned frames, because it changes what the lane can DO on the wire: it can now end a session with an NPC latched dying and the death task never opened, which is a state no earlier version of this entry could produce. The honest accounting is the conservative one. A FOURTH widening of this lane therefore needs a new entry or a scoped extension approval, not another profile. Confirm the client-observable layer as GT-025 before any retire, freeze or extend decision, and do not flip the coverage row until it has run. CEILING NOTE (chief cloud round R167, 2026-08-25 +07:00): the three-version arithmetic in the text above was written while policy.max_related_versions was 3. The owner raised the ceiling to 5 on 2026-08-25 ~18:15 (+07:00) (pf_bridge/notes_to_chief/20260825_1815_PANYA-RULINGS-FOUR-quota-cap5-GT036-lethal-scoped-GT030-rerun.md). That raise changed NO tracked_versions list anywhere, so every version this text counts as spent is still spent; only the number of REMAINING slots moved. Read the budget against max_versions, never against the word three. The sentence is kept as written because it is the record of a decision taken under the old ceiling."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -2248,9 +2248,9 @@
      "DAMAGE-DISPATCH-001",
      "DAMAGE-NPC-TARGET-001"
     ],
-    "decision": "Opened 2026-08-19 (round 90) by the chief on the owner's explicit 'way 1' decision. Two versions are tracked because two same-round milestones built it and the second changed what the lane can do, exactly as HYP-PF-023's encoder/dispatch pair is tracked: DAMAGE-ENCODER-001 is the composer, the scenario, the app.py flag, the offline verifier and the encoder tests; DAMAGE-DISPATCH-001 is the runtime.py branch, the headless replay and the dispatch tests. Proven offline, through the real dispatcher on a temporary database, and against the read-only client image; not driven over TCP and never seen by a client. Confirm the client-observable layer as GT-024 in the attended queue -- specifically whether a number appears at all, whether it is exactly 63 and 379, whether MISS is silent and whether HIT_REACTION differs from HIT_WEAK -- before any retire, freeze or extend decision. DAMAGE-NPC-TARGET-001 (round 95) took the third and final version: a second profile that re-targets the same four frames at the fixed NPC placement identity 0x2001 with 15 s spacing, headless-proven through the real dispatcher and pinned offline, never shown to a client. It is counted as a version although it adds no new frame shape, because it lets the lane address an identity no earlier version could: the conservative accounting is the honest one. ZERO versions remain -- the next widening of this lane needs a new entry or a scoped approval. Confirm the client-observable layer as GT-027 (does a number appear over the NPC at all, which is equally an identity-map measurement) before any retire, freeze or extend decision. AMENDED 2026-08-21: GT-027 HAS NOW RUN -- the attended rerun of 2026-08-20, driven by Panya with the NPC selected before the shot, is recorded in reports/PF_NPC_HP_LINK029_GT027_RERUN_ATTENDED_RESULT_20260820.md. The number DID render over the NPC 0x2001, which answers the identity-map half in the affirmative at the client-observable layer, and 63 + 379 + 63 = 505 points of cumulative damage did not move the target's HP bar by a single unit. NO GRADE MOVES ON THIS ALONE: that round produced no wire-layer evidence whatsoever -- no teardown, no console tail, no post-run DB snapshot, no capture file dated 2026-08-20 -- and the write-up is transcribed testimony backed by five hashed screenshots, not a re-derivable receipt. Read that report's provenance caveat before citing it, and never cite it as wire-layer evidence."
+    "decision": "Opened 2026-08-19 (round 90) by the chief on the owner's explicit 'way 1' decision. Two versions are tracked because two same-round milestones built it and the second changed what the lane can do, exactly as HYP-PF-023's encoder/dispatch pair is tracked: DAMAGE-ENCODER-001 is the composer, the scenario, the app.py flag, the offline verifier and the encoder tests; DAMAGE-DISPATCH-001 is the runtime.py branch, the headless replay and the dispatch tests. Proven offline, through the real dispatcher on a temporary database, and against the read-only client image; not driven over TCP and never seen by a client. Confirm the client-observable layer as GT-024 in the attended queue -- specifically whether a number appears at all, whether it is exactly 63 and 379, whether MISS is silent and whether HIT_REACTION differs from HIT_WEAK -- before any retire, freeze or extend decision. DAMAGE-NPC-TARGET-001 (round 95) took the third and final version: a second profile that re-targets the same four frames at the fixed NPC placement identity 0x2001 with 15 s spacing, headless-proven through the real dispatcher and pinned offline, never shown to a client. It is counted as a version although it adds no new frame shape, because it lets the lane address an identity no earlier version could: the conservative accounting is the honest one. ZERO versions remain -- the next widening of this lane needs a new entry or a scoped approval. Confirm the client-observable layer as GT-027 (does a number appear over the NPC at all, which is equally an identity-map measurement) before any retire, freeze or extend decision. AMENDED 2026-08-21: GT-027 HAS NOW RUN -- the attended rerun of 2026-08-20, driven by Panya with the NPC selected before the shot, is recorded in reports/PF_NPC_HP_LINK029_GT027_RERUN_ATTENDED_RESULT_20260820.md. The number DID render over the NPC 0x2001, which answers the identity-map half in the affirmative at the client-observable layer, and 63 + 379 + 63 = 505 points of cumulative damage did not move the target's HP bar by a single unit. NO GRADE MOVES ON THIS ALONE: that round produced no wire-layer evidence whatsoever -- no teardown, no console tail, no post-run DB snapshot, no capture file dated 2026-08-20 -- and the write-up is transcribed testimony backed by five hashed screenshots, not a re-derivable receipt. Read that report's provenance caveat before citing it, and never cite it as wire-layer evidence. CEILING NOTE (chief cloud round R167, 2026-08-25 +07:00): the three-version arithmetic in the text above was written while policy.max_related_versions was 3. The owner raised the ceiling to 5 on 2026-08-25 ~18:15 (+07:00) (pf_bridge/notes_to_chief/20260825_1815_PANYA-RULINGS-FOUR-quota-cap5-GT036-lethal-scoped-GT030-rerun.md). That raise changed NO tracked_versions list anywhere, so every version this text counts as spent is still spent; only the number of REMAINING slots moved. Read the budget against max_versions, never against the word three. The sentence is kept as written because it is the record of a decision taken under the old ceiling."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -2363,9 +2363,9 @@
      "REMOTE-PLAYER-ENCODER-001",
      "REMOTE-PLAYER-DISPATCH-001"
     ],
-    "decision": "Opened 2026-08-20 (chief round 96) under the owner's chunk-2 approval of 2026-08-19 11:45. Two versions are tracked because two same-round milestones built it and the second changed what the lane can DO (a byte can leave the dispatcher), exactly as HYP-PF-023's encoder/dispatch pair is tracked: REMOTE-PLAYER-ENCODER-001 is the composer (129 offline verifier guards, 63 tests) and REMOTE-PLAYER-DISPATCH-001 is the runtime.py branch (162 replay guards through the real dispatcher on a throwaway database copy, 25 tests, one-shot). Proven offline against the frozen legacy.make_npc_attr BasicAttr-prefix oracle, through the real dispatcher, and -- with --binary -- against the read-only client image; never driven over TCP and never seen by a client. ONE version of the three remains. Confirm the client-observable layer as the queued attended visibility test (GT-030 in the chief's queue) -- specifically whether anything renders for A, whether B differs from A, whether the name boards fill, whether the move frames move, and whether the control stays nameless -- before any retire, freeze or extend decision, and do not flip the movement/remote_player_movement_projection coverage row until it has run. The chunk-2 exit condition stands apart from this entry: when chunk 2 is judged done, the owner decides chunk 3; nothing here pre-approves it."
+    "decision": "Opened 2026-08-20 (chief round 96) under the owner's chunk-2 approval of 2026-08-19 11:45. Two versions are tracked because two same-round milestones built it and the second changed what the lane can DO (a byte can leave the dispatcher), exactly as HYP-PF-023's encoder/dispatch pair is tracked: REMOTE-PLAYER-ENCODER-001 is the composer (129 offline verifier guards, 63 tests) and REMOTE-PLAYER-DISPATCH-001 is the runtime.py branch (162 replay guards through the real dispatcher on a throwaway database copy, 25 tests, one-shot). Proven offline against the frozen legacy.make_npc_attr BasicAttr-prefix oracle, through the real dispatcher, and -- with --binary -- against the read-only client image; never driven over TCP and never seen by a client. ONE version of the three remains. Confirm the client-observable layer as the queued attended visibility test (GT-030 in the chief's queue) -- specifically whether anything renders for A, whether B differs from A, whether the name boards fill, whether the move frames move, and whether the control stays nameless -- before any retire, freeze or extend decision, and do not flip the movement/remote_player_movement_projection coverage row until it has run. The chunk-2 exit condition stands apart from this entry: when chunk 2 is judged done, the owner decides chunk 3; nothing here pre-approves it. CEILING NOTE (chief cloud round R167, 2026-08-25 +07:00): the three-version arithmetic in the text above was written while policy.max_related_versions was 3. The owner raised the ceiling to 5 on 2026-08-25 ~18:15 (+07:00) (pf_bridge/notes_to_chief/20260825_1815_PANYA-RULINGS-FOUR-quota-cap5-GT036-lethal-scoped-GT030-rerun.md). That raise changed NO tracked_versions list anywhere, so every version this text counts as spent is still spent; only the number of REMAINING slots moved. Read the budget against max_versions, never against the word three. The sentence is kept as written because it is the record of a decision taken under the old ceiling."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -2459,9 +2459,9 @@
     "tracked_versions": [
      "DAMAGE-HP-LINK-001"
     ],
-    "decision": "Opened 2026-08-20 (chief round 97) under the owner's standing damage-model approval of 2026-08-19 11:45; one version is tracked because one milestone built the whole lane (composer + dispatch + 270-guard verifier + 198-guard replay + 185 tests) in one round. Proven offline against both parent lanes' own composers as byte oracles and through the real dispatcher on a throwaway database copy; never driven over TCP and never seen by a client. TWO versions of the three remain. Confirm the client-observable layer as the queued attended link test (GT-031 in the chief's queue) -- specifically whether the HP bar tracks 100 -> 37 -> 0, whether it moves at the hp frames and not at the hit frames, and whether the dying window and Common_Death open exactly as their isolated proofs did -- before any retire, freeze or extend decision, and do not move any coverage row grade until it has run."
+    "decision": "Opened 2026-08-20 (chief round 97) under the owner's standing damage-model approval of 2026-08-19 11:45; one version is tracked because one milestone built the whole lane (composer + dispatch + 270-guard verifier + 198-guard replay + 185 tests) in one round. Proven offline against both parent lanes' own composers as byte oracles and through the real dispatcher on a throwaway database copy; never driven over TCP and never seen by a client. TWO versions of the three remain. Confirm the client-observable layer as the queued attended link test (GT-031 in the chief's queue) -- specifically whether the HP bar tracks 100 -> 37 -> 0, whether it moves at the hp frames and not at the hit frames, and whether the dying window and Common_Death open exactly as their isolated proofs did -- before any retire, freeze or extend decision, and do not move any coverage row grade until it has run. CEILING NOTE (chief cloud round R167, 2026-08-25 +07:00): the three-version arithmetic in the text above was written while policy.max_related_versions was 3. The owner raised the ceiling to 5 on 2026-08-25 ~18:15 (+07:00) (pf_bridge/notes_to_chief/20260825_1815_PANYA-RULINGS-FOUR-quota-cap5-GT036-lethal-scoped-GT030-rerun.md). That raise changed NO tracked_versions list anywhere, so every version this text counts as spent is still spent; only the number of REMAINING slots moved. Read the budget against max_versions, never against the word three. The sentence is kept as written because it is the record of a decision taken under the old ceiling."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -2554,9 +2554,9 @@
     "tracked_versions": [
      "NPC-HOSTILE-001"
     ],
-    "decision": "Opened 2026-08-20 (chief round 99) under the owner's standing gameplay pre-approval of 2026-08-19; one version is tracked because one milestone built the whole lane (composer + splice + runtime entry recomposition + dispatch + 63-guard verifier + 52-guard replay + tests) in one round. Proven offline against the parent lane's own SPAWN composer as a byte oracle and through the real dispatcher on a throwaway database copy; never driven over TCP and never seen by a client. TWO versions of the three remain. Confirm the client-observable layer as the queued attended test (GT-032 in the chief's queue) -- specifically whether the projected NPC 0x2001 presents as hostile the way the SCENE-005 scene-load NPC did -- before any retire, freeze or extend decision, and do not move any coverage row grade until it has run."
+    "decision": "Opened 2026-08-20 (chief round 99) under the owner's standing gameplay pre-approval of 2026-08-19; one version is tracked because one milestone built the whole lane (composer + splice + runtime entry recomposition + dispatch + 63-guard verifier + 52-guard replay + tests) in one round. Proven offline against the parent lane's own SPAWN composer as a byte oracle and through the real dispatcher on a throwaway database copy; never driven over TCP and never seen by a client. TWO versions of the three remain. Confirm the client-observable layer as the queued attended test (GT-032 in the chief's queue) -- specifically whether the projected NPC 0x2001 presents as hostile the way the SCENE-005 scene-load NPC did -- before any retire, freeze or extend decision, and do not move any coverage row grade until it has run. CEILING NOTE (chief cloud round R167, 2026-08-25 +07:00): the three-version arithmetic in the text above was written while policy.max_related_versions was 3. The owner raised the ceiling to 5 on 2026-08-25 ~18:15 (+07:00) (pf_bridge/notes_to_chief/20260825_1815_PANYA-RULINGS-FOUR-quota-cap5-GT036-lethal-scoped-GT030-rerun.md). That raise changed NO tracked_versions list anywhere, so every version this text counts as spent is still spent; only the number of REMAINING slots moved. Read the budget against max_versions, never against the word three. The sentence is kept as written because it is the record of a decision taken under the old ceiling."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -2640,9 +2640,9 @@
     "tracked_versions": [
      "LOGOUT-RETURN-SELECT-001"
     ],
-    "decision": "Opened 2026-08-20 (chief round 101) under the owner's standing gameplay pre-approval of 2026-08-19; one version is tracked because one milestone built the whole lane (composer + dispatch branch + scenario + 34-guard verifier + 45-guard headless replay + 13 tests) in one round. Proven offline and through the real dispatcher on a throwaway database copy; never driven over TCP and never seen by a client. TWO versions of the three remain. Confirm the client-observable layer as the queued attended test (GT-033 variant B) -- specifically whether a received 0x709E transitions the client to character select -- before any retire, freeze or extend decision, and do not move any coverage row grade until it has run."
+    "decision": "Opened 2026-08-20 (chief round 101) under the owner's standing gameplay pre-approval of 2026-08-19; one version is tracked because one milestone built the whole lane (composer + dispatch branch + scenario + 34-guard verifier + 45-guard headless replay + 13 tests) in one round. Proven offline and through the real dispatcher on a throwaway database copy; never driven over TCP and never seen by a client. TWO versions of the three remain. Confirm the client-observable layer as the queued attended test (GT-033 variant B) -- specifically whether a received 0x709E transitions the client to character select -- before any retire, freeze or extend decision, and do not move any coverage row grade until it has run. CEILING NOTE (chief cloud round R167, 2026-08-25 +07:00): the three-version arithmetic in the text above was written while policy.max_related_versions was 3. The owner raised the ceiling to 5 on 2026-08-25 ~18:15 (+07:00) (pf_bridge/notes_to_chief/20260825_1815_PANYA-RULINGS-FOUR-quota-cap5-GT036-lethal-scoped-GT030-rerun.md). That raise changed NO tracked_versions list anywhere, so every version this text counts as spent is still spent; only the number of REMAINING slots moved. Read the budget against max_versions, never against the word three. The sentence is kept as written because it is the record of a decision taken under the old ceiling."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -2715,9 +2715,9 @@
      "NPC-HP-LINK-002",
      "NPC-HP-LINK-003"
     ],
-    "decision": "Opened 2026-08-20 (chief round 111) under the owner's standing damage-model approval of 2026-08-19 11:45; one version is tracked because one milestone built the composer, the scenario, the app flag, the 218-guard verifier, the 97-guard headless proof and 97 tests in one round. Proven offline against BOTH parent lanes' own composers as byte oracles, in both directions; NOT driven through a dispatcher, because this checkpoint wires no runtime.py branch, and never driven over TCP or seen by a client. TWO versions of the three remain, and the dispatch branch is expected to consume one of them. Confirm the client-observable layer as the queued attended target-link test -- specifically WHETHER THE TARGET'S HP BAR RENDERS THE INTERMEDIATE VALUE 37, which is undecidable from static analysis -- before any retire, freeze or extend decision, and do not move any coverage row grade until it has run. The 2026-08-20 negative (505 damage, bar did not move) is the baseline that test is measured against. NPC-HP-LINK-002 (2026-08-20, chief round 111) consumes the second of the three tracked versions, exactly as the NPC-HP-LINK-001 decision predicted the dispatch branch would: the runtime.py branch, its construction-time unlock and target resolution, its four named refusals, its per-connection one-shot counter and its single published event are added and driven for real, headless, by the dispatch suite. ONE version of the three remains. It is expected to be spent on joining the app.py flag to the branch and on correcting the now-stale dispatch block of the scenario file together with the composer's _expected_scenario() pin and the verifier's wiring-owner guard, which cannot be corrected separately. Still not driven over TCP and still never seen by a client; the queued attended target-link test is unchanged and is still blocked on the flag join. NPC-HP-LINK-003 (2026-08-21) consumes the THIRD and LAST tracked version, on exactly the work the NPC-HP-LINK-002 decision reserved it for: app.py now hands make_state_class the npc_hp_link_hypothesis_scenario keyword, so the CLI flag reaches the branch and the queued attended test is a live test rather than a dead one, and the scenario file's stale dispatch block was corrected in ONE pass together with the composer's _expected_scenario() pin and the offline verifier's wiring-owner guard, because those three cannot be corrected separately. It also repaired what an adversarial review found: the two lane tools were invisible to git (.gitignore /tools/* with no allowlist line), this entry was not registered in tools/verify_hypothesis_ledger.py at all so the gate's ledger step was red, the flagship THE LINK guard discarded the walker-read hp value it claimed to check and could not go red, and three sentences in the module claimed more than the code guarantees. ZERO versions remain -- any further widening of this lane needs a new entry or a scoped approval recorded in extension_approval_ref. Still not driven over TCP and still never seen by a client."
+    "decision": "Opened 2026-08-20 (chief round 111) under the owner's standing damage-model approval of 2026-08-19 11:45; one version is tracked because one milestone built the composer, the scenario, the app flag, the 218-guard verifier, the 97-guard headless proof and 97 tests in one round. Proven offline against BOTH parent lanes' own composers as byte oracles, in both directions; NOT driven through a dispatcher, because this checkpoint wires no runtime.py branch, and never driven over TCP or seen by a client. TWO versions of the three remain, and the dispatch branch is expected to consume one of them. Confirm the client-observable layer as the queued attended target-link test -- specifically WHETHER THE TARGET'S HP BAR RENDERS THE INTERMEDIATE VALUE 37, which is undecidable from static analysis -- before any retire, freeze or extend decision, and do not move any coverage row grade until it has run. The 2026-08-20 negative (505 damage, bar did not move) is the baseline that test is measured against. NPC-HP-LINK-002 (2026-08-20, chief round 111) consumes the second of the three tracked versions, exactly as the NPC-HP-LINK-001 decision predicted the dispatch branch would: the runtime.py branch, its construction-time unlock and target resolution, its four named refusals, its per-connection one-shot counter and its single published event are added and driven for real, headless, by the dispatch suite. ONE version of the three remains. It is expected to be spent on joining the app.py flag to the branch and on correcting the now-stale dispatch block of the scenario file together with the composer's _expected_scenario() pin and the verifier's wiring-owner guard, which cannot be corrected separately. Still not driven over TCP and still never seen by a client; the queued attended target-link test is unchanged and is still blocked on the flag join. NPC-HP-LINK-003 (2026-08-21) consumes the THIRD and LAST tracked version, on exactly the work the NPC-HP-LINK-002 decision reserved it for: app.py now hands make_state_class the npc_hp_link_hypothesis_scenario keyword, so the CLI flag reaches the branch and the queued attended test is a live test rather than a dead one, and the scenario file's stale dispatch block was corrected in ONE pass together with the composer's _expected_scenario() pin and the offline verifier's wiring-owner guard, because those three cannot be corrected separately. It also repaired what an adversarial review found: the two lane tools were invisible to git (.gitignore /tools/* with no allowlist line), this entry was not registered in tools/verify_hypothesis_ledger.py at all so the gate's ledger step was red, the flagship THE LINK guard discarded the walker-read hp value it claimed to check and could not go red, and three sentences in the module claimed more than the code guarantees. ZERO versions remain -- any further widening of this lane needs a new entry or a scoped approval recorded in extension_approval_ref. Still not driven over TCP and still never seen by a client. CEILING NOTE (chief cloud round R167, 2026-08-25 +07:00): the three-version arithmetic in the text above was written while policy.max_related_versions was 3. The owner raised the ceiling to 5 on 2026-08-25 ~18:15 (+07:00) (pf_bridge/notes_to_chief/20260825_1815_PANYA-RULINGS-FOUR-quota-cap5-GT036-lethal-scoped-GT030-rerun.md). That raise changed NO tracked_versions list anywhere, so every version this text counts as spent is still spent; only the number of REMAINING slots moved. Read the budget against max_versions, never against the word three. The sentence is kept as written because it is the record of a decision taken under the old ceiling."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -2821,9 +2821,9 @@
     "tracked_versions": [
      "MOVE-AUTHORITY-002"
     ],
-    "decision": "Opened 2026-08-21 (chief round 116, cloud) under the owner's standing gameplay pre-approval. One version is tracked because one milestone built the policy module, the scenario, the CLI flag, the runtime gate, the 87-guard verifier, the report and 63 tests in one round, including the two budget corrections an adversarial review and the authentic-walk replay forced before anything was committed. TWO of the three versions remain. One of them is expected to be spent on whatever the attended test returns: if a real client's ordinary walk is refused, the budgets move; if the withheld write is invisible to the client while it plays, the lane is a candidate for a corrective-projection design that would need its own entry, not this one. The one-reading grace bypass and the burst gap are the other two candidates for that version. Confirm the client-observable layer as the queued attended movement-authority test before any retire, freeze or extend decision, and do not move any coverage row grade until it has run."
+    "decision": "Opened 2026-08-21 (chief round 116, cloud) under the owner's standing gameplay pre-approval. One version is tracked because one milestone built the policy module, the scenario, the CLI flag, the runtime gate, the 87-guard verifier, the report and 63 tests in one round, including the two budget corrections an adversarial review and the authentic-walk replay forced before anything was committed. TWO of the three versions remain. One of them is expected to be spent on whatever the attended test returns: if a real client's ordinary walk is refused, the budgets move; if the withheld write is invisible to the client while it plays, the lane is a candidate for a corrective-projection design that would need its own entry, not this one. The one-reading grace bypass and the burst gap are the other two candidates for that version. Confirm the client-observable layer as the queued attended movement-authority test before any retire, freeze or extend decision, and do not move any coverage row grade until it has run. CEILING NOTE (chief cloud round R167, 2026-08-25 +07:00): the three-version arithmetic in the text above was written while policy.max_related_versions was 3. The owner raised the ceiling to 5 on 2026-08-25 ~18:15 (+07:00) (pf_bridge/notes_to_chief/20260825_1815_PANYA-RULINGS-FOUR-quota-cap5-GT036-lethal-scoped-GT030-rerun.md). That raise changed NO tracked_versions list anywhere, so every version this text counts as spent is still spent; only the number of REMAINING slots moved. Read the budget against max_versions, never against the word three. The sentence is kept as written because it is the record of a decision taken under the old ceiling."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -2906,9 +2906,9 @@
     "tracked_versions": [
      "LOGOUT-CHAT-PUSH-001"
     ],
-    "decision": "Opened 2026-08-21 under the owner's standing gameplay pre-approval; one version is tracked because one milestone built the whole lane (profile + dispatch branch + LogoutVital no-reply routing + scenario + 15 tests + 31-guard headless replay) in one round. Proven offline and through the real dispatcher on a throwaway database copy; never driven over TCP and never seen by a client. TWO versions of the three remain. Confirm the client-observable layer as the queued attended test (GT-033 variant C) -- specifically whether the unsolicited 0x709E push alone transitions the client to character select -- before any retire, freeze or extend decision, and do not move any coverage row grade until it has run."
+    "decision": "Opened 2026-08-21 under the owner's standing gameplay pre-approval; one version is tracked because one milestone built the whole lane (profile + dispatch branch + LogoutVital no-reply routing + scenario + 15 tests + 31-guard headless replay) in one round. Proven offline and through the real dispatcher on a throwaway database copy; never driven over TCP and never seen by a client. TWO versions of the three remain. Confirm the client-observable layer as the queued attended test (GT-033 variant C) -- specifically whether the unsolicited 0x709E push alone transitions the client to character select -- before any retire, freeze or extend decision, and do not move any coverage row grade until it has run. CEILING NOTE (chief cloud round R167, 2026-08-25 +07:00): the three-version arithmetic in the text above was written while policy.max_related_versions was 3. The owner raised the ceiling to 5 on 2026-08-25 ~18:15 (+07:00) (pf_bridge/notes_to_chief/20260825_1815_PANYA-RULINGS-FOUR-quota-cap5-GT036-lethal-scoped-GT030-rerun.md). That raise changed NO tracked_versions list anywhere, so every version this text counts as spent is still spent; only the number of REMAINING slots moved. Read the budget against max_versions, never against the word three. The sentence is kept as written because it is the record of a decision taken under the old ceiling."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -2974,7 +2974,7 @@
     ],
     "decision": "Harness-only observation geometry pending the GT-034 attended verdict."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -3027,7 +3027,7 @@
     "tools/pf_ground_loot_headless_replay.py"
    ],
    "accepted_ceiling": "Emitting the exact two pinned 44-byte pc / 54-byte frames, exactly once, behind the explicit opt-in only. The ceiling is the WIRE and DISPATCHER layer: the frames are proven to leave the real make_state_class dispatcher on a throwaway copy of the database as two appended actions (0.0 and 0.10 s) with no socket action, re-read from the dispatched bytes by an independent tag walker inside tools/pf_ground_loot_headless_replay.py that never asks the module to decode. It does NOT reach the client layer by one millimetre: no claim that the client parses, keeps, draws or ages the two elements is made here.",
-   "evidence_gap": "NO CLIENT HAS EVER BEEN SHOWN A BIT-0x08 FRAME by this project, and bit 0x08 = ground loot is UNPROVEN: the list is only proven to carry non-actor records with a world position, and could be markers, waypoints, FX anchors or anything else. The payload dword is NOT known to be an item template id; the committed gamedata table does now carry the observed drop by name (CONSTDATA_TH__EQUIPMENT_BASE n_ID=423), but a name match in a client table is not proof that the +0x14 dword is the field the client looks that row up by. Attended GT-045 round 1104 (2026-08-24) has now run once and returned PARTIAL: wire byte-exact, client plays the ground-drop dust at the sent position, no item model and no floating name; whether an item model can be drawn at all, at which distances, and whether an entry persists or expires is still open and is what the re-derived-id re-run asks. A wire-proven attended NEGATIVE at both coordinates permanently retires this candidate and is a complete answer, not a failure. This lane has never been driven through a real server process over TCP: the proof stops at the dispatcher.",
+   "evidence_gap": "NO CLIENT HAS EVER BEEN SHOWN A BIT-0x08 FRAME by this project, and bit 0x08 = ground loot is UNPROVEN: the list is only proven to carry non-actor records with a world position, and could be markers, waypoints, FX anchors or anything else. The payload dword is NOT known to be an item template id; the committed gamedata table does now carry the observed drop by name (CONSTDATA_TH__EQUIPMENT_BASE n_ID=423), but a name match in a client table is not proof that the +0x14 dword is the field the client looks that row up by. Attended GT-045 round 1104 (2026-08-24) has now run once and returned PARTIAL: wire byte-exact, client plays the ground-drop dust at the sent position, no item model and no floating name; whether an item model can be drawn at all, at which distances, and whether an entry persists or expires is still open and is what the re-derived-id re-run asks. A wire-proven attended NEGATIVE at both coordinates permanently retires this candidate and is a complete answer, not a failure. This lane has never been driven through a real server process over TCP: the proof stops at the dispatcher. SCOPED NOTE (2026-08-25 ~17:5x +07:00, owner ruling recorded in pf_bridge/notes_to_chief/20260825_1800_PANYA-RULING-GT069-new-entry-HYP-PF-039-plus-attended-queue-is-drained.md, written by chief cloud round R167): the element fields this entry's stop_rule freezes -- the dirty-mask bits 0x04, 0x08 and 0x20 of the 0x5F85B0 element -- are being explored by HYP-PF-039 (GROUND-LOOT-NAMEPROP-001), which is a DIFFERENT lane: its own module (src/pirateforce_foundation/ground_loot_nameprop_hypothesis.py), its own flag (--ground-loot-nameprop-scenario), its own scenario, its own latch and its own bytes, mutually exclusive with this lane, which fires no frame while it runs. THIS ENTRY IS NOT EXTENDED AND NOT OVERRIDDEN BY THAT RULING: its stop_rule text is unchanged, its tracked_versions stay at the same three, and no version of this entry is spent by HYP-PF-039's work. The note exists so a later reader does not misread the ruling in either direction -- neither as 'HYP-PF-032 was quietly widened' nor as 'nobody has touched those fields since'.",
    "falsification": "Retire or redesign this lane if a real client rejects or errors on either frame (an ErrorData=28317 stream error falsifies the envelope or the list shape for this delivery even in the V43-safe single-record form), if the emitted bytes ever stop reproducing the pinned pcs/frames, or if this lane is ever observed to write any database row, take any socket action, emit more than the two frames per session, or emit with the scenario absent. A client that receives the frames but draws nothing does not falsify the wire claim -- it answers GT-045 in the negative and is recorded as a result, not a failure.",
    "stop_rule": "Emit only the two pinned single-element frames, only at the first exact TargetPos after runtime ack, only once per session, only behind the one opt-in scenario file. What is forbidden is WIDENING: more elements or frames, a multi-element count in one frame (the V43-rejected shape), other element masks (0x04/0x08/0x20 fields stay unsent), another derived bit, any nonzero inherited mask, any database write, any socket action, a removal/update frame, a production or default-mode path, or a second coordinate profile is a NEW VERSION of this entry -- ZERO tracked slots remain as of R158, so any further wire change needs an owner extension decision FIRST -- or a new entry. Do not enable production exposure. Do not move the npc_interaction/monster_spawn_and_loot coverage row on the strength of this lane: sending a candidate frame proves no loot behavior, and the row stays not_started until an attended result exists. Stop and record if GT-045 shows the client drawing, which would upgrade bit 0x08 from candidate to confirmed and redirect the ground-loot investigation onto entry lifetime and pickup (GT-046).",
    "production_allowed": false,
@@ -3037,9 +3037,9 @@
      "GROUND-LOOT-001-v2-trigger-relative",
      "GROUND-LOOT-001-v3-equipment-base-drop-model-ids"
     ],
-    "decision": "Opened 2026-08-23 under the owner's standing gameplay pre-approval; one version is tracked because one round built the whole lane (module + scenario + app/runtime wiring + tests + headless replay) at once. Proven offline and through the real dispatcher on a throwaway database copy; never driven over TCP and never seen by a client. Version 2 (chief cloud round 127) made the coordinates trigger-relative after the attended GT-045 run measured the real spawn ~700 units from the V135-derived absolutes; ZERO versions of the three remain: version 3 (chief cloud round R158, 2026-08-25) changed the payload dwords on the wire from 2600001 to 2200423/2200003 and re-derived all four masked-template pins after the attended round 1104 measured dust but no item model. It is booked as a VERSION and not waved through as a profile amendment because it sends bytes no pinned frame ever contained -- strictly stronger grounds than the precedent this project already set for a subset change. ANY FURTHER WIRE CHANGE TO THIS LANE NEEDS AN EXTENSION DECISION FROM THE OWNER FIRST. The stop_rule's stop-and-record clause was CONSIDERED and judged not yet fired: it triggers on the client DRAWING, and what round 1104 produced was a transient ground-drop effect with no object drawn, no name label and nothing persistent -- the redirect onto entry lifetime and pickup is therefore still gated on the re-run, and this reading is recorded here rather than left implicit. Confirm the client-observable layer as the queued attended test GT-045 -- does the client draw anything at either coordinate -- before any retire, freeze or extend decision, and do not move any coverage row grade until it has run."
+    "decision": "Opened 2026-08-23 under the owner's standing gameplay pre-approval; one version is tracked because one round built the whole lane (module + scenario + app/runtime wiring + tests + headless replay) at once. Proven offline and through the real dispatcher on a throwaway database copy; never driven over TCP and never seen by a client. Version 2 (chief cloud round 127) made the coordinates trigger-relative after the attended GT-045 run measured the real spawn ~700 units from the V135-derived absolutes; ZERO versions of the three remain: version 3 (chief cloud round R158, 2026-08-25) changed the payload dwords on the wire from 2600001 to 2200423/2200003 and re-derived all four masked-template pins after the attended round 1104 measured dust but no item model. It is booked as a VERSION and not waved through as a profile amendment because it sends bytes no pinned frame ever contained -- strictly stronger grounds than the precedent this project already set for a subset change. ANY FURTHER WIRE CHANGE TO THIS LANE NEEDS AN EXTENSION DECISION FROM THE OWNER FIRST. The stop_rule's stop-and-record clause was CONSIDERED and judged not yet fired: it triggers on the client DRAWING, and what round 1104 produced was a transient ground-drop effect with no object drawn, no name label and nothing persistent -- the redirect onto entry lifetime and pickup is therefore still gated on the re-run, and this reading is recorded here rather than left implicit. Confirm the client-observable layer as the queued attended test GT-045 -- does the client draw anything at either coordinate -- before any retire, freeze or extend decision, and do not move any coverage row grade until it has run. CEILING NOTE (chief cloud round R167, 2026-08-25 +07:00): the three-version arithmetic in the text above was written while policy.max_related_versions was 3. The owner raised the ceiling to 5 on 2026-08-25 ~18:15 (+07:00) (pf_bridge/notes_to_chief/20260825_1815_PANYA-RULINGS-FOUR-quota-cap5-GT036-lethal-scoped-GT030-rerun.md). That raise changed NO tracked_versions list anywhere, so every version this text counts as spent is still spent; only the number of REMAINING slots moved. Read the budget against max_versions, never against the word three. The sentence is kept as written because it is the record of a decision taken under the old ceiling. FREEZE NOTE (R167, and it outranks the arithmetic): earlier the same day, at ~17:5x (+07:00), the owner ruled that THIS ENTRY STAYS UNTOUCHED AND FULL and that the ground-loot name-property work would be a NEW entry (HYP-PF-039) rather than a fourth version here (pf_bridge/notes_to_chief/20260825_1800_PANYA-RULING-GT069-new-entry-HYP-PF-039-plus-attended-queue-is-drained.md, condition 1). The ~18:15 ceiling raise arithmetically leaves this entry two free slots. THOSE TWO SLOTS ARE FROZEN BY THE EARLIER RULING AND MAY NOT BE OPENED: a fourth version of this lane still needs a fresh owner decision, exactly as the stop_rule says, and 'the ceiling went up' is NOT that decision. Chief did not choose between the two rulings -- the 18:15 letter forbids switching without asking -- so the question is put to the owner in pf_bridge/notes_to_chief/FROM_CHIEF_R167_TO_ATTENDED_20260825_1910.md and this note stands until she answers."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -3105,7 +3105,7 @@
     "tests/test_learn_skill_result_hypothesis.py"
    ],
    "accepted_ceiling": "Emitting the five pinned frames, in the pinned order and spacing, behind the explicit opt-in only. The ceiling is the WIRE and DISPATCHER layer: the frames are proven to leave the real make_state_class dispatcher on a throwaway temp database, every dispatched body re-decodes to the declared opaque triples and trailing byte, and all fifteen per-step hash pins hold in module and scenario. It does NOT reach the client layer by one millimetre: no claim that any client parses, accepts, or shows anything for a 0x673C frame is made here, and this lane has never been driven through a real server process over TCP.",
-   "evidence_gap": "NO CLIENT HAS EVER BEEN SHOWN A 0x673C FRAME by this project and no capture holds one in either direction (PF_FIELD_VALIDATION rows W/R both NOT_OBSERVED). The SEMANTICS of the three record members are NOT known -- they are encoded as opaque declared triples named by wire position only (record_u32_0/record_u16_4/record_u32_8) and nothing may name them skill ids, levels or anything else until evidence exists. The trailing u8 meaning is unknown. The per-vital version byte 0 is our design with no pin. The inbound CLearnSkillVital 0x36AA direction had no handler and no learn rule anywhere in this tree when this entry was opened [AMENDED 2026-08-24: LEARN-SKILL-REQUEST-001 / HYP-PF-034 added a strict opt-in DECODE-ONLY handler for 0x36AA -- it decodes, counts and records, never replies and never writes; there is still no learn rule anywhere in this tree and this lane still never answers a request], and GT-050 itself left the TriggerCastSkillVital natural direction unresolved. Whether a real client accepts these frames, errors on them, or shows anything is exactly the attended GT ticket this lane exists to unblock, WHICH HAS NOT RUN.",
+   "evidence_gap": "NO CLIENT HAS EVER BEEN SHOWN A 0x673C FRAME by this project and no capture holds one in either direction (PF_FIELD_VALIDATION rows W/R both NOT_OBSERVED). The SEMANTICS of the three record members are NOT known -- they are encoded as opaque declared triples named by wire position only (record_u32_0/record_u16_4/record_u32_8) and nothing may name them skill ids, levels or anything else until evidence exists. The trailing u8 meaning is unknown. The per-vital version byte 0 is our design with no pin. The inbound CLearnSkillVital 0x36AA direction had no handler and no learn rule anywhere in this tree when this entry was opened [AMENDED 2026-08-24: LEARN-SKILL-REQUEST-001 / HYP-PF-034 added a strict opt-in DECODE-ONLY handler for 0x36AA -- it decodes, counts and records, never replies and never writes; there is still no learn rule anywhere in this tree and this lane still never answers a request], and GT-050 itself left the TriggerCastSkillVital natural direction unresolved. Whether a real client accepts these frames, errors on them, or shows anything is exactly the attended GT ticket this lane exists to unblock, WHICH HAS NOT RUN. CEILING NOTE (chief cloud round R167, 2026-08-25 +07:00): the three-version arithmetic in the text above was written while policy.max_related_versions was 3. The owner raised the ceiling to 5 on 2026-08-25 ~18:15 (+07:00) (pf_bridge/notes_to_chief/20260825_1815_PANYA-RULINGS-FOUR-quota-cap5-GT036-lethal-scoped-GT030-rerun.md). That raise changed NO tracked_versions list anywhere, so every version this text counts as spent is still spent; only the number of REMAINING slots moved. Read the budget against max_versions, never against the word three. The sentence is kept as written because it is the record of a decision taken under the old ceiling.",
    "falsification": "Retire or redesign this lane if a real client rejects or errors on any of the five frames (an ErrorData stream error falsifies the envelope, the version byte or the body shape for this delivery), if the emitted bytes ever stop reproducing the pinned payloads/pcs/frames, or if this lane is ever observed to write any database row, take any socket action, answer anything but the accepted ascii12 trigger, or emit with the scenario absent. A client that accepts the frames but shows nothing does not falsify the wire claim -- it is an attended result about the unknown semantics, recorded as a result, not a failure.",
    "stop_rule": "Emit only the five pinned frames, only in answer to the accepted ascii12 chat-input trigger, only behind the one opt-in scenario file. What is forbidden is WIDENING: different record values, more or fewer steps, another trailing value, a nonzero version byte, any inbound handling of CLearnSkillVital 0x36AA or any other vital, any semantic NAME for the three record members or the trailing byte, any database write, any socket action, or a production or default-mode path is a NEW VERSION of this entry -- two tracked slots remain -- or a new entry. Do not enable production exposure. Do not move the combat/skill_use coverage row grade on the strength of this lane: sending a result frame proves no skill behavior, and the row stays in_progress until an attended result exists.",
    "production_allowed": false,
@@ -3115,7 +3115,7 @@
     ],
     "decision": "Opened 2026-08-23 under the owner's standing gameplay pre-approval; one version is tracked because one round built the whole lane (module + scenario + app/runtime wiring + tests + ledger/coverage binding) at once. Proven offline and through the real dispatcher on a throwaway temp database; never driven over TCP and never seen by a client. Confirm the client-observable layer as the queued attended GT ticket -- does a real client accept a 0x673C frame at all, and does anything on screen move -- before any retire, freeze or extend decision, and do not move any coverage row grade until it has run."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -3192,7 +3192,7 @@
     ],
     "decision": "Opened 2026-08-24 under the owner's standing gameplay pre-approval; one version is tracked because one round built the whole lane (module + scenario + app/runtime wiring + tests + ledger/coverage binding) at once. Proven offline and through the real dispatcher on a throwaway temp database; never driven over TCP and no real client has ever been observed sending this vital. Before any retire, freeze or extend decision, get the bridge direction census (does the client image ever submit 0x36AA to the outbound vital path) and, if direction is proven outbound-from-client, an attended run where a real client learns a skill while this lane records what arrives."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -3269,7 +3269,7 @@
     ],
     "decision": "Opened 2026-08-24 under the owner's standing gameplay pre-approval; one version is tracked because one round built the whole lane (module + scenario + app/runtime wiring + tests + ledger/coverage binding) at once.  Proven offline and through the real dispatcher on a throwaway temp database; never driven over TCP and never seen by a client.  Confirm the client-observable layer as the queued attended GT ticket -- does a real client accept a 0x309A frame carrying the 0x1661 block at all, and does the K key's behavior change after either variant -- before any retire, freeze or extend decision, and do not move any coverage row grade until it has run."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -3348,7 +3348,7 @@
     ],
     "decision": "Opened 2026-08-24 (round R151) under the owner's standing gameplay pre-approval; one version is tracked because one round built the whole lane (module + scenario + app/runtime wiring + tests + ledger/coverage binding) at once. Proven offline and through the real dispatcher on a throwaway temp database; never driven over TCP, and NO frame of this vital has ever been observed anywhere -- the opcode itself is derived. The attended opcode question is CONDITIONAL on a prerequisite this project has not proven: a rendered, clickable drop-object on a real client screen. Chain it after GT-045's eye test (Door 3 render, currently CLIENT NO-RESULT); the HYP-PF-032 ground-loot spawner cannot share a boot with this listener under the mutual-exclusion pattern, so a spawner+listener composition requires an explicit owner ruling rather than a weakened exclusion, and scene-native clickables are unproven. Only once such an object exists and is clicked: a different opcode retires the derivation, a clean 0x4543 decode upgrades it, and a 0x4543 body the codec refuses retires the mirror -- while ZERO frames is NO EVIDENCE in any direction, because it cannot distinguish a wrong derived id from no clickable object. Before any retire, freeze or extend decision, get that conditional attended run or an owner ruling that its prerequisite cannot be staged."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -3411,7 +3411,7 @@
    "kind": "protocol_hypothesis",
    "introduced_checkpoint": "ITEMOP-RES-GREENLINE-001",
    "exact_value_or_transform": "Behind the explicit item-operate-res opt-in scenario only (scenarios/item_operate_res_greenline_sweep.json, id item_operate_res_greenline_sweep, loaded through --item-operate-res-hypothesis-scenario, which requires an explicit existing --db and is mutually exclusive with every other scenario mode), answer one accepted chat-input frame (the exact 34-byte ascii12 shape the HYP-PF-014 lane already classifies; nothing in the request is read) from a session whose selected actor IS the canonical smoke identity 0x10010001/0 with THREE pinned ItemOperateVitalRes 0x4C13 frames through the frozen v141 make_runtime_vitals envelope, every one composed by the V111-accepted golden codec inventory.make_item_move_delta_response and hash-pinned at message, PC and frame layer: (1) ITEMOP_RES_CTRL_CAPTURE_REPLAY, the byte-exact message-layer replay of RE-059 captured frame 1 (committed hex, 54 bytes, sha256 60756925E095A507ACFFD49ECF013DAF50C706429A0FA4DA9B73CC66B6E27496), whose dual derivation -- committed capture bytes on one side, the golden codec over ItemAttrState(1, 2600001, 2, 2) on the other -- is re-compared on every composition; (2) ITEMOP_RES_BAGUPD_ID2400901_QTY1, the same proven bag-update shape carrying the RE-060-decoded consumable item id 2400901 (table 24 ITEM_CONSUMABLES, n_ID 901; the canonical smoke backpack item at identity 2, slot 1) at quantity 1; (3) ITEMOP_RES_BAGUPD_ID2400901_QTY5, identical at quantity 5, probing the count channel of client message id 131.  The vital version byte is 2, CAPTURE-PINNED by all five RE-059 frames, and affected_identity_count stays 0 in every frame -- the only value ever captured; the count>0 per-element shape is statically OPEN (candidate u64 tag 0x32 + u8 tag 0x08 with the R13 direct-call 0x005ED2F0 membership unresolved) and is deliberately NOT composed, queued instead as the bridge static ticket RE-064.  The sweep is spaced 3.0 seconds, repeatable, writes no row and takes no socket action.  AMENDED BY SCENARIO-COMPOSE-001 TRIPLE (owner ruling, Panya 2026-08-24 ~21:1x +07:00, letter 20260824_2120 section 2, chief cloud round R155): this lane entered the composability allow-list exactly once, as the third member of the one allowed triple beside the R153 pair (--ground-loot-hypothesis-scenario + --pickup-listener-hypothesis-scenario + this flag, runtime.py COMPOSABLE_SCENARIO_LANE_SETS).  No pair containing this lane is allow-listed; every other combination stays refused; attribution discipline stands -- a composed-round observation that cannot be attributed to one lane is NO-RESULT.",
-   "scope": "Server-side emission of the three pinned 0x4C13 frames to the ONE connected client that sent the accepted trigger, behind the one opt-in scenario only, from a runtime-ready session (selected character, teleport_sent and runtime_ack_sent both set) whose selected identity is the pinned probe -- any other identity is a named no-reply refusal.  The lane writes no database row, takes no socket action, schedules no timer, is not one-shot, and composes nothing outside the frozen three-step plan.",
+   "scope": "Server-side emission of the three pinned 0x4C13 frames to the ONE connected client that sent the accepted trigger, behind the one opt-in scenario only, from a runtime-ready session (selected character, teleport_sent and runtime_ack_sent both set) whose selected identity is the pinned probe -- any other identity is a named no-reply refusal.  The lane writes no database row, takes no socket action, schedules no timer, is not one-shot, and composes nothing outside the frozen three-step plan. CEILING NOTE (chief cloud round R167, 2026-08-25 +07:00): the three-version arithmetic in the text above was written while policy.max_related_versions was 3. The owner raised the ceiling to 5 on 2026-08-25 ~18:15 (+07:00) (pf_bridge/notes_to_chief/20260825_1815_PANYA-RULINGS-FOUR-quota-cap5-GT036-lethal-scoped-GT030-rerun.md). That raise changed NO tracked_versions list anywhere, so every version this text counts as spent is still spent; only the number of REMAINING slots moved. Read the budget against max_versions, never against the word three. The sentence is kept as written because it is the record of a decision taken under the old ceiling.",
    "status": "active",
    "provenance": "Opened 2026-08-24 by the owner's explicit GT-063 approval (letter pf_bridge/notes_to_chief/20260824_1831_PANYA-RULINGS-combine-scenarios-and-open-GT-063.md section 2) on three closed tickets: GT-049 (letter 20260824_0923, static: message id 131, template 'received [ $V1 ] * $V2' (an ASCII rendering of the Thai template in TEXTDATA_TH__MESSAGE.tsv row 131, kept ASCII here for cp874 console discipline), emitted from the INBOUND 0x4C13 handler chain 0x005EF5E0 -> 0x005CC309), RE-059 (letter 20260824_1413: all five real captured 0x4C13 frames extracted byte-exactly; all version 2, affected_identity_count 0), and RE-060 (letter 20260824_1422: the item table id scheme full_id/100000 -> table, full_id%100000 -> n_ID, candidate 100%-hit evidence).  The ticket draft's affected_identity_count=1 frames were NOT built: the per-element shape is a static candidate only (PF_SERIALIZER_FIELDS.tsv rows 769-794) with the R13 direct call 0x005ED2F0 unresolved, so that dimension went back to the bridge as RE-064 instead of onto a socket.",
    "evidence_refs": [
@@ -3427,9 +3427,9 @@
     "tracked_versions": [
      "ITEMOP-RES-GREENLINE-001"
     ],
-    "decision": "Opened 2026-08-24 under the owner's explicit GT-063 approval; one version is tracked because one round built the whole lane (module + scenario + app/runtime wiring + tests + ledger/coverage binding) at once.  Proven offline and through the real dispatcher on a throwaway temp database; never driven over TCP and never seen by a client.  Confirm the client-observable layer as the attended GT-063 ticket -- which of the three shapes, if any, puts the green message-id-131 line on the real screen -- before any retire, freeze or extend decision, and do not move any coverage row grade until it has run."
+    "decision": "Opened 2026-08-24 under the owner's explicit GT-063 approval; one version is tracked because one round built the whole lane (module + scenario + app/runtime wiring + tests + ledger/coverage binding) at once.  Proven offline and through the real dispatcher on a throwaway temp database; never driven over TCP and never seen by a client.  Confirm the client-observable layer as the attended GT-063 ticket -- which of the three shapes, if any, puts the green message-id-131 line on the real screen -- before any retire, freeze or extend decision, and do not move any coverage row grade until it has run. CEILING NOTE (chief cloud round R167, 2026-08-25 +07:00): the three-version arithmetic in the text above was written while policy.max_related_versions was 3. The owner raised the ceiling to 5 on 2026-08-25 ~18:15 (+07:00) (pf_bridge/notes_to_chief/20260825_1815_PANYA-RULINGS-FOUR-quota-cap5-GT036-lethal-scoped-GT030-rerun.md). That raise changed NO tracked_versions list anywhere, so every version this text counts as spent is still spent; only the number of REMAINING slots moved. Read the budget against max_versions, never against the word three. The sentence is kept as written because it is the record of a decision taken under the old ceiling."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -3492,7 +3492,7 @@
    "exact_value_or_transform": "HOSTILE-HP-LINK-001 composes, behind the opt-in flag --hostile-hp-link-hypothesis-scenario and the exact-tree scenario file scenarios/hostile_hp_link_hypothesis_p30_sweep.json, ONE seven-frame GSCN_RunTimeProtocolRes (0x6E9D version 4) sweep that alternates the two client-proven collections against ONE frozen Port Royal placement identity: the VitalData/CHitResult carrier (BASE change mask 0x02 at object +0x18, CHitResult 0x16F7 version 0, performer = the session's own selected actor) and the actor-entry/NPCAttr carrier (INHERITED mask 0x00, DERIVED mask 0x02 at object +0x1C, actor_type 4 CNetNPC).  The target is placement index 30, actor identity 0x201F (0x2000 + index + 1, cross-checked against the frozen V112_MONSTER_ACTOR_ID), template 31, visual preset M011_000_000_SP3, BasicAttr name 'Tornado Eagle', and the HP baseline 3857 the frozen source carries as V117_P30_EXACT_HP -- which is CLIENT-SIDE STANDARD_MOB data, not a rule of the original server.  Step order TARGET_SPAWN, HIT_WEAK, TARGET_HP_AFTER_WEAK, MISS, TARGET_HP_AFTER_MISS, HIT_STRONG, TARGET_HP_AFTER_STRONG; first delay 0.0 s and spacing 6.0 s on a cumulative deadline; action label prefix HYP_PF_038_HOSTILE_HP_LINK_; ONE-SHOT per connection; trigger = one accepted 34-byte ascii12 chat-input frame; no socket action and no database write.  The damage formula is the one HYP-PF-024 and HYP-PF-029 already ship, unchanged (attack = 100 + 7*str + 3*level against defence = 10 + 2*con + 1*level, floored at MIN_HIT); what differs is the ATTACKER PROFILES, chosen so the movement is visible on a 3857-point bar where the sibling lane's -63 would be 1.6 percent of it: MOB_WEAK level 7 str 132 -> -964 and MOB_STRONG level 15 str 294 -> -2122 against the defender level 27 con 22, giving the derived balance ladder (3857, 3857, 2893, 2893, 2893, 2893, 771) -- 75.0 percent and then 20.0 percent of the baseline.  Both wire values are recomputed from the profile constants on every call and refused on any mismatch.  THE TARGET IS PLACED PLAYER-RELATIVE at dx 100 / dy 50 / dz 0 borrowed from the Arena lane's scenario, resolved per accepted request from the authoritative character row the frozen TargetPos write path checkpoints, with the heading derived towards the player; the frozen WORLD row (1747.5244140625, -7837.69775390625, 931.0413208007812) is pinned in the module only so that composing it can be REFUSED by name, and it appears nowhere in the scenario file.  THERE IS NO LETHAL HALF: no hp = 0 frame, no BasicAttr bit 0x0080 death timer, no dying latch and no clamp -- a move that would reach the floor is a named refusal rather than a clamp, the lethal step register and the timer map are both empty by design and the plan validator refuses them non-empty.",
    "scope": "Wire layer only, behind one opt-in flag, mutually exclusive with every other lane; production_allowed false in both the module and the scenario file.  The lane composes seven frames for one identity and returns them; it opens no socket, writes no row and adds no HP column.  The byte pins are TWO STRENGTHS and the difference is structural to this lane: every frame carries three f32s derived from the live player position, so the SIZE pins hold for every session while the sha pins hold only at the probe geometry (frozen V135 spawn plus the scenario offsets) and, on the three hit frames, only for the probe performer 0x10010001.  Each build therefore recomposes the whole sweep at the probe geometry and holds THAT to the hashes, so a drifted encoder cannot ship even once.",
    "status": "active",
-   "provenance": "Opened by chief cloud round R162 on 2026-08-25 under the owner's standing damage-model approval of 2026-08-19 11:45 and the standing pre-approval for gameplay lanes built to the house pattern.  Designed in the GT-035 ticket by round R159 and constrained by the bridge letter of 2026-08-25 10:10 (+07:00), which required the player-relative placement to be a precondition of the lane rather than a choice at boot time.  HYP-PF-029 is at 3/3 versions with extension_approval_ref null, which is why this is a new entry rather than a fourth version of that lane.",
+   "provenance": "Opened by chief cloud round R162 on 2026-08-25 under the owner's standing damage-model approval of 2026-08-19 11:45 and the standing pre-approval for gameplay lanes built to the house pattern.  Designed in the GT-035 ticket by round R159 and constrained by the bridge letter of 2026-08-25 10:10 (+07:00), which required the player-relative placement to be a precondition of the lane rather than a choice at boot time.  HYP-PF-029 is at 3/3 versions with extension_approval_ref null, which is why this is a new entry rather than a fourth version of that lane. CEILING NOTE (chief cloud round R167, 2026-08-25 +07:00): the three-version arithmetic in the text above was written while policy.max_related_versions was 3. The owner raised the ceiling to 5 on 2026-08-25 ~18:15 (+07:00) (pf_bridge/notes_to_chief/20260825_1815_PANYA-RULINGS-FOUR-quota-cap5-GT036-lethal-scoped-GT030-rerun.md). That raise changed NO tracked_versions list anywhere, so every version this text counts as spent is still spent; only the number of REMAINING slots moved. Read the budget against max_versions, never against the word three. The sentence is kept as written because it is the record of a decision taken under the old ceiling.",
    "evidence_refs": [
     "scenarios/hostile_hp_link_hypothesis_p30_sweep.json",
     "tests/test_hostile_hp_link_hypothesis.py",
@@ -3510,7 +3510,7 @@
     ],
     "decision": "1 of 3 versions consumed by HOSTILE-HP-LINK-001 (chief cloud round R162, 2026-08-25).  TWO remain.  The first of them is expected to be the death half GT-036 asks for -- a ladder that reaches the floor plus the dying latch and death task shapes HYP-PF-023 already proved -- and it must not be opened until GT-035 has been read by a human at the client.  AMENDED (chief cloud round R164, 2026-08-25): that precondition is now DISCHARGED -- GT-035 ran and passed its client-observable layer.  IT IS NOT AN APPROVAL.  Lifting HP_FLOOR = FORBIDDEN changes a guard on a lane that is already proven and merged, which is an owner decision under the project's policy 3, and the owner has NOT ruled on it.  The death half stays shut until that ruling exists and is cited here by letter name.  Do not read the discharge of the precondition as the opening of the slot."
    },
-   "max_versions": 3,
+   "max_versions": 5,
    "extension_approval_ref": null,
    "source_refs": [
     {
@@ -3587,6 +3587,89 @@
       "\"position_mode\": \"player_relative\"",
       "this_is_our_design_not_the_original_servers_which_is_unrecoverable",
       "the_runtime_dispatch_branch_is_driven_headless_in_this_tree_and_over_tcp_only_in_an_attended_round_never_in_production"
+     ],
+     "active_claim_marker": false
+    }
+   ]
+  },
+  {
+   "id": "HYP-PF-039",
+   "kind": "protocol_hypothesis",
+   "introduced_checkpoint": "GROUND-LOOT-NAMEPROP-001",
+   "exact_value_or_transform": "Behind the explicit name-property opt-in scenario only (scenarios/ground_loot_nameprop_probe.json, id ground_loot_nameprop_probe, loaded through --ground-loot-nameprop-scenario, which requires an explicit existing --db and is mutually exclusive with every other scenario mode INCLUDING HYP-PF-032's ground-loot lane and the allow-listed sets that lane belongs to), emit TWO extra GSCN_RunTimeProtocolRes frames at the house scene-load moment (first exact TargetPos after the runtime ack), exactly once per session, ONE element per frame, at THE SAME position and carrying THE SAME payload dword: a CONTROL and a TREATMENT.  Both frames are msg id 0x6E9D, version 4, inherited VitalData mask 0, DERIVED change-mask bit 0x08 (the 0x5F85B0 list at client +0x20), tag12 u16 count 1, one element.  The CONTROL element (key 3, delay 0.0) carries dirty mask 0x12 -- exactly the shape HYP-PF-032 already ships -- so it names no selector field and the client falls through to the DEFAULT UI text property 0x34.  The TREATMENT element (key 4, scheduler delay 1.50) carries dirty mask 0x3A: the same dword and position PLUS tag05 u8 name-property GATE 1 at +0x1B (bit 0x08) and tag08 u8 name-property INDEX 6 at +0x1A (bit 0x20), in the codec's own ascending-bit field order -- dword, gate, the three tag2A f32, index.  Payload dword 2200423 on both, x = trigger + 30.0 on both, Y and Z the trigger's own on both.  THE ONLY VARIABLE IS WHETHER THE TWO SELECTOR FIELDS ARE PRESENT.  Index 6 and not 1 because the element ctor at [0x005F82C0,0x005F83F9) already leaves +0x1A = 1, so gate=1,index=1 would be indistinguishable at the client from gate=1 with no index sent.  Because the masks differ the two frames differ in length and in coordinate spans, and EVERY pin is therefore per element: the control is pc 44 / frame 54 with coordinate payload bytes at [30:34]/[35:39]/[40:44], masked-template sha256 8657614E33073F5C1969AA6CB1FEAA441E0A1ED011F38AD13B22270183B8E26D and frame FB419334817234FFEA7A2A8A498E2C24DF7D223915783D5CBFBB87B2866BAD9D; the treatment is pc 48 / frame 58 with coordinate payload bytes at [32:36]/[37:41]/[42:46], masked-template sha256 34E4D5B285258FD8BE929704195F2C704B6B25A03ECDDC9F41C2D8E42C115FF2 and frame A91392DDC1F092DDFE7F5897E2A38CAB9C7C93646BB06BA5248F5161578E1D07.  Single-element frames are the V43 lesson restated, not convenience: a real client raised ErrorData=28317 on a combined multi-record derived-mask RuntimeRes collection and the shipped fix is one record per frame (make_port_royal_npc_single_packets).  THE 1.50 IS A SCHEDULER DEADLINE OFFSET AND NOT A WIRE GAP: the frozen v141 send loop accumulates an absolute deadline and a zero-delay action does not advance it, so realized_gap is about 1.50 minus however late the control frame was actually sent.  The project's own capture measures that lateness at about 85 ms on the sibling lane's 2026-08-25 pair (delays 0.0 and 0.10, realized 42 ms), which puts this lane's realized gap at about 1.41-1.44 s.  NO LAYER IN THIS TREE MEASURES THE REALIZED GAP -- only the attended capture can.  The offset buys margin: the label's measured lifetime is 0.2-0.4 s with +/-0.1 s of edge error, so even at three times the observed lateness the two labels cannot overlap and a video timestamp alone attributes each one; it also rules out the confound that a frame arriving 42 ms later DELETED the first element, if the client reads a count=1 collection as a complete list.  The composer refuses, by name and before composing, an element whose declared mask and written fields disagree in either direction (those guards are live, not decorative, because this lane emits two different masks), a gate of zero, an index outside the client's accepted 1..6 window, and an element count that does not match the pinned templates (zip would otherwise truncate and emit an unpinned element).  The frames RIDE ALONGSIDE the inherited dispatch of the triggering TargetPos (appended after super()'s actions), so the frozen population and the position checkpoint stay byte-for-byte untouched.  A compose refusal at dispatch is the named no-reply event ground_loot_nameprop_compose_refused_no_reply and latches the one-shot so drift can never retry itself onto the wire.",
+   "scope": "Server-side emission of the two pinned single-element frames to the ONE connected client, behind the one opt-in scenario only, only at the first exact TargetPos after runtime ack from a runtime-ready session (selected character, teleport_sent and runtime_ack_sent both set, durable TargetPos parse), exactly once per session.  The lane writes no database row of its own, takes no socket action, schedules no timer, reads no request byte beyond the shared TargetPos parse the baseline already performs, and composes nothing when the scenario is absent.  It has its OWN one-shot latch (ground_loot_nameprop_sent) and never reads or writes HYP-PF-032's latch; the two lanes cannot share a boot, so no observation can be ambiguous between them.  The envelope is restated unchanged from the proven sibling; what is new is the treatment element's dirty mask and the two fields that mask names.",
+   "status": "active",
+   "provenance": "Built 2026-08-25 (chief cloud round R165) on the newly pinned client function RE-067 reported (static, closed 2026-08-25 16:26 +07:00, verifier 54/54, client image sha256 9627211412ac60d50ad189ce5a629443ce928ec23a9f8d219dfb2b157028b623): CREATE selects the label's UI text property at [0x005F47FE,0x005F4822) and UPDATE at [0x005F4D04,0x005F4D5D), both through setter 0x005BACF0; the selection gates on element +0x1B and pushes the default property 0x34 when it is zero; when it is not zero it reads element +0x1A as a signed index, accepts only 1..6, and maps it through dword [index*4+0x00F30EC4] to 0x5D..0x62; the element ctor at [0x005F82C0,0x005F83F9) leaves +0x1B = 0 and +0x1A = 1; and the list codec [0x005F85B0,0x005F8869) sha256 ce0a58f7.. carries +0x1B under dirty-mask bit 0x08 and +0x1A under bit 0x20.  The codec's field order and tags are independently corroborated in this project by pf_bridge/external/PF_SERIALIZER_FIELDS.tsv, which pins the same write path in emission order.  HYP-PF-032 has only ever sent element mask 0x12, so neither selector field has ever been on the wire and every label this project has drawn was drawn with the default property.  THIS ENTRY IS NOT AUTHORISED BY THE STANDING GAMEPLAY PRE-APPROVAL AND MUST NOT BE MERGED ON IT.  An adversarial review of round R165 established the distinction that decides it: HYP-PF-029's expiry decision says a further widening needs 'a new entry OR a scoped approval', which is what authorised HYP-PF-038 as a fresh entry at 3/3; HYP-PF-032's expiry decision says 'ANY FURTHER WIRE CHANGE TO THIS LANE NEEDS AN EXTENSION DECISION FROM THE OWNER FIRST' and contains no new-entry clause at all, while its stop_rule names 'other element masks (0x04/0x08/0x20 fields stay unsent)' as precisely the frozen dimension this lane moves.  A separate lane on the SAME derived bit, through the SAME client parser 0x5F85B0, on those very fields, is a dependent version by every test available, and the project's policy text permits no new dependent version until a scoped approval, proof or retirement.  The lane is therefore built, proven at the wire and dispatcher layers, and PUSHED FOR THE OWNER'S RULING: she decides whether this becomes a fourth tracked version of HYP-PF-032 with a scoped extension_approval_ref naming HYP-PF-032 and ending at that checkpoint (the route tools/verify_hypothesis_ledger.py already enforces), stays a separate entry, or is retired.  Round R165's letter puts that question to her directly. CEILING NOTE (chief cloud round R167, 2026-08-25 +07:00): the three-version arithmetic in the text above was written while policy.max_related_versions was 3. The owner raised the ceiling to 5 on 2026-08-25 ~18:15 (+07:00) (pf_bridge/notes_to_chief/20260825_1815_PANYA-RULINGS-FOUR-quota-cap5-GT036-lethal-scoped-GT030-rerun.md). That raise changed NO tracked_versions list anywhere, so every version this text counts as spent is still spent; only the number of REMAINING slots moved. Read the budget against max_versions, never against the word three. The sentence is kept as written because it is the record of a decision taken under the old ceiling. CORRECTION (R167): where this text says HYP-PF-032 contains no new-entry clause at all, read instead: its expiry.decision has none, its stop_rule has one ('-- or a new entry'). The two fields disagree; that ambiguity, not a prohibition, is what sent the question to the owner.",
+   "evidence_refs": [
+    "scenarios/ground_loot_nameprop_probe.json",
+    "tests/test_ground_loot_nameprop_hypothesis.py",
+    "tools/pf_ground_loot_nameprop_headless_replay.py"
+   ],
+   "accepted_ceiling": "Emitting the exact two pinned frames -- control pc 44 / frame 54, treatment pc 48 / frame 58 -- exactly once, behind the explicit opt-in only.  The ceiling is the WIRE and DISPATCHER layer: the frames are proven to leave the real make_state_class dispatcher on a throwaway copy of the database as two appended actions with no socket action, and are re-read from the dispatched bytes by an independent tag walker inside tools/pf_ground_loot_nameprop_headless_replay.py that never asks the module to decode -- the walker reads the gate byte and the index byte back out by hand, which is the only in-repo proof those fields are on the wire at all, and it is driven by tests/test_ground_loot_nameprop_hypothesis.py as a subprocess so that its guard count is a number something actually executes.  The same tool proves the control and the treatment share a byte-identical payload dword and byte-identical coordinates and differ ONLY in the element key, the mask byte and the two selector fields.  It does NOT reach the client layer by one millimetre: no claim that the client parses mask 0x3A, keeps the element, draws a label, or gives it any particular appearance is made or supported here.",
+   "evidence_gap": "NO CLIENT HAS EVER BEEN SHOWN ELEMENT MASK 0x3A by this project or by anyone we can observe.  Beyond that, three gaps must not be collapsed into one: (1) the join between the STATIC CREATE path and the CLIENT-OBSERVABLE floating label has never been made -- two layers agreeing is consistency, not proof, and if the observed label is a different widget this lane returns a negative for the wrong reason; (2) nothing at any layer says what UI text property 0x34 or 0x5D..0x62 MEAN -- they may select font, size, style, alignment or a whole preset, and RE-067 forbids by name the join to CONSTDATA_TH__FONT_COLOR.n_ID 1..57 because the numbers merely look similar; (3) the CREATE-selector half of this lane's foundation is SINGLE-SOURCE and not checkable at HEAD, because RE-067's verifier is not in version control -- no layer in this repository can re-derive 0x005F47FE, the gate compare, the 1..6 range check, the 0x00F30EC4 table or the 0x005BACF0 setter, and only the codec order and tags are independently corroborated.  The realized wire gap between the two frames is likewise unmeasured by anything here.",
+   "falsification": "Retire or redesign this lane if the emitted bytes ever stop reproducing the pinned pcs/frames, or if it is ever observed to write any database row, take any socket action, emit more than the two frames per session, emit with the scenario absent, or share a boot with HYP-PF-032.  A client that draws the CONTROL label and not the TREATMENT label does not falsify the wire claim -- it answers the V43 question for this shape, namely that this client rejects an element mask of 0x3A on this list, and that is a result.  A client that draws both with the same appearance answers the lane's own question in the negative, cleanly, because the control proves the pipe was alive.  A client that draws neither is a failed session or a geometry failure and is NOT a negative about the selector.  Retire this entry on the owner's word if she rules that a separate lane on HYP-PF-032's frozen element fields circumvents the ceiling she set.",
+   "stop_rule": "Emit only the two pinned frames, only at the first exact TargetPos after runtime ack, only once per session, only behind the one opt-in scenario file.  What is forbidden is WIDENING: more elements or frames, a multi-element count in one frame (the V43-rejected shape), the remaining element field 0x04 (+0x18), another derived bit, any nonzero inherited mask, an index outside 1..6, a gate of zero, a second geometry or timing profile, any database write, any socket action, an update or removal frame, a production or default-mode path, or composing this lane into a shared boot with any other lane -- each of those is a NEW VERSION of this entry.  Reaching the UPDATE path, where RE-067 measured that n_QUALITY can override the index, is a NEW VERSION and not a widening of this one: this lane only ever sends CREATE.  And no version of this entry may be opened at all while the owner's ruling described in provenance is outstanding.",
+   "production_allowed": false,
+   "expiry": {
+    "tracked_versions": [
+     "GROUND-LOOT-NAMEPROP-001"
+    ],
+    "decision": "1 of 3 versions consumed by GROUND-LOOT-NAMEPROP-001 (chief cloud round R165, 2026-08-25); one round built the whole lane (module + scenario + app/runtime wiring + tests + headless replay) at once.  TWO remain, AND NONE OF THEM MAY BE OPENED UNTIL THE OWNER HAS RULED ON WHETHER THIS ENTRY SHOULD EXIST AT ALL.  That question is not rhetorical and it is not the author's to answer: HYP-PF-032 stands at 3/3 with extension_approval_ref null, its expiry decision demands an owner extension decision for ANY further wire change to that lane and -- unlike HYP-PF-029's -- offers no 'or a new entry' alternative, and its stop_rule freezes the exact element fields this lane sends.  The sanctioned route, if the owner grants it, is to append GROUND-LOOT-001-v4-name-property-selector as HYP-PF-032's fourth tracked version together with an extension_approval_ref naming HYP-PF-032 and ending at that checkpoint, which tools/verify_hypothesis_ledger.py already validates.  If she rules the other way, retire this entry and delete the lane; the cost is one round and nothing on main has to be undone, which is why the code was pushed to a branch for review rather than merged.  Proven offline and through the real dispatcher on a throwaway database copy; never driven over TCP and never seen by a client. CEILING NOTE (chief cloud round R167, 2026-08-25 +07:00): the three-version arithmetic in the text above was written while policy.max_related_versions was 3. The owner raised the ceiling to 5 on 2026-08-25 ~18:15 (+07:00) (pf_bridge/notes_to_chief/20260825_1815_PANYA-RULINGS-FOUR-quota-cap5-GT036-lethal-scoped-GT030-rerun.md). That raise changed NO tracked_versions list anywhere, so every version this text counts as spent is still spent; only the number of REMAINING slots moved. Read the budget against max_versions, never against the word three. The sentence is kept as written because it is the record of a decision taken under the old ceiling. BUDGET NOTE (R167): the owner granted this entry 'its own budget of 3 versions' and 'HYP-PF-039 starts at 1/3' at ~17:5x (+07:00). The ceiling ruling of ~18:15 was stated over the 46 entries that existed when she measured; this entry is the 47th and was outside that measurement. max_versions reads 5 here only because the ledger verifier requires ONE exact ceiling for every entry -- THAT IS CHIEF'S INFERENCE, NOT THE OWNER'S WORDS, and it is labelled as such rather than carried as if she had said it. Until she says otherwise this lane is worked as 1 OF 3: versions 4 and 5 must not be opened. MERGE NOTE (R167): the blocking sentence above is spent and is kept only as record. The owner ruled at ~17:5x (+07:00) that this entry should exist, as a new entry; chief cloud round R167 merged the lane. Nothing here waits on the owner any more -- the open question is the attended GT-069. CORRECTION (R167): the claim above that HYP-PF-032 'offers no or-a-new-entry alternative' is TOO STRONG, and is corrected here rather than deleted. HYP-PF-032's expiry.decision indeed has no such clause, but its stop_rule ends '... needs an owner extension decision FIRST -- or a new entry.' Holding this lane for an owner ruling was still the right posture, and she did rule; but the reason must be read as 'the two fields of HYP-PF-032 disagree with each other', not as 'HYP-PF-032 forbids a new entry'."
+   },
+   "max_versions": 5,
+   "extension_approval_ref": null,
+   "source_refs": [
+    {
+     "path": "src/pirateforce_foundation/ground_loot_nameprop_hypothesis.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-039 active",
+      "GROUND_LOOT_NAMEPROP_CHECKPOINT = \"GROUND-LOOT-NAMEPROP-001\"",
+      "ground_loot_nameprop_probe",
+      "GROUND_LOOT_NAMEPROP_DERIVED_BIT = 0x08",
+      "GROUND_LOOT_NAMEPROP_CONTROL_MASK = 0x12",
+      "GROUND_LOOT_NAMEPROP_TREATMENT_MASK = 0x3A",
+      "GROUND_LOOT_NAMEPROP_TREATMENT_DELAY = 1.50",
+      "ui_text_property_is_a_colour",
+      "static_create_path_is_the_widget_the_observer_sees",
+      "scheduler_delay_is_a_wire_gap",
+      "production_allowed = False"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "src/pirateforce_foundation/runtime.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-039 active",
+      "GROUND_LOOT_NAMEPROP_LABELS",
+      "hyp_pf_039_ground_loot_nameprop_pair_committed",
+      "ground_loot_nameprop_compose_refused_no_reply",
+      "self.ground_loot_nameprop_sent = False",
+      "require_ground_loot_nameprop_scenario"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "src/pirateforce_foundation/app.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-039 active",
+      "--ground-loot-nameprop-scenario requires an explicit ",
+      "load_ground_loot_nameprop_scenario",
+      "ground_loot_nameprop_scenario=ground_loot_nameprop"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "scenarios/ground_loot_nameprop_probe.json",
+     "required_markers": [
+      "\"hypothesis_id\": \"HYP-PF-039\"",
+      "\"production_allowed\": false",
+      "\"test_only\": true",
+      "\"element_mask_hex\": \"0x12\"",
+      "\"element_mask_hex\": \"0x3A\"",
+      "ui_text_property_is_a_colour",
+      "client_accepts_element_mask_0x3A",
+      "actor_name_label_appearance",
+      "first_target_pos_after_runtime_ack"
      ],
      "active_claim_marker": false
     }

@@ -132,10 +132,12 @@ short of `complete`. A narrow fixture, golden, or single controlled run earns
 - Deterministic source archive verification: implemented and excluded from Git.
 - `docs/HYPOTHESIS_LEDGER.json` is the canonical inventory for every emitted
   guessed value, diagnostic value, retired candidate, and synthetic geometry.
-  Its strict verifier pins 15 known entries, evidence markers, three-version
-  expiry, `production_allowed=false`, and `authentic=false` for geometry.
-  No current entry has an extension approval. Every entry beyond three related
-  versions is frozen or `expired_pending_decision`; SCENE-005 faction 1 and the
+  Its strict verifier pins 15 known entries, evidence markers, five-version
+  expiry (three until the owner raised the ceiling on 2026-08-25 ~18:15 +07:00), `production_allowed=false`, and `authentic=false` for geometry.
+  No current entry has an extension approval. Every entry beyond five related
+  versions is frozen or `expired_pending_decision` (the bound was three before
+  2026-08-25; entries frozen below the ceiling by a specific owner ruling, such as
+  HYP-PF-032, stay frozen regardless of the arithmetic); SCENE-005 faction 1 and the
   SCENE-007 ActionVital acknowledgement are frozen, and no new dependent version
   may layer on any expired entry without proof, retirement, or a future approval
   scoped to exact ledger IDs and an approved-through checkpoint.

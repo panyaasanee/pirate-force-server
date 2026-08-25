@@ -13,6 +13,9 @@ from .delete_refresh_hypothesis import load_delete_refresh_hypothesis_scenario
 from .ground_loot_hypothesis import (
     load_ground_loot_hypothesis_scenario,
 )
+from .ground_loot_nameprop_hypothesis import (
+    load_ground_loot_nameprop_scenario,
+)
 from .item_move_capture import load_item_move_capture_scenario
 from .item_move_hypothesis import load_item_move_hypothesis_scenario
 from .learn_skill_request_hypothesis import (
@@ -111,6 +114,7 @@ def main() -> int:
     pre.add_argument('--npc-hp-link-hypothesis-scenario')
     pre.add_argument('--move-authority-hypothesis-scenario')
     pre.add_argument('--ground-loot-hypothesis-scenario')
+    pre.add_argument('--ground-loot-nameprop-scenario')
     pre.add_argument('--learn-skill-result-hypothesis-scenario')
     pre.add_argument('--learn-skill-request-hypothesis-scenario')
     pre.add_argument('--skill-attr-hypothesis-scenario')
@@ -154,6 +158,22 @@ def main() -> int:
             known.ground_loot_hypothesis_scenario
         )
         if known.ground_loot_hypothesis_scenario else None
+    )
+    # PF-HYPOTHESIS-LEDGER: HYP-PF-039 active
+    # GROUND-LOOT-NAMEPROP-001.  A SEPARATE lane from the one above and
+    # never composable with it.  Behind this flag the dispatcher emits two
+    # bit-0x08 frames whose element mask is 0x3A, carrying the name-property
+    # GATE (+0x1B) and INDEX (+0x1A) that RE-067 pinned and that the lane
+    # above has never once sent, so an attended tester can answer GT-069 --
+    # does the selector change the colour of the floating item name label?
+    # With the flag absent the boot is byte-for-byte the production
+    # baseline.  Refused alongside every other mode and demands an explicit
+    # existing --db.
+    ground_loot_nameprop = (
+        load_ground_loot_nameprop_scenario(
+            known.ground_loot_nameprop_scenario
+        )
+        if known.ground_loot_nameprop_scenario else None
     )
     # PF-HYPOTHESIS-LEDGER: HYP-PF-033 active
     # LEARN-SKILL-RESULT-001.  Behind this flag one accepted chat-input frame
@@ -438,6 +458,7 @@ def main() -> int:
             ("npc_hp_link_hypothesis_scenario", npc_hp_link_hypothesis),
             ("move_authority_hypothesis_scenario", move_authority_hypothesis),
             ("ground_loot_hypothesis_scenario", ground_loot_hypothesis),
+            ("ground_loot_nameprop_scenario", ground_loot_nameprop),
             ("learn_skill_result_hypothesis_scenario",
              learn_skill_result_hypothesis),
             ("learn_skill_request_hypothesis_scenario",
@@ -469,6 +490,7 @@ def main() -> int:
             '--npc-hp-link-hypothesis-scenario/'
             '--move-authority-hypothesis-scenario/'
             '--ground-loot-hypothesis-scenario/'
+            '--ground-loot-nameprop-scenario/'
             '--learn-skill-result-hypothesis-scenario/'
             '--learn-skill-request-hypothesis-scenario/'
             '--skill-attr-hypothesis-scenario/'
@@ -547,6 +569,11 @@ def main() -> int:
             '--ground-loot-hypothesis-scenario requires an explicit '
             'existing --db'
         )
+    if ground_loot_nameprop is not None and not known.db:
+        pre.error(
+            '--ground-loot-nameprop-scenario requires an explicit '
+            'existing --db'
+        )
     if learn_skill_result_hypothesis is not None and not known.db:
         pre.error(
             '--learn-skill-result-hypothesis-scenario requires an explicit '
@@ -618,6 +645,8 @@ def main() -> int:
             if npc_hp_link_hypothesis is not None else
             'ground-loot-hypothesis'
             if ground_loot_hypothesis is not None else
+            'ground-loot-nameprop'
+            if ground_loot_nameprop is not None else
             'learn-skill-result-hypothesis'
             if learn_skill_result_hypothesis is not None else
             'learn-skill-request-hypothesis'
@@ -664,6 +693,7 @@ def main() -> int:
         or npc_hp_link_hypothesis is not None
         or move_authority_hypothesis is not None
         or ground_loot_hypothesis is not None
+        or ground_loot_nameprop is not None
         or learn_skill_result_hypothesis is not None
         or learn_skill_request_hypothesis is not None
         or skill_attr_hypothesis is not None
@@ -691,6 +721,7 @@ def main() -> int:
             or npc_hp_link_hypothesis is not None
             or move_authority_hypothesis is not None
             or ground_loot_hypothesis is not None
+            or ground_loot_nameprop is not None
             or learn_skill_result_hypothesis is not None
             or learn_skill_request_hypothesis is not None
             or skill_attr_hypothesis is not None
@@ -761,6 +792,10 @@ def main() -> int:
         # GROUND-LOOT-001.  None unless the flag was handed in, and
         # make_state_class refuses it alongside every other mode a second time.
         ground_loot_hypothesis_scenario=ground_loot_hypothesis,
+        # GROUND-LOOT-NAMEPROP-001.  None unless the flag was handed in,
+        # and make_state_class refuses it alongside every other mode a
+        # second time.
+        ground_loot_nameprop_scenario=ground_loot_nameprop,
         # LEARN-SKILL-RESULT-001.  None unless the flag was handed in, and
         # make_state_class refuses it alongside every other mode a second time.
         learn_skill_result_hypothesis_scenario=learn_skill_result_hypothesis,

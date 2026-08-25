@@ -30,8 +30,10 @@ not override them.
   hypothesis, operational negative, and superseded claim.
 - Read `docs/HYPOTHESIS_LEDGER.json` before adding or inheriting any guessed
   value. Every value must be registered with falsification and a stop rule,
-  remain non-production, and be proved, retired, or frozen after at most three
-  related versions. No current entry has extension approval. A future approval
+  remain non-production, and be proved, retired, or frozen after at most five
+  related versions.  The ceiling was three until the owner raised it on
+  2026-08-25 ~18:15 (+07:00); the ledger `policy_text` carries that history,
+  and an entry frozen below the ceiling by a specific ruling stays frozen. No current entry has extension approval. A future approval
   is valid only when it names exact ledger IDs and an approved-through
   checkpoint. SCENE-005 faction 1 and the SCENE-007 acknowledgement are frozen;
   do not add another dependent version to either or any expired entry.
