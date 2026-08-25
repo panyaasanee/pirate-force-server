@@ -11,6 +11,7 @@ reason this module refuses to promise a crowded screen.  If the table ever
 becomes dense, that promise can change - loudly, here, not quietly in prose.
 """
 
+import dataclasses
 import json
 from pathlib import Path
 import sys
@@ -29,6 +30,10 @@ from pirateforce_foundation.population import (
 )
 from pirateforce_foundation.world_population import (
     CENSUS_COUNT,
+    WorldPopulationGeneration,
+    census_console_line,
+    census_shortfall_reason,
+    dispatch_report,
     DEFAULT_ACTOR_COUNT,
     INITIAL_REAPPLY_MS,
     SHIPPED_ISOLATED_INDICES,
@@ -70,7 +75,7 @@ class WorldPopulationTests(unittest.TestCase):
         shipped_pc, shipped_frame, shipped_rows = (
             self.legacy.make_v112_monster_shop_population_state()
         )
-        rung = build_world_population(self.legacy, self.anchor, 3)
+        rung = build_world_population(self.legacy, self.anchor, 3, scene_id=1)
         self.assertEqual(rung.pc, shipped_pc)
         self.assertEqual(rung.frame, shipped_frame)
         self.assertEqual(rung.indices, tuple(row[0] for row in shipped_rows))
@@ -80,9 +85,9 @@ class WorldPopulationTests(unittest.TestCase):
 
     def test_the_control_rung_is_anchor_invariant(self) -> None:
         """Which is what makes it a control - and also its only limitation."""
-        first = build_world_population(self.legacy, self.anchor, 3)
+        first = build_world_population(self.legacy, self.anchor, 3, scene_id=1)
         for other in (self.spawn, self.far, (0.0, 0.0, 0.0)):
-            self.assertEqual(build_world_population(self.legacy, other, 3).pc, first.pc)
+            self.assertEqual(build_world_population(self.legacy, other, 3, scene_id=1).pc, first.pc)
 
     # --- the honesty pin -------------------------------------------------
 
@@ -110,22 +115,22 @@ class WorldPopulationTests(unittest.TestCase):
 
     def test_nesting_break_catches_rungs_built_at_different_anchors(self) -> None:
         """The real threat: one boot per rung means one anchor per rung."""
-        low = build_world_population(self.legacy, self.anchor, 20)
-        high_same = build_world_population(self.legacy, self.anchor, 60)
+        low = build_world_population(self.legacy, self.anchor, 20, scene_id=1)
+        high_same = build_world_population(self.legacy, self.anchor, 60, scene_id=1)
         self.assertIsNone(nesting_break((low, high_same)))
 
         # An anchor on the far side of the table: at ~30,000 units away its
         # nearest-60 no longer contains the first anchor's nearest-20.
         elsewhere = (21694.0703125, -5071.00048828125, 0.0)
-        high_elsewhere = build_world_population(self.legacy, elsewhere, 60)
+        high_elsewhere = build_world_population(self.legacy, elsewhere, 60, scene_id=1)
         dropped = nesting_break((low, high_elsewhere))
         self.assertIsNotNone(dropped)
         self.assertTrue(set(dropped) <= set(low.indices))
         self.assertTrue(set(dropped).isdisjoint(set(high_elsewhere.indices)))
 
     def test_nesting_break_refuses_input_it_cannot_read(self) -> None:
-        low = build_world_population(self.legacy, self.anchor, 20)
-        high = build_world_population(self.legacy, self.anchor, 60)
+        low = build_world_population(self.legacy, self.anchor, 20, scene_id=1)
+        high = build_world_population(self.legacy, self.anchor, 60, scene_id=1)
         for bad in ((), [low, high], None):
             with self.assertRaises(ValueError):
                 nesting_break(bad)
@@ -133,7 +138,7 @@ class WorldPopulationTests(unittest.TestCase):
             nesting_break((high, low))
 
     def test_top_rung_is_the_whole_census_without_repeats(self) -> None:
-        top = build_world_population(self.legacy, self.anchor, CENSUS_COUNT)
+        top = build_world_population(self.legacy, self.anchor, CENSUS_COUNT, scene_id=1)
         self.assertEqual(top.actor_count, CENSUS_COUNT)
         self.assertEqual(len(set(top.indices)), CENSUS_COUNT)
 
@@ -148,7 +153,7 @@ class WorldPopulationTests(unittest.TestCase):
         _label, golden_pc, _frame, chosen = (
             self.legacy.make_v62_port_royal_population_snapshot(*self.anchor)
         )
-        top = build_world_population(self.legacy, self.anchor, CENSUS_COUNT)
+        top = build_world_population(self.legacy, self.anchor, CENSUS_COUNT, scene_id=1)
         self.assertEqual(set(top.indices), {row[0] for row in chosen})
         name_tag = self.legacy.wstr_tag(self.legacy.V119_P30_TARGET_NAME)
         self.assertEqual(top.pc_bytes - len(golden_pc), len(name_tag))
@@ -156,15 +161,15 @@ class WorldPopulationTests(unittest.TestCase):
         self.assertEqual(top.pc.count(name_tag), 1)
 
     def test_identities_follow_the_frozen_actor_identity_rule(self) -> None:
-        top = build_world_population(self.legacy, self.anchor, CENSUS_COUNT)
+        top = build_world_population(self.legacy, self.anchor, CENSUS_COUNT, scene_id=1)
         self.assertEqual(
             top.actor_identities,
             tuple(0x2000 + index + 1 for index in top.indices),
         )
 
     def test_build_is_deterministic(self) -> None:
-        first = build_world_population(self.legacy, self.anchor, 60)
-        second = build_world_population(self.legacy, self.anchor, 60)
+        first = build_world_population(self.legacy, self.anchor, 60, scene_id=1)
+        second = build_world_population(self.legacy, self.anchor, 60, scene_id=1)
         self.assertEqual(first.pc, second.pc)
         self.assertEqual(first.indices, second.indices)
 
@@ -190,7 +195,7 @@ class WorldPopulationTests(unittest.TestCase):
         this frame.
         """
         v94 = build_port_royal_initial_population(self.legacy, self.anchor)
-        rung = build_world_population(self.legacy, self.anchor, AUTHORITATIVE_COUNT)
+        rung = build_world_population(self.legacy, self.anchor, AUTHORITATIVE_COUNT, scene_id=1)
         self.assertEqual(set(rung.indices), set(v94.current_indices))
         self.assertNotEqual(rung.pc, v94.pc)
         self.assertNotEqual(rung.indices, v94.current_indices)
@@ -298,7 +303,7 @@ class WorldPopulationTests(unittest.TestCase):
     def test_actor_count_is_bounded_by_the_census(self) -> None:
         for bad in (0, -1, CENSUS_COUNT + 1, 3.0, "3", None, True):
             with self.assertRaises(ValueError):
-                build_world_population(self.legacy, self.anchor, bad)
+                build_world_population(self.legacy, self.anchor, bad, scene_id=1)
 
     def test_anchor_must_be_an_exact_finite_triple(self) -> None:
         for bad in (
@@ -307,7 +312,7 @@ class WorldPopulationTests(unittest.TestCase):
             (0.0, 0.0, "0"), (0.0, 0.0, 1e39),
         ):
             with self.assertRaises(ValueError):
-                build_world_population(self.legacy, bad, 3)
+                build_world_population(self.legacy, bad, 3, scene_id=1)
 
     def test_rungs_must_be_a_strictly_increasing_tuple_of_counts(self) -> None:
         for bad in (
@@ -340,6 +345,164 @@ class WorldPopulationTests(unittest.TestCase):
         drifted.V112_MONSTER_INDEX = 31
         with self.assertRaises(ValueError):
             census_order(drifted, self.anchor)
+
+
+class CensusDispatchCountTests(unittest.TestCase):
+    """CHARTER-02 replaced the staircase with a pre-send count.
+
+    The ruling has a hard half: the number that goes out must never quietly
+    become something other than the whole census.  "Quietly" includes a frame
+    that SAYS 115 while carrying fewer bodies, which is why these tests care
+    about the wire header and the body bytes and not only about the list this
+    module built.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+        cls.spawn = (
+            cls.legacy.V135_PLAYER_X,
+            cls.legacy.V135_PLAYER_Y,
+            cls.legacy.V135_PLAYER_Z,
+        )
+
+    def test_the_full_census_reports_no_shortfall(self) -> None:
+        generation = build_world_population(
+            self.legacy, self.spawn,
+            scene_id=1, count_source=world_population.COUNT_SOURCE_FULL_CENSUS,
+        )
+        report = dispatch_report(generation)
+        self.assertEqual(report["assembled_count"], CENSUS_COUNT)
+        self.assertEqual(report["wire_actor_count"], CENSUS_COUNT)
+        self.assertTrue(report["counts_agree"])
+        self.assertTrue(report["bodies_intact"])
+        self.assertIsNone(report["shortfall_reason"])
+        self.assertEqual(report["initial_reapply_ms"], INITIAL_REAPPLY_MS)
+
+    def test_the_wire_count_is_read_back_out_of_the_bytes(self) -> None:
+        """Not copied from the request - decoded from the header the client reads."""
+        for count in (1, 3, 20, CENSUS_COUNT):
+            generation = build_world_population(
+                self.legacy, self.spawn, count, scene_id=1)
+            self.assertEqual(
+                world_population.wire_actor_count(generation), count)
+        # and it refuses bytes that are not that header rather than guessing
+        broken = build_world_population(self.legacy, self.spawn, 3, scene_id=1)
+        with self.assertRaises(ValueError):
+            world_population.wire_actor_count(
+                dataclasses.replace(broken, pc=b"\x00" * 8))
+
+    def test_a_frame_that_lost_a_body_cannot_print_a_clean_line(self) -> None:
+        """The defect this report exists to catch, reproduced end to end.
+
+        A dropped actor body leaves the collection header saying N while N-1
+        bodies follow - a RuntimeRes stream-tail misalignment, which is what
+        ErrorData=28317 answers.  A report that counted only its own input
+        would print 115/115 over exactly this frame.
+        """
+        honest = build_world_population(self.legacy, self.spawn, scene_id=1)
+        last = honest.entry_bytes[-1]
+        maimed = dataclasses.replace(honest, pc=honest.pc[:-last])
+        report = dispatch_report(maimed)
+        self.assertEqual(report["assembled_count"], CENSUS_COUNT)
+        self.assertEqual(report["wire_actor_count"], CENSUS_COUNT)
+        self.assertFalse(report["bodies_intact"])
+        self.assertEqual(
+            report["body_bytes"], report["entry_bytes_total"] - last)
+        self.assertIn("bodies=SHORT", census_console_line(maimed))
+        self.assertIn("bodies=ok", census_console_line(honest))
+
+    def test_an_actor_that_encodes_to_nothing_is_refused_at_build(self) -> None:
+        """The same defect one step earlier, where it can still be prevented."""
+        original = world_population._entry
+        calls = []
+
+        def drop_one(legacy, placement):
+            calls.append(placement.placement_index)
+            if len(calls) == 2:
+                return b""
+            return original(legacy, placement)
+
+        world_population._entry = drop_one
+        try:
+            with self.assertRaises(ValueError):
+                build_world_population(self.legacy, self.spawn, 3, scene_id=1)
+        finally:
+            world_population._entry = original
+
+    def test_the_census_refuses_to_be_built_for_another_scene(self) -> None:
+        """The acting half of the cross-build-order guard.
+
+        world_scene_travel.population_source() reports which scene the census
+        is true in; this refuses to build it anywhere else, so a caller that
+        never asks still cannot deliver bg0001 dock NPCs into another map.
+        """
+        for scene in (2, 278, 0, None, "1"):
+            with self.assertRaises(ValueError):
+                build_world_population(
+                    self.legacy, self.spawn, 3, scene_id=scene)
+        with self.assertRaises(TypeError):
+            build_world_population(self.legacy, self.spawn, 3)
+
+    def test_the_reason_for_a_short_send_is_recorded_not_inferred(self) -> None:
+        """One number, two meanings - so the caller states which one it meant."""
+        deliberate = build_world_population(
+            self.legacy, self.spawn, 20, scene_id=1,
+            count_source=world_population.COUNT_SOURCE_CALLER,
+        )
+        self.assertEqual(
+            dispatch_report(deliberate)["shortfall_reason"],
+            "caller_requested=20",
+        )
+        capped = build_world_population(
+            self.legacy, self.spawn, 20, scene_id=1,
+            count_source=world_population.COUNT_SOURCE_MEASURED_CEILING,
+        )
+        self.assertEqual(
+            dispatch_report(capped)["shortfall_reason"],
+            "measured_client_ceiling=20",
+        )
+        self.assertIsNone(census_shortfall_reason(CENSUS_COUNT))
+        with self.assertRaises(ValueError):
+            census_shortfall_reason(20, "because_i_said_so")
+
+    def test_the_dispatch_count_names_its_own_source(self) -> None:
+        self.assertEqual(
+            world_population.census_count_for_dispatch(),
+            (CENSUS_COUNT, world_population.COUNT_SOURCE_FULL_CENSUS),
+        )
+        original = world_population.MEASURED_CLIENT_ACTOR_CEILING
+        try:
+            world_population.MEASURED_CLIENT_ACTOR_CEILING = 60
+            self.assertEqual(
+                world_population.census_count_for_dispatch(),
+                (60, world_population.COUNT_SOURCE_MEASURED_CEILING),
+            )
+        finally:
+            world_population.MEASURED_CLIENT_ACTOR_CEILING = original
+
+    def test_the_console_line_is_one_ascii_line_carrying_the_count(self) -> None:
+        generation = build_world_population(
+            self.legacy, self.spawn,
+            scene_id=1, count_source=world_population.COUNT_SOURCE_FULL_CENSUS,
+        )
+        line = census_console_line(generation)
+        line.encode("ascii")
+        self.assertNotIn("\n", line)
+        self.assertIn("assembled=115/115", line)
+        self.assertIn("wire=115", line)
+        self.assertIn("shortfall=none", line)
+        self.assertIn("source=full_census", line)
+        self.assertIn(f"reapply_ms={INITIAL_REAPPLY_MS}", line)
+        short = census_console_line(
+            build_world_population(self.legacy, self.spawn, 3, scene_id=1))
+        self.assertIn("assembled=3/115", short)
+        self.assertIn("shortfall=caller_requested=3", short)
+
+    def test_the_report_refuses_anything_that_is_not_a_generation(self) -> None:
+        for bad in (None, 115, {"actor_count": 115}, [1, 2, 3]):
+            with self.assertRaises(ValueError):
+                dispatch_report(bad)
 
 
 if __name__ == "__main__":
