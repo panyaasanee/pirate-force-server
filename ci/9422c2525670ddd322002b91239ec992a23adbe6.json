@@ -1,1 +1,1 @@
-{"sha":"9422c2525670ddd322002b91239ec992a23adbe6","conclusion":"failure","event":"push","ref":"refs/heads/claude/wizardly-euler-g627j0","run_id":"32912614146","utc":"2026-08-25T23:56:37Z"}
+{"sha":"9422c2525670ddd322002b91239ec992a23adbe6","conclusion":"failure","event":"pull_request","ref":"refs/pull/47/merge","run_id":"32912618815","utc":"2026-08-25T23:58:47Z"}
