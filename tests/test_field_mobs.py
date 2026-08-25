@@ -336,13 +336,18 @@ class FieldMobTests(unittest.TestCase):
             if path.name != "field_mobs.py"
             and "field_mobs" in path.read_text(encoding="utf-8")
         )
+        # WIDENED AGAIN by MOB-DEATH-001 (lane B, 2026-08-26, round 7ptoku):
+        # the death half composes the corpse body out of this module's hostile
+        # body too, and checks its own composer against it on every call.
         self.assertEqual(
-            importers, ["mob_combat.py"], "field_mobs is wired; update the letter")
+            importers, ["mob_combat.py", "mob_death.py"],
+            "field_mobs is wired; update the letter")
         for dispatch in ("runtime.py", "app.py"):
             body = (ROOT / "src/pirateforce_foundation" / dispatch).read_text(
                 encoding="utf-8")
             self.assertNotIn("field_mobs", body)
             self.assertNotIn("mob_combat", body)
+            self.assertNotIn("mob_death", body)
         self.assertEqual(PLAYER_PAIR_FACTION, 1)
         self.assertEqual(FIELD_MOB_FACTION, 6)
 
