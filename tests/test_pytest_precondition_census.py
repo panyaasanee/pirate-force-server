@@ -601,11 +601,16 @@ class WindowsGateExclusionPinTests(unittest.TestCase):
 
     WHAT IS AND IS NOT PINNED, stated here because a half-closed hole reads like
     a closed one:
-      * only the SIZE of the list is pinned.  One module drifting in on its own,
-        or out on its own, is red.  One in AND one out in the same commit keeps
-        the count and stays GREEN.  Pinning membership instead would mean
-        editing this pin on every new lane, which is more than the ruling asked
-        for; the count is the cheap half and it is the half that was drifting.
+      * the SIZE and the sorted MEMBERSHIP of the list are both pinned (R172,
+        COO order 2026-08-25 23:35 +07:00).  R170 pinned the size alone and said
+        so honestly: one module in AND one module out in the same commit kept the
+        count and stayed green.  The name list closes that swap.  What it costs
+        is stated plainly rather than discovered later - every new test module
+        mentioning the gate's pattern now has to move docs/PYTEST_SKIP_PINS.json
+        in the same commit, and the failure message below prints the diff so the
+        edit is mechanical.  The count stays beside the list as a readable
+        checksum, and test_the_pinned_count_and_the_pinned_list_agree refuses the
+        two drifting apart.
       * the list is re-derived from the workflow's own formula, so a hand-edit
         that mutates $excluded AFTER the formula runs would not move the derived
         number.  test_the_exclusion_list_is_not_mutated_after_the_formula
@@ -663,6 +668,50 @@ class WindowsGateExclusionPinTests(unittest.TestCase):
             "docs/PYTEST_SKIP_PINS.json in the same commit that moves the list, "
             "and say which module moved and why.  Current list:\n  %s"
             % (len(excluded), pin["count"], "\n  ".join(excluded)))
+
+    def test_the_modules_the_gate_hides_are_pinned_by_name(self):
+        """The half R170 left open: a swap that keeps the count.
+
+        Sets, not sequences, so a re-sorted pin file is not a failure; the
+        message prints both directions because "the list moved" without saying
+        WHICH way costs the next reader a manual diff of 48 names.
+        """
+        pin = self.pins["windows_gate_excluded_modules"]
+        excluded, _keep = self.derive()
+        pinned = set(pin["modules"])
+        derived = set(excluded)
+        self.assertEqual(
+            derived, pinned,
+            "the set of test modules the Windows gate hides no longer matches "
+            "the pinned list.\n  newly hidden (in the gate, not in the pin): "
+            "%s\n  no longer hidden (in the pin, not in the gate): %s\nA module "
+            "drifting INTO that list vanishes from the gate silently while the "
+            "gate still prints green, so move docs/PYTEST_SKIP_PINS.json in the "
+            "same commit that moves the list, and say which module moved and "
+            "why."
+            % (sorted(derived - pinned) or "none",
+               sorted(pinned - derived) or "none"))
+
+    def test_the_pinned_count_and_the_pinned_list_agree(self):
+        """Two ways of saying the same thing must not disagree in silence."""
+        pin = self.pins["windows_gate_excluded_modules"]
+        self.assertEqual(len(pin["modules"]), pin["count"])
+        self.assertEqual(
+            sorted(set(pin["modules"])), sorted(pin["modules"]),
+            "the pinned exclusion list repeats a module name")
+
+    def test_the_pinned_modules_are_real_files_outside_the_kept_list(self):
+        """A pin naming a module that no longer exists is a stale pin.
+
+        Deleting a hidden module and forgetting the pin would otherwise leave a
+        name here forever, and the set comparison above would blame the gate.
+        """
+        pin = self.pins["windows_gate_excluded_modules"]
+        _excluded, keep = self.derive()
+        for module in pin["modules"]:
+            with self.subTest(module=module):
+                self.assertTrue((ROOT / module).is_file(), module)
+                self.assertNotIn(module, keep)
 
     def test_the_module_the_gate_puts_back_is_the_pinned_one(self):
         """Re-including a module by name must not be a silent way to move the

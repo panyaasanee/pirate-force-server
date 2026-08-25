@@ -4,6 +4,11 @@
 !/README.md
 !/STATUS.md
 !/AGENTS.md
+# COO-CHARTER-02 (5): BUILD-00n that lands IS server "v n", and the version index has
+# to reach whoever clones this next - a version list that lives only on one machine is
+# the same failure round 87 recorded about reports.  Root is deny-by-default here, so a
+# new root file needs this line or it is silently never committed.
+!/SERVER_VERSIONS.md
 !/reports/
 /reports/*
 !/reports/PF_DAMAGE_MODEL001_CLIENT_HIT_RESULT_EXPECTATION_20260819.md
