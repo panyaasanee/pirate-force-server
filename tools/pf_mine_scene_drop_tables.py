@@ -36,14 +36,15 @@ rename cannot pass quietly:
      the exact string an attended observer read off the ground on 2026-08-25
      (``ground_loot_hypothesis`` docstring, GT-045 job 1135).
   2. That same row has ``n_DROPMODEL_TYPE`` NONZERO, and ``ITEM_MISC`` 1
-     ("Adventure Key", the low part of 2600001) has it ZERO.  Those two rows
-     are the two payload dwords GT-045 and GT-045 v3 actually put on the wire,
-     and the attended difference between the runs -- dust and no model for
-     2600001, a model and a name for 2200423 -- is explained by this column
-     and by nothing else this tool can see.  [OUR READING, not proven: nobody
-     has shown the client reads THIS column.  It is used here only as a
-     CONTROL on the tables, never as a claim, and the generated module says
-     so on every row.]
+     ("Adventure Key", the low part of 2600001) has it ZERO.  ~~"and the
+     attended difference between the runs is explained by this column"~~ IS
+     STRUCK, and struck rather than deleted because the first version of this
+     tool shipped it: GT-045 CLOSED-ANSWERED (chief R163, 2026-08-25) measured
+     a NAME LABEL and NO MODEL for 2200423, i.e. n_DROPMODEL_TYPE = 1 is NOT
+     enough to draw a model and this column explains nothing about drawing.
+     It stays as a CONTROL on the TABLES ONLY -- two rows whose values differ,
+     so a swapped or re-versioned data set fails here -- and the generated
+     module says on every row that it is not a claim.
   3. ``ITEM_CONSUMABLES`` 901 resolves -- the low part of 2400901, the item
      the canonical smoke backpack holds at identity 2 (RE-060 via
      ``item_operate_res_hypothesis``).
@@ -85,9 +86,12 @@ ITEM_TABLES = {
     25: ("ITEM_QUEST", "ITEM_QUEST_TIP"),
     26: ("ITEM_MISC", "ITEM_MISC_TIP"),
 }
-NORMAL_SLOTS = 30
-EQUIPMENT_ENTRIES = 20
-SPECIALLY_ENTRIES = 30
+# Slot counts are DERIVED from each header at mining time (see _column_count).
+# They are recorded here only as the values seen at HEAD, so a change shows up
+# in a diff rather than in silence.
+NORMAL_SLOTS_AT_HEAD = 30
+EQUIPMENT_ENTRIES_AT_HEAD = 20
+SPECIALLY_ENTRIES_AT_HEAD = 30
 ID_SCALE = 100000
 
 CONTROL_EQUIPMENT_ID = 423
@@ -122,29 +126,76 @@ def _key(rows: list[dict], column: str, path: Path) -> dict[str, dict]:
         if not value:
             continue
         if value in keyed:
-            raise MineError("duplicate key %r in %s" % (value, path))
+            raise MineError("duplicate key %s in %s" % (_safe(value), path))
         keyed[value] = row
     return keyed
 
 
+def _safe(value: object) -> str:
+    """A cell as pure-ASCII text, for an error message.
+
+    ``repr`` does NOT escape non-ASCII in Python 3, and the CONSTDATA name
+    columns are CJK, so printing a bad cell through %r kills the tool with a
+    UnicodeEncodeError on a code page 874 console -- exactly when the table is
+    broken and the operator needs to read the refusal (lesson 86).  The
+    docstring promised ASCII output and only the GENERATED module had it.
+    """
+    text = "" if value is None else str(value)
+    return text.encode("unicode_escape").decode("ascii")
+
+
+def _cell(row: dict, column: str, where: str) -> str:
+    """The raw cell, refusing a MISSING COLUMN rather than reading it as 0.
+
+    ``row.get(column)`` returning None is indistinguishable from an empty
+    cell, so a renamed column used to mine as a zero: rename n_MAX_1 and every
+    slot silently becomes an inverted span the roller then refuses at run time,
+    with no refusal here and no change in any digest's meaning.
+    """
+    if column not in row:
+        raise MineError(
+            "%s: the source table has no column %s; it was renamed or the "
+            "layout changed, and this tool will not mine a missing column as "
+            "zero" % (where, column))
+    return (row.get(column) or "").strip()
+
+
 def _int(row: dict, column: str, where: str) -> int:
-    raw = (row.get(column) or "").strip()
+    raw = _cell(row, column, where)
     if raw == "":
         return 0
     try:
         return int(raw)
     except ValueError:
-        raise MineError("%s: %s is not an integer (%r)" % (where, column, raw))
+        raise MineError(
+            "%s: %s is not an integer (%s)" % (where, column, _safe(raw)))
 
 
 def _float(row: dict, column: str, where: str) -> float:
-    raw = (row.get(column) or "").strip()
+    raw = _cell(row, column, where)
     if raw == "":
         return 0.0
     try:
         return float(raw)
     except ValueError:
-        raise MineError("%s: %s is not a number (%r)" % (where, column, raw))
+        raise MineError(
+            "%s: %s is not a number (%s)" % (where, column, _safe(raw)))
+
+
+def _column_count(table: dict, prefix: str) -> int:
+    """How many ``<prefix><n>`` columns the header actually has.
+
+    DERIVED, not hardcoded: the slot counts used to be constants that happened
+    to match at HEAD, so a 31st slot column would have been truncated in
+    silence.
+    """
+    row = next(iter(table.values()))
+    count = 0
+    while "%s%d" % (prefix, count + 1) in row:
+        count += 1
+    if count == 0:
+        raise MineError("no %s1 column in the source table" % prefix)
+    return count
 
 
 def _ascii(text: str) -> tuple[str, bool]:
@@ -224,7 +275,8 @@ def resolve_normal(sources: Sources, set_id: int) -> dict:
     if row is None:
         raise MineError("DROPS_NORMAL has no row %d (set %d)" % (low, set_id))
     slots = []
-    for index in range(1, NORMAL_SLOTS + 1):
+    table = sources.tables["CONSTDATA_TH__DROPS_NORMAL"]
+    for index in range(1, _column_count(table, "n_ITEM_") + 1):
         where = "DROPS_NORMAL %d slot %d" % (low, index)
         item = _int(row, "n_ITEM_%d" % index, where)
         rate = _float(row, "f_RATE_%d" % index, where)
@@ -232,6 +284,15 @@ def resolve_normal(sources: Sources, set_id: int) -> dict:
         high_qty = _int(row, "n_MAX_%d" % index, where)
         if item == 0 and rate == 0.0 and low_qty == 0 and high_qty == 0:
             continue
+        if not 0.0 <= rate <= 100.0:
+            raise MineError(
+                "%s: rate %r is outside 0..100; the roller reads these as "
+                "percentages and this tool will not ship a row it would have "
+                "to guess about" % (where, rate))
+        if low_qty > high_qty:
+            raise MineError(
+                "%s: quantity span %d..%d is inverted"
+                % (where, low_qty, high_qty))
         slots.append((index, item, rate, low_qty, high_qty))
     return {"set_id": set_id, "low_id": low, "slots": tuple(slots)}
 
@@ -245,8 +306,18 @@ def resolve_weighted(sources: Sources, set_id: int, kind: str) -> dict:
     row = sources.tables["CONSTDATA_TH__%s" % kind].get(str(low))
     if row is None:
         raise MineError("%s has no row %d (set %d)" % (kind, low, set_id))
-    count = EQUIPMENT_ENTRIES if kind == "DROPS_EQUIPMENT" else SPECIALLY_ENTRIES
+    count = _column_count(sources.tables["CONSTDATA_TH__%s" % kind], "n_ITEM_")
     where = "%s %d" % (kind, low)
+    rate = _float(row, "f_DROPS_RATE", where)
+    if not 0.0 <= rate <= 100.0:
+        raise MineError(
+            "%s: rate %r is outside 0..100" % (where, rate))
+    number_min = _int(row, "n_NUMBER_MIN", where)
+    number_max = _int(row, "n_NUMBER_MAX", where)
+    if number_min > number_max:
+        raise MineError(
+            "%s: number span %d..%d is inverted"
+            % (where, number_min, number_max))
     entries = []
     for index in range(1, count + 1):
         item = _int(row, "n_ITEM_%d" % index, where)
@@ -257,9 +328,9 @@ def resolve_weighted(sources: Sources, set_id: int, kind: str) -> dict:
     return {
         "set_id": set_id,
         "low_id": low,
-        "rate": _float(row, "f_DROPS_RATE", where),
-        "number_min": _int(row, "n_NUMBER_MIN", where),
-        "number_max": _int(row, "n_NUMBER_MAX", where),
+        "rate": rate,
+        "number_min": number_min,
+        "number_max": number_max,
         "entries": tuple(entries),
     }
 
@@ -274,15 +345,16 @@ def check_controls(sources: Sources) -> dict:
             % (CONTROL_EQUIPMENT_ID, equipment["name"], CONTROL_EQUIPMENT_NAME))
     if equipment["drop_model_type"] == 0:
         raise MineError(
-            "control 2 broke: EQUIPMENT_BASE %d has drop model type 0, but the "
-            "attended run that sent it saw a model"
+            "control 2 broke: EQUIPMENT_BASE %d no longer has a nonzero drop "
+            "model type; this is a fingerprint of the TABLES, not a claim "
+            "about drawing (GT-045 measured no model for this very row)"
             % CONTROL_EQUIPMENT_ID)
     misc = resolve_item(sources, 26 * ID_SCALE + CONTROL_MISC_ID, "control 2")
     if misc["drop_model_type"] != 0:
         raise MineError(
-            "control 2 broke: ITEM_MISC %d has drop model type %d, but the "
-            "attended run that sent it saw dust and no model"
-            % (CONTROL_MISC_ID, misc["drop_model_type"]))
+            "control 2 broke: ITEM_MISC %d no longer has drop model type 0; "
+            "the two control rows must keep differing in this column"
+            % (CONTROL_MISC_ID,))
     consumable = resolve_item(
         sources, 24 * ID_SCALE + CONTROL_CONSUMABLE_ID, "control 3")
     return {
@@ -367,10 +439,12 @@ def _render(mined: dict, digests: dict, scene: str, quest_sets: int) -> str:
     add("missing and any DROPS_QUEST row written here would be invention.")
     add("%d roster row(s) name one; they are carried without it." % quest_sets)
     add("")
-    add("``drop_model_type`` is copied for information and is NOT a claim: nobody")
-    add("in this project has shown the client reads that column.  It is the only")
-    add("column that separates the two ids attended runs put on the wire (2200423,")
-    add("a model and a name; 2600001, dust and no name), which is why it is here.")
+    add("``drop_model_type`` is copied for information and is NOT a claim, and")
+    add("in particular it is NOT the switch that makes an item model appear:")
+    add("GT-045 (CLOSED-ANSWERED 2026-08-25) put id 2200423, whose value here is")
+    add("1, on a real client's wire and measured a NAME LABEL, brown dust and NO")
+    add("MODEL AT ALL.  The column is carried as a fingerprint of the tables and")
+    add("as the pair this tool's control 2 compares; nothing more.")
     add("")
     add("SOURCES AND THEIR DIGESTS AT MINING TIME")
     for stem, digest in digests.items():

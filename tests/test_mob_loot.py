@@ -4,8 +4,8 @@ The load-bearing tests in this file are the byte tests and the primitive pins.
 
 ``test_the_element_is_byte_equal_to_the_probe_lane`` is the one that matters
 most: the ONLY reason to believe a client will do anything with this lane's
-bytes is that an attended run watched the SAME bytes draw a named object on
-the ground.  This lane re-derives that encoder instead of importing the probe
+bytes is that an attended run watched the SAME bytes make the client draw the
+item's NAME on the ground (a label, and no object -- GT-045 CLOSED-ANSWERED).  This lane re-derives that encoder instead of importing the probe
 (a scenario-gated lane a flagless build cannot reach), so if the two ever stop
 agreeing, the re-derivation is guessing and the test says so.
 
@@ -36,6 +36,8 @@ from pirateforce_foundation.legacy_bridge import load_legacy
 from pirateforce_foundation.mob_death import DeathRecord
 from pirateforce_foundation.mob_loot import (
     DROP_COORD_SPANS,
+    DROP_ENVELOPE_PIN,
+    DROP_ENVELOPE_SIZE,
     DROP_FRAME_COORD_SHIFT,
     DROP_FRAME_SIZE,
     DROP_KEY_BASE,
@@ -44,6 +46,8 @@ from pirateforce_foundation.mob_loot import (
     DROP_SCATTER_STEP,
     ELEMENT_MASK_POSITION_AND_DWORD,
     GROUND_DROP_DOES_NOT_PERSIST,
+    GROUND_LABEL_OBSERVED_LIFETIME_SECONDS,
+    NO_ITEM_MODEL_IS_DRAWN,
     MAX_DROPS_PER_KILL,
     MOB_LOOT_NONCLAIMS,
     MOB_LOOT_REFUSAL_REASONS,
@@ -77,13 +81,23 @@ from pirateforce_foundation.mob_loot import (
 
 MODULE_PATH = ROOT / "src" / "pirateforce_foundation" / "mob_loot.py"
 TABLE_PATH = ROOT / "src" / "pirateforce_foundation" / "field_drop_tables.py"
-KILLER = 0x0101
+# The project's player identity in the sibling lane's tests, not a round
+# number: an adversarial pass pointed out that 0x0101 never exercises the
+# identity surface with anything a real session would carry.
+KILLER = 0x750059
 
 
-class _FixedRng:
-    """An rng whose draws are a script.  Records what was asked of it."""
+class _FixedRng(random.Random):
+    """An rng whose draws are a script.  Records what was asked of it.
+
+    A SUBCLASS of random.Random since the lane now enforces the type rather
+    than duck-typing it: an adversarial pass showed that a duck-type check
+    accepts the module-global ``random``, which silently makes the lane's
+    determinism paragraph false.
+    """
 
     def __init__(self, draws):
+        super().__init__(0)
         self.draws = list(draws)
         self.calls = []
 
@@ -148,21 +162,67 @@ class MobLootTests(unittest.TestCase):
                     self.assertNotIn(word, node.attr)
 
     def test_the_module_imports_no_probe_lane_and_no_roller(self):
-        tree = ast.parse(self.source)
-        imported = set()
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module:
-                imported.add(node.module)
-                for alias in node.names:
-                    imported.add(alias.name)
-            elif isinstance(node, ast.Import):
-                for alias in node.names:
-                    imported.add(alias.name)
+        """BLIND IN ITS FIRST FORM, and an adversarial pass proved it.
+
+        ``if isinstance(node, ast.ImportFrom) and node.module`` skips the whole
+        branch for ``from . import X``, because a relative import of a sibling
+        has ``module is None`` -- which is the exact form this module uses.  A
+        probe lane was added to the production module at module scope and the
+        entire suite stayed green.  The names of a relative import live in its
+        ALIASES, so they are collected here whether or not there is a module.
+        """
+        imported = self._imported_names(self.source)
+        self.assertIn(
+            "field_drop_tables", imported,
+            "the tripwire cannot see this module's own relative import")
         self.assertNotIn("loot_roll", imported)
         for name in imported:
             self.assertNotIn(
                 "hypothesis", name,
                 "a production lane may not import a scenario-gated probe")
+
+    @staticmethod
+    def _imported_names(source):
+        names = set()
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.ImportFrom):
+                if node.module:
+                    names.add(node.module)
+                    names.update(node.module.split("."))
+                for alias in node.names:
+                    names.add(alias.name)
+                    if alias.asname:
+                        names.add(alias.asname)
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    names.add(alias.name)
+                    names.update(alias.name.split("."))
+                    if alias.asname:
+                        names.add(alias.asname)
+            elif isinstance(node, ast.Call):
+                func = node.func
+                target = getattr(func, "attr", getattr(func, "id", ""))
+                if target in ("import_module", "__import__"):
+                    for argument in node.args:
+                        if isinstance(argument, ast.Constant):
+                            names.add(str(argument.value))
+                            names.update(str(argument.value).split("."))
+        return names
+
+    def test_the_import_tripwire_catches_the_form_the_module_uses(self):
+        """The tripwire above, tested against the attack that defeated it."""
+        for attack in (
+            "from . import ground_loot_hypothesis\n",
+            "from .loot_roll import rate_succeeds\n",
+            "import pirateforce_foundation.loot_roll\n",
+            "import importlib\n"
+            "loot = importlib.import_module('pirateforce_foundation.loot_roll')\n",
+        ):
+            imported = self._imported_names(attack)
+            self.assertTrue(
+                any("loot_roll" in name or "hypothesis" in name
+                    for name in imported),
+                "the tripwire is blind to %r" % attack)
 
     def test_the_module_and_the_table_are_pure_ascii(self):
         for path in (MODULE_PATH, TABLE_PATH):
@@ -328,12 +388,22 @@ class MobLootTests(unittest.TestCase):
         self.assertEqual(len(drops), len(roll.items))
 
     # -- placing ------------------------------------------------------------
-    def _one_kill(self, seed=3, minimum=2):
+    def _one_kill(self, seed=3, minimum=2, attempts=500):
+        """Roll until a kill drops at least ``minimum`` objects.
+
+        Bounded rather than ``while True``: if a regenerated table ever made
+        that impossible, an unbounded loop would HANG the suite instead of
+        failing it, and a hung test says nothing to whoever reads the run.
+        """
         rng = random.Random(seed)
-        while True:
+        for _attempt in range(attempts):
             roll = roll_drops(self.mob, rng)
             if len(roll.items) >= minimum:
                 break
+        else:
+            self.fail(
+                "%s did not drop %d objects in %d rolls; the tables changed"
+                % (self.mob.display_name, minimum, attempts))
         record = DeathRecord(self.mob.actor_identity, KILLER, self.mob.max_hp)
         return roll, record, place_drops(self.mob, record, roll, DROP_KEY_BASE)
 
@@ -415,16 +485,27 @@ class MobLootTests(unittest.TestCase):
 
     def test_committing_the_same_keys_twice_is_refused_rather_than_merged(self):
         _roll, _record, drops = self._one_kill()
-        ledger = commit_drops(DropLedger(), drops)
+        ledger = commit_drops(DropLedger(), drops, base_generation=0)
         self.assertEqual(ledger.generation, 1)
         self.assertEqual(len(ledger.drops), len(drops))
         with self.assertRaises(MobLootContractError) as caught:
-            commit_drops(ledger, drops)
+            commit_drops(ledger, drops, base_generation=ledger.generation)
+        self.assertEqual(caught.exception.args[0], "mob_already_looted")
+        second = DeathRecord(
+            self.roster[1].actor_identity, KILLER, self.roster[1].max_hp)
+        colliding = place_drops(
+            self.roster[1], second,
+            DropRoll(self.roster[1].template_id, second.actor_identity,
+                     (DropItem(2400046, 1, "DROPS_NORMAL",
+                               self.roster[1].drops_normal, 1),), (), 0, ()),
+            DROP_KEY_BASE)
+        with self.assertRaises(MobLootContractError) as caught:
+            commit_drops(ledger, colliding, base_generation=ledger.generation)
         self.assertEqual(caught.exception.args[0], "ledger_stale")
 
     def test_the_next_key_follows_the_highest_key_ever_issued(self):
         _roll, _record, drops = self._one_kill()
-        ledger = commit_drops(DropLedger(), drops)
+        ledger = commit_drops(DropLedger(), drops, base_generation=0)
         self.assertEqual(ledger.next_key, drops[-1].drop_key + 1)
         self.assertEqual(DropLedger().next_key, DROP_KEY_BASE)
 
@@ -438,7 +519,7 @@ class MobLootTests(unittest.TestCase):
         items, one key, and nothing raised anywhere.
         """
         _roll, _record, drops = self._one_kill()
-        ledger = commit_drops(DropLedger(), drops)
+        ledger = commit_drops(DropLedger(), drops, base_generation=0)
         after_pickup, taken = take_drop(ledger, drops[-1].drop_key)
         self.assertEqual(taken, drops[-1])
         self.assertEqual(after_pickup.next_key, ledger.next_key)
@@ -457,7 +538,7 @@ class MobLootTests(unittest.TestCase):
 
     def test_taking_a_drop_removes_exactly_that_row(self):
         _roll, _record, drops = self._one_kill()
-        ledger = commit_drops(DropLedger(), drops)
+        ledger = commit_drops(DropLedger(), drops, base_generation=0)
         remaining, taken = take_drop(ledger, drops[0].drop_key)
         self.assertEqual(taken, drops[0])
         self.assertEqual(len(remaining.drops), len(drops) - 1)
@@ -564,12 +645,141 @@ class MobLootTests(unittest.TestCase):
 
     def test_refreshing_re_emits_the_live_ledger_in_key_order(self):
         _roll, _record, drops = self._one_kill()
-        ledger = commit_drops(DropLedger(), drops)
+        ledger = commit_drops(DropLedger(), drops, base_generation=0)
         refreshed = refresh_frames(self.legacy, ledger)
         self.assertEqual(refreshed, drop_frames(self.legacy, ledger.drops))
         with self.assertRaises(MobLootContractError) as caught:
             refresh_frames(self.legacy, drops)
         self.assertEqual(caught.exception.args[0], "type_not_typed_record")
+
+    # -- the things an adversarial pass proved were only prose -------------
+    def test_the_module_global_random_is_refused_by_name(self):
+        """A duck-type check accepted it, and no test in this file would care.
+
+        The lane's determinism paragraph says the rng is injected.  Passing
+        the module-global ``random`` satisfies "has a callable .random" and
+        silently makes that paragraph false for every consumer in the process.
+        """
+        for bad in (random, object(), type("X", (), {"random": lambda s: 0.5})()):
+            with self.assertRaises(MobLootContractError) as caught:
+                roll_drops(self.mob, bad)
+            self.assertEqual(caught.exception.args[0], "rng_has_no_random")
+        self.assertIsInstance(roll_drops(self.mob, random.Random(1)), DropRoll)
+
+    def test_an_item_with_no_name_is_refused_everywhere_it_can_enter(self):
+        """The name is the only thing this lane was measured to draw."""
+        item_id = 2400046
+        original = field_drop_tables.ITEMS[item_id]
+        field_drop_tables.ITEMS[item_id] = original[:2] + ("",) + original[3:]
+        try:
+            with self.assertRaises(MobLootContractError) as caught:
+                DropItem(item_id, 1, "DROPS_NORMAL", self.mob.drops_normal, 1)
+            self.assertEqual(caught.exception.args[0], "item_has_no_name")
+            with self.assertRaises(MobLootContractError) as caught:
+                GroundDrop(DROP_KEY_BASE, item_id, 1, 0.0, 0.0, 0.0,
+                           self.mob.actor_identity, KILLER)
+            self.assertEqual(caught.exception.args[0], "item_has_no_name")
+            roll = roll_drops(self.mob, _FixedRng([0.0] * 40))
+            self.assertIn(
+                "item_has_no_name", [row[0] for row in roll.refusals])
+            self.assertNotIn(item_id, [row.item_id for row in roll.items])
+        finally:
+            field_drop_tables.ITEMS[item_id] = original
+
+    def test_a_rate_outside_zero_to_one_hundred_is_refused_by_name(self):
+        set_id = self.mob.drops_normal
+        original = field_drop_tables.DROPS_NORMAL[set_id]
+        field_drop_tables.DROPS_NORMAL[set_id] = (
+            (1, 2400046, 300.0, 1, 1),) + original[1:]
+        try:
+            roll = roll_drops(self.mob, _FixedRng([0.0] * 40))
+        finally:
+            field_drop_tables.DROPS_NORMAL[set_id] = original
+        self.assertIn("rate_out_of_range", [row[0] for row in roll.refusals])
+        self.assertNotIn(2400046, [
+            item.item_id for item in roll.items
+            if item.source_index == 1])
+
+    def test_a_stale_writer_cannot_win_the_race_by_writing(self):
+        """The failure the first draft's "compare-and-swap" did not stop.
+
+        A pruner takes a drop off generation 1 and stores generation 2.  A
+        kill that read generation 1 then commits its non-colliding key, its
+        merge puts the TAKEN drop back on the ground, and both results report
+        generation 2 with nothing raised.  Executed here as the refusal.
+        """
+        _roll, _record, drops = self._one_kill()
+        stored = commit_drops(DropLedger(), drops, base_generation=0)
+        pruned, taken = take_drop(stored, drops[0].drop_key)
+        second = self.roster[1]
+        record = DeathRecord(second.actor_identity, KILLER, second.max_hp)
+        roll = DropRoll(
+            second.template_id, second.actor_identity,
+            (DropItem(2400046, 1, "DROPS_NORMAL", second.drops_normal, 1),),
+            (), 0, ())
+        fresh = place_drops(second, record, roll, pruned.next_key)
+        with self.assertRaises(MobLootContractError) as caught:
+            commit_drops(pruned, fresh, base_generation=stored.generation)
+        self.assertEqual(
+            caught.exception.args[0], "ledger_generation_moved")
+        accepted = commit_drops(
+            pruned, fresh, base_generation=pruned.generation)
+        self.assertNotIn(
+            taken.drop_key, [row.drop_key for row in accepted.drops])
+
+    def test_a_commit_without_a_base_generation_is_refused(self):
+        _roll, _record, drops = self._one_kill()
+        with self.assertRaises(MobLootContractError) as caught:
+            commit_drops(DropLedger(), drops)
+        self.assertEqual(
+            caught.exception.args[0], "ledger_generation_moved")
+
+    def test_one_corpse_cannot_be_looted_twice(self):
+        roll, record, drops = self._one_kill()
+        ledger = commit_drops(DropLedger(), drops, base_generation=0)
+        emptied = ledger
+        for drop in drops:
+            emptied, _taken = take_drop(emptied, drop.drop_key)
+        again = place_drops(self.mob, record, roll, emptied.next_key)
+        with self.assertRaises(MobLootContractError) as caught:
+            commit_drops(emptied, again, base_generation=emptied.generation)
+        self.assertEqual(caught.exception.args[0], "mob_already_looted")
+
+    def test_the_envelope_is_pinned_at_run_time_not_only_in_a_test(self):
+        """A test does not run inside the server; this refusal does.
+
+        The element was dual-derived from the start, but the twenty bytes in
+        front of it came from the legacy module on trust: a shim with a moved
+        message id shipped 44 bytes no client has accepted, and the only red
+        would have been a test-time pin.
+        """
+        class _DriftedLegacy:
+            GSCN_RUNTIME_PROTOCOL_RES = 0x6E9E   # one bit off
+
+            def __init__(self, real):
+                self._real = real
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+        _roll, _record, drops = self._one_kill()
+        with self.assertRaises(MobLootContractError) as caught:
+            drop_pc(_DriftedLegacy(self.legacy), drops[0])
+        self.assertEqual(caught.exception.args[0], "composed_bytes_off_pin")
+        pc = drop_pc(self.legacy, drops[0])
+        self.assertEqual(pc[:DROP_ENVELOPE_SIZE], DROP_ENVELOPE_PIN)
+
+    def test_the_scatter_and_the_label_limits_are_written_as_nonclaims(self):
+        text = " ".join(MOB_LOOT_NONCLAIMS)
+        for owed in (
+            "SCATTER IS OURS",          # 30 units multiplied by the row index
+            "ONE LABEL WAS SEEN",       # two elements, one label, unresolved
+            "NOT A COLOUR WE CHOSE",    # RE-067 divergence, default property
+            "SCENE-LOAD ONE-SHOT",      # every byte of evidence was one
+            "CENSUS INTERACTION",       # the 3 s re-apply
+            "HALF THAT DOES NOT EXIST", # the ledger's own justification
+        ):
+            self.assertIn(owed, text)
 
     # -- the paperwork ------------------------------------------------------
     def test_the_pin_document_says_what_the_lane_is_and_is_not(self):
@@ -597,23 +807,66 @@ class MobLootTests(unittest.TestCase):
                 pin_document(self.legacy), indent=2, ensure_ascii=True,
                 sort_keys=True) + "\n")
 
-    def test_the_lane_states_that_the_drop_does_not_stay(self):
-        self.assertTrue(GROUND_DROP_DOES_NOT_PERSIST)
-        self.assertIn("DO NOT STAY", MOB_LOOT_NONCLAIMS[1])
+    def test_the_lane_states_what_gt045_actually_measured(self):
+        """The correction an adversarial pass forced, pinned so it cannot rot.
 
-    def test_no_refusal_name_is_unreachable(self):
-        for reason in MOB_LOOT_REFUSAL_REASONS:
-            self.assertEqual(
-                self.source.count('"%s"' % reason), 1,
-                "%s should be defined exactly once" % reason)
-            constant = [
-                line.split(" = ")[0] for line in self.source.splitlines()
-                if line.startswith("REFUSE_") and line.endswith('"%s"' % reason)
-            ]
-            self.assertEqual(len(constant), 1)
-            self.assertGreaterEqual(
-                self.source.count(constant[0]), 3,
-                "%s is defined, listed and never raised" % constant[0])
+        The first draft of this module said an item MODEL was drawn and that
+        n_DROPMODEL_TYPE was the difference.  GT-045 closed ANSWERED with the
+        opposite: a red NAME LABEL, no model at all, brown dust, ~0.2-0.3 s.
+        """
+        self.assertTrue(GROUND_DROP_DOES_NOT_PERSIST)
+        self.assertTrue(NO_ITEM_MODEL_IS_DRAWN)
+        self.assertEqual(GROUND_LABEL_OBSERVED_LIFETIME_SECONDS, (0.2, 0.3))
+        self.assertIn("NO OBJECT IS DRAWN", MOB_LOOT_NONCLAIMS[1])
+        source = self.source
+        self.assertNotIn("drew a MODEL and a", source.split("~~")[2:] and "" or source)
+        for struck in ("~~", "IS STRUCK"):
+            self.assertIn(struck, source)
+
+    def test_every_named_refusal_reason_can_actually_happen(self):
+        """SET EQUALITY over the names actually RAISED, not a source count.
+
+        The first form counted occurrences and passed for a refusal that was
+        declared, mentioned in a comment and raised nowhere -- an adversarial
+        pass added exactly that and the suite stayed green.  This is the shape
+        ``tests/test_mob_combat.py`` already proved: collect the names in
+        ``raise MobLootContractError(NAME, ...)`` nodes and compare the SET.
+        """
+        constants = {}
+        for line in self.source.splitlines():
+            if line.startswith("REFUSE_") and " = " in line:
+                name, value = line.split(" = ", 1)
+                constants[name.strip()] = value.strip().strip('"')
+        raised = set()
+        for node in ast.walk(ast.parse(self.source)):
+            if not isinstance(node, ast.Raise) or node.exc is None:
+                continue
+            call = node.exc
+            if not isinstance(call, ast.Call):
+                continue
+            if getattr(call.func, "id", "") != "MobLootContractError":
+                continue
+            if not call.args:
+                continue
+            first = call.args[0]
+            if isinstance(first, ast.Name) and first.id in constants:
+                raised.add(constants[first.id])
+            elif isinstance(first, ast.Constant):
+                raised.add(str(first.value))
+        # Names that reach a caller through a refusals LIST rather than a
+        # raise: the roll records them per slot instead of aborting the kill.
+        recorded = set()
+        for node in ast.walk(ast.parse(self.source)):
+            if isinstance(node, ast.Tuple) and node.elts:
+                head = node.elts[0]
+                if isinstance(head, ast.Name) and head.id in constants:
+                    recorded.add(constants[head.id])
+        self.assertEqual(
+            set(MOB_LOOT_REFUSAL_REASONS) - (raised | recorded), set(),
+            "declared refusal names that no code path produces")
+        self.assertEqual(
+            (raised | recorded) - set(MOB_LOOT_REFUSAL_REASONS), set(),
+            "refusal names produced but not declared")
 
     def test_the_refusal_names_are_unique(self):
         self.assertEqual(
@@ -686,6 +939,33 @@ class MobLootTests(unittest.TestCase):
                 worst, MAX_DROPS_PER_KILL,
                 "%s can roll %d objects and the ceiling is %d"
                 % (mob.display_name, worst, MAX_DROPS_PER_KILL))
+
+    def test_the_generator_reproduces_the_shipped_table_when_it_can_run(self):
+        """--check was written and then never run by anything.
+
+        The table can drift from the bridge clone's gamedata and only a human
+        re-running the tool would notice.  Skipped rather than failed when the
+        clone is not present, because the server repo is cloned alone in CI.
+        """
+        import subprocess
+
+        gamedata = ROOT.parent / "pf_bridge" / "gamedata"
+        if not (gamedata / "tables").is_dir():
+            self.skipTest("no bridge clone beside this repo")
+        finished = subprocess.run(
+            [sys.executable, str(ROOT / "tools/pf_mine_scene_drop_tables.py"),
+             "--check", "--gamedata", str(gamedata)],
+            capture_output=True, text=True)
+        self.assertEqual(
+            finished.returncode, 0,
+            "the shipped table is not what a fresh mining produces:\n%s%s"
+            % (finished.stdout, finished.stderr))
+        self.assertIn("CHECK OK", finished.stdout)
+
+    def test_the_table_does_not_claim_the_model_column_draws_anything(self):
+        header = TABLE_PATH.read_text(encoding="ascii")[:4000]
+        self.assertIn("NOT the switch that makes an item model appear", header)
+        self.assertIn("NO", header)
 
     def test_a_zero_rate_slot_is_carried_rather_than_dropped(self):
         rates = [

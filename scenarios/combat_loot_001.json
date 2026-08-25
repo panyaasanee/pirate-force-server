@@ -6,32 +6,51 @@
     "drop_key_base": 1048576,
     "drop_key_limit": 2097152,
     "max_drops_per_kill": 16,
-    "refresh_ms": 500,
+    "refresh_ms": 200,
     "scatter_step": 30.0
   },
   "measured": {
     "ground_drop_persists": false,
+    "ids_measured_to_draw_a_label": [
+      2200423
+    ],
+    "item_model_is_drawn": false,
+    "label_lifetime_seconds_range": [
+      0.2,
+      0.3
+    ],
+    "name_label_is_drawn": true,
+    "not_a_lifetime_of_this_pipe": {
+      "seconds": 0.633,
+      "what_it_is": "original-server video, pickup-terminated interval"
+    },
     "observed_ids_on_the_wire": [
       2200423,
       2600001
     ],
-    "observed_lifetime_seconds": 0.633
+    "ticket": "GT-045 CLOSED-ANSWERED 2026-08-25 (chief R163)"
   },
   "milestone": "MOB-LOOT-001",
   "nonclaims": [
     "1. Nothing dispatches this module.  runtime.py is the chief's file and MOB_LOOT_WIRING is a request, not a call site.  No player has seen one byte of this lane.",
-    "2. The objects DO NOT STAY.  The only attended run of this pipe measured 0.633 s and then nothing on the ground at either coordinate.  This lane makes loot APPEAR; it does not make it lie there waiting.",
-    "3. The client has never been shown a drop element for an id this lane chose.  Two ids have ever travelled (2200423 and 2600001) and both were hard-coded by the probe lane.  That a rolled id renders like 2200423 is an EXPECTATION from one column (n_DROPMODEL_TYPE), not a measurement.",
-    "4. There is no pickup.  The only proven PickupTerrainThing producer is client-outbound (GT-046) and its vital id is hash-DERIVED (0x4543), never observed; the corpus holds zero frames of it in either direction.  The ledger exists so the pickup half has somewhere to look up a key -- it is not evidence that a key can be picked up.",
-    "5. Ownership is bookkeeping only.  ``killer_identity`` is recorded because the second half will need it; the element has no owner field, so nothing on the wire enforces who may take a drop.",
-    "6. The quantity never reaches the client.  The element carries an item id and a position and nothing else, so a stack of five is drawn -- if it is drawn at all -- exactly like a stack of one.  The count lives in the ledger for the pickup half.",
+    "2. NO OBJECT IS DRAWN, and nothing stays.  What GT-045 measured is a floating NAME LABEL in red text plus brown dust, ~0.2-0.3 s, with no model under it and nothing left afterwards.  This lane ANNOUNCES loot; it does not lay an item on the ground, and n_DROPMODEL_TYPE was measured NOT to be the switch that changes that.",
+    "3. The label evidence covers ONE id from ONE item table.  2200423 (EQUIPMENT_BASE) drew its name; 2600001 (ITEM_MISC) drew none in the run that carried it, and no id from ITEM_CONSUMABLES has ever been on this wire at all -- which is the table the roster's most frequent drop (2400046, 30 pct on set 2701001) comes from.  That every rolled id draws its name is an EXPECTATION from RE-066's create path, not a measurement.",
+    "4. There is no pickup.  The only proven PickupTerrainThing producer is client-outbound (GT-046) and its vital id is hash-DERIVED (0x4543), never observed; the corpus holds zero frames of it in either direction.  Worse for this lane: GT-060's precondition is a CLICKABLE drop object, and GT-045 measured that there is no object to click.",
+    "5. Ownership is bookkeeping only.  killer_identity is recorded because the second half will need it; the element has no owner field, so nothing on the wire enforces who may take a drop.",
+    "6. The quantity never reaches the client.  The element carries an item id and a position and nothing else, so a stack of five is announced -- if it is announced at all -- exactly like a stack of one.",
     "7. Money cannot be placed.  A money slot has no item id, and the element's only content field is one.  Rolled, recorded, never emitted -- and the reading that item id 0 means money is [INFERENCE], not proven.  The recorded AMOUNT is not a currency amount either: a DROPS_NORMAL slot carries a quantity span and a weighted entry carries no quantity column at all, so every MoneyDrop says which of the two its number came from.",
     "8. DROPS_QUEST is refused by name, table and all: only 311 of the 2478 DROPS_QUEST sets the mobs reference exist client-side.",
-    "9. Item quality is not rolled.  E_DROPS_QUALITY exists and ``loot_roll`` implements it, but the element has nowhere to carry a quality, so rolling one here would produce a number no player could ever see.  The pickup half, which puts items in a bag, is where that belongs.",
-    "10. The ledger lives in the caller's process.  Nothing in this project persists a ground object across a restart, and this module writes no database row.",
+    "9. Item quality is not rolled.  E_DROPS_QUALITY exists and loot_roll implements it, but the element has nowhere to carry a quality, so rolling one here would produce a number no player could ever see.  The consequence is that this lane's draw stream and loot_roll's diverge on every DROPS_EQUIPMENT pick; the module docstring lists all three divergences.",
+    "10. The ledger lives in the caller's process.  Nothing in this project persists a ground object across a restart, and this module writes no database row.  Nothing here expires a row either: the caller must prune.",
     "11. The element key block is ours and unproven.  Nobody has shown what the client does with a key it has never seen, or whether that key space is shared with anything else.",
-    "12. Whether re-emitting an element keeps the object on screen is UNMEASURED.  ``refresh_frames`` composes the frames; DROP_REFRESH_MS is a guess; re-emission may equally restart the drop effect each time.",
-    "13. DELTA OR REPLACEMENT IS UNPROVEN, and it matters for every kill that drops more than one object.  This lane sends one element per frame because a multi-record derived-mask collection is the shape a real client rejected; if the client treats each such frame as the WHOLE ground list rather than as a change to it, the second object of a kill removes the first and a player sees one item instead of three.  Nobody has measured which it is: GT-045 sent its two elements far apart and at a lifetime of 0.633 s the difference is not visible to an observer.  This is the first question for whoever runs the attended entry."
+    "12. Whether re-emitting an element redraws the label is UNMEASURED.  refresh_frames composes the frames; DROP_REFRESH_MS sits under the measured label life so a cadence cannot guarantee a gap, which is not the same as knowing that re-emission works.",
+    "13. DELTA OR REPLACEMENT IS UNPROVEN, and it matters for every kill that drops more than one object.  This lane sends one element per frame because a multi-record derived-mask collection is the shape a real client rejected; if the client treats each such frame as the WHOLE ground list rather than as a change to it, the second row of a kill removes the first and a player sees one name instead of three.",
+    "14. THE SCATTER IS OURS AND IT MULTIPLIES.  30.0 units on X is the only offset ever put on the wire; row N of a kill uses N times that, so row 12 is 330 units from the corpse and may be somewhere the player never looks.  Nobody has measured how far from a player a label is still drawn.",
+    "15. ONE LABEL WAS SEEN, TWO ELEMENTS WERE SENT.  The attended round that read the label sent NEAR and FAR 42 ms apart and only one label is in the frame; the letter states outright that it cannot say which one was drawn, and that one label from one round for one item is not a rule of the client.  This lane sends bursts of up to twelve.",
+    "16. THE LABEL IS NOT A COLOUR WE CHOSE, AND IT DIVERGES FROM THE REAL SERVER.  RE-067 pinned that the text property comes from element +0x1B and +0x1A under mask bits 0x08 and 0x20, which this lane never sends, so every label it draws uses the client's default property 0x34.  The one label observed was RED where the original server drew the same item WHITE -- an open divergence (RE-067 / GT-069), not a thing this lane fixed or may claim.",
+    "17. EVERY BYTE OF EVIDENCE FOR THIS PIPE IS A SCENE-LOAD ONE-SHOT.  It was emitted once per session, in direct response to a client TargetPosVital, with no other RuntimeRes in flight.  This lane emits server-initiated, mid-session, repeatedly, and in bursts.  Nothing measured covers that.",
+    "18. THE CENSUS INTERACTION IS UNMEASURED.  field_mobs re-applies the actor collection (derived mask 0x02) 3 s after scene entry and rebuilds later; whether a RuntimeRes carrying a different derived mask clears, preserves or corrupts a live 0x5F85B0 entry is unknown, and a kill in the first seconds of a scene hits exactly that.",
+    "19. THE LEDGER IS STATE BUILT FOR A HALF THAT DOES NOT EXIST YET.  Its keys, its compare-and-swap, take_drop, killer_identity and quantity all serve a pickup half whose transport is unidentified.  If the answer to 'what makes the model appear' sends monster drops down FightingDrop* instead, the composer goes and the ledger's shape is the part most likely to change.  [ASSUMPTION OF LANE B - awaiting COO confirmation]"
   ],
   "production_allowed": true,
   "refusals": [
@@ -45,6 +64,10 @@
     "quantity_range_inverted",
     "unknown_drop_set",
     "unknown_item_id",
+    "item_has_no_name",
+    "rate_out_of_range",
+    "ledger_generation_moved",
+    "mob_already_looted",
     "roll_names_another_monster",
     "key_outside_the_lane_block",
     "ledger_not_sorted",
@@ -108,11 +131,12 @@
     ],
     "element_mask": 18,
     "elements_per_frame": 1,
+    "envelope_pin_hex": "129D6E140000000008040B000B08120100",
     "frame_size": 54,
     "masked_pc_sha256": "564277BEA3FBE0A121C4D79CD318ED7778F23B10CFFFFDC091C84D5CDA87D1F1",
     "pc_size": 44,
     "runtime_derived_bit": 8,
     "sample_frame_size": 54
   },
-  "wiring": "runtime.py, immediately after the death frames of MOB-DEATH-001 for a kill that commit_death() ACCEPTED (a rejected compare-and-swap must not roll loot -- the monster it names is already dead and already looted):\n  1. roll = mob_loot.roll_drops(mob, rng)          # rng is the server's\n  2. drops = mob_loot.place_drops(mob, death_step.record, roll, ledger.next_key, position=<where it fell, or None for its placement position>)   # death_step.record, NOT the outcome: the outcome is true of a hit that landed on a corpse too\n  3. ledger_next = mob_loot.commit_drops(ledger_now, drops)   # CAS; a rejected commit means retry from step 2 with the fresh ledger, NOT re-roll (re-rolling gives the player a second roll for one kill)\n  4. send every frame of mob_loot.drop_frames(legacy, drops) AFTER the dying frame, one frame each, in the order returned\n  5. nothing else: there is no pickup half yet, and the objects are gone from the screen in about half a second (GROUND_DROP_DOES_NOT_PERSIST).  If you want to try holding them, mob_loot.refresh_frames(legacy, ledger) re-emits the live ledger and DROP_REFRESH_MS is our unmeasured guess at the cadence; that is an experiment, not a shipped behaviour."
+  "wiring": "runtime.py, for a kill that commit_death() ACCEPTED (a rejected compare-and-swap must not roll loot -- the monster it names is already dead and already looted):\n  1. roll = mob_loot.roll_drops(mob, rng)   # rng MUST be a random.Random INSTANCE the server owns, never the random module\n  2. drops = mob_loot.place_drops(mob, death_step.record, roll, ledger.next_key, position=<where it fell, or None for its placement position>)   # death_step.record, NOT the outcome: the outcome is true of a hit that landed on a corpse too.  next_key CAN REFUSE (the key block is finite); catch it, do not let it escape into the death path\n  3. ledger_next = mob_loot.commit_drops(ledger_now, drops, base_generation=<the generation you READ at step 2>)   # CAS; a rejected commit means rebuild from step 2 against the fresh ledger, NOT re-roll (re-rolling gives the player a second roll for one kill)\n  4. send every frame of mob_loot.drop_frames(legacy, drops) AFTER death_step.dead_frame -- i.e. after the whole death schedule including hold_ms -- one frame each, in the order returned.  NOT between the dying and dead frames: nothing measured says a derived-mask-0x08 RuntimeRes may be interleaved into another lane's typed lethal sequence for the same actor, and the label lives ~0.25 s, so loot sent inside the hold is gone before the corpse frame is\n  5. PRUNE.  The ledger only grows here; nothing in this module expires a row and the label is off screen in about a quarter of a second.  A caller that never prunes turns refresh_frames into hundreds of frames per second of a message a real client has been shown twice in its life.\n  6. nothing else: there is no pickup half.  If you want to try holding the label on screen, mob_loot.refresh_frames(legacy, ledger) re-emits the live ledger and DROP_REFRESH_MS is our unmeasured guess at the cadence; that is an experiment, not a shipped behaviour."
 }
