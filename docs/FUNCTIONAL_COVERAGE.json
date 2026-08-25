@@ -486,7 +486,7 @@
             "tests/test_hit_result_probe.py",
             "tests/test_structural_corpus_audit.py"
           ],
-          "notes": "Blocked on evidence, not on code. A hash-guarded audit proves the curated corpus cannot answer the server-to-client combat-result question, so a new authentic capture is required before any damage number, formula, or result packet may be claimed."
+          "notes": "Blocked on evidence, not on code. A hash-guarded audit proves the curated corpus cannot answer the server-to-client combat-result question, so a new authentic capture is required before any damage number, formula, or result packet may be claimed AS THE ORIGINAL SERVER'S. Read that sentence exactly: the row stays blocked because the EVIDENCE is missing, not because the code is. Several opt-in lanes do compose damage numbers, a formula and a result packet OF OUR OWN DESIGN behind test-only flags -- HYP-PF-024, HYP-PF-026, HYP-PF-029 and, from round R162, HYP-PF-038, which moves the bar of a real hostile identity at the client's own HP baseline. None of them claims to reproduce the original server, none is production_allowed, and none of them unblocks this row. An adversarial review of R162 asked for this paragraph after finding a reader could take the row to mean no such code exists."
         },
         {
           "id": "knockdown_and_reaction_states",

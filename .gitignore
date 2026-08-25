@@ -527,6 +527,7 @@
 # which made the ledger cite files a fresh clone could not have.
 !/tools/verify_npc_hp_link_encoder.py
 !/tools/pf_npc_hp_link_headless_replay.py
+!/tools/pf_hostile_hp_link_headless_replay.py
 !/reports/PF_NPC_HP_LINK029_GT027_RERUN_ATTENDED_RESULT_20260820.md
 
 # MOVE-AUTHORITY-002 (HYP-PF-030, chief round 116).  The first lane in this

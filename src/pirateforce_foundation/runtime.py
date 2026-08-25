@@ -113,6 +113,17 @@ from .pickup_listener_hypothesis import (
     decode_pickup_listener_payload,
     require_pickup_listener_hypothesis_scenario,
 )
+from .hostile_hp_link_hypothesis import (
+    HOSTILE_HP_LINK_EVENT_NAME,
+    HOSTILE_HP_LINK_PERFORMER_PROBE_IDENTITY_HI,
+    HOSTILE_HP_LINK_PERFORMER_PROBE_IDENTITY_LO,
+    HOSTILE_HP_LINK_SCENE_ID,
+    HostileHpLinkValidationError,
+    build_hostile_hp_link_sweep,
+    hostile_hp_link_wire_unlock,
+    require_hostile_hp_link_hypothesis_scenario,
+    resolve_hostile_hp_link_target,
+)
 from .item_operate_res_hypothesis import (
     ITEM_OPERATE_RES_ACTION_LABEL_PREFIX,
     ITEM_OPERATE_RES_FIRST_DELAY_SECONDS,
@@ -309,6 +320,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                      skill_attr_hypothesis_scenario=None,
                      pickup_listener_hypothesis_scenario=None,
                      item_operate_res_hypothesis_scenario=None,
+                     hostile_hp_link_hypothesis_scenario=None,
                      event_exporter=None,
                      second_password_mode="required",
                      monotonic_clock=None,
@@ -356,6 +368,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
              pickup_listener_hypothesis_scenario),
             ("item_operate_res_hypothesis_scenario",
              item_operate_res_hypothesis_scenario),
+            ("hostile_hp_link_hypothesis_scenario",
+             hostile_hp_link_hypothesis_scenario),
         ) if value is not None
     )
     # SCENARIO-COMPOSE-001: exactly the allow-listed sets pass (one pair,
@@ -374,8 +388,9 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             "hypothesis, npc hp link hypothesis, move authority "
             "hypothesis, ground loot hypothesis, learn skill result "
             "hypothesis, learn skill request hypothesis, skill attr "
-            "hypothesis, pickup listener hypothesis, and item operate res "
-            "hypothesis scenarios are mutually exclusive"
+            "hypothesis, pickup listener hypothesis, item operate res "
+            "hypothesis, and hostile hp link hypothesis scenarios are "
+            "mutually exclusive"
         )
     # PF-HYPOTHESIS-LEDGER: HYP-PF-030 active
     # MOVE-AUTHORITY-002.  Re-checked here even though app.py already loaded
@@ -639,6 +654,27 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             npc_hp_link_hypothesis_scenario
         )
         npc_hp_link_target = resolve_npc_hp_link_target(legacy)
+    # HOSTILE-HP-LINK-001 (HYP-PF-038; the ledger annotation for this lane
+    # lives once per file, on the dispatch method below).  The unlock token is
+    # derived ONCE, here, from the allowlisted scenario object and is the only
+    # value in this process that lets this lane compose either carrier.
+    #
+    # THE TARGET IS NOT RESOLVED HERE, and that is the one structural
+    # difference from the sibling lane: this lane places its target against
+    # the LIVE player position, which does not exist yet at construction time.
+    # It is resolved per accepted request instead, from the authoritative row
+    # the frozen TargetPos write path checkpoints -- so a session that never
+    # reached a position cannot compose a frame at all.
+    hostile_hp_link_unlock = None
+    if hostile_hp_link_hypothesis_scenario is not None:
+        hostile_hp_link_hypothesis_scenario = (
+            require_hostile_hp_link_hypothesis_scenario(
+                hostile_hp_link_hypothesis_scenario
+            )
+        )
+        hostile_hp_link_unlock = hostile_hp_link_wire_unlock(
+            hostile_hp_link_hypothesis_scenario
+        )
     if delete_actor_hypothesis_scenario is not None:
         delete_actor_hypothesis_scenario = (
             require_delete_actor_hypothesis_scenario(
@@ -757,6 +793,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.pickup_listener_refusals = []
                 self.skill_attr_sweep_count = 0
                 self.item_operate_res_sweep_count = 0
+                self.hostile_hp_link_sweep_count = 0
                 self.hp_death_sweep_count = 0
                 self.runtimeres_death_sweep_count = 0
                 self.damage_model_sweep_count = 0
@@ -2849,6 +2886,127 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             self.events.append(event)
             return actions
 
+        # PF-HYPOTHESIS-LEDGER: HYP-PF-038 active
+        def _dispatch_hostile_hp_link_hypothesis(self, parsed):
+            """HOSTILE-HP-LINK-001: seven frames at a REAL hostile, alive.
+
+            The sibling lane HYP-PF-029 already showed a bar move on a screen,
+            but on a synthetic identity with a synthetic 100-point ladder.
+            This lane asks the one question that leaves open: does the same
+            shape hold for placement 30 -- actor 0x201F, "Tornado Eagle" --
+            carrying the 3857 HP baseline the CLIENT itself ships for that
+            row.  Nothing else changes: same envelope, same two carriers, same
+            arithmetic engine, same 34-byte ascii12 trigger.
+
+            THE TARGET IS PLACED AGAINST THE PLAYER, and that is the reason
+            this lane resolves its target HERE rather than at construction.
+            The frozen world row for placement 30 is roughly twelve thousand
+            units from the player spawn; a target sent there is a dot on the
+            minimap and nothing on the screen, which is precisely the outcome
+            an earlier attended round measured on a neighbouring lane.  The
+            position comes from the authoritative row the frozen TargetPos
+            write path checkpoints, so a session that has not reached a
+            position composes nothing.
+
+            NO LETHAL FRAME.  The ladder stops at 771, the encoder refuses a
+            death timer by name and the plan validator refuses a floor
+            balance: "does it die" is GT-036's question and belongs to a later
+            version of this slot.
+
+            ONE-SHOT, for the sibling lane's reason: the value of a ladder is
+            that a tester can predict it before it appears, and a second sweep
+            interleaved with the first would also re-spawn an identity the
+            client already knows, which is a different experiment.
+
+            The lane touches no store, takes no socket action, adds no HP
+            column anywhere, and composes nothing at all when the scenario is
+            absent.
+            """
+            self.rx_frames += 1
+            classification = classify_chat_input_attempt(legacy, parsed)
+            if classification != "ascii12":
+                self.events.append(
+                    f"hostile_hp_link_hypothesis_{classification}_no_reply"
+                )
+                return []
+            if self.foundation.selected is None:
+                self.events.append(
+                    "hostile_hp_link_hypothesis_no_selected_no_reply"
+                )
+                return []
+            if not self.teleport_sent or not self.runtime_ack_sent:
+                self.events.append(
+                    "hostile_hp_link_hypothesis_wrong_sequence_no_reply"
+                )
+                return []
+            if self.hostile_hp_link_sweep_count:
+                self.events.append(
+                    "hostile_hp_link_hypothesis_already_sent_no_reply"
+                )
+                return []
+            selected = self.foundation.selected
+            if (
+                selected.identity_lo
+                != HOSTILE_HP_LINK_PERFORMER_PROBE_IDENTITY_LO
+                or selected.identity_hi
+                != HOSTILE_HP_LINK_PERFORMER_PROBE_IDENTITY_HI
+            ):
+                # The attended ticket promises the tester that picking the
+                # wrong row on the character screen produces NO BYTES AT ALL,
+                # and an adversarial review of R162 found this lane shipping
+                # without the guard that promise rests on.  ITEMOP-RES-
+                # GREENLINE-001 pins the same identity for the same reason:
+                # a sweep composed for an unpinned actor is a sweep whose
+                # frames nobody can attribute afterwards.
+                self.events.append(
+                    "hostile_hp_link_hypothesis_identity_not_pinned_no_reply"
+                )
+                return []
+            position = selected.position
+            if position.scene_id != HOSTILE_HP_LINK_SCENE_ID:
+                # The frozen placement row this lane pins belongs to one
+                # scene.  A player standing in another one would be handed a
+                # target placed next to them but addressed in a scene they are
+                # not in, and the frame would answer nothing.
+                self.events.append(
+                    "hostile_hp_link_hypothesis_wrong_scene_no_reply"
+                )
+                return []
+            try:
+                target = resolve_hostile_hp_link_target(
+                    legacy,
+                    (float(position.x), float(position.y), float(position.z)),
+                    hostile_hp_link_hypothesis_scenario,
+                )
+                actions = build_hostile_hp_link_sweep(
+                    legacy, target,
+                    selected.identity_lo, selected.identity_hi,
+                    hostile_hp_link_unlock, hostile_hp_link_hypothesis_scenario,
+                )
+            except HostileHpLinkValidationError as exc:
+                # Every refusal in this lane is a NAMED EVENT, including the
+                # ones that come out of the encoder rather than out of a
+                # guard here.  The frozen dispatch path this method runs
+                # under has a try/finally with no except, so an exception
+                # that escaped would take the connection's thread with it --
+                # a lane that refuses is supposed to go quiet, not to hang up
+                # on the tester mid-round.
+                self.events.append(
+                    "hostile_hp_link_hypothesis_refused_no_reply: %s"
+                    % type(exc).__name__
+                )
+                return []
+            self.hostile_hp_link_sweep_count += 1
+            # The event name is the module's constant, written out here once
+            # and compared, exactly as both neighbours do: renaming the
+            # published event is an immediate RuntimeError rather than a
+            # string that quietly drifted away from the ledger and the tests.
+            event = "hostile_hp_link_hypothesis_target_sweep_sent"
+            if event != HOSTILE_HP_LINK_EVENT_NAME:
+                raise RuntimeError("HYP-PF-038 sweep event name drift")
+            self.events.append(event)
+            return actions
+
         # PF-HYPOTHESIS-LEDGER: HYP-PF-015 active
         def _dispatch_delete_actor_hypothesis(self, parsed):
             """Soft-delete one owned character behind the explicit opt-in.
@@ -3357,6 +3515,17 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # refuses the flags together, which is why the ordering of
                 # these branches cannot matter.
                 return self._dispatch_item_operate_res_hypothesis(parsed)
+            if (
+                hostile_hp_link_hypothesis_scenario is not None
+                and nested_id == CHAT_INPUT_VITAL_ID
+            ):
+                # HOSTILE-HP-LINK-001.  This lane and the other chat-input-
+                # keyed sweep lanes above are keyed on the same vital id, so
+                # they must never be able to see the same frame:
+                # make_state_class refuses any pair outright and app.py
+                # refuses the flags together, which is why the ordering of
+                # these branches cannot matter.
+                return self._dispatch_hostile_hp_link_hypothesis(parsed)
             if (
                 learn_skill_request_hypothesis_scenario is not None
                 and nested_id == LEARN_SKILL_REQUEST_VITAL_ID

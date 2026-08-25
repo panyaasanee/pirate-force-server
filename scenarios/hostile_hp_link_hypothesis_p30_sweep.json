@@ -1,0 +1,311 @@
+{
+  "schema": 1,
+  "id": "hostile_hp_link_hypothesis_target_sweep",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-038",
+  "checkpoint": "HOSTILE-HP-LINK-001",
+  "hypothesis_id_is_registered_in_the_ledger": true,
+  "design_not_recovery": "this_is_our_design_not_the_original_servers_which_is_unrecoverable",
+  "spacing_decision_comment": "six_seconds_not_fifteen_stretching_spacing_for_the_tester_is_wasted_effort_because_the_event_is_short_the_fix_is_recording_video_panya_20260820",
+  "undecidable_from_static_analysis": "whether_the_client_renders_the_intermediate_value_2893_on_a_real_hostiles_hp_bar_is_the_queued_attended_test_and_so_is_whether_a_model_at_this_distance_is_drawn_at_all",
+  "entry": {
+    "flow": "full_writable_character",
+    "required_sequence": "selected_and_runtime_ready",
+    "response_policy": "compose_linked_damage_and_target_hp_frames_from_our_own_arithmetic_no_write_no_close"
+  },
+  "dispatch": {
+    "wired": true,
+    "wiring_owner": "hostile_hp_link_001_round_162",
+    "app_policy_when_lane_disabled": "no_frames_composed_and_the_encoder_raises_if_called_directly",
+    "runtime_dispatch_branch": "runtime_py_dispatch_hostile_hp_link_hypothesis_reached_from_the_app_flag_through_make_state_class",
+    "frames_per_accepted_request": 7,
+    "trigger": "one_accepted_34_byte_ascii12_chat_input_frame",
+    "step_order": [
+      "TARGET_SPAWN",
+      "HIT_WEAK",
+      "TARGET_HP_AFTER_WEAK",
+      "MISS",
+      "TARGET_HP_AFTER_MISS",
+      "HIT_STRONG",
+      "TARGET_HP_AFTER_STRONG"
+    ],
+    "step_kinds": [
+      "actor",
+      "hit",
+      "actor",
+      "hit",
+      "actor",
+      "hit",
+      "actor"
+    ],
+    "miss_steps": [
+      "MISS"
+    ],
+    "lethal_steps": [],
+    "spacing_seconds": 6.0,
+    "first_frame_delay_seconds": 0.0,
+    "delay_semantics": "gap_before_each_send_on_a_cumulative_deadline",
+    "action_label_prefix": "HYP_PF_038_HOSTILE_HP_LINK_",
+    "action_labels": [
+      "HYP_PF_038_HOSTILE_HP_LINK_TARGET_SPAWN",
+      "HYP_PF_038_HOSTILE_HP_LINK_HIT_WEAK",
+      "HYP_PF_038_HOSTILE_HP_LINK_TARGET_HP_AFTER_WEAK",
+      "HYP_PF_038_HOSTILE_HP_LINK_MISS",
+      "HYP_PF_038_HOSTILE_HP_LINK_TARGET_HP_AFTER_MISS",
+      "HYP_PF_038_HOSTILE_HP_LINK_HIT_STRONG",
+      "HYP_PF_038_HOSTILE_HP_LINK_TARGET_HP_AFTER_STRONG"
+    ],
+    "one_shot": true,
+    "socket_action": "none"
+  },
+  "wire": {
+    "envelope_vital_id": 28317,
+    "envelope_vital_version": 4,
+    "envelope": "gscn_runtime_protocol_res_v4_two_collections",
+    "hit_carrier": {
+      "collection": "vitaldata",
+      "base_change_mask": 2,
+      "derived_change_mask": 0,
+      "object_offset": 24,
+      "chit_result_vital_id": 5879,
+      "chit_result_vital_version": 0,
+      "header_wire_size": 22,
+      "header_reserved_value": 0,
+      "hit_element_wire_size": 37,
+      "hit_entry_count": 1,
+      "damage_field": {
+        "name": "damage_wire",
+        "object_offset": 8,
+        "wire_tag": 20,
+        "width": "i32_read_signed",
+        "safe_band": [
+          -1000000,
+          0
+        ]
+      },
+      "flag_field": {
+        "name": "result_flags",
+        "object_offset": 28,
+        "wire_tag": 18,
+        "width": "u16",
+        "value_allowlist": [
+          0,
+          1
+        ],
+        "forbidden_mask": 61828
+      },
+      "yaw_field": {
+        "name": "reaction_yaw",
+        "object_offset": 24,
+        "wire_tag": 42,
+        "pinned_value": 0.0
+      }
+    },
+    "target_carrier": {
+      "collection": "actor_entries",
+      "inherited_change_mask": 0,
+      "derived_change_mask": 2,
+      "object_offset": 28,
+      "actor_type": 4,
+      "attr_ids": [
+        2773,
+        8295
+      ],
+      "field_order_rule": "ascending_mask_bit_within_each_block",
+      "hp_fields": {
+        "hp_current": {
+          "mask_bit": 4,
+          "object_offset": 68,
+          "wire_tag": 20,
+          "width": "u32"
+        },
+        "hp_max": {
+          "mask_bit": 8,
+          "object_offset": 72,
+          "wire_tag": 20,
+          "width": "u32"
+        },
+        "hp_death_timer": {
+          "mask_bit": 128,
+          "object_offset": 88,
+          "wire_tag": 42,
+          "width": "f32"
+        },
+        "scene_id": {
+          "mask_bit": 256,
+          "object_offset": 92,
+          "wire_tag": 18,
+          "width": "u16"
+        },
+        "scene_sequence": {
+          "mask_bit": 512,
+          "object_offset": 96,
+          "wire_tag": 50,
+          "width": "qword"
+        }
+      },
+      "name_field": {
+        "mask_bit": 1,
+        "wire_tag": 72,
+        "value": "Tornado Eagle",
+        "why": "the_target_panel_label_comes_from_basicattr_plus_0x28_and_a_bar_that_moved_on_an_unnamed_actor_leaves_which_actor_was_that_open"
+      },
+      "lethal_half": {
+        "composed_by_this_lane": false,
+        "death_timer_mask_bit_is_forbidden": 128,
+        "rule": "this_lane_has_no_lethal_step_the_death_half_belongs_to_a_later_version_of_this_slot_and_every_guard_refuses_it_by_name"
+      }
+    },
+    "formula": {
+      "owner": "this_project_not_the_original_server",
+      "deterministic": true,
+      "uses_random": false,
+      "atk_base": 100,
+      "k_atk_str": 7,
+      "k_atk_lv": 3,
+      "def_base": 10,
+      "k_def_con": 2,
+      "k_def_lv": 1,
+      "min_hit": 1,
+      "defender": {
+        "name": "TORNADO_EAGLE_LV27",
+        "level": 27,
+        "ability_con": 22
+      },
+      "attackers": {
+        "MOB_WEAK": {
+          "level": 7,
+          "ability_str": 132
+        },
+        "MOB_STRONG": {
+          "level": 15,
+          "ability_str": 294
+        }
+      },
+      "pinned_damage_wire": {
+        "MOB_WEAK": -964,
+        "MOB_STRONG": -2122
+      }
+    },
+    "hp_ladder": {
+      "owner": "the_target_not_the_player",
+      "baseline_source": "client_side_standard_mob_level_27_v117_p30",
+      "start": 3857,
+      "max": 3857,
+      "floor": 0,
+      "ladder": [
+        3857,
+        3857,
+        2893,
+        2893,
+        2893,
+        2893,
+        771
+      ],
+      "clamp_policy": "clamping_is_refused_this_lane_never_reaches_the_floor",
+      "applies_on": "the_actor_frame_that_follows_each_hit_frame"
+    }
+  },
+  "probe": {
+    "rule": "the_performer_is_the_players_own_actor_and_the_target_is_the_frozen_port_royal_placement_identity",
+    "target_source": "port_royal_unambiguous_placements_frozen_v141",
+    "target_selection_rule": "placement_index_30_named_outright_not_nearest_because_the_row_is_twelve_thousand_units_from_the_player_spawn",
+    "target_identity_formula": "0x2000_plus_placement_index_plus_1",
+    "target_placement_index": 30,
+    "target_template_id": 31,
+    "target_identity_lo": 8223,
+    "target_identity_hi": 0,
+    "target_visual_preset": "M011_000_000_SP3",
+    "target_source_name": "Tornado Eagle",
+    "target_hp_baseline": 3857,
+    "position_source": "live_player_position_plus_scenario_offsets",
+    "position_mode": "player_relative",
+    "position_dx": 100.0,
+    "position_dy": 50.0,
+    "position_dz": 0.0,
+    "frozen_world_row_is_never_sent": true,
+    "pins_are_composed_from_a_fixed_probe_identity": true,
+    "pins_are_composed_from_the_frozen_v135_probe_geometry": true,
+    "pins_hold_for_a_live_session": "sizes_always_hashes_only_where_the_geometry_and_the_performer_happen_to_be_the_pinned_probe_ones_which_a_character_sitting_at_the_frozen_spawn_partly_is",
+    "performer_probe_identity_lo": 268500993,
+    "performer_probe_identity_hi": 0,
+    "scene_id": 1,
+    "scene_sequence": 0,
+    "per_step": {
+      "TARGET_SPAWN": {
+        "pc_size": 200,
+        "pc_sha256": "5E3FD310339FCFB84ED6C4C86D423CD6ADDE2E33546476EBC9A83F214795476E",
+        "frame_size": 212,
+        "frame_sha256": "526AFEA2498A241C7596DB955A2C28683A41A1BAFE5906EE20DD68EA273F5F8E"
+      },
+      "HIT_WEAK": {
+        "pc_size": 84,
+        "pc_sha256": "7588F3A56D0468A0F216585A9FA0FED24B9D693B73F8AD048A19261C05D60684",
+        "frame_size": 95,
+        "frame_sha256": "AF7E8B23B80ACAACBF5429ECBD873A9F2A1FC60254BB9A8CF2F4A54A363C1730"
+      },
+      "TARGET_HP_AFTER_WEAK": {
+        "pc_size": 142,
+        "pc_sha256": "DB9E62658E5382977EB7F27EB9100B69F52BA06F18616F79D61E680F7ADDD9BE",
+        "frame_size": 154,
+        "frame_sha256": "475690244E659B0AE9BE07408E883AB86D98E2EAC25E778C782D38D3C6E7B769"
+      },
+      "MISS": {
+        "pc_size": 84,
+        "pc_sha256": "A4D69DEAD9144A0340DCE7A32AB3645F5DEA0A6141106F9CB3D72E7D4F772F10",
+        "frame_size": 95,
+        "frame_sha256": "07731EAEAE40B376C5F392799E66ABB69E74F70EDAD18802F2D304FA06728689"
+      },
+      "TARGET_HP_AFTER_MISS": {
+        "pc_size": 142,
+        "pc_sha256": "DB9E62658E5382977EB7F27EB9100B69F52BA06F18616F79D61E680F7ADDD9BE",
+        "frame_size": 154,
+        "frame_sha256": "475690244E659B0AE9BE07408E883AB86D98E2EAC25E778C782D38D3C6E7B769"
+      },
+      "HIT_STRONG": {
+        "pc_size": 84,
+        "pc_sha256": "BC430BA8C8029CA53CF5CD057709549A2784F6A3449B6C165629A333548EE85C",
+        "frame_size": 95,
+        "frame_sha256": "53936BDEC6D78A27A64C7CCB609B12EBEE6AD8042A4795D99337BF2E976BB105"
+      },
+      "TARGET_HP_AFTER_STRONG": {
+        "pc_size": 142,
+        "pc_sha256": "E93EE06A59E9AB2062107C6A8A55A7BC52A3E36441F98DB95A5DDFC6F70C6818",
+        "frame_size": 154,
+        "frame_sha256": "D1AEED75A420255601B65666E4C3A198976B315C16B9E5F30D61015E9EF94655"
+      }
+    }
+  },
+  "persisted_post_state": {
+    "database_write": "none"
+  },
+  "capabilities": [
+    "run_our_damage_arithmetic_against_a_server_held_balance_for_a_target",
+    "move_the_hit_points_of_a_real_hostile_identity_carrying_the_clients_own_hp_baseline",
+    "alternate_the_vitaldata_hit_carrier_and_the_actor_entry_target_carrier",
+    "address_every_frame_of_the_sweep_at_the_one_frozen_placement_identity",
+    "place_that_identity_at_player_relative_geometry_so_a_tester_can_see_it",
+    "carry_the_targets_name_so_the_target_panel_has_a_label_to_show",
+    "refuse_every_value_whose_client_meaning_this_project_cannot_name"
+  ],
+  "nonclaims": [
+    "this_is_our_design_not_the_original_servers_which_is_unrecoverable",
+    "no_capture_shows_a_targets_hit_points_moving_in_response_to_damage_in_either_direction",
+    "the_client_does_not_subtract_damage_that_is_why_the_server_must_say_both_halves",
+    "whether_the_client_renders_the_intermediate_value_2893_on_a_real_hostiles_hp_bar_is_undecidable_from_static_analysis_and_is_the_queued_attended_test",
+    "nobody_has_ever_confirmed_with_their_own_eyes_that_a_model_at_this_distance_is_inside_the_clients_draw_distance",
+    "the_hp_baseline_3857_is_client_side_data_not_a_rule_of_the_original_server",
+    "the_attacker_profiles_were_chosen_so_the_bar_moves_visibly_and_are_ours",
+    "player_relative_placement_is_a_harness_of_ours_no_player_ever_met_this_hostile_there",
+    "no_claim_the_original_server_ever_linked_these_frames",
+    "no_database_write_no_hp_column_exists_and_none_is_added",
+    "wire_layer_only_no_client_has_seen_these_bytes",
+    "one_shot_per_connection_not_per_process",
+    "no_claim_about_death_dying_loot_aggro_retaliation_or_any_other_hostile_in_the_roster",
+    "miss_control_proves_only_that_our_arithmetic_holds_not_that_the_client_checks_it",
+    "the_runtime_dispatch_branch_exists_and_is_driven_headless_only_never_over_tcp_and_never_by_a_client",
+    "production_dispatch_wiring_the_wiring_is_opt_in_and_production_allowed_is_false",
+    "production_baseline_behavior"
+  ]
+}

@@ -3035,7 +3035,7 @@
     "tracked_versions": [
      "GROUND-LOOT-001",
      "GROUND-LOOT-001-v2-trigger-relative",
-    "GROUND-LOOT-001-v3-equipment-base-drop-model-ids"
+     "GROUND-LOOT-001-v3-equipment-base-drop-model-ids"
     ],
     "decision": "Opened 2026-08-23 under the owner's standing gameplay pre-approval; one version is tracked because one round built the whole lane (module + scenario + app/runtime wiring + tests + headless replay) at once. Proven offline and through the real dispatcher on a throwaway database copy; never driven over TCP and never seen by a client. Version 2 (chief cloud round 127) made the coordinates trigger-relative after the attended GT-045 run measured the real spawn ~700 units from the V135-derived absolutes; ZERO versions of the three remain: version 3 (chief cloud round R158, 2026-08-25) changed the payload dwords on the wire from 2600001 to 2200423/2200003 and re-derived all four masked-template pins after the attended round 1104 measured dust but no item model. It is booked as a VERSION and not waved through as a profile amendment because it sends bytes no pinned frame ever contained -- strictly stronger grounds than the precedent this project already set for a subset change. ANY FURTHER WIRE CHANGE TO THIS LANE NEEDS AN EXTENSION DECISION FROM THE OWNER FIRST. The stop_rule's stop-and-record clause was CONSIDERED and judged not yet fired: it triggers on the client DRAWING, and what round 1104 produced was a transient ground-drop effect with no object drawn, no name label and nothing persistent -- the redirect onto entry lifetime and pickup is therefore still gated on the re-run, and this reading is recorded here rather than left implicit. Confirm the client-observable layer as the queued attended test GT-045 -- does the client draw anything at either coordinate -- before any retire, freeze or extend decision, and do not move any coverage row grade until it has run."
    },
@@ -3480,6 +3480,112 @@
       "capture_pinned_all_five_re059_frames_carry_2",
       "the_re060_item_scheme_which_is_candidate_not_wire_confirmed",
       "original_server_pickup_response_behavior_which_is_unrecoverable"
+     ],
+     "active_claim_marker": false
+    }
+   ]
+  },
+  {
+   "id": "HYP-PF-038",
+   "kind": "protocol_hypothesis",
+   "introduced_checkpoint": "HOSTILE-HP-LINK-001",
+   "exact_value_or_transform": "HOSTILE-HP-LINK-001 composes, behind the opt-in flag --hostile-hp-link-hypothesis-scenario and the exact-tree scenario file scenarios/hostile_hp_link_hypothesis_p30_sweep.json, ONE seven-frame GSCN_RunTimeProtocolRes (0x6E9D version 4) sweep that alternates the two client-proven collections against ONE frozen Port Royal placement identity: the VitalData/CHitResult carrier (BASE change mask 0x02 at object +0x18, CHitResult 0x16F7 version 0, performer = the session's own selected actor) and the actor-entry/NPCAttr carrier (INHERITED mask 0x00, DERIVED mask 0x02 at object +0x1C, actor_type 4 CNetNPC).  The target is placement index 30, actor identity 0x201F (0x2000 + index + 1, cross-checked against the frozen V112_MONSTER_ACTOR_ID), template 31, visual preset M011_000_000_SP3, BasicAttr name 'Tornado Eagle', and the HP baseline 3857 the frozen source carries as V117_P30_EXACT_HP -- which is CLIENT-SIDE STANDARD_MOB data, not a rule of the original server.  Step order TARGET_SPAWN, HIT_WEAK, TARGET_HP_AFTER_WEAK, MISS, TARGET_HP_AFTER_MISS, HIT_STRONG, TARGET_HP_AFTER_STRONG; first delay 0.0 s and spacing 6.0 s on a cumulative deadline; action label prefix HYP_PF_038_HOSTILE_HP_LINK_; ONE-SHOT per connection; trigger = one accepted 34-byte ascii12 chat-input frame; no socket action and no database write.  The damage formula is the one HYP-PF-024 and HYP-PF-029 already ship, unchanged (attack = 100 + 7*str + 3*level against defence = 10 + 2*con + 1*level, floored at MIN_HIT); what differs is the ATTACKER PROFILES, chosen so the movement is visible on a 3857-point bar where the sibling lane's -63 would be 1.6 percent of it: MOB_WEAK level 7 str 132 -> -964 and MOB_STRONG level 15 str 294 -> -2122 against the defender level 27 con 22, giving the derived balance ladder (3857, 3857, 2893, 2893, 2893, 2893, 771) -- 75.0 percent and then 20.0 percent of the baseline.  Both wire values are recomputed from the profile constants on every call and refused on any mismatch.  THE TARGET IS PLACED PLAYER-RELATIVE at dx 100 / dy 50 / dz 0 borrowed from the Arena lane's scenario, resolved per accepted request from the authoritative character row the frozen TargetPos write path checkpoints, with the heading derived towards the player; the frozen WORLD row (1747.5244140625, -7837.69775390625, 931.0413208007812) is pinned in the module only so that composing it can be REFUSED by name, and it appears nowhere in the scenario file.  THERE IS NO LETHAL HALF: no hp = 0 frame, no BasicAttr bit 0x0080 death timer, no dying latch and no clamp -- a move that would reach the floor is a named refusal rather than a clamp, the lethal step register and the timer map are both empty by design and the plan validator refuses them non-empty.",
+   "scope": "Wire layer only, behind one opt-in flag, mutually exclusive with every other lane; production_allowed false in both the module and the scenario file.  The lane composes seven frames for one identity and returns them; it opens no socket, writes no row and adds no HP column.  The byte pins are TWO STRENGTHS and the difference is structural to this lane: every frame carries three f32s derived from the live player position, so the SIZE pins hold for every session while the sha pins hold only at the probe geometry (frozen V135 spawn plus the scenario offsets) and, on the three hit frames, only for the probe performer 0x10010001.  Each build therefore recomposes the whole sweep at the probe geometry and holds THAT to the hashes, so a drifted encoder cannot ship even once.",
+   "status": "active",
+   "provenance": "Opened by chief cloud round R162 on 2026-08-25 under the owner's standing damage-model approval of 2026-08-19 11:45 and the standing pre-approval for gameplay lanes built to the house pattern.  Designed in the GT-035 ticket by round R159 and constrained by the bridge letter of 2026-08-25 10:10 (+07:00), which required the player-relative placement to be a precondition of the lane rather than a choice at boot time.  HYP-PF-029 is at 3/3 versions with extension_approval_ref null, which is why this is a new entry rather than a fourth version of that lane.",
+   "evidence_refs": [
+    "scenarios/hostile_hp_link_hypothesis_p30_sweep.json",
+    "tests/test_hostile_hp_link_hypothesis.py",
+    "tools/pf_hostile_hp_link_headless_replay.py"
+   ],
+   "accepted_ceiling": "Composer and dispatcher layers.  The lane is reachable from the app flag through make_state_class to the runtime branch, the seven frames are produced from a real accepted trigger on a throwaway database in the tests, and tools/pf_hostile_hp_link_headless_replay.py drives every named refusal and decodes the composed placement back out of the bytes for any player position -- which is the only way an attended round can tell 'the model was out of draw distance' apart from 'the frame put it somewhere else'.  NOTHING above that: no client has ever been shown one byte of this profile.",
+   "evidence_gap": "NO CLIENT HAS EVER SEEN THESE BYTES.  Two separate questions are open and must not be collapsed into one: (1) whether the client renders the intermediate value 2893 on a real hostile's HP bar, which is undecidable from static analysis and is the queued attended test GT-035; and (2) whether a model placed at dx 100 / dy 50 is inside this client's model draw distance at all -- nobody has ever confirmed that with their own eyes, and an attended round that sees no model has produced a finding about draw distance, NOT a negative about damage.",
+   "falsification": "Retire this entry if an attended round shows the client erroring on the sweep, or the bar moving on a HIT frame rather than on the actor frame that follows it (which would falsify round 83's result that the client subtracts nothing), or the bar showing a value outside 3857 / 2893 / 771, or the target panel reading a name or max HP other than 'Tornado Eagle' and 3857.  Retire it also if the frozen placement row, V112_MONSTER_ACTOR_ID, V117_P30_EXACT_HP or V119_P30_TARGET_NAME drift from the pins, since every one of those is cross-checked at resolve time and the lane refuses rather than composing.",
+   "stop_rule": "Compose exactly the seven pinned frames for identity 0x201F, one shot per connection, alive at the end.  Do not add a lethal frame, a death timer, a clamp or a second target; do not widen the attacker profiles; do not reach for the arena lane's allowlist to make this lane pass -- that allowlist belongs to a lane that is already proven and merged, and widening it would change the meaning of a neighbour that no round has measured.  The death half is GT-036's question and needs a new version of this slot.",
+   "production_allowed": false,
+   "expiry": {
+    "tracked_versions": [
+     "HOSTILE-HP-LINK-001"
+    ],
+    "decision": "1 of 3 versions consumed by HOSTILE-HP-LINK-001 (chief cloud round R162, 2026-08-25).  TWO remain.  The first of them is expected to be the death half GT-036 asks for -- a ladder that reaches the floor plus the dying latch and death task shapes HYP-PF-023 already proved -- and it must not be opened until GT-035 has been read by a human at the client."
+   },
+   "max_versions": 3,
+   "extension_approval_ref": null,
+   "source_refs": [
+    {
+     "path": "src/pirateforce_foundation/hostile_hp_link_hypothesis.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-038 active",
+      "production_allowed = False",
+      "build_hostile_hp_link_sweep",
+      "validate_hostile_hp_link_sweep",
+      "require_hostile_hp_link_hypothesis_scenario",
+      "hostile_hp_link_wire_unlock",
+      "apply_hit_to_balance",
+      "HOSTILE_HP_LINK_BALANCE_LADDER = (3857, 3857, 2893, 2893, 2893, 2893, 771)",
+      "HOSTILE_HP_LINK_HP_BASELINE = 3857",
+      "HOSTILE_HP_LINK_TARGET_IDENTITY_LO = 0x201F",
+      "HOSTILE_HP_LINK_TARGET_PLACEMENT_INDEX = 30",
+      "HOSTILE_HP_LINK_POSITION_MODE = \"player_relative\"",
+      "HOSTILE_HP_LINK_LETHAL_STEP_LABELS = ()",
+      "HOSTILE_HP_LINK_SPACING_SECONDS = 6.0",
+      "CHIT_RESULT_VITAL_ID = 0x16F7",
+      "ACTOR_DERIVED_CHANGE_MASK = 0x02",
+      "hp_clamp_is_forbidden_in_this_lane",
+      "lethal_field_is_not_available_in_this_lane",
+      "target_placement_is_the_frozen_world_row_not_player_relative",
+      "this_is_our_design_not_the_original_servers_which_is_unrecoverable",
+      "the_client_does_not_subtract_damage_that_is_why_the_server_must_say_both_halves",
+      "nobody_has_ever_confirmed_with_their_own_eyes_that_a_model_at_this_distance_is_inside_the_clients_draw_distance"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "src/pirateforce_foundation/runtime.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-038 active",
+      "def _dispatch_hostile_hp_link_hypothesis(",
+      "hostile_hp_link_hypothesis_scenario=None,",
+      "hostile_hp_link_unlock = hostile_hp_link_wire_unlock(",
+      "resolve_hostile_hp_link_target(",
+      "build_hostile_hp_link_sweep(",
+      "self.hostile_hp_link_sweep_count = 0",
+      "hostile_hp_link_hypothesis_no_selected_no_reply",
+      "hostile_hp_link_hypothesis_wrong_sequence_no_reply",
+      "hostile_hp_link_hypothesis_wrong_scene_no_reply",
+      "hostile_hp_link_hypothesis_already_sent_no_reply",
+      "hostile_hp_link_hypothesis_target_sweep_sent",
+      "HYP-PF-038 sweep event name drift"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "src/pirateforce_foundation/app.py",
+     "required_markers": [
+      "PF-HYPOTHESIS-LEDGER: HYP-PF-038 active",
+      "--hostile-hp-link-hypothesis-scenario requires an explicit ",
+      "load_hostile_hp_link_hypothesis_scenario",
+      "hostile_hp_link_hypothesis_scenario=hostile_hp_link_hypothesis",
+      "HOSTILE-HP-LINK-001 joins the flag to the branch"
+     ],
+     "active_claim_marker": true
+    },
+    {
+     "path": "scenarios/hostile_hp_link_hypothesis_p30_sweep.json",
+     "required_markers": [
+      "\"hypothesis_id\": \"HYP-PF-038\"",
+      "\"checkpoint\": \"HOSTILE-HP-LINK-001\"",
+      "\"hypothesis_id_is_registered_in_the_ledger\": true",
+      "\"production_allowed\": false",
+      "\"test_only\": true",
+      "\"one_shot\": true",
+      "\"database_write\": \"none\"",
+      "\"socket_action\": \"none\"",
+      "\"wiring_owner\": \"hostile_hp_link_001_round_162\"",
+      "\"wired\": true",
+      "\"position_mode\": \"player_relative\"",
+      "this_is_our_design_not_the_original_servers_which_is_unrecoverable",
+      "the_runtime_dispatch_branch_exists_and_is_driven_headless_only_never_over_tcp_and_never_by_a_client"
      ],
      "active_claim_marker": false
     }
