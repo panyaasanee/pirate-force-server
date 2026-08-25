@@ -14,8 +14,12 @@ Two things about this lane cannot be seen from a chair in front of the game:
   2. **Where the target was actually placed.**  The lane puts the target at
      the player's position plus the scenario's offsets, and an attended round
      that reports "I could not see the bird" needs to separate "the model was
-     out of draw distance" from "the frame put it somewhere else".  This tool
-     decodes the placement back out of the composed bytes and prints it.
+     out of draw distance" from "the frame put it somewhere else".  Neither
+     explanation is ruled out by GT-035: one round saw a model at the shipped
+     offsets, which does not exclude ground-Z, occlusion, camera or terrain at
+     any other position.  This tool decodes the placement back out of the
+     composed bytes and prints it so the two can be told apart with evidence
+     rather than by assumption.
 
 Run it before an attended round with the player position the tester expects to
 spawn at, and the numbers printed here are the numbers the round should see.
@@ -274,8 +278,12 @@ def main(argv=None):
         "checks": checks,
         "result": "PASS" if all(checks.values()) else "FAIL",
         "not_claimed": [
-            "no client has ever been shown one byte of this profile",
-            "nothing here says the model is inside the client draw distance",
+            "one client was shown this profile once, in the attended round "
+            "GT-035 of 2026-08-25; nothing else has, and nothing here "
+            "re-derives what that client did with the bytes",
+            "nothing here re-derives what a client draws; the 2026-08-25 "
+            "round saw this offset drawn, and the draw distance limit "
+            "is unmeasured",
             "the hp baseline 3857 is client-side data, not a server rule",
             "no claim about death, loot, aggro or any other hostile",
         ],

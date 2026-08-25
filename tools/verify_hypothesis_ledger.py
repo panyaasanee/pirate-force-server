@@ -576,7 +576,26 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # hostile identity the CLIENT itself ships data for.  1 of 3 versions
 # consumed.  No other field of any entry is touched: this is an append, and
 # the index of every earlier entry is unchanged.)
-CANONICAL_CONTENT_SHA256 = "475CE05F4FCEFE5B3386C22D08D0E8DDAC11DAC48AB85B104F0B208DD92F65BA"
+# -> (2026-08-25, chief cloud round R164: HYP-PF-038 entry 45 edited in place --
+# accepted_ceiling, evidence_gap and one required_marker only.  Cause: the
+# attended round GT-035 (jobs 1138 and 1141, 2026-08-25, two independent
+# observers) answered BOTH client-side questions the entry had open, so the
+# entry may no longer assert them as gaps.  The retired marker
+# nobody_has_ever_confirmed_..._draw_distance is REPLACED, not dropped: the
+# lane still carries a nonclaim at that index, now scoped to what stayed
+# unknown (the draw distance LIMIT is unmeasured, so no other offset inherits
+# the result).  Nothing else moved: no entry added or removed, no index
+# shifted, no stop_rule or production_allowed touched, and the lane still has
+# no lethal half -- GT-036 gains nothing from this edit.  Adversary round on
+# this change: 1 CRITICAL (recording the answer silently discharged the only
+# stated precondition on the lethal half, so expiry.decision is amended to say
+# in words that a discharged precondition is NOT an owner approval), 6 HIGH
+# (two now-false required_markers, a tool that kept emitting a retired
+# sentence, a module summary that still called the answered test "queued", an
+# inverted guard in the replay tool's docstring, and no artifact in this repo
+# naming the round) and 4 MEDIUM, all folded in before commit.  evidence_gap
+# is AMENDED, not replaced, per the house precedent at entries 33 and 39.)
+CANONICAL_CONTENT_SHA256 = "ACD07AA9787EC613EE0210F20EC1832CF3C77A76B0D1DA9A820D017C6A919186"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(

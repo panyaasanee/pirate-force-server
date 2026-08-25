@@ -55,10 +55,17 @@ Two consequences are written into the design rather than left to a booter:
     sibling lane's performer-bearing frames behave.  This is stated here
     because a pin that quietly means two things is a trap.
 
-NONCLAIM, kept next to the design it constrains: nobody has ever confirmed with
-their own eyes that a model at ``dx 100 / dy 50`` is inside this client's model
-draw distance.  If the attended round sees no bird, that is a finding about
-draw distance or render conditions -- NOT a negative about damage.
+MEASURED ON A SCREEN, not here, and it retires the nonclaim that used to
+stand in this paragraph: a model at the offsets this lane ships IS inside this
+client's model draw distance.  Two observers saw the bird drawn in the attended
+round GT-035 of 2026-08-25 (jobs 1138 and 1141) and read its name off the
+target panel.  Provenance and the limits of that testimony are written out in
+reports/PF_HOSTILE_HP_LINK038_GT035_ATTENDED_RESULT_20260825.md; read it before
+citing this paragraph.  What is STILL not known is the limit itself: nobody
+measured where the draw distance ends, apparent size on screen is a function of
+camera zoom and not of distance-to-cutoff, so no other offset inherits this
+result, and an attended round at some other offset that sees no model is still
+a finding about draw distance -- NOT a negative about damage.
 
 THE PLAN -- SEVEN FRAMES, ONE TARGET, ONE BALANCE, AND NO DEATH
 ----------------------------------------------------------------
@@ -133,7 +140,10 @@ does not claim the client accepts identity ``0x201F`` as a target, does not
 claim the bird is drawn, does not claim anything about aggro, retaliation or
 loot, and does not generalise to the other twelve hostiles in the roster.
 **whether the client renders the intermediate value 2893 on the target's HP bar
-is UNDECIDABLE from static analysis and is the queued attended test.**
+is UNDECIDABLE from static analysis.**  It was decided on a screen instead:
+the attended round GT-035 of 2026-08-25 read 2893 off the bar.  That answer is
+recorded in reports/PF_HOSTILE_HP_LINK038_GT035_ATTENDED_RESULT_20260825.md and
+it is client-observable testimony, NOT something this file can re-derive.
 """
 
 from __future__ import annotations
@@ -432,10 +442,11 @@ HOSTILE_HP_LINK_TARGET_WORLD_Z = 931.0413208007812
 # The player-relative offsets this lane places the target at.  Borrowed, not
 # invented: they are the offsets the Arena lane's scenario already carries and
 # the only geometry in this project a player has ever been asked to look at.
-# NONCLAIM, stated where it is easiest to trip over: nobody has confirmed with
-# their own eyes that a model at this distance is inside the client's model
-# draw distance.  If the attended round sees no model, that is a finding about
-# draw distance -- not a negative about damage.
+# MEASURED ON A SCREEN 2026-08-25, two observers, jobs 1138 and 1141: a model
+# at THESE offsets was drawn.  The draw distance LIMIT is still unmeasured, so
+# this covers these offsets only and no other offset inherits it.  If an
+# attended round at some other offset sees no model, that is STILL a finding
+# about draw distance -- not a negative about damage.
 # The one scene this lane's frozen placement row belongs to, re-exported so
 # the dispatch branch can refuse a player standing somewhere else without
 # importing population.py a second time.
@@ -2056,18 +2067,20 @@ HOSTILE_HP_LINK_NONCLAIMS = (
     "this_is_our_design_not_the_original_servers_which_is_unrecoverable",
     "no_capture_shows_a_targets_hit_points_moving_in_response_to_damage_in_either_direction",
     "the_client_does_not_subtract_damage_that_is_why_the_server_must_say_both_halves",
-    "whether_the_client_renders_the_intermediate_value_2893_on_a_real_hostiles_hp_bar_is_undecidable_from_static_analysis_and_is_the_queued_attended_test",
-    "nobody_has_ever_confirmed_with_their_own_eyes_that_a_model_at_this_distance_is_inside_the_clients_draw_distance",
+    "no_claim_that_the_client_renders_any_value_or_any_ladder_other_than_the_one_this_lane_sent_to_this_one_target",
+    "no_claim_about_the_draw_distance_limit_itself_only_this_one_offset_was_confirmed_visible_and_no_other_offset_inherits_it",
     "the_hp_baseline_3857_is_client_side_data_not_a_rule_of_the_original_server",
     "the_attacker_profiles_were_chosen_so_the_bar_moves_visibly_and_are_ours",
     "player_relative_placement_is_a_harness_of_ours_no_player_ever_met_this_hostile_there",
     "no_claim_the_original_server_ever_linked_these_frames",
     "no_database_write_no_hp_column_exists_and_none_is_added",
-    "wire_layer_only_no_client_has_seen_these_bytes",
+    "wire_layer_here_one_client_saw_these_bytes_once_in_gt035_and_that_testimony_is_not_re_derivable_from_this_tree",
     "one_shot_per_connection_not_per_process",
     "no_claim_about_death_dying_loot_aggro_retaliation_or_any_other_hostile_in_the_roster",
     "miss_control_proves_only_that_our_arithmetic_holds_not_that_the_client_checks_it",
-    "the_runtime_dispatch_branch_exists_and_is_driven_headless_only_never_over_tcp_and_never_by_a_client",
+    "the_targets_name_label_rendered_in_this_clients_player_colour_not_its_npc_colour_so_hostile_is_unproven_and_is_open_ticket_re067",
+    "no_claim_about_the_original_servers_damage_formula_which_is_unrecoverable_this_ladder_is_ours",
+    "the_runtime_dispatch_branch_is_driven_headless_in_this_tree_and_over_tcp_only_in_an_attended_round_never_in_production",
     "production_dispatch_wiring_the_wiring_is_opt_in_and_production_allowed_is_false",
     "production_baseline_behavior",
 )
@@ -2107,9 +2120,10 @@ def _expected_scenario() -> dict[str, Any]:
         ),
         "spacing_decision_comment": HOSTILE_HP_LINK_SPACING_DECISION,
         "undecidable_from_static_analysis": (
-            "whether_the_client_renders_the_intermediate_value_2893_on_a_real_"
-            "hostiles_hp_bar_is_the_queued_attended_test_and_so_is_whether_a_"
-            "model_at_this_distance_is_drawn_at_all"
+            "whether_the_client_renders_the_intermediate_value_2893_on_this_"
+            "targets_hp_bar_and_whether_a_model_at_these_offsets_is_drawn_at_"
+            "all_were_both_answered_yes_on_a_screen_by_the_attended_round_"
+            "gt035_of_2026_08_25_and_neither_is_re_derivable_from_this_tree"
         ),
         "entry": {
             "flow": "full_writable_character",
