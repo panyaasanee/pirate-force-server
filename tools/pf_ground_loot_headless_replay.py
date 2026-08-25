@@ -24,7 +24,9 @@ re-stated locally, which is the point.
 
 It proves NOTHING about a client.  No client has ever been shown a bit-0x08
 frame; whether the client RENDERS anything for the 0x5F85B0 list is GT-045
-(attended, not run).  Bit 0x08 = "ground loot" is UNPROVEN, the payload
+(attended; ran once 2026-08-24 -- a ground-drop effect was seen at
+the sent coordinates, no item model).  Bit 0x08 = "ground loot" is
+UNPROVEN, the payload
 dword is NOT claimed to be an item template id, and drawing is not pickup.
 
 DISCIPLINE
@@ -85,19 +87,19 @@ FRAME_SIZE = 54
 # away from the V135 constants the first version pinned absolutes from.
 COORD_SPANS = ((30, 34), (35, 39), (40, 44))
 NEAR_PC_TEMPLATE_SHA = (
-    "915331D5103215675E246B0011B054C9D4F7D2C4D48C8E2B010A45C3D0F5FC33"
+    "F9875639513F38E0D2603A53137D205AF47246447102B431665B27AE23BD4576"
 )
 FAR_PC_TEMPLATE_SHA = (
-    "DC6A8FE62BC2C89B92AFA8060D2CEC5DCCDF23D81A242F95AA354C5BD48F8A14"
+    "159DD1AB3074519EF95821DE6953697A03C035F35804024F8CD27FFFD22E39D7"
 )
 # The 54-byte frame is the content-independent 10-byte snappy-literal
 # header + the pc, so the frame template zeroes the same spans shifted +10.
 FRAME_COORD_SHIFT = 10
 NEAR_FRAME_TEMPLATE_SHA = (
-    "199B695E6FD30D26140D5EB719A6F526EAD199141A2B84BBF990CB6AD9DDC9D2"
+    "A67230FCC80A619F0ADBD35F99332DC3597768A28C603368D41D8DD0192E7902"
 )
 FAR_FRAME_TEMPLATE_SHA = (
-    "D8A0BD6BC857A8508D09A550814FC1685F0388F8650F028482A20EB5785EDCE1"
+    "6B0F7FA8B3685914B68503891A5E4CCCD988278B93F8BF72E3C2FB772EE33B1B"
 )
 NEAR_LABEL = "GROUND_LOOT_BIT08_RENDER_NEAR_ONCE"
 FAR_LABEL = "GROUND_LOOT_BIT08_RENDER_FAR_ONCE"
@@ -108,8 +110,8 @@ PAIR_EVENT = "hyp_pf_032_ground_loot_bit08_pair_committed"
 # added to the triggering TargetPos x.  One frame per element -- near
 # first, far second.
 EXPECTED_ELEMENTS = (
-    (1, 2600001, 30.0),
-    (2, 2600001, 800.0),
+    (1, 2200423, 30.0),
+    (2, 2200003, 800.0),
 )
 EXPECTED_DELAYS = (0.0, 0.10)
 EXPECTED_TEMPLATE_SHAS = (NEAR_PC_TEMPLATE_SHA, FAR_PC_TEMPLATE_SHA)
@@ -568,7 +570,7 @@ def main() -> int:
               "elements back from byte zero, nothing is committed, the "
               "second TargetPos adds nothing, and the source database is "
               "untouched (whether the client renders anything is GT-045, "
-              "attended, not run)")
+              "attended; ran once 2026-08-24 -- effect seen, no model)")
     return 0
 
 
