@@ -80,7 +80,52 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
-    # This pin covers ONE deliberate movement (ITEMOP-RES-GREENLINE-001,
+    # This pin covers ONE deliberate movement
+    # (LOGOUT-TRANSITION-GT033-ANSWERED, 2026-08-25, chief cloud round R166):
+    # session_lifecycle/clean_logout stays in_progress -- its grade does NOT
+    # move and nobody claims the behaviour works -- but the row gains FOUR
+    # evidence refs (scenarios/logout_hypothesis_ack_close.json,
+    # scenarios/logout_hypothesis_return_select_server.json,
+    # scenarios/logout_hypothesis_chat_push_return_select.json and the new
+    # reports/PF_GT033_LOGOUT_TRANSITION_AB_CLIENT_OBSERVABLE_NEGATIVE_20260825.md)
+    # plus TWO test refs (tests/test_logout_return_select_hypothesis.py,
+    # tests/test_logout_chat_push_hypothesis.py), taking the row to 9 evidence
+    # refs and 4 test refs.  Why now: the row's prose had stood untouched since
+    # 2026-08-18, still named "0x3D4B-first" as the next design, and its
+    # evidence refs pointed only at the two shapes falsified that day.  The
+    # attended GT-033 runs of 2026-08-25 (jobs 1143-1152, three cells of a
+    # four-cell table, three separate boots sharing one boot commit
+    # 06b62abd423cff9fc9c965d52178fd2fca62c38e, CODE_DELTA 0 -- so the control
+    # holds at commit level, not boot level) measured two further response
+    # shapes at the client-observable layer and neither makes the client leave
+    # the map: HYP-PF-028 put a hash-pinned ReturnSelectServerVital 0x709E on
+    # the wire ahead of the ack, answering a genuine owner-pressed LogoutVital
+    # subcode 03, and the client did not transition; HYP-PF-013 (ack+close,
+    # differing by exactly that one frame, verified by an outbound-frame census
+    # over the whole run) did not transition on subcode 03 and did not
+    # self-exit on subcode 01.  The fourth cell (variant B on subcode 01) was
+    # deliberately cut: it is UNMEASURED, not answered, the table must not be
+    # read as complete, and once the code moves it can never again be measured
+    # under this boot commit.  This is NOT a falsification of connection
+    # teardown: nobody checked whether the client kept sending after the close
+    # and no positive control for an in-map disconnect symptom exists anywhere
+    # in this project, so "saw it and did nothing" is not separated from "never
+    # saw it".  0x3D4B-first was never run and is NOT resurrected here; the
+    # branch this round chose is the orchestrator mode/timer (vtable 0xf45030),
+    # queued on the bridge as RE-070 -- but the ticket's three-branch table was
+    # not exhaustive and most of the branches it missed are still measurable
+    # in-game, so the remaining work is NOT static-only and the row is
+    # in_progress rather than blocked.  The full record, including all eight
+    # nonclaims, is the new report ref; the summary in the coverage row must
+    # not be read in its place.  A first draft of this same round called the
+    # run the first time a real client received 0x709E bytes -- false, GT-033
+    # variant C did so on 2026-08-23 -- and the adversary round that caught
+    # that also drove the HYP-PF-028 evidence_gap amendment and the
+    # CANONICAL_CONTENT_SHA256 re-pin that ride in the same change.  The ledger
+    # GROWS by nothing: count stays 46, no entry added, removed or reindexed.
+    #
+    # Previous pin 39034397..F60C covered ONE deliberate movement
+    # (ITEMOP-RES-GREENLINE-001,
     # 2026-08-24, chief cloud round R154): presentation/
     # system_message_display stays in_progress but gains one evidence ref
     # (scenarios/item_operate_res_greenline_sweep.json) and one test ref
@@ -573,7 +618,7 @@ GRADE_SUBSET_SHA256 = (
     # 26D752FE..BA9A (round 65) occupied_destination_policy not_started ->
     # in_progress under HYP-PF-017 (ITEM-SWAP-001); see its lineage note before that
     # for round 53's 78558E56..6DC8.
-    "3903439722086B1A33878569FF9C371C0A8FA40FAC5A2CB5A038C710BDEDF60C"
+    "68F9C1454037A525C67C3F37B0DA41385AD3E21EF24661B02C1CB12B2F9FA8D5"
 )
 
 

@@ -38,8 +38,17 @@ short of `complete`. A narrow fixture, golden, or single controlled run earns
   (`clean_logout`) is `in_progress`: the HYP-PF-012 echo ack is wire/DB-proven
   (close-before-ack confirmed on the real client in GT-007) but GT-007 falsified
   the echo-only shape at the client-observable layer — the client neither returns
-  to character select nor closes itself, so a content-bearing response shape is
-  the next hypothesis.
+  to character select nor closes itself. Attended GT-033 (2026-08-25) then
+  measured two content-bearing shapes and neither works either: a hash-pinned
+  `ReturnSelectServerVital 0x709E` sent ahead of the ack (HYP-PF-028), and the
+  bare ack plus a clean server-side socket close (HYP-PF-013), on subcode 03 and
+  — for the ack+close shape — on subcode 01 as well. Three cells of that
+  four-cell table were measured and all three are negative; the fourth is
+  deliberately unmeasured, not answered. That is **not** a falsification of
+  connection teardown: nobody has shown the client ever perceives the close, and
+  this project has no positive control for an in-map disconnect symptom. Full
+  record and all eight nonclaims:
+  `reports/PF_GT033_LOGOUT_TRANSITION_AB_CLIENT_OBSERVABLE_NEGATIVE_20260825.md`.
 - **Movement: INCOMPLETE** — next missing behavior:
   `local_player_movement_authority`. Scene-entry placement, NPC gait, authoritative
   scene-actor streaming and one teleport transport are `runtime_pass`; the server

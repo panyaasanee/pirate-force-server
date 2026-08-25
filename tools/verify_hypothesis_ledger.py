@@ -595,7 +595,30 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # inverted guard in the replay tool's docstring, and no artifact in this repo
 # naming the round) and 4 MEDIUM, all folded in before commit.  evidence_gap
 # is AMENDED, not replaced, per the house precedent at entries 33 and 39.)
-CANONICAL_CONTENT_SHA256 = "ACD07AA9787EC613EE0210F20EC1832CF3C77A76B0D1DA9A820D017C6A919186"
+# -> 8C700D42.. (2026-08-25 chief round 166, cloud: HYP-PF-028 evidence_gap is
+# AMENDED, not replaced, per the same precedent.  No entry is added or removed,
+# count stays 46, no index shifts, no status/kind/checkpoint moves and no
+# production_allowed is touched -- ONE entry gains one dated paragraph.  Why:
+# the gap said "NO CLIENT HAS EVER BEEN SHOWN ONE BYTE OF THIS PROFILE" and
+# that the attended test "HAS NOT RUN", and both went false on 2026-08-25 when
+# attended GT-033 variant B (jobs 1143-1146, boot commit 06b62abd, CODE_DELTA
+# 0) answered a real owner-pressed LogoutVital subcode 03 with the pinned
+# 0x709E ahead of the ack and a clean close at +250 ms: all three pinned pieces
+# matched their sha256 pins and NO transition occurred.  A round that reads the
+# ledger to pick the next attended ticket would have re-queued a test that had
+# already run.  The amendment carries what the run does NOT establish -- 0x709E
+# is not excluded, only this all-zero-field composition of it; the vanishing
+# dialog is not evidence the client consumed anything; and nothing shows the
+# client ever perceived the socket close, since nobody checked for outbound
+# traffic afterwards and no positive control for an in-map disconnect symptom
+# exists anywhere in this project -- plus the deliberately cut fourth cell
+# (variant B on subcode 01), which is unmeasured, not answered.  It also
+# carries a correction of this round's own first draft, which called the run
+# the first time a real client received 0x709E bytes: false, GT-033 variant C
+# did so on 2026-08-23, as the HYP-PF-031 amendment two entries over already
+# recorded.  Adversary round on this change caught that omission and three
+# others before commit.)
+CANONICAL_CONTENT_SHA256 = "8C700D42E24F90C42A8744C925D85D15FBF989F08C6CB08AD5457BFF9E4B0A59"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(

@@ -12,6 +12,12 @@
 # retired nonclaims were retired ON.  Round 87's lesson again: a file on the author's
 # machine is not a file in the repository.
 !/reports/PF_HOSTILE_HP_LINK038_GT035_ATTENDED_RESULT_20260825.md
+# session_lifecycle/clean_logout cites this one from evidence_refs: the GT-033 attended
+# result, the client-observable half of HYP-PF-028 and HYP-PF-013.  Same lesson a third
+# time -- the videos and captures behind it live only on the bridge machine, so without
+# this file a fresh clone has the scenarios that were run and no record of what happened
+# when they ran.  Every other ref on that row is a lane config or a headless report.
+!/reports/PF_GT033_LOGOUT_TRANSITION_AB_CLIENT_OBSERVABLE_NEGATIVE_20260825.md
 # DEATH-ESCALATE-001 cites this one from HYP-PF-022's evidence_refs, and round 87's
 # lesson was that "the file exists on the author's machine" is not "the file is in the
 # repository" -- only the second one is evidence for whoever clones this next.
