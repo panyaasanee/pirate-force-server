@@ -26,10 +26,13 @@ recovered.  No capture in any corpus shows a target's hit points moving in
 response to damage, and round 83 proved the client computes nothing and never
 subtracts -- which is why the server has to say both halves itself.
 
-NOT proven here, and these are the load-bearing limits: whether the client
-renders 2893 on a real hostile's bar is UNDECIDABLE from static analysis and
-is the queued attended test, and nobody has ever confirmed with their own eyes
-that a model at this distance is inside the client's draw distance.
+NOT proven here, and these are the load-bearing limits.  Neither of the two
+client-side questions is re-derivable from static analysis: both were answered
+on a screen, by the attended round of 2026-08-25 (jobs 1138 and 1141, two
+independent observers), which saw 2893 on the target's bar and saw the model
+drawn at this offset.  What this file still cannot say is how far the draw
+distance reaches, or what the client would render for any value or any offset
+other than the ones this ladder sent.
 
 DISCIPLINE.  Every database below is a fresh ``tempfile`` one that is deleted
 on exit.  The repository's canonical database is never opened -- it is only
@@ -576,8 +579,8 @@ class ScenarioFileTests(HostileHpLinkBase):
             False,
         )
         self.assertIn(
-            "nobody_has_ever_confirmed_with_their_own_eyes_that_a_model_at_"
-            "this_distance_is_inside_the_clients_draw_distance",
+            "no_claim_about_the_draw_distance_limit_itself_only_this_one_"
+            "offset_was_confirmed_visible_and_no_other_offset_inherits_it",
             self.file_tree["nonclaims"],
         )
 

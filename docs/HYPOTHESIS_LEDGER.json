@@ -3496,10 +3496,11 @@
    "evidence_refs": [
     "scenarios/hostile_hp_link_hypothesis_p30_sweep.json",
     "tests/test_hostile_hp_link_hypothesis.py",
-    "tools/pf_hostile_hp_link_headless_replay.py"
+    "tools/pf_hostile_hp_link_headless_replay.py",
+    "reports/PF_HOSTILE_HP_LINK038_GT035_ATTENDED_RESULT_20260825.md"
    ],
-   "accepted_ceiling": "Composer and dispatcher layers.  The lane is reachable from the app flag through make_state_class to the runtime branch, the seven frames are produced from a real accepted trigger on a throwaway database in the tests, and tools/pf_hostile_hp_link_headless_replay.py drives every named refusal and decodes the composed placement back out of the bytes for any player position -- which is the only way an attended round can tell 'the model was out of draw distance' apart from 'the frame put it somewhere else'.  NOTHING above that: no client has ever been shown one byte of this profile.",
-   "evidence_gap": "NO CLIENT HAS EVER SEEN THESE BYTES.  Two separate questions are open and must not be collapsed into one: (1) whether the client renders the intermediate value 2893 on a real hostile's HP bar, which is undecidable from static analysis and is the queued attended test GT-035; and (2) whether a model placed at dx 100 / dy 50 is inside this client's model draw distance at all -- nobody has ever confirmed that with their own eyes, and an attended round that sees no model has produced a finding about draw distance, NOT a negative about damage.",
+   "accepted_ceiling": "Composer and dispatcher layers.  The lane is reachable from the app flag through make_state_class to the runtime branch, the seven frames are produced from a real accepted trigger on a throwaway database in the tests, and tools/pf_hostile_hp_link_headless_replay.py drives every named refusal and decodes the composed placement back out of the bytes for any player position -- which is the only way an attended round can tell 'the model was out of draw distance' apart from 'the frame put it somewhere else'.  ONE LAYER HIGHER AS OF 2026-08-25: the attended round GT-035 (jobs 1138 and 1141) showed a client these bytes and the client rendered them -- a model was drawn at the offsets this lane ships, and the target's bar stepped 3857 -> 2893 -> 2893 -> 771.  Layer and limits: this is client-observable testimony, never wire-layer evidence, and the two observers do NOT corroborate each other on all of it -- run 1 saw neither 3857 nor the first step, so the first step, the damage numbers and the miss control are single-source from the run-2 video.  Full provenance, including what run 1 missed and why the 6.0 s figure is a design constant and not a measured latency, is in reports/PF_HOSTILE_HP_LINK038_GT035_ATTENDED_RESULT_20260825.md.  None of it is re-derivable from anything in this tree.",
+   "evidence_gap": "NO CLIENT HAD EVER SEEN THESE BYTES when this entry was written.  Two separate questions were open and must not be collapsed into one: (1) whether the client renders the intermediate value 2893 on a real hostile's HP bar, which is undecidable from static analysis and is the queued attended test GT-035; and (2) whether a model placed at dx 100 / dy 50 is inside this client's model draw distance at all -- nobody has ever confirmed that with their own eyes, and an attended round that sees no model has produced a finding about draw distance, NOT a negative about damage.  AMENDED (chief cloud round R164, 2026-08-25): GT-035 HAS RUN and both questions were answered YES on a screen -- (1) the client rendered 2893 on THIS target's HP bar and the bar stepped 3857 -> 2893 -> 2893 -> 771, holding still across the HIT frames and across the MISS; and (2) a model at the offsets this lane ships WAS drawn.  Neither answer is re-derivable from static analysis and neither is wire-layer evidence; the provenance, and what the second observer does and does not corroborate, is in reports/PF_HOSTILE_HP_LINK038_GT035_ATTENDED_RESULT_20260825.md.  WHAT IS STILL OPEN, and must not be read out of the two answers above: the arithmetic and the frame linkage are OUR design and no capture shows the original server doing this; the draw distance LIMIT is unmeasured, so no other offset inherits (2); nothing here proves the client computes anything, it displayed the numbers we sent; death is not touched at all by this lane, which has no lethal half by design, so GT-036 gets nothing from this; and the target's name label rendered in the colour this client uses for PLAYERS, not for NPCs, so the word 'hostile' in the ticket title is still unproven and is the subject of the open ticket RE-067.",
    "falsification": "Retire this entry if an attended round shows the client erroring on the sweep, or the bar moving on a HIT frame rather than on the actor frame that follows it (which would falsify round 83's result that the client subtracts nothing), or the bar showing a value outside 3857 / 2893 / 771, or the target panel reading a name or max HP other than 'Tornado Eagle' and 3857.  Retire it also if the frozen placement row, V112_MONSTER_ACTOR_ID, V117_P30_EXACT_HP or V119_P30_TARGET_NAME drift from the pins, since every one of those is cross-checked at resolve time and the lane refuses rather than composing.",
    "stop_rule": "Compose exactly the seven pinned frames for identity 0x201F, one shot per connection, alive at the end.  Do not add a lethal frame, a death timer, a clamp or a second target; do not widen the attacker profiles; do not reach for the arena lane's allowlist to make this lane pass -- that allowlist belongs to a lane that is already proven and merged, and widening it would change the meaning of a neighbour that no round has measured.  The death half is GT-036's question and needs a new version of this slot.",
    "production_allowed": false,
@@ -3507,7 +3508,7 @@
     "tracked_versions": [
      "HOSTILE-HP-LINK-001"
     ],
-    "decision": "1 of 3 versions consumed by HOSTILE-HP-LINK-001 (chief cloud round R162, 2026-08-25).  TWO remain.  The first of them is expected to be the death half GT-036 asks for -- a ladder that reaches the floor plus the dying latch and death task shapes HYP-PF-023 already proved -- and it must not be opened until GT-035 has been read by a human at the client."
+    "decision": "1 of 3 versions consumed by HOSTILE-HP-LINK-001 (chief cloud round R162, 2026-08-25).  TWO remain.  The first of them is expected to be the death half GT-036 asks for -- a ladder that reaches the floor plus the dying latch and death task shapes HYP-PF-023 already proved -- and it must not be opened until GT-035 has been read by a human at the client.  AMENDED (chief cloud round R164, 2026-08-25): that precondition is now DISCHARGED -- GT-035 ran and passed its client-observable layer.  IT IS NOT AN APPROVAL.  Lifting HP_FLOOR = FORBIDDEN changes a guard on a lane that is already proven and merged, which is an owner decision under the project's policy 3, and the owner has NOT ruled on it.  The death half stays shut until that ruling exists and is cited here by letter name.  Do not read the discharge of the precondition as the opening of the slot."
    },
    "max_versions": 3,
    "extension_approval_ref": null,
@@ -3536,7 +3537,7 @@
       "target_placement_is_the_frozen_world_row_not_player_relative",
       "this_is_our_design_not_the_original_servers_which_is_unrecoverable",
       "the_client_does_not_subtract_damage_that_is_why_the_server_must_say_both_halves",
-      "nobody_has_ever_confirmed_with_their_own_eyes_that_a_model_at_this_distance_is_inside_the_clients_draw_distance"
+      "no_claim_about_the_draw_distance_limit_itself_only_this_one_offset_was_confirmed_visible_and_no_other_offset_inherits_it"
      ],
      "active_claim_marker": true
     },
@@ -3585,7 +3586,7 @@
       "\"wired\": true",
       "\"position_mode\": \"player_relative\"",
       "this_is_our_design_not_the_original_servers_which_is_unrecoverable",
-      "the_runtime_dispatch_branch_exists_and_is_driven_headless_only_never_over_tcp_and_never_by_a_client"
+      "the_runtime_dispatch_branch_is_driven_headless_in_this_tree_and_over_tcp_only_in_an_attended_round_never_in_production"
      ],
      "active_claim_marker": false
     }

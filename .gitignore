@@ -7,6 +7,11 @@
 !/reports/
 /reports/*
 !/reports/PF_DAMAGE_MODEL001_CLIENT_HIT_RESULT_EXPECTATION_20260819.md
+# HYP-PF-038 cites this one from evidence_refs: the GT-035 attended result, which is
+# client-observable testimony recorded so a fresh clone can see what this lane's
+# retired nonclaims were retired ON.  Round 87's lesson again: a file on the author's
+# machine is not a file in the repository.
+!/reports/PF_HOSTILE_HP_LINK038_GT035_ATTENDED_RESULT_20260825.md
 # DEATH-ESCALATE-001 cites this one from HYP-PF-022's evidence_refs, and round 87's
 # lesson was that "the file exists on the author's machine" is not "the file is in the
 # repository" -- only the second one is evidence for whoever clones this next.
