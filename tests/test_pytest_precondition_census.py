@@ -601,11 +601,16 @@ class WindowsGateExclusionPinTests(unittest.TestCase):
 
     WHAT IS AND IS NOT PINNED, stated here because a half-closed hole reads like
     a closed one:
-      * only the SIZE of the list is pinned.  One module drifting in on its own,
-        or out on its own, is red.  One in AND one out in the same commit keeps
-        the count and stays GREEN.  Pinning membership instead would mean
-        editing this pin on every new lane, which is more than the ruling asked
-        for; the count is the cheap half and it is the half that was drifting.
+      * the SIZE and the sorted MEMBERSHIP of the list are both pinned (R172,
+        COO order 2026-08-25 23:35 +07:00).  R170 pinned the size alone and said
+        so honestly: one module in AND one module out in the same commit kept the
+        count and stayed green.  The name list closes that swap.  What it costs
+        is stated plainly rather than discovered later - every new test module
+        mentioning the gate's pattern now has to move docs/PYTEST_SKIP_PINS.json
+        in the same commit, and the failure message below prints the diff so the
+        edit is mechanical.  The count stays beside the list as a readable
+        checksum, and test_the_pinned_count_and_the_pinned_list_agree refuses the
+        two drifting apart.
       * the list is re-derived from the workflow's own formula, so a hand-edit
         that mutates $excluded AFTER the formula runs would not move the derived
         number.  test_the_exclusion_list_is_not_mutated_after_the_formula
@@ -664,6 +669,51 @@ class WindowsGateExclusionPinTests(unittest.TestCase):
             "and say which module moved and why.  Current list:\n  %s"
             % (len(excluded), pin["count"], "\n  ".join(excluded)))
 
+    def test_the_modules_the_gate_hides_are_pinned_by_name(self):
+        """The half R170 left open: a swap that keeps the count.
+
+        Sets, not sequences, so a re-sorted pin file is not a failure; the
+        message prints both directions because "the list moved" without saying
+        WHICH way costs the next reader a manual diff of 48 names.
+        """
+        pin = self.pins["windows_gate_excluded_modules"]
+        excluded, _keep = self.derive()
+        pinned = set(pin["modules"])
+        derived = set(excluded)
+        self.assertEqual(
+            derived, pinned,
+            "the set of test modules the Windows gate hides no longer matches "
+            "the pinned list.\n  newly hidden (in the gate, not in the pin): "
+            "%s\n  no longer hidden (in the pin, not in the gate): %s\nA module "
+            "drifting INTO that list vanishes from the gate silently while the "
+            "gate still prints green, so move docs/PYTEST_SKIP_PINS.json in the "
+            "same commit that moves the list, and say which module moved and "
+            "why."
+            % (sorted(derived - pinned) or "none",
+               sorted(pinned - derived) or "none"))
+
+    def test_the_pinned_count_and_the_pinned_list_agree(self):
+        """Two ways of saying the same thing must not disagree in silence."""
+        pin = self.pins["windows_gate_excluded_modules"]
+        self.assertEqual(len(pin["modules"]), pin["count"])
+        self.assertEqual(
+            sorted(set(pin["modules"])), sorted(pin["modules"]),
+            "the pinned exclusion list repeats a module name")
+
+    def test_the_pinned_list_is_not_empty(self):
+        """The one thing the set comparison above cannot say on its own.
+
+        R172 adversary finding 8: the first draft of this test looped over
+        pin["modules"] asserting each name was a real file, which is strictly
+        implied by the set comparison (derived is built by globbing real files
+        and subtracting keep) AND passes vacuously at zero entries.  The loop is
+        gone; the emptiness check is what was actually missing.
+        """
+        pin = self.pins["windows_gate_excluded_modules"]
+        self.assertGreater(
+            len(pin["modules"]), 0,
+            "an empty exclusion pin grades nothing and reads like a closed hole")
+
     def test_the_module_the_gate_puts_back_is_the_pinned_one(self):
         """Re-including a module by name must not be a silent way to move the
         count: the -ne clause is pinned too."""
@@ -694,6 +744,79 @@ class WindowsGateExclusionPinTests(unittest.TestCase):
             "formula runs; the pin in docs/PYTEST_SKIP_PINS.json is derived "
             "from the formula alone and would not see it.  Fold the addition "
             "into the formula, or teach derive() to read the new shape.")
+
+
+class GateExclusionDriftTests(unittest.TestCase):
+    """The other half of the pin: grade the artifact, not the YAML grammar.
+
+    WindowsGateExclusionPinTests re-derives the list from the workflow's own
+    Select-String formula.  R172's adversary pass measured three mutations that
+    change what the gate really hides without touching that formula - an append
+    to $ignoreArgs after the loop, `$excluded = $excluded + ...` (which the
+    "$excluded +=" tripwire does not match), and simply pointing pytest at one
+    file - and all three left every derived-from-source test green.  The gate
+    writes its real list to a file and hands it over on --excluded; these tests
+    are about reading that file.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.module = load_tool()
+        cls.pins = json.loads(PINS.read_text(encoding="utf-8"))
+        cls.pinned = cls.pins["windows_gate_excluded_modules"]["modules"]
+
+    def test_the_real_list_matching_the_pin_is_silent(self):
+        self.assertEqual(
+            self.module.gate_exclusion_drift(list(self.pinned), self.pins), [])
+
+    def test_windows_separators_in_the_gates_file_are_the_same_modules(self):
+        """The gate writes Windows paths; the pin holds POSIX ones."""
+        windows = [m.replace("/", "\\") for m in self.pinned]
+        self.assertEqual(
+            self.module.gate_exclusion_drift(windows, self.pins), [])
+
+    def test_one_extra_module_hidden_is_drift(self):
+        """The dangerous direction: something stopped being able to go red."""
+        problems = self.module.gate_exclusion_drift(
+            list(self.pinned) + ["tests/test_foundation.py"], self.pins)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("GATE EXCLUSION DRIFT", problems[0])
+        self.assertIn("tests/test_foundation.py", problems[0])
+        self.assertIn("was hidden from this run", problems[0])
+
+    def test_one_module_no_longer_hidden_is_drift_too(self):
+        problems = self.module.gate_exclusion_drift(
+            list(self.pinned)[1:], self.pins)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("did not", problems[0])
+
+    def test_a_swap_that_keeps_the_count_is_two_problems_not_zero(self):
+        swapped = [m for m in self.pinned if m != self.pinned[3]]
+        swapped.append("tests/test_foundation.py")
+        problems = self.module.gate_exclusion_drift(swapped, self.pins)
+        self.assertEqual(len(problems), 2, problems)
+
+    def test_hiding_everything_is_drift(self):
+        """The third measured mutation: pytest pointed at a single file."""
+        everything = sorted(
+            "tests/" + p.name for p in (ROOT / "tests").glob("*.py"))
+        self.assertTrue(
+            self.module.gate_exclusion_drift(everything, self.pins))
+
+    def test_no_exclusion_list_at_all_stays_silent(self):
+        """The bridge runs the whole suite; that is not drift."""
+        self.assertEqual(self.module.gate_exclusion_drift([], self.pins), [])
+
+    def test_a_pin_file_without_the_block_stays_silent(self):
+        """Absent pin means unpinned, not violated - fail loud elsewhere."""
+        self.assertEqual(
+            self.module.gate_exclusion_drift(list(self.pinned), {}), [])
+
+    def test_the_drift_message_is_pure_ascii(self):
+        problems = self.module.gate_exclusion_drift(
+            list(self.pinned) + ["tests/test_foundation.py"], self.pins)
+        for problem in problems:
+            problem.encode("ascii")
 
 
 class CensusVerdictTests(unittest.TestCase):
