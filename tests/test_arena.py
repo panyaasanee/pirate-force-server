@@ -249,15 +249,31 @@ class ArenaTests(unittest.TestCase):
         normal_before_events = list(normal.events)
         actions = normal.dispatch(self.legacy.parse_outer(self.target_pos_pc()))
         labels = [a[0] for a in actions]
+        # WORLD-CENSUS-001: the no-arena boot is the default boot, and the
+        # default boot now sends the whole bg0001 census instead of the frozen
+        # V134_P0_P30_P91_ISOLATED_* pair.  What this test is here to prove is
+        # unchanged: no ARENA frame composes without the arena scenario.
         self.assertEqual(labels, [
-            "V134_P0_P30_P91_ISOLATED_INITIAL_READY",
-            "V134_P0_P30_P91_ISOLATED_REAPPLY_READY",
+            "WORLD_CENSUS_INITIAL_115",
+            "WORLD_CENSUS_REAPPLY_115",
         ])
         self.assertFalse(any(label.startswith("ARENA_V1_") for label in labels))
+        census_event = (
+            "world_census_committed_actors_115"
+            f"_pc_{len(actions[0][1])}_frame_{len(actions[0][2])}"
+        )
+        # The census event comes LAST because the census composes AFTER the
+        # inherited dispatch, from state that dispatch has already updated on
+        # this frame.  The middle event is v141's own text for "the population
+        # was already sent, nothing to do" -- it fires because the census
+        # disarms that branch at construction.  Its WORDING is inaccurate on
+        # this path (what was retained is the census, not P0/P30/P91) but it is
+        # frozen source, so it is pinned here to put the inaccuracy on the
+        # record rather than leave it a surprise to whoever reads a live log.
         self.assertEqual(normal.events[len(normal_before_events):], [
             "target_pos_10.00_20.00_30.00",
-            "v134_exact_p0_usage2_p30_usage1_p91_usage2_full_placements",
-            "v112_isolated_population_indices_0_30_91",
+            "v129_isolated_population_retained_p0_p30_p91",
+            census_event,
         ])
 
     def test_target_capture_is_observation_only(self):

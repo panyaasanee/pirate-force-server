@@ -80,6 +80,31 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
+    # This pin covers ONE deliberate movement (WORLD-CENSUS-001, chief cloud
+    # round R173, 2026-08-26 +07:00): world/scene_actor_population_streaming
+    # gains ONE test ref, tests/test_world_census_wiring.py.  The row's STATUS
+    # DOES NOT MOVE and nothing here claims the census works: it stays
+    # runtime_pass for the nearest-20 wire it was graded on, because no client
+    # has been shown a 115-actor collection and the highest count with a
+    # recorded runtime result in this project is still 20.  What changed is
+    # that the DEFAULT boot now sends the whole 115-row bg0001 census instead
+    # of three placements -- wired in runtime.py, proven headless only -- so a
+    # row whose test refs did not include the test that drives that wire would
+    # have been silently wrong about its own coverage.  The row's notes record
+    # the same thing in prose, and prose is outside this digest by design.
+    # GT-078 is the attended ticket that could move the status; it has not run.
+    #   R167 / parent 6CF4AE24A70C7DC8EE447310A640098615B5D9F68AB368D58717C501B4DB4553
+    #
+    # MERGE (attended rebuild of PR #41, 2026-08-26 +07:00): the R173 movement
+    # above is merged onto the main line that had moved past it (rounds vvkff9,
+    # 7ptoku and g627j0 below).  No grade field was edited by hand on either
+    # side; docs/FUNCTIONAL_COVERAGE.json auto-merged, and the digest below is
+    # recomputed over that merged document by grade_digest() in this file,
+    # which is the only value that can satisfy both.  BOTH PARENT DIGESTS ARE
+    # KEPT HERE, same rule as the R167 merge block further down:
+    #   R173  / lane  F80ADB72621F31B2E63EAED9DF6B553B96C79C8E26D6A3E0D3C3E83BE5710926
+    #   main  / g627j0 2828B9EDABCCB1123B27DC79B63C280FF536BBF4B423C556BEB716257CCAAC53
+    #
     # ROUND vvkff9 (LANE-B, 2026-08-26 +07:00): moved deliberately, and it is
     # the same KIND of movement as the 7ptoku block below -- refs, never a
     # grade.  monster_spawn_and_loot gains two evidence refs
@@ -710,7 +735,7 @@ GRADE_SUBSET_SHA256 = (
     # the structured refs pointing only at the old lanes hides the new one
     # from any machine reading this file.
     #   R167 / parent EB932A54B4958527BA172D34A81673B6B91AA54A0979372EED3A3525902C65DB
-    "2828B9EDABCCB1123B27DC79B63C280FF536BBF4B423C556BEB716257CCAAC53"
+    "403D468D3D6E828D1FF61E188CCEF45160520A09B56E3987EDE41624255123F3"
 )
 
 
