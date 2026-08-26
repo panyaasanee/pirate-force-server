@@ -1746,6 +1746,23 @@ def hostile_census_frames(
     shows the target's bar move and every other actor unchanged is
     client-observable and unproven this round - the same evidence gap
     GT-084/RIDER-084-A already track for the arrival-census fix.
+
+    ONE-CORPSE LIMIT, NAMED SO NOBODY WIDENS THE DEATH GATE WITHOUT SEEING
+    IT.  ``dead_timer`` is a SINGLE value applied to every register member
+    :func:`full_roster_override` marks dead - there is no per-identity
+    dying-vs-dead distinction in :class:`DeathRegister` itself, only in which
+    float this caller passes.  A caller composing the DYING frame for one
+    corpse with ``dead_timer=DYING_TIMER_SECONDS`` is safe ONLY because
+    ``SANCTIONING_RULING``/``SANCTIONED_FIRST_TARGET_IDENTITY`` currently
+    guarantee at most one dead identity ever exists in a register at once
+    (``kill`` refuses a second target with
+    :data:`REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE`).  The day that gate
+    widens to more than one killable identity, a caller composing one
+    corpse's dying frame this way would also reset every OTHER already-dead
+    corpse's timer back to "dying" on the wire - a real regression, not a
+    hypothetical one, and this function does not guard against it because it
+    has no way to know which register member the caller means to be
+    transitioning.
     """
     generation = world_population.build_world_population(
         legacy, anchor, actor_count, scene_id=scene_id,
