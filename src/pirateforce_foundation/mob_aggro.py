@@ -33,12 +33,21 @@ The round-98 draft ranked the three doors an aggro loop needs on the client:
   it and must not be read as claiming the frame alone paints the client red.
 * Door B -- ATTACK / ACTION: located in the binary but NEVER opened -- zero
   captures, zero server encoders, every observed behavior lookup returned
-  null, and inbound ActionVital is proven inert (SCENE-008/-013).  Because of
-  that, the attack decision this module emits is named
-  ``INTENT_ATTACK_UNDELIVERABLE`` and :data:`ATTACK_INTENT_DELIVERABLE` is
-  ``False``: the server can DECIDE to attack, and today that decision has no
-  proven server->client transport.  No emitter for it exists in this module or
-  anywhere in ``src/``.
+  null, and inbound ActionVital is proven inert (SCENE-008/-013).
+  THAT SENTENCE IS STALE AT THE STATIC LAYER as of 2026-08-25 02:50 (+07:00)
+  and is kept rather than rewritten so the correction is readable:
+  ``pf_bridge/CLIENT_RE_QUEUE.md`` RE-065 ACTORTASK-USEBEHAVIOR-CTOR-WALK-001
+  closed DONE/YES (static) - the ActionVital handler at 0x007516C0 resolves the
+  actor, looks up BEHAVIOR at 0x00702A10 and builds CActorTask_UseBehavior at
+  0x0047AB30, committed before the [actor+0x14] gate.  So "located but never
+  opened" should read "walked statically, never sent".
+  :data:`ATTACK_INTENT_DELIVERABLE` STAYS ``False`` regardless, and not by
+  oversight: RE-065's own mandatory nonclaim forbids promoting deliverability on
+  a static walk alone - there is still no capture, no server encoder and no
+  observed client reaction.  So the attack decision this module emits is named
+  ``INTENT_ATTACK_UNDELIVERABLE``: the server can DECIDE to attack, and today
+  that decision has no PROVEN server->client transport.  No emitter for it
+  exists in this module or anywhere in ``src/``.
 * Door C -- HIT LANDS: the damage numbers and the death window are attended-
   proven (HYP-PF-024 / GT-024, and GT-019); the damage->death LINK
   (HYP-PF-026) is proven at the wire/dispatcher layer HEADLESSLY, its client
@@ -50,13 +59,23 @@ WHAT THIS MODULE IS NOT
 -----------------------
 PURE SERVER LOGIC.  It sends nothing on the wire, opens no socket, touches no
 database, boots no server, imports nothing from the runtime/dispatch layer,
-and has NO SCENARIO FLAG.  It is deliberately NOT reachable from production
-dispatch: no module in ``src/`` imports it, ``production_allowed`` is False,
-and ``MOB_AGGRO_DISPATCH_REACHABLE`` is False.  That is the honest state of
-the mob-AI line: the decision loop is computable today, the attack delivery is
-not (Door B), and wiring the deliverable intents (approach, leash return) to
-real frames is a separate, owner-ruled step.  Importing this module has no
-side effects: it reads no file and touches no global state at import time.
+and has NO SCENARIO FLAG.  Importing this module has no side effects: it reads
+no file and touches no global state at import time.
+
+WHAT CHANGED ON 2026-08-26, because the paragraph above used to end with three
+sentences that are now false and deleting them would hide the change.  This
+module used to say it was "deliberately NOT reachable from production
+dispatch: no module in ``src/`` imports it, ``production_allowed`` is False".
+COO-DECISION 2026-08-26T04:02+07:00 ruled that arrangement a hole rather than
+a safeguard -- the damage lane reached this one through a HANDLE ARGUMENT, and
+no scan of ``src/`` can see an argument -- and ordered the module promoted in
+the same round as the death half.  So: ``production_allowed`` is True,
+``mob_ai_control`` imports this module by name, and that import edge is the
+thing a scan can now see.  ``MOB_AGGRO_DISPATCH_REACHABLE`` stays False and is
+still honest: the last unbuilt step is one call in ``runtime.py``, which is
+the chief's file and not this lane's.  The decision loop is computable today,
+the attack delivery is still not (Door B), and wiring the deliverable intents
+(approach, leash return) to real frames is still a separate, owner-ruled step.
 
 DETERMINISM (the point of this checkpoint)
 ------------------------------------------
@@ -98,15 +117,42 @@ empty table by invariant).
 
 [OUR DESIGN] -- WHOSE NUMBERS AND RULES THESE ARE
 -------------------------------------------------
-Every rule above is OURS.  The original Pirate Force server is closed, was
+Every RULE here is OURS.  The original Pirate Force server is closed, was
 never published, and left no capture of a monster deciding to attack; there is
 nothing to recover a threat formula FROM (the same measurement that grounds
 DAMAGE-MODEL-001: the client computes nothing).  This module therefore chooses
 its own rules and says so; :data:`MOB_AGGRO_CHOSEN_READINGS` names each one so
-a test can pin them.  Balance values carry NO defaults: aggro radius, leash
-radius, home radius, attack range and cadence are all caller-supplied through
-:class:`MobAiProfile`, because this project has not established the world
-coordinate scale and refuses to invent one silently.
+a test can pin them.
+
+TWO OF THE NUMBERS ARE NO LONGER OURS, AND THIS PARAGRAPH USED TO SAY THEY
+WERE.  Until 2026-08-26 it read "aggro radius, leash radius, home radius,
+attack range and cadence are all caller-supplied ... because this project has
+not established the world coordinate scale and refuses to invent one
+silently".  That was true of the code and false about the data: the client
+ships ``CONSTDATA_TH__AI_WANDER``, it has a per-AI-row ``n_AGGRO`` column whose
+values are in the same magnitude as the placement coordinates, and an
+``n_OFFESIVE`` column.  READING those two as an aggro radius and an
+acquires-unprovoked flag is a READING - the strongest one available and the one
+this lane acts on, but not a proof, and it is recorded as a nonclaim in
+``mob_ai_control``.
+
+THE RELATION BETWEEN THE TWO COLUMNS IS ONE-DIRECTIONAL, and an earlier draft of
+this paragraph got it backwards - it said ``n_OFFESIVE`` is 1 "exactly on" the
+rows with a non-zero ``n_AGGRO``, which is FALSE.  Over the whole 73-row table:
+``n_AGGRO == 0`` implies ``n_OFFESIVE == 0``, and NEVER the converse - eight
+rows (24, 40, 41, 46, 103, 110, 9000, 9001) are non-offensive while carrying a
+radius of 500 to 5000.  That asymmetry is the strongest evidence available that
+the two columns are NOT the same fact restated, which is why this module keeps
+both and gates the proximity floor on the flag rather than on the radius.
+Independent corroboration of the reading, from a different direction and six
+days earlier: ``pf_bridge/FACTPACK_R102_HOSTILE13_ROSTER.md`` (2026-08-20)
+parsed the same rows live out of the client image and reached the same split.
+Both values now arrive from :mod:`field_mob_ai_tables` through
+``mob_ai_control.profile_of``.  The other three -- leash radius, home radius,
+attack range -- and the cadence are STILL ours, still carry no defaults here,
+and are still chosen in the open where a reader can see the choice.  Balance
+values reaching this class are caller-supplied either way: this module does
+the arithmetic and never the sourcing.
 
 THE DRIVER CONTRACT THIS MODULE ASSUMES (unbuilt, so written down)
 ------------------------------------------------------------------
@@ -121,7 +167,15 @@ here where it cannot:
 * the visible-player set is flicker-free at the driver's timescale -- one
   tick of visibility dropout erases that player's threat row permanently,
   because forgiveness is deliberate and immediate (NOT enforceable here;
-  a driver with flickering interest management gets amnesiac mobs);
+  a driver with flickering interest management gets amnesiac mobs).
+  THE SHAPE OF THAT FAILURE CHANGED on 2026-08-26 and this bullet used to
+  understate it.  While every profile had a positive radius and charged, a
+  forgotten attacker still inside the radius was re-acquired by the proximity
+  floor on the very next tick, so a dropout cost one tick.  For a profile with
+  ``offensive = False`` -- ten of the thirteen bg0001 monsters -- the floor
+  never runs, so the ONLY route back into the table is another hit: in a
+  tick-only loop the dropout is PERMANENT, and in the damage loop it is repaired
+  by the attacker's next hit and by nothing else;
 * a tick has no defined wall-clock duration -- cadence is meaningful only
   relative to whatever period the driver chooses (NOT enforceable here).
 
@@ -147,10 +201,22 @@ import math
 from typing import Optional, Tuple
 
 
-# This lane is not wired to anything and must not become wired by accident.
-production_allowed = False
+# PROMOTED 2026-08-26 by COO-DECISION 2026-08-26T04:02+07:00, section 1.3 and
+# the section-3 row "sai B: M4 second half + raise mob_aggro to production in
+# the same round".  The ruling's own reason, quoted so it cannot be lost: "a
+# lane whose production_allowed is false, reached from production through an
+# argument that no scan can see, is the hole that makes our words 'no flag'
+# meaningless".  The hole is closed from BOTH ends: this flag is now True, and
+# mob_ai_control imports this module by name, so a static scan of src/ sees the
+# edge instead of it arriving as a runtime argument.
+production_allowed = True
 MOB_AGGRO_MILESTONE = "MOB-AGGRO-001"
+# Still False, and deliberately: no dispatcher calls this lane yet, because the
+# call site is in runtime.py, which belongs to the chief.  What changed is the
+# line below it -- an importer inside src/ now exists.
 MOB_AGGRO_DISPATCH_REACHABLE = False
+MOB_AGGRO_IMPORTED_BY_A_PRODUCTION_MODULE = True
+MOB_AGGRO_IMPORTER = "mob_ai_control"
 
 # Door B (attack transport) is unproven -- round-98 draft, sections 2 and 8.
 ATTACK_INTENT_DELIVERABLE = False
@@ -189,8 +255,15 @@ REFUSE_PROFILE_VALUE_NOT_FINITE = "profile_value_not_finite"
 REFUSE_PROFILE_RADIUS_NOT_POSITIVE = "profile_radius_not_positive"
 REFUSE_PROFILE_LEASH_SMALLER_THAN_AGGRO = "profile_leash_smaller_than_aggro"
 REFUSE_PROFILE_HOME_OUTSIDE_LEASH = "profile_home_outside_leash"
+# RETIRED 2026-08-26, kept rather than deleted so a reader who greps the name
+# in an older round note finds why it went: the bound it named was the aggro
+# radius, and the mined AI rows made that bound refuse ten of thirteen real
+# monsters.  Nothing raises it any more; REFUSE_PROFILE_ATTACK_RANGE_OUTSIDE_
+# LEASH replaced it in the same commit.
 REFUSE_PROFILE_ATTACK_RANGE_OUTSIDE_AGGRO = "profile_attack_range_outside_aggro"
+REFUSE_PROFILE_ATTACK_RANGE_OUTSIDE_LEASH = "profile_attack_range_outside_leash"
 REFUSE_PROFILE_CADENCE_NOT_POSITIVE = "profile_cadence_not_positive"
+REFUSE_OFFENSIVE_NOT_BOOL = "offensive_not_bool"
 REFUSE_POSITION_NOT_FINITE = "position_not_finite"
 REFUSE_IDENTITY_NOT_POSITIVE = "identity_not_positive"
 REFUSE_DAMAGE_OUTSIDE_I32 = "damage_outside_i32"
@@ -206,7 +279,9 @@ MOB_AGGRO_REFUSAL_REASONS = (
     REFUSE_PROFILE_LEASH_SMALLER_THAN_AGGRO,
     REFUSE_PROFILE_HOME_OUTSIDE_LEASH,
     REFUSE_PROFILE_ATTACK_RANGE_OUTSIDE_AGGRO,
+    REFUSE_PROFILE_ATTACK_RANGE_OUTSIDE_LEASH,
     REFUSE_PROFILE_CADENCE_NOT_POSITIVE,
+    REFUSE_OFFENSIVE_NOT_BOOL,
     REFUSE_POSITION_NOT_FINITE,
     REFUSE_IDENTITY_NOT_POSITIVE,
     REFUSE_DAMAGE_OUTSIDE_I32,
@@ -224,6 +299,7 @@ MOB_AGGRO_CHOSEN_READINGS = (
     "nonnegative_damage_including_miss_adds_no_threat_meaning_unknown",
     "return_and_dead_phases_absorb_no_damage_threat",
     "proximity_inside_aggro_radius_floors_threat_to_one",
+    "non_offensive_ai_rows_acquire_nobody_by_proximity_at_any_distance",
     "selection_reevaluated_every_tick_highest_threat_wins",
     "ties_broken_by_lowest_identity",
     "acquired_attacker_kept_outside_aggro_radius_until_leash_or_forgiveness",
@@ -268,9 +344,25 @@ def _require_finite_triple(value: Tuple[float, float, float], what: str,
 
 @dataclass(frozen=True)
 class MobAiProfile:
-    """[OUR DESIGN] the per-NPC balance record.  All values caller-supplied.
+    """The per-NPC balance record.  Two values are mined; three are ours.
+
+    ``aggro_radius`` and ``offensive`` are NOT [OUR DESIGN] any more, and that
+    is the change of round ``ywm4v1``: ``CONSTDATA_TH__AI_WANDER`` carries
+    ``n_AGGRO`` and ``n_OFFESIVE`` per AI row, and every monster in
+    ``field_mob_tables.HOSTILE_PLACEMENTS`` points at one of those rows through
+    its ``ai_wander`` column.  ``field_mob_ai_tables`` carries the mined rows
+    and ``mob_ai_control.profile_of`` does the join.  The other three values are
+    still ours and still carry no defaults here.
 
     ``aggro_radius``: a live player inside it gains the proximity threat floor.
+    MAY BE ZERO, and ten of the thirteen monsters of ``bg0001`` have exactly
+    that: their AI row is ``n_AGGRO = 0``.  The first draft of this dataclass
+    refused a zero radius as a contract violation -- written before anyone had
+    read the table, against an imagined roster in which every monster charges.
+    ``offensive``: the ``n_OFFESIVE`` column.  False means the monster acquires
+    NOBODY by proximity, at any distance including zero, and can be pulled only
+    by damage.  A zero radius alone does not express that: ``_within`` with a
+    zero radius still admits a player standing exactly on the monster.
     ``leash_radius``: the mob farther than this from its leash origin breaks
     off, forgets all threat and returns.  ``home_radius``: the return phase
     completes once the mob is back inside this distance of the origin.
@@ -284,6 +376,7 @@ class MobAiProfile:
     home_radius: float
     attack_range: float
     attack_cadence_ticks: int
+    offensive: bool
 
     def __post_init__(self) -> None:
         for name in ("aggro_radius", "leash_radius", "home_radius",
@@ -293,10 +386,17 @@ class MobAiProfile:
             if not math.isfinite(number):
                 raise MobAiContractError(
                     REFUSE_PROFILE_VALUE_NOT_FINITE, "%s=%r" % (name, raw))
-            if number <= 0.0:
+            # A ZERO AGGRO RADIUS IS A REAL ROW, not a malformed one; the other
+            # three are still distances the loop must be able to divide the
+            # world with, so they stay strictly positive.
+            floor_is_zero = name == "aggro_radius"
+            if number < 0.0 or (number == 0.0 and not floor_is_zero):
                 raise MobAiContractError(
                     REFUSE_PROFILE_RADIUS_NOT_POSITIVE, "%s=%r" % (name, raw))
             object.__setattr__(self, name, number)
+        if not isinstance(self.offensive, bool):
+            raise MobAiContractError(
+                REFUSE_OFFENSIVE_NOT_BOOL, "offensive=%r" % (self.offensive,))
         if not isinstance(self.attack_cadence_ticks, int) or isinstance(
                 self.attack_cadence_ticks, bool):
             raise MobAiContractError(
@@ -316,11 +416,19 @@ class MobAiProfile:
                 REFUSE_PROFILE_HOME_OUTSIDE_LEASH,
                 "home_radius=%r leash_radius=%r"
                 % (self.home_radius, self.leash_radius))
-        if self.attack_range > self.aggro_radius:
+        # THE BOUND IS THE LEASH, NOT THE AGGRO RADIUS.  The first draft
+        # required attack_range <= aggro_radius, which contradicted this
+        # module's own stated divergence (2) in the header -- "target SELECTION
+        # has no range bound of its own ... the spatial bound on the chase is
+        # the LEASH" -- and, once the table was read, refused every one of the
+        # ten bg0001 monsters whose mined aggro radius is zero: a monster you
+        # hit must be able to hit back, and being non-offensive is not being
+        # unarmed.
+        if self.attack_range > self.leash_radius:
             raise MobAiContractError(
-                REFUSE_PROFILE_ATTACK_RANGE_OUTSIDE_AGGRO,
-                "attack_range=%r aggro_radius=%r"
-                % (self.attack_range, self.aggro_radius))
+                REFUSE_PROFILE_ATTACK_RANGE_OUTSIDE_LEASH,
+                "attack_range=%r leash_radius=%r"
+                % (self.attack_range, self.leash_radius))
 
 
 @dataclass(frozen=True)
@@ -486,6 +594,15 @@ def apply_damage_threat(state: MobAiState, attacker_identity: int,
     table = dict(state.threat)
     table[attacker_identity] = min(
         THREAT_MAX, table.get(attacker_identity, 0) + added)
+    # SATURATION IS A NO-OP, AND IT MUST LOOK LIKE ONE.  A hit on a row already
+    # at THREAT_MAX used to build a NEW state EQUAL to the old one, which made
+    # `is not` and `!=` answer differently about the same fold -- and this
+    # project has two threat-reporting predicates written against each
+    # (mob_combat.threat_was_recorded uses `is not`, mob_ai_control's step uses
+    # `!=`).  Returning the same object makes both answer "nothing happened",
+    # which is the truth.
+    if _freeze_threat(table) == state.threat:
+        return state
     return MobAiState(
         phase=state.phase,
         leash_origin=state.leash_origin,
@@ -556,11 +673,15 @@ def tick(profile: MobAiProfile, state: MobAiState,
                           MobAiIntent(INTENT_RETURN_TO_LEASH, None))
 
     # Proximity floor: a live player inside the aggro radius becomes
-    # targetable at PROXIMITY_THREAT; the floor never accumulates.
-    for identity, player in visible_alive.items():
-        if _within(player.position, observation.position,
-                   profile.aggro_radius):
-            table[identity] = max(table.get(identity, 0), PROXIMITY_THREAT)
+    # targetable at PROXIMITY_THREAT; the floor never accumulates.  A monster
+    # whose mined AI row says n_OFFESIVE = 0 acquires NOBODY this way, at any
+    # distance -- the check is on the flag and not on the radius, because a
+    # zero radius still admits a player standing exactly on the monster.
+    if profile.offensive:
+        for identity, player in visible_alive.items():
+            if _within(player.position, observation.position,
+                       profile.aggro_radius):
+                table[identity] = max(table.get(identity, 0), PROXIMITY_THREAT)
 
     target_identity = _select_target(table)
     if target_identity is None:

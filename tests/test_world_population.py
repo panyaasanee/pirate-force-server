@@ -160,6 +160,40 @@ class WorldPopulationTests(unittest.TestCase):
         self.assertNotIn(name_tag, golden_pc)
         self.assertEqual(top.pc.count(name_tag), 1)
 
+    def test_every_member_but_p30_appears_verbatim_in_the_golden_115(self) -> None:
+        """Stronger than the frame-size delta above, and it can fail alone.
+
+        A total-size comparison passes if two members drift in offsetting
+        directions.  This looks for each census entry's exact bytes INSIDE the
+        payload the frozen V62 builder produced, so the only permitted absence
+        is the one this lane made on purpose: P30 carrying its measured HP and
+        name.
+
+        The comparison deliberately calls ``make_v62_port_royal_population_
+        snapshot`` and searches its real output.  An earlier version of this
+        test rebuilt a "golden" entry here using ``HEADINGS`` imported from the
+        module under test, which made it agree with itself: zeroing HEADINGS
+        changed 86 of 115 actors on the wire and the test still passed.
+
+        NONCLAIM: a substring hit proves each entry's bytes are present, not
+        that the collection orders them the way V62 orders them.  Ordering is
+        not compared here, and no other test compares it either.
+        """
+        from pirateforce_foundation.population import load_port_royal_placements
+        from pirateforce_foundation.world_population import (
+            SHIPPED_MONSTER_INDEX, _entry,
+        )
+
+        _label, golden_pc, _frame, _chosen = (
+            self.legacy.make_v62_port_royal_population_snapshot(*self.anchor)
+        )
+        absent = [
+            placement.placement_index
+            for placement in load_port_royal_placements(self.legacy)
+            if _entry(self.legacy, placement) not in golden_pc
+        ]
+        self.assertEqual(absent, [SHIPPED_MONSTER_INDEX])
+
     def test_identities_follow_the_frozen_actor_identity_rule(self) -> None:
         top = build_world_population(self.legacy, self.anchor, CENSUS_COUNT, scene_id=1)
         self.assertEqual(

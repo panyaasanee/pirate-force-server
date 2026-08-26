@@ -566,3 +566,33 @@
 # own line here.
 !/tools/pf_ground_loot_nameprop_headless_replay.py
 !/tools/pf_external_registry.py
+
+# LANE-B FIELD-MOBS-001: the generator behind src/pirateforce_foundation/
+# field_mob_tables.py.  It reads four committed game tables on the bridge clone
+# and writes an ASCII-only roster module, and it is the only place the
+# selection rule, the two frozen controls it refuses on, and the
+# --verify-frozen re-derivation of the 115-row placement table live.  Same
+# shape as the lines above: src/tests/scenarios are allow-listed wholesale, so
+# only the tool needs its own line here.
+!/tools/pf_mine_scene_mob_roster.py
+
+# LANE-B round g627j0 (BUILD-006 / M5): the generator behind
+# src/pirateforce_foundation/field_drop_tables.py.  Allow-listed for the same
+# reason as the roster generator above: the generated module ships, so the
+# tool that wrote it -- its id rule, its four controls and its DROPS_QUEST
+# refusal -- has to ship with it or a fresh clone cannot re-derive the table.
+!/tools/pf_mine_scene_drop_tables.py
+
+# LANE-B round ywm4v1 (BUILD-005 / M4, the mob_aggro promotion): the generator
+# behind src/pirateforce_foundation/field_mob_ai_tables.py.  Allow-listed for
+# the same reason as the two generators above: the generated module ships, so
+# the tool that wrote it -- the foreign-key join off ai_wander/ai_combat and
+# the three controls it refuses on, including the MOBS-digest agreement with
+# the roster -- has to ship with it or a fresh clone cannot re-derive the rows.
+!/tools/pf_mine_mob_ai_rows.py
+
+# LANE-B round ywm4v1: the tool that writes scenarios/combat_aggro_001.json.
+# Allow-listed because that pin stores this lane's four invented numbers once
+# per monster; an adversarial review found the lane calling a rollback "one
+# constant" while thirteen copies sat in a file nothing could rewrite.
+!/tools/pf_write_mob_ai_pin.py

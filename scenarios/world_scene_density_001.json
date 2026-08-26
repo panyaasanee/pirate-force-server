@@ -1,0 +1,719 @@
+{
+  "schema": 1,
+  "id": "bg0001_scene_density_001",
+  "lane": "A_WORLD",
+  "build_order": "BUILD-001 / M1 - where the town actually is",
+  "test_only": false,
+  "production_allowed": true,
+  "selection": "none_default_behaviour_no_scenario_flag",
+  "not_a_scenario": "this file is a pin, not a switch - no flag loads it and no loader accepts it",
+  "written_at": "2026-08-26 +07:00",
+  "revision": "2 - rewritten after pf-adversary refuted five claims of revision 1",
+  "how_to_read_the_tags": "[MEASURED] recomputed from a committed table in this round. [PROPOSED] a choice this lane made that no evidence forces. Every claim below carries one of the two.",
+  "what_this_pin_is_for": "[MEASURED] The shipped census answers HOW MANY actors leave the server. It does not answer WHERE a character has to stand before any of them is near. This pin answers that second question from the scene's own placement file. It EXTENDS a fact already pinned at HEAD by tests/test_world_population.py (the census is thin everywhere, and no more than 2 members sit within 2000u of the login anchor) - it does not discover it.",
+  "provenance": {
+    "placement_table": {
+      "path": "pf_bridge/gamedata/scene/bg0001/bg0001.placements.tsv",
+      "sha256": "2E5B4115169160D609289D0E638E953D7DA16A0000E267C12C118C7C1A4CFC5F",
+      "rows": 149
+    },
+    "mobs_table": {
+      "path": "pf_bridge/gamedata/tables/CONSTDATA_TH__MOBS.tsv",
+      "sha256": "3C0D33D68F832EEFDA56C845495008338DCEF56F4277584B9CA479B7E1B3916B",
+      "rows": 3210
+    },
+    "shipped_census": {
+      "source": "v141 PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS",
+      "count": 115
+    },
+    "who_checks_which_half": {
+      "server_side_automatic": "pytest tests/test_world_density.py recomputes every SHIPPED-CENSUS number here from v141 and fails on drift. verify_pin_against_source() returns the checked list AND the unverifiable list, and a test pins how many entries are unverifiable, so a silent skip cannot grow.",
+      "bridge_side_manual_and_UNSCHEDULED": "[PROPOSED] nothing automatic reads either sha256 above. The two tables live in pf_bridge and this repository cannot import them, so the 149 / 710 / 34 / preset-control numbers can drift with the whole suite still green. The recompute recipe is committed in rounds/A_20260826_0125_*.md and NOBODY IS SCHEDULED TO RUN IT."
+    }
+  },
+  "cross_source_controls": {
+    "note": "[MEASURED] Three independent comparisons between v141's frozen table and the separately decoded scene file. Two agree completely; the third disagrees completely, and that disagreement is what proves the two decodes are not copies of each other.",
+    "xyz_agree_of_115": 115,
+    "visual_preset_equals_MOBS_s_OUTFIT_of_115": 115,
+    "visual_preset_disagreements": 0,
+    "why_the_preset_control_is_the_strong_one": "XYZ could travel down one lineage. The visual preset travels THROUGH the MOBS table: it is only equal if v141's template_id maps to the same MOBS row this decode maps it to. That is the evidence the n_ID <-> template_ids join is a fact and not an assumption.",
+    "source_name_agree_of_115": 0,
+    "source_name_disagreement_is_expected": "v141 stores display names (Navy Transfer, Sebastian); the scene file stores set labels (Mob_Set_01 01). 0 of 115 agree, and that is the point - a transcription would have carried one of the two."
+  },
+  "scene_inventory": {
+    "placement_records": 149,
+    "shipped_census_records": 115,
+    "records_not_in_the_shipped_census": 34,
+    "extra_xyz_triples_written_in_the_file": 710,
+    "records_carrying_extra_triples": 11,
+    "xyz_triples_written_in_the_file_total": 859,
+    "distinct_coordinates_total": 856,
+    "distinct_coordinates_among_extras": 707,
+    "why_the_two_totals_differ": "[MEASURED] the file writes some coordinates twice. 'total' counts triples as written; 'distinct' counts positions. Never call the larger number a count of spawn points."
+  },
+  "the_gap_of_34": {
+    "note": "[MEASURED] v141 calls its table UNAMBIGUOUS placements. This is what ambiguity meant, measured row by row against the MOBS table.",
+    "by_reason": {
+      "multi_outfit_variants_unresolved": 31,
+      "no_mobs_row_for_template_id": 3
+    },
+    "the_rule_separates_in_both_directions": {
+      "dropped_rows_matching_the_rule": 34,
+      "shipped_rows_with_a_semicolon_in_s_OUTFIT": 0,
+      "shipped_rows_with_no_MOBS_row": 0,
+      "reading": "[MEASURED] 34 of 34 dropped rows match, and 0 of 115 shipped rows match. The criterion is a rule, not a description of the survivors."
+    },
+    "does_closing_the_gap_help_the_login_view": {
+      "dropped_row_home_positions_within_2000u_of_login": 0,
+      "but_their_own_extra_triples_reach_further": {
+        "within_2000u_3d": 0,
+        "within_3000u_3d": 10,
+        "within_5000u_3d": 13,
+        "within_2000u_2d": 2,
+        "within_3000u_2d": 11,
+        "within_5000u_2d": 13
+      },
+      "nearest_dropped_row_extra_triple_units": 2036.9,
+      "reading": "[MEASURED] no dropped row's home is within 2000u. Their extra triples are a different matter: the nearest sits 1.8% outside that radius and ten of them fall inside 3000u. So 'closing the gap does not help the login view' holds for the homes and is NOT established for the triples."
+    },
+    "records": [
+      {
+        "placement_index": 2,
+        "name": "Mob_Set_03 01",
+        "template_id": 3,
+        "x": 1641.32568359375,
+        "y": -1951.49951171875,
+        "z": 990.5819702148438,
+        "extra_triple_count": 0,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "P_MALE_002_000_SP1;P_MALE_002_000_PAK"
+      },
+      {
+        "placement_index": 25,
+        "name": "Mob_Set_27 01",
+        "template_id": 27,
+        "x": 23149.85546875,
+        "y": 1668.1123046875,
+        "z": 2379.88916015625,
+        "extra_triple_count": 0,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M005_000_000_SP1;M005_000_000_SP2"
+      },
+      {
+        "placement_index": 26,
+        "name": "Mob_Set_28 01",
+        "template_id": 28,
+        "x": 9411.2119140625,
+        "y": -11200.9892578125,
+        "z": 995.7587890625,
+        "extra_triple_count": 0,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M001_000_000_N;M001_000_000_SP1"
+      },
+      {
+        "placement_index": 28,
+        "name": "Mob_Set_29 01",
+        "template_id": 29,
+        "x": 19113.0,
+        "y": 16396.0,
+        "z": 987.8740844726562,
+        "extra_triple_count": 0,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M001_000_001_SP1;M001_000_001_SP2"
+      },
+      {
+        "placement_index": 29,
+        "name": "Mob_Set_30 01",
+        "template_id": 30,
+        "x": 20180.681640625,
+        "y": 3455.16845703125,
+        "z": 2379.87353515625,
+        "extra_triple_count": 0,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M011_000_000_SP1;M011_000_000_SP2"
+      },
+      {
+        "placement_index": 31,
+        "name": "Mob_Set_32 01",
+        "template_id": 32,
+        "x": 7210.73046875,
+        "y": -11719.234375,
+        "z": 995.7633056640625,
+        "extra_triple_count": 0,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M006_000_000_SP1;M006_000_000_SP2"
+      },
+      {
+        "placement_index": 32,
+        "name": "Mob_Set_33 01",
+        "template_id": 33,
+        "x": 6398.48876953125,
+        "y": -12807.875,
+        "z": 995.7634887695312,
+        "extra_triple_count": 0,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M000_000_001_SP1;M000_000_001_SP2"
+      },
+      {
+        "placement_index": 36,
+        "name": "Mob_Set_37 01",
+        "template_id": 37,
+        "x": 5622.39013671875,
+        "y": -1067.4732666015625,
+        "z": 2008.646484375,
+        "extra_triple_count": 0,
+        "reason": "no_mobs_row_for_template_id",
+        "s_OUTFIT": ""
+      },
+      {
+        "placement_index": 53,
+        "name": "Mob_Set_55 01",
+        "template_id": 55,
+        "x": 5702.45361328125,
+        "y": 11220.0693359375,
+        "z": 943.8690185546875,
+        "extra_triple_count": 0,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M006_000_001_SP1;M006_000_001_SP2"
+      },
+      {
+        "placement_index": 54,
+        "name": "Mob_Set_56 01",
+        "template_id": 56,
+        "x": 6329.12548828125,
+        "y": -9885.958984375,
+        "z": 943.114501953125,
+        "extra_triple_count": 0,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M013_000_000_SP1;M013_000_000_SP2"
+      },
+      {
+        "placement_index": 55,
+        "name": "Mob_Set_57 01",
+        "template_id": 57,
+        "x": 688.95361328125,
+        "y": -7184.3056640625,
+        "z": 947.3510131835938,
+        "extra_triple_count": 0,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M004_000_000_SP1;M004_000_000_SP2"
+      },
+      {
+        "placement_index": 56,
+        "name": "Mob_Set_58 01",
+        "template_id": 58,
+        "x": 13531.279296875,
+        "y": 13740.3134765625,
+        "z": 937.581787109375,
+        "extra_triple_count": 0,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M028_001_000_SP1;M028_001_000_SP2"
+      },
+      {
+        "placement_index": 57,
+        "name": "Mob_Set_59 01",
+        "template_id": 59,
+        "x": 601.4208984375,
+        "y": -4294.671875,
+        "z": 931.0601196289062,
+        "extra_triple_count": 0,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M002_000_002_SP1;M002_000_002_SP2"
+      },
+      {
+        "placement_index": 61,
+        "name": "Mob_Set_63 01",
+        "template_id": 63,
+        "x": 5276.0673828125,
+        "y": 1900.333740234375,
+        "z": 2037.39404296875,
+        "extra_triple_count": 0,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M001_003_000_N;M001_003_000_SP1"
+      },
+      {
+        "placement_index": 62,
+        "name": "Mob_Set_64 01",
+        "template_id": 64,
+        "x": 12878.90625,
+        "y": 7035.326171875,
+        "z": 2284.28125,
+        "extra_triple_count": 0,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M003_001_000_SP1;M003_001_000_SP2"
+      },
+      {
+        "placement_index": 64,
+        "name": "Mob_Set_66 01",
+        "template_id": 66,
+        "x": 12367.912109375,
+        "y": 7677.1376953125,
+        "z": 2200.4296875,
+        "extra_triple_count": 0,
+        "reason": "no_mobs_row_for_template_id",
+        "s_OUTFIT": ""
+      },
+      {
+        "placement_index": 83,
+        "name": "Mob_Set_101 01",
+        "template_id": 101,
+        "x": 20838.07421875,
+        "y": 16472.869140625,
+        "z": 1688.8140869140625,
+        "extra_triple_count": 0,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M006_001_001_SP1;M006_001_001_SP2"
+      },
+      {
+        "placement_index": 93,
+        "name": "Mob_Set_95 01",
+        "template_id": 95,
+        "x": -11889.0,
+        "y": -536.54931640625,
+        "z": 875.0872192382812,
+        "extra_triple_count": 0,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M017_000_001_SP1;M017_000_001_SP2"
+      },
+      {
+        "placement_index": 94,
+        "name": "Mob_Set_93 01",
+        "template_id": 93,
+        "x": 14004.5859375,
+        "y": 1935.8828125,
+        "z": 2200.421875,
+        "extra_triple_count": 0,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M028_000_000_SP1;M028_000_000_SP2"
+      },
+      {
+        "placement_index": 96,
+        "name": "Mob_Set_99 01",
+        "template_id": 99,
+        "x": -217.654296875,
+        "y": -3179.787109375,
+        "z": 1036.685546875,
+        "extra_triple_count": 0,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M008_000_001_SP1;M008_000_001_SP2"
+      },
+      {
+        "placement_index": 97,
+        "name": "Mob_Set_96 01",
+        "template_id": 96,
+        "x": 10660.373046875,
+        "y": -1601.6314697265625,
+        "z": 2018.175048828125,
+        "extra_triple_count": 0,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M011_000_002_SP1;M011_000_002_SP2"
+      },
+      {
+        "placement_index": 98,
+        "name": "Mob_Set_100 01",
+        "template_id": 100,
+        "x": 3737.15380859375,
+        "y": 21370.923828125,
+        "z": 983.5938110351562,
+        "extra_triple_count": 0,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M021_000_001_SP1;M021_000_001_SP2"
+      },
+      {
+        "placement_index": 104,
+        "name": "Mob_Set_98 01",
+        "template_id": 98,
+        "x": 14437.1005859375,
+        "y": 9326.76171875,
+        "z": 2200.45654296875,
+        "extra_triple_count": 0,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M019_002_000_SP1;M019_002_000_SP2"
+      },
+      {
+        "placement_index": 106,
+        "name": "Mob_Set_98 02",
+        "template_id": 98,
+        "x": 13218.09765625,
+        "y": 9334.3486328125,
+        "z": 2200.4580078125,
+        "extra_triple_count": 0,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M019_002_000_SP1;M019_002_000_SP2"
+      },
+      {
+        "placement_index": 108,
+        "name": "Mob_Set_98 03",
+        "template_id": 98,
+        "x": 15631.748046875,
+        "y": 9287.126953125,
+        "z": 2200.454345703125,
+        "extra_triple_count": 0,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M019_002_000_SP1;M019_002_000_SP2"
+      },
+      {
+        "placement_index": 110,
+        "name": "Mob_Set_98 04",
+        "template_id": 98,
+        "x": 11771.2705078125,
+        "y": 9288.8857421875,
+        "z": 2200.459228515625,
+        "extra_triple_count": 0,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M019_002_000_SP1;M019_002_000_SP2"
+      },
+      {
+        "placement_index": 131,
+        "name": "Mob_Set_102 03",
+        "template_id": 102,
+        "x": -9313.27734375,
+        "y": -731.2640991210938,
+        "z": 674.88671875,
+        "extra_triple_count": 21,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M023_000_001_SP1;M023_000_001_SP2"
+      },
+      {
+        "placement_index": 133,
+        "name": "Mob_Set_102 08",
+        "template_id": 102,
+        "x": 17790.76953125,
+        "y": 15727.3701171875,
+        "z": 931.9827270507812,
+        "extra_triple_count": 61,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M023_000_001_SP1;M023_000_001_SP2"
+      },
+      {
+        "placement_index": 134,
+        "name": "Mob_Set_102 07",
+        "template_id": 102,
+        "x": 1662.4736328125,
+        "y": 8985.7939453125,
+        "z": 931.348876953125,
+        "extra_triple_count": 91,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M023_000_001_SP1;M023_000_001_SP2"
+      },
+      {
+        "placement_index": 135,
+        "name": "Mob_Set_102 06",
+        "template_id": 102,
+        "x": 11349.9248046875,
+        "y": 1498.93798828125,
+        "z": 2200.44970703125,
+        "extra_triple_count": 114,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M023_000_001_SP1;M023_000_001_SP2"
+      },
+      {
+        "placement_index": 136,
+        "name": "Mob_Set_102 01",
+        "template_id": 102,
+        "x": 12125.916015625,
+        "y": -4123.60205078125,
+        "z": 2180.197998046875,
+        "extra_triple_count": 118,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M023_000_001_SP1;M023_000_001_SP2"
+      },
+      {
+        "placement_index": 137,
+        "name": "Mob_Set_102 02",
+        "template_id": 102,
+        "x": 23738.236328125,
+        "y": 9755.416015625,
+        "z": 2365.65478515625,
+        "extra_triple_count": 143,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M023_000_001_SP1;M023_000_001_SP2"
+      },
+      {
+        "placement_index": 138,
+        "name": "Mob_Set_102 04",
+        "template_id": 102,
+        "x": 21122.986328125,
+        "y": 9807.935546875,
+        "z": 2365.65478515625,
+        "extra_triple_count": 96,
+        "reason": "multi_outfit_variants_unresolved",
+        "s_OUTFIT": "M023_000_001_SP1;M023_000_001_SP2"
+      },
+      {
+        "placement_index": 139,
+        "name": "Mob_Set_104 01",
+        "template_id": 104,
+        "x": 8512.1494140625,
+        "y": -949.6226196289062,
+        "z": 2006.8148193359375,
+        "extra_triple_count": 0,
+        "reason": "no_mobs_row_for_template_id",
+        "s_OUTFIT": ""
+      }
+    ]
+  },
+  "are_the_extra_triples_spawn_points_or_paths": {
+    "status": "[MEASURED] evidence gathered, not decoded - and it points at paths",
+    "what_was_checked": "every chain's distance from its own placement home to its first point, its last-point-to-first-point closure, and its median step",
+    "every_chain_starts_near_its_own_home": true,
+    "home_to_first_point_units_max": 413.8,
+    "home_to_first_point_units_min": 6.1,
+    "chains_closing_within_500u": 7,
+    "chains": [
+      {
+        "placement_index": 43,
+        "name": "Mob_Set_44 02",
+        "triples": 21,
+        "home_to_first_point_units": 413.8,
+        "last_point_back_to_first_units": 409.8,
+        "median_step_units": 925.0,
+        "n_AI_WANDER": "2"
+      },
+      {
+        "placement_index": 128,
+        "name": "Mob_Set_44 03",
+        "triples": 13,
+        "home_to_first_point_units": 116.6,
+        "last_point_back_to_first_units": 7100.7,
+        "median_step_units": 3979.9,
+        "n_AI_WANDER": "2"
+      },
+      {
+        "placement_index": 129,
+        "name": "Mob_Set_44 04",
+        "triples": 13,
+        "home_to_first_point_units": 6.1,
+        "last_point_back_to_first_units": 7059.1,
+        "median_step_units": 3983.3,
+        "n_AI_WANDER": "2"
+      },
+      {
+        "placement_index": 130,
+        "name": "Mob_Set_44 01",
+        "triples": 19,
+        "home_to_first_point_units": 39.4,
+        "last_point_back_to_first_units": 466.0,
+        "median_step_units": 1003.3,
+        "n_AI_WANDER": "2"
+      },
+      {
+        "placement_index": 131,
+        "name": "Mob_Set_102 03",
+        "triples": 21,
+        "home_to_first_point_units": 99.1,
+        "last_point_back_to_first_units": 213.3,
+        "median_step_units": 3807.1,
+        "n_AI_WANDER": "16"
+      },
+      {
+        "placement_index": 133,
+        "name": "Mob_Set_102 08",
+        "triples": 61,
+        "home_to_first_point_units": 109.9,
+        "last_point_back_to_first_units": 206.6,
+        "median_step_units": 1805.8,
+        "n_AI_WANDER": "16"
+      },
+      {
+        "placement_index": 134,
+        "name": "Mob_Set_102 07",
+        "triples": 91,
+        "home_to_first_point_units": 132.9,
+        "last_point_back_to_first_units": 293.8,
+        "median_step_units": 1591.2,
+        "n_AI_WANDER": "16"
+      },
+      {
+        "placement_index": 135,
+        "name": "Mob_Set_102 06",
+        "triples": 114,
+        "home_to_first_point_units": 257.3,
+        "last_point_back_to_first_units": 485.7,
+        "median_step_units": 1033.3,
+        "n_AI_WANDER": "16"
+      },
+      {
+        "placement_index": 136,
+        "name": "Mob_Set_102 01",
+        "triples": 118,
+        "home_to_first_point_units": 149.5,
+        "last_point_back_to_first_units": 346.2,
+        "median_step_units": 724.9,
+        "n_AI_WANDER": "16"
+      },
+      {
+        "placement_index": 137,
+        "name": "Mob_Set_102 02",
+        "triples": 143,
+        "home_to_first_point_units": 64.8,
+        "last_point_back_to_first_units": 2005.5,
+        "median_step_units": 827.1,
+        "n_AI_WANDER": "16"
+      },
+      {
+        "placement_index": 138,
+        "name": "Mob_Set_102 04",
+        "triples": 96,
+        "home_to_first_point_units": 90.8,
+        "last_point_back_to_first_units": 10171.8,
+        "median_step_units": 913.9,
+        "n_AI_WANDER": "16"
+      }
+    ],
+    "the_table_that_would_settle_it": "pf_bridge/gamedata/tables/CONSTDATA_TH__AI_WANDER.tsv, joined through the MOBS column n_AI_WANDER recorded per chain above. It has not been read yet - saying 'nothing in this tree establishes it' would be false.",
+    "why_this_matters_for_every_number_here": "[MEASURED] if these are paths, the honest scene population is 149 placements and not 859 points. Revision 1 of this pin called the large number generous-and-therefore-safe. It is not: 644 of the 710 belong to rows the server does not send at all, and the generosity lands on the COMPARISON side, which widens the contrast rather than protecting against it."
+  },
+  "stand_points": {
+    "login_anchor": {
+      "label": "[MEASURED] v141_V134_PLAYER_XYZ - where a character stands after login today",
+      "x": -9239.95703125,
+      "y": -2780.045166015625,
+      "z": 223.29209899902344,
+      "measured": {
+        "within_500u_shipped_census": 1,
+        "within_500u_all_file_points": 1,
+        "within_1000u_shipped_census": 1,
+        "within_1000u_all_file_points": 1,
+        "within_2000u_shipped_census": 2,
+        "within_2000u_all_file_points": 2,
+        "within_5000u_shipped_census": 7,
+        "within_5000u_all_file_points": 22,
+        "within_10000u_shipped_census": 10,
+        "within_10000u_all_file_points": 36
+      },
+      "nearest_member_units": 100.0,
+      "what_raising_3_to_115_adds_here": {
+        "already_sent_today": [
+          {
+            "placement_index": 0,
+            "distance_units": 100.0,
+            "display_name": "Navy Transfer"
+          }
+        ],
+        "added_by_the_census": [
+          {
+            "placement_index": 1,
+            "distance_units": 1226.5,
+            "name": "Mob_Set_02 01",
+            "display_name": "Sebastian"
+          }
+        ],
+        "reading": "[MEASURED] not zero. Raising the count from 3 to 115 adds exactly one census member inside 2000u of the login anchor. The nearest actor of all, 100 units away, is already one of the three sent today."
+      }
+    },
+    "attended_measured_spawn": {
+      "label": "[MEASURED] where an attended run actually found the character on 2026-08-23 (GT-045). The login position comes from the DB row, not from v141's constants, so THIS is the position a tester starts at - the login_anchor above is a constant that sits SPAWN_OFFSET units away. Quote this one when talking about what a person will see.",
+      "x": -8553.947265625,
+      "y": -2579.68896484375,
+      "z": 186.0,
+      "units_from_the_v141_login_anchor": 715.6,
+      "source": "src/pirateforce_foundation/ground_loot_hypothesis.py:113-118",
+      "measured": {
+        "within_500u_shipped_census": 0,
+        "within_500u_all_file_points": 0,
+        "within_1000u_shipped_census": 2,
+        "within_1000u_all_file_points": 2,
+        "within_2000u_shipped_census": 3,
+        "within_2000u_all_file_points": 5,
+        "within_5000u_shipped_census": 7,
+        "within_5000u_all_file_points": 23,
+        "within_10000u_shipped_census": 11,
+        "within_10000u_all_file_points": 49
+      }
+    },
+    "densest": {
+      "label": "[MEASURED] best of the file's candidate points by census neighbours within 2000u - one of several tied at the top, not a unique optimum",
+      "x": 22124.3828125,
+      "y": -4912.91796875,
+      "z": 2746.361328125,
+      "this_point_is_an_extra_triple_not_a_placement": true,
+      "which_record_carries_it": 43,
+      "tied_candidate_positions_at_the_same_census_count": 5,
+      "tiebreak": "[PROPOSED] ties were broken by all-file points within 2000u, which depends on data whose meaning is undecided (see the chains block). A different tiebreak moves this coordinate.",
+      "best_point_that_IS_a_real_placement": {
+        "census_within_2000u": 12,
+        "x": 21694.0703125,
+        "y": -5071.00048828125,
+        "z": 2812.616943359375,
+        "note": "[MEASURED] the census count is the same either way, so the headline comparison does not depend on the tiebreak. Prefer this coordinate for anything a human has to stand on."
+      },
+      "measured": {
+        "within_500u_shipped_census": 2,
+        "within_500u_all_file_points": 5,
+        "within_1000u_shipped_census": 4,
+        "within_1000u_all_file_points": 11,
+        "within_2000u_shipped_census": 12,
+        "within_2000u_all_file_points": 28,
+        "within_5000u_shipped_census": 22,
+        "within_5000u_all_file_points": 82,
+        "within_10000u_shipped_census": 38,
+        "within_10000u_all_file_points": 172
+      }
+    }
+  },
+  "robustness": {
+    "why_this_block_exists": "[MEASURED] the headline compare is stated at one radius and in three dimensions. Both are choices, so both are shown.",
+    "radius_sensitivity": [
+      {
+        "radius_units": 1000,
+        "login_shipped_census": 1,
+        "densest_shipped_census": 4,
+        "login_all_file_points": 1,
+        "densest_all_file_points": 11
+      },
+      {
+        "radius_units": 2000,
+        "login_shipped_census": 2,
+        "densest_shipped_census": 12,
+        "login_all_file_points": 2,
+        "densest_all_file_points": 28
+      },
+      {
+        "radius_units": 2500,
+        "login_shipped_census": 4,
+        "densest_shipped_census": 13,
+        "login_all_file_points": 10,
+        "densest_all_file_points": 34
+      },
+      {
+        "radius_units": 3000,
+        "login_shipped_census": 4,
+        "densest_shipped_census": 13,
+        "login_all_file_points": 15,
+        "densest_all_file_points": 41
+      },
+      {
+        "radius_units": 5000,
+        "login_shipped_census": 7,
+        "densest_shipped_census": 22,
+        "login_all_file_points": 22,
+        "densest_all_file_points": 82
+      },
+      {
+        "radius_units": 8000,
+        "login_shipped_census": 8,
+        "densest_shipped_census": 31,
+        "login_all_file_points": 26,
+        "densest_all_file_points": 116
+      }
+    ],
+    "the_census_half_is_robust_the_all_file_half_is_not": "[MEASURED] moving the radius from 2000u to 2500u multiplies the login's all-file count by five (2 -> 10) while the census counts barely move (2 -> 4 against 12 -> 13). Quote the census numbers.",
+    "two_dimensional_reading": "[MEASURED] recomputed ignoring z: the shipped-census counts are IDENTICAL at every radius. The all-file count at the login anchor moves 2 -> 4, because those extras sit at z~2746 against the login's z~223 - a different height layer. Distances here are 3D on purpose, and that is the reason."
+  },
+  "what_this_pin_changes_about_M1": [
+    "[MEASURED] raising 3 to 115 adds one census member inside the login view, not a crowd",
+    "[MEASURED] the login anchor is thin in the scene file itself, so no actor count fixes it",
+    "[PROPOSED] an M1 acceptance test taken only at the login anchor grades the wrong thing"
+  ],
+  "nonclaims": [
+    "does not claim the client renders any delivered actor - GT-072 is open and PARTIAL",
+    "does not claim any stand point is reachable, walkable or standable",
+    "does not claim the extra triples are spawn points; the evidence gathered this round points the other way, and AI_WANDER has not been read",
+    "does not claim the first s_OUTFIT variant is the one the original server chose",
+    "does not change the shipped census count, which stays 115 by owner ruling",
+    "does not establish that closing the 34-row gap leaves the login view untouched - that holds for the homes and not for their triples",
+    "the ten all-file band counts are re-derived by nothing in this repository",
+    "the two sha256 above are read by no code path in this repository"
+  ]
+}

@@ -95,6 +95,41 @@ GRADE_SUBSET_SHA256 = (
     # GT-078 is the attended ticket that could move the status; it has not run.
     #   R167 / parent 6CF4AE24A70C7DC8EE447310A640098615B5D9F68AB368D58717C501B4DB4553
     #
+    # MERGE (attended rebuild of PR #41, 2026-08-26 +07:00): the R173 movement
+    # above is merged onto the main line that had moved past it (rounds vvkff9,
+    # 7ptoku and g627j0 below).  No grade field was edited by hand on either
+    # side; docs/FUNCTIONAL_COVERAGE.json auto-merged, and the digest below is
+    # recomputed over that merged document by grade_digest() in this file,
+    # which is the only value that can satisfy both.  BOTH PARENT DIGESTS ARE
+    # KEPT HERE, same rule as the R167 merge block further down:
+    #   R173  / lane  F80ADB72621F31B2E63EAED9DF6B553B96C79C8E26D6A3E0D3C3E83BE5710926
+    #   main  / g627j0 2828B9EDABCCB1123B27DC79B63C280FF536BBF4B423C556BEB716257CCAAC53
+    #
+    # ROUND vvkff9 (LANE-B, 2026-08-26 +07:00): moved deliberately, and it is
+    # the same KIND of movement as the 7ptoku block below -- refs, never a
+    # grade.  monster_spawn_and_loot gains two evidence refs
+    # (src/pirateforce_foundation/mob_pickup.py,
+    # scenarios/combat_pickup_001.json) and one test ref
+    # (tests/test_mob_pickup.py) for MOB-PICKUP-001, the server-side pickup
+    # transaction.  The row's STATUS DOES NOT MOVE and stays in_progress:
+    # nothing dispatches the module, no database row is written by anything,
+    # the pickup transport is still unidentified, and no player has picked
+    # anything up.  The refs move because they are the graded fields -- an
+    # adversarial pass on the previous lane-B round established that a prose
+    # amendment alone leaves a machine reading this file unable to find the
+    # new lane at all.  Previous pin, kept greppable rather than dropped:
+    #   R167 / merged BEA0024925EFB3637A03A4BE69380B882335E1AFD50D63A9DE7F73D23CC3074F
+    #
+    # ROUND 7ptoku (LANE-B, 2026-08-26 +07:00): moved deliberately, and this
+    # is what a deliberate movement looks like when it is NOT a grade change.
+    # Domain 3 / hp_death_and_respawn gains two refs -- tests/test_mob_death.py
+    # and scenarios/combat_death_001.json -- because MOB-DEATH-001 emits the
+    # same BasicAttr bit 0x0080 that row is about, on the actor-entry carrier,
+    # with no flag.  The row's STATUS does not move: this lane adds no runtime
+    # evidence and claims none.  An adversarial review found the prose
+    # amendment alone left the structured refs pointing only at the old lane,
+    # so a machine reading this file could not find the new one; the refs are
+    # graded fields, so fixing that has to move this digest.
     # This pin covers TWO deliberate movements that land in the same change
     # (chief cloud round R167, 2026-08-25 +07:00).  They are recorded below in
     # the order they were written, newest first.  R167 itself moves no grade
@@ -679,7 +714,28 @@ GRADE_SUBSET_SHA256 = (
     # 26D752FE..BA9A (round 65) occupied_destination_policy not_started ->
     # in_progress under HYP-PF-017 (ITEM-SWAP-001); see its lineage note before that
     # for round 53's 78558E56..6DC8.
-    "F80ADB72621F31B2E63EAED9DF6B553B96C79C8E26D6A3E0D3C3E83BE5710926"
+    # 6CF4AE24..4553 is the parent digest, kept rather than dropped: it is the
+    # value round R167 recorded, and a re-pin that erases its parent takes the
+    # earlier movement's record with it.
+    #
+    # ROUND g627j0 (LANE-B, 2026-08-26 +07:00) moves this pin ONE more step,
+    # and again it is NOT a grade change.  npc_interaction/
+    # monster_spawn_and_loot stays in_progress -- no player has seen one byte
+    # of MOB-LOOT-001 and it claims nothing on the client -- but the row gains
+    # four evidence refs (src/pirateforce_foundation/mob_loot.py,
+    # src/pirateforce_foundation/field_drop_tables.py,
+    # tools/pf_mine_scene_drop_tables.py, scenarios/combat_loot_001.json) and
+    # one test ref (tests/test_mob_loot.py).  Why the refs have to move with
+    # the prose: the row's notes said Door 2 was an isolated library with
+    # production_allowed false and Door 3 was hypothesis-grade only, and both
+    # sentences stopped being the whole truth this round -- there is now a
+    # flagless production lane that rolls a dead monster's own drop sets and
+    # composes the same derived-bit-0x08 element.  Refs are graded fields, and
+    # the lesson round 7ptoku wrote here holds: a prose amendment that leaves
+    # the structured refs pointing only at the old lanes hides the new one
+    # from any machine reading this file.
+    #   R167 / parent EB932A54B4958527BA172D34A81673B6B91AA54A0979372EED3A3525902C65DB
+    "403D468D3D6E828D1FF61E188CCEF45160520A09B56E3987EDE41624255123F3"
 )
 
 

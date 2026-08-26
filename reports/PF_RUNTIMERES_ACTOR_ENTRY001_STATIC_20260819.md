@@ -259,22 +259,27 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
   "or_0x40_on_offset_0x70_sites": 3,
   "runtimeres_literal_occurrences_in_image": 0,
   "server_call_sites_emitting_zero_current_hp": 0,
-  "src_actor_entry_call_sites": 9,
-  "src_actor_stream_call_sites": 11,
-  "src_modules_building_actor_entries": 8,
+  "src_actor_entry_call_sites": 13,
+  "src_actor_stream_call_sites": 16,
+  "src_modules_building_actor_entries": 12,
   "src_modules_building_actor_entries_names": [
+    "field_mobs.py",
     "hostile_hp_link_hypothesis.py",
+    "mob_combat.py",
+    "mob_death.py",
     "npc_hostile_hypothesis.py",
     "npc_hp_link_hypothesis.py",
     "population.py",
     "remote_player_hypothesis.py",
     "runtimeres_death_hypothesis.py",
     "scenario.py",
-    "scene_object.py"
+    "scene_object.py",
+    "world_population.py"
   ],
-  "src_modules_doing_both": 3,
+  "src_modules_doing_both": 4,
   "src_modules_doing_both_names": [
     "hostile_hp_link_hypothesis.py",
+    "mob_death.py",
     "npc_hp_link_hypothesis.py",
     "runtimeres_death_hypothesis.py"
   ],
@@ -282,11 +287,16 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
   "src_modules_forbidding_names": [
     "remote_player_hypothesis.py"
   ],
-  "src_modules_mentioning_basicattr_bit_0x0080": 7,
+  "src_modules_mentioning_basicattr_bit_0x0080": 8,
   "src_modules_passing_zero_hp_by_named_constant": [
+    "damage_hp_link_hypothesis.py",
+    "hostile_hp_link_hypothesis.py",
+    "mob_combat.py",
+    "mob_death.py",
+    "npc_hp_link_hypothesis.py",
     "runtimeres_death_hypothesis.py"
   ],
-  "src_vital_stream_call_sites": 20,
+  "src_vital_stream_call_sites": 21,
   "vt20_dispatch_shapes_image_wide": 387,
   "vt20_dispatch_shapes_in_updateattrvital_handler": 0,
   "vt20_dispatch_shapes_with_vtable_load": 230

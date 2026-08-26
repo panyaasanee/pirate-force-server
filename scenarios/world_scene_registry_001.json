@@ -34,14 +34,27 @@
     "scene_index_sha256": "c4016cf685671d4c7bbb1909bb300146afd802dd6b53f2d5e7b928249f26652d",
     "extraction_round": "R132 scene decode, 289 scene folders",
     "note": "the source files live in the bridge repository and are not readable from this repository, so nothing here can re-derive them; the hashes are what a bridge-side round re-checks.",
-    "reverify_on_the_bridge": "sha256sum gamedata/tables/CONSTDATA_TH__SCENE_NAME.tsv gamedata/PF_GAMEDATA_SCENE_INDEX.tsv gamedata/scene/Bg1177/Bg1177.placements.tsv",
-    "last_reverified": "2026-08-26 01:0x (+07:00), round jjxgz3, all four hashes matched"
+    "reverify_on_the_bridge": "sha256sum gamedata/tables/CONSTDATA_TH__SCENE_NAME.tsv gamedata/PF_GAMEDATA_SCENE_INDEX.tsv gamedata/scene/Bg1177/Bg1177.placements.tsv gamedata/scene/bg0001/bg0001.placements.tsv ; and for the native_sha256 of each destination, the src_sha256 column of that scene's row in gamedata/PF_GAMEDATA_SCENE_INDEX.tsv - the .npc source files themselves are NOT in this bridge tree, only the decoded placements, so src_sha256 in the index is the only thing that re-derives them anywhere.",
+    "last_reverified": "2026-08-26 04:2x (+07:00), round 4fhdxv: CONSTDATA_TH__SCENE_NAME.tsv, PF_GAMEDATA_SCENE_INDEX.tsv and bg0001.placements.tsv all re-hashed and matched. The native_sha256 of row 997 (c05d231d...) was taken from the index's src_sha256 column in the same round. The previous line credited round jjxgz3, which ran before row 997 existed."
   },
   "table_columns_pinned": [
-    "n_ID", "s_MODLE_ID", "s_IMAGENAME", "n_SCENE_WEATHER",
-    "n_SCENE_DAYANDNIGHT", "n_SCENE_TYPE", "n_SCENE_SUBTYPE", "n_CLINE_TYPE",
-    "n_CANGLIDE", "n_CANRIDE", "n_LIMIT_HEIGHT", "n_SAVE", "n_MARKER",
-    "n_CAMERA_TYPE", "n_COLLECT_MAP", "n_SCENE_LV", "n_VIDEO_NAME"
+    "n_ID",
+    "s_MODLE_ID",
+    "s_IMAGENAME",
+    "n_SCENE_WEATHER",
+    "n_SCENE_DAYANDNIGHT",
+    "n_SCENE_TYPE",
+    "n_SCENE_SUBTYPE",
+    "n_CLINE_TYPE",
+    "n_CANGLIDE",
+    "n_CANRIDE",
+    "n_LIMIT_HEIGHT",
+    "n_SAVE",
+    "n_MARKER",
+    "n_CAMERA_TYPE",
+    "n_COLLECT_MAP",
+    "n_SCENE_LV",
+    "n_VIDEO_NAME"
   ],
   "destinations": [
     {
@@ -56,10 +69,19 @@
       "role": "home",
       "status": "rendered_in_every_boot_of_this_project",
       "table_row": {
-        "n_SCENE_WEATHER": 5, "n_SCENE_DAYANDNIGHT": 15, "n_SCENE_TYPE": 1,
-        "n_SCENE_SUBTYPE": 0, "n_CLINE_TYPE": 1, "n_CANGLIDE": 1,
-        "n_CANRIDE": 1, "n_LIMIT_HEIGHT": 30000, "n_SAVE": 1, "n_MARKER": 1,
-        "n_CAMERA_TYPE": 1, "n_COLLECT_MAP": 201, "n_SCENE_LV": 0,
+        "n_SCENE_WEATHER": 5,
+        "n_SCENE_DAYANDNIGHT": 15,
+        "n_SCENE_TYPE": 1,
+        "n_SCENE_SUBTYPE": 0,
+        "n_CLINE_TYPE": 1,
+        "n_CANGLIDE": 1,
+        "n_CANRIDE": 1,
+        "n_LIMIT_HEIGHT": 30000,
+        "n_SAVE": 1,
+        "n_MARKER": 1,
+        "n_CAMERA_TYPE": 1,
+        "n_COLLECT_MAP": 201,
+        "n_SCENE_LV": 0,
         "n_VIDEO_NAME": 0
       },
       "spawn": {
@@ -82,10 +104,19 @@
       "role": "proven_second_scene",
       "status": "runtime_pass_SCENE_001_behind_a_scenario_flag",
       "table_row": {
-        "n_SCENE_WEATHER": 1, "n_SCENE_DAYANDNIGHT": 15, "n_SCENE_TYPE": 2,
-        "n_SCENE_SUBTYPE": 0, "n_CLINE_TYPE": 2, "n_CANGLIDE": 1,
-        "n_CANRIDE": 1, "n_LIMIT_HEIGHT": 30000, "n_SAVE": 1, "n_MARKER": 2,
-        "n_CAMERA_TYPE": 1, "n_COLLECT_MAP": 202, "n_SCENE_LV": 0,
+        "n_SCENE_WEATHER": 1,
+        "n_SCENE_DAYANDNIGHT": 15,
+        "n_SCENE_TYPE": 2,
+        "n_SCENE_SUBTYPE": 0,
+        "n_CLINE_TYPE": 2,
+        "n_CANGLIDE": 1,
+        "n_CANRIDE": 1,
+        "n_LIMIT_HEIGHT": 30000,
+        "n_SAVE": 1,
+        "n_MARKER": 2,
+        "n_CAMERA_TYPE": 1,
+        "n_COLLECT_MAP": 202,
+        "n_SCENE_LV": 0,
         "n_VIDEO_NAME": 0
       },
       "spawn": {
@@ -108,16 +139,32 @@
       "role": "test_stage",
       "status": "never_sent_to_any_client_by_this_project",
       "table_row": {
-        "n_SCENE_WEATHER": 5, "n_SCENE_DAYANDNIGHT": 2, "n_SCENE_TYPE": 4,
-        "n_SCENE_SUBTYPE": 0, "n_CLINE_TYPE": 4294967295, "n_CANGLIDE": 0,
-        "n_CANRIDE": 0, "n_LIMIT_HEIGHT": 0, "n_SAVE": 0, "n_MARKER": 0,
-        "n_CAMERA_TYPE": 0, "n_COLLECT_MAP": 0, "n_SCENE_LV": 0,
+        "n_SCENE_WEATHER": 5,
+        "n_SCENE_DAYANDNIGHT": 2,
+        "n_SCENE_TYPE": 4,
+        "n_SCENE_SUBTYPE": 0,
+        "n_CLINE_TYPE": 4294967295,
+        "n_CANGLIDE": 0,
+        "n_CANRIDE": 0,
+        "n_LIMIT_HEIGHT": 0,
+        "n_SAVE": 0,
+        "n_MARKER": 0,
+        "n_CAMERA_TYPE": 0,
+        "n_COLLECT_MAP": 0,
+        "n_SCENE_LV": 0,
         "n_VIDEO_NAME": 0
       },
       "table_row_differences": {
         "differs_from_both_measured_scenes_on": [
-          "n_SCENE_DAYANDNIGHT", "n_SCENE_TYPE", "n_CLINE_TYPE", "n_CANGLIDE",
-          "n_CANRIDE", "n_LIMIT_HEIGHT", "n_SAVE", "n_MARKER", "n_CAMERA_TYPE",
+          "n_SCENE_DAYANDNIGHT",
+          "n_SCENE_TYPE",
+          "n_CLINE_TYPE",
+          "n_CANGLIDE",
+          "n_CANRIDE",
+          "n_LIMIT_HEIGHT",
+          "n_SAVE",
+          "n_MARKER",
+          "n_CAMERA_TYPE",
           "n_COLLECT_MAP"
         ],
         "the_three_that_decide_whether_a_player_can_live_here": {
@@ -162,6 +209,53 @@
         "reading": "nine placements spread over 6195 x 2209 units share one z to within 0.002 units. Across all 251 scene folders with two or more placements, only six scenes are that flat, so this is signal and not a decoder default.",
         "limit": "a .npc file carries NPC placements, not terrain. Flat placement z is evidence about where the developer put mobs, NOT a measurement of the ground mesh, and it says nothing about walls, water, sky or lighting. The eye check in the attended ticket is what decides whether this is the white flat stage the owner asked for."
       }
+    },
+    {
+      "n_id": 997,
+      "model_id": "FilmScene",
+      "scene_name_source_utf8_hex": "e7b494e889b2e68b8de6949de699af",
+      "scene_name_ascii": "solid-colour film set",
+      "image_name": "BgNull",
+      "native_placement_count": 0,
+      "native_definition_count": 0,
+      "native_sha256": "c05d231da83665dd60560fc424059d66b433774afcff4d3b053b407f057d54ba",
+      "role": "candidate_not_the_stage_see_COO_0550",
+      "status": "never_sent_to_any_client_by_this_project",
+      "table_row": {
+        "n_SCENE_WEATHER": 5,
+        "n_SCENE_DAYANDNIGHT": 10,
+        "n_SCENE_TYPE": 2,
+        "n_SCENE_SUBTYPE": 0,
+        "n_CLINE_TYPE": 4294967295,
+        "n_CANGLIDE": 1,
+        "n_CANRIDE": 1,
+        "n_LIMIT_HEIGHT": 30000,
+        "n_SAVE": 0,
+        "n_MARKER": 0,
+        "n_CAMERA_TYPE": 1,
+        "n_COLLECT_MAP": 0,
+        "n_SCENE_LV": 0,
+        "n_VIDEO_NAME": 0
+      },
+      "table_row_differences": {
+        "how_to_talk_about_this_scene": "a GREEN SCREEN WITH FOG AND ENVIRONMENT STILL ON. COO-DECISION 20260826_0246 section 1.2 forbids the words 'white map' and 'effect-free' for this scene in every document, and that prohibition is why those words appear in this sentence.",
+        "why_it_is_pinned_but_not_targeted": "SETTLED BY COO-DECISION 20260826_0550. COO-DECISION 0246 section 1.2 named this scene the M2 stage; round 4fhdxv pinned it here and pointed the travel gate at it, then the adversary pass found three things wrong with that and the gate was pointed back at 278. The COO checked and WITHDREW section 1.2 in whole - not replaced, withdrawn, because the RE-073 geometry finding it rested on does not exist - confirmed 278 as the stage, and lifted the [LANE-A ASSUMPTION - AWAITING COO] tag the gate carried. 997 stays pinned with the facts on both sides because the COO ordered it kept as a candidate, and the swap would still be one number in scenarios/world_travel_gates_001.json if RE-073 T3 ever says so. Lane A does not choose the stage; the COO said the move OFF 278 is what needs asking, not the staying.",
+        "the_three_things_wrong_with_targeting_it_today": [
+          "COO-DECISION 0246 section 2 gives its ground as 'RE-073 measured it, FilmScene wins on geometry'. RE-073 is still OPEN in CLIENT_RE_QUEUE.md, its result section reads 'not yet - the ticket is open', and its own nonclaim 1 says zero placements does not mean an empty scene and that FilmScene could equally be an empty coloured room or a cliff face. There is no RE-073 geometry finding. An earlier revision of this entry cited one; that citation was wrong and is withdrawn.",
+          "an earlier revision argued n_SCENE_TYPE 2 over 278's 4 because 'RE-077 T3 lands the client in StateRunTime and not StateNavigation'. RE-077 T3 says value 8 goes to StateNavigation and ANY OTHER VALUE goes to StateRunTime. 4 is also not 8. The discriminator discriminated nothing, and RE-077 line 45 says of 278 in as many words that a successful load would choose StateRunTime. Withdrawn.",
+          "RE-077 traced the keyed-row hit path for n_ID 278 to s_MODLE_ID Bg1177 and the loader call. No equivalent trace exists for 997. Targeting 997 would discard the one destination whose lookup anybody has followed."
+        ],
+        "the_column_that_should_worry_a_reader": "all four version stamps in the shipped row are 0.00.0000 (s_HK_VER, s_TC_VER, s_JP_VER, s_TH_VER). Recounted in round 4fhdxv across all 271 rows: 997 is the ONLY row in the table with 0.00.0000 in all four. 265 rows carry TH 1.07.0000. Scene 278 carries 1.03.0000 / 1.07.0000 / 1.07.0000 / 1.07.0000. RE-073 job T3 wrote its own rule that a scene never shipped drops out immediately, and T3 has never been run.",
+        "a_candidate_nobody_has_discussed": "n_ID 328 Bg2033 matches 997 on all four columns 997 was preferred for (n_SCENE_TYPE 2, n_CANGLIDE 1, n_CANRIDE 1, n_LIMIT_HEIGHT 30000), has the same zero-placement decode, and carries s_TH_VER 1.20.0000 and s_TC_VER 1.20.0000. It was ranked third by RE-073 and then never mentioned again. Raised to the COO in notes_to_chief/20260826_0430_LANE-A-ASK-COO-filmscene-version-stamps.md; this lane did not choose it either.",
+        "reading": "pinned as facts, not as predictions. None of them has a measured consequence in this project."
+      },
+      "spawn": {
+        "x": 1000.0,
+        "y": 1000.0,
+        "z": 0.0,
+        "provenance": "COO-DECISION 20260826_0246 section 1.2 named this point as the M2 stage arrival. It is a CHOSEN point, not a measured one: this scene's shipped .npc is 6 bytes and carries zero placements, so there is no authored position anywhere in it to prefer over any other. Scene 278's spawn, by contrast, sits on an authored placement. That difference is the price of this stage and it is stated rather than hidden."
+      },
+      "ground": null
     }
   ],
   "capabilities": [
