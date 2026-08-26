@@ -221,9 +221,16 @@ class ProfileJoinTests(unittest.TestCase):
 
     def test_the_three_invented_numbers_are_tagged_and_pinned(self):
         source = MODULE_SOURCE_PATH.read_text(encoding="utf-8")
-        # Five: one per invented constant, plus the header sentence that
-        # points a reader at all four and at the letter to the COO.
-        self.assertEqual(source.count("[LANE-B ASSUMPTION - AWAITING COO]"), 5)
+        # COO-DECISION 2026-08-26T11:41+07:00 confirmed all four numbers, so
+        # the live tag is CONFIRMED now; the old AWAITING-COO tag survives
+        # exactly once, in the header's own past-tense account of that letter.
+        self.assertEqual(
+            source.count(
+                "[LANE-B ASSUMPTION - CONFIRMED BY COO 2026-08-26T11:41+07:00]"
+            ),
+            5,
+        )
+        self.assertEqual(source.count("[LANE-B ASSUMPTION - AWAITING COO]"), 1)
         self.assertEqual(mob_ai_control.LEASH_RADIUS, 3000.0)
         self.assertEqual(mob_ai_control.MELEE_ATTACK_RANGE, 275.0)
         self.assertEqual(mob_ai_control.ATTACK_CADENCE_TICKS, 1)

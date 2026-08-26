@@ -75,13 +75,19 @@ the client ships, and this round read it:
   charge anybody; they answer damage and nothing else.
 
 The other three, and the cadence, are NOT in any committed table, and this
-module invents them IN THE OPEN rather than in a caller nobody reads.  Each is
-tagged ``[LANE-B ASSUMPTION - AWAITING COO]``, each says what it is anchored
-to, and the letter
-``notes_to_chief/20260826_0955_LANE-B-ASK-COO-four-invented-mob-ai-numbers.md``
-puts all four to the COO with what has to be rolled back if any is wrong.
-Rolling one back is one constant in this file and one test line; nothing
-downstream stores them.
+module invents them IN THE OPEN rather than in a caller nobody reads.  Each was
+tagged ``[LANE-B ASSUMPTION - AWAITING COO]`` and put to the COO in the letter
+``notes_to_chief/20260826_0955_LANE-B-ASK-COO-four-invented-mob-ai-numbers.md``.
+``COO-DECISION`` 2026-08-26T11:41+07:00 (``notes_to_chief/20260826_1141_
+COO-DECISION-mob-ai-three-answers-and-v5-criterion-rewrite.md``) accepted all
+four numbers as chosen, with no revert and nothing re-derived: "keep going as
+you are, no need to stop and wait, no need to revert any part" (COO's own
+words, translated from the Thai original).  Each is now tagged
+``[LANE-B ASSUMPTION - CONFIRMED BY COO 2026-08-26T11:41+07:00]`` instead.
+Confirmed does not mean derived: each number is still a choice this lane made
+without a column to read it from, and rolling one back if it turns out wrong
+is still one constant in this file, one test line, and a pin regeneration;
+nothing downstream stores them beyond that pin.
 
 WHAT THIS MODULE IS NOT
 -----------------------
@@ -187,7 +193,7 @@ MOB_AI_CONTROL_WIRING = (
 # are constants rather than arguments so that a scan finds them, a test pins
 # them, and rolling one back is one line.
 #
-# [LANE-B ASSUMPTION - AWAITING COO] leash radius.  Anchor: 2.5x the mined
+# [LANE-B ASSUMPTION - CONFIRMED BY COO 2026-08-26T11:41+07:00] leash radius.  Anchor: 2.5x the mined
 # aggro radius, floored at 3000.0 -- which is 2.5 * 1200, the radius of the
 # offensive rows of bg0001, and also 25% of the 12,095-placement-unit distance
 # the FIELD-MOBS-001 note measured from the bg0001 spawn to its nearest
@@ -213,7 +219,7 @@ def leash_radius_for(aggro_radius: float) -> float:
     """The leash this lane gives a monster with that mined aggro radius."""
     return max(LEASH_RADIUS_FLOOR, float(aggro_radius) * LEASH_RADIUS_MULTIPLE)
 
-# [LANE-B ASSUMPTION - AWAITING COO] home radius.  Anchor: the monster's OWN
+# [LANE-B ASSUMPTION - CONFIRMED BY COO 2026-08-26T11:41+07:00] home radius.  Anchor: the monster's OWN
 # n_SPEED_WALK column, which is a real MOBS value (100 for every bg0001 row).
 # Reading a speed as a distance is the invented half: it says "the return phase
 # ends when the monster is within one step of home", and a step is whatever
@@ -221,7 +227,7 @@ def leash_radius_for(aggro_radius: float) -> float:
 HOME_RADIUS_IS_SPEED_WALK = True
 HOME_RADIUS_ANCHOR = "field_mob_tables.speed_walk of the monster's own row"
 
-# [LANE-B ASSUMPTION - AWAITING COO] attack range.  ANCHOR: NONE.  A BARE
+# [LANE-B ASSUMPTION - CONFIRMED BY COO 2026-08-26T11:41+07:00] attack range.  ANCHOR: NONE.  A BARE
 # CHOICE, and saying so is the whole point of this comment.
 #
 # THE FIRST DRAFT CITED ONE AND THE CITATION IS WITHDRAWN, kept here rather than
@@ -252,7 +258,7 @@ MELEE_ATTACK_RANGE_WITHDRAWN_ANCHOR = (
     "band in AI_COMBAT 350/352'.  Never cite it again."
 )
 
-# [LANE-B ASSUMPTION - AWAITING COO] cadence.  One, and one is the choice that
+# [LANE-B ASSUMPTION - CONFIRMED BY COO 2026-08-26T11:41+07:00] cadence.  One, and one is the choice that
 # invents the least: mob_aggro counts cadence in TICKS and never reads a clock,
 # so a cadence of 1 says "this module adds no period of its own; the driver's
 # tick period IS the attack period".  Any other value would be a number of
