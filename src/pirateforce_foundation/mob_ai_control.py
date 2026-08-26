@@ -107,6 +107,21 @@ monsters whose real AI row says ``n_OFFESIVE = 1`` become the only three that
 ever pick a target nobody handed them.  What the player sees on the SCREEN
 still waits on Door B, and this module does not claim a pixel.
 
+[STALE as of runtime.py CORE-REQUEST-007, PR #71, round 3lzfhw,
+2026-08-26T11:13+07:00] [MEASURED, by call-site reading and
+tests/test_mob_ai_control_dispatch.py]: the first sentence above is no
+longer true.  The chief HAS written the line: every accepted hit that lands
+through the wired dispatch now runs damage_step/commit_step right after
+mob_combat.commit_step, and every kill runs death_step/commit_step right
+after mob_death.commit_death, unconditionally, on the boot the owner runs
+with no flag -- see MOB_AI_CONTROL_NONCLAIMS #1, which was corrected in the
+same round this paragraph was not.  What remains true, and is now the ONLY
+sentence in this paragraph still gating a pixel, is the last one:
+``mob_aggro.ATTACK_INTENT_DELIVERABLE`` is still False, Door B is still
+unsent, so no monster picks a target nobody handed it and nothing on the
+SCREEN differs yet.  This register now tracks the truth Door B would need
+the day it opens; it does not make Door B exist.
+
 NONCLAIMS
 ---------
 * No original-server behaviour is claimed.  The mined ``n_AGGRO`` is a number

@@ -114,6 +114,17 @@ a real attack input producing the inbound EA7D shape this driver reads, and in
 GT-035 nobody attacked anything - every frame was emitted by the server after
 the player typed one line of chat.
 
+[STALE as of runtime.py CORE-REQUEST-005, PR #63, round mdj01v,
+2026-08-26T04:0x+07:00, COO-DECISION 2026-08-26T04:02+07:00] [MEASURED, by
+call-site reading]: the call exists now.  ``attack_from_observed_action`` and
+``commit_step`` run on the boot the owner starts with no flag, and
+``mob_ai_control``/``mob_loot`` fold into the same dispatch after this
+module's commit succeeds (CORE-REQUEST-007, PR #71/#73).  The one sentence
+above that is still true today is the last one: the inbound half (a real
+EA7D produced by a real attack input) has still never been observed by
+anyone, so whether a real click on a real monster reaches this driver at all
+remains PROPOSED, not MEASURED - see GT-084, queued and not yet run.
+
 NOTHING IS INSTALLED.  No socket, no clock, no randomness, no database, no
 global state, no import-time side effect.  Every function is a pure function of
 its arguments; every state object is a frozen dataclass; the ledger is carried
@@ -235,7 +246,12 @@ MOB_COMBAT_NONCLAIMS = (
     "a real attack input has never been observed producing the EA7D "
     "ActionVital this driver reads; the inbound half is unproven",
     "nothing dispatches this module: runtime.py belongs to the chief and the "
-    "one wiring line has not been written",
+    "one wiring line has not been written. "
+    "[STALE as of runtime.py CORE-REQUEST-005, PR #63, round mdj01v, "
+    "2026-08-26] [MEASURED, by call-site reading]: the wiring line HAS been "
+    "written and runs unconditionally on a flagless boot; what remains true "
+    "is the nonclaim right above this one -- the inbound half that would "
+    "drive it from a real attack is still unproven",
     "death is delivered by mob_death, not by this module: what this lane "
     "claims is the arithmetic that reaches zero and the announce frame that "
     "says so, and the corpse itself has never been watched land",
