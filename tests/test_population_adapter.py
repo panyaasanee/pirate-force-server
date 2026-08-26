@@ -359,16 +359,34 @@ class PopulationAdapterTests(unittest.TestCase):
 
     def test_no_scenario_baseline_actions_remain_golden(self):
         """WORLD-CENSUS-001 changed the LABEL of the no-scenario boot, and the
-        golden proves it did not change the BYTES at the control rung.
+        golden proves the ONLY other thing that changed is the two name tags
+        GT-078's fix added.
 
         Before BUILD-001 was wired this boot emitted the frozen
-        ``V134_P0_P30_P91_ISOLATED_*`` pair.  It now emits the census, whose
-        rung 3 is pinned to the same three placements in the same frozen order
-        - so at ``world_census_actor_count=3`` this golden, captured from the
-        frozen branch, must still match the wire byte for byte and delay for
-        delay.  If it ever stops matching, the census is no longer a superset
-        of what shipped, and that is a defect and not a golden to refresh.
+        ``V134_P0_P30_P91_ISOLATED_*`` pair, and the golden below is still
+        those exact bytes - captured from ``make_v112_monster_shop_
+        population_state()``, which this project does not edit and which is
+        still nameless for P0/P91 today.  This boot now emits the census
+        instead, whose rung 3 is pinned to the same three placements in the
+        same frozen order, so set/order equality still holds.  Byte equality
+        does NOT any more:
+
+        AMENDMENT 2026-08-26 (post-GT-078 OWNER-REJECTED name fix, this
+        lane).  ``_entry()`` in world_population.py stopped discarding
+        ``SceneActorPlacement.source_name`` for every non-P30 member, so
+        rung 3 now carries P0's and P91's own frozen names while the golden
+        (the frozen fallback) still does not.  The golden bytes stay exactly
+        as captured - they are still correct for what they represent - and
+        the invariant this test proves is narrower: the wire is the golden
+        bytes plus exactly those two name tags, nothing else moved.  See
+        tests/test_world_population.py's
+        ``test_rung_three_differs_from_the_shipped_default_by_exactly_the_
+        two_added_names`` for the same invariant proven directly against the
+        two encoders.
         """
+        from pirateforce_foundation.population import load_port_royal_placements
+        from pirateforce_foundation.world_population import SHIPPED_MONSTER_INDEX
+
         state, _ = self.state(
             scenario=False, token="baseline", world_census_actor_count=3,
         )
@@ -389,15 +407,27 @@ class PopulationAdapterTests(unittest.TestCase):
             "V134_P0_P30_P91_ISOLATED_REAPPLY_READY",
         ])
         self.assertEqual([action[3] for action in actions], golden["delays"])
-        self.assertEqual([
-            {
-                "pc_length": len(action[1]),
-                "pc_sha256": hashlib.sha256(action[1]).hexdigest().upper(),
-                "frame_length": len(action[2]),
-                "frame_sha256": hashlib.sha256(action[2]).hexdigest().upper(),
-            }
-            for action in actions
-        ], golden["actions"])
+
+        placements = {
+            placement.placement_index: placement
+            for placement in load_port_royal_placements(self.legacy)
+        }
+        added_bytes = sum(
+            len(self.legacy.wstr_tag(placements[index].source_name))
+            for index in (0, 30, 91)
+            if index != SHIPPED_MONSTER_INDEX
+        )
+        for action, golden_action in zip(actions, golden["actions"]):
+            self.assertEqual(
+                len(action[1]) - golden_action["pc_length"], added_bytes,
+            )
+            self.assertEqual(
+                len(action[2]) - golden_action["frame_length"], added_bytes,
+            )
+        # And both actions of the pair (initial + reapply) are the identical
+        # generation replayed, exactly as the golden's own identical pair is.
+        self.assertEqual(actions[0][1], actions[1][1])
+        self.assertEqual(actions[0][2], actions[1][2])
 
     def test_no_scenario_boot_sends_the_whole_census_by_default(self):
         """The default boot - no flag of any kind - is the census now.

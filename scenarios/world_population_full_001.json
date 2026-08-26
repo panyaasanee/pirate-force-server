@@ -7,6 +7,20 @@
   "production_allowed": true,
   "selection": "none_default_behaviour_no_scenario_flag",
   "not_a_scenario": "this file is a pin, not a switch - no flag loads it and the population scenario loader refuses it",
+  "amendments": [
+    {
+      "date": "2026-08-26",
+      "reason": "GT-078 OWNER-REJECTED (no NPC anywhere in town showed a name line, only a title line)",
+      "change": "_entry() stopped discarding SceneActorPlacement.source_name for every non-P30 member; every one of the 115 placements now carries a basic_name, so pc_bytes/frame_bytes grew for every rung. Membership and order (the 'indices' lists below) did NOT change - only the per-entry byte length did, because a name tag is now present on entries that used to have none. Also removed the now-false nonclaim 'name_for_any_member_other_than_placement_30' from the nonclaims list below - it stopped being true the moment this fix landed.",
+      "superseded_pc_frame_bytes_at_both_anchors": {
+        "3": [504, 517],
+        "20": [3148, 3161],
+        "60": [9302, 9315],
+        "115": [17928, 17942]
+      },
+      "note": "the superseded numbers stay here rather than being deleted - they are still correct for make_v112_monster_shop_population_state() and make_v62_port_royal_population_snapshot(), the frozen nameless encoders this project does not edit."
+    }
+  ],
   "entry": {
     "flow": "full_writable_character",
     "scene_id": 1
@@ -36,8 +50,8 @@
         "rungs": [
           {
             "actor_count": 3,
-            "pc_bytes": 504,
-            "frame_bytes": 517,
+            "pc_bytes": 564,
+            "frame_bytes": 577,
             "indices": [
               0,
               30,
@@ -46,8 +60,8 @@
           },
           {
             "actor_count": 20,
-            "pc_bytes": 3148,
-            "frame_bytes": 3161,
+            "pc_bytes": 3567,
+            "frame_bytes": 3580,
             "indices": [
               0,
               30,
@@ -73,8 +87,8 @@
           },
           {
             "actor_count": 60,
-            "pc_bytes": 9302,
-            "frame_bytes": 9315,
+            "pc_bytes": 10851,
+            "frame_bytes": 10864,
             "indices": [
               0,
               30,
@@ -140,8 +154,8 @@
           },
           {
             "actor_count": 115,
-            "pc_bytes": 17928,
-            "frame_bytes": 17942,
+            "pc_bytes": 20944,
+            "frame_bytes": 20958,
             "indices": [
               0,
               30,
@@ -270,8 +284,8 @@
         "rungs": [
           {
             "actor_count": 3,
-            "pc_bytes": 504,
-            "frame_bytes": 517,
+            "pc_bytes": 564,
+            "frame_bytes": 577,
             "indices": [
               0,
               30,
@@ -280,8 +294,8 @@
           },
           {
             "actor_count": 20,
-            "pc_bytes": 3148,
-            "frame_bytes": 3161,
+            "pc_bytes": 3567,
+            "frame_bytes": 3580,
             "indices": [
               0,
               30,
@@ -307,8 +321,8 @@
           },
           {
             "actor_count": 60,
-            "pc_bytes": 9302,
-            "frame_bytes": 9315,
+            "pc_bytes": 10851,
+            "frame_bytes": 10864,
             "indices": [
               0,
               30,
@@ -374,8 +388,8 @@
           },
           {
             "actor_count": 115,
-            "pc_bytes": 17928,
-            "frame_bytes": 17942,
+            "pc_bytes": 20944,
+            "frame_bytes": 20958,
             "indices": [
               0,
               30,
@@ -521,7 +535,8 @@
       "movement_attr_full_mask"
     ],
     "hp": "100_for_every_member_except_placement_30_which_keeps_the_measured_v117_hp",
-    "basic_name": "empty_for_every_member_except_placement_30_which_keeps_the_measured_v119_name"
+    "basic_name": "every_member_carries_its_own_frozen_source_name_since_the_2026-08-26_amendment_above; placement_30_still_keeps_the_measured_v119_name_override_instead_of_its_table_source_name",
+    "basic_name_superseded": "empty_for_every_member_except_placement_30_which_keeps_the_measured_v119_name (true before the 2026-08-26 amendment above; kept here, not deleted)"
   },
   "capabilities": [
     "full_scene_npc_style_census"
@@ -537,12 +552,12 @@
     "loot",
     "vehicle",
     "portal",
-    "name_for_any_member_other_than_placement_30",
     "measured_client_actor_ceiling",
     "render",
     "visibility",
     "distance_culling",
     "actor_slot_displacement",
-    "a_crowded_view_at_any_single_anchor"
+    "a_crowded_view_at_any_single_anchor",
+    "correct_template_id_or_visual_identity_at_every_placement (GT-078's other, still-open half; a placement-identity RE ticket owns this, not this pin)"
   ]
 }

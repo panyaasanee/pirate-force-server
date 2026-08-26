@@ -113,19 +113,36 @@ not a datum about six being too many.  A rung that dies gives an interval, not
 a cause.
 
 RUNG 3 IS THE CONTROL.  The first three members are pinned to the exact
-``V112_TEST_INDICES`` (P0, P30, P91) in their exact frozen order, so rung 3 is
-byte-identical to what ``make_v112_monster_shop_population_state()`` sends
-today - the v141 self-test independently pins that frame at 504/517 bytes
-(v141:6104-6107).  Being anchor-invariant, it controls for the encoder and the
-harness; it cannot control for anything that varies with position.
+``V112_TEST_INDICES`` (P0, P30, P91) in their exact frozen order, so rung 3
+~~is byte-identical to what ``make_v112_monster_shop_population_state()``
+sends today - the v141 self-test independently pins that frame at 504/517
+bytes (v141:6104-6107).~~ Being anchor-invariant, it controls for the
+encoder and the harness; it cannot control for anything that varies with
+position.
+
+AMENDMENT 2026-08-26 (LANE-A, post-GT-078 OWNER-REJECTED / identity).  The
+struck-through claim above stopped being true the moment ``_entry()``
+started passing ``placement.source_name`` as ``basic_name`` (see that
+function).  Rung 3 is now 564/577 bytes, not 504/517: it still uses the
+exact same encoder and the same three frozen members in the same order, but
+P0 and P91 now also carry the names the frozen table always had for them
+(``Navy Transfer``, ``Local people``) and the old shipped default never
+sent.  ``tests/test_world_population.py`` was re-derived to state the
+correct invariant (differs from ``make_v112_monster_shop_population_state``
+by exactly those two name tags), not to keep asserting byte-identity.
 
 WHAT THIS MODULE DOES NOT CLAIM.  It does not give any actor a name, HP,
-faction, hostility, AI, locomotion or loot beyond what the frozen V134 encoder
-already gives it: P30 keeps its measured HP (V117) and its measured BasicAttr
-name (V119); every other member is HP 100 and nameless, exactly as today.  It
-claims nothing about rendering, visibility, distance culling or actor-slot
-displacement (``GT-072``, open, PARTIAL) - the four things that decide whether
-a delivered actor becomes a model on screen.
+faction, hostility, AI, locomotion or loot beyond what the frozen V134
+encoder already gives it: P30 keeps its measured HP (V117) and its
+measured BasicAttr name (V119); ~~every other member is HP 100 and
+nameless, exactly as today.~~ Every other member is still HP 100, but as
+of the amendment above it is no longer nameless - it carries whatever name
+the frozen placement table already had for it, which for most members is
+its first and only source of a name (V119 only ever measured P30's).  This
+module still claims nothing about rendering, visibility, distance culling
+or actor-slot displacement (``GT-072``, open, PARTIAL) - the four things
+that decide whether a delivered actor becomes a model on screen, or a name
+tag on the wire becomes a name label in the client.
 """
 
 from __future__ import annotations
@@ -306,7 +323,22 @@ def _entry(legacy: Any, placement: SceneActorPlacement) -> bytes:
         placement.visual_preset,
         current_hp=hp,
         max_hp=hp,
-        basic_name=(legacy.V119_P30_TARGET_NAME if is_monster else ""),
+        # AMENDMENT 2026-08-26 (LANE-A, post-GT-078 OWNER-REJECTED / identity).
+        # The frozen PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS row already carries a
+        # per-placement source_name (it always has - see the 7-tuple shape in
+        # population.py), and this call was discarding it for every entry
+        # except the P30 diagnostic override. The client only draws the
+        # yellow NPC-name line when BasicAttr bit 0x0001 is set (make_npc_attr
+        # docstring, 0x51F920), so a dropped source_name is not a cosmetic
+        # gap: it is why GT-078's addendum photo shows a lone blue title line
+        # with no name line under it anywhere in town. This does not touch
+        # WHICH template_id/visual_preset is sent (that is a placement-
+        # identity question RE-077's follow-up owns), only whether the name
+        # this table already has for that placement reaches the wire.
+        basic_name=(
+            legacy.V119_P30_TARGET_NAME if is_monster
+            else placement.source_name
+        ),
     )
     movement_attr = legacy.make_remote_movement_attr(
         actor_identity,
