@@ -203,6 +203,63 @@ before building further, per this lane's own "ค้นก่อนถอด" ru
   here so a future round or reader does not cite RE-091 as proof our chat
   parsing matches the original client's dedicated-editor path. It does not.
 
+## Modules delivered (dispatch/authorization-gate round)
+
+The previous round (`rounds/GM_20260827_0438_...md`) named the missing
+piece explicitly: `warp` (and every other GM-003 command) still cannot
+execute because no inbound dispatch of 0x51E9 has ever existed in
+`runtime.py`, and the authorization-gate decision in front of it is "bigger
+than a one-line CORE-REQUEST letter" -- proposed as its own round rather
+than rushed. This round is that round.
+
+- `gm/dispatch.py` (new) -- `handle_gm_run_command_vital(account_name,
+  raw_payload)`, the single function `CORE-REQUEST-GM-010` asks chief to
+  wire at the point `runtime.py` reads vital id 0x51E9 off the wire. It
+  checks `gm/accounts.is_gm_account()` FIRST, before any capture/decode
+  side effect, reusing the exact "refuse by name, not by crash" pattern
+  `runtime.py`'s own CORE-REQUEST-006 login check already uses for a
+  malformed `gm_accounts.json` (same `(ValueError, OSError)` catch, same
+  `gm_account_lookup_failed_<ExceptionType>` reason string). Only when the
+  sender is an authorized GM does it call
+  `command_capture.capture_raw_gm_command` (GM-002's existing sink); an
+  unauthorized or misconfigured call writes nothing to disk. It does not
+  decode the two wide strings into a `gm/commands.py` `GmCommand` and does
+  not log via `log_gm_command` -- that mapping is still unproven (RE-088's
+  own nonclaim), so bridging it here would be a guess this lane's rules
+  forbid. It does not execute anything and does not send
+  `GM_RunGMCommandResultVital` (0x8C77) -- no send path exists in this
+  lane's write zone and the result byte's meaning is unproven regardless.
+- `tests/test_gm_command_dispatch.py` (new, 11 tests) -- proves the
+  authorization gate specifically: a missing config, a non-GM account, and
+  a malformed config all refuse and write nothing; an authorized GM's call
+  writes exactly one real capture file per call, matching
+  `command_capture.py`'s own format.
+
+`pf-adversary` (this round) found that `command_capture.py`'s hex-dump sink
+has no size cap of its own, and this module is what makes that sink
+reachable from a live wire for the first time -- a many-megabyte
+`GM_RunGMCommandVital` payload from an authorized-but-hostile or scripted
+GM client would block the handling thread for tens of seconds and could
+fill disk per call. `dispatch.py` closes this with
+`MAX_RAW_PAYLOAD_LENGTH` (64 KiB, far larger than any real
+`GM_RunGMCommandVital` RE-088 has proven the shape of): a GM account
+sending an oversized payload gets `authorized=True` (it IS a GM account)
+but `captured_path=None` and `refusal_reason=REFUSAL_PAYLOAD_TOO_LARGE` --
+nothing is written to disk for that one call. The size check runs AFTER
+the authorization check, so a non-GM sender's refusal reason stays
+`REFUSAL_NOT_GM` regardless of payload size and never reveals the cap
+exists.
+
+The one thing this closes is the security gap the previous round flagged:
+before this module, nothing in this package stopped any connected account
+(GM or not -- RE-091 already proved the real client's own gate is a UI
+widget, not a wire-level check) from making this lane write a capture file
+to disk on demand, once wiring existed at all. This module is the gate that
+must sit in front of any future wiring, not a new capability by itself --
+warp/npc/item/lv/spawn/say still do not execute after this round, and no
+account gets anything it could not already get from CORE-REQUEST-006's
+existing login-time check.
+
 ## What is intentionally NOT built yet, and why
 
 - `state_wire` IS wired into the login path as of `CORE-REQUEST-006`
@@ -220,10 +277,14 @@ before building further, per this lane's own "ค้นก่อนถอด" ru
   semantics is a capture/attended matrix (RE-089's own stated next step),
   not yet opened; wiring itself is done and unaffected.
 - No command *execution* path (see `gm/commands.py` scope note above).
-  `gm/teleport_wire.py` (this round) gives `warp` a real, tested byte
-  builder for `ForcePos`/`CWarpResult`/`TeleportVital`, but sending one
-  still needs a runtime send path -- outside this lane's write zone -- so
-  execution stays not-built until a `CORE-REQUEST-GM-<nnn>` wires it in.
+  `gm/teleport_wire.py` gives `warp` a real, tested byte builder for
+  `ForcePos`/`CWarpResult`/`TeleportVital`, and `gm/dispatch.py` (this
+  round) gives 0x51E9 an inbound authorization gate and a real capture
+  sink, but sending a reply and applying any gameplay effect still need a
+  runtime send path -- outside this lane's write zone -- so execution stays
+  not-built until a `CORE-REQUEST-GM-<nnn>` wires one in and (separately)
+  the wide-string field mapping is proven enough to bridge into
+  `gm/commands.py`'s grammar.
 - No general lane-A scene registry or lane-B mob roster reuse in
   `gm/commands.py`. Both lanes' current modules
   (`world_scene_travel.py`, `field_mob_tables.py`) are single-destination /
