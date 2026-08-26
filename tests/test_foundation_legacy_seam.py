@@ -80,6 +80,21 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
+    # ROUND vvkff9 (LANE-B, 2026-08-26 +07:00): moved deliberately, and it is
+    # the same KIND of movement as the 7ptoku block below -- refs, never a
+    # grade.  monster_spawn_and_loot gains two evidence refs
+    # (src/pirateforce_foundation/mob_pickup.py,
+    # scenarios/combat_pickup_001.json) and one test ref
+    # (tests/test_mob_pickup.py) for MOB-PICKUP-001, the server-side pickup
+    # transaction.  The row's STATUS DOES NOT MOVE and stays in_progress:
+    # nothing dispatches the module, no database row is written by anything,
+    # the pickup transport is still unidentified, and no player has picked
+    # anything up.  The refs move because they are the graded fields -- an
+    # adversarial pass on the previous lane-B round established that a prose
+    # amendment alone leaves a machine reading this file unable to find the
+    # new lane at all.  Previous pin, kept greppable rather than dropped:
+    #   R167 / merged BEA0024925EFB3637A03A4BE69380B882335E1AFD50D63A9DE7F73D23CC3074F
+    #
     # ROUND 7ptoku (LANE-B, 2026-08-26 +07:00): moved deliberately, and this
     # is what a deliberate movement looks like when it is NOT a grade change.
     # Domain 3 / hp_death_and_respawn gains two refs -- tests/test_mob_death.py
@@ -695,7 +710,7 @@ GRADE_SUBSET_SHA256 = (
     # the structured refs pointing only at the old lanes hides the new one
     # from any machine reading this file.
     #   R167 / parent EB932A54B4958527BA172D34A81673B6B91AA54A0979372EED3A3525902C65DB
-    "BEA0024925EFB3637A03A4BE69380B882335E1AFD50D63A9DE7F73D23CC3074F"
+    "2828B9EDABCCB1123B27DC79B63C280FF536BBF4B423C556BEB716257CCAAC53"
 )
 
 
