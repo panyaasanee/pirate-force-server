@@ -1,31 +1,41 @@
 """LANE-B: the drop a monster left becomes a row in somebody's bag.
 
-The load-bearing tests in this file are the four below; the rest are guards.
+The load-bearing tests in this file are the five below; the rest are guards.
 
 ``test_a_full_bag_does_not_eat_the_drop`` is the one that matters most.  A
 pickup is the only operation in this lane that can DESTROY something a player
 owns, and it destroys it by refusing AFTER the row has left the ground.  The
 module's whole ordering argument exists for this test.
 
-``test_only_one_of_two_claims_on_one_key_wins`` pins the race.  The lane
-resolves against a snapshot and takes through the cell, which is a
-check-then-act shape -- it is safe only because mob_loot never reuses a key,
-and this test is what says so out loud.
+``test_two_pickups_in_one_session_do_not_collide`` is the second.  The first
+draft of this lane took the bag as a value, and an adversarial pass showed two
+pickups in one session allocating one slot and one identity with nothing
+raised -- both drops off the ground, the second row then refused by the
+database.  BagCell is the answer and this test is what holds it.
 
-``test_the_delta_is_byte_equal_to_the_item_lanes_composer`` is the only reason
-to believe these bytes are the right bytes: the item lane pinned that shape
-against frozen V141, and this lane re-derives rather than importing a probe.
+``test_only_one_of_two_claims_on_one_key_wins`` pins the race on the ground.
+The lane resolves against a snapshot and takes through mob_loot's cell, which
+is a check-then-act shape -- safe only because that lane never reuses a key.
+
+``test_the_delta_is_byte_equal_to_the_item_lanes_composer`` plus
+``test_the_envelope_is_pinned_at_run_time_not_only_in_a_test`` are the reason
+to believe these bytes are the right bytes.  The first alone was not enough:
+it compares ONE governed row, and a shim that moved a constant OUTSIDE the
+seven ItemAttr fields sailed through it.
 
 ``test_the_governed_allowlist_is_the_wall_this_lane_stops_at`` pins the
 BLOCKER as a test.  BUILD-006 asks for "relog and it is still there"; the
-persisted bag is content-allowlisted by a lane this one does not own, and a
-round that only wrote that in prose would be a round whose prose rots.
+persisted bag is content-governed by a lane this one does not own, and a round
+that only wrote that in prose would be a round whose prose rots.
 """
 
 import ast
 import json
 from pathlib import Path
+import sqlite3
+import struct
 import sys
+import threading
 import unittest
 
 
@@ -44,6 +54,10 @@ from pirateforce_foundation.legacy_bridge import load_legacy
 from pirateforce_foundation.mob_loot import DropLedger, DropLedgerCell, GroundDrop
 from pirateforce_foundation.mob_pickup import (
     BAG_SLOT_COUNT,
+    DELTA_FRAME_HEADER_SIZE,
+    DELTA_FRAME_MAGIC,
+    DELTA_PC_PREFIX_PIN,
+    DELTA_PC_SUFFIX_PIN,
     MAX_ITEM_IDENTITY,
     MOB_PICKUP_NONCLAIMS,
     MOB_PICKUP_REFUSAL_REASONS,
@@ -51,12 +65,13 @@ from pirateforce_foundation.mob_pickup import (
     NEW_ROW_RAW_U8_38,
     NEW_ROW_RAW_U8_39,
     PICKUP_RADIUS,
+    REFUSALS_THAT_LEAVE_THE_DROP_ON_THE_GROUND,
+    BagCell,
     BagRowWrite,
     MobPickupContractError,
     PickupClaim,
     PickupOutcome,
     bag_delta_pc,
-    commit_pickup,
     first_free_slot,
     next_item_identity,
     pickup_report,
@@ -72,6 +87,7 @@ from pirateforce_foundation.mob_pickup import (
 
 MODULE_PATH = ROOT / "src" / "pirateforce_foundation" / "mob_pickup.py"
 PIN_PATH = ROOT / "scenarios" / "combat_pickup_001.json"
+MIGRATION_PATH = ROOT / "migrations" / "003_character_inventory.sql"
 
 # The identities the sibling lanes' tests use, so one kill reads the same in
 # three files: a roster monster, and a session-shaped player identity.
@@ -80,6 +96,7 @@ KILLER = 0x750059
 STRANGER = 0x750060
 ITEM = 2400046            # the roster's most common drop
 KEY = mob_loot.DROP_KEY_BASE
+CHARACTER = 77
 EMPTY_BAG = BackpackState(BACKPACK_BASE_MASK, BACKPACK_BASE_IDENTITY, 1, ())
 
 
@@ -93,7 +110,7 @@ def a_drop(key=KEY, item=ITEM, quantity=1, at=(10.0, 20.0, 30.0),
 
 
 def a_cell(*drops):
-    """A cell holding exactly these rows, with the keys marked as issued."""
+    """A ground cell holding exactly these rows, with the keys marked issued."""
     issued = mob_loot.DROP_KEY_BASE
     for drop in drops:
         if drop.drop_key + 1 > issued:
@@ -101,8 +118,15 @@ def a_cell(*drops):
     return DropLedgerCell(DropLedger(tuple(drops), 1, issued, ()))
 
 
-def a_claim(key=KEY, identity=KILLER, at=(10.0, 20.0, 30.0)):
-    return PickupClaim(identity, at[0], at[1], at[2], key)
+def a_claim(key=KEY, identity=KILLER, at=(10.0, 20.0, 30.0), opaque=0):
+    return PickupClaim(identity, at[0], at[1], at[2], key, opaque)
+
+
+def a_full_bag():
+    return BackpackState(
+        BACKPACK_BASE_MASK, BACKPACK_BASE_IDENTITY, 1,
+        tuple(ItemAttrState(slot + 1, ITEM, 1, slot)
+              for slot in range(BAG_SLOT_COUNT)))
 
 
 class MobPickupTests(unittest.TestCase):
@@ -216,6 +240,29 @@ class MobPickupTests(unittest.TestCase):
                 any("hypothesis" in name for name in imported),
                 "the tripwire is blind to %r" % attack)
 
+    @staticmethod
+    def _names_taken_from(source, module):
+        """Every name imported FROM one sibling module, both import forms.
+
+        BLIND IN ITS FIRST FORM, and an adversarial pass proved it: filtering
+        on ``node.module == "inventory"`` skips ``from . import inventory``
+        entirely, because that node's module is None and the name lives in the
+        alias.  With the whole check skipped, every governed function in that
+        file became freely callable and the test stayed green.
+        """
+        taken = set()
+        for node in ast.walk(ast.parse(source)):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            if node.module == module:
+                taken.update(alias.name for alias in node.names)
+            elif node.module is None:
+                # `from . import inventory` -- the whole module, so every name
+                # in it is reachable and the allowlist means nothing.
+                taken.update(
+                    alias.name for alias in node.names if alias.name == module)
+        return taken
+
     def test_the_lane_takes_only_shapes_from_the_item_lane_never_its_policy(self):
         """inventory.py is another lane's file.  This one borrows its RECORDS.
 
@@ -228,18 +275,25 @@ class MobPickupTests(unittest.TestCase):
             "BackpackState", "ItemAttrState",
             "BACKPACK_BASE_MASK", "BACKPACK_BASE_IDENTITY",
         }
-        for node in ast.walk(ast.parse(self.source)):
-            if isinstance(node, ast.ImportFrom) and node.module == "inventory":
-                for alias in node.names:
-                    self.assertIn(
-                        alias.name, allowed,
-                        "%s is the item lane's policy, not its shape"
-                        % alias.name)
+        taken = self._names_taken_from(self.source, "inventory")
+        self.assertTrue(taken, "the tripwire found no import to check at all")
+        for name in taken:
+            self.assertIn(
+                name, allowed,
+                "%s is the item lane's policy or its whole module, not its "
+                "shape" % name)
+
+    def test_that_tripwire_catches_the_whole_module_import(self):
+        attack = "from . import inventory\ninventory.require_known_backpack(x)\n"
+        self.assertEqual(
+            self._names_taken_from(attack, "inventory"), {"inventory"},
+            "the tripwire is blind to the form that takes everything")
 
     def test_the_lane_has_no_clock_no_socket_and_no_file(self):
         banned = {
             "time", "monotonic", "sleep", "now", "utcnow", "open", "socket",
             "connect", "execute", "executemany", "commit", "cursor",
+            "read_text", "write_text", "read_bytes", "write_bytes",
         }
         for node in ast.walk(ast.parse(self.source)):
             if isinstance(node, ast.Call):
@@ -271,11 +325,47 @@ class MobPickupTests(unittest.TestCase):
             "value_not_int",
             "a bool is not an identity, and bool is a subclass of int")
 
-    def test_a_reference_that_is_not_on_the_ground_is_refused_by_name(self):
-        cell = a_cell(a_drop())
+    def test_the_claim_carries_both_fields_of_the_proven_body(self):
+        """Two fields on the wire, two fields here, and the u8 acted on nowhere.
+
+        The proven PickupTerrainThing body is a u32 at object+0x14 and a u8 at
+        object+0x18.  The first draft of this record carried only the dword,
+        which is how a lane silently discards a field it has not understood.
+        """
+        claim = a_claim(opaque=0xAB)
+        self.assertEqual(claim.opaque_u8, 0xAB)
         self.assertEqual(
-            self._refusal(resolve_claim, cell.ledger, a_claim(key=KEY + 5)),
-            "object_ref_not_on_the_ground")
+            self._refusal(PickupClaim, KILLER, 1.0, 2.0, 3.0, KEY, 0x100),
+            "value_out_of_range")
+        # It changes NOTHING about the outcome, which is the honest state of
+        # knowledge: nobody has measured what it means.
+        one = BagCell(INITIAL_BACKPACK, CHARACTER).commit_pickup(
+            a_cell(a_drop()), a_claim(opaque=0))
+        two = BagCell(INITIAL_BACKPACK, CHARACTER).commit_pickup(
+            a_cell(a_drop()), a_claim(opaque=0xFF))
+        self.assertEqual(one.row_write, two.row_write)
+
+    def test_a_reference_this_lane_never_issued_is_told_apart_from_a_taken_one(self):
+        """The distinction that keeps RE-082 from being poisoned by clicks.
+
+        A key BELOW issued_through was handed out by this lane and has since
+        left the ground -- an ordinary double-click.  A key at or above it was
+        never issued, and only that shape is evidence about the object
+        reference.  One refusal for both would have logged every double-click
+        in the game as evidence against the assumption RE-082 exists to test.
+        """
+        cell = a_cell(a_drop(key=KEY + 1))
+        already = self._refusal(resolve_claim, cell.ledger, a_claim(key=KEY))
+        self.assertEqual(already, "drop_already_taken")
+        never = self._refusal(
+            resolve_claim, cell.ledger, a_claim(key=KEY + 500))
+        self.assertEqual(never, "object_ref_never_issued")
+        with self.assertRaises(MobPickupContractError) as caught:
+            resolve_claim(cell.ledger, a_claim(key=KEY))
+        self.assertNotIn("RE-082", caught.exception.args[1])
+        with self.assertRaises(MobPickupContractError) as caught:
+            resolve_claim(cell.ledger, a_claim(key=KEY + 500))
+        self.assertIn("RE-082", caught.exception.args[1])
 
     def test_only_the_killer_may_claim_the_drop(self):
         cell = a_cell(a_drop())
@@ -301,9 +391,19 @@ class MobPickupTests(unittest.TestCase):
         self.assertFalse(within_pickup_radius(
             (0.0, 0.0, 0.0), (0.0, 0.0, PICKUP_RADIUS + 0.5)))
 
-    def test_the_radius_covers_one_kills_own_scatter(self):
-        """The arithmetic the constant claims, checked rather than asserted."""
+    def test_the_radius_is_exactly_the_arithmetic_it_claims_to_be(self):
+        """BOUNDS THE CONSTANT, which the first version of this test did not.
+
+        It only asked whether the furthest object of one kill was inside the
+        radius, so an adversarial pass set the radius to 1e9 and the suite
+        stayed green -- a gate whose stated job is "refuse an absurd claim"
+        could not tell 480 from a billion.  Now the arithmetic itself is the
+        assertion, and the off-by-one that shipped is named: the furthest
+        object of a 16-drop kill stands at 15 steps, not 16.
+        """
         furthest = mob_loot.DROP_SCATTER_STEP * (mob_loot.MAX_DROPS_PER_KILL - 1)
+        self.assertEqual(PICKUP_RADIUS, furthest)
+        self.assertEqual(PICKUP_RADIUS, 450.0)
         self.assertTrue(within_pickup_radius(
             (0.0, 0.0, 0.0), (furthest, 0.0, 0.0)),
             "a player standing where the monster fell cannot reach the last "
@@ -325,11 +425,8 @@ class MobPickupTests(unittest.TestCase):
         self.assertEqual(first_free_slot(gapped), 1)
 
     def test_a_full_bag_refuses_by_name(self):
-        full = BackpackState(
-            BACKPACK_BASE_MASK, BACKPACK_BASE_IDENTITY, 1,
-            tuple(ItemAttrState(slot + 1, ITEM, 1, slot)
-                  for slot in range(BAG_SLOT_COUNT)))
-        self.assertEqual(self._refusal(first_free_slot, full), "bag_is_full")
+        self.assertEqual(
+            self._refusal(first_free_slot, a_full_bag()), "bag_is_full")
 
     def test_the_next_identity_follows_the_highest_not_the_count(self):
         self.assertEqual(next_item_identity(EMPTY_BAG), 1)
@@ -342,6 +439,39 @@ class MobPickupTests(unittest.TestCase):
                   if item.identity != 2))
         self.assertEqual(len(gapped.items), 3)
         self.assertEqual(next_item_identity(gapped), 5)
+
+    def test_a_high_water_mark_is_accepted_and_one_that_lags_is_refused(self):
+        """The shape mob_loot proved is required, and the fallback named as one.
+
+        A bag that has SHRUNK hands the derived form an identity it has handed
+        out before -- the exact bug DropLedger.next_key exists to prevent one
+        lane over.  There is no column to persist a mark in today, so the
+        function accepts one and falls back; the fallback is a fallback, and
+        NONCLAIM 14 says so rather than the code pretending it is a policy.
+        """
+        shrunk = BackpackState(
+            BACKPACK_BASE_MASK, BACKPACK_BASE_IDENTITY, 1,
+            (ItemAttrState(1, ITEM, 1, 0),))
+        self.assertEqual(next_item_identity(shrunk), 2, "the derived form")
+        self.assertEqual(
+            next_item_identity(shrunk, 9), 10, "the high-water form")
+        self.assertEqual(
+            self._refusal(next_item_identity, INITIAL_BACKPACK, 2),
+            "identity_high_water_below_the_bag")
+        self.assertIn(
+            "14. THE ITEM IDENTITY IS DERIVED",
+            "".join(MOB_PICKUP_NONCLAIMS))
+
+    def test_a_cell_carries_its_high_water_mark_forward(self):
+        cell = BagCell(EMPTY_BAG, CHARACTER, issued_through=40)
+        ground = a_cell(a_drop(), a_drop(key=KEY + 1))
+        first = cell.commit_pickup(ground, a_claim())
+        second = cell.commit_pickup(ground, a_claim(key=KEY + 1))
+        self.assertEqual(first.item.identity, 41)
+        self.assertEqual(second.item.identity, 42)
+        self.assertEqual(
+            self._refusal(BagCell, INITIAL_BACKPACK, CHARACTER, 2),
+            "identity_high_water_below_the_bag")
 
     def test_an_identity_at_the_column_ceiling_is_refused_by_name(self):
         at_the_top = BackpackState(
@@ -357,6 +487,20 @@ class MobPickupTests(unittest.TestCase):
             (ItemAttrState(1, ITEM, 1, 0), ItemAttrState(2, ITEM, 1, 0)))
         self.assertEqual(
             self._refusal(require_bag_shape, collided), "bag_row_collides")
+
+    def test_a_bag_caught_mid_swap_is_refused_rather_than_misread(self):
+        """store.py parks a row at slot 65535 while it swaps two items.
+
+        The migration CHECKs slot BETWEEN 0 AND 65535 precisely so that can
+        happen, which is why this lane's 40 comes from inventory.py and not
+        from the migration.  A bag read in that window must be refused, never
+        treated as a bag with a 41st slot.
+        """
+        mid_swap = BackpackState(
+            BACKPACK_BASE_MASK, BACKPACK_BASE_IDENTITY, 1,
+            (ItemAttrState(1, ITEM, 1, mob_pickup.SWAP_PARKING_SLOT),))
+        self.assertEqual(
+            self._refusal(require_bag_shape, mid_swap), "value_out_of_range")
 
     def test_the_new_rows_raw_columns_are_the_shipped_ones(self):
         """Copied from what exists, not chosen: every baseline row carries these."""
@@ -392,62 +536,117 @@ class MobPickupTests(unittest.TestCase):
 
     # -- the transaction ---------------------------------------------------
     def test_one_claim_moves_one_row_from_the_ground_to_the_bag(self):
-        cell = a_cell(a_drop())
-        outcome = commit_pickup(cell, INITIAL_BACKPACK, a_claim())
+        ground = a_cell(a_drop())
+        cell = BagCell(INITIAL_BACKPACK, CHARACTER)
+        outcome = cell.commit_pickup(ground, a_claim())
         self.assertEqual(type(outcome), PickupOutcome)
-        self.assertEqual(cell.ledger.drops, ())
+        self.assertEqual(ground.ledger.drops, ())
         self.assertEqual(len(outcome.bag_after.items), 5)
         self.assertEqual(outcome.item.template_id, ITEM)
         self.assertEqual(outcome.drop.drop_key, KEY)
         self.assertEqual(outcome.bag_before, INITIAL_BACKPACK)
+        self.assertEqual(cell.bag, outcome.bag_after, "the cell moved with it")
+
+    def test_two_pickups_in_one_session_do_not_collide(self):
+        """THE CELL TEST.  Two claims, one session, two different rows.
+
+        With a bag passed by VALUE this allocated slot 4 and identity 5 twice,
+        raised nothing, took both drops off the ground, and left the second
+        INSERT to be refused by the database's UNIQUE(character_id, slot)
+        AFTER its drop was gone.
+        """
+        ground = a_cell(a_drop(), a_drop(key=KEY + 1))
+        cell = BagCell(INITIAL_BACKPACK, CHARACTER)
+        first = cell.commit_pickup(ground, a_claim())
+        second = cell.commit_pickup(ground, a_claim(key=KEY + 1))
+        self.assertNotEqual(first.item.slot, second.item.slot)
+        self.assertNotEqual(first.item.identity, second.item.identity)
+        self.assertEqual(
+            sorted(row.slot for row in cell.bag.items), [0, 1, 2, 3, 4, 5])
+        self.assertEqual(ground.ledger.drops, ())
+
+    def test_the_two_rows_of_one_session_survive_the_real_schema(self):
+        """Run the shipped migration and INSERT both rows.  The DB is the judge.
+
+        The claim that made the previous version of this lane add a post-take
+        refusal -- "the database accepts two rows in one slot" -- was false,
+        and only the schema itself could say so.  This test loads
+        migrations/003 and inserts what the cell produced.
+        """
+        ground = a_cell(a_drop(), a_drop(key=KEY + 1))
+        cell = BagCell(INITIAL_BACKPACK, CHARACTER)
+        rows = [
+            cell.commit_pickup(ground, a_claim()).row_write,
+            cell.commit_pickup(ground, a_claim(key=KEY + 1)).row_write,
+        ]
+        db = sqlite3.connect(":memory:")
+        try:
+            db.executescript(
+                "CREATE TABLE characters(id INTEGER PRIMARY KEY, "
+                "created_at TEXT, deleted_at TEXT);\n"
+                "INSERT INTO characters VALUES(%d,'now',NULL);\n" % CHARACTER
+                + MIGRATION_PATH.read_text(encoding="utf-8"))
+            statement = (
+                "INSERT INTO character_backpack_items(%s) VALUES(%s)"
+                % (",".join(BagRowWrite.COLUMNS),
+                   ",".join("?" * len(BagRowWrite.COLUMNS))))
+            for row in rows:
+                db.execute(statement, row.values())
+            db.commit()
+            self.assertEqual(
+                db.execute(
+                    "SELECT COUNT(*) FROM character_backpack_items "
+                    "WHERE character_id=?", (CHARACTER,)).fetchone()[0],
+                6, "four shipped rows plus the two this session picked up")
+            # And the claim the module used to make, checked against the
+            # schema that refutes it: a second row in one slot is REFUSED.
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute(statement, (
+                    CHARACTER, 99, ITEM, 1, rows[0].slot,
+                    NEW_ROW_RAW_U8_38, NEW_ROW_RAW_U8_39,
+                    NEW_ROW_DETAIL_PRESENT))
+        finally:
+            db.close()
+
+    def test_the_migration_still_carries_the_constraint_this_lane_relies_on(self):
+        body = MIGRATION_PATH.read_text(encoding="utf-8")
+        body = body.split("CREATE TABLE character_backpack_items", 1)[1]
+        body = body.split(");", 1)[0]
+        for column in BagRowWrite.COLUMNS:
+            self.assertIn(column, body, "%s is not a column of the table" % column)
+        self.assertIn("PRIMARY KEY(character_id,item_identity)", body)
+        self.assertIn(
+            "UNIQUE(character_id,slot)", body,
+            "the slot uniqueness this lane's nonclaims now depend on is gone")
 
     def test_the_row_write_names_the_exact_insert(self):
-        cell = a_cell(a_drop(quantity=3))
-        outcome = commit_pickup(cell, INITIAL_BACKPACK, a_claim())
+        ground = a_cell(a_drop(quantity=3))
+        outcome = BagCell(INITIAL_BACKPACK, CHARACTER).commit_pickup(
+            ground, a_claim())
         self.assertEqual(
             BagRowWrite.COLUMNS,
             ("character_id", "item_identity", "template_id", "quantity",
              "slot", "raw_u8_38", "raw_u8_39", "detail_present"))
         self.assertEqual(
-            outcome.row_write.values(77),
-            (77, 5, ITEM, 3, 4, NEW_ROW_RAW_U8_38, NEW_ROW_RAW_U8_39,
+            outcome.row_write.values(),
+            (CHARACTER, 5, ITEM, 3, 4, NEW_ROW_RAW_U8_38, NEW_ROW_RAW_U8_39,
              NEW_ROW_DETAIL_PRESENT))
-        self.assertEqual(
-            self._refusal(outcome.row_write.values, 0), "value_out_of_range")
 
-    def test_the_row_write_matches_the_shipped_column_list(self):
-        """The columns are migration 003's, read from the file, not remembered."""
-        migration = (ROOT / "migrations" / "003_character_inventory.sql").read_text(
-            encoding="utf-8")
-        body = migration.split("CREATE TABLE character_backpack_items", 1)[1]
-        body = body.split(");", 1)[0]
-        for column in BagRowWrite.COLUMNS:
-            self.assertIn(column, body, "%s is not a column of the table" % column)
+    def test_the_row_cannot_be_written_under_a_character_it_was_not_claimed_for(self):
+        """values() takes no argument, and that is the whole fix.
 
-    def test_a_stale_bag_is_caught_at_the_write_and_not_by_the_primary_key(self):
-        """Two pickups, one stale bag: the slot collides and the PK is blind.
-
-        The database keys (character_id, item_identity), so a stale IDENTITY
-        is rejected for free.  The SLOT is not in that key, so two rows land
-        in one slot and nothing complains until the next login cannot parse
-        the bag.  require_fits is what the writer runs to see it in time.
+        It used to take the character id from the caller, so values(999) on a
+        row claimed by another player returned a row for character 999 while
+        the report went on printing the claimant.  A record that the call
+        reading it can contradict is not a record.
         """
-        cell = a_cell(a_drop(), a_drop(key=KEY + 1))
-        first = commit_pickup(cell, INITIAL_BACKPACK, a_claim())
-        second = commit_pickup(cell, INITIAL_BACKPACK, a_claim(key=KEY + 1))
-        self.assertEqual(first.item.slot, second.item.slot)
-        self.assertEqual(first.item.identity, second.item.identity)
-        # Against the bag the FIRST pickup produced, the second row does not
-        # fit -- and it says so before anything is written.
-        self.assertTrue(first.row_write.fits(INITIAL_BACKPACK))
-        self.assertFalse(second.row_write.fits(first.bag_after))
+        outcome = BagCell(INITIAL_BACKPACK, CHARACTER).commit_pickup(
+            a_cell(a_drop()), a_claim())
+        self.assertEqual(outcome.row_write.values()[0], CHARACTER)
+        self.assertEqual(pickup_report(outcome)["written_for_character"],
+                         CHARACTER)
         self.assertEqual(
-            self._refusal(second.row_write.require_fits, first.bag_after),
-            "bag_row_collides")
-        # A slot collision alone is enough, with no identity collision at all.
-        slot_only = BagRowWrite(KILLER, 99, ITEM, 1, first.item.slot)
-        self.assertFalse(slot_only.fits(first.bag_after))
-        self.assertFalse(slot_only.fits(object()))
+            self._refusal(BagCell, INITIAL_BACKPACK, 0), "value_out_of_range")
 
     def test_a_full_bag_does_not_eat_the_drop(self):
         """THE ORDERING TEST.  Everything that refuses, refuses before the take.
@@ -456,24 +655,30 @@ class MobPickupTests(unittest.TestCase):
         was full would answer "your bag is full" by DESTROYING the object the
         player was reaching for.
         """
-        full = BackpackState(
-            BACKPACK_BASE_MASK, BACKPACK_BASE_IDENTITY, 1,
-            tuple(ItemAttrState(slot + 1, ITEM, 1, slot)
-                  for slot in range(BAG_SLOT_COUNT)))
-        cell = a_cell(a_drop())
-        before = cell.ledger
+        ground = a_cell(a_drop())
+        before = ground.ledger
+        cell = BagCell(a_full_bag(), CHARACTER)
         self.assertEqual(
-            self._refusal(commit_pickup, cell, full, a_claim()), "bag_is_full")
-        self.assertEqual(cell.ledger, before, "the drop left the ground anyway")
+            self._refusal(cell.commit_pickup, ground, a_claim()), "bag_is_full")
+        self.assertEqual(ground.ledger, before, "the drop left the ground anyway")
+        self.assertEqual(cell.bag, a_full_bag(), "the bag moved on a refusal")
 
     def test_every_refusal_of_a_claim_leaves_the_drop_on_the_ground(self):
-        for claim in (a_claim(key=KEY + 5), a_claim(identity=STRANGER),
+        for claim in (a_claim(key=KEY + 500), a_claim(identity=STRANGER),
                       a_claim(at=(PICKUP_RADIUS + 10.0, 0.0, 0.0))):
-            cell = a_cell(a_drop(at=(0.0, 0.0, 0.0)))
-            before = cell.ledger
-            with self.assertRaises(MobPickupContractError):
-                commit_pickup(cell, INITIAL_BACKPACK, claim)
-            self.assertEqual(cell.ledger, before)
+            ground = a_cell(a_drop(at=(0.0, 0.0, 0.0)))
+            before = ground.ledger
+            reason = self._refusal(
+                BagCell(INITIAL_BACKPACK, CHARACTER).commit_pickup,
+                ground, claim)
+            self.assertIn(reason, REFUSALS_THAT_LEAVE_THE_DROP_ON_THE_GROUND)
+            self.assertEqual(ground.ledger, before)
+
+    def test_exactly_one_refusal_means_the_row_is_gone(self):
+        self.assertEqual(
+            set(MOB_PICKUP_REFUSAL_REASONS)
+            - set(REFUSALS_THAT_LEAVE_THE_DROP_ON_THE_GROUND),
+            {"drop_left_the_ground"})
 
     def test_only_one_of_two_claims_on_one_key_wins(self):
         """THE RACE.  The loser is refused by name and changes nothing.
@@ -481,59 +686,96 @@ class MobPickupTests(unittest.TestCase):
         Safe only because mob_loot never reuses a key: a key still in the
         ledger at take time names the same object it named at resolve time.
         """
-        cell = a_cell(a_drop())
-        first = commit_pickup(cell, INITIAL_BACKPACK, a_claim())
+        ground = a_cell(a_drop())
+        first = BagCell(INITIAL_BACKPACK, CHARACTER).commit_pickup(
+            ground, a_claim())
         self.assertEqual(first.item.identity, 5)
         self.assertEqual(
-            self._refusal(commit_pickup, cell, INITIAL_BACKPACK, a_claim()),
-            "object_ref_not_on_the_ground")
+            self._refusal(
+                BagCell(INITIAL_BACKPACK, CHARACTER).commit_pickup,
+                ground, a_claim()),
+            "drop_already_taken",
+            "the loser of an ordinary race must not be told its object "
+            "reference looks wrong")
+
+    def test_two_real_threads_on_one_key_produce_exactly_one_grant(self):
+        for attempt in range(25):
+            ground = a_cell(a_drop())
+            gate = threading.Barrier(2)
+            results = []
+
+            def claim_it():
+                cell = BagCell(INITIAL_BACKPACK, CHARACTER)
+                gate.wait()
+                try:
+                    results.append(cell.commit_pickup(ground, a_claim()))
+                except MobPickupContractError as exc:
+                    results.append(exc.args[0])
+
+            threads = [threading.Thread(target=claim_it) for _ in range(2)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+            grants = [row for row in results if type(row) is PickupOutcome]
+            with self.subTest(attempt=attempt):
+                self.assertEqual(len(grants), 1, results)
+                self.assertEqual(ground.ledger.drops, ())
 
     def test_a_key_taken_by_a_pickup_is_never_handed_out_again(self):
-        cell = a_cell(a_drop())
-        commit_pickup(cell, INITIAL_BACKPACK, a_claim())
-        self.assertEqual(cell.ledger.drops, ())
+        ground = a_cell(a_drop())
+        BagCell(INITIAL_BACKPACK, CHARACTER).commit_pickup(ground, a_claim())
+        self.assertEqual(ground.ledger.drops, ())
         self.assertGreater(
-            cell.ledger.next_key, KEY,
+            ground.ledger.next_key, KEY,
             "a reused key would let a client hold a stale object under it")
 
-    def test_losing_the_row_at_take_time_is_reported_as_taken_not_missing(self):
-        """The window the snapshot cannot close, forced open on purpose.
+    def test_losing_the_row_at_take_time_does_not_blame_a_rival(self):
+        """The window a snapshot cannot close, and who is NOT accused in it.
 
-        Between resolve and take, another claimant can win.  The loser must
-        learn that the row is GONE -- not that its own reference was wrong --
-        because the two answers imply different next moves: one says retry
-        never, the other says the derived object reference may be wrong.
+        mob_loot's own wiring makes pruning mandatory and the label lives
+        0.2-0.4 s, so the row is often removed by the CALLER'S OWN PRUNER in
+        exactly the window a request travels.  The earlier message said
+        "somebody else has it", which is false in that case -- nobody has it.
         """
-        cell = a_cell(a_drop())
+        ground = a_cell(a_drop())
 
         def vanish(drop_key):
             raise mob_loot.MobLootContractError(
-                mob_loot.REFUSE_DROP_NOT_IN_LEDGER, "another claim took it")
+                mob_loot.REFUSE_DROP_NOT_IN_LEDGER, "pruned")
 
-        cell.take = vanish
+        ground.take = vanish
+        cell = BagCell(INITIAL_BACKPACK, CHARACTER)
+        with self.assertRaises(MobPickupContractError) as caught:
+            cell.commit_pickup(ground, a_claim())
+        self.assertEqual(caught.exception.args[0], "drop_left_the_ground")
+        self.assertNotIn("somebody else has it", caught.exception.args[1])
         self.assertEqual(
-            self._refusal(commit_pickup, cell, INITIAL_BACKPACK, a_claim()),
-            "drop_taken_by_another_claim")
+            cell.bag, INITIAL_BACKPACK,
+            "a refusal at the take must not leave the bag holding the item")
 
     def test_a_cell_subclass_is_not_the_scenes_cell(self):
         class OtherCell(DropLedgerCell):
             pass
 
-        cell = OtherCell(DropLedger((a_drop(),), 1, KEY + 1, ()))
+        ground = OtherCell(DropLedger((a_drop(),), 1, KEY + 1, ()))
         self.assertEqual(
-            self._refusal(commit_pickup, cell, INITIAL_BACKPACK, a_claim()),
+            self._refusal(
+                BagCell(INITIAL_BACKPACK, CHARACTER).commit_pickup,
+                ground, a_claim()),
             "type_not_typed_record")
 
     def test_the_transaction_refuses_untyped_arguments(self):
-        cell = a_cell(a_drop())
+        ground = a_cell(a_drop())
+        cell = BagCell(INITIAL_BACKPACK, CHARACTER)
         self.assertEqual(
-            self._refusal(commit_pickup, object(), INITIAL_BACKPACK, a_claim()),
+            self._refusal(cell.commit_pickup, object(), a_claim()),
             "type_not_typed_record")
         self.assertEqual(
-            self._refusal(commit_pickup, cell, INITIAL_BACKPACK, object()),
+            self._refusal(cell.commit_pickup, ground, object()),
             "type_not_typed_record")
         self.assertEqual(
-            self._refusal(commit_pickup, cell, object(), a_claim()),
+            self._refusal(BagCell, object(), CHARACTER),
             "type_not_typed_record")
         self.assertEqual(
             self._refusal(resolve_claim, object(), a_claim()),
@@ -546,10 +788,10 @@ class MobPickupTests(unittest.TestCase):
     def test_the_delta_is_byte_equal_to_the_item_lanes_composer(self):
         """One shape, two lanes, byte for byte.
 
-        The item lane pinned this shape against frozen V141 for a MOVE.  If
-        the two ever stop agreeing, this lane is guessing at a shape it did
-        not measure -- which is exactly what NONCLAIM 3 says it must not do
-        quietly.
+        The item lane pinned this shape against frozen V141 for a MOVE.  It is
+        ONE governed row -- identity 1 / template 2600001 / slot 2, a shape
+        this lane can never produce -- so what it proves is that the two
+        composers agree, not that this lane's own rows were ever seen.
         """
         governed = inventory.HYPOTHESIZED_V111_SLOT2_BACKPACK.items[0]
         self.assertEqual(
@@ -561,7 +803,75 @@ class MobPickupTests(unittest.TestCase):
         pc, frame = bag_delta_pc(self.legacy, item)
         self.assertIn(self.legacy.qwordtag(0x32, item.identity), pc)
         self.assertIn(self.legacy.u32tag(0x14, ITEM), pc)
-        self.assertGreater(len(frame), len(pc))
+        magic, declared = struct.unpack("<II", frame[:DELTA_FRAME_HEADER_SIZE])
+        self.assertEqual(magic, DELTA_FRAME_MAGIC)
+        self.assertEqual(declared, len(frame) - DELTA_FRAME_HEADER_SIZE)
+
+    def test_the_envelope_is_pinned_at_run_time_not_only_in_a_test(self):
+        """THE LESSON mob_loot WROTE DOWN, applied here after it was ignored.
+
+        The first version dual-derived only the seven inner ItemAttr fields
+        and trusted the legacy module for everything around them.  An
+        adversarial pass moved ITEM_OPERATE_RES_VITAL in a shim and this lane
+        emitted the wrong bytes happily while mob_loot, given the same shim,
+        refused.  A test going red does not help: tests do not run inside a
+        server.
+        """
+        real = self.legacy
+
+        class MovedVital:
+            ITEM_OPERATE_RES_VITAL = 0x4C14
+
+            def __getattr__(self, name):
+                return getattr(real, name)
+
+        class ExtraByte:
+            def __getattr__(self, name):
+                return getattr(real, name)
+
+            @staticmethod
+            def make_runtime_vitals(vitals):
+                pc, _frame = real.make_runtime_vitals(vitals)
+                pc = pc + b"\x00"
+                return pc, real.frame_pc(pc)
+
+        class ShortFrame:
+            def __getattr__(self, name):
+                return getattr(real, name)
+
+            @staticmethod
+            def make_runtime_vitals(vitals):
+                pc, frame = real.make_runtime_vitals(vitals)
+                return pc, frame[:-1]
+
+        _bag, item = place_in_bag(EMPTY_BAG, a_drop())
+        for shim in (MovedVital(), ExtraByte(), ShortFrame()):
+            with self.subTest(shim=type(shim).__name__):
+                self.assertEqual(
+                    self._refusal(bag_delta_pc, shim, item),
+                    "composed_bytes_off_pin")
+
+    def test_the_envelope_pin_is_the_envelope_the_legacy_module_composes(self):
+        """The literals, checked against the real thing once, here.
+
+        Written as literals in the module on purpose -- that is what makes
+        them notice a drift -- so exactly one place has to prove they are the
+        right literals, and this is it.
+        """
+        _bag, item = place_in_bag(EMPTY_BAG, a_drop())
+        pc, _frame = bag_delta_pc(self.legacy, item)
+        self.assertTrue(pc.startswith(DELTA_PC_PREFIX_PIN))
+        self.assertTrue(pc.endswith(DELTA_PC_SUFFIX_PIN))
+        self.assertIn(
+            self.legacy.u16tag(0x12, self.legacy.ITEM_OPERATE_RES_VITAL),
+            DELTA_PC_PREFIX_PIN)
+        self.assertIn(
+            self.legacy.u16tag(0x12, self.legacy.GSCN_RUNTIME_PROTOCOL_RES),
+            DELTA_PC_PREFIX_PIN)
+        # 26 bytes of ItemAttr: qword 9, u32 5, u16 3, u16 3, u8 2, u8 2, u8 2.
+        self.assertEqual(
+            len(pc),
+            len(DELTA_PC_PREFIX_PIN) + 26 + len(DELTA_PC_SUFFIX_PIN))
 
     def test_the_composer_refuses_when_the_two_derivations_disagree(self):
         class DriftingLegacy:
@@ -589,43 +899,22 @@ class MobPickupTests(unittest.TestCase):
                 bag_delta_pc, self.legacy, ItemAttrState(1, 0, 1, 0)),
             "value_out_of_range")
 
-    def test_a_name_a_person_would_read_is_required_where_one_is_read_out(self):
-        """Money and a nameless id refuse at the READING edge, not the wire.
-
-        A bag delta serializes any row a bag holds -- including the four a
-        character ships with, which are not in this lane's drop tables.  What
-        may never happen is a REPORT that puts a blank where an item name goes.
-        """
-        cell = a_cell(a_drop())
-        good = commit_pickup(cell, INITIAL_BACKPACK, a_claim())
-        money = PickupOutcome(
-            good.drop, ItemAttrState(9, mob_pickup.MONEY_ITEM_ID, 1, 9),
-            good.bag_before, good.bag_after, good.row_write)
-        self.assertEqual(
-            self._refusal(pickup_report, money), "money_has_no_ground_object")
-        nameless = PickupOutcome(
-            good.drop, ItemAttrState(9, 999999, 1, 9),
-            good.bag_before, good.bag_after, good.row_write)
-        self.assertEqual(
-            self._refusal(pickup_report, nameless), "item_has_no_name")
-
     # -- the wall ----------------------------------------------------------
     def test_the_governed_allowlist_is_the_wall_this_lane_stops_at(self):
         """BUILD-006's relog row, pinned as the blocker it actually is.
 
         A bag holding a picked-up item is outside the item lane's CONTENT
-        allowlist, and both the login load and the world-entry attr build run
-        that allowlist.  Persisting the row before that lane widens it does
-        not fail softly -- the character cannot enter the world.  The day it
-        is widened, this test goes red and this lane's prose must be rewritten
-        in the same round.
+        judgement, and the character-SELECT path reads that judgement three
+        times.  Gate 1 is unconditionally first and its ValueError is not
+        caught by runtime.py's (KeyError, PermissionError) handler.  The day
+        the judgement is widened, this test goes red and this lane's prose
+        must be rewritten in the same round.
         """
         bag, item = place_in_bag(INITIAL_BACKPACK, a_drop())
-        # Gate 1: the login load.  A ValueError here is not caught by
-        # runtime.py's (KeyError, PermissionError) handler at all.
+        # Gate 1: store._load_backpack.
         with self.assertRaises(ValueError):
             inventory.require_known_backpack(bag)
-        # Gate 2: the character-select stage, which answers with no reply.
+        # Gate 2: session.select_and_start, which answers with no reply.
         self.assertFalse(inventory.is_unmoved_baseline(bag))
         # Gate 3: the world-entry attr build.
         with self.assertRaises(ValueError):
@@ -636,8 +925,8 @@ class MobPickupTests(unittest.TestCase):
         require_bag_shape(bag)
 
     def test_the_lane_never_says_a_pickup_survives_a_relog(self):
-        cell = a_cell(a_drop())
-        outcome = commit_pickup(cell, INITIAL_BACKPACK, a_claim())
+        outcome = BagCell(INITIAL_BACKPACK, CHARACTER).commit_pickup(
+            a_cell(a_drop()), a_claim())
         self.assertFalse(outcome.persisted)
         report = pickup_report(outcome)
         self.assertFalse(report["persisted"])
@@ -686,6 +975,63 @@ class MobPickupTests(unittest.TestCase):
             raised - set(MOB_PICKUP_REFUSAL_REASONS), set(),
             "refusal names produced but not declared")
 
+    def test_every_refusal_is_reached_by_an_actual_call_in_this_file(self):
+        """The AST test above proves a raise EXISTS; this proves one HAPPENS.
+
+        An adversarial pass found two named refusals that only a hand-built
+        record could reach -- constructed by stepping around the constructors
+        that make them impossible.  A refusal nothing in the suite provokes
+        through the public surface is a refusal nothing in the game can
+        provoke either.
+        """
+        provoked = set()
+
+        def note(call, *args, **kwargs):
+            try:
+                call(*args, **kwargs)
+            except MobPickupContractError as exc:
+                provoked.add(exc.args[0])
+
+        ground = a_cell(a_drop(key=KEY + 1, at=(0.0, 0.0, 0.0)))
+        note(PickupClaim, 0, 1.0, 2.0, 3.0, KEY)                # identity
+        note(PickupClaim, KILLER, float("nan"), 2.0, 3.0, KEY)  # position
+        note(PickupClaim, KILLER, 1.0, 2.0, 3.0, "1")           # not int
+        note(PickupClaim, KILLER, 1.0, 2.0, 3.0, -1)            # out of range
+        note(resolve_claim, object(), a_claim())                # not typed
+        note(resolve_claim, ground.ledger, a_claim(key=KEY))    # already taken
+        note(resolve_claim, ground.ledger, a_claim(key=KEY + 500))
+        note(resolve_claim, ground.ledger,
+             a_claim(key=KEY + 1, identity=STRANGER))
+        note(resolve_claim, ground.ledger,
+             a_claim(key=KEY + 1, at=(PICKUP_RADIUS + 10.0, 0.0, 0.0)))
+        note(first_free_slot, a_full_bag())
+        note(next_item_identity, INITIAL_BACKPACK, 2)
+        note(next_item_identity, BackpackState(
+            BACKPACK_BASE_MASK, BACKPACK_BASE_IDENTITY, 1,
+            (ItemAttrState(MAX_ITEM_IDENTITY, ITEM, 1, 0),)))
+        note(require_bag_shape, BackpackState(
+            BACKPACK_BASE_MASK, BACKPACK_BASE_IDENTITY, 1,
+            (ItemAttrState(1, ITEM, 1, 0), ItemAttrState(2, ITEM, 1, 0))))
+        pruned = a_cell(a_drop())
+        pruned.take = lambda key: (_ for _ in ()).throw(
+            mob_loot.MobLootContractError(
+                mob_loot.REFUSE_DROP_NOT_IN_LEDGER, "pruned"))
+        note(BagCell(INITIAL_BACKPACK, CHARACTER).commit_pickup,
+             pruned, a_claim())
+        note(bag_delta_pc, self.legacy, object())
+
+        class MovedVital:
+            ITEM_OPERATE_RES_VITAL = 0x4C14
+
+            def __getattr__(inner, name):
+                return getattr(self.legacy, name)
+
+        note(bag_delta_pc, MovedVital(), ItemAttrState(1, ITEM, 1, 0))
+        self.assertEqual(
+            set(MOB_PICKUP_REFUSAL_REASONS) - provoked, set(),
+            "refusal names nothing in this suite can provoke through the "
+            "module's own surface")
+
     def test_the_refusal_names_are_unique(self):
         self.assertEqual(
             len(set(MOB_PICKUP_REFUSAL_REASONS)),
@@ -702,17 +1048,65 @@ class MobPickupTests(unittest.TestCase):
             self.source.count("[LANE-B ASSUMPTION"), 3,
             "every decision this lane made for itself carries the tag COO reads")
 
-    def test_the_pin_document_says_what_the_lane_is_and_is_not(self):
+    def test_the_lane_carries_forward_the_precondition_its_own_half_measured(self):
+        """mob_loot NONCLAIM 4, not left behind in the sibling module.
+
+        GT-046's producer needs a selected live drop-object; GT-045 measured
+        that this pipe draws a label with no model under it.  So no player can
+        originate a claim at all today, and that is a different fact from the
+        object reference being the wrong value.
+        """
+        joined = "".join(MOB_PICKUP_NONCLAIMS)
+        self.assertIn("NO PLAYER CAN ORIGINATE A CLAIM TODAY", joined)
+        self.assertIn("nothing to click", joined)
+
+    def test_the_pin_document_reports_what_the_lane_did_not_what_it_believes(self):
+        """Every boolean here is OBSERVED by pin_document running the lane.
+
+        The first version wrote them as literals, which made this test a set
+        of tautologies -- and left "everything refuses before the take"
+        reading True while a refusal outside its reach destroyed drops.  To
+        prove they move, the ordering flag is recomputed against a lane whose
+        ordering has been broken on purpose.
+        """
         document = pin_document(self.legacy)
         self.assertTrue(document["production_allowed"])
         self.assertFalse(document["test_only"])
         self.assertIsNone(document["scenario"])
         self.assertFalse(document["wire"]["ever_observed_for_a_new_item"])
         self.assertTrue(document["blocked"]["relog_persistence"])
-        self.assertFalse(document["transaction"]["stacks"])
+        transaction = document["transaction"]
+        self.assertFalse(transaction["stacks"])
+        self.assertTrue(transaction["killer_only"])
+        self.assertTrue(transaction["resolves_object_ref_against_the_ledger"])
         self.assertTrue(
-            document["transaction"]["everything_that_refuses_refuses_before_the_take"])
+            transaction["everything_that_refuses_refuses_before_the_take"])
+        self.assertTrue(
+            transaction["pickup_radius_reaches_the_furthest_object_of_one_kill"])
+        self.assertEqual(transaction["pickup_radius"], PICKUP_RADIUS)
         self.assertEqual(document["refusals"], list(MOB_PICKUP_REFUSAL_REASONS))
+
+    def test_the_pin_documents_ordering_flag_can_actually_read_false(self):
+        """The flag above, recomputed with the order deliberately inverted."""
+        original = mob_pickup.place_in_bag
+        ground = a_cell(a_drop())
+
+        def take_first(bag, drop, issued_through=None):
+            ground.take(drop.drop_key)
+            return original(bag, drop, issued_through)
+
+        cell = BagCell(a_full_bag(), CHARACTER)
+        before = ground.ledger
+        mob_pickup.place_in_bag = take_first
+        try:
+            with self.assertRaises(MobPickupContractError):
+                cell.commit_pickup(ground, a_claim())
+        finally:
+            mob_pickup.place_in_bag = original
+        self.assertNotEqual(
+            ground.ledger, before,
+            "the inverted order did not actually move the ground, so this "
+            "control proves nothing about the flag")
 
     def test_the_shipped_pin_file_is_what_the_code_computes(self):
         self.assertEqual(

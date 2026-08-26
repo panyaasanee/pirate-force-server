@@ -27,8 +27,9 @@
   },
   "blocked": {
     "blocked_by": "inventory.require_known_backpack (item lane)",
+    "open_question_for_the_item_lane": "which lane owns a persisted item-identity high-water mark; there is no column for one today -- see NONCLAIM 14",
     "relog_persistence": true,
-    "what_happens_if_wired_anyway": "the character cannot enter the world: both the login load and the world-entry attr build run the content allowlist"
+    "what_happens_if_wired_anyway": "the character cannot enter the world: the character-SELECT path reads that judgement three times and the first read, store._load_backpack, raises a ValueError runtime.py does not catch"
   },
   "build_order": "BUILD-006 / M5 second half",
   "id": "port_royal_field_mob_pickup_001",
@@ -37,15 +38,18 @@
   "nonclaims": [
     "1. Nothing dispatches this module.  MOB_PICKUP_WIRING is a request to the chief, not a call site.  No player has picked anything up.",
     "2. The object reference is an ASSUMPTION [LANE-B ASSUMPTION - awaiting COO/RE confirmation]: GT-046 proves the client copies the dword at [drop-object+0x10], not that it is the key this project writes at element +0x10.  The claim is RESOLVED against the live ledger, never trusted, so a wrong assumption refuses every claim and grants none.  RE-082 is the ticket that answers it.",
-    "3. Nobody has seen a client accept bag_delta_pc.  It is the item lane's ItemOperate result shape, pinned byte-for-byte against that lane's own composer, used for an item the client did not already have -- which is UNMEASURED behaviour.",
+    "3. Nobody has seen a client accept bag_delta_pc.  It is the item lane's ItemOperate result shape, used for an item the client did not already have -- UNMEASURED behaviour.  The byte-for-byte pin against that lane's composer covers ONE governed row (identity 1 / template 2600001 / slot 2), which is a shape this lane can never itself produce; what the pin proves is that the two composers agree, not that this lane's own rows have ever been seen.",
     "4. The killer-only rule is this lane's, not the game's [LANE-B ASSUMPTION - awaiting COO confirmation].",
-    "5. PICKUP_RADIUS is arithmetic over mob_loot's scatter, not a measured game range.  The client is the first range authority.",
+    "5. PICKUP_RADIUS is arithmetic over mob_loot's scatter, not a measured game range.  ~~'The client is the first range authority'~~ IS STRUCK: GT-046 is static RE about which callback builds the request, and nothing in this project measures a range or measures a client enforcing one.",
     "6. Nothing stacks.  A claim always takes a free slot; stack ceilings are unmeasured and a guess would destroy quantity silently.",
-    "7. Money is never on the ground and is refused by name here.",
-    "8. A crash between the take and the INSERT loses the item.  The ground does not persist either, so the window costs nothing a crash would not have cost anyway.",
-    "9. STOP: RELOG IS NOT CLOSED BY THIS ROUND.  The persisted bag is content-governed by inventory.require_known_backpack, which belongs to the item lane.  Persisting a picked-up item BEFORE that allowlist is widened does not merely fail to persist: it makes the character unable to enter the world at all.",
+    "7. Money is never on the ground -- it has no element -- so no claim can name it.  ~~'and is refused by name here'~~ IS STRUCK: mob_loot's own constructor refuses item id 0, so a money refusal in this file would be a named refusal nothing could reach.",
+    "8. A CRASH OR A FAILED WRITE BETWEEN THE TAKE AND THE INSERT LOSES THE ITEM, AND THERE IS NO PUT-BACK.  ~~'the ground does not persist either, so the window costs nothing'~~ IS STRUCK AS TOO NARROW: it is true of a crash and false of everything else -- a rolled-back transaction, a refused session, a UNIQUE violation -- where the server keeps running, every other drop survives, and only this player's item is gone.  A put-back is not possible either: mob_loot never reuses a key, so a taken row cannot be returned to the ground under the key the client was shown.",
+    "9. STOP: RELOG IS NOT CLOSED BY THIS ROUND.  The persisted bag is content-governed by inventory.require_known_backpack, which belongs to the item lane.  Persisting a picked-up item BEFORE that judgement is widened does not merely fail to persist: it makes the character unable to enter the world at all.",
     "10. Nothing here writes a database row, opens a socket, reads a clock or reads a file.  It is a pure transaction over values plus one take through mob_loot's cell.",
-    "11. THE BAG IS TAKEN BY VALUE AND THIS LANE IS NOT ITS LOCK.  Two pickups resolved against one stale bag pick the same slot, and the primary key does not catch that -- it keys identity, not slot.  The writer's own transaction is the lock; BagRowWrite.require_fits is the check it must run there, and the wiring line says so as an instruction rather than a suggestion."
+    "11. THE BAG NEEDS AN OWNER AND BagCell IS IT, IN THIS PROCESS ONLY.  A BackpackState is a VALUE, and two pickups resolved against one value pick the same slot and the same identity.  ~~'the primary key does not catch that -- it keys identity, not slot'~~ IS STRUCK AND WAS FALSE: migration 003 carries UNIQUE(character_id, slot) as well as the primary key, so the database refuses the second row loudly.  It refuses it AFTER the drop has left the ground, which is why the answer is a cell that refuses BEFORE the take, and not a check bolted onto the write.",
+    "12. NO PLAYER CAN ORIGINATE A CLAIM TODAY, and it is not the opcode that stops them.  GT-046's producer needs a SELECTED LIVE DROP-OBJECT to copy its dword out of, and GT-045 measured that this pipe draws a name label with NO MODEL under it -- there is nothing to click.  mob_loot's own NONCLAIM 4 says the same about GT-060's precondition.  This lane is the transaction behind a door nobody can knock on yet.",
+    "13. THE REQUEST HAS TWO FIELDS AND THIS LANE ACTS ON ONE.  The proven body carries the dword at object+0x14 and a u8 at object+0x18.  PickupClaim carries both, validates both and reports both, and acts on the dword only, because nothing has measured what the u8 means.  If it turns out to be a partial-take count or a target slot, this lane is carrying it rather than having discarded it.",
+    "14. THE ITEM IDENTITY IS DERIVED, NOT A HIGH-WATER MARK, and mob_loot wrote down why that shape is a bug: a bag that has ever SHRUNK hands the next pickup an identity a client may still be holding.  There is nowhere to persist a high-water mark today -- neither character_backpacks nor migration 003 has a column for one -- so next_item_identity accepts one from the caller and falls back to the derived form.  Which lane owns that column is an open question and is in this round's letter to the COO, not silently decided here."
   ],
   "production_allowed": true,
   "refusals": [
@@ -54,15 +58,15 @@
     "value_out_of_range",
     "identity_not_positive",
     "position_not_finite",
-    "object_ref_not_on_the_ground",
+    "drop_already_taken",
+    "object_ref_never_issued",
     "claimant_out_of_range",
     "not_the_killer",
-    "money_has_no_ground_object",
-    "item_has_no_name",
     "bag_row_collides",
     "bag_is_full",
     "identity_block_spent",
-    "drop_taken_by_another_claim",
+    "identity_high_water_below_the_bag",
+    "drop_left_the_ground",
     "composed_bytes_off_pin"
   ],
   "scenario": null,
@@ -70,13 +74,15 @@
   "test_only": false,
   "transaction": {
     "everything_that_refuses_refuses_before_the_take": true,
-    "identity_policy": "highest identity in the bag plus one",
+    "identity_policy": "highest identity in the bag plus one, or one past a high-water mark the caller supplies -- see NONCLAIM 14",
     "killer_only": true,
-    "pickup_radius": 480.0,
+    "pickup_radius": 450.0,
     "pickup_radius_is_arithmetic_not_measured": true,
+    "pickup_radius_reaches_the_furthest_object_of_one_kill": true,
     "resolves_object_ref_against_the_ledger": true,
     "slot_policy": "lowest free slot",
-    "stacks": false
+    "stacks": false,
+    "the_one_refusal_that_means_the_row_is_gone": "drop_left_the_ground"
   },
   "wire": {
     "ever_observed_for_a_new_item": false,
