@@ -9,10 +9,28 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+import struct
+
 from pirateforce_foundation.gm.command_capture import (
     GM_RUN_GM_COMMAND_VITAL_ID,
     capture_raw_gm_command,
 )
+
+
+def _wstring(text: str) -> bytes:
+    payload = text.encode("utf-16-le")
+    return struct.pack("<I", len(payload)) + payload
+
+
+def _nested_body(f10: int, f14: int, f18: int, s1: str, s2: str) -> bytes:
+    return (
+        bytes([0x0B, 1])
+        + bytes([0x14]) + struct.pack("<I", f10)
+        + bytes([0x14]) + struct.pack("<I", f14)
+        + bytes([0x0B, f18])
+        + _wstring(s1)
+        + _wstring(s2)
+    )
 
 
 class GmCommandCaptureTests(unittest.TestCase):
@@ -116,6 +134,43 @@ class GmCommandCaptureTests(unittest.TestCase):
     def test_account_name_all_non_ascii_falls_back_to_unnamed(self):
         out = capture_raw_gm_command(b"x", "账号测试", capture_root=self.root, now_ts=0)
         self.assertIn("unnamed", out.name)
+
+    def test_decode_section_reports_a_well_formed_presence_zero_payload(self):
+        out = capture_raw_gm_command(
+            bytes([0x0B, 0]), "panya", capture_root=self.root, now_ts=0
+        )
+        text = out.read_text(encoding="utf-8")
+        self.assertIn("decode: presence=0", text)
+
+    def test_decode_section_reports_a_well_formed_nested_body(self):
+        raw = _nested_body(11, 22, 3, "warp", "1 100 200")
+        out = capture_raw_gm_command(raw, "panya", capture_root=self.root, now_ts=0)
+        text = out.read_text(encoding="utf-8")
+        self.assertIn("decode: presence=1", text)
+        self.assertIn("field_0x10=11", text)
+        self.assertIn("field_0x14=22", text)
+        self.assertIn("field_0x18=3", text)
+        self.assertIn('string_0x1c="warp"', text)
+        self.assertIn('string_0x38="1 100 200"', text)
+
+    def test_decode_section_reports_failure_without_losing_the_raw_bytes(self):
+        raw = bytes([0xFF, 0xFF, 0xFF])
+        out = capture_raw_gm_command(raw, "panya", capture_root=self.root, now_ts=0)
+        text = out.read_text(encoding="utf-8")
+        self.assertIn("decode: FAILED", text)
+        for b in raw:
+            self.assertIn(f"{b:02x}", text)
+
+    def test_decoded_string_cannot_forge_extra_header_lines(self):
+        # RE-088's two wide strings come straight from client-controlled
+        # bytes -- a newline inside one must not inject a fake header line,
+        # same guarantee already held for account_name.
+        raw = _nested_body(1, 2, 3, "warp\n# forged line", "ok")
+        out = capture_raw_gm_command(raw, "panya", capture_root=self.root, now_ts=0)
+        text = out.read_text(encoding="utf-8")
+        header_lines = text.split("\n\n", 1)[0].splitlines()
+        forged_lines = [line for line in header_lines if line == "# forged line"]
+        self.assertEqual(forged_lines, [])
 
 
 if __name__ == "__main__":

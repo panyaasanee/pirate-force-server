@@ -46,8 +46,8 @@ trusting a claim here that a mismatch would invalidate):
 | vital id | name | direction | layout status |
 |---|---|---|---|
 | 0x5A19 | `GM_UpdateGMStateVital` | server->client | **proven**: u8tag(0x0B) + u8tag(0x0B) + u32tag(0x14), span_sha256 `03b18673...033c661` |
-| 0x51E9 | `GM_RunGMCommandVital` | client->server | **structural candidate proven** (functions `0x00729E10` span_sha256 `541d82f5...c8554` + `0x00726C20` span_sha256 `aa3c7c8d...93559d`): u8 mode selector, then (one of two runtime-selected sub-paths) u32 + u32 + u8 + UNTAGGED_WSTRING16LE_LEN32LE + UNTAGGED_WSTRING16LE_LEN32LE. **Field meaning and which sub-path a real client takes are NOT proven** -- RE-open. See "Correction" note below: an earlier version of this doc said this had no row at all; that was true when the 16:30 order letter was written and stale by the time this round read it. |
-| 0x8C77 | `GM_RunGMCommandResultVital` | server->client | **proven**: single u8tag(0x0B) @+0x14, span_sha256 `ad65d125...633e9`. Meaning of the byte not proven. |
+| 0x51E9 | `GM_RunGMCommandVital` | client->server | **RE-088 PASS/DONE -- STRUCTURAL-LAYOUT-PINNED** (outer `0x00729E10` span_sha256 `541d82f5...c8554`, nested `0x00726C20` span_sha256 `aa3c7c8d...93559d`): one presence flag `u8tag(0x0B)`; when nonzero, exactly one nested body `u32tag(0x14) + u32tag(0x14) + u8tag(0x0B) + UNTAGGED_WSTRING16LE_LEN32LE + UNTAGGED_WSTRING16LE_LEN32LE`. RE-088 closes the earlier "two runtime-selected sub-paths" question this doc used to carry: the presence flag gates one nested serializer call, not a sub-opcode choosing between two shapes, and RE-088 found no field it could prove is a separate sub-opcode. **Field meaning is still NOT proven** -- the two wide strings are not confirmed to be a command name and its argument text, and the live chat-input trigger condition is RE-091 (open). Decoder: `gm/command_wire.py`. |
+| 0x8C77 | `GM_RunGMCommandResultVital` | server->client | **proven**: single u8tag(0x0B) @+0x14, span_sha256 `ad65d125...633e9`. Meaning of the byte not proven (RE-088 explicitly declines to call it success/error). Decoder: `gm/command_wire.py`. |
 | 0x162E | `CheatVital` | both | proven: single UNTAGGED_STRING8_LEN32LE @+0x14 (reference only, not reused as GM wire) |
 | 0x9F2C | `Channel_GMGlobalMessageVital` | server->client | registered in RUNTIME_CLASSMAP; field layout not yet pinned by this lane |
 
@@ -63,7 +63,7 @@ the citation, found the rows, and corrected every place that repeated the
 stale claim -- this is exactly the "re-derive again before citing a current
 number" rule `AGENTS.md` states and this round initially failed to apply.
 
-## Modules delivered this round
+## Modules delivered (round one)
 
 - `gm/accounts.py` (GM-001) -- `is_gm_account` / `load_gm_accounts`, JSON
   config, default empty.
@@ -97,6 +97,37 @@ number" rule `AGENTS.md` states and this round initially failed to apply.
   lands, via its own `CORE-REQUEST-<nnn>` letter (shared cross-lane
   counter; see `pf_bridge/CHIEF_CONTINUATION.md`).
 
+## Modules delivered (RE-088 follow-up round)
+
+RE-088 (`notes_to_chief/20260826_1811_RE-088-RESULT-GM-COMMAND-WIRE-PINNED.md`)
+raised `GM_RunGMCommandVital`/`GM_RunGMCommandResultVital` from a structural
+candidate to PASS/DONE and, in the same result, closed the "two
+runtime-selected sub-paths" open question this doc used to carry: there is
+one nested body, gated by a presence flag, not a sub-opcode choice. Its own
+`BUILD_IMPACT` line says this makes GM-002's raw capture eligible to become
+a schema-aware decode and gives GM-003 a codec -- but repeats, in the same
+breath, that execution and command naming both stay forbidden until
+semantics (RE-091) or a real capture close that gap.
+
+- `gm/command_wire.py` (new) -- `decode_gm_run_command_vital` /
+  `decode_gm_run_command_result_vital`, a pure decoder for the RE-088 pinned
+  byte shape. Field names stay positional (`field_0x10`, `field_0x14`,
+  `field_0x18`, `string_0x1c`, `string_0x38`) per RE-088's own nonclaims --
+  nothing here is renamed to "command", "argument", or "result_code".
+  Decodes only; does not execute, dispatch, or read off a live socket.
+  Raises `GmCommandWireError` (never a bare crash) on anything that does not
+  match the pin, including trailing bytes after an otherwise-clean decode.
+- `gm/command_capture.py` (updated) -- `capture_raw_gm_command` now also
+  attempts a decode via `command_wire.py` and writes the result into the
+  capture file's header (`presence=0`, the decoded fields, or a `FAILED`
+  line naming what did not match), **in addition to** the untouched raw hex
+  dump, which never goes away. A decode failure is caught inside the sink,
+  not propagated -- a capture must never be lost because a client sent
+  something outside the pinned shape; that is exactly the fact GM-002 exists
+  to record. The two decoded strings are client-controlled bytes and go
+  through the same `unicode_escape` header-injection guard already used for
+  `account_name`.
+
 ## What is intentionally NOT built yet, and why
 
 - No wiring of `state_wire` into the actual login path -- that edit belongs
@@ -124,14 +155,15 @@ one line, which step the shortcut skipped, e.g.:
 
 ## RE requests open (owned by static RE lane, filed via chief)
 
-1. `GM_RunGMCommandVital` (`0x00729E10`/`0x00726C20`): the structural byte
-   layout is proven (see wire-facts table), but (a) which of the two
-   runtime-selected sub-paths a real client actually takes, and (b) what
-   the u32/u32/u8/wstring/wstring fields mean (are the two strings a
-   command name and its argument text, or something else) are both open.
-   `GM_RunGMCommandResultVital` (`0x00729790`): the single u8 result field
-   at `+0x14` is proven positionally; its meaning (success/error code?) is
-   open.
+1. `GM_RunGMCommandVital` (`0x00729E10`/`0x00726C20`): **CLOSED structurally
+   by RE-088** (one presence flag, one nested body, no proven sub-opcode --
+   see wire-facts table). Still open: what the u32/u32/u8/wstring/wstring
+   fields mean (are the two strings a command name and its argument text, or
+   something else) -- folded into the live-trigger question below since
+   `RE-091` is the request that will actually observe a real client sending
+   this. `GM_RunGMCommandResultVital` (`0x00729790`): the single u8 result
+   field at `+0x14` is proven positionally (RE-088); its meaning
+   (success/error code?) is open.
 2. `GM_UpdateGMStateVital` handler `0x00729F00`: which byte is which flag,
    what the u32 field means, what visibly changes on the client
    (`bm_gm.tga`, `GMModule_Client`).
