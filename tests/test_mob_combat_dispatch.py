@@ -341,6 +341,67 @@ class MobCombatDispatchTests(unittest.TestCase):
         )
         self.assertEqual(state.mob_combat_kill_count, 0)
 
+    # ----- the world census reflects a hit that wounds but does not kill ----
+
+    def test_world_census_after_a_non_lethal_hit_reflects_reduced_hp(self):
+        """Closes the gap CHIEF_CONTINUATION.md's R182 entry names: nobody had
+        driven "wounded, not dead, and the NEXT census reflects the lower HP"
+        through the real dispatch -> compose path.  ``repopulation_entries``
+        (see mob_death.py) already reads ``ledger.balance_of(...).current_hp``
+        live on every call and ``runtime.py``'s census-compose site already
+        passes the SAME ``self.mob_combat_ledger`` a hit just committed into
+        -- this only proves that wiring end to end, it changes no production
+        code.
+        """
+        state = self._state("mc_census_wound", world_census_actor_count=None)
+        actions = self._attack(state, SANCTIONED_TARGET)
+        self.assertEqual(
+            [label for label, _pc, _f, _d in actions],
+            ["MOB_COMBAT_ANNOUNCE", "MOB_COMBAT_BAR"],
+        )
+        balance = state.mob_combat_ledger.balance_of(SANCTIONED_TARGET)
+        self.assertGreater(balance.current_hp, 0)
+        self.assertLess(balance.current_hp, self.p30.max_hp)
+        self.assertFalse(state.mob_death_register.is_dead(SANCTIONED_TARGET))
+        anchor = (
+            state.foundation.selected.position.x,
+            state.foundation.selected.position.y,
+            state.foundation.selected.position.z,
+        )
+        pc = (
+            self.legacy.u16tag(0x12, self.legacy.GSCN_RUNTIME_PROTOCOL_REQ)
+            + self.legacy.u32tag(0x14, 0)
+            + self.legacy.u8tag(0x08, 0)
+            + self.legacy.u8tag(0x0B, 2)
+            + self.legacy.u16tag(0x12, 1)
+            + self.legacy.u16tag(0x12, self.legacy.TARGET_POS_VITAL)
+            + self.legacy.u8tag(0x0B, 0)
+            + b"".join(self.legacy.f32tag(v) for v in (*anchor, 0.0))
+            + self.legacy.u8tag(0x0B, 0)
+            + self.legacy.u8tag(0x0B, 0)
+        )
+        census_actions = state.dispatch(self.legacy.parse_outer(pc))
+        census = [
+            a for a in census_actions if a[0].startswith("WORLD_CENSUS_")
+        ]
+        self.assertEqual(len(census), 2)
+        wounded_entry = field_mobs.hostile_actor_entry(
+            self.legacy, self.p30, current_hp=balance.current_hp,
+        )
+        full_hp_entry = field_mobs.hostile_actor_entry(
+            self.legacy, self.p30, current_hp=self.p30.max_hp,
+        )
+        dead_entry = mob_death.death_actor_entry(
+            self.legacy, self.p30, death_timer=mob_death.DEAD_TIMER_SECONDS,
+        )
+        # The next census composition ships the SAME identity at the SAME
+        # reduced HP the ledger holds after the hit -- not the ceiling
+        # world_population would have sent by default, and not a corpse.
+        self.assertIn(wounded_entry, census[0][1])
+        self.assertNotIn(full_hp_entry, census[0][1])
+        self.assertNotIn(dead_entry, census[0][1])
+        self.assertEqual(census[0][2], self.legacy.frame_pc(census[0][1]))
+
     # ----- the world census does not resurrect or heal a committed kill -----
 
     def test_world_census_override_reflects_a_committed_kill(self):
