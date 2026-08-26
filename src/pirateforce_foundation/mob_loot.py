@@ -367,7 +367,17 @@ _FLOAT32_MAX = 3.4028235e38
 MOB_LOOT_NONCLAIMS = (
     "1. Nothing dispatches this module.  runtime.py is the chief's file and "
     "MOB_LOOT_WIRING is a request, not a call site.  No player has seen one "
-    "byte of this lane.",
+    "byte of this lane. "
+    "[STALE as of runtime.py CORE-REQUEST-007, PR #71, round 3lzfhw, "
+    "2026-08-26] [MEASURED, by call-site reading]: DropLedgerCell/"
+    "roll_drops/drop_frames ARE now call sites, unconditional on every "
+    "server-computed mob death. This is a dispatch claim only, not an "
+    "attended-session claim: GT-045's client-observable red-name-label "
+    "measurement predates this wiring and used a separate scenario-gated "
+    "probe, so no report yet "
+    "exists of a human watching THIS exact wired path fire. 'No player has "
+    "seen one byte of this lane' therefore still holds as attended evidence, "
+    "even though dispatch itself no longer holds as code.",
     "2. NO OBJECT IS DRAWN, and nothing stays.  What GT-045 measured is a "
     "floating NAME LABEL in red text plus brown dust, ~0.2-0.3 s, with no "
     "model under it and nothing left afterwards.  This lane ANNOUNCES loot; "

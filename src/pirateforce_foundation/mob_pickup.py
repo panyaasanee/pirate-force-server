@@ -57,6 +57,28 @@ NONCLAIMS -- read these before using one symbol from this file
 --------------------------------------------------------------
   1. NOTHING DISPATCHES THIS MODULE.  ``MOB_PICKUP_WIRING`` is a request to
      the chief, not a call site.  No player has picked anything up.
+     [STALE as of runtime.py CORE-REQUEST-007, PR pirate-force-server#71,
+     chief round 3lzfhw, 2026-08-26] ``BagCellRegistry.claim``/``.release``
+     ARE now call sites -- NOT the ``PickupClaim`` of NONCLAIM 12, a
+     different sense of the word: this is the per-connection BAG-OWNERSHIP
+     claim, one per character, not a player claiming a ground drop.
+     [MEASURED, by call-site reading] ``runtime.py`` calls
+     ``.claim(character_id, self.foundation.backpack)`` unconditionally in
+     the character-select/StartGame branch (also exercised incidentally by
+     the general test suite, e.g. tests that reach
+     ``start_game_res_scene_identity_sent``).  [MEASURED by call-site
+     reading, NOT by an executed test -- no test in ``tests/`` references
+     ``mob_pickup_registry``/``mob_pickup_bag_cell``] the sole
+     ``.release(...)`` call site sits in ``runtime.py``'s
+     ``close_connection`` wrapper, which every ordinary disconnect reaches
+     (unlike the opt-in logout-hypothesis scenario, which closes the inner
+     foundation object directly and relies on the listener's own teardown
+     to reach the wrapper afterward).  Left standing because it is still
+     true for every OTHER symbol here: ``resolve_claim``, ``place_in_bag``
+     and ``BagCell.commit_pickup`` -- the actual ground-drop-to-bag
+     transaction -- have no call site anywhere, because "ON AN INBOUND
+     PICKUP REQUEST" stays unwired pending RE-082's vital id.  No player
+     has picked anything up.
   2. THE OBJECT REFERENCE IS AN ASSUMPTION, AND IT IS TAGGED AS ONE.
      [LANE-B ASSUMPTION - awaiting COO/RE confirmation] GT-046 proves only
      that the client copies the dword at [drop-object+0x10]; it does NOT
@@ -306,7 +328,14 @@ GOVERNED_BAG_ALLOWLIST_OWNER = "inventory.require_known_backpack (item lane)"
 
 MOB_PICKUP_NONCLAIMS = (
     "1. Nothing dispatches this module.  MOB_PICKUP_WIRING is a request to "
-    "the chief, not a call site.  No player has picked anything up.",
+    "the chief, not a call site.  No player has picked anything up. "
+    "[STALE as of runtime.py CORE-REQUEST-007, PR #71, round 3lzfhw, "
+    "2026-08-26] [MEASURED, by call-site reading]: BagCellRegistry.claim/"
+    ".release ARE now call sites (the per-connection bag-ownership claim, "
+    "not a player's PickupClaim -- see nonclaim 12). "
+    "resolve_claim/place_in_bag/BagCell.commit_pickup -- the actual "
+    "ground-drop-to-bag transaction -- still have no call site anywhere, "
+    "pending RE-082's vital id. No player has picked anything up.",
     "2. The object reference is an ASSUMPTION [LANE-B ASSUMPTION - awaiting "
     "COO/RE confirmation]: GT-046 proves the client copies the dword at "
     "[drop-object+0x10], not that it is the key this project writes at "
