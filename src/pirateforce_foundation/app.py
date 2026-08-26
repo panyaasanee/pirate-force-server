@@ -124,6 +124,10 @@ def main() -> int:
     # EVENT-EXPORT-001: opt-in, default off, so a boot without the flag is
     # byte-for-byte and line-for-line the production baseline.
     pre.add_argument('--export-events', action='store_true')
+    # COO-DECISION 20260826T16:45+07:00: the walk-in-and-stand travel gate
+    # is debug-only now, off unless this is explicitly passed. A boot
+    # without the flag never arms it, regardless of active_lanes.
+    pre.add_argument('--enable-travel-gate-debug', action='store_true')
     # WORLD-CENSUS-001 (LANE-A BUILD-001).  NOT an on/off switch: the census
     # ships on the default boot with no flag at all.  This selects a RUNG of
     # the attended staircase (GT-076) - 3, 20, 60 or the whole census - so
@@ -836,6 +840,10 @@ def main() -> int:
         world_census_actor_count=known.world_census_actors,
         # PF-HYPOTHESIS-LEDGER: HYP-PF-009 active
         second_password_mode=known.second_password_mode,
+        # COO-DECISION 20260826T16:45+07:00.  False on a normal boot, which
+        # keeps the walk-in-and-stand travel gate permanently inert -- see
+        # world_travel_gate.lane_reason.
+        travel_gate_debug_enabled=known.enable_travel_gate_debug,
     )
     legacy.game_listener = adapt_game_listener(
         legacy.game_listener, connection_bindings, managed_sockets,
