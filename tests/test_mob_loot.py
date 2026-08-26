@@ -794,6 +794,31 @@ class MobLootTests(unittest.TestCase):
         pc = drop_pc(self.legacy, drops[0])
         self.assertEqual(pc[:DROP_ENVELOPE_SIZE], DROP_ENVELOPE_PIN)
 
+    def test_the_refresh_cadence_is_refused_for_production_by_the_coo(self):
+        """A ruling from outside this lane, pinned where the lane can see it.
+
+        COO-DECISION 2026-08-26 07:45 +07:00 (pf_bridge/notes_to_chief/
+        20260826_0745_COO-DECISION-M5-stays-whole-M5a-ships-now.md, section
+        1a) REFUSED this lane's assumption 4: DROP_REFRESH_MS may not be wired
+        into a production path, because 12.5 frames a second per row is the
+        price of a mechanism nobody has measured.  The shipped behaviour is
+        one announcement per drop.
+
+        Pinned as a test rather than a paragraph so that a future round which
+        quietly puts refresh_frames on a timer has to delete an assertion with
+        the ruling's date on it.
+        """
+        self.assertTrue(mob_loot.DROP_REFRESH_MS_IS_EXPERIMENT_ONLY)
+        self.assertTrue(
+            pin_document(self.legacy)["lane_constants"][
+                "refresh_ms_is_experiment_only"])
+        wiring = mob_loot.MOB_LOOT_WIRING
+        self.assertIn("ONE ANNOUNCEMENT PER DROP", wiring)
+        self.assertIn("EXPERIMENT TOOLS", wiring)
+        self.assertNotIn(
+            "if you want to experiment with holding a label", wiring,
+            "the wiring line still offers the cadence the COO refused")
+
     def test_the_scatter_and_the_label_limits_are_written_as_nonclaims(self):
         text = " ".join(MOB_LOOT_NONCLAIMS)
         for owed in (
