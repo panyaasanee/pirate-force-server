@@ -13,6 +13,7 @@ from . import mob_combat
 from . import mob_death
 from . import mob_loot
 from . import mob_pickup
+from . import world_density
 from . import world_population
 from . import world_scene_entry
 from . import world_scene_travel
@@ -4843,6 +4844,23 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         # went out" and "the header says 115".  ASCII only --
                         # the bridge console is cp874.
                         print(world_population.census_console_line(generation))
+                        try:
+                            # This reads scenarios/world_scene_density_001.json
+                            # from disk on every call with no caching, so a
+                            # missing/corrupt file (bad deploy, wrong cwd,
+                            # packaging miss) must never be allowed to escape
+                            # here: it's a diagnostic console line, not the
+                            # census itself, and an uncaught exception would
+                            # unwind out of the listener thread (v141:7440 has
+                            # no except) after world_census_sent is already
+                            # latched -- killing the daemon GAME-listener
+                            # thread for the whole process over a print().
+                            print(world_density.m1_console_line(legacy, anchor))
+                        except Exception as error:
+                            self.events.append(
+                                "world_density_console_line_failed_"
+                                f"{type(error).__name__}"
+                            )
                         # The count is in the LABEL too: v141 prints every
                         # queued action as "[G>] <label> (N bytes)" at SEND
                         # time (v141:7762), so the attended tester can tell the

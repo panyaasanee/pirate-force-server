@@ -30,8 +30,10 @@ result anywhere in this project is 20.  That is GT-078, attended, not run.
 """
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import hashlib
+import io
 import sys
 import tempfile
 import unittest
@@ -41,6 +43,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from pirateforce_foundation import world_density  # noqa: E402
 from pirateforce_foundation import world_population  # noqa: E402
 from pirateforce_foundation.ground_loot_hypothesis import (  # noqa: E402
     load_ground_loot_hypothesis_scenario,
@@ -357,6 +360,29 @@ class WorldCensusWiringTests(unittest.TestCase):
         self.assertEqual((generation.pc_bytes, generation.frame_bytes),
                           (20944, 20958))
 
+    def test_world_density_line_is_printed_alongside_the_census_line(self):
+        """world_density is LANE-A's tenth production lane (production_allowed
+        = True) and was, until this wiring, imported by nothing at all. It
+        rides the same scene_id == 1 guard the census line already sits
+        behind, so proving it fired is a console-output check, not a new
+        branch: the WORLD_DENSITY line has to appear on the same default boot
+        that already prints WORLD_CENSUS, and neither line may crowd out the
+        other.
+        """
+        state = self._state("census_density")
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            self._step(state)
+        lines = captured.getvalue().splitlines()
+        self.assertTrue(
+            any(line.startswith("WORLD_DENSITY ") for line in lines),
+            f"no WORLD_DENSITY line in captured output: {lines!r}",
+        )
+        self.assertTrue(
+            any(line.startswith("WORLD_CENSUS ") for line in lines),
+            f"no WORLD_CENSUS line in captured output: {lines!r}",
+        )
+
     # ----- the anchor -------------------------------------------------------
 
     def test_the_census_is_anchored_on_this_frame_not_the_previous_one(self):
@@ -449,6 +475,42 @@ class WorldCensusWiringTests(unittest.TestCase):
         self.assertEqual(self._census(self._step(state)), [])
         self.assertEqual(
             state.events.count("world_census_compose_refused_ValueError"), 1,
+        )
+
+    def test_a_world_density_console_line_failure_does_not_touch_the_census(
+        self,
+    ):
+        """world_density.m1_console_line() reads a file off disk on every
+        call with no try/except in its own chain.  A missing/corrupt
+        scenarios/world_scene_density_001.json must not unwind out of
+        dispatch (v141:7440 has no except around it), and -- unlike a
+        compose refusal -- it must not touch the census at all: the census
+        was already built and committed by the time this diagnostic line
+        prints, so the fix's job is to lose nothing but the print.
+        """
+        original = world_density.m1_console_line
+
+        def explode(*args, **kwargs):
+            raise ValueError("world_scene_density_001.json missing")
+
+        state = self._state("census_density_console_line_failed")
+        world_density.m1_console_line = explode
+        try:
+            actions = self._step(state)
+        finally:
+            world_density.m1_console_line = original
+        self.assertEqual(len(self._census(actions)), 2)
+        self.assertEqual(state.world_census_actor_count, 115)
+        self.assertIs(state.world_census_sent, True)
+        self.assertTrue(
+            any(
+                event.startswith("world_density_console_line_failed_")
+                for event in state.events
+            ),
+            f"no world_density_console_line_failed_ event in {state.events!r}",
+        )
+        self.assertIn(
+            "world_density_console_line_failed_ValueError", state.events,
         )
 
     # ----- what the wider membership changes downstream ---------------------
