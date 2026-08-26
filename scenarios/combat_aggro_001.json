@@ -5,7 +5,7 @@
   "regenerated_by": "python3 tools/pf_write_mob_ai_pin.py --out scenarios/combat_aggro_001.json",
   "pin_id": "port_royal_field_mob_ai_control_001",
   "milestone": "MOB-AGGRO-001",
-  "build_order": "BUILD-005 / M4, the promotion COO ordered",
+  "build_order": "M4, the promotion COO ordered",
   "lane": "B_COMBAT",
   "promotion_ruling": "COO-DECISION 2026-08-26T04:02+07:00 s1.3, s3",
   "production_allowed": true,

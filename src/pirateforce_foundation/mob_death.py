@@ -160,7 +160,7 @@ production_allowed = True
 test_only = False
 
 MOB_DEATH_MILESTONE = "MOB-DEATH-001"
-MOB_DEATH_BUILD_ORDER = "BUILD-005 / M4 second half"
+MOB_DEATH_BUILD_ORDER = "M4 second half"
 MOB_DEATH_LANE = "B_COMBAT"
 
 # The one line this lane owes the chief, written where a reader of the module
@@ -283,9 +283,13 @@ NETACTOR_PREDICATE_VAS = (0x454A70, 0x454AC0)
 # could keep up.  Six seconds between a monster falling and a monster dying
 # is not a game, so this lane does not inherit it.  700 ms is a round number
 # clear of any plausible client frame.  That is the whole justification.
-# [LANE-B ASSUMPTION - awaiting COO confirmation] - the letter for this round
-# carries the question and what has to be undone if the answer is different:
-# nothing but this one number, which no other value in the module depends on.
+# [COO-CONFIRMED PROVISIONAL - unmeasured, GT ticket pending] - answered by
+# notes_to_chief/20260826_0551_COO-DECISION-death-hold-700-stands-and-the-
+# roster-stays-locked-to-0x201F.md, item (1): 700 stands as OUR number, not a
+# measurement, until chief's 0/250/700/2000 ms sweep ticket lands in
+# GAME_TEST_QUEUE.md and the owner reads the result back.  Lane B may not
+# touch this number or world_population.py before that lands - the same
+# ruling reserves both.  Nothing but this one number depends on the outcome.
 #
 # AND THE HOLD MAY BE PROTECTING AGAINST NOTHING.  The first draft justified it
 # as "two frames in one client frame would race the per-frame update that
@@ -1419,7 +1423,7 @@ def describe_death(step: DeathStep) -> tuple[str, ...]:
         "observed" % (
             len(step.dead_frame), step.dead_timer, DEATH_TASK_GATE_VA,
             DEATH_TASK_CTOR_VA),
-        "  hold %d ms between them [LANE-B assumption, unmeasured]" % (
+        "  hold %d ms between them [COO-confirmed provisional, unmeasured]" % (
             step.hold_ms),
         "  register now holds %d dead: %s" % (
             len(step.register.records),
