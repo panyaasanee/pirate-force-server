@@ -1,0 +1,151 @@
+{
+  "build_order": "BUILD-006 / M5 first half",
+  "id": "port_royal_field_mob_loot_001",
+  "lane": "B_COMBAT",
+  "lane_constants": {
+    "drop_key_base": 1048576,
+    "drop_key_limit": 2097152,
+    "max_drops_per_kill": 16,
+    "refresh_ms": 80,
+    "scatter_step": 30.0
+  },
+  "measured": {
+    "client_observable_layer_is_re_verifiable_from_the_repo": "one extracted frame only; the round-4 video is over the size cap and the round-3 screenshots carry no label",
+    "emittable_ids_ever_on_a_wire": 0,
+    "ground_drop_persists": false,
+    "id_whose_label_was_read": 2200423,
+    "ids_on_the_wire_gt045_v3": [
+      2200423,
+      2200003
+    ],
+    "ids_on_the_wire_round_1104": [
+      2600001
+    ],
+    "label_lifetime_frame_measurement_seconds": 0.3,
+    "label_lifetime_mandatory_slack_seconds": 0.1,
+    "label_lifetime_seconds_range": [
+      0.2,
+      0.4
+    ],
+    "model_under_the_label_that_was_seen": false,
+    "name_label_is_drawn": true,
+    "not_a_lifetime_of_this_pipe": {
+      "seconds": 0.633,
+      "what_it_is": "original-server video, pickup-terminated interval"
+    },
+    "ticket": "GT-045 CLOSED-ANSWERED 2026-08-25 (chief R163)",
+    "wire_to_screen_seconds": 0.12
+  },
+  "milestone": "MOB-LOOT-001",
+  "nonclaims": [
+    "1. Nothing dispatches this module.  runtime.py is the chief's file and MOB_LOOT_WIRING is a request, not a call site.  No player has seen one byte of this lane.",
+    "2. NO OBJECT IS DRAWN, and nothing stays.  What GT-045 measured is a floating NAME LABEL in red text plus brown dust, ~0.2-0.3 s, with no model under it and nothing left afterwards.  This lane ANNOUNCES loot; it does not lay an item on the ground, and n_DROPMODEL_TYPE was measured NOT to be the switch that changes that.",
+    "3. NOT ONE OF THE 63 IDS THIS LANE CAN EMIT HAS EVER BEEN ON A CLIENT'S WIRE.  Three ids have (2200423 and 2200003 in the GT-045 v3 rounds; 2600001 in the earlier round 1104) and none of them is in field_drop_tables.  The evidence is about the PIPE.  Everything this lane says about what a player will read is an EXPECTATION from RE-066's create path, and the label evidence itself covers ONE id from ONE item table.  2200423 (EQUIPMENT_BASE) drew its name; 2600001 (ITEM_MISC) drew none in the run that carried it, and no id from ITEM_CONSUMABLES has ever been on this wire at all -- which is the table the roster's most frequent drop (2400046, 30 pct on set 2701001) comes from.  That every rolled id draws its name is an EXPECTATION from RE-066's create path, not a measurement.",
+    "4. There is no pickup.  The only proven PickupTerrainThing producer is client-outbound (GT-046) and its vital id is hash-DERIVED (0x4543), never observed; the corpus holds zero frames of it in either direction.  Worse for this lane: GT-060's precondition is a CLICKABLE drop object, and GT-045 measured that there is no object to click.",
+    "5. Ownership is bookkeeping only.  killer_identity is recorded because the second half will need it; the element has no owner field, so nothing on the wire enforces who may take a drop.",
+    "6. The quantity never reaches the client.  The element carries an item id and a position and nothing else, so a stack of five is announced -- if it is announced at all -- exactly like a stack of one.",
+    "7. Money cannot be placed.  A money slot has no item id, and the element's only content field is one.  Rolled, recorded, never emitted -- and the reading that item id 0 means money is [INFERENCE], not proven.  The recorded AMOUNT is not a currency amount either: a DROPS_NORMAL slot carries a quantity span and a weighted entry carries no quantity column at all, so every MoneyDrop says which of the two its number came from.",
+    "8. DROPS_QUEST is refused by name, table and all: only 311 of the 2478 DROPS_QUEST sets the mobs reference exist client-side.",
+    "9. Item quality is not rolled.  E_DROPS_QUALITY exists and loot_roll implements it, but the element has nowhere to carry a quality, so rolling one here would produce a number no player could ever see.  The consequence is that this lane's draw stream and loot_roll's diverge on every DROPS_EQUIPMENT pick; the module docstring lists all three divergences.",
+    "10. The ledger lives in the caller's process.  Nothing in this project persists a ground object across a restart, and this module writes no database row.  Nothing here expires a row either: the caller must prune.",
+    "11. The element key block is ours and unproven.  Nobody has shown what the client does with a key it has never seen, or whether that key space is shared with anything else.",
+    "12. Whether re-emitting an element redraws the label is UNMEASURED.  DROP_REFRESH_MS is arithmetic (label life 0.2 s at its low end minus 0.12 s of wire-to-screen), not a tested value, and at 80 ms it costs 12.5 frames a second per live row.  A cadence that is affordable is arithmetically guaranteed to blink.",
+    "13. DELTA OR REPLACEMENT IS UNPROVEN, and it matters for every kill that drops more than one object.  This lane sends one element per frame because a multi-record derived-mask collection is the shape a real client rejected; if the client treats each such frame as the WHOLE ground list rather than as a change to it, the second row of a kill removes the first and a player sees one name instead of three.",
+    "14. THE SCATTER IS OURS AND IT MULTIPLIES.  30.0 units on X is the only offset ever put on the wire; row N of a kill uses N times that, so row 12 is 330 units from the corpse and may be somewhere the player never looks.  Nobody has measured how far from a player a label is still drawn.",
+    "15. ONE LABEL WAS SEEN, TWO ELEMENTS WERE SENT.  The attended round that read the label sent NEAR and FAR 42 ms apart and only one label is in the frame; the letter states outright that it cannot say which one was drawn, and that one label from one round for one item is not a rule of the client.  This lane sends bursts of up to twelve.",
+    "16. THE LABEL IS NOT A COLOUR WE CHOSE, AND IT DIVERGES FROM THE REAL SERVER.  RE-067 pinned that the text property comes from element +0x1B and +0x1A under mask bits 0x08 and 0x20, which this lane never sends, so every label it draws uses the client's default property 0x34.  The one label observed was RED where the original server drew the same item WHITE -- an open divergence (RE-067 / GT-069), not a thing this lane fixed or may claim.",
+    "17. EVERY BYTE OF EVIDENCE FOR THIS PIPE IS A SCENE-LOAD ONE-SHOT.  It was emitted once per session, in direct response to a client TargetPosVital, with no other RuntimeRes in flight.  This lane emits server-initiated, mid-session, repeatedly, and in bursts.  Nothing measured covers that.",
+    "18. THE CENSUS INTERACTION IS UNMEASURED.  field_mobs re-applies the actor collection (derived mask 0x02) 3 s after scene entry and rebuilds later; whether a RuntimeRes carrying a different derived mask clears, preserves or corrupts a live 0x5F85B0 entry is unknown, and a kill in the first seconds of a scene hits exactly that.",
+    "19a. THE LEDGER IS A VALUE AND SOMEBODY MUST OWN THE CELL.  DropLedgerCell is that owner and is what MOB_LOOT_WIRING now hands the chief: commit_drops on a bare value CANNOT provide atomicity, because a caller holding the value can always satisfy base_generation from the same object.  A caller that keeps using the value functions directly is responsible for its own locking, and this lane cannot check that.",
+    "19b. THE REPLAY GUARD IS ONLY AS GOOD AS THE KILL TOKEN.  It refuses a token it has already seen for an identity, so it needs the caller to pass a token that RISES with each real death (death_step.register.generation).  Pass a constant and every kill after the first is refused; pass a random number and a replay can slip through.",
+    "19. THE LEDGER IS STATE BUILT FOR A HALF THAT DOES NOT EXIST YET.  Its keys, its compare-and-swap, take_drop, killer_identity and quantity all serve a pickup half whose transport is unidentified.  If the answer to 'what makes the model appear' sends monster drops down FightingDrop* instead, the composer goes and the ledger's shape is the part most likely to change.  [ASSUMPTION OF LANE B - awaiting COO confirmation]"
+  ],
+  "production_allowed": true,
+  "refusals": [
+    "type_not_typed_record",
+    "value_not_int",
+    "value_out_of_range",
+    "identity_not_positive",
+    "position_not_finite",
+    "rng_has_no_random",
+    "draw_out_of_unit_interval",
+    "quantity_range_inverted",
+    "unknown_drop_set",
+    "unknown_item_id",
+    "item_has_no_name",
+    "rate_out_of_range",
+    "ledger_generation_moved",
+    "mob_already_looted",
+    "roll_names_another_monster",
+    "key_outside_the_lane_block",
+    "ledger_not_sorted",
+    "duplicate_ledger_key",
+    "ledger_stale",
+    "drop_not_in_ledger",
+    "too_many_drops_for_one_kill",
+    "money_has_no_element",
+    "composed_bytes_off_pin",
+    "element_encoder_disagrees",
+    "position_off_the_f32_grid"
+  ],
+  "scenario": null,
+  "schema": 1,
+  "tables": {
+    "equipment_sets": [
+      5400001,
+      5400002,
+      5400003
+    ],
+    "item_ids": 63,
+    "normal_sets": [
+      2701001,
+      2701002,
+      2701003
+    ],
+    "scene": "bg0001",
+    "source_digests": {
+      "CONSTDATA_TH__DROPS_EQUIPMENT": "06909f73fa00122216443b2e7ea6e58d1357bbf0ae0bf1292f9207c02ca31dd3",
+      "CONSTDATA_TH__DROPS_NORMAL": "f8df1d7c948139390e64ccedd634088a6e1d6f6f3d019dc93aed490d278ab913",
+      "CONSTDATA_TH__DROPS_SPECIALLY": "458742f2c43635a3665bdd5757a4e2efd3634d39446bdbb5944f0e5132beeca1",
+      "CONSTDATA_TH__EQUIPMENT_BASE": "dc39d8b338f78870ac32741b8bd1ddbe5a4696b137378fcfe739721fb6924c97",
+      "CONSTDATA_TH__ITEM_CONSUMABLES": "04586d54730fee23b7120ec03d7e7b5b17345d23fe4c1d946e7e71222e698e29",
+      "CONSTDATA_TH__ITEM_MISC": "8cd1774d42230938d429f8fe849f1073467489daac9ac265689bfa70302d5292",
+      "CONSTDATA_TH__ITEM_QUEST": "9bb9ca8f416812cf724284146d704a8ece86f61e612cdd688005caf9f860a05c",
+      "CONSTDATA_TH__MOBS": "3c0d33d68f832eefda56c845495008338dcef56f4277584b9ca479b7e1b3916b",
+      "TEXTDATA_TH__EQUIPMENT_BASE_TIP": "8fc17fee3213f22dc0581a952c5e3385f317253f46cca6b08930a6808489dbe9",
+      "TEXTDATA_TH__ITEM_CONSUMABLES_TIP": "8f9fac6170750bbdc4410420498f60563e15653523f1a4461cbae1a84f1046dc",
+      "TEXTDATA_TH__ITEM_MISC_TIP": "163cf4d0862e7f5797d9dcb0e110e4f5cd78e089800b5e9328326499a5585ed2",
+      "TEXTDATA_TH__ITEM_QUEST_TIP": "2818474f4e9c3ce983d74edcb9dc8f7207e1a351c04bb7146de5aacdc098b346"
+    },
+    "specially_sets": [
+      2802208,
+      2802215,
+      2802219,
+      2802234,
+      2802236,
+      2802253,
+      2802264
+    ]
+  },
+  "test_only": false,
+  "wire": {
+    "element_field_order": [
+      "key_u32_tag14",
+      "dirty_mask_u8_tag0B",
+      "payload_u32_tag14",
+      "x_f32_tag2A",
+      "y_f32_tag2A",
+      "z_f32_tag2A"
+    ],
+    "element_mask": 18,
+    "elements_per_frame": 1,
+    "envelope_pin_hex": "129D6E140000000008040B000B08120100",
+    "frame_header_pin_hex": "AC3E255F2E0000002CAC",
+    "frame_size": 54,
+    "masked_pc_sha256": "564277BEA3FBE0A121C4D79CD318ED7778F23B10CFFFFDC091C84D5CDA87D1F1",
+    "pc_size": 44,
+    "runtime_derived_bit": 8,
+    "sample_frame_size": 54
+  },
+  "wiring": "runtime.py.  Hold ONE mob_loot.DropLedgerCell for the scene -- the cell is the owner of the ledger and the reason this line is now three calls instead of five: an earlier version asked you to carry a generation by hand, and a caller holding a value can always satisfy that check against the same object it is holding, which is not a lock at all.\n  For a kill that commit_death() ACCEPTED:\n  1. roll = mob_loot.roll_drops(mob, rng)   # rng must be a random.Random the server owns; SystemRandom and the module-global stream are refused by name\n  2. drops = cell.loot_a_kill(mob, death_step.record, roll, kill_token=death_step.register.generation, position=<where it fell, or None for its placement position>)\n     - death_step.record, NOT the outcome: the outcome is true of a hit that landed on a corpse too.\n     - the kill token must RISE with each real death.  The register generation does; a constant would refuse every kill after the first, and a respawned monster killed again is a NEW death and is accepted.\n     - a refusal leaves the cell untouched.  ledger_generation_moved and ledger_stale mean try again; mob_already_looted means this death was already looted and you must NOT retry it in a loop.\n  3. send every frame of mob_loot.drop_frames(legacy, drops) AFTER death_step.dead_frame -- i.e. after the whole death schedule including hold_ms -- one frame each, in the order returned.  NOT between the dying and dead frames: nothing measured says a derived-mask-0x08 RuntimeRes may be interleaved into another lane's typed lethal sequence for the same actor, and the label lives 0.2-0.4 s, so loot sent inside the hold is gone before the corpse frame is.\n  4. PRUNE THROUGH THE CELL (cell.take(key)).  Nothing in this module expires a row and the label is off screen in under half a second; a caller that never prunes grows the ledger without bound.  Pruning beside the cell, on a value you kept, loses whatever a kill wrote in between.\n  5. nothing else: there is no pickup half.  cell.frames(legacy) re-emits the live ledger if you want to experiment with holding a label on screen; DROP_REFRESH_MS is arithmetic, not a tested value, and the arithmetic says the honest cadence costs 12.5 frames a second per row."
+}

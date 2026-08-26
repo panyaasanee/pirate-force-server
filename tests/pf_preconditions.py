@@ -394,6 +394,16 @@ BRIDGE_SIBLING = Precondition(
     "ROOT.parent / 'pf_bridge'",
 )
 
+BRIDGE_GAMEDATA = Precondition(
+    "bridge_gamedata",
+    [SIBLING / "pf_bridge" / "gamedata" / "tables"],
+    "the extracted game tables ../pf_bridge/gamedata/tables/",
+    "they are the client's own CONSTDATA/TEXTDATA dumps, they live in the "
+    "bridge repository rather than this one, and LANE-B's "
+    "tools/pf_mine_scene_drop_tables.py can only re-derive its generated "
+    "table where they are present (round g627j0)",
+)
+
 GAME_INSTALL_TREE = Precondition(
     "game_install_tree",
     [SIBLING / "GameClient"],
@@ -496,6 +506,7 @@ REGISTRY = {
         EVIDENCE_TREE,
         LOGIN_REQ_CAPTURE,
         BRIDGE_SIBLING,
+        BRIDGE_GAMEDATA,
         GAME_INSTALL_TREE,
         EXTERNAL_RE_TABLES,
         ORIGINAL_SCHEMA_HISTORY,

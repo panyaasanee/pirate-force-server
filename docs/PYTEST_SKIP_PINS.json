@@ -292,6 +292,40 @@
       "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
     },
     {
+      "key": "external_re_tables",
+      "module": "tests/test_external_registry.py",
+      "count": 26,
+      "tests": [
+        "DeliverableSnapshotTests::test_census_widths_match_every_row_that_carries_the_tag",
+        "DeliverableSnapshotTests::test_cli_stats_and_message_exit_zero",
+        "DeliverableSnapshotTests::test_cross_check_holds_and_summary_matches_the_letter",
+        "DeliverableSnapshotTests::test_golden_trigger_cast_skill_vital",
+        "DeliverableSnapshotTests::test_the_late_tables_are_internally_consistent",
+        "DeliverableSnapshotTests::test_the_priority_open_set_is_a_projection_of_field_offset",
+        "MutationRefusalTests::test_a_duplicate_evidence_id_is_refused",
+        "MutationRefusalTests::test_a_garbage_field_offset_is_refused",
+        "MutationRefusalTests::test_a_lower_cased_evidence_digest_is_refused",
+        "MutationRefusalTests::test_a_membership_swap_in_the_priority_open_set_is_refused",
+        "MutationRefusalTests::test_a_new_semantic_claim_in_the_census_is_refused",
+        "MutationRefusalTests::test_a_relabelled_nonstandard_grammar_row_is_refused",
+        "MutationRefusalTests::test_an_open_row_with_no_blocker_is_refused",
+        "MutationRefusalTests::test_broken_name_join_is_refused",
+        "MutationRefusalTests::test_census_frequency_drifting_from_the_row_count_is_refused",
+        "MutationRefusalTests::test_census_width_disagreeing_with_a_field_row_is_refused",
+        "MutationRefusalTests::test_changing_an_unknown_reason_desyncs_priority_and_is_refused",
+        "MutationRefusalTests::test_claim_moved_outside_its_span_is_refused",
+        "MutationRefusalTests::test_dropped_row_fails_the_row_pin",
+        "MutationRefusalTests::test_evidence_digest_not_matching_inventory_is_refused",
+        "MutationRefusalTests::test_garbage_hex_in_an_undelta_column_is_refused",
+        "MutationRefusalTests::test_non_ascii_byte_is_refused",
+        "MutationRefusalTests::test_non_integer_order_is_a_refusal_not_a_traceback",
+        "MutationRefusalTests::test_renamed_header_column_is_refused",
+        "MutationRefusalTests::test_sha_pin_catches_any_edit_when_active",
+        "MutationRefusalTests::test_unmutated_copy_still_passes_without_sha"
+      ],
+      "note": "R131: the Codex RE deliverable tables live in the pf_bridge SIBLING repo; the single-repo gate checkout cannot have them, the cloud clone and the bridge both do. First consumer: tools/pf_external_registry.py. R145: the last three tables reached the remote (pf_bridge 579b468) and the precondition now names all eight, so the count rose 12 -> 26 with the internal-consistency checks they made possible (field_offset grammar, evidence->inventory join, priority self-consistency)."
+    },
+    {
       "key": "original_schema_history",
       "module": "tests/test_foundation.py",
       "count": 1,
@@ -424,6 +458,15 @@
         "VerifierRunsCleanTests::test_the_verifier_runs_a_non_trivial_number_of_guards"
       ],
       "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "bridge_gamedata",
+      "module": "tests/test_mob_loot.py",
+      "count": 1,
+      "tests": [
+        "MobLootTests::test_the_generator_reproduces_the_shipped_table_when_it_can_run"
+      ],
+      "note": "round g627j0 (LANE-B): field_drop_tables.py is GENERATED, and this is the test that re-runs its generator with --check so the shipped table cannot drift from the bridge clone's gamedata unnoticed. A clone without pf_bridge beside it cannot answer, so the skip is declared rather than hand-written - the first draft wrote a bare skipTest and the gate's skip census caught it."
     },
     {
       "key": "client_image",
@@ -730,46 +773,14 @@
         "ToolRunTests::test_the_verifier_exits_clean"
       ],
       "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
-    },
-    {
-      "key": "external_re_tables",
-      "module": "tests/test_external_registry.py",
-      "count": 26,
-      "tests": [
-        "DeliverableSnapshotTests::test_census_widths_match_every_row_that_carries_the_tag",
-        "DeliverableSnapshotTests::test_cli_stats_and_message_exit_zero",
-        "DeliverableSnapshotTests::test_cross_check_holds_and_summary_matches_the_letter",
-        "DeliverableSnapshotTests::test_golden_trigger_cast_skill_vital",
-        "DeliverableSnapshotTests::test_the_late_tables_are_internally_consistent",
-        "DeliverableSnapshotTests::test_the_priority_open_set_is_a_projection_of_field_offset",
-        "MutationRefusalTests::test_a_duplicate_evidence_id_is_refused",
-        "MutationRefusalTests::test_a_garbage_field_offset_is_refused",
-        "MutationRefusalTests::test_a_lower_cased_evidence_digest_is_refused",
-        "MutationRefusalTests::test_a_membership_swap_in_the_priority_open_set_is_refused",
-        "MutationRefusalTests::test_a_new_semantic_claim_in_the_census_is_refused",
-        "MutationRefusalTests::test_a_relabelled_nonstandard_grammar_row_is_refused",
-        "MutationRefusalTests::test_an_open_row_with_no_blocker_is_refused",
-        "MutationRefusalTests::test_broken_name_join_is_refused",
-        "MutationRefusalTests::test_census_frequency_drifting_from_the_row_count_is_refused",
-        "MutationRefusalTests::test_census_width_disagreeing_with_a_field_row_is_refused",
-        "MutationRefusalTests::test_changing_an_unknown_reason_desyncs_priority_and_is_refused",
-        "MutationRefusalTests::test_claim_moved_outside_its_span_is_refused",
-        "MutationRefusalTests::test_dropped_row_fails_the_row_pin",
-        "MutationRefusalTests::test_evidence_digest_not_matching_inventory_is_refused",
-        "MutationRefusalTests::test_garbage_hex_in_an_undelta_column_is_refused",
-        "MutationRefusalTests::test_non_ascii_byte_is_refused",
-        "MutationRefusalTests::test_non_integer_order_is_a_refusal_not_a_traceback",
-        "MutationRefusalTests::test_renamed_header_column_is_refused",
-        "MutationRefusalTests::test_sha_pin_catches_any_edit_when_active",
-        "MutationRefusalTests::test_unmutated_copy_still_passes_without_sha"
-      ],
-      "note": "R131: the Codex RE deliverable tables live in the pf_bridge SIBLING repo; the single-repo gate checkout cannot have them, the cloud clone and the bridge both do. First consumer: tools/pf_external_registry.py. R145: the last three tables reached the remote (pf_bridge 579b468) and the precondition now names all eight, so the count rose 12 -> 26 with the internal-consistency checks they made possible (field_offset grammar, evidence->inventory join, priority self-consistency)."
     }
   ],
   "windows_gate_excluded_modules": {
     "count": 48,
     "workflow": ".github/workflows/gate-windows.yml",
-    "always_included": ["tests/test_foundation_legacy_seam.py"],
+    "always_included": [
+      "tests/test_foundation_legacy_seam.py"
+    ],
     "modules": [
       "tests/pf_preconditions.py",
       "tests/test_action_consumer_probe.py",

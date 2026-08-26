@@ -677,7 +677,25 @@ GRADE_SUBSET_SHA256 = (
     # 6CF4AE24..4553 is the parent digest, kept rather than dropped: it is the
     # value round R167 recorded, and a re-pin that erases its parent takes the
     # earlier movement's record with it.
-    "EB932A54B4958527BA172D34A81673B6B91AA54A0979372EED3A3525902C65DB"
+    #
+    # ROUND g627j0 (LANE-B, 2026-08-26 +07:00) moves this pin ONE more step,
+    # and again it is NOT a grade change.  npc_interaction/
+    # monster_spawn_and_loot stays in_progress -- no player has seen one byte
+    # of MOB-LOOT-001 and it claims nothing on the client -- but the row gains
+    # four evidence refs (src/pirateforce_foundation/mob_loot.py,
+    # src/pirateforce_foundation/field_drop_tables.py,
+    # tools/pf_mine_scene_drop_tables.py, scenarios/combat_loot_001.json) and
+    # one test ref (tests/test_mob_loot.py).  Why the refs have to move with
+    # the prose: the row's notes said Door 2 was an isolated library with
+    # production_allowed false and Door 3 was hypothesis-grade only, and both
+    # sentences stopped being the whole truth this round -- there is now a
+    # flagless production lane that rolls a dead monster's own drop sets and
+    # composes the same derived-bit-0x08 element.  Refs are graded fields, and
+    # the lesson round 7ptoku wrote here holds: a prose amendment that leaves
+    # the structured refs pointing only at the old lanes hides the new one
+    # from any machine reading this file.
+    #   R167 / parent EB932A54B4958527BA172D34A81673B6B91AA54A0979372EED3A3525902C65DB
+    "BEA0024925EFB3637A03A4BE69380B882335E1AFD50D63A9DE7F73D23CC3074F"
 )
 
 

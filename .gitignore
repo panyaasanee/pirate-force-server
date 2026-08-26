@@ -575,3 +575,10 @@
 # shape as the lines above: src/tests/scenarios are allow-listed wholesale, so
 # only the tool needs its own line here.
 !/tools/pf_mine_scene_mob_roster.py
+
+# LANE-B round g627j0 (BUILD-006 / M5): the generator behind
+# src/pirateforce_foundation/field_drop_tables.py.  Allow-listed for the same
+# reason as the roster generator above: the generated module ships, so the
+# tool that wrote it -- its id rule, its four controls and its DROPS_QUEST
+# refusal -- has to ship with it or a fresh clone cannot re-derive the table.
+!/tools/pf_mine_scene_drop_tables.py
