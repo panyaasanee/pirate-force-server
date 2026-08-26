@@ -128,6 +128,24 @@ semantics (RE-091) or a real capture close that gap.
   through the same `unicode_escape` header-injection guard already used for
   `account_name`.
 
+## Modules delivered (npc-switch-catalog round)
+
+- `gm/npc_switch_catalog.py` (GM-003 support) -- mob_id -> the client's own
+  name string, for the 7 rows in `pf_bridge/gamedata/tables/CONSTDATA_TH__MOBS.tsv`
+  that carry `n_GM_SWITCH=1` (the "NPC กิจกรรม 7 ตัว" the owner's 1630 order
+  letter already found: 855, 871, 882, 897, 902, 8180, 8181). Loaded from
+  `gm/data/gm_npc_switch.tsv`, an extracted 2-column copy (sha256 pinned and
+  checked at import time, same pattern as `scene_catalog.py`). This is this
+  lane's own committed-gamedata derivation, not a reuse of any lane-B module
+  (none exists yet that exposes a general mob_id -> name lookup -- see the
+  note below, still true).
+- `gm/commands.py` -- new `describe_npc_target(command)`, the same
+  non-blocking hint pattern as `describe_warp_target`: for a parsed `npc`
+  command, returns the client's name if `mob_id` is one of the 7
+  GM-switchable NPCs, else `None`. A `None` result is not a validity gate --
+  `npc on|off` still parses and logs any mob_id; this only tells the log
+  whether the client itself flagged that mob_id as GM-switchable.
+
 ## What is intentionally NOT built yet, and why
 
 - `state_wire` IS wired into the login path as of `CORE-REQUEST-006`
