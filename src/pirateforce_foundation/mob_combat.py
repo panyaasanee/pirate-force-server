@@ -28,13 +28,18 @@ serializers as a passed-in ``legacy`` handle, and it takes ``mob_aggro`` the
 same way.  BUT SAID PLAINLY, because an adversarial review was right to call
 the softer version a dodge: passing a handle keeps mob_aggro's IMPORT claim
 true and does NOT keep its REACHABILITY claim true.  A ``runtime.py`` that
-passes ``mob_aggro`` in has made a lane whose own ``production_allowed`` is
-False reachable from production dispatch, and no static scan of ``src/`` can
-see that edge, because it is an argument.  So the threat handle is OPTIONAL
-here and the wiring line this lane hands the chief passes ``None``: the damage
-half ships without touching a probe lane at all, and whether v4 also folds
-threat - which means either wiring mob_aggro in or promoting it - is written up
-for the COO rather than smuggled in through an argument default.
+passes ``mob_aggro`` in has made a lane reachable from production dispatch
+through an edge no static scan of ``src/`` can see, because it is an argument.
+So the threat handle is OPTIONAL here and the wiring line this lane hands the
+chief passes ``None``.
+
+THE COO ANSWERED THAT WRITE-UP ON 2026-08-26 (COO-DECISION 04:02, sections 1.3
+and 2), and the answer was NOT "pass mob_aggro in".  It was: promote mob_aggro
+where the scan can see it, and fold threat through a SEPARATE call after the
+combat commit.  That call is ``mob_ai_control.damage_step``.  So this line
+still passes ``None`` in v4 and in v5, the handle argument is now a test and
+legacy-caller convenience rather than the production path, and the threat fold
+has an owner with a name.
 
 WHERE THE EVIDENCE FOR EACH HALF COMES FROM, AND WHERE IT STOPS.
 
@@ -159,11 +164,13 @@ MOB_COMBAT_WIRING = (
 )
 # Written out because a reader of the line above should not have to guess: the
 # second argument is the THREAT handle and passing None is the supported
-# production wiring for v4.  Passing mob_aggro instead makes the threat fold
-# happen - and makes runtime.py import a lane whose own production_allowed is
-# False.  That is a decision for the chief and the COO, not something this
-# module should smuggle in through an argument, so the default wiring does not.
+# production wiring for v4.  It STAYS None, and that is not an oversight: the
+# COO ruled on 2026-08-26 that threat must not arrive through an argument at
+# all.  The v5 fold is a SEPARATE call after the combat commit -
+# mob_ai_control.damage_step - so the edge is an import a scan can see rather
+# than a handle it cannot.  See mob_ai_control.MOB_AI_CONTROL_WIRING.
 MOB_COMBAT_THREAT_HANDLE_IS_OPTIONAL = True
+MOB_COMBAT_THREAT_FOLD_OWNER = "mob_ai_control.damage_step"
 
 # ---------------------------------------------------------------------------
 # The damage formula.  Copied value-for-value, WITH provenance, from the lanes
@@ -719,9 +726,16 @@ def apply_hit(
 def apply_threat(aggro: Any, aggro_state: Any, outcome: HitOutcome) -> Any:
     """Hand the damage to ``mob_aggro.apply_damage_threat``, unchanged.
 
-    ``aggro`` is the module handle, passed in rather than imported: that module
-    states that nothing in ``src/`` imports it and that its dispatch
-    reachability is False, and both statements stay true this way.
+    ``aggro`` is the module handle, passed in rather than imported.  THE REASON
+    THIS FUNCTION GAVE FOR THAT IS GONE as of 2026-08-26: it used to say the
+    handle kept ``mob_aggro``'s "nothing in src/ imports it" claim true, and
+    the COO ruled that arrangement the hole rather than the safeguard
+    (COO-DECISION 2026-08-26T04:02+07:00, section 2).  ``mob_aggro`` is
+    ``production_allowed = True`` now and ``mob_ai_control`` imports it by
+    name.  This function stays, unchanged in behaviour, for the two callers it
+    already has - ``strike`` and its tests - and the production wiring folds
+    threat through ``mob_ai_control.damage_step`` instead, where a scan can see
+    the edge.
 
     The number handed over is the WIRE number, which is NEGATIVE.  That is not
     a detail: ``apply_damage_threat`` adds threat only for a negative value,
