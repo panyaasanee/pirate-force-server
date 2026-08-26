@@ -66,6 +66,7 @@ from pirateforce_foundation.mob_death import (
     describe_roster_override_coverage,
     dying_frames,
     full_roster_override,
+    hostile_census_frames,
     kill,
     live_roster,
     pin_document,
@@ -633,6 +634,110 @@ class MobDeathTests(unittest.TestCase):
             override, generation.actor_identities)
         self.assertEqual(coverage["missing"], ())
         self.assertEqual(coverage["matched_count"], len(self.roster))
+
+    # -- hostile_census_frames: the world-wipe fix (round `sifsfg`) --------
+    #
+    # chief's escalation (pf_bridge/notes_to_chief/20260827_0920_CHIEF-
+    # URGENT-combat-death-frames-confirmed-world-wipe-unconditional-on-
+    # flagless-path.md) reports RE-092 confirmed mob_combat.bar_frames and
+    # this module's own death_frames each send a ONE-entry collection that
+    # replaces (not merges) the client's whole remote-actor registry.  These
+    # tests prove the fix composes a REAL full census correctly -- not a
+    # smaller stand-in -- and prove it by wire-layer equivalence to the
+    # existing one-entry functions, not by assumption.
+
+    REAL_CENSUS_ANCHOR = (10.0, 20.0, 30.0)
+
+    def _real_generation_offsets(self, generation):
+        """identity -> (start, length) inside generation.pc, header-relative."""
+        offsets = {}
+        offset = world_population.WIRE_HEADER_BYTES
+        for identity, length in zip(
+                generation.actor_identities, generation.entry_bytes):
+            offsets[identity] = (offset, length)
+            offset += length
+        return offsets
+
+    def test_hostile_census_frames_matches_independent_recomposition(self):
+        # Not tautological with the implementation: this recomposes the same
+        # inputs through the SAME public functions a caller outside this
+        # module would use (build_world_population + full_roster_override +
+        # apply_identity_override), and only then compares.
+        register = DeathRegister()
+        expected_generation = world_population.apply_identity_override(
+            self.legacy,
+            world_population.build_world_population(
+                self.legacy, self.REAL_CENSUS_ANCHOR, 115, scene_id=1),
+            full_roster_override(self.legacy, self.roster, register),
+        )
+        pc, frame = hostile_census_frames(
+            self.legacy, self.REAL_CENSUS_ANCHOR, 115, self.roster, register)
+        self.assertEqual(pc, expected_generation.pc)
+        self.assertEqual(frame, expected_generation.frame)
+        self.assertEqual(frame, self.legacy.frame_pc(pc))
+
+    def test_hostile_census_frames_carries_all_115_actors_not_fewer(self):
+        pc, frame = hostile_census_frames(
+            self.legacy, self.REAL_CENSUS_ANCHOR, 115, self.roster,
+            DeathRegister())
+        count = int.from_bytes(
+            pc[world_population.WIRE_COUNT_TAG_OFFSET + 1:
+               world_population.WIRE_COUNT_TAG_OFFSET + 3],
+            "little",
+        )
+        self.assertEqual(count, 115)
+
+    def test_hostile_census_frames_gives_an_untouched_roster_member_the_hostile_body_not_the_plain_default(
+            self):
+        # This is the reason full_roster_override, not corpse_override, is
+        # the right input here: a monster nobody has hit yet must still show
+        # its hostile body, not build_world_population's plain HP-100 default.
+        plain_generation = world_population.build_world_population(
+            self.legacy, self.REAL_CENSUS_ANCHOR, 115, scene_id=1)
+        pc, _ = hostile_census_frames(
+            self.legacy, self.REAL_CENSUS_ANCHOR, 115, self.roster,
+            DeathRegister())
+        offsets = self._real_generation_offsets(plain_generation)
+        untouched = next(
+            m for m in self.roster if m.actor_identity != self.mob.actor_identity)
+        start, length = offsets[untouched.actor_identity]
+        plain_entry = plain_generation.pc[start:start + length]
+        composed_entry = pc[start:start + length]
+        self.assertNotEqual(plain_entry, composed_entry)
+
+    def test_hostile_census_frames_embeds_the_exact_dead_body_death_frames_sends_alone(
+            self):
+        # RE-DERIVED equivalence: the body byte-for-byte inside the full
+        # census must be the SAME bytes death_frames would have sent alone --
+        # this is "reuse the encoder over a wider input", not a second one.
+        step = self.killing_outcome()
+        death = kill(self.legacy, self.mob, step.outcome, DeathRegister())
+        register = death.register
+        # death.dead_pc IS mob_death.death_frames' one-entry output for this
+        # corpse (dead_frames -> death_frames; see mob_death.kill).
+        solo_entry = death.dead_pc[world_population.WIRE_HEADER_BYTES:]
+        composed_pc, composed_frame = hostile_census_frames(
+            self.legacy, self.REAL_CENSUS_ANCHOR, 115, self.roster, register)
+        self.assertEqual(composed_frame, self.legacy.frame_pc(composed_pc))
+        base_generation = world_population.build_world_population(
+            self.legacy, self.REAL_CENSUS_ANCHOR, 115, scene_id=1)
+        offsets = self._real_generation_offsets(base_generation)
+        start, _length = offsets[self.mob.actor_identity]
+        composed_entry = composed_pc[start:start + len(solo_entry)]
+        self.assertEqual(composed_entry, solo_entry)
+
+    def test_hostile_census_frames_refuses_the_same_way_full_roster_override_does(
+            self):
+        step = self.killing_outcome()
+        death = kill(self.legacy, self.mob, step.outcome, DeathRegister())
+        living = live_roster(self.roster, death.register)
+        with self.assertRaises(MobDeathContractError) as caught:
+            hostile_census_frames(
+                self.legacy, self.REAL_CENSUS_ANCHOR, 115, living,
+                death.register)
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_REGISTER_ROW_DISAGREES_WITH_ROSTER)
 
     def test_full_roster_override_refuses_the_same_way_repopulation_does(self):
         # It is a thin wrapper over repopulation_entries and must not swallow

@@ -143,6 +143,7 @@ from typing import Any
 
 from . import field_mobs
 from . import mob_combat
+from . import world_population
 from .field_mobs import FieldMob
 from .mob_combat import HitOutcome
 from .population import (
@@ -893,6 +894,17 @@ def death_frames(
     ``pf_bridge/notes_to_chief/20260826_1017_RE-082-RESULT-OBJECT-REF-IS-ELEMENT-KEY.md``
     later showed erases-by-omission for a sibling collection consumer, still
     unverified for this one.  See ``mob_combat.bar_frames`` for the full
+    citation; not repeated twice in one module.
+
+    [UPDATE, round ``sifsfg``, 2026-08-27]: "still unverified for this one"
+    above is no longer true - ``RE-092`` (2026-08-26 22:23) verified it, for
+    this exact collection (the ``GSCN_RunTimeProtocolRes`` mask-``0x02``
+    chain both ``death_frames`` and ``bar_frames`` compose through):
+    replace-by-omission, confirmed.  This function is UNCHANGED and still
+    callable as-is; :func:`hostile_census_frames` in this module is the fix
+    - it composes the same corpse/live body this function would build into a
+    full census instead of a one-entry collection.  See
+    :func:`mob_combat.bar_frames`'s own matching update for the fuller
     citation; not repeated twice in one module.
     """
     entry = death_actor_entry(
@@ -1666,6 +1678,86 @@ def describe_roster_override_coverage(
         "MOB_DEATH_ROSTER_OVERRIDE_COVERAGE matched=%d/%d missing=%s" % (
             coverage["matched_count"], coverage["total"], missing),
     )
+
+
+def hostile_census_frames(
+    legacy: Any,
+    anchor: tuple[float, float, float],
+    actor_count: int,
+    roster: tuple[FieldMob, ...],
+    register: DeathRegister,
+    *,
+    ledger: Any = None,
+    scene_id: int = SCENE_ID,
+    faction: int = field_mobs.FIELD_MOB_FACTION,
+    with_name: bool = True,
+    dead_timer: float = DEAD_TIMER_SECONDS,
+    count_source: str = world_population.COUNT_SOURCE_CALLER,
+) -> tuple[bytes, bytes]:
+    """A hit/death frame that carries the WHOLE census, not one actor.
+
+    WHY THIS EXISTS.  ``mob_combat.bar_frames`` and this module's own
+    ``death_frames`` each compose a NONEMPTY ONE-ENTRY
+    ``legacy.make_runtime_remote_actors([entry])`` collection - flagged as an
+    "[OPEN RISK, NOT MEASURED]" in both functions' docstrings since round
+    ``yjty8a``.  ``RE-092`` (2026-08-26 22:23) closed that risk from theory
+    to measurement: the client's remote-actor consumer is confirmed
+    replace-by-omission (not merge), so a live one-entry frame reaching the
+    unflagged path removes every OTHER non-exempt actor from the client's
+    registry in the same call - the town would empty out on the first hit or
+    kill, not just refresh one monster's bar.  Chief's escalation
+    (``pf_bridge/notes_to_chief/20260827_0920_CHIEF-URGENT-combat-death-
+    frames-confirmed-world-wipe-unconditional-on-flagless-path.md``) asked
+    this lane to design the fix; this function is that design's pure half.
+
+    THE FIX IS ENCODER REUSE, NOT A NEW SELECTOR - the same rule arrival's
+    own census override already followed.  This rebuilds the census fresh
+    with :func:`world_population.build_world_population` (SAME encoder,
+    SAME anchor/scene/count a caller already has on hand - ``runtime.py``
+    keeps ``population_refresh_anchor``/``world_census_actor_count`` as
+    session state since arrival), then splices EVERY roster member's live
+    body in with :func:`full_roster_override` (not :func:`corpse_override`:
+    the delta-only override would leave an untouched-but-still-alive hostile
+    roster member with the plain, non-hostile body ``build_world_population``
+    gives everyone by default, undoing the red/hostile styling arrival
+    already gave it) through
+    :func:`world_population.apply_identity_override` - the same three calls
+    arrival's own ``runtime.py:_apply_mob_death_census_override`` composes,
+    reimplemented independently in a lane-B module (see that function's
+    docstring for why it is a reimplementation and not an import).
+
+    WHAT THIS DOES NOT DO.  It does not decide WHEN a caller uses this
+    instead of ``bar_frames``/``death_frames`` - both of those functions are
+    left exactly as they were, still callable, still one-entry, because
+    removing them would be an editorial decision this lane does not own
+    without ``runtime.py``'s cooperation (only ``runtime.py`` knows whether
+    every caller of the one-entry functions has been swapped). It does not
+    retain or store anything - the caller still owns dispatch and the
+    session-state question of what anchor/count to pass belongs to
+    ``runtime.py``, this lane's ``CORE-REQUEST`` for the wiring line spells
+    out exactly what changes there. It COSTS more than the one-entry frame
+    (a full ``actor_count``-body rebuild per hit/death instead of one entry)
+    - not measured against a real session's frame-rate budget this round,
+    flagged for whoever wires it in.
+
+    NONCLAIM.  Byte-for-byte proof that this composes correctly is this
+    module's own test (against the real 115-actor bg0001 census); whether a
+    live client that receives this instead of the one-entry frame still
+    shows the target's bar move and every other actor unchanged is
+    client-observable and unproven this round - the same evidence gap
+    GT-084/RIDER-084-A already track for the arrival-census fix.
+    """
+    generation = world_population.build_world_population(
+        legacy, anchor, actor_count, scene_id=scene_id,
+        count_source=count_source,
+    )
+    override = full_roster_override(
+        legacy, roster, register, ledger=ledger, faction=faction,
+        with_name=with_name, dead_timer=dead_timer,
+    )
+    composed = world_population.apply_identity_override(
+        legacy, generation, override)
+    return composed.pc, composed.frame
 
 
 def describe_death(step: DeathStep) -> tuple[str, ...]:

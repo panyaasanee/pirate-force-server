@@ -31,6 +31,7 @@ from pirateforce_foundation.population import (
 from pirateforce_foundation.world_population import (
     CENSUS_COUNT,
     WorldPopulationGeneration,
+    apply_identity_override,
     census_console_line,
     census_shortfall_reason,
     dispatch_report,
@@ -663,6 +664,86 @@ class CensusDispatchCountTests(unittest.TestCase):
         for bad in (None, 115, {"actor_count": 115}, [1, 2, 3]):
             with self.assertRaises(ValueError):
                 dispatch_report(bad)
+
+    # --- LANE-B / MOB-COMBAT-001: apply_identity_override -----------------
+    #
+    # Added round `sifsfg` as the pure half of the fix chief's escalation
+    # (pf_bridge/notes_to_chief/20260827_0920_CHIEF-URGENT-...) asked lane B
+    # to design: bar_frames/death_frames' one-entry collection is a confirmed
+    # (RE-092) world-wipe on the flagless path.  Tested here, next to this
+    # module's other generation-transforming functions, because it is a
+    # world_population.py function; the caller it exists for is
+    # mob_death.hostile_census_frames, tested against the real 115-actor
+    # census in tests/test_mob_death.py.
+
+    def test_apply_identity_override_replaces_only_named_identities(
+            self) -> None:
+        generation = build_world_population(
+            self.legacy, self.spawn, scene_id=1)
+        target = generation.actor_identities[5]
+        replacement = b"\x01\x02\x03"
+        composed = apply_identity_override(
+            self.legacy, generation, {target: replacement})
+        self.assertIsInstance(composed, WorldPopulationGeneration)
+        # The wire count and every other identity's bytes are unchanged.
+        self.assertEqual(composed.actor_identities, generation.actor_identities)
+        self.assertEqual(composed.actor_count, generation.actor_count)
+        # Walk both collections in lockstep and check identity by identity.
+        old_offset = world_population.WIRE_HEADER_BYTES
+        new_offset = world_population.WIRE_HEADER_BYTES
+        for identity, old_length, new_length in zip(
+                generation.actor_identities, generation.entry_bytes,
+                composed.entry_bytes):
+            old_entry = generation.pc[old_offset:old_offset + old_length]
+            new_entry = composed.pc[new_offset:new_offset + new_length]
+            if identity == target:
+                self.assertEqual(new_entry, replacement)
+            else:
+                self.assertEqual(new_entry, old_entry)
+            old_offset += old_length
+            new_offset += new_length
+        self.assertEqual(composed.frame, self.legacy.frame_pc(composed.pc))
+
+    def test_apply_identity_override_is_a_noop_on_an_empty_override(
+            self) -> None:
+        generation = build_world_population(
+            self.legacy, self.spawn, scene_id=1)
+        composed = apply_identity_override(self.legacy, generation, {})
+        self.assertIs(composed, generation)
+
+    def test_apply_identity_override_ignores_identities_absent_from_the_rung(
+            self) -> None:
+        # A caller widening its override dict over time should not have to
+        # filter it down to only the identities a particular rung encodes.
+        generation = build_world_population(
+            self.legacy, self.spawn, 3, scene_id=1)
+        composed = apply_identity_override(
+            self.legacy, generation, {0xFFFFFF: b"\x01"})
+        self.assertEqual(composed.pc, generation.pc)
+        self.assertEqual(composed.frame, generation.frame)
+
+    def test_apply_identity_override_refuses_a_non_generation(self) -> None:
+        with self.assertRaises(ValueError):
+            apply_identity_override(self.legacy, None, {})
+
+    def test_apply_identity_override_refuses_a_non_dict_override(self) -> None:
+        generation = build_world_population(
+            self.legacy, self.spawn, 3, scene_id=1)
+        with self.assertRaises(ValueError):
+            apply_identity_override(self.legacy, generation, [(1, b"x")])
+
+    def test_apply_identity_override_refuses_bad_keys_and_values(self) -> None:
+        generation = build_world_population(
+            self.legacy, self.spawn, 3, scene_id=1)
+        identity = generation.actor_identities[0]
+        for bad_override in (
+            {"not-an-int": b"x"},
+            {True: b"x"},  # bool is an int subclass; must be refused anyway
+            {identity: "not-bytes"},
+            {identity: 5},
+        ):
+            with self.assertRaises(ValueError):
+                apply_identity_override(self.legacy, generation, bad_override)
 
 
 if __name__ == "__main__":
