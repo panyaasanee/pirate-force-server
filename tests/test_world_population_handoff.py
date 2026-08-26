@@ -39,6 +39,7 @@ from pirateforce_foundation.world_population_handoff import (  # noqa: E402
     SLOT_AFTER_TELEPORT,
     SLOT_BEFORE_TELEPORT,
     SLOT_NOT_APPLICABLE,
+    MembershipReset,
     SceneHandoff,
     build_clear_generation,
     handoff_console_line,
@@ -558,6 +559,89 @@ class HandoffTests(unittest.TestCase):
                 self.assertTrue(
                     handoff_for_arrival(self.legacy, scene, self.anchor).sends_a_frame
                 )
+
+
+class MembershipResetTests(unittest.TestCase):
+    """DANGER 4 OF THE ROUND THAT BUILT THIS MODULE, CLOSED.
+
+    ``membership`` alone is half of a pair.  A caller who set
+    ``population_indices`` from it and forgot ``population_refresh_anchor``
+    left the frozen state describing two different scenes at once, and no test
+    in this file could see it happen.  ``membership_reset`` is the whole pair.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.legacy = load_legacy(LEGACY_PATH)
+        cls.anchor = (
+            cls.legacy.V135_PLAYER_X,
+            cls.legacy.V135_PLAYER_Y,
+            cls.legacy.V135_PLAYER_Z,
+        )
+
+    def test_the_census_reset_carries_the_anchor_it_was_actually_built_at(self):
+        handoff = handoff_for_arrival(self.legacy, 1, self.anchor)
+        self.assertEqual(handoff.kind, KIND_CENSUS)
+        reset = handoff.membership_reset
+        self.assertEqual(reset.population_indices, handoff.membership)
+        self.assertEqual(len(reset.population_indices), CENSUS_COUNT)
+        self.assertEqual(reset.population_refresh_anchor, self.anchor)
+        self.assertFalse(reset.clears_everything)
+        # The anchor is the generation's own, not one the caller passed twice.
+        self.assertEqual(
+            reset.population_refresh_anchor, handoff.generation.anchor)
+
+    def test_every_other_crossing_clears_both_fields(self):
+        for scene in NON_HOME_SCENES:
+            with self.subTest(scene=scene):
+                reset = handoff_for_arrival(
+                    self.legacy, scene, self.anchor).membership_reset
+                self.assertIsNone(reset.population_indices)
+                self.assertIsNone(reset.population_refresh_anchor)
+                self.assertTrue(reset.clears_everything)
+
+    def test_an_unavailable_handoff_clears_both_fields_too(self):
+        """No frame goes out, so the client keeps the old scene's actors -
+        and the frozen state's last_target_pos is already in the new one.
+        That is the state where one ChooseNPC recomposes the old town into
+        the new map, so the membership goes even though nothing was sent.
+        """
+        refused = handoff_on_crossing(None, 278, self.anchor)
+        self.assertEqual(refused.kind, KIND_UNAVAILABLE)
+        self.assertTrue(refused.membership_reset.clears_everything)
+
+    def test_a_hand_built_clear_never_leaks_a_membership(self):
+        """THE MUTANT: a reset that branches on ``generation`` alone.
+
+        A SceneHandoff carrying KIND_CLEAR and a census generation is not a
+        shape this module builds, but it is one line away, and a reset that
+        read the generation without checking the kind would hand back the
+        town's membership on the frame that removes the town.
+        """
+        census = handoff_for_arrival(self.legacy, 1, self.anchor)
+        mutant = SceneHandoff(
+            scene_id=278, kind=KIND_CLEAR, reason="hand_built_for_this_test",
+            label=LABEL_CLEAR.format(278), actor_count=0,
+            pc=census.pc, frame=census.frame, reapply_ms=None,
+            dispatch_slot=SLOT_BEFORE_TELEPORT,
+            generation=census.generation,
+        )
+        self.assertTrue(mutant.membership_reset.clears_everything)
+
+    def test_the_report_carries_both_halves(self):
+        report = handoff_report(handoff_for_arrival(self.legacy, 1, self.anchor))
+        self.assertEqual(
+            report["membership_reset_indices"], report["membership"])
+        self.assertEqual(report["membership_reset_anchor"], self.anchor)
+        cleared = handoff_report(
+            handoff_for_arrival(self.legacy, 278, self.anchor))
+        self.assertIsNone(cleared["membership_reset_indices"])
+        self.assertIsNone(cleared["membership_reset_anchor"])
+
+    def test_the_reset_is_frozen(self):
+        reset = MembershipReset(None, None)
+        with self.assertRaises(Exception):
+            reset.population_indices = (1,)
 
 
 if __name__ == "__main__":
