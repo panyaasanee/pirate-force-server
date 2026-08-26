@@ -480,6 +480,17 @@
       "note": "round ctflxc (LANE-B): tools/pf_scan_field_scene_candidates.py is the census behind the BUILD-004 field-scene blocker, and these three re-run it against the bridge clone's gamedata so docs/FIELD_SCENE_CANDIDATES.json cannot drift unnoticed and the scene-278-is-empty finding stays checked. pf-adversary caught the first draft shipping this test file with no matching pin, which would have failed this exact census on any machine without pf_bridge beside it."
     },
     {
+      "key": "bridge_gamedata",
+      "module": "tests/test_field_mob_tables_bg0015.py",
+      "count": 3,
+      "tests": [
+        "Bg0015RegenerateAndDiffTest::test_regenerating_reproduces_the_committed_module_byte_for_byte",
+        "Bg0015RegenerateAndDiffTest::test_the_predicate_census_matches_the_recorded_finding",
+        "Bg0015RegenerateAndDiffTest::test_hostile_roster_count_is_seventeen_from_live_gamedata"
+      ],
+      "note": "round 2vxlx2 (LANE-B): field_mob_tables_bg0015.py is GENERATED prep data for M3/BUILD-004 (COO-DECISION 2026-08-26 12:46: Bg0015 confirmed as the real M3 map, prepared but not wired in until lane A's second gate + geometry check passes). These three re-run tools/pf_mine_scene_mob_roster.py --scene Bg0015 against the bridge clone's gamedata so the committed module cannot drift unnoticed. Following the exact pattern test_pf_scan_field_scene_candidates.py already set (round ctflxc) so this pin exists in the same commit as the test, not after it."
+    },
+    {
       "key": "client_image",
       "module": "tests/test_move_authority_targetpos_static.py",
       "count": 8,
