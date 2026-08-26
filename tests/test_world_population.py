@@ -285,6 +285,41 @@ class WorldPopulationTests(unittest.TestCase):
             name_tag = self.legacy.wstr_tag(placement.source_name)
             self.assertIn(name_tag, entry)
 
+    def test_p30_uses_the_measured_override_name_not_the_tables_own(self) -> None:
+        """pf-adversary (this round): today
+        ``PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS[30].source_name`` and
+        ``V119_P30_TARGET_NAME`` happen to both be "Tornado Eagle", so the
+        ``is_monster`` branch in ``_entry()`` is untestable coincidence, not
+        a proven precedence - deleting the branch entirely (falling through
+        to ``placement.source_name`` for every member, P30 included) passes
+        every other test in this file unchanged. This test forces the two
+        values apart with a drifted legacy stand-in (same pattern as
+        ``test_control_rung_refuses_to_measure_a_drifted_default``) and
+        proves the override wins: if a future edit collapses the ternary,
+        or the frozen table's P30 name ever drifts from the measured V119
+        override without anyone noticing, this is what catches it.
+        """
+        from pirateforce_foundation.population import load_port_royal_placements
+        from pirateforce_foundation.world_population import (
+            SHIPPED_MONSTER_INDEX,
+            _entry,
+        )
+
+        placements = {
+            placement.placement_index: placement
+            for placement in load_port_royal_placements(self.legacy)
+        }
+        p30 = placements[SHIPPED_MONSTER_INDEX]
+        self.assertEqual(p30.source_name, self.legacy.V119_P30_TARGET_NAME)
+
+        drifted = types.SimpleNamespace(**vars(self.legacy))
+        drifted.V119_P30_TARGET_NAME = "Adversary Drift Probe"
+        self.assertNotEqual(drifted.V119_P30_TARGET_NAME, p30.source_name)
+
+        entry = _entry(drifted, p30)
+        self.assertIn(drifted.wstr_tag("Adversary Drift Probe"), entry)
+        self.assertNotIn(drifted.wstr_tag(p30.source_name), entry)
+
     def test_identities_follow_the_frozen_actor_identity_rule(self) -> None:
         top = build_world_population(self.legacy, self.anchor, CENSUS_COUNT, scene_id=1)
         self.assertEqual(
