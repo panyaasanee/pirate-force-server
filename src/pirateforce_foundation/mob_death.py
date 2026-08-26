@@ -400,6 +400,12 @@ REFUSE_LEDGER_DISAGREES_WITH_REGISTER = "ledger_disagrees_with_register"
 REFUSE_OUTCOME_DISAGREES_WITH_ROSTER = "outcome_disagrees_with_roster"
 REFUSE_REGISTER_STALE = "register_stale"
 REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE = "target_outside_the_sanctioned_scope"
+# pf-adversary (round lp6hg4): roster_override_coverage checked only that
+# ``override`` itself was a dict, not that its entries were well-typed -
+# every real caller's dict happens to satisfy this, so no live failure was
+# found, but the module's other contract functions all validate their
+# inputs by type rather than trusting the caller, and this one should too.
+REFUSE_OVERRIDE_ENTRY_NOT_INT_BYTES = "override_entry_not_int_bytes"
 # ~~REFUSE_HOLD_OUT_OF_RANGE~~ never declared as its own name: the hold is
 # checked by the same range check as every other integer here, which raises
 # REFUSE_VALUE_OUT_OF_RANGE, and a second name that can never be raised is a
@@ -426,6 +432,7 @@ MOB_DEATH_REFUSAL_REASONS = (
     REFUSE_OUTCOME_DISAGREES_WITH_ROSTER,
     REFUSE_REGISTER_STALE,
     REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE,
+    REFUSE_OVERRIDE_ENTRY_NOT_INT_BYTES,
 )
 
 _FLOAT32_MAX = 3.4028234663852886e38
@@ -1616,6 +1623,15 @@ def roster_override_coverage(
     if type(override) is not dict:
         raise MobDeathContractError(
             REFUSE_TYPE_NOT_TYPED_RECORD, "override must be a dict")
+    for identity, entry in override.items():
+        if type(identity) is not int or type(identity) is bool:
+            raise MobDeathContractError(
+                REFUSE_OVERRIDE_ENTRY_NOT_INT_BYTES,
+                "override key must be an int identity")
+        if type(entry) is not bytes:
+            raise MobDeathContractError(
+                REFUSE_OVERRIDE_ENTRY_NOT_INT_BYTES,
+                "override value must be bytes")
     census_set = set(census_identities)
     matched = tuple(sorted(i for i in override if i in census_set))
     missing = tuple(sorted(i for i in override if i not in census_set))

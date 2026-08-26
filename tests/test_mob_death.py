@@ -577,6 +577,28 @@ class MobDeathTests(unittest.TestCase):
         self.assertEqual(
             caught.exception.reason, mob_death.REFUSE_TYPE_NOT_TYPED_RECORD)
 
+    def test_roster_override_coverage_refuses_a_non_int_key(self):
+        with self.assertRaises(MobDeathContractError) as caught:
+            roster_override_coverage({"0x201F": b"a"}, [0x201F])
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_OVERRIDE_ENTRY_NOT_INT_BYTES)
+
+    def test_roster_override_coverage_refuses_a_bool_key(self):
+        # bool is a subclass of int; True/False must not pass as identities.
+        with self.assertRaises(MobDeathContractError) as caught:
+            roster_override_coverage({True: b"a"}, [1])
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_OVERRIDE_ENTRY_NOT_INT_BYTES)
+
+    def test_roster_override_coverage_refuses_a_non_bytes_value(self):
+        with self.assertRaises(MobDeathContractError) as caught:
+            roster_override_coverage({0x201F: "a"}, [0x201F])
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_OVERRIDE_ENTRY_NOT_INT_BYTES)
+
     def test_describe_roster_override_coverage_is_ascii_console_lines(self):
         lines = describe_roster_override_coverage(
             {0x201F: b"a", 0x2099: b"c"}, [0x201F])
@@ -611,7 +633,6 @@ class MobDeathTests(unittest.TestCase):
             override, generation.actor_identities)
         self.assertEqual(coverage["missing"], ())
         self.assertEqual(coverage["matched_count"], len(self.roster))
-        self.assertEqual(coverage["matched_count"], 13)
 
     def test_full_roster_override_refuses_the_same_way_repopulation_does(self):
         # It is a thin wrapper over repopulation_entries and must not swallow
