@@ -72,8 +72,26 @@ What IS measured, in this repository, against the real
     CLEARING ITS ACTOR LIST - inferred from a run whose own report refuses to
     claim it, and never once sent with ZERO entries by this project.  The
     attended answer is free: RIDER-081-A on GT-081 asks a tester who is
-    already crossing to write down what they see.  The static half is
-    ``RE-077 T5``, open, no result.
+    already crossing to write down what they see.
+
+    THE SENTENCE THAT USED TO END THIS PARAGRAPH WAS WRONG, AND THIS LANE
+    WROTE IT.  It said: "The static half is ``RE-077 T5``, open, no result."
+    ``RE-077``'s result letter (``pf_bridge/notes_to_chief/20260826_0120_
+    RE-077-RESULT-SCENE-TRANSITION-SEQUENCE-PINNED.md``) closed T5 as a
+    BOUNDED NEGATIVE at 01:20 on the same day, with the switch-scene cleanup
+    slot ``0x004C7160`` and its helper ``0x004C6920`` walked as a complete
+    recursive CFG.  The mistake came from reading the ticket header in
+    ``CLIENT_RE_QUEUE.md``, which still says OPEN, instead of the letter.
+
+    WHAT THE BOUNDED NEGATIVE ACTUALLY SAYS, AND WHY IT CHANGES NOTHING HERE.
+    Those functions do clear world/app collections, but indirect calls remain
+    unresolved and there is no identity-membership crosswalk, so the letter
+    refuses BOTH readings in its own words: the static evidence "is not enough
+    to claim either side; do not shorten this to remote actors being preserved
+    or dropped".  So the static half is CLOSED and it is closed on "nobody
+    knows".  This module's empty generation is still resting on inference, the
+    attended eye is still the first answer, and no reader may cite T5 for
+    either direction.
 
 WHAT ELSE IS IN THAT COLLECTION - THE BLAST RADIUS.  ``make_runtime_remote_actors``
 is the only remote-actor collection in this tree, and fourteen modules compose
@@ -205,6 +223,24 @@ def _ascii_safe(text: Any, limit: int = 120) -> str:
 
 
 @dataclass(frozen=True)
+class MembershipReset:
+    """The two frozen-state fields a crossing has to rewrite, together.
+
+    ``v141:3579`` holds ``population_indices`` and ``v141:4326-4360`` reads a
+    refresh anchor beside it.  They describe ONE scene between them; written
+    apart, they can describe two.
+    """
+
+    population_indices: tuple[int, ...] | None
+    population_refresh_anchor: tuple[float, float, float] | None
+
+    @property
+    def clears_everything(self) -> bool:
+        return (self.population_indices is None
+                and self.population_refresh_anchor is None)
+
+
+@dataclass(frozen=True)
 class SceneHandoff:
     """One composed handoff: what it is, why, where it goes, and the bytes.
 
@@ -243,10 +279,40 @@ class SceneHandoff:
         The caller owns the server-side membership set (``population_indices``
         in the frozen state) and cannot keep it honest without this.  See the
         note on the ChooseNPC path in ``handoff_report``.
+
+        PREFER ``membership_reset``.  This property is half of a pair and
+        nothing here stops a caller taking only the half they remembered.
         """
         if self.generation is None:
             return ()
         return tuple(self.generation.indices)
+
+    @property
+    def membership_reset(self) -> "MembershipReset":
+        """BOTH server-side fields, as one object that cannot be half-taken.
+
+        The round that built this module wrote down the hazard it was leaving
+        open: a caller who sets ``population_indices`` from ``membership`` and
+        forgets ``population_refresh_anchor`` leaves the frozen state holding
+        the OLD scene's anchor, and this module has no test that can see it.
+        The fix is not another sentence in a letter - it is handing the caller
+        one value with both fields in it, so the two cannot disagree.
+
+            crossing INTO the census scene -> the census's own membership and
+            the anchor it was actually built at, which is the arrival
+            position rather than anything the caller has to remember.
+
+            every other crossing, and every unavailable handoff -> None and
+            None.  Clearing on UNAVAILABLE is deliberate: no frame goes out,
+            so the client keeps the old scene's actors, and the frozen state's
+            ``last_target_pos`` is already in the new scene - which is exactly
+            the state where one ChooseNPC recomposes the old town into the new
+            map.  A membership nobody can answer for is a membership to drop.
+        """
+        if self.kind != KIND_CENSUS or self.generation is None:
+            return MembershipReset(None, None)
+        return MembershipReset(
+            tuple(self.generation.indices), tuple(self.generation.anchor))
 
 
 def _require_scene_id(scene_id: Any) -> int:
@@ -508,6 +574,9 @@ def handoff_report(handoff: SceneHandoff) -> dict:
         "frame_bytes": len(handoff.frame),
         "reapply_ms": handoff.reapply_ms,
         "membership": handoff.membership,
+        "membership_reset_indices": handoff.membership_reset.population_indices,
+        "membership_reset_anchor": (
+            handoff.membership_reset.population_refresh_anchor),
         "wire_actor_count": None,
         "census": None,
     }
