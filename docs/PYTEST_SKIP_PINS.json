@@ -469,6 +469,17 @@
       "note": "round g627j0 (LANE-B): field_drop_tables.py is GENERATED, and this is the test that re-runs its generator with --check so the shipped table cannot drift from the bridge clone's gamedata unnoticed. A clone without pf_bridge beside it cannot answer, so the skip is declared rather than hand-written - the first draft wrote a bare skipTest and the gate's skip census caught it."
     },
     {
+      "key": "bridge_gamedata",
+      "module": "tests/test_pf_scan_field_scene_candidates.py",
+      "count": 3,
+      "tests": [
+        "FieldSceneCandidatesRegenerateAndDiffTest::test_regenerating_reproduces_the_committed_report_byte_for_byte",
+        "FieldSceneCandidatesRegenerateAndDiffTest::test_scene_278_scans_as_zero_hostile_under_the_shipped_tables",
+        "FieldSceneCandidatesRegenerateAndDiffTest::test_control_scene_refusal_fires_on_a_tampered_mobs_row"
+      ],
+      "note": "round ctflxc (LANE-B): tools/pf_scan_field_scene_candidates.py is the census behind the BUILD-004 field-scene blocker, and these three re-run it against the bridge clone's gamedata so docs/FIELD_SCENE_CANDIDATES.json cannot drift unnoticed and the scene-278-is-empty finding stays checked. pf-adversary caught the first draft shipping this test file with no matching pin, which would have failed this exact census on any machine without pf_bridge beside it."
+    },
+    {
       "key": "client_image",
       "module": "tests/test_move_authority_targetpos_static.py",
       "count": 8,
