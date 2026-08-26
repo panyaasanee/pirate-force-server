@@ -16,6 +16,7 @@ from . import mob_pickup
 from . import world_density
 from . import world_population
 from . import world_scene_entry
+from . import world_scene_liveness
 from . import world_scene_travel
 from . import world_travel_gate
 
@@ -507,6 +508,51 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
     # a caller that passes a preloaded registry skips re-reading the file on
     # every login.
     scene_entry_registry = world_scene_travel.load_scene_registry()
+    # CORE-REQUEST (LANE-A, notes_to_chief/20260826_1010 letter item 4-2).
+    # Preloaded ONCE here too, same reason as the two pins just above: a
+    # broken scene registry fails the boot in front of an operator instead
+    # of every later login.  Report-only -- decide() below is always called
+    # with rewrite left at its default False, so this ledger never writes a
+    # row; it only makes a half-wired reporter visible in its counters
+    # instead of looking like an honest empty ledger (world_scene_liveness.py
+    # module docstring, "WHY THIS DOES NOT REWRITE ANYTHING").  Stood down
+    # under the SAME predicate CORE-REQUEST-004 section 3 point 2 required
+    # for the travel gate (scenario_stand_down(active_lanes), not
+    # lane_reason(): this ledger has nothing to do with the debug-only
+    # walk-in gate and must not go inert just because that flag is off).
+    #
+    # PF-ADVERSARY FINDING, round kdx85r, READ BEFORE READING THIS LEDGER'S
+    # CONSOLE LINE IN PRODUCTION: travel_gate_debug_enabled is False by COO
+    # ruling in every real boot (see world_travel_gate.lane_reason, just
+    # above this block), so world_travel_gates.observe() returns inert on
+    # every position report and NEVER calls _travel_gate_emit with a
+    # WORLD_TRAVEL_SETTLED line -- only the one WORLD_TRAVEL_INERT line at
+    # session construction.  That line still counts toward lines_seen (so
+    # lines_seen alone does NOT distinguish a working half-wire from a
+    # broken one), but settle_lines_seen ("settles=" in the console line)
+    # stays 0 for the life of the process, by this design choice and not by
+    # a gap in the wiring below.  An operator reading a wall of
+    # "decision=flag reason=no_record ... settles=0" lines in production is
+    # reading the expected, permanent state of every login, not a fault.
+    scene_liveness_ledger = world_scene_liveness.SceneLivenessLedger.preload(
+        registry=scene_entry_registry,
+    )
+    scene_liveness_stand_down_reason = world_travel_gate.scenario_stand_down(
+        active_lanes)
+    if scene_liveness_stand_down_reason is not None:
+        scene_liveness_ledger.stand_down(scene_liveness_stand_down_reason)
+
+    def _travel_gate_emit(line):
+        # The same emit hook CORE-REQUEST-004 already writes the gate's
+        # console lines through -- fanned out so the liveness ledger sees
+        # every WORLD_TRAVEL_SETTLED line the gate ever prints, without a
+        # second call site and without changing what the gate itself prints.
+        # tests/test_world_scene_liveness_wiring.py drives a real crossing
+        # through this exact closure (debug enabled) to prove the fan-out
+        # actually reaches the ledger, not only that a line was printed.
+        print(line)
+        scene_liveness_ledger.observe_console_line(line)
+
     # CORE-REQUEST-007 (MOB-PICKUP-001), MOB_PICKUP_WIRING: "the server holds
     # ONE mob_pickup.BagCellRegistry the same way it holds [the scene's
     # ledger cell]" -- ONE PER SERVER, not per session, so it is built here,
@@ -928,8 +974,14 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.world_travel_gates = (
                     world_travel_gate.TravelGateSet.from_preloaded(
                         inert_reason=world_travel_lane_reason,
+                        emit=_travel_gate_emit,
                     )
                 )
+                # Same process-wide ledger every session closes over -- kept
+                # on self, mirroring world_travel_gates just above, so a
+                # caller (a test, a future ops hook) can read what this
+                # session's login actually saw without a second call site.
+                self.scene_liveness_ledger = scene_liveness_ledger
                 self.arena_scenario = scenario
                 self.arena_spawned = False
                 self.arena_target_captured = False
@@ -4310,6 +4362,22 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             "world_scene_entry_refused_no_reply"
                         )
                         return []
+                    # CORE-REQUEST (LANE-A, notes_to_chief/20260826_1010
+                    # letter item 4-2/4-3).  Report-only, appended right
+                    # after CORE-REQUEST-003's own resolve_entry call: the
+                    # rewrite keyword is never passed here, so decide() stays
+                    # on its own default and this can never change what the
+                    # player above actually receives.  self.foundation.
+                    # selected.position is the stored row exactly as it was
+                    # BEFORE resolve_entry ran -- nothing above this line
+                    # writes it.
+                    liveness_verdict = world_scene_liveness.decide(
+                        self.foundation.selected.position,
+                        scene_liveness_ledger,
+                    )
+                    print(world_scene_liveness.liveness_console_line(
+                        liveness_verdict, scene_liveness_ledger,
+                    ))
                     # CORE-REQUEST-006 (LANE-GM / GM-001).  ALWAYS ON, no
                     # scenario flag: docs/GM_LANE.md's own wiring request is
                     # "call make_gm_update_state_frame after a successful
