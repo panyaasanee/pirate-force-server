@@ -313,7 +313,15 @@ MOB_DEATH_NONCLAIMS = (
     "distinguishable following it; it is sent here because the static gate "
     "needs it, not because its effect has been watched",
     "nothing dispatches this module: runtime.py belongs to the chief and the "
-    "one wiring line has not been written",
+    "one wiring line has not been written. "
+    "[STALE as of runtime.py CORE-REQUEST-005, PR #63, round mdj01v, "
+    "2026-08-26] [MEASURED, by call-site reading]: the wiring line HAS been "
+    "written (mob_death.kill/commit_death run after mob_combat.commit_step "
+    "reports death_due, unconditionally on a flagless boot, scoped to "
+    "SANCTIONED_FIRST_TARGET_IDENTITY 0x201F). What is still true from the "
+    "nonclaims around it: nobody has watched the corpse the death task "
+    "produces, and the inbound EA7D that would drive a real kill is still "
+    "unproven",
     "the hold between the two frames is OURS and unmeasured; the only spacing "
     "ever sent to a client on this carrier is GT-022's 6000 ms, which is "
     "unplayable, and whether the client needs any hold at all is unknown",

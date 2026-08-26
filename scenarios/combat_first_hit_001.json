@@ -34,7 +34,7 @@
   "selection": "none_default_behaviour_no_scenario_flag",
   "nonclaims": [
     "a real attack input has never been observed producing the EA7D ActionVital this driver reads; the inbound half is unproven",
-    "nothing dispatches this module: runtime.py belongs to the chief and the one wiring line has not been written",
+    "nothing dispatches this module: runtime.py belongs to the chief and the one wiring line has not been written. [STALE as of runtime.py CORE-REQUEST-005, PR #63, round mdj01v, 2026-08-26] [MEASURED, by call-site reading]: the wiring line HAS been written and runs unconditionally on a flagless boot; what remains true is the nonclaim right above this one -- the inbound half that would drive it from a real attack is still unproven",
     "death is delivered by mob_death, not by this module: what this lane claims is the arithmetic that reaches zero and the announce frame that says so, and the corpse itself has never been watched land",
     "the monster's constitution is OURS - no committed table carries one",
     "name colour is not claimed by this lane; RE-067 owns it and is open",
