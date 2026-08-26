@@ -159,21 +159,28 @@ MOB_PICKUP_LANE = "B_COMBAT"
 MOB_PICKUP_WIRING = (
     "runtime.py.  The scene already holds ONE mob_loot.DropLedgerCell (see "
     "mob_loot.MOB_LOOT_WIRING).  This lane adds no second owner of the ground "
-    "-- but it DOES need an owner of the BAG, and that is BagCell, one per "
-    "selected character, held for as long as the session is.\n"
-    "  When an inbound pickup request has been decoded to (claimant identity, "
-    "claimant position, object reference dword, the request's u8):\n"
+    "-- but it DOES need an owner of the BAG, and the server holds ONE "
+    "mob_pickup.BagCellRegistry the same way it holds that ledger cell.\n"
+    "  AT CHARACTER SELECT:\n"
+    "  0. bag_cell = registry.claim(character_id, store.get_backpack(...))\n"
+    "     - claim() is the whole point: a SECOND live cell for one character "
+    "would allocate the same slot and the same identity as the first, and "
+    "both drops would leave the ground.  The second claim is refused by name "
+    "(bag_already_claimed) instead.\n"
+    "     - registry.release(character_id) on logout, disconnect or a "
+    "character switch.  A teardown that never runs leaves the character "
+    "claimed and the next select refuses out loud, which is the failure this "
+    "lane wants.\n"
+    "  ON AN INBOUND PICKUP REQUEST, decoded to (claimant identity, claimant "
+    "position, object reference dword, the request u8):\n"
     "  1. claim = mob_pickup.PickupClaim(identity, x, y, z, object_ref_u32, "
     "opaque_u8)\n"
-    "  2. outcome = bag_cell.commit_pickup(drop_ledger_cell, claim, "
-    "character_id)\n"
-    "     - the bag cell is seeded ONCE from store.get_backpack() when the "
-    "character is selected, and it OWNS the value afterwards.  Do NOT pass "
-    "store.get_backpack() per pickup: a bag read is a VALUE, two pickups "
-    "resolved against one value pick the same slot and the same identity, and "
-    "the second row is then refused by the database's UNIQUE(character_id, "
-    "slot) -- after its drop has already left the ground.  The cell exists so "
-    "that refusal happens BEFORE the take, where it costs nothing.\n"
+    "  2. outcome = bag_cell.commit_pickup(drop_ledger_cell, claim, legacy)\n"
+    "     - PASS THE LEGACY MODULE.  With it, the response bytes are composed "
+    "INSIDE the transaction, before the row leaves the ground, and a byte "
+    "problem refuses the pickup instead of eating it.  Composing them "
+    "afterwards is how an earlier version of this very line put four "
+    "refusals on the far side of the take.\n"
     "     - every refusal is a MobPickupContractError whose first argument is "
     "one of MOB_PICKUP_REFUSAL_REASONS.  EXACTLY ONE of them means the row is "
     "gone: drop_left_the_ground.  Every other refusal, including "
@@ -181,25 +188,24 @@ MOB_PICKUP_WIRING = (
     "untouched.  Do not retry drop_left_the_ground.\n"
     "     - THE LOSER OF A RACE USUALLY SEES drop_already_taken, not "
     "drop_left_the_ground: the window between resolve and take is a handful "
-    "of instructions and the row is normally gone before resolve runs.  Both "
-    "mean the same thing operationally (somebody else has it, or the caller "
-    "pruned it) and neither is evidence about RE-082.\n"
+    "of instructions and the row is normally gone before resolve runs.  "
+    "NEITHER refusal is evidence about RE-082 -- see the note on that split "
+    "in resolve_claim.\n"
     "  3. PERSIST outcome.row_write with ONE INSERT into "
     "character_backpack_items, in the same transaction as the ack.  The "
     "column order is BagRowWrite.COLUMNS and the values are "
     "outcome.row_write.values().  A stale identity is refused by the primary "
-    "key and a stale slot by UNIQUE(character_id, slot); if either fires, the "
-    "bag cell was not the only writer of that bag and the session is wrong, "
-    "not the row.\n"
+    "key and a stale slot by UNIQUE(character_id, slot); if either fires, "
+    "two cells were claimed for one character and the session is wrong, not "
+    "the row.\n"
     "     - STOP: THIS INSERT IS NOT SAFE TO MAKE YET.  See THE WALL in the "
     "module docstring: the character-select path refuses a bag holding it.  "
     "The item lane must widen inventory.require_known_backpack FIRST.  Until "
-    "then, wire steps 1, 2 and 4 and log step 3 rather than running it -- "
+    "then, wire steps 0, 1, 2 and 4 and log step 3 rather than running it -- "
     "which is safe precisely because the bag cell, not the database, is what "
     "keeps two pickups in one session apart.\n"
-    "  4. send mob_pickup.bag_delta_pc(legacy, outcome.item) to the claimant "
-    "so a client already in the world sees the row without relogging.  It is "
-    "a (pc, frame) pair, already framed.\n"
+    "  4. send outcome.delta to the claimant -- it is the (pc, frame) pair "
+    "step 2 already composed and validated.  Do NOT call bag_delta_pc here.\n"
     "  5. nothing else.  There is no ground object to delete: the label lives "
     "0.2-0.4 s and expires by itself, and taking the row through the cell "
     "stops mob_loot.refresh_frames from re-emitting it.\n"
@@ -270,6 +276,17 @@ MAX_SLOT_QUANTITY = 0xFFFF
 # can produce stands at 15 steps, not 16.  The first draft used the wrong one
 # and then claimed "and nothing beyond it", which its own test disproved by
 # using the right multiplier.
+#
+# AND THE DERIVATION IS ONE-DIMENSIONAL WHILE THE GATE IS THREE.  mob_loot
+# scatters on X ONLY -- y and z are copied unchanged -- so this number
+# describes a segment, and the same 450 is then allowed in Y and Z where the
+# scatter is zero and the derivation says nothing at all.  Two consequences
+# this lane states rather than hides: reach from the death point along +X is
+# 450 of scatter plus 450 of gate, so 900; and a claimant 449 units above or
+# below a drop passes on nothing.  mob_loot's own comment on the step says
+# "MULTIPLYING it is ours and is measured by nobody", and multiplying it is
+# now load-bearing twice over.  It stays generous on purpose (NONCLAIM 5) and
+# it stays unmeasured until somebody measures it.
 PICKUP_RADIUS = mob_loot.DROP_SCATTER_STEP * (mob_loot.MAX_DROPS_PER_KILL - 1)
 
 # mob_loot never places money on the ground -- it has no element -- so no
@@ -331,14 +348,20 @@ MOB_PICKUP_NONCLAIMS = (
     "10. Nothing here writes a database row, opens a socket, reads a clock or "
     "reads a file.  It is a pure transaction over values plus one take "
     "through mob_loot's cell.",
-    "11. THE BAG NEEDS AN OWNER AND BagCell IS IT, IN THIS PROCESS ONLY.  A "
-    "BackpackState is a VALUE, and two pickups resolved against one value "
-    "pick the same slot and the same identity.  ~~'the primary key does not "
-    "catch that -- it keys identity, not slot'~~ IS STRUCK AND WAS FALSE: "
-    "migration 003 carries UNIQUE(character_id, slot) as well as the primary "
-    "key, so the database refuses the second row loudly.  It refuses it AFTER "
-    "the drop has left the ground, which is why the answer is a cell that "
-    "refuses BEFORE the take, and not a check bolted onto the write.",
+    "11. THE BAG NEEDS AN OWNER; BagCell IS IT AND BagCellRegistry IS WHAT "
+    "MAKES IT ONE.  A BackpackState is a VALUE, and two pickups resolved "
+    "against one value pick the same slot and the same identity.  ~~'the "
+    "primary key does not catch that -- it keys identity, not slot'~~ IS "
+    "STRUCK, AND PRECISELY: that SENTENCE is true, the INFERENCE drawn from "
+    "it was false.  Migration 003 carries UNIQUE(character_id, slot) as well "
+    "as the primary key, so the database refuses the second row loudly -- but "
+    "AFTER the drop has left the ground, which is why the answer is a cell "
+    "that refuses BEFORE the take and not a check bolted onto the write.  "
+    "~~and why a cell was enough~~ IS STRUCK TOO: a constructor is not "
+    "something a second caller can lose, so 'one cell per character' was an "
+    "instruction exactly as unenforced as 'do not pass the value twice' had "
+    "been.  The registry is where the claim is atomic and a second claimant "
+    "is refused by name.",
     "12. NO PLAYER CAN ORIGINATE A CLAIM TODAY, and it is not the opcode that "
     "stops them.  GT-046's producer needs a SELECTED LIVE DROP-OBJECT to copy "
     "its dword out of, and GT-045 measured that this pipe draws a name label "
@@ -347,10 +370,11 @@ MOB_PICKUP_NONCLAIMS = (
     "transaction behind a door nobody can knock on yet.",
     "13. THE REQUEST HAS TWO FIELDS AND THIS LANE ACTS ON ONE.  The proven "
     "body carries the dword at object+0x14 and a u8 at object+0x18.  "
-    "PickupClaim carries both, validates both and reports both, and acts on "
-    "the dword only, because nothing has measured what the u8 means.  If it "
-    "turns out to be a partial-take count or a target slot, this lane is "
-    "carrying it rather than having discarded it.",
+    "PickupClaim carries both and validates both; the outcome and the report "
+    "carry the u8 through so it reaches whoever reads a log.  Nothing acts on "
+    "it, because nothing has measured what it means.  The first draft claimed "
+    "to report it and did not -- it stopped at the claim record, which is "
+    "'discarded one step past the door' rather than carried.",
     "14. THE ITEM IDENTITY IS DERIVED, NOT A HIGH-WATER MARK, and mob_loot "
     "wrote down why that shape is a bug: a bag that has ever SHRUNK hands the "
     "next pickup an identity a client may still be holding.  There is nowhere "
@@ -390,6 +414,7 @@ REFUSE_BAG_ROW_COLLIDES = "bag_row_collides"
 REFUSE_BAG_IS_FULL = "bag_is_full"
 REFUSE_IDENTITY_BLOCK_SPENT = "identity_block_spent"
 REFUSE_IDENTITY_HIGH_WATER_BELOW_THE_BAG = "identity_high_water_below_the_bag"
+REFUSE_BAG_ALREADY_CLAIMED = "bag_already_claimed"
 # The ONLY refusal in this module that means the row is already off the ground.
 REFUSE_DROP_LEFT_THE_GROUND = "drop_left_the_ground"
 REFUSE_COMPOSED_BYTES_OFF_PIN = "composed_bytes_off_pin"
@@ -408,6 +433,7 @@ MOB_PICKUP_REFUSAL_REASONS = (
     REFUSE_BAG_IS_FULL,
     REFUSE_IDENTITY_BLOCK_SPENT,
     REFUSE_IDENTITY_HIGH_WATER_BELOW_THE_BAG,
+    REFUSE_BAG_ALREADY_CLAIMED,
     REFUSE_DROP_LEFT_THE_GROUND,
     REFUSE_COMPOSED_BYTES_OFF_PIN,
 )
@@ -457,6 +483,9 @@ def _require_finite(value: Any, label: str) -> float:
             REFUSE_POSITION_NOT_FINITE, "%s must be a finite float32 value"
             % label)
     return result
+
+
+UNNAMED_ITEM_LABEL = "item %d"
 
 
 def item_name(item_id: int) -> str:
@@ -512,10 +541,32 @@ class PickupClaim:
         return (float(self.x), float(self.y), float(self.z))
 
 
+def _require_triple(value: Any, label: str) -> tuple:
+    """An (x, y, z) of finite numbers, refused BY NAME when it is not.
+
+    The first version unpacked straight into three names, so a two-element
+    tuple left this public function raising a bare unpack ValueError that
+    ``except MobPickupContractError`` does not catch.
+    """
+    try:
+        parts = tuple(value)
+    except TypeError:
+        raise MobPickupContractError(
+            REFUSE_POSITION_NOT_FINITE,
+            "%s must be an (x, y, z) triple" % label) from None
+    if len(parts) != 3:
+        raise MobPickupContractError(
+            REFUSE_POSITION_NOT_FINITE,
+            "%s must be an (x, y, z) triple, got %d values"
+            % (label, len(parts)))
+    return tuple(
+        _require_finite(part, "%s component" % label) for part in parts)
+
+
 def squared_distance(here: Any, there: Any) -> float:
     """Full 3D, squared, the way the aggro lane compares distances."""
-    ax, ay, az = (_require_finite(value, "position component") for value in here)
-    bx, by, bz = (_require_finite(value, "position component") for value in there)
+    ax, ay, az = _require_triple(here, "position")
+    bx, by, bz = _require_triple(there, "position")
     return (ax - bx) ** 2 + (ay - by) ** 2 + (az - bz) ** 2
 
 
@@ -670,6 +721,16 @@ def next_item_identity(bag: Any, issued_through: Any = None) -> int:
     then place-by-slot, which is exactly the loop that confuses two things
     wearing one identity.
 
+    THE WORD MEANS THE OPPOSITE THING ONE MODULE OVER, SO READ THIS BEFORE
+    STORING ONE.  ``mob_loot.DropLedger.issued_through`` is EXCLUSIVE -- the
+    next key to hand out, and a row at or above it is refused.  The mark this
+    function takes is INCLUSIVE: the highest identity ALREADY ISSUED, so it
+    returns ``mark + 1``.  Two conventions under one word in one file is how
+    a column gets built against the wrong one: a stored "next free" seeded
+    here skips an identity per session, a stored "last issued" is correct.
+    The parameter is named for what it is in the caller's world; what this
+    lane needs is the LAST ISSUED value.
+
     THERE IS NOWHERE TO PERSIST A HIGH-WATER MARK TODAY.  Neither
     ``character_backpacks`` nor migration 003 has a column for one, and adding
     one is the item lane's call, not this lane's.  So this function ACCEPTS a
@@ -778,10 +839,34 @@ class PickupOutcome:
     bag_before: BackpackState
     bag_after: BackpackState
     row_write: BagRowWrite
+    # Composed BEFORE the take and carried, never composed afterwards.  See
+    # BagCell.commit_pickup: an adversarial pass followed this lane's own
+    # wiring recipe and found that composing the delta at step 4 -- after the
+    # step-2 take -- put four more refusals on the far side of the take, which
+    # is the exact defect the round had just removed from somewhere else.
+    delta: Any = None
+    # The request's second field, carried through so a report can show it.
+    opaque_u8: int = 0
 
     @property
     def display_name(self) -> str:
-        return item_name(self.item.template_id)
+        """The name a person would read, and NEVER a raise.
+
+        ``PickupOutcome`` is the one typed record in this file with no
+        ``__post_init__``, and that is deliberate: it is constructed AFTER the
+        row has left the ground, so a validator here would be a refusal that
+        destroys what it refuses.  The cost is that this property must be
+        total.  It was not -- it indexed the drop table directly, so an
+        outcome naming one of the four rows a character SHIPS with (none of
+        which are in this lane's drop tables) raised a bare KeyError inside a
+        listener thread.  Nothing can build such an outcome today; the day
+        NONCLAIM 6 is relaxed and an existing bag row becomes the subject, it
+        could.
+        """
+        row = field_drop_tables.ITEMS.get(self.item.template_id)
+        if row is None or not row[2]:
+            return UNNAMED_ITEM_LABEL % self.item.template_id
+        return row[2]
 
     @property
     def persisted(self) -> bool:
@@ -828,6 +913,83 @@ def place_in_bag(bag: Any, drop: Any, issued_through: Any = None) -> tuple:
         tuple(sorted(bag.items + (item,), key=lambda row: row.identity)),
     )
     return require_bag_shape(after), item
+
+
+class BagCellTaken(MobPickupContractError):
+    """A second cell was asked for a character that already has a live one."""
+
+
+class BagCellRegistry:
+    """WHO IS ALLOWED TO OWN A CHARACTER'S BAG.  One per server.
+
+    WHY A SECOND OBJECT, AND WHY IT IS NOT CEREMONY.  ``BagCell`` was written
+    to answer "a caller holding a VALUE cannot allocate against it safely".
+    An adversarial pass then pointed out that the answer had only moved the
+    unenforced instruction one step: the class docstring and the wiring line
+    both said "one per selected character", and NOTHING made a second one
+    fail.  Two cells for one character reproduce the original defect byte for
+    byte -- same slot, same identity, both drops off the ground.
+
+    ``DropLedgerCell`` earned its keep by being a thing a caller can LOSE
+    access to.  A constructor is not that: no second caller can fail to call
+    one.  So the claim is here, it is atomic, and a second claimant is refused
+    by name until the first releases.
+
+    Deliberately not a module global: a global is a second, invisible owner,
+    and this project has spent two rounds learning what an unowned value
+    costs.  The server holds this object the way it holds the scene's ledger
+    cell.
+    """
+
+    def __init__(self) -> None:
+        self._cells = {}
+        self._lock = threading.Lock()
+
+    def claim(self, character_id: Any, bag: Any,
+              issued_through: Any = None) -> "BagCell":
+        """The only way to get a cell.  A second live claim is refused."""
+        character_id = _require_int(
+            character_id, "character id", 1, MAX_ITEM_IDENTITY)
+        # Built OUTSIDE the registry lock so a malformed bag refuses without
+        # holding up every other character's claim -- and so the refusal is
+        # the bag's own named one, not a lock-shaped one.
+        cell = BagCell(bag, character_id, issued_through)
+        with self._lock:
+            live = self._cells.get(character_id)
+            if live is not None:
+                raise BagCellTaken(
+                    REFUSE_BAG_ALREADY_CLAIMED,
+                    "character %d already has a live bag cell; a second one "
+                    "would allocate the same slot and the same identity as "
+                    "the first, which is the defect the cell exists to "
+                    "prevent.  Release the first (a logout, a disconnect, a "
+                    "character switch) before claiming again"
+                    % character_id)
+            self._cells[character_id] = cell
+            return cell
+
+    def release(self, character_id: Any) -> bool:
+        """Give the character back.  True if a cell was actually held.
+
+        THE VALUE IN A RELEASED CELL IS DISCARDED, and that is correct rather
+        than regrettable: this lane never persists, so the cell's bag is a
+        projection of what the database already holds plus whatever this
+        session picked up and could not write (see THE WALL).  A teardown
+        that never runs -- a dropped connection -- leaves the character
+        claimed, and the next select refuses by name rather than quietly
+        handing out a second allocator.  A refusal a person can read beats a
+        duplicate nobody can see.
+        """
+        character_id = _require_int(
+            character_id, "character id", 1, MAX_ITEM_IDENTITY)
+        with self._lock:
+            return self._cells.pop(character_id, None) is not None
+
+    def holds(self, character_id: Any) -> bool:
+        character_id = _require_int(
+            character_id, "character id", 1, MAX_ITEM_IDENTITY)
+        with self._lock:
+            return character_id in self._cells
 
 
 class BagCell:
@@ -879,7 +1041,8 @@ class BagCell:
     def character_id(self) -> int:
         return self._character_id
 
-    def commit_pickup(self, ledger_cell: Any, claim: Any) -> PickupOutcome:
+    def commit_pickup(self, ledger_cell: Any, claim: Any,
+                      legacy: Any = None) -> PickupOutcome:
         """Take one drop off the ground and put it in this bag.  Once.
 
         THE RACE ON THE GROUND, AND WHY A SNAPSHOT IS ENOUGH FOR IT.  The
@@ -923,6 +1086,17 @@ class BagCell:
                 claim.claimant_identity, self._character_id, item.identity,
                 item.template_id, item.quantity, item.slot,
             )
+            # THE BYTES ARE COMPOSED HERE, BEFORE THE TAKE, and that is the
+            # whole reason this method takes a ``legacy`` at all.  The wiring
+            # line used to say "step 4: call bag_delta_pc(legacy, item)" --
+            # after step 2's take -- and bag_delta_pc raises FOUR of this
+            # lane's refusals, every one of them listed as leaving the drop on
+            # the ground.  An adversarial pass ran that recipe with a shim
+            # that moved one legacy constant and watched a drop leave the
+            # ground, nothing get persisted and the client never get told.
+            # Composing inside the transaction means a byte problem refuses
+            # the pickup instead of eating it.
+            delta = None if legacy is None else bag_delta_pc(legacy, item)
             try:
                 taken = ledger_cell.take(drop.drop_key)
             except mob_loot.MobLootContractError as exc:
@@ -940,7 +1114,9 @@ class BagCell:
             self._bag = bag_after
             if self._issued_through is not None:
                 self._issued_through = item.identity
-            return PickupOutcome(taken, item, bag, bag_after, row_write)
+            return PickupOutcome(
+                taken, item, bag, bag_after, row_write, delta,
+                claim.opaque_u8)
 
 
 # ---------------------------------------------------------------------------
@@ -989,15 +1165,57 @@ DELTA_PC_SUFFIX_PIN = bytes((
     0x08, 0x00,
     0x0B, 0x00,
 ))
-# THE FRAME HEADER, and NOT a fixed overhead.  The first draft of this pin
-# asserted "frame is pc + 10 bytes", copying mob_loot's own 54 - 44.  That is
-# true of mob_loot's 44-byte pc and false here: frame_pc prefixes an 8-byte
-# header and then a snappy RAW LITERAL whose own tag is one byte below 60
-# bytes of payload and two above it, so the overhead is a function of the pc's
-# length.  A pin has to be a fact, so the fact is the header: little-endian
-# MAGIC, then the byte count of everything after it.
+# THE FRAME, RE-DERIVED, because the frame is the half that leaves the process
+# and the first two drafts of this pin did not check it.
+#
+# Draft 1 asserted "frame is pc + 10 bytes", copying mob_loot's 54 - 44.  True
+# of a 44-byte pc and false here: the body is a snappy RAW LITERAL whose tag is
+# one byte below 60 bytes of payload and two above it.
+#
+# Draft 2 replaced that with "the header's MAGIC is right and its declared
+# length matches the bytes that follow" -- and an adversarial pass showed the
+# second half is CIRCULAR: frame_pc writes that length itself, so it is true of
+# any body whatsoever.  A shim that framed completely different bytes passed.
+#
+# So the frame is now re-derived here, end to end, from the pc this lane just
+# composed: the 8-byte header, then the varint length, then the literal tag,
+# then the pc itself.  Nothing in it is taken on the legacy module's word.
 DELTA_FRAME_MAGIC = 0x5F253EAC
 DELTA_FRAME_HEADER_SIZE = 8
+DELTA_LITERAL_CHUNK = 65536
+DELTA_LITERAL_SHORT_LIMIT = 60
+
+
+def _varint(value: int) -> bytes:
+    out = bytearray()
+    while value >= 0x80:
+        out.append((value & 0x7F) | 0x80)
+        value >>= 7
+    out.append(value)
+    return bytes(out)
+
+
+def _snappy_raw_literal_via_struct(data: bytes) -> bytes:
+    """The raw-literal encoding, re-derived rather than imported."""
+    out = bytearray(_varint(len(data)))
+    position = 0
+    while position < len(data):
+        chunk = data[position:position + DELTA_LITERAL_CHUNK]
+        length_less_one = len(chunk) - 1
+        if len(chunk) <= DELTA_LITERAL_SHORT_LIMIT:
+            out.append(length_less_one << 2)
+        else:
+            width = max(1, (length_less_one.bit_length() + 7) // 8)
+            out.append((59 + width) << 2)
+            out += length_less_one.to_bytes(width, "little")
+        out += chunk
+        position += len(chunk)
+    return bytes(out)
+
+
+def _frame_via_struct(pc: bytes) -> bytes:
+    body = _snappy_raw_literal_via_struct(pc)
+    return struct.pack("<II", DELTA_FRAME_MAGIC, len(body)) + body
 
 ITEM_ATTR_FIELD_ORDER = (
     ("identity", 0x32, "Q"),
@@ -1102,34 +1320,30 @@ def bag_delta_pc(legacy: Any, item: Any) -> Any:
             "the legacy module this lane does not own has moved underneath it"
             % (len(pc), len(DELTA_PC_PREFIX_PIN) + len(item_wire)
                + len(DELTA_PC_SUFFIX_PIN)))
-    if len(frame) < DELTA_FRAME_HEADER_SIZE:
+    expected_frame = _frame_via_struct(pc)
+    if frame != expected_frame:
         raise MobPickupContractError(
             REFUSE_COMPOSED_BYTES_OFF_PIN,
-            "a framed pc is at least its %d-byte header; this one is %d bytes"
-            % (DELTA_FRAME_HEADER_SIZE, len(frame)))
-    magic, declared = struct.unpack("<II", frame[:DELTA_FRAME_HEADER_SIZE])
-    if magic != DELTA_FRAME_MAGIC:
-        raise MobPickupContractError(
-            REFUSE_COMPOSED_BYTES_OFF_PIN,
-            "the frame header carries 0x%08X and this lane pins 0x%08X"
-            % (magic, DELTA_FRAME_MAGIC))
-    if declared != len(frame) - DELTA_FRAME_HEADER_SIZE:
-        raise MobPickupContractError(
-            REFUSE_COMPOSED_BYTES_OFF_PIN,
-            "the frame header declares %d bytes of body and carries %d"
-            % (declared, len(frame) - DELTA_FRAME_HEADER_SIZE))
+            "the framed bytes are not this lane's own framing of this pc "
+            "(%d bytes composed, %d expected); the frame is the half that "
+            "actually leaves the process"
+            % (len(frame), len(expected_frame)))
     return pc, frame
 
 
-def _observed_behaviour() -> dict:
+def _observed_behaviour(legacy: Any = None) -> dict:
     """Run this lane against itself and report what it actually did.
 
     Every value here is the outcome of an executed transaction on throwaway
-    records: a claim by the killer, a claim by somebody else, a reference that
-    was never issued, two drops of one template, and a full bag against a live
-    ledger.  Nothing is asserted from memory, which is the only way a pin
+    records.  Nothing is asserted from memory, which is the only way a pin
     document can contradict the module it describes -- and the only way the
     test that reads it can fail.
+
+    WIDENED after an adversarial pass: the ordering flag used to be observed
+    from ONE refusal (bag-full) and reported as a statement about the whole
+    lane, while four other refusals sat on the far side of the take by way of
+    the wiring line.  It now walks every refusal a claim can produce and
+    checks the ground after each.
     """
     mob, killer, stranger = 0x201F, 0x750059, 0x750060
     where = (mob_loot.as_wire_float(0.0),) * 3
@@ -1141,9 +1355,9 @@ def _observed_behaviour() -> dict:
         (first, second), 1, mob_loot.DROP_KEY_BASE + 2, ())
     here = PickupClaim(killer, 0.0, 0.0, 0.0, first.drop_key)
 
-    def refusal_of(call, *args):
+    def refusal_of(call, *args, **kwargs):
         try:
-            call(*args)
+            call(*args, **kwargs)
         except MobPickupContractError as exc:
             return exc.args[0]
         return None
@@ -1152,42 +1366,71 @@ def _observed_behaviour() -> dict:
     after_one, item_one = place_in_bag(empty, first)
     _after_two, item_two = place_in_bag(after_one, second)
 
-    # A full bag against a live cell: does the ground move when it refuses?
     full = BackpackState(
         BACKPACK_BASE_MASK, BACKPACK_BASE_IDENTITY, 1,
         tuple(ItemAttrState(slot + 1, 2400046, 1, slot)
               for slot in range(BAG_SLOT_COUNT)))
-    cell = mob_loot.DropLedgerCell(ledger)
-    bag_cell = BagCell(full, 1)
-    before = cell.ledger
-    full_bag_refusal = refusal_of(bag_cell.commit_pickup, cell, here)
-    ground_moved = cell.ledger != before
+
+    # EVERY refusal a claim can reach, each against a fresh ground, each
+    # checked for whether the ground moved.  A shim that breaks the byte
+    # composer is included on purpose: that is the family the wiring line
+    # used to run AFTER the take.
+    class _BrokenLegacy:
+        ITEM_OPERATE_RES_VITAL = 0x0000
+
+        def __getattr__(self, name):
+            return getattr(legacy, name)
+
+    attempts = [
+        ("bag_is_full", full, here, None),
+        ("out_of_range", empty,
+         PickupClaim(killer, 1e6, 0.0, 0.0, first.drop_key), None),
+        ("not_the_killer", empty,
+         PickupClaim(stranger, 0.0, 0.0, 0.0, first.drop_key), None),
+        ("never_issued", empty,
+         PickupClaim(killer, 0.0, 0.0, 0.0, mob_loot.DROP_KEY_LIMIT - 1),
+         None),
+    ]
+    if legacy is not None:
+        attempts.append(("composer", empty, here, _BrokenLegacy()))
+    refused_before_the_take = True
+    refusals_walked = []
+    for name, bag, attempt, shim in attempts:
+        cell = mob_loot.DropLedgerCell(ledger)
+        before = cell.ledger
+        reason = refusal_of(
+            BagCell(bag, 1).commit_pickup, cell, attempt, shim)
+        refusals_walked.append(name)
+        if reason is None or cell.ledger != before:
+            refused_before_the_take = False
+
+    # And the registry: a second claim on one character must LOSE.
+    registry = BagCellRegistry()
+    registry.claim(1, empty)
+    second_claim = refusal_of(registry.claim, 1, empty)
 
     return {
-        "resolves_object_ref_against_the_ledger": refusal_of(
-            resolve_claim, ledger,
-            PickupClaim(killer, 0.0, 0.0, 0.0, mob_loot.DROP_KEY_LIMIT - 1),
-        ) == REFUSE_OBJECT_REF_NEVER_ISSUED,
+        "resolves_object_ref_against_the_ledger": (
+            refusal_of(
+                resolve_claim, ledger,
+                PickupClaim(killer, 0.0, 0.0, 0.0, mob_loot.DROP_KEY_LIMIT - 1),
+            ) == REFUSE_OBJECT_REF_NEVER_ISSUED
+            and resolve_claim(ledger, here) is first),
         "killer_only": refusal_of(
             resolve_claim, ledger,
             PickupClaim(stranger, 0.0, 0.0, 0.0, first.drop_key),
         ) == REFUSE_NOT_THE_KILLER,
-        "pickup_radius": PICKUP_RADIUS,
-        "pickup_radius_is_arithmetic_not_measured": True,
         "pickup_radius_reaches_the_furthest_object_of_one_kill": (
             within_pickup_radius(
                 (0.0, 0.0, 0.0),
                 (mob_loot.DROP_SCATTER_STEP
                  * (mob_loot.MAX_DROPS_PER_KILL - 1), 0.0, 0.0))),
         "stacks": item_one.slot == item_two.slot,
-        "slot_policy": "lowest free slot",
-        "identity_policy": (
-            "highest identity in the bag plus one, or one past a high-water "
-            "mark the caller supplies -- see NONCLAIM 14"),
         "everything_that_refuses_refuses_before_the_take": (
-            full_bag_refusal == REFUSE_BAG_IS_FULL and not ground_moved),
-        "the_one_refusal_that_means_the_row_is_gone": (
-            REFUSE_DROP_LEFT_THE_GROUND),
+            refused_before_the_take),
+        "refusals_walked_for_that_flag": refusals_walked,
+        "a_second_bag_cell_for_one_character_loses": (
+            second_claim == REFUSE_BAG_ALREADY_CLAIMED),
     }
 
 
@@ -1204,6 +1447,9 @@ def pin_document(legacy: Any) -> dict:
     sample_bag = BackpackState(
         BACKPACK_BASE_MASK, BACKPACK_BASE_IDENTITY, 1, ())
     _bag_after, item = place_in_bag(sample_bag, sample_drop)
+    sample_row = BagRowWrite(
+        0x750059, 1, item.identity, item.template_id, item.quantity,
+        item.slot)
     # make_runtime_vitals returns (pc, frame); the pc is what is pinned here
     # because the framing is the same framing every other vitals pc gets.
     body = bag_delta_pc(legacy, item)[0]
@@ -1216,12 +1462,24 @@ def pin_document(legacy: Any) -> dict:
         "test_only": False,
         "production_allowed": True,
         "scenario": None,
-        # EVERY BOOLEAN BELOW IS OBSERVED, NOT TYPED.  The first draft wrote
-        # them as literals, which made the test that reads them back a set of
-        # tautologies -- and left the ordering claim reading True in a
-        # document while a refusal outside its reach was destroying drops.  A
-        # pin that reports what the author believes is not a pin.
-        "transaction": _observed_behaviour(),
+        # SPLIT IN TWO, because "EVERY BOOLEAN BELOW IS OBSERVED" was itself
+        # a claim wider than its evidence: two of the entries under it were
+        # bare literals, and one of those was the most epistemically loaded
+        # flag in the document.  What is observed is observed by running the
+        # lane; what is declared is declared, in its own block, where a reader
+        # can tell them apart.
+        "transaction_observed": _observed_behaviour(legacy),
+        "transaction_declared": {
+            "pickup_radius": PICKUP_RADIUS,
+            "pickup_radius_is_arithmetic_not_measured": True,
+            "pickup_radius_derived_on_x_only": True,
+            "slot_policy": "lowest free slot",
+            "identity_policy": (
+                "highest identity in the bag plus one, or one past a "
+                "high-water mark the caller supplies -- see NONCLAIM 14"),
+            "the_one_refusal_that_means_the_row_is_gone": (
+                REFUSE_DROP_LEFT_THE_GROUND),
+        },
         "bag_row": {
             "table": "character_backpack_items",
             "columns": list(BagRowWrite.COLUMNS),
@@ -1229,10 +1487,13 @@ def pin_document(legacy: Any) -> dict:
             "raw_u8_39": NEW_ROW_RAW_U8_39,
             "detail_present": NEW_ROW_DETAIL_PRESENT,
             "slots": BAG_SLOT_COUNT,
-            "sample_row": [
-                item.identity, item.template_id, item.quantity, item.slot,
-                item.raw_u8_38, item.raw_u8_39, item.detail_present,
-            ],
+            # A DICT, built from the row's own values(), because the first
+            # version was a hand-written list of SEVEN fields printed beside a
+            # column list that had grown to EIGHT.  Every field in it misread
+            # by one position, and no test could see it: the pin test compares
+            # the file to the code, and both were wrong together.
+            "sample_row": dict(zip(
+                BagRowWrite.COLUMNS, sample_row.values())),
         },
         "wire": {
             "shape": "ITEM_OPERATE_RES, one complete ItemAttr, bag count 1",
@@ -1277,6 +1538,12 @@ def pickup_report(outcome: Any) -> dict:
         "slot": outcome.item.slot,
         "item_identity": outcome.item.identity,
         "rows_in_the_bag": len(outcome.bag_after.items),
+        # Carried, not acted on.  See NONCLAIM 13: the proven request body has
+        # a second field and nothing has measured what it means, so the one
+        # useful thing this lane can do with it is put it where a person
+        # reading a log will see it.
+        "request_u8": outcome.opaque_u8,
+        "response_bytes_composed": outcome.delta is not None,
         "persisted": outcome.persisted,
         "survives_a_relog": False,
     }

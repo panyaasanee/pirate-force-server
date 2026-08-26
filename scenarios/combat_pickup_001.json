@@ -13,15 +13,16 @@
     "detail_present": 0,
     "raw_u8_38": 0,
     "raw_u8_39": 255,
-    "sample_row": [
-      1,
-      2400046,
-      1,
-      0,
-      0,
-      255,
-      0
-    ],
+    "sample_row": {
+      "character_id": 1,
+      "detail_present": 0,
+      "item_identity": 1,
+      "quantity": 1,
+      "raw_u8_38": 0,
+      "raw_u8_39": 255,
+      "slot": 0,
+      "template_id": 2400046
+    },
     "slots": 40,
     "table": "character_backpack_items"
   },
@@ -46,9 +47,9 @@
     "8. A CRASH OR A FAILED WRITE BETWEEN THE TAKE AND THE INSERT LOSES THE ITEM, AND THERE IS NO PUT-BACK.  ~~'the ground does not persist either, so the window costs nothing'~~ IS STRUCK AS TOO NARROW: it is true of a crash and false of everything else -- a rolled-back transaction, a refused session, a UNIQUE violation -- where the server keeps running, every other drop survives, and only this player's item is gone.  A put-back is not possible either: mob_loot never reuses a key, so a taken row cannot be returned to the ground under the key the client was shown.",
     "9. STOP: RELOG IS NOT CLOSED BY THIS ROUND.  The persisted bag is content-governed by inventory.require_known_backpack, which belongs to the item lane.  Persisting a picked-up item BEFORE that judgement is widened does not merely fail to persist: it makes the character unable to enter the world at all.",
     "10. Nothing here writes a database row, opens a socket, reads a clock or reads a file.  It is a pure transaction over values plus one take through mob_loot's cell.",
-    "11. THE BAG NEEDS AN OWNER AND BagCell IS IT, IN THIS PROCESS ONLY.  A BackpackState is a VALUE, and two pickups resolved against one value pick the same slot and the same identity.  ~~'the primary key does not catch that -- it keys identity, not slot'~~ IS STRUCK AND WAS FALSE: migration 003 carries UNIQUE(character_id, slot) as well as the primary key, so the database refuses the second row loudly.  It refuses it AFTER the drop has left the ground, which is why the answer is a cell that refuses BEFORE the take, and not a check bolted onto the write.",
+    "11. THE BAG NEEDS AN OWNER; BagCell IS IT AND BagCellRegistry IS WHAT MAKES IT ONE.  A BackpackState is a VALUE, and two pickups resolved against one value pick the same slot and the same identity.  ~~'the primary key does not catch that -- it keys identity, not slot'~~ IS STRUCK, AND PRECISELY: that SENTENCE is true, the INFERENCE drawn from it was false.  Migration 003 carries UNIQUE(character_id, slot) as well as the primary key, so the database refuses the second row loudly -- but AFTER the drop has left the ground, which is why the answer is a cell that refuses BEFORE the take and not a check bolted onto the write.  ~~and why a cell was enough~~ IS STRUCK TOO: a constructor is not something a second caller can lose, so 'one cell per character' was an instruction exactly as unenforced as 'do not pass the value twice' had been.  The registry is where the claim is atomic and a second claimant is refused by name.",
     "12. NO PLAYER CAN ORIGINATE A CLAIM TODAY, and it is not the opcode that stops them.  GT-046's producer needs a SELECTED LIVE DROP-OBJECT to copy its dword out of, and GT-045 measured that this pipe draws a name label with NO MODEL under it -- there is nothing to click.  mob_loot's own NONCLAIM 4 says the same about GT-060's precondition.  This lane is the transaction behind a door nobody can knock on yet.",
-    "13. THE REQUEST HAS TWO FIELDS AND THIS LANE ACTS ON ONE.  The proven body carries the dword at object+0x14 and a u8 at object+0x18.  PickupClaim carries both, validates both and reports both, and acts on the dword only, because nothing has measured what the u8 means.  If it turns out to be a partial-take count or a target slot, this lane is carrying it rather than having discarded it.",
+    "13. THE REQUEST HAS TWO FIELDS AND THIS LANE ACTS ON ONE.  The proven body carries the dword at object+0x14 and a u8 at object+0x18.  PickupClaim carries both and validates both; the outcome and the report carry the u8 through so it reaches whoever reads a log.  Nothing acts on it, because nothing has measured what it means.  The first draft claimed to report it and did not -- it stopped at the claim record, which is 'discarded one step past the door' rather than carried.",
     "14. THE ITEM IDENTITY IS DERIVED, NOT A HIGH-WATER MARK, and mob_loot wrote down why that shape is a bug: a bag that has ever SHRUNK hands the next pickup an identity a client may still be holding.  There is nowhere to persist a high-water mark today -- neither character_backpacks nor migration 003 has a column for one -- so next_item_identity accepts one from the caller and falls back to the derived form.  Which lane owns that column is an open question and is in this round's letter to the COO, not silently decided here."
   ],
   "production_allowed": true,
@@ -66,23 +67,35 @@
     "bag_is_full",
     "identity_block_spent",
     "identity_high_water_below_the_bag",
+    "bag_already_claimed",
     "drop_left_the_ground",
     "composed_bytes_off_pin"
   ],
   "scenario": null,
   "schema": 1,
   "test_only": false,
-  "transaction": {
-    "everything_that_refuses_refuses_before_the_take": true,
+  "transaction_declared": {
     "identity_policy": "highest identity in the bag plus one, or one past a high-water mark the caller supplies -- see NONCLAIM 14",
-    "killer_only": true,
     "pickup_radius": 450.0,
+    "pickup_radius_derived_on_x_only": true,
     "pickup_radius_is_arithmetic_not_measured": true,
-    "pickup_radius_reaches_the_furthest_object_of_one_kill": true,
-    "resolves_object_ref_against_the_ledger": true,
     "slot_policy": "lowest free slot",
-    "stacks": false,
     "the_one_refusal_that_means_the_row_is_gone": "drop_left_the_ground"
+  },
+  "transaction_observed": {
+    "a_second_bag_cell_for_one_character_loses": true,
+    "everything_that_refuses_refuses_before_the_take": true,
+    "killer_only": true,
+    "pickup_radius_reaches_the_furthest_object_of_one_kill": true,
+    "refusals_walked_for_that_flag": [
+      "bag_is_full",
+      "out_of_range",
+      "not_the_killer",
+      "never_issued",
+      "composer"
+    ],
+    "resolves_object_ref_against_the_ledger": true,
+    "stacks": false
   },
   "wire": {
     "ever_observed_for_a_new_item": false,
