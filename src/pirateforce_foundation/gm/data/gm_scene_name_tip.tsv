@@ -1,0 +1,331 @@
+n_ID	s_SCENE_NAME	s_GM_SCENE_NAME
+1	 Port Royal 	 Port Royal 
+2	 Prison Exile Island 	 Prison Exile Island 
+3	 Spice Paradise Island 	 Spice Paradise Island 
+4	 Slave Market Island 	 Slave Market Island 
+5	 Evil Port  	 Evil Port 
+6	 Ocean Walled City 	 Ocean Walled City 
+7	Voodoo Island	Voodoo Island
+8	Silver Harbour	Silver Harbour
+9	Death City Sea	Death City Sea
+10	Deep Sea Temple floor 1	Deep Sea Temple ชั้นที่ 1
+11	Deep Sea Temple floor 2	Deep Sea Temple ชั้นที่ 2
+12	Drake empty Walled	Drake empty Walled
+13		
+14	Hell Volcanic Island	Hell Volcanic Island
+15	Lost Eden	Lost Eden
+16	Sunset Deserted	Sunset Deserted
+17	Ship in the Sea	เรือในทะเล 1(17)
+18	Ship in the Sea	เรือในทะเล 2-รูปแบบ 1(18)
+19	Ship in the Sea	เรือในทะเล 2-รูปแบบ 2(19)
+20	Ship in the Sea	เรือในทะเล 2-รูปแบบ 3(20)
+21	Ship in the Sea	เรือในทะเล 3-รูปแบบ 1(21)
+22	Ship in the Sea	เรือในทะเล 3-รูปแบบ 2(22)
+23	Ship in the Sea	เรือในทะเล 3-รูปแบบ 3(23)
+24	Ship in the Sky	เรือบนฟ้า 1 (24)
+25	Ship in the Sky	เรือบนฟ้า 2 -รูปแบบ 1(25)
+26	Ship in the Sky	เรือบนฟ้า 3-รูปแบบ 1(26)
+27	Ship in the Sky	เรือบนฟ้า 2-รูปแบบ 2(27)
+28	Ship in the Sky	เรือบนฟ้า 2-รูปแบบ 3(28)
+29	Ship in the Sky	เรือบนฟ้า 3-รูปแบบ 2(29)
+30	Ship in the Sky	เรือบนฟ้า 3-รูปแบบ 3(30)
+31	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 1(31)
+32	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 2(32)
+33	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 3(33)
+34	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 4(34)
+35	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 5(35)
+36	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 6(36)
+37	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 7(37)
+38	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 8(38)
+39	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 9(39)
+40	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 10(40)
+41	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 11(41)
+42	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 12(42)
+43	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 13(43)
+44	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 14(44)
+45	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 15(45)
+46	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 16(46)
+47	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 17(47)
+48	Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 1(48)
+49	Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 2(49)
+50	Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 3(50)
+51	Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 4(51)
+52	Mystery Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 5(52)
+53	Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 6(53)
+54	Sea Desert Island	เกาะขนาดกลาง-รูปแบบ 1(54)
+55	Sea Desert Island	เกาะขนาดกลาง-รูปแบบ 2(55)
+56	Sea Desert Island	เกาะขนาดกลาง-รูปแบบ 3(56)
+57	Sea Desert Island	เกาะขนาดกลาง-รูปแบบ 4(57)
+58	Sea Desert Island	เกาะขนาดกลาง-รูปแบบ 5(58)
+59	Floating Island	เกาะร้างขนาดกลาง-รูปแบบ 1(59)
+60	Mystery Floating Island	เกาะร้างขนาดกลาง-รูปแบบ 2(60)
+61	Floating Island	เกาะร้างขนาดกลาง-รูปแบบ 3(61)
+62	Ship in the Sea	เรือในทะเล 2-รูปแบบ 1_เปลี่ยนรูป(62)
+63	Ship in the Sea	เรือในทะเล 2-รูปแบบ 2_เปลี่ยนรูป(63)
+64	Ship in the Sea	เรือในทะเล 2-รูปแบบ 3_เปลี่ยนรูป(64)
+65	Ship in the Sea	เรือในทะเล 3-รูปแบบ 1_เปลี่ยนรูป(65)
+66	Ship in the Sea	เรือในทะเล 3-รูปแบบ 2_เปลี่ยนรูป(66)
+67	Ship in the Sea	เรือในทะเล 3-รูปแบบ 3_เปลี่ยนรูป(67)
+68	Ship in the Sky	เรือบนฟ้า 2-รูปแบบ 1_เปลี่ยนรูป(68)
+69	Ship in the Sky	เรือบนฟ้า 3-รูปแบบ 1_เปลี่ยนรูป(69)
+70	Ship in the Sky	เรือบนฟ้า 2-รูปแบบ 2_เปลี่ยนรูป(70)
+71	Ship in the Sky	เรือบนฟ้า 2-รูปแบบ 3_เปลี่ยนรูป(71)
+72	Ship in the Sky	เรือบนฟ้า 3-รูปแบบ 2_เปลี่ยนรูป(72)
+73	Ship in the Sky	เรือบนฟ้า 3-รูปแบบ 3_เปลี่ยนรูป(73)
+74	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 2_เปลี่ยนรูป(74)
+75	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 3_เปลี่ยนรูป(75)
+76	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 4_เปลี่ยนรูป(76)
+77	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 5_เปลี่ยนรูป(77)
+78	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 6_เปลี่ยนรูป(78)
+79	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 7_เปลี่ยนรูป(79)
+80	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 8_เปลี่ยนรูป(80)
+81	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 9_เปลี่ยนรูป(81)
+82	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 10_เปลี่ยนรูป(82)
+83	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 11_เปลี่ยนรูป(83)
+84	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 12_เปลี่ยนรูป(84)
+85	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 13_เปลี่ยนรูป(85)
+86	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 14_เปลี่ยนรูป(86)
+87	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 15_เปลี่ยนรูป(87)
+88	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 16_เปลี่ยนรูป(88)
+89	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 17_เปลี่ยนรูป(89)
+90	Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 1_เปลี่ยนรูป(90)
+91	Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 2_เปลี่ยนรูป(91)
+92	Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 3_เปลี่ยนรูป(92)
+93	Mystery Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 4_เปลี่ยนรูป(93)
+94	Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 5_เปลี่ยนรูป(94)
+95	Mystery Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 6_เปลี่ยนรูป(95)
+96	Sea Desert Island	เกาะขนาดกลาง-รูปแบบ 1_เปลี่ยนรูป(96)
+97	Sea Desert Island	เกาะขนาดกลาง-รูปแบบ 2_เปลี่ยนรูป(97)
+98	Sea Desert Island	เกาะขนาดกลาง-รูปแบบ 3_เปลี่ยนรูป(98)
+99	Sea Desert Island	เกาะขนาดกลาง-รูปแบบ 4_เปลี่ยนรูป(99)
+100	Mystery Sea Desert Island	เกาะขนาดกลาง-รูปแบบ 5_เปลี่ยนรูป(100)
+101	Floating Island	เกาะร้างขนาดกลาง-รูปแบบ 1_เปลี่ยนรูป(101)
+102	Floating Island	เกาะร้างขนาดกลาง-รูปแบบ 2_เปลี่ยนรูป(102)
+103	Floating Island	เกาะร้างขนาดกลาง-รูปแบบ 3_เปลี่ยนรูป(103)
+104	Mystery Sea Desert Island	เกาะขนาดกลาง-รูปแบบ 1_เปลี่ยนรูป(104)
+105	Sea Desert Island	เกาะขนาดกลาง-รูปแบบ 2_เปลี่ยนรูป(105)
+106	Sea Desert Island	เกาะขนาดกลาง-รูปแบบ 3_เปลี่ยนรูป(106)
+107	Sea Desert Island	เกาะขนาดกลาง-รูปแบบ 4_เปลี่ยนรูป(107)
+108	Sea Desert Island	เกาะขนาดกลาง-รูปแบบ 5_เปลี่ยนรูป(108)
+109	Floating Island	เกาะร้างขนาดกลาง-รูปแบบ 1_เปลี่ยนรูป(109)
+110	Mystery Floating Island	เกาะร้างขนาดกลาง-รูปแบบ 2_เปลี่ยนรูป(110)
+111	Mystery Floating Island	เกาะร้างขนาดกลาง-รูปแบบ 3_เปลี่ยนรูป(111)
+112	Falling Sun	Falling Sun
+113	Poseidon Hall	Poseidon Hall
+114	Navy Prison	Navy Prison
+115	Hell Trial	Hell Trial
+116	Rough Seas Fortress	Rough Sea Fortress
+117	Skyfire Tower	Skyfire Tower
+118	Kraken Lair	Kraken Lair
+119	Guild Island 	แผนที่ GVG
+120	Supernatural  Arena 	Supernatural  Arena 
+121	Doom Church	Doom Church
+122	Armageddon Cloud	Armageddon Cloud
+123	Navy Prison	Navy Prison2
+124	Navy Prison	Navy Prison3
+125	Navy Prison	Navy Prison4
+126	Atlantic Ocean：Rising Sun Sea	Atlantic Ocean1
+127	Outer Space Ocean：Taboo Sea	Outer space Ocean1
+128	Bermuda Sea	Bermuda Sea
+129	Norayana Airspace	Norayana Airspace
+130	Navy Training Camp	Navy Training Camp2
+131	Prototype Scene	Prototype Scene
+132	trigger Test Scene	Trigger Test Scene
+133	Poseidon Island	Poseidon Island
+134	Kai-Fu Monster Test Scene	Kai-Fu Monster Test Scene
+135	Falling Sun	Falling Sun_3 Star
+136	Skyfire Tower	Skyfire Tower_3 Star
+137		
+138		
+139	Poseidon Island	Poseidon Island 1
+140	Supernatural  Arena 	Supernatural  Arena (คลื่น208)
+141		
+142	Kraken Lair Trial Version	Kraken Lair Trial Version
+143	Login Scene Background-1	Login Scene Background-1
+144	Login Scene Background-2	Login Scene Background-2
+145	Login Scene Background-3	Login Scene Background-3
+146	Pier 	ฉากสำหรับมือใหม่
+147	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 2(147)
+148	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 3(148)
+149	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 4(149)
+150	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 5(150)
+151	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 6(151)
+152	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 7(152)
+153	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 8(153)
+154	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 9(154)
+155	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 10(155)
+156	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 11(156)
+157	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 12(157)
+158	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 13(158)
+159	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 14(159)
+160	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 15(160)
+161	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 16(161)
+162	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 17(162)
+163	Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 1(163)
+164	Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 2(164)
+165	Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 3(165)
+166	Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 4(166)
+167	Mystery Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 5(167)
+168	Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 6(168)
+169	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 7_เปลี่ยนรูป(169)
+170	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 8_เปลี่ยนรูป(170)
+171	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 9_เปลี่ยนรูป(171)
+172	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 10_เปลี่ยนรูป(172)
+173	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 11_เปลี่ยนรูป(173)
+174	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 12_เปลี่ยนรูป(174)
+175	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 13_เปลี่ยนรูป(175)
+176	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 14_เปลี่ยนรูป(176)
+177	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 15_เปลี่ยนรูป(177)
+178	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 16_เปลี่ยนรูป(178)
+179	Mystery Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 17_เปลี่ยนรูป(179)
+180	Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 1_เปลี่ยนรูป(180)
+181	Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 2_เปลี่ยนรูป(181)
+182	Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 3_เปลี่ยนรูป(182)
+183	Mystery Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 4_เปลี่ยนรูป(183)
+184	Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 5_เปลี่ยนรูป(184)
+185	Mystery Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 6_เปลี่ยนรูป(185)
+186	Ship in the Sea	เรือในทะเล 1(186)
+187	Ship in the Sea	เรือในทะเล 2-รูปแบบ 1(187)
+188	Ship in the Sea	เรือในทะเล 3-รูปแบบ 3(188)
+189	Ship in the Sea	เรือบนฟ้า 1(189)
+190	Ship in the Sea	เรือในทะเล 2-รูปแบบ 1_เปลี่ยนรูป(190)
+191	Ship in the Sea	เรือในทะเล 3-รูปแบบ 3_เปลี่ยนรูป(191)
+192	Ship in the Sea	เรือในทะเล 1_ภารกิจ(192)
+193	Sea Desert Island	เกาะขนาดเล็ก_ภารกิจ1(193)
+194	Ship in the Sea	เรือในทะเล 2_ภารกิจ1(194)
+195	Sea Desert Island	เกาะขนาดเล็ก_ภารกิจ2(195)
+196	Ship in the Sea	เรือในทะเล 2_ภารกิจ2(196)
+197	Ship in the Sea	เรือในทะเล 2_ภารกิจ3(197)
+198	Ship in the Sea	เรือในทะเล 2_ภารกิจ4(198)
+199	Ship in the Sea	เรือในทะเล 3_ภารกิจ1(199)
+200	Ship in the Sea	เรือในทะเล 1_ภารกิจ2
+201	Ruins Secret Chamber	Ruins Secret Chamber_ภารกิจ(201)
+202	Sea Desert Island	เกาะขนาดเล็ก_ภารกิจ3(202)
+203	Ship in the Sea	เรือในทะเล 1_ภารกิจ3(203)
+204	Ship in the Sea	เรือในทะเล 1_ภารกิจ4(204)
+205	Ship in the Sea	เรือในทะเล 2_ภารกิจ5(205)
+206	Ship in the Sky	เรือบนฟ้า 1_ภารกิจ(206)
+207	Floating Island	เกาะร้างขนาดเล็ก_ภารกิจ1(207)
+208	Ship in the Sea	เรือในทะเล 2_ภารกิจ6(208)
+209	Pirates Secret Chamber	Poseidon Hall_ภารกิจ(209)
+210	Ship in the Sea	เรือในทะเล 2_ภารกิจ7(210)
+211	Floating Island	เกาะร้างขนาดเล็ก_ภารกิจ2(211)
+212	Ship in the Sea	เรือในทะเล 2_เปลี่ยนรูปภารกิจกระทันหัน
+213	Ship in the Sea	เรือในทะเล 2_เปลี่ยนรูปภารกิจกระทันหัน
+214	Ship in the Sea	เรือในทะเล 1_เปลี่ยนรูปภารกิจกระทันหัน
+215	Ship in the Sea	เรือในทะเล 2_เปลี่ยนรูปภารกิจกระทันหัน
+216	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 8_เปลี่ยนรูปภารกิจกระทันหัน216
+217	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 6_เปลี่ยนรูปภารกิจกระทันหัน217
+218	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 7_เปลี่ยนรูปภารกิจกระทันหัน218
+219	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 7_เปลี่ยนรูปภารกิจกระทันหัน219
+220	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 4_เปลี่ยนรูปภารกิจกระทันหัน220
+221	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 4_เปลี่ยนรูปภารกิจกระทันหัน221
+222	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 2_เปลี่ยนรูปภารกิจกระทันหัน222
+223	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 3_เปลี่ยนรูปภารกิจกระทันหัน223
+224	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 2_เปลี่ยนรูปภารกิจกระทันหัน224
+225	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 8_เปลี่ยนรูปภารกิจกระทันหัน225
+226	Floating Island	เกาะร้างขนาดกลาง-รูปแบบ 1_เปลี่ยนรูปภารกิจกระทันหัน226
+227	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 10_เปลี่ยนรูปภารกิจกระทันหัน227
+228	Sea Desert Island	เกาะขนาดกลาง-รูปแบบ 2_เปลี่ยนรูปภารกิจกระทันหัน228
+229	Ship in the Sea	เรือในทะเล 2_เปลี่ยนรูปภารกิจกระทันหัน229
+230	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 8_เปลี่ยนรูปภารกิจกระทันหัน230
+231	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 9_เปลี่ยนรูปภารกิจกระทันหัน231
+232	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 9_เปลี่ยนรูปภารกิจกระทันหัน232
+233	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 11_เปลี่ยนรูปภารกิจกระทันหัน233
+234	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 10_เปลี่ยนรูปภารกิจกระทันหัน234
+235	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 10_เปลี่ยนรูปภารกิจกระทันหัน235
+236	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 4_เปลี่ยนรูปภารกิจกระทันหัน236
+237	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 7_เปลี่ยนรูปภารกิจกระทันหัน237
+238	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 9_เปลี่ยนรูปภารกิจกระทันหัน238
+239	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 11_เปลี่ยนรูปภารกิจกระทันหัน239
+240	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 15_เปลี่ยนรูปภารกิจกระทันหัน240
+241	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 17_เปลี่ยนรูปภารกิจกระทันหัน241
+242	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 14_เปลี่ยนรูปภารกิจกระทันหัน242
+243	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 16_เปลี่ยนรูปภารกิจกระทันหัน243
+244	Sea Desert Island	เกาะขนาดเล็ก-รูปแบบ 14_เปลี่ยนรูปภารกิจกระทันหัน244
+245	Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 5_เปลี่ยนรูปภารกิจกระทันหัน245
+246	Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 1_เปลี่ยนรูปภารกิจกระทันหัน246
+247	Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 1_เปลี่ยนรูปภารกิจกระทันหัน247
+248	Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 3_เปลี่ยนรูปภารกิจกระทันหัน248
+249	Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 6_เปลี่ยนรูปภารกิจกระทันหัน249
+250	Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 4_เปลี่ยนรูปภารกิจกระทันหัน250
+251	Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 2_เปลี่ยนรูปภารกิจกระทันหัน251
+252	Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 2_เปลี่ยนรูปภารกิจกระทันหัน252
+253	Floating Island	เกาะร้างขนาดเล็ก-รูปแบบ 3_เปลี่ยนรูปภารกิจกระทันหัน253
+254	Justice Island 	Justice Island 
+255	Brave Island 	Brave Island 
+256	Benevolence Island 	Benevolence Island 
+257	Hunting  Island 	Hunting  Island 
+258	Hunting Nest	Hunting Nest
+259	Fighting Island 	Fighting Island 
+260	Ritual Island 	Ritual Island 
+261	Battle Island 	Battle Island 
+262	Prudential Territory	Prudential Territory
+263	Mad Island 	Mad Island 
+264	Reputation Island 	Reputation Island 
+265	Random Island 	Random Island 
+266	Loyal Island 	Loyal Island 
+267	Fierce Cave	Fierce Cave
+268	Subdue Island 	Subdue Island 
+269	Valley of Evil	Valley of Evil
+270	Violent Island 	Violent Island 
+271	Vicious Cloister 	Vicious Cloister 
+272	Freedom Hall	Freedom Hall
+273	Lich King Island	Lich King Island
+274	Giant tree  Field	Giant tree  Field
+275	Nazca Island	Nazca Island
+276	Dragon Hometown	Dragon Hometown
+277	Nazca Ocean 	Nazca Ocean 
+278	Beach Soccer Field	Beach Soccer Field
+279	Beach Soccer Field	Beach Soccer Field
+280	Poseidon Island	Poseidon Island
+281	Poseidon Island	Poseidon Island
+282	Poseidon Island	Poseidon Island
+283	Poseidon Island	Poseidon Island
+284	Poseidon Island	Poseidon Island
+285	Poseidon Island	Poseidon Island
+286	Poseidon Island	Poseidon Island
+287	Poseidon Island	Poseidon Island
+288	Poseidon Island	Poseidon Island
+289	Truth Rift Valley	Truth Rift Valley
+290	Ghost Cave	Ghost Cave
+291	สนามแข่ง 3V3	สนาม PVP 3V3
+292	Return Poseidon Island	Return Poseidon Island
+293	Enthusiasm Mountains	Enthusiasm Mountains
+294	Fetters Remains	Fetters Remains
+295	Lich King Palace	Lich King Palace
+296	Archosaur Temple	Archosaur Temple
+297	Truth Rift Valley	Truth Rift Valley
+298	Eagle Island	Eagle Island
+299	Bear Island	Bear Island
+300	Viper Pit	Viper Pit
+301	Occupied Guild Island	Occupied Guild Island
+302	Falling sun	Falling sun (สองคน)
+303	Empire of Mu Remain	Empire of Mu Remain
+304	Atlantic Ocean：Dark Fog Sea	Atlantic-Dark Fog Sea
+305	Outer Space Ocean：Pale Silver Sea	Outer space Ocean-Pale Silver Sea
+306	Pain Strait	Pain Strait (Naval Battle)
+307	Hidden Cabin	Dirty Cabin
+308	Hidden Island	Hidden Island
+309	Hidden Island	Hidden Island
+310	Hidden Island	Hidden Island
+311	Hidden Island	Hidden Island
+312	Hidden Island	Hidden Island
+313	Hidden Island	Hidden Island
+314	Hidden Island	Hidden Island
+315	Hidden Island	Hidden Island
+316	Hidden Island	Hidden Island
+317	Hidden Island	Hidden Island
+318	Hidden Island	Hidden Island
+319	Hidden Island	Hidden Island
+320	Hidden Island	Hidden Island
+321	Hidden Island	Hidden Island
+322	Hidden Island	Hidden Island
+323	Hidden Island	Hidden Island
+324	Hidden Island	Hidden Island
+325	Hidden Island	Hidden Island
+326	Hidden Island	Hidden Island
+327	Hidden Island	Hidden Island
+328	Event Scene	GM Event Scene
+997	Event Scene	GM Event Scene
+999	Yate_Test Scene	Yate_Test Scene
