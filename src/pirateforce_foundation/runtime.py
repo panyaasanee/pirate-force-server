@@ -5,7 +5,9 @@ import threading
 import time
 
 from . import world_population
+from . import world_scene_entry
 from . import world_scene_travel
+from . import world_travel_gate
 
 from .model import Position
 from .inventory import (
@@ -405,6 +407,22 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             "hypothesis, and hostile hp link hypothesis scenarios are "
             "mutually exclusive"
         )
+    # CORE-REQUEST-004 (LANE-A / BUILD-002 / M2).  Parse the travel gate pin
+    # ONCE, here, where a bad pin fails a boot in front of an operator
+    # instead of failing every player's login.
+    world_travel_gate.preload()
+    # THIS LANE IS THE NO-FLAG LANE.  active_lanes is the runtime's own
+    # frozenset of the lanes this boot selected (just above, in this same
+    # factory), so this guard cannot drift from the runtime's definition of
+    # "selected" and a lane that lands later needs no edit here.
+    world_travel_lane_reason = world_travel_gate.scenario_stand_down(
+        active_lanes)
+    # CORE-REQUEST-003 (LANE-A / BUILD-002 / v2 slice 1).  Load the scene
+    # entry pin ONCE too, for the same reason: a broken pin should stop the
+    # boot in front of an operator, not surface as a per-login refusal, and
+    # a caller that passes a preloaded registry skips re-reading the file on
+    # every login.
+    scene_entry_registry = world_scene_travel.load_scene_registry()
     # PF-HYPOTHESIS-LEDGER: HYP-PF-030 active
     # MOVE-AUTHORITY-002.  Re-checked here even though app.py already loaded
     # it: a caller that hands in a lookalike profile must not be able to gate
@@ -811,6 +829,17 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 )
             )
             try:
+                # CORE-REQUEST-004 (LANE-A / BUILD-002 / M2).  No file I/O
+                # and no raise here -- everything that can refuse already
+                # refused inside world_travel_gate.preload() at server
+                # start, above.  A pin missing at this point means the lane
+                # goes inert for the whole session rather than costing a
+                # player their login.
+                self.world_travel_gates = (
+                    world_travel_gate.TravelGateSet.from_preloaded(
+                        inert_reason=world_travel_lane_reason,
+                    )
+                )
                 self.arena_scenario = scenario
                 self.arena_spawned = False
                 self.arena_target_captured = False
@@ -3759,6 +3788,64 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 except (KeyError, PermissionError):
                     self.events.append("foundation_start_game_rejected_no_reply")
                     return []
+                load_only = scene_load_scenario is not None
+                entry = None
+                if not load_only:
+                    # WORLD-SCENE-TRAVEL-001 / CORE-REQUEST-003
+                    # (LANE-A BUILD-002 slice 1, v2), wired here because
+                    # runtime.py is the chief's file.  The hardcoded 1
+                    # was the only thing pinning a default boot to Port
+                    # Royal; the guards RE-073 recorded all live on
+                    # opt-in lanes and never see this path.
+                    #
+                    # resolve_entry() derives every login frame from ONE
+                    # resolved position rather than reading the pin
+                    # separately from the row, so the teleport and the
+                    # ActorAttr/MovementAttr built from
+                    # foundation.selected.position cannot name two
+                    # different places -- GT-079's own "biggest trap".
+                    # It also emits the WORLD_SCENE console line itself,
+                    # before returning, so a destination is never held
+                    # without the line GT-079's stop rule reads.  For
+                    # scene 1 the teleport fields stay the frozen
+                    # (1, 0, 0.0, 0.0, 0.0), argument for argument what
+                    # this path sent before, so a player who stays home
+                    # receives the identical bytes.
+                    #
+                    # Resolved BEFORE anything below commits (the inventory
+                    # sync, start_game_reply_sent, the composed
+                    # START_GAME_RES action): a refusal here must leave the
+                    # session exactly as untouched as a refused
+                    # select_and_start above, so start_game_reply_sent
+                    # stays False and the client can retry.  Resolving this
+                    # deep inside the "not teleport_sent" branch below, with
+                    # start_game_reply_sent already latched True and the
+                    # composed action already thrown away by a bare
+                    # "return []", used to wedge the session permanently:
+                    # no reply of any kind ever went out for that selector,
+                    # and the retry guard at the top of this handler then
+                    # silently no-ops every later START_GAME_REQ from the
+                    # same client -- found by pf-adversary.
+                    try:
+                        entry = world_scene_entry.resolve_entry(
+                            self.foundation.selected.position,
+                            registry=scene_entry_registry,
+                        )
+                    except world_scene_entry.SceneEntryRefused as exc:
+                        # Deliberately a LookupError and not a KeyError
+                        # (see world_scene_entry.SceneEntryRefused), so it
+                        # reaches here instead of the except
+                        # (KeyError, PermissionError) above, which would
+                        # otherwise swallow it into total silence -- a
+                        # client parked on "connecting" with nothing
+                        # logged.  This is the deliberate handler that
+                        # class asks for: print the reason, refuse the
+                        # login by name, without latching the session shut.
+                        print(f"WORLD_SCENE_ENTRY_REFUSED {exc}")
+                        self.events.append(
+                            "world_scene_entry_refused_no_reply"
+                        )
+                        return []
                 self._sync_frozen_inventory_state()
                 if npc_hostile_hypothesis_scenario is not None:
                     # NPC-HOSTILE-DISPATCH (HYP-PF-027): the entry half of the
@@ -3771,7 +3858,6 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     )
                 self.start_game_reply_sent = True
                 self.events.append("start_game_res_scene_identity_sent")
-                load_only = scene_load_scenario is not None
                 actions = [(
                     "SCENE2_LOAD_ONLY_SELECTED_START_GAME" if load_only
                     else "FOUNDATION_SELECTED_START_GAME",
@@ -3785,24 +3871,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             p.scene_id, p.scene_seq, p.x, p.y, p.z,
                         )
                     else:
-                        # WORLD-SCENE-TRAVEL-001 (LANE-A BUILD-002 slice 1),
-                        # wired here because runtime.py is the chief's file.
-                        # The hardcoded 1 was the only thing pinning a default
-                        # boot to Port Royal; the guards RE-073 recorded all
-                        # live on opt-in lanes and never see this path.
-                        #
-                        # For scene 1 login_teleport_fields returns
-                        # (1, 0, 0.0, 0.0, 0.0), which is argument-for-argument
-                        # what the line above sent, so a player who stays home
-                        # receives the identical bytes.  A scene with no pinned
-                        # row raises rather than falling back silently: landing
-                        # somebody in a place nothing knows the shape of is
-                        # worse than refusing to boot.
-                        p = self.foundation.selected.position
                         tp_pc, tp_frame = legacy.make_login_teleport(
-                            *world_scene_travel.login_teleport_fields(
-                                world_scene_travel.destination(p.scene_id)
-                            )
+                            *entry.teleport_fields
                         )
                     actions.append((
                         "SCENE2_LOAD_ONLY_TELEPORT_MARKER2_ONCE" if load_only
@@ -4078,6 +4148,30 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 and self.foundation.selected is not None
             ):
                 self._checkpoint_exact_target(durable_target)
+                # CORE-REQUEST-004 (LANE-A / BUILD-002 / M2).  observe()
+                # never raises on a report -- every refusal is a named
+                # console line and a None -- so nothing here needs a guard
+                # against a bad report.  What CAN raise is the checkpoint
+                # below (a stale lease, same as the frozen path above), and
+                # by design that happens BEFORE confirmed_fields(): a write
+                # that raises leaves no WORLD_TRAVEL_DEPART line and no
+                # commit, and the pending crossing is discarded on the next
+                # report with WORLD_TRAVEL_DEPART_ABANDONED.
+                departure = self.world_travel_gates.observe(
+                    self.foundation.selected.position,
+                )
+                if departure is not None:
+                    self.foundation.checkpoint(departure.arrival)
+                    tp_pc, tp_frame = legacy.make_login_teleport(
+                        *departure.confirmed_fields()
+                    )
+                    actions = actions + [(
+                        departure.action_label, tp_pc, tp_frame, 0.70,
+                    )]
+                    self.events.append(
+                        "world_travel_departed_scene_"
+                        f"{departure.gate.to_scene_id}"
+                    )
 
             # WORLD-CENSUS-001.  Composed AFTER the inherited dispatch, on
             # exactly the conjunction the frozen branch stands on: its own

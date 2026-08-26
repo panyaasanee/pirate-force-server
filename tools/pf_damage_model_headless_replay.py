@@ -106,7 +106,9 @@ Exit 2 = the command line named a profile this tool does not have.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -417,559 +419,577 @@ def main() -> int:
     notes: list[str] = []
     guards = 0
 
-    def check(label, condition, detail=""):
-        nonlocal guards
-        guards += 1
-        if condition:
-            if not want_json:
-                print("  PASS  %s" % label)
-        else:
-            failures.append(label)
-            if not want_json:
-                print("  FAIL  %s %s" % (label, detail))
+    # CORE-REQUEST-003/004 wired world_scene_entry and world_travel_gate
+    # into make_state_class's real dispatch: a normal (non-load-only)
+    # START_GAME_REQ now prints a WORLD_SCENE line, and a session built
+    # with any opt-in scenario active (this tool's own scenario included)
+    # prints one WORLD_TRAVEL_INERT line at construction -- both on
+    # emit=print by design, for an operator watching the real server
+    # console.  This tool's stdout in --json mode is the payload the test
+    # reads back with json.loads, not a console, so every incidental print
+    # from the real dispatcher below is swallowed until the explicit JSON
+    # print at the end, which writes to the real stdout this stack closes
+    # back to.
+    stdout_guard = contextlib.ExitStack()
+    if want_json:
+        stdout_guard.enter_context(contextlib.redirect_stdout(io.StringIO()))
 
-    legacy = load_legacy(LEGACY_PATH)
-    scenario = dmh.load_damage_model_hypothesis_scenario(scenario_path)
-    pinned = json.loads(scenario_path.read_text(encoding="utf-8"))
-    unlock = dmh.damage_model_wire_unlock(scenario)
+    try:
+        def check(label, condition, detail=""):
+            nonlocal guards
+            guards += 1
+            if condition:
+                if not want_json:
+                    print("  PASS  %s" % label)
+            else:
+                failures.append(label)
+                if not want_json:
+                    print("  FAIL  %s %s" % (label, detail))
 
-    # -------------------------------------------------------------------
-    if not want_json:
-        print("-- 0. this reader's constants against the module's --")
-    check("envelope id 0x6E9D agrees with the module",
-          RUNTIME_PROTOCOL_RES_ID == dmh.RUNTIME_PROTOCOL_RES_ID)
-    check("envelope version 4 agrees with the module",
-          RUNTIME_PROTOCOL_RES_VERSION == dmh.RUNTIME_PROTOCOL_RES_VERSION)
-    check("BASE change mask 2 (VitalData at +0x18) agrees with the module",
-          BASE_CHANGE_MASK_VITAL_COLLECTION
-          == dmh.BASE_CHANGE_MASK_VITAL_COLLECTION == 2)
-    check("DERIVED change mask 0 agrees with the module",
-          DERIVED_CHANGE_MASK_ABSENT == dmh.DERIVED_CHANGE_MASK_ABSENT == 0)
-    check("CHitResult 0x16F7 version 0 agrees with the module",
-          CHIT_RESULT_VITAL_ID == dmh.CHIT_RESULT_VITAL_ID
-          and CHIT_RESULT_VITAL_VERSION == dmh.CHIT_RESULT_VITAL_VERSION)
-    check("the 22-byte header and 37-byte entry agree with the module",
-          CHIT_RESULT_HEADER_WIRE_SIZE == dmh.CHIT_RESULT_HEADER_WIRE_SIZE
-          and HIT_ELEMENT_WIRE_SIZE == dmh.HIT_ELEMENT_WIRE_SIZE)
-    check("the step order and label prefix agree with the module",
-          EXPECTED_STEP_ORDER == dmh.DAMAGE_MODEL_STEP_ORDER
-          and EXPECTED_LABEL_PREFIX == dmh.DAMAGE_MODEL_ACTION_LABEL_PREFIX)
-    check("this profile's label prefix agrees with the module's constant",
-          expected_label_prefix == (
-              dmh.DAMAGE_MODEL_NPC_ACTION_LABEL_PREFIX
-              if profile_name == "npc_target"
-              else dmh.DAMAGE_MODEL_ACTION_LABEL_PREFIX))
-    check("this profile's npc target constant agrees with the module",
-          npc_identity is None
-          or (npc_identity == dmh.DAMAGE_NPC_TARGET_IDENTITY_LO
-              and dmh.DAMAGE_NPC_TARGET_IDENTITY_HI == 0))
-    check("the scenario profile carries the module's step plan",
-          scenario.step_order == EXPECTED_STEP_ORDER
-          and scenario.action_label_prefix == expected_label_prefix
-          and scenario.first_delay_seconds == expected_delays[0]
-          and scenario.spacing_seconds == expected_delays[1])
-    check("the lane is not production-allowed",
-          dmh.production_allowed is False)
-    check("the scenario file is the opt-in HYP-PF-024 file",
-          pinned["hypothesis_id"] == dmh.DAMAGE_MODEL_HYPOTHESIS_ID
-          == "HYP-PF-024"
-          and pinned["test_only"] is True
-          and pinned["production_allowed"] is False)
+        legacy = load_legacy(LEGACY_PATH)
+        scenario = dmh.load_damage_model_hypothesis_scenario(scenario_path)
+        pinned = json.loads(scenario_path.read_text(encoding="utf-8"))
+        unlock = dmh.damage_model_wire_unlock(scenario)
 
-    # The module's own PC-offset documentation block is known-wrong and known-
-    # dead (nothing reads it).  It is reported, never repaired here: this tool
-    # may not edit src/.
-    module_offsets = (
-        dmh.BASE_CHANGE_MASK_OFFSET, dmh.VITAL_COUNT_TAG_OFFSET,
-        dmh.VITAL_COUNT_OFFSET, dmh.VITAL_ID_TAG_OFFSET, dmh.VITAL_ID_OFFSET,
-        dmh.VITAL_VERSION_TAG_OFFSET, dmh.VITAL_VERSION_OFFSET,
-        dmh.CHIT_RESULT_PAYLOAD_OFFSET,
-    )
-    real_offsets = (11, 12, 13, 15, 16, 18, 19, 20)
-    if module_offsets != real_offsets:
-        notes.append(
-            "REPORT ONLY (not repaired here, src/ is out of scope for this "
-            "tool): the eight PC-offset constants BASE_CHANGE_MASK_OFFSET.."
-            "CHIT_RESULT_PAYLOAD_OFFSET in damage_model_hypothesis.py are each "
-            "one less than the composed byte position (module=%s real=%s).  "
-            "No code path reads them, so no composed byte is affected."
-            % (module_offsets, real_offsets)
+        # -------------------------------------------------------------------
+        if not want_json:
+            print("-- 0. this reader's constants against the module's --")
+        check("envelope id 0x6E9D agrees with the module",
+              RUNTIME_PROTOCOL_RES_ID == dmh.RUNTIME_PROTOCOL_RES_ID)
+        check("envelope version 4 agrees with the module",
+              RUNTIME_PROTOCOL_RES_VERSION == dmh.RUNTIME_PROTOCOL_RES_VERSION)
+        check("BASE change mask 2 (VitalData at +0x18) agrees with the module",
+              BASE_CHANGE_MASK_VITAL_COLLECTION
+              == dmh.BASE_CHANGE_MASK_VITAL_COLLECTION == 2)
+        check("DERIVED change mask 0 agrees with the module",
+              DERIVED_CHANGE_MASK_ABSENT == dmh.DERIVED_CHANGE_MASK_ABSENT == 0)
+        check("CHitResult 0x16F7 version 0 agrees with the module",
+              CHIT_RESULT_VITAL_ID == dmh.CHIT_RESULT_VITAL_ID
+              and CHIT_RESULT_VITAL_VERSION == dmh.CHIT_RESULT_VITAL_VERSION)
+        check("the 22-byte header and 37-byte entry agree with the module",
+              CHIT_RESULT_HEADER_WIRE_SIZE == dmh.CHIT_RESULT_HEADER_WIRE_SIZE
+              and HIT_ELEMENT_WIRE_SIZE == dmh.HIT_ELEMENT_WIRE_SIZE)
+        check("the step order and label prefix agree with the module",
+              EXPECTED_STEP_ORDER == dmh.DAMAGE_MODEL_STEP_ORDER
+              and EXPECTED_LABEL_PREFIX == dmh.DAMAGE_MODEL_ACTION_LABEL_PREFIX)
+        check("this profile's label prefix agrees with the module's constant",
+              expected_label_prefix == (
+                  dmh.DAMAGE_MODEL_NPC_ACTION_LABEL_PREFIX
+                  if profile_name == "npc_target"
+                  else dmh.DAMAGE_MODEL_ACTION_LABEL_PREFIX))
+        check("this profile's npc target constant agrees with the module",
+              npc_identity is None
+              or (npc_identity == dmh.DAMAGE_NPC_TARGET_IDENTITY_LO
+                  and dmh.DAMAGE_NPC_TARGET_IDENTITY_HI == 0))
+        check("the scenario profile carries the module's step plan",
+              scenario.step_order == EXPECTED_STEP_ORDER
+              and scenario.action_label_prefix == expected_label_prefix
+              and scenario.first_delay_seconds == expected_delays[0]
+              and scenario.spacing_seconds == expected_delays[1])
+        check("the lane is not production-allowed",
+              dmh.production_allowed is False)
+        check("the scenario file is the opt-in HYP-PF-024 file",
+              pinned["hypothesis_id"] == dmh.DAMAGE_MODEL_HYPOTHESIS_ID
+              == "HYP-PF-024"
+              and pinned["test_only"] is True
+              and pinned["production_allowed"] is False)
+
+        # The module's own PC-offset documentation block is known-wrong and known-
+        # dead (nothing reads it).  It is reported, never repaired here: this tool
+        # may not edit src/.
+        module_offsets = (
+            dmh.BASE_CHANGE_MASK_OFFSET, dmh.VITAL_COUNT_TAG_OFFSET,
+            dmh.VITAL_COUNT_OFFSET, dmh.VITAL_ID_TAG_OFFSET, dmh.VITAL_ID_OFFSET,
+            dmh.VITAL_VERSION_TAG_OFFSET, dmh.VITAL_VERSION_OFFSET,
+            dmh.CHIT_RESULT_PAYLOAD_OFFSET,
         )
+        real_offsets = (11, 12, 13, 15, 16, 18, 19, 20)
+        if module_offsets != real_offsets:
+            notes.append(
+                "REPORT ONLY (not repaired here, src/ is out of scope for this "
+                "tool): the eight PC-offset constants BASE_CHANGE_MASK_OFFSET.."
+                "CHIT_RESULT_PAYLOAD_OFFSET in damage_model_hypothesis.py are each "
+                "one less than the composed byte position (module=%s real=%s).  "
+                "No code path reads them, so no composed byte is affected."
+                % (module_offsets, real_offsets)
+            )
 
-    rows: list[dict] = []
-    actions: list = []
-    trap = _SocketTrap()
+        rows: list[dict] = []
+        actions: list = []
+        trap = _SocketTrap()
 
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_dir = Path(tmp)
-        db_path = tmp_dir / "damage_dispatch001.sqlite3"
-        store = SQLiteStore(db_path, ROOT / "migrations")
-        store.migrate()
-        projector = LegacyProjector(legacy)
-        lifecycle = CharacterLifecycle(
-            store,
-            Position(
-                1, 0, legacy.V135_PLAYER_X, legacy.V135_PLAYER_Y,
-                legacy.V135_PLAYER_Z,
-            ),
-            legacy.extract_avatar_attr_wire_from_actor,
-        )
-
-        def boot(token, *, enabled=True, select=True, ready=True):
-            state_type = make_state_class(
-                legacy, lifecycle, projector,
-                damage_model_hypothesis_scenario=(
-                    scenario if enabled else None
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            db_path = tmp_dir / "damage_dispatch001.sqlite3"
+            store = SQLiteStore(db_path, ROOT / "migrations")
+            store.migrate()
+            projector = LegacyProjector(legacy)
+            lifecycle = CharacterLifecycle(
+                store,
+                Position(
+                    1, 0, legacy.V135_PLAYER_X, legacy.V135_PLAYER_Y,
+                    legacy.V135_PLAYER_Z,
                 ),
+                legacy.extract_avatar_attr_wire_from_actor,
             )
-            state = state_type(token)
-            state.dispatch(legacy.parse_outer(
-                legacy._synthetic_client_login_pc()
-            ))
-            created = state.dispatch(
-                legacy.parse_outer(legacy._V25_REAL_CREATE_PC)
-            )
-            assert created and created[0][0] == "FOUNDATION_CREATE_COMMITTED"
-            if select:
-                characters = store.list_characters(state.foundation.account_id)
-                selected = state.dispatch(legacy.parse_outer(
-                    legacy._synthetic_start_game_pc(characters[-1].selector)
-                ))
-                assert selected and (
-                    selected[0][0] == "FOUNDATION_SELECTED_START_GAME"
+
+            def boot(token, *, enabled=True, select=True, ready=True):
+                state_type = make_state_class(
+                    legacy, lifecycle, projector,
+                    damage_model_hypothesis_scenario=(
+                        scenario if enabled else None
+                    ),
                 )
-            state.runtime_ack_sent = ready
-            return state
+                state = state_type(token)
+                state.dispatch(legacy.parse_outer(
+                    legacy._synthetic_client_login_pc()
+                ))
+                created = state.dispatch(
+                    legacy.parse_outer(legacy._V25_REAL_CREATE_PC)
+                )
+                assert created and created[0][0] == "FOUNDATION_CREATE_COMMITTED"
+                if select:
+                    characters = store.list_characters(state.foundation.account_id)
+                    selected = state.dispatch(legacy.parse_outer(
+                        legacy._synthetic_start_game_pc(characters[-1].selector)
+                    ))
+                    assert selected and (
+                        selected[0][0] == "FOUNDATION_SELECTED_START_GAME"
+                    )
+                state.runtime_ack_sent = ready
+                return state
 
-        def trigger(probe="probe1"):
-            return legacy.parse_outer(CHAT_INPUT_PROBE_REQUEST_PCS[probe])
+            def trigger(probe="probe1"):
+                return legacy.parse_outer(CHAT_INPUT_PROBE_REQUEST_PCS[probe])
 
-        # ---------------------------------------------------------------
-        if not want_json:
-            print("-- 1. one accepted client frame in, four frames out --")
-        state = boot("damage_dispatch001")
-        check("the harness brought a character to selected + runtime ready",
-              state.foundation.selected is not None
-              and state.teleport_sent is True
-              and state.runtime_ack_sent is True)
+            # ---------------------------------------------------------------
+            if not want_json:
+                print("-- 1. one accepted client frame in, four frames out --")
+            state = boot("damage_dispatch001")
+            check("the harness brought a character to selected + runtime ready",
+                  state.foundation.selected is not None
+                  and state.teleport_sent is True
+                  and state.runtime_ack_sent is True)
 
-        selected = state.foundation.selected
-        session_identity = (
-            ((selected.identity_hi & 0xFFFFFFFF) << 32)
-            | (selected.identity_lo & 0xFFFFFFFF)
-        )
+            selected = state.foundation.selected
+            session_identity = (
+                ((selected.identity_hi & 0xFFFFFFFF) << 32)
+                | (selected.identity_lo & 0xFFFFFFFF)
+            )
 
-        # The encoder's own composition, built OUTSIDE the dispatcher against
-        # the SAME session actor.  This is the expectation every dispatched
-        # byte is measured against.
-        session_actor = dmh.resolve_actor(legacy, selected)
-        expected = dmh.build_damage_model_sweep(
-            legacy, session_actor, unlock, scenario,
-        )
-        # And a second composition against a DIFFERENT identity, so that
-        # "the frames name the session" is a falsifiable statement.
-        other_actor = dmh.DamageModelActor(
-            (selected.identity_lo ^ 0x00ABCDEF) & 0xFFFFFFFF, 0,
-            float(legacy.V135_PLAYER_X), float(legacy.V135_PLAYER_Y),
-            float(legacy.V135_PLAYER_Z),
-        )
-        other_sweep = dmh.build_damage_model_sweep(
-            legacy, other_actor, unlock, scenario,
-        )
+            # The encoder's own composition, built OUTSIDE the dispatcher against
+            # the SAME session actor.  This is the expectation every dispatched
+            # byte is measured against.
+            session_actor = dmh.resolve_actor(legacy, selected)
+            expected = dmh.build_damage_model_sweep(
+                legacy, session_actor, unlock, scenario,
+            )
+            # And a second composition against a DIFFERENT identity, so that
+            # "the frames name the session" is a falsifiable statement.
+            other_actor = dmh.DamageModelActor(
+                (selected.identity_lo ^ 0x00ABCDEF) & 0xFFFFFFFF, 0,
+                float(legacy.V135_PLAYER_X), float(legacy.V135_PLAYER_Y),
+                float(legacy.V135_PLAYER_Z),
+            )
+            other_sweep = dmh.build_damage_model_sweep(
+                legacy, other_actor, unlock, scenario,
+            )
 
-        dump_before = logical_dump(store)
-        dir_before = directory_digest(tmp_dir)
+            dump_before = logical_dump(store)
+            dir_before = directory_digest(tmp_dir)
 
-        with trap:
-            actions = state.dispatch(trigger())
+            with trap:
+                actions = state.dispatch(trigger())
 
-        dir_after = directory_digest(tmp_dir)
-        dump_after = logical_dump(store)
+            dir_after = directory_digest(tmp_dir)
+            dump_after = logical_dump(store)
 
-        check("the dispatcher answered with four frames",
-              len(actions) == len(EXPECTED_STEP_ORDER), str(len(actions)))
-        check("in the scenario's pinned order",
-              [row[0] for row in actions]
-              == [expected_label_prefix + step
-                  for step in EXPECTED_STEP_ORDER],
-              str([row[0] for row in actions]))
-        check("and named THIS profile's sweep event exactly once",
-              state.events.count(sweep_event) == 1)
-        check("and never named the OTHER profile's sweep event",
-              not any(
-                  event in state.events
-                  for event in (SWEEP_EVENT, NPC_SWEEP_EVENT)
-                  if event != sweep_event
-              ))
-        check("the dispatched labels equal the module's action labels",
-              [row[0] for row in actions]
-              == list(dmh.DAMAGE_MODEL_NPC_ACTION_LABELS
-                      if profile_name == "npc_target"
-                      else dmh.DAMAGE_MODEL_ACTION_LABELS))
-        check("the dispatched labels equal the scenario file's action labels",
-              [row[0] for row in actions]
-              == list(pinned["dispatch"]["action_labels"]))
+            check("the dispatcher answered with four frames",
+                  len(actions) == len(EXPECTED_STEP_ORDER), str(len(actions)))
+            check("in the scenario's pinned order",
+                  [row[0] for row in actions]
+                  == [expected_label_prefix + step
+                      for step in EXPECTED_STEP_ORDER],
+                  str([row[0] for row in actions]))
+            check("and named THIS profile's sweep event exactly once",
+                  state.events.count(sweep_event) == 1)
+            check("and never named the OTHER profile's sweep event",
+                  not any(
+                      event in state.events
+                      for event in (SWEEP_EVENT, NPC_SWEEP_EVENT)
+                      if event != sweep_event
+                  ))
+            check("the dispatched labels equal the module's action labels",
+                  [row[0] for row in actions]
+                  == list(dmh.DAMAGE_MODEL_NPC_ACTION_LABELS
+                          if profile_name == "npc_target"
+                          else dmh.DAMAGE_MODEL_ACTION_LABELS))
+            check("the dispatched labels equal the scenario file's action labels",
+                  [row[0] for row in actions]
+                  == list(pinned["dispatch"]["action_labels"]))
 
-        # ---------------------------------------------------------------
-        if not want_json:
-            print("-- 2. the dispatcher's bytes ARE the encoder's bytes --")
-        # The load-bearing comparison of this file: if the dispatcher ever
-        # composes a sweep of its own, invents a delay, or reorders one step,
-        # these guards go red on the raw bytes.
-        check("the dispatcher emitted exactly as many actions as the encoder",
-              len(actions) == len(expected))
-        check("every dispatched action equals the encoder's, byte for byte",
-              actions == expected)
-        for index, step in enumerate(EXPECTED_STEP_ORDER):
-            if index >= len(actions) or index >= len(expected):
-                continue
-            got, want = actions[index], expected[index]
-            check("step %s: the label is identical" % step, got[0] == want[0])
-            check("step %s: the PC bytes are identical" % step,
-                  got[1] == want[1])
-            check("step %s: the framed bytes are identical" % step,
-                  got[2] == want[2])
-            check("step %s: the delay is identical" % step, got[3] == want[3])
-            check("step %s: frame == frame_pc(pc) on the dispatched PC" % step,
-                  got[2] == legacy.frame_pc(got[1]))
+            # ---------------------------------------------------------------
+            if not want_json:
+                print("-- 2. the dispatcher's bytes ARE the encoder's bytes --")
+            # The load-bearing comparison of this file: if the dispatcher ever
+            # composes a sweep of its own, invents a delay, or reorders one step,
+            # these guards go red on the raw bytes.
+            check("the dispatcher emitted exactly as many actions as the encoder",
+                  len(actions) == len(expected))
+            check("every dispatched action equals the encoder's, byte for byte",
+                  actions == expected)
+            for index, step in enumerate(EXPECTED_STEP_ORDER):
+                if index >= len(actions) or index >= len(expected):
+                    continue
+                got, want = actions[index], expected[index]
+                check("step %s: the label is identical" % step, got[0] == want[0])
+                check("step %s: the PC bytes are identical" % step,
+                      got[1] == want[1])
+                check("step %s: the framed bytes are identical" % step,
+                      got[2] == want[2])
+                check("step %s: the delay is identical" % step, got[3] == want[3])
+                check("step %s: frame == frame_pc(pc) on the dispatched PC" % step,
+                      got[2] == legacy.frame_pc(got[1]))
 
-        # ---------------------------------------------------------------
-        if not want_json:
-            print("-- 3. every dispatched frame, read by an independent "
-                  "walker --")
-        for index, (label, pc, frame, delay) in enumerate(actions):
-            step = EXPECTED_STEP_ORDER[index]
-            pin = dmh.pins_for_profile(scenario)[step]
-            scenario_pin = pinned["target"]["per_step"][step]
-            parsed = legacy.parse_outer(pc)
-            check("frame %s parses with the frozen v141 outer parser" % step,
-                  parsed is not None)
-            read = walk_chit_result_frame(pc)
-            entry = read["entries"][0]
-            check("frame %s is envelope 0x6E9D version 4" % step,
-                  read["envelope_id"] == RUNTIME_PROTOCOL_RES_ID
-                  and read["envelope_version"] == RUNTIME_PROTOCOL_RES_VERSION)
-            check("frame %s carries BASE change mask 2 and DERIVED 0" % step,
-                  read["base_change_mask"] == BASE_CHANGE_MASK_VITAL_COLLECTION
-                  and read["derived_change_mask"] == DERIVED_CHANGE_MASK_ABSENT,
-                  "base=0x%02X derived=0x%02X"
-                  % (read["base_change_mask"], read["derived_change_mask"]))
-            check("frame %s carries exactly one CHitResult 0x16F7 version 0"
-                  % step,
-                  read["vital_count"] == 1
-                  and read["vital_id"] == CHIT_RESULT_VITAL_ID
-                  and read["vital_version"] == CHIT_RESULT_VITAL_VERSION)
-            check("frame %s carries a 22-byte header whose four unknown "
-                  "fields are all zero" % step,
-                  read["header_wire_size"] == CHIT_RESULT_HEADER_WIRE_SIZE
-                  and read["header_field2"] == HEADER_RESERVED_VALUE
-                  and read["header_field3"] == HEADER_RESERVED_VALUE
-                  and read["header_field4"] == HEADER_RESERVED_VALUE
-                  and read["header_field5"] == HEADER_RESERVED_VALUE)
-            check("frame %s carries exactly one 37-byte hit entry" % step,
-                  read["entry_count"] == HIT_ENTRY_COUNT
-                  and entry["wire_size"] == HIT_ELEMENT_WIRE_SIZE)
-            check("frame %s: damage read SIGNED off tag 0x14 is %d"
-                  % (step, EXPECTED_DAMAGE[step]),
-                  entry["damage_signed"] == EXPECTED_DAMAGE[step],
-                  str(entry["damage_signed"]))
-            check("frame %s: the unsigned reading of the same four bytes is "
-                  "the two's complement, so the SIGNED reading is a choice "
-                  "this file makes deliberately" % step,
-                  entry["damage_unsigned"]
-                  == (EXPECTED_DAMAGE[step] & 0xFFFFFFFF))
-            check("frame %s: flags are 0x%04X"
-                  % (step, EXPECTED_FLAGS[step]),
-                  entry["flags"] == EXPECTED_FLAGS[step],
-                  "0x%04X" % entry["flags"])
-            check("frame %s: damage and flags tell the same story" % step,
-                  (entry["damage_signed"] == 0)
-                  == (entry["flags"] & 0x0001 == 0))
-            check("frame %s: the yaw is the pinned 0.0f" % step,
-                  entry["yaw"] == YAW_PINNED
-                  and struct.pack("<f", entry["yaw"]) == b"\x00\x00\x00\x00")
-            check("frame %s: the position is the frozen V135 player spawn"
-                  % step,
-                  all(
-                      struct.pack("<f", got) == struct.pack("<f", float(want))
-                      for got, want in zip(
-                          entry["position"],
-                          (legacy.V135_PLAYER_X, legacy.V135_PLAYER_Y,
-                           legacy.V135_PLAYER_Z),
-                      )
-                  ),
-                  str(entry["position"]))
-            check("frame %s: the delay is the pinned %.1f s"
-                  % (step, expected_delays[index]),
-                  delay == expected_delays[index], str(delay))
-            check("frame %s: the label is the pinned label" % step,
-                  label == expected_label_prefix + step)
-            check("frame %s reproduces its MODULE byte pins" % step,
-                  len(pc) == pin["pc_size"] == EXPECTED_PC_SIZE
-                  and len(frame) == pin["frame_size"] == EXPECTED_FRAME_SIZE
-                  and hashlib.sha256(pc).hexdigest().upper()
-                  == pin["pc_sha256"]
-                  and hashlib.sha256(frame).hexdigest().upper()
-                  == pin["frame_sha256"],
-                  hashlib.sha256(pc).hexdigest().upper())
-            check("frame %s reproduces its SCENARIO FILE byte pins" % step,
-                  scenario_pin["pc_size"] == len(pc)
-                  and scenario_pin["frame_size"] == len(frame)
-                  and scenario_pin["pc_sha256"]
-                  == hashlib.sha256(pc).hexdigest().upper()
-                  and scenario_pin["frame_sha256"]
-                  == hashlib.sha256(frame).hexdigest().upper())
-            check("frame %s: the module pin and the scenario pin are the SAME "
-                  "pin" % step,
-                  scenario_pin["pc_sha256"] == pin["pc_sha256"]
-                  and scenario_pin["frame_sha256"] == pin["frame_sha256"]
-                  and scenario_pin["damage_wire"] == pin["damage_wire"]
-                  == EXPECTED_DAMAGE[step]
-                  and scenario_pin["flags"] == pin["flags"]
-                  == EXPECTED_FLAGS[step])
-            rows.append({
-                "index": index,
-                "step": step,
-                "action_label": label,
-                "delay_seconds": delay,
-                "pc_size": len(pc),
-                "frame_size": len(frame),
-                "pc_sha256": hashlib.sha256(pc).hexdigest().upper(),
-                "frame_sha256": hashlib.sha256(frame).hexdigest().upper(),
-                "envelope_id": read["envelope_id"],
-                "envelope_version": read["envelope_version"],
-                "base_change_mask": read["base_change_mask"],
-                "derived_change_mask": read["derived_change_mask"],
-                "vital_id": read["vital_id"],
-                "vital_version": read["vital_version"],
-                "performer_identity": read["performer_identity"],
-                "target_identity": entry["target_identity"],
-                "damage_signed": entry["damage_signed"],
-                "damage_unsigned": entry["damage_unsigned"],
-                "flags": entry["flags"],
-                "yaw": entry["yaw"],
-                "position": list(entry["position"]),
-                "header_wire_size": read["header_wire_size"],
-                "entry_wire_size": entry["wire_size"],
-                "pc_hex": pc.hex(),
-            })
+            # ---------------------------------------------------------------
+            if not want_json:
+                print("-- 3. every dispatched frame, read by an independent "
+                      "walker --")
+            for index, (label, pc, frame, delay) in enumerate(actions):
+                step = EXPECTED_STEP_ORDER[index]
+                pin = dmh.pins_for_profile(scenario)[step]
+                scenario_pin = pinned["target"]["per_step"][step]
+                parsed = legacy.parse_outer(pc)
+                check("frame %s parses with the frozen v141 outer parser" % step,
+                      parsed is not None)
+                read = walk_chit_result_frame(pc)
+                entry = read["entries"][0]
+                check("frame %s is envelope 0x6E9D version 4" % step,
+                      read["envelope_id"] == RUNTIME_PROTOCOL_RES_ID
+                      and read["envelope_version"] == RUNTIME_PROTOCOL_RES_VERSION)
+                check("frame %s carries BASE change mask 2 and DERIVED 0" % step,
+                      read["base_change_mask"] == BASE_CHANGE_MASK_VITAL_COLLECTION
+                      and read["derived_change_mask"] == DERIVED_CHANGE_MASK_ABSENT,
+                      "base=0x%02X derived=0x%02X"
+                      % (read["base_change_mask"], read["derived_change_mask"]))
+                check("frame %s carries exactly one CHitResult 0x16F7 version 0"
+                      % step,
+                      read["vital_count"] == 1
+                      and read["vital_id"] == CHIT_RESULT_VITAL_ID
+                      and read["vital_version"] == CHIT_RESULT_VITAL_VERSION)
+                check("frame %s carries a 22-byte header whose four unknown "
+                      "fields are all zero" % step,
+                      read["header_wire_size"] == CHIT_RESULT_HEADER_WIRE_SIZE
+                      and read["header_field2"] == HEADER_RESERVED_VALUE
+                      and read["header_field3"] == HEADER_RESERVED_VALUE
+                      and read["header_field4"] == HEADER_RESERVED_VALUE
+                      and read["header_field5"] == HEADER_RESERVED_VALUE)
+                check("frame %s carries exactly one 37-byte hit entry" % step,
+                      read["entry_count"] == HIT_ENTRY_COUNT
+                      and entry["wire_size"] == HIT_ELEMENT_WIRE_SIZE)
+                check("frame %s: damage read SIGNED off tag 0x14 is %d"
+                      % (step, EXPECTED_DAMAGE[step]),
+                      entry["damage_signed"] == EXPECTED_DAMAGE[step],
+                      str(entry["damage_signed"]))
+                check("frame %s: the unsigned reading of the same four bytes is "
+                      "the two's complement, so the SIGNED reading is a choice "
+                      "this file makes deliberately" % step,
+                      entry["damage_unsigned"]
+                      == (EXPECTED_DAMAGE[step] & 0xFFFFFFFF))
+                check("frame %s: flags are 0x%04X"
+                      % (step, EXPECTED_FLAGS[step]),
+                      entry["flags"] == EXPECTED_FLAGS[step],
+                      "0x%04X" % entry["flags"])
+                check("frame %s: damage and flags tell the same story" % step,
+                      (entry["damage_signed"] == 0)
+                      == (entry["flags"] & 0x0001 == 0))
+                check("frame %s: the yaw is the pinned 0.0f" % step,
+                      entry["yaw"] == YAW_PINNED
+                      and struct.pack("<f", entry["yaw"]) == b"\x00\x00\x00\x00")
+                check("frame %s: the position is the frozen V135 player spawn"
+                      % step,
+                      all(
+                          struct.pack("<f", got) == struct.pack("<f", float(want))
+                          for got, want in zip(
+                              entry["position"],
+                              (legacy.V135_PLAYER_X, legacy.V135_PLAYER_Y,
+                               legacy.V135_PLAYER_Z),
+                          )
+                      ),
+                      str(entry["position"]))
+                check("frame %s: the delay is the pinned %.1f s"
+                      % (step, expected_delays[index]),
+                      delay == expected_delays[index], str(delay))
+                check("frame %s: the label is the pinned label" % step,
+                      label == expected_label_prefix + step)
+                check("frame %s reproduces its MODULE byte pins" % step,
+                      len(pc) == pin["pc_size"] == EXPECTED_PC_SIZE
+                      and len(frame) == pin["frame_size"] == EXPECTED_FRAME_SIZE
+                      and hashlib.sha256(pc).hexdigest().upper()
+                      == pin["pc_sha256"]
+                      and hashlib.sha256(frame).hexdigest().upper()
+                      == pin["frame_sha256"],
+                      hashlib.sha256(pc).hexdigest().upper())
+                check("frame %s reproduces its SCENARIO FILE byte pins" % step,
+                      scenario_pin["pc_size"] == len(pc)
+                      and scenario_pin["frame_size"] == len(frame)
+                      and scenario_pin["pc_sha256"]
+                      == hashlib.sha256(pc).hexdigest().upper()
+                      and scenario_pin["frame_sha256"]
+                      == hashlib.sha256(frame).hexdigest().upper())
+                check("frame %s: the module pin and the scenario pin are the SAME "
+                      "pin" % step,
+                      scenario_pin["pc_sha256"] == pin["pc_sha256"]
+                      and scenario_pin["frame_sha256"] == pin["frame_sha256"]
+                      and scenario_pin["damage_wire"] == pin["damage_wire"]
+                      == EXPECTED_DAMAGE[step]
+                      and scenario_pin["flags"] == pin["flags"]
+                      == EXPECTED_FLAGS[step])
+                rows.append({
+                    "index": index,
+                    "step": step,
+                    "action_label": label,
+                    "delay_seconds": delay,
+                    "pc_size": len(pc),
+                    "frame_size": len(frame),
+                    "pc_sha256": hashlib.sha256(pc).hexdigest().upper(),
+                    "frame_sha256": hashlib.sha256(frame).hexdigest().upper(),
+                    "envelope_id": read["envelope_id"],
+                    "envelope_version": read["envelope_version"],
+                    "base_change_mask": read["base_change_mask"],
+                    "derived_change_mask": read["derived_change_mask"],
+                    "vital_id": read["vital_id"],
+                    "vital_version": read["vital_version"],
+                    "performer_identity": read["performer_identity"],
+                    "target_identity": entry["target_identity"],
+                    "damage_signed": entry["damage_signed"],
+                    "damage_unsigned": entry["damage_unsigned"],
+                    "flags": entry["flags"],
+                    "yaw": entry["yaw"],
+                    "position": list(entry["position"]),
+                    "header_wire_size": read["header_wire_size"],
+                    "entry_wire_size": entry["wire_size"],
+                    "pc_hex": pc.hex(),
+                })
 
-        # ---------------------------------------------------------------
-        if not want_json:
-            print("-- 4. the frames name the identities THIS profile pins --")
-        if npc_identity is None:
-            check("performer == target on every frame (the player is both "
-                  "sides under hit_sweep)",
-                  all(row["performer_identity"] == row["target_identity"]
-                      for row in rows))
-        else:
-            check("the target is the fixed NPC placement identity 0x%X on "
-                  "every frame" % npc_identity,
-                  all(row["target_identity"] == npc_identity for row in rows),
+            # ---------------------------------------------------------------
+            if not want_json:
+                print("-- 4. the frames name the identities THIS profile pins --")
+            if npc_identity is None:
+                check("performer == target on every frame (the player is both "
+                      "sides under hit_sweep)",
+                      all(row["performer_identity"] == row["target_identity"]
+                          for row in rows))
+            else:
+                check("the target is the fixed NPC placement identity 0x%X on "
+                      "every frame" % npc_identity,
+                      all(row["target_identity"] == npc_identity for row in rows),
+                      str([hex(row["target_identity"]) for row in rows]))
+                check("the performer is NOT the NPC target on any frame (one side "
+                      "must be the player for the visibility filter)",
+                      all(row["performer_identity"] != row["target_identity"]
+                          for row in rows))
+            check("all four frames name ONE performer",
+                  len({row["performer_identity"] for row in rows}) == 1,
+                  str([hex(row["performer_identity"]) for row in rows]))
+            check("all four frames name ONE target",
+                  len({row["target_identity"] for row in rows}) == 1,
                   str([hex(row["target_identity"]) for row in rows]))
-            check("the performer is NOT the NPC target on any frame (one side "
-                  "must be the player for the visibility filter)",
-                  all(row["performer_identity"] != row["target_identity"]
-                      for row in rows))
-        check("all four frames name ONE performer",
-              len({row["performer_identity"] for row in rows}) == 1,
-              str([hex(row["performer_identity"]) for row in rows]))
-        check("all four frames name ONE target",
-              len({row["target_identity"] for row in rows}) == 1,
-              str([hex(row["target_identity"]) for row in rows]))
-        check("the performer is the dispatcher's selected character 0x%X"
-              % session_identity,
-              rows[0]["performer_identity"] == session_identity,
-              hex(rows[0]["performer_identity"]))
-        check("a sweep composed against a DIFFERENT identity does NOT equal "
-              "the dispatched bytes",
-              [row[1] for row in other_sweep] != [row[1] for row in actions])
-        check("the four steps read the same damage the module's formula "
-              "produces, step by step",
-              [row["damage_signed"] for row in rows]
-              == [dmh.step_damage_wire(i)
-                  for i in range(len(EXPECTED_STEP_ORDER))])
-        check("exactly one frame is the MISS control (damage 0, flags 0)",
-              [row["step"] for row in rows
-               if row["damage_signed"] == 0 and row["flags"] == 0]
-              == list(dmh.DAMAGE_MODEL_MISS_STEP_LABELS))
-        check("the spacing is the scenario's spacing",
-              [row["delay_seconds"] for row in rows]
-              == [scenario.first_delay_seconds]
-              + [scenario.spacing_seconds] * (len(rows) - 1))
+            check("the performer is the dispatcher's selected character 0x%X"
+                  % session_identity,
+                  rows[0]["performer_identity"] == session_identity,
+                  hex(rows[0]["performer_identity"]))
+            check("a sweep composed against a DIFFERENT identity does NOT equal "
+                  "the dispatched bytes",
+                  [row[1] for row in other_sweep] != [row[1] for row in actions])
+            check("the four steps read the same damage the module's formula "
+                  "produces, step by step",
+                  [row["damage_signed"] for row in rows]
+                  == [dmh.step_damage_wire(i)
+                      for i in range(len(EXPECTED_STEP_ORDER))])
+            check("exactly one frame is the MISS control (damage 0, flags 0)",
+                  [row["step"] for row in rows
+                   if row["damage_signed"] == 0 and row["flags"] == 0]
+                  == list(dmh.DAMAGE_MODEL_MISS_STEP_LABELS))
+            check("the spacing is the scenario's spacing",
+                  [row["delay_seconds"] for row in rows]
+                  == [scenario.first_delay_seconds]
+                  + [scenario.spacing_seconds] * (len(rows) - 1))
 
-        # ---------------------------------------------------------------
-        if not want_json:
-            print("-- 5. one-shot --")
-        seen_pcs = {row[1] for row in actions}
-        again = state.dispatch(trigger())
-        again2 = state.dispatch(trigger("probe2"))
-        check("a second trigger emits nothing (the sweep is one-shot)",
-              again == [] and again2 == [])
-        check("and says so with the named already-sent event, once per try",
-              state.events.count(REPEAT_EVENT) == 2)
-        check("the repeat put no new byte on the wire",
-              not ({row[1] for row in again} | {row[1] for row in again2})
-              - seen_pcs)
-        check("the sweep counter stayed at one",
-              state.damage_model_sweep_count == 1)
+            # ---------------------------------------------------------------
+            if not want_json:
+                print("-- 5. one-shot --")
+            seen_pcs = {row[1] for row in actions}
+            again = state.dispatch(trigger())
+            again2 = state.dispatch(trigger("probe2"))
+            check("a second trigger emits nothing (the sweep is one-shot)",
+                  again == [] and again2 == [])
+            check("and says so with the named already-sent event, once per try",
+                  state.events.count(REPEAT_EVENT) == 2)
+            check("the repeat put no new byte on the wire",
+                  not ({row[1] for row in again} | {row[1] for row in again2})
+                  - seen_pcs)
+            check("the sweep counter stayed at one",
+                  state.damage_model_sweep_count == 1)
 
-        # ---------------------------------------------------------------
-        if not want_json:
-            print("-- 6. every refusal, and none of them emits a byte --")
-        refusals = []
+            # ---------------------------------------------------------------
+            if not want_json:
+                print("-- 6. every refusal, and none of them emits a byte --")
+            refusals = []
 
-        no_select = boot("dm_no_select", select=False)
-        out = no_select.dispatch(trigger())
-        check("no selected character: no bytes",
-              out == [] and no_select.damage_model_sweep_count == 0)
-        check("no selected character: the named event, exactly",
-              no_select.events.count(NO_SELECTED_EVENT) == 1
-              and sweep_event not in no_select.events)
-        refusals.append({"case": "no_selected_character",
-                         "event": NO_SELECTED_EVENT, "actions": len(out)})
+            no_select = boot("dm_no_select", select=False)
+            out = no_select.dispatch(trigger())
+            check("no selected character: no bytes",
+                  out == [] and no_select.damage_model_sweep_count == 0)
+            check("no selected character: the named event, exactly",
+                  no_select.events.count(NO_SELECTED_EVENT) == 1
+                  and sweep_event not in no_select.events)
+            refusals.append({"case": "no_selected_character",
+                             "event": NO_SELECTED_EVENT, "actions": len(out)})
 
-        not_ready = boot("dm_not_ready", ready=False)
-        out = not_ready.dispatch(trigger())
-        check("not yet teleport + runtime ack: no bytes",
-              out == [] and not_ready.damage_model_sweep_count == 0)
-        check("not yet teleport + runtime ack: the named event, exactly",
-              not_ready.events.count(WRONG_SEQUENCE_EVENT) == 1
-              and sweep_event not in not_ready.events)
-        refusals.append({"case": "not_runtime_ready",
-                         "event": WRONG_SEQUENCE_EVENT, "actions": len(out)})
+            not_ready = boot("dm_not_ready", ready=False)
+            out = not_ready.dispatch(trigger())
+            check("not yet teleport + runtime ack: no bytes",
+                  out == [] and not_ready.damage_model_sweep_count == 0)
+            check("not yet teleport + runtime ack: the named event, exactly",
+                  not_ready.events.count(WRONG_SEQUENCE_EVENT) == 1
+                  and sweep_event not in not_ready.events)
+            refusals.append({"case": "not_runtime_ready",
+                             "event": WRONG_SEQUENCE_EVENT, "actions": len(out)})
 
-        bad_text = bytearray(CHAT_INPUT_PROBE_REQUEST_PCS["probe1"])
-        bad_text[-1] ^= 0xFF
-        wrong_text = boot("dm_wrong_text")
-        out = wrong_text.dispatch(legacy.parse_outer(bytes(bad_text)))
-        check("a frame that is not ascii12: no bytes",
-              out == [] and wrong_text.damage_model_sweep_count == 0)
-        check("a frame that is not ascii12: the named event, exactly",
-              wrong_text.events.count(WRONG_TEXT_EVENT) == 1
-              and sweep_event not in wrong_text.events)
-        refusals.append({"case": "not_ascii12_text",
-                         "event": WRONG_TEXT_EVENT, "actions": len(out)})
+            bad_text = bytearray(CHAT_INPUT_PROBE_REQUEST_PCS["probe1"])
+            bad_text[-1] ^= 0xFF
+            wrong_text = boot("dm_wrong_text")
+            out = wrong_text.dispatch(legacy.parse_outer(bytes(bad_text)))
+            check("a frame that is not ascii12: no bytes",
+                  out == [] and wrong_text.damage_model_sweep_count == 0)
+            check("a frame that is not ascii12: the named event, exactly",
+                  wrong_text.events.count(WRONG_TEXT_EVENT) == 1
+                  and sweep_event not in wrong_text.events)
+            refusals.append({"case": "not_ascii12_text",
+                             "event": WRONG_TEXT_EVENT, "actions": len(out)})
 
-        # A wrong envelope on the same vital id: outer version 1 instead of 0.
-        wrong_env_pc = bytes(
-            legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_REQ)
-            + legacy.u32tag(0x14, 0)
-            + legacy.u8tag(0x08, 1)
-            + legacy.u8tag(0x0B, 2)
-            + legacy.u16tag(0x12, 1)
-            + legacy.u16tag(0x12, CHAT_INPUT_VITAL_ID)
-            + legacy.u8tag(0x0B, 0)
-            + bytes(CHAT_INPUT_PROBE_REQUEST_PCS["probe1"])[20:]
-        )
-        wrong_env = boot("dm_wrong_env")
-        out = wrong_env.dispatch(legacy.parse_outer(wrong_env_pc))
-        check("a wrong envelope on the same vital id: no bytes",
-              out == [] and wrong_env.damage_model_sweep_count == 0)
-        check("a wrong envelope on the same vital id: the named event, exactly",
-              wrong_env.events.count(WRONG_ENVELOPE_EVENT) == 1
-              and sweep_event not in wrong_env.events)
-        refusals.append({"case": "wrong_envelope",
-                         "event": WRONG_ENVELOPE_EVENT, "actions": len(out)})
+            # A wrong envelope on the same vital id: outer version 1 instead of 0.
+            wrong_env_pc = bytes(
+                legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_REQ)
+                + legacy.u32tag(0x14, 0)
+                + legacy.u8tag(0x08, 1)
+                + legacy.u8tag(0x0B, 2)
+                + legacy.u16tag(0x12, 1)
+                + legacy.u16tag(0x12, CHAT_INPUT_VITAL_ID)
+                + legacy.u8tag(0x0B, 0)
+                + bytes(CHAT_INPUT_PROBE_REQUEST_PCS["probe1"])[20:]
+            )
+            wrong_env = boot("dm_wrong_env")
+            out = wrong_env.dispatch(legacy.parse_outer(wrong_env_pc))
+            check("a wrong envelope on the same vital id: no bytes",
+                  out == [] and wrong_env.damage_model_sweep_count == 0)
+            check("a wrong envelope on the same vital id: the named event, exactly",
+                  wrong_env.events.count(WRONG_ENVELOPE_EVENT) == 1
+                  and sweep_event not in wrong_env.events)
+            refusals.append({"case": "wrong_envelope",
+                             "event": WRONG_ENVELOPE_EVENT, "actions": len(out)})
 
-        check("no refusal path ever names the sweep event",
-              not any(
-                  sweep_event in candidate.events
-                  for candidate in (no_select, not_ready, wrong_text, wrong_env)
-              ))
+            check("no refusal path ever names the sweep event",
+                  not any(
+                      sweep_event in candidate.events
+                      for candidate in (no_select, not_ready, wrong_text, wrong_env)
+                  ))
 
-        # ---------------------------------------------------------------
-        if not want_json:
-            print("-- 7. containment: no database write, no socket, no lane "
-                  "when the flag is absent --")
-        check("no file in the database directory changed across the sweep "
-              "(main file AND the WAL/SHM sidecars, by size and sha256)",
-              dir_after == dir_before,
-              "%s -> %s" % (dir_before, dir_after))
-        check("the logical database content is identical across the sweep "
-              "(full iterdump over a read-only connection)",
-              dump_after == dump_before)
-        check("the database this run built lives under the system temporary "
-              "directory",
-              Path(tempfile.gettempdir()).resolve()
-              in db_path.resolve().parents)
-        check("the database this run built is nowhere inside the repository's "
-              "committed state directory, so the canonical database cannot be "
-              "the file under test",
-              (ROOT / "state").resolve() not in db_path.resolve().parents
-              and ROOT.resolve() not in db_path.resolve().parents)
-        check("no socket was constructed while the sweep ran",
-              trap.attempts == [], str(trap.attempts))
-        check("the sweep took no socket action (every action is a 4-tuple)",
-              all(len(action) == 4 for action in actions))
+            # ---------------------------------------------------------------
+            if not want_json:
+                print("-- 7. containment: no database write, no socket, no lane "
+                      "when the flag is absent --")
+            check("no file in the database directory changed across the sweep "
+                  "(main file AND the WAL/SHM sidecars, by size and sha256)",
+                  dir_after == dir_before,
+                  "%s -> %s" % (dir_before, dir_after))
+            check("the logical database content is identical across the sweep "
+                  "(full iterdump over a read-only connection)",
+                  dump_after == dump_before)
+            check("the database this run built lives under the system temporary "
+                  "directory",
+                  Path(tempfile.gettempdir()).resolve()
+                  in db_path.resolve().parents)
+            check("the database this run built is nowhere inside the repository's "
+                  "committed state directory, so the canonical database cannot be "
+                  "the file under test",
+                  (ROOT / "state").resolve() not in db_path.resolve().parents
+                  and ROOT.resolve() not in db_path.resolve().parents)
+            check("no socket was constructed while the sweep ran",
+                  trap.attempts == [], str(trap.attempts))
+            check("the sweep took no socket action (every action is a 4-tuple)",
+                  all(len(action) == 4 for action in actions))
 
-        off = boot("dm_flag_off", enabled=False)
-        off_actions = off.dispatch(trigger())
-        off_labels = [row[0] for row in off_actions]
-        check("with the scenario absent no HYP-PF-024 action is composed",
-              not any(label.startswith(expected_label_prefix)
-                      for label in off_labels), str(off_labels))
-        check("with the scenario absent none of the sweep's bytes appear",
-              not ({row[1] for row in off_actions} & seen_pcs))
-        check("with the scenario absent no damage-model event is named",
-              not any(event.startswith(EVENT_PREFIX) for event in off.events))
-        check("with the scenario absent the state carries no sweep count",
-              getattr(off, "damage_model_sweep_count", 0) == 0)
+            off = boot("dm_flag_off", enabled=False)
+            off_actions = off.dispatch(trigger())
+            off_labels = [row[0] for row in off_actions]
+            check("with the scenario absent no HYP-PF-024 action is composed",
+                  not any(label.startswith(expected_label_prefix)
+                          for label in off_labels), str(off_labels))
+            check("with the scenario absent none of the sweep's bytes appear",
+                  not ({row[1] for row in off_actions} & seen_pcs))
+            check("with the scenario absent no damage-model event is named",
+                  not any(event.startswith(EVENT_PREFIX) for event in off.events))
+            check("with the scenario absent the state carries no sweep count",
+                  getattr(off, "damage_model_sweep_count", 0) == 0)
 
-    verdict = {
-        "milestone": "DAMAGE-DISPATCH-001",
-        "profile": profile_name,
-        "hypothesis_id": dmh.DAMAGE_MODEL_HYPOTHESIS_ID,
-        "scenario": scenario_path.relative_to(ROOT).as_posix(),
-        "layer": "wire_only_no_client_no_socket_no_server_process",
-        "guards_run": guards,
-        "failures": failures,
-        "notes": notes,
-        "result": "PASS" if not failures else "FAIL",
-        "dispatch": {
-            "trigger": "one accepted 34-byte ascii12 chat-input frame",
-            "trigger_vital_id": CHAT_INPUT_VITAL_ID,
-            "frames_per_accepted_request": len(actions),
-            "one_shot": True,
-            "socket_action": "none",
-            "socket_constructor_attempts": trap.attempts,
-        },
-        "identity": {
-            "rule": (
-                "performer == target == the session's selected character"
-                if npc_identity is None else
-                "performer == the session's selected character; "
-                "target == the fixed NPC placement identity 0x2001"
-            ),
-            "session_identity": session_identity,
-            "coincides_with_the_pinned_probe_identity": (
-                session_identity == dmh.DAMAGE_PROBE_IDENTITY_LO
-            ),
-        },
-        "database_guard": {
-            "what_it_measures": (
-                "every file in the throwaway database directory, including the "
-                "WAL and SHM sidecars, is byte-identical immediately before and "
-                "after the dispatch, and the full logical iterdump is identical "
-                "as well"
-            ),
-            "what_it_does_not_measure": (
-                "that no write path exists anywhere on the lane; that is a "
-                "reading of the code, not a measurement of this run"
-            ),
-            "files_before": [list(row) for row in dir_before],
-            "files_after": [list(row) for row in dir_after],
-            "logical_dump_identical": dump_after == dump_before,
-        },
-        "refusals": refusals,
-        "not_claimed": list(dmh.DAMAGE_MODEL_NONCLAIMS),
-        "frames": rows,
-    }
-    if evidence_path is not None:
-        evidence_path.parent.mkdir(parents=True, exist_ok=True)
-        evidence_path.write_text(
-            json.dumps(verdict, indent=2) + "\n", encoding="utf-8",
-        )
+        verdict = {
+            "milestone": "DAMAGE-DISPATCH-001",
+            "profile": profile_name,
+            "hypothesis_id": dmh.DAMAGE_MODEL_HYPOTHESIS_ID,
+            "scenario": scenario_path.relative_to(ROOT).as_posix(),
+            "layer": "wire_only_no_client_no_socket_no_server_process",
+            "guards_run": guards,
+            "failures": failures,
+            "notes": notes,
+            "result": "PASS" if not failures else "FAIL",
+            "dispatch": {
+                "trigger": "one accepted 34-byte ascii12 chat-input frame",
+                "trigger_vital_id": CHAT_INPUT_VITAL_ID,
+                "frames_per_accepted_request": len(actions),
+                "one_shot": True,
+                "socket_action": "none",
+                "socket_constructor_attempts": trap.attempts,
+            },
+            "identity": {
+                "rule": (
+                    "performer == target == the session's selected character"
+                    if npc_identity is None else
+                    "performer == the session's selected character; "
+                    "target == the fixed NPC placement identity 0x2001"
+                ),
+                "session_identity": session_identity,
+                "coincides_with_the_pinned_probe_identity": (
+                    session_identity == dmh.DAMAGE_PROBE_IDENTITY_LO
+                ),
+            },
+            "database_guard": {
+                "what_it_measures": (
+                    "every file in the throwaway database directory, including the "
+                    "WAL and SHM sidecars, is byte-identical immediately before and "
+                    "after the dispatch, and the full logical iterdump is identical "
+                    "as well"
+                ),
+                "what_it_does_not_measure": (
+                    "that no write path exists anywhere on the lane; that is a "
+                    "reading of the code, not a measurement of this run"
+                ),
+                "files_before": [list(row) for row in dir_before],
+                "files_after": [list(row) for row in dir_after],
+                "logical_dump_identical": dump_after == dump_before,
+            },
+            "refusals": refusals,
+            "not_claimed": list(dmh.DAMAGE_MODEL_NONCLAIMS),
+            "frames": rows,
+        }
+        if evidence_path is not None:
+            evidence_path.parent.mkdir(parents=True, exist_ok=True)
+            evidence_path.write_text(
+                json.dumps(verdict, indent=2) + "\n", encoding="utf-8",
+            )
+    finally:
+        stdout_guard.close()
     if want_json:
         print(json.dumps(verdict, indent=2))
     else:
