@@ -75,9 +75,12 @@ def mine(gamedata: Path):
     for raw_id, expected_name in CONTROL_ROWS.items():
         scene_id = int(raw_id)
         if scene_id not in catalog or catalog[scene_id][0] != expected_name:
+            # ascii(), not %r: the console this prints to is cp874, and a
+            # corrupted source table is exactly the case where catalog[scene_id]
+            # could carry a non-cp874 character this report must not crash on.
             raise MineError(
-                "control broke: n_ID %d is %r, expected %r"
-                % (scene_id, catalog.get(scene_id), expected_name))
+                "control broke: n_ID %d is %s, expected %s"
+                % (scene_id, ascii(catalog.get(scene_id)), ascii(expected_name)))
     return catalog, _sha256(source), len(rows)
 
 

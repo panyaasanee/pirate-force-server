@@ -32,5 +32,12 @@ def load_gm_accounts(path: str | Path | None = None) -> frozenset[int]:
 
 
 def is_gm(account_id: int, gm_accounts: frozenset[int]) -> bool:
-    """True only if account_id is literally in the allowlist passed in."""
+    """True only if account_id is literally in the allowlist passed in.
+
+    Mirrors load_gm_accounts' bool/int hygiene: a bool happens to hash and
+    compare equal to 0/1 in Python, so a caller that accidentally passes
+    account_id=True must not match a real account id 1 on the allowlist.
+    """
+    if isinstance(account_id, bool):
+        return False
     return account_id in gm_accounts

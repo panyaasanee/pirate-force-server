@@ -53,6 +53,14 @@ class TestGmAccounts(unittest.TestCase):
         for account_id in (0, 1, -1, 7, 999999):
             self.assertFalse(accounts.is_gm(account_id, frozenset()))
 
+    def test_is_gm_bool_query_never_matches_even_if_1_is_a_real_gm(self):
+        # True == 1 and hashes identically in Python; a caller that
+        # accidentally passes a bool (e.g. from a wire-decoding bug) must
+        # not be treated as querying account id 1.
+        allowlist = frozenset({1})
+        self.assertFalse(accounts.is_gm(True, allowlist))
+        self.assertFalse(accounts.is_gm(False, allowlist))
+
 
 if __name__ == "__main__":
     unittest.main()

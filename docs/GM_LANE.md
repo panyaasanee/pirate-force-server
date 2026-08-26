@@ -42,6 +42,32 @@ point, never a direct edit from this lane.
 | GM-003 | Server-side GM command set (`warp`/`npc`/`item`/`lv`/`spawn`/`say`) | Not started this round. Blocked on GM-002's attended capture (to confirm which field of `GM_RunGMCommandVital` carries the command text) and on importing lane A's scene registry / lane B's mob roster rather than duplicating their tables. |
 | GM-004 | GM scene-name catalog (`gm/scene_catalog.py`) | Built. Generated from `TEXTDATA_TH__SCENE_NAME_TIP.tsv` (sha `f9076cfc...`), 330 rows -- the opening letter's "331" counted the header row. |
 
+## Open design question flagged by pf-adversary (round 1) -- for chief to answer in CORE-REQUEST-007
+
+`accounts.load_gm_accounts` returns a `frozenset`, which implies "load once,
+share." Nothing in this lane says *when* that load happens relative to a
+live connection. If the wiring loads it once at server boot and a
+connection object holds its own membership result for the life of the
+session, then editing `gm_accounts` to revoke someone mid-session does
+nothing until the process restarts. `gm/command_capture.py` was changed in
+this round specifically so it can never be the thing that goes stale (it
+takes the allowlist and recomputes membership on every call rather than
+trusting a cached bool) -- but that only closes the capture path. The wiring
+CORE-REQUEST-007 asks for still has to decide, and state, how often
+`runtime.py` re-checks a connected account against `gm_accounts` after
+login.
+
+## Accepted low-severity findings (pf-adversary round 1, not fixed this round)
+
+- `tools/pf_mine_gm_scene_catalog.py`'s only defense against a silently wrong
+  source table is that scene ids 1-4 match four hand-verified names; the
+  other 326 rows have no invariant beyond "3 exact columns" and "no duplicate
+  n_ID". A same-length, same-file-hash mid-row corruption introduced before
+  mining would pass `--check` (it re-derives from the same corrupted source)
+  and ship a wrong GM-facing label for one scene. Severity is a display bug
+  in a GM warp menu, not a security bypass, so this round leaves it as a
+  known gap rather than building full per-row schema validation.
+
 ## Known-unknown fields (RE lane's job, not guessed here)
 
 - `GM_UpdateGMStateVital` (`0x5A19`): three fields proven structurally

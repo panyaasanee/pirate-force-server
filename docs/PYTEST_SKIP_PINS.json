@@ -469,6 +469,15 @@
       "note": "round g627j0 (LANE-B): field_drop_tables.py is GENERATED, and this is the test that re-runs its generator with --check so the shipped table cannot drift from the bridge clone's gamedata unnoticed. A clone without pf_bridge beside it cannot answer, so the skip is declared rather than hand-written - the first draft wrote a bare skipTest and the gate's skip census caught it."
     },
     {
+      "key": "bridge_gamedata",
+      "module": "tests/test_gm_scene_catalog.py",
+      "count": 1,
+      "tests": [
+        "TestGmSceneCatalog::test_the_generator_reproduces_the_shipped_table_when_it_can_run"
+      ],
+      "note": "LANE-GM (GM-004): gm/scene_catalog.py is GENERATED from TEXTDATA_TH__SCENE_NAME_TIP.tsv the same way field_drop_tables.py is generated in LANE-B's g627j0 round; this is the analogous --check re-run so a clone without pf_bridge beside it skips (declared, per pf-adversary review of this lane) instead of silently never proving the table cannot drift."
+    },
+    {
       "key": "client_image",
       "module": "tests/test_move_authority_targetpos_static.py",
       "count": 8,
