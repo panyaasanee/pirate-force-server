@@ -275,7 +275,13 @@ None filed by this lane as of this round. Remaining semantic gaps (what the
 `GM_RunGMCommandResultVital` byte means; what `GM_UpdateGMStateVital`'s
 three fields mean; what the `TeleportVital`/`CWarpResult` positional-only
 fields mean; natural direction for `ForcePos`/`CWarpResult`) all need real
-captured frames, not more static reading -- `PF_FIELD_VALIDATION.tsv` is
-NOT_OBSERVED (zero frames) for every one of them. That is attended-test /
-capture territory (GM-002), not a new RE ticket, until this lane has a
-build that can generate or observe one of these messages live.
+captured frames, not more static reading. `PF_FIELD_VALIDATION.tsv` is
+NOT_OBSERVED (zero frames) for `ForcePos`/`CWarpResult` and for every other
+message named above -- `TeleportVital` is the one exception, already noted
+in the wire-facts table: 132 candidate frames per direction at
+`A2_STATIC_OPEN` (candidate-matched, not parse-confirmed), so those bytes
+exist to check field meaning and the `TeleportTarget` field-order caveat
+against, they just have not been run through this codec yet. That check
+(and everything else in this list) is attended-test / capture territory
+(GM-002), not a new RE ticket, until this lane has a build that can
+generate or observe one of these messages live.
