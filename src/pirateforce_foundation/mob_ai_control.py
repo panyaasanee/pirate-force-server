@@ -135,7 +135,7 @@ from .mob_combat import HitOutcome
 production_allowed = True
 
 MOB_AI_CONTROL_MILESTONE = "MOB-AGGRO-001"
-MOB_AI_CONTROL_BUILD_ORDER = "BUILD-005 / M4, the promotion COO ordered"
+MOB_AI_CONTROL_BUILD_ORDER = "M4, the promotion COO ordered"
 MOB_AI_CONTROL_LANE = "B_COMBAT"
 MOB_AI_CONTROL_PROMOTION_RULING = "COO-DECISION 2026-08-26T04:02+07:00 s1.3, s3"
 

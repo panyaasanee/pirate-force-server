@@ -144,7 +144,7 @@ production_allowed = True
 test_only = False
 
 MOB_COMBAT_MILESTONE = "MOB-COMBAT-001"
-MOB_COMBAT_BUILD_ORDER = "BUILD-005 / M4 first half, joined to the second"
+MOB_COMBAT_BUILD_ORDER = "M4 first half, joined to the second"
 MOB_COMBAT_LANE = "B_COMBAT"
 
 # The one line this lane owes the chief, written where a reader of the module

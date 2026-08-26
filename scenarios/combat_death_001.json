@@ -1,6 +1,6 @@
 {
   "pin_id": "mob_death_second_half_001",
-  "build_order": "BUILD-005 / M4 second half",
+  "build_order": "M4 second half",
   "lane": "B_COMBAT",
   "milestone": "MOB-DEATH-001",
   "production_allowed": true,

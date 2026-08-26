@@ -947,7 +947,7 @@ class MobDeathTests(unittest.TestCase):
         source = (
             ROOT / "src/pirateforce_foundation/mob_death.py"
         ).read_text(encoding="utf-8")
-        self.assertIn("[LANE-B ASSUMPTION", source)
+        self.assertIn("[COO-CONFIRMED PROVISIONAL", source)
         step = self.killing_outcome()
         death = kill(self.legacy, self.mob, step.outcome, DeathRegister())
         self.assertTrue(

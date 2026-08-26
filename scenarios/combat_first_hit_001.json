@@ -1,6 +1,6 @@
 {
   "pin_id": "mob_combat_first_half_001",
-  "build_order": "BUILD-005 / M4 first half, joined to the second",
+  "build_order": "M4 first half, joined to the second",
   "lane": "B_COMBAT",
   "milestone": "MOB-COMBAT-001",
   "production_allowed": true,
