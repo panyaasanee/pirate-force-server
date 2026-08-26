@@ -626,7 +626,7 @@ _EXPECTED_WORLDINFO_FIRST = {
     ],
 }
 
-# PF-HYPOTHESIS-LEDGER: HYP-PF-028 active
+# PF-HYPOTHESIS-LEDGER: HYP-PF-028 retired
 _PROFILE_RETURN_SELECT = LogoutHypothesisScenario(
     "logout_hypothesis_return_select_server_subcode01_03",
     "HYP-PF-028",

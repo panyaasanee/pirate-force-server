@@ -1462,7 +1462,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     "logout_hypothesis_worldinfo_missing_no_reply"
                 )
                 return []
-            # PF-HYPOTHESIS-LEDGER: HYP-PF-028 active
+            # PF-HYPOTHESIS-LEDGER: HYP-PF-028 retired
             # The return_select_first shape composes one well-formed
             # ReturnSelectServerVital (0x709E) from the client serializer's own
             # field layout with all fields zero.  Unlike worldinfo_first it has
