@@ -217,10 +217,19 @@ class MobCombatDispatchTests(unittest.TestCase):
         # tests/test_mob_combat.py's job, not this file's.
         self._set_balance(state, SANCTIONED_TARGET, 500)
         actions = self._attack(state, SANCTIONED_TARGET)
+        labels = [label for label, _pc, _f, _d in actions]
         self.assertEqual(
-            [label for label, _pc, _f, _d in actions],
+            labels[:3],
             ["MOB_COMBAT_ANNOUNCE", "MOB_DEATH_DYING", "MOB_DEATH_DEAD"],
         )
+        # CORE-REQUEST-007 (MOB-LOOT-001): a killing blow on the sanctioned
+        # target now also rolls loot (mob_loot.roll_drops against a real,
+        # unseeded random.Random per session) and may append zero or more
+        # MOB_LOOT_DROP frames after the death frames above.  This file
+        # proves combat/death ordering, not loot -- see
+        # tests/test_mob_loot.py for the roll/encode contract -- so trailing
+        # entries are only checked for label, never asserted absent.
+        self.assertTrue(all(label == "MOB_LOOT_DROP" for label in labels[3:]))
         delays = [delay for *_r, delay in actions]
         self.assertEqual(delays[0], 0.0)
         self.assertEqual(delays[1], 0.0)
@@ -336,10 +345,17 @@ class MobCombatDispatchTests(unittest.TestCase):
         state = self._state("mc_census", world_census_actor_count=None)
         self._set_balance(state, SANCTIONED_TARGET, 500)
         actions = self._attack(state, SANCTIONED_TARGET)
+        labels = [label for label, _pc, _f, _d in actions]
         self.assertEqual(
-            [label for label, _pc, _f, _d in actions],
+            labels[:3],
             ["MOB_COMBAT_ANNOUNCE", "MOB_DEATH_DYING", "MOB_DEATH_DEAD"],
         )
+        # See the identical note in
+        # test_a_killing_blow_sends_announce_then_death_frames_in_order:
+        # CORE-REQUEST-007 (MOB-LOOT-001) may append MOB_LOOT_DROP frames
+        # after the death frames; this test proves world-census behavior,
+        # not loot.
+        self.assertTrue(all(label == "MOB_LOOT_DROP" for label in labels[3:]))
         anchor = (
             state.foundation.selected.position.x,
             state.foundation.selected.position.y,
