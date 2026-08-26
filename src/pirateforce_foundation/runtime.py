@@ -13,6 +13,7 @@ from . import mob_combat
 from . import mob_death
 from . import mob_loot
 from . import mob_pickup
+from . import world_density
 from . import world_population
 from . import world_scene_entry
 from . import world_scene_travel
@@ -4808,15 +4809,17 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         # corpse_override to whatever builds the scene
                         # census... PASS THE LEDGER, or the rebuild heals
                         # every wounded monster back to its ceiling as
-                        # well").  Cheap and a no-op until something has
-                        # actually died or lost HP: corpse_override returns
-                        # an empty dict against a fresh ledger/register, and
-                        # _apply_mob_death_census_override is a no-op on an
-                        # empty dict.  world_population.py has no override
+                        # well").  Not a no-op: full_roster_override returns
+                        # all 13 roster identities unconditionally (dead,
+                        # damaged, and untouched alike), not just the ones
+                        # that changed, so every boot now overrides those 13
+                        # placements to their hostile/dead body instead of
+                        # letting world_population's default census entry
+                        # stand. world_population.py has no override
                         # parameter and is out of this round's scope to
                         # edit, so this rebuilds the SAME bytes with the SAME
                         # encoder over the wider input instead.
-                        mob_death_override = mob_death.corpse_override(
+                        mob_death_override = mob_death.full_roster_override(
                             legacy, field_mobs.load_roster(),
                             self.mob_death_register,
                             ledger=self.mob_combat_ledger,
@@ -4843,6 +4846,23 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         # went out" and "the header says 115".  ASCII only --
                         # the bridge console is cp874.
                         print(world_population.census_console_line(generation))
+                        try:
+                            # This reads scenarios/world_scene_density_001.json
+                            # from disk on every call with no caching, so a
+                            # missing/corrupt file (bad deploy, wrong cwd,
+                            # packaging miss) must never be allowed to escape
+                            # here: it's a diagnostic console line, not the
+                            # census itself, and an uncaught exception would
+                            # unwind out of the listener thread (v141:7440 has
+                            # no except) after world_census_sent is already
+                            # latched -- killing the daemon GAME-listener
+                            # thread for the whole process over a print().
+                            print(world_density.m1_console_line(legacy, anchor))
+                        except Exception as error:
+                            self.events.append(
+                                "world_density_console_line_failed_"
+                                f"{type(error).__name__}"
+                            )
                         # The count is in the LABEL too: v141 prints every
                         # queued action as "[G>] <label> (N bytes)" at SEND
                         # time (v141:7762), so the attended tester can tell the

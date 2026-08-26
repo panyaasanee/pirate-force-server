@@ -46,7 +46,9 @@ from pirateforce_foundation.legacy_bridge import (  # noqa: E402
 )
 from pirateforce_foundation.lifecycle import CharacterLifecycle  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
-from pirateforce_foundation.runtime import make_state_class  # noqa: E402
+from pirateforce_foundation.runtime import (  # noqa: E402
+    make_state_class, _apply_mob_death_census_override,
+)
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
 
@@ -385,7 +387,22 @@ class MobCombatDispatchTests(unittest.TestCase):
         default_generation = world_population.build_world_population(
             self.legacy, anchor, scene_id=1,
         )
-        self.assertNotEqual(census[0][1], default_generation.pc)
+        # A raw, un-overridden generation is the wrong baseline now that
+        # runtime.py splices mob_death.full_roster_override into EVERY boot
+        # (CORE-REQUEST-007's corpse_override -> full_roster_override swap):
+        # that override touches all 13 roster identities unconditionally, so
+        # census[0][1] would differ from default_generation.pc whether or not
+        # this kill ever happened.  The baseline that still isolates "did
+        # THIS kill change the wire" is the SAME override, applied against an
+        # empty register/no ledger -- i.e. what the override would have
+        # produced with no kill committed at all.
+        no_kill_override = mob_death.full_roster_override(
+            self.legacy, self.roster, mob_death.DeathRegister(),
+        )
+        no_kill_generation = _apply_mob_death_census_override(
+            self.legacy, default_generation, no_kill_override,
+        )
+        self.assertNotEqual(census[0][1], no_kill_generation.pc)
         self.assertEqual(census[0][2], self.legacy.frame_pc(census[0][1]))
 
 

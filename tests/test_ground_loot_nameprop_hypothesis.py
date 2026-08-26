@@ -48,13 +48,18 @@ sys.path.insert(0, str(ROOT / "src"))
 from pirateforce_foundation import (  # noqa: E402
     ground_loot_nameprop_hypothesis as glnp,
 )
+from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import ground_loot_hypothesis as glh  # noqa: E402
+from pirateforce_foundation import mob_death  # noqa: E402
+from pirateforce_foundation import world_population  # noqa: E402
 from pirateforce_foundation.legacy_bridge import (  # noqa: E402
     LegacyProjector, load_legacy,
 )
 from pirateforce_foundation.lifecycle import CharacterLifecycle  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
-from pirateforce_foundation.runtime import make_state_class  # noqa: E402
+from pirateforce_foundation.runtime import (  # noqa: E402
+    _apply_mob_death_census_override, make_state_class,
+)
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
 
@@ -693,6 +698,30 @@ class NamePropDispatchTests(unittest.TestCase):
             for index in (0, 30, 91)
             if index != SHIPPED_MONSTER_INDEX
         )
+        # AMENDMENT 2026-08-26 (round 1cwih0, runtime.py swapped
+        # corpse_override -> full_roster_override).  ``control`` goes
+        # through the census path that applies the mob_death roster
+        # override, so its rung-3 bytes carry P30's own
+        # FACTION_SPLICE_BYTES insert on top of the GT-078 name tags; the
+        # frozen fallback this boot's own inherited population takes is
+        # untouched by that override.  Measured, not assumed, the same way
+        # ``added_bytes`` above is measured: the delta between an
+        # overridden and a plain rung-3 build.
+        plain_rung3 = world_population.build_world_population(
+            self.legacy, control.population_refresh_anchor, scene_id=1,
+            actor_count=3,
+        )
+        roster_override = mob_death.full_roster_override(
+            self.legacy, field_mobs.load_roster(),
+            control.mob_death_register, ledger=control.mob_combat_ledger,
+        )
+        overridden_rung3 = (
+            _apply_mob_death_census_override(
+                self.legacy, plain_rung3, roster_override,
+            )
+            if roster_override else plain_rung3
+        )
+        roster_splice_bytes = len(overridden_rung3.pc) - len(plain_rung3.pc)
         population_frozen_labels = {
             "V134_P0_P30_P91_ISOLATED_INITIAL_READY",
             "V134_P0_P30_P91_ISOLATED_REAPPLY_READY",
@@ -709,10 +738,12 @@ class NamePropDispatchTests(unittest.TestCase):
             if g_label in population_frozen_labels:
                 self.assertIn(u_label, population_census_labels)
                 self.assertEqual(
-                    len(bytes(u_pc)) - len(bytes(g_pc)), added_bytes,
+                    len(bytes(u_pc)) - len(bytes(g_pc)),
+                    added_bytes + roster_splice_bytes,
                 )
                 self.assertEqual(
-                    len(bytes(u_frame)) - len(bytes(g_frame)), added_bytes,
+                    len(bytes(u_frame)) - len(bytes(g_frame)),
+                    added_bytes + roster_splice_bytes,
                 )
             else:
                 self.assertEqual(bytes(g_pc), bytes(u_pc))
