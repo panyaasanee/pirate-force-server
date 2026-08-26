@@ -1,20 +1,21 @@
-"""Raw capture sink for GM_RunGMCommandVital (client->server, vital id 0x51E9).
+"""Capture sink for GM_RunGMCommandVital (client->server, vital id 0x51E9).
 
-This module does not parse or interpret the message -- it only guarantees a
-lossless copy of every raw send lands on disk.  A structural candidate
-layout for 0x51E9 IS now proven at the byte level (added to
-pf_bridge/external/PF_SERIALIZER_FIELDS.tsv by commit 5ab34dc, 2026-08-26
-02:50 UTC / 09:50 +07:00 -- see docs/GM_LANE.md for the field list and its
-span_sha256 pins), so this is deliberately NOT the blind "we know nothing"
-tool an earlier version of this docstring claimed; see the correction note
-in docs/GM_LANE.md for how that stale claim happened. What is still
-unresolved is (a) which of the two runtime-selected sub-paths a real client
-actually takes when it sends this message, and (b) what each field means --
-both are RE-request territory, not something this lane should decode and
-label on its own. Until that lands, this sink stays a raw hex-dump so a
-later structural/semantic pass has real bytes -- from a GM-flagged
-account, in whatever raw/prefixed/@/# chat forms an attended tester tries
--- to check a decoder against instead of guessing.
+This module guarantees a lossless copy of every raw send lands on disk --
+that guarantee does not change below.  RE-088 (STRUCTURAL-LAYOUT-PINNED,
+pf_bridge/notes_to_chief/20260826_1811_RE-088-RESULT-GM-COMMAND-WIRE-PINNED.md)
+closed the structural question this docstring used to call open: there is
+exactly one nested body, gated by a presence flag, not "two runtime-selected
+sub-paths" as an earlier round's correction note had it (see docs/GM_LANE.md
+for that history). This sink now attempts a schema-aware decode
+(gm/command_wire.py) alongside the hex dump on every capture -- what is
+still unresolved is what each field MEANS: the two wide strings are not
+confirmed to be a command name and its argument text, and the live
+chat-input trigger condition is RE-091, still open. Both are RE-request
+territory, not something this lane decides on its own. A decode failure
+(bytes that do not match the RE-088 pin) is recorded as a failure line, not
+silently dropped and not a reason to skip writing the raw bytes -- a real
+client sending something that does not match the pin is exactly the kind of
+fact GM-002 exists to catch.
 
 Wiring the actual dispatch call (chief's runtime.py, wherever
 GM_RunGMCommandVital 0x51E9 lands after being read off the wire) is out of
@@ -26,6 +27,8 @@ from __future__ import annotations
 import os
 import time
 from pathlib import Path
+
+from .command_wire import GmCommandWireError, decode_gm_run_command_vital
 
 GM_RUN_GM_COMMAND_VITAL_ID = 0x51E9
 
@@ -59,6 +62,29 @@ def _sanitize_account(account_name: str) -> str:
     )
     safe = safe[:_MAX_SAFE_ACCOUNT_LEN]
     return safe or "unnamed"
+
+
+def _escape_for_header(text: str) -> str:
+    # Same reasoning as the account_name escape below: a decoded string comes
+    # straight from client-controlled bytes, so it must not be able to forge
+    # a newline and inject a fake header/comment line into the capture file.
+    return text.encode("unicode_escape").decode("ascii")
+
+
+def _decode_section(raw: bytes) -> str:
+    try:
+        body = decode_gm_run_command_vital(raw)
+    except GmCommandWireError as exc:
+        return f"# decode: FAILED against RE-088 pin -- {exc}\n"
+    if body is None:
+        return "# decode: presence=0 (no nested body; structurally valid, empty)\n"
+    return (
+        "# decode: presence=1 (RE-088 pin; field names are positional, not semantic)\n"
+        f"# decode: field_0x10={body.field_0x10} field_0x14={body.field_0x14}"
+        f" field_0x18={body.field_0x18}\n"
+        f"# decode: string_0x1c=\"{_escape_for_header(body.string_0x1c)}\"\n"
+        f"# decode: string_0x38=\"{_escape_for_header(body.string_0x38)}\"\n"
+    )
 
 
 def capture_raw_gm_command(
@@ -98,14 +124,15 @@ def capture_raw_gm_command(
     # "account=" or "#" line). Escape control characters instead of writing
     # account_name verbatim; the exact bytes are always recoverable from the
     # hex dump below regardless.
-    header_account = account_name.encode("unicode_escape").decode("ascii")
+    header_account = _escape_for_header(account_name)
     header = (
         f"# GM_RunGMCommandVital raw capture (0x{GM_RUN_GM_COMMAND_VITAL_ID:04X})\n"
         f"# account={header_account} captured_at={ts_label} length={len(raw)}\n"
-        f"# structural candidate layout proven, field semantics NOT proven --\n"
-        f"# see docs/GM_LANE.md GM-002 / RE request queue\n\n"
+        f"# RE-088: structural layout PINNED, field semantics NOT proven --\n"
+        f"# see docs/GM_LANE.md GM-002 / RE request queue\n"
+        f"{_decode_section(bytes(raw))}\n"
     )
-    body = (header + _hex_dump(bytes(raw)) + "\n").encode("utf-8")
+    file_body = (header + _hex_dump(bytes(raw)) + "\n").encode("utf-8")
 
     suffix = 0
     while True:
@@ -117,7 +144,7 @@ def capture_raw_gm_command(
             suffix += 1
             continue
         try:
-            os.write(fd, body)
+            os.write(fd, file_body)
         finally:
             os.close(fd)
         return out_path
