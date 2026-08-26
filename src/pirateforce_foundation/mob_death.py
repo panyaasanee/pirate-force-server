@@ -1464,6 +1464,43 @@ def full_roster_override(
     It does not change what ``runtime.py`` calls: nothing in this tree wires
     this function to the census yet, so a boot with no wiring change is
     byte-for-byte what it was before this function existed.
+
+    WIRE LAYER, round 1cwih0 (2026-08-26): chief tried wiring this in and hit
+    12 red pins across FOUR files (``tests/test_world_census_wiring.py`` x9,
+    plus one each in ``tests/test_ground_loot_dispatch.py``,
+    ``tests/test_ground_loot_nameprop_hypothesis.py`` and
+    ``tests/test_population_adapter.py`` - chief's own letter only named the
+    first file).  All twelve reduce to ONE mechanism, checked by hand per
+    roster identity, not assumed: every identity this function's roster
+    covers gets the SAME 5-byte ``FACTION_SPLICE_BYTES`` treatment
+    :func:`hostile_actor_entry` already gives it, and P30/``0x201F``
+    (Tornado Eagle) is simply the one member of the roster that is ALSO part
+    of ``world_population``'s own frozen pinned control set
+    (``0, 30, 91``), so it is the one that shows up at every rung size
+    (3/20/60/115) while the other twelve only show up once a rung is large
+    enough to include their placement.  This part is a wire-layer fact, not
+    a guess: it is a no-op to fix ``corpse_override``/``full_roster_override``
+    themselves, since the shape is exactly what
+    ``test_full_roster_override_covers_every_identity_untouched_or_not``
+    already pinned when this function was written - the 12 external pins are
+    the ones out of date, not this function.
+
+    WHAT THIS DOES NOT SETTLE: whether the client actually renders any of
+    these thirteen identities as hostile/red once this ships.  GT-032's
+    passing red-name/red-border result was measured on ``0x2001``
+    ("Navy Transfer"), which is NOT a member of this roster - nobody has
+    reproduced that result for ``0x201F`` or any of the other twelve.
+    ``pf_bridge/notes_to_chief/20260825_1420_RE-067-TICKET-DRAFT-what-decides-name-color.md``
+    (open) found the client currently classes ``0x201F`` into the PLAYER
+    name-color slot,
+    not the NPC slot GT-032 used, and ``GT-034``'s own P4 nonclaim records
+    that ``0x201F`` may already render red-bordered from ``faction=6`` in
+    client-side tables with NO server splice at all - "this is genuinely
+    unknown" in that ticket's own words.  So this function's byte-level
+    change is real and well-understood; whether it is the thing that makes a
+    player see a red monster is exactly what ``GT-084`` (queued, not
+    delayed) and ``RE-067`` (open) exist to answer, and this round does not
+    pre-empt either one.
     """
     entries = repopulation_entries(
         legacy, roster, register, ledger=ledger, faction=faction,
