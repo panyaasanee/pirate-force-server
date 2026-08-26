@@ -9,12 +9,23 @@ Layout is PROVEN at the byte level and pinned against the bridge repository:
 
 [สมมติของสาย GM - รอ RE] What is PROVEN stops at "three fields, these tags,
 this order".  What each field MEANS -- is the first byte an is_gm flag, is
-the second a talk/mute bit, is the u32 a GM level -- is NOT proven.  RE
-request filed (notes_to_chief CORE-REQUEST-GM-001) to resolve it against
-client handler 0x00729F00 and the ``bm_gm.tga`` chat-balloon icon.  Until
-that comes back, callers pass the three fields as opaque integers, not named
-booleans -- do not rename these parameters to "is_gm" or similar without a
-citation to the RE answer.
+the second a talk/mute bit, is the u32 a GM level -- is NOT proven, and
+RE-089 (DONE/BOUNDED-NEGATIVE,
+notes_to_chief/20260827_0016_RE-089-RESULT-STATE-PROPAGATION-PINNED-BMGM-FALSE-LEAD.md)
+answered CORE-REQUEST-GM-001 without resolving it: it pins that the wire
+bytes get normalized (only exact value 1 survives; 2..255 collapse to 0) and
+copied into ``GMModule_Client+0x18/+0x19/+0x1C``, then projected once more
+into an opaque type-0x25 record -- but finds no render/widget/texture call
+anywhere in that chain.  RE-089 also DISPROVES the ``bm_gm.tga`` lead this
+docstring used to cite: byte-level census shows that asset is the
+``FxNumberCache`` "green minus" damage-number glyph (`0x29`, alongside
+`bm_gp.tga`/`bm_bp.tga`/`bm_bm.tga` as plus/minus x green/blue glyphs), not
+a GM chat-balloon icon, and has no crosswalk to this vital at all -- do not
+cite it as a GM indicator again. Until a capture/attended matrix (RE-089's
+own stated next step, not yet opened) pins real semantics, callers pass the
+three fields as opaque integers, not named booleans -- do not rename these
+parameters to "is_gm" or similar without a citation to the RE answer that
+proves it.
 """
 from __future__ import annotations
 
