@@ -640,6 +640,30 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 #   one.  The two fields disagree, and that ambiguity -- not a prohibition --
 #   is what sent the question to the owner.)
 #
+# ---- lineage: R175 pin 87E12140.. ----
+# -> 87E12140.. (2026-08-26 chief round 175, cloud: HYP-PF-028 status moves
+# active -> retired, its evidence_gap and expiry.decision each gain one dated
+# paragraph (AMENDED, not replaced, per the R166 precedent below), and its
+# two live source_refs (logout_hypothesis.py, runtime.py) move their inline
+# marker and required_markers from "HYP-PF-028 active" to "HYP-PF-028
+# retired" with active_claim_marker flipped false to match -- the source
+# comment strings themselves were edited in the same commit, not just this
+# ledger.  No entry added or removed, count stays 47, no index shifts, kind
+# and introduced_checkpoint unchanged, production_allowed untouched.  Why:
+# RE-075 (closed 2026-08-25 23:18 +07:00, byte-backed, image sha verified
+# before/after) read the apply site 0x005F1190 itself and found the false
+# branch (live state != cStateCreateActor, exactly the GT-033 variant B/C
+# condition) returns success with no write and no helper call -- explaining
+# the R166 negative result without a new hypothesis -- AND a second,
+# previously-unknown field gate on the true branch (vital+0x14 == 0x1E) that
+# this entry's all-zero composition fails regardless of live state.  Both
+# conditions the R166 amendment asked to see before any retire/freeze/extend
+# call -- the client-observable run and the static mechanism -- are now
+# satisfied, so this round closes the version rather than leaving it on a
+# stale "confirm before deciding" note.  Not a dead end: RE-075's finding is
+# actionable (a v2 with vital+0x14 = 0x1E is untried and within budget, 2 of
+# 5 slots remain), it is simply not opened this round.)
+#
 # ---- lineage: R166 pin 8C700D42.. ----
 # -> 8C700D42.. (2026-08-25 chief round 166, cloud: HYP-PF-028 evidence_gap is
 # AMENDED, not replaced, per the same precedent.  No entry is added or removed,
@@ -687,7 +711,7 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # its stop_rule freezes the element fields this lane sends.  Nothing else
 # moved: no existing entry added to, removed or reordered, no stop_rule or
 # production_allowed touched anywhere else.)
-CANONICAL_CONTENT_SHA256 = "D3DE9243513D8EFD6FA17A8E4542FB37B5FA6674826B705CB3C33C5BF032D40E"
+CANONICAL_CONTENT_SHA256 = "87E12140BFBD189C3B98BCBB0820094EF66ABB00DE5B3B7DF2782AC12EBBBFC7"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -988,7 +1012,13 @@ EXPECTED_META = {
     "HYP-PF-026": ("protocol_hypothesis", "DAMAGE-HP-LINK-001", "active"),
     "HYP-PF-027": ("protocol_hypothesis", "NPC-HOSTILE-001", "active"),
     "HYP-PF-028": (
-        "protocol_hypothesis", "LOGOUT-RETURN-SELECT-001", "active",
+        # RETIRED by chief round R175 (cloud, 2026-08-26): RE-075 explains the
+        # GT-033 negative result mechanistically (false-branch no-op) and
+        # additionally found a second field gate (vital+0x14 == 0x1E) that
+        # this entry's all-zero composition fails even on the true branch.
+        # kind/checkpoint unchanged; only status moves. See evidence_gap and
+        # expiry.decision in the ledger for the full record.
+        "protocol_hypothesis", "LOGOUT-RETURN-SELECT-001", "retired",
     ),
     "HYP-PF-029": ("protocol_hypothesis", "NPC-HP-LINK-001", "active"),
     "HYP-PF-030": ("protocol_hypothesis", "MOVE-AUTHORITY-002", "active"),
