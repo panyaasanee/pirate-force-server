@@ -207,10 +207,14 @@ MOB_LOOT_WIRING = (
     "expires a row and the label is off screen in under half a second; a "
     "caller that never prunes grows the ledger without bound.  Pruning beside "
     "the cell, on a value you kept, loses whatever a kill wrote in between.\n"
-    "  5. nothing else: there is no pickup half.  cell.frames(legacy) "
-    "re-emits the live ledger if you want to experiment with holding a label "
-    "on screen; DROP_REFRESH_MS is arithmetic, not a tested value, and the "
-    "arithmetic says the honest cadence costs 12.5 frames a second per row."
+    "  5. nothing else, and ONE ANNOUNCEMENT PER DROP.  The COO REFUSED this "
+    "lane's assumption 4 on 2026-08-26 (07:45 +07:00): DROP_REFRESH_MS may "
+    "not be wired into a production path, because 12.5 frames a second per "
+    "row is too much to spend on a mechanism nobody has measured.  "
+    "cell.frames(legacy) "
+    "and refresh_frames() remain EXPERIMENT TOOLS -- do not put either on a "
+    "timer in runtime.py.  What reopens the question is a measurement of the "
+    "label's lifetime from real play, not a cheaper number."
 )
 
 production_allowed = True
@@ -290,6 +294,18 @@ DROP_SCATTER_STEP = 30.0
 # before an adversarial pass did the subtraction) are arithmetically
 # guaranteed to blink.  Whether re-emission redraws anything at all is
 # unmeasured either way -- NONCLAIM 12.
+#
+# OVERTURNED BY THE COO, 2026-08-26 07:45 +07:00, and the ruling is recorded
+# here rather than only in a letter (COO-DECISION, notes_to_chief/
+# 20260826_0745_COO-DECISION-M5-stays-whole-M5a-ships-now.md, section 1a):
+# this lane's assumption 4 is REFUSED.  DROP_REFRESH_MS MAY NOT BE WIRED INTO
+# A PRODUCTION PATH -- 12.5 frames a second per row is too much to spend on a
+# mechanism nobody has measured.  refresh_frames() stays as an EXPERIMENT
+# TOOL and the production behaviour is ONE ANNOUNCEMENT PER DROP, until
+# somebody measures the label's lifetime from real play.  The constant is kept
+# (deleting it would delete the arithmetic that argues against it) and the
+# wiring line no longer offers it.
+DROP_REFRESH_MS_IS_EXPERIMENT_ONLY = True
 DROP_REFRESH_MS = 80
 MAX_DROPS_PER_KILL = 16
 
@@ -1496,6 +1512,12 @@ def refresh_frames(legacy: Any, ledger: Any) -> tuple:
     restarts the dust is UNMEASURED (NONCLAIM 12).  ``DROP_REFRESH_MS`` is
     arithmetic from the measured numbers, not a tuned or tested value, and the
     arithmetic says the honest cadence is expensive.
+
+    AND THE COO HAS SINCE REFUSED IT FOR PRODUCTION (2026-08-26 07:45 +07:00).
+    This function may be called by hand, by a test, or by an attended
+    experiment.  It may NOT be put on a timer in ``runtime.py``: the shipped
+    behaviour is one announcement per drop until the label's lifetime is
+    measured from real play.
     """
     if type(ledger) is not DropLedger:
         raise MobLootContractError(
@@ -1556,6 +1578,8 @@ def pin_document(legacy: Any) -> dict:
             "drop_key_limit": DROP_KEY_LIMIT,
             "scatter_step": DROP_SCATTER_STEP,
             "refresh_ms": DROP_REFRESH_MS,
+            "refresh_ms_is_experiment_only": (
+                DROP_REFRESH_MS_IS_EXPERIMENT_ONLY),
             "max_drops_per_kill": MAX_DROPS_PER_KILL,
         },
         "measured": {
