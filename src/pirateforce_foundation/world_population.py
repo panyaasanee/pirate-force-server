@@ -333,8 +333,12 @@ def _entry(legacy: Any, placement: SceneActorPlacement) -> bytes:
         # gap: it is why GT-078's addendum photo shows a lone blue title line
         # with no name line under it anywhere in town. This does not touch
         # WHICH template_id/visual_preset is sent (that is a placement-
-        # identity question RE-077's follow-up owns), only whether the name
-        # this table already has for that placement reaches the wire.
+        # identity question of its own - pf-queue-author caught this
+        # comment citing RE-077 for it, but RE-077 is SCENE-TRANSITION-
+        # SEQUENCE, unrelated; the real ticket is requested but not yet
+        # numbered, see notes_to_chief/20260826_1933_LANE-A-REQUEST-*.md),
+        # only whether the name this table already has for that placement
+        # reaches the wire.
         basic_name=(
             legacy.V119_P30_TARGET_NAME if is_monster
             else placement.source_name
