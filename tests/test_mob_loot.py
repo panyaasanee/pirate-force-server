@@ -30,6 +30,9 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from pf_preconditions import BRIDGE_GAMEDATA
 from pirateforce_foundation import field_drop_tables, ground_loot_hypothesis, loot_roll, mob_loot
 from pirateforce_foundation.field_mobs import load_roster
 from pirateforce_foundation.legacy_bridge import load_legacy
@@ -1080,18 +1083,19 @@ class MobLootTests(unittest.TestCase):
                 "%s can roll %d objects and the ceiling is %d"
                 % (mob.display_name, worst, MAX_DROPS_PER_KILL))
 
+    @BRIDGE_GAMEDATA.skip_unless_present()
     def test_the_generator_reproduces_the_shipped_table_when_it_can_run(self):
         """--check was written and then never run by anything.
 
         The table can drift from the bridge clone's gamedata and only a human
-        re-running the tool would notice.  Skipped rather than failed when the
-        clone is not present, because the server repo is cloned alone in CI.
+        re-running the tool would notice.  The skip is DECLARED through
+        pf_preconditions rather than written by hand, because an undeclared
+        skip is exactly what the skip census exists to catch - and it caught
+        this one on the gate before the round closed.
         """
         import subprocess
 
         gamedata = ROOT.parent / "pf_bridge" / "gamedata"
-        if not (gamedata / "tables").is_dir():
-            self.skipTest("no bridge clone beside this repo")
         finished = subprocess.run(
             [sys.executable, str(ROOT / "tools/pf_mine_scene_drop_tables.py"),
              "--check", "--gamedata", str(gamedata)],
