@@ -343,8 +343,14 @@ class FieldMobTests(unittest.TestCase):
         # the loot half rolls a dead monster's OWN drop sets, so it takes the
         # roster row (a typed FieldMob) as its input and refuses a dict.  It
         # still dispatches nothing -- the assertion below is what says so.
+        # WIDENED AGAIN by the MOB-AGGRO-001 promotion (lane B, 2026-08-26,
+        # round ywm4v1): the AI controller takes a typed FieldMob to look up
+        # the monster's own AI_WANDER row and to anchor its leash origin at the
+        # position the table placed it.  It still dispatches nothing.
         self.assertEqual(
-            importers, ["mob_combat.py", "mob_death.py", "mob_loot.py"],
+            importers,
+            ["mob_ai_control.py", "mob_combat.py", "mob_death.py",
+             "mob_loot.py"],
             "field_mobs is wired; update the letter")
         for dispatch in ("runtime.py", "app.py"):
             body = (ROOT / "src/pirateforce_foundation" / dispatch).read_text(

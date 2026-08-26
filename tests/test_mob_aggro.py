@@ -65,6 +65,11 @@ def profile(**overrides):
         home_radius=2.0,
         attack_range=3.0,
         attack_cadence_ticks=2,
+        # Every test written before 2026-08-26 assumed a monster that charges,
+        # because that was the only monster the profile could express.  The
+        # default keeps those tests saying what they were written to say; the
+        # tests that the mined n_OFFESIVE column added pass offensive=False.
+        offensive=True,
     )
     values.update(overrides)
     return ma.MobAiProfile(**values)
@@ -92,13 +97,24 @@ class ProfileContractTests(unittest.TestCase):
              ma.REFUSE_PROFILE_VALUE_NOT_FINITE),
             (dict(leash_radius=float("inf")),
              ma.REFUSE_PROFILE_VALUE_NOT_FINITE),
-            (dict(aggro_radius=0.0), ma.REFUSE_PROFILE_RADIUS_NOT_POSITIVE),
+            # A ZERO AGGRO RADIUS USED TO BE REFUSED HERE.  It is a real row:
+            # ten of the thirteen bg0001 monsters have n_AGGRO = 0.  The case
+            # is kept, inverted, rather than deleted.
+            (dict(aggro_radius=-1.0), ma.REFUSE_PROFILE_RADIUS_NOT_POSITIVE),
+            (dict(home_radius=0.0), ma.REFUSE_PROFILE_RADIUS_NOT_POSITIVE),
             (dict(attack_range=-1.0), ma.REFUSE_PROFILE_RADIUS_NOT_POSITIVE),
+            (dict(offensive=1), ma.REFUSE_OFFENSIVE_NOT_BOOL),
+            (dict(offensive=None), ma.REFUSE_OFFENSIVE_NOT_BOOL),
             (dict(leash_radius=5.0),
              ma.REFUSE_PROFILE_LEASH_SMALLER_THAN_AGGRO),
             (dict(home_radius=31.0), ma.REFUSE_PROFILE_HOME_OUTSIDE_LEASH),
-            (dict(attack_range=11.0),
-             ma.REFUSE_PROFILE_ATTACK_RANGE_OUTSIDE_AGGRO),
+            # THE BOUND MOVED from the aggro radius to the leash, so 11.0 -
+            # outside the 10.0 aggro radius, inside the 30.0 leash - is now
+            # ACCEPTED, and only a range outside the LEASH is refused.  A
+            # monster you hit must be able to hit back, and a non-offensive
+            # monster (aggro radius 0) is not an unarmed one.
+            (dict(attack_range=31.0),
+             ma.REFUSE_PROFILE_ATTACK_RANGE_OUTSIDE_LEASH),
             (dict(attack_cadence_ticks=0),
              ma.REFUSE_PROFILE_CADENCE_NOT_POSITIVE),
             (dict(attack_cadence_ticks=True),
@@ -115,7 +131,7 @@ class ProfileContractTests(unittest.TestCase):
                 self.assertEqual(caught.exception.reason, reason)
 
     def test_every_refusal_reason_is_registered(self):
-        for overrides in (dict(aggro_radius=0.0), dict(leash_radius=5.0)):
+        for overrides in (dict(aggro_radius=-1.0), dict(leash_radius=5.0)):
             with self.assertRaises(ma.MobAiContractError) as caught:
                 profile(**overrides)
             self.assertIn(caught.exception.reason,
@@ -281,6 +297,59 @@ class AcquisitionTests(unittest.TestCase):
                          observe(players=[player(7, (5.0, 0.0, 0.0),
                                                  alive=False)]))
         self.assertEqual(result.state.phase, ma.PHASE_IDLE)
+
+    def test_a_non_offensive_mob_acquires_nobody_at_any_distance(self):
+        # THE FLAG AND THE RADIUS ARE DELIBERATELY DECORRELATED HERE.  In every
+        # profile the roster can build they agree, so an adversarial mutation
+        # that replaced `if profile.offensive:` with `if aggro_radius > 0` left
+        # the WHOLE SUITE green - the field was behaviourally indistinguishable
+        # from the thing it was added to be distinguishable from.  These two
+        # cases are the only place in the repo that can tell them apart.
+        passive = profile(offensive=False, aggro_radius=10.0)
+        for offset in (0.0, 1.0, 5.0, 10.0):
+            with self.subTest(offset=offset):
+                result = ma.tick(passive, ma.initial_state(ORIGIN), observe(
+                    players=[player(7, (offset, 0.0, 0.0))]))
+                self.assertEqual(result.state.phase, ma.PHASE_IDLE)
+                self.assertEqual(result.state.threat, ())
+                self.assertIsNone(result.state.target_identity)
+
+    def test_an_offensive_mob_with_a_zero_radius_acquires_nobody_either(self):
+        # The other half of the same decorrelation: a zero radius must not
+        # admit a player standing exactly on the monster.  It does not, and
+        # this is the case that proves _within's inclusive boundary is not the
+        # thing keeping the passive monsters passive.
+        charging_but_blind = profile(offensive=True, aggro_radius=0.0)
+        result = ma.tick(charging_but_blind, ma.initial_state(ORIGIN), observe(
+            players=[player(7, ORIGIN)]))
+        self.assertEqual(result.state.phase, ma.PHASE_AGGRO)
+        # ...and with the flag off, the identical observation acquires nobody.
+        blind_and_passive = profile(offensive=False, aggro_radius=0.0)
+        result = ma.tick(blind_and_passive, ma.initial_state(ORIGIN), observe(
+            players=[player(7, ORIGIN)]))
+        self.assertEqual(result.state.phase, ma.PHASE_IDLE)
+
+    def test_a_non_offensive_mob_that_is_hit_still_fights_back(self):
+        passive = profile(offensive=False, aggro_radius=0.0)
+        pulled = ma.apply_damage_threat(ma.initial_state(ORIGIN), 7, -50)
+        result = ma.tick(passive, pulled, observe(
+            players=[player(7, (1.0, 0.0, 0.0))]))
+        self.assertEqual(result.state.phase, ma.PHASE_AGGRO)
+        self.assertEqual(result.state.target_identity, 7)
+
+    def test_a_saturating_fold_returns_the_very_same_state_object(self):
+        # Two threat-reporting predicates exist in this project, one comparing
+        # by identity (mob_combat.threat_was_recorded) and one by value
+        # (mob_ai_control's step).  A hit on a row already at THREAT_MAX used
+        # to build a NEW state EQUAL to the old, so the two answered
+        # oppositely about the same fold and the console line named three
+        # causes, none of which applied.
+        saturated = ma.apply_damage_threat(
+            ma.initial_state(ORIGIN), 7, -ma.THREAT_MAX)
+        self.assertEqual(saturated.threat, ((7, ma.THREAT_MAX),))
+        again = ma.apply_damage_threat(saturated, 7, -1)
+        self.assertIs(again, saturated)
+        self.assertEqual(again, saturated)
 
     def test_the_proximity_floor_never_accumulates(self):
         state = ma.initial_state(ORIGIN)
@@ -557,16 +626,26 @@ class ContainmentTests(unittest.TestCase):
             self.assertNotIn(banned, imported)
 
     def test_the_lane_is_not_reachable_from_production_dispatch(self):
-        # NARROWED by MOB-COMBAT-001 (lane B, 2026-08-26), and narrowed on
-        # purpose rather than deleted.  The claim this test defends is that
-        # nothing in src/ IMPORTS this module, so importing the production tree
-        # cannot drag a probe lane in.  Until MOB-COMBAT-001 that was testable
-        # by searching for the NAME, because nothing mentioned it either.  The
-        # damage driver mentions it - in prose and through a passed-in module
-        # handle, the same way field_mobs takes ``legacy`` - so the search is
-        # now for real imports, and the list of files allowed to even say the
-        # name is pinned so a new mention still has to be argued for here.
-        self.assertIs(ma.production_allowed, False)
+        # RETIRED 2026-08-26 and INVERTED IN PLACE, kept under its old name so
+        # that a reader who greps it in an older round note lands here and
+        # reads why it says the opposite of what it used to.
+        #
+        # It used to assert production_allowed is False and that NOTHING in
+        # src/ imports this module.  COO-DECISION 2026-08-26T04:02+07:00,
+        # section 2, ruled that arrangement the hole rather than the safeguard:
+        # the damage driver reached this lane through a HANDLE ARGUMENT, and no
+        # scan of src/ can see an argument, so "nothing imports it" was a true
+        # sentence that protected nothing.  The order was to promote the module
+        # where the scan CAN see it.
+        #
+        # So the assertion is inverted, and what it now defends is the shape of
+        # the promotion: exactly ONE importer, the controller, and the damage
+        # driver's wiring line STILL does not name this module - because if it
+        # did, the argument-shaped edge would be back.
+        self.assertIs(ma.production_allowed, True)
+        self.assertIs(ma.MOB_AGGRO_IMPORTED_BY_A_PRODUCTION_MODULE, True)
+        # Dispatch reachability is still False and that is still honest: the
+        # last unbuilt step is one call in runtime.py, which is the chief's.
         self.assertIs(ma.MOB_AGGRO_DISPATCH_REACHABLE, False)
         importers = []
         mentions = []
@@ -587,17 +666,18 @@ class ContainmentTests(unittest.TestCase):
                     continue
                 if any("mob_aggro" in name for name in names):
                     importers.append(path.name)
-        self.assertEqual(importers, [])
-        self.assertEqual(mentions, ["mob_combat.py"])
-        # And the part a scan of src/ can never see, pinned where it can be:
-        # passing this module IN as a handle would make it reachable from
-        # production dispatch through an argument.  So the damage driver's
-        # threat handle is optional and the wiring line it hands the chief
-        # passes None.  If that ever changes, this project has promoted a lane
-        # whose production_allowed is False, and this assertion says so first.
-        from pirateforce_foundation import mob_combat
+        self.assertEqual(importers, [ma.MOB_AGGRO_IMPORTER + ".py"])
+        self.assertEqual(mentions, ["mob_ai_control.py", "mob_combat.py"])
+        # The edge that must NOT come back: the damage driver's wiring line
+        # still passes None, so threat never arrives through an argument the
+        # scan above cannot see.  It arrives through the importer named on the
+        # line above, after the combat commit.
+        from pirateforce_foundation import mob_combat, mob_ai_control
         self.assertIs(mob_combat.MOB_COMBAT_THREAT_HANDLE_IS_OPTIONAL, True)
         self.assertNotIn("mob_aggro", mob_combat.MOB_COMBAT_WIRING)
+        self.assertEqual(mob_combat.MOB_COMBAT_THREAT_FOLD_OWNER,
+                         "mob_ai_control.damage_step")
+        self.assertIs(mob_ai_control.production_allowed, True)
 
     def test_the_module_declares_which_rules_are_ours(self):
         self.assertIn("[OUR DESIGN]", self.source)
