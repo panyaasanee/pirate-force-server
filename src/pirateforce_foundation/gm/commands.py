@@ -13,10 +13,13 @@ Scope of this file, stated plainly so it cannot be over-claimed later:
   in is a CORE-REQUEST to chief, filed per command once its dependency is
   ready -- see docs/GM_LANE.md.
 * ``GM_RunGMCommandVital`` (0x51E9, client->server) is how a real client
-  would deliver this text, but that message's own field layout is also not
-  proven yet (see ``gm/command_capture.py``, GM-002).  This module therefore
-  takes a plain ``str`` and does not depend on 0x51E9 at all, so command
-  parsing/logging can be exercised and tested before that capture lands.
+  would deliver this text.  A structural candidate byte layout for it is now
+  proven (see ``gm/command_capture.py`` for the pin), but the two
+  wide-string fields it carries are not yet confirmed to be "command name"
+  and "raw text" -- that mapping is RE-request territory, not something
+  this module assumes.  This module therefore takes a plain ``str`` and
+  does not depend on 0x51E9 at all, so command parsing/logging can be
+  exercised and tested independently of how that mapping resolves.
 
 ``warp``'s scene_id is checked against ``gm.scene_catalog`` (GM-004, this
 lane's own committed catalog) only to flag a scene_id that has no known GM
@@ -27,6 +30,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import math
 import time
 from pathlib import Path
 
@@ -35,6 +39,12 @@ from . import scene_catalog
 COMMAND_NAMES = ("warp", "npc", "item", "lv", "spawn", "say")
 
 DEFAULT_LOG_PATH = "capture/gm_command_log.ndjson"
+
+# Channel_GMGlobalMessageVital (0x9F2C) is a global broadcast, not a private
+# chat line -- capping this keeps a fat-fingered or hostile "say" from
+# growing without bound once execution is wired in, and keeps each logged
+# record to roughly one write() call worth of bytes.
+MAX_SAY_MESSAGE_LENGTH = 480
 
 
 @dataclass(frozen=True)
@@ -110,6 +120,10 @@ def parse_gm_command(text: str) -> GmCommand:
     if name == "say":
         if not rest:
             raise GmCommandParseError("say <message>")
+        if len(rest) > MAX_SAY_MESSAGE_LENGTH:
+            raise GmCommandParseError(
+                f"say message exceeds {MAX_SAY_MESSAGE_LENGTH} characters"
+            )
         return GmCommand(name, (rest,), stripped)
 
     raise GmCommandParseError(
@@ -126,9 +140,14 @@ def _require_int(value: str, label: str) -> None:
 
 def _require_number(value: str, label: str) -> None:
     try:
-        float(value)
+        parsed = float(value)
     except ValueError as exc:
         raise GmCommandParseError(f"{label} must be a number, got {value!r}") from exc
+    if not math.isfinite(parsed):
+        # A position field that silently accepts nan/inf is a landmine for
+        # whoever wires real warp execution against this parser later --
+        # reject it here so that check never has to be re-added downstream.
+        raise GmCommandParseError(f"{label} must be finite, got {value!r}")
 
 
 def describe_warp_target(command: GmCommand) -> str | None:

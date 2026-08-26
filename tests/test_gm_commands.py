@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation.gm.commands import (
+    MAX_SAY_MESSAGE_LENGTH,
     GmCommandParseError,
     describe_warp_target,
     log_gm_command,
@@ -35,6 +36,19 @@ class ParseGmCommandTests(unittest.TestCase):
     def test_warp_rejects_non_integer_scene_id(self):
         with self.assertRaises(GmCommandParseError):
             parse_gm_command("warp abc")
+
+    def test_warp_rejects_nan_and_infinite_coordinates(self):
+        # pf-adversary finding: a position field must never silently accept
+        # nan/inf -- whoever wires real warp execution against this parser
+        # must not have to remember to add this check themselves.
+        for bad in ("warp 1 nan 0", "warp 1 0 nan", "warp 1 inf 0", "warp 1 0 -inf",
+                     "warp 1 1e400 0"):
+            with self.assertRaises(GmCommandParseError):
+                parse_gm_command(bad)
+
+    def test_warp_accepts_ordinary_finite_coordinates(self):
+        cmd = parse_gm_command("warp 1 -123.5 4200")
+        self.assertEqual(cmd.args, ("1", "-123.5", "4200"))
 
     def test_npc_on_off(self):
         self.assertEqual(parse_gm_command("npc on 855").args, ("on", "855"))
@@ -63,6 +77,14 @@ class ParseGmCommandTests(unittest.TestCase):
     def test_say_requires_a_message(self):
         with self.assertRaises(GmCommandParseError):
             parse_gm_command("say")
+
+    def test_say_accepts_message_at_the_length_cap(self):
+        cmd = parse_gm_command("say " + ("x" * MAX_SAY_MESSAGE_LENGTH))
+        self.assertEqual(len(cmd.args[0]), MAX_SAY_MESSAGE_LENGTH)
+
+    def test_say_rejects_message_over_the_length_cap(self):
+        with self.assertRaises(GmCommandParseError):
+            parse_gm_command("say " + ("x" * (MAX_SAY_MESSAGE_LENGTH + 1)))
 
     def test_unknown_command_rejected(self):
         with self.assertRaises(GmCommandParseError):

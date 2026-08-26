@@ -59,6 +59,48 @@ class GmCommandCaptureTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             capture_raw_gm_command(b"x", "", capture_root=self.root)
 
+    def test_same_account_same_second_captures_do_not_overwrite_each_other(self):
+        # pf-adversary finding: two commands from one account landing in the
+        # same wall-clock second must never silently overwrite each other.
+        out1 = capture_raw_gm_command(
+            b"first-command-bytes", "panya", capture_root=self.root, now_ts=1000.0
+        )
+        out2 = capture_raw_gm_command(
+            b"second-command-bytes-DIFFERENT",
+            "panya",
+            capture_root=self.root,
+            now_ts=1000.4,
+        )
+        self.assertNotEqual(out1, out2)
+        text1 = out1.read_text(encoding="utf-8")
+        text2 = out2.read_text(encoding="utf-8")
+        self.assertNotEqual(text1, text2)
+        self.assertIn("length=19", text1)  # len(b"first-command-bytes")
+        self.assertIn("length=30", text2)  # len(b"second-command-bytes-DIFFERENT")
+
+    def test_many_same_second_captures_from_one_account_all_survive(self):
+        paths = [
+            capture_raw_gm_command(
+                bytes([i]), "panya", capture_root=self.root, now_ts=1000.0
+            )
+            for i in range(25)
+        ]
+        self.assertEqual(len(set(paths)), 25)
+        for i, path in enumerate(paths):
+            self.assertIn(f"length=1", path.read_text(encoding="utf-8"))
+            self.assertIn(f"{i:02x}", path.read_text(encoding="utf-8"))
+
+    def test_account_name_sanitizer_stays_pure_ascii_and_bounded(self):
+        out = capture_raw_gm_command(
+            b"x", "ปัญญา" + "a" * 100, capture_root=self.root, now_ts=0
+        )
+        self.assertTrue(out.name.isascii())
+        self.assertLessEqual(len(out.name), 40 + len("_0x51E9.txt") + len("20000101T000000Z_"))
+
+    def test_account_name_all_non_ascii_falls_back_to_unnamed(self):
+        out = capture_raw_gm_command(b"x", "账号测试", capture_root=self.root, now_ts=0)
+        self.assertIn("unnamed", out.name)
+
 
 if __name__ == "__main__":
     unittest.main()

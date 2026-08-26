@@ -46,10 +46,22 @@ trusting a claim here that a mismatch would invalidate):
 | vital id | name | direction | layout status |
 |---|---|---|---|
 | 0x5A19 | `GM_UpdateGMStateVital` | server->client | **proven**: u8tag(0x0B) + u8tag(0x0B) + u32tag(0x14), span_sha256 `03b18673...033c661` |
-| 0x51E9 | `GM_RunGMCommandVital` | client->server | **not proven** -- no row in PF_SERIALIZER_FIELDS yet, RE-open |
-| 0x8C77 | `GM_RunGMCommandResultVital` | server->client | **not proven** -- RE-open |
+| 0x51E9 | `GM_RunGMCommandVital` | client->server | **structural candidate proven** (functions `0x00729E10` span_sha256 `541d82f5...c8554` + `0x00726C20` span_sha256 `aa3c7c8d...93559d`): u8 mode selector, then (one of two runtime-selected sub-paths) u32 + u32 + u8 + UNTAGGED_WSTRING16LE_LEN32LE + UNTAGGED_WSTRING16LE_LEN32LE. **Field meaning and which sub-path a real client takes are NOT proven** -- RE-open. See "Correction" note below: an earlier version of this doc said this had no row at all; that was true when the 16:30 order letter was written and stale by the time this round read it. |
+| 0x8C77 | `GM_RunGMCommandResultVital` | server->client | **proven**: single u8tag(0x0B) @+0x14, span_sha256 `ad65d125...633e9`. Meaning of the byte not proven. |
 | 0x162E | `CheatVital` | both | proven: single UNTAGGED_STRING8_LEN32LE @+0x14 (reference only, not reused as GM wire) |
 | 0x9F2C | `Channel_GMGlobalMessageVital` | server->client | registered in RUNTIME_CLASSMAP; field layout not yet pinned by this lane |
+
+### Correction (filed after `pf-adversary` review, same round)
+
+The first draft of this file and of `gm/command_capture.py`/`gm/commands.py`
+copied notes_to_chief `20260826_1630`'s claim that `GM_RunGMCommandVital` /
+`GM_RunGMCommandResultVital` had no rows in `PF_SERIALIZER_FIELDS.tsv`. That
+letter was written 2026-08-26 16:30 +07:00; the rows were actually added
+earlier the same day by `pf_bridge` commit `5ab34dc` (2026-08-26 02:50 UTC =
+09:50 +07:00). This round re-derived the table at HEAD instead of trusting
+the citation, found the rows, and corrected every place that repeated the
+stale claim -- this is exactly the "re-derive again before citing a current
+number" rule `AGENTS.md` states and this round initially failed to apply.
 
 ## Modules delivered this round
 
@@ -58,13 +70,17 @@ trusting a claim here that a mismatch would invalidate):
 - `gm/state_wire.py` (GM-001) -- `make_gm_update_state_payload` /
   `make_gm_update_state_frame` for 0x5A19. The three field values are plain
   integer parameters, not named booleans: their meaning is unresolved,
-  labelled `[สมมติของสาย GM - รอ RE]` in the module docstring, and an RE
-  request is filed (CORE-REQUEST-GM-001) to pin them against client handler
-  `0x00729F00`.
+  labelled `[สมมติของสาย GM - รอ RE]` in the module docstring, and wiring is
+  requested via `CORE-REQUEST-006` (proposed; the shared cross-lane counter,
+  not a lane-local number -- see `notes_to_chief` letter) to pin them
+  against client handler `0x00729F00`.
 - `gm/command_capture.py` (GM-002) -- `capture_raw_gm_command`, a raw
-  hex-dump sink for 0x51E9. Does not parse or interpret; the point is to
-  have real bytes to read a layout off of once an attended session captures
-  some.
+  hex-dump sink for 0x51E9. Does not parse or interpret even though a
+  structural candidate layout is now known (see the wire-facts table above)
+  -- the point is to have real bytes on disk, unique per capture (a
+  same-second collision from the same account gets a numeric suffix, never
+  a silent overwrite), so a later structural/semantic decoder has something
+  real to check itself against.
 - `gm/scene_catalog.py` (GM-004) -- scene id -> GM scene name, loaded from
   `gm/data/gm_scene_name_tip.tsv` (byte-identical copy of
   `pf_bridge/gamedata/tables/TEXTDATA_TH__SCENE_NAME_TIP.tsv`, sha256 pinned
@@ -78,12 +94,13 @@ trusting a claim here that a mismatch would invalidate):
   proven `TeleportVital`/`ForcePos`/mob-spawn wiring that does not exist yet;
   executing `npc`/`item`/`lv` needs write access to player/world state
   outside this lane's write zone. Each becomes real once its dependency
-  lands, via its own `CORE-REQUEST-GM-<nnn>` letter.
+  lands, via its own `CORE-REQUEST-<nnn>` letter (shared cross-lane
+  counter; see `pf_bridge/CHIEF_CONTINUATION.md`).
 
 ## What is intentionally NOT built yet, and why
 
 - No wiring of `state_wire` into the actual login path -- that edit belongs
-  to `runtime.py`/`app.py` (chief's territory). CORE-REQUEST-GM-001 asks for
+  to `runtime.py`/`app.py` (chief's territory). `CORE-REQUEST-006` asks for
   it explicitly: call `make_gm_update_state_frame` after a successful login
   for any account where `is_gm_account()` is true, and send the resulting
   frame to that connection.
@@ -107,8 +124,14 @@ one line, which step the shortcut skipped, e.g.:
 
 ## RE requests open (owned by static RE lane, filed via chief)
 
-1. `GM_RunGMCommandVital` serializer 0x00729E10 (W) and
-   `GM_RunGMCommandResultVital` 0x00729790 (R) field layout.
+1. `GM_RunGMCommandVital` (`0x00729E10`/`0x00726C20`): the structural byte
+   layout is proven (see wire-facts table), but (a) which of the two
+   runtime-selected sub-paths a real client actually takes, and (b) what
+   the u32/u32/u8/wstring/wstring fields mean (are the two strings a
+   command name and its argument text, or something else) are both open.
+   `GM_RunGMCommandResultVital` (`0x00729790`): the single u8 result field
+   at `+0x14` is proven positionally; its meaning (success/error code?) is
+   open.
 2. `GM_UpdateGMStateVital` handler `0x00729F00`: which byte is which flag,
    what the u32 field means, what visibly changes on the client
    (`bm_gm.tga`, `GMModule_Client`).
