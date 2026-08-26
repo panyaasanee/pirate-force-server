@@ -4809,15 +4809,17 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         # corpse_override to whatever builds the scene
                         # census... PASS THE LEDGER, or the rebuild heals
                         # every wounded monster back to its ceiling as
-                        # well").  Cheap and a no-op until something has
-                        # actually died or lost HP: corpse_override returns
-                        # an empty dict against a fresh ledger/register, and
-                        # _apply_mob_death_census_override is a no-op on an
-                        # empty dict.  world_population.py has no override
+                        # well").  Not a no-op: full_roster_override returns
+                        # all 13 roster identities unconditionally (dead,
+                        # damaged, and untouched alike), not just the ones
+                        # that changed, so every boot now overrides those 13
+                        # placements to their hostile/dead body instead of
+                        # letting world_population's default census entry
+                        # stand. world_population.py has no override
                         # parameter and is out of this round's scope to
                         # edit, so this rebuilds the SAME bytes with the SAME
                         # encoder over the wider input instead.
-                        mob_death_override = mob_death.corpse_override(
+                        mob_death_override = mob_death.full_roster_override(
                             legacy, field_mobs.load_roster(),
                             self.mob_death_register,
                             ledger=self.mob_combat_ledger,

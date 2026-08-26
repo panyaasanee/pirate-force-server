@@ -43,6 +43,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from pirateforce_foundation import field_mobs  # noqa: E402
+from pirateforce_foundation import mob_death  # noqa: E402
 from pirateforce_foundation import world_density  # noqa: E402
 from pirateforce_foundation import world_population  # noqa: E402
 from pirateforce_foundation.ground_loot_hypothesis import (  # noqa: E402
@@ -53,7 +55,9 @@ from pirateforce_foundation.legacy_bridge import (  # noqa: E402
 )
 from pirateforce_foundation.lifecycle import CharacterLifecycle  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
-from pirateforce_foundation.runtime import make_state_class  # noqa: E402
+from pirateforce_foundation.runtime import (  # noqa: E402
+    _apply_mob_death_census_override, make_state_class,
+)
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
 
@@ -99,15 +103,37 @@ GROUND_LOOT_SCENARIO = (
 # not edit it).  tests/test_world_population.py's
 # ``test_rung_three_differs_from_the_shipped_default_by_exactly_the_two_
 # added_names`` pins the narrower invariant that survives.
+# AMENDMENT 2026-08-26 (round 1cwih0, runtime.py swapped corpse_override ->
+# full_roster_override).  Every digest below moved again: full_roster_override
+# puts all 13 mob_death roster identities on the wire unconditionally (a
+# FACTION_SPLICE_BYTES=5 name+faction insert per identity versus the default
+# census entry -- see mob_death.full_roster_override's own docstring, "WIRE
+# LAYER, round 1cwih0" section, for the per-identity check that established
+# this is the only mechanism and covers all four affected files, not just
+# this one). Re-derived here from the real dispatcher at PIN_ANCHOR, not
+# hand-typed, same as every prior amendment. The pre-swap (post-GT-078)
+# digests this replaces are kept as comment history rather than deleted,
+# because they are still correct for what they described (a census with no
+# mob_death roster override at all, which is the gap full_roster_override
+# closes):
+#
+#   3:   pc=638FC719659DE7181A8034ADAF2C5277292DAA731281E3375D8F66D16831B0C2
+#        frame=C8323CB6F65479F5474C43DD24CFAFFC100188EE82BA4064BB8A502632408D18
+#   20:  pc=4ED557ED0D7B86EB70FC2AB8F486900E76EE1F1F1033A5EFD70462F488292556
+#        frame=214D7418094EED5F011D58D2B36D8BB0A756F6FD95AEE5CD152EBF2E4F6917E4
+#   60:  pc=57BA09EC556CF778778F323EDF8DB1AE0C0A0C91E2D317EFC5E2A2F6E163583D
+#        frame=1A50BE5CC31C9E6809AD289CBBA30F86F31F6EF3B99DB8E839B6A2B7B9D9DF35
+#   115: pc=D0F55C5ECF93642BCB560AC928BEB6750B1856CAA0475C876E1FB0A76C904C47
+#        frame=C77D1F5CE5F3AD7E39D320A5FC6DB302CF23A2B6EF4F0C5D6B8DD2DE6C60F55D
 CENSUS_WIRE_SHA256 = {
-    3: ("638FC719659DE7181A8034ADAF2C5277292DAA731281E3375D8F66D16831B0C2",
-        "C8323CB6F65479F5474C43DD24CFAFFC100188EE82BA4064BB8A502632408D18"),
-    20: ("4ED557ED0D7B86EB70FC2AB8F486900E76EE1F1F1033A5EFD70462F488292556",
-         "214D7418094EED5F011D58D2B36D8BB0A756F6FD95AEE5CD152EBF2E4F6917E4"),
-    60: ("57BA09EC556CF778778F323EDF8DB1AE0C0A0C91E2D317EFC5E2A2F6E163583D",
-         "1A50BE5CC31C9E6809AD289CBBA30F86F31F6EF3B99DB8E839B6A2B7B9D9DF35"),
-    115: ("D0F55C5ECF93642BCB560AC928BEB6750B1856CAA0475C876E1FB0A76C904C47",
-          "C77D1F5CE5F3AD7E39D320A5FC6DB302CF23A2B6EF4F0C5D6B8DD2DE6C60F55D"),
+    3: ("EEFB8C3DE32C623FE5A593C694AC4F6DC1DF0C4431EF16DAB1E302C92EC729E7",
+        "4EB642ED7FFA5B0010FA1BC2A35599047DE5C432B826C459E0749694353B9F50"),
+    20: ("1467DF0CEE8BA32BE6D37794A936BE02DDBB9127CD0A660C581AA5718CA78EC4",
+         "751148EB2F60046C5709C2E273AE4018A9E8706430F2347E9850B90DA6C63239"),
+    60: ("25C7F8F75D65A5C0C3D8DF6475C7D73E011AEA11EAFEC23A243AD6D0F371BB6F",
+         "7D37FE495273276C7DFEB2D8E02F7391785F7E2EB07AE092F284D832B682A651"),
+    115: ("9C3BB2790E9B6BB7CDC61A1E366E87666755461B3BC8EE90ADE7F563E4C4FEED",
+          "49E4A252B6258A575079C8656DA774ACEE5E9270F405D37178F03A890A677BA7"),
 }
 PIN_ANCHOR = (10.0, 20.0, 30.0)
 
@@ -195,6 +221,32 @@ class WorldCensusWiringTests(unittest.TestCase):
             if action[0].startswith("WORLD_CENSUS_")
         ]
 
+    def _with_roster_override(self, generation, state):
+        """The SAME override runtime.py's dispatch now applies, hung off an
+        INDEPENDENTLY-built generation, so a test comparing the dispatcher's
+        real output to a from-scratch build compares like with like.
+
+        AMENDMENT 2026-08-26 (round 1cwih0, runtime.py swapped
+        corpse_override -> full_roster_override).  Before this swap
+        ``build_world_population`` alone WAS the expected wire, because the
+        dispatch's corpse_override call returned an empty dict against a
+        fresh register/ledger and was a no-op.  It no longer is:
+        full_roster_override returns all 13 mob_death roster identities
+        unconditionally, so an "expected" object that skips it is comparing
+        against bytes runtime.py no longer sends.  ``state`` is passed in
+        (not a fresh register/ledger) so this reuses the exact register and
+        ledger the dispatch itself read from, not a reconstruction of it.
+        """
+        override = mob_death.full_roster_override(
+            self.legacy, field_mobs.load_roster(),
+            state.mob_death_register, ledger=state.mob_combat_ledger,
+        )
+        if not override:
+            return generation
+        return _apply_mob_death_census_override(
+            self.legacy, generation, override,
+        )
+
     def _choose_npc_pc(self, identity):
         vitals = [
             self.legacy.u16tag(0x12, self.legacy.TARGET_VITAL)
@@ -231,8 +283,11 @@ class WorldCensusWiringTests(unittest.TestCase):
         # INDEPENDENT build rather than against each other -- the dispatcher
         # queues one object twice, so census[0] == census[1] cannot fail and
         # would be decoration.
-        independent = world_population.build_world_population(
-            self.legacy, (10.0, 20.0, 30.0), scene_id=1,
+        independent = self._with_roster_override(
+            world_population.build_world_population(
+                self.legacy, (10.0, 20.0, 30.0), scene_id=1,
+            ),
+            state,
         )
         for action in census:
             self.assertEqual(action[1], independent.pc)
@@ -267,8 +322,9 @@ class WorldCensusWiringTests(unittest.TestCase):
         self.assertIs(state.npc_idle_action_sent, False)
         self.assertEqual(state.population_indices, generation.indices)
         self.assertEqual(state.population_refresh_anchor, (10.0, 20.0, 30.0))
-        self.assertEqual(self._census(actions)[0][1], generation.pc)
-        self.assertEqual(self._census(actions)[0][2], generation.frame)
+        overridden = self._with_roster_override(generation, state)
+        self.assertEqual(self._census(actions)[0][1], overridden.pc)
+        self.assertEqual(self._census(actions)[0][2], overridden.frame)
 
     def test_the_label_carries_the_count_that_actually_went_out(self):
         """v141 prints '[G>] <label> (N bytes)' per queued action at SEND time
@@ -303,6 +359,17 @@ class WorldCensusWiringTests(unittest.TestCase):
         ``test_rung_three_differs_from_the_shipped_default_by_exactly_the_two_
         added_names`` for the same invariant proven directly against the two
         encoders, without the dispatcher in between.
+
+        AMENDMENT 2026-08-26 (round 1cwih0, runtime.py swapped
+        corpse_override -> full_roster_override).  The delta from the frozen
+        collection grew again: P30 (placement 30, actor identity 0x201F) is
+        also the one ``field_mobs.load_roster()`` member inside this rung's
+        fixed {0, 30, 91} membership, so full_roster_override's own
+        ``FACTION_SPLICE_BYTES`` insert lands on this rung too.
+        ``roster_splice_bytes`` below is measured, not assumed to be 5*1 --
+        it is the actual delta between an overridden and a plain rung-3
+        build, so it stays correct even if roster membership at these three
+        placements ever changes.
         """
         from pirateforce_foundation.population import load_port_royal_placements
         from pirateforce_foundation.world_population import SHIPPED_MONSTER_INDEX
@@ -324,10 +391,27 @@ class WorldCensusWiringTests(unittest.TestCase):
             for index in (0, 30, 91)
             if index != SHIPPED_MONSTER_INDEX
         )
-        self.assertEqual(len(census[0][1]) - len(frozen_pc), added_bytes)
-        self.assertEqual(len(census[0][2]) - len(frozen_frame), added_bytes)
-        self.assertEqual(len(census[0][1]), 564)
-        self.assertEqual(len(census[0][2]), 577)
+        plain_rung3 = world_population.build_world_population(
+            self.legacy, (10.0, 20.0, 30.0), scene_id=1, actor_count=3,
+        )
+        overridden_rung3 = self._with_roster_override(plain_rung3, state)
+        self.assertEqual(census[0][1], overridden_rung3.pc)
+        self.assertEqual(census[0][2], overridden_rung3.frame)
+        roster_splice_bytes = len(overridden_rung3.pc) - len(plain_rung3.pc)
+        self.assertEqual(
+            len(overridden_rung3.frame) - len(plain_rung3.frame),
+            roster_splice_bytes,
+        )
+        self.assertEqual(
+            len(census[0][1]) - len(frozen_pc),
+            added_bytes + roster_splice_bytes,
+        )
+        self.assertEqual(
+            len(census[0][2]) - len(frozen_frame),
+            added_bytes + roster_splice_bytes,
+        )
+        self.assertEqual(len(census[0][1]), 569)
+        self.assertEqual(len(census[0][2]), 582)
         self.assertEqual(
             state.population_indices, tuple(row[0] for row in frozen_rows),
         )
@@ -337,17 +421,29 @@ class WorldCensusWiringTests(unittest.TestCase):
 
         AMENDMENT 2026-08-26 (post-GT-078 name fix).  17928/17942 were the
         full-census sizes before ``_entry()`` started putting every
-        placement's own name on the wire; they are now 20944/20958 because
+        placement's own name on the wire; they became 20944/20958 because
         every one of the 115 members carries a name tag it did not carry
         before.  Computed here from the real encoder rather than hand-typed a
         second time, so this event string and the module's own numbers cannot
         drift apart silently.
+
+        AMENDMENT 2026-08-26 (round 1cwih0, runtime.py swapped
+        corpse_override -> full_roster_override).  20944/20958 moved again,
+        to 21007/21021: full_roster_override puts all 13 mob_death roster
+        identities on the wire, each carrying the same
+        ``field_mobs.FACTION_SPLICE_BYTES``-sized insert (see
+        ``_with_roster_override``'s docstring), so ``generation`` here is
+        overridden the same way the dispatch itself overrides it before this
+        event string is computed downstream.
         """
         state = self._state("census_once")
         self.assertEqual(len(self._census(self._step(state))), 2)
         self.assertEqual(self._census(self._step(state)), [])
-        generation = world_population.build_world_population(
-            self.legacy, (10.0, 20.0, 30.0), scene_id=1,
+        generation = self._with_roster_override(
+            world_population.build_world_population(
+                self.legacy, (10.0, 20.0, 30.0), scene_id=1,
+            ),
+            state,
         )
         self.assertEqual(
             [event for event in state.events
@@ -358,7 +454,7 @@ class WorldCensusWiringTests(unittest.TestCase):
             ],
         )
         self.assertEqual((generation.pc_bytes, generation.frame_bytes),
-                          (20944, 20958))
+                          (21007, 21021))
 
     def test_world_density_line_is_printed_alongside_the_census_line(self):
         """world_density is LANE-A's tenth production lane (production_allowed
@@ -395,8 +491,11 @@ class WorldCensusWiringTests(unittest.TestCase):
         far = (30000.0, 25000.0, 1000.0)
         state = self._state("census_anchor")
         census = self._census(self._step(state, xyz=far))
-        expected = world_population.build_world_population(
-            self.legacy, far, scene_id=1,
+        expected = self._with_roster_override(
+            world_population.build_world_population(
+                self.legacy, far, scene_id=1,
+            ),
+            state,
         )
         self.assertEqual(census[0][1], expected.pc)
         self.assertEqual(state.population_refresh_anchor, far)

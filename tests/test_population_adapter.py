@@ -12,6 +12,9 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from pirateforce_foundation import field_mobs
+from pirateforce_foundation import mob_death
+from pirateforce_foundation import world_population
 from pirateforce_foundation.legacy_bridge import LegacyProjector, load_legacy
 from pirateforce_foundation.lifecycle import CharacterLifecycle
 from pirateforce_foundation.model import Position
@@ -24,7 +27,9 @@ from pirateforce_foundation.population_scenario import (
     PopulationScenario,
     load_population_scenario,
 )
-from pirateforce_foundation.runtime import make_state_class
+from pirateforce_foundation.runtime import (
+    _apply_mob_death_census_override, make_state_class,
+)
 from pirateforce_foundation.store import SQLiteStore
 
 
@@ -417,12 +422,37 @@ class PopulationAdapterTests(unittest.TestCase):
             for index in (0, 30, 91)
             if index != SHIPPED_MONSTER_INDEX
         )
+        # AMENDMENT 2026-08-26 (round 1cwih0, runtime.py swapped
+        # corpse_override -> full_roster_override).  This no-scenario boot
+        # now goes through the census path that applies the mob_death
+        # roster override, so its rung-3 bytes carry P30's own
+        # FACTION_SPLICE_BYTES insert on top of the GT-078 name tags the
+        # golden itself never carried.  Measured, not assumed, the same way
+        # ``added_bytes`` above is measured: the delta between an
+        # overridden and a plain rung-3 build.
+        plain_rung3 = world_population.build_world_population(
+            self.legacy, state.population_refresh_anchor, scene_id=1,
+            actor_count=3,
+        )
+        roster_override = mob_death.full_roster_override(
+            self.legacy, field_mobs.load_roster(),
+            state.mob_death_register, ledger=state.mob_combat_ledger,
+        )
+        overridden_rung3 = (
+            _apply_mob_death_census_override(
+                self.legacy, plain_rung3, roster_override,
+            )
+            if roster_override else plain_rung3
+        )
+        roster_splice_bytes = len(overridden_rung3.pc) - len(plain_rung3.pc)
         for action, golden_action in zip(actions, golden["actions"]):
             self.assertEqual(
-                len(action[1]) - golden_action["pc_length"], added_bytes,
+                len(action[1]) - golden_action["pc_length"],
+                added_bytes + roster_splice_bytes,
             )
             self.assertEqual(
-                len(action[2]) - golden_action["frame_length"], added_bytes,
+                len(action[2]) - golden_action["frame_length"],
+                added_bytes + roster_splice_bytes,
             )
         # And both actions of the pair (initial + reapply) are the identical
         # generation replayed, exactly as the golden's own identical pair is.
