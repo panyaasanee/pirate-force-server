@@ -7,6 +7,7 @@ import threading
 import time
 
 from . import field_mobs
+from . import mob_ai_control
 from . import mob_combat
 from . import mob_death
 from . import world_population
@@ -1011,6 +1012,21 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.mob_death_register = mob_death.DeathRegister()
                 self.mob_combat_hit_count = 0
                 self.mob_combat_kill_count = 0
+                # CORE-REQUEST-007 (MOB-AI-CONTROL-001).  Same per-session
+                # choice as mob_combat_ledger/mob_death_register just above,
+                # for the same reason: MOB_AI_CONTROL_WIRING does not say
+                # where the register lives, and this follows the pattern
+                # every other mutable structure on this class already uses.
+                # epoch=0 because this class never rebuilds the roster after
+                # opening it (roster comes from field_mobs.load_roster(), a
+                # frozen table read, not a live reload) -- so REFUSE_REGISTER
+                # _EPOCH_MISMATCH and mob_ai_control.reconcile() are both
+                # unreached today, kept only because no rebuild path exists
+                # yet to reach them, exactly like the stale-ledger retries
+                # above.
+                self.mob_ai_register = mob_ai_control.open_register(
+                    field_mobs.load_roster(), epoch=0,
+                )
                 if world_census_enabled:
                     # The inherited P0/P30/P91 branch is disarmed HERE, at
                     # construction, exactly the way the population and
@@ -3668,6 +3684,45 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     "mob_combat_ledger_stale_retry_limit_exceeded_no_reply"
                 )
                 return []
+            # CORE-REQUEST-007 (MOB-AI-CONTROL-001), step (1) of
+            # MOB_AI_CONTROL_WIRING: fold the accepted hit into the threat
+            # table AFTER mob_combat.commit_step above, never before -- see
+            # the module header for why the ordering matters.  No frame is
+            # composed here (see MOB_AI_CONTROL_NONCLAIMS #2); a refusal to
+            # commit degrades to "no threat update this hit", never to
+            # unwinding the combat ledger commit that already succeeded.
+            if self.mob_ai_register.is_tracked(step.outcome.target_identity):
+                for _attempt in range(MOB_COMBAT_STALE_RETRY_LIMIT):
+                    ai_damage_step = mob_ai_control.damage_step(
+                        self.mob_ai_register, step.outcome,
+                    )
+                    try:
+                        self.mob_ai_register = mob_ai_control.commit_step(
+                            self.mob_ai_register, ai_damage_step,
+                        )
+                    except mob_ai_control.MobAiControlError as error:
+                        if error.reason == mob_ai_control.REFUSE_REGISTER_STALE:
+                            # Same per-session caveat as the combat-ledger
+                            # retry above: unreachable today, kept because
+                            # MOB_AI_CONTROL_WIRING requires the loop.
+                            continue
+                        raise
+                    break
+                else:
+                    self.events.append(
+                        "mob_ai_control_damage_register_stale_retry_limit_"
+                        "exceeded"
+                    )
+            else:
+                # WIRING step (1)'s own guard: the AI register and the
+                # combat ledger are opened from the same roster today but
+                # nothing in code couples them, so an untracked target would
+                # otherwise raise REFUSE_NOT_TRACKED after the combat frames
+                # above are already composed.  Not reachable today (same
+                # roster, same session) but the guard costs nothing to keep.
+                self.events.append(
+                    "mob_ai_control_damage_target_not_tracked_skipped"
+                )
             self.mob_combat_hit_count += 1
             for line in mob_combat.describe_step(step):
                 print(line)
@@ -3729,6 +3784,45 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     )
                 if death_step is not None:
                     self.mob_combat_kill_count += 1
+                    # CORE-REQUEST-007, step (2) of MOB_AI_CONTROL_WIRING:
+                    # retire the AI row AFTER mob_death.commit_death above is
+                    # accepted, on ``step.outcome`` -- the mob_combat step's
+                    # outcome, NOT death_step's own record, exactly as the
+                    # wiring text names it.  LOOP ON REFUSE_REGISTER_STALE
+                    # exactly as the damage_step call above: a driver that
+                    # gives up here leaves a corpse in the death register and
+                    # an IDLE row with live threat in this one, forever.
+                    if self.mob_ai_register.is_tracked(
+                        step.outcome.target_identity
+                    ):
+                        for _attempt in range(MOB_COMBAT_STALE_RETRY_LIMIT):
+                            ai_death_step = mob_ai_control.death_step(
+                                self.mob_ai_register, step.outcome,
+                            )
+                            try:
+                                self.mob_ai_register = (
+                                    mob_ai_control.commit_step(
+                                        self.mob_ai_register, ai_death_step,
+                                    )
+                                )
+                            except mob_ai_control.MobAiControlError as error:
+                                if (
+                                    error.reason
+                                    == mob_ai_control.REFUSE_REGISTER_STALE
+                                ):
+                                    continue
+                                raise
+                            break
+                        else:
+                            self.events.append(
+                                "mob_ai_control_death_register_stale_"
+                                "retry_limit_exceeded"
+                            )
+                    else:
+                        self.events.append(
+                            "mob_ai_control_death_target_not_tracked_"
+                            "skipped"
+                        )
                     for line in mob_death.describe_death(death_step):
                         print(line)
                     actions.append((

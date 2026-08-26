@@ -810,11 +810,13 @@ class ContainmentTests(unittest.TestCase):
         self.assertIs(mob_aggro.production_allowed, True)
         self.assertEqual(mob_aggro.MOB_AGGRO_IMPORTER, "mob_ai_control")
 
-    def test_nothing_dispatches_this_lane_yet_and_the_wiring_says_so(self):
-        # NOT just runtime.py and app.py.  production_allowed = True on a
-        # module nothing imports is a self-certification, so the tripwire is
-        # the whole of src/: the day ANY module picks this one up, this lane's
-        # claims about reachability need rewriting, not just the chief's.
+    def test_exactly_runtime_dispatches_this_lane_now(self):
+        # CORE-REQUEST-007 wired this module into runtime.py.  This used to
+        # be a tripwire asserting the OPPOSITE (nothing imports it); now that
+        # the chief has written the call, the tripwire is on the other side:
+        # exactly ONE file imports it, and it is the one MOB_AI_CONTROL_
+        # WIRING named.  A second importer, or app.py picking it up directly,
+        # would mean the request was answered twice or in the wrong file.
         importers = []
         for path in sorted(SRC_ROOT.glob("*.py")):
             if path.name == "mob_ai_control.py":
@@ -828,14 +830,13 @@ class ContainmentTests(unittest.TestCase):
                         alias.name for alias in node.names]
                 if any("mob_ai_control" in name for name in names):
                     importers.append(path.name)
-        self.assertEqual(sorted(set(importers)), [],
-                         "something imports this lane; rewrite its claims")
-        for dispatch in ("runtime.py", "app.py"):
-            body = (SRC_ROOT / dispatch).read_text(encoding="utf-8")
-            self.assertNotIn("mob_ai_control", body,
-                             "the chief wired it; rewrite this lane's claims")
+        self.assertEqual(sorted(set(importers)), ["runtime.py"],
+                         "exactly runtime.py should import this lane")
+        app_body = (SRC_ROOT / "app.py").read_text(encoding="utf-8")
+        self.assertNotIn("mob_ai_control", app_body,
+                         "runtime.py owns this wiring, not app.py")
         self.assertIn("runtime.py", mob_ai_control.MOB_AI_CONTROL_WIRING)
-        self.assertIn("Nothing dispatches this module",
+        self.assertIn("CORE-REQUEST-007",
                       mob_ai_control.MOB_AI_CONTROL_NONCLAIMS[0])
 
     def test_the_wiring_line_orders_the_two_commits(self):

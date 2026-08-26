@@ -273,8 +273,14 @@ LANE_B_ASSUMPTIONS = (
 )
 
 MOB_AI_CONTROL_NONCLAIMS = (
-    "1. Nothing dispatches this module.  MOB_AI_CONTROL_WIRING is a request "
-    "to the chief, not a description of a call that exists.",
+    "1. CORE-REQUEST-007 wired this module into runtime.py's "
+    "_dispatch_mob_combat: damage_step/death_step now run AFTER "
+    "mob_combat.commit_step / mob_death.commit_death, exactly as "
+    "MOB_AI_CONTROL_WIRING describes.  What remains UNDISPATCHED is the "
+    "tick loop (mob_ai_control.tick_step) and reconcile() -- the wiring "
+    "line says the tick loop needs no timer today (Door B unsent) and "
+    "reconcile() has nothing to reach because this class never rebuilds "
+    "the roster after opening it once per session.",
     "2. No frame is composed or sent here, so no claim is made about "
     "anything a player can see.",
     "3. n_AGGRO being a radius and n_OFFESIVE being an unprovoked-acquire "
