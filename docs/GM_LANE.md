@@ -130,11 +130,18 @@ semantics (RE-091) or a real capture close that gap.
 
 ## What is intentionally NOT built yet, and why
 
-- No wiring of `state_wire` into the actual login path -- that edit belongs
-  to `runtime.py`/`app.py` (chief's territory). `CORE-REQUEST-006` asks for
-  it explicitly: call `make_gm_update_state_frame` after a successful login
-  for any account where `is_gm_account()` is true, and send the resulting
-  frame to that connection.
+- `state_wire` IS wired into the login path as of `CORE-REQUEST-006`
+  (round R180, `runtime.py` ~line 4353): after a successful login, if
+  `is_gm_account()` is true, `make_gm_update_state_frame(legacy, 1, 0, 0, 0)`
+  is called and the resulting frame is queued to that connection, no
+  scenario flag. `is_gm_account()` failures are refused-by-name (login
+  proceeds with no GM frame) so a config typo cannot take down the
+  listener thread for every player -- see the comment at the call site.
+  The four payload values (`1, 0, 0, 0`) remain an unproven placeholder
+  tagged `[ASSUMED - awaiting RE]` -- `CORE-REQUEST-GM-001` / RE ticket
+  `RE-089 GM-STATE-VISUAL-001` (`CLIENT_RE_QUEUE.md`, status OPEN,
+  `[STATIC-ON-BRIDGE]`) is what still needs to resolve their real
+  semantics; wiring itself is done.
 - No command *execution* path (see `gm/commands.py` scope note above).
 - No general lane-A scene registry or lane-B mob roster reuse in
   `gm/commands.py`. Both lanes' current modules
