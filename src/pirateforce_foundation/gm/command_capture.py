@@ -92,9 +92,16 @@ def capture_raw_gm_command(
     ts_label = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(ts))
     safe_account = _sanitize_account(account_name)
     base_name = f"{ts_label}_{safe_account}_0x51E9"
+    # The header is plain-text metadata a human or a future tool might grep
+    # for an "account=" line -- an account_name containing a newline must
+    # not be able to forge extra header lines (e.g. a second, fake
+    # "account=" or "#" line). Escape control characters instead of writing
+    # account_name verbatim; the exact bytes are always recoverable from the
+    # hex dump below regardless.
+    header_account = account_name.encode("unicode_escape").decode("ascii")
     header = (
         f"# GM_RunGMCommandVital raw capture (0x{GM_RUN_GM_COMMAND_VITAL_ID:04X})\n"
-        f"# account={account_name} captured_at={ts_label} length={len(raw)}\n"
+        f"# account={header_account} captured_at={ts_label} length={len(raw)}\n"
         f"# structural candidate layout proven, field semantics NOT proven --\n"
         f"# see docs/GM_LANE.md GM-002 / RE request queue\n\n"
     )

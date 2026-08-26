@@ -97,6 +97,22 @@ class GmCommandCaptureTests(unittest.TestCase):
         self.assertTrue(out.name.isascii())
         self.assertLessEqual(len(out.name), 40 + len("_0x51E9.txt") + len("20000101T000000Z_"))
 
+    def test_account_name_cannot_forge_extra_header_lines(self):
+        # a newline in account_name must not let it inject a fake "account="
+        # or "#" line into the capture file's header.
+        out = capture_raw_gm_command(
+            b"x",
+            "evil\naccount=fake_injected\n# forged line",
+            capture_root=self.root,
+            now_ts=0,
+        )
+        text = out.read_text(encoding="utf-8")
+        header_lines = text.split("\n\n", 1)[0].splitlines()
+        account_lines = [line for line in header_lines if "account=" in line]
+        self.assertEqual(len(account_lines), 1)
+        forged_lines = [line for line in header_lines if line == "# forged line"]
+        self.assertEqual(forged_lines, [])
+
     def test_account_name_all_non_ascii_falls_back_to_unnamed(self):
         out = capture_raw_gm_command(b"x", "账号测试", capture_root=self.root, now_ts=0)
         self.assertIn("unnamed", out.name)
