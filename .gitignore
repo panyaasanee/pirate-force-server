@@ -596,3 +596,10 @@
 # per monster; an adversarial review found the lane calling a rollback "one
 # constant" while thirteen copies sat in a file nothing could rewrite.
 !/tools/pf_write_mob_ai_pin.py
+
+# LANE-GM (PANYA-ORDER 20260826_1630): the generator behind
+# gm/scene_catalog.py.  Allow-listed for the same reason as the LANE-B
+# generators above: the generated module ships, so the tool that wrote it --
+# the four-scene control check and the TEXTDATA_TH__SCENE_NAME_TIP source
+# digest -- has to ship with it or a fresh clone cannot re-derive the table.
+!/tools/pf_mine_gm_scene_catalog.py
