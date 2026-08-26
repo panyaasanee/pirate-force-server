@@ -357,10 +357,16 @@ class FieldMobTests(unittest.TestCase):
         # identity, with no scenario flag.  app.py is untouched -- it needs
         # no new flag, because the whole point of this round is a path that
         # does not depend on one.
+        # WIDENED AGAIN by PLAYER-HOSTILE-PAIRING-001 (lane B, 2026-08-27):
+        # the player's half of the pairing reuses this module's
+        # PLAYER_PAIR_FACTION / FACTION_SPLICE_BYTES constants (single
+        # source of truth, so the two halves cannot drift apart) instead of
+        # redefining them.  It still dispatches nothing -- runtime.py does
+        # not call it yet; that is CORE-REQUEST-009, not this round.
         self.assertEqual(
             importers,
             ["mob_ai_control.py", "mob_combat.py", "mob_death.py",
-             "mob_loot.py", "runtime.py"],
+             "mob_loot.py", "player_hostile_pairing.py", "runtime.py"],
             "field_mobs importers changed; update the letter")
         runtime_body = (
             ROOT / "src/pirateforce_foundation/runtime.py"
