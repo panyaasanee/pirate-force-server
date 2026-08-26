@@ -66,6 +66,7 @@ from pirateforce_foundation.mob_death import (
     describe_roster_override_coverage,
     dying_frames,
     full_roster_override,
+    hostile_census_frames,
     kill,
     live_roster,
     pin_document,
@@ -633,6 +634,206 @@ class MobDeathTests(unittest.TestCase):
             override, generation.actor_identities)
         self.assertEqual(coverage["missing"], ())
         self.assertEqual(coverage["matched_count"], len(self.roster))
+
+    # -- hostile_census_frames: the world-wipe fix (round `sifsfg`) --------
+    #
+    # chief's escalation (pf_bridge/notes_to_chief/20260827_0920_CHIEF-
+    # URGENT-combat-death-frames-confirmed-world-wipe-unconditional-on-
+    # flagless-path.md) reports RE-092 confirmed mob_combat.bar_frames and
+    # this module's own death_frames each send a ONE-entry collection that
+    # replaces (not merges) the client's whole remote-actor registry.  These
+    # tests prove the fix composes a REAL full census correctly -- not a
+    # smaller stand-in -- and prove it by wire-layer equivalence to the
+    # existing one-entry functions, not by assumption.
+    #
+    # pf-adversary (round sifsfg) found, by actually running it, that omitting
+    # ledger= here silently re-sends every living-but-damaged monster at its
+    # ceiling HP -- hostile_census_frames now refuses ledger=None by name
+    # (REFUSE_CENSUS_FRAME_WITHOUT_A_LEDGER), and every test below that wants
+    # a successful call threads a real ledger through, the same way a real
+    # hit/death call site would.
+
+    REAL_CENSUS_ANCHOR = (10.0, 20.0, 30.0)
+
+    def _real_generation_offsets(self, generation):
+        """identity -> (start, length) inside generation.pc, header-relative."""
+        offsets = {}
+        offset = world_population.WIRE_HEADER_BYTES
+        for identity, length in zip(
+                generation.actor_identities, generation.entry_bytes):
+            offsets[identity] = (offset, length)
+            offset += length
+        return offsets
+
+    def test_hostile_census_frames_matches_independent_recomposition(self):
+        # This recomposes the same inputs through the SAME public functions a
+        # caller outside this module would use (build_world_population +
+        # full_roster_override + apply_identity_override), and only then
+        # compares.  pf-adversary (round sifsfg) mutated apply_identity_override
+        # itself (made it ignore the override dict) and reran this suite: this
+        # specific test still PASSED, because "expected" is recomposed through
+        # the SAME apply_identity_override the code under test also calls, so
+        # a bug there cancels on both sides.  So the claim this test actually
+        # supports is narrower than "not tautological with the
+        # implementation": it proves hostile_census_frames wires the right
+        # arguments to the right sub-calls (build_world_population,
+        # full_roster_override, apply_identity_override), NOT that
+        # apply_identity_override itself is correct -- the per-identity check
+        # below closes that second gap by comparing against
+        # full_roster_override's raw dict directly, without going through
+        # apply_identity_override on either side.
+        register = DeathRegister()
+        ledger = open_ledger()
+        override = full_roster_override(
+            self.legacy, self.roster, register, ledger=ledger)
+        expected_generation = world_population.apply_identity_override(
+            self.legacy,
+            world_population.build_world_population(
+                self.legacy, self.REAL_CENSUS_ANCHOR, 115, scene_id=1),
+            override,
+        )
+        pc, frame = hostile_census_frames(
+            self.legacy, self.REAL_CENSUS_ANCHOR, 115, self.roster, register,
+            ledger=ledger)
+        self.assertEqual(pc, expected_generation.pc)
+        self.assertEqual(frame, expected_generation.frame)
+        self.assertEqual(frame, self.legacy.frame_pc(pc))
+        # Independent of apply_identity_override: walk the composed pc's
+        # entries using ONLY the plain generation's own identity/length list
+        # (never touched by apply_identity_override) and full_roster_override's
+        # raw dict -- an overridden identity's byte length usually differs
+        # from the plain default's (hostile bodies carry five more faction
+        # bytes), so this recomputes each entry's true length from the raw
+        # dict itself rather than trusting apply_identity_override's returned
+        # entry_bytes.  This is exactly the check that would have caught the
+        # mutation the adversary tried: if apply_identity_override ignored
+        # the override dict, ``pc`` at these offsets would still hold the
+        # plain body, not ``override[identity]``, and this loop would fail
+        # even though the recomposition-equality assertions above would not.
+        plain_generation = world_population.build_world_population(
+            self.legacy, self.REAL_CENSUS_ANCHOR, 115, scene_id=1)
+        offset = world_population.WIRE_HEADER_BYTES
+        for identity, plain_length in zip(
+                plain_generation.actor_identities,
+                plain_generation.entry_bytes):
+            entry = override.get(identity)
+            length = plain_length if entry is None else len(entry)
+            if entry is not None:
+                self.assertEqual(pc[offset:offset + length], entry)
+            offset += length
+        self.assertEqual(offset, len(pc))
+
+    def test_hostile_census_frames_carries_all_115_actors_not_fewer(self):
+        pc, frame = hostile_census_frames(
+            self.legacy, self.REAL_CENSUS_ANCHOR, 115, self.roster,
+            DeathRegister(), ledger=open_ledger())
+        count = int.from_bytes(
+            pc[world_population.WIRE_COUNT_TAG_OFFSET + 1:
+               world_population.WIRE_COUNT_TAG_OFFSET + 3],
+            "little",
+        )
+        self.assertEqual(count, 115)
+
+    def test_hostile_census_frames_gives_an_untouched_roster_member_the_hostile_body_not_the_plain_default(
+            self):
+        # This is the reason full_roster_override, not corpse_override, is
+        # the right input here: a monster nobody has hit yet must still show
+        # its hostile body, not build_world_population's plain HP-100 default.
+        plain_generation = world_population.build_world_population(
+            self.legacy, self.REAL_CENSUS_ANCHOR, 115, scene_id=1)
+        pc, _ = hostile_census_frames(
+            self.legacy, self.REAL_CENSUS_ANCHOR, 115, self.roster,
+            DeathRegister(), ledger=open_ledger())
+        offsets = self._real_generation_offsets(plain_generation)
+        untouched = next(
+            m for m in self.roster if m.actor_identity != self.mob.actor_identity)
+        start, length = offsets[untouched.actor_identity]
+        plain_entry = plain_generation.pc[start:start + length]
+        composed_entry = pc[start:start + length]
+        self.assertNotEqual(plain_entry, composed_entry)
+
+    def test_hostile_census_frames_embeds_the_exact_dead_body_death_frames_sends_alone(
+            self):
+        # RE-DERIVED equivalence: the body byte-for-byte inside the full
+        # census must be the SAME bytes death_frames would have sent alone --
+        # this is "reuse the encoder over a wider input", not a second one.
+        step = self.killing_outcome()
+        death = kill(self.legacy, self.mob, step.outcome, DeathRegister())
+        register = death.register
+        # death.dead_pc IS mob_death.death_frames' one-entry output for this
+        # corpse (dead_frames -> death_frames; see mob_death.kill).
+        solo_entry = death.dead_pc[world_population.WIRE_HEADER_BYTES:]
+        composed_pc, composed_frame = hostile_census_frames(
+            self.legacy, self.REAL_CENSUS_ANCHOR, 115, self.roster, register,
+            ledger=step.ledger)
+        self.assertEqual(composed_frame, self.legacy.frame_pc(composed_pc))
+        base_generation = world_population.build_world_population(
+            self.legacy, self.REAL_CENSUS_ANCHOR, 115, scene_id=1)
+        offsets = self._real_generation_offsets(base_generation)
+        start, _length = offsets[self.mob.actor_identity]
+        composed_entry = composed_pc[start:start + len(solo_entry)]
+        self.assertEqual(composed_entry, solo_entry)
+
+    def test_hostile_census_frames_refuses_the_same_way_full_roster_override_does(
+            self):
+        step = self.killing_outcome()
+        death = kill(self.legacy, self.mob, step.outcome, DeathRegister())
+        living = live_roster(self.roster, death.register)
+        with self.assertRaises(MobDeathContractError) as caught:
+            hostile_census_frames(
+                self.legacy, self.REAL_CENSUS_ANCHOR, 115, living,
+                death.register, ledger=step.ledger)
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_REGISTER_ROW_DISAGREES_WITH_ROSTER)
+
+    def test_hostile_census_frames_refuses_a_missing_ledger_by_name(self):
+        # pf-adversary (round sifsfg), verified by actual execution: damaged
+        # a mob to 3828/3857 HP via a real strike()+ledger, then called
+        # hostile_census_frames with ledger omitted (the function's own
+        # default) -- the composed frame carried the mob's FULL-HP body, not
+        # its true damaged HP.  Since this function exists to be composed on
+        # EVERY hit/death frame, and a hit/death frame cannot exist without
+        # strike() already requiring a typed ledger, omitting it here is
+        # never a legitimate call -- it now refuses instead of silently
+        # healing every damaged-but-alive monster on the wire.
+        with self.assertRaises(MobDeathContractError) as caught:
+            hostile_census_frames(
+                self.legacy, self.REAL_CENSUS_ANCHOR, 115, self.roster,
+                DeathRegister())
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_CENSUS_FRAME_WITHOUT_A_LEDGER)
+
+    def test_hostile_census_frames_carries_the_true_damaged_hp_not_the_ceiling(
+            self):
+        # The exact regression pf-adversary reproduced by execution, pinned
+        # so it cannot come back silently: strike self.mob for LESS than a
+        # kill, thread the resulting ledger through, and require the
+        # composed census to carry the TRUE current HP for that identity --
+        # not build_world_population's plain default, and not the ceiling
+        # full_roster_override(ledger=None) would have sent.
+        weak = Combatant(level=7, ability_str=132, ability_con=0)
+        step = strike(
+            self.legacy, None, open_ledger(), None, self.mob, PERFORMER, weak)
+        damaged_hp = step.outcome.hp_after
+        self.assertLess(damaged_hp, self.mob.max_hp)
+        self.assertGreater(damaged_hp, 0)
+        pc, frame = hostile_census_frames(
+            self.legacy, self.REAL_CENSUS_ANCHOR, 115, self.roster,
+            DeathRegister(), ledger=step.ledger)
+        self.assertEqual(frame, self.legacy.frame_pc(pc))
+        expected_damaged_entry = field_mobs.hostile_actor_entry(
+            self.legacy, self.mob, current_hp=damaged_hp)
+        ceiling_entry = field_mobs.hostile_actor_entry(
+            self.legacy, self.mob, current_hp=self.mob.max_hp)
+        plain_generation = world_population.build_world_population(
+            self.legacy, self.REAL_CENSUS_ANCHOR, 115, scene_id=1)
+        offsets = self._real_generation_offsets(plain_generation)
+        start, _length = offsets[self.mob.actor_identity]
+        composed_entry = pc[start:start + len(expected_damaged_entry)]
+        self.assertEqual(composed_entry, expected_damaged_entry)
+        self.assertNotEqual(composed_entry, ceiling_entry)
 
     def test_full_roster_override_refuses_the_same_way_repopulation_does(self):
         # It is a thin wrapper over repopulation_entries and must not swallow

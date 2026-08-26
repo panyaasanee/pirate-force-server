@@ -147,7 +147,7 @@ tag on the wire becomes a name label in the client.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 from typing import Any
 
@@ -583,6 +583,111 @@ def dispatch_report(generation: WorldPopulationGeneration) -> dict:
         "anchor": list(generation.anchor),
         "initial_reapply_ms": INITIAL_REAPPLY_MS,
     }
+
+
+def apply_identity_override(
+    legacy: Any,
+    generation: WorldPopulationGeneration,
+    override: dict[int, bytes],
+) -> WorldPopulationGeneration:
+    """Splice per-identity entry bytes into an already-built census.
+
+    LANE-B ORIGIN.  ``runtime.py`` (round ``q4z3vi``, chief's file) already
+    has a private copy of exactly this algorithm,
+    ``_apply_mob_death_census_override``, written the day arrival-census
+    corpse/roster overrides were wired in.  That copy stays where it is -
+    this lane does not edit ``runtime.py``.  This is an INDEPENDENT,
+    generalized, tested reimplementation of the SAME algorithm, added here
+    (lane B's own module, not runtime.py's) so any lane-B caller that needs
+    to reuse the arrival-proven splice - not just the arrival call site - can
+    reach it without importing the frozen/forbidden file.  See
+    ``mob_death.hostile_census_frames`` for the caller this exists for:
+    composing ``mob_combat.py``'s hit-bar frame and ``mob_death.py``'s
+    death frame as a FULL census instead of the one-entry collection RE-092
+    proved erases every other actor by omission
+    (``pf_bridge/notes_to_chief/20260826_2223_RE-092-RESULT-REPLACE-BY-
+    OMISSION-NETWORK-ACTOR-SCOPE.md``).
+
+    ENCODER REUSE, NOT A NEW SELECTOR.  Exactly like the runtime.py original:
+    this rebuilds the SAME collection with the SAME encoder
+    (``legacy.make_runtime_remote_actors`` / ``legacy.frame_pc``) over a
+    WIDER input - the original per-identity entry bytes, with any identity
+    ``override`` names replaced - rather than writing a second path that
+    composes actors some other way.  ``WIRE_HEADER_BYTES`` and
+    ``entry_bytes`` are read from this module's own public fields/constants,
+    not re-derived, and entry order is ``generation.actor_identities`` /
+    ``generation.entry_bytes`` - the same order ``build_world_population``
+    concatenated them in.
+
+    An empty override returns ``generation`` unchanged (no rebuild, no new
+    object).  A non-empty override whose keys are not the raw identities this
+    generation encodes is not an error - ``.get(identity, original)`` simply
+    leaves that identity's original bytes in place - so a caller that widens
+    its override dict over time (more of the roster damaged, more of it dead)
+    does not need to filter it down to only the identities present in this
+    particular rung first.
+
+    NONCLAIM (pf-adversary, round sifsfg).  The ``offset != len(generation.pc)``
+    guard below only checks that the SUM of ``entry_bytes`` matches
+    ``len(pc)`` - it does NOT catch a permutation of ``entry_bytes`` that
+    preserves the sum but misassigns which slice belongs to which identity
+    (e.g. two entries' lengths swapped on a hand-built ``generation``): that
+    would silently splice the wrong bytes at each boundary with no exception.
+    This gap is inherited unchanged from ``runtime.py``'s private original
+    (``_apply_mob_death_census_override``), not introduced here, and it is
+    dormant on every call path this tree actually exercises - the only real
+    caller builds ``generation`` fresh via :func:`build_world_population`,
+    which cannot itself produce a length/identity misalignment.  It is named
+    here rather than fixed because fixing it needs a structural check (e.g.
+    validating ``entry_bytes`` against a known-good source independent of
+    ``generation`` itself) that no caller has asked for yet; a caller that
+    ever builds or mutates a ``WorldPopulationGeneration`` by hand rather than
+    through ``build_world_population`` should not trust this guard to catch a
+    permutation.
+    """
+    if type(generation) is not WorldPopulationGeneration:
+        raise ValueError(
+            "apply_identity_override needs a WorldPopulationGeneration")
+    if type(override) is not dict:
+        raise ValueError("override must be a dict")
+    for key, value in override.items():
+        # pf-adversary (round sifsfg): `type(key) is not int` alone already
+        # refuses a bool key -- type(True) is bool, not int, even though
+        # bool subclasses int -- so the `or type(key) is bool` half of the
+        # old check could never fire.  Simplified; the refusal (including
+        # for True/False keys) is unchanged, see the bool case pinned in
+        # test_apply_identity_override_refuses_bad_keys_and_values.
+        if type(key) is not int:
+            raise ValueError(
+                "override keys must be plain int actor identities, not "
+                f"{key!r}"
+            )
+        if type(value) is not bytes:
+            raise ValueError(
+                f"override value for identity 0x{key:X} must be bytes, "
+                f"not {value!r}"
+            )
+    if not override:
+        return generation
+    offset = WIRE_HEADER_BYTES
+    entries = []
+    for identity, length in zip(
+            generation.actor_identities, generation.entry_bytes):
+        original = generation.pc[offset:offset + length]
+        entries.append(override.get(identity, original))
+        offset += length
+    if offset != len(generation.pc):
+        raise ValueError(
+            "generation.entry_bytes does not account for the whole "
+            "collection: the override cannot be applied safely"
+        )
+    pc, frame = legacy.make_runtime_remote_actors(entries)
+    if frame != legacy.frame_pc(pc):
+        raise ValueError("census-override frame drift")
+    return replace(
+        generation, pc=pc, frame=frame,
+        entry_bytes=tuple(len(entry) for entry in entries),
+    )
 
 
 def census_console_line(generation: WorldPopulationGeneration) -> str:

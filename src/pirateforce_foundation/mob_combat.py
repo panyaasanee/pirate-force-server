@@ -952,6 +952,22 @@ def bar_frames(
     the RE tooling to trace it, so it documents the shape here and in
     ``tests/test_mob_combat.py`` instead of guessing at one.  See the round
     letter this citation ships with for the request to chief/COO.
+
+    [UPDATE, round ``sifsfg``, 2026-08-27]: the open risk above is CONFIRMED,
+    not superseded - ``RE-092`` (2026-08-26 22:23) closed the exact question
+    this paragraph left open: the client's remote-actor consumer IS
+    replace-by-omission.  A one-entry frame from this function reaching the
+    unflagged path really does erase every other non-exempt actor.  This
+    function is UNCHANGED and still callable as-is - removing it is not this
+    round's call, because only ``runtime.py`` knows every call site that
+    would need to move; the fix lives in
+    ``mob_death.hostile_census_frames``, which composes the SAME bar entry
+    this function builds into a full census instead of a one-entry
+    collection.  A ``runtime.py`` caller that wants the safe wire bytes calls
+    that function instead of this one - this function's own return value is
+    still correct for ITS documented shape (one entry), it is the SHAPE that
+    is now known-dangerous on the unflagged path, not this function's
+    arithmetic or encoding.
     """
     if type(mob) is not FieldMob:
         raise MobCombatContractError(
