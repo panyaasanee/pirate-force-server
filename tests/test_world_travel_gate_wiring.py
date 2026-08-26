@@ -35,12 +35,18 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import world_scene_travel, world_travel_gate
+from pirateforce_foundation.legacy_bridge import LegacyProjector, load_legacy
+from pirateforce_foundation.lifecycle import CharacterLifecycle
 from pirateforce_foundation.model import Position
 from pirateforce_foundation.population import SCENE_SEQUENCE
+from pirateforce_foundation.runtime import make_state_class
+from pirateforce_foundation.store import SQLiteStore
 from pirateforce_foundation.world_travel_gate import (
+    DEBUG_LANE_DISABLED_REASON,
     TravelDeparture,
     TravelGateRefused,
     TravelGateSet,
+    lane_reason,
     load_travel_gates,
     preload,
     preloaded,
@@ -51,6 +57,7 @@ from pirateforce_foundation.world_travel_gate import (
 DEPARTURE_GATE = "port_royal_columbus_departure"
 RETURN_GATE = "test_stage_landing_return"
 ATTENDED_SPAWN = (-8553.947265625, -2579.68896484375, 186.0)
+LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 
 
 def _sink():
@@ -576,6 +583,178 @@ class TheChiefsPatchTests(unittest.TestCase):
             console,
             "an inert lane says one thing and then keeps quiet",
         )
+
+
+class DebugDefaultOffTests(unittest.TestCase):
+    """COO ruling 20260826: debug-only, OFF by default, no exceptions.
+
+    ``lane_reason`` is what a caller should hand ``inert_reason`` instead of
+    ``scenario_stand_down(active_lanes)`` directly, so these tests exercise it
+    the same way ``test_an_opt_in_lane_walks_through_the_same_zone_untouched``
+    exercises the existing guard: build a live ``TravelGateSet`` and walk it
+    into the gate, rather than only checking the string the function returns.
+    """
+
+    def setUp(self):
+        self.settings = load_travel_gates()[1]
+
+    def _walk_into_the_gate(self, gate_set):
+        centre = {g.name: g for g in gate_set.gates}[DEPARTURE_GATE].centre \
+            if gate_set.gates else (0.0, 0.0, 0.0)
+        gate_set.observe(_home(*ATTENDED_SPAWN))
+        found = None
+        for _ in range(self.settings.dwell_reports + 2):
+            got = gate_set.observe(_home(*centre))
+            if got is not None and found is None:
+                got.confirmed_fields()
+                found = got
+        return found
+
+    def test_the_reason_string_is_fixed_and_ascii_when_the_flag_is_absent(self):
+        self.assertEqual(
+            lane_reason(frozenset()), DEBUG_LANE_DISABLED_REASON)
+        DEBUG_LANE_DISABLED_REASON.encode("ascii")
+
+    def test_omitting_debug_enabled_never_arms_even_with_nothing_else_selected(self):
+        """(a) inert with the flag omitted, even though no scenario conflicts."""
+        lines, emit = _sink()
+        gate_set = TravelGateSet(
+            emit=emit, inert_reason=lane_reason(frozenset()))
+        self.assertTrue(gate_set.is_inert)
+        self.assertEqual(gate_set.inert_reason, DEBUG_LANE_DISABLED_REASON)
+        self.assertIsNone(self._walk_into_the_gate(gate_set))
+        self.assertEqual(gate_set.departures, 0)
+
+    def test_debug_enabled_false_never_arms_even_with_nothing_else_selected(self):
+        """Same as above, spelled with the keyword a caller will actually pass."""
+        lines, emit = _sink()
+        gate_set = TravelGateSet(
+            emit=emit,
+            inert_reason=lane_reason(frozenset(), debug_enabled=False))
+        self.assertTrue(gate_set.is_inert)
+        self.assertIsNone(self._walk_into_the_gate(gate_set))
+
+    def test_debug_enabled_ignores_what_is_selected_while_off(self):
+        """The fixed reason wins even over a selection that would itself pass."""
+        self.assertEqual(
+            lane_reason(frozenset({"arena_scenario"})),
+            DEBUG_LANE_DISABLED_REASON,
+        )
+
+    def test_debug_enabled_true_arms_normally_when_nothing_else_is_selected(self):
+        """(b) the gate arms exactly as it always did once a human opts in."""
+        lines, emit = _sink()
+        reason = lane_reason(frozenset(), debug_enabled=True)
+        self.assertIsNone(reason)
+        gate_set = TravelGateSet(emit=emit, inert_reason=reason)
+        self.assertFalse(gate_set.is_inert)
+        departure = self._walk_into_the_gate(gate_set)
+        self.assertIsInstance(departure, TravelDeparture)
+        self.assertEqual(gate_set.departures, 1)
+
+    def test_debug_enabled_true_still_defers_to_the_scenario_guard(self):
+        """The secondary guard is unchanged, only gated behind the opt-in."""
+        reason = lane_reason(frozenset({"arena_scenario"}), debug_enabled=True)
+        self.assertEqual(
+            reason, scenario_stand_down(frozenset({"arena_scenario"})))
+        lines, emit = _sink()
+        gate_set = TravelGateSet(emit=emit, inert_reason=reason)
+        self.assertTrue(gate_set.is_inert)
+        self.assertIsNone(self._walk_into_the_gate(gate_set))
+
+
+def _legacy():
+    if not hasattr(_legacy, "cached"):
+        _legacy.cached = load_legacy(LEGACY_PATH)
+    return _legacy.cached
+
+
+class TravelGateDebugFlagReachesTheRealBootTests(unittest.TestCase):
+    """Boots through ``runtime.make_state_class`` itself, not a double.
+
+    R178's ``pf-adversary`` pass proved every test above it in this file --
+    including the six default-off tests just above -- calls ``lane_reason``
+    or ``TravelGateSet`` directly, so none of them would notice if
+    ``runtime.py``'s actual call site (the one line that threads
+    ``travel_gate_debug_enabled`` into ``world_travel_gate.lane_reason``)
+    silently reverted to the pre-COO-ruling call, or dropped the keyword, or
+    typo'd it.  Reverting that one line and rerunning the WHOLE suite left it
+    green.  This class is the fix for that gap: it drives the real factory
+    end to end -- a real login, a real ``PersistentGameSessionState`` -- and
+    reads ``state.world_travel_gates.inert_reason`` off the object the
+    runtime actually built, the same attribute ``runtime.py:4406`` reads on
+    every ``TargetPosVital``.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = SQLiteStore(
+            Path(self.tmp.name) / "state.sqlite3", ROOT / "migrations",
+        )
+        self.store.migrate()
+        self.legacy = _legacy()
+        self.projector = LegacyProjector(self.legacy)
+        self.lifecycle = CharacterLifecycle(
+            self.store,
+            Position(
+                1, 0, self.legacy.V135_PLAYER_X,
+                self.legacy.V135_PLAYER_Y, self.legacy.V135_PLAYER_Z,
+            ),
+            self.legacy.extract_avatar_attr_wire_from_actor,
+        )
+        forget_preload()
+        preload()
+        self.addCleanup(forget_preload)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _real_state(self, token, **kwargs):
+        state_type = make_state_class(
+            self.legacy, self.lifecycle, self.projector, **kwargs,
+        )
+        state = state_type(token)
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_client_login_pc(token)
+        ))
+        state.dispatch(self.legacy.parse_outer(self.legacy._V25_REAL_CREATE_PC))
+        character = self.store.list_characters(
+            state.foundation.account_id
+        )[-1]
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_start_game_pc(character.selector)
+        ))
+        return state
+
+    def test_a_default_boot_through_the_real_factory_is_inert(self):
+        """No kwarg at all -- the shape every real caller of app.py uses."""
+        state = self._real_state("tok-default")
+        self.assertEqual(
+            state.world_travel_gates.inert_reason,
+            DEBUG_LANE_DISABLED_REASON,
+        )
+        self.assertTrue(state.world_travel_gates.is_inert)
+
+    def test_travel_gate_debug_enabled_false_through_the_real_factory_is_inert(
+        self,
+    ):
+        """The explicit False app.py sends when --enable-travel-gate-debug
+        is absent -- proves the keyword actually reaches this deep."""
+        state = self._real_state(
+            "tok-explicit-false", travel_gate_debug_enabled=False,
+        )
+        self.assertEqual(
+            state.world_travel_gates.inert_reason,
+            DEBUG_LANE_DISABLED_REASON,
+        )
+
+    def test_travel_gate_debug_enabled_true_through_the_real_factory_arms(self):
+        """The opt-in reaches all the way through and the door is live."""
+        state = self._real_state(
+            "tok-explicit-true", travel_gate_debug_enabled=True,
+        )
+        self.assertFalse(state.world_travel_gates.is_inert)
+        self.assertIsNone(state.world_travel_gates.inert_reason)
 
 
 if __name__ == "__main__":

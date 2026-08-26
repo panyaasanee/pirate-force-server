@@ -407,7 +407,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                      world_census_actor_count=None,
                      second_password_mode="required",
                      monotonic_clock=None,
-                     close_timer_factory=None):
+                     close_timer_factory=None,
+                     travel_gate_debug_enabled=False):
     active_lanes = frozenset(
         name for name, value in (
             ("scenario", scenario),
@@ -482,12 +483,16 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
     # ONCE, here, where a bad pin fails a boot in front of an operator
     # instead of failing every player's login.
     world_travel_gate.preload()
-    # THIS LANE IS THE NO-FLAG LANE.  active_lanes is the runtime's own
-    # frozenset of the lanes this boot selected (just above, in this same
-    # factory), so this guard cannot drift from the runtime's definition of
-    # "selected" and a lane that lands later needs no edit here.
-    world_travel_lane_reason = world_travel_gate.scenario_stand_down(
-        active_lanes)
+    # COO-DECISION 20260826T16:45+07:00: the walk-in-and-stand gate is no
+    # longer part of the M2/production acceptance path (the owner ruled the
+    # real route out of Port Royal is an NPC conversation with Columbus,
+    # not a walk-in zone) -- kept as debug-only, off unless explicitly
+    # opted in.  active_lanes is the runtime's own frozenset of the lanes
+    # this boot selected (just above, in this same factory), so the
+    # secondary conflict guard below still cannot drift from the runtime's
+    # definition of "selected" when the debug opt-in is used.
+    world_travel_lane_reason = world_travel_gate.lane_reason(
+        active_lanes, debug_enabled=travel_gate_debug_enabled)
     # CORE-REQUEST-003 (LANE-A / BUILD-002 / v2 slice 1).  Load the scene
     # entry pin ONCE too, for the same reason: a broken pin should stop the
     # boot in front of an operator, not surface as a per-login refusal, and

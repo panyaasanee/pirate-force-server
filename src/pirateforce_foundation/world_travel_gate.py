@@ -34,6 +34,24 @@ who walks back to where they landed and stops there is sent home.
     in the round's PR body for the exact call.  Until that call exists a player
     walks past Columbus and nothing happens.
 
+    COO RULING 20260826 SUPERSEDES THE PARAGRAPH ABOVE, AND IS THE REASON THE
+    PARAGRAPH STAYS RATHER THAN GETS REWRITTEN.  The owner confirmed, verbatim,
+    that this walk-in-and-stop mechanic does not exist in the real game - the
+    real door out of town is Columbus, a sea map, a dock, and a captain-report
+    confirm window - and ruled: pull this gate out of the M2/production
+    acceptance criteria immediately; do not delete the file or the code; keep
+    it debug-only and OFF by default; never use it as an M2 acceptance
+    criterion again.  So as of this ruling "no flag" no longer describes this
+    module's DEFAULT reachability, only its mechanism: :func:`lane_reason` is
+    the flag now, its default (``debug_enabled=False``) keeps every door shut
+    for every session regardless of what else is or is not selected, and a
+    caller has to hand ``debug_enabled=True`` - sourced from an explicit
+    human opt-in such as a ``--enable-travel-gate-debug`` CLI flag, never from
+    a default - to make ``scenario_stand_down`` (below) speak again as the
+    secondary guard it always was.  Everything else in this module - the
+    gates, the dwell rule, the ping-pong guard, the two-phase crossing - is
+    untouched; only the default reachability changed.
+
 THE THREE MEASURED FACTS THIS IS BUILT ON, AND THE ONE THAT NEARLY BROKE IT.
 
 1. ``RE-077`` (result letter ``20260826_0120``) pinned the client's transition
@@ -739,6 +757,48 @@ def scenario_stand_down(selected: Any) -> str | None:
     if not names:
         return None
     return "scenario_selected_" + ",".join(sorted(names))
+
+
+# COO ruling 20260826 (verbatim, translated): "Remove world_travel_gates_001
+# ('stand in the zone and cross') from M2/production acceptance immediately.
+# Do NOT delete the file or the code. Keep it as debug-only, OFF by default.
+# It must never again be used as an M2 acceptance criterion." The owner
+# separately confirmed, verbatim, that this walk-in-and-stop mechanic does
+# not exist in the real game at all - the real door out of town is Columbus,
+# a sea map, a dock, and a captain-report confirm window.
+DEBUG_LANE_DISABLED_REASON = "walkin_travel_gate_disabled_by_default_owner_20260826"
+
+
+def lane_reason(selected: Any, *, debug_enabled: bool = False) -> str | None:
+    """The reason to hand ``TravelGateSet.from_preloaded`` as ``inert_reason``.
+
+    This is :func:`scenario_stand_down` with the COO's 20260826 ruling laid
+    in front of it, and it is meant to REPLACE the bare
+    ``scenario_stand_down(active_lanes)`` call at the one call site this
+    module has (``runtime.py``, next to ``TravelGateSet.from_preloaded``) -
+    see the CORE-REQUEST this ships with for the one-line change and the
+    ``make_state_class``/``app.py`` threading it needs, neither of which this
+    module may edit itself.
+
+    ``debug_enabled`` DEFAULTS TO ``False``, matching every other opt-in
+    boolean this project wires from a CLI flag (``--export-events`` is the
+    model: ``action='store_true'``, absent means off).  While it is
+    ``False`` this function ALWAYS returns :data:`DEBUG_LANE_DISABLED_REASON`
+    - not ``scenario_stand_down(selected)``, not ``None``, regardless of what
+    ``selected`` is - because a lane the owner has ruled off does not need to
+    consult what else is running to know it is off, and a caller must never
+    be able to accidentally arm it by getting ``selected`` right.
+
+    ``debug_enabled=True`` is the explicit, human-chosen opt-in (a CLI flag
+    such as ``--enable-travel-gate-debug``, never a default).  Only then does
+    :func:`scenario_stand_down` get to speak at all, and it is completely
+    unchanged when it does: an opt-in lane sharing scene 1 with this one
+    still shuts these doors exactly as it always has.  This function does not
+    replace that guard - it decides whether the guard is even consulted.
+    """
+    if not debug_enabled:
+        return DEBUG_LANE_DISABLED_REASON
+    return scenario_stand_down(selected)
 
 
 class TravelGateSet:
