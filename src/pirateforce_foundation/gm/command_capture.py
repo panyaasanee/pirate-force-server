@@ -19,8 +19,16 @@ fact GM-002 exists to catch.
 
 Wiring the actual dispatch call (chief's runtime.py, wherever
 GM_RunGMCommandVital 0x51E9 lands after being read off the wire) is out of
-this lane's write zone; see notes_to_chief CORE-REQUEST letter series.
-This module only provides the sink function that wiring should call.
+this lane's write zone; see notes_to_chief CORE-REQUEST letter series. This
+module only provides the sink function that wiring should call, and that
+future wiring MUST hand this sink the same slice command_wire.py expects:
+the vital's PAYLOAD bytes only (after vital id and version in the
+runtime-vital envelope), not the whole frame. Nothing in this codebase
+exercises that boundary yet -- no wiring exists to call this sink with a
+real frame, so the decode section below has only ever run against payloads
+built to that same assumption. A caller that instead hands in the full
+frame will not crash, but every decode section will read "FAILED" forever;
+the raw hex dump stays correct either way since it never depends on framing.
 """
 from __future__ import annotations
 
@@ -79,7 +87,8 @@ def _decode_section(raw: bytes) -> str:
     if body is None:
         return "# decode: presence=0 (no nested body; structurally valid, empty)\n"
     return (
-        "# decode: presence=1 (RE-088 pin; field names are positional, not semantic)\n"
+        f"# decode: presence={body.presence} (nonzero -- RE-088 pin; field"
+        " names are positional, not semantic)\n"
         f"# decode: field_0x10={body.field_0x10} field_0x14={body.field_0x14}"
         f" field_0x18={body.field_0x18}\n"
         f"# decode: string_0x1c=\"{_escape_for_header(body.string_0x1c)}\"\n"
@@ -96,6 +105,14 @@ def capture_raw_gm_command(
 ) -> Path:
     """Write one raw GM_RunGMCommandVital capture: a timestamped file with a
     hex dump header followed by the untouched raw bytes.
+
+    ``raw`` should be the vital's payload bytes only (after vital id and
+    version in the runtime-vital envelope) -- the same slice
+    ``command_wire.decode_gm_run_command_vital`` expects.  This is not
+    enforced (there is no envelope-stripping logic in this lane to enforce
+    it with; wiring is chief's territory), so a caller that hands in the
+    whole frame gets a wrong-but-not-crashing decode section (see module
+    docstring) while the raw hex dump underneath stays correct regardless.
 
     Returns the path written.  Never raises on the content of ``raw`` --
     this is a capture sink, not a validator; anything the client sends,

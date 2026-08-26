@@ -69,8 +69,17 @@ class GmRunCommandBody:
 
     Field names are positional only (see module docstring) -- none of them
     is a confirmed command name, argument, or flag.
+
+    ``presence`` is the *actual* byte value read from the wire, not a
+    normalized 0/1: RE-088's own gate condition is "!= 0" (`setne al`), so
+    any nonzero byte gates the nested body exactly like 1 does, but a caller
+    logging or displaying this value must show what was actually observed
+    (e.g. 200), not silently normalize it to 1 -- a forensic capture record
+    that always prints "presence=1" regardless of the real byte would be
+    lying about what a fuzzed or malformed send actually contained.
     """
 
+    presence: int
     field_0x10: int
     field_0x14: int
     field_0x18: int
@@ -169,7 +178,9 @@ def decode_gm_run_command_vital(raw: bytes) -> GmRunCommandBody | None:
             f"nested body decoded cleanly but {len(buf) - offset} trailing "
             "byte(s) remain"
         )
-    return GmRunCommandBody(field_0x10, field_0x14, field_0x18, string_0x1c, string_0x38)
+    return GmRunCommandBody(
+        presence, field_0x10, field_0x14, field_0x18, string_0x1c, string_0x38
+    )
 
 
 def decode_gm_run_command_result_vital(raw: bytes) -> int:
