@@ -80,6 +80,24 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
+    # This pin covers THREE deliberate movements that land in the same change
+    # (round mqus9y, chief cloud, 2026-08-26 +07:00, recovering the commits of
+    # the closed-unmerged PR #41).  They are recorded below in the order they
+    # were written, newest first.  This merge itself moves no grade field of
+    # its own: it merges the WORLD-CENSUS-001 lane (chief cloud round R173),
+    # whose branch was gate-green but whose PR closed unmerged after 15 hours
+    # without a pull, onto the main line that had moved past it with two
+    # further LANE-B movements (rounds vvkff9 and 7ptoku).  All three prose
+    # blocks are kept verbatim so no movement loses its record; the digest
+    # below is recomputed over the merged document, which is the only value
+    # that can satisfy all three.  BOTH PARENT DIGESTS ARE KEPT HERE, because a
+    # merge that recomputes a pin must not take its parents' pins out of the
+    # tree -- an auditor asking what main actually asserted, or what the
+    # WORLD-CENSUS-001 branch asserted, has to be able to grep for it rather
+    # than reconstruct it from the reflog:
+    #   main (post-g627j0)      / 2828B9EDABCCB1123B27DC79B63C280FF536BBF4B423C556BEB716257CCAAC53
+    #   PR41 (WORLD-CENSUS-001) / F80ADB72621F31B2E63EAED9DF6B553B96C79C8E26D6A3E0D3C3E83BE5710926
+    #
     # ROUND vvkff9 (LANE-B, 2026-08-26 +07:00): moved deliberately, and it is
     # the same KIND of movement as the 7ptoku block below -- refs, never a
     # grade.  monster_spawn_and_loot gains two evidence refs
@@ -105,6 +123,22 @@ GRADE_SUBSET_SHA256 = (
     # amendment alone left the structured refs pointing only at the old lane,
     # so a machine reading this file could not find the new one; the refs are
     # graded fields, so fixing that has to move this digest.
+    #
+    # This pin covers ONE deliberate movement (WORLD-CENSUS-001, chief cloud
+    # round R173, 2026-08-26 +07:00): movement/scene_actor_population_streaming
+    # gains ONE test ref, tests/test_world_census_wiring.py.  The row's STATUS
+    # DOES NOT MOVE and nothing here claims the census works: it stays
+    # runtime_pass for the nearest-20 wire it was graded on, because no client
+    # has been shown a 115-actor collection and the highest count with a
+    # recorded runtime result in this project is still 20.  What changed is
+    # that the DEFAULT boot now sends the whole 115-row bg0001 census instead
+    # of three placements -- wired in runtime.py, proven headless only -- so a
+    # row whose test refs did not include the test that drives that wire would
+    # have been silently wrong about its own coverage.  The row's notes record
+    # the same thing in prose, and prose is outside this digest by design.
+    # GT-078 is the attended ticket that could move the status; it has not run.
+    #   R167 / parent 6CF4AE24A70C7DC8EE447310A640098615B5D9F68AB368D58717C501B4DB4553
+    #
     # This pin covers TWO deliberate movements that land in the same change
     # (chief cloud round R167, 2026-08-25 +07:00).  They are recorded below in
     # the order they were written, newest first.  R167 itself moves no grade
@@ -710,7 +744,9 @@ GRADE_SUBSET_SHA256 = (
     # the structured refs pointing only at the old lanes hides the new one
     # from any machine reading this file.
     #   R167 / parent EB932A54B4958527BA172D34A81673B6B91AA54A0979372EED3A3525902C65DB
-    "2828B9EDABCCB1123B27DC79B63C280FF536BBF4B423C556BEB716257CCAAC53"
+    #   main (post-g627j0)      / 2828B9EDABCCB1123B27DC79B63C280FF536BBF4B423C556BEB716257CCAAC53
+    #   PR41 (WORLD-CENSUS-001) / F80ADB72621F31B2E63EAED9DF6B553B96C79C8E26D6A3E0D3C3E83BE5710926
+    "403D468D3D6E828D1FF61E188CCEF45160520A09B56E3987EDE41624255123F3"
 )
 
 

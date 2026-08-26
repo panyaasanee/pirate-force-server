@@ -93,16 +93,20 @@ class GroundLootDispatchTests(unittest.TestCase):
 
     # ----- harness ----------------------------------------------------------
 
-    def _state_type(self, *, pair=True):
+    def _state_type(self, *, pair=True, world_census_actor_count=None):
         return make_state_class(
             self.legacy, self.lifecycle, self.projector,
             ground_loot_hypothesis_scenario=(
                 self.scenario if pair else None
             ),
+            world_census_actor_count=world_census_actor_count,
         )
 
-    def _state(self, login, *, pair=True, ready=True, select=True):
-        state = self._state_type(pair=pair)(login)
+    def _state(self, login, *, pair=True, ready=True, select=True,
+               world_census_actor_count=None):
+        state = self._state_type(
+            pair=pair, world_census_actor_count=world_census_actor_count,
+        )(login)
         state.dispatch(self.legacy.parse_outer(
             self.legacy._synthetic_client_login_pc(login)
         ))
@@ -241,7 +245,15 @@ class GroundLootDispatchTests(unittest.TestCase):
 
     def test_the_pair_is_appended_after_the_inherited_actions(self):
         gated = self._state("gld02")
-        ungated = self._state("gld02_control", pair=False)
+        # WORLD-CENSUS-001 moved the control.  A boot with NO lane is no
+        # longer the inherited three-actor boot -- it sends the whole bg0001
+        # census -- so the control is taken at census rung 3, pinned to be the
+        # exact frozen P0/P30/P91 collection.  The LABEL differs by design and
+        # is asserted separately; "the frames ride alongside and displace
+        # nothing" is a statement about bytes and delays, and stays exact.
+        ungated = self._state(
+            "gld02_control", pair=False, world_census_actor_count=3,
+        )
         gated_actions = gated.dispatch(self._trigger(gated))
         ungated_actions = ungated.dispatch(self._trigger(ungated))
         # The two ground-loot actions are the LAST actions of the trigger
@@ -253,10 +265,14 @@ class GroundLootDispatchTests(unittest.TestCase):
             [NEAR_LABEL, FAR_LABEL],
         )
         self.assertEqual(
-            [(label, bytes(pc), bytes(frame), delay)
-             for label, pc, frame, delay in gated_actions[:-2]],
-            [(label, bytes(pc), bytes(frame), delay)
-             for label, pc, frame, delay in ungated_actions],
+            [action[0] for action in ungated_actions[-2:]],
+            ["WORLD_CENSUS_INITIAL_3", "WORLD_CENSUS_REAPPLY_3"],
+        )
+        self.assertEqual(
+            [(bytes(pc), bytes(frame), delay)
+             for _label, pc, frame, delay in gated_actions[:-2]],
+            [(bytes(pc), bytes(frame), delay)
+             for _label, pc, frame, delay in ungated_actions],
         )
 
     def test_the_pair_is_one_shot(self):
