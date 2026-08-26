@@ -854,6 +854,288 @@ class WorldCensusWiringTests(unittest.TestCase):
         self.assertIs(state.world_census_sent, True)
         self.assertIn("world_census_skipped_scene_278_not_home", state.events)
 
+    # ----- BUILD-004: the hostile bodies are IN the one census frame --------
+    #
+    # WHY THESE FOUR EXIST, and what was vacuous before them.  Every other
+    # assertion in this file that touches the roster override compares the
+    # dispatcher's pc against ``_with_roster_override(build_world_population(
+    # ...))`` -- the same producer on both sides.  That comparison passes
+    # unchanged if ``full_roster_override`` returns an EMPTY dict and no
+    # hostile byte reaches the wire at all, because then both sides are the
+    # un-overridden census.  GT-084 (attended, 2026-08-27 02:05) reported
+    # "0 hostile frames" off exactly that blind spot, and the COO's 03:45
+    # decision made a console-verified hostile frame a gate on every ticket
+    # that depends on hostiles.
+    #
+    # So these read the DISPATCHER'S OWN QUEUED BYTES and walk them by
+    # ``entry_bytes``, comparing each roster member's slice against a
+    # ``field_mobs.hostile_actor_entry`` built independently from the roster
+    # row -- a producer the census path does not go through.  They can fail.
+
+    def _queued_entries_by_identity(self, generation):
+        """Split a generation's pc back into identity -> entry bytes.
+
+        Uses ``world_population``'s own public header constant and the
+        generation's own ``entry_bytes``, the same two facts
+        ``_apply_mob_death_census_override`` walks, and refuses if they do not
+        account for the whole payload -- so a frame that silently lost or
+        gained a body cannot be read as if it were intact.
+        """
+        offset = world_population.WIRE_HEADER_BYTES
+        entries = {}
+        for identity, length in zip(
+                generation.actor_identities, generation.entry_bytes):
+            entries[identity] = generation.pc[offset:offset + length]
+            offset += length
+        self.assertEqual(
+            offset, len(generation.pc),
+            "entry_bytes does not account for the whole collection",
+        )
+        return entries
+
+    def test_the_default_boot_frame_still_carries_the_whole_population(self):
+        """No shrinkage.  The hostile splice is a SUBSTITUTION, not a second
+        collection: the frame that goes out has to still declare and contain
+        all 115 census actors, at the same identities, in the same order.
+
+        This is the assertion that would go red if anyone ever "wired in"
+        ``field_mobs.build_field_mob_population`` as a second sender --
+        ``make_runtime_remote_actors`` is replace-by-omission, so a 13-actor
+        field-mob collection queued alongside the census wipes the other 102
+        actors on the client, and the queued label/pc would say 13.
+        """
+        state = self._state("census_no_shrinkage")
+        census = self._census(self._step(state))
+        self.assertEqual(len(census), 2)
+        plain = world_population.build_world_population(
+            self.legacy, (10.0, 20.0, 30.0), scene_id=1,
+        )
+        overridden = self._with_roster_override(plain, state)
+        # The membership is untouched by the splice, in count AND in order.
+        self.assertEqual(
+            overridden.actor_identities, plain.actor_identities,
+        )
+        self.assertEqual(overridden.actor_count, 115)
+        self.assertEqual(world_population.wire_actor_count(overridden), 115)
+        # ...and that is what the dispatcher actually queued, both times.
+        for action in census:
+            self.assertEqual(action[0].endswith("_115"), True)
+            self.assertEqual(action[1], overridden.pc)
+            self.assertEqual(action[2], overridden.frame)
+        self.assertEqual(state.world_census_actor_count, 115)
+        self.assertEqual(len(state.world_census_indices), 115)
+
+    def test_the_arrival_frame_queues_no_second_actor_collection(self):
+        """The world-wipe guard, and it does not depend on counting encoder
+        calls -- it reads the QUEUED BYTES.
+
+        ``make_runtime_remote_actors`` writes a fixed 14-byte header before the
+        actor count (world_population:191-197), so any queued pc that starts
+        with that header IS a remote-actor collection, however it was built --
+        composed on this frame, precomputed at import, or cached.  Under
+        replace-by-omission (RE-092) a SECOND such frame on the arrival path
+        despawns every identity the first one carried, so exactly two may be
+        queued here and they must be the census, twice.
+
+        Measured to catch the real regression: wiring
+        ``field_mobs.build_field_mob_population`` in alongside the census
+        turns this red.  ``_census()`` filters on the ``WORLD_CENSUS_`` label
+        prefix, so a field-mob collection queued under any other label is
+        invisible to every other assertion in this file -- which is why this
+        one looks at all of ``actions``, not at ``_census(actions)``.
+        """
+        state = self._state("census_no_second_collection")
+        actions = self._step(state)
+        collection_header = self.legacy.make_runtime_remote_actors([])[0][
+            :world_population.WIRE_COUNT_TAG_OFFSET
+        ]
+        self.assertEqual(len(collection_header), 14)
+        collections = [
+            action for action in actions
+            if action[1].startswith(collection_header)
+        ]
+        self.assertEqual(
+            [action[0] for action in collections],
+            [f"{INITIAL_PREFIX}115", f"{REAPPLY_PREFIX}115"],
+            "an actor collection other than the census was queued on the "
+            "arrival frame: under replace-by-omission that despawns the "
+            "actors the other frame carried",
+        )
+        # Both are the same 115-actor collection, and the count in the bytes
+        # agrees with the count in the label.
+        for action in collections:
+            self.assertEqual(
+                int.from_bytes(
+                    action[1][
+                        world_population.WIRE_COUNT_TAG_OFFSET + 1:
+                        world_population.WIRE_COUNT_TAG_OFFSET + 3
+                    ],
+                    "little",
+                ),
+                115,
+            )
+
+    def test_every_field_mob_body_in_the_queued_frame_is_the_hostile_body(self):
+        """The load-bearing one.  For all thirteen roster identities, the bytes
+        the DISPATCHER queued at that identity's placement must equal
+        ``field_mobs.hostile_actor_entry`` for that roster row -- byte for
+        byte, including the BasicAttr faction bit 0x0400 and the five-byte
+        tagged faction splice that makes the monster hostile rather than
+        merely present.
+
+        Non-vacuous in both directions: the count is asserted at 13 (so a
+        roster that stopped overlapping the census fails instead of passing
+        with zero comparisons), and the expected side is built from
+        ``field_mobs`` directly, which is NOT the producer
+        ``world_population`` uses for a default census member.
+        """
+        state = self._state("census_hostile_bodies")
+        census = self._census(self._step(state))
+        queued_pc = census[0][1]
+        overridden = self._with_roster_override(
+            world_population.build_world_population(
+                self.legacy, (10.0, 20.0, 30.0), scene_id=1,
+            ),
+            state,
+        )
+        self.assertEqual(queued_pc, overridden.pc)
+        entries = self._queued_entries_by_identity(overridden)
+        roster = field_mobs.load_roster()
+        self.assertEqual(len(roster), 13)
+        checked = 0
+        for mob in roster:
+            self.assertIn(
+                mob.actor_identity, entries,
+                f"roster identity 0x{mob.actor_identity:X} "
+                f"(placement {mob.placement_index}) is not in the census at "
+                f"all, so nothing could be overridden for it",
+            )
+            self.assertEqual(
+                entries[mob.actor_identity],
+                field_mobs.hostile_actor_entry(self.legacy, mob),
+                f"identity 0x{mob.actor_identity:X} is on the wire with a "
+                f"body that is not its hostile body",
+            )
+            # The faction bit is what separates "hostile" from "named NPC";
+            # asserted on the QUEUED bytes, not on the expected side.
+            self.assertIn(
+                bytes(self.legacy.u32tag(
+                    field_mobs.FACTION_TAG, field_mobs.FIELD_MOB_FACTION)),
+                entries[mob.actor_identity],
+            )
+            checked += 1
+        self.assertEqual(checked, 13)
+        # And the default census body for the same identity is NOT the
+        # hostile body -- otherwise the assertion above proves nothing.
+        plain = world_population.build_world_population(
+            self.legacy, (10.0, 20.0, 30.0), scene_id=1,
+        )
+        plain_entries = self._queued_entries_by_identity(plain)
+        self.assertNotEqual(
+            plain_entries[roster[0].actor_identity],
+            entries[roster[0].actor_identity],
+        )
+
+    def test_the_arrival_census_makes_exactly_one_collection_call(self):
+        """ONE sender, one frame.  ``make_runtime_remote_actors`` is
+        replace-by-omission (RE-092): every call replaces the client's whole
+        network-actor registry with exactly the identities it carries.  Two
+        senders on this path is one of them despawning the other's actors,
+        whichever order they go out in -- which is precisely why
+        ``field_mobs.build_field_mob_population`` must NOT be called here.
+
+        Counted at the encoder, so a future "just add the field mobs too"
+        wiring is caught by the call count rather than by a screen.
+        """
+        state = self._state("census_one_call")
+        calls = []
+        original = self.legacy.make_runtime_remote_actors
+
+        def counting(entries):
+            calls.append(tuple(len(entry) for entry in entries))
+            return original(entries)
+
+        self.legacy.make_runtime_remote_actors = counting
+        try:
+            census = self._census(self._step(state))
+        finally:
+            self.legacy.make_runtime_remote_actors = original
+        self.assertEqual(len(census), 2)
+        # build_world_population composes once; the override splice recomposes
+        # the SAME collection once.  Two encoder calls, both over 115 entries,
+        # and the second is the one that is queued -- never a third call over
+        # a 13-entry field-mob-only collection.
+        self.assertEqual(len(calls), 2, f"encoder call shapes: {calls!r}")
+        for shape in calls:
+            self.assertEqual(
+                len(shape), 115,
+                "an actor collection was composed over something other than "
+                "the full census",
+            )
+        self.assertNotIn(13, [len(shape) for shape in calls])
+        # field_mobs' own dispatching builder stays uncalled on this path.
+        self.assertFalse(
+            any(len(shape) == len(field_mobs.load_roster())
+                for shape in calls),
+        )
+
+    def test_the_roster_override_coverage_line_is_printed_on_a_default_boot(
+            self):
+        """The console gate.  COO decision 2026-08-27 03:45: a ticket that
+        depends on hostiles may not be opened until a headless boot has been
+        grepped for the hostile frame.  GT-084 grepped for ``FIELD_MOB`` /
+        ``HOSTILE`` -- labels that have never existed on this path -- and read
+        the silence as proof that no hostile byte went out.
+
+        This pins the line that answers the question, with the numbers a
+        grep can read: ``matched=13/13 missing=none``.  ASCII-only, because
+        the bridge console is cp874.
+        """
+        state = self._state("census_coverage_line")
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            self._step(state)
+        lines = captured.getvalue().splitlines()
+        coverage = [
+            line for line in lines
+            if line.startswith("MOB_DEATH_ROSTER_OVERRIDE_COVERAGE")
+        ]
+        self.assertEqual(
+            len(coverage), 1,
+            f"expected exactly one coverage line: {lines!r}",
+        )
+        self.assertEqual(
+            coverage[0],
+            "MOB_DEATH_ROSTER_OVERRIDE_COVERAGE matched=13/13 missing=none",
+        )
+        coverage[0].encode("ascii")
+        # It does not crowd out the two lines that were already there.
+        self.assertTrue(any(l.startswith("WORLD_CENSUS ") for l in lines))
+        self.assertTrue(any(l.startswith("WORLD_DENSITY ") for l in lines))
+
+    def test_a_contained_boot_prints_no_coverage_line_because_it_sends_no_census(
+            self):
+        """The coverage line rides the census branch, so an opt-in boot -- the
+        one that deliberately keeps the frozen three-actor population -- must
+        not print it.  Without this, a green coverage assertion above could be
+        satisfied by a line printed unconditionally somewhere else.
+        """
+        state = self._state(
+            "census_coverage_contained",
+            ground_loot_hypothesis_scenario=(
+                load_ground_loot_hypothesis_scenario(GROUND_LOOT_SCENARIO)
+            ),
+        )
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            self._step(state, xyz=(
+                state.foundation.selected.position.x,
+                state.foundation.selected.position.y,
+                state.foundation.selected.position.z,
+            ))
+        self.assertNotIn(
+            "MOB_DEATH_ROSTER_OVERRIDE_COVERAGE", captured.getvalue(),
+        )
 
     # ----- BUILD-002 slice 1: the teleport that used to be a literal 1 ------
 

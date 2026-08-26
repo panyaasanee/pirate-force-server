@@ -4896,6 +4896,32 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             generation = _apply_mob_death_census_override(
                                 legacy, generation, mob_death_override,
                             )
+                        # GT-084 item (5).4, and the COO's console gate of
+                        # 2026-08-27 03:45 ("verify with a headless boot and a
+                        # grep of the console before opening any ticket that
+                        # depends on hostiles").  Until this line the console
+                        # printed ONE undifferentiated
+                        # world_census_committed_actors_N / WORLD_CENSUS line
+                        # per boot with no per-identity breakdown, so an
+                        # attended tester could not tell a boot whose 13 field
+                        # mobs went out hostile from one whose override matched
+                        # nothing at all -- GT-084 grepped for FIELD_MOB /
+                        # HOSTILE, labels that have never existed on this path,
+                        # and read the silence as "no hostile bytes".  The
+                        # answer is COMPUTED from the census this boot actually
+                        # built (generation.actor_identities, post-splice), not
+                        # from what the roster says it SHOULD contain, so a
+                        # census that changed shape prints a real `missing`
+                        # list instead of a reassuring 13/13.
+                        #
+                        # Printed OUTSIDE the `if` on purpose: an empty
+                        # override is exactly the failure this gate exists to
+                        # catch, and it has to print matched=0/0 rather than
+                        # print nothing, because "no line" is the state GT-084
+                        # already mis-read once.
+                        print(mob_death.describe_roster_override_coverage(
+                            mob_death_override, generation.actor_identities,
+                        )[0])
                         self.world_census_sent = True
                         self.npc_idle_action_sent = False
                         self.population_indices = generation.indices
