@@ -34,6 +34,7 @@ import math
 import time
 from pathlib import Path
 
+from . import npc_switch_catalog
 from . import scene_catalog
 
 COMMAND_NAMES = ("warp", "npc", "item", "lv", "spawn", "say")
@@ -160,6 +161,21 @@ def describe_warp_target(command: GmCommand) -> str | None:
     if not scene_catalog.is_known_scene_id(scene_id):
         return None
     return scene_catalog.gm_scene_name(scene_id)
+
+
+def describe_npc_target(command: GmCommand) -> str | None:
+    """The client's own name for a parsed npc command's mob_id, or None if
+    mob_id is not one of the 7 client-flagged (n_GM_SWITCH=1) NPCs -- a hint
+    for the log, not a validity gate: a mob_id missing from this table is not
+    proof that toggling it is invalid, only that the client did not flag it
+    as a GM-switch NPC.
+    """
+    if command.name != "npc":
+        raise ValueError("describe_npc_target only applies to npc commands")
+    mob_id = int(command.args[1])
+    if not npc_switch_catalog.is_gm_switchable_npc(mob_id):
+        return None
+    return npc_switch_catalog.npc_gm_name(mob_id)
 
 
 def log_gm_command(

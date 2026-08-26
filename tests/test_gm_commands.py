@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from pirateforce_foundation.gm.commands import (
     MAX_SAY_MESSAGE_LENGTH,
     GmCommandParseError,
+    describe_npc_target,
     describe_warp_target,
     log_gm_command,
     parse_gm_command,
@@ -111,6 +112,21 @@ class DescribeWarpTargetTests(unittest.TestCase):
         cmd = parse_gm_command("lv 1")
         with self.assertRaises(ValueError):
             describe_warp_target(cmd)
+
+
+class DescribeNpcTargetTests(unittest.TestCase):
+    def test_known_gm_switch_npc_returns_client_name(self):
+        cmd = parse_gm_command("npc on 855")
+        self.assertEqual(describe_npc_target(cmd), "傑克")
+
+    def test_unknown_mob_id_returns_none(self):
+        cmd = parse_gm_command("npc off 1")
+        self.assertIsNone(describe_npc_target(cmd))
+
+    def test_rejects_non_npc_command(self):
+        cmd = parse_gm_command("lv 1")
+        with self.assertRaises(ValueError):
+            describe_npc_target(cmd)
 
 
 class LogGmCommandTests(unittest.TestCase):
