@@ -90,6 +90,28 @@ convention marker and no code branches on it.
     members :func:`hostile_placement_indices` names.  :func:`overlapping_
     identities` exists so a caller can assert the intersection instead of
     discovering it on screen.
+
+CORRECTED 2026-08-26 (round `4z0efc`) - two sentences above are now false and are
+kept rather than edited, per this project's own rule.  (1) "no module in
+``src/`` imports it yet" stopped being true earlier the same day: this
+module's ``load_roster()`` is imported by ``mob_combat.py`` (target
+resolution) and ``mob_death.py`` (corpse override / repopulation), and
+``runtime.py`` imports this module directly as of CORE-REQUEST-005
+(commit ``6105d26``, "wire mob_combat+mob_death into runtime.py dispatch
+(MOB-COMBAT-001)", 2026-08-26 09:27 UTC / 16:27 +07:00) -- NOT CORE-REQUEST-007
+as an earlier draft of this correction said; 007 (round `keen-pasteur-r6hhp6`)
+only added the `mob_ai_control` import, and never touched this one.  (2) the
+override THE ONE INTEGRATION HAZARD
+above calls for now EXISTS AS CODE: ``mob_death.full_roster_override()``
+(this round) is exactly that override - it swaps every roster member's body
+in for whatever the census would otherwise send, dead ones as corpses, living
+ones (touched or not) hostile and named, reusing this module's own
+:func:`hostile_actor_entry` under the hood.  What is STILL true, and is the
+actual reason this docstring's headline claim ("never sent, never observed")
+still holds: nothing in ``runtime.py`` calls ``full_roster_override`` yet -
+its one existing census-override call site still calls the narrower
+``corpse_override``, which is chief's file and this round's one-line request,
+not a wiring line this lane can write itself.
 """
 
 from __future__ import annotations
