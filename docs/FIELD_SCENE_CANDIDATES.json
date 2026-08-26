@@ -1,0 +1,294 @@
+{
+  "build_order": "BUILD-004 / FIELD-MOBS-001",
+  "candidate_count": 22,
+  "candidates": [
+    {
+      "ambiguous_registry_match": false,
+      "english_name": "Prison Exile Island",
+      "has_outdoor_air_companion": true,
+      "hostile_placements": 17,
+      "registered_in_scene_name_table": true,
+      "scene_folder": "Bg0002",
+      "scene_n_id": 2,
+      "unambiguous_placements": 49
+    },
+    {
+      "ambiguous_registry_match": false,
+      "english_name": "Hell Volcanic Island",
+      "has_outdoor_air_companion": true,
+      "hostile_placements": 17,
+      "registered_in_scene_name_table": true,
+      "scene_folder": "Bg0015",
+      "scene_n_id": 14,
+      "unambiguous_placements": 76
+    },
+    {
+      "ambiguous_registry_match": false,
+      "english_name": "Slave Market Island",
+      "has_outdoor_air_companion": true,
+      "hostile_placements": 16,
+      "registered_in_scene_name_table": true,
+      "scene_folder": "bg0004",
+      "scene_n_id": 4,
+      "unambiguous_placements": 85
+    },
+    {
+      "ambiguous_registry_match": false,
+      "english_name": "Silver Harbour",
+      "has_outdoor_air_companion": true,
+      "hostile_placements": 13,
+      "registered_in_scene_name_table": true,
+      "scene_folder": "Bg0008",
+      "scene_n_id": 8,
+      "unambiguous_placements": 53
+    },
+    {
+      "ambiguous_registry_match": false,
+      "english_name": "Port Royal",
+      "has_outdoor_air_companion": true,
+      "hostile_placements": 13,
+      "registered_in_scene_name_table": true,
+      "scene_folder": "bg0001",
+      "scene_n_id": 1,
+      "unambiguous_placements": 115
+    },
+    {
+      "ambiguous_registry_match": false,
+      "english_name": "Ocean Walled City",
+      "has_outdoor_air_companion": true,
+      "hostile_placements": 13,
+      "registered_in_scene_name_table": true,
+      "scene_folder": "bg0006",
+      "scene_n_id": 6,
+      "unambiguous_placements": 58
+    },
+    {
+      "ambiguous_registry_match": false,
+      "english_name": "Voodoo Island",
+      "has_outdoor_air_companion": true,
+      "hostile_placements": 7,
+      "registered_in_scene_name_table": true,
+      "scene_folder": "Bg0007",
+      "scene_n_id": 7,
+      "unambiguous_placements": 50
+    },
+    {
+      "ambiguous_registry_match": false,
+      "english_name": null,
+      "has_outdoor_air_companion": null,
+      "hostile_placements": 6,
+      "registered_in_scene_name_table": false,
+      "scene_folder": "Bg0016",
+      "scene_n_id": null,
+      "unambiguous_placements": 55
+    },
+    {
+      "ambiguous_registry_match": false,
+      "english_name": "Evil Port",
+      "has_outdoor_air_companion": true,
+      "hostile_placements": 6,
+      "registered_in_scene_name_table": true,
+      "scene_folder": "bg0005",
+      "scene_n_id": 5,
+      "unambiguous_placements": 75
+    },
+    {
+      "ambiguous_registry_match": false,
+      "english_name": "Deep Sea Temple floor 1",
+      "has_outdoor_air_companion": true,
+      "hostile_placements": 5,
+      "registered_in_scene_name_table": true,
+      "scene_folder": "Bg0010",
+      "scene_n_id": 10,
+      "unambiguous_placements": 86
+    },
+    {
+      "ambiguous_registry_match": false,
+      "english_name": null,
+      "has_outdoor_air_companion": null,
+      "hostile_placements": 5,
+      "registered_in_scene_name_table": false,
+      "scene_folder": "Bg0012",
+      "scene_n_id": null,
+      "unambiguous_placements": 48
+    },
+    {
+      "ambiguous_registry_match": false,
+      "english_name": null,
+      "has_outdoor_air_companion": null,
+      "hostile_placements": 5,
+      "registered_in_scene_name_table": false,
+      "scene_folder": "Bg5003",
+      "scene_n_id": null,
+      "unambiguous_placements": 65
+    },
+    {
+      "ambiguous_registry_match": false,
+      "english_name": null,
+      "has_outdoor_air_companion": null,
+      "hostile_placements": 5,
+      "registered_in_scene_name_table": false,
+      "scene_folder": "bg0017",
+      "scene_n_id": null,
+      "unambiguous_placements": 48
+    },
+    {
+      "ambiguous_registry_match": false,
+      "english_name": "Bermuda Sea",
+      "has_outdoor_air_companion": true,
+      "hostile_placements": 3,
+      "registered_in_scene_name_table": true,
+      "scene_folder": "Bg3003",
+      "scene_n_id": 128,
+      "unambiguous_placements": 28
+    },
+    {
+      "ambiguous_registry_match": false,
+      "english_name": null,
+      "has_outdoor_air_companion": null,
+      "hostile_placements": 3,
+      "registered_in_scene_name_table": false,
+      "scene_folder": "Bg3004",
+      "scene_n_id": null,
+      "unambiguous_placements": 38
+    },
+    {
+      "ambiguous_registry_match": false,
+      "english_name": "Outer Space Ocean\uff1aPale Silver Sea",
+      "has_outdoor_air_companion": true,
+      "hostile_placements": 3,
+      "registered_in_scene_name_table": true,
+      "scene_folder": "Bg3008",
+      "scene_n_id": 305,
+      "unambiguous_placements": 48
+    },
+    {
+      "ambiguous_registry_match": false,
+      "english_name": "Atlantic Ocean\uff1aRising Sun Sea",
+      "has_outdoor_air_companion": true,
+      "hostile_placements": 2,
+      "registered_in_scene_name_table": true,
+      "scene_folder": "Bg3001",
+      "scene_n_id": 126,
+      "unambiguous_placements": 29
+    },
+    {
+      "ambiguous_registry_match": false,
+      "english_name": null,
+      "has_outdoor_air_companion": null,
+      "hostile_placements": 2,
+      "registered_in_scene_name_table": false,
+      "scene_folder": "duplicate",
+      "scene_n_id": null,
+      "unambiguous_placements": 2
+    },
+    {
+      "ambiguous_registry_match": false,
+      "english_name": "Deep Sea Temple floor 2",
+      "has_outdoor_air_companion": true,
+      "hostile_placements": 1,
+      "registered_in_scene_name_table": true,
+      "scene_folder": "Bg0011",
+      "scene_n_id": 11,
+      "unambiguous_placements": 52
+    },
+    {
+      "ambiguous_registry_match": false,
+      "english_name": "Outer Space Ocean\uff1aTaboo Sea",
+      "has_outdoor_air_companion": true,
+      "hostile_placements": 1,
+      "registered_in_scene_name_table": true,
+      "scene_folder": "Bg3002",
+      "scene_n_id": 127,
+      "unambiguous_placements": 27
+    },
+    {
+      "ambiguous_registry_match": false,
+      "english_name": "Atlantic Ocean\uff1aDark Fog Sea",
+      "has_outdoor_air_companion": true,
+      "hostile_placements": 1,
+      "registered_in_scene_name_table": true,
+      "scene_folder": "Bg3007",
+      "scene_n_id": 304,
+      "unambiguous_placements": 37
+    },
+    {
+      "ambiguous_registry_match": false,
+      "english_name": null,
+      "has_outdoor_air_companion": null,
+      "hostile_placements": 1,
+      "registered_in_scene_name_table": false,
+      "scene_folder": "dupliacte_clear",
+      "scene_n_id": null,
+      "unambiguous_placements": 1
+    }
+  ],
+  "control": {
+    "hostile_placements": 13,
+    "scene": "bg0001",
+    "unambiguous_placements": 115
+  },
+  "id": "field_scene_candidates_001",
+  "lane": "B_COMBAT",
+  "m2_destination": {
+    "ambiguous_registry_match": false,
+    "english_name": "Beach Soccer Field",
+    "has_outdoor_air_companion": false,
+    "hostile_placements": 0,
+    "registered_in_scene_name_table": true,
+    "scene_folder": "Bg1177",
+    "scene_n_id": 278,
+    "unambiguous_placements": 5
+  },
+  "nonclaims": [
+    "no claim that any candidate scene is reachable by a player - reachability is a travel-gate question, lane A's file",
+    "no claim that a candidate's hostile monsters are placed usefully (spread out, near a spawn point, etc) - only that the data exists",
+    "has_outdoor_air_companion is a naming-convention observation, not proof of anything: 'BgNull' in a scene's s_IMAGENAME column is common (185 of 265 scanned scenes carry it, 237 of all rows in the full registry table), so this field alone does not single out scene 278 - see m2_destination for the claim that does (its own registry name, not an absence)",
+    "registered_in_scene_name_table false, or ambiguous_registry_match true, means this tool could not validate that candidate's name against the game's own scene registry - it is still counted by hostile placements, just not vouched for by name",
+    "this tool does not decide which scene becomes the field for M3 - that is lane A's/COO's call against scenarios/world_*.json"
+  ],
+  "not_a_scenario": "this file is a census of committed game data, not a switch - no flag loads it and no loader accepts it",
+  "scenes_scanned": 265,
+  "scenes_scanned_with_bgnull_image_name": 185,
+  "scenes_skipped": {
+    "duplicate_placement_index": [],
+    "empty_placement_file": [
+      "AirTest01",
+      "Bg0030",
+      "Bg0031",
+      "Bg0032",
+      "Bg0033",
+      "Bg1161",
+      "Bg1169",
+      "Bg1174",
+      "Bg1181",
+      "Bg2030",
+      "Bg2031",
+      "Bg2033",
+      "Bg3006",
+      "GVGTEST01",
+      "PlayerViewer",
+      "SailingTest",
+      "TenYooScene",
+      "bg2012",
+      "bg2021",
+      "bg5001"
+    ],
+    "no_placement_file": [
+      "Bg0003",
+      "Bg0009",
+      "FilmScene",
+      "bg0020"
+    ],
+    "unreadable_placement_file": []
+  },
+  "scenes_with_bgnull_image_name_in_full_registry": 237,
+  "schema": 1,
+  "selection_rule": "a placement counts as hostile when its MOBS row has a single unambiguous outfit AND n_RANK != 0 AND n_AI_COMBAT != 0 - the identical rule tools/pf_mine_scene_mob_roster.py uses",
+  "source_digests": {
+    "mobs": "3c0d33d68f832eefda56c845495008338dcef56f4277584b9ca479b7e1b3916b",
+    "scene_name": "e38114a802576266ce37b2abcf8ebce3f105d7d5abaf4bc5ca066e7848c5d60b",
+    "scene_name_tip": "f9076cfc3c14433b376811437d68375d5dd1ce1ef2c7a50dbc1d4e4d241bfa3a"
+  },
+  "why_this_exists": "scene 278 (Bg1177), the confirmed M2 travel destination, scans as zero hostile placements under the exact rule that shipped Port Royal's 13, and the game's own scene registry names it a test map (see m2_destination below); this is the evidence for what a real field scene would be instead"
+}
