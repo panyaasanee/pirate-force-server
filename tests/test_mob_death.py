@@ -48,6 +48,7 @@ from pirateforce_foundation import (
     mob_death,
     runtimeres_death_hypothesis,
 )
+from pirateforce_foundation import world_population
 from pirateforce_foundation.legacy_bridge import load_legacy
 from pirateforce_foundation.mob_combat import Combatant, open_ledger, strike
 from pirateforce_foundation.mob_death import (
@@ -62,6 +63,7 @@ from pirateforce_foundation.mob_death import (
     corpse_npc_attr,
     dead_frames,
     describe_death,
+    describe_roster_override_coverage,
     dying_frames,
     full_roster_override,
     kill,
@@ -70,6 +72,7 @@ from pirateforce_foundation.mob_death import (
     production_allowed,
     repopulation_entries,
     repopulation_frames,
+    roster_override_coverage,
     test_only,
 )
 
@@ -551,6 +554,85 @@ class MobDeathTests(unittest.TestCase):
             self.assertEqual(
                 override[mob.actor_identity],
                 field_mobs.hostile_actor_entry(self.legacy, mob))
+
+    # -- GT-084 console-coverage helper ------------------------------------
+
+    def test_roster_override_coverage_reports_matched_and_missing(self):
+        override = {0x201F: b"a", 0x2001: b"b", 0x2099: b"c"}
+        coverage = roster_override_coverage(override, [0x201F, 0x2001, 0x9999])
+        self.assertEqual(coverage["matched"], (0x2001, 0x201F))
+        self.assertEqual(coverage["missing"], (0x2099,))
+        self.assertEqual(coverage["matched_count"], 2)
+        self.assertEqual(coverage["total"], 3)
+
+    def test_roster_override_coverage_all_matched_reports_no_missing(self):
+        override = {0x201F: b"a", 0x2001: b"b"}
+        coverage = roster_override_coverage(override, [0x201F, 0x2001, 0x30])
+        self.assertEqual(coverage["missing"], ())
+        self.assertEqual(coverage["matched_count"], coverage["total"])
+
+    def test_roster_override_coverage_refuses_non_dict_override(self):
+        with self.assertRaises(MobDeathContractError) as caught:
+            roster_override_coverage([(0x201F, b"a")], [0x201F])
+        self.assertEqual(
+            caught.exception.reason, mob_death.REFUSE_TYPE_NOT_TYPED_RECORD)
+
+    def test_roster_override_coverage_refuses_a_non_int_key(self):
+        with self.assertRaises(MobDeathContractError) as caught:
+            roster_override_coverage({"0x201F": b"a"}, [0x201F])
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_OVERRIDE_ENTRY_NOT_INT_BYTES)
+
+    def test_roster_override_coverage_refuses_a_bool_key(self):
+        # bool is a subclass of int; True/False must not pass as identities.
+        with self.assertRaises(MobDeathContractError) as caught:
+            roster_override_coverage({True: b"a"}, [1])
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_OVERRIDE_ENTRY_NOT_INT_BYTES)
+
+    def test_roster_override_coverage_refuses_a_non_bytes_value(self):
+        with self.assertRaises(MobDeathContractError) as caught:
+            roster_override_coverage({0x201F: "a"}, [0x201F])
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_OVERRIDE_ENTRY_NOT_INT_BYTES)
+
+    def test_describe_roster_override_coverage_is_ascii_console_lines(self):
+        lines = describe_roster_override_coverage(
+            {0x201F: b"a", 0x2099: b"c"}, [0x201F])
+        self.assertEqual(len(lines), 1)
+        line = lines[0]
+        self.assertEqual(line.encode("ascii").decode("ascii"), line)
+        self.assertIn("matched=1/2", line)
+        self.assertIn("missing=0x2099", line)
+
+    def test_describe_roster_override_coverage_all_matched_says_none(self):
+        lines = describe_roster_override_coverage({0x201F: b"a"}, [0x201F])
+        self.assertIn("missing=none", lines[0])
+
+    def test_full_roster_override_lands_on_every_identity_in_the_real_115_census(
+            self):
+        # GT-084 (2026-08-27, attended) could not tell from the console
+        # whether full_roster_override's splice reached the wire at all.
+        # This proves it at the wire/DB layer, independent of the console
+        # question: build the SAME 115-actor census
+        # tests/test_world_census_wiring.py proves the real dispatcher sends
+        # on a flagless default boot (same anchor, same scene_id), apply
+        # full_roster_override exactly as runtime.py's call site does, and
+        # measure coverage against the result -- not against an assumption
+        # about what the census SHOULD contain.
+        generation = world_population.build_world_population(
+            self.legacy, (10.0, 20.0, 30.0), scene_id=1,
+        )
+        self.assertEqual(generation.actor_count, 115)
+        override = full_roster_override(
+            self.legacy, self.roster, DeathRegister())
+        coverage = roster_override_coverage(
+            override, generation.actor_identities)
+        self.assertEqual(coverage["missing"], ())
+        self.assertEqual(coverage["matched_count"], len(self.roster))
 
     def test_full_roster_override_refuses_the_same_way_repopulation_does(self):
         # It is a thin wrapper over repopulation_entries and must not swallow

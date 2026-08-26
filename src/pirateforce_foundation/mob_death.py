@@ -400,6 +400,12 @@ REFUSE_LEDGER_DISAGREES_WITH_REGISTER = "ledger_disagrees_with_register"
 REFUSE_OUTCOME_DISAGREES_WITH_ROSTER = "outcome_disagrees_with_roster"
 REFUSE_REGISTER_STALE = "register_stale"
 REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE = "target_outside_the_sanctioned_scope"
+# pf-adversary (round lp6hg4): roster_override_coverage checked only that
+# ``override`` itself was a dict, not that its entries were well-typed -
+# every real caller's dict happens to satisfy this, so no live failure was
+# found, but the module's other contract functions all validate their
+# inputs by type rather than trusting the caller, and this one should too.
+REFUSE_OVERRIDE_ENTRY_NOT_INT_BYTES = "override_entry_not_int_bytes"
 # ~~REFUSE_HOLD_OUT_OF_RANGE~~ never declared as its own name: the hold is
 # checked by the same range check as every other integer here, which raises
 # REFUSE_VALUE_OUT_OF_RANGE, and a second name that can never be raised is a
@@ -426,6 +432,7 @@ MOB_DEATH_REFUSAL_REASONS = (
     REFUSE_OUTCOME_DISAGREES_WITH_ROSTER,
     REFUSE_REGISTER_STALE,
     REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE,
+    REFUSE_OVERRIDE_ENTRY_NOT_INT_BYTES,
 )
 
 _FLOAT32_MAX = 3.4028234663852886e38
@@ -1585,6 +1592,80 @@ def full_roster_override(
         with_name=with_name, dead_timer=dead_timer,
     )
     return {mob.actor_identity: entry for mob, entry in zip(roster, entries)}
+
+
+def roster_override_coverage(
+    override: dict[int, bytes],
+    census_identities: Any,
+) -> dict[str, Any]:
+    """Which override identities actually land in a built census, measured.
+
+    GT-084 (2026-08-27, attended) could not tell from the console whether
+    ``full_roster_override``'s splice reached the wire at all: this
+    project's console prints one undifferentiated
+    ``world_census_committed_actors_N`` line per boot, with no per-identity
+    breakdown, so the attended tester's own recommendation (item (5).4 of
+    that ticket's result letter) was "give console a way to confirm hostile
+    frames went out before calling the owner to sit down again" - this is
+    that confirmation, computed rather than assumed.  ``census_identities``
+    is whatever the caller's build actually produced
+    (``generation.actor_identities`` at the ``runtime.py`` call site), not a
+    re-derivation of what it SHOULD contain, so a caller that hands this the
+    real dispatch output gets a real answer, and a caller whose census
+    changed shape gets a real ``missing`` list instead of a silently wrong
+    "all matched".
+
+    NONCLAIMS.  Does not know whether the client renders any matched
+    identity as hostile/red - that is GT-084/RIDER-084-A's own open
+    question, at a layer this function cannot see.  Coverage is computed at
+    the wire/DB layer only.
+    """
+    if type(override) is not dict:
+        raise MobDeathContractError(
+            REFUSE_TYPE_NOT_TYPED_RECORD, "override must be a dict")
+    for identity, entry in override.items():
+        if type(identity) is not int or type(identity) is bool:
+            raise MobDeathContractError(
+                REFUSE_OVERRIDE_ENTRY_NOT_INT_BYTES,
+                "override key must be an int identity")
+        if type(entry) is not bytes:
+            raise MobDeathContractError(
+                REFUSE_OVERRIDE_ENTRY_NOT_INT_BYTES,
+                "override value must be bytes")
+    census_set = set(census_identities)
+    matched = tuple(sorted(i for i in override if i in census_set))
+    missing = tuple(sorted(i for i in override if i not in census_set))
+    return {
+        "matched": matched,
+        "missing": missing,
+        "matched_count": len(matched),
+        "total": len(override),
+    }
+
+
+def describe_roster_override_coverage(
+    override: dict[int, bytes],
+    census_identities: Any,
+) -> tuple[str, ...]:
+    """Console lines for :func:`roster_override_coverage`, ASCII-only.
+
+    Same shape as :func:`describe_death`: a tuple of plain-ASCII lines a
+    caller can ``print()`` on the bridge's cp874 console with no further
+    escaping.  Written so a wiring pass can add ONE print call at the
+    ``full_roster_override`` / ``_apply_mob_death_census_override`` call
+    site in ``runtime.py`` and have every future attended round read the
+    answer to GT-084 item (5).4 straight off the console, with no attended
+    session needed to get it.
+    """
+    coverage = roster_override_coverage(override, census_identities)
+    missing = (
+        "none" if not coverage["missing"]
+        else ",".join("0x%X" % identity for identity in coverage["missing"])
+    )
+    return (
+        "MOB_DEATH_ROSTER_OVERRIDE_COVERAGE matched=%d/%d missing=%s" % (
+            coverage["matched_count"], coverage["total"], missing),
+    )
 
 
 def describe_death(step: DeathStep) -> tuple[str, ...]:
