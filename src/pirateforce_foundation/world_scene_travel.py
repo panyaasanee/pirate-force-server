@@ -53,12 +53,13 @@ crates, no hull, no water to fall into.
     ticket decides that.  This module pins what the file says and stops.
 
 WHAT THIS MODULE DELIBERATELY DOES NOT BUILD.  Moving a character who is
-ALREADY LIVE from one scene to another is not here.  Nobody in this project
-knows what the client needs, in what order, to survive that transition -
-``RE-077 SCENE-TRANSITION-SEQUENCE-001`` is open and unanswered.  Guessing a
-sequence and shipping it would produce a lane that "works" until it silently
-does not.  What is here is the half that rests on measured shape: which scene
-a player ENTERS, and where they stand when they get there.
+ALREADY LIVE from one scene to another is not here.  ``RE-077
+SCENE-TRANSITION-SEQUENCE-001`` closed 2026-08-26 (T0-T4 pinned, T5 bounded
+negative): the client's own sequence is now measured (StateRunTime /
+StateNavigation -> TeleportVital -> cStateSwitchScene -> SCENE_NAME lookup),
+but nothing in this tree drives that sequence yet - that is still a separate
+build, not this module.  What is here is the half that rests on measured
+shape: which scene a player ENTERS, and where they stand when they get there.
 
 THE CROSS-BUILD-ORDER HAZARD.  BUILD-001 delivers 115 bg0001 placements built
 with ``SCENE_ID`` hardcoded to 1.  The moment a player can enter scene 278, a

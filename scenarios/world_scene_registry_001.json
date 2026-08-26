@@ -264,7 +264,7 @@
   "nonclaims": [
     "no boot has ever sent scene_id 278 to this client, so nothing here proves the client accepts it",
     "the n_ID reading of the wire field is a candidate, not an identity - three rival readings agree at rows 1 and 2 and disagree at 278",
-    "no claim about what happens to a character that is ALREADY live when the scene changes - that is RE-077 and it is open",
+    "no claim about what happens to a character that is ALREADY live when the scene changes - RE-077 closed 2026-08-26 with the client's sequence (T0-T4 pinned, T5 bounded negative on remote-actor cleanup), but nothing in this tree drives that sequence yet",
     "no claim that the ground of Bg1177 is white, flat, walkable, or free of water",
     "no claim that image_name BgNull loads, or that a null loading image is harmless",
     "no claim that the nine placements of Bg1177 spawn anything - and this is NOT a claim that this project never populated another scene: SCENE-002..005 and GT-053 put a remote actor in scene 2, behind a flag",

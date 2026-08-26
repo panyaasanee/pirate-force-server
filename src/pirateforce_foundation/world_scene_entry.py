@@ -113,16 +113,18 @@ NOT GET A VOTE.  ``world_scene_travel``'s pinned console line reports
 ``return_ticket=not_needed`` for a scene whose ``n_MARKER`` is non-zero, and
 that line is quoted verbatim by ``GT-079`` so it is not changed here.  But
 ``n_MARKER`` is an ARRIVAL marker: it says the developers authored a point to
-arrive at, and says nothing whatever about a way back out.  ``RE-077`` is open
-for scene 2 exactly as it is for scene 278, and no measurement in this tree
-names a way out of either.  So ``SceneEntry.return_ticket_required`` is true
-for every non-home destination, and it will differ from the pinned line for
+arrive at, and says nothing whatever about a way back out.  ``RE-077`` closed
+2026-08-26 (T0-T4 pinned, T5 bounded negative) with the client's own
+scene-transition sequence, but no measurement in this tree names a way out of
+scene 2 or scene 278.  So ``SceneEntry.return_ticket_required`` is true for
+every non-home destination, and it will differ from the pinned line for
 scene 2 on purpose: the line reports the client's column, the field reports
 whether THIS project knows a way home.
 
 WHAT THIS MODULE DOES NOT DO.  It does not move a character who is already
-live from one scene to another - that is ``RE-077``, open, and guessing the
-sequence is how a lane ships something that works until it silently does not.
+live from one scene to another.  ``RE-077`` pinned the client's sequence for
+that; nothing in this tree drives it yet, and guessing ahead of a driver is
+how a lane ships something that works until it silently does not.
 It does not write anything: no database, no file, no socket.  It does not
 decide who gets sent to the stage; it answers what to do with the row a
 character already has.  And it does not claim scene 278 loads, renders, has
