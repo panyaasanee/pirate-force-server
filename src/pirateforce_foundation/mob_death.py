@@ -1411,6 +1411,67 @@ def corpse_override(
     return override
 
 
+def full_roster_override(
+    legacy: Any,
+    roster: tuple[FieldMob, ...],
+    register: DeathRegister,
+    *,
+    ledger: Any = None,
+    faction: int = field_mobs.FIELD_MOB_FACTION,
+    with_name: bool = True,
+    dead_timer: float = DEAD_TIMER_SECONDS,
+) -> dict[int, bytes]:
+    """Identity -> entry, for EVERY roster member, not just the ones that changed.
+
+    THIS CLOSES THE GAP ``field_mobs.py`` DESCRIBES AS "never sent, never
+    observed".  :func:`corpse_override` deliberately narrows its result to
+    identities whose body differs from what the census sends by default
+    (dead, or alive below its ceiling), because the round that wrote it was
+    scoped to not resurrecting or over-healing anyone - a census override
+    call site that applies ONLY changed identities is cheap and a no-op until
+    something has happened.  What that scoping costs a caller: a
+    field mob nobody has ever hit is not in the dict, so a census that applies
+    only :func:`corpse_override` ships it exactly as ``world_population``
+    built it - HP 100, nameless (P30 excepted), faction 0.  BUILD-004 asks for
+    the opposite: red-named, hostile monsters standing in the field from the
+    first byte the client ever sees, not from the first hit.
+
+    This is that function.  It calls the SAME :func:`repopulation_entries`
+    :func:`corpse_override` already calls - the one that already gives every
+    living roster member a :func:`field_mobs.hostile_actor_entry` body and
+    every dead one a :func:`death_actor_entry` corpse - and keeps ALL of it
+    instead of filtering to the delta.  For identities that are dead or
+    damaged it returns byte-identical entries to ``corpse_override`` (both
+    read the same register/ledger through the same helper); the only
+    behavioural difference is that a monster nobody has touched is now IN the
+    dict too, at its full-HP hostile body instead of being absent.
+
+    A caller with an existing ``corpse_override`` call site can swap the
+    function name and nothing else: the arguments are identical in name,
+    order and default, because the delta-only behaviour was never a
+    contract this lane asked for - it was the cheapest thing that answered
+    MOB-DEATH-001's own question, and the wider one was left for the round
+    that had a reason to build it.  This round is that reason.
+
+    NONCLAIMS.  This does not touch, widen or bypass the death-scope gate
+    (``SANCTIONED_FIRST_TARGET_IDENTITY`` / ``SANCTIONING_RULING``): a
+    non-P30 field mob can show a hostile body and take damage the moment a
+    census applies this override, but :func:`kill` still refuses to let it
+    actually die until ``widened=`` names a later ruling, exactly as it does
+    today - a monster that never dies while the gate holds is BUILD-004's
+    claim (the monster exists, is real and is hostile), not BUILD-005's
+    (every one of them can be killed), and the two are not conflated here.
+    It does not change what ``runtime.py`` calls: nothing in this tree wires
+    this function to the census yet, so a boot with no wiring change is
+    byte-for-byte what it was before this function existed.
+    """
+    entries = repopulation_entries(
+        legacy, roster, register, ledger=ledger, faction=faction,
+        with_name=with_name, dead_timer=dead_timer,
+    )
+    return {mob.actor_identity: entry for mob, entry in zip(roster, entries)}
+
+
 def describe_death(step: DeathStep) -> tuple[str, ...]:
     """Console lines for a kill, in the shape the runtime console prints."""
     if type(step) is not DeathStep:

@@ -63,6 +63,7 @@ from pirateforce_foundation.mob_death import (
     dead_frames,
     describe_death,
     dying_frames,
+    full_roster_override,
     kill,
     live_roster,
     pin_document,
@@ -490,6 +491,78 @@ class MobDeathTests(unittest.TestCase):
             sorted(wider),
             sorted((self.mob.actor_identity,
                     hurt.outcome.target_identity)))
+
+    def test_full_roster_override_covers_every_identity_untouched_or_not(self):
+        # BUILD-004's still-open gap, in one assertion: corpse_override only
+        # names identities that changed from the census default, so a field
+        # mob nobody has hit is simply absent from it and ships nameless and
+        # neutral.  full_roster_override must not have that gap -- every
+        # roster identity is a key, including the twelve nobody has touched.
+        override = full_roster_override(self.legacy, self.roster, DeathRegister())
+        self.assertEqual(
+            sorted(override), sorted(m.actor_identity for m in self.roster))
+        for mob in self.roster:
+            self.assertEqual(
+                override[mob.actor_identity],
+                field_mobs.hostile_actor_entry(self.legacy, mob))
+
+    def test_full_roster_override_agrees_with_corpse_override_where_it_applies(
+            self):
+        # A caller with an existing corpse_override call site can rename the
+        # call and change nothing else: for every identity corpse_override
+        # DOES name, the two functions must return byte-identical entries.
+        step = self.killing_outcome()
+        death = kill(self.legacy, self.mob, step.outcome, DeathRegister())
+        narrow = mob_death.corpse_override(
+            self.legacy, self.roster, death.register)
+        wide = full_roster_override(self.legacy, self.roster, death.register)
+        self.assertEqual(set(wide), set(m.actor_identity for m in self.roster))
+        for identity, entry in narrow.items():
+            self.assertEqual(wide[identity], entry)
+        # and the identities corpse_override left out are exactly the ones
+        # nobody has touched, now present at their full-HP hostile body
+        untouched = [
+            m for m in self.roster if m.actor_identity not in narrow]
+        self.assertTrue(untouched)
+        for mob in untouched:
+            self.assertEqual(
+                wide[mob.actor_identity],
+                field_mobs.hostile_actor_entry(self.legacy, mob))
+
+    def test_full_roster_override_reflects_ledger_damage(self):
+        # The wounded-but-alive case: full_roster_override must read the
+        # same ledger balance corpse_override already reads, not silently
+        # fall back to max_hp for a damaged survivor.
+        weak = Combatant(level=7, ability_str=132, ability_con=0)
+        other = [m for m in self.roster if m.placement_index != 30][0]
+        hurt = strike(
+            self.legacy, None, open_ledger(), None, other, PERFORMER, weak)
+        override = full_roster_override(
+            self.legacy, self.roster, DeathRegister(), ledger=hurt.ledger)
+        balance = mob_death._balance_in(hurt.ledger, other.actor_identity)
+        self.assertLess(balance, other.max_hp)
+        self.assertEqual(
+            override[other.actor_identity],
+            field_mobs.hostile_actor_entry(
+                self.legacy, other, current_hp=balance))
+        # nobody else was touched, so they still carry their ceiling HP
+        untouched = [m for m in self.roster if m is not other]
+        for mob in untouched:
+            self.assertEqual(
+                override[mob.actor_identity],
+                field_mobs.hostile_actor_entry(self.legacy, mob))
+
+    def test_full_roster_override_refuses_the_same_way_repopulation_does(self):
+        # It is a thin wrapper over repopulation_entries and must not swallow
+        # or soften that function's own refusals.
+        step = self.killing_outcome()
+        death = kill(self.legacy, self.mob, step.outcome, DeathRegister())
+        living = live_roster(self.roster, death.register)
+        with self.assertRaises(MobDeathContractError) as caught:
+            full_roster_override(self.legacy, living, death.register)
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_REGISTER_ROW_DISAGREES_WITH_ROSTER)
 
     def test_repopulation_frames_can_take_the_safe_path(self):
         # The convenience wrapper had no ledger parameter at all, so the
