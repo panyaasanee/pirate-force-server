@@ -68,6 +68,14 @@ WHERE THE EVIDENCE FOR EACH HALF COMES FROM, AND WHERE IT STOPS.
     - "hostile" itself is unproven at the client: the target's name label
       rendered in the colour this client uses for PLAYERS, which is why RE-067
       is open.
+      [STALE as of pf_bridge/CLIENT_RE_QUEUE.md chief R163/R165, 2026-08-25,
+      round dvxb6f] [MEASURED, by reading CLIENT_RE_QUEUE.md]: RE-067 is
+      CLOSED (PASS/MIXED), and the "rendered in PLAYER colour" theory was
+      chief R163's own draft, retracted before RE-067 opened - the actor
+      half closed BOUNDED NEGATIVE instead (no colour-deciding read of
+      actor_type/faction/FONT_COLOR found; the real driver is unidentified,
+      not "player colour"). See mob_death.py's full_roster_override
+      docstring for the full correction and citations.
 * What is NOT proven and is not claimed here: that a player's own click can
   reach this driver.  The inbound side is the SCENE-007 EA7D ActionVital the
   client already sends for an action on a target (``action_ack.py``), and no
@@ -256,7 +264,13 @@ MOB_COMBAT_NONCLAIMS = (
     "claims is the arithmetic that reaches zero and the announce frame that "
     "says so, and the corpse itself has never been watched land",
     "the monster's constitution is OURS - no committed table carries one",
-    "name colour is not claimed by this lane; RE-067 owns it and is open",
+    "name colour is not claimed by this lane; RE-067 owns it and is open. "
+    "[STALE as of pf_bridge/CLIENT_RE_QUEUE.md chief R165, 2026-08-25, "
+    "round dvxb6f] [MEASURED]: RE-067 is CLOSED (PASS/MIXED, actor half "
+    "BOUNDED NEGATIVE) - name colour is still not claimed by this lane, "
+    "but the question is not open pending more static work, it is a "
+    "measured ceiling; the client-observable answer waits on GT-084/"
+    "RIDER-084-A instead",
     "the client's draw distance is still unmeasured, so a monster hit from "
     "far away may move a bar nobody can see",
     "named AND hostile in one body has never been sent and never been "

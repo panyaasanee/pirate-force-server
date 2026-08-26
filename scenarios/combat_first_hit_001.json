@@ -37,7 +37,7 @@
     "nothing dispatches this module: runtime.py belongs to the chief and the one wiring line has not been written. [STALE as of runtime.py CORE-REQUEST-005, PR #63, round mdj01v, 2026-08-26] [MEASURED, by call-site reading]: the wiring line HAS been written and runs unconditionally on a flagless boot; what remains true is the nonclaim right above this one -- the inbound half that would drive it from a real attack is still unproven",
     "death is delivered by mob_death, not by this module: what this lane claims is the arithmetic that reaches zero and the announce frame that says so, and the corpse itself has never been watched land",
     "the monster's constitution is OURS - no committed table carries one",
-    "name colour is not claimed by this lane; RE-067 owns it and is open",
+    "name colour is not claimed by this lane; RE-067 owns it and is open. [STALE as of pf_bridge/CLIENT_RE_QUEUE.md chief R165, 2026-08-25, round dvxb6f] [MEASURED]: RE-067 is CLOSED (PASS/MIXED, actor half BOUNDED NEGATIVE) - name colour is still not claimed by this lane, but the question is not open pending more static work, it is a measured ceiling; the client-observable answer waits on GT-084/RIDER-084-A instead",
     "the client's draw distance is still unmeasured, so a monster hit from far away may move a bar nobody can see",
     "named AND hostile in one body has never been sent and never been observed: field_mobs' nonclaim, inherited here, because the bar frame this driver refreshes IS that body (mask 0x070D, not GT-035's 0x030D)",
     "a monster this lane took to zero is finished by mob_death and by nothing else: until that call is made it lies at zero HP with no timer field, which is a state no client has been shown",

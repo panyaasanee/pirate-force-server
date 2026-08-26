@@ -157,6 +157,12 @@ NONCLAIMS
 * Nothing here touches the ACTOR name label.  RE-067's actor half closed
   bounded-negative and RE-068 is the open ticket; an item-side positive says
   nothing about it.
+  [STALE as of pf_bridge/CLIENT_RE_QUEUE.md chief R167, 2026-08-25 ~19:0x
+  +07:00, round dvxb6f] [MEASURED]: RE-068 is CLOSED (PASS-MIXED, actor half
+  hit the same static ceiling as RE-067) - not open. See mob_death.py's
+  full_roster_override docstring for the full RE-067/RE-068 citation
+  trail. An item-side positive still says nothing about the actor label
+  either way.
 * The CREATE-selector half of this module's foundation is SINGLE-SOURCE and
   not checkable at HEAD: RE-067's verifier is not in version control, so no
   layer in this repository can re-derive 0x005F47FE, the gate compare, the

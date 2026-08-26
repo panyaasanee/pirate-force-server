@@ -44,7 +44,16 @@ Each half is separately proven and the COMBINATION is not:
 * named + faction together: THIS module, never sent, never observed.
 
 So this module must not be read as claiming a red NAME.  What decides name
-colour is ``RE-067``, which is open and belongs to lane C.  What is claimed is
+colour is ``RE-067``, which is open and belongs to lane C.
+[STALE as of ``pf_bridge/CLIENT_RE_QUEUE.md`` chief R163/R165, 2026-08-25,
+round `dvxb6f`] [MEASURED]: ``RE-067`` is CLOSED (PASS/MIXED) - the actor
+half closed BOUNDED NEGATIVE (no colour-deciding read of ``actor_type``,
+faction, or ``FONT_COLOR`` was found; the driver is unidentified, and the
+"renders in PLAYER colour" theory this module never repeated was chief
+R163's own retracted draft).  What decides name colour is still unknown,
+but the search for it at the static layer is finished, not open; see
+``mob_death.py``'s ``full_roster_override`` docstring for the full
+citation trail.  What is claimed is
 narrower and testable: the body is byte-for-byte the frozen ``make_npc_attr``
 body for that monster, with the BasicAttr mask widened by exactly bit 0x0400
 and exactly five bytes of tagged faction spliced in at the ascending-mask-order
@@ -687,7 +696,12 @@ def pin_document(legacy: Any) -> dict:
             "named half is V119/V117, the hostile half is GT-032, the "
             "combination is new",
             "no claim about NAME COLOUR - what decides it is RE-067, open, "
-            "lane C",
+            "lane C. [STALE as of pf_bridge/CLIENT_RE_QUEUE.md chief "
+            "R163/R165, 2026-08-25, round dvxb6f] [MEASURED]: RE-067 is "
+            "CLOSED (PASS/MIXED, actor half BOUNDED NEGATIVE) - still no "
+            "claim about name colour, but the static-layer search is "
+            "finished, not open; GT-084/RIDER-084-A carries the "
+            "client-observable question now",
             "no aggro, no attack, no death, no drop: this lane builds the "
             "monster, not the fight",
             "max_hp is DERIVED from STANDARD_MOB by level; the two frozen "
