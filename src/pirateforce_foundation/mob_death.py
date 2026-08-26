@@ -1472,6 +1472,21 @@ def full_roster_override(
     It does not change what ``runtime.py`` calls: nothing in this tree wires
     this function to the census yet, so a boot with no wiring change is
     byte-for-byte what it was before this function existed.
+    [STALE as of runtime.py, round q4z3vi, 2026-08-26T22:0x+07:00]
+    [MEASURED, by call-site reading on ``pirate-force-server@3036b03``]: the
+    swap HAS been made - ``runtime.py``'s census-composition call site now
+    reads ``mob_death.full_roster_override(...)`` where it used to read
+    ``mob_death.corpse_override(...)``, unconditionally, on a flagless boot.
+    Confirmed independently (not copied from the chief's own letter) by
+    reading the call site itself; corroborated by
+    ``notes_to_chief/20260826_2245_CHIEF-REPLY-LANE-B-full_roster_override-landed-plus-adversary-found-a-vacuous-assertion.md``,
+    which also reports the twelve pins this swap turned red (see below) are
+    fixed and the full suite is green. What is still true from the sentence
+    above: this function itself still does not decide what ``runtime.py``
+    calls - that decision was made in ``runtime.py``, the chief's file, not
+    here - and BUILD-004/BUILD-005's client-observable question (does a
+    player see any of this) is untouched by the swap; see the paragraph
+    below for that.
 
     WIRE LAYER, round 1cwih0 (2026-08-26): chief tried wiring this in and hit
     12 red pins across FOUR files (``tests/test_world_census_wiring.py`` x9,
@@ -1509,6 +1524,28 @@ def full_roster_override(
     player see a red monster is exactly what ``GT-084`` (queued, not
     delayed) and ``RE-067`` (open) exist to answer, and this round does not
     pre-empt either one.
+    [STALE as of ``pf_bridge/CLIENT_RE_QUEUE.md`` chief R165, 2026-08-25
+    ~17:0x+07:00 - already stale when this paragraph was WRITTEN in round
+    1cwih0 on 2026-08-26, not just stale since] [MEASURED, by reading
+    ``CLIENT_RE_QUEUE.md`` line 1382 and its result block]: ``RE-067`` is
+    CLOSED, not open - PASS/MIXED. The item-label half PASSed (selector
+    pinned). The actor half closed BOUNDED NEGATIVE: the client's
+    ``NameBoardNPC::update`` does not read ``actor_type`` as a colour
+    selector, no direct/recursive-decodable path from ``NPCAttr faction``,
+    a relation comparator, or the ``FONT_COLOR`` loader was found feeding
+    it, and the upstream setter's own value has no known semantic - "cannot
+    be named from the evidence available" in that result's own words. That
+    is a real, static-layer answer, not silence: nobody has found what
+    decides an actor name's colour, and the search that tried (RE-067,
+    followed up by RE-068, also closed BOUNDED NEGATIVE on the same
+    question from a different angle) has no successor ticket open in
+    ``CLIENT_RE_QUEUE.md`` as of this correction. So the sentence above
+    should read: whether a player sees a red monster is exactly what
+    ``GT-084``/``RIDER-084-A`` (client-observable layer, queued not
+    delayed) exists to answer - RE-067/RE-068 already answered what they
+    could at the static layer, and what they could not answer they closed
+    as a measured ceiling, not an open question waiting on more static
+    work.
     """
     entries = repopulation_entries(
         legacy, roster, register, ledger=ledger, faction=faction,
