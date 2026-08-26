@@ -17,10 +17,16 @@ who walks back to where they landed and stops there is sent home.
     errand is a trapdoor, and it would have eaten the M1 acceptance run on the
     evening M1 was due.  So a crossing is not enough: the player has to report
     the SAME position ``dwell_reports`` times running.  In the one authentic
-    walk this project holds, every walking report moved and three stationary
-    runs of 3, 6 and 3 identical reports exist - so standing still is
-    measurably distinguishable from passing through, and it is also the only
-    thing in this design that a player DOES rather than has done to them.
+    walk this project holds, every walking report moved, and four stationary
+    runs exist - of 3, 6, 2 and 3 identical reports.  The door needs FOUR
+    identical reports (the one that arrives, then three that do not move), so
+    exactly ONE of those four pauses would have opened it.  That is the right
+    way round: an incidental pause usually does not reach the threshold and a
+    deliberate stop does, which is the discrimination this rule exists for.
+    (Round 4fhdxv pinned "three runs of 3, 6 and 3" and read the threshold as
+    three reports; the adversary pass of round e7q6yy recounted both.)  It is
+    also the only thing in this design that a player DOES rather than has done
+    to them.
 
     NOTHING HERE IS BEHIND A FLAG.  There is no scenario file to load and no
     argument to pass.  What stands between this module and a player is one call
@@ -82,8 +88,9 @@ WHAT SETTLES A TRANSIT.  While the client is still in the old scene it reports
 old-scene coordinates, and the durable row already carries the new scene id, so
 the scene id cannot tell the two apart.  What can is the size of the step: the
 one authentic walk this project holds - 29 reports, recomputed from
-``reports/move_cadence001_smoke/replay_output.txt`` in this round rather than
-quoted from a docstring - has a median step of 139.26 units and a largest of
+``reports/move_cadence001_smoke/replay_output.txt`` rather than quoted from a
+docstring - has a median step of 130.42 units (139.26 is the upper middle of
+that even sample, which an earlier revision called the median) and a largest of
 538.44, and the move-authority policy already pins 2000 units as the largest
 single step an honest client can take.  The first report that jumps further than that is the
 arrival.  If none does within the report budget, one ``WORLD_TRAVEL_STRANDED``
@@ -105,6 +112,26 @@ see nothing, because walking out and back needs a scene to walk in.
 ``CHARTER-02`` rule 2 says a version that takes away what the last one could
 do is damage, so a caller that wires this owes the character one of the four.
 
+HOW A CALLER WIRES THIS, AND WHY IT IS THREE PLACES AND NOT ONE.  Round e7q6yy
+rebuilt the seam around the three questions ``CORE-REQUEST-004`` left open,
+because each of them was a good reason for the chief not to make the call:
+
+    server start   preload()                        a bad pin fails the boot
+    in the factory reason = scenario_stand_down(locals())
+    each login     TravelGateSet.from_preloaded(    no file read, no raise
+                       emit=..., inert_reason=reason)
+    each report    departure = gates.observe(row)   nothing committed yet
+                   persist(departure.arrival)
+                   departure.confirmed_fields()     commits, and prints
+
+``preload`` moves the refusal off the login path, where a broken pin used to
+mean nobody could log in rather than nobody could travel.
+``scenario_stand_down`` is the opt-in-lane guard written as a rule instead of
+a list - THIS LANE IS THE NO-FLAG LANE, so any selected scenario shuts the
+doors, including one no version of this file has heard of.  And a crossing is
+handed over uncommitted so the console cannot say a player travelled before
+the row that says so has been written.
+
 WHAT THIS MODULE DELIBERATELY DOES NOT DO.  It composes no bytes and sends
 nothing.  It returns the five arguments ``legacy.make_login_teleport`` takes and
 the row to persist, and the caller owns both.  It does not populate the
@@ -115,6 +142,7 @@ bg0001 census cannot follow a player into a football field or a film set.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 import json
 import math
@@ -158,6 +186,7 @@ ACTION_LABEL_PREFIX = "WORLD_TRAVEL"
 _ROOT_FIELDS = {
     "schema", "id", "lane", "build_order", "test_only", "production_allowed",
     "selection", "not_a_scenario", "written_at", "what_a_gate_is",
+    "how_this_is_wired",
     "why_the_trigger_is_a_walk_and_not_a_command",
     "the_measured_facts_the_radii_come_from",
     "the_rule_that_prevents_a_ping_pong", "gates", "settle", "dwell",
@@ -229,9 +258,46 @@ class TravelGate:
         return self.centre is None
 
 
+class _Crossing:
+    """The half of a departure that has not happened yet.
+
+    Held by the set AND by the departure it belongs to, so neither can be
+    told the crossing went through without the other hearing it.
+    """
+
+    __slots__ = ("apply", "discard", "state")
+
+    def __init__(self, apply, discard):
+        self.apply = apply
+        self.discard = discard
+        self.state = "pending"
+
+
 @dataclass(frozen=True)
 class TravelDeparture:
-    """Everything one crossing hands back.  Nothing here has been sent."""
+    """Everything one crossing hands back.  Nothing here has been sent.
+
+    TWO PHASES, AND THE SECOND ONE IS THE CALLER'S.  ``observe`` returns this
+    object with NOTHING committed: no console line printed, no transit latch
+    set, no memory of where the player left from.  The caller persists
+    ``arrival`` first, and only then asks for :meth:`confirmed_fields` - which
+    is the same tuple ``teleport_fields`` always was, and the act of asking is
+    what commits the crossing and prints ``WORLD_TRAVEL_DEPART``.
+
+    ``CORE-REQUEST-004`` section 3 point 3 is why.  The chief pointed out that
+    ``foundation.checkpoint`` can throw on a stale lease, and that the old
+    order printed the departure line inside ``observe`` before the caller ever
+    tried the write: a failed write left a console saying a player had gone to
+    scene 278 and a database saying they never left.  In a project whose first
+    rule of evidence is that the wire and the row must agree, a log line that
+    can outrun the row is not a small thing.
+
+    The caller's patch is the same size it was.  ``departure.teleport_fields``
+    became ``departure.confirmed_fields()``; a caller who never asks - because
+    the write raised - leaves a crossing that is discarded on the next report
+    with ``WORLD_TRAVEL_DEPART_ABANDONED``, and the player stays where they
+    are with the log saying exactly that.
+    """
 
     gate: TravelGate
     destination: SceneDestination
@@ -242,10 +308,51 @@ class TravelDeparture:
     population_source: str | None
     left_from: Position
     console_lines: tuple[str, ...]
+    crossing: _Crossing
 
     @property
     def console_line(self) -> str:
         return self.console_lines[0]
+
+    @property
+    def confirmed(self) -> bool:
+        return self.crossing.state == "confirmed"
+
+    @property
+    def abandoned(self) -> bool:
+        return self.crossing.state == "abandoned"
+
+    def confirmed_fields(self) -> tuple[int, int, float, float, float]:
+        """Commit the crossing, print it, and hand back the teleport tuple.
+
+        Call this AFTER the arrival row is persisted and not before.  Calling
+        it twice is a mistake this refuses rather than double-counts: the
+        second call would mean two teleports for one crossing.
+        """
+        if self.crossing.state == "confirmed":
+            raise TravelGateRefused(
+                "already_confirmed",
+                f"crossing at gate {self.gate.name} was already confirmed",
+            )
+        if self.crossing.state == "abandoned":
+            raise TravelGateRefused(
+                "already_abandoned",
+                f"crossing at gate {self.gate.name} was abandoned and cannot "
+                "be sent",
+            )
+        self.crossing.apply()
+        self.crossing.state = "confirmed"
+        return self.teleport_fields
+
+    def abandon(self, reason: str) -> None:
+        """Throw the crossing away and say why.  Safe to call twice."""
+        if type(reason) is not str or not reason:
+            raise ValueError("abandon reason must be a non-empty string")
+        if self.crossing.state != "pending":
+            return
+        self.crossing.state = "abandoned"
+        self.crossing.apply = None
+        self.crossing.discard(reason)
 
 
 def _require_text(value: Any, label: str) -> str:
@@ -498,6 +605,141 @@ def _refuse_unreachable_settles(
             )
 
 
+@dataclass(frozen=True)
+class PreloadedGates:
+    """One parse of the pin, shared by every session in the process."""
+
+    gates: tuple[TravelGate, ...]
+    settings: TravelGateSettings
+    registry: SceneRegistry
+    source: str
+
+
+_PRELOADED: PreloadedGates | None = None
+
+
+def preload(
+    path: str | Path = GATE_REGISTRY_PATH,
+    registry: SceneRegistry | None = None,
+) -> PreloadedGates:
+    """Read and validate the pins ONCE, where a bad pin should stop a boot.
+
+    WHY THIS EXISTS, IN THE CHIEF'S OWN WORDS.  ``CORE-REQUEST-004`` section 3
+    asked lane A to answer this before the call goes in: a bare
+    ``TravelGateSet()`` inside ``PersistentGameSessionState.__init__`` parses
+    three JSON files on EVERY LOGIN and raises ``TravelGateRefused`` if any of
+    them is wrong - and that constructor sits on the login path of every
+    player, so a broken pin does not mean "travel is off", it means NOBODY CAN
+    LOG IN.  That is not a hypothetical: the adversary pass of round 4fhdxv
+    saw it at 21:56 UTC when the pin was missing for a moment and 53 tests
+    went red at once.
+
+    The fix is not a softer loader.  A pin this lane cannot read must still
+    stop something, or a typo ships silently.  It stops the RIGHT thing:
+
+        server start   preload()                      -> raises, boot fails,
+                                                        one operator, no player
+        every login    TravelGateSet.from_preloaded() -> no file I/O, no raise
+
+    Calling this twice re-reads and replaces the cache, so an operator can fix
+    a pin and restart the process rather than the machine.  It is deliberately
+    NOT called lazily from ``from_preloaded``: a lazy first parse would put the
+    raise back on the first player's login, which is the whole thing this
+    removes.
+    """
+    global _PRELOADED
+    scenes = registry or world_scene_travel.load_scene_registry()
+    gates, settings = load_travel_gates(path, registry=scenes)
+    _PRELOADED = PreloadedGates(
+        gates=gates, settings=settings, registry=scenes, source=str(path),
+    )
+    return _PRELOADED
+
+
+def preloaded() -> PreloadedGates | None:
+    """The current parse, or None if nobody has called :func:`preload`."""
+    return _PRELOADED
+
+
+def forget_preload() -> None:
+    """Drop the cached parse.  Tests and a reload, nothing else."""
+    global _PRELOADED
+    _PRELOADED = None
+
+
+def scenario_stand_down(selected: Any) -> str | None:
+    """Name a reason this lane must keep its doors shut, or ``None``.
+
+    ``CORE-REQUEST-004`` section 3 point 2 asked the chief to write a guard
+    listing every opt-in lane whose scenarios also run in scene 1, because
+    lane A does not know them all: an attended arena, ground-loot or nameprop
+    round whose player walks into the gate zone and stops gets carried into
+    another scene mid-experiment, and their durable row then says 278 on every
+    boot after that until somebody edits the database by hand.
+
+    THE LIST THIS ROUND SAID COULD NOT BE WRITTEN IS ALREADY WRITTEN, and the
+    adversary pass of round e7q6yy found it: ``runtime.make_state_class``
+    builds ``active_lanes`` at ``runtime.py:334-382`` - a frozenset of the
+    names of every lane the boot actually selected, twenty-six of them, at the
+    top of the factory, which is where this call goes.  PASS THAT.  It is the
+    runtime's own definition of "a lane is selected", so this guard cannot
+    drift from it, which is more than a naming rule of mine could promise.
+
+    ACCEPTS, IN ORDER OF PREFERENCE:
+
+        a set/frozenset/list/tuple of names   ``active_lanes``   - any member
+                                                                   shuts them
+        a mapping                             ``locals()``       - any entry
+                                                                   named
+                                                                   ``scenario``
+                                                                   or ending
+                                                                   ``_scenario``
+                                                                   whose value
+                                                                   is not None
+        anything else                                            - refused
+
+    AN OBJECT IS NOT ACCEPTED, AND THAT IS THE POINT.  The first version of
+    this function scanned ``vars(owner)``.  The adversary pass measured four
+    shapes where that returns ``None`` while a lane IS selected - a class
+    attribute, a ``property``, an inherited default, and any object that
+    happens to define ``items()`` (whose inventory got scanned instead of its
+    attributes).  A guard whose miss opens every door is worse than no guard,
+    so the shape that can miss is gone rather than patched.
+
+    ``scenario`` counts as well as ``*_scenario``: the arena lane - the
+    chief's own first example, and the one that runs in scene 1 - is passed
+    under the bare name, so a suffix-only rule would have let through the
+    exact lane this guard was asked for.
+
+    Anything it cannot read returns a reason rather than ``None``: the failure
+    mode must be "travel is off", never "every door is open".
+    """
+    if selected is None:
+        return None
+    if isinstance(selected, Mapping):
+        names = []
+        try:
+            for name, value in selected.items():
+                if not isinstance(name, str):
+                    return "scenario_scan_unreadable"
+                if (name == "scenario" or name.endswith("_scenario")) and (
+                    value is not None
+                ):
+                    names.append(name)
+        except Exception:
+            return "scenario_scan_unreadable"
+    elif isinstance(selected, (set, frozenset, list, tuple)):
+        names = list(selected)
+        if any(not isinstance(name, str) for name in names):
+            return "scenario_scan_unreadable"
+    else:
+        # An object, an int, anything with attributes: refused rather than
+        # scanned.  See the docstring - the scan is what failed open.
+        return "scenario_scan_unreadable"
+    if not names:
+        return None
+    return "scenario_selected_" + ",".join(sorted(names))
+
 
 class TravelGateSet:
     """The live state of one player's doors.  One instance per session.
@@ -523,6 +765,47 @@ class TravelGateSet:
     has opened.  Until then a distance threshold is what there is.
     """
 
+    @classmethod
+    def from_preloaded(
+        cls,
+        *,
+        emit=print,
+        inert_reason: str | None = None,
+        pins: PreloadedGates | None = None,
+    ) -> "TravelGateSet":
+        """The login-path constructor: no file I/O, and no raise for a pin.
+
+        This is the one the chief wires into
+        ``PersistentGameSessionState.__init__``.  Everything that can refuse
+        has already refused inside :func:`preload` at server start, so all
+        that is left here is copying references.
+
+        IF NOBODY CALLED ``preload`` THIS RETURNS AN INERT SET, loudly.  The
+        alternative - parsing here, or raising here - puts a boot-time failure
+        back on a player's login, and a lane whose pin is missing should cost
+        the world its doors, not cost the players their game.
+        """
+        pins = pins if pins is not None else _PRELOADED
+        if inert_reason is not None and (
+            type(inert_reason) is not str or not inert_reason
+        ):
+            # THIS IS THE LOGIN PATH.  __init__ refuses a bad reason with a
+            # ValueError because a caller building a set by hand should hear
+            # about it; here that would put a raise on every player's login
+            # for a caller's typo, which is the whole thing preload exists to
+            # remove.  A reason nobody can read shuts the doors instead.
+            inert_reason = "inert_reason_unreadable"
+        if pins is None:
+            return cls(
+                (), TravelGateSettings(0.0, 0, 0, 0.0),
+                registry={}, emit=emit,
+                inert_reason="not_preloaded",
+            )
+        return cls(
+            pins.gates, pins.settings, registry=pins.registry, emit=emit,
+            inert_reason=inert_reason,
+        )
+
     def __init__(
         self,
         gates: tuple[TravelGate, ...] | None = None,
@@ -530,14 +813,46 @@ class TravelGateSet:
         *,
         registry: SceneRegistry | None = None,
         emit=print,
+        inert_reason: str | None = None,
     ):
         if not callable(emit):
             raise ValueError("emit must be callable")
+        if inert_reason is not None and (
+            type(inert_reason) is not str or not inert_reason
+        ):
+            raise ValueError("inert_reason must be a non-empty string or None")
         # ONE registry object, not two.  Validating the gates against one
         # parse and firing them against a second parse of the same file means
         # an edit between the two turns _fire's lookup into a bare KeyError -
         # the exact swallowable type TravelGateRefused exists to avoid.
-        self._registry = registry or world_scene_travel.load_scene_registry()
+        #
+        # ``is None`` and not a truth test: from_preloaded hands an inert set
+        # an EMPTY registry, and an empty dict is falsy, so a truth test here
+        # would send the one construction that must never touch the disk
+        # straight to the disk.
+        if registry is None and inert_reason is None:
+            registry = world_scene_travel.load_scene_registry()
+        self._registry = {} if registry is None else registry
+        self._inert_reason = inert_reason
+        if inert_reason is None and not self._registry:
+            # world_scene_travel.destination() is ``(registry or
+            # load_scene_registry())[...]`` - an EMPTY dict is falsy, so a
+            # live set holding one would read the registry off disk from
+            # inside observe(), on the walking path, which is the trap this
+            # class's own comment argues about two lines up.  Refused at
+            # construction, where a refusal costs a boot and not a player.
+            raise TravelGateRefused(
+                "empty_registry",
+                "a live gate set needs a scene registry; an empty one sends "
+                "world_scene_travel.destination back to the disk from inside "
+                "observe()",
+            )
+        if inert_reason is not None:
+            gates = () if gates is None else gates
+            settings = (
+                TravelGateSettings(0.0, 0, 0, 0.0) if settings is None
+                else settings
+            )
         if gates is None or settings is None:
             loaded_gates, loaded_settings = load_travel_gates(
                 registry=self._registry)
@@ -571,6 +886,71 @@ class TravelGateSet:
         # used by the M1 acceptance walk.
         self._dwell: dict[str, int] = {gate.name: 0 for gate in self._gates}
         self._departures = 0
+        # A crossing this set has handed to the caller and has not been told
+        # the end of.  At most one exists at a time: a set with a pending
+        # crossing has already stopped considering doors.
+        self._pending: TravelDeparture | None = None
+        # Crossings this set has HANDED OUT, committed or not.  _departures
+        # counts the committed ones and is what the console and the reports
+        # mean by a departure; this one is what _anchor_on_first_sight has to
+        # read, because a crossing the caller never confirmed may still have
+        # moved the durable row.  It never goes down.
+        self._crossings_offered = 0
+        # (gate, reason) pairs already said once.  See _refuse.
+        self._refusals_said: set[tuple[str, str]] = set()
+        if self._inert_reason is not None:
+            try:
+                self._emit(_inert_line(self._inert_reason, len(self._gates)))
+            except Exception:
+                # A console that is gone must not take the login with it.
+                # This is the one emit on the login path; every other one is
+                # on the walking path, where a raise is the caller's to see.
+                pass
+
+    # -- standing down ----------------------------------------------------
+    @property
+    def is_inert(self) -> bool:
+        return self._inert_reason is not None
+
+    @property
+    def inert_reason(self) -> str | None:
+        return self._inert_reason
+
+    def stand_down(self, reason: str) -> None:
+        """Shut every door for the rest of this session.  Cannot be undone.
+
+        For a caller that only learns which lane it is running AFTER the set
+        was built.  One way only: a set that resumed would have to decide what
+        its half-counted dwells and its transit latch mean, and the honest
+        answer is that it cannot know.
+
+        A stand-down inside a transit prints the row to restore, because that
+        row is the only copy of where the player was standing when they left
+        and this object is about to stop reporting it.
+        """
+        if type(reason) is not str or not reason:
+            raise ValueError("stand down reason must be a non-empty string")
+        if self._inert_reason is not None:
+            return
+        self._inert_reason = reason
+        if self._pending is not None:
+            # Clearing the slot without abandoning the crossing would leave the
+            # caller holding a live one: its staged apply() would still commit
+            # and still print, on a set that has already stood down.  A door
+            # that opens after the lane was shut is worse than one that never
+            # opened.
+            self._pending.abandon("stood_down_before_confirm")
+        if self._transit_from is not None:
+            self._emit(_stranded_line(
+                self._transit_last or self._transit_from,
+                self._transit_from,
+                self._transit_reports,
+            ))
+        self._clear_transit()
+        for name in self._armed:
+            self._armed[name] = False
+        self._reset_dwell()
+        self._emit(_inert_line(reason, len(self._gates)))
 
     # -- read-only views -------------------------------------------------
     @property
@@ -623,6 +1003,18 @@ class TravelGateSet:
         """
         if type(row) is not Position:
             raise ValueError("observe needs a Position row")
+        if self._inert_reason is not None:
+            # Silent on purpose.  The reason was printed once when this set
+            # stood down; printing it again on every report of every session
+            # of every opt-in lane would bury the lane that IS running.
+            return None
+        if self._pending is not None:
+            # The caller took a crossing and never came back to confirm it,
+            # which means the arrival row was not written - so no teleport
+            # went out and the player never moved.  Throw it away before
+            # reading this report, or the set carries a crossing that the
+            # world has no evidence of.
+            self._pending.abandon("not_confirmed_before_next_report")
         if not _finite_position(row):
             self._emit(
                 "WORLD_TRAVEL_REFUSED reason=nonfinite_row scene_id={0}"
@@ -728,16 +1120,28 @@ class TravelGateSet:
         with no door.  Anchoring on the first position seen in that scene
         gives them one: walk out, walk back, go home.
 
-        THE CONDITION IS ``departures == 0`` AND IT IS THE WHOLE GUARD.  After
-        a strand inside THIS session the client never loaded the destination,
-        so its reports are still the old scene's coordinates, and anchoring
-        there would put the way home on a coordinate that does not exist in
-        the scene the row names.  A session that has already sent somebody
-        somewhere therefore anchors on a measured landing or not at all.
+        THE CONDITION IS "THIS SET HAS NEVER OFFERED A CROSSING" AND IT IS THE
+        WHOLE GUARD.  After a strand inside THIS session the client never
+        loaded the destination, so its reports are still the old scene's
+        coordinates, and anchoring there would put the way home on a
+        coordinate that does not exist in the scene the row names.  A session
+        that has already sent somebody somewhere therefore anchors on a
+        measured landing or not at all.
+
+        IT COUNTS CROSSINGS OFFERED, NOT DEPARTURES COMMITTED, and the
+        difference is a hole the two-phase change opened.  ``_departures``
+        only moves inside ``apply()``.  The caller persists the arrival row
+        BEFORE it confirms, so there is a real window where the row says 278
+        and the confirm never happened - and in that window ``departures``
+        was 0, this guard passed, and the way home was anchored on Port Royal
+        coordinates while the durable row named another scene.  The adversary
+        pass of round e7q6yy reproduced exactly that.  A crossing that was
+        handed to a caller is evidence enough that this session did the
+        travelling, whether or not the caller came back to say so.
         """
         if not gate.centre_is_measured_at_runtime:
             return None
-        if self._departures != 0 or self.in_transit:
+        if self._crossings_offered != 0 or self.in_transit:
             return None
         centre = (row.x, row.y, row.z)
         # A DIFFERENT EVENT NAME ON PURPOSE.  WORLD_TRAVEL_RETURN_ANCHORED is
@@ -798,6 +1202,37 @@ class TravelGateSet:
         # not have to guess which one they are looking at.
         return world_scene_travel.home_return_position(self._registry)
 
+    def _refuse(
+        self, gate: TravelGate, reason: str, row: Position
+    ) -> None:
+        """Say a refusal ONCE, and make the player earn the next attempt.
+
+        Two things happen here and they answer two different failures.
+
+        THE DWELL RESET stops the gate re-firing on the very next still
+        report.  Without it a refusal leaves the dwell counter at or above
+        ``dwell_reports``, so the gate fires, refuses and prints again on
+        every report for as long as the player stands there.
+
+        THE LATCH stops it printing forever at a slower rate.  The adversary
+        pass of round e7q6yy pointed out that the dwell reset alone divides
+        the rate by ``dwell_reports`` and calls itself a fix: every one of
+        these conditions is a function of a durable row that cannot change
+        while the session lives, so "once per three reports, forever" is
+        still hundreds of identical lines an idle minute, and the rationale
+        this method was written under - that a console repeating a permanent
+        refusal is how the one line that mattered gets lost - asked for a
+        latch.  So each (gate, reason) says its piece once per session and
+        then goes quiet.  A reader who wants to know it is still refusing
+        reads the absence of a departure, not a wall of repeats.
+        """
+        key = (gate.name, reason)
+        if key not in self._refusals_said:
+            self._refusals_said.add(key)
+            self._emit(_refused_line(gate, reason, row))
+        self._dwell[gate.name] = 0
+        return None
+
     def _fire(
         self,
         gate: TravelGate,
@@ -823,13 +1258,11 @@ class TravelGateSet:
         # connection.  They are refusals with names now.
         if teleport_fields[0] <= 0:
             # RE-077: TeleportVital apply 0x5F14B0 rejects target scene 0.
-            self._emit(_refused_line(gate, "target_scene_zero", row))
-            return None
+            return self._refuse(gate, "target_scene_zero", row)
         if teleport_fields[1] != SCENE_SEQUENCE:
-            self._emit(_refused_line(
+            return self._refuse(
                 gate, "scene_sequence_{0}_not_{1}".format(
-                    teleport_fields[1], SCENE_SEQUENCE), row))
-            return None
+                    teleport_fields[1], SCENE_SEQUENCE), row)
         label = "{0}_{1}_TO_SCENE{2}_TELEPORT".format(
             ACTION_LABEL_PREFIX, gate.role.upper(), gate.to_scene_id,
         )
@@ -837,27 +1270,37 @@ class TravelGateSet:
         lines = (
             _depart_line(gate, target, row, arrival, population, remembered_used),
         )
-        for line in lines:
-            self._emit(line)
 
-        # Order matters, and tests/test_world_travel_gate.py proves it rather
-        # than only saying it. The state is committed only after the lines are
-        # out, so a console that raises cannot leave a player mid-transit with
-        # nothing in the log saying why.
-        self._left_from[gate.from_scene_id] = row
-        self._transit_from = row
-        self._transit_last = row
-        self._transit_reports = 0
-        self._departures += 1
-        for name in self._armed:
-            self._armed[name] = False
-        self._reset_dwell()
-        if gate.role == ROLE_DEPARTURE:
-            for other in self._gates:
-                if other.centre_is_measured_at_runtime:
-                    self._measured_centres.pop(other.name, None)
+        def apply() -> None:
+            # Order matters, and tests/test_world_travel_gate.py proves it
+            # rather than only saying it. The state is committed only after
+            # the lines are out, so a console that raises cannot leave a
+            # player mid-transit with nothing in the log saying why.
+            for line in lines:
+                self._emit(line)
+            self._left_from[gate.from_scene_id] = row
+            self._transit_from = row
+            self._transit_last = row
+            self._transit_reports = 0
+            self._departures += 1
+            for name in self._armed:
+                self._armed[name] = False
+            self._reset_dwell()
+            if gate.role == ROLE_DEPARTURE:
+                for other in self._gates:
+                    if other.centre_is_measured_at_runtime:
+                        self._measured_centres.pop(other.name, None)
+            self._pending = None
 
-        return TravelDeparture(
+        def discard(reason: str) -> None:
+            # Nothing to undo - the point of staging is that there is
+            # nothing to undo - so this only says so and makes the player
+            # earn the next attempt, exactly as a refusal does.
+            self._emit(_abandoned_line(gate, reason, row, arrival))
+            self._dwell[gate.name] = 0
+            self._pending = None
+
+        departure = TravelDeparture(
             gate=gate,
             destination=target,
             crossed_at=row,
@@ -867,7 +1310,11 @@ class TravelGateSet:
             population_source=population,
             left_from=row,
             console_lines=lines,
+            crossing=_Crossing(apply, discard),
         )
+        self._pending = departure
+        self._crossings_offered += 1
+        return departure
 
 
 
@@ -883,6 +1330,78 @@ def _armed_line(
         .format(
             gate.name, gate.from_scene_id, centre[0], centre[1], centre[2],
             row.x, row.y, row.z, horizontal, gate.fire_radius,
+        )
+    )
+
+
+def _inert_line(reason: str, gate_count: int) -> str:
+    return (
+        "WORLD_TRAVEL_INERT reason={0} gates={1} "
+        "effect=no_door_opens_in_this_session"
+        .format(reason, gate_count)
+    )
+
+
+def _abandoned_line(
+    gate: TravelGate, reason: str, row: Position, arrival: Position,
+) -> str:
+    """A crossing this module handed over and was never told the end of.
+
+    ``no_teleport_sent`` IS THE ONLY THING THIS LINE KNOWS.  An earlier
+    revision printed ``row_not_written=``, which is a claim about the
+    DATABASE, and this module has never been able to see the database.  The
+    adversary pass of round e7q6yy reproduced the sequence where it is
+    actively false: the caller persists the arrival row FIRST and confirms
+    second, so a confirm that dies after a successful write leaves a row that
+    says 278 under a console line asserting it was never written.  In a
+    project whose first rule of evidence is that the wire and the row must
+    agree, a line that guesses at the row is worse than a line that says less.
+    ``arrival_row_offered`` is what this module produced; whether anybody
+    stored it is the caller's to report.
+    """
+    return (
+        "WORLD_TRAVEL_DEPART_ABANDONED gate={0} reason={1} to_scene={2} "
+        "stayed_at=({3:.3f},{4:.3f},{5:.3f}) "
+        "arrival_row_offered=({6},{7},{8:.3f},{9:.3f},{10:.3f}) "
+        "no_teleport_sent=true whether_the_caller_wrote_that_row=unknown"
+        .format(
+            gate.name, reason, gate.to_scene_id, row.x, row.y, row.z,
+            arrival.scene_id, arrival.scene_seq,
+            arrival.x, arrival.y, arrival.z,
+        )
+    )
+
+
+def _refused_line(gate: TravelGate, reason: str, row: Position) -> str:
+    """A door that will not open, and why, on the walking path.
+
+    THIS FUNCTION DID NOT EXIST UNTIL ROUND e7q6yy AND ITS TWO CALL SITES DID.
+    ``_fire`` has called it since round 4fhdxv, so both of the refusals the
+    adversary pass asked for - a target scene id of 0, and an arrival row
+    whose ``scene_seq`` is not the one the client is on - raised ``NameError``
+    inside ``observe`` instead of printing a line and returning ``None``.  The
+    module docstring promises ``observe`` never raises on a report because a
+    raise there does not refuse a departure, it kills the connection's frame
+    handling; that promise was false for every player whose durable row
+    carried a ``scene_seq`` other than ``SCENE_SEQUENCE``, which
+    ``store.save_position`` accepts and nothing rejects.  ONE of the two is
+    reproduced end to end, in
+    ``TravelGateRefusalTests.test_a_durable_row_the_database_accepts_used_to_kill_the_connection``:
+    the walk out of town succeeded and the door home raised.  The other
+    (``target_scene_zero``) has NO reachable public path today - every source
+    ``_arrival_for`` can return is already positive - and its test says so and
+    drives it through a subclass instead.  An earlier revision of this
+    docstring said "the two never_ran tests" reproduced both; no test of that
+    name exists and only one branch was ever walked to.
+
+    A guard nobody has ever seen refuse anything is not a guard.
+    """
+    return (
+        "WORLD_TRAVEL_REFUSED gate={0} reason={1} role={2} from_scene={3} "
+        "to_scene={4} scene_id={5} at=({6:.3f},{7:.3f},{8:.3f})"
+        .format(
+            gate.name, reason, gate.role, gate.from_scene_id,
+            gate.to_scene_id, row.scene_id, row.x, row.y, row.z,
         )
     )
 
@@ -1025,6 +1544,13 @@ def departure_report(departure: TravelDeparture) -> dict:
             departure.arrival.x, departure.arrival.y, departure.arrival.z,
         ),
         "teleport_fields": departure.teleport_fields,
+        # WHICH PHASE THIS CROSSING IS IN.  Without it a report rendered from
+        # a staged-and-abandoned crossing is byte-identical to one rendered
+        # from a committed departure, which is the exact confusion the two
+        # phases exist to prevent - in the one function whose product ends up
+        # in tickets and reports.  Found by the adversary pass of round
+        # e7q6yy.
+        "crossing_state": departure.crossing.state,
         "action_label": departure.action_label,
         "population_source": departure.population_source,
         "left_from_row": (

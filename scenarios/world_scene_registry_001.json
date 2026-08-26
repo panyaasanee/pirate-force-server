@@ -219,7 +219,7 @@
       "native_placement_count": 0,
       "native_definition_count": 0,
       "native_sha256": "c05d231da83665dd60560fc424059d66b433774afcff4d3b053b407f057d54ba",
-      "role": "coo_named_m2_stage_not_currently_targeted",
+      "role": "candidate_not_the_stage_see_COO_0550",
       "status": "never_sent_to_any_client_by_this_project",
       "table_row": {
         "n_SCENE_WEATHER": 5,
@@ -239,7 +239,7 @@
       },
       "table_row_differences": {
         "how_to_talk_about_this_scene": "a GREEN SCREEN WITH FOG AND ENVIRONMENT STILL ON. COO-DECISION 20260826_0246 section 1.2 forbids the words 'white map' and 'effect-free' for this scene in every document, and that prohibition is why those words appear in this sentence.",
-        "why_it_is_pinned_but_not_targeted": "COO-DECISION 20260826_0246 section 1.2 named this scene the M2 stage. Round 4fhdxv pinned it here and pointed the travel gate at it, then the adversary pass found three things wrong with that and the gate was pointed back at 278. It stays pinned, with the facts, because the COO's ruling stands and the swap is one number in scenarios/world_travel_gates_001.json.",
+        "why_it_is_pinned_but_not_targeted": "SETTLED BY COO-DECISION 20260826_0550. COO-DECISION 0246 section 1.2 named this scene the M2 stage; round 4fhdxv pinned it here and pointed the travel gate at it, then the adversary pass found three things wrong with that and the gate was pointed back at 278. The COO checked and WITHDREW section 1.2 in whole - not replaced, withdrawn, because the RE-073 geometry finding it rested on does not exist - confirmed 278 as the stage, and lifted the [LANE-A ASSUMPTION - AWAITING COO] tag the gate carried. 997 stays pinned with the facts on both sides because the COO ordered it kept as a candidate, and the swap would still be one number in scenarios/world_travel_gates_001.json if RE-073 T3 ever says so. Lane A does not choose the stage; the COO said the move OFF 278 is what needs asking, not the staying.",
         "the_three_things_wrong_with_targeting_it_today": [
           "COO-DECISION 0246 section 2 gives its ground as 'RE-073 measured it, FilmScene wins on geometry'. RE-073 is still OPEN in CLIENT_RE_QUEUE.md, its result section reads 'not yet - the ticket is open', and its own nonclaim 1 says zero placements does not mean an empty scene and that FilmScene could equally be an empty coloured room or a cliff face. There is no RE-073 geometry finding. An earlier revision of this entry cited one; that citation was wrong and is withdrawn.",
           "an earlier revision argued n_SCENE_TYPE 2 over 278's 4 because 'RE-077 T3 lands the client in StateRunTime and not StateNavigation'. RE-077 T3 says value 8 goes to StateNavigation and ANY OTHER VALUE goes to StateRunTime. 4 is also not 8. The discriminator discriminated nothing, and RE-077 line 45 says of 278 in as many words that a successful load would choose StateRunTime. Withdrawn.",

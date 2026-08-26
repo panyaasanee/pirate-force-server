@@ -241,12 +241,61 @@ class TravelGatePinTests(unittest.TestCase):
         self.assertEqual(len(steps), pinned["steps_measured"])
         self.assertAlmostEqual(
             max(steps), pinned["largest_horizontal_step"], places=2)
+        import statistics
+        # The MEDIAN, not the upper middle of an even sample.  The pin carried
+        # 139.26 under the name "median" from round 4fhdxv until the adversary
+        # pass of round e7q6yy recomputed it; both numbers are pinned now and
+        # this asserts each against the thing it actually is.
         self.assertAlmostEqual(
-            sorted(steps)[len(steps) // 2], pinned["median_horizontal_step"],
+            statistics.median(steps), pinned["median_horizontal_step"],
             places=1)
+        self.assertAlmostEqual(
+            sorted(steps)[len(steps) // 2],
+            pinned["upper_middle_of_the_28_steps"], places=1)
         self.assertEqual(
             sum(1 for step in steps if step > 0.0),
             pinned["steps_that_moved_at_all"])
+
+    def test_the_stationary_runs_the_dwell_rule_rests_on(self):
+        """Four runs, not three, and the door needs four identical reports.
+
+        The pin said "three stationary runs of length 3, 6 and 3" and read the
+        threshold as three reports.  Both were wrong: there are four runs
+        (3, 6, 2, 3), and reaching dwell_reports=3 needs FOUR identical
+        reports because the arriving one sets the counter to zero.  So exactly
+        one of the four pauses in the only authentic walk this project holds
+        would have opened this door - which is the argument the rule wants,
+        and the opposite of what the old wording claimed.
+        """
+        import re
+        path = ROOT / "reports" / "move_cadence001_smoke" / "replay_output.txt"
+        pattern = re.compile(
+            r"\s*(\d+)\s+(\d+)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s+"
+            r"(\d+\.\d+)\s+(\d+\.\d+)\s+(\d)\s+([W.])"
+        )
+        rows = []
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for line in text.splitlines():
+            found = pattern.match(line)
+            if found:
+                rows.append((float(found.group(3)), float(found.group(4))))
+        runs, current = [], 1
+        for first, second in zip(rows, rows[1:]):
+            if first == second:
+                current += 1
+            else:
+                runs.append(current)
+                current = 1
+        runs.append(current)
+        stationary = [run for run in runs if run > 1]
+        self.assertEqual(stationary, [3, 6, 2, 3])
+        needed = self.settings.dwell_reports + 1
+        self.assertEqual(needed, 4)
+        long_enough = [run for run in stationary if run >= needed]
+        self.assertEqual(len(long_enough), 1)
+        backing = _raw()["dwell"]["measured_backing"]
+        self.assertIn("3, 6, 2 and 3", backing)
+        self.assertIn("FOUR identical reports", backing)
 
     def test_the_return_gate_refuses_to_pin_a_centre(self):
         """V112: the teleport vec3 does not position the avatar.
@@ -498,12 +547,20 @@ class TravelGateCrossingTests(unittest.TestCase):
         return gate_set, lines
 
     def _stand(self, gate_set, point, times=None):
-        """Stand still at one point, report by report, and return the fire."""
+        """Stand still at one point, report by report, and return the fire.
+
+        Confirms the crossing the moment it is handed over, because that is
+        what the wired caller does: persist the arrival row, then ask for the
+        fields.  A helper that skipped the confirm would leave every transit
+        test driving a crossing the set is about to throw away.
+        """
         times = self.settings.dwell_reports + 1 if times is None else times
         result = None
         for _ in range(times):
             got = gate_set.observe(_home(*point))
-            result = result or got
+            if got is not None and result is None:
+                got.confirmed_fields()
+                result = got
         return result
 
     def test_the_first_report_arms_and_does_not_fire(self):
@@ -702,12 +759,30 @@ class TravelTransitTests(unittest.TestCase):
         self.set.observe(_home(*ATTENDED_SPAWN))
         self.departure = None
         for _ in range(self.settings.dwell_reports + 1):
-            self.departure = self.departure or self.set.observe(
-                _home(*self.centre))
+            got = self.set.observe(_home(*self.centre))
+            if got is not None and self.departure is None:
+                got.confirmed_fields()
+                self.departure = got
         self.assertIsNotNone(self.departure)
 
     def _report(self, x, y, z, scene_id=278):
         return self.set.observe(Position(scene_id, SCENE_SEQUENCE, x, y, z, 0.0))
+
+    def _stand_at(self, x, y, z, scene_id=278, gate_set=None):
+        """Stand still until a door opens, and confirm the crossing.
+
+        The confirm is not decoration: an unconfirmed crossing is thrown away
+        on the next report, so a test that walks on after one would be walking
+        a set that never left.
+        """
+        target = self.set if gate_set is None else gate_set
+        found = None
+        for _ in range(self.settings.dwell_reports + 1):
+            got = target.observe(Position(scene_id, SCENE_SEQUENCE, x, y, z, 0.0))
+            if got is not None and found is None:
+                got.confirmed_fields()
+                found = got
+        return found
 
     def _walk_away(self, steps, size=538.44):
         """Keep walking in the old scene at the largest measured real step."""
@@ -784,9 +859,7 @@ class TravelTransitTests(unittest.TestCase):
         self._report(-13200.0, 22800.0, -2492.0)
         self.assertIsNone(self._report(-11500.0, 22800.0, -2492.0))
         self.assertTrue(self.set.is_armed(RETURN_GATE))
-        back = None
-        for _ in range(self.settings.dwell_reports + 1):
-            back = back or self._report(-13100.0, 22800.0, -2492.0)
+        back = self._stand_at(-13100.0, 22800.0, -2492.0)
         self.assertIsInstance(back, TravelDeparture)
         self.assertEqual(back.gate.name, RETURN_GATE)
         self.assertEqual(back.arrival.scene_id, 1)
@@ -794,9 +867,7 @@ class TravelTransitTests(unittest.TestCase):
     def test_the_return_row_is_the_row_the_player_left_that_scene_on(self):
         self._report(-13200.0, 22800.0, -2492.0)
         self._report(-11500.0, 22800.0, -2492.0)
-        back = None
-        for _ in range(self.settings.dwell_reports + 1):
-            back = back or self._report(-13100.0, 22800.0, -2492.0)
+        back = self._stand_at(-13100.0, 22800.0, -2492.0)
         self.assertEqual(back.arrival.x, self.centre[0])
         self.assertEqual(back.arrival.y, self.centre[1])
         self.assertIn("arrival_source=remembered_row", back.console_line)
@@ -865,8 +936,7 @@ class TravelTransitTests(unittest.TestCase):
     def test_a_round_trip_leaves_the_player_standing_in_a_closed_door(self):
         self._report(-13200.0, 22800.0, -2492.0)
         self._report(-11500.0, 22800.0, -2492.0)
-        for _ in range(self.settings.dwell_reports + 1):
-            self._report(-13100.0, 22800.0, -2492.0)
+        self._stand_at(-13100.0, 22800.0, -2492.0)
         # Home again, and the arrival row is the gate's own doorstep.
         self.set.observe(
             Position(1, SCENE_SEQUENCE, -13100.0, 22800.0, -2492.0, 0.0))
@@ -878,15 +948,12 @@ class TravelTransitTests(unittest.TestCase):
         """A landing measured on trip one must not be reused on trip two."""
         self._report(-13200.0, 22800.0, -2492.0)
         self._report(-11500.0, 22800.0, -2492.0)
-        for _ in range(self.settings.dwell_reports + 1):
-            self._report(-13100.0, 22800.0, -2492.0)
+        self._stand_at(-13100.0, 22800.0, -2492.0)
         self.set.observe(_home(*ATTENDED_SPAWN))
         self.assertEqual(
             self.set.measured_centre(RETURN_GATE), (-13200.0, 22800.0, -2492.0))
         self.assertIsNone(self.set.observe(_home(*ATTENDED_SPAWN)))
-        second = None
-        for _ in range(self.settings.dwell_reports + 1):
-            second = second or self.set.observe(_home(*self.centre))
+        second = self._stand_at(*self.centre, scene_id=1)
         self.assertIsInstance(second, TravelDeparture)
         self.assertEqual(self.set.departures, 3)
         self.assertIsNone(self.set.measured_centre(RETURN_GATE))
@@ -1012,9 +1079,13 @@ class TravelGateEmitContractTests(unittest.TestCase):
         gates = {gate.name: gate for gate in gate_set.gates}
         centre = gates[DEPARTURE_GATE].centre
         gate_set.observe(_home(*ATTENDED_SPAWN))
+        crossing = None
+        for _ in range(settings.dwell_reports + 1):
+            crossing = crossing or gate_set.observe(_home(*centre))
+        # The line is printed by the confirm now, not by observe, so this is
+        # where a dead console lands.  The state must survive it the same way.
         with self.assertRaises(RuntimeError):
-            for _ in range(settings.dwell_reports + 1):
-                gate_set.observe(_home(*centre))
+            crossing.confirmed_fields()
         self.assertEqual(gate_set.departures, 0)
         self.assertFalse(gate_set.in_transit)
         self.assertIsNone(gate_set.left_from(1))
@@ -1023,6 +1094,179 @@ class TravelGateEmitContractTests(unittest.TestCase):
     def test_emit_must_be_callable(self):
         with self.assertRaises(ValueError):
             TravelGateSet(emit="print")
+
+    def test_every_new_console_line_is_ascii(self):
+        for line in (
+            world_travel_gate._inert_line("scenario_selected_arena_scenario", 2),
+            world_travel_gate._refused_line(
+                load_travel_gates()[0][0], "target_scene_zero",
+                _home(*ATTENDED_SPAWN)),
+            world_travel_gate._abandoned_line(
+                load_travel_gates()[0][0], "checkpoint_raised",
+                _home(*ATTENDED_SPAWN), _home(*ATTENDED_SPAWN)),
+        ):
+            with self.subTest(line.split()[0]):
+                line.encode("ascii")
+
+
+class TravelGateRefusalTests(unittest.TestCase):
+    """The guard that was written in round 4fhdxv and had never once run.
+
+    ``_fire`` has called ``_refused_line`` since the day the adversary pass
+    asked for these two refusals, and ``_refused_line`` did not exist.  Both
+    branches raised ``NameError`` inside ``observe`` - the one method whose
+    docstring promises it never raises on a report, because a raise there does
+    not refuse a departure, it kills the connection's frame handling.
+
+    Neither branch had a test.  That is how a call to a function nobody wrote
+    survived a full adversary pass: every test walked a player whose durable
+    row carried ``scene_seq`` 0, and 0 is the value that skips the guard.
+    """
+
+    def setUp(self):
+        self.settings = load_travel_gates()[1]
+
+    def _round_trip_to_the_door_home(self, seq):
+        """Walk out of town on a row carrying ``seq``, then walk home again."""
+        lines, emit = _sink()
+        gate_set = TravelGateSet(emit=emit)
+        gates = {gate.name: gate for gate in gate_set.gates}
+        centre = gates[DEPARTURE_GATE].centre
+
+        def row(scene_id, x, y, z):
+            return Position(scene_id, seq, x, y, z, 0.0)
+
+        gate_set.observe(row(1, centre[0] + 2000.0, centre[1], centre[2]))
+        gate_set.observe(row(1, centre[0] + 1500.0, centre[1], centre[2]))
+        out = None
+        for _ in range(self.settings.dwell_reports + 1):
+            got = gate_set.observe(row(1, *centre))
+            if got is not None and out is None:
+                got.confirmed_fields()
+                out = got
+        self.assertIsNotNone(out, "the way out must open before the way home")
+        # The client lands: one step past jump_units settles and anchors.
+        gate_set.observe(row(278, 0.0, 0.0, 0.0))
+        gate_set.observe(row(278, 1500.0, 0.0, 0.0))
+        gate_set.observe(row(278, 700.0, 0.0, 0.0))
+        back = None
+        for _ in range(self.settings.dwell_reports + 1):
+            got = gate_set.observe(row(278, 0.0, 0.0, 0.0))
+            if got is not None and back is None:
+                got.confirmed_fields()
+                back = got
+        return gate_set, lines, back
+
+    def test_a_durable_row_the_database_accepts_used_to_kill_the_connection(self):
+        """scene_seq 7: out of town fine, and the door home raised NameError.
+
+        ``store.save_position`` takes any ``scene_seq`` the column holds and
+        nothing rejects one, and the RETURN gate's arrival row IS the player's
+        remembered row - so the value comes straight back out of the database
+        and into the guard.  This is the reproduction, and it now returns a
+        refusal instead of raising.
+        """
+        gate_set, lines, back = self._round_trip_to_the_door_home(seq=7)
+        self.assertIsNone(back, "a bad scene_seq must not open a door")
+        refusals = [
+            line for line in lines
+            if line.startswith("WORLD_TRAVEL_REFUSED")
+        ]
+        self.assertEqual(len(refusals), 1)
+        self.assertIn("reason=scene_sequence_7_not_0", refusals[0])
+        self.assertIn("gate=" + RETURN_GATE, refusals[0])
+        # And the player is still where they were standing, not mid-transit.
+        self.assertFalse(gate_set.in_transit)
+        self.assertEqual(gate_set.departures, 1)
+
+    def test_the_ordinary_row_still_opens_the_door_home(self):
+        """The control.  Same walk, scene_seq 0, and the way home opens."""
+        _, lines, back = self._round_trip_to_the_door_home(seq=SCENE_SEQUENCE)
+        self.assertIsInstance(back, TravelDeparture)
+        self.assertEqual(back.arrival.scene_id, 1)
+        self.assertFalse(any(
+            line.startswith("WORLD_TRAVEL_REFUSED") for line in lines))
+
+    def test_a_permanent_refusal_is_said_once_in_a_session_and_then_never(self):
+        """Two failures, two mechanisms, and the second one was missing.
+
+        A refusal used to leave the dwell counter at or above the threshold,
+        so the gate re-fired and re-printed on EVERY report.  Resetting the
+        dwell divides that by dwell_reports - and the condition is a value in
+        a database row that cannot change while the session lives, so "once
+        per three reports, forever" is still hundreds of identical lines an
+        idle minute.  The adversary pass of round e7q6yy pointed out that the
+        rationale asked for a latch and what shipped was a divider.  Both are
+        here now: the dwell reset makes the player earn the next attempt, and
+        the latch means each (gate, reason) is said once.
+        """
+        gate_set, lines, _ = self._round_trip_to_the_door_home(seq=7)
+        before = sum(
+            line.startswith("WORLD_TRAVEL_REFUSED") for line in lines)
+        self.assertEqual(before, 1)
+        for _ in range(60):
+            gate_set.observe(Position(278, 7, 0.0, 0.0, 0.0, 0.0))
+        after = sum(
+            line.startswith("WORLD_TRAVEL_REFUSED") for line in lines)
+        self.assertEqual(after, 1, "sixty more reports, and it stays said once")
+
+    def test_the_latch_is_per_reason_and_not_a_gag(self):
+        """A second, different refusal still gets said."""
+        lines, emit = _sink()
+        gates, settings = load_travel_gates()
+        gate_set = TravelGateSet(
+            gates, settings,
+            registry=world_scene_travel.load_scene_registry(), emit=emit)
+        out = {gate.name: gate for gate in gates}[DEPARTURE_GATE]
+        gate_set._refuse(out, "scene_sequence_7_not_0", _home(*ATTENDED_SPAWN))
+        gate_set._refuse(out, "scene_sequence_7_not_0", _home(*ATTENDED_SPAWN))
+        gate_set._refuse(out, "target_scene_zero", _home(*ATTENDED_SPAWN))
+        said = [line for line in lines if line.startswith("WORLD_TRAVEL_REFUSED")]
+        self.assertEqual(len(said), 2)
+        self.assertIn("reason=scene_sequence_7_not_0", said[0])
+        self.assertIn("reason=target_scene_zero", said[1])
+
+    def test_a_target_scene_of_zero_is_refused_and_not_raised(self):
+        """The other never-run branch, and it has NO reachable public path.
+
+        Written down rather than dressed up as a walk.  ``_arrival_for`` has
+        exactly three sources and all three are already positive: a pinned
+        destination spawn (the loader refuses a destination id below 1), a
+        remembered row that is only used when its ``scene_id`` equals the
+        gate's ``to_scene_id``, and ``home_return_position``, which is scene 1.
+        So no report a player can send reaches this line today, and the walk
+        this test used to attempt could never have produced one.
+
+        The guard stays, and is tested where it lives.  Two of those three
+        sources are data this module does not own - a registry file and a
+        database row - and RE-077 is unambiguous that a target of 0 is
+        rejected by ``TeleportVital`` apply at 0x5F14B0.  The cost of keeping
+        it is four lines; the cost of finding out it was needed would be a
+        client parked at status 2 with nothing in the log.
+        """
+        lines, emit = _sink()
+        gates, settings = load_travel_gates()
+        by_name = {gate.name: gate for gate in gates}
+        out = by_name[DEPARTURE_GATE]
+
+        class _SetWithABrokenArrival(TravelGateSet):
+            def _arrival_for(self, gate, target):
+                return Position(0, SCENE_SEQUENCE, 1.0, 2.0, 3.0, 0.0)
+
+        gate_set = _SetWithABrokenArrival(
+            gates, settings,
+            registry=world_scene_travel.load_scene_registry(), emit=emit)
+        centre = out.centre
+        gate_set.observe(_home(centre[0] + 2000.0, centre[1], centre[2]))
+        for _ in range(settings.dwell_reports + 1):
+            self.assertIsNone(gate_set.observe(_home(*centre)))
+        refusals = [
+            line for line in lines if line.startswith("WORLD_TRAVEL_REFUSED")
+        ]
+        self.assertEqual(len(refusals), 1)
+        self.assertIn("reason=target_scene_zero", refusals[0])
+        self.assertEqual(gate_set.departures, 0)
+        self.assertFalse(gate_set.in_transit)
 
     def test_is_armed_refuses_a_gate_that_does_not_exist(self):
         gate_set, _ = _set()
