@@ -3831,9 +3831,90 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     step.announce_frame, 0.0,
                 ))
                 if len(step.frames) > 1:
-                    actions.append((
-                        "MOB_COMBAT_BAR", step.bar_pc, step.bar_frame, 0.0,
-                    ))
+                    # CORE-REQUEST-008 (LANE-B, mob_death.hostile_census_
+                    # frames): RE-092 proved the client's remote-actor
+                    # consumer is replace-by-omission, so the one-entry
+                    # ``step.bar_pc``/``step.bar_frame`` this lane still
+                    # returns would wipe the whole town off the client's
+                    # registry on the first hit if sent as-is. Recompose the
+                    # bar frame over the FULL arrival census instead, same
+                    # encoder, same anchor/count the arrival wiring already
+                    # keeps in session state.
+                    anchor = getattr(self, "population_refresh_anchor", None)
+                    count = getattr(self, "world_census_actor_count", None)
+                    # pf-adversary (round keen-pasteur-ahn7zb) finding 2:
+                    # anchor/count alone do not say WHICH scene they
+                    # describe -- the arena harness (``--scenario``) can
+                    # overwrite population_refresh_anchor with arena
+                    # coordinates and nothing ever clears either attribute
+                    # on scene departure. Reuse the exact same scene guard
+                    # the arrival census composition already applies
+                    # (runtime.py's own census-dispatch site, a few hundred
+                    # lines below) rather than trusting the pair blind.
+                    census_scene_id = (
+                        self.foundation.selected.position.scene_id
+                        if self.foundation.selected is not None else None
+                    )
+                    if (
+                        anchor is not None and count is not None
+                        and census_scene_id == world_population.SCENE_ID
+                    ):
+                        try:
+                            bar_pc, bar_frame = (
+                                mob_death.hostile_census_frames(
+                                    legacy, anchor, count, roster,
+                                    self.mob_death_register,
+                                    ledger=self.mob_combat_ledger,
+                                )
+                            )
+                        except Exception as error:
+                            # pf-adversary finding 1: unlike the arrival
+                            # census's own build_world_population call (see
+                            # the fail-closed catch-all a few hundred lines
+                            # below, with the same "an escape from here
+                            # kills the listener thread" reasoning), this
+                            # call was originally left unguarded -- on
+                            # every hit and kill, not once per session.
+                            # Fail closed to the one-entry frame instead of
+                            # letting the connection die.
+                            bar_pc, bar_frame = step.bar_pc, step.bar_frame
+                            self.events.append(
+                                "mob_combat_bar_census_compose_refused_"
+                                f"{type(error).__name__}"
+                            )
+                        else:
+                            # COO's console gate (2026-08-27 03:45): a
+                            # grep-able line proving the hostile frame
+                            # recompose actually ran on this boot, same
+                            # convention as MOB_DEATH_ROSTER_OVERRIDE_
+                            # COVERAGE for arrival.
+                            print(
+                                "MOB_COMBAT_BAR_CENSUS_RECOMPOSE "
+                                "actor_count=%d target=0x%X" % (
+                                    count, step.outcome.target_identity,
+                                )
+                            )
+                    else:
+                        # Reached in ordinary play, not merely in theory:
+                        # pf-adversary (round keen-pasteur-ahn7zb) ran this
+                        # branch directly by attacking before any TargetPos
+                        # report reaches the server -- foundation.selected
+                        # is set at character selection, independent of the
+                        # teleport_sent/runtime_ack_sent/last_target_pos
+                        # gate the arrival census waits on. A real client
+                        # that swings before its first position report, or
+                        # one that is away from the home scene (census
+                        # composition skips non-home scenes outright, see
+                        # world_census_skipped_scene_ below), both land
+                        # here. Degrade to the one-entry frame RE-092
+                        # flagged rather than raise on a missing/mismatched
+                        # anchor.
+                        bar_pc, bar_frame = step.bar_pc, step.bar_frame
+                        self.events.append(
+                            "mob_combat_bar_census_compose_skipped_"
+                            "no_population_anchor"
+                        )
+                    actions.append(("MOB_COMBAT_BAR", bar_pc, bar_frame, 0.0))
             if step.death_due:
                 # attack_from_observed_action already matched ``target``
                 # against this same roster, so it is here.
@@ -3923,13 +4004,90 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         )
                     for line in mob_death.describe_death(death_step):
                         print(line)
+                    # CORE-REQUEST-008 (LANE-B, mob_death.hostile_census_
+                    # frames), same reasoning as MOB_COMBAT_BAR above: the
+                    # one-entry ``death_step.dying_*``/``dead_*`` frames this
+                    # lane still returns are the same replace-by-omission
+                    # risk RE-092 proved, so recompose both over the full
+                    # census. ``self.mob_death_register`` is already the
+                    # POST-commit register (mob_death.commit_death ran
+                    # above), matching CORE-REQUEST-008 point (2)/(3)'s
+                    # "register after commit" requirement.
+                    anchor = getattr(self, "population_refresh_anchor", None)
+                    count = getattr(self, "world_census_actor_count", None)
+                    # Same scene guard as MOB_COMBAT_BAR above (pf-adversary
+                    # finding 2): anchor/count alone do not say which scene
+                    # they describe.
+                    census_scene_id = (
+                        self.foundation.selected.position.scene_id
+                        if self.foundation.selected is not None else None
+                    )
+                    if (
+                        anchor is not None and count is not None
+                        and census_scene_id == world_population.SCENE_ID
+                    ):
+                        try:
+                            dying_pc, dying_frame = (
+                                mob_death.hostile_census_frames(
+                                    legacy, anchor, count, roster,
+                                    self.mob_death_register,
+                                    ledger=self.mob_combat_ledger,
+                                    dead_timer=mob_death.DYING_TIMER_SECONDS,
+                                )
+                            )
+                            dead_pc, dead_frame = (
+                                mob_death.hostile_census_frames(
+                                    legacy, anchor, count, roster,
+                                    self.mob_death_register,
+                                    ledger=self.mob_combat_ledger,
+                                )
+                            )
+                        except Exception as error:
+                            # Same fail-closed reasoning as MOB_COMBAT_BAR
+                            # above (pf-adversary finding 1): degrade to the
+                            # one-entry frames instead of letting the
+                            # exception kill the listener thread.
+                            dying_pc, dying_frame = (
+                                death_step.dying_pc, death_step.dying_frame,
+                            )
+                            dead_pc, dead_frame = (
+                                death_step.dead_pc, death_step.dead_frame,
+                            )
+                            self.events.append(
+                                "mob_death_frames_census_compose_refused_"
+                                f"{type(error).__name__}"
+                            )
+                        else:
+                            # Same console gate as MOB_COMBAT_BAR above.
+                            print(
+                                "MOB_DEATH_FRAMES_CENSUS_RECOMPOSE "
+                                "actor_count=%d target=0x%X" % (
+                                    count, death_step.record.actor_identity,
+                                )
+                            )
+                    else:
+                        # Reached in ordinary play, not merely in theory --
+                        # same reasoning as MOB_COMBAT_BAR above
+                        # (pf-adversary finding 3): a kill before the
+                        # first TargetPos report, or one outside the home
+                        # scene, both land here. Degrade to the one-entry
+                        # frames instead of raising on a missing/mismatched
+                        # anchor.
+                        dying_pc, dying_frame = (
+                            death_step.dying_pc, death_step.dying_frame,
+                        )
+                        dead_pc, dead_frame = (
+                            death_step.dead_pc, death_step.dead_frame,
+                        )
+                        self.events.append(
+                            "mob_death_frames_census_compose_skipped_"
+                            "no_population_anchor"
+                        )
                     actions.append((
-                        "MOB_DEATH_DYING", death_step.dying_pc,
-                        death_step.dying_frame, 0.0,
+                        "MOB_DEATH_DYING", dying_pc, dying_frame, 0.0,
                     ))
                     actions.append((
-                        "MOB_DEATH_DEAD", death_step.dead_pc,
-                        death_step.dead_frame,
+                        "MOB_DEATH_DEAD", dead_pc, dead_frame,
                         death_step.hold_ms / 1000.0,
                     ))
                     # CORE-REQUEST-007 (MOB-LOOT-001), MOB_LOOT_WIRING: one
