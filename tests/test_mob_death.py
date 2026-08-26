@@ -204,6 +204,21 @@ class MobDeathTests(unittest.TestCase):
                 bytes(self.legacy.f32tag(DEAD_TIMER_SECONDS))) if a != b),
         )
 
+    def test_the_death_frame_is_a_one_entry_generation_open_risk_not_a_fix(self):
+        # Same open risk as mob_combat's twin test, same citation: see the
+        # docstring on mob_death.death_frames.  This does not close the
+        # question, it pins the current shape - one corpse entry, not zero,
+        # not the roster - so a future change to it is a deliberate, tested
+        # decision instead of an accident nobody notices.
+        body = corpse_npc_attr(
+            self.legacy, self.mob, death_timer=DEAD_TIMER_SECONDS)
+        one_entry = self.legacy.make_remote_actor_entry(
+            mob_death.NPC_STYLE_ACTOR_TYPE, self.mob.actor_identity,
+            [(mob_death.NPC_ATTR_ID, body)])
+        pc, _ = dead_frames(self.legacy, self.mob)
+        self.assertEqual(
+            pc, self.legacy.make_runtime_remote_actors([one_entry])[0])
+
     def test_the_constants_are_the_proven_ones(self):
         probe = runtimeres_death_hypothesis
         pairs = (

@@ -900,6 +900,28 @@ def bar_frames(
     ``TARGET_HP_AFTER_*`` frames - the ones whose bar movement two observers
     read off a screen - are composed without it.  A refresh that re-sent
     movement would also snap a monster back to its roster row on every hit.
+
+    [OPEN RISK, NOT MEASURED - flagged, not fixed, this round (`yjty8a`)] This
+    frame is a NONEMPTY ONE-ENTRY ``make_runtime_remote_actors`` generation,
+    the exact shape ``pf_bridge/notes_to_chief/20260826_0910_LANE-A-CORE-REQUEST-the-
+    town-must-not-follow-you-out-of-town.md`` section 4.bis warned would be
+    dangerous once a lane-B module reached the unflagged path - which
+    `pirate-force-server#63` did on 2026-08-26 16:49+07:00, wiring this
+    function in.  ``pf_bridge/notes_to_chief/20260826_1017_RE-082-RESULT-OBJECT-REF-IS-
+    ELEMENT-KEY.md`` later proved, for the sibling ``PickupTerrainThing``
+    list consumer, that a NONEMPTY generation erases every tree entry the
+    generation omits, and a ZERO-entry generation is a no-op.  Nobody has
+    run that same static trace against THIS collection's consumer (the
+    ``GSCN_RunTimeProtocolRes`` mask-``0x02`` chain at ``0x5E1C10``/
+    ``0x5E01D0`` in ``make_runtime_remote_actors``'s own docstring) - RE-077's
+    T5 rider closed BOUNDED NEGATIVE on a different collection (scene-switch
+    cleanup) and does not answer it either.  GT-035 proves the bar this
+    function refreshes reads right; it does not prove any OTHER actor in the
+    scene survives the refresh, because nobody was counting them.  This lane
+    does not own the fix - the consumer is client code - and does not have
+    the RE tooling to trace it, so it documents the shape here and in
+    ``tests/test_mob_combat.py`` instead of guessing at one.  See the round
+    letter this citation ships with for the request to chief/COO.
     """
     if type(mob) is not FieldMob:
         raise MobCombatContractError(

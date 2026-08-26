@@ -848,7 +848,19 @@ def death_frames(
     scene_sequence: int = SCENE_SEQUENCE,
     with_name: bool = True,
 ) -> tuple[bytes, bytes]:
-    """One RuntimeRes collection carrying one corpse entry."""
+    """One RuntimeRes collection carrying one corpse entry.
+
+    [OPEN RISK, NOT MEASURED - flagged, not fixed, this round (`yjty8a`)] Same
+    shape as ``mob_combat.bar_frames``, same citation: a nonempty one-entry
+    ``make_runtime_remote_actors`` generation, wired to the unflagged path by
+    `pirate-force-server#63` (2026-08-26 16:49+07:00), of the exact kind
+    ``pf_bridge/notes_to_chief/20260826_0910_LANE-A-CORE-REQUEST-the-town-must-not-
+    follow-you-out-of-town.md`` section 4.bis warned about and
+    ``pf_bridge/notes_to_chief/20260826_1017_RE-082-RESULT-OBJECT-REF-IS-ELEMENT-KEY.md``
+    later showed erases-by-omission for a sibling collection consumer, still
+    unverified for this one.  See ``mob_combat.bar_frames`` for the full
+    citation; not repeated twice in one module.
+    """
     entry = death_actor_entry(
         legacy, mob, death_timer=death_timer, faction=faction,
         scene_id=scene_id, scene_sequence=scene_sequence, with_name=with_name,

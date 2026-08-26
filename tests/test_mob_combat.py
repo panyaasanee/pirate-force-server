@@ -376,6 +376,28 @@ class MobCombatTests(unittest.TestCase):
         self.assertEqual(
             caught.exception.reason, mob_combat.REFUSE_VALUE_OUT_OF_RANGE)
 
+    def test_the_bar_frame_is_a_one_entry_generation_open_risk_not_a_fix(self):
+        # This test does not close anything - it PINS the shape the docstring
+        # above now warns about, so the next round (or chief, or RE) has a
+        # red test the moment anyone widens this to a full-roster generation
+        # without meaning to, or narrows a fix down to zero entries by
+        # mistake.  See the docstring citation: `pirate-force-server#63`
+        # wired this onto the unflagged path 2026-08-26 16:49+07:00, and
+        # `pf_bridge/notes_to_chief/20260826_1017_RE-082-RESULT-OBJECT-REF-IS-ELEMENT-
+        # KEY.md` proved a sibling collection's consumer erases every entry a
+        # nonempty generation omits.  Nobody has run that trace against THIS
+        # collection's consumer yet, so this lane records the fact - one
+        # entry, not zero, not the roster - rather than claiming a fix.
+        hp = self.mob.max_hp - 964
+        pc, _ = bar_frames(self.legacy, self.mob, hp)
+        body = field_mobs.hostile_npc_attr(
+            self.legacy, self.mob, current_hp=hp)
+        one_entry = self.legacy.make_remote_actor_entry(
+            mob_combat.NPC_STYLE_ACTOR_TYPE, self.mob.actor_identity,
+            [(mob_combat.NPC_ATTR_ID, body)])
+        self.assertEqual(
+            pc, self.legacy.make_runtime_remote_actors([one_entry])[0])
+
     def test_the_two_frames_come_back_in_the_watched_order(self):
         ledger = open_ledger()
         state = mob_aggro.initial_state((self.mob.x, self.mob.y, self.mob.z))
