@@ -347,17 +347,30 @@ class FieldMobTests(unittest.TestCase):
         # round ywm4v1): the AI controller takes a typed FieldMob to look up
         # the monster's own AI_WANDER row and to anchor its leash origin at the
         # position the table placed it.  It still dispatches nothing.
+        # THE TRIPWIRE FIRED, AS DESIGNED, on the CORE-REQUEST round that
+        # wired MOB-COMBAT-001/MOB-DEATH-001 into runtime.py's dispatch (the
+        # chief's file, per MOB_COMBAT_WIRING/MOB_DEATH_WIRING).  "nothing
+        # dispatches this module" stopped being true for runtime.py on
+        # purpose: it now calls mob_combat.attack_from_observed_action /
+        # commit_step and mob_death.kill / commit_death / corpse_override on
+        # an inbound EA7D ActionVital whose target resolves to a field-mob
+        # identity, with no scenario flag.  app.py is untouched -- it needs
+        # no new flag, because the whole point of this round is a path that
+        # does not depend on one.
         self.assertEqual(
             importers,
             ["mob_ai_control.py", "mob_combat.py", "mob_death.py",
-             "mob_loot.py"],
-            "field_mobs is wired; update the letter")
-        for dispatch in ("runtime.py", "app.py"):
-            body = (ROOT / "src/pirateforce_foundation" / dispatch).read_text(
-                encoding="utf-8")
-            self.assertNotIn("field_mobs", body)
-            self.assertNotIn("mob_combat", body)
-            self.assertNotIn("mob_death", body)
+             "mob_loot.py", "runtime.py"],
+            "field_mobs importers changed; update the letter")
+        runtime_body = (
+            ROOT / "src/pirateforce_foundation/runtime.py"
+        ).read_text(encoding="utf-8")
+        for needle in ("field_mobs", "mob_combat", "mob_death"):
+            self.assertIn(needle, runtime_body)
+        app_body = (ROOT / "src/pirateforce_foundation/app.py").read_text(
+            encoding="utf-8")
+        for needle in ("field_mobs", "mob_combat", "mob_death"):
+            self.assertNotIn(needle, app_body)
         self.assertEqual(PLAYER_PAIR_FACTION, 1)
         self.assertEqual(FIELD_MOB_FACTION, 6)
 

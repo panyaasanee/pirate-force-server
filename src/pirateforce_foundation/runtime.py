@@ -1,9 +1,14 @@
 """Lifecycle-aware V141 state factory for the real legacy TCP listeners."""
+from dataclasses import replace
 import math
+import struct
 import sys
 import threading
 import time
 
+from . import field_mobs
+from . import mob_combat
+from . import mob_death
 from . import world_population
 from . import world_scene_entry
 from . import world_scene_travel
@@ -211,6 +216,72 @@ from .action_ack import parse_scene006_ea7d, make_scene007_action_ack
 def _active_arena_version(scenario) -> str:
     """Derive a label only while an opt-in Arena branch is active."""
     return "V2" if scenario.basic_faction is not None else "V1"
+
+
+# CORE-REQUEST (COO-DECISION 2026-08-26T04:02+07:00, sections 1.3/2).  The
+# wiring line MOB_COMBAT_WIRING/MOB_DEATH_WIRING hand to this file.  Both
+# modules are ``production_allowed = True`` and take no scenario object; the
+# whole reason this constant exists here is that nothing in src/ was calling
+# either module before this round.
+#
+# [PROPOSED, not measured] the attacker profile.  This project has no
+# character battle-stat source anywhere -- ``model.Position`` carries an
+# identity and an xyz and nothing else, so there is no real per-player level
+# or STR to read.  Until one exists, every attacker this branch drives is
+# given the ONE profile this project has ever watched land on a real screen
+# (HYP-PF-038 / GT-035's "MOB_WEAK" ladder, level 7 / STR 132), reproduced by
+# ``mob_combat.pin_attacker()``.  That means every player currently deals the
+# same damage numbers GT-035 already published against the sanctioned target,
+# not numbers derived from their own character -- OURS, not the client's.
+MOB_COMBAT_DEFAULT_ATTACKER = mob_combat.pin_attacker()
+
+# Bound on the REFUSE_LEDGER_STALE / REFUSE_REGISTER_STALE retry loops below.
+# [PROPOSED] Both loops are unreachable today -- the ledger and register are
+# per-session state with exactly one writer (this dispatch method), so a
+# stale-compare-and-swap refusal cannot actually occur under the current
+# single-writer invariant (pf-adversary R177, confirmed by reading __init__).
+# The cap exists so that if a future change ever breaks that invariant (a
+# server-wide ledger, concurrent dispatch on one connection), the failure
+# mode is a loud, named refusal instead of a silent infinite loop / DoS.
+MOB_COMBAT_STALE_RETRY_LIMIT = 8
+
+
+def _apply_mob_death_census_override(legacy, generation, override):
+    """Splice ``mob_death.corpse_override`` entries into a built world census.
+
+    ``world_population.WorldPopulationGeneration`` has no override parameter
+    and ``world_population.py`` is out of this round's scope to edit, so this
+    rebuilds the SAME collection with the SAME encoder
+    (``legacy.make_runtime_remote_actors`` / ``legacy.frame_pc``) over a wider
+    input: the original per-identity entry bytes, with any identity
+    ``mob_death`` names replaced.  ``WIRE_HEADER_BYTES`` and ``entry_bytes``
+    are read from ``world_population``'s own public fields/constants, not
+    re-derived, and the entry order is ``generation.actor_identities`` /
+    ``generation.entry_bytes`` -- the same order ``build_world_population``
+    concatenated them in.
+    """
+    if not override:
+        return generation
+    offset = world_population.WIRE_HEADER_BYTES
+    entries = []
+    for identity, length in zip(
+            generation.actor_identities, generation.entry_bytes):
+        original = generation.pc[offset:offset + length]
+        entries.append(override.get(identity, original))
+        offset += length
+    if offset != len(generation.pc):
+        raise RuntimeError(
+            "world population entry_bytes no longer accounts for the whole "
+            "collection: the mob_death census override cannot be applied "
+            "safely"
+        )
+    pc, frame = legacy.make_runtime_remote_actors(entries)
+    if frame != legacy.frame_pc(pc):
+        raise RuntimeError("mob_death census-override frame drift")
+    return replace(
+        generation, pc=pc, frame=frame,
+        entry_bytes=tuple(len(entry) for entry in entries),
+    )
 
 
 # SCENARIO-COMPOSE-001 (owner rulings, Panya 2026-08-24): the lane sets
@@ -918,6 +989,23 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.world_census_indices = None
                 self.world_census_sent = False
                 self.world_census_refused = False
+                # CORE-REQUEST (MOB-COMBAT-001 / MOB-DEATH-001).  UNCONDITIONAL,
+                # like WORLD-CENSUS-001 above: no scenario flag gates this
+                # state, held per session for the reason the ledger and the
+                # register are frozen values -- a compare-and-swap needs
+                # somewhere to hold the value it swaps.
+                # [PROPOSED] PER-SESSION, not server-wide: two different
+                # connections attacking the SAME field mob each get their own
+                # ledger, so one player's hits do not lower HP another
+                # player's session can see.  MOB_COMBAT_WIRING does not say
+                # where the ledger lives; this follows the pattern every
+                # other mutable structure on this class already uses.  A
+                # server-wide ledger is a real follow-up, not a silent
+                # decision -- see the handback.
+                self.mob_combat_ledger = mob_combat.open_ledger()
+                self.mob_death_register = mob_death.DeathRegister()
+                self.mob_combat_hit_count = 0
+                self.mob_combat_kill_count = 0
                 if world_census_enabled:
                     # The inherited P0/P30/P91 branch is disarmed HERE, at
                     # construction, exactly the way the population and
@@ -3496,6 +3584,159 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             )
             return inherited_actions + population_actions
 
+        def _dispatch_mob_combat(self, parsed):
+            """MOB-COMBAT-001 / MOB-DEATH-001, wired the way each module's
+            own docstring asks: see ``mob_combat.MOB_COMBAT_WIRING`` and
+            ``mob_death.MOB_DEATH_WIRING`` for the exact sequence this method
+            follows -- the sequence is not invented here, only followed.
+
+            UNCONDITIONAL, called ADDITIVELY (see ``_dispatch_with_lanes``,
+            which calls this only after every earlier, more specific branch
+            -- including every scenario-gated EA7D reader -- has had first
+            claim on the frame, and only alongside the inherited dispatch and
+            every other unconditional tail lane, never instead of them).  No
+            scenario flag gates this method and it does not call
+            ``self.rx_frames += 1`` itself: the frame already passed through
+            ``super().dispatch(parsed)`` by the time this runs, which already
+            counted it once.
+
+            NOT PROVEN: whether a real attack input produces the exact
+            ActionVital shape this reads.  Both modules say so already and
+            this method repeats nothing new about it -- see
+            MOB_COMBAT_NONCLAIMS and MOB_DEATH_NONCLAIMS.
+            """
+            try:
+                fields = legacy.parse_action_vital(parsed)
+            except (ValueError, struct.error) as error:
+                self.events.append(
+                    "mob_combat_action_vital_parse_error_no_reply_"
+                    f"{type(error).__name__}"
+                )
+                return []
+            if self.foundation.selected is None:
+                self.events.append("mob_combat_no_selected_no_reply")
+                return []
+            selected = self.foundation.selected
+            performer = (
+                ((selected.identity_hi & 0xFFFFFFFF) << 32)
+                | (selected.identity_lo & 0xFFFFFFFF)
+            )
+            target = fields.get("field_qword_20")
+            if type(target) is not int or target <= 0 or target == performer:
+                self.events.append(
+                    "mob_combat_target_not_positive_or_self_no_reply"
+                )
+                return []
+            roster = field_mobs.load_roster()
+            for _attempt in range(MOB_COMBAT_STALE_RETRY_LIMIT):
+                try:
+                    step = mob_combat.attack_from_observed_action(
+                        legacy, None, self.mob_combat_ledger, None, fields,
+                        performer, MOB_COMBAT_DEFAULT_ATTACKER, roster=roster,
+                    )
+                except mob_combat.MobCombatContractError as error:
+                    self.events.append(
+                        f"mob_combat_refused_{error.reason}_no_reply"
+                    )
+                    return []
+                if step is None:
+                    self.events.append(
+                        "mob_combat_target_not_a_field_mob_no_reply"
+                    )
+                    return []
+                try:
+                    self.mob_combat_ledger = mob_combat.commit_step(
+                        self.mob_combat_ledger, step,
+                    )
+                except mob_combat.MobCombatContractError as error:
+                    if error.reason == mob_combat.REFUSE_LEDGER_STALE:
+                        # Per-session ledger (see __init__): this retry is
+                        # unreachable today because one dispatch call runs to
+                        # completion before the next one on this connection
+                        # can start.  Kept because MOB_COMBAT_WIRING requires
+                        # it and a server-wide ledger would make it reachable.
+                        continue
+                    raise
+                break
+            else:
+                self.events.append(
+                    "mob_combat_ledger_stale_retry_limit_exceeded_no_reply"
+                )
+                return []
+            self.mob_combat_hit_count += 1
+            for line in mob_combat.describe_step(step):
+                print(line)
+            actions = []
+            if step.frames:
+                actions.append((
+                    "MOB_COMBAT_ANNOUNCE", step.announce_pc,
+                    step.announce_frame, 0.0,
+                ))
+                if len(step.frames) > 1:
+                    actions.append((
+                        "MOB_COMBAT_BAR", step.bar_pc, step.bar_frame, 0.0,
+                    ))
+            if step.death_due:
+                # attack_from_observed_action already matched ``target``
+                # against this same roster, so it is here.
+                mob = next(m for m in roster if m.actor_identity == target)
+                death_step = None
+                for _attempt in range(MOB_COMBAT_STALE_RETRY_LIMIT):
+                    try:
+                        candidate = mob_death.kill(
+                            legacy, mob, step.outcome, self.mob_death_register,
+                        )
+                    except mob_death.MobDeathContractError as error:
+                        # [PROPOSED] honest degradation, not a bug.  The
+                        # owner's sequencing ruling (mob_death.
+                        # SANCTIONING_RULING) says prove the death loop on
+                        # the sanctioned identity first and not merge that
+                        # step with widening it -- this wiring passes no
+                        # ``widened=``, so mob_death enforces exactly that:
+                        # only identity 0x201F ever gets a finished kill on
+                        # this build.  Every other field-mob that reaches 0
+                        # HP stays there with no death frames and answers
+                        # further hits with silence (mob_combat's own
+                        # no_room path) -- the pre-death-half state this
+                        # project already shipped and disclosed, not a new
+                        # one.
+                        self.events.append(
+                            f"mob_death_refused_{error.reason}_"
+                            "no_death_frames"
+                        )
+                        break
+                    try:
+                        self.mob_death_register = mob_death.commit_death(
+                            self.mob_death_register, candidate,
+                        )
+                    except mob_death.MobDeathContractError as error:
+                        if error.reason == mob_death.REFUSE_REGISTER_STALE:
+                            # Same per-session caveat as the ledger retry
+                            # above: unreachable today, kept for the contract.
+                            continue
+                        raise
+                    death_step = candidate
+                    break
+                else:
+                    self.events.append(
+                        "mob_death_register_stale_retry_limit_exceeded_"
+                        "no_death_frames"
+                    )
+                if death_step is not None:
+                    self.mob_combat_kill_count += 1
+                    for line in mob_death.describe_death(death_step):
+                        print(line)
+                    actions.append((
+                        "MOB_DEATH_DYING", death_step.dying_pc,
+                        death_step.dying_frame, 0.0,
+                    ))
+                    actions.append((
+                        "MOB_DEATH_DEAD", death_step.dead_pc,
+                        death_step.dead_frame,
+                        death_step.hold_ms / 1000.0,
+                    ))
+            return actions
+
         def dispatch(self, parsed):
             actions = self._dispatch_with_lanes(parsed)
             if move_authority_hypothesis_scenario is not None:
@@ -4244,6 +4485,27 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             anchor,
                         )
                     else:
+                        # CORE-REQUEST (MOB-DEATH-001, MOB_DEATH_WIRING: "hand
+                        # corpse_override to whatever builds the scene
+                        # census... PASS THE LEDGER, or the rebuild heals
+                        # every wounded monster back to its ceiling as
+                        # well").  Cheap and a no-op until something has
+                        # actually died or lost HP: corpse_override returns
+                        # an empty dict against a fresh ledger/register, and
+                        # _apply_mob_death_census_override is a no-op on an
+                        # empty dict.  world_population.py has no override
+                        # parameter and is out of this round's scope to
+                        # edit, so this rebuilds the SAME bytes with the SAME
+                        # encoder over the wider input instead.
+                        mob_death_override = mob_death.corpse_override(
+                            legacy, field_mobs.load_roster(),
+                            self.mob_death_register,
+                            ledger=self.mob_combat_ledger,
+                        )
+                        if mob_death_override:
+                            generation = _apply_mob_death_census_override(
+                                legacy, generation, mob_death_override,
+                            )
                         self.world_census_sent = True
                         self.npc_idle_action_sent = False
                         self.population_indices = generation.indices
@@ -4292,6 +4554,19 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     self.events.append(
                         f"arena_{version}_p30_target_kind2_captured_no_reply"
                     )
+            # CORE-REQUEST (MOB-COMBAT-001 / MOB-DEATH-001).  UNCONDITIONAL
+            # and ADDITIVE: computed after everything above (including every
+            # scenario-gated EA7D reader, which -- when its own flag is
+            # active -- already consumed a 2-or-6-vital-count ActionVital
+            # frame and returned before this line), so no existing pinned
+            # dispatch loses or gains a byte.  A non-ActionVital frame, or an
+            # ActionVital frame no earlier branch claimed, reaches this
+            # unchanged and gets nothing extra unless its target resolves to
+            # a field-mob identity.
+            mob_combat_actions = (
+                self._dispatch_mob_combat(parsed)
+                if nested_id == legacy.ACTION_VITAL else []
+            )
             return (actions + arena_actions + ground_loot_actions
-                    + nameprop_actions + census_actions)
+                    + nameprop_actions + census_actions + mob_combat_actions)
     return PersistentGameSessionState
