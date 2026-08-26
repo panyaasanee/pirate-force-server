@@ -626,6 +626,24 @@ def apply_identity_override(
     its override dict over time (more of the roster damaged, more of it dead)
     does not need to filter it down to only the identities present in this
     particular rung first.
+
+    NONCLAIM (pf-adversary, round sifsfg).  The ``offset != len(generation.pc)``
+    guard below only checks that the SUM of ``entry_bytes`` matches
+    ``len(pc)`` - it does NOT catch a permutation of ``entry_bytes`` that
+    preserves the sum but misassigns which slice belongs to which identity
+    (e.g. two entries' lengths swapped on a hand-built ``generation``): that
+    would silently splice the wrong bytes at each boundary with no exception.
+    This gap is inherited unchanged from ``runtime.py``'s private original
+    (``_apply_mob_death_census_override``), not introduced here, and it is
+    dormant on every call path this tree actually exercises - the only real
+    caller builds ``generation`` fresh via :func:`build_world_population`,
+    which cannot itself produce a length/identity misalignment.  It is named
+    here rather than fixed because fixing it needs a structural check (e.g.
+    validating ``entry_bytes`` against a known-good source independent of
+    ``generation`` itself) that no caller has asked for yet; a caller that
+    ever builds or mutates a ``WorldPopulationGeneration`` by hand rather than
+    through ``build_world_population`` should not trust this guard to catch a
+    permutation.
     """
     if type(generation) is not WorldPopulationGeneration:
         raise ValueError(
@@ -633,7 +651,13 @@ def apply_identity_override(
     if type(override) is not dict:
         raise ValueError("override must be a dict")
     for key, value in override.items():
-        if type(key) is not int or type(key) is bool:
+        # pf-adversary (round sifsfg): `type(key) is not int` alone already
+        # refuses a bool key -- type(True) is bool, not int, even though
+        # bool subclasses int -- so the `or type(key) is bool` half of the
+        # old check could never fire.  Simplified; the refusal (including
+        # for True/False keys) is unchanged, see the bool case pinned in
+        # test_apply_identity_override_refuses_bad_keys_and_values.
+        if type(key) is not int:
             raise ValueError(
                 "override keys must be plain int actor identities, not "
                 f"{key!r}"

@@ -411,6 +411,19 @@ REFUSE_OVERRIDE_ENTRY_NOT_INT_BYTES = "override_entry_not_int_bytes"
 # checked by the same range check as every other integer here, which raises
 # REFUSE_VALUE_OUT_OF_RANGE, and a second name that can never be raised is a
 # lie told to whoever counts them.
+# pf-adversary (round sifsfg): hostile_census_frames forwarded ledger=None
+# straight into full_roster_override without ever saying that its OWN
+# contract is stricter than the family it calls.  repopulation_entries /
+# full_roster_override legitimately accept ledger=None (a caller with no
+# ledger open yet still needs to build a scene); hostile_census_frames does
+# not have that excuse -- its own docstring says it exists to be called on
+# every hit/death frame, and strike() already REQUIRES a typed CombatLedger
+# before a hit/death frame can exist at all, so a call site that has this
+# function's other arguments has a live ledger too, and one that omits it is
+# always a bug, not a legitimate early-boot caller.  The adversary proved by
+# execution that omitting it silently heals every damaged-but-alive monster
+# back to ceiling HP on the wire -- refused by name instead of left silent.
+REFUSE_CENSUS_FRAME_WITHOUT_A_LEDGER = "census_frame_without_a_ledger"
 MOB_DEATH_REFUSAL_REASONS = (
     REFUSE_VALUE_NOT_INT,
     REFUSE_VALUE_OUT_OF_RANGE,
@@ -434,6 +447,7 @@ MOB_DEATH_REFUSAL_REASONS = (
     REFUSE_REGISTER_STALE,
     REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE,
     REFUSE_OVERRIDE_ENTRY_NOT_INT_BYTES,
+    REFUSE_CENSUS_FRAME_WITHOUT_A_LEDGER,
 )
 
 _FLOAT32_MAX = 3.4028234663852886e38
@@ -1747,6 +1761,34 @@ def hostile_census_frames(
     client-observable and unproven this round - the same evidence gap
     GT-084/RIDER-084-A already track for the arrival-census fix.
 
+    LEDGER IS REQUIRED HERE, NOT OPTIONAL, EVEN THOUGH THE FAMILY THIS CALLS
+    ACCEPTS ``None``.  ``full_roster_override``/``repopulation_entries``
+    legitimately default ``ledger`` to ``None`` because a caller building a
+    scene before any ledger has been opened still needs a census - that is a
+    real, still-supported call shape for THOSE functions.  This function does
+    not have that excuse: it exists, by its own WHY-THIS-EXISTS paragraph
+    above, to be composed on every hit/death frame, and a hit/death frame
+    cannot exist without :func:`mob_combat.strike` having already required a
+    typed :class:`mob_combat.CombatLedger`.  So every real call site of THIS
+    function already holds a live ledger, and one that omits it is not a
+    legitimate early-boot caller - it is the exact bug class this round exists
+    to close, just for HP instead of existence: every living-but-damaged
+    monster silently re-renders at its ceiling HP on the wire, with nothing
+    that fails or even logs.  Proven by execution (pf-adversary, round
+    sifsfg): damage a mob to 3828/3857 via a real ``strike()``, call this
+    function without ``ledger=``, and the composed frame carries the mob's
+    FULL-HP body.  Per this project's own convention (silent-but-dangerous is
+    never allowed to pass quietly - see ``MobDeathContractError`` throughout
+    this module and ``mob_combat``'s own typed-ledger requirement in
+    ``strike``), this refuses instead: ``ledger=None`` raises
+    :data:`REFUSE_CENSUS_FRAME_WITHOUT_A_LEDGER` immediately, before either
+    sub-call runs, rather than composing a frame that quietly heals every
+    other damaged monster.  A caller with a genuine reason to render the
+    roster at ceiling HP (no combat has happened yet) should call
+    ``full_roster_override``/``repopulation_frames`` directly with
+    ``ledger=None`` - those functions' contracts already say that is a
+    supported meaning; this one's does not.
+
     ONE-CORPSE LIMIT, NAMED SO NOBODY WIDENS THE DEATH GATE WITHOUT SEEING
     IT.  ``dead_timer`` is a SINGLE value applied to every register member
     :func:`full_roster_override` marks dead - there is no per-identity
@@ -1764,6 +1806,17 @@ def hostile_census_frames(
     has no way to know which register member the caller means to be
     transitioning.
     """
+    if ledger is None:
+        raise MobDeathContractError(
+            REFUSE_CENSUS_FRAME_WITHOUT_A_LEDGER,
+            "hostile_census_frames needs the live ledger from the hit/death "
+            "step that is calling it: without one, every living-but-damaged "
+            "monster in the roster is re-sent at its ceiling HP, silently "
+            "healing every actor this frame was not about. If there is "
+            "genuinely no combat yet and the roster should render at ceiling "
+            "HP, call full_roster_override/repopulation_frames directly with "
+            "ledger=None - that is a supported meaning there, not here.",
+        )
     generation = world_population.build_world_population(
         legacy, anchor, actor_count, scene_id=scene_id,
         count_source=count_source,
