@@ -306,7 +306,22 @@ def _entry(legacy: Any, placement: SceneActorPlacement) -> bytes:
         placement.visual_preset,
         current_hp=hp,
         max_hp=hp,
-        basic_name=(legacy.V119_P30_TARGET_NAME if is_monster else ""),
+        # AMENDMENT 2026-08-26 (LANE-A, post-GT-078 OWNER-REJECTED / identity).
+        # The frozen PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS row already carries a
+        # per-placement source_name (it always has - see the 7-tuple shape in
+        # population.py), and this call was discarding it for every entry
+        # except the P30 diagnostic override. The client only draws the
+        # yellow NPC-name line when BasicAttr bit 0x0001 is set (make_npc_attr
+        # docstring, 0x51F920), so a dropped source_name is not a cosmetic
+        # gap: it is why GT-078's addendum photo shows a lone blue title line
+        # with no name line under it anywhere in town. This does not touch
+        # WHICH template_id/visual_preset is sent (that is a placement-
+        # identity question RE-077's follow-up owns), only whether the name
+        # this table already has for that placement reaches the wire.
+        basic_name=(
+            legacy.V119_P30_TARGET_NAME if is_monster
+            else placement.source_name
+        ),
     )
     movement_attr = legacy.make_remote_movement_attr(
         actor_identity,
