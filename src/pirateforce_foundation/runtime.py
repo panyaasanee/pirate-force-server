@@ -1,6 +1,7 @@
 """Lifecycle-aware V141 state factory for the real legacy TCP listeners."""
 from dataclasses import replace
 import math
+import random
 import struct
 import sys
 import threading
@@ -10,10 +11,15 @@ from . import field_mobs
 from . import mob_ai_control
 from . import mob_combat
 from . import mob_death
+from . import mob_loot
+from . import mob_pickup
 from . import world_population
 from . import world_scene_entry
 from . import world_scene_travel
 from . import world_travel_gate
+
+from .gm.accounts import is_gm_account
+from .gm.state_wire import make_gm_update_state_frame
 
 from .model import Position
 from .inventory import (
@@ -500,6 +506,12 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
     # a caller that passes a preloaded registry skips re-reading the file on
     # every login.
     scene_entry_registry = world_scene_travel.load_scene_registry()
+    # CORE-REQUEST-007 (MOB-PICKUP-001), MOB_PICKUP_WIRING: "the server holds
+    # ONE mob_pickup.BagCellRegistry the same way it holds [the scene's
+    # ledger cell]" -- ONE PER SERVER, not per session, so it is built here,
+    # once per boot, and closed over by every connection's session state
+    # below, the same way scene_entry_registry just above is.
+    mob_pickup_registry = mob_pickup.BagCellRegistry()
     # PF-HYPOTHESIS-LEDGER: HYP-PF-030 active
     # MOVE-AUTHORITY-002.  Re-checked here even though app.py already loaded
     # it: a caller that hands in a lookalike profile must not be able to gate
@@ -1027,6 +1039,26 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.mob_ai_register = mob_ai_control.open_register(
                     field_mobs.load_roster(), epoch=0,
                 )
+                # CORE-REQUEST-007 (MOB-LOOT-001), MOB_LOOT_WIRING: "Hold ONE
+                # mob_loot.DropLedgerCell for the scene" -- same per-session
+                # scope as mob_combat_ledger/mob_death_register/
+                # mob_ai_register just above, for the same reason (the
+                # wiring text does not name a lifetime; this follows the
+                # pattern every other mutable structure on this class
+                # already uses).  self.mob_loot_rng is the random.Random
+                # roll_drops requires "the server owns" -- created ONCE here,
+                # never per call, so the draw stream is this session's own
+                # and not the module-global stream _require_rng refuses by
+                # name.
+                self.mob_loot_cell = mob_loot.DropLedgerCell()
+                self.mob_loot_rng = random.Random()
+                # CORE-REQUEST-007 (MOB-PICKUP-001), MOB_PICKUP_WIRING step 0:
+                # this session's claim against the server-wide
+                # mob_pickup_registry (built once above).  None until
+                # character select claims it; release() is owed back to the
+                # registry at teardown (see close_connection below).
+                self.mob_pickup_bag_cell = None
+                self.mob_pickup_character_id = None
                 if world_census_enabled:
                     # The inherited P0/P30/P91 branch is disarmed HERE, at
                     # construction, exactly the way the population and
@@ -1084,6 +1116,19 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 raise
 
         def close_connection(self) -> bool:
+            # CORE-REQUEST-007 (MOB-PICKUP-001), MOB_PICKUP_WIRING step 0:
+            # "registry.release(character_id) on logout, disconnect or a
+            # character switch."  close_connection is the one teardown path
+            # every disconnect reaches regardless of which probe lane (if
+            # any) is active, unlike the logout-hypothesis dispatch, which
+            # only runs behind its own opt-in scenario.  A teardown that
+            # never runs leaves the character claimed and the next select
+            # refuses out loud (bag_already_claimed) -- the failure this
+            # lane wants, per the module's own docstring.
+            if self.mob_pickup_bag_cell is not None:
+                mob_pickup_registry.release(self.mob_pickup_character_id)
+                self.mob_pickup_bag_cell = None
+                self.mob_pickup_character_id = None
             return self.foundation.close_connection()
 
         def attach_transport_socket_closer(self, closer) -> None:
@@ -3834,6 +3879,83 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         death_step.dead_frame,
                         death_step.hold_ms / 1000.0,
                     ))
+                    # CORE-REQUEST-007 (MOB-LOOT-001), MOB_LOOT_WIRING: one
+                    # call AFTER the whole death schedule above (including
+                    # hold_ms), never between the dying and dead frames --
+                    # the module header says no derived-mask-0x08 RuntimeRes
+                    # may interleave into another lane's typed lethal
+                    # sequence for the same actor.  roll_drops is called
+                    # ONCE: commit_drops's own docstring forbids re-rolling
+                    # on a retry ("do NOT re-roll, that would give one kill
+                    # two rolls"), so the retry loop below retries
+                    # loot_a_kill against the SAME roll, exactly like the
+                    # ledger/register retries above retry the SAME
+                    # step/candidate.
+                    roll = mob_loot.roll_drops(mob, self.mob_loot_rng)
+                    drops = ()
+                    for _attempt in range(MOB_COMBAT_STALE_RETRY_LIMIT):
+                        try:
+                            drops = self.mob_loot_cell.loot_a_kill(
+                                mob, death_step.record, roll,
+                                kill_token=death_step.register.generation,
+                                position=None,
+                            )
+                        except mob_loot.MobLootContractError as error:
+                            if error.args[0] in (
+                                mob_loot.REFUSE_LEDGER_GENERATION_MOVED,
+                                mob_loot.REFUSE_LEDGER_STALE,
+                            ):
+                                # Same per-session-cell caveat as the
+                                # combat-ledger/AI-register retries above:
+                                # unreachable today (one cell, one lock, no
+                                # concurrent mutator on this session), kept
+                                # because MOB_LOOT_WIRING requires the loop.
+                                drops = ()
+                                continue
+                            if (
+                                error.args[0]
+                                == mob_loot.REFUSE_MOB_ALREADY_LOOTED
+                            ):
+                                # Do NOT retry: this death was already
+                                # looted (a replay), per MOB_LOOT_WIRING.
+                                self.events.append(
+                                    "mob_loot_refused_mob_already_looted_"
+                                    "no_retry"
+                                )
+                                drops = ()
+                                break
+                            raise
+                        break
+                    else:
+                        self.events.append(
+                            "mob_loot_ledger_stale_retry_limit_exceeded_"
+                            "no_drops"
+                        )
+                        drops = ()
+                    if drops:
+                        for loot_pc, loot_frame in mob_loot.drop_frames(
+                            legacy, drops,
+                        ):
+                            actions.append((
+                                "MOB_LOOT_DROP", loot_pc, loot_frame, 0.0,
+                            ))
+                        # PRUNE THROUGH THE CELL (MOB_LOOT_WIRING step 4):
+                        # "Nothing in this module expires a row ... a
+                        # caller that never prunes grows the ledger without
+                        # bound."  No pickup path is wired on this build
+                        # (see the CORE-REQUEST-007 handback) and
+                        # DROP_REFRESH_MS/refresh_frames stay off any
+                        # production path per the COO's 2026-08-26 ruling
+                        # quoted in mob_loot.py's own header -- so nothing
+                        # else will ever read these rows back out of the
+                        # cell, and pruning each one right after the frame
+                        # that announces it is the only bound this lane has
+                        # without a timer.
+                        for drop in drops:
+                            self.mob_loot_cell.take(drop.drop_key)
+                        self.events.append(
+                            f"mob_loot_drops_sent_{len(drops)}_pruned"
+                        )
             return actions
 
         def dispatch(self, parsed):
@@ -4130,6 +4252,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     return []
                 load_only = scene_load_scenario is not None
                 entry = None
+                gm_state_action = None
                 if not load_only:
                     # WORLD-SCENE-TRAVEL-001 / CORE-REQUEST-003
                     # (LANE-A BUILD-002 slice 1, v2), wired here because
@@ -4186,6 +4309,96 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             "world_scene_entry_refused_no_reply"
                         )
                         return []
+                    # CORE-REQUEST-006 (LANE-GM / GM-001).  ALWAYS ON, no
+                    # scenario flag: docs/GM_LANE.md's own wiring request is
+                    # "call make_gm_update_state_frame after a successful
+                    # login for any account where is_gm_account() is true,
+                    # and send the resulting frame to that connection".
+                    # self.token is the authenticated login name -- the same
+                    # value FoundationSession was already built from
+                    # (lifecycle.login(login_name) ->
+                    # store.ensure_account(login_name); see
+                    # legacy.make_game_login_ack(self.token) above), not a
+                    # new field.  vital_version and the three payload fields
+                    # are UNPROVEN (gm/state_wire.py's own tag, mirrored
+                    # here in ASCII to keep this file pure ASCII: "assumed,
+                    # by the GM lane -- awaiting RE").  [ASSUMED - awaiting
+                    # RE] 1, 0, 0, 0 is the
+                    # placeholder used here: version 1 because no other
+                    # version has ever been observed for this vital, and
+                    # 0/0/0 because a zeroed flag/level is the value least
+                    # likely to visibly change anything on a client this
+                    # project has not measured that change against. RE
+                    # request: CORE-REQUEST-GM-001 (gm/state_wire.py
+                    # header).
+                    try:
+                        is_gm = is_gm_account(self.token)
+                    except (ValueError, OSError) as error:
+                        # gm/accounts.py raises ValueError BY DESIGN on a
+                        # malformed config/gm_accounts.json (its own
+                        # docstring: "a typo does not silently resolve to
+                        # nobody is GM").  That is right for a config-loading
+                        # tool, but is_gm_account() is called here on EVERY
+                        # login (not only a GM's), unconditionally -- letting
+                        # this propagate would unwind through dispatch() and
+                        # take down the whole game-listener thread for every
+                        # player, not just whoever mistyped the config.
+                        # Refuse by name instead: this login proceeds with no
+                        # GM frame, same as an account that is simply not
+                        # listed.  pf-adversary, round 3lzfhw.
+                        is_gm = False
+                        self.events.append(
+                            f"gm_account_lookup_failed_{type(error).__name__}"
+                        )
+                    if is_gm:
+                        gm_pc, gm_frame = make_gm_update_state_frame(
+                            legacy, 1, 0, 0, 0,
+                        )
+                        gm_state_action = (
+                            "GM_UPDATE_STATE_AFTER_LOGIN", gm_pc, gm_frame, 0.0,
+                        )
+                    # CORE-REQUEST-007 (MOB-PICKUP-001), MOB_PICKUP_WIRING
+                    # step 0, "AT CHARACTER SELECT": claim this character's
+                    # bag ONCE against the server-wide mob_pickup_registry
+                    # (built once in make_state_class, closed over here the
+                    # same way scene_entry_registry is).
+                    # self.foundation.backpack is already the BackpackState
+                    # select_and_start loaded above (store.get_backpack,
+                    # gated by inventory.require_known_backpack -- THE WALL
+                    # in mob_pickup.py) -- reused here, not a second DB
+                    # read.  Only the "ON AN INBOUND PICKUP REQUEST" half of
+                    # MOB_PICKUP_WIRING stays unwired: there is no known
+                    # vital id for a client-originated pickup request on
+                    # this project's wire yet (see the CORE-REQUEST-007
+                    # handback), so there is nothing to dispatch a claim to.
+                    if self.mob_pickup_bag_cell is None:
+                        # self.foundation.backpack is unconditionally set by
+                        # a successful select_and_start just above (see
+                        # session.py) -- no guard against it being None here:
+                        # a name that cannot happen is a lie to whoever
+                        # counts refusals (mob_loot.py states this rule for
+                        # itself).  pf-adversary, round 3lzfhw.
+                        character_id = self.foundation.selected.id
+                        try:
+                            self.mob_pickup_bag_cell = (
+                                mob_pickup_registry.claim(
+                                    character_id, self.foundation.backpack,
+                                )
+                            )
+                        except mob_pickup.MobPickupContractError as error:
+                            # bag_already_claimed is the only refusal this
+                            # call can raise (a second live claim for the
+                            # same character -- e.g. a reconnect whose old
+                            # session never reached close_connection); every
+                            # other MobPickupContractError name here would
+                            # be this session's own bag failing structural
+                            # validation, which is worth knowing about by
+                            # name rather than swallowing.
+                            self.events.append(
+                                f"mob_pickup_claim_refused_{error.args[0]}"
+                            )
+                        else:
+                            self.mob_pickup_character_id = character_id
                 self._sync_frozen_inventory_state()
                 if npc_hostile_hypothesis_scenario is not None:
                     # NPC-HOSTILE-DISPATCH (HYP-PF-027): the entry half of the
@@ -4224,6 +4437,13 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         "scene2_load_only_marker2_teleport_sent" if load_only else
                         "v135_startgame_movement_p0_minus100x_minus50y_teleport_zero_sent"
                     )
+                if gm_state_action is not None:
+                    # CORE-REQUEST-006: rides ALONGSIDE the inherited
+                    # dispatch, appended to the same action list, exactly
+                    # like ground_loot_actions below does -- the frozen
+                    # START_GAME_RES / teleport bytes above stay
+                    # byte-for-byte untouched.
+                    actions.append(gm_state_action)
                 return actions
 
             if nested_id == legacy.ITEM_OPERATE_REQ_VITAL:
