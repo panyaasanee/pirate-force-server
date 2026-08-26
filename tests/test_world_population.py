@@ -71,17 +71,51 @@ class WorldPopulationTests(unittest.TestCase):
 
     # --- the control -----------------------------------------------------
 
-    def test_rung_three_is_byte_identical_to_the_shipped_default(self) -> None:
+    def test_rung_three_differs_from_the_shipped_default_by_exactly_the_two_added_names(
+        self,
+    ) -> None:
+        """Was byte-identical; GT-078 OWNER-REJECTED ended that on purpose.
+
+        ``make_v112_monster_shop_population_state()`` is the frozen diagnostic
+        isolation lane other hypotheses measure against, and this project does
+        not edit it: it still sends P0 and P91 nameless, by design, forever.
+        This module no longer matches it byte-for-byte, because ``_entry()``
+        now puts every placement's own ``source_name`` on the wire (P30's
+        pinned V119 override is unchanged and unaffected).  The invariant that
+        survives is narrower than byte-identity: the ONLY bytes rung 3 adds,
+        anywhere, are the two UTF-16LE name tags for P0 and P91 - P30's name
+        tag was already present in both frames via the pinned monster override,
+        so it contributes nothing to the delta.
+        """
+        from pirateforce_foundation.population import load_port_royal_placements
+        from pirateforce_foundation.world_population import SHIPPED_MONSTER_INDEX
+
         shipped_pc, shipped_frame, shipped_rows = (
             self.legacy.make_v112_monster_shop_population_state()
         )
         rung = build_world_population(self.legacy, self.anchor, 3, scene_id=1)
-        self.assertEqual(rung.pc, shipped_pc)
-        self.assertEqual(rung.frame, shipped_frame)
         self.assertEqual(rung.indices, tuple(row[0] for row in shipped_rows))
         self.assertEqual(rung.indices, SHIPPED_ISOLATED_INDICES)
-        # The v141 self-test pins this same frame at 504/517 (v141:6104-6107).
-        self.assertEqual((rung.pc_bytes, rung.frame_bytes), (504, 517))
+
+        placements = {
+            placement.placement_index: placement
+            for placement in load_port_royal_placements(self.legacy)
+        }
+        added_name_tags = [
+            self.legacy.wstr_tag(placements[index].source_name)
+            for index in SHIPPED_ISOLATED_INDICES
+            if index != SHIPPED_MONSTER_INDEX
+        ]
+        added_bytes = sum(len(tag) for tag in added_name_tags)
+        self.assertEqual(len(rung.pc) - len(shipped_pc), added_bytes)
+        self.assertEqual(len(rung.frame) - len(shipped_frame), added_bytes)
+        for tag in added_name_tags:
+            self.assertNotIn(tag, shipped_pc)
+            self.assertIn(tag, rung.pc)
+
+        # Pinned so a future encoder change is caught here too, not only in
+        # scenarios/world_population_full_001.json.
+        self.assertEqual((rung.pc_bytes, rung.frame_bytes), (564, 577))
 
     def test_the_control_rung_is_anchor_invariant(self) -> None:
         """Which is what makes it a control - and also its only limitation."""
@@ -142,32 +176,57 @@ class WorldPopulationTests(unittest.TestCase):
         self.assertEqual(top.actor_count, CENSUS_COUNT)
         self.assertEqual(len(set(top.indices)), CENSUS_COUNT)
 
-    def test_top_rung_differs_from_the_frozen_golden_115_by_p30_alone(self) -> None:
+    def test_top_rung_differs_from_the_frozen_golden_115_by_every_members_own_name(
+        self,
+    ) -> None:
         """v141:1441 already builds a 115-member snapshot; this one is that one.
 
-        Set equality would be a tautology - both read the same sha256-pinned
-        table.  The falsifiable part is the byte delta: the census frame must
-        exceed the golden frame by exactly P30's BasicAttr name and nothing
-        else, since the HP override reuses tags of identical width.
+        Was "by P30 alone", when P30's BasicAttr name was the only name this
+        module put on the wire.  GT-078 OWNER-REJECTED ended that: ``_entry()``
+        now puts every placement's own frozen ``source_name`` on the wire, and
+        ``make_v62_port_royal_population_snapshot`` never sets a name for
+        ANYONE (it calls ``make_npc_attr`` with no ``basic_name`` argument at
+        all, not even for P30).  So the true invariant is no longer "P30's tag
+        alone" - it is the sum of every top-rung member's own name-tag length,
+        computed from the encoder's own ``wstr_tag`` rather than hand-counted,
+        so a change to any placement's name text is still caught here.
         """
+        from pirateforce_foundation.population import load_port_royal_placements
+
         _label, golden_pc, _frame, chosen = (
             self.legacy.make_v62_port_royal_population_snapshot(*self.anchor)
         )
         top = build_world_population(self.legacy, self.anchor, CENSUS_COUNT, scene_id=1)
         self.assertEqual(set(top.indices), {row[0] for row in chosen})
-        name_tag = self.legacy.wstr_tag(self.legacy.V119_P30_TARGET_NAME)
-        self.assertEqual(top.pc_bytes - len(golden_pc), len(name_tag))
-        self.assertNotIn(name_tag, golden_pc)
-        self.assertEqual(top.pc.count(name_tag), 1)
 
-    def test_every_member_but_p30_appears_verbatim_in_the_golden_115(self) -> None:
-        """Stronger than the frame-size delta above, and it can fail alone.
+        placements = {
+            placement.placement_index: placement
+            for placement in load_port_royal_placements(self.legacy)
+        }
+        name_tags = [
+            self.legacy.wstr_tag(placements[index].source_name)
+            for index in top.indices
+        ]
+        expected_delta = sum(len(tag) for tag in name_tags)
+        self.assertEqual(top.pc_bytes - len(golden_pc), expected_delta)
+        for tag in name_tags:
+            self.assertNotIn(tag, golden_pc)
 
-        A total-size comparison passes if two members drift in offsetting
-        directions.  This looks for each census entry's exact bytes INSIDE the
-        payload the frozen V62 builder produced, so the only permitted absence
-        is the one this lane made on purpose: P30 carrying its measured HP and
-        name.
+    def test_every_member_is_now_absent_from_the_golden_115_because_every_member_is_named(
+        self,
+    ) -> None:
+        """Was "every member but P30 appears verbatim"; GT-078's fix widened this to all 115.
+
+        Stronger than the frame-size delta above, and it can fail alone: a
+        total-size comparison passes if two members drift in offsetting
+        directions, so this looks for each census entry's exact bytes INSIDE
+        the payload the frozen V62 builder produced.  Before the GT-078 name
+        fix only P30 carried a name, so only P30's entry was absent from the
+        nameless golden snapshot.  Now ``_entry()`` puts every placement's own
+        ``source_name`` on the wire, and V62 never names anyone (not even
+        P30), so EVERY entry this module builds now differs from its golden
+        counterpart - "some absent" was the half-fixed world; "all absent" is
+        the one after this fix.
 
         The comparison deliberately calls ``make_v62_port_royal_population_
         snapshot`` and searches its real output.  An earlier version of this
@@ -175,24 +234,56 @@ class WorldPopulationTests(unittest.TestCase):
         module under test, which made it agree with itself: zeroing HEADINGS
         changed 86 of 115 actors on the wire and the test still passed.
 
-        NONCLAIM: a substring hit proves each entry's bytes are present, not
+        NONCLAIM: a substring miss proves each entry's bytes are absent, not
         that the collection orders them the way V62 orders them.  Ordering is
         not compared here, and no other test compares it either.
         """
         from pirateforce_foundation.population import load_port_royal_placements
-        from pirateforce_foundation.world_population import (
-            SHIPPED_MONSTER_INDEX, _entry,
-        )
+        from pirateforce_foundation.world_population import _entry
 
         _label, golden_pc, _frame, _chosen = (
             self.legacy.make_v62_port_royal_population_snapshot(*self.anchor)
         )
+        placements = load_port_royal_placements(self.legacy)
         absent = [
             placement.placement_index
-            for placement in load_port_royal_placements(self.legacy)
+            for placement in placements
             if _entry(self.legacy, placement) not in golden_pc
         ]
-        self.assertEqual(absent, [SHIPPED_MONSTER_INDEX])
+        self.assertEqual(absent, [placement.placement_index for placement in placements])
+        self.assertEqual(len(absent), CENSUS_COUNT)
+
+    def test_every_members_own_name_reaches_the_wire_as_a_utf16_basic_name_tag(
+        self,
+    ) -> None:
+        """GT-078 OWNER-REJECTED, direct: no client screenshot ever showed a
+        name line under any NPC in town, only a title line.  This is the test
+        that would have caught it - there was none before this lane's fix
+        (a static-RE grep of tests/test_population.py and
+        tests/test_world_population.py for "basic_name"/"source_name" found
+        no coverage of this path at all).
+
+        Reuses the codebase's own frozen tag helper (``legacy.wstr_tag``)
+        rather than hand-rolling UTF-16LE, the same way
+        tests/test_field_mobs.py checks ``mob.display_name`` reaches the
+        wire.  Checked for three specific, distinct placements: the pinned
+        control's two non-monster members (P0, P91) plus one ordinary
+        mid-table member (P35, "Columbus") that carries no special-case
+        handling at all - so this is not merely re-proving the control rung.
+        """
+        from pirateforce_foundation.population import load_port_royal_placements
+        from pirateforce_foundation.world_population import _entry
+
+        placements = {
+            placement.placement_index: placement
+            for placement in load_port_royal_placements(self.legacy)
+        }
+        for index in (0, 91, 35):
+            placement = placements[index]
+            self.assertTrue(placement.source_name)
+            entry = _entry(self.legacy, placement)
+            name_tag = self.legacy.wstr_tag(placement.source_name)
+            self.assertIn(name_tag, entry)
 
     def test_identities_follow_the_frozen_actor_identity_rule(self) -> None:
         top = build_world_population(self.legacy, self.anchor, CENSUS_COUNT, scene_id=1)

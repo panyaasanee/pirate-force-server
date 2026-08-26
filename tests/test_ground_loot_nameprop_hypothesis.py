@@ -661,6 +661,17 @@ class NamePropDispatchTests(unittest.TestCase):
         # alongside.  The LABEL differs by design and is asserted separately;
         # what this test is here to prove is that the lane displaces nothing
         # on the wire, and that is a statement about bytes.
+        #
+        # AMENDMENT 2026-08-26 (post-GT-078 OWNER-REJECTED name fix, this
+        # lane).  "displaces nothing" stopped meaning byte-identical the day
+        # ``_entry()`` in world_population.py stopped discarding
+        # ``source_name`` for P0 and P91: this boot's inherited population
+        # takes the FROZEN fallback (still nameless for P0/P91 on purpose --
+        # this project does not edit it), while the control takes
+        # ``world_population``'s rung 3, which now names both.  See
+        # tests/test_world_population.py's
+        # ``test_rung_three_differs_from_the_shipped_default_by_exactly_the_
+        # two_added_names`` for the same invariant proven directly.
         control = self._state(
             "nameprop_tail_ctl", lane=False, world_census_actor_count=3,
         )
@@ -669,10 +680,43 @@ class NamePropDispatchTests(unittest.TestCase):
             [a[0] for a in control_actions[-2:]],
             ["WORLD_CENSUS_INITIAL_3", "WORLD_CENSUS_REAPPLY_3"],
         )
-        self.assertEqual(
-            [(a[1], a[2]) for a in actions[:-2]],
-            [(a[1], a[2]) for a in control_actions],
+
+        from pirateforce_foundation.population import load_port_royal_placements
+        from pirateforce_foundation.world_population import SHIPPED_MONSTER_INDEX
+
+        placements = {
+            placement.placement_index: placement
+            for placement in load_port_royal_placements(self.legacy)
+        }
+        added_bytes = sum(
+            len(self.legacy.wstr_tag(placements[index].source_name))
+            for index in (0, 30, 91)
+            if index != SHIPPED_MONSTER_INDEX
         )
+        population_frozen_labels = {
+            "V134_P0_P30_P91_ISOLATED_INITIAL_READY",
+            "V134_P0_P30_P91_ISOLATED_REAPPLY_READY",
+        }
+        population_census_labels = {
+            "WORLD_CENSUS_INITIAL_3", "WORLD_CENSUS_REAPPLY_3",
+        }
+        inherited = actions[:-2]
+        self.assertEqual(len(inherited), len(control_actions))
+        for (g_label, g_pc, g_frame, g_delay), (
+            u_label, u_pc, u_frame, u_delay,
+        ) in zip(inherited, control_actions):
+            self.assertEqual(g_delay, u_delay)
+            if g_label in population_frozen_labels:
+                self.assertIn(u_label, population_census_labels)
+                self.assertEqual(
+                    len(bytes(u_pc)) - len(bytes(g_pc)), added_bytes,
+                )
+                self.assertEqual(
+                    len(bytes(u_frame)) - len(bytes(g_frame)), added_bytes,
+                )
+            else:
+                self.assertEqual(bytes(g_pc), bytes(u_pc))
+                self.assertEqual(bytes(g_frame), bytes(u_frame))
 
     def test_the_pair_is_one_shot(self):
         state = self._state("nameprop_once")

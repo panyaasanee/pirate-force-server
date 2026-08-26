@@ -69,20 +69,42 @@ GROUND_LOOT_SCENARIO = (
 # suite green.  These digests cover 100% of the delivered bytes at every rung
 # and that mutant turns them red.
 #
-# Rung 3's pc digest is the same value tests/golden/object_pop_002_baseline.json
-# carries for the frozen V134 collection.  That is not a coincidence to be
-# maintained by hand: it is the control rung being byte-identical to what
-# shipped, and if it ever stops matching, the census stopped being a superset
-# of the shipped wire.
+# AMENDMENT 2026-08-26 (post-GT-078 OWNER-REJECTED name fix, this lane).
+# ``_entry()`` in world_population.py stopped discarding SceneActorPlacement.
+# source_name for every non-P30 member (see world_population.py:296), so
+# every rung below grew by its members' own name-tag bytes and every digest
+# below is RE-DERIVED -- run against the real code at PIN_ANCHOR, not
+# hand-edited -- from the values GT-078's REJECTION made necessary.  The
+# superseded digests, captured before that fix, are kept below rather than
+# deleted, because they are still correct for what they described (a world
+# with no NPC name line anywhere in it, which is the defect GT-078 rejected):
+#
+#   3:   pc=3B77557DB6FDBAD9C5DA6338E1C31937004D4EAAD43FEFC956137C5B584B71CD
+#        frame=5D032431D84C41E38F045AD126243FD6F67CE2669AAB8C45E7FA36B49025CDBD
+#   20:  pc=E1D2F7A0F69A74E9E5ECF490F666B75CA328A45EFDA33F99982CEE783F8FFC9F
+#        frame=63E194F0275567CE30299274D98EC9F16E278DA12D2A35C2F7833A68D88A1528
+#   60:  pc=A554F55A23DB79006438BD9B2DD00F76767272874657F8E433699913049B808C
+#        frame=B66173DD2A256C6D30C721C4A719D33524215898D1BDB1CA08EB210A5B8FBB73
+#   115: pc=B972F4F4463DDBB28303BC1F694C7BA6DA1CDED76D656D0A79D12D636EC361A6
+#        frame=AD80E280F4908759F066A85204403723D07408EF353491585247667D73074EFE
+#
+# Rung 3's pc digest USED TO be the same value
+# tests/golden/object_pop_002_baseline.json carries for the frozen V134
+# collection -- that was the control rung being byte-identical to what
+# shipped.  It no longer is, on purpose: rung 3 now names P0 and P91 and the
+# frozen V134 collection still does not (nor should it -- this project does
+# not edit it).  tests/test_world_population.py's
+# ``test_rung_three_differs_from_the_shipped_default_by_exactly_the_two_
+# added_names`` pins the narrower invariant that survives.
 CENSUS_WIRE_SHA256 = {
-    3: ("3B77557DB6FDBAD9C5DA6338E1C31937004D4EAAD43FEFC956137C5B584B71CD",
-        "5D032431D84C41E38F045AD126243FD6F67CE2669AAB8C45E7FA36B49025CDBD"),
-    20: ("E1D2F7A0F69A74E9E5ECF490F666B75CA328A45EFDA33F99982CEE783F8FFC9F",
-         "63E194F0275567CE30299274D98EC9F16E278DA12D2A35C2F7833A68D88A1528"),
-    60: ("A554F55A23DB79006438BD9B2DD00F76767272874657F8E433699913049B808C",
-         "B66173DD2A256C6D30C721C4A719D33524215898D1BDB1CA08EB210A5B8FBB73"),
-    115: ("B972F4F4463DDBB28303BC1F694C7BA6DA1CDED76D656D0A79D12D636EC361A6",
-          "AD80E280F4908759F066A85204403723D07408EF353491585247667D73074EFE"),
+    3: ("638FC719659DE7181A8034ADAF2C5277292DAA731281E3375D8F66D16831B0C2",
+        "C8323CB6F65479F5474C43DD24CFAFFC100188EE82BA4064BB8A502632408D18"),
+    20: ("4ED557ED0D7B86EB70FC2AB8F486900E76EE1F1F1033A5EFD70462F488292556",
+         "214D7418094EED5F011D58D2B36D8BB0A756F6FD95AEE5CD152EBF2E4F6917E4"),
+    60: ("57BA09EC556CF778778F323EDF8DB1AE0C0A0C91E2D317EFC5E2A2F6E163583D",
+         "1A50BE5CC31C9E6809AD289CBBA30F86F31F6EF3B99DB8E839B6A2B7B9D9DF35"),
+    115: ("D0F55C5ECF93642BCB560AC928BEB6750B1856CAA0475C876E1FB0A76C904C47",
+          "C77D1F5CE5F3AD7E39D320A5FC6DB302CF23A2B6EF4F0C5D6B8DD2DE6C60F55D"),
 }
 PIN_ANCHOR = (10.0, 20.0, 30.0)
 
@@ -264,35 +286,76 @@ class WorldCensusWiringTests(unittest.TestCase):
                 self.assertEqual(state.world_census_actor_count, rung)
                 self.assertEqual(len(state.population_indices), rung)
 
-    def test_rung_three_is_byte_identical_to_the_frozen_collection(self):
+    def test_rung_three_differs_from_the_frozen_collection_by_the_two_added_names(
+        self,
+    ) -> None:
         """The control rung, checked against the frozen encoder itself.
 
         ``make_v112_monster_shop_population_state`` is what the shipped branch
-        sends today.  If rung 3 ever stops matching it byte for byte, the
-        staircase has no control and every rung above it is uninterpretable.
+        sends today, still nameless for P0/P91 -- this project does not edit
+        it.  Before GT-078's name fix, rung 3 matched it byte for byte; now it
+        differs by exactly the two name tags ``_entry()`` (world_population.py)
+        adds for P0 and P91, and membership/order stay the control they always
+        were.  See tests/test_world_population.py's
+        ``test_rung_three_differs_from_the_shipped_default_by_exactly_the_two_
+        added_names`` for the same invariant proven directly against the two
+        encoders, without the dispatcher in between.
         """
+        from pirateforce_foundation.population import load_port_royal_placements
+        from pirateforce_foundation.world_population import SHIPPED_MONSTER_INDEX
+
         state = self._state("census_control", world_census_actor_count=3)
         census = self._census(self._step(state))
         frozen_pc, frozen_frame, frozen_rows = (
             self.legacy.make_v112_monster_shop_population_state()
         )
-        self.assertEqual(census[0][1], frozen_pc)
-        self.assertEqual(census[0][2], frozen_frame)
         self.assertEqual(len(frozen_pc), 504)
         self.assertEqual(len(frozen_frame), 517)
+
+        placements = {
+            placement.placement_index: placement
+            for placement in load_port_royal_placements(self.legacy)
+        }
+        added_bytes = sum(
+            len(self.legacy.wstr_tag(placements[index].source_name))
+            for index in (0, 30, 91)
+            if index != SHIPPED_MONSTER_INDEX
+        )
+        self.assertEqual(len(census[0][1]) - len(frozen_pc), added_bytes)
+        self.assertEqual(len(census[0][2]) - len(frozen_frame), added_bytes)
+        self.assertEqual(len(census[0][1]), 564)
+        self.assertEqual(len(census[0][2]), 577)
         self.assertEqual(
             state.population_indices, tuple(row[0] for row in frozen_rows),
         )
 
     def test_the_census_is_one_shot_per_session(self):
+        """The pc/frame byte counts below are RE-DERIVED, not hand-typed.
+
+        AMENDMENT 2026-08-26 (post-GT-078 name fix).  17928/17942 were the
+        full-census sizes before ``_entry()`` started putting every
+        placement's own name on the wire; they are now 20944/20958 because
+        every one of the 115 members carries a name tag it did not carry
+        before.  Computed here from the real encoder rather than hand-typed a
+        second time, so this event string and the module's own numbers cannot
+        drift apart silently.
+        """
         state = self._state("census_once")
         self.assertEqual(len(self._census(self._step(state))), 2)
         self.assertEqual(self._census(self._step(state)), [])
+        generation = world_population.build_world_population(
+            self.legacy, (10.0, 20.0, 30.0), scene_id=1,
+        )
         self.assertEqual(
             [event for event in state.events
              if event.startswith("world_census_committed_")],
-            [f"world_census_committed_actors_115_pc_{17928}_frame_{17942}"],
+            [
+                "world_census_committed_actors_115_pc_"
+                f"{generation.pc_bytes}_frame_{generation.frame_bytes}"
+            ],
         )
+        self.assertEqual((generation.pc_bytes, generation.frame_bytes),
+                          (20944, 20958))
 
     # ----- the anchor -------------------------------------------------------
 
@@ -421,8 +484,9 @@ class WorldCensusWiringTests(unittest.TestCase):
         were silently ignored; with the census they are members, so clicking
         one now composes the V98 face/conversation response -- and that
         response rebuilds the WHOLE population snapshot, so a click now costs
-        a census-sized frame instead of a 504-byte one.  Nothing here says a
-        client does anything useful with either; that is attended work.
+        a census-sized frame instead of a 564-byte one (the frozen three-actor
+        rung's size after GT-078's name fix; it was 504 before).  Nothing here
+        says a client does anything useful with either; that is attended work.
         """
         state = self._state("census_click")
         self._step(state)

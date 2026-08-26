@@ -251,6 +251,20 @@ class GroundLootDispatchTests(unittest.TestCase):
         # exact frozen P0/P30/P91 collection.  The LABEL differs by design and
         # is asserted separately; "the frames ride alongside and displace
         # nothing" is a statement about bytes and delays, and stays exact.
+        #
+        # AMENDMENT 2026-08-26 (post-GT-078 OWNER-REJECTED name fix, this
+        # lane).  "exact" stopped meaning byte-identical the day _entry() in
+        # world_population.py stopped discarding source_name for P0 and P91:
+        # ``gated`` takes the FROZEN fallback
+        # (``legacy.make_v112_monster_shop_population_state()``, still
+        # nameless for P0/P91 on purpose -- this project does not edit it)
+        # because an active hypothesis lane disables ``world_census_enabled``,
+        # while ``ungated`` takes ``world_population``'s rung 3, which now
+        # names both.  See tests/test_world_population.py's
+        # ``test_rung_three_differs_from_the_shipped_default_by_exactly_the_
+        # two_added_names`` for the same invariant proven directly against
+        # the two encoders; this test proves it survives being wrapped in
+        # a real dispatch.
         ungated = self._state(
             "gld02_control", pair=False, world_census_actor_count=3,
         )
@@ -258,8 +272,8 @@ class GroundLootDispatchTests(unittest.TestCase):
         ungated_actions = ungated.dispatch(self._trigger(ungated))
         # The two ground-loot actions are the LAST actions of the trigger
         # frame -- near then far -- and everything before them is the
-        # inherited dispatch byte-for-byte: the frames ride alongside, they
-        # displace nothing.
+        # inherited dispatch: the frames ride alongside, they displace
+        # nothing except for the two now-added name tags.
         self.assertEqual(
             [action[0] for action in gated_actions[-2:]],
             [NEAR_LABEL, FAR_LABEL],
@@ -268,12 +282,47 @@ class GroundLootDispatchTests(unittest.TestCase):
             [action[0] for action in ungated_actions[-2:]],
             ["WORLD_CENSUS_INITIAL_3", "WORLD_CENSUS_REAPPLY_3"],
         )
-        self.assertEqual(
-            [(bytes(pc), bytes(frame), delay)
-             for _label, pc, frame, delay in gated_actions[:-2]],
-            [(bytes(pc), bytes(frame), delay)
-             for _label, pc, frame, delay in ungated_actions],
+
+        from pirateforce_foundation.population import load_port_royal_placements
+        from pirateforce_foundation.world_population import SHIPPED_MONSTER_INDEX
+
+        placements = {
+            placement.placement_index: placement
+            for placement in load_port_royal_placements(self.legacy)
+        }
+        added_bytes = sum(
+            len(self.legacy.wstr_tag(placements[index].source_name))
+            for index in (0, 30, 91)
+            if index != SHIPPED_MONSTER_INDEX
         )
+        population_gated_labels = {
+            "V134_P0_P30_P91_ISOLATED_INITIAL_READY",
+            "V134_P0_P30_P91_ISOLATED_REAPPLY_READY",
+        }
+        population_ungated_labels = {
+            "WORLD_CENSUS_INITIAL_3", "WORLD_CENSUS_REAPPLY_3",
+        }
+        gated_inherited = gated_actions[:-2]
+        self.assertEqual(len(gated_inherited), len(ungated_actions))
+        for (g_label, g_pc, g_frame, g_delay), (
+            u_label, u_pc, u_frame, u_delay,
+        ) in zip(gated_inherited, ungated_actions):
+            self.assertEqual(g_delay, u_delay)
+            if g_label in population_gated_labels:
+                self.assertIn(u_label, population_ungated_labels)
+                # This is the one pair where "identical" and "same encoder,
+                # wider input" have diverged since the GT-078 name fix: the
+                # delta is exactly the two name tags this module now adds
+                # that the frozen fallback still, correctly, does not.
+                self.assertEqual(
+                    len(bytes(u_pc)) - len(bytes(g_pc)), added_bytes,
+                )
+                self.assertEqual(
+                    len(bytes(u_frame)) - len(bytes(g_frame)), added_bytes,
+                )
+            else:
+                self.assertEqual(bytes(g_pc), bytes(u_pc))
+                self.assertEqual(bytes(g_frame), bytes(u_frame))
 
     def test_the_pair_is_one_shot(self):
         state = self._state("gld03")
