@@ -357,7 +357,26 @@ MOB_DEATH_NONCLAIMS = (
     "name colour is not claimed by this lane either: the owner's own ruling "
     "warns that a death proven on the sanctioned target proves 'the target we "
     "built can die', not 'an enemy can die', because the label still renders "
-    "in the client's PLAYER colour - RE-067 is open and owns that question",
+    "in the client's PLAYER colour - RE-067 is open and owns that question. "
+    "[STALE as of pf_bridge/CLIENT_RE_QUEUE.md chief R163, 2026-08-25 "
+    "~15:xx+07:00 (retracted BEFORE RE-067 was even opened) and chief R165, "
+    "2026-08-25 ~17:0x+07:00 (RE-067 itself closed)] [MEASURED, by reading "
+    "CLIENT_RE_QUEUE.md line ~1400 (R163's own retraction of this exact "
+    "claim) and its RE-067 result block, line ~1655]: both halves of this "
+    "sentence are wrong, not just outdated. 'The label renders in the "
+    "client's PLAYER colour' is the draft theory chief R163 struck down "
+    "before this ticket opened - the re-derived evidence is that the server "
+    "always sends actor_type=4 for this identity, not that the client "
+    "misclassifies it into a player slot. And 'RE-067 is open' is false: it "
+    "closed PASS/MIXED - the item-name half PASSED, the actor-name half "
+    "closed BOUNDED NEGATIVE (NameBoardNPC::update does not read actor_type, "
+    "faction, or any FONT_COLOR path as a colour selector; the real driver "
+    "is unidentified, not misrouted). So the accurate nonclaim is narrower: "
+    "name colour is not claimed by this lane, and RE-067/RE-068 already "
+    "looked for what decides it and could not find a driver at the static "
+    "layer - that is a measured ceiling, not an open ticket waiting on more "
+    "static work, and it is GT-084/RIDER-084-A's client-observable layer "
+    "that still has to answer whether a player ever sees this render red",
 )
 
 REFUSE_VALUE_NOT_INT = "value_not_int"
@@ -1472,6 +1491,21 @@ def full_roster_override(
     It does not change what ``runtime.py`` calls: nothing in this tree wires
     this function to the census yet, so a boot with no wiring change is
     byte-for-byte what it was before this function existed.
+    [STALE as of runtime.py, round q4z3vi, 2026-08-26T22:4x+07:00]
+    [MEASURED, by call-site reading on ``pirate-force-server@3036b03``]: the
+    swap HAS been made - ``runtime.py``'s census-composition call site now
+    reads ``mob_death.full_roster_override(...)`` where it used to read
+    ``mob_death.corpse_override(...)``, unconditionally, on a flagless boot.
+    Confirmed independently (not copied from the chief's own letter) by
+    reading the call site itself; corroborated by
+    ``notes_to_chief/20260826_2245_CHIEF-REPLY-LANE-B-full_roster_override-landed-plus-adversary-found-a-vacuous-assertion.md``,
+    which also reports the twelve pins this swap turned red (see below) are
+    fixed and the full suite is green. What is still true from the sentence
+    above: this function itself still does not decide what ``runtime.py``
+    calls - that decision was made in ``runtime.py``, the chief's file, not
+    here - and BUILD-004/BUILD-005's client-observable question (does a
+    player see any of this) is untouched by the swap; see the paragraph
+    below for that.
 
     WIRE LAYER, round 1cwih0 (2026-08-26): chief tried wiring this in and hit
     12 red pins across FOUR files (``tests/test_world_census_wiring.py`` x9,
@@ -1509,6 +1543,42 @@ def full_roster_override(
     player see a red monster is exactly what ``GT-084`` (queued, not
     delayed) and ``RE-067`` (open) exist to answer, and this round does not
     pre-empt either one.
+    [STALE as of ``pf_bridge/CLIENT_RE_QUEUE.md`` chief R165, 2026-08-25
+    ~17:0x+07:00 - already stale when this paragraph was WRITTEN in round
+    1cwih0 on 2026-08-26, not just stale since] [MEASURED, by reading
+    ``CLIENT_RE_QUEUE.md`` line 1382 and its result block]: ``RE-067`` is
+    CLOSED, not open - PASS/MIXED. The item-label half PASSed (selector
+    pinned). The actor half closed BOUNDED NEGATIVE: the client's
+    ``NameBoardNPC::update`` does not read ``actor_type`` as a colour
+    selector, no direct/recursive-decodable path from ``NPCAttr faction``,
+    a relation comparator, or the ``FONT_COLOR`` loader was found feeding
+    it, and the upstream setter's own value has no known semantic - "cannot
+    be named from the evidence available" in that result's own words. That
+    is a real, static-layer answer, not silence: nobody has found what
+    decides an actor name's colour, and the search that tried (RE-067,
+    followed up by RE-068, also closed BOUNDED NEGATIVE on the same
+    question from a different angle) has no successor ticket open in
+    ``CLIENT_RE_QUEUE.md`` as of this correction. So the sentence above
+    should read: whether a player sees a red monster is exactly what
+    ``GT-084``/``RIDER-084-A`` (client-observable layer, queued not
+    delayed) exists to answer - RE-067/RE-068 already answered what they
+    could at the static layer, and what they could not answer they closed
+    as a measured ceiling, not an open question waiting on more static
+    work.
+    [STALE as of ``pf_bridge/CLIENT_RE_QUEUE.md`` chief R163, 2026-08-25
+    ~15:xx+07:00] [MEASURED, by reading the draft ticket file itself and
+    ``CLIENT_RE_QUEUE.md``'s note on it, line ~1400]: the sentence above
+    citing the RE-067 TICKET-DRAFT for "the client currently classes
+    ``0x201F`` into the PLAYER name-color slot, not the NPC slot GT-032
+    used" is not just outdated, it is a draft theory chief R163 struck
+    down and retracted BEFORE RE-067 was even opened - the re-derived
+    evidence is that the server always sends ``actor_type=4`` for this
+    identity (a real NPC actor class), not that the client misroutes it
+    into a player slot. RE-067's actual result (cited above) supersedes
+    this anyway: the actor half found no colour-deciding read of
+    ``actor_type`` at all, so neither "classed as player" nor "classed as
+    NPC" is what determines the label's colour - the driver is simply
+    unidentified.
     """
     entries = repopulation_entries(
         legacy, roster, register, ledger=ledger, faction=faction,

@@ -291,7 +291,7 @@
   "nonclaims": [
     "faction 1 and 6 are OUR design, not the original server's",
     "named AND hostile in one body has never been on the wire: the named half is V119/V117, the hostile half is GT-032, the combination is new",
-    "no claim about NAME COLOUR - what decides it is RE-067, open, lane C",
+    "no claim about NAME COLOUR - what decides it is RE-067, open, lane C. [STALE as of pf_bridge/CLIENT_RE_QUEUE.md chief R163/R165, 2026-08-25, round dvxb6f] [MEASURED]: RE-067 is CLOSED (PASS/MIXED, actor half BOUNDED NEGATIVE) - still no claim about name colour, but the static-layer search is finished, not open; GT-084/RIDER-084-A carries the client-observable question now",
     "no aggro, no attack, no death, no drop: this lane builds the monster, not the fight",
     "max_hp is DERIVED from STANDARD_MOB by level; the two frozen controls it re-derives are placement 30 only",
     "nothing imports this module, so on its own it changes nothing the player sees"
