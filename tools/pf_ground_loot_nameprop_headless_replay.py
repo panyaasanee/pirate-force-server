@@ -63,7 +63,9 @@ database file named on the command line does not exist.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import io
 import json
 from pathlib import Path
 import shutil
@@ -298,6 +300,21 @@ def main() -> int:
 
     failures: list[str] = []
     guards = 0
+
+    # CORE-REQUEST-003/004 wired world_scene_entry and world_travel_gate
+    # into make_state_class's real dispatch: a normal (non-load-only)
+    # START_GAME_REQ now prints a WORLD_SCENE line, and a session built
+    # with any opt-in scenario active (this tool's own scenario included)
+    # prints one WORLD_TRAVEL_INERT line at construction -- both on
+    # emit=print by design, for an operator watching the real server
+    # console.  This tool's stdout in --json mode is the payload the test
+    # reads back with json.loads, not a console, so every incidental print
+    # from the real dispatcher below is swallowed until the explicit JSON
+    # print at the end, which writes to the real stdout this stack closes
+    # back to.
+    stdout_guard = contextlib.ExitStack()
+    if want_json:
+        stdout_guard.enter_context(contextlib.redirect_stdout(io.StringIO()))
 
     def check(label, condition, detail=""):
         nonlocal guards
@@ -650,6 +667,7 @@ def main() -> int:
               "%s -> %s" % (source_sha_before, source_sha_after))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+        stdout_guard.close()
 
     if want_json:
         print(json.dumps({

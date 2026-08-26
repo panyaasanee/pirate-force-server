@@ -357,6 +357,14 @@ and `test_tornado_eagle_strict_profile`) for the GEO-PF-006 GT-034 observation s
 counts test functions in those files, so it moves in the same commit as the tests. Re-derived on the cloud clone
 by `python3 tools/pf_multiplayer_readiness_audit.py --json`, computed and not quoted.
 
+**Re-pin, chief round 176 (2026-08-26): `checkpoint_calls_at_try_depth_zero` 3 -> 4.** Not drift
+and not a correction: `CORE-REQUEST-004` (the door out of town, LANE-A BUILD-002/M2) wired
+`world_travel_gate` into `runtime.py`'s default dispatch path, and the two-phase departure it
+composes needs its own `self.foundation.checkpoint(departure.arrival)` call, at try depth zero
+same as every other checkpoint call in this file - the audit's own interlock fact is that none of
+them are guarded, and this new one is not an exception. Re-derived on the cloud clone by
+`python3 tools/pf_multiplayer_readiness_audit.py --json`, computed and not quoted.
+
 The `*_at_head` numbers describe commit `5cc0eda` and nothing else. They are pinned as constants in the verifier next to that commit and re-derived from it on every run with `git ls-tree` / `git cat-file`, so they can be proven wrong. The *live* suite size is reported by the verifier as `tests_total_files_today` / `tests_total_functions_today` and is deliberately not published here: a number that moves whenever anyone adds a test does not belong in a document that is not re-published when they do.
 
 ```json AUDIT_COUNTS
@@ -373,7 +381,7 @@ The `*_at_head` numbers describe commit `5cc0eda` and nothing else. They are pin
   "assumption_sites_immutable": 18,
   "assumption_sites_mutable": 22,
   "ready_sites_total": 17,
-  "checkpoint_calls_at_try_depth_zero": 3,
+  "checkpoint_calls_at_try_depth_zero": 4,
   "game_listener_try_blocks_without_except": 1,
   "login_req_capture_guard": "reproduced",
   "frames_total": 18,
