@@ -439,6 +439,56 @@ send nothing, and no account gets anything it could not already get
 before this round (`CORE-REQUEST-011`/`CORE-REQUEST-012` are not wired
 into `runtime.py`).
 
+## Modules delivered (GM-005 login-scene-override round)
+
+Built the fast half of `notes_to_chief/20260827_1425_PANYA-ORDER-GM-warp-to-other-maps-two-paths.md`
+("ทาง ก") -- the owner asked to see a non-default map without needing the GM
+in-game editor widget (still gated on `RE-104`) or cross-scene
+`TeleportVital` ("ทาง ข", still gated on `RE-090`'s unproven field semantics
+and `CORE-REQUEST-011`'s same-scene-only wiring).
+
+- `gm/login_scene_override.py`: `get_login_scene_override(account_name,
+  gm_accounts_config_path=None, login_scene_config_path=None)` returns a
+  scene_id only when the account is BOTH listed in `gm/accounts.py`'s
+  `gm_accounts` allowlist AND has an entry in its own
+  `config/gm_login_scene.json`-style config (env override
+  `PF_GM_LOGIN_SCENE_CONFIG`, same pattern as `gm/accounts.py`'s
+  `PF_GM_ACCOUNTS_CONFIG`) naming a scene_id present in
+  `gm/scene_catalog.py`'s 330-row committed table. Checked fresh on every
+  call, not cached -- revoking an account from `gm_accounts.json` removes
+  its override on the very next call, no restart needed. Neither file alone
+  can grant anything: an override entry for a non-GM account is inert.
+- `tests/test_gm_login_scene.py`: default-empty, gating (GM+entry / GM-no-
+  entry / non-GM-with-entry / unlisted), malformed config (non-object top
+  level, non-dict `gm_login_scene`, non-int scene_id, `bool`-as-int,
+  unknown scene_id), and a revocation-takes-effect-immediately test.
+- `pf-adversary` review (this round) tried to make a non-GM account produce
+  a non-`None` result (homoglyphs, NFC/NFD unicode, whitespace/case
+  variants, a malformed entry for a *different* account) and could not; it
+  did find that a non-object top-level JSON (a bare list/string/null) raised
+  `AttributeError` instead of the documented `ValueError` -- both this
+  module and `gm/accounts.py` shared the same gap (`data.get(...)` called
+  without first checking `data` is a `dict`). Fixed in both files this
+  round, with a regression test added to both `test_gm_login_scene.py` and
+  `test_gm_accounts.py`.
+- **Known, accepted blast radius** (flagged by `pf-adversary`, not fixed):
+  `load_login_scene_overrides` validates the whole config file eagerly, so
+  one malformed entry (e.g. an operator typo for `other_gm`) raises for
+  every account's lookup, not just the mistyped one. This matches
+  `gm/accounts.py`'s own existing behavior (`load_gm_accounts` already
+  fails the same way for a malformed `gm_accounts.json`), so it is not a
+  new inconsistency, but it is a real forward risk once a login call site
+  exists: see `CORE-REQUEST-GM-015` for the explicit note to whoever wires
+  the call point.
+- **Not built this round** (chief's write zone, `runtime.py`): the two call
+  points the owner's order asks for -- (1) at login, resolve
+  `get_login_scene_override(token)` and send that scene_id instead of the
+  default start scene when it is not `None`; (2) assemble that scene's
+  census from `Data\Scene\Save\bgXXXX\bgXXXX.npc` placements (via
+  `gamedata/pf_decode_lua_npc.py`, already used for `bg0001` by lane A/B)
+  plus lane B's hostile roster where one exists for that scene (`bg0015`
+  has one per the order). See `CORE-REQUEST-GM-015`.
+
 ## Attempted and retracted (broadcast-wire round)
 
 This round tried to give `say` a wire codec for `Channel_GMGlobalMessageVital`
@@ -574,7 +624,30 @@ one line, which step the shortcut skipped, e.g.:
 
 ## RE requests open (owned by static RE lane, filed via chief)
 
-None filed by this lane as of this round. Remaining semantic gaps (what the
+Two filed by this lane, both still open as of this round (this list had
+drifted stale -- corrected here rather than silently, per this lane's own
+rule against letting an inaccurate claim stand):
+
+5. **`RE-104`** GM-EDITOR-WIDGET-OPEN-TRIGGER-001 -- what toggles the
+   dedicated GM editor widget active/visible (filed 2026-08-27, follow-up to
+   `RE-091` nonclaim (2)). Blocks a scripted procedure for `GT-103`'s
+   attended capture matrix; does not block this round's login-scene-override
+   work.
+6. **`RE-105`** GM-UPDATE-STATE-VITAL-VERSION-001 -- **urgent, filed this
+   round**. `GT-101` (attended, owner-observed) proved the `vital_version=1`
+   this lane had shipped as `[ASSUMED - awaiting RE]` for
+   `GM_UpdateGMStateVital` (`0x5A19`) is wrong: the client rejects it with a
+   modal `網路 VitalData 版本不對 --- ErrorData=23065` (`23065` decimal =
+   `0x5A19`), stops processing the connection, and closes the socket --
+   killing the owner's session on the very account she booted with. `RE-105`
+   asks the static RE lane to pin the version the client's `0x00729F00`
+   handler actually accepts. **Until `RE-105` closes, no account this
+   project's owner boots with may appear in `gm_accounts` while
+   `runtime.py`'s `GM_UPDATE_STATE_AFTER_LOGIN` call site
+   (`make_gm_update_state_frame(legacy, 1, 0, 0, 0)`, chief's write zone)
+   still hardcodes `vital_version=1` -- see `CORE-REQUEST-GM-016`.**
+
+Remaining semantic gaps (what the
 `GM_RunGMCommandVital` two wide strings and three scalars mean; what the
 `GM_RunGMCommandResultVital` byte means; what `GM_UpdateGMStateVital`'s
 three fields mean; what the `TeleportVital`/`CWarpResult` positional-only
