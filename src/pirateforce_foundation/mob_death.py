@@ -225,6 +225,21 @@ WIDENING_RULINGS: dict[str, frozenset[int]] = {
     "COO-DECISION widen-death-scope-916-training-iron-man "
     "2026-08-27T09:55+07:00 (ref PANYA-DECISION 2026-08-27T09:50+07:00 "
     "section 3, supersedes COO 0954)": frozenset({916}),
+    # COO-DECISION 2026-08-27T13:50+07:00 (notes_to_chief/20260827_1350_
+    # COO-DECISION-widen-death-scope-bg0001-full-roster-approved.md),
+    # answering LANE-B-ASK-COO 2026-08-27 15:00 (round t48epl): approves
+    # stage two, all 13 real MOBS-table field mobs in bg0001 (not just
+    # SANCTIONED_FIRST_TARGET_IDENTITY). The letter tells chief to pass
+    # this EXACT string at runtime.py:3925 -- the template id set below is
+    # the distinct template_id values of field_mobs.load_roster()'s 13
+    # entries as of this round (31 Tornado Eagle, 34/35 Fighting Fish,
+    # 60 Jungle Big Tiger, 61 Toxic Vine, 62 Ancient Civilization Alert
+    # Weapon, 65 Ward Apes, 94 An Gebo Little Firebird, 97 Mutant Green
+    # Eagle x4 identities, 103 Orc Chief), re-derived from the roster
+    # itself in tests/test_mob_death.py rather than hand-copied twice.
+    "COO-RULING-20260827-1350 widen-death-scope-bg0001": frozenset(
+        {31, 34, 35, 60, 61, 62, 65, 94, 97, 103}
+    ),
 }
 
 # ---------------------------------------------------------------------------
