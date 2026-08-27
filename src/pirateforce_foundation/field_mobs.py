@@ -189,6 +189,24 @@ CONTROL_TEMPLATE_ID = 31
 # once after model readiness.  Carried, not re-derived, from world_population.
 INITIAL_REAPPLY_MS = 3000
 
+# OUR synthetic cosmetic policy, NOT recovered per-placement data -- RE-116
+# (2026-08-28, DONE / bounded negative, `pf_bridge` letter
+# 20260828_0516_RE-116-RESULT-MOVEMENTATTR-IS-SPAWN-HEADING-SOURCE.md) closed
+# this off after an exhaustive static search: CNetNPC's initial-apply path
+# (`0x0045D34F`/`0x0045D355`) does read spawn heading from `MovementAttr+0x34`
+# -- exactly the field `hostile_actor_entry`/`corpse` frames below already
+# populate via `legacy.make_remote_movement_attr(..., mask=FULL_MOVEMENT_MASK)`
+# (mask bit 0x02, object +0x34) -- so the WIRE MECHANISM this module uses was
+# confirmed correct.  But RE-116 found no crosswalk from either the raw `.npc`
+# placement bytes (T2: reader never touches offsets +0x08/+0x0C/+0x10/+0x14,
+# only x/y/z) or `CONSTDATA_TH__MARKER.n_DIRTECTION` (T3: its one named
+# consumer is player teleport/scene-entry orientation, not NPC placement) to
+# an authentic per-placement heading value.  So this four-way round robin,
+# keyed by `placement_index & 3`, stays what it always was: a value THIS
+# PROJECT invented so spawned monsters do not all face one direction, not
+# something recovered from client/gamedata.  Do not describe it elsewhere as
+# authentic, and replace it the moment a real crosswalk is found (none exists
+# today).
 HEADINGS = (0.0, math.pi / 2.0, math.pi, 3.0 * math.pi / 2.0)
 _FLOAT32_MAX = 3.4028234663852886e38
 
@@ -1121,6 +1139,14 @@ def pin_document(legacy: Any) -> dict:
             "spawn-rate shortcuts - none of the three matched on the "
             "measured crosswalk. This module never read those bytes; "
             "level/rank/max_hp come from MOBS/STANDARD_MOB proper",
+            "HEADINGS (the four spawn-facing values below) is OUR synthetic "
+            "cosmetic round-robin, not recovered per-placement data - "
+            "RE-116 (2026-08-28, DONE / BOUNDED-NEGATIVE) confirmed the "
+            "wire mechanism (MovementAttr+0x34, mask bit 0x02, exactly what "
+            "hostile_actor_entry already sends) but found no crosswalk from "
+            "either the raw .npc placement bytes or "
+            "CONSTDATA_TH__MARKER.n_DIRTECTION to an authentic per-mob "
+            "heading value",
         ],
     }
 

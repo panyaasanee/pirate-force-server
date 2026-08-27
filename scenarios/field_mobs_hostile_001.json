@@ -295,6 +295,7 @@
     "no aggro, no attack, no death, no drop: this lane builds the monster, not the fight",
     "max_hp is DERIVED from STANDARD_MOB by level; the two frozen controls it re-derives are placement 30 only",
     "nothing imports this module, so on its own it changes nothing the player sees",
-    "RE-098 (2026-08-27, DONE / BOUNDED-NEGATIVE) closed off using the raw definition payload's b5/b15/u32@11 as level/rank/spawn-rate shortcuts - none of the three matched on the measured crosswalk. This module never read those bytes; level/rank/max_hp come from MOBS/STANDARD_MOB proper"
+    "RE-098 (2026-08-27, DONE / BOUNDED-NEGATIVE) closed off using the raw definition payload's b5/b15/u32@11 as level/rank/spawn-rate shortcuts - none of the three matched on the measured crosswalk. This module never read those bytes; level/rank/max_hp come from MOBS/STANDARD_MOB proper",
+    "HEADINGS (the four spawn-facing values below) is OUR synthetic cosmetic round-robin, not recovered per-placement data - RE-116 (2026-08-28, DONE / BOUNDED-NEGATIVE) confirmed the wire mechanism (MovementAttr+0x34, mask bit 0x02, exactly what hostile_actor_entry already sends) but found no crosswalk from either the raw .npc placement bytes or CONSTDATA_TH__MARKER.n_DIRTECTION to an authentic per-mob heading value"
   ]
 }
