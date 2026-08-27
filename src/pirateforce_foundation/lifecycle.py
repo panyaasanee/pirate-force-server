@@ -1,5 +1,6 @@
 from .actor_wire import bind_actor_and_avatar_identity, read_name
 from .model import Position
+from .world_scene_travel import is_position_persist_allowed, load_scene_registry
 import hashlib
 import unicodedata
 
@@ -7,6 +8,12 @@ class CharacterLifecycle:
     def __init__(self, store, default_position: Position, avatar_extractor=None):
         self.store, self.default_position = store, default_position
         self.avatar_extractor = avatar_extractor
+        # Loaded once at boot (this object is a single long-lived instance,
+        # see app.py) rather than per checkpoint -- the registry is static
+        # committed content for the life of a run, and checkpoint() fires on
+        # every movement tick (measured ~19 times in one short walk), not
+        # just at login like most of this file's other registry readers.
+        self._scene_registry = load_scene_registry()
 
     def login(self, login_name: str):
         aid = self.store.ensure_account(login_name)
@@ -61,7 +68,18 @@ class CharacterLifecycle:
         return self.store.soft_delete_character(session_id, selector)
 
     def checkpoint(self, session_id, character, position):
-        self.store.save_position(session_id, character.id, position)
+        # CORE-REQUEST-018 / GT-106 (4).3: a character whose current scene is
+        # pinned persist_position_allowed=False (today: scene 17, no return
+        # path measured yet) must not have this checkpoint overwrite its
+        # stored character_positions row at all -- writing scene_id=1 with
+        # scene 17's XYZ (or scene 17 itself, which would then refuse the
+        # character at next login per login_entry_allowed) is worse than
+        # leaving the last-known-good row untouched. store.save_position
+        # still verifies session/character ownership either way (pf-adversary
+        # finding 1) -- a stale or hijacked session still raises here, only
+        # the column write itself is skipped.
+        allowed = is_position_persist_allowed(position.scene_id, self._scene_registry)
+        self.store.save_position(session_id, character.id, position, write_position=allowed)
 
     def backpack(self, session_id, character):
         return self.store.get_backpack(session_id, character.id)
@@ -100,5 +118,10 @@ class CharacterLifecycle:
         )
 
     def exit(self, session_id, character, position):
-        self.store.save_position(session_id, character.id, position)
+        # Same gate as checkpoint() above -- the session still closes either
+        # way, only the position write is skipped. A stale/non-owning
+        # session still raises PermissionError here and close_session below
+        # never runs, exactly as before this gate existed.
+        allowed = is_position_persist_allowed(position.scene_id, self._scene_registry)
+        self.store.save_position(session_id, character.id, position, write_position=allowed)
         self.store.close_session(session_id)

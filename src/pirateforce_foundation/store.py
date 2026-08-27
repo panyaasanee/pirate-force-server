@@ -262,7 +262,24 @@ class SQLiteStore:
             db.execute("UPDATE sessions SET selected_character_id=? WHERE id=?", (row['id'],sid))
         return self._character(row)
 
-    def save_position(self, sid: str, cid: int, pos: Position):
+    def save_position(self, sid: str, cid: int, pos: Position, *, write_position: bool = True):
+        # write_position=False (CORE-REQUEST-018 / GT-106 (4).3, pf-adversary
+        # finding 1): a caller that is skipping the actual column write for a
+        # persist_position_allowed=False scene must still prove sid owns an
+        # open, non-stale lease on cid -- this EXISTS/SELECT check is the
+        # project's only detection signal for a stale/superseded session
+        # (see the multiplayer-readiness audit report), and silently
+        # short-circuiting it here would turn a loud PermissionError into a
+        # no-op for exactly the scene this project already flagged riskiest.
+        if not write_position:
+            with self.connect() as db:
+                owning = db.execute(
+                    "SELECT 1 FROM sessions WHERE id=? AND selected_character_id=? AND closed_at IS NULL",
+                    (sid, cid),
+                ).fetchone()
+            if owning is None:
+                raise PermissionError("stale or non-owning character session")
+            return
         if not (0 <= pos.scene_id <= 0xFFFF and 0 <= pos.scene_seq <= 0xFFFFFFFFFFFFFFFF):
             raise ValueError("position scene identity is outside wire bounds")
         if not all(math.isfinite(v) for v in (pos.x, pos.y, pos.z, pos.heading)):
