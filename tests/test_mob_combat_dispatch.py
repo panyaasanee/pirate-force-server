@@ -27,6 +27,7 @@ composes.  No client has ever been shown one byte of either.
 """
 from __future__ import annotations
 
+import dataclasses
 import sys
 import tempfile
 import unittest
@@ -309,22 +310,64 @@ class MobCombatDispatchTests(unittest.TestCase):
 
     # ----- the sanctioned-scope gate is respected, not bypassed -------------
 
-    def test_a_killing_blow_on_an_unsanctioned_identity_finishes_no_kill(self):
-        """[PROPOSED] documents the honest degradation, does not paper over it.
-
-        mob_death.kill refuses any identity but 0x201F unless the caller
-        passes ``widened=``, and this wiring passes none -- the owner's own
-        ruling says the two steps (prove on 0x201F, then widen) must not be
-        merged into one round.  A field-mob other than P30 therefore converges
-        to 0 HP and stays there with no death frames, exactly like every
-        monster did before MOB-DEATH-001 existed.
+    def test_a_killing_blow_on_a_bg0001_roster_identity_now_finishes_a_kill(self):
+        """COO-RULING-20260827-1350 widened mob_death.kill()'s scope to the
+        10 template ids field_mob_tables.py's bg0001 roster carries (see
+        mob_death.WIDENING_RULINGS) and this wiring now passes that ruling's
+        exact name on every kill -- so any roster identity finishes a real
+        kill, not only 0x201F/P30.  This replaces the old test of the same
+        name minus "now": that test's premise ("this wiring passes no
+        widened=") is exactly what the ruling made false, on purpose.
         """
-        state = self._state("mc_unsanctioned")
+        state = self._state("mc_widened_roster")
         other = next(
             m for m in self.roster if m.actor_identity != SANCTIONED_TARGET
         )
         self._set_balance(state, other.actor_identity, 1)
         actions = self._attack(state, other.actor_identity)
+        labels = [label for label, _pc, _f, _d in actions]
+        self.assertEqual(
+            labels[:3],
+            ["MOB_COMBAT_ANNOUNCE", "MOB_DEATH_DYING", "MOB_DEATH_DEAD"],
+        )
+        self.assertTrue(all(label == "MOB_LOOT_DROP" for label in labels[3:]))
+        self.assertTrue(state.mob_death_register.is_dead(other.actor_identity))
+        self.assertEqual(
+            state.mob_combat_ledger.balance_of(other.actor_identity).current_hp,
+            0,
+        )
+        self.assertEqual(state.mob_combat_kill_count, 1)
+
+    def test_a_killing_blow_on_a_template_no_ruling_names_still_finishes_no_kill(
+        self,
+    ):
+        """The gate mob_death.kill() enforces is per-template_id, not "any
+        roster member" -- proves it still holds end-to-end for a template no
+        WIDENING_RULINGS entry names, so a future roster addition cannot walk
+        through this wiring's hardcoded widened= string by accident.  A
+        synthetic mob (template_id 1, which is neither 0x201F, 916, nor any
+        of the 10 bg0001 ids the current ruling names) is added to the roster
+        this state boots from, standing in for that future addition.
+        """
+        # Copy every field the AI/combat tables validate (ai_wander,
+        # ai_combat, speed_walk, visual_preset) from a real, mined roster
+        # mob -- only placement_index, template_id and display_name change.
+        # A hand-picked ai_wander/ai_combat pair not in the mined
+        # field_mob_ai_tables rows would refuse at boot for a reason
+        # unrelated to what this test proves.
+        outsider_mob = dataclasses.replace(
+            self.p30,
+            placement_index=9999,
+            template_id=1,
+            display_name="Unruled Test Mob",
+        )
+        with mock.patch.object(
+            field_mobs, "load_roster",
+            return_value=self.roster + (outsider_mob,),
+        ):
+            state = self._state("mc_unruled_template")
+            self._set_balance(state, outsider_mob.actor_identity, 1)
+            actions = self._attack(state, outsider_mob.actor_identity)
         self.assertEqual(
             [label for label, _pc, _f, _d in actions], ["MOB_COMBAT_ANNOUNCE"],
         )
@@ -334,9 +377,13 @@ class MobCombatDispatchTests(unittest.TestCase):
             )
             for event in state.events
         ))
-        self.assertFalse(state.mob_death_register.is_dead(other.actor_identity))
+        self.assertFalse(
+            state.mob_death_register.is_dead(outsider_mob.actor_identity)
+        )
         self.assertEqual(
-            state.mob_combat_ledger.balance_of(other.actor_identity).current_hp,
+            state.mob_combat_ledger.balance_of(
+                outsider_mob.actor_identity
+            ).current_hp,
             0,
         )
         self.assertEqual(state.mob_combat_kill_count, 0)
