@@ -101,4 +101,16 @@ def make_gm_update_state_frame(
     payload = make_gm_update_state_payload(
         legacy, field_0x0b_first, field_0x0b_second, field_0x14
     )
-    return legacy.make_runtime_vital(GM_UPDATE_GM_STATE_VITAL_ID, vital_version, payload)
+    # RE-113 (STATIC-ON-BRIDGE, LANE-GM round fmgvbx): GT-107 sent this frame
+    # built via the singular legacy.make_runtime_vital() helper and the
+    # client threw ErrorData=28317 (GSCN_RunTimeProtocolRes read-failed)
+    # after the version check (RE-105) passed. legacy.make_runtime_vital()
+    # (singular) does not append the trailing derived-class change-mask byte
+    # that GSCN_RunTimeProtocolRes v4 requires after its VitalData
+    # collection -- legacy.make_runtime_vitals() (plural, list-based) does,
+    # per that helper's own docstring/comment citing this exact error code,
+    # and per the three independently-documented incidents in
+    # reports/PF_DELETE_SOFT002_NATURAL_0x36DB_DECODE_20260818.md section
+    # (c). Switching to the plural helper with a single-item list produces
+    # the same envelope plus the missing trailing 0x0B 0x00.
+    return legacy.make_runtime_vitals([(GM_UPDATE_GM_STATE_VITAL_ID, vital_version, payload)])

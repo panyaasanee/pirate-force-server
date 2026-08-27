@@ -61,11 +61,20 @@ class GmStateWireFrameTests(unittest.TestCase):
 
     def test_frame_carries_the_gm_update_state_vital_id(self):
         pc, frame = make_gm_update_state_frame(self.legacy, 4, 1, 0, 0)
-        expected_pc, expected_frame = self.legacy.make_runtime_vital(
-            GM_UPDATE_GM_STATE_VITAL_ID, 4, make_gm_update_state_payload(self.legacy, 1, 0, 0)
+        expected_pc, expected_frame = self.legacy.make_runtime_vitals(
+            [(GM_UPDATE_GM_STATE_VITAL_ID, 4, make_gm_update_state_payload(self.legacy, 1, 0, 0))]
         )
         self.assertEqual(pc, expected_pc)
         self.assertEqual(frame, expected_frame)
+
+    def test_frame_carries_the_re113_trailing_change_mask_byte(self):
+        # RE-113 (LANE-GM round fmgvbx): GSCN_RunTimeProtocolRes v4 requires a
+        # trailing derived-class change-mask byte (u8tag 0x0B, value 0) after
+        # its VitalData collection -- omitting it produced ErrorData=28317 on
+        # a real client (GT-107). Regression guard: the built PC must end on
+        # that exact trailing tag, not on the vital's own last field.
+        pc, _frame = make_gm_update_state_frame(self.legacy, 4, 1, 0, 0)
+        self.assertEqual(pc[-2:], self.legacy.u8tag(0x0B, 0))
 
     def test_vital_id_constant_matches_bridge_registry(self):
         # pf_bridge/VITAL_REGISTRY_FROM_CLIENT_BINARY_20260817.tsv: 0x5A19 GM_UpdateGMStateVital
