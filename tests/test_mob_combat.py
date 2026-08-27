@@ -47,8 +47,11 @@ from pirateforce_foundation import (
 from pirateforce_foundation.legacy_bridge import load_legacy
 from pirateforce_foundation.population import NPC_ATTR_ID
 from pirateforce_foundation.mob_combat import (
+    ATTACK_CADENCE_MS_PROVISIONAL,
     CHIT_RESULT_HEADER_WIRE_SIZE,
     CHIT_RESULT_VITAL_ID,
+    AttackCadenceLedger,
+    CadenceRecord,
     Combatant,
     CombatLedger,
     FLAGS_HIT,
@@ -62,9 +65,12 @@ from pirateforce_foundation.mob_combat import (
     apply_threat,
     attack_from_observed_action,
     bar_frames,
+    check_attack_cadence,
+    describe_cadence_rejection,
     describe_step,
     encode_hit_entry,
     mob_defender,
+    open_cadence_ledger,
     open_ledger,
     pin_document,
     production_allowed,
@@ -746,6 +752,149 @@ class MobCombatTests(unittest.TestCase):
         self.assertTrue(any("overkill by" in line for line in lines))
         self.assertTrue(any("death due" in line for line in lines))
         self.assertTrue(any("mob_death.kill" in line for line in lines))
+
+    # -- attack cadence (PANYA-REFERENCE 2026-08-27 16:35, RE-110) ---------
+    #
+    # These pin the "spam-click = runaway damage" gate ahead of RE-110's
+    # real number: a fast-second-attack rejection, an accept once the window
+    # elapses, and no cross-performer blocking.  ``ATTACK_CADENCE_MS_
+    # PROVISIONAL`` is used throughout rather than a hard-coded literal, so a
+    # later round that swaps the constant does not also have to hand-edit
+    # every test's arithmetic.
+
+    OTHER_PERFORMER = 0x750060
+
+    def test_the_first_attack_from_a_new_performer_is_accepted(self):
+        cadence = open_cadence_ledger()
+        check = check_attack_cadence(cadence, PERFORMER, 1_000)
+        self.assertTrue(check.accepted)
+        self.assertEqual(check.early_by_ms, 0)
+        self.assertEqual(
+            check.cadence.last_accepted_at(PERFORMER), 1_000)
+
+    def test_a_second_attack_inside_the_window_is_rejected(self):
+        cadence = open_cadence_ledger()
+        first = check_attack_cadence(cadence, PERFORMER, 1_000)
+        too_soon_at = 1_000 + ATTACK_CADENCE_MS_PROVISIONAL - 1
+        second = check_attack_cadence(first.cadence, PERFORMER, too_soon_at)
+        self.assertFalse(second.accepted)
+        self.assertEqual(second.early_by_ms, 1)
+        # a rejection must not move the ledger: the window is measured from
+        # the last ACCEPTED attack, not from the last attempt.
+        self.assertEqual(second.cadence, first.cadence)
+        self.assertEqual(second.cadence.last_accepted_at(PERFORMER), 1_000)
+
+    def test_an_attack_exactly_at_the_window_is_accepted(self):
+        cadence = open_cadence_ledger()
+        first = check_attack_cadence(cadence, PERFORMER, 1_000)
+        exactly_at = 1_000 + ATTACK_CADENCE_MS_PROVISIONAL
+        second = check_attack_cadence(first.cadence, PERFORMER, exactly_at)
+        self.assertTrue(second.accepted)
+        self.assertEqual(
+            second.cadence.last_accepted_at(PERFORMER), exactly_at)
+
+    def test_an_attack_after_the_window_elapses_is_accepted(self):
+        cadence = open_cadence_ledger()
+        first = check_attack_cadence(cadence, PERFORMER, 1_000)
+        well_after = 1_000 + ATTACK_CADENCE_MS_PROVISIONAL + 5_000
+        second = check_attack_cadence(first.cadence, PERFORMER, well_after)
+        self.assertTrue(second.accepted)
+
+    def test_a_burst_of_rejects_does_not_slide_its_own_deadline(self):
+        # Five rapid clicks after one accepted hit: the fifth is scored
+        # against the SAME accepted timestamp as the second, not against the
+        # fourth reject.
+        cadence = open_cadence_ledger()
+        cadence = check_attack_cadence(cadence, PERFORMER, 0).cadence
+        early_by_values = []
+        for offset in (10, 20, 30, 40, 50):
+            check = check_attack_cadence(cadence, PERFORMER, offset)
+            self.assertFalse(check.accepted)
+            early_by_values.append(check.early_by_ms)
+        expected = [
+            ATTACK_CADENCE_MS_PROVISIONAL - offset
+            for offset in (10, 20, 30, 40, 50)
+        ]
+        self.assertEqual(early_by_values, expected)
+
+    def test_two_performers_are_not_cross_blocked(self):
+        cadence = open_cadence_ledger()
+        first = check_attack_cadence(cadence, PERFORMER, 1_000)
+        second = check_attack_cadence(
+            first.cadence, self.OTHER_PERFORMER, 1_000 + 1)
+        self.assertTrue(second.accepted)
+        self.assertEqual(
+            second.cadence.last_accepted_at(PERFORMER), 1_000)
+        self.assertEqual(
+            second.cadence.last_accepted_at(self.OTHER_PERFORMER), 1_001)
+
+    def test_clock_skew_fails_closed_not_open(self):
+        # A caller-supplied timestamp earlier than this performer's own last
+        # accepted one must never be read as "plenty of time has passed".
+        cadence = open_cadence_ledger()
+        first = check_attack_cadence(cadence, PERFORMER, 10_000)
+        second = check_attack_cadence(first.cadence, PERFORMER, 1)
+        self.assertFalse(second.accepted)
+        self.assertEqual(second.early_by_ms, ATTACK_CADENCE_MS_PROVISIONAL)
+
+    def test_a_rejection_console_line_names_the_performer_and_the_shortfall(
+        self,
+    ):
+        cadence = open_cadence_ledger()
+        first = check_attack_cadence(cadence, PERFORMER, 1_000)
+        second = check_attack_cadence(first.cadence, PERFORMER, 1_050)
+        lines = describe_cadence_rejection(second)
+        self.assertEqual(len(lines), 1)
+        self.assertIn("0x%X" % PERFORMER, lines[0])
+        self.assertIn("REJECTED", lines[0])
+        self.assertIn("%d" % second.early_by_ms, lines[0])
+        self.assertIn("RE-110", lines[0])
+        self.assertTrue(lines[0].isascii())
+
+    def test_describe_cadence_rejection_refuses_an_accepted_check(self):
+        cadence = open_cadence_ledger()
+        accepted = check_attack_cadence(cadence, PERFORMER, 1_000)
+        with self.assertRaises(MobCombatContractError) as caught:
+            describe_cadence_rejection(accepted)
+        self.assertEqual(
+            caught.exception.reason,
+            mob_combat.REFUSE_CADENCE_OUTCOME_SELF_CONTRADICTORY)
+
+    def test_cadence_ledger_refuses_unsorted_rows(self):
+        rows = (CadenceRecord(2, 0), CadenceRecord(1, 0))
+        with self.assertRaises(MobCombatContractError) as caught:
+            AttackCadenceLedger(rows)
+        self.assertEqual(
+            caught.exception.reason, mob_combat.REFUSE_CADENCE_NOT_SORTED)
+
+    def test_cadence_ledger_refuses_duplicate_identity(self):
+        rows = (CadenceRecord(1, 0), CadenceRecord(1, 5))
+        with self.assertRaises(MobCombatContractError) as caught:
+            AttackCadenceLedger(rows)
+        self.assertEqual(
+            caught.exception.reason,
+            mob_combat.REFUSE_DUPLICATE_CADENCE_IDENTITY)
+
+    def test_cadence_ledger_never_shrinks_and_keys_by_performer(self):
+        cadence = open_cadence_ledger()
+        cadence = check_attack_cadence(cadence, PERFORMER, 0).cadence
+        cadence = check_attack_cadence(
+            cadence, self.OTHER_PERFORMER, 0).cadence
+        self.assertEqual(
+            sorted(cadence.identities()),
+            sorted((PERFORMER, self.OTHER_PERFORMER)))
+        # a second accepted attack from the SAME performer replaces its row
+        # rather than growing the ledger.
+        cadence = check_attack_cadence(
+            cadence, PERFORMER, ATTACK_CADENCE_MS_PROVISIONAL).cadence
+        self.assertEqual(len(cadence.identities()), 2)
+
+    def test_this_lane_needs_no_flag_covers_cadence_names_too(self):
+        # The existing test_this_lane_needs_no_flag already re-scans the
+        # whole module text, so this only pins that the new names are
+        # actually present for it to have scanned.
+        self.assertIn("check_attack_cadence", dir(mob_combat))
+        self.assertIn("ATTACK_CADENCE_MS_PROVISIONAL", dir(mob_combat))
 
 
 if __name__ == "__main__":
