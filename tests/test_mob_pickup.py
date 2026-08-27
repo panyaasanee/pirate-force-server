@@ -934,6 +934,62 @@ class MobPickupTests(unittest.TestCase):
         self.assertTrue(pc and frame)
         self.assertTrue(registry.release(CHARACTER))
 
+    def test_the_headline_dispatch_call_the_wiring_hands_the_chief_actually_runs(
+            self):
+        """THE ONE LINE THIS WHOLE REFACTOR EXISTS TO MAKE TRANSCRIPTION-PROOF.
+
+        ``test_the_wiring_line_this_lane_hands_the_chief_actually_runs``
+        above only ever walks the OLD four-piece recipe MOB_PICKUP_WIRING
+        used to spell out by hand -- it never once calls the NEW headline
+        one-call line the wiring note (and dispatch_pickup_request's own
+        docstring) now actually hands the chief.  An adversarial pass proved
+        that gap concretely: swapping the ``drop_ledger_cell``/``legacy``
+        argument order in that exact headline string left the full 70-test
+        suite green, because the older test only searches the string for
+        substrings and never runs it.
+
+        So this test does two things the older one does not.  First, it
+        proves ``MOB_PICKUP_DISPATCH_HEADLINE_CALL`` -- the one place this
+        exact call text is written down -- lives verbatim inside
+        ``MOB_PICKUP_WIRING``, so nobody can edit the wiring's copy of the
+        call without also editing the constant this test reads.  Second, it
+        EXECUTES that exact text against real fixture objects, bound under
+        the very names the headline text itself uses (``bag_cell``,
+        ``drop_ledger_cell``, ``legacy``, ``identity``, ``x``, ``y``, ``z``,
+        ``object_ref_u32``, ``opaque_u8``).  A wrong argument order sends the
+        legacy module where the ledger cell belongs (or the reverse), which
+        ``commit_pickup``'s own type check refuses; a wrong argument count is
+        a ``TypeError``; a call to the wrong function name is an
+        ``AttributeError``.  All three turn this test red instead of leaving
+        it silently unable to notice.
+        """
+        headline = mob_pickup.MOB_PICKUP_DISPATCH_HEADLINE_CALL
+        self.assertIn(headline, mob_pickup.MOB_PICKUP_WIRING)
+
+        registry = BagCellRegistry()
+        bag_cell = registry.claim(CHARACTER, INITIAL_BACKPACK)
+        ground = a_cell(a_drop())
+        namespace = {
+            "mob_pickup": mob_pickup,
+            "bag_cell": bag_cell,
+            "drop_ledger_cell": ground,
+            "legacy": self.legacy,
+            "identity": KILLER,
+            "x": 10.0,
+            "y": 20.0,
+            "z": 30.0,
+            "object_ref_u32": KEY,
+            "opaque_u8": 3,
+        }
+        exec("outcome = " + headline, namespace)  # noqa: S102 -- see docstring
+        outcome = namespace["outcome"]
+        self.assertEqual(type(outcome), PickupOutcome)
+        self.assertEqual(ground.ledger.drops, (), "the drop left the ground")
+        self.assertIsNotNone(outcome.delta)
+        self.assertEqual(outcome.delta, bag_delta_pc(self.legacy, outcome.item))
+        self.assertEqual(outcome.opaque_u8, 3)
+        self.assertTrue(registry.release(CHARACTER))
+
     # -- dispatch_pickup_request: the one call that now replaces steps 1-4 --
     def test_dispatch_pickup_request_returns_a_usable_outcome_and_logs_the_row(
             self):
@@ -1039,12 +1095,16 @@ class MobPickupTests(unittest.TestCase):
         self.assertEqual(len(cell.ledger.drops), 1)
         self.assertEqual(bag_cell.bag, INITIAL_BACKPACK)
 
-    def test_dispatch_pickup_request_needs_the_callers_own_typed_bag_cell(self):
-        """Not the registry, not a lookalike -- the exact BagCell the caller
+    def test_dispatch_pickup_request_refuses_a_non_bagcell_type(self):
+        """Not the registry, not a lookalike, not any other object type.
 
-        was handed at character select.  A type check here turns a wrong
-        argument into a named refusal instead of an ``AttributeError`` from
-        deep inside ``commit_pickup``.
+        This proves the TYPE check only: a ``bag_cell`` argument that is not
+        an exact ``BagCell`` is refused by name instead of reaching an
+        ``AttributeError`` from deep inside ``commit_pickup``.  It does NOT
+        prove that the ``BagCell`` handed in belongs to the connection the
+        claim's identity names -- a ``BagCell`` for a DIFFERENT character is
+        the right TYPE and passes this check untouched.  See NONCLAIM 15:
+        that ownership binding is not checked anywhere in this module today.
         """
         ground = a_cell(a_drop())
         self.assertEqual(

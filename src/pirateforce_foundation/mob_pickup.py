@@ -218,6 +218,23 @@ MOB_PICKUP_MILESTONE = "MOB-PICKUP-001"
 MOB_PICKUP_BUILD_ORDER = "BUILD-006 / M5 second half"
 MOB_PICKUP_LANE = "B_COMBAT"
 
+# THE EXACT HEADLINE CALL, AS ONE STRING, SO IT CAN BE PINNED RATHER THAN
+# DESCRIBED.  MOB_PICKUP_WIRING below is built FROM this constant instead of
+# spelling the call out a second time in its own literal text -- an
+# adversarial pass proved why that separation matters: it swapped the
+# drop_ledger_cell/legacy argument order in the wiring's copy of this exact
+# text and the full suite stayed green, because nothing executed the string,
+# only searched it for substrings.  tests/test_mob_pickup.py now does both:
+# asserts this constant appears verbatim inside MOB_PICKUP_WIRING (so nobody
+# can edit the wiring's copy without editing the one place this file and that
+# test both read), AND execs this exact text against real fixture objects
+# bound under the same names it uses, so a wrong argument order, a wrong
+# argument count or a call to the wrong function name all turn red.
+MOB_PICKUP_DISPATCH_HEADLINE_CALL = (
+    "mob_pickup.dispatch_pickup_request(bag_cell, drop_ledger_cell, legacy, "
+    "identity, x, y, z, object_ref_u32, opaque_u8)"
+)
+
 MOB_PICKUP_WIRING = (
     "runtime.py.  The scene already holds ONE mob_loot.DropLedgerCell (see "
     "mob_loot.MOB_LOOT_WIRING).  This lane adds no second owner of the ground "
@@ -235,9 +252,7 @@ MOB_PICKUP_WIRING = (
     "lane wants.\n"
     "  ON AN INBOUND PICKUP REQUEST, decoded to (claimant identity, claimant "
     "position, object reference dword, the request u8):\n"
-    "  outcome = mob_pickup.dispatch_pickup_request(bag_cell, "
-    "drop_ledger_cell, legacy, identity, x, y, z, object_ref_u32, "
-    "opaque_u8)\n"
+    "  outcome = " + MOB_PICKUP_DISPATCH_HEADLINE_CALL + "\n"
     "     - ONE CALL for steps 1, 2, 3 (log-only) and 4 below.  Inside it: "
     "1. claim = mob_pickup.PickupClaim(identity, x, y, z, object_ref_u32, "
     "opaque_u8); 2. outcome = bag_cell.commit_pickup(drop_ledger_cell, "
@@ -467,6 +482,20 @@ MOB_PICKUP_NONCLAIMS = (
     "from the caller and falls back to the derived form.  Which lane owns "
     "that column is an open question and is in this round's letter to the "
     "COO, not silently decided here.",
+    "15. [OPEN RISK, NOT MEASURED - flagged, not fixed, this round "
+    "(`37ts2b`)] NOTHING HERE BINDS bag_cell TO THE CLAIMANT IN THE REQUEST "
+    "IT IS PASSED AGAINST.  dispatch_pickup_request (and BagCell.commit_pickup "
+    "underneath it) checks that bag_cell is a typed BagCell -- it does not "
+    "check that the bag_cell handed in is the one the connection carrying "
+    "claim.claimant_identity was given at character select.  A mismatched "
+    "pair (connection A's decoded claimant_identity paired with connection "
+    "B's live BagCell) is not refused by anything in this module today: this "
+    "is pre-existing behaviour inherited unchanged from BagCell.commit_pickup, "
+    "not something this round introduced or fixed.  Whether that binding "
+    "belongs to runtime.py (match the decoded identity to the caller's own "
+    "claimed cell before calling in) or is an open design question for the "
+    "COO is not decided here; this module provides no defense-in-depth "
+    "against a mismatched pair.",
 )
 
 
@@ -1255,9 +1284,19 @@ def dispatch_pickup_request(
     existed, that note asked the chief to assemble ``PickupClaim``, call
     ``commit_pickup``, remember NOT to persist ``outcome.row_write`` (see THE
     WALL), and send ``outcome.delta`` -- four places for a transcription
-    slip, none of them typechecked until a test walked the paragraph (see
-    ``test_the_wiring_line_this_lane_hands_the_chief_actually_runs``).  This
-    collapses all four into the one call the wiring note now names.
+    slip.  ``test_the_wiring_line_this_lane_hands_the_chief_actually_runs``
+    is what walked that OLD four-piece recipe and caught the transcription
+    slip an adversarial pass had left in it.  This collapses all four into
+    the one call the wiring note now names --
+    ``MOB_PICKUP_DISPATCH_HEADLINE_CALL`` below -- and THAT call is itself
+    pinned as an EXECUTED test, not only as a described paragraph:
+    ``test_the_headline_dispatch_call_the_wiring_hands_the_chief_actually_runs``.
+    A docstring's own example is exactly the kind of line a transcription
+    slip hides in, and a test that only greps for substrings of it (as the
+    older test above still does, for the OLD recipe) would not have caught a
+    swapped argument order in THIS one -- an adversarial pass proved that
+    concretely, by swapping ``drop_ledger_cell``/``legacy`` in the exact
+    headline text and watching the full suite stay green.
 
     ``bag_cell`` is the character's OWN cell, the one
     ``BagCellRegistry.claim`` handed back at character select (step 0) --
