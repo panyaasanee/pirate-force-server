@@ -100,7 +100,11 @@ on:
   # on by a `decide` run that itself failed.  It does not merely report: it
   # finishes the job, then closes what it could not finish.
   schedule:
-    - cron: '17 * * * *'
+    # Every 10 minutes (was hourly at :17).  Both scheduled jobs below are idempotent and
+    # mostly reads; the cost of running them often is a few API calls, the cost of running
+    # them rarely was 1-2 lost lane rounds per self-locked pull request (2026-08-26: #57,
+    # #61, #86, #91 - four in one day).
+    - cron: '*/10 * * * *'
   workflow_dispatch:
 
 # gate-windows triggers on BOTH `push` and `pull_request`, so one commit can
@@ -108,7 +112,9 @@ on:
 # They are serialised rather than cancelled: the loser must still be allowed to
 # observe that the PR is already merged and exit cleanly.
 concurrency:
-  group: merge-claude-pr-${{ github.event.workflow_run.head_sha || github.run_id }}
+  # workflow_run: one group per gate head sha (unchanged).  schedule/dispatch: ONE shared
+  # group so a 10-minute tick never overlaps the previous tick's finish/reap pass.
+  group: merge-claude-pr-${{ github.event.workflow_run.head_sha || 'scheduled' }}
   cancel-in-progress: false
 
 permissions:
@@ -144,8 +150,15 @@ jobs:
       # Measured 2026-08-20 ~21:5x: run #1 on pirate-force-server failed at
       # exactly that call.  reap looked green only because it had no pull
       # request to loop over, so it never reached the same call.
-      actions: read
-      # actions: write is REQUIRED for the post-merge gate dispatch below.
+      #
+      # actions: write is REQUIRED for the post-merge gate dispatch below, and
+      # it INCLUDES read.  It is written ONCE.  R189 (a811d99, 2026-08-27)
+      # added `actions: write` UNDER a still-present `actions: read`, and a
+      # duplicated mapping key is accepted by yaml.safe_load but REJECTED by
+      # GitHub's workflow validator: from that merge on, every push produced
+      # a failed run named `.github/workflows/merge-claude-pr.yml` with zero
+      # jobs, and decide/reap/schedule never ran again - every open PR became
+      # a permanent lock.  Validate with a duplicate-key-strict loader.
       # GitHub does not start a workflow from a push made with GITHUB_TOKEN
       # (gate-windows.yml documents this same fact about itself) - so the
       # merge commit this job just pushed to the default branch would
@@ -381,6 +394,96 @@ jobs:
   # PR still open" and merely printed a warning - which is a permanent lock
   # dressed up as diligence.  It now tries the merge itself, and closes the pull
   # request when it cannot.
+  # ---------------------------------------------------------------------------
+  # finish: the missing wake-up.  `decide` runs only on workflow_run, i.e. when a
+  # gate FINISHES.  A pull request whose gate finished while it was still a draft
+  # is skipped ("draft - skipped"), and when the round then marks it ready no
+  # event ever re-runs `decide`.  The PR sits green-and-ready until the 6-hour
+  # reaper, and every later round of that lane ends on "lock held" (measured on
+  # 2026-08-26: #57 13:25-14:49, #61 15:59-17:27, #86 04:2x-05:2x, #91 05:3x-07:19).
+  # This job closes that gap: on every schedule tick it merges any pull request
+  # that is eligible, non-draft, GREEN on its current head, and has no live run.
+  # It never closes anything and never touches drafts - it is `decide`'s green
+  # path, replayed for pull requests `decide` was never woken for.
+  finish:
+    if: github.event_name != 'workflow_run'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - name: Merge every green, ready, eligible claude/* pull request that decide was never woken for
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          api() {
+            local out rc
+            out=$(gh api "$@" 2>&1) && rc=0 || rc=$?
+            if [ "$rc" -ne 0 ]; then
+              echo "::error::gh api $* FAILED (exit ${rc})" >&2
+              echo "$out" >&2
+              return "$rc"
+            fi
+            printf '%s' "$out"
+          }
+          OPEN=$(api "repos/${REPO}/pulls?state=open&per_page=100" | jq -r '.[].number')
+          if [ -z "$OPEN" ]; then echo "no open pull requests"; exit 0; fi
+          for PR in $OPEN; do
+            META=$(api "repos/${REPO}/pulls/${PR}")
+            HEAD_REF=$(printf '%s' "$META"  | jq -r '.head.ref')
+            HEAD_SHA=$(printf '%s' "$META"  | jq -r '.head.sha')
+            HEAD_REPO=$(printf '%s' "$META" | jq -r '.head.repo.full_name // ""')
+            BASE_REF=$(printf '%s' "$META"  | jq -r '.base.ref')
+            BODY=$(printf '%s' "$META"      | jq -r '.body // ""')
+            DRAFT=$(printf '%s' "$META"     | jq -r '.draft')
+            echo ""
+            echo "--- #${PR} ${HEAD_REF} draft=${DRAFT} ---"
+            # Same six eligibility gates as decide, fail-closed, in the same order.
+            [ "$DRAFT" = "false" ]       || { echo "  draft - left alone (the round is still working)"; continue; }
+            [ "$HEAD_REPO" = "$REPO" ]   || { echo "  fork - skipped"; continue; }
+            [ "$BASE_REF" = "$DEFAULT_BRANCH" ] || { echo "  base is not ${DEFAULT_BRANCH} - skipped"; continue; }
+            case "$HEAD_REF" in claude/*) : ;; *) echo "  not a claude/ branch - skipped"; continue ;; esac
+            case "$BODY" in *"$PF_MARKER"*) : ;; *) echo "  body has no marker '${PF_MARKER}' - skipped, ON PURPOSE (a human must add it; see #86 2026-08-27)"; continue ;; esac
+            # Verdict for THIS head only.  Any live run = decide will handle it; do not race.
+            RUNS=$(api "repos/${REPO}/actions/runs?head_sha=${HEAD_SHA}&per_page=100")
+            LIVE=$(printf '%s' "$RUNS" | jq '[.workflow_runs[] | select(.name == "gate-windows" and .status != "completed")] | length')
+            if [ "$LIVE" != "0" ]; then echo "  a gate run is still live - left to decide"; continue; fi
+            GREEN=no
+            for RID in $(printf '%s' "$RUNS" | jq -r '.workflow_runs[] | select(.name == "gate-windows") | .id'); do
+              C=$(api "repos/${REPO}/actions/runs/${RID}/jobs?per_page=100" \
+                    | jq -r --arg n "$PF_GATE_JOB" '[.jobs[] | select(.name == $n)] | if length == 0 then "absent" else .[0].conclusion end')
+              [ "$C" = "success" ] && { GREEN=yes; break; } || true
+            done
+            [ "$GREEN" = "yes" ] || { echo "  no green gate on head ${HEAD_SHA} - left alone (red is decide's/reap's call, not finish's)"; continue; }
+            # mergeable is computed asynchronously.
+            MERGEABLE=null
+            for attempt in 1 2 3 4 5 6; do
+              MERGEABLE=$(api "repos/${REPO}/pulls/${PR}" | jq -r '.mergeable')
+              [ "$MERGEABLE" = "null" ] || break
+              sleep 5
+            done
+            [ "$MERGEABLE" = "true" ] || { echo "  mergeable=${MERGEABLE} - left alone (conflict handling is reap's job)"; continue; }
+            echo "  green + ready + eligible and decide never ran for this head -> merging"
+            MERGE_OUT=$(gh pr merge "$PR" --repo "$REPO" --merge --match-head-commit "$HEAD_SHA" 2>&1) && MRC=0 || MRC=$?
+            printf '%s\n' "$MERGE_OUT" | sed 's/^/  merge> /'
+            if [ "$MRC" -eq 0 ]; then
+              echo "  FINISHED -> merged #${PR}"
+              api -X DELETE "repos/${REPO}/git/refs/heads/${HEAD_REF}" >/dev/null 2>&1 \
+                && echo "  branch ${HEAD_REF} deleted" || echo "  branch not deleted - harmless"
+              gh workflow run gate-windows.yml --repo "$REPO" --ref "$DEFAULT_BRANCH" \
+                && echo "  gate-windows dispatched on ${DEFAULT_BRANCH}" \
+                || echo "::warning::could not dispatch gate-windows on ${DEFAULT_BRANCH}"
+            else
+              echo "::warning::merge of #${PR} failed (exit ${MRC}) - left open for reap to judge"
+            fi
+          done
+
   reap:
     if: github.event_name != 'workflow_run'
     runs-on: ubuntu-latest
@@ -394,9 +497,8 @@ jobs:
       # Measured 2026-08-20 ~21:5x: run #1 on pirate-force-server failed at
       # exactly that call.  reap looked green only because it had no pull
       # request to loop over, so it never reached the same call.
-      actions: read
-      # actions: write is REQUIRED for the post-merge gate dispatch below.
-      # See the matching comment in the `decide` job's permissions block.
+      # actions: write INCLUDES read and is written ONCE - see the `decide`
+      # job's permissions block for the duplicate-key incident.
       actions: write
     steps:
       - name: Finish or close every stale claude/* pull request
