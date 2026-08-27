@@ -1,1 +1,1 @@
-{"sha":"becf980cd479c6295c3ab2ef48223b165bc1b569","conclusion":"failure","event":"push","ref":"refs/heads/claude/optimistic-mccarthy-ss84b6","run_id":"33027898117","utc":"2026-08-27T00:49:53Z"}
+{"sha":"becf980cd479c6295c3ab2ef48223b165bc1b569","conclusion":"failure","event":"pull_request","ref":"refs/pull/99/merge","run_id":"33028148568","utc":"2026-08-27T00:58:12Z"}
