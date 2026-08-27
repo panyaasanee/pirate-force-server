@@ -1353,6 +1353,114 @@ class MobDeathTests(unittest.TestCase):
         self.assertIn("CActorTask_Dead", joined)
         self.assertIn("0x201F", joined)
 
+    def test_simultaneous_death_of_0x201f_and_916_training_iron_man(self):
+        # notes_to_chief/20260827_0955_COO-DECISION-widen-death-scope-...:
+        # the owner named ONE additional identity to widen kill() past
+        # 0x201F -- Training Iron Man, MOBS.n_ID 916 (CONSTDATA_TH__MOBS row:
+        # s_ID_MODEL_CLASS M016, outfit M016_000_000_N, level 100/100, rank
+        # 0, n_AI_WANDER 21, n_AI_COMBAT 0 -- a dummy that never fights back
+        # and drops nothing) -- and asked this lane for exactly one thing
+        # before chief writes the widened= line at runtime.py:3925: a test
+        # that kills the sanctioned target and this new one IN THE SAME
+        # TICK, so widening the scope does not also open a dead_timer
+        # collision or a register race between the two identities.  Short,
+        # not a block: see COO-DECISION 0955, "not a long block, just a
+        # mistake-preventing test".
+        #
+        # [ASSUMPTION OF LANE B -- FLAG FOR COO/chief CONFIRMATION, two
+        # parts]
+        # (1) CONSTDATA_TH__MOBS carries no HP column for ANY row.  This
+        #     fixture's max_hp=100 leans on RE-071's own result (a named
+        #     actor with a RESIDENT 100/100 HP pair renders correctly
+        #     regardless of the "true" number, because BasicAttr::CopyTo
+        #     copies without reading the mask) rather than a captured wire
+        #     value -- nobody has captured Training Iron Man's real max HP.
+        # (2) FieldMob.actor_identity is DERIVED as 0x2000 + placement_index
+        #     + 1 -- the field-mob WIRE-identity space this lane's 13-mob
+        #     roster lives in -- and MOBS n_ID 916 is a TEMPLATE id, a
+        #     different number space entirely.  This fixture's
+        #     actor_identity is a TEST-ONLY stand-in placement (index 9001,
+        #     chosen outside the loaded roster so it cannot collide with a
+        #     real placement), NOT the real wire identity chief will assign
+        #     Training Iron Man's city placement -- that assignment is
+        #     chief's call at runtime.py:3925 and outside this lane's write
+        #     zone.  What this test actually proves does not depend on the
+        #     real number: kill() / commit_death() / DeathRegister do not
+        #     collide when the widened target's template_id is 916 and it
+        #     dies in the same tick as the sanctioned target.
+        training_iron_man = field_mobs.FieldMob(
+            placement_index=9001,
+            template_id=916,
+            x=0.0, y=0.0, z=0.0,
+            visual_preset="M016_000_000_N",
+            display_name="Training Iron Man",
+            level=100,
+            rank=0,
+            ai_wander=21,
+            ai_combat=0,
+            speed_walk=150,
+            max_hp=100,
+            drops_normal=0,
+            drops_equipment=0,
+            drops_specially=0,
+        )
+        self.assertNotIn(
+            training_iron_man.actor_identity,
+            [m.actor_identity for m in self.roster])
+        widened_ruling = (
+            "COO-DECISION widen-death-scope-916-training-iron-man "
+            "2026-08-27T09:55+07:00 (ref PANYA-DECISION "
+            "2026-08-27T09:50+07:00 section 3, supersedes COO 0954)"
+        )
+        sanctioned_outcome = self.killing_outcome().outcome
+        tim_ledger = open_ledger(roster=(training_iron_man,))
+        tim_step = strike(
+            self.legacy, None, tim_ledger, None, training_iron_man,
+            PERFORMER, LETHAL)
+        widened_outcome = tim_step.outcome
+        self.assertTrue(widened_outcome.death_due)
+        self.assertEqual(widened_outcome.hp_after, HP_WHEN_DEAD)
+
+        # "the same tick": both kills computed from the SAME generation-0
+        # register, exactly the shape test_two_kills_in_one_tick pins.
+        stored = DeathRegister()
+        a = kill(self.legacy, self.mob, sanctioned_outcome, stored)
+        b = kill(
+            self.legacy, training_iron_man, widened_outcome, stored,
+            widened=widened_ruling)
+        stored = mob_death.commit_death(stored, a)
+        with self.assertRaises(MobDeathContractError) as caught:
+            mob_death.commit_death(stored, b)
+        self.assertEqual(
+            caught.exception.reason, mob_death.REFUSE_REGISTER_STALE)
+
+        # the loser re-reads and re-runs -- same outcome, current register --
+        # and both deaths land with nothing lost and nothing shared.
+        redone = kill(
+            self.legacy, training_iron_man, widened_outcome, stored,
+            widened=widened_ruling)
+        stored = mob_death.commit_death(stored, redone)
+        self.assertEqual(
+            stored.identities(),
+            tuple(sorted((
+                self.mob.actor_identity, training_iron_man.actor_identity))))
+        self.assertEqual(stored.generation, 2)
+
+        # NO DEAD_TIMER COLLISION: each step's frames are keyed to its own
+        # identity, so the sanctioned kill's bytes must not double as the
+        # widened kill's bytes, and both must still carry the right side of
+        # the timer gate.
+        self.assertNotEqual(a.dead_frame, redone.dead_frame)
+        self.assertNotEqual(a.dying_frame, redone.dying_frame)
+        for step in (a, redone):
+            self.assertEqual(step.dying_timer, DYING_TIMER_SECONDS)
+            self.assertEqual(step.dead_timer, DEAD_TIMER_SECONDS)
+            self.assertEqual(step.hold_ms, mob_death.DEATH_TASK_HOLD_MS)
+        self.assertTrue(stored.is_dead(self.mob.actor_identity))
+        self.assertTrue(stored.is_dead(training_iron_man.actor_identity))
+        self.assertEqual(
+            stored.record_of(training_iron_man.actor_identity).max_hp, 100)
+
 
 if __name__ == "__main__":
     unittest.main()
