@@ -424,6 +424,23 @@ def load_roster(scene: str = field_mob_tables.SCENE) -> tuple[FieldMob, ...]:
             "%s)" % (scene, sorted(_SCENE_TABLE_MODULES))
         )
     assert_single_scene_tables((module,))
+    return _parse_hostile_placements(module)
+
+
+def _parse_hostile_placements(module: Any) -> tuple[FieldMob, ...]:
+    """Type and check one table module's own ``HOSTILE_PLACEMENTS`` rows.
+
+    The shared body :func:`load_roster` has always run, factored out
+    unchanged so :func:`cross_scene_identity_collisions` (added this round)
+    can read a scene's rows the SAME validated way without going through
+    ``load_roster``'s own registered-scene gate (``_SCENE_TABLE_MODULES``) --
+    that gate decides which scenes are LIVE/loadable, a decision this
+    diagnostic function has no business making a side effect of.  A third
+    scene's still-COO-gated-dormant table (see ``_KNOWN_SCENE_TABLE_MODULES_
+    FOR_REPORTING`` below on why this file names it no more literally than
+    that) can be measured here, by a caller who imports it from OUTSIDE this
+    package, without becoming loadable through this module.
+    """
     rows = getattr(module, "HOSTILE_PLACEMENTS", None)
     if type(rows) is not list or not rows:
         raise FieldMobContractError("generated roster is missing or empty")
@@ -485,6 +502,146 @@ def overlapping_identities(other_indices: Any) -> tuple[int, ...]:
         mob.actor_identity for mob in load_roster()
         if mob.placement_index in other
     )
+
+
+# The scene table modules this function compares by default: every scene
+# load_roster can actually load (``_SCENE_TABLE_MODULES``).  Deliberately
+# NOT the third scene's own mined table (Bg0015) here: COO-DECISION
+# 2026-08-26T12:46+07:00 requires that module to stay unimported anywhere
+# under this package until lane A's second travel gate and its
+# geometry/reachability check pass -- this project's own test suite carries
+# a dedicated guard for exactly that (walks this package's AST and a
+# literal-string sweep of every file under it; deliberately not named more
+# literally in THIS file, since the sweep is text-based and would flag its
+# own name being spelled out here).  A module-level import of that table
+# here would trip that guard even though this function only ever READS a
+# module's rows, never wires one to a live path.  A caller OUTSIDE this
+# package (this module's own tests among them) can still pass that third
+# scene's module explicitly as one more entry in ``table_modules`` -- this
+# function's own logic is scene-count-agnostic and does not care where a
+# module comes from, only that it has a ``SCENE`` string and a
+# ``HOSTILE_PLACEMENTS`` list.
+_KNOWN_SCENE_TABLE_MODULES_FOR_REPORTING = (
+    field_mob_tables,
+    field_mob_tables_bg0002,
+)
+
+
+def cross_scene_identity_collisions(
+        table_modules: Any = None) -> tuple[dict, ...]:
+    """Every placement two DIFFERENT scenes' tables both use, measured.
+
+    ``FieldMob.actor_identity`` is ``0x2000 + placement_index + 1`` -- the
+    same rule ``world_population`` uses on the wire -- with NO scene term at
+    all (COO-DECISION 2026-08-27T14:41+07:00 deferred adding one; round
+    `y7koj9`'s own ``load_roster`` docstring and
+    ``tests/test_field_mobs.py``'s
+    ``test_bg0001_and_bg0002_actor_identities_are_NOT_disjoint_a_real_collision``
+    already name the four bg0001/Bg0002 pairs this finds).  Two scenes'
+    placement indices are small numbers assigned independently by their own
+    ``.npc`` files, so nothing stops two different scenes from mining a
+    placement at the same index -- and when they do, both scenes' monsters
+    compute the exact same wire ``actor_identity``.
+
+    THIS IS A REPORT, NOT A FIX AND NOT A GUARD.  It does not raise when it
+    finds a collision (a collision is the normal, expected finding for the
+    tables this project has actually mined -- see the default set below);
+    it returns every one it finds so a caller (a letter, a future guard, a
+    console line) can act on the exact list instead of re-deriving it by
+    hand.  Nothing in this tree calls it from a runtime path; it exists so
+    the collision set is a computed fact any round can reproduce, not a
+    number copied from a previous round's letter.
+
+    ``table_modules`` defaults to the two scenes :func:`load_roster` can
+    actually load today (``field_mob_tables`` / bg0001,
+    ``field_mob_tables_bg0002`` / Bg0002).  It deliberately does NOT default
+    to also including the third scene's own mined table (Bg0015): that
+    module exists (mined, committed, generator-reproducible) but
+    COO-DECISION 2026-08-26T12:46+07:00 requires it to stay unimported
+    anywhere under this package until lane A's second travel gate and
+    geometry/reachability check pass, and this project's own test suite
+    walks this package's imports AND does a literal-string sweep to enforce
+    that -- so a module-level import of it here would trip that guard even
+    though this function only ever reads a module's own
+    ``HOSTILE_PLACEMENTS``, through the same validated parse
+    :func:`load_roster` uses (:func:`_parse_hostile_placements`), never
+    registers it as loadable, and never wires it to a live path.  A caller
+    OUTSIDE this package (this project's own tests among them) can still
+    pass Bg0015's module explicitly -- ``table_modules`` accepts any modules
+    with a ``SCENE`` string and a ``HOSTILE_PLACEMENTS`` list, regardless of
+    where the caller imported them from.
+    """
+    modules = (
+        _KNOWN_SCENE_TABLE_MODULES_FOR_REPORTING
+        if table_modules is None else tuple(table_modules)
+    )
+    if len(modules) < 2:
+        raise FieldMobContractError(
+            "need at least two scene table modules to compare")
+    rosters: dict[str, tuple[FieldMob, ...]] = {}
+    order: list[str] = []
+    for module in modules:
+        scene = getattr(module, "SCENE", None)
+        if type(scene) is not str or not scene:
+            raise FieldMobContractError(
+                "field-mob table module %r has no SCENE constant" % (module,)
+            )
+        if scene in rosters:
+            continue
+        rosters[scene] = _parse_hostile_placements(module)
+        order.append(scene)
+    collisions: list[dict] = []
+    for i in range(len(order)):
+        for j in range(i + 1, len(order)):
+            scene_a, scene_b = order[i], order[j]
+            by_index_a = {mob.placement_index: mob for mob in rosters[scene_a]}
+            by_index_b = {mob.placement_index: mob for mob in rosters[scene_b]}
+            for placement_index in sorted(set(by_index_a) & set(by_index_b)):
+                mob_a = by_index_a[placement_index]
+                mob_b = by_index_b[placement_index]
+                collisions.append({
+                    "scene_a": scene_a,
+                    "scene_b": scene_b,
+                    "placement_index": placement_index,
+                    "actor_identity": mob_a.actor_identity,
+                    "template_a": mob_a.template_id,
+                    "name_a": mob_a.display_name,
+                    "template_b": mob_b.template_id,
+                    "name_b": mob_b.display_name,
+                })
+    return tuple(collisions)
+
+
+def describe_cross_scene_identity_collisions(
+        table_modules: Any = None) -> tuple[str, ...]:
+    """Console lines for :func:`cross_scene_identity_collisions`, ASCII-only.
+
+    Same shape as :func:`describe_death`/:func:`describe_roster_override_coverage`
+    in ``mob_death.py``: a tuple of plain-ASCII lines a caller can
+    ``print()`` on the bridge's cp874 console with no further escaping, one
+    per collision plus a count header.  Every display name this project has
+    mined so far is plain ASCII (English monster names), so no
+    cp874-mapping question exists here today; a future scene whose mined
+    name is not would need this function to reject it rather than print
+    garbage -- ``cross_scene_identity_collisions`` already only accepts
+    ``str`` names, so a non-ASCII one would print as-is (that gap belongs to
+    whoever wires ``print()`` calls to a cp874 console, not this pure
+    string builder, matching every other ``describe_*`` in this codebase).
+    """
+    collisions = cross_scene_identity_collisions(table_modules)
+    lines = [
+        "FIELD_MOB_CROSS_SCENE_IDENTITY_COLLISIONS count=%d" % len(collisions)
+    ]
+    for collision in collisions:
+        lines.append(
+            "  identity=0x%X placement=%d %s(template=%d name=%s) vs "
+            "%s(template=%d name=%s)" % (
+                collision["actor_identity"], collision["placement_index"],
+                collision["scene_a"], collision["template_a"], collision["name_a"],
+                collision["scene_b"], collision["template_b"], collision["name_b"],
+            )
+        )
+    return tuple(lines)
 
 
 def assert_frozen_controls(legacy: Any) -> None:
