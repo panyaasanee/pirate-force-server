@@ -759,6 +759,52 @@ was unreachable from any live path before this fix and still is after it
 wire fact, no RE citation, no `runtime.py` edit, no command's happy-path
 behavior changed. This round sent no frame and ran no game test.
 
+## Modules delivered (round `3a0tly`, literal byte-tail regression proof)
+
+`CORE-REQUEST-011`/`012` stay blocked (unchanged since round `dnh0ai` / chief's
+2026-08-27T22:00+07:00 reply), and GT-103 (the command-wire capture matrix)
+stays `[PENDING]` on an attended runner. An attended-session nudge
+(`pf_bridge/notes_to_chief/20260827_2305_KA1A-NUDGE-*.md`) pointed out this
+lane had real write-zone work available anyway: both fixes needed for the
+next login-state attended attempt (RE-113's trailing change-mask byte, round
+`fmgvbx`; `CORE-REQUEST-020`'s `field_0x0b_second=1`, confirmed on main R198/
+R199) had landed, but no test asserted the exact literal byte tail those two
+fixes together are supposed to produce -- the two existing
+`tests/test_gm_login_state_guard.py` tests both compare the dispatcher's
+output against `state_wire.make_gm_update_state_frame`, the same function
+`runtime.py`'s real call site uses, so a bug inside that shared function
+could pass both sides identically and slip through.
+
+- **`tests/test_gm_login_state_guard.py`**: one new test,
+  `test_the_re113_plus_core_request_020_frame_matches_a_literal_hex_tail`.
+  Drives a GM-account login through the real dispatcher (same harness as the
+  file's other two tests) and asserts the frame's tail against a
+  hand-written, byte-by-byte literal -- not computed from any function under
+  test:
+  ```
+  12 19 5A  0B 00  0B 00  0B 01  14 00 00 00 00  0B 00
+  ```
+  (`u16tag(0x12, 0x5A19)` vital id LE; `u8tag(0x0B, 0)` RE-105's confirmed
+  version; `field_0x0b_first=0`; `field_0x0b_second=1` per CORE-REQUEST-020;
+  `u32tag(0x14, 0)` `field_0x14`; RE-113's trailing `u8tag(0x0B, 0)`
+  change-mask byte). No production code changed -- this is a regression-proof
+  addition only.
+- `tests/test_gm_*.py`: 235/235 (up from 234). Repo-wide
+  `pytest tests/ --continue-on-collection-errors`: 3586 passed, 212 skipped,
+  17 pre-existing `capstone`-import collection errors only (same baseline
+  every prior round reports), no new failures.
+- `pf_bridge/GAME_TEST_QUEUE.md`: opened `GT-107-R3`, the attended session
+  that fires this exact frame at a real client for the first time since the
+  two fixes landed -- see `pf_bridge/rounds/GM_20260828_0022_*.md` for the
+  full letter. `GT-107`'s own header corrected from a stale `[PENDING]` to
+  reflect its actual negative result (error 28317, superseded by `GT-107-R3`).
+
+nonclaim: headless-only round. No frame was fired at a real client. The
+literal byte tail above is what the dispatcher assembles today, proven at the
+Python level only -- whether a real client accepts it, and whether the
+`BT_GM` button actually renders, are exactly the two questions `GT-107-R3`
+exists to answer and this round does not claim either one.
+
 ## Attempted and retracted (broadcast-wire round)
 
 This round tried to give `say` a wire codec for `Channel_GMGlobalMessageVital`

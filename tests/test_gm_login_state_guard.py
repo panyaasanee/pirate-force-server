@@ -121,6 +121,44 @@ class GmLoginStateGuardTests(unittest.TestCase):
         self.assertIn(b"\x12\x19\x5a\x0b\x00", pc)
         self.assertNotIn(b"\x12\x19\x5a\x0b\x01", pc)
 
+    def test_the_re113_plus_core_request_020_frame_matches_a_literal_hex_tail(
+        self,
+    ):
+        """kA1-A NUDGE (notes_to_chief 20260827_2305): the two existing GM
+        state-guard tests above are real regression tests, but both compare
+        the dispatcher's output against ``state_wire.make_gm_update_state_
+        frame`` -- the SAME function runtime.py calls at the real call site.
+        A bug inside that shared function (not in the wiring) would pass
+        both sides identically and slip through undetected.
+
+        This test closes that gap with a byte string that is not computed
+        from any function under test: it is the literal tail the nudge spells
+        out, hand-derived from RE-105 (version=0) + RE-113 (trailing 0x0B 0x00
+        change-mask byte) + CORE-REQUEST-020 (field_0x0b_second=1) --
+        ``12 19 5A`` (u16tag 0x12, vital id 0x5A19 LE) + ``0B 00`` (u8tag
+        0x0B, version 0) + ``0B 00`` (field_0x0b_first=0) + ``0B 01``
+        (field_0x0b_second=1) + ``14 00 00 00 00`` (u32tag 0x14, field_0x14=0)
+        + ``0B 00`` (RE-113's trailing derived-class change-mask byte).
+        """
+        path = self._config(["gm_runner"])
+        with mock.patch.dict(
+            gm_accounts.os.environ, {gm_accounts.ENV_OVERRIDE: str(path)},
+        ):
+            _state, actions = self._login_and_start("gm_runner")
+        by_label = {action[0]: action for action in actions}
+        _, pc, _frame, _delay = by_label["GM_UPDATE_STATE_AFTER_LOGIN"]
+        # Written out byte-by-byte (not hex-packed) so the sequence stays
+        # legible against the nudge's own spelled-out grouping.
+        literal_tail = bytes([
+            0x12, 0x19, 0x5A,             # tag 0x12, vital id 0x5A19 LE
+            0x0B, 0x00,                   # tag 0x0B, vital_version = 0
+            0x0B, 0x00,                   # field_0x0b_first = 0
+            0x0B, 0x01,                   # field_0x0b_second = 1
+            0x14, 0x00, 0x00, 0x00, 0x00, # field_0x14 = 0 (u32 LE)
+            0x0B, 0x00,                   # RE-113 trailing change-mask byte
+        ])
+        self.assertEqual(pc[-len(literal_tail):], literal_tail)
+
     def test_a_non_gm_account_is_unaffected(self):
         path = self._config(["gm_runner"])
         with mock.patch.dict(
