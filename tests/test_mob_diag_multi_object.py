@@ -273,6 +273,7 @@ class DiagObjectsTests(unittest.TestCase):
             d3.mob.template_id, d3.mob.actor_identity,
             field_mobs.SCENE_ID, field_mobs.SCENE_SEQUENCE,
             d3.mob.visual_preset, d3.mob.max_hp, d3.mob.max_hp,
+            movement_speed=float(d3.mob.speed_walk),
             basic_name=d3.mob.display_name,
         )
         # No BASIC_BIT_FACTION anywhere and no faction tag bytes: exactly the
@@ -311,7 +312,9 @@ class DiagObjectsTests(unittest.TestCase):
             respositioned_d3.template_id, respositioned_d3.actor_identity,
             field_mobs.SCENE_ID, field_mobs.SCENE_SEQUENCE,
             respositioned_d3.visual_preset, respositioned_d3.max_hp,
-            respositioned_d3.max_hp, basic_name=respositioned_d3.display_name,
+            respositioned_d3.max_hp,
+            movement_speed=float(respositioned_d3.speed_walk),
+            basic_name=respositioned_d3.display_name,
         )
         d0_npc_attr = field_mobs.hostile_npc_attr(self.legacy, d0.mob)
         # d0's spliced body must differ from d3's unspliced body by exactly

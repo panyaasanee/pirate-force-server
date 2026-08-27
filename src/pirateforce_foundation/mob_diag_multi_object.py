@@ -443,14 +443,17 @@ def alive_entry(legacy: Any, obj: DiagObject) -> bytes:
     D0/D1a/D1b/D2 all use the exact production hostile builder.  D3 is the
     one exception: it calls the legacy NPCAttr composer directly, the same
     call :func:`field_mobs.hostile_npc_attr` makes internally as its
-    unspliced ``baseline``, wrapped in the same actor-entry/movement shape
-    :func:`field_mobs.hostile_actor_entry` uses so the two are diffable.
+    unspliced ``baseline`` (including ``movement_speed``, added to that call
+    this round -- COO-DECISION 2026-08-28T01:46+07:00), wrapped in the same
+    actor-entry/movement shape :func:`field_mobs.hostile_actor_entry` uses so
+    the two are diffable.
     """
     if obj.label == DIAG_LABEL_NO_FACTION_SPLICE:
         npc_attr = legacy.make_npc_attr(
             obj.mob.template_id, obj.mob.actor_identity,
             field_mobs.SCENE_ID, field_mobs.SCENE_SEQUENCE,
             obj.mob.visual_preset, obj.mob.max_hp, obj.mob.max_hp,
+            movement_speed=float(obj.mob.speed_walk),
             basic_name=obj.mob.display_name,
         )
         movement = legacy.make_remote_movement_attr(

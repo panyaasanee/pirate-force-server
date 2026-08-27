@@ -338,6 +338,7 @@ class MobCombatTests(unittest.TestCase):
             mob_combat.field_mobs.SCENE_ID,
             mob_combat.field_mobs.SCENE_SEQUENCE,
             self.mob.visual_preset, hp, self.mob.max_hp,
+            movement_speed=float(self.mob.speed_walk),
             basic_name=self.mob.display_name,
         )
         self.assertEqual(

@@ -252,16 +252,20 @@ class MobDeathTests(unittest.TestCase):
         live_mask = basic_mask_of(self.legacy, live, self.mob.actor_identity)
         corpse_mask = basic_mask_of(
             self.legacy, corpse, self.mob.actor_identity)
-        self.assertEqual(live_mask, 0x070D)
+        # ADDED this round (COO-DECISION 2026-08-28T01:46+07:00): both masks
+        # now also carry bit 0x0040 (mined speed), always on -- see
+        # field_mobs.hostile_npc_attr / mob_death.BASIC_BIT_MOVEMENT_SPEED.
+        self.assertEqual(live_mask, 0x074D)
         self.assertEqual(corpse_mask, live_mask | 0x0080)
-        self.assertEqual(corpse_mask, 0x078D)
+        self.assertEqual(corpse_mask, 0x07CD)
         # The five bytes are the tagged f32 and they sit in EXACTLY one place:
-        # after max HP, before the scene id.  Built as an insertion at a
+        # after speed, before the scene id.  Built as an insertion at a
         # computed offset rather than searched for, so this cannot pass by
         # finding the same five bytes somewhere else in the body.
         timer_bytes = bytes(self.legacy.f32tag(DEAD_TIMER_SECONDS))
         self.assertEqual(len(timer_bytes), 5)
         self.assertEqual(timer_bytes[0], mob_death.DEATH_TIMER_TAG)
+        speed_bytes = bytes(self.legacy.f32tag(float(self.mob.speed_walk)))
         prefix = (
             bytes(self.legacy.u8tag(0x0B, 1))
             + bytes(self.legacy.qwordtag(0x32, self.mob.actor_identity))
@@ -269,6 +273,7 @@ class MobDeathTests(unittest.TestCase):
             + bytes(self.legacy.wstr_tag(self.mob.display_name))
             + bytes(self.legacy.u32tag(0x14, self.mob.max_hp))   # current hp
             + bytes(self.legacy.u32tag(0x14, self.mob.max_hp))   # max hp
+            + speed_bytes
         )
         self.assertTrue(live.startswith(prefix))
         cut = len(prefix)
@@ -279,6 +284,7 @@ class MobDeathTests(unittest.TestCase):
             + bytes(self.legacy.wstr_tag(self.mob.display_name))
             + bytes(self.legacy.u32tag(0x14, 0))                 # current hp
             + bytes(self.legacy.u32tag(0x14, self.mob.max_hp))   # max hp
+            + speed_bytes
         )
         self.assertEqual(len(dead_prefix), cut)
         self.assertEqual(
@@ -411,16 +417,27 @@ class MobDeathTests(unittest.TestCase):
             drops_normal=0, drops_equipment=0, drops_specially=0,
         )
         self.assertEqual(stand_in.actor_identity, actor.actor_identity)
-        # the probe lane's body carries no faction field, so the comparison is
-        # made against THEIR bytes with the faction spliced in exactly the way
-        # field_mobs splices it: bit 0x0400 set, the tagged u32 at the end of
-        # the BasicAttr block.  A drift in either lane breaks this.
+        # the probe lane's body carries no faction field AND no speed field
+        # (COO-DECISION 2026-08-28T01:46+07:00 added speed to THIS module's
+        # composer only, via mob_death.BASIC_BIT_MOVEMENT_SPEED -- the probe
+        # lane above is a separate, untouched module with no speed_walk
+        # concept on its probe object), so the comparison inserts BOTH: the
+        # tagged speed f32 (bit 0x0040, ascending order right after max HP)
+        # and the tagged faction u32 (bit 0x0400, at the end of the BasicAttr
+        # block) -- exactly the way field_mobs/mob_death splice each.  A
+        # drift in either lane breaks this.
         tail = (
             bytes(self.legacy.u8tag(0x0B, 0x01 | 0x04))
             + bytes(self.legacy.u16tag(0x12, actor.template_id))
             + bytes(self.legacy.wstr_tag(actor.visual_preset))
         )
         mask_at = 11 + 1
+        speed_bytes = bytes(self.legacy.f32tag(float(stand_in.speed_walk)))
+        hp_pair_len = (
+            len(bytes(self.legacy.u32tag(
+                0x14, probe.RUNTIMERES_DEATH_HP_ZERO)))
+            + len(bytes(self.legacy.u32tag(0x14, probe.RUNTIMERES_DEATH_HP_MAX)))
+        )
         for timer in (DYING_TIMER_SECONDS, DEAD_TIMER_SECONDS):
             theirs = probe.encode_death_capable_npc_attr(
                 self.legacy, actor, current_hp=probe.RUNTIMERES_DEATH_HP_ZERO,
@@ -431,11 +448,16 @@ class MobDeathTests(unittest.TestCase):
             splice_at = len(theirs) - len(tail)
             theirs_mask = int.from_bytes(theirs[mask_at:mask_at + 2], "little")
             self.assertEqual(theirs_mask, 0x038C)
+            speed_at = mask_at + 2 + hp_pair_len
             expected = (
                 theirs[:mask_at]
-                + int(theirs_mask | field_mobs.BASIC_BIT_FACTION).to_bytes(
-                    2, "little")
-                + theirs[mask_at + 2:splice_at]
+                + int(
+                    theirs_mask | field_mobs.BASIC_BIT_FACTION
+                    | mob_death.BASIC_BIT_MOVEMENT_SPEED
+                ).to_bytes(2, "little")
+                + theirs[mask_at + 2:speed_at]
+                + speed_bytes
+                + theirs[speed_at:splice_at]
                 + bytes(self.legacy.u32tag(
                     0x14, field_mobs.FIELD_MOB_FACTION))
                 + theirs[splice_at:]
@@ -448,7 +470,7 @@ class MobDeathTests(unittest.TestCase):
             self.assertEqual(ours, expected)
             self.assertEqual(
                 basic_mask_of(self.legacy, ours, actor.actor_identity),
-                0x078C)
+                0x07CC)
 
     # -- the kill ---------------------------------------------------------
 
@@ -1619,7 +1641,9 @@ class MobDeathTests(unittest.TestCase):
         self.assertEqual(
             committed["selection"], "none_default_behaviour_no_scenario_flag")
         self.assertEqual(committed["hp_when_dead"], 0)
-        self.assertEqual(committed["basic_mask_corpse"], "0x078D")
+        # 0x078D + bit 0x0040 (mined speed, always on since COO-DECISION
+        # 2026-08-28T01:46+07:00) = 0x07CD.
+        self.assertEqual(committed["basic_mask_corpse"], "0x07CD")
         self.assertTrue(committed["hold_ms_is_ours"])
         self.assertGreaterEqual(len(committed["nonclaims"]), 6)
 

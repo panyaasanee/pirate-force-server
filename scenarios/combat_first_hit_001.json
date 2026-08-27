@@ -25,7 +25,7 @@
   "hp_after": 2893,
   "fraction_after": 0.7500648172154524,
   "announce_frame_bytes": 95,
-  "bar_frame_bytes": 159,
+  "bar_frame_bytes": 164,
   "hp_floor": 0,
   "death_due": false,
   "death_handover": "mob_death.kill(legacy, mob, step.outcome, register)",
