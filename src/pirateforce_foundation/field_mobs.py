@@ -22,6 +22,19 @@ index, template, x, y, z and outfit.  That table has been on the wire for
 months, so the pipeline that feeds this module is checked against something the
 project already trusts rather than against its own reasoning.
 
+RE-098 (2026-08-27, RE runner, DONE / BOUNDED-NEGATIVE) closed off a shortcut
+this module never took, worth naming so nobody reaches for it later: the raw
+per-definition placement bytes carry three fields (``b5``, ``b15``,
+``u32@11``) that could look like level/rank/spawn-rate shortcuts, and RE-098
+measured that none of them are -- ``b5`` matches neither ``n_LEVEL_MIN`` nor
+``n_LEVEL_MAX`` on any of 30 measured placements, ``b15`` matches ``n_RANK``
+on only 1/30, and ``u32@11`` is constant (100) across every crosswalkable
+definition regardless of how many placements its set has.  ``level``, ``rank``
+and ``max_hp`` on :class:`FieldMob` come from ``MOBS``/``STANDARD_MOB`` proper
+(via :mod:`field_mob_tables`'s mining pipeline), never from those raw payload
+bytes, so this module needed no change -- RE-098 confirms there was no faster
+path here to have mistakenly taken.
+
 THE TWO CONTROLS ON THE DERIVED COLUMNS.  bg0001 placement 30 is the monster
 the frozen source already names and gives HP to, independently of any table
 this module reads: ``V117_P30_EXACT_HP = 3857`` and
@@ -708,6 +721,11 @@ def pin_document(legacy: Any) -> dict:
             "controls it re-derives are placement 30 only",
             "nothing imports this module, so on its own it changes nothing "
             "the player sees",
+            "RE-098 (2026-08-27, DONE / BOUNDED-NEGATIVE) closed off using "
+            "the raw definition payload's b5/b15/u32@11 as level/rank/"
+            "spawn-rate shortcuts - none of the three matched on the "
+            "measured crosswalk. This module never read those bytes; "
+            "level/rank/max_hp come from MOBS/STANDARD_MOB proper",
         ],
     }
 
