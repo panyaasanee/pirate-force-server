@@ -3937,21 +3937,24 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     try:
                         candidate = mob_death.kill(
                             legacy, mob, step.outcome, self.mob_death_register,
+                            widened=(
+                                "COO-RULING-20260827-1350 "
+                                "widen-death-scope-bg0001"
+                            ),
                         )
                     except mob_death.MobDeathContractError as error:
-                        # [PROPOSED] honest degradation, not a bug.  The
-                        # owner's sequencing ruling (mob_death.
-                        # SANCTIONING_RULING) says prove the death loop on
-                        # the sanctioned identity first and not merge that
-                        # step with widening it -- this wiring passes no
-                        # ``widened=``, so mob_death enforces exactly that:
-                        # only identity 0x201F ever gets a finished kill on
-                        # this build.  Every other field-mob that reaches 0
-                        # HP stays there with no death frames and answers
-                        # further hits with silence (mob_combat's own
-                        # no_room path) -- the pre-death-half state this
-                        # project already shipped and disclosed, not a new
-                        # one.
+                        # Honest degradation, not a bug.  COO-RULING-
+                        # 20260827-1350 widened this wiring past the
+                        # SANCTIONING_RULING gate to the 10 template ids
+                        # mob_death.WIDENING_RULINGS names for that ruling
+                        # (the bg0001 field roster) -- 0x201F and those ten
+                        # templates get a finished kill on this build.  Any
+                        # OTHER template id (a mob outside that named
+                        # roster) still refuses here: it stays at 0 HP with
+                        # no death frames and answers further hits with
+                        # silence (mob_combat's own no_room path) -- the
+                        # pre-death-half state this project already shipped
+                        # and disclosed, not a new one.
                         self.events.append(
                             f"mob_death_refused_{error.reason}_"
                             "no_death_frames"
