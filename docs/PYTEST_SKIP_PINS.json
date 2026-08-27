@@ -491,6 +491,18 @@
       "note": "round 2vxlx2 (LANE-B): field_mob_tables_bg0015.py is GENERATED prep data for M3/BUILD-004 (COO-DECISION 2026-08-26 12:46: Bg0015 confirmed as the real M3 map, prepared but not wired in until lane A's second gate + geometry check passes). These three re-run tools/pf_mine_scene_mob_roster.py --scene Bg0015 against the bridge clone's gamedata so the committed module cannot drift unnoticed. Following the exact pattern test_pf_scan_field_scene_candidates.py already set (round ctflxc) so this pin exists in the same commit as the test, not after it."
     },
     {
+      "key": "bridge_gamedata",
+      "module": "tests/test_field_mob_tables_bg0002.py",
+      "count": 4,
+      "tests": [
+        "Bg0002RegenerateAndDiffTest::test_regenerating_reproduces_the_committed_module_byte_for_byte",
+        "Bg0002RegenerateAndDiffTest::test_the_predicate_census_matches_the_recorded_finding",
+        "Bg0002RegenerateAndDiffTest::test_hostile_roster_count_is_seventeen_from_live_gamedata",
+        "Bg0002RegenerateAndDiffTest::test_template_27_fails_only_the_outfit_ambiguity_half_of_selection"
+      ],
+      "note": "round y7koj9 (LANE-B): field_mob_tables_bg0002.py is GENERATED prep data for PANYA-DECISION 2026-08-27T20:10+07:00's M1-P (Prison Exile / Bg0002 identity-first priority, M2 paused) item 3 - widen death scope toward bg0002 without merging it into bg0001's roster in one load_roster() call. These four re-run tools/pf_mine_scene_mob_roster.py --scene Bg0002 against the bridge clone's gamedata so the committed module cannot drift unnoticed, and confirm template 27 (Mountain Deer, the owner's ADDENDUM 20:18 pick for GT-114/DIAG-001) is correctly absent from this generated roster (outfit-ambiguous, not hostile-predicate-failing) rather than silently missing for the wrong reason. Pinned in the same commit as the test, per the exact defect shape pf-adversary already caught twice (test_pf_scan_field_scene_candidates.py round ctflxc, test_field_mob_tables_bg0015.py round 2vxlx2) and a third time in this round's own first draft."
+    },
+    {
       "key": "client_image",
       "module": "tests/test_move_authority_targetpos_static.py",
       "count": 8,
