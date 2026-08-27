@@ -105,8 +105,12 @@ WIDENED_916_RULING = (
 # The exact ruling string COO-DECISION 2026-08-27T13:50+07:00 gives as the
 # value of widened= to authorise all 13 real bg0001 field mobs (stage two,
 # see notes_to_chief/20260827_1350_COO-DECISION-widen-death-scope-bg0001-
-# full-roster-approved.md). Chief is told to hardcode this exact string at
-# runtime.py:3925.
+# full-roster-approved.md). Chief is told to hardcode this exact string as
+# widened= on runtime.py's mob_death.kill() call site -- pf-adversary, this
+# round: the letter's own cited line number is already stale; as of this
+# round that call site passes no widened= argument at all, so do not trust
+# a hardcoded line number here (see the matching note on WIDENING_RULINGS
+# in mob_death.py).
 WIDENED_BG0001_RULING = "COO-RULING-20260827-1350 widen-death-scope-bg0001"
 
 
