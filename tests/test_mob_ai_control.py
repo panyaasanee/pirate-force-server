@@ -662,6 +662,13 @@ class ReconcileAgainstARealDeathRegisterTests(unittest.TestCase):
         death_register = self._real_kill()
         step = mob_ai_control.reconcile(self.ai_register, death_register)
         repaired = commit_step(self.ai_register, step)
+        # The target row must actually be retired here too -- otherwise a
+        # reconcile() that touches nobody would pass this test vacuously
+        # (pf-adversary caught exactly this: "untouched" excluded the one
+        # row this test exists to police).
+        self.assertEqual(
+            repaired.state_of(self.mob.actor_identity).phase,
+            mob_aggro.PHASE_DEAD)
         untouched = [
             mob.actor_identity for mob in self.roster
             if mob.actor_identity != self.mob.actor_identity
@@ -676,6 +683,14 @@ class ReconcileAgainstARealDeathRegisterTests(unittest.TestCase):
         once = commit_step(
             self.ai_register,
             mob_ai_control.reconcile(self.ai_register, death_register))
+        # Idempotency is only a meaningful claim about a repair that
+        # actually happened -- pf-adversary caught that a reconcile()
+        # inverted to retire the WRONG row (or nobody at all) still passed
+        # this test, because it never checked the first call was correct
+        # before checking the second call was a no-op.
+        self.assertEqual(
+            once.state_of(self.mob.actor_identity).phase,
+            mob_aggro.PHASE_DEAD)
         step = mob_ai_control.reconcile(once, death_register)
         self.assertFalse(step.moved)
         self.assertIs(commit_step(once, step), once)
