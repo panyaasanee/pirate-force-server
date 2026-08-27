@@ -169,7 +169,7 @@ class MobCombatDispatchTests(unittest.TestCase):
         of the after-the-attack ordering the two ``test_world_census_*``
         tests above use to isolate the NEXT census. This is what sets
         ``population_refresh_anchor``/``world_census_actor_count`` on
-        ``self`` for real, the same two attributes CORE-REQUEST-008's
+        ``state`` for real, the same two attributes CORE-REQUEST-008's
         ``MOB_COMBAT_BAR``/``MOB_DEATH_*`` recompose reads at
         ``runtime.py``'s combat dispatch site.
         """
@@ -528,7 +528,8 @@ class MobCombatDispatchTests(unittest.TestCase):
         )
         printed = buf.getvalue()
         self.assertIn(
-            "MOB_COMBAT_BAR_CENSUS_RECOMPOSE actor_count=115 "
+            "MOB_COMBAT_BAR_CENSUS_RECOMPOSE "
+            f"actor_count={state.world_census_actor_count} "
             f"target=0x{SANCTIONED_TARGET:X}",
             printed,
         )
@@ -543,8 +544,8 @@ class MobCombatDispatchTests(unittest.TestCase):
         )
         balance = state.mob_combat_ledger.balance_of(SANCTIONED_TARGET)
         expected_pc, expected_frame = mob_death.hostile_census_frames(
-            self.legacy, anchor, 115, self.roster, mob_death.DeathRegister(),
-            ledger=state.mob_combat_ledger,
+            self.legacy, anchor, state.world_census_actor_count, self.roster,
+            mob_death.DeathRegister(), ledger=state.mob_combat_ledger,
         )
         # If this ever regressed back to the one-entry frame, this equality
         # would fail (the one-entry frame is a strict subset of the 115-actor
@@ -566,6 +567,7 @@ class MobCombatDispatchTests(unittest.TestCase):
         """
         state = self._state("mc_real_arrival_death")
         anchor = self._arrive(state)
+        self.assertEqual(state.world_census_actor_count, 115)
         self._set_balance(state, SANCTIONED_TARGET, 500)
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
@@ -581,7 +583,8 @@ class MobCombatDispatchTests(unittest.TestCase):
         self.assertTrue(all(label == "MOB_LOOT_DROP" for label in labels[3:]))
         printed = buf.getvalue()
         self.assertIn(
-            "MOB_DEATH_FRAMES_CENSUS_RECOMPOSE actor_count=115 "
+            "MOB_DEATH_FRAMES_CENSUS_RECOMPOSE "
+            f"actor_count={state.world_census_actor_count} "
             f"target=0x{SANCTIONED_TARGET:X}",
             printed,
         )
@@ -599,13 +602,13 @@ class MobCombatDispatchTests(unittest.TestCase):
             if label == "MOB_DEATH_DEAD"
         )
         expected_dying_pc, _ = mob_death.hostile_census_frames(
-            self.legacy, anchor, 115, self.roster, state.mob_death_register,
-            ledger=state.mob_combat_ledger,
+            self.legacy, anchor, state.world_census_actor_count, self.roster,
+            state.mob_death_register, ledger=state.mob_combat_ledger,
             dead_timer=mob_death.DYING_TIMER_SECONDS,
         )
         expected_dead_pc, _ = mob_death.hostile_census_frames(
-            self.legacy, anchor, 115, self.roster, state.mob_death_register,
-            ledger=state.mob_combat_ledger,
+            self.legacy, anchor, state.world_census_actor_count, self.roster,
+            state.mob_death_register, ledger=state.mob_combat_ledger,
         )
         self.assertEqual(dying_pc, expected_dying_pc)
         self.assertEqual(dead_pc, expected_dead_pc)
