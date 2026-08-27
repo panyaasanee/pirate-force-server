@@ -5,7 +5,10 @@ import sys
 from pathlib import Path
 
 from .inventory import make_backpack_attr
-from .player_wire import make_actor_attr_with_basic_faction, make_actor_attr_with_name
+from .player_wire import (
+    make_actor_attr_with_name_and_class,
+    make_actor_attr_with_name_class_and_faction,
+)
 
 def load_legacy(path: str | Path):
     spec = importlib.util.spec_from_file_location("pf_legacy_v141", path)
@@ -50,13 +53,25 @@ class LegacyProjector:
         # PF-HYPOTHESIS-LEDGER: GEO-PF-002 frozen
         # PF-HYPOTHESIS-LEDGER: GEO-PF-003 frozen
         p = position or character.position
+        # CORE-REQUEST-022: every StartGame this seam composes carries
+        # class+level now (player_wire.make_actor_attr_with_name_and_class /
+        # _class_and_faction docstrings) -- both callers of this seam that
+        # pass basic_faction (runtime.py's flagless production recompose and
+        # its scenario-gated HYP-PF-027 pinned-identity probe) build a
+        # second frame from the SAME selected character and diff its length
+        # against this one; keeping both branches on the class+level
+        # baseline is what keeps that diff at its original 5 bytes.  The
+        # frozen, class-less make_actor_attr_with_name/_with_basic_faction
+        # stay defined in player_wire.py as the pinned reference other
+        # lanes' own offline tests compare against directly, just no longer
+        # called from this seam.
         actor = (
-            make_actor_attr_with_name(
+            make_actor_attr_with_name_and_class(
                 self.v, character.identity_lo, character.identity_hi,
                 p.scene_id, p.scene_seq, character.name,
             )
             if basic_faction is None else
-            make_actor_attr_with_basic_faction(
+            make_actor_attr_with_name_class_and_faction(
                 self.v, character.identity_lo, character.identity_hi,
                 p.scene_id, p.scene_seq, character.name, basic_faction,
             )

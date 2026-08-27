@@ -8,6 +8,8 @@ from pirateforce_foundation.model import Position
 from pirateforce_foundation.player_wire import (
     make_actor_attr_with_basic_faction,
     make_actor_attr_with_name,
+    make_actor_attr_with_name_and_class,
+    make_actor_attr_with_name_class_and_faction,
 )
 from pirateforce_foundation.runtime import make_state_class
 from pirateforce_foundation.scene_load import load_scene_load_scenario
@@ -49,7 +51,7 @@ class SceneLoadTests(unittest.TestCase):
         self.assertEqual([a[0] for a in actions],["SCENE2_LOAD_ONLY_SELECTED_START_GAME","SCENE2_LOAD_ONLY_TELEPORT_MARKER2_ONCE"])
         self.assertEqual(actions[0][1:3],self.projector.start_game(self.character,self.scenario.position))
         self.assertEqual(actions[1][1:3],self.legacy.make_login_teleport(2,0,26905.0,21185.0,1680.0))
-        self.assertIn(make_actor_attr_with_name(
+        self.assertIn(make_actor_attr_with_name_and_class(
             self.legacy,self.character.identity_lo,self.character.identity_hi,2,0,
             self.character.name,
         ),actions[0][1])
@@ -88,7 +90,17 @@ class SceneLoadTests(unittest.TestCase):
             baseline_actor[faction_at:])
         self.assertEqual(expected,expected_delta)
         self.assertEqual(len(expected),len(baseline_actor)+5)
-        self.assertIn(expected,actions[0][1])
+        # CORE-REQUEST-022: the real dispatch path now composes class+level
+        # too (LegacyProjector.start_game routes every basic_faction call
+        # through make_actor_attr_with_name_class_and_faction), so what
+        # actually reaches the wire is this frame, not the frozen
+        # class-less `expected` above (which stays useful for the
+        # offline byte-shape checks above/below, unrelated to class/level).
+        expected_on_wire=make_actor_attr_with_name_class_and_faction(
+            self.legacy,self.character.identity_lo,self.character.identity_hi,2,0,
+            self.character.name,1,
+        )
+        self.assertIn(expected_on_wire,actions[0][1])
         self.assertEqual(self.digest(),before)
         baseline=json.loads((ROOT/"scenarios/scene2_fighting_fish_soldier_hp3857.json").read_text())
         baseline["player_relation"]={"basic_faction":1,"provenance":"faction_table_relation_candidate_not_authentic_player_faction"}
@@ -125,7 +137,7 @@ class SceneLoadTests(unittest.TestCase):
         actions=state.dispatch(self.legacy.parse_outer(self.legacy._synthetic_start_game_pc(self.character.selector)))
         self.assertEqual([a[0] for a in actions],["SCENE2_LOAD_ONLY_SELECTED_START_GAME","SCENE2_LOAD_ONLY_TELEPORT_MARKER2_ONCE"])
         self.assertEqual(actions[1][1:3],self.legacy.make_login_teleport(1,0,1847.5244140625,-7837.69775390625,931.0413208007812))
-        self.assertIn(make_actor_attr_with_name(
+        self.assertIn(make_actor_attr_with_name_and_class(
             self.legacy,self.character.identity_lo,self.character.identity_hi,1,0,
             self.character.name,
         ),actions[0][1])

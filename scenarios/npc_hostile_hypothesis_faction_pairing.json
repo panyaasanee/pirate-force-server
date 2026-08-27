@@ -13,7 +13,7 @@
     "response_policy": "compose_one_hostile_spawn_actor_entry_frame_no_write_no_close",
     "player_start_game": {
       "basic_faction": 1,
-      "serializer": "player_wire_make_actor_attr_with_basic_faction_frozen_scene005_probe",
+      "serializer": "player_wire_make_actor_attr_with_name_class_and_faction_scene005_probe",
       "identity_pinned_lo": 268500993,
       "identity_pinned_hi": 0,
       "wire_delta_bytes": 5,

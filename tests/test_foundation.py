@@ -27,7 +27,7 @@ from pirateforce_foundation.actor_wire import read_identity, read_selector
 from pirateforce_foundation.legacy_bridge import LegacyProjector, load_legacy
 from pirateforce_foundation.lifecycle import CharacterLifecycle
 from pirateforce_foundation.model import Position
-from pirateforce_foundation.player_wire import make_actor_attr_with_name
+from pirateforce_foundation.player_wire import make_actor_attr_with_name_and_class
 from pirateforce_foundation.session import FoundationSession
 from pirateforce_foundation.store import SQLiteStore
 from pirateforce_foundation.runtime import make_state_class
@@ -76,7 +76,7 @@ class FoundationTests(unittest.TestCase):
         self.assertIn(c.actor_wire, create_frame)
         name_wire = self.legacy.wstr_tag(c.name)
         self.assertEqual(pc.count(name_wire), 1)
-        expected_actor = make_actor_attr_with_name(
+        expected_actor = make_actor_attr_with_name_and_class(
             self.legacy, c.identity_lo, c.identity_hi,
             c.position.scene_id, c.position.scene_seq, c.name,
         )

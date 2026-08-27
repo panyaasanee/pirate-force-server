@@ -48,10 +48,12 @@ no movement beyond the placement itself.
 
 The OTHER half of the pairing rides the entry, not the sweep: under this
 opt-in scenario the runtime recomposes the full-writable StartGame response
-through the frozen ``player_wire.make_actor_attr_with_basic_faction``
-serializer (which accepts ONLY faction 1, scene_seq 0, scene_id 1 or 2 --
-the exact SCENE-005/SCENE-007 probe), and ONLY when the selected character
-is the canonical smoke identity 0x10010001/0 the pins were computed for.
+through ``player_wire.make_actor_attr_with_name_class_and_faction`` (as of
+CORE-REQUEST-022; the guard is byte-identical to the frozen
+``make_actor_attr_with_basic_faction`` it replaced -- ONLY faction 1,
+scene_seq 0, scene_id 1 or 2, the exact SCENE-005/SCENE-007 probe), and
+ONLY when the selected character is the canonical smoke identity
+0x10010001/0 the pins were computed for.
 Any other identity, and any serializer refusal, falls back to the
 byte-identical production StartGame and the sweep then refuses by name:
 the tester sees the full proven pairing or nothing.
@@ -175,7 +177,7 @@ NPC_HOSTILE_BASIC_MASK = HYP23_SPAWN_BASIC_MASK | BASIC_BIT_FACTION  # 0x070C
 # assignment is unknown and unrecoverable.
 #
 #   relation lookup:            0x4A1D50  (compares two actors' +0x68 fields)
-#   player StartGame faction:   1   (entry side, frozen player_wire serializer)
+#   player StartGame faction:   1   (entry side, player_wire serializer)
 #   NPC spawn faction:          6   (sweep side, this module)
 #   proven hostile pair:        (1, 6)   SCENE-005 runtime pass
 #   proven neutral pair:        (0, 6)   SCENE-004 / arena v2 negative
@@ -903,8 +905,8 @@ def _expected_scenario() -> dict[str, Any]:
             "player_start_game": {
                 "basic_faction": NPC_HOSTILE_PLAYER_PAIR_FACTION,
                 "serializer": (
-                    "player_wire_make_actor_attr_with_basic_faction_frozen_"
-                    "scene005_probe"
+                    "player_wire_make_actor_attr_with_name_class_and_"
+                    "faction_scene005_probe"
                 ),
                 "identity_pinned_lo": NPC_HOSTILE_PLAYER_IDENTITY_LO,
                 "identity_pinned_hi": NPC_HOSTILE_PLAYER_IDENTITY_HI,

@@ -51,8 +51,8 @@ from pirateforce_foundation.runtime import make_state_class  # noqa: E402
 from pirateforce_foundation import npc_hostile_hypothesis as nhm  # noqa: E402
 from pirateforce_foundation import runtimeres_death_hypothesis as parent  # noqa: E402
 from pirateforce_foundation.player_wire import (  # noqa: E402
-    make_actor_attr_with_basic_faction,
-    make_actor_attr_with_name,
+    make_actor_attr_with_name_and_class,
+    make_actor_attr_with_name_class_and_faction,
 )
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
@@ -154,11 +154,11 @@ class NpcHostileDispatchTests(unittest.TestCase):
 
     def _player_attrs(self, selected):
         p = selected.position
-        plain = bytes(make_actor_attr_with_name(
+        plain = bytes(make_actor_attr_with_name_and_class(
             self.legacy, selected.identity_lo, selected.identity_hi,
             p.scene_id, p.scene_seq, selected.name,
         ))
-        paired = bytes(make_actor_attr_with_basic_faction(
+        paired = bytes(make_actor_attr_with_name_class_and_faction(
             self.legacy, selected.identity_lo, selected.identity_hi,
             p.scene_id, p.scene_seq, selected.name,
             nhm.NPC_HOSTILE_PLAYER_PAIR_FACTION,

@@ -82,7 +82,7 @@
      "path": "src/pirateforce_foundation/legacy_bridge.py",
      "required_markers": [
       "PF-HYPOTHESIS-LEDGER: HYP-PF-001 frozen",
-      "make_actor_attr_with_basic_faction("
+      "make_actor_attr_with_name_class_and_faction("
      ],
      "active_claim_marker": true
     },
