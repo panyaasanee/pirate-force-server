@@ -33,6 +33,7 @@ back up at full HP with no hit, no frame and no error anywhere.
 """
 
 import ast
+import contextlib
 import json
 import sys
 from pathlib import Path
@@ -82,9 +83,25 @@ PERFORMER = 0x750059
 # Strong enough to reach zero in one hit, so a test does not have to loop the
 # ladder to get to the thing it is testing.
 LETHAL = Combatant(level=1000, ability_str=100000, ability_con=0)
-# What a caller passes to kill() for a target outside the owner's sanctioned
-# scope.  Tests that are not ABOUT the scope gate pass it and say why.
+# DELIBERATELY UNREGISTERED.  kill() fails closed on any widened= string
+# that is not an exact key in mob_death.WIDENING_RULINGS (pf-adversary,
+# round 67jejl: an unrecognised string used to be treated as pre-fix-legal,
+# which is exactly the gap a mistranscribed real ruling string would walk
+# through unnoticed) - so this constant now proves REFUSAL, not
+# authorisation.  A test that needs SOME registered ruling to widen an
+# arbitrary roster mob (because it is testing the compare-and-swap /
+# generation machinery, not the scope gate) uses
+# ``self.registered_widening(...)`` below instead.
 WIDENED = "test-only: this assertion is not about the target scope"
+# The exact ruling string COO-DECISION 20260827_0955 gives as the value of
+# widened= for Training Iron Man (MOBS.n_ID 916).  Kept as one constant so a
+# test that is ABOUT this ruling and a test that only needs SOME registered
+# ruling both quote the same source rather than two hand-typed copies.
+WIDENED_916_RULING = (
+    "COO-DECISION widen-death-scope-916-training-iron-man "
+    "2026-08-27T09:55+07:00 (ref PANYA-DECISION 2026-08-27T09:50+07:00 "
+    "section 3, supersedes COO 0954)"
+)
 
 
 class MobDeathTests(unittest.TestCase):
@@ -100,6 +117,53 @@ class MobDeathTests(unittest.TestCase):
         step = strike(
             self.legacy, None, open_ledger(), None, target, PERFORMER, LETHAL)
         return step
+
+    @contextlib.contextmanager
+    def registered_widening(self, ruling, template_ids):
+        """Temporarily register a test-only ruling in WIDENING_RULINGS.
+
+        kill() fails closed on any widened= string that is not an exact key
+        in mob_death.WIDENING_RULINGS.  A test that is about the
+        compare-and-swap / generation machinery rather than the scope gate
+        itself needs SOME registered ruling to widen an arbitrary roster
+        mob, so it registers one here for the duration of the ``with``
+        block and the module is restored after, exactly as this file
+        already does for ``mob_death._compose_body`` elsewhere.
+        """
+        previous = dict(mob_death.WIDENING_RULINGS)
+        mob_death.WIDENING_RULINGS[ruling] = frozenset(template_ids)
+        try:
+            yield ruling
+        finally:
+            mob_death.WIDENING_RULINGS.clear()
+            mob_death.WIDENING_RULINGS.update(previous)
+
+    def training_iron_man_stand_in(self):
+        """A TEST-ONLY FieldMob for Training Iron Man, MOBS.n_ID 916.
+
+        Built from the real CONSTDATA_TH__MOBS row 916 (model M016, outfit
+        M016_000_000_N, level 100/100, rank 0, n_AI_WANDER 21, n_AI_COMBAT 0,
+        no drops).  See
+        test_simultaneous_death_of_0x201f_and_916_training_iron_man for the
+        full provenance note on why max_hp=100 and placement_index=9001 are
+        both stand-ins, not captured or wire values.
+        """
+        return field_mobs.FieldMob(
+            placement_index=9001,
+            template_id=916,
+            x=0.0, y=0.0, z=0.0,
+            visual_preset="M016_000_000_N",
+            display_name="Training Iron Man",
+            level=100,
+            rank=0,
+            ai_wander=21,
+            ai_combat=0,
+            speed_walk=150,
+            max_hp=100,
+            drops_normal=0,
+            drops_equipment=0,
+            drops_specially=0,
+        )
 
     # -- the body ---------------------------------------------------------
 
@@ -454,15 +518,20 @@ class MobDeathTests(unittest.TestCase):
         a = kill(self.legacy, self.mob, first.outcome, stored)
         # widened= because this test is about the compare-and-swap, not about
         # the owner's target scope; the scope gate has its own test below.
-        b = kill(self.legacy, other, second.outcome, stored, widened=WIDENED)
-        stored = mob_death.commit_death(stored, a)
-        with self.assertRaises(MobDeathContractError) as caught:
-            mob_death.commit_death(stored, b)
-        self.assertEqual(
-            caught.exception.reason, mob_death.REFUSE_REGISTER_STALE)
-        # the loser re-reads and re-runs, and now both deaths are recorded
-        redone = kill(
-            self.legacy, other, second.outcome, stored, widened=WIDENED)
+        # A registered ruling because kill() now fails closed on anything
+        # else (pf-adversary, round 67jejl).
+        with self.registered_widening(WIDENED, {other.template_id}):
+            b = kill(
+                self.legacy, other, second.outcome, stored, widened=WIDENED)
+            stored = mob_death.commit_death(stored, a)
+            with self.assertRaises(MobDeathContractError) as caught:
+                mob_death.commit_death(stored, b)
+            self.assertEqual(
+                caught.exception.reason, mob_death.REFUSE_REGISTER_STALE)
+            # the loser re-reads and re-runs, and now both deaths are
+            # recorded
+            redone = kill(
+                self.legacy, other, second.outcome, stored, widened=WIDENED)
         stored = mob_death.commit_death(stored, redone)
         self.assertEqual(
             stored.identities(),
@@ -907,14 +976,25 @@ class MobDeathTests(unittest.TestCase):
         self.assertEqual(
             self.mob.actor_identity, mob_death.SANCTIONED_FIRST_TARGET_IDENTITY)
         kill(self.legacy, self.mob, sanctioned.outcome, DeathRegister())
-        # and a caller holding a later ruling names it
-        step = kill(self.legacy, other, outcome, DeathRegister(),
-                    widened=WIDENED)
+        # and a caller holding a REGISTERED later ruling that names this
+        # mob's template gets a kill
+        with self.registered_widening(WIDENED, {other.template_id}):
+            step = kill(self.legacy, other, outcome, DeathRegister(),
+                        widened=WIDENED)
         self.assertTrue(step.register.is_dead(other.actor_identity))
-        for empty in ("", "   ", None, 7):
-            with self.assertRaises(MobDeathContractError):
+        # pf-adversary (round 67jejl): an UNREGISTERED string used to be
+        # treated as pre-fix-legal here too - "just needs to be non-empty" -
+        # which is exactly what a paraphrase or a mistranscription of a real
+        # ruling would produce.  kill() now fails closed on it, the same as
+        # on an empty one, so WIDENED (never registered in this test) must
+        # now be refused rather than accepted.
+        for unauthorised in ("", "   ", None, 7, WIDENED, "close but not it"):
+            with self.assertRaises(MobDeathContractError) as caught:
                 kill(self.legacy, other, outcome, DeathRegister(),
-                     widened=empty)
+                     widened=unauthorised)
+            self.assertEqual(
+                caught.exception.reason,
+                mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
 
     def test_a_register_identity_with_no_roster_row_is_refused(self):
         # live_roster() is exported from this same module and is exactly what
@@ -941,14 +1021,19 @@ class MobDeathTests(unittest.TestCase):
         other = [m for m in self.roster if m.placement_index != 30][0]
         third = [m for m in self.roster if m.placement_index not in
                  (30, other.placement_index)][0]
-        lineage_a = mob_death.commit_death(
-            DeathRegister(),
-            kill(self.legacy, other, self.killing_outcome(other).outcome,
-                 DeathRegister(), widened=WIDENED))
-        lineage_b = mob_death.commit_death(
-            DeathRegister(),
-            kill(self.legacy, third, self.killing_outcome(third).outcome,
-                 DeathRegister(), widened=WIDENED))
+        # A registered ruling because kill() now fails closed on anything
+        # else (pf-adversary, round 67jejl); this test is about the
+        # commit-death lineage, not the scope gate.
+        with self.registered_widening(
+                WIDENED, {other.template_id, third.template_id}):
+            lineage_a = mob_death.commit_death(
+                DeathRegister(),
+                kill(self.legacy, other, self.killing_outcome(other).outcome,
+                     DeathRegister(), widened=WIDENED))
+            lineage_b = mob_death.commit_death(
+                DeathRegister(),
+                kill(self.legacy, third, self.killing_outcome(third).outcome,
+                     DeathRegister(), widened=WIDENED))
         self.assertEqual(lineage_a.generation, lineage_b.generation)
         self.assertNotEqual(lineage_a.identities(), lineage_b.identities())
         stranger = kill(
@@ -1352,6 +1437,158 @@ class MobDeathTests(unittest.TestCase):
         self.assertIn("0x443990", joined)
         self.assertIn("CActorTask_Dead", joined)
         self.assertIn("0x201F", joined)
+
+    def test_simultaneous_death_of_0x201f_and_916_training_iron_man(self):
+        # notes_to_chief/20260827_0955_COO-DECISION-widen-death-scope-...:
+        # the owner named ONE additional identity to widen kill() past
+        # 0x201F -- Training Iron Man, MOBS.n_ID 916 (CONSTDATA_TH__MOBS row:
+        # s_ID_MODEL_CLASS M016, outfit M016_000_000_N, level 100/100, rank
+        # 0, n_AI_WANDER 21, n_AI_COMBAT 0 -- a dummy that never fights back
+        # and drops nothing) -- and asked this lane for exactly one thing
+        # before chief writes the widened= line at runtime.py:3925: a test
+        # that kills the sanctioned target and this new one IN THE SAME
+        # TICK, so widening the scope does not also open a dead_timer
+        # collision or a register race between the two identities.  Short,
+        # not a block: see COO-DECISION 0955, "not a long block, just a
+        # mistake-preventing test".
+        #
+        # [ASSUMPTION OF LANE B -- FLAG FOR COO/chief CONFIRMATION, two
+        # parts]
+        # (1) CONSTDATA_TH__MOBS carries no HP column for ANY row.  This
+        #     fixture's max_hp=100 leans on RE-071's own result (a named
+        #     actor with a RESIDENT 100/100 HP pair renders correctly
+        #     regardless of the "true" number, because BasicAttr::CopyTo
+        #     copies without reading the mask) rather than a captured wire
+        #     value -- nobody has captured Training Iron Man's real max HP.
+        # (2) FieldMob.actor_identity is DERIVED as 0x2000 + placement_index
+        #     + 1 -- the field-mob WIRE-identity space this lane's 13-mob
+        #     roster lives in -- and MOBS n_ID 916 is a TEMPLATE id, a
+        #     different number space entirely.  This fixture's
+        #     actor_identity is a TEST-ONLY stand-in placement (index 9001,
+        #     chosen outside the loaded roster so it cannot collide with a
+        #     real placement), NOT the real wire identity chief will assign
+        #     Training Iron Man's city placement -- that assignment is
+        #     chief's call at runtime.py:3925 and outside this lane's write
+        #     zone.  What this test actually proves does not depend on the
+        #     real number: kill() / commit_death() / DeathRegister do not
+        #     collide when the widened target's template_id is 916 and it
+        #     dies in the same tick as the sanctioned target.
+        training_iron_man = self.training_iron_man_stand_in()
+        self.assertNotIn(
+            training_iron_man.actor_identity,
+            [m.actor_identity for m in self.roster])
+        widened_ruling = WIDENED_916_RULING
+        sanctioned_outcome = self.killing_outcome().outcome
+        tim_ledger = open_ledger(roster=(training_iron_man,))
+        tim_step = strike(
+            self.legacy, None, tim_ledger, None, training_iron_man,
+            PERFORMER, LETHAL)
+        widened_outcome = tim_step.outcome
+        self.assertTrue(widened_outcome.death_due)
+        self.assertEqual(widened_outcome.hp_after, HP_WHEN_DEAD)
+
+        # "the same tick": both kills computed from the SAME generation-0
+        # register, exactly the shape test_two_kills_in_one_tick pins.
+        stored = DeathRegister()
+        a = kill(self.legacy, self.mob, sanctioned_outcome, stored)
+        b = kill(
+            self.legacy, training_iron_man, widened_outcome, stored,
+            widened=widened_ruling)
+        stored = mob_death.commit_death(stored, a)
+        with self.assertRaises(MobDeathContractError) as caught:
+            mob_death.commit_death(stored, b)
+        self.assertEqual(
+            caught.exception.reason, mob_death.REFUSE_REGISTER_STALE)
+
+        # the loser re-reads and re-runs -- same outcome, current register --
+        # and both deaths land with nothing lost and nothing shared.
+        redone = kill(
+            self.legacy, training_iron_man, widened_outcome, stored,
+            widened=widened_ruling)
+        stored = mob_death.commit_death(stored, redone)
+        self.assertEqual(
+            stored.identities(),
+            tuple(sorted((
+                self.mob.actor_identity, training_iron_man.actor_identity))))
+        self.assertEqual(stored.generation, 2)
+
+        # NO DEAD_TIMER COLLISION: each step's frames are keyed to its own
+        # identity, so the sanctioned kill's bytes must not double as the
+        # widened kill's bytes, and both must still carry the right side of
+        # the timer gate.
+        self.assertNotEqual(a.dead_frame, redone.dead_frame)
+        self.assertNotEqual(a.dying_frame, redone.dying_frame)
+        for step in (a, redone):
+            self.assertEqual(step.dying_timer, DYING_TIMER_SECONDS)
+            self.assertEqual(step.dead_timer, DEAD_TIMER_SECONDS)
+            self.assertEqual(step.hold_ms, mob_death.DEATH_TASK_HOLD_MS)
+        self.assertTrue(stored.is_dead(self.mob.actor_identity))
+        self.assertTrue(stored.is_dead(training_iron_man.actor_identity))
+        self.assertEqual(
+            stored.record_of(training_iron_man.actor_identity).max_hp, 100)
+
+    def test_the_916_ruling_does_not_widen_the_other_roster_identities(self):
+        # pf-adversary (round 67jejl), reviewing the test above, found a real
+        # hole this project's own scar tissue warns about: kill()'s scope
+        # gate only checked that ``widened`` was a non-empty string, not
+        # WHICH mob it was being used for.  runtime.py:3925 reaches
+        # mob_death.kill() from ONE call site for every roster identity that
+        # dies -- so the literal one-line wiring COO-DECISION 0955's own
+        # text asks chief to write (hardcode that ruling's widened= string)
+        # would, without WIDENING_RULINGS, have authorised a kill on any of
+        # the OTHER twelve roster mobs too -- including Tornado Eagle
+        # (self.mob, this fixture's own SANCTIONED_FIRST_TARGET_IDENTITY
+        # 0x201F is fine on its own, needs no widened= at all) and its
+        # neighbours, which the SAME ruling calls still-misplaced Prison
+        # Exile data.  This is the guard mob_death.WIDENING_RULINGS closes:
+        # the real, correctly-quoted 916 ruling string must still be refused
+        # for a mob whose template_id is not 916.
+        other = [
+            m for m in self.roster
+            if m.actor_identity != mob_death.SANCTIONED_FIRST_TARGET_IDENTITY
+        ][0]
+        self.assertNotEqual(other.template_id, 916)
+        outcome = self.killing_outcome(other).outcome
+        with self.assertRaises(MobDeathContractError) as caught:
+            kill(self.legacy, other, outcome, DeathRegister(),
+                 widened=WIDENED_916_RULING)
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
+        self.assertIn("916", caught.exception.detail)
+        self.assertIn(str(other.template_id), caught.exception.detail)
+        # A SECOND adversarial pass (same round) broke the first version of
+        # this guard by execution: a PARAPHRASE of the real 916 string -
+        # not a reuse of it, a drift from transcribing it out of a
+        # notes_to_chief letter by hand - walked straight through, because
+        # an unrecognised widened= string was treated as pre-fix-legal
+        # ("just needs to be non-empty").  kill() now fails closed on the
+        # ruling name itself: neither a generic ad hoc string (WIDENED) nor
+        # a near-miss of the real one authorises anything, unregistered.
+        for unrecognised in (WIDENED, "COO-DECISION widen-death-scope-916"):
+            with self.assertRaises(MobDeathContractError) as caught:
+                kill(self.legacy, other, outcome, DeathRegister(),
+                     widened=unrecognised)
+            self.assertEqual(
+                caught.exception.reason,
+                mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
+        # a widened= string IS still usable for a mob it was never about,
+        # but only once a caller REGISTERS it for that mob's template -
+        # the compare-and-swap tests above do exactly this.
+        with self.registered_widening(WIDENED, {other.template_id}):
+            step = kill(self.legacy, other, outcome, DeathRegister(),
+                        widened=WIDENED)
+        self.assertTrue(step.register.is_dead(other.actor_identity))
+        # and the real ruling still authorises the identity it actually
+        # names.
+        tim_ledger = open_ledger(roster=(self.training_iron_man_stand_in(),))
+        tim = self.training_iron_man_stand_in()
+        tim_step = strike(
+            self.legacy, None, tim_ledger, None, tim, PERFORMER, LETHAL)
+        widened_step = kill(
+            self.legacy, tim, tim_step.outcome, DeathRegister(),
+            widened=WIDENED_916_RULING)
+        self.assertTrue(widened_step.register.is_dead(tim.actor_identity))
 
 
 if __name__ == "__main__":
