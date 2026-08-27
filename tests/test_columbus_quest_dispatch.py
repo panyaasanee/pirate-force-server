@@ -17,7 +17,6 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import columbus_quest_dispatch, population
 from pirateforce_foundation.legacy_bridge import load_legacy
-from pirateforce_foundation.world_scene_entry import SceneEntryRefused
 
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 
@@ -128,17 +127,35 @@ class MatchesColumbusDispatchTests(unittest.TestCase):
 
 
 class ResolveColumbusArrivalTests(unittest.TestCase):
-    def test_refuses_today_because_scene_17_has_no_pinned_spawn(self):
-        """The exact, currently-open gap this module's docstring names:
-        scenarios/world_scene_registry_001.json's scene-17 entry carries
-        spawn=null (Bg1001.placements.tsv has no player-arrival marker)."""
-        with self.assertRaises(SceneEntryRefused) as ctx:
-            columbus_quest_dispatch.resolve_columbus_arrival(emit=lambda line: None)
-        self.assertEqual(ctx.exception.reason, "scene_has_no_pinned_spawn")
+    def test_succeeds_on_the_owner_decreed_provisional_spawn(self):
+        """UPDATED PANYA-DECISION 2026-08-27T14:45+07:00: the owner decreed a
+        PROVISIONAL scene-17 spawn (0,0,0), tagged PROVISIONAL-OWNER-DECREE-
+        20260827-1445, in scenarios/world_scene_registry_001.json. This used
+        to always raise SceneEntryRefused(scene_has_no_pinned_spawn); it now
+        succeeds and world_scene_entry.resolve_entry prints the decree token,
+        which this test also proves is not silently dropped."""
+        lines = []
+        entry = columbus_quest_dispatch.resolve_columbus_arrival(
+            emit=lines.append,
+        )
+        self.assertEqual(
+            (entry.position.x, entry.position.y, entry.position.z),
+            (0.0, 0.0, 0.0),
+        )
+        self.assertIn(
+            "SCENE_ENTRY scene=17 xyz=0.000,0.000,0.000 "
+            "source=PROVISIONAL-OWNER-DECREE-20260827-1445",
+            lines,
+        )
 
 
 class DispatchColumbusQuest3021Tests(unittest.TestCase):
-    def test_always_refuses_today_with_both_named_reasons(self):
+    def test_still_refuses_today_on_the_remaining_vehicle_bind_gap_only(self):
+        """UPDATED PANYA-DECISION 2026-08-27T14:45+07:00: the scene17 half of
+        this refusal is now closed by the owner's provisional decree (see
+        ResolveColumbusArrivalTests above) -- only RE-096's vehicle-bind gap
+        (still open) remains, so the compound dispatch still always refuses,
+        but with one named reason instead of two."""
         with self.assertRaises(
             columbus_quest_dispatch.ColumbusDispatchRefused
         ) as ctx:
@@ -147,10 +164,7 @@ class DispatchColumbusQuest3021Tests(unittest.TestCase):
             )
         self.assertEqual(
             ctx.exception.reasons,
-            (
-                "scene17_teleport_refused_scene_has_no_pinned_spawn",
-                columbus_quest_dispatch.VEHICLE_BIND_REFUSED_NO_VEHICLE_ROW,
-            ),
+            (columbus_quest_dispatch.VEHICLE_BIND_REFUSED_NO_VEHICLE_ROW,),
         )
 
     def test_never_partially_applies(self):

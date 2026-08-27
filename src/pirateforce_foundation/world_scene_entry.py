@@ -352,6 +352,7 @@ def resolve_entry(
     lines = [world_scene_travel.entry_console_line(target)]
     scene_id, scene_seq = world_scene_travel.entry_fields(target)
 
+    used_pinned_spawn = False
     if target.n_id == HOME_SCENE_ID:
         position = row
         reason = None
@@ -366,6 +367,7 @@ def resolve_entry(
         reason = None
     else:
         position = world_scene_travel.entry_position(target, row.heading)
+        used_pinned_spawn = True
         reason = (
             RELOCATED_NO_GROUND_EVIDENCE if target.ground_extent is None
             else RELOCATED_OUTSIDE_GROUND
@@ -391,6 +393,25 @@ def resolve_entry(
         lines.append(
             _relocated_line(target, row, position, reason) if moved
             else _kept_row_line(target, row, position)
+        )
+
+    # PANYA-DECISION 2026-08-27T14:45+07:00 item 2: a spawn this project did
+    # not measure or model, and used only because the owner decreed it for
+    # this exact scene/value, must print a distinct grep-able token the
+    # moment it is actually used -- not merely pinned in the registry --
+    # so WIRED v2 and an attended tester can tell a decreed landing from a
+    # measured one.  Detected from the pin's own provenance text rather than
+    # a hardcoded scene id, so this is not scene-17-specific code: whichever
+    # scene's spawn provenance is tagged this way gets the token when its
+    # pinned spawn is the position actually used for this arrival.
+    if used_pinned_spawn and (
+        target.spawn_provenance is not None
+        and target.spawn_provenance.startswith("PROVISIONAL-OWNER-DECREE")
+    ):
+        decree_tag = target.spawn_provenance.split(" ", 1)[0]
+        lines.append(
+            "SCENE_ENTRY scene={0} xyz={1:.3f},{2:.3f},{3:.3f} source={4}"
+            .format(target.n_id, position.x, position.y, position.z, decree_tag)
         )
 
     for line in lines:

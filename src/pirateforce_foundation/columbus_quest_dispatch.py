@@ -50,6 +50,25 @@ WHAT IS EVIDENCED BUT DELIBERATELY REFUSED - TWO OPEN GAPS, NOT ONE.
   measured.  Open ask: an RE runner needs to find scene 17's arrival marker
   (or an owner-attended measurement) before this can complete.
 
+  CLOSED (PROVISIONALLY) 2026-08-27T14:45+07:00, APPENDED RATHER THAN
+  EDITED SO THE PARAGRAPH ABOVE STAYS TRUE AS HISTORY.  ``PANYA-DECISION``
+  2026-08-27T14:45+07:00 (``pf_bridge/notes_to_chief/20260827_1445_PANYA-
+  DECISION-scene17-provisional-arrival-xyz-0-0-0-owner-decree-ka1-B.md``)
+  exercised the owner's own authority to decree a PROVISIONAL spawn (0, 0,
+  0) for this scene, tagged ``PROVISIONAL-OWNER-DECREE-20260827-1445`` in
+  the registry's ``spawn.provenance`` field.  ``resolve_columbus_arrival``
+  now SUCCEEDS instead of refusing, and ``world_scene_entry.resolve_entry``
+  prints a ``SCENE_ENTRY ... source=PROVISIONAL-OWNER-DECREE-20260827-1445``
+  token the moment that spawn is actually used, so a decreed landing is
+  never mistaken for a measured one.  This is not a retraction of the
+  paragraph above: no player-arrival row has been found in the placements
+  table, the decree is the owner's own exception to the no-invented-
+  coordinate rule, for this exact scene and value only, and it expires the
+  day RE-103 T3 evidence lands (tracked as ``GT-105``, not ``GT-104`` -
+  that number is MOB-DEATH-002's, a different ticket).  ``dispatch_
+  columbus_quest3021`` below therefore no longer reports this half as a
+  refusal reason - see its own docstring's matching update.
+
 * **No wire evidence for what a vehicle-bind message should contain.**
   RE-085 (``notes_to_chief/20260827_0156_RE-085-RESULT-SAME-ACTOR-VEHICLE-
   MODULE.md``) proves the CLIENT mechanism is actor-local (``CGCVehicleModule``
@@ -213,15 +232,17 @@ def dispatch_columbus_quest3021(*, registry=None, emit=print):
     """The compound action CORE-REQUEST-014 asks for: bind the vehicle, then
     move the player to scene 17.
 
-    ALWAYS REFUSES TODAY.  Both computed reasons are genuine, independent
-    evidence gaps (see the module docstring) rather than one gap reported
-    twice: the scene-17 arrival is attempted FIRST (so a human reading the
-    console also gets whatever ``world_scene_entry`` would have printed had
-    it not refused), and the vehicle bind is refused unconditionally because
-    no wire evidence for its payload exists in this tree at all - there is
-    no code path here that would ever compose it today, evidenced or not.
-    Never partially applies: no frame is queued unless both halves clear,
-    so a future evidence close on only one gap still cannot ship a player
+    STILL ALWAYS REFUSES TODAY, BUT ON ONE GAP NOW, NOT TWO.  UPDATED
+    2026-08-27T14:45+07:00: the scene-17 arrival is attempted FIRST (so a
+    human reading the console gets whatever ``world_scene_entry`` prints),
+    and as of ``PANYA-DECISION`` 2026-08-27T14:45+07:00's provisional spawn
+    decree (see the module docstring), that half now SUCCEEDS rather than
+    raising - it no longer contributes a reason to ``reasons`` below.  The
+    vehicle bind is still refused unconditionally: no wire evidence for its
+    payload exists in this tree at all (RE-096, open), so there is no code
+    path here that would ever compose it today, evidenced or not.  Never
+    partially applies: no frame is queued unless both halves clear, so a
+    future evidence close on the vehicle gap still cannot ship a player
     riding nothing or a player stranded mid-transform.
     """
     reasons: list[str] = []

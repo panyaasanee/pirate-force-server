@@ -204,10 +204,21 @@ class ColumbusQuest3021WiringTests(unittest.TestCase):
         )
         self.assertFalse(state.columbus_quest3021_conversation_sent)
 
-    def test_quest_operate_op1_quest3021_after_conversation_refuses_with_both_reasons(self):
+    def test_quest_operate_op1_quest3021_after_conversation_refuses_on_the_remaining_vehicle_gap(self):
         """The mutation-proof half: BEFORE this round's wiring there was no
-        Columbus branch at all, so this refused-event pair could never
-        appear -- revert the runtime.py Columbus branch and this fails."""
+        Columbus branch at all, so this refused event could never appear --
+        revert the runtime.py Columbus branch and this fails.
+
+        UPDATED PANYA-DECISION 2026-08-27T14:45+07:00: the owner decreed a
+        PROVISIONAL scene-17 spawn (see world_scene_registry_001.json and
+        world_scene_entry.py's SCENE_ENTRY token), closing the scene17 half
+        of this refusal.  It used to assert TWO refusal events (scene17 +
+        vehicle bind); now only the vehicle-bind gap (RE-096, still open)
+        remains, and the scene-17 half succeeds and prints its own tokens
+        instead of refusing.  Both WORLD_SCENE and the SCENE_ENTRY provisional
+        token are asserted below so a future regression that silently drops
+        either one is still caught here.
+        """
         state = self._real_state("tok-columbus-op1")
         columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
             self.legacy,
@@ -226,16 +237,22 @@ class ColumbusQuest3021WiringTests(unittest.TestCase):
             event for event in state.events
             if event.startswith("columbus_quest3021_dispatch_refused_")
         ]
-        self.assertEqual(len(refusal_events), 2, state.events)
-        self.assertIn(
-            "columbus_quest3021_dispatch_refused_scene17_teleport_refused_"
-            "scene_has_no_pinned_spawn",
+        self.assertEqual(
             refusal_events,
+            [
+                "columbus_quest3021_dispatch_refused_"
+                + columbus_quest_dispatch.VEHICLE_BIND_REFUSED_NO_VEHICLE_ROW,
+            ],
+            state.events,
         )
+        self.assertTrue(any(
+            event.startswith("WORLD_SCENE scene_id=17 ")
+            for event in state.events
+        ), state.events)
         self.assertIn(
-            "columbus_quest3021_dispatch_refused_"
-            + columbus_quest_dispatch.VEHICLE_BIND_REFUSED_NO_VEHICLE_ROW,
-            refusal_events,
+            "SCENE_ENTRY scene=17 xyz=0.000,0.000,0.000 "
+            "source=PROVISIONAL-OWNER-DECREE-20260827-1445",
+            state.events,
         )
         self.assertTrue(state.columbus_quest3021_dispatch_attempted)
 
