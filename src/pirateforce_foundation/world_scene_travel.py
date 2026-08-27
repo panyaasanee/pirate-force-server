@@ -119,9 +119,12 @@ _DESTINATION_FIELDS = {
 # Optional per-destination blocks.  ``superseded_spawn`` is history kept in
 # place rather than deleted; ``table_row_differences`` is commentary on the
 # pinned columns and carries no value the code reads.  ``login_entry_allowed``
-# is the odd one out - it IS read - see its own comment below.
+# and ``persist_position_allowed`` are the odd ones out - they ARE read - see
+# their own comments below (DEFAULT_LOGIN_ENTRY_ALLOWED and
+# DEFAULT_PERSIST_POSITION_ALLOWED respectively).
 _DESTINATION_OPTIONAL_FIELDS = {
     "superseded_spawn", "table_row_differences", "login_entry_allowed",
+    "persist_position_allowed",
 }
 _SPAWN_FIELDS = {"x", "y", "z", "provenance"}
 # Every column the client's table carries that this project has any reason to
@@ -177,6 +180,16 @@ class SceneDestination:
     # itself (unlike everything above it, which is read off the client's own
     # tables), so it lives here rather than inside table_row.
     login_entry_allowed: bool = True
+    # True for every destination this project pinned before round jafskv, and
+    # for any destination the registry does not mention this field on at all
+    # (see DEFAULT_PERSIST_POSITION_ALLOWED below).  False marks a destination
+    # whose XYZ this project has not yet decided how to write into
+    # ``character_positions`` at all - see the comment above
+    # DEFAULT_PERSIST_POSITION_ALLOWED for the bug this closes and
+    # ``is_position_persist_allowed`` for who is meant to check it.  Like
+    # ``login_entry_allowed`` this is a WRITE-TIME POLICY, not a fact read off
+    # the client's own tables, so it lives here rather than inside table_row.
+    persist_position_allowed: bool = True
 
     @property
     def has_authored_entry(self) -> bool:
@@ -269,6 +282,44 @@ PROVISIONAL_SPAWN_PROVENANCE_PREFIX = "PROVISIONAL-OWNER-DECREE"
 # resolve_columbus_arrival, via resolve_entry's own via_login=False) - not a
 # door a stored row can open by accident.
 DEFAULT_LOGIN_ENTRY_ALLOWED = True
+
+# ``persist_position_allowed`` distinguishes "safe to write this character's
+# CURRENT scene id and XYZ into character_positions" from "not yet, this
+# scene's write shape is still an open question".  GT-106 (attended session
+# kha1-B, 2026-08-27 16:35-16:46, notes_to_chief/20260827_1710_GT106-RESULT-
+# M2-Columbus-3021-enters-scene17-*) found the gap this closes: a character
+# walked into scene 17 (the Columbus M2 dispatch, op1/3021, landing on the
+# PROVISIONAL-OWNER-DECREE spawn) and, after teardown, its character_positions
+# row read
+# scene_id=1 with the scene-17 XYZ (x=-149.0, y=-1250.3, z=745.0) stapled onto
+# it - not scene 17 (nobody chose that number on purpose either) and not the
+# Port Royal position the character actually departed from.  That row is
+# wrong twice over: scene 1 is the wrong scene, and (-149, -1250, 745) is not
+# a position anybody measured as valid ground for scene 1.
+#
+# WHY THE FIX PINNED HERE IS "DO NOT PERSIST", NOT "PERSIST 17 INSTEAD".  The
+# obvious-looking correction - write scene_id=17 with that XYZ - drives
+# straight into the trap round 0z3kjx built ``login_entry_allowed`` to catch:
+# scene 17 is pinned ``login_entry_allowed: false`` precisely because a
+# character's own persisted row naming 17 is refused at the next login
+# (``world_scene_entry.resolve_entry``, ``REFUSED_NOT_ALLOWED_AT_LOGIN``) -
+# and scene 17 has no known way back in-game (``n_MARKER=0``, RE-077 open,
+# ``return_ticket=REQUIRED`` on GT-106's own console line). Writing scene_id=17
+# today would not fix the wrong row, it would turn "wrong row" into "player
+# locked out of their character at next login". Refusing to persist at all
+# is the smaller, reversible failure: the character keeps whatever position it
+# last held in a scene that IS safe to log back into, and the next login lands
+# there exactly as it does today - CHARTER-02's cumulative rule again, at the
+# write path this time instead of the read path.
+#
+# Absent from a pin, this defaults True and every pre-existing destination (1,
+# 2, 278, 997) is unaffected byte for byte - this project has never observed a
+# persistence problem at any of them, so none of them earns the exception.
+# False is reserved for a destination this project has caught in the act of
+# corrupting its own character_positions row, until a wiring round (see
+# ``is_position_persist_allowed`` below) decides what SHOULD be written there
+# instead of nothing.
+DEFAULT_PERSIST_POSITION_ALLOWED = True
 
 
 def _spawn(raw: Any, ground: Any, n_id: int) -> tuple[
@@ -377,6 +428,13 @@ def load_scene_registry(path: str | Path = REGISTRY_PATH) -> SceneRegistry:
             if "login_entry_allowed" in row
             else DEFAULT_LOGIN_ENTRY_ALLOWED
         )
+        persist_position_allowed = (
+            _require_bool(
+                row["persist_position_allowed"],
+                f"scene {n_id} persist_position_allowed")
+            if "persist_position_allowed" in row
+            else DEFAULT_PERSIST_POSITION_ALLOWED
+        )
         destinations.append(SceneDestination(
             n_id=n_id,
             model_id=_require_text(row["model_id"], "model id"),
@@ -400,6 +458,7 @@ def load_scene_registry(path: str | Path = REGISTRY_PATH) -> SceneRegistry:
             camera_type=table_row["n_CAMERA_TYPE"],
             limit_height=table_row["n_LIMIT_HEIGHT"],
             login_entry_allowed=login_entry_allowed,
+            persist_position_allowed=persist_position_allowed,
         ))
     return SceneRegistry(tuple(destinations))
 
@@ -526,6 +585,59 @@ def population_source(n_id: int) -> str | None:
     if _require_int(n_id, "scene n_ID", 1, 0xFFFF) == CENSUS_SCENE_ID:
         return CENSUS_SOURCE
     return None
+
+
+def is_position_persist_allowed(
+    n_id: int,
+    registry: SceneRegistry | None = None,
+) -> bool:
+    """Whether a character's CURRENT scene id and XYZ may be written back into
+    ``character_positions`` for this scene - not whether the scene is
+    addressable, and not whether logging IN to it is allowed.
+
+    GT-106 is why this function exists: a character who walked into scene 17
+    came out of teardown with a ``character_positions`` row reading
+    ``scene_id=1`` carrying scene 17's XYZ - a row nobody chose, wrong on both
+    columns, and unsafe for the next login (see
+    ``DEFAULT_PERSIST_POSITION_ALLOWED``'s comment for the full incident and
+    why the fix is "do not write", not "write 17 instead"). This is the
+    question a write-time caller is meant to ask before it touches that table
+    at all; ``login_entry_allowed``/``resolve_entry``'s ``via_login`` is the
+    matching question for reads, and the two are deliberately separate checks
+    because a scene can fail either one without failing the other.
+
+    FAIL-OPEN FOR A SCENE THIS REGISTRY DOES NOT PIN AT ALL - AND ONLY FOR
+    THAT CASE.  This is the opposite default from ``login_entry_allowed``
+    (fail-closed: ``resolve_entry`` raises before a stored row can even reach
+    this question) and from ``spawn_position`` (refuses rather than inventing
+    a position). Both of those exist because an UNKNOWN destination is an
+    UNTRUSTED one - a stored row naming a scene nobody measured is exactly
+    the shape of bug this project keeps finding. This function's unknown case
+    is different: every destination this bug has ever been observed at is
+    already pinned (today: only 17), and every scene NOT in this registry is,
+    by definition, a scene this project has never routed a character through
+    on purpose - which means it is also a scene this exact persistence bug has
+    never had the chance to touch. Fail-closed here would not protect against
+    a known trap; it would silently stop writing positions for every scene
+    this project adds next, on the strength of a bug none of them has
+    exhibited. So: known-and-broken (a pinned False) refuses, unknown (not
+    pinned at all, or the field simply absent from a pinned row) defaults to
+    True - the same "nothing changes for a scene that was never part of the
+    incident" contract ``DEFAULT_LOGIN_ENTRY_ALLOWED`` makes, applied to a
+    default that points the other way for a different reason.
+
+    Still validates ``n_id`` itself (type and the wire field's 1..0xFFFF
+    range) rather than fail-opening on a garbage argument - a caller that
+    passes a value the scene field could never carry has a bug of its own,
+    which this function should say loudly rather than paper over.
+    """
+    _require_int(n_id, "scene n_ID", 1, 0xFFFF)
+    reg = registry or load_scene_registry()
+    try:
+        target = reg[n_id]
+    except KeyError:
+        return True
+    return target.persist_position_allowed
 
 
 def entry_report(target: SceneDestination) -> dict:
