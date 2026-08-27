@@ -150,8 +150,15 @@ jobs:
       # Measured 2026-08-20 ~21:5x: run #1 on pirate-force-server failed at
       # exactly that call.  reap looked green only because it had no pull
       # request to loop over, so it never reached the same call.
-      actions: read
-      # actions: write is REQUIRED for the post-merge gate dispatch below.
+      #
+      # actions: write is REQUIRED for the post-merge gate dispatch below, and
+      # it INCLUDES read.  It is written ONCE.  R189 (a811d99, 2026-08-27)
+      # added `actions: write` UNDER a still-present `actions: read`, and a
+      # duplicated mapping key is accepted by yaml.safe_load but REJECTED by
+      # GitHub's workflow validator: from that merge on, every push produced
+      # a failed run named `.github/workflows/merge-claude-pr.yml` with zero
+      # jobs, and decide/reap/schedule never ran again - every open PR became
+      # a permanent lock.  Validate with a duplicate-key-strict loader.
       # GitHub does not start a workflow from a push made with GITHUB_TOKEN
       # (gate-windows.yml documents this same fact about itself) - so the
       # merge commit this job just pushed to the default branch would
@@ -490,9 +497,8 @@ jobs:
       # Measured 2026-08-20 ~21:5x: run #1 on pirate-force-server failed at
       # exactly that call.  reap looked green only because it had no pull
       # request to loop over, so it never reached the same call.
-      actions: read
-      # actions: write is REQUIRED for the post-merge gate dispatch below.
-      # See the matching comment in the `decide` job's permissions block.
+      # actions: write INCLUDES read and is written ONCE - see the `decide`
+      # job's permissions block for the duplicate-key incident.
       actions: write
     steps:
       - name: Finish or close every stale claude/* pull request
