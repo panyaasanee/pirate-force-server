@@ -1082,6 +1082,10 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # server-wide ledger is a real follow-up, not a silent
                 # decision -- see the handback.
                 self.mob_combat_ledger = mob_combat.open_ledger()
+                # CORE-REQUEST (LANE-B, 20260828_0337): the attack-cadence
+                # gate MOB_COMBAT_CADENCE_WIRING asks for, opened next to
+                # mob_combat_ledger for the same per-session reason.
+                self.mob_combat_cadence = mob_combat.open_cadence_ledger()
                 self.mob_death_register = mob_death.DeathRegister()
                 self.mob_combat_hit_count = 0
                 self.mob_combat_kill_count = 0
@@ -3810,6 +3814,45 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             )
             if diag_widen_refusal is not None:
                 self.events.append(diag_widen_refusal)
+            # CORE-REQUEST (LANE-B, 20260828_0337): MOB_COMBAT_CADENCE_WIRING.
+            # DEVIATION from the letter's literal recipe, found and fixed by
+            # pf-adversary before push: the recipe said to gate every inbound
+            # ActionVital unconditionally, but EA7D/ActionVital is a generic
+            # "action on a target" shape (mob_combat.py's own
+            # MOB_COMBAT_NONCLAIMS #1 -- the inbound half is unproven), not an
+            # attack-specific one, and this roster already resolves who a
+            # real hit could land on. Gating unconditionally meant an
+            # ActionVital at a NON-monster target (a townsperson, another
+            # player, anything not in ``roster``) silently spent the
+            # performer's cadence window before ``attack_from_observed_
+            # action`` ever got to say "not a field mob" -- reproduced: a
+            # click on a non-monster at t=0 caused a genuine first attack on
+            # a real monster 200ms later to be rejected as "cadence too
+            # soon", even though no damage-bearing attack had happened yet.
+            # Gate only when the target actually resolves to a roster member
+            # -- the same membership test attack_from_observed_action itself
+            # runs a few lines below -- so a miss-click never taxes the
+            # window a real attack needs.  at_ms_wallclock is a reading this
+            # method takes itself, once, per dispatch (mob_combat.py owns no
+            # clock of its own, matching NOTHING IS INSTALLED there).
+            target_is_field_mob = any(
+                mob.actor_identity == target for mob in roster
+            )
+            if target_is_field_mob:
+                at_ms_wallclock = int(monotonic_clock() * 1000)
+                cadence_check = mob_combat.check_attack_cadence(
+                    self.mob_combat_cadence, performer, at_ms_wallclock,
+                )
+                if not cadence_check.accepted:
+                    for line in mob_combat.describe_cadence_rejection(
+                        cadence_check
+                    ):
+                        print(line)
+                    self.events.append(
+                        "mob_combat_cadence_rejected_no_reply"
+                    )
+                    return []
+                self.mob_combat_cadence = cadence_check.cadence
             for _attempt in range(MOB_COMBAT_STALE_RETRY_LIMIT):
                 try:
                     step = mob_combat.attack_from_observed_action(
