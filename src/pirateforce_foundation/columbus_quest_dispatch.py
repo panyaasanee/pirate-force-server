@@ -161,6 +161,47 @@ already reads other frozen symbols, never edited.  It does not invent an
 actor identity for Columbus: ``columbus_actor_identity`` raises rather than
 guess if BUILD-001's own frozen placement table ever ships without index 1
 in it.
+
+OPTION 2 ADDED, PURELY ADDITIVE.  ``COO-DECISION`` 2026-08-27T17:46+07:00
+(``pf_bridge/notes_to_chief/20260827_1746_COO-DECISION-M2-not-closed-fix-
+persistence-and-destination-scene-before-passing.md``) reopens GT-106 (4).1
+(``pf_bridge/notes_to_chief/20260827_1710_GT106-RESULT-...-ka1-B.md``):
+Port Royal's real Columbus (MOBS ``n_ID=156``) has a second entry in its own
+``s_QUEST_BEGIN`` list -- ``111;998;3021;3205;7062;7063`` -- read straight
+from the committed ``CONSTDATA_TH__MOBS.tsv`` row this module already trusts
+for quest 3021.  Quest 3205 is ``Q_BORNAGAIN`` (``QUESTDATA_TH__QUEST.tsv``),
+Thai label "tang than tap thi Port Royal" (save Port Royal as spawn point),
+with ``n_VARI_2=1`` which the original client's Lua reads as
+``Player.ResetMarker(1)`` -- a spawn/marker-save action, not a scene
+teleport, and it does not touch the scene-17-vs-126 destination question the
+same COO-DECISION assigns to a separate lane GM/RE ticket ("ham dao" - do
+not guess).
+
+Added below, all purely additive -- nothing about quest 3021's existing
+wire shape or dispatch outcome changes:
+
+* ``make_columbus_conversation_two_options`` -- the SAME per-entry byte
+  layout ``make_columbus_conversation`` already emits (factored out as
+  ``_conversation_entry`` so neither copies the other), with a second entry
+  for quest 3205 appended and the entry count raised from 1 to 2.
+  ``make_columbus_conversation`` itself is untouched byte-for-byte (see its
+  own tests) and stays the encoder for a single-option descriptor.
+* ``matches_columbus_bornagain_dispatch`` -- ``matches_columbus_dispatch``
+  generalised with an optional ``quest_id`` (default unchanged at 3021, so
+  every existing 1-argument call site keeps its exact old behaviour) and a
+  thin wrapper naming quest 3205.
+* ``dispatch_columbus_quest3205`` -- refuses every time, with a named
+  reason, because no persisted column for a player-chosen respawn scene
+  exists anywhere in this project's schema and no wire frame for a
+  ``Player.ResetMarker`` acknowledgement has ever been captured.  Composing
+  either would invent a row or a frame CHARTER-02 forbids inventing; see the
+  function's own docstring and the round handoff for the RE/CORE-REQUEST
+  tickets this refusal opens instead.
+
+Wiring either new function into the live ``ChooseNPC``/``QuestOperateVital``
+dispatch loop in ``runtime.py`` is NOT done here -- that file is the
+chief's, not this lane's -- see the round handoff's ``CORE-REQUEST`` for the
+exact one-line hook needed.
 """
 
 from __future__ import annotations
@@ -183,10 +224,30 @@ COLUMBUS_QUEST_ID = 3021
 COLUMBUS_QUEST_OP_DISPATCH = 1
 COLUMBUS_DEST_SCENE_ID = 17
 
+# Option 2, added 2026-08-27 per COO-DECISION-M2-not-closed and GT-106 (4).1
+# (see the module docstring's "OPTION 2 ADDED" section for the full
+# citation).  Quest 3205 = Q_BORNAGAIN, n_VARI_2=1 -> Player.ResetMarker(1),
+# a spawn/marker-save action, not a scene teleport - it deliberately shares
+# no destination-scene constant with quest 3021 above.
+COLUMBUS_QUEST_BORNAGAIN_ID = 3205
+COLUMBUS_QUEST_BORNAGAIN_MARKER_ID = 1
+# Thai label transliterated for this file per this round's ASCII-only-in-
+# code constraint (see GT-106 4.1 / round handoff for the original Thai
+# string, kept out of src/ here on purpose): "save Port Royal as spawn
+# point". Documentation only, never rendered on a console.
+COLUMBUS_QUEST_BORNAGAIN_LABEL_TH_TRANSLIT = "tang than tap thi Port Royal"
+
 # The reason string this module reports when the vehicle bind refuses.  Named
 # after the open ticket that would close it, so a console reader knows
 # exactly which RE ticket to chase rather than a generic "not implemented".
 VEHICLE_BIND_REFUSED_NO_VEHICLE_ROW = "no_re096_vehicle_row_evidence"
+
+# The reason string this module reports when the quest-3205 marker-save
+# refuses.  See dispatch_columbus_quest3205's own docstring for why no
+# persisted column or wire ack exists yet for this action.
+BORNAGAIN_MARKER_RESET_REFUSED_NO_PERSISTENCE_ROW = (
+    "no_home_marker_persistence_row_evidence"
+)
 
 
 class ColumbusActorNotFound(LookupError):
@@ -231,28 +292,86 @@ def columbus_actor_identity(legacy) -> int:
     )
 
 
+def _conversation_entry(legacy, quest_id: int, descriptor_byte: int = 0) -> bytes:
+    """One quest entry's bytes within an NPCConversation descriptor.
+
+    Factored out so ``make_columbus_conversation`` (below) and
+    ``make_columbus_conversation_two_options`` (option 2, added 2026-08-27)
+    repeat the exact same per-entry layout instead of one copying the other.
+    Per ``make_npc_conversation_quest3020``'s own docstring (``current/
+    pf_login_game_server_v141.py:782-804``): NPCConversation serializer
+    0x622F10 calls the nested descriptor serializer 0x606890 once for EACH
+    entry the u16 count names, and that nested serializer writes qid/+0x10
+    as a tagged u16 then +0x12 as a tagged u8 (factory 0x622130 initialises
+    the latter to zero) - the exact two fields this helper emits, in that
+    order, for whichever quest id and descriptor byte it is given.
+    """
+    return legacy.u16tag(0x12, quest_id) + legacy.u8tag(0x08, descriptor_byte)
+
+
 def make_columbus_conversation(legacy, actor_identity: int) -> tuple[bytes, bytes]:
-    """One NPCConversation descriptor: Columbus's actor, quest 3021.
+    """One NPCConversation descriptor: Columbus's actor, quest 3021 ONLY.
 
     Byte-for-byte the same shape as the frozen ``make_npc_conversation_
     quest3020`` (``current/pf_login_game_server_v141.py:798-804``), read
     here and parameterised on actor identity and quest id instead of
     hardcoded to P0/3020 - see the module docstring for why RE-094 makes
     that generalisation safe rather than invented.
+
+    UNCHANGED, BYTE-FOR-BYTE, by the 2026-08-27 option-2 addition below (see
+    ``tests/test_columbus_quest_dispatch.py``'s
+    ``test_matches_the_general_wire_shape_re094_pinned`` for the pin) - this
+    function stays the single-option encoder; ``make_columbus_conversation_
+    two_options`` is the new, separate, two-option one.
     """
     if type(actor_identity) is not int or actor_identity <= 0:
         raise ValueError("actor_identity must be a positive int")
     payload = (
         legacy.qwordtag(0x32, actor_identity)
         + legacy.u16tag(0x0F, 1)
-        + legacy.u16tag(0x12, COLUMBUS_QUEST_ID)
-        + legacy.u8tag(0x08, 0)
+        + _conversation_entry(legacy, COLUMBUS_QUEST_ID)
     )
     return legacy.make_runtime_vitals([(legacy.NPC_CONVERSATION, 0, payload)])
 
 
-def matches_columbus_dispatch(quest_fields: dict) -> bool:
-    """Whether one decoded ``QuestOperateVital`` frame is Columbus's op1/3021.
+def make_columbus_conversation_two_options(
+    legacy, actor_identity: int,
+) -> tuple[bytes, bytes]:
+    """One NPCConversation descriptor: Columbus's actor, TWO entries - quest
+    3021 (existing, unchanged ordering/bytes) then quest 3205 (Q_BORNAGAIN,
+    option 2, added 2026-08-27 per COO-DECISION-M2-not-closed and GT-106
+    (4).1 - see the module docstring's "OPTION 2 ADDED" section for the full
+    citation trail).
+
+    PURELY ADDITIVE relative to ``make_columbus_conversation``: same actor
+    qword, same per-entry layout (``_conversation_entry``, shared with that
+    function so this is not a second, silently divergent copy of the wire
+    shape), just ``u16tag(0x0F, 2)`` instead of 1 and a second entry
+    appended.  Quest 3205's descriptor byte is 0, the same factory default
+    quest 3021's entry already carries - no evidence anywhere suggests a
+    non-zero byte for this or any other conversation entry.
+
+    Quest 3205 is a marker-save action (``Player.ResetMarker(1)``), not a
+    scene teleport, and composing this descriptor decides nothing about the
+    scene-17-vs-126 destination question a separate lane GM/RE ticket is
+    chasing per the same COO-DECISION.
+    """
+    if type(actor_identity) is not int or actor_identity <= 0:
+        raise ValueError("actor_identity must be a positive int")
+    payload = (
+        legacy.qwordtag(0x32, actor_identity)
+        + legacy.u16tag(0x0F, 2)
+        + _conversation_entry(legacy, COLUMBUS_QUEST_ID)
+        + _conversation_entry(legacy, COLUMBUS_QUEST_BORNAGAIN_ID)
+    )
+    return legacy.make_runtime_vitals([(legacy.NPC_CONVERSATION, 0, payload)])
+
+
+def matches_columbus_dispatch(
+    quest_fields: dict, quest_id: int = COLUMBUS_QUEST_ID,
+) -> bool:
+    """Whether one decoded ``QuestOperateVital`` frame is Columbus's op1 for
+    ``quest_id`` (default 3021, the pre-existing single-option lane).
 
     ``quest_fields`` is whatever ``legacy.parse_quest_operate_vital`` (the
     already-general decoder, see the module docstring) returned.  Only quest
@@ -260,12 +379,34 @@ def matches_columbus_dispatch(quest_fields: dict) -> bool:
     remaining fields opaque/default-0 in the one path it observed, and
     refusing on them would repeat the over-narrow exact-tuple match RE-094's
     own result criticised in the existing 3020 lane.
+
+    ``quest_id`` PARAMETER ADDED 2026-08-27 (option 2 / quest 3205), DEFAULT
+    UNCHANGED.  Every pre-existing 1-argument call site (``matches_columbus_
+    dispatch(fields)``) keeps matching exactly quest 3021 exactly as before;
+    this generalisation only exists so ``matches_columbus_bornagain_
+    dispatch`` below can reuse this same gating logic for quest 3205 instead
+    of duplicating it.
     """
     if type(quest_fields) is not dict:
         return False
     return (
-        quest_fields.get("quest_id") == COLUMBUS_QUEST_ID
+        quest_fields.get("quest_id") == quest_id
         and quest_fields.get("field_u8_16") == COLUMBUS_QUEST_OP_DISPATCH
+    )
+
+
+def matches_columbus_bornagain_dispatch(quest_fields: dict) -> bool:
+    """Whether one decoded ``QuestOperateVital`` frame is Columbus's option
+    2 / op1 for quest 3205 (Q_BORNAGAIN, added 2026-08-27).
+
+    Thin wrapper around ``matches_columbus_dispatch`` naming
+    ``COLUMBUS_QUEST_BORNAGAIN_ID`` - see that function's own docstring for
+    why gating on quest id + the op byte alone, and not the remaining
+    opaque fields, is the same reuse RE-094 already validated for quest
+    3021, not a new, unproven pattern invented for this quest.
+    """
+    return matches_columbus_dispatch(
+        quest_fields, quest_id=COLUMBUS_QUEST_BORNAGAIN_ID,
     )
 
 
@@ -347,3 +488,46 @@ def dispatch_columbus_quest3021(*, registry=None, emit=print):
         + M2_NO_VEHICLE_TAG
     )
     return entry
+
+
+def dispatch_columbus_quest3205(*, emit=print):
+    """Option 2 arriving (op1/quest 3205, Q_BORNAGAIN) -- what this module
+    can honestly do with it TODAY: refuse, with a named reason, every time.
+
+    ADDED 2026-08-27 alongside ``make_columbus_conversation_two_options`` /
+    ``matches_columbus_bornagain_dispatch`` (see the module docstring's
+    "OPTION 2 ADDED" section).  This function is the third piece of that
+    trio and intentionally does NOT succeed yet -- unlike quest 3021's
+    scene-17 teleport (an established encoder, a decreed destination, and a
+    registry pin this module could resolve through ``world_scene_entry``),
+    a "save Port Royal as spawn point" action has:
+
+    * no persisted column anywhere in this project's schema for a
+      player-chosen respawn scene (grep ``src/pirateforce_foundation`` for
+      "home"/"marker"/"spawn" as of this round turns up only unrelated hits
+      -- population/monster spawn points, convention-marker comments, and
+      this module's own citation of scene-17's missing arrival marker; no
+      character-scoped respawn column exists), and
+    * no captured wire frame for what, if anything, the client expects back
+      after ``Player.ResetMarker`` runs server-side.
+
+    Composing either would mean inventing a row or a frame this project has
+    not measured -- CHARTER-02's "never invent a row the client's own
+    tables do not have" applies here exactly as it did to RE-096's
+    vehicle-bind gap (see the module docstring).  This refuses, every time,
+    with a named reason, so a caller has something to catch and a console
+    reader has something to grep instead of a silent no-op -- the same
+    shape ``dispatch_columbus_quest3021`` had before the scene-17 decree
+    closed ITS gap.
+
+    Raises ``ColumbusDispatchRefused`` (reused rather than a third
+    exception type, since any future wiring in ``runtime.py`` would want to
+    catch quest 3021's and quest 3205's refusals the same way).
+    """
+    reason = BORNAGAIN_MARKER_RESET_REFUSED_NO_PERSISTENCE_ROW
+    emit("COLUMBUS_QUEST3205_BORNAGAIN_REFUSED reason=" + reason)
+    raise ColumbusDispatchRefused(
+        (reason,),
+        "Columbus quest 3205 op1 (Q_BORNAGAIN) dispatch cannot complete "
+        "yet: " + reason,
+    )
