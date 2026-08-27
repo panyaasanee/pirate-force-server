@@ -42,11 +42,21 @@ SERIALIZER_FIELDS_SPAN_SHA256 = (
 # whole connection, and closes the socket itself. Not sending this frame at
 # all is always safe (every login before this lane existed did exactly
 # that); sending version 1 kills the session. CORE-REQUEST-016 (LANE-GM,
-# 2026-08-27T15:24+07:00): this stays None -- and runtime.py's call site
-# stays gated on it being not-None -- until RE-105 (STATIC-ON-BRIDGE) pins
-# the real version. Setting this to a number without that citation is
-# exactly the mistake that produced GT-101.
-GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED = None
+# 2026-08-27T15:24+07:00) opened this constant as None -- and runtime.py's
+# call site gated on it being not-None -- until a real value was pinned.
+#
+# RE-105 (STATIC-ON-BRIDGE, DONE/PASS,
+# notes_to_chief/20260827_1613_RE-105-RESULT-VITAL-VERSION-ZERO-GENERIC-MISMATCH-PATH.md)
+# pinned it: the generic VitalData collection reader at [0x005F3E20,
+# 0x005F406D) does an exact-equality compare against message+0x10, and the
+# 0x5A19 prototype constructor (bootstrap 0x007299B0) stores that byte as 0
+# by direct `mov`, not inferred from any other vital's version. version=0 is
+# therefore the one value that survives the generic reader for this vital;
+# any other value (including the 1 GT-101 measured as fatal) hits the same
+# generic ErrorData=<vital id> mismatch path RE-105 traces end to end. The
+# outer runtime envelope's own protocol version (the separate `u8tag(0x08,
+# 4)` byte written before this field) is unaffected and stays 4.
+GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED = 0
 
 
 def make_gm_update_state_payload(
