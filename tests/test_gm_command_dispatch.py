@@ -192,6 +192,50 @@ class GmCommandDispatchTests(unittest.TestCase):
             )
         self.assertTrue(outcome.authorized)
 
+    # ----- pf-adversary (round 50x5xt): capture write failure refuses, ----
+    # ----- never raises out of the handler -------------------------------
+
+    def test_capture_os_error_is_refused_by_name_not_by_crashing(self):
+        # This module's own docstring claims the "refuse by name, not by
+        # crash" pattern covers this whole function -- before this round
+        # that was only true for the account-lookup call, not for the disk
+        # write. capture_root pointed at a path that already exists as a
+        # FILE (not a directory) makes command_capture.py's own
+        # `root.mkdir(parents=True, exist_ok=True)` raise a real FileExistsError,
+        # the same OSError family an out-of-space or permission-denied disk
+        # would raise.
+        blocking_file = Path(self.tmp.name) / "capture_is_a_file"
+        blocking_file.write_text("not a directory")
+        config = self._config(["gm_listed"])
+        outcome = gm_dispatch.handle_gm_run_command_vital(
+            "gm_listed", _PRESENCE_ZERO_PAYLOAD,
+            config_path=config, capture_root=blocking_file,
+        )
+        self.assertTrue(outcome.authorized)
+        self.assertIsNone(outcome.captured_path)
+        self.assertTrue(
+            outcome.refusal_reason.startswith(
+                gm_dispatch.REFUSAL_CAPTURE_WRITE_FAILED_PREFIX
+            )
+        )
+
+    def test_capture_os_error_via_mock_does_not_propagate(self):
+        config = self._config(["gm_listed"])
+        with mock.patch.object(
+            gm_dispatch, "capture_raw_gm_command",
+            side_effect=OSError("simulated ENOSPC"),
+        ):
+            outcome = gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", _PRESENCE_ZERO_PAYLOAD,
+                config_path=config, capture_root=self.capture_root,
+            )
+        self.assertTrue(outcome.authorized)
+        self.assertIsNone(outcome.captured_path)
+        self.assertEqual(
+            outcome.refusal_reason,
+            f"{gm_dispatch.REFUSAL_CAPTURE_WRITE_FAILED_PREFIX}OSError",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

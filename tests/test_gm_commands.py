@@ -12,12 +12,29 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation.gm.commands import (
     MAX_SAY_MESSAGE_LENGTH,
+    GmCommand,
+    GmCommandArgsError,
     GmCommandParseError,
     describe_npc_target,
     describe_warp_target,
     log_gm_command,
     parse_gm_command,
 )
+
+
+class _LyingTuple(tuple):
+    """A tuple subclass that lies through __len__/__getitem__.
+
+    Same threat model gm/warp_executor.py's and gm/say_wire.py's own
+    `type(args) is not tuple` checks defend against -- an `isinstance`
+    allowlist alone would not reject this.
+    """
+
+    def __len__(self):
+        return 3
+
+    def __getitem__(self, index):
+        raise RuntimeError("lying tuple subclass")
 
 
 class ParseGmCommandTests(unittest.TestCase):
@@ -127,6 +144,63 @@ class DescribeNpcTargetTests(unittest.TestCase):
         cmd = parse_gm_command("lv 1")
         with self.assertRaises(ValueError):
             describe_npc_target(cmd)
+
+
+class ArgsShapeGuardTests(unittest.TestCase):
+    """pf-adversary (round 50x5xt): describe_warp_target/describe_npc_target/
+    log_gm_command indexed or iterated `command.args` with no shape check --
+    a hand-built GmCommand with a non-tuple args (dict, None, a lying tuple
+    subclass) either crashed with a bare TypeError/RuntimeError instead of a
+    module-specific error, or (for an integer-keyed dict) silently logged
+    the dict's *keys* instead of its values. gm/warp_executor.py and
+    gm/say_wire.py already closed this exact bug class for their own
+    GmCommand inputs; this class proves it is now closed here too.
+    """
+
+    def test_describe_warp_target_rejects_non_tuple_args(self):
+        cmd = GmCommand("warp", {0: "1", 1: "2", 2: "3"}, "warp 1 2 3")
+        with self.assertRaises(GmCommandArgsError):
+            describe_warp_target(cmd)
+
+    def test_describe_warp_target_rejects_lying_tuple_subclass(self):
+        cmd = GmCommand("warp", _LyingTuple(("1",)), "warp 1")
+        with self.assertRaises(GmCommandArgsError):
+            describe_warp_target(cmd)
+
+    def test_describe_warp_target_rejects_short_args(self):
+        cmd = GmCommand("warp", (), "warp")
+        with self.assertRaises(GmCommandArgsError):
+            describe_warp_target(cmd)
+
+    def test_describe_npc_target_rejects_none_args(self):
+        cmd = GmCommand("npc", None, "npc on 1")
+        with self.assertRaises(GmCommandArgsError):
+            describe_npc_target(cmd)
+
+    def test_describe_npc_target_rejects_short_args(self):
+        cmd = GmCommand("npc", ("on",), "npc on")
+        with self.assertRaises(GmCommandArgsError):
+            describe_npc_target(cmd)
+
+    def test_log_gm_command_rejects_non_tuple_args_and_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = Path(tmp) / "gm_command_log.ndjson"
+            cmd = GmCommand("lv", {0: "1"}, "lv 1")
+            with self.assertRaises(GmCommandArgsError):
+                log_gm_command(cmd, "panya", log_path=log_path, now_ts=0)
+            self.assertFalse(log_path.exists())
+
+    def test_log_gm_command_records_real_values_not_dict_keys(self):
+        # Regression for the exact bug pf-adversary found: list(some_dict)
+        # yields the dict's KEYS, not its values -- a caller passing an
+        # integer-keyed dict as args used to get a record whose "args" field
+        # silently held [0, 1, 2] instead of the real string values.
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = Path(tmp) / "gm_command_log.ndjson"
+            cmd = parse_gm_command("warp 1 2 3")
+            log_gm_command(cmd, "panya", log_path=log_path, now_ts=0)
+            record = json.loads(log_path.read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(record["args"], ["1", "2", "3"])
 
 
 class LogGmCommandTests(unittest.TestCase):

@@ -527,6 +527,68 @@ values this lane sends (`0, 0, 0`) mean anything, and does not by itself
 prove any client-observable GM UI change. That still needs an attended
 capture/observation session (`GT-101` rerun) this lane cannot run headless.
 
+## Modules delivered (round `50x5xt`, pf-adversary follow-up)
+
+A full-package `pf-adversary` pass over `gm/` (not tied to any single
+change -- a standing-debt sweep, since GM-002's live wiring means this
+package now handles real inbound bytes) found three issues, none of them a
+non-GM account gaining anything -- the allowlist gate itself held under
+every shape tried:
+
+- **Fixed, HIGH -- `gm/dispatch.py`**: `handle_gm_run_command_vital` called
+  `command_capture.capture_raw_gm_command` (a real `os.mkdir`/`os.open`/
+  `os.write`) with no `try`/`except`. Since `CORE-REQUEST-010` wires this in
+  "always on" with no surrounding guard in `runtime.py` either, an `OSError`
+  from a full disk, a permission error, or `capture_root` colliding with an
+  existing non-directory file would have propagated out of the handler and
+  could have taken the connection-handling thread down for every player over
+  ONE authorized GM command's capture write -- exactly the "refuse by name,
+  not by crash" failure mode this module's own docstring already claimed to
+  have closed (it had only closed it for the account-lookup call, not this
+  one). Fixed by wrapping the call in `try`/`except OSError`, returning
+  `GmDispatchOutcome(authorized=True, captured_path=None,
+  refusal_reason="capture_write_failed_<ExceptionType>")` -- same shape as
+  the existing `gm_account_lookup_failed_*`/`payload_too_large` refusals, so
+  a caller already handling those handles this the same way with no new
+  branch. New tests in `tests/test_gm_command_dispatch.py`: one forces a real
+  `FileExistsError` by pointing `capture_root` at a path that already exists
+  as a file, one mocks `capture_raw_gm_command` to raise a generic `OSError`
+  directly.
+- **Fixed, MEDIUM -- `gm/commands.py`**: `describe_warp_target`,
+  `describe_npc_target`, and `log_gm_command` indexed or `list()`-ed
+  `command.args` with no shape check -- the exact bug class
+  `gm/warp_executor.py` and `gm/say_wire.py` already closed for their own
+  `GmCommand` inputs (a blacklist defeated by an integer-keyed dict, then an
+  `isinstance(args, tuple)` allowlist defeated by a tuple subclass lying
+  through `__len__`/`__getitem__`), left open in this file because these
+  three functions predate that fix and nobody re-swept this file when it
+  landed. Concretely: a hand-built `GmCommand` with `args={0: "1", 1: "2",
+  2: "3"}` used to make `log_gm_command` silently write `"args": [0, 1, 2]`
+  (the dict's *keys*) into the forensic ndjson log instead of raising, and
+  `args=None` raised a bare `TypeError` instead of a catchable
+  module-specific error. Fixed with a shared `_require_args_tuple(args,
+  min_length=N)` helper using the same `type(args) is not tuple` exact-type
+  check (not `isinstance`) plus a length check, raising the new
+  `GmCommandArgsError`, called at the top of all three functions. New tests
+  in `tests/test_gm_commands.py` (`ArgsShapeGuardTests`) cover the dict, a
+  `None`, a lying tuple subclass, and a too-short real tuple for each
+  function, plus a regression test proving `log_gm_command` now records the
+  real positional values, not dict keys.
+- **Not fixed this round, MEDIUM, tracked below** -- no per-account rate
+  limit on authorized capture writes. See "What is intentionally NOT built
+  yet, and why" below for why this is deferred rather than rushed.
+
+`tests/test_gm_*.py`: 215/215 (up from 189 -- 26 new tests, all from this
+round). Repo-wide `unittest discover`: 3587 tests, 18 pre-existing
+`capstone`-import errors only (same set as every prior round's baseline),
+no new failures.
+
+nonclaim: none of this changes what any command *does* -- `warp`/`say`
+still only return frame bytes to a caller, nothing is sent to a socket, and
+no field semantics changed. This round is pure robustness/correctness
+inside this lane's own write zone; no wire fact, no RE citation, and no
+`runtime.py` edit involved.
+
 ## Attempted and retracted (broadcast-wire round)
 
 This round tried to give `say` a wire codec for `Channel_GMGlobalMessageVital`
@@ -634,6 +696,23 @@ scene_travel.py`/`field_mob_tables.py`.
   cover. `gm/scene_catalog.py` (this lane's own, from committed gamedata) is
   used only as a non-blocking name hint for `warp`, never as proof a warp
   target is reachable.
+- No per-account rate limit on authorized `0x51E9` capture writes in
+  `gm/dispatch.py`. `pf-adversary` (round `50x5xt`) flagged this: nothing
+  stops one authorized GM connection from sending frames back-to-back with
+  no cooldown, and each authorized call does a synchronous
+  `os.mkdir`/`os.open`/`os.write` with a unique filename per call -- a
+  scripted GM client could still fill disk, even though the same round's
+  fix means a write failure from that no longer crashes the listener thread
+  (see "Modules delivered (round `50x5xt`...)" above). Deferred rather than
+  rushed: this lane's other stateful-guard rounds (the `type(args) is
+  tuple` args-shape fix) took three separate `pf-adversary` passes to get
+  right even for a *pure* function with no shared state; a rate limiter
+  needs a shared counter across calls, which raises real thread-safety and
+  test-isolation questions (a naive module-level dict would leak across
+  every test in the same process unless every test suite remembers to reset
+  it) that deserve a dedicated round, not a same-round bolt-on next to two
+  unrelated fixes. No `CORE-REQUEST` needed either way -- this is fully
+  inside this lane's own write zone.
 
 ## Nonclaim rule
 

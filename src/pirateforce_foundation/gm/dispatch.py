@@ -75,6 +75,19 @@ MAX_RAW_PAYLOAD_LENGTH = 65536
 REFUSAL_NOT_GM = "not_gm_account"
 REFUSAL_LOOKUP_FAILED_PREFIX = "gm_account_lookup_failed_"
 REFUSAL_PAYLOAD_TOO_LARGE = "payload_too_large"
+# pf-adversary (this round): this module's own docstring claims it reuses
+# the "refuse by name, not by crash" pattern -- but until this round that
+# was only true for the account-lookup call above, not for the disk write
+# below. capture_raw_gm_command() does a real os.mkdir/os.open/os.write
+# (gm/command_capture.py); ENOSPC, EACCES, a read-only filesystem, or a
+# same-second filename collision that also fails O_CREAT|O_EXCL all raise
+# OSError subclasses straight out of this function. Since runtime.py wires
+# this in with no flag and no surrounding try/except of its own
+# (CORE-REQUEST-GM-010, "always on"), an unhandled OSError here would
+# propagate out of the inbound-vital handler for one authorized GM command
+# and could take the connection-handling thread down for every player --
+# exactly the failure mode the module docstring says this lane closed.
+REFUSAL_CAPTURE_WRITE_FAILED_PREFIX = "capture_write_failed_"
 
 
 @dataclass(frozen=True)
@@ -97,8 +110,12 @@ class GmDispatchOutcome:
     ``captured_path`` is otherwise set whenever, and only whenever,
     ``command_capture.capture_raw_gm_command`` actually wrote the raw bytes
     and structural decode to disk. It is None for every refusal, including
-    the oversized-payload case above -- an unauthorized or oversized send
-    leaves no capture file, by design (see module docstring).
+    the oversized-payload case above and an OS-level write failure
+    (``refusal_reason`` a ``REFUSAL_CAPTURE_WRITE_FAILED_PREFIX`` string) --
+    an unauthorized, oversized, or unwritable send leaves no capture file,
+    by design (see module docstring). ``authorized`` stays True for a write
+    failure, same reasoning as the oversized-payload case: the account really
+    is GM, the disk just refused this one write.
     """
 
     authorized: bool
@@ -155,9 +172,16 @@ def handle_gm_run_command_vital(
             refusal_reason=REFUSAL_PAYLOAD_TOO_LARGE,
         )
 
-    captured_path = capture_raw_gm_command(
-        raw_payload, account_name, capture_root=capture_root, now_ts=now_ts,
-    )
+    try:
+        captured_path = capture_raw_gm_command(
+            raw_payload, account_name, capture_root=capture_root, now_ts=now_ts,
+        )
+    except OSError as error:
+        return GmDispatchOutcome(
+            authorized=True,
+            captured_path=None,
+            refusal_reason=f"{REFUSAL_CAPTURE_WRITE_FAILED_PREFIX}{type(error).__name__}",
+        )
     return GmDispatchOutcome(
         authorized=True, captured_path=captured_path, refusal_reason=None,
     )
