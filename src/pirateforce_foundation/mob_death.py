@@ -196,6 +196,37 @@ MOB_DEATH_WIRING = (
 SANCTIONED_FIRST_TARGET_IDENTITY = 0x201F
 SANCTIONING_RULING = "PANYA-RULINGS-FOUR 2026-08-25 18:15 +07:00 section 3"
 
+# A ruling that widens the scope past SANCTIONED_FIRST_TARGET_IDENTITY names
+# ONE identity, not "whatever a caller passes this string for" - but a caller
+# that hardcodes the ruling's own name at a SINGLE call site (exactly what
+# runtime.py:3925 does: one ``mob_death.kill(...)`` call reached by every
+# roster identity that dies) cannot tell, from the string alone, which mob
+# the ruling actually named.  pf-adversary (round 67jejl) proved the gap:
+# the literal one-line wiring COO-DECISION 20260827_0955's own text asks for
+# would authorise a kill on any of the OTHER twelve roster identities that
+# ruling itself calls still-misplaced data (Tornado Eagle / Toxic Vine /
+# Fighting Fish, mis-attributed from Prison Exile), the moment the line
+# existed at all, because ``widened`` only had to be non-empty.
+#
+# This dict pins every ruling this module has actually been given to the
+# MOBS template id(s) (``n_ID``, carried on :class:`field_mobs.FieldMob` as
+# ``template_id``) it names, so :func:`kill` can hold the line even when the
+# caller passes the RIGHT widened= string for the WRONG monster - and
+# :func:`kill` FAILS CLOSED on the string itself: a ``widened`` value that is
+# not an exact key here is refused, the same as an empty one, because
+# pf-adversary (same round) proved by execution that treating an unrecognised
+# string as pre-fix-legal reopens the identical hole through a PARAPHRASE or
+# a mistranscription of a real ruling - arguably the likelier real mistake,
+# since chief transcribes this string out of a notes_to_chief letter by hand
+# rather than importing it.  Every FUTURE widening ruling this lane is given
+# must be added here, by its exact quoted name, before any caller can use it
+# - there is no leniency fallback for a ruling not yet catalogued.
+WIDENING_RULINGS: dict[str, frozenset[int]] = {
+    "COO-DECISION widen-death-scope-916-training-iron-man "
+    "2026-08-27T09:55+07:00 (ref PANYA-DECISION 2026-08-27T09:50+07:00 "
+    "section 3, supersedes COO 0954)": frozenset({916}),
+}
+
 # ---------------------------------------------------------------------------
 # The wire.  Every constant below is a static anchor carried WITH provenance
 # rather than imported from the probe lane that proved it, and every one of
@@ -1164,6 +1195,38 @@ def kill(
                 "so in the round note" % (
                     mob.actor_identity, SANCTIONED_FIRST_TARGET_IDENTITY,
                     SANCTIONING_RULING),
+            )
+        # FAILS CLOSED on the ruling name itself, not only on the template it
+        # names.  The first draft of this guard treated any STRING this
+        # module had never catalogued as pre-fix-legal ("just needs to be
+        # non-empty"), and pf-adversary (round 67jejl) broke that by
+        # execution: a PARAPHRASE of the real 916 ruling - not a reuse of
+        # its exact string, a typo-level drift from transcribing it out of a
+        # notes_to_chief letter by hand - walked straight through and
+        # authorised a kill on a mob the same ruling calls still-misplaced
+        # data.  That is the more likely real mistake, not a caller
+        # deliberately reusing the right string for the wrong mob, so an
+        # UNRECOGNISED ruling name is refused here, by name, same as an
+        # empty one - it authorises nothing, on principle, rather than by
+        # accident of what happens to already be in WIDENING_RULINGS.
+        covered_templates = WIDENING_RULINGS.get(widened)
+        if covered_templates is None:
+            raise MobDeathContractError(
+                REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE,
+                "widened=%r is not a ruling this module recognises (see "
+                "WIDENING_RULINGS); a string that merely paraphrases or "
+                "mistranscribes a real ruling authorises nothing - register "
+                "the ruling under its exact name first" % (widened,),
+            )
+        if mob.template_id not in covered_templates:
+            raise MobDeathContractError(
+                REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE,
+                "widened=%r is a known ruling and it names MOBS template "
+                "id(s) %s; mob 0x%X carries template_id %d, which is not "
+                "one of them - the ruling's own string does not authorise "
+                "this monster" % (
+                    widened, sorted(covered_templates), mob.actor_identity,
+                    mob.template_id),
             )
     if live.is_dead(mob.actor_identity):
         raise MobDeathContractError(
