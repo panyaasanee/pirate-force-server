@@ -68,6 +68,25 @@ class GmCommandParseError(ValueError):
     pass
 
 
+class GmCommandArgsError(ValueError):
+    """A `GmCommand.args` value does not have the shape this module requires.
+
+    `GmCommand` is a plain frozen dataclass (see above) -- nothing stops a
+    caller from hand-building one with an `args` value that is not a real
+    `tuple[str, ...]`, the same "regardless of source" threat model
+    `gm/warp_executor.py` and `gm/say_wire.py` already defend against for
+    their own `GmCommand` inputs (see their own `type(args) is not tuple`
+    checks and docstrings for the pf-adversary history: a blacklist of
+    individually-discovered wrong shapes was defeated by an integer-keyed
+    dict, then an `isinstance(args, tuple)` allowlist was defeated by a
+    tuple *subclass* lying through `__len__`/`__getitem__`). This module's
+    own `describe_warp_target`/`describe_npc_target`/`log_gm_command` used
+    to skip that check entirely -- an integer-keyed dict silently logged its
+    *keys* as `args` instead of raising, and `None` raised a bare
+    `TypeError` instead of a module-specific error a caller could catch.
+    """
+
+
 def parse_gm_command(text: str) -> GmCommand:
     """Parse one line of GM chat/command text into a GmCommand.
 
@@ -160,13 +179,30 @@ def _require_number(value: str, label: str) -> None:
         raise GmCommandParseError(f"{label} must be finite, got {value!r}")
 
 
+def _require_args_tuple(args: object, *, min_length: int) -> tuple[str, ...]:
+    """Reject any `args` that is not a real `tuple` of at least `min_length`.
+
+    `type(args) is not tuple`, not `isinstance` -- see `GmCommandArgsError`'s
+    docstring for why an isinstance allowlist is not enough (a tuple
+    subclass can lie through `__len__`/`__getitem__`).
+    """
+    if type(args) is not tuple:
+        raise GmCommandArgsError(f"command args must be a tuple, got {args!r}")
+    if len(args) < min_length:
+        raise GmCommandArgsError(
+            f"command args must have at least {min_length} element(s), got {args!r}"
+        )
+    return args
+
+
 def describe_warp_target(command: GmCommand) -> str | None:
     """The GM scene name for a parsed warp command's scene_id, or None if
     the id has no row in the GM-004 catalog -- a hint, not a validity gate.
     """
     if command.name != "warp":
         raise ValueError("describe_warp_target only applies to warp commands")
-    scene_id = int(command.args[0])
+    args = _require_args_tuple(command.args, min_length=1)
+    scene_id = int(args[0])
     if not scene_catalog.is_known_scene_id(scene_id):
         return None
     return scene_catalog.gm_scene_name(scene_id)
@@ -181,7 +217,8 @@ def describe_npc_target(command: GmCommand) -> str | None:
     """
     if command.name != "npc":
         raise ValueError("describe_npc_target only applies to npc commands")
-    mob_id = int(command.args[1])
+    args = _require_args_tuple(command.args, min_length=2)
+    mob_id = int(args[1])
     if not npc_switch_catalog.is_gm_switchable_npc(mob_id):
         return None
     return npc_switch_catalog.npc_gm_name(mob_id)
@@ -201,6 +238,7 @@ def log_gm_command(
     """
     if not isinstance(account_name, str) or not account_name:
         raise ValueError("account_name must be a non-empty str")
+    args = _require_args_tuple(command.args, min_length=0)
     path = Path(log_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     ts = now_ts if now_ts is not None else time.time()
@@ -208,7 +246,7 @@ def log_gm_command(
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts)),
         "account": account_name,
         "command": command.name,
-        "args": list(command.args),
+        "args": list(args),
         "raw": command.raw,
         "executed": False,
         "note": "GM-003 v1: parsed and logged only, no gameplay effect applied",
