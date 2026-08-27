@@ -806,9 +806,11 @@
             "reports/PF_RE_V96_Runtime_and_V97_NPCConversation_20260814.md"
           ],
           "test_refs": [
+            "tests/test_columbus_quest_dispatch.py",
+            "tests/test_columbus_quest_dispatch_wiring.py",
             "tests/test_npc_interaction_wire.py"
           ],
-          "notes": "One click on a placed actor produced TargetVital plus an embedded ChooseNPC, and the server answered with exactly one NPCConversation carrying one descriptor. One actor, one descriptor, one composition."
+          "notes": "One click on a placed actor produced TargetVital plus an embedded ChooseNPC, and the server answered with exactly one NPCConversation carrying one descriptor. One actor, one descriptor, one composition. UPDATE 2026-08-27 (CORE-REQUEST-014, round 4txjyg/R192): a second actor now composes an NPCConversation too -- Columbus (MOBS n_ID 156, bg0001 placement index 1) answers ChooseNPC/TargetVital with a quest-3021 descriptor, built by generalising the same v141 quest-3020/P0 wire shape on actor identity and quest id (RE-094 proved this is the general shape, not a client-side hardcode of 3020). \"One actor, one descriptor, one composition\" is no longer the whole picture -- it is now \"one composition per armed actor, same shape\". See src/pirateforce_foundation/columbus_quest_dispatch.py and tests/test_columbus_quest_dispatch_wiring.py."
         },
         {
           "id": "conversation_operation_sequence",
@@ -835,9 +837,11 @@
             "reports/PF_RE_V129_Quest3020_Accept_Travel_Negative_Boundary_20260815.md"
           ],
           "test_refs": [
+            "tests/test_columbus_quest_dispatch.py",
+            "tests/test_columbus_quest_dispatch_wiring.py",
             "tests/test_npc_interaction_wire.py"
           ],
-          "notes": "Three recorded negative boundaries bound where the accept path stops. No quest state is stored server-side, no tracker update is proven, and completion and rewards are untouched."
+          "notes": "Three recorded negative boundaries bound where the accept path stops. No quest state is stored server-side, no tracker update is proven, and completion and rewards are untouched. UPDATE 2026-08-27 (CORE-REQUEST-014, round 4txjyg/R192): Columbus's quest-3021 op1 (QuestOperateVital) is now matched and reaches a real dispatch call (columbus_quest_dispatch.dispatch_columbus_quest3021), but it ALWAYS refuses -- two named, independent evidence gaps (no pinned scene-17 arrival spawn; no wire evidence at all for the CGCVehicleModule/CVehicleAttr bind payload) block it, and the refusal is all-or-nothing so neither gap can ship half a transfer. This sentence stays true: no quest state is stored server-side, no tracker update is proven, and completion and rewards are untouched -- the new code adds a reachable, honestly-refusing decision point, not tracking or persistence. Row stays in_progress."
         },
         {
           "id": "shop_buy_sell",
