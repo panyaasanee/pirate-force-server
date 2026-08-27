@@ -365,6 +365,20 @@ same as every other checkpoint call in this file - the audit's own interlock fac
 them are guarded, and this new one is not an exception. Re-derived on the cloud clone by
 `python3 tools/pf_multiplayer_readiness_audit.py --json`, computed and not quoted.
 
+**Re-pin, chief round n2ws3l (2026-08-27): `X03` occurrence count 2 -> 3, table row above unchanged
+(it describes HEAD `5cc0eda`, not the live tree).** Not drift and not a correction: `CORE-REQUEST-018`
+(the scene-17 persist-position gate, recovered this round after its own PR closed gate-red on this exact
+guard) added `store.save_position`'s `write_position=False` branch, which does its own ownership/
+staleness `SELECT` and its own `raise PermissionError("stale or non-owning character session")` --
+independent of, not a duplicate of, the pre-existing write-path check at the same function's `UPDATE
+... WHERE EXISTS` rowcount test. This is a genuine third instance of X03's crash chain (line 124 above):
+a stale lease standing in the one `persist_position_allowed=False` scene (today: scene 17) now raises
+uncaught from a second, independent call site inside `checkpoint()`/`exit()`, at the same try-depth-0
+position (X01/X02) as the write-path chain always has. The pin moved in the same commit as the code that
+added the occurrence, which is the rule this block exists to enforce. Re-derived on the cloud clone by
+`python3 tools/pf_multiplayer_readiness_audit.py`, computed and not quoted (pf-adversary independently
+confirmed the count by reverting only the pin edit and reproducing the exact drift message).
+
 The `*_at_head` numbers describe commit `5cc0eda` and nothing else. They are pinned as constants in the verifier next to that commit and re-derived from it on every run with `git ls-tree` / `git cat-file`, so they can be proven wrong. The *live* suite size is reported by the verifier as `tests_total_files_today` / `tests_total_functions_today` and is deliberately not published here: a number that moves whenever anyone adds a test does not belong in a document that is not re-published when they do.
 
 ```json AUDIT_COUNTS

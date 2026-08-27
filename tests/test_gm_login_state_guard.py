@@ -107,7 +107,9 @@ class GmLoginStateGuardTests(unittest.TestCase):
         _, pc, frame, delay = by_label["GM_UPDATE_STATE_AFTER_LOGIN"]
         self.assertEqual(delay, 0.0)
         expected_pc, expected_frame = state_wire.make_gm_update_state_frame(
-            self.legacy, 0, 0, 0, 0,
+            # CORE-REQUEST-020: field_0x0b_second is now 1, not 0 (RE-089/
+            # RE-104 pinned wire+0x15==1 as the BT_GM visibility gate).
+            self.legacy, 0, 0, 1, 0,
         )
         self.assertEqual(pc, expected_pc)
         self.assertEqual(frame, expected_frame)

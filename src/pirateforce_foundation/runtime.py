@@ -1104,6 +1104,13 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # round; see CHIEF-STATUS 2026-08-27T15:45+07:00 and GT-106.
                 self.columbus_quest3021_conversation_sent = False
                 self.columbus_quest3021_dispatch_attempted = False
+                # CORE-REQUEST-019 (Lane A, 2026-08-27T18:48+07:00): option 2
+                # / quest 3205 (Q_BORNAGAIN) is a separate op1 the client can
+                # send independently of quest 3021's, off the same two-entry
+                # conversation above -- its own latch, not reuse of the 3021
+                # one, so choosing one option does not block a later attempt
+                # at the other.
+                self.columbus_quest3205_dispatch_attempted = False
                 # CORE-REQUEST-007 (MOB-AI-CONTROL-001).  Same per-session
                 # choice as mob_combat_ledger/mob_death_register just above,
                 # for the same reason: MOB_AI_CONTROL_WIRING does not say
@@ -4215,6 +4222,24 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             """CORE-REQUEST-014: Columbus (MOBS n_ID 156, bg0001 placement
             index 1) NPCConversation -> QuestOperateVital op1/quest 3021.
 
+            CORE-REQUEST-019 (Lane A, 2026-08-27T18:48+07:00) added a second
+            quest to this same method despite the name: the ``ChooseNPC``
+            branch below now composes a two-option conversation (3021 AND
+            quest 3205 / Q_BORNAGAIN), and the ``QuestOperateVital`` branch
+            gained its own parallel ``elif`` for op1/3205, with its own
+            independent per-session latch
+            (``columbus_quest3205_dispatch_attempted``) -- see
+            ``columbus_quest_dispatch.dispatch_columbus_quest3205`` for why
+            that half always refuses today. pf-adversary-flagged
+            (round n2ws3l): widening the outer gate to
+            ``not attempted3021 or not attempted3205`` means a session that
+            completes 3021 but never deliberately triggers 3205 keeps
+            parsing and checking every later ``QuestOperateVital`` frame
+            (any quest) for the rest of that session, instead of the single
+            early exit the pre-widening gate gave 3021 alone -- accepted
+            for now (no wrong output, not client-visible, cost is one parse
+            plus two dict-key checks per frame), not decoupled this round.
+
             UNCONDITIONAL and ADDITIVE, the same convention as
             ``_dispatch_mob_combat`` above: no scenario flag gates this, and
             it is called on every frame whose ``nested_id`` it cares about,
@@ -4280,7 +4305,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 if columbus_identity in chosen:
                     try:
                         conv_pc, conv_frame = (
-                            columbus_quest_dispatch.make_columbus_conversation(
+                            columbus_quest_dispatch
+                            .make_columbus_conversation_two_options(
                                 legacy, columbus_identity,
                             )
                         )
@@ -4302,7 +4328,10 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             if (
                 nested_id == legacy.QUEST_OPERATE_VITAL
                 and self.columbus_quest3021_conversation_sent
-                and not self.columbus_quest3021_dispatch_attempted
+                and (
+                    not self.columbus_quest3021_dispatch_attempted
+                    or not self.columbus_quest3205_dispatch_attempted
+                )
             ):
                 try:
                     quest_fields = legacy.parse_quest_operate_vital(parsed)
@@ -4312,8 +4341,11 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         f"{type(error).__name__}"
                     )
                     return actions
-                if columbus_quest_dispatch.matches_columbus_dispatch(
-                    quest_fields,
+                if (
+                    not self.columbus_quest3021_dispatch_attempted
+                    and columbus_quest_dispatch.matches_columbus_dispatch(
+                        quest_fields,
+                    )
                 ):
                     self.columbus_quest3021_dispatch_attempted = True
                     # PF-ADVERSARY FINDING, round e0daaa: emit=self.events.
@@ -4357,6 +4389,32 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         self.events.append(
                             "core_request_014_columbus_scene17_teleport_sent"
                         )
+                elif (
+                    not self.columbus_quest3205_dispatch_attempted
+                    and columbus_quest_dispatch
+                    .matches_columbus_bornagain_dispatch(quest_fields)
+                ):
+                    # CORE-REQUEST-019 (Lane A, 2026-08-27T18:48+07:00):
+                    # option 2 / quest 3205 (Q_BORNAGAIN) -- same emit/
+                    # refuse pattern as the 3021 branch above, but this
+                    # module's own dispatch_columbus_quest3205 refuses
+                    # every time today (no persisted home-marker column,
+                    # no captured wire ack -- see the module docstring and
+                    # RE-112), so there is deliberately no success branch.
+                    self.columbus_quest3205_dispatch_attempted = True
+
+                    def _emit(line):
+                        print(line)
+                        self.events.append(line)
+                    try:
+                        columbus_quest_dispatch.dispatch_columbus_quest3205(
+                            emit=_emit,
+                        )
+                    except columbus_quest_dispatch.ColumbusDispatchRefused as error:
+                        for reason in error.reasons:
+                            self.events.append(
+                                f"columbus_quest3205_dispatch_refused_{reason}"
+                            )
             return actions
 
         def dispatch(self, parsed):
@@ -4939,7 +4997,12 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         gm_pc, gm_frame = make_gm_update_state_frame(
                             legacy,
                             state_wire.GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED,
-                            0, 0, 0,
+                            # CORE-REQUEST-020 (LANE-GM, 2026-08-27T19:33+07:00):
+                            # field_0x0b_second=1 -- RE-089/RE-104 proved
+                            # wire+0x15==1 is the gate GMModule_Client+0x19
+                            # (BT_GM button visibility) checks; this was 0,
+                            # so the gate was always false.
+                            0, 1, 0,
                         )
                         gm_state_action = (
                             "GM_UPDATE_STATE_AFTER_LOGIN", gm_pc, gm_frame, 0.0,
