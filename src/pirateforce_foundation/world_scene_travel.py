@@ -106,9 +106,24 @@ REGISTRY_PATH = (
 
 HOME_SCENE_ID = SCENE_ID
 TEST_STAGE_SCENE_ID = 278
+PRISON_EXILE_SCENE_ID = 2
 MEASURED_SCENE_IDS = (1, 2)
 CENSUS_SCENE_ID = SCENE_ID
 CENSUS_SOURCE = "bg0001_census"
+# GENERALIZED 2026-08-27 (PANYA-DECISION 20:10, M1-P) - the composer this
+# module points at is now keyed by scene id, not a single hardcoded string.
+# ``CENSUS_SCENE_ID``/``CENSUS_SOURCE`` above are UNCHANGED and stay exactly
+# what they were (scene 1 -> "bg0001_census") so nothing that already reads
+# them by name breaks; ``CENSUS_SOURCES`` is the new, wider table and
+# ``population_source`` reads THIS one now.  "bg0002_roster" is
+# ``world_population_bg0002.py``'s own name for itself, not invented here -
+# see that module for the builder this string refers to, and its own
+# docstring for what "roster" vs bg0001's "census" is meant to signal (every
+# Bg0002 entry is already named; there is no named/nameless split to describe).
+CENSUS_SOURCES = {
+    CENSUS_SCENE_ID: CENSUS_SOURCE,
+    PRISON_EXILE_SCENE_ID: "bg0002_roster",
+}
 CLIENT_REGISTERED_SCENE_COUNT = 271
 
 _DESTINATION_FIELDS = {
@@ -575,16 +590,22 @@ def entry_position(target: SceneDestination, heading: float = 0.0) -> Position:
 
 
 def population_source(n_id: int) -> str | None:
-    """Which population table is true for this scene - the census, or none.
+    """Which population table is true for this scene - a named source, or none.
 
-    The bg0001 census of BUILD-001 is a table of bg0001 placements built with
-    ``scene_id`` fixed at 1.  In any other scene those actors are dock NPCs
-    delivered into the wrong map, so this answers ``None`` there, and a caller
-    that populates on a non-None answer cannot make that mistake.
+    Reads :data:`CENSUS_SOURCES`, which is keyed by scene id.  The bg0001
+    census of BUILD-001 is a table of bg0001 placements built with
+    ``scene_id`` fixed at 1; the Bg0002 roster of M1-P (PANYA-DECISION
+    2026-08-27 20:10) is a separate table built with ``scene_id`` fixed at 2.
+    Each builder refuses any OTHER scene id itself - see
+    ``world_population.build_world_population`` and
+    ``world_population_bg0002.build_bg0002_population`` - so this function is
+    a report, same as it always was; the refusal that actually prevents
+    cross-scene delivery lives in the builders.  A scene this table does not
+    name answers ``None``, and a caller that populates on a non-None answer
+    cannot deliver the wrong scene's actors into a scene this table has no
+    entry for.
     """
-    if _require_int(n_id, "scene n_ID", 1, 0xFFFF) == CENSUS_SCENE_ID:
-        return CENSUS_SOURCE
-    return None
+    return CENSUS_SOURCES.get(_require_int(n_id, "scene n_ID", 1, 0xFFFF))
 
 
 def is_position_persist_allowed(

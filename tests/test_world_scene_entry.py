@@ -539,14 +539,25 @@ class StageRowCoherenceTests(unittest.TestCase):
             TEST_STAGE_SCENE_ID, 0, spawn_x, spawn_y, spawn_z + 5000.0, 0.0)
         self.assertFalse(resolve_entry(high, emit=Sink()).relocated)
 
-    def test_the_census_is_not_offered_away_from_home(self):
+    def test_the_bg0001_census_is_not_offered_away_from_home(self):
         # The bg0001 census is bg0001's.  Delivering dock NPCs into a football
         # field would be the first cross-build-order defect this project
         # shipped, and this is the second place that is refused.
-        for row in (PORT_ROYAL_XYZ_IN_THE_STAGE, PRISON_ISLAND_ROW):
-            with self.subTest(scene=row.scene_id):
-                self.assertIsNone(
-                    resolve_entry(row, emit=Sink()).population_source)
+        self.assertIsNone(
+            resolve_entry(
+                PORT_ROYAL_XYZ_IN_THE_STAGE, emit=Sink()).population_source)
+
+    def test_scene_2_now_carries_its_own_named_population_source(self):
+        # GENERALIZED 2026-08-27 (PANYA-DECISION 20:10, M1-P):
+        # world_scene_travel.population_source is keyed by scene id now, and
+        # scene 2 has its own roster (world_population_bg0002.py) - it is no
+        # longer "no population source at all" the way an unbuilt scene is.
+        # The scene 278 case above is the one that stays None: nobody has
+        # built a football-field composer.
+        self.assertEqual(
+            resolve_entry(PRISON_ISLAND_ROW, emit=Sink()).population_source,
+            "bg0002_roster",
+        )
 
 
 class ReturnTicketTests(unittest.TestCase):
