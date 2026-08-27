@@ -113,6 +113,31 @@ class SceneRegistryTests(unittest.TestCase):
         self.assertGreater(extent_x, 6000.0)
         self.assertGreater(extent_y, 2000.0)
 
+    def test_scene_17s_ground_is_pinned_from_its_own_placements_tsv(self):
+        """Round kqrlhr: packages the numbers scene 17's own
+        table_row_differences.ground_is_null_because already cited as
+        'measured this round' into the same ground schema scene 278 uses -
+        no re-derivation, nothing invented. Unlike scene 278, scene 17's
+        spawn stays null (RE-103 closed bounded-negative: no player-arrival
+        marker exists to measure), so this only widens what the console can
+        report, it does not change where anybody lands.
+        """
+        sea = destination(17, self.registry)
+        self.assertEqual(sea.native_placement_count, 8)
+        self.assertIsNone(sea.spawn)
+        self.assertAlmostEqual(sea.ground_z_spread, 526.6963500976562)
+        extent_x, extent_y = sea.ground_extent
+        self.assertAlmostEqual(extent_x, 1815.9349365234375)
+        self.assertAlmostEqual(extent_y, 2395.249755859375)
+        # Nowhere near Bg1177's 0.002-unit-flat deck - the whole point of
+        # pinning this is that scene 17 is NOT one flat plane.
+        self.assertGreater(sea.ground_z_spread, 500.0)
+        raw = [row for row in _raw()["destinations"] if row["n_id"] == 17][0]
+        self.assertEqual(
+            raw["ground"]["placements_tsv_sha256"],
+            "5e4de48707a87061d9a95471a1c3c25c56f0469fe2ece7ef0709a9c79f40fec7",
+        )
+
     def test_the_pin_carries_the_hashes_a_bridge_round_reverifies(self):
         # These are the values a bridge-side round re-checks against the client
         # files themselves; a silent edit here would break that crosswalk
@@ -251,10 +276,23 @@ class SceneRegistryRefusalTests(unittest.TestCase):
     def test_a_half_written_ground_block_is_refused_by_contract(self):
         data = _raw()
         # n_id lookup, not a positional index: scene 17 (round 8pfksm) sits
-        # at index 2 now but has no ground block of its own to half-write.
+        # at index 2. It gained its own ground block in round kqrlhr, so this
+        # deliberately mutates 278's instead - either destination's half-write
+        # must be refused the same way, and 278 is the one this test has
+        # always targeted.
         for row in data["destinations"]:
             if row["n_id"] == 278:
                 del row["ground"]["z_min"]
+        with self.assertRaises(ValueError):
+            load_scene_registry(_write(self.tmp, data))
+
+    def test_scene_17s_half_written_ground_block_is_also_refused(self):
+        # The sibling of the test above, now that scene 17 has a ground block
+        # of its own (round kqrlhr) - the contract has to hold for both.
+        data = _raw()
+        for row in data["destinations"]:
+            if row["n_id"] == 17:
+                del row["ground"]["z_max"]
         with self.assertRaises(ValueError):
             load_scene_registry(_write(self.tmp, data))
 
