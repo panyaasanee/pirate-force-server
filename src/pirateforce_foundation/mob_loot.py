@@ -1668,3 +1668,48 @@ def loot_report(mob: Any, roll: DropRoll) -> dict:
         "refusals": [list(row) for row in roll.refusals],
         "placeable": roll.placeable_count,
     }
+
+
+def drops_console_line(mob: Any, drops: Any) -> str:
+    """One ASCII line reporting the ground drops one kill actually sent.
+
+    Same shape as ``world_population.census_console_line`` and
+    ``mob_death.describe_roster_override_coverage``: a pure function a
+    wiring pass can ``print()`` at the ``mob_loot.drop_frames`` call site in
+    ``runtime.py``, so this lane -- unlike its siblings -- becomes visible to
+    a "WIRED v2" console grep instead of being provably-wired-but-silent.
+
+    ``MOB_LOOT_DROPS_CENSUS`` is the token.  ``mob.display_name`` is escaped
+    with ``ascii()`` before it reaches the line, the same guard
+    ``field_mobs.roster_report`` already uses for a console this project
+    prints on a cp874 code page: a mob's display name is game-data text this
+    module has never measured to be cp874-safe, so it is not trusted bare on
+    a console any more than any other unproven string is.
+
+    Takes the SENT drops (the ``GroundDrop`` tuple ``DropLedgerCell.loot_a_kill``
+    returned for this kill), not the ledger and not the roll -- refusals,
+    money and anything the roll produced but this lane never places are
+    already visible in ``loot_report`` and repeating them here would blur
+    the one count this line exists to make grep-able: how many
+    ``MOB_LOOT_DROP`` frames actually went out for this kill.
+    """
+    mob = _require_mob(mob)
+    if type(drops) is not tuple:
+        raise MobLootContractError(
+            REFUSE_TYPE_NOT_TYPED_RECORD, "drops must be a tuple")
+    for drop in drops:
+        if type(drop) is not GroundDrop:
+            raise MobLootContractError(
+                REFUSE_TYPE_NOT_TYPED_RECORD,
+                "every drop must be a typed GroundDrop")
+    items = ",".join(
+        "%d:x%d@0x%X" % (drop.item_id, drop.quantity, drop.drop_key)
+        for drop in drops
+    )
+    return (
+        "MOB_LOOT_DROPS_CENSUS mob=%s template=%d identity=0x%X drops=%d "
+        "items=%s" % (
+            ascii(mob.display_name), mob.template_id, mob.actor_identity,
+            len(drops), items if items else "none",
+        )
+    )
