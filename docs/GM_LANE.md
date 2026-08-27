@@ -1004,10 +1004,20 @@ one line, which step the shortcut skipped, e.g.:
 
 ## RE requests open (owned by static RE lane, filed via chief)
 
-None filed by this lane are open as of this round -- RE-088, RE-089,
-RE-090, RE-091, RE-104, RE-105, and RE-113 are all closed (see above). This
-section is kept so the next round does not have to re-derive that from the
-closed list.
+**`RE-117`** (round `y2nhzz`, `pf_bridge/CLIENT_RE_QUEUE.md`): an attended
+run (`GT-107-R3`, reported under the filename `GT101R3-RESULT` but matching
+`GT-107-R3`'s own scope byte-for-byte -- see that entry's result) confirmed
+`GM_UpdateGMStateVital` now reaches a real client cleanly (no modal, no
+session kill) and `BT_GM` is visible, closing the last open question from
+`RE-113`/`CORE-REQUEST-020` -- but clicking `BT_GM` produces nothing at all
+(no window, no outbound frame). `RE-117` asks static RE to trace the click
+dispatcher (`0x0053B9B0` -> gate `0x0044A3B0` -> current-UI-key vfunc ->
+`0x00AA0710` -> factory `0x007280D0`) for the condition that stops it --
+this lane does not guess at it. `GT-103` stays blocked on the answer.
+
+RE-088, RE-089, RE-090, RE-091, RE-104, RE-105, and RE-113 are all closed
+(see above) -- kept here so the next round does not have to re-derive that
+from the closed list.
 
 Remaining semantic gaps (what the
 `GM_RunGMCommandVital` two wide strings and three scalars mean; what the
