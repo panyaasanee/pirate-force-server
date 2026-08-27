@@ -1004,13 +1004,13 @@ one line, which step the shortcut skipped, e.g.:
 
 ## RE requests open (owned by static RE lane, filed via chief)
 
-**`RE-117`** (round `y2nhzz`, `pf_bridge/CLIENT_RE_QUEUE.md`): an attended
+**`RE-118`** (round `y2nhzz`, `pf_bridge/CLIENT_RE_QUEUE.md`): an attended
 run (`GT-107-R3`, reported under the filename `GT101R3-RESULT` but matching
 `GT-107-R3`'s own scope byte-for-byte -- see that entry's result) confirmed
 `GM_UpdateGMStateVital` now reaches a real client cleanly (no modal, no
 session kill) and `BT_GM` is visible, closing the last open question from
 `RE-113`/`CORE-REQUEST-020` -- but clicking `BT_GM` produces nothing at all
-(no window, no outbound frame). `RE-117` asks static RE to trace the click
+(no window, no outbound frame). `RE-118` asks static RE to trace the click
 dispatcher (`0x0053B9B0` -> gate `0x0044A3B0` -> current-UI-key vfunc ->
 `0x00AA0710` -> factory `0x007280D0`) for the condition that stops it --
 this lane does not guess at it. `GT-103` stays blocked on the answer.
