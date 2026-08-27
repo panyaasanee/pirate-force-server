@@ -33,6 +33,7 @@ back up at full HP with no hit, no frame and no error anywhere.
 """
 
 import ast
+import contextlib
 import json
 import sys
 from pathlib import Path
@@ -82,8 +83,15 @@ PERFORMER = 0x750059
 # Strong enough to reach zero in one hit, so a test does not have to loop the
 # ladder to get to the thing it is testing.
 LETHAL = Combatant(level=1000, ability_str=100000, ability_con=0)
-# What a caller passes to kill() for a target outside the owner's sanctioned
-# scope.  Tests that are not ABOUT the scope gate pass it and say why.
+# DELIBERATELY UNREGISTERED.  kill() fails closed on any widened= string
+# that is not an exact key in mob_death.WIDENING_RULINGS (pf-adversary,
+# round 67jejl: an unrecognised string used to be treated as pre-fix-legal,
+# which is exactly the gap a mistranscribed real ruling string would walk
+# through unnoticed) - so this constant now proves REFUSAL, not
+# authorisation.  A test that needs SOME registered ruling to widen an
+# arbitrary roster mob (because it is testing the compare-and-swap /
+# generation machinery, not the scope gate) uses
+# ``self.registered_widening(...)`` below instead.
 WIDENED = "test-only: this assertion is not about the target scope"
 # The exact ruling string COO-DECISION 20260827_0955 gives as the value of
 # widened= for Training Iron Man (MOBS.n_ID 916).  Kept as one constant so a
@@ -109,6 +117,26 @@ class MobDeathTests(unittest.TestCase):
         step = strike(
             self.legacy, None, open_ledger(), None, target, PERFORMER, LETHAL)
         return step
+
+    @contextlib.contextmanager
+    def registered_widening(self, ruling, template_ids):
+        """Temporarily register a test-only ruling in WIDENING_RULINGS.
+
+        kill() fails closed on any widened= string that is not an exact key
+        in mob_death.WIDENING_RULINGS.  A test that is about the
+        compare-and-swap / generation machinery rather than the scope gate
+        itself needs SOME registered ruling to widen an arbitrary roster
+        mob, so it registers one here for the duration of the ``with``
+        block and the module is restored after, exactly as this file
+        already does for ``mob_death._compose_body`` elsewhere.
+        """
+        previous = dict(mob_death.WIDENING_RULINGS)
+        mob_death.WIDENING_RULINGS[ruling] = frozenset(template_ids)
+        try:
+            yield ruling
+        finally:
+            mob_death.WIDENING_RULINGS.clear()
+            mob_death.WIDENING_RULINGS.update(previous)
 
     def training_iron_man_stand_in(self):
         """A TEST-ONLY FieldMob for Training Iron Man, MOBS.n_ID 916.
@@ -490,15 +518,20 @@ class MobDeathTests(unittest.TestCase):
         a = kill(self.legacy, self.mob, first.outcome, stored)
         # widened= because this test is about the compare-and-swap, not about
         # the owner's target scope; the scope gate has its own test below.
-        b = kill(self.legacy, other, second.outcome, stored, widened=WIDENED)
-        stored = mob_death.commit_death(stored, a)
-        with self.assertRaises(MobDeathContractError) as caught:
-            mob_death.commit_death(stored, b)
-        self.assertEqual(
-            caught.exception.reason, mob_death.REFUSE_REGISTER_STALE)
-        # the loser re-reads and re-runs, and now both deaths are recorded
-        redone = kill(
-            self.legacy, other, second.outcome, stored, widened=WIDENED)
+        # A registered ruling because kill() now fails closed on anything
+        # else (pf-adversary, round 67jejl).
+        with self.registered_widening(WIDENED, {other.template_id}):
+            b = kill(
+                self.legacy, other, second.outcome, stored, widened=WIDENED)
+            stored = mob_death.commit_death(stored, a)
+            with self.assertRaises(MobDeathContractError) as caught:
+                mob_death.commit_death(stored, b)
+            self.assertEqual(
+                caught.exception.reason, mob_death.REFUSE_REGISTER_STALE)
+            # the loser re-reads and re-runs, and now both deaths are
+            # recorded
+            redone = kill(
+                self.legacy, other, second.outcome, stored, widened=WIDENED)
         stored = mob_death.commit_death(stored, redone)
         self.assertEqual(
             stored.identities(),
@@ -943,14 +976,25 @@ class MobDeathTests(unittest.TestCase):
         self.assertEqual(
             self.mob.actor_identity, mob_death.SANCTIONED_FIRST_TARGET_IDENTITY)
         kill(self.legacy, self.mob, sanctioned.outcome, DeathRegister())
-        # and a caller holding a later ruling names it
-        step = kill(self.legacy, other, outcome, DeathRegister(),
-                    widened=WIDENED)
+        # and a caller holding a REGISTERED later ruling that names this
+        # mob's template gets a kill
+        with self.registered_widening(WIDENED, {other.template_id}):
+            step = kill(self.legacy, other, outcome, DeathRegister(),
+                        widened=WIDENED)
         self.assertTrue(step.register.is_dead(other.actor_identity))
-        for empty in ("", "   ", None, 7):
-            with self.assertRaises(MobDeathContractError):
+        # pf-adversary (round 67jejl): an UNREGISTERED string used to be
+        # treated as pre-fix-legal here too - "just needs to be non-empty" -
+        # which is exactly what a paraphrase or a mistranscription of a real
+        # ruling would produce.  kill() now fails closed on it, the same as
+        # on an empty one, so WIDENED (never registered in this test) must
+        # now be refused rather than accepted.
+        for unauthorised in ("", "   ", None, 7, WIDENED, "close but not it"):
+            with self.assertRaises(MobDeathContractError) as caught:
                 kill(self.legacy, other, outcome, DeathRegister(),
-                     widened=empty)
+                     widened=unauthorised)
+            self.assertEqual(
+                caught.exception.reason,
+                mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
 
     def test_a_register_identity_with_no_roster_row_is_refused(self):
         # live_roster() is exported from this same module and is exactly what
@@ -977,14 +1021,19 @@ class MobDeathTests(unittest.TestCase):
         other = [m for m in self.roster if m.placement_index != 30][0]
         third = [m for m in self.roster if m.placement_index not in
                  (30, other.placement_index)][0]
-        lineage_a = mob_death.commit_death(
-            DeathRegister(),
-            kill(self.legacy, other, self.killing_outcome(other).outcome,
-                 DeathRegister(), widened=WIDENED))
-        lineage_b = mob_death.commit_death(
-            DeathRegister(),
-            kill(self.legacy, third, self.killing_outcome(third).outcome,
-                 DeathRegister(), widened=WIDENED))
+        # A registered ruling because kill() now fails closed on anything
+        # else (pf-adversary, round 67jejl); this test is about the
+        # commit-death lineage, not the scope gate.
+        with self.registered_widening(
+                WIDENED, {other.template_id, third.template_id}):
+            lineage_a = mob_death.commit_death(
+                DeathRegister(),
+                kill(self.legacy, other, self.killing_outcome(other).outcome,
+                     DeathRegister(), widened=WIDENED))
+            lineage_b = mob_death.commit_death(
+                DeathRegister(),
+                kill(self.legacy, third, self.killing_outcome(third).outcome,
+                     DeathRegister(), widened=WIDENED))
         self.assertEqual(lineage_a.generation, lineage_b.generation)
         self.assertNotEqual(lineage_a.identities(), lineage_b.identities())
         stranger = kill(
@@ -1508,11 +1557,27 @@ class MobDeathTests(unittest.TestCase):
             mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
         self.assertIn("916", caught.exception.detail)
         self.assertIn(str(other.template_id), caught.exception.detail)
-        # and an UNCATALOGUED ruling string still only needs to be
-        # non-empty, exactly as before this round -- the guard is narrow,
-        # not a general redesign of every widened= caller's contract.
-        step = kill(self.legacy, other, outcome, DeathRegister(),
-                    widened=WIDENED)
+        # A SECOND adversarial pass (same round) broke the first version of
+        # this guard by execution: a PARAPHRASE of the real 916 string -
+        # not a reuse of it, a drift from transcribing it out of a
+        # notes_to_chief letter by hand - walked straight through, because
+        # an unrecognised widened= string was treated as pre-fix-legal
+        # ("just needs to be non-empty").  kill() now fails closed on the
+        # ruling name itself: neither a generic ad hoc string (WIDENED) nor
+        # a near-miss of the real one authorises anything, unregistered.
+        for unrecognised in (WIDENED, "COO-DECISION widen-death-scope-916"):
+            with self.assertRaises(MobDeathContractError) as caught:
+                kill(self.legacy, other, outcome, DeathRegister(),
+                     widened=unrecognised)
+            self.assertEqual(
+                caught.exception.reason,
+                mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
+        # a widened= string IS still usable for a mob it was never about,
+        # but only once a caller REGISTERS it for that mob's template -
+        # the compare-and-swap tests above do exactly this.
+        with self.registered_widening(WIDENED, {other.template_id}):
+            step = kill(self.legacy, other, outcome, DeathRegister(),
+                        widened=WIDENED)
         self.assertTrue(step.register.is_dead(other.actor_identity))
         # and the real ruling still authorises the identity it actually
         # names.
