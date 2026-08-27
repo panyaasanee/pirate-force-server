@@ -360,8 +360,11 @@ STATS_PROGRESSION_HYPOTHESIS_ID = "HYP-PF-020"
 
 # The baseline every frame carries.  It is NOT a design choice about what a
 # progression delta "should" contain: it is the exact field set
-# player_wire.make_actor_attr_with_name already puts on the wire at start-game,
-# reproduced by this encoder and byte-compared against it on every call.  v141's
+# player_wire.make_actor_attr_with_name reproduces (the frozen NAME-002
+# baseline this encoder is byte-compared against on every call; as of
+# CORE-REQUEST-022 the real start-game path itself puts a wider field set on
+# the wire via make_actor_attr_with_name_and_class, but that class+level
+# addition is intentionally outside this crosscheck's baseline).  v141's
 # own note on ActorAttr apply 0x464F30 says the client copies the complete
 # object, so a field left out of a delta does not keep its live value -- which
 # is why nothing here ships a bare two-field delta.
