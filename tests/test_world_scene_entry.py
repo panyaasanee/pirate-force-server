@@ -36,6 +36,7 @@ from pirateforce_foundation.model import Position
 from pirateforce_foundation.world_scene_entry import (
     REFUSAL_REASONS,
     REFUSED_NO_PINNED_SPAWN,
+    REFUSED_NOT_ALLOWED_AT_LOGIN,
     REFUSED_SCENE_ID_OUT_OF_RANGE,
     REFUSED_SCENE_NOT_PINNED,
     RELOCATED_NO_GROUND_EVIDENCE,
@@ -251,6 +252,93 @@ class RefusalTests(unittest.TestCase):
                         resolve_entry(ATTENDED_HOME_ROW, emit=Sink())
                 finally:
                     world_scene_travel.load_scene_registry = original
+
+
+class LoginEntryRestrictionTests(unittest.TestCase):
+    """Round 0z3kjx, adversary-flagged regression.  ``resolve_entry`` is the
+    SAME call ``runtime.py``'s login path makes with whatever ``scene_id`` is
+    sitting in a character's persisted row - nothing in the DB schema stops
+    that row from ever naming 17.  Before this scene had a pinned spawn, that
+    row was refused for free (``REFUSED_NO_PINNED_SPAWN``).  These tests prove
+    the refusal survives now that scene 17 has one, WITHOUT going through
+    ``columbus_quest_dispatch``'s own synthetic call - the exact gap the
+    adversary pass found no test covering.
+    """
+
+    # A row shaped exactly like what a character's stored position would be
+    # if it somehow ever named scene 17 - NOT the synthetic zero-XYZ Position
+    # columbus_quest_dispatch.resolve_columbus_arrival builds fresh every
+    # call, so a fix that only special-cased that literal object would not
+    # pass this.
+    PERSISTED_SCENE_17_ROW = Position(17, 0, 1.0, 2.0, 3.0, 0.5)
+
+    def test_a_stored_scene_17_row_is_refused_at_the_login_call_shape(self):
+        # resolve_entry(row, registry=..., emit=...) - no via_login keyword -
+        # is exactly the call runtime.py's login path makes.  This is the
+        # regression pin: it must still refuse scene 17 today, exactly as it
+        # did before scene 17 had a pinned spawn at all.
+        with self.assertRaises(SceneEntryRefused) as caught:
+            resolve_entry(self.PERSISTED_SCENE_17_ROW, emit=Sink())
+        self.assertEqual(caught.exception.reason, REFUSED_NOT_ALLOWED_AT_LOGIN)
+        self.assertIn("17", str(caught.exception))
+
+    def test_the_refusal_reason_is_named_in_the_public_set(self):
+        self.assertIn(REFUSED_NOT_ALLOWED_AT_LOGIN, REFUSAL_REASONS)
+
+    def test_a_refused_scene_17_login_emits_nothing(self):
+        # Same contract as every other refusal: no WORLD_SCENE line for a
+        # destination that was never actually granted.
+        sink = Sink()
+        with self.assertRaises(SceneEntryRefused):
+            resolve_entry(self.PERSISTED_SCENE_17_ROW, emit=sink)
+        self.assertEqual(sink.lines, [])
+
+    def test_via_login_defaults_true_with_no_keyword_passed(self):
+        # Pin the default itself: a caller that passes nothing gets the safe
+        # answer.  If a future edit flipped the default, every test above
+        # would still pass (they pass no keyword either) - this one exists so
+        # a reader can see the default is asserted, not merely relied upon.
+        with self.assertRaises(SceneEntryRefused):
+            resolve_entry(self.PERSISTED_SCENE_17_ROW, emit=Sink())
+
+    def test_via_login_false_is_the_columbus_dispatch_escape_hatch(self):
+        # The other half of the same mechanism: an explicit non-login caller
+        # still resolves scene 17 through the owner-decreed placeholder,
+        # exactly as columbus_quest_dispatch.resolve_columbus_arrival does.
+        sink = Sink()
+        entry = resolve_entry(
+            self.PERSISTED_SCENE_17_ROW, emit=sink, via_login=False)
+        self.assertEqual(entry.destination.n_id, 17)
+        self.assertTrue(sink.lines)
+        self.assertTrue(sink.lines[0].startswith("WORLD_SCENE "))
+
+    def test_via_login_must_be_a_bool(self):
+        for bad in (1, 0, "false", None):
+            with self.subTest(bad=bad):
+                with self.assertRaises(ValueError):
+                    resolve_entry(
+                        ATTENDED_HOME_ROW, emit=Sink(), via_login=bad)
+
+    def test_login_restricted_scenes_other_than_17_are_unaffected(self):
+        # The mechanism must be per-destination, not a blanket change: home,
+        # scene 2, and the test stage all still resolve at the default
+        # (login) call shape exactly as every other test file in this suite
+        # already assumes.
+        for row in (ATTENDED_HOME_ROW, PORT_ROYAL_XYZ_IN_THE_STAGE,
+                    STANDING_ON_THE_STAGE, PRISON_ISLAND_ROW):
+            with self.subTest(scene=row.scene_id):
+                entry = resolve_entry(row, emit=Sink())
+                self.assertNotEqual(entry.destination.n_id, 17)
+
+    def test_a_login_restricted_destination_with_no_flag_set_is_unaffected(self):
+        # Mutation check via a patched registry: a destination with NO
+        # login_entry_allowed key at all (every pre-existing pin) must still
+        # default to allowed, proven through resolve_entry itself and not
+        # only through world_scene_travel's own loader tests.
+        registry = registry_with({17: {"login_entry_allowed": True}})
+        entry = resolve_entry(
+            Position(17, 0, 0.0, 0.0, 0.0, 0.0), registry=registry, emit=Sink())
+        self.assertEqual(entry.destination.n_id, 17)
 
 
 class HomeIsUnchangedTests(unittest.TestCase):
@@ -582,8 +670,15 @@ class ProvisionalDecreeTests(unittest.TestCase):
         # for", because the acceptance radius is centred on the decree point,
         # not on anything measured. This row is deliberately (0,0,z) - inside
         # the naive radius test - to prove the fix, not just avoid it.
+        #
+        # via_login=False, round 0z3kjx: this test is about the RELOCATION
+        # mechanic, not about login access, and scene 17 now requires an
+        # explicit non-login caller to resolve at all (see
+        # LoginEntryRestrictionTests below for that half). Without this the
+        # call would raise REFUSED_NOT_ALLOWED_AT_LOGIN before it ever reached
+        # the relocation logic this test exists to exercise.
         row = Position(self.SEA_SCENE_ID, 0, 0.0, 0.0, 5000.0, 0.0)
-        entry = resolve_entry(row, emit=Sink())
+        entry = resolve_entry(row, emit=Sink(), via_login=False)
         self.assertTrue(entry.relocated)
         self.assertEqual(
             (entry.position.x, entry.position.y, entry.position.z),
@@ -591,9 +686,10 @@ class ProvisionalDecreeTests(unittest.TestCase):
         )
 
     def test_a_row_genuinely_far_from_the_decree_also_relocates_and_prints_the_token(self):
+        # via_login=False, round 0z3kjx - see the sibling test above.
         row = Position(self.SEA_SCENE_ID, 0, -1800.0, 2300.0, 900.0, 0.0)
         sink = Sink()
-        entry = resolve_entry(row, emit=sink)
+        entry = resolve_entry(row, emit=sink, via_login=False)
         self.assertTrue(entry.relocated)
         self.assertEqual(
             (entry.position.x, entry.position.y, entry.position.z),
