@@ -154,5 +154,63 @@ class SayWireAdversaryFindingsTests(unittest.TestCase):
         self.assertNotIsInstance(ctx.exception, KeyError)
 
 
+class SayWireArgsShapeFollowUpTests(unittest.TestCase):
+    """docs/GM_LANE.md (warp-executor args-shape follow-up round) named this
+    module's own two remaining gaps in its three-type len()/indexing catch:
+    a custom __len__/__getitem__ raising outside TypeError/KeyError/
+    IndexError still leaked past SayWireError, and a str/bytes args scalar
+    passed the bare len()==1 check without an explicit shape guard. These
+    tests prove both are closed here the same way gm/warp_executor.py's own
+    follow-up round closed them there.
+    """
+
+    def setUp(self):
+        self.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+
+    def test_refuses_a_str_args_scalar_instead_of_silently_reading_it(self):
+        # A single-character str passes len()==1 and is positionally
+        # indexable, so without an explicit str/bytes guard this would have
+        # silently built a real frame from the one character read out of it
+        # instead of refusing a container that was never the intended
+        # one-element args sequence.
+        bad = GmCommand("say", "x", "say x")
+        with self.assertRaises(SayWireError):
+            make_say_broadcast_frame(self.legacy, bad)
+
+    def test_refuses_a_bytes_args_scalar_instead_of_silently_reading_it(self):
+        bad = GmCommand("say", b"x", "say x")
+        with self.assertRaises(SayWireError):
+            make_say_broadcast_frame(self.legacy, bad)
+
+    def test_refuses_an_args_object_whose_len_raises_outside_the_original_three_types(self):
+        class WeirdLen:
+            def __len__(self):
+                raise ValueError("boom")
+
+            def __getitem__(self, i):
+                return "hi"
+
+        bad = GmCommand("say", WeirdLen(), "say weird")
+        with self.assertRaises(SayWireError) as ctx:
+            make_say_broadcast_frame(self.legacy, bad)
+        # SayWireError subclasses ValueError, so a bare ValueError leak would
+        # still pass assertRaises(SayWireError) above -- the real assertion
+        # is that it is exactly this module's own error type.
+        self.assertIs(type(ctx.exception), SayWireError)
+
+    def test_refuses_an_args_object_whose_getitem_raises_outside_the_original_three_types(self):
+        class WeirdGetitem:
+            def __len__(self):
+                return 1
+
+            def __getitem__(self, i):
+                raise AttributeError("nope")
+
+        bad = GmCommand("say", WeirdGetitem(), "say weird")
+        with self.assertRaises(SayWireError) as ctx:
+            make_say_broadcast_frame(self.legacy, bad)
+        self.assertNotIsInstance(ctx.exception, AttributeError)
+
+
 if __name__ == "__main__":
     unittest.main()

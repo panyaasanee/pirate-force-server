@@ -28,7 +28,7 @@ and does not send anything -- it returns frame bytes for a caller to send,
 same posture as `gm/warp_executor.py`. Wiring a real send is CORE-REQUEST
 territory (see docs/GM_LANE.md).
 
-`pf-adversary` (this round) found two gaps against the "regardless of
+`pf-adversary` (say-wire round) found two gaps against the "regardless of
 source" contract this module's docstring already claimed:
 
 1. `gm/commands.py`'s `MAX_SAY_MESSAGE_LENGTH` cap is enforced only inside
@@ -42,9 +42,25 @@ source" contract this module's docstring already claimed:
    for an `args` container of the wrong *shape* (not `None`, not missing
    `__len__`, not a mapping) -- the checked-in tests only ever varied
    `args`' *values*, never its *shape*, so this gap shipped asserted-safe
-   without being exercised. `gm/warp_executor.py` has the identical gap
-   (confirmed, not fixed here -- out of this module's write scope for this
-   round; see docs/GM_LANE.md for the follow-up note).
+   without being exercised.
+
+The warp-executor args-shape follow-up round then fixed the identical gap
+in `gm/warp_executor.py` and found the `say_wire.py`-style three-type catch
+itself (`TypeError`/`KeyError`/`IndexError`) still left two gaps open,
+flagged in `docs/GM_LANE.md` as this module's own follow-up: (a) a custom
+`__len__`/`__getitem__` raising anything outside those three types (e.g.
+`AttributeError`, `ValueError`) would still leak past this module's own
+"every failure surfaces as `SayWireError`" promise; (b) a `str`/`bytes`
+scalar of length 1 (e.g. `"x"`) passes `len(args) == 1` and is positionally
+indexable, so it would be read as a real one-element args sequence instead
+of being refused as the wrong container shape -- less exploitable here than
+in `warp_executor.py` (the extracted element must still pass `isinstance
+(body, str)`, so a single-character `str` args scalar merely produces a
+one-character message, not a wrong-type frame) but not previously
+independently verified, and inconsistent with this module's own shape
+contract either way. This round (warp-executor's follow-up) applies the
+same fix here: both guards now catch `Exception` broadly, and `args` is
+rejected by `isinstance` if it is `str`/`bytes` before either guard runs.
 """
 from __future__ import annotations
 
@@ -84,15 +100,27 @@ def make_say_broadcast_frame(
             f"make_say_broadcast_frame only applies to say commands, got {command.name!r}"
         )
     args = command.args
+    if isinstance(args, (str, bytes)):
+        # A str/bytes of length 1 passes a bare len()==1 check and is
+        # positionally indexable, so without this guard a single-character
+        # args scalar would silently be read as a one-element args sequence
+        # instead of being refused as the wrong container shape.
+        raise SayWireError(f"say command args must not be str/bytes, got {args!r}")
     try:
         arg_count = len(args)
-    except TypeError as exc:
+    except Exception as exc:
+        # Broad on purpose: docs/GM_LANE.md and this module's own docstring
+        # commit to accepting a GmCommand "regardless of source," so args is
+        # fully caller-controlled -- any custom __len__ implementation must
+        # convert to SayWireError here, not just TypeError.
         raise SayWireError(f"say command args must be a sequence, got {args!r}") from exc
     if arg_count != 1:
         raise SayWireError("say <message> must carry exactly one message argument")
     try:
         body = args[0]
-    except (TypeError, KeyError, IndexError) as exc:
+    except Exception as exc:
+        # Broad for the same reason as the len() guard above -- any custom
+        # __getitem__ implementation must convert to SayWireError here.
         raise SayWireError(f"say command args must be indexable, got {args!r}") from exc
     if not isinstance(body, str):
         raise SayWireError(f"say message must be a str, got {body!r}")
