@@ -154,5 +154,117 @@ class SayWireAdversaryFindingsTests(unittest.TestCase):
         self.assertNotIsInstance(ctx.exception, KeyError)
 
 
+class SayWireArgsShapeFollowUpTests(unittest.TestCase):
+    """docs/GM_LANE.md (warp-executor args-shape follow-up round) named this
+    module's own two remaining gaps in its three-type len()/indexing catch:
+    a custom __len__/__getitem__ raising outside TypeError/KeyError/
+    IndexError still leaked past SayWireError, and a str/bytes args scalar
+    passed the bare len()==1 check without an explicit shape guard. These
+    tests prove both are closed here the same way gm/warp_executor.py's own
+    follow-up round closed them there.
+    """
+
+    def setUp(self):
+        self.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+
+    def test_refuses_a_str_args_scalar_instead_of_silently_reading_it(self):
+        # A single-character str passes len()==1 and is positionally
+        # indexable, so without an explicit str/bytes guard this would have
+        # silently built a real frame from the one character read out of it
+        # instead of refusing a container that was never the intended
+        # one-element args sequence.
+        bad = GmCommand("say", "x", "say x")
+        with self.assertRaises(SayWireError):
+            make_say_broadcast_frame(self.legacy, bad)
+
+    def test_refuses_a_bytes_args_scalar_instead_of_silently_reading_it(self):
+        bad = GmCommand("say", b"x", "say x")
+        with self.assertRaises(SayWireError):
+            make_say_broadcast_frame(self.legacy, bad)
+
+    def test_refuses_an_args_object_whose_len_raises_outside_the_original_three_types(self):
+        class WeirdLen:
+            def __len__(self):
+                raise ValueError("boom")
+
+            def __getitem__(self, i):
+                return "hi"
+
+        bad = GmCommand("say", WeirdLen(), "say weird")
+        with self.assertRaises(SayWireError) as ctx:
+            make_say_broadcast_frame(self.legacy, bad)
+        # SayWireError subclasses ValueError, so a bare ValueError leak would
+        # still pass assertRaises(SayWireError) above -- the real assertion
+        # is that it is exactly this module's own error type.
+        self.assertIs(type(ctx.exception), SayWireError)
+
+    def test_refuses_an_args_object_whose_getitem_raises_outside_the_original_three_types(self):
+        class WeirdGetitem:
+            def __len__(self):
+                return 1
+
+            def __getitem__(self, i):
+                raise AttributeError("nope")
+
+        bad = GmCommand("say", WeirdGetitem(), "say weird")
+        with self.assertRaises(SayWireError) as ctx:
+            make_say_broadcast_frame(self.legacy, bad)
+        self.assertNotIsInstance(ctx.exception, AttributeError)
+
+    def test_refuses_an_integer_keyed_dict_instead_of_silently_reading_it_positionally(self):
+        # pf-adversary (this round): a dict keyed 0 passes len()==1 and is
+        # indexable at [0] without ever raising, so the previous blacklist
+        # (str/bytes guard + broad except) never caught it -- it silently
+        # built a real frame from a dict that was never the intended
+        # one-element tuple. The isinstance(args, tuple) allowlist closes
+        # this without needing to special-case dicts at all.
+        bad = GmCommand("say", {0: "hello"}, "say hello")
+        with self.assertRaises(SayWireError) as ctx:
+            make_say_broadcast_frame(self.legacy, bad)
+        self.assertNotIsInstance(ctx.exception, KeyError)
+
+    def test_refuses_a_list_args_container(self):
+        # GmCommand.args is typed tuple[str, ...]; a list is a plausible
+        # caller mistake (JSON deserializes arrays as lists) that behaves
+        # identically to a tuple under len()/indexing, so it was never
+        # caught by any of the previous guards either.
+        bad = GmCommand("say", ["hello"], "say hello")
+        with self.assertRaises(SayWireError):
+            make_say_broadcast_frame(self.legacy, bad)
+
+    def test_refuses_a_bytearray_args_scalar(self):
+        bad = GmCommand("say", bytearray(b"x"), "say x")
+        with self.assertRaises(SayWireError):
+            make_say_broadcast_frame(self.legacy, bad)
+
+    def test_refuses_a_tuple_subclass_whose_len_lies_with_an_uncaught_exception(self):
+        # pf-adversary (second pass, same round): isinstance(args, tuple)
+        # admits any subclass, including one that overrides __len__ to
+        # raise something other than SayWireError. GmCommand is a plain
+        # frozen dataclass (gm/commands.py) with no validation, so nothing
+        # stops a hand-built GmCommand from carrying one -- exactly the
+        # "regardless of source" threat model this module's docstring
+        # claims to defend against. type(args) is not tuple rejects every
+        # subclass outright, so this must never reach the lying __len__.
+        class EvilTuple(tuple):
+            def __len__(self):
+                raise RuntimeError("boom-len")
+
+        bad = GmCommand("say", EvilTuple(("hi",)), "say hi")
+        with self.assertRaises(SayWireError) as ctx:
+            make_say_broadcast_frame(self.legacy, bad)
+        self.assertNotIsInstance(ctx.exception, RuntimeError)
+
+    def test_refuses_a_tuple_subclass_whose_getitem_lies_with_an_uncaught_exception(self):
+        class EvilTuple(tuple):
+            def __getitem__(self, i):
+                raise KeyError("boom-getitem")
+
+        bad = GmCommand("say", EvilTuple(("hi",)), "say hi")
+        with self.assertRaises(SayWireError) as ctx:
+            make_say_broadcast_frame(self.legacy, bad)
+        self.assertNotIsInstance(ctx.exception, KeyError)
+
+
 if __name__ == "__main__":
     unittest.main()

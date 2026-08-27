@@ -372,6 +372,73 @@ round: no account gets anything it could not already get before.
   (`say_wire.py` was not touched); a follow-up round should apply the same
   broadened catch and scalar guard there.
 
+## Modules delivered (say-wire args-shape follow-up round)
+
+- **fixed, then re-fixed** `gm/say_wire.py`'s own copy of the args-shape
+  gap named as a known follow-up above. First pass: `make_say_broadcast_frame`'s
+  `len(args)`/`args[0]` guards were broadened to catch `Exception` instead
+  of the narrow `TypeError`/`KeyError`/`IndexError` set, and `args` was
+  rejected via `isinstance` if it was `str`/`bytes` -- the same blacklist
+  shape `warp_executor.py`'s own follow-up round had applied to itself.
+  `pf-adversary` broke that first pass the same day: an integer-keyed
+  `dict` (e.g. `{0: "hello"}`) is exactly the "mapping" shape this
+  document already names as one of the three canonical wrong shapes
+  (`None`, a `set`, a `dict`), yet `len(d)` and `d[0]` both succeed
+  normally for it -- no exception is ever raised, so neither the
+  `str`/`bytes` guard nor the broad `except Exception` fires, and a
+  hand-built `GmCommand` with such a dict silently built a real frame.
+  The identical gap applies to `warp_executor.py`'s copy of the same
+  blacklist (`{0: 1, 1: 2, 2: 3}`).
+- **root cause and final fix**: a blacklist of individually-discovered
+  wrong shapes is unbounded against a field typed `tuple[str, ...]`
+  (`gm/commands.py`'s `GmCommand.args` annotation) with exactly one
+  legitimate shape. Both `gm/say_wire.py` and `gm/warp_executor.py` now
+  assert that shape directly (`if not isinstance(args, tuple): raise
+  <ModuleError>(...)`) before any `len()`/indexing runs at all, closing
+  the whole class of gap at once -- dict of any key type, `str`/`bytes`,
+  `bytearray`, `memoryview`, a `list`, a custom object -- rather than
+  continuing to chase individual shapes that happen not to raise.
+- `pf-adversary` reviewed the allowlist fix itself (second pass, same
+  round) and reported it found no tuple-subclass or tuple-like object
+  that both passes `isinstance(args, tuple)` and misbehaves downstream.
+  **That specific claim was wrong, and a third pf-adversary pass
+  (same round) reproduced the counter-example live within a minute**: a
+  tuple *subclass* overriding `__len__` or `__getitem__` to raise
+  something other than this module's own error type
+  (`class EvilTuple(tuple): def __len__(self): raise RuntimeError(...)`)
+  passes `isinstance(args, tuple)` cleanly, and `GmCommand` (a plain
+  frozen dataclass, `gm/commands.py`, no `__post_init__` validation)
+  places no obstacle in front of a hand-built one -- exactly the
+  "regardless of source" threat model this module's own docstring
+  already claims to defend against. The two `WeirdLen`/`WeirdGetitem`
+  regression tests carried forward from the first pass kept passing
+  throughout, but for the wrong reason: those objects are plain objects,
+  not tuples, so `isinstance` rejects them before their dunders are ever
+  called -- the len()/indexing-exception path itself had gone untested
+  since the allowlist landed. Recorded here rather than quietly
+  corrected, per this lane's own rule against letting a convenient,
+  unverified claim stand as fact.
+- **root cause and final fix (third pass)**: `isinstance(args, tuple)`
+  admits any subclass; `type(args) is tuple` does not. Both modules now
+  check the exact type, not an `isinstance` match -- a real `tuple`
+  (never a subclass) can never raise on `len()`/indexing, so there is no
+  dunder left to lie through, closing this without needing any
+  try/except around `len()`/indexing at all.
+- `tests/test_gm_say_wire.py` (`SayWireArgsShapeFollowUpTests`) and
+  `tests/test_gm_warp_executor.py` (`WarpExecutorArgsShapeTests`): each
+  gained tests for an integer-keyed dict, a `list`, a `bytearray`
+  (second pass) and a tuple subclass with a lying `__len__` and one with
+  a lying `__getitem__` (third pass), alongside the `str`/`bytes` scalar
+  and weird-`__len__`/`__getitem__` tests the first pass already added.
+
+No behavior change on the happy path -- a real one-element `args` tuple
+carrying a `str` (or a real three-element `args` tuple for `warp`)
+produces a byte-identical frame to before. `say`/`warp` still do not
+execute after this round: these modules only return frame bytes, they
+send nothing, and no account gets anything it could not already get
+before this round (`CORE-REQUEST-011`/`CORE-REQUEST-012` are not wired
+into `runtime.py`).
+
 ## Attempted and retracted (broadcast-wire round)
 
 This round tried to give `say` a wire codec for `Channel_GMGlobalMessageVital`

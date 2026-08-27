@@ -28,7 +28,7 @@ and does not send anything -- it returns frame bytes for a caller to send,
 same posture as `gm/warp_executor.py`. Wiring a real send is CORE-REQUEST
 territory (see docs/GM_LANE.md).
 
-`pf-adversary` (this round) found two gaps against the "regardless of
+`pf-adversary` (say-wire round) found two gaps against the "regardless of
 source" contract this module's docstring already claimed:
 
 1. `gm/commands.py`'s `MAX_SAY_MESSAGE_LENGTH` cap is enforced only inside
@@ -42,9 +42,38 @@ source" contract this module's docstring already claimed:
    for an `args` container of the wrong *shape* (not `None`, not missing
    `__len__`, not a mapping) -- the checked-in tests only ever varied
    `args`' *values*, never its *shape*, so this gap shipped asserted-safe
-   without being exercised. `gm/warp_executor.py` has the identical gap
-   (confirmed, not fixed here -- out of this module's write scope for this
-   round; see docs/GM_LANE.md for the follow-up note).
+   without being exercised.
+
+The warp-executor args-shape follow-up round then fixed the identical gap
+in `gm/warp_executor.py` and found the `say_wire.py`-style three-type catch
+itself (`TypeError`/`KeyError`/`IndexError`) still left two gaps open,
+flagged in `docs/GM_LANE.md` as this module's own follow-up: (a) a custom
+`__len__`/`__getitem__` raising anything outside those three types (e.g.
+`AttributeError`, `ValueError`) would still leak past this module's own
+"every failure surfaces as `SayWireError`" promise; (b) a `str`/`bytes`
+scalar of length 1 (e.g. `"x"`) passes `len(args) == 1` and is positionally
+indexable, so it would be read as a real one-element args sequence instead
+of being refused as the wrong container shape.
+
+A later round (`say-wire args-shape follow-up`, not the warp-executor round
+itself) first applied that same blacklist-style fix here (broad `except
+Exception` plus an `isinstance(args, (str, bytes))` reject), then
+`pf-adversary` broke it again the same day: an integer-keyed `dict` (e.g.
+`{0: "hello"}`) is exactly the "mapping" shape `docs/GM_LANE.md` already
+names as one of the three canonical wrong shapes (`None`, a `set`, a
+`dict`), yet `len(d)` and `d[0]` both succeed normally for it -- no
+exception is ever raised, so neither the `str`/`bytes` guard nor either
+`except Exception` clause fires, and a hand-built `GmCommand` with such a
+dict silently builds a real frame. `warp_executor.py` has the identical
+gap for the same reason. Enumerating one more forbidden shape every time
+adversary finds one that happens not to raise is an unbounded blacklist
+against a `tuple[str, ...]`-typed field (see `gm/commands.py`'s
+`GmCommand.args` annotation) with exactly one legitimate shape -- so this
+module now asserts that shape directly (`isinstance(args, tuple)`) instead
+of continuing to chase individual non-tuple shapes that happen not to
+raise. Every non-`tuple` `args` -- `None`, a `set`, a `dict` of any key
+type, a `str`/`bytes` scalar, a `bytearray`, a custom object, a `list` --
+is refused up front, before `len()`/indexing ever runs.
 """
 from __future__ import annotations
 
@@ -84,16 +113,27 @@ def make_say_broadcast_frame(
             f"make_say_broadcast_frame only applies to say commands, got {command.name!r}"
         )
     args = command.args
-    try:
-        arg_count = len(args)
-    except TypeError as exc:
-        raise SayWireError(f"say command args must be a sequence, got {args!r}") from exc
-    if arg_count != 1:
+    if type(args) is not tuple:
+        # GmCommand.args is typed tuple[str, ...] (gm/commands.py) -- every
+        # legitimate caller, parse_gm_command included, produces a plain
+        # tuple. A blacklist of individually-discovered wrong shapes (None,
+        # a set, a dict, a str/bytes scalar) is unbounded and was twice
+        # defeated by a shape that happened not to raise (a string-keyed
+        # dict, then an integer-keyed one). An isinstance(args, tuple)
+        # allowlist closed those but was itself defeated by a tuple
+        # *subclass* overriding __len__/__getitem__ to raise something
+        # other than this module's own error type -- exactly the
+        # "regardless of source, hand-built GmCommand" threat model this
+        # docstring already claims to defend against, since nothing in
+        # GmCommand (a plain frozen dataclass, gm/commands.py) stops a
+        # caller from constructing one. Requiring the exact type, not an
+        # isinstance match, rejects every subclass outright -- a real tuple
+        # can never raise on len()/indexing, so there is no dunder left to
+        # lie through.
+        raise SayWireError(f"say command args must be a tuple, got {args!r}")
+    if len(args) != 1:
         raise SayWireError("say <message> must carry exactly one message argument")
-    try:
-        body = args[0]
-    except (TypeError, KeyError, IndexError) as exc:
-        raise SayWireError(f"say command args must be indexable, got {args!r}") from exc
+    body = args[0]
     if not isinstance(body, str):
         raise SayWireError(f"say message must be a str, got {body!r}")
     if len(body) > MAX_SAY_MESSAGE_LENGTH:
