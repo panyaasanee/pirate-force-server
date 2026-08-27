@@ -589,6 +589,88 @@ no field semantics changed. This round is pure robustness/correctness
 inside this lane's own write zone; no wire fact, no RE citation, and no
 `runtime.py` edit involved.
 
+## Modules delivered (round `kzwdle`, rate-limit + collision-loop bound)
+
+Closes the two items round `50x5xt` deferred (see the struck-through bullet
+under "What is intentionally NOT built yet, and why" below).
+
+- **`gm/dispatch.py`**: `handle_gm_run_command_vital` now enforces a
+  sliding-window per-account rate limit before the payload-size check --
+  `RATE_LIMIT_MAX_CALLS_PER_WINDOW = 20` calls per
+  `RATE_LIMIT_WINDOW_SECONDS = 5.0`. A rate-limited call keeps
+  `authorized=True` (the account really is GM) with `captured_path=None`
+  and the new `refusal_reason=REFUSAL_RATE_LIMITED` -- same outcome shape
+  as the existing oversized-payload and capture-write-failure refusals, so
+  a caller already handling those needs no new branch. State
+  (`_rate_limit_call_history`, one list of call timestamps per account) is
+  process-global and lock-guarded; `reset_rate_limit_state_for_tests()`
+  clears it for test isolation. The default is deliberately generous:
+  `GAME_TEST_QUEUE.md`'s GT-103 capture-matrix procedure paces attended
+  sends 3 seconds apart (at most ~2 per 5-second window), an order of
+  magnitude under the cap, so ordinary attended use is never refused --
+  this is a flood guard against a scripted client, not a per-command
+  throttle on a human.
+- **`gm/command_capture.py`**: the filename collision retry loop (flagged
+  by the same round's verify-pass as a companion liveness gap, not an
+  uncaught-exception risk on its own) is now bounded by
+  `_MAX_FILENAME_COLLISION_ATTEMPTS = 1000`; exceeding it raises `OSError`
+  instead of spinning, which `gm/dispatch.py`'s existing `except OSError`
+  around this call already turns into a `capture_write_failed_*` refusal
+  -- no new refusal reason needed for this half.
+- **`pf-adversary` (this round, verify pass)** found and this round fixed
+  a real ordering gap in the first draft of the rate limiter before it
+  ever left draft: the clock read (`time.time()`) originally happened
+  *before* acquiring `_rate_limit_lock`, so two threads for the same
+  account could race the lock and record their timestamps out of the
+  order they were read in -- reproduced live with real threads, no clock
+  mocking. The prune loop's `while history and history[0] <= cutoff:
+  history.pop(0)` silently assumed ascending insertion order; an
+  out-of-order `append` could leave an individually-expired entry
+  unpruned behind a newer one until that newer entry also aged out.
+  Self-healing, never a bypass (the account was held at its cap *longer*
+  than the window, never let through early) -- but a real deviation from
+  the documented window, and reproducible by ordinary thread scheduling
+  jitter, not just a clock anomaly. Fixed by construction, not
+  convention: the clock is now read *inside* the same lock (removing the
+  race for every production caller, none of which passes an explicit
+  `now_ts`), and insertion uses `bisect.insort` instead of `append` (so
+  the history list stays sorted even for an explicit, intentionally
+  out-of-order `now_ts` from a test, or a wall clock that steps
+  backward). `tests/test_gm_command_dispatch.py`'s
+  `test_an_out_of_order_now_ts_is_still_pruned_correctly` reproduces the
+  exact shape (a later timestamp recorded before an earlier one) and
+  proves the fix holds without needing real threads.
+- `tests/test_gm_command_dispatch.py`: 10 new tests -- calls up to the
+  window max succeed, the call past it is refused without touching the
+  capture root, the window slides (a call after it elapses succeeds
+  again), rate limiting is scoped per account not global, a refused
+  non-GM call never consumes a GM account's own budget, `reset_rate_
+  limit_state_for_tests()` actually clears history, the shipped (not
+  test-overridden) defaults survive a realistic same-second burst, and
+  the out-of-order-timestamp regression test above.
+  `tests/test_gm_run_command_dispatch_wiring.py` and
+  `tests/test_gm_command_dispatch.py` both now reset rate-limit state in
+  `setUp` for defensive test isolation (the state is process-global,
+  shared even across test files in the same `unittest discover` run).
+  `tests/test_gm_command_capture.py`: 2 new tests -- the collision loop
+  gives up after its bound instead of spinning (mocked `os.open` always
+  raising `FileExistsError`, patched bound of 3, exactly 4 attempts made),
+  and a realistic 50-capture same-second burst is unaffected by the bound.
+
+`tests/test_gm_*.py`: 225/225 (up from 215 -- 12 new tests: 10 dispatch +
+2 capture; two existing test files gained a defensive `setUp` reset with
+no new test methods). Repo-wide `unittest discover`: 3619 tests, 18
+pre-existing `capstone`-import errors only (same baseline every prior
+round reports), no new failures.
+
+nonclaim: pure robustness/correctness inside this lane's own write zone --
+no command behavior changed on the happy path (`warp`/`say`/`npc`/`item`/
+`lv`/`spawn` still only parse/log/build frame bytes, nothing is sent to a
+socket), no wire fact, no RE citation, and no `runtime.py` edit involved.
+The rate limiter changes when an already-authorized GM's capture gets
+written, never who is authorized -- a non-GM account still gets exactly
+nothing, same as every prior round.
+
 ## Attempted and retracted (broadcast-wire round)
 
 This round tried to give `say` a wire codec for `Channel_GMGlobalMessageVital`
@@ -696,36 +778,14 @@ scene_travel.py`/`field_mob_tables.py`.
   cover. `gm/scene_catalog.py` (this lane's own, from committed gamedata) is
   used only as a non-blocking name hint for `warp`, never as proof a warp
   target is reachable.
-- No per-account rate limit on authorized `0x51E9` capture writes in
-  `gm/dispatch.py`. `pf-adversary` (round `50x5xt`) flagged this: nothing
-  stops one authorized GM connection from sending frames back-to-back with
-  no cooldown, and each authorized call does a synchronous
-  `os.mkdir`/`os.open`/`os.write` with a unique filename per call -- a
-  scripted GM client could still fill disk, even though the same round's
-  fix means a write failure from that no longer crashes the listener thread
-  (see "Modules delivered (round `50x5xt`...)" above). Deferred rather than
-  rushed: this lane's other stateful-guard rounds (the `type(args) is
-  tuple` args-shape fix) took three separate `pf-adversary` passes to get
-  right even for a *pure* function with no shared state; a rate limiter
-  needs a shared counter across calls, which raises real thread-safety and
-  test-isolation questions (a naive module-level dict would leak across
-  every test in the same process unless every test suite remembers to reset
-  it) that deserve a dedicated round, not a same-round bolt-on next to two
-  unrelated fixes. No `CORE-REQUEST` needed either way -- this is fully
-  inside this lane's own write zone.
-  **Verify-pass addendum**: the fix-verification `pf-adversary` pass for
-  round `50x5xt` (same round, second pass) noticed a companion liveness gap
-  while confirming the two fixes above: `command_capture.py`'s filename
-  collision retry loop (`while True: ... except FileExistsError: suffix +=
-  1; continue`) has no upper bound on `suffix` or on iteration count -- not
-  an uncaught-exception risk (that path is inside the now-caught `OSError`
-  boundary), but under a capture root with many pre-existing/colliding
-  filenames for the same account+second, one authorized call could spin
-  doing repeated `os.open` calls before finding a free suffix rather than
-  failing fast. Grouped with the rate-limit item above rather than opened
-  as a fourth separate item because a per-account rate limiter would also
-  bound how often this loop can even be entered -- one future round, not
-  two.
+- ~~No per-account rate limit on authorized `0x51E9` capture writes~~ --
+  **closed round `kzwdle`**, see "Modules delivered (round `kzwdle`,
+  rate-limit + collision-loop bound)" below. `gm/dispatch.py` now enforces
+  `RATE_LIMIT_MAX_CALLS_PER_WINDOW` per account per
+  `RATE_LIMIT_WINDOW_SECONDS`, and `gm/command_capture.py`'s filename
+  collision retry loop is bounded (`_MAX_FILENAME_COLLISION_ATTEMPTS`)
+  instead of unbounded. No `CORE-REQUEST` was needed -- both fixes are
+  fully inside this lane's own write zone.
 
 ## Nonclaim rule
 

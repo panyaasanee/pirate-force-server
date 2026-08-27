@@ -46,6 +46,7 @@ in the game world.
 """
 from __future__ import annotations
 
+import bisect
 import threading
 import time
 from dataclasses import dataclass
@@ -100,21 +101,48 @@ def reset_rate_limit_state_for_tests() -> None:
         _rate_limit_call_history.clear()
 
 
-def _rate_limit_allows(account_name: str, now_ts: float) -> bool:
+def _rate_limit_allows(account_name: str, now_ts: float | None) -> bool:
     """True and records this call, or False and records nothing.
 
-    One lock scope covers pruning the account's history, the length check,
-    and (only when allowed) appending the new call -- a caller never
-    observes or acts on a length that a second thread already invalidated.
+    One lock scope covers reading the clock (when ``now_ts`` is not
+    supplied), pruning the account's history, the length check, and (only
+    when allowed) recording the new call -- a caller never observes or
+    acts on a length, or a clock reading, that a second thread already
+    invalidated.
+
+    pf-adversary (this round, verify pass): an earlier version of this
+    function read ``time.time()`` in the caller, *before* the lock, then
+    passed the value in. Two threads for the SAME account could read the
+    clock at T_early and T_late (T_early < T_late) but race the lock so
+    T_late's ``append`` landed first -- reproduced live with real threads,
+    no clock mocking. The prune loop below (``while history and
+    history[0] <= cutoff: history.pop(0)``) assumes ascending order; a
+    plain ``append`` after that race put a newer timestamp in front of an
+    older one, so the older, individually-expired entry could sit unpruned
+    behind it until the newer one also aged out -- self-healing, never a
+    bypass (the account was held at its cap *longer* than the window, not
+    let through early), but still a real deviation from the documented
+    window. Reading the clock inside this same lock removes the race for
+    every production caller (none passes ``now_ts`` explicitly -- see
+    ``handle_gm_run_command_vital``): whoever enters the critical section
+    first now also reads the earlier timestamp, by construction, not by
+    convention. ``bisect.insort`` (instead of ``append``) closes the
+    remaining gap for a caller that DOES pass an explicit, intentionally
+    out-of-order ``now_ts`` (a test, or a future caller) and for a wall
+    clock that steps backward (NTP correction, VM pause/resume): the
+    history list stays sorted regardless of insertion order, so the
+    front-pop prune loop's ascending-order assumption holds by
+    construction instead of by caller discipline.
     """
-    cutoff = now_ts - RATE_LIMIT_WINDOW_SECONDS
     with _rate_limit_lock:
+        ts = now_ts if now_ts is not None else time.time()
+        cutoff = ts - RATE_LIMIT_WINDOW_SECONDS
         history = _rate_limit_call_history.setdefault(account_name, [])
         while history and history[0] <= cutoff:
             history.pop(0)
         if len(history) >= RATE_LIMIT_MAX_CALLS_PER_WINDOW:
             return False
-        history.append(now_ts)
+        bisect.insort(history, ts)
         return True
 
 # pf-adversary (this round): command_capture.py's hex-dump sink is an
@@ -237,8 +265,7 @@ def handle_gm_run_command_vital(
             authorized=False, captured_path=None, refusal_reason=REFUSAL_NOT_GM,
         )
 
-    rate_limit_ts = now_ts if now_ts is not None else time.time()
-    if not _rate_limit_allows(account_name, rate_limit_ts):
+    if not _rate_limit_allows(account_name, now_ts):
         return GmDispatchOutcome(
             authorized=True,
             captured_path=None,

@@ -376,6 +376,63 @@ class GmCommandDispatchTests(unittest.TestCase):
             self.assertIsNotNone(after_reset.captured_path)
             self.assertIsNone(after_reset.refusal_reason)
 
+    # ----- pf-adversary (verify pass, same round): out-of-order now_ts ----
+    # ----- must not let a stale timestamp hide behind a newer one --------
+
+    def test_an_out_of_order_now_ts_is_still_pruned_correctly(self):
+        # Reproduces, without real threads, the ordering gap pf-adversary
+        # found live: two calls for the same account whose *insertion*
+        # order does not match their *timestamp* order (the exact shape a
+        # clock-read-before-the-lock race could produce). bisect.insort
+        # keeps gm/dispatch.py's internal history sorted regardless of
+        # insertion order, so the front-pop prune loop's ascending-order
+        # assumption holds even here.
+        config = self._config(["gm_listed"])
+        with mock.patch.object(
+            gm_dispatch, "RATE_LIMIT_MAX_CALLS_PER_WINDOW", 2,
+        ), mock.patch.object(
+            gm_dispatch, "RATE_LIMIT_WINDOW_SECONDS", 5.0,
+        ):
+            # Later timestamp recorded first...
+            later = gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", _PRESENCE_ZERO_PAYLOAD,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1010.0,
+            )
+            self.assertIsNotNone(later.captured_path)
+            # ...then an earlier timestamp arrives second (out of order).
+            earlier = gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", _PRESENCE_ZERO_PAYLOAD,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1006.0,
+            )
+            self.assertIsNotNone(earlier.captured_path)
+            # Window is now at its cap (2): a third call still inside both
+            # timestamps' windows is refused.
+            third = gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", _PRESENCE_ZERO_PAYLOAD,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1010.5,
+            )
+            self.assertEqual(
+                third.refusal_reason, gm_dispatch.REFUSAL_RATE_LIMITED,
+            )
+            # Once real (wall-clock-ordered) time passes 1006.0's own
+            # window (cutoff 1006.0 + 5.0 = 1011.0), the OUT-OF-ORDER
+            # earlier entry must still be pruned correctly (sorted by
+            # value, not by insertion order) -- proving the fix is by
+            # construction, not by luck: if pruning were still assuming
+            # insertion order, the 1010.0 entry (inserted first, but
+            # numerically LATER) would incorrectly block this from ever
+            # being pruned by a front-pop.
+            after_earlier_window = gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", _PRESENCE_ZERO_PAYLOAD,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1011.1,
+            )
+            self.assertIsNotNone(after_earlier_window.captured_path)
+            self.assertIsNone(after_earlier_window.refusal_reason)
+
     def test_default_window_and_limit_do_not_trip_on_a_handful_of_calls(self):
         # No mock.patch here -- proves the shipped defaults (not a
         # test-only override) stay out of the way of ordinary same-second
