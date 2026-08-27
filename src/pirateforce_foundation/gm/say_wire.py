@@ -113,15 +113,23 @@ def make_say_broadcast_frame(
             f"make_say_broadcast_frame only applies to say commands, got {command.name!r}"
         )
     args = command.args
-    if not isinstance(args, tuple):
+    if type(args) is not tuple:
         # GmCommand.args is typed tuple[str, ...] (gm/commands.py) -- every
-        # legitimate caller, parse_gm_command included, produces a tuple.
-        # A blacklist of individually-discovered wrong shapes (None, a set,
-        # a dict, a str/bytes scalar) is unbounded and was twice defeated by
-        # a shape that happened not to raise (a string-keyed dict, then an
-        # integer-keyed one) -- asserting the one legitimate shape directly
-        # closes the whole class at once, including shapes not yet tried
-        # (bytearray, memoryview, a list).
+        # legitimate caller, parse_gm_command included, produces a plain
+        # tuple. A blacklist of individually-discovered wrong shapes (None,
+        # a set, a dict, a str/bytes scalar) is unbounded and was twice
+        # defeated by a shape that happened not to raise (a string-keyed
+        # dict, then an integer-keyed one). An isinstance(args, tuple)
+        # allowlist closed those but was itself defeated by a tuple
+        # *subclass* overriding __len__/__getitem__ to raise something
+        # other than this module's own error type -- exactly the
+        # "regardless of source, hand-built GmCommand" threat model this
+        # docstring already claims to defend against, since nothing in
+        # GmCommand (a plain frozen dataclass, gm/commands.py) stops a
+        # caller from constructing one. Requiring the exact type, not an
+        # isinstance match, rejects every subclass outright -- a real tuple
+        # can never raise on len()/indexing, so there is no dunder left to
+        # lie through.
         raise SayWireError(f"say command args must be a tuple, got {args!r}")
     if len(args) != 1:
         raise SayWireError("say <message> must carry exactly one message argument")

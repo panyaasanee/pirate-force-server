@@ -123,16 +123,24 @@ def make_warp_force_pos_frame(
             f"make_warp_force_pos_frame only applies to warp commands, got {command.name!r}"
         )
     args = command.args
-    if not isinstance(args, tuple):
+    if type(args) is not tuple:
         # GmCommand.args is typed tuple[str, ...] (gm/commands.py) -- every
-        # legitimate caller, parse_gm_command included, produces a tuple.
-        # A blacklist of individually-discovered wrong shapes (None, a set,
-        # a dict, a str/bytes scalar) is unbounded: pf-adversary defeated
-        # the str/bytes-scalar blacklist entry with an integer-keyed dict
-        # (len()/[i] both succeed normally for e.g. {0: 1, 1: 2, 2: 3), so
-        # no exception was ever raised for it to catch) -- asserting the one
-        # legitimate shape directly closes the whole class at once,
-        # including shapes not yet tried (bytearray, memoryview, a list).
+        # legitimate caller, parse_gm_command included, produces a plain
+        # tuple. A blacklist of individually-discovered wrong shapes (None,
+        # a set, a dict, a str/bytes scalar) is unbounded: pf-adversary
+        # defeated the str/bytes-scalar blacklist entry with an
+        # integer-keyed dict (len()/[i] both succeed normally for e.g.
+        # {0: 1, 1: 2, 2: 3}, so no exception was ever raised for it to
+        # catch). An isinstance(args, tuple) allowlist closed that but was
+        # itself defeated by a tuple *subclass* overriding
+        # __len__/__getitem__ to raise something other than
+        # WarpExecutorError -- exactly the "regardless of source,
+        # hand-built GmCommand" threat model this docstring already claims
+        # to defend against, since nothing in GmCommand (a plain frozen
+        # dataclass, gm/commands.py) stops a caller from constructing one.
+        # Requiring the exact type, not an isinstance match, rejects every
+        # subclass outright -- a real tuple can never raise on
+        # len()/indexing, so there is no dunder left to lie through.
         raise WarpExecutorError(f"warp command args must be a tuple, got {args!r}")
     if len(args) != 3:
         raise WarpExecutorError(

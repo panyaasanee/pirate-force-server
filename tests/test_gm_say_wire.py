@@ -237,6 +237,34 @@ class SayWireArgsShapeFollowUpTests(unittest.TestCase):
         with self.assertRaises(SayWireError):
             make_say_broadcast_frame(self.legacy, bad)
 
+    def test_refuses_a_tuple_subclass_whose_len_lies_with_an_uncaught_exception(self):
+        # pf-adversary (second pass, same round): isinstance(args, tuple)
+        # admits any subclass, including one that overrides __len__ to
+        # raise something other than SayWireError. GmCommand is a plain
+        # frozen dataclass (gm/commands.py) with no validation, so nothing
+        # stops a hand-built GmCommand from carrying one -- exactly the
+        # "regardless of source" threat model this module's docstring
+        # claims to defend against. type(args) is not tuple rejects every
+        # subclass outright, so this must never reach the lying __len__.
+        class EvilTuple(tuple):
+            def __len__(self):
+                raise RuntimeError("boom-len")
+
+        bad = GmCommand("say", EvilTuple(("hi",)), "say hi")
+        with self.assertRaises(SayWireError) as ctx:
+            make_say_broadcast_frame(self.legacy, bad)
+        self.assertNotIsInstance(ctx.exception, RuntimeError)
+
+    def test_refuses_a_tuple_subclass_whose_getitem_lies_with_an_uncaught_exception(self):
+        class EvilTuple(tuple):
+            def __getitem__(self, i):
+                raise KeyError("boom-getitem")
+
+        bad = GmCommand("say", EvilTuple(("hi",)), "say hi")
+        with self.assertRaises(SayWireError) as ctx:
+            make_say_broadcast_frame(self.legacy, bad)
+        self.assertNotIsInstance(ctx.exception, KeyError)
+
 
 if __name__ == "__main__":
     unittest.main()

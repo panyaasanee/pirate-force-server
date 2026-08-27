@@ -399,20 +399,37 @@ round: no account gets anything it could not already get before.
   `bytearray`, `memoryview`, a `list`, a custom object -- rather than
   continuing to chase individual shapes that happen not to raise.
 - `pf-adversary` reviewed the allowlist fix itself (second pass, same
-  round): confirmed it rejects every previously-fought shape plus the
-  ones not yet tried (`bytearray`, `list`), found no tuple-subclass or
-  tuple-like object that both passes `isinstance(args, tuple)` and
-  misbehaves downstream, and confirmed the now-unconditional
-  `len(args)`/indexing calls cannot themselves raise for a real tuple
-  (including an empty one, which still correctly hits the arg-count
-  check, not a bare index error).
+  round) and reported it found no tuple-subclass or tuple-like object
+  that both passes `isinstance(args, tuple)` and misbehaves downstream.
+  **That specific claim was wrong, and a third pf-adversary pass
+  (same round) reproduced the counter-example live within a minute**: a
+  tuple *subclass* overriding `__len__` or `__getitem__` to raise
+  something other than this module's own error type
+  (`class EvilTuple(tuple): def __len__(self): raise RuntimeError(...)`)
+  passes `isinstance(args, tuple)` cleanly, and `GmCommand` (a plain
+  frozen dataclass, `gm/commands.py`, no `__post_init__` validation)
+  places no obstacle in front of a hand-built one -- exactly the
+  "regardless of source" threat model this module's own docstring
+  already claims to defend against. The two `WeirdLen`/`WeirdGetitem`
+  regression tests carried forward from the first pass kept passing
+  throughout, but for the wrong reason: those objects are plain objects,
+  not tuples, so `isinstance` rejects them before their dunders are ever
+  called -- the len()/indexing-exception path itself had gone untested
+  since the allowlist landed. Recorded here rather than quietly
+  corrected, per this lane's own rule against letting a convenient,
+  unverified claim stand as fact.
+- **root cause and final fix (third pass)**: `isinstance(args, tuple)`
+  admits any subclass; `type(args) is tuple` does not. Both modules now
+  check the exact type, not an `isinstance` match -- a real `tuple`
+  (never a subclass) can never raise on `len()`/indexing, so there is no
+  dunder left to lie through, closing this without needing any
+  try/except around `len()`/indexing at all.
 - `tests/test_gm_say_wire.py` (`SayWireArgsShapeFollowUpTests`) and
   `tests/test_gm_warp_executor.py` (`WarpExecutorArgsShapeTests`): each
-  gained tests for an integer-keyed dict, a `list`, and a `bytearray`,
-  alongside the `str`/`bytes` scalar and weird-`__len__`/`__getitem__`
-  tests the first pass already added (those still pass -- none of those
-  objects are a `tuple` either, so the allowlist refuses them before
-  their `__len__`/`__getitem__` is ever called).
+  gained tests for an integer-keyed dict, a `list`, a `bytearray`
+  (second pass) and a tuple subclass with a lying `__len__` and one with
+  a lying `__getitem__` (third pass), alongside the `str`/`bytes` scalar
+  and weird-`__len__`/`__getitem__` tests the first pass already added.
 
 No behavior change on the happy path -- a real one-element `args` tuple
 carrying a `str` (or a real three-element `args` tuple for `warp`)
