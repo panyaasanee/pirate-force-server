@@ -269,6 +269,18 @@ def resolve_columbus_arrival(*, registry=None, emit=print):
     stays, because a scene this project stops pinning, or a registry fault,
     still needs to be caught by name rather than assumed away.
 
+    SAME-ROUND ADVERSARY FIX, READ ALONGSIDE THE ABOVE.  Making
+    ``resolve_entry`` succeed for scene 17 also made it succeed for ANY
+    caller of ``resolve_entry`` - including ``runtime.py``'s login path,
+    which calls the same function with whatever ``scene_id`` a character's
+    persisted row happens to carry, and which nothing in this schema stops
+    from ever being 17.  The registry's ``login_entry_allowed: false`` for
+    scene 17 and the ``via_login=False`` passed below together keep that
+    login path refusing a stored scene-17 row exactly as before, while this
+    function - the one place that is supposed to resolve the decree - still
+    can.  See ``world_scene_entry.resolve_entry``'s own docstring for the
+    full mechanism.
+
     Reuses ``world_scene_entry.resolve_entry`` - the SAME call CORE-REQUEST-
     003/004 already wired at login, not a second scene-transition path -
     because RE-077 (DONE: T0-T4 pinned, ``current/pf_login_game_server_v141
@@ -292,8 +304,17 @@ def resolve_columbus_arrival(*, registry=None, emit=print):
     future decreed scene gets the same line for free.
     """
     synthetic_stored = Position(COLUMBUS_DEST_SCENE_ID, 0, 0.0, 0.0, 0.0, 0.0)
+    # via_login=False, added round 0z3kjx (adversary-flagged): this call does
+    # not read a character's persisted position row - synthetic_stored above
+    # is built fresh every call, never loaded from a database - so it is the
+    # one caller in this tree entitled to resolve scene 17 despite the
+    # registry's login_entry_allowed=False for it.  resolve_entry defaults
+    # via_login to True precisely so that runtime.py's OWN call, which never
+    # passes this keyword and never will without a runtime.py edit, keeps
+    # refusing a stored/persisted scene-17 row exactly as it did before this
+    # scene had a spawn at all.
     entry = world_scene_entry.resolve_entry(
-        synthetic_stored, registry=registry, emit=emit,
+        synthetic_stored, registry=registry, emit=emit, via_login=False,
     )
     waiver = entry.destination.spawn_ground_bound_waiver
     if waiver is not None:

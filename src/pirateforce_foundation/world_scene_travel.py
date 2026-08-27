@@ -118,8 +118,11 @@ _DESTINATION_FIELDS = {
 }
 # Optional per-destination blocks.  ``superseded_spawn`` is history kept in
 # place rather than deleted; ``table_row_differences`` is commentary on the
-# pinned columns and carries no value the code reads.
-_DESTINATION_OPTIONAL_FIELDS = {"superseded_spawn", "table_row_differences"}
+# pinned columns and carries no value the code reads.  ``login_entry_allowed``
+# is the odd one out - it IS read - see its own comment below.
+_DESTINATION_OPTIONAL_FIELDS = {
+    "superseded_spawn", "table_row_differences", "login_entry_allowed",
+}
 _SPAWN_FIELDS = {"x", "y", "z", "provenance"}
 # Optional fifth field.  Present ONLY when a spawn is an owner-decreed
 # placeholder rather than a measured point - see ``_spawn``'s docstring for
@@ -150,6 +153,24 @@ _ROOT_FIELDS = {
     "table_columns_pinned", "destinations", "capabilities", "nonclaims",
 }
 
+# ``login_entry_allowed`` distinguishes "usable as a destination a
+# script/dispatch path can resolve on purpose" from "usable as the
+# destination a character's OWN PERSISTED ROW can name at login".  Round
+# 0z3kjx's adversary pass found the gap this closes: scene 17's spawn
+# stopped being null, and world_scene_entry.resolve_entry is the SAME call
+# runtime.py's login path makes with whatever scene_id happens to be sitting
+# in the character's DB row - nothing stops that row from naming 17 (no
+# CHECK constraint, see migrations/001_initial.sql:5), and nothing before
+# this flag existed would have refused it.  Absent, this defaults True and
+# every pre-existing destination (1, 2, 278, 997) is unaffected byte for
+# byte.  False is reserved for a destination whose only sanctioned entry
+# door is a specific, code-reviewed dispatch path that resolves it on
+# purpose (today: columbus_quest_dispatch.resolve_columbus_arrival, via
+# resolve_entry's own via_login=False) - not a door a stored row can open by
+# accident.  This is a login-time policy, not a fact about the scene itself,
+# so it lives beside role/status rather than inside table_row.
+DEFAULT_LOGIN_ENTRY_ALLOWED = True
+
 
 @dataclass(frozen=True)
 class SceneDestination:
@@ -174,6 +195,13 @@ class SceneDestination:
     # scene 17's owner-decreed placeholder).  Non-None names the citation for
     # WHY the ground cross-check was skipped for this spawn - see ``_spawn``.
     spawn_ground_bound_waiver: str | None = None
+    # True for every destination this project pinned before round 0z3kjx, and
+    # for any destination the registry does not mention this field on at all
+    # (see DEFAULT_LOGIN_ENTRY_ALLOWED).  False marks a destination that a
+    # character's own persisted row must never be allowed to open by itself -
+    # see the module-level comment above _ROOT_FIELDS for why this exists and
+    # world_scene_entry.resolve_entry's ``via_login`` for who checks it.
+    login_entry_allowed: bool = DEFAULT_LOGIN_ENTRY_ALLOWED
 
     @property
     def has_authored_entry(self) -> bool:
@@ -238,6 +266,12 @@ def _require_float(value: Any, label: str) -> float:
     if type(value) not in (int, float):
         raise ValueError(f"{label} must be a number")
     return float(value)
+
+
+def _require_bool(value: Any, label: str) -> bool:
+    if type(value) is not bool:
+        raise ValueError(f"{label} must be true or false")
+    return value
 
 
 def _spawn(raw: Any, ground: Any, n_id: int) -> tuple[
@@ -342,6 +376,12 @@ def load_scene_registry(path: str | Path = REGISTRY_PATH) -> SceneRegistry:
             _require_int(value, f"scene {n_id} {column}", 0, 0xFFFFFFFF)
         spawn, spawn_provenance, spawn_ground_bound_waiver = _spawn(
             row["spawn"], ground, n_id)
+        login_entry_allowed = (
+            _require_bool(
+                row["login_entry_allowed"], f"scene {n_id} login_entry_allowed")
+            if "login_entry_allowed" in row
+            else DEFAULT_LOGIN_ENTRY_ALLOWED
+        )
         destinations.append(SceneDestination(
             n_id=n_id,
             model_id=_require_text(row["model_id"], "model id"),
@@ -365,6 +405,7 @@ def load_scene_registry(path: str | Path = REGISTRY_PATH) -> SceneRegistry:
             entry_marker=table_row["n_MARKER"],
             camera_type=table_row["n_CAMERA_TYPE"],
             limit_height=table_row["n_LIMIT_HEIGHT"],
+            login_entry_allowed=login_entry_allowed,
         ))
     return SceneRegistry(tuple(destinations))
 
