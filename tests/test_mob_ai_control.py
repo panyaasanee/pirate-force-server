@@ -43,13 +43,16 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import (  # noqa: E402
     field_mob_ai_tables, field_mob_tables, field_mobs, mob_aggro,
-    mob_ai_control,
+    mob_ai_control, mob_death,
 )
 from pirateforce_foundation.mob_ai_control import (  # noqa: E402
     MobAiControlError, MobAiRegister, MobAiRow, MobAiStep, commit_step,
     damage_step, death_step, open_register, profile_of, tick_step,
 )
-from pirateforce_foundation.mob_combat import HitOutcome  # noqa: E402
+from pirateforce_foundation.mob_combat import (  # noqa: E402
+    Combatant, HitOutcome, open_ledger, strike,
+)
+from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 
 MODULE_SOURCE_PATH = ROOT / "src/pirateforce_foundation/mob_ai_control.py"
 SRC_ROOT = ROOT / "src" / "pirateforce_foundation"
@@ -590,6 +593,92 @@ class ReconcileTests(unittest.TestCase):
         self.assertIn("AND LOOP ON REFUSE_REGISTER_STALE", line)
         self.assertIn("is_tracked", line)
         self.assertIn("epoch", line)
+
+
+class ReconcileAgainstARealDeathRegisterTests(unittest.TestCase):
+    """The same repair, but against ``mob_death.DeathRegister`` itself.
+
+    Every ``ReconcileTests`` case above proves the repair against
+    ``FakeDeaths``, a hand-written stand-in for the death-register handle
+    ``reconcile()`` documents ("is_dead" and "identities", nothing else).
+    That proves this module's OWN logic, but not that the handle it was
+    designed for actually satisfies the contract - ``mob_death.DeathRegister``
+    could drift (a rename, a different truthiness for an untracked identity)
+    and every existing test here would stay green because none of them ever
+    import ``mob_death``.  These tests import it and drive a REAL kill
+    through ``mob_combat.strike`` -> ``mob_death.kill`` ->
+    ``mob_death.commit_death``, exactly the order ``runtime.py`` uses, then
+    hand the resulting real register to ``reconcile()`` with no Fake anywhere
+    in the chain.
+
+    The target has to be ``mob_death.SANCTIONED_FIRST_TARGET_IDENTITY``
+    (placement 30, ``0x201F``, Tornado Eagle) rather than an arbitrary roster
+    row: ``mob_death.kill()`` refuses every OTHER identity by name
+    (``REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE``) until the roster-wide
+    death gate is unlocked, and this test does not ask for that widening -
+    it only needs ONE real corpse to prove the two registers agree.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+        cls.roster = field_mobs.load_roster()
+        cls.mob = [
+            m for m in cls.roster
+            if m.actor_identity == mob_death.SANCTIONED_FIRST_TARGET_IDENTITY
+        ][0]
+
+    def setUp(self):
+        self.ai_register = open_register(self.roster)
+
+    def _real_kill(self):
+        """Drive one real, lethal hit all the way to a committed corpse."""
+        combat_step = strike(
+            self.legacy, None, open_ledger(), None, self.mob, PLAYER,
+            Combatant(level=1000, ability_str=100000, ability_con=0),
+        )
+        self.assertTrue(combat_step.outcome.death_due)
+        death_register = mob_death.DeathRegister()
+        death_step_result = mob_death.kill(
+            self.legacy, self.mob, combat_step.outcome, death_register)
+        return mob_death.commit_death(death_register, death_step_result)
+
+    def test_reconcile_retires_the_row_a_real_death_register_calls_dead(self):
+        death_register = self._real_kill()
+        self.assertTrue(death_register.is_dead(self.mob.actor_identity))
+        # The AI side never ran its own death_step -- the exact wedge
+        # reconcile() exists to repair (module header, section "THE ORDER").
+        self.assertEqual(
+            self.ai_register.state_of(self.mob.actor_identity).phase,
+            mob_aggro.PHASE_IDLE)
+        step = mob_ai_control.reconcile(self.ai_register, death_register)
+        repaired = commit_step(self.ai_register, step)
+        state = repaired.state_of(self.mob.actor_identity)
+        self.assertEqual(state.phase, mob_aggro.PHASE_DEAD)
+        self.assertEqual(state.threat, ())
+        self.assertIsNone(state.target_identity)
+
+    def test_reconcile_against_a_real_register_leaves_every_other_row_alone(self):
+        death_register = self._real_kill()
+        step = mob_ai_control.reconcile(self.ai_register, death_register)
+        repaired = commit_step(self.ai_register, step)
+        untouched = [
+            mob.actor_identity for mob in self.roster
+            if mob.actor_identity != self.mob.actor_identity
+        ]
+        self.assertEqual(len(untouched), len(self.roster) - 1)
+        for identity in untouched:
+            self.assertEqual(
+                repaired.state_of(identity).phase, mob_aggro.PHASE_IDLE)
+
+    def test_reconciling_twice_against_the_same_real_register_is_idempotent(self):
+        death_register = self._real_kill()
+        once = commit_step(
+            self.ai_register,
+            mob_ai_control.reconcile(self.ai_register, death_register))
+        step = mob_ai_control.reconcile(once, death_register)
+        self.assertFalse(step.moved)
+        self.assertIs(commit_step(once, step), once)
 
 
 class TickTests(unittest.TestCase):
