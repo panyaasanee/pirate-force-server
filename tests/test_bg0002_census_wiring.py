@@ -55,6 +55,13 @@ PIN_ANCHOR = (10.0, 20.0, 30.0)
 INITIAL_PREFIX = "WORLD_CENSUS_BG0002_INITIAL_"
 REAPPLY_PREFIX = "WORLD_CENSUS_BG0002_REAPPLY_"
 
+# Same bytes proven elsewhere (tests/test_second_password_bypass.py) to
+# parse as an outer RuntimeProtocolReq frame with vital_count == 0 -- an
+# ordinary empty runtime poll, carrying no TargetPosVital at all.
+EMPTY_RUNTIME_PC = bytes.fromhex(
+    "12 6F 6E 14 00 00 00 00 08 00 0B 00"
+)
+
 
 def _legacy():
     if not hasattr(_legacy, "cached"):
@@ -337,6 +344,115 @@ class Bg0002CensusWiringTests(unittest.TestCase):
             state.world_census_actor_count, independent.actor_count,
         )
         self.assertIsNotNone(state.population_indices)
+
+    # ----- CORE-REQUEST-026: arrival trigger, bg0002 only ----------------
+
+    def test_the_scene2_census_arrives_with_no_target_pos_vital_ever_sent(self):
+        """The gap CORE-REQUEST-026 closes: M1-P found the scene empty until
+        the player pressed a movement key, because the frozen guard this
+        branch inherited waits for ``last_target_pos``, which only a
+        TargetPosVital sets.  This drives an EMPTY runtime poll -- the same
+        constant proven elsewhere in this suite to carry
+        ``vital_count == 0`` -- straight after login/start_game, with no
+        TargetPosVital dispatched at any point, and expects the census
+        anyway, anchored on the scene's own pinned spawn.
+        """
+        state, _login_actions, _out = self._state_at_scene2(
+            "bg0002_arrival_no_wasd"
+        )
+        actions = state.dispatch(self.legacy.parse_outer(EMPTY_RUNTIME_PC))
+        census = self._census(actions)
+        self.assertEqual(
+            [action[0] for action in census],
+            [f"{INITIAL_PREFIX}97", f"{REAPPLY_PREFIX}97"],
+        )
+        self.assertIs(state.world_census_sent, True)
+        self.assertIsNone(state.last_target_pos)
+        spawn = world_scene_travel.spawn_position(
+            world_scene_travel.destination(SCENE2_N_ID)
+        )
+        independent = world_population_bg0002.build_bg0002_population(
+            self.legacy, spawn, scene_id=SCENE2_N_ID,
+            count_source=world_population_bg0002.COUNT_SOURCE_FULL_ROSTER,
+        )
+        for action in census:
+            self.assertEqual(action[1], independent.pc)
+            self.assertEqual(action[2], independent.frame)
+
+    def test_a_late_target_pos_vital_still_wins_as_the_anchor(self):
+        """If the player DOES move before the next poll, the real position
+        is used -- the arrival fallback only fires when nothing better has
+        arrived yet, it does not override a real TargetPosVital.
+        """
+        state, _login_actions, _out = self._state_at_scene2(
+            "bg0002_real_target_pos_wins"
+        )
+        census = self._census(self._step(state))
+        independent = world_population_bg0002.build_bg0002_population(
+            self.legacy, PIN_ANCHOR, scene_id=SCENE2_N_ID,
+            count_source=world_population_bg0002.COUNT_SOURCE_FULL_ROSTER,
+        )
+        for action in census:
+            self.assertEqual(action[1], independent.pc)
+            self.assertEqual(action[2], independent.frame)
+
+    def test_an_unpinned_arrival_anchor_latches_a_refusal_not_a_retry_loop(
+        self,
+    ):
+        """pf-adversary, round confident-ride-sf9kel: the registry lookup
+        used for the fallback anchor raises (a corrupted/unpinned bg0002
+        spawn row, same failure mode the existing registry-reuse test
+        drills for the WORLD_SCENE line).  Unlike a genuinely transient
+        read, ``scene_entry_registry`` is loaded once at boot and never
+        reloaded, so this failure is deterministic for the rest of the
+        process's life -- it must latch (one event, no frame, no retry)
+        exactly like the sibling population-build refusal a few lines
+        below it, not silently re-raise and re-log on every later poll.
+        """
+        state, _login_actions, _out = self._state_at_scene2(
+            "bg0002_arrival_anchor_failure"
+        )
+        original = world_scene_travel.spawn_position
+
+        def explode(*args, **kwargs):
+            raise ValueError("synthetic: spawn position unreadable")
+
+        world_scene_travel.spawn_position = explode
+        try:
+            actions = state.dispatch(self.legacy.parse_outer(EMPTY_RUNTIME_PC))
+        finally:
+            world_scene_travel.spawn_position = original
+        self.assertEqual(self._census(actions), [])
+        self.assertIs(state.world_census_sent, False)
+        self.assertIs(state.world_census_refused, True)
+        self.assertIn(
+            "world_census_bg0002_arrival_anchor_refused_ValueError",
+            state.events,
+        )
+        # A later poll, even with the real function restored, must NOT
+        # retry -- the refusal latched, same as the compose-refusal test
+        # above.
+        actions = state.dispatch(self.legacy.parse_outer(EMPTY_RUNTIME_PC))
+        self.assertEqual(self._census(actions), [])
+        self.assertIs(state.world_census_sent, False)
+        self.assertEqual(
+            state.events.count(
+                "world_census_bg0002_arrival_anchor_refused_ValueError"
+            ),
+            1,
+        )
+
+    def test_scene1_still_waits_for_a_target_pos_vital_unlike_scene2(self):
+        """Control for the disjunct itself: an ordinary scene-1 boot must
+        NOT gain the arrival trigger -- an empty poll with no TargetPosVital
+        must send nothing, exactly as before this CORE-REQUEST.
+        """
+        state, character = self._login_and_create("bg0001_arrival_control")
+        self._start_game(state, character)
+        self.assertEqual(state.foundation.selected.position.scene_id, 1)
+        actions = state.dispatch(self.legacy.parse_outer(EMPTY_RUNTIME_PC))
+        self.assertEqual(self._census(actions), [])
+        self.assertIs(state.world_census_sent, False)
 
 
 if __name__ == "__main__":
