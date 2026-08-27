@@ -500,13 +500,20 @@ scene_travel.py`/`field_mob_tables.py`.
   frame, `gm/say_wire.py` (this round) bridges `say` into a ready
   `Channel_GMGlobalMessageVital` frame, and `gm/dispatch.py` gives 0x51E9 an
   inbound authorization gate and a real capture sink. `CORE-REQUEST-010`
-  (that last piece) **is wired** as of chief round R190
-  (`pirate-force-server@dfa61ac`, `runtime.py`'s `GM_RUN_GM_COMMAND_VITAL_ID`
-  branch, always on, no scenario flag) -- it counts and authorizes/refuses
-  every inbound 0x51E9 frame and writes a capture file for authorized ones,
-  but still does not decode the two wide strings into a `GmCommand` and
-  sends no reply, so no command source exists yet that could drive
-  `warp_executor.py`/`say_wire.py` from a real client. Sending anything
+  (that last piece) **is wired and merged to `main`** as of chief round R190
+  (`pirate-force-server@dfa61ac`, confirmed an ancestor of `main` this round
+  via `git merge-base --is-ancestor`; `runtime.py`'s
+  `GM_RUN_GM_COMMAND_VITAL_ID` branch, always on, no scenario flag) -- it
+  counts and authorizes/refuses every inbound 0x51E9 frame and writes a
+  capture file (`capture/gm_command_capture/`, see `gm/command_capture.py`)
+  for authorized ones, but still does not decode the two wide strings into a
+  `GmCommand` and sends no reply, so no command source exists yet that could
+  drive `warp_executor.py`/`say_wire.py` from a real client. Because this
+  path is now live on `main`, GM-002's attended capture matrix (real GM
+  account, real client, real 0x51E9 frames landing in that capture
+  directory) is runnable for the first time this round -- see
+  `GAME_TEST_QUEUE.md` GT-103's GM-002 entry (filed this round). Sending
+  anything
   *to* a socket still needs a runtime send path outside this lane's write
   zone, so execution stays not-built until `CORE-REQUEST-011` (same-scene
   warp) and `CORE-REQUEST-012` (say broadcast) -- both proposed, neither
