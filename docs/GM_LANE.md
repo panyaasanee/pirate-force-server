@@ -489,6 +489,44 @@ and `CORE-REQUEST-011`'s same-scene-only wiring).
   plus lane B's hostile roster where one exists for that scene (`bg0015`
   has one per the order). See `CORE-REQUEST-GM-015`.
 
+## Modules delivered (RE-105 vital-version-pin round)
+
+`RE-105` closed the `[ASSUMED - awaiting RE]` gap `CORE-REQUEST-016` opened:
+`gm/state_wire.py`'s `GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED` moves from
+`None` to `0`, the exact value RE-105 traced through the client's generic
+VitalData collection reader end to end. `runtime.py`'s call site (chief's
+write zone, gated on this constant since `CORE-REQUEST-016`) needed no edit
+-- the guard CORE-REQUEST-016 asked for exists precisely so this lane can
+close the value inside its own write zone once RE pins it.
+
+- `tests/test_gm_login_state_guard.py`: rewritten from "guard stays closed"
+  to "guard is now open, at the exact byte RE-105 traced" -- a GM account's
+  `GM_UPDATE_STATE_AFTER_LOGIN` action, driven through the real dispatcher,
+  now asserts its `pc` bytes contain `12 19 5A 0B 00` (nested vital id
+  `0x5A19` little-endian, tag `0x0B`, version `0`) and not `12 19 5A 0B 01`
+  (the value GT-101 proved fatal), plus the outer envelope's separate
+  protocol-version byte `08 04` is unchanged. A non-GM account stays
+  unaffected. A third test patches the module constant back to `None` and
+  proves the frame is withheld again -- the guard is a real conditional, not
+  a permanent hardcode either direction.
+- `tests/test_gm_dispatch.py`: its `CORE-REQUEST-006` dispatch test
+  (`test_a_gm_account_gets_no_state_frame_while_the_version_guard_is_closed`)
+  asserted the now-stale "no frame" behavior; renamed to
+  `test_a_gm_account_gets_the_re105_pinned_state_frame` and updated to
+  assert the frame IS present and the withheld-event is absent, matching the
+  guard's new open state.
+- Full `tests/test_gm_*.py` suite (206 tests) and the repo's broader
+  `unittest discover` (3565 tests; the only failures are 18 pre-existing
+  `ModuleNotFoundError: capstone` import errors in unrelated static-RE
+  probes, not touched this round) both pass after this change.
+
+nonclaim: this closes the wire-version byte only. `GM_UpdateGMStateVital`'s
+three payload fields (`+0x14`/`+0x15`/`+0x18`) stay opaque integers, RE-089's
+own open next step -- setting the version correctly does not mean the field
+values this lane sends (`0, 0, 0`) mean anything, and does not by itself
+prove any client-observable GM UI change. That still needs an attended
+capture/observation session (`GT-101` rerun) this lane cannot run headless.
+
 ## Attempted and retracted (broadcast-wire round)
 
 This round tried to give `say` a wire codec for `Channel_GMGlobalMessageVital`
@@ -531,18 +569,28 @@ scene_travel.py`/`field_mob_tables.py`.
 
 - `state_wire` IS wired into the login path as of `CORE-REQUEST-006`
   (round R180, `runtime.py` ~line 4353): after a successful login, if
-  `is_gm_account()` is true, `make_gm_update_state_frame(legacy, 1, 0, 0, 0)`
-  is called and the resulting frame is queued to that connection, no
-  scenario flag. `is_gm_account()` failures are refused-by-name (login
-  proceeds with no GM frame) so a config typo cannot take down the
-  listener thread for every player -- see the comment at the call site.
-  The four payload values (`1, 0, 0, 0`) remain an unproven placeholder
-  tagged `[ASSUMED - awaiting RE]` -- `RE-089 GM-STATE-VISUAL-001` came back
-  **DONE/BOUNDED-NEGATIVE** (see wire-facts table): it pins the propagation
-  path but finds no render/UI consumer, so it answers CORE-REQUEST-GM-001
-  without unblocking a semantic rename. What still needs to resolve real
-  semantics is a capture/attended matrix (RE-089's own stated next step),
-  not yet opened; wiring itself is done and unaffected.
+  `is_gm_account()` is true and `state_wire.
+  GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED` is not `None` (`CORE-REQUEST-016`'s
+  guard), `make_gm_update_state_frame` is called with that constant as the
+  version and the resulting frame is queued to that connection, no scenario
+  flag. `is_gm_account()` failures are refused-by-name (login proceeds with
+  no GM frame) so a config typo cannot take down the listener thread for
+  every player -- see the comment at the call site.
+  **UPDATED (round `kcm8ir`): the version is no longer an unproven
+  placeholder.** This section used to say the call passed a hardcoded `1`
+  tagged `[ASSUMED - awaiting RE]` -- `GT-101` (attended) proved that exact
+  byte kills the session on a real client (modal `ErrorData=23065`), and
+  `RE-105` (STATIC-ON-BRIDGE, DONE/PASS) then pinned the correct value as
+  `0`. `GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED` is `0` now, not `None` and
+  not `1` -- see "RE requests closed" item 5 and "Modules delivered (RE-105
+  vital-version-pin round)" below for the full trail. Do not re-hardcode `1`
+  here or at the call site; that is the byte GT-101 measured as fatal.
+  The three payload fields (`0, 0, 0`) are a separate, still-open question:
+  `RE-089 GM-STATE-VISUAL-001` came back **DONE/BOUNDED-NEGATIVE** (see
+  wire-facts table): it pins the propagation path but finds no render/UI
+  consumer, so it answers CORE-REQUEST-GM-001 without unblocking a semantic
+  rename. What still needs to resolve real semantics is a capture/attended
+  matrix (RE-089's own stated next step), not yet opened.
 - No command *execution* path wired to a live connection (see
   `gm/commands.py` scope note above). `gm/teleport_wire.py` gives `warp` a
   real, tested byte builder for `ForcePos`/`CWarpResult`/`TeleportVital`,
@@ -621,31 +669,35 @@ one line, which step the shortcut skipped, e.g.:
    GM-command design (`gm/commands.py`) is a policy choice this result does
    not validate or invalidate -- see "Modules delivered (RE-089/090/091
    follow-up round)" above.
+5. `GM_UpdateGMStateVital` (`0x5A19`) wire version: **CLOSED DONE/PASS by
+   RE-105**
+   (`notes_to_chief/20260827_1613_RE-105-RESULT-VITAL-VERSION-ZERO-GENERIC-MISMATCH-PATH.md`).
+   The generic VitalData collection reader (`[0x005F3E20,0x005F406D)`) does
+   an exact-equality compare against `message+0x10`, and the `0x5A19`
+   prototype's own bootstrap constructor stores that byte as `0` directly --
+   not inferred from any other vital. `gm/state_wire.py`'s
+   `GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED` is now pinned to `0` (was `None`
+   since `CORE-REQUEST-016`); `runtime.py`'s call site is unchanged code
+   (still gated on that constant), so this closes purely inside this lane's
+   write zone -- no new `CORE-REQUEST` needed. See "Modules delivered
+   (RE-105 vital-version-pin round)" below for the byte-level proof.
+6. GM editor widget open/toggle trigger: **CLOSED PASS/DONE by RE-104**
+   (`notes_to_chief/20260827_1518_RE-104-RESULT-BT-GM-MODULE-PLUS19-GATE.md`).
+   The trigger is UI resource `BT_GM`, shown/enabled from connection query
+   type `0x25` returning `GMModule_Client+0x19`; click re-checks the same
+   gate, then opens dedicated panel `GMUI_BASIC` (`Radiobutton_Message` +
+   `TextBox_Message`, Enter to send -- the producer RE-091 already proved).
+   No screen coordinate or icon texture is claimed; this closes the *trigger
+   mechanism* only. Static corpus gives no evidence either way on whether a
+   non-GM account can see the `BT_GM` control -- that stays an open question
+   for a real capture/attended matrix, same as `GM_UpdateGMStateVital`'s
+   three field meanings below.
 
 ## RE requests open (owned by static RE lane, filed via chief)
 
-Two filed by this lane, both still open as of this round (this list had
-drifted stale -- corrected here rather than silently, per this lane's own
-rule against letting an inaccurate claim stand):
-
-5. **`RE-104`** GM-EDITOR-WIDGET-OPEN-TRIGGER-001 -- what toggles the
-   dedicated GM editor widget active/visible (filed 2026-08-27, follow-up to
-   `RE-091` nonclaim (2)). Blocks a scripted procedure for `GT-103`'s
-   attended capture matrix; does not block this round's login-scene-override
-   work.
-6. **`RE-105`** GM-UPDATE-STATE-VITAL-VERSION-001 -- **urgent, filed this
-   round**. `GT-101` (attended, owner-observed) proved the `vital_version=1`
-   this lane had shipped as `[ASSUMED - awaiting RE]` for
-   `GM_UpdateGMStateVital` (`0x5A19`) is wrong: the client rejects it with a
-   modal `網路 VitalData 版本不對 --- ErrorData=23065` (`23065` decimal =
-   `0x5A19`), stops processing the connection, and closes the socket --
-   killing the owner's session on the very account she booted with. `RE-105`
-   asks the static RE lane to pin the version the client's `0x00729F00`
-   handler actually accepts. **Until `RE-105` closes, no account this
-   project's owner boots with may appear in `gm_accounts` while
-   `runtime.py`'s `GM_UPDATE_STATE_AFTER_LOGIN` call site
-   (`make_gm_update_state_frame(legacy, 1, 0, 0, 0)`, chief's write zone)
-   still hardcodes `vital_version=1` -- see `CORE-REQUEST-GM-016`.**
+None filed by this lane are open as of this round -- RE-088, RE-089, RE-090,
+RE-091, RE-104, and RE-105 are all closed (see above). This section is kept
+so the next round does not have to re-derive that from the closed list.
 
 Remaining semantic gaps (what the
 `GM_RunGMCommandVital` two wide strings and three scalars mean; what the

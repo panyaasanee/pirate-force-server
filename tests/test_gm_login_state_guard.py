@@ -5,14 +5,16 @@ GT-101 (attended, OBSERVER_CONFIRMED 2026-08-27T14:39+07:00) measured that
 sending ``GM_UpdateGMStateVital`` (0x5A19) with ``vital_version=1`` makes the
 client reject the frame by this vital's own id, halt, and close the socket --
 against the owner's own real GM account.  ``gm.state_wire.
-GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED`` stays ``None`` until RE-105 pins the
-real version; ``runtime.py``'s call site is gated on it.
+GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED`` stayed ``None`` -- and runtime.py's
+call site stayed gated on it being not-None -- until RE-105 (STATIC-ON-BRIDGE,
+notes_to_chief/20260827_1613_RE-105-RESULT-VITAL-VERSION-ZERO-GENERIC-MISMATCH-PATH.md)
+pinned the real value as ``0``.
 
-This is the test the CORE-REQUEST letter itself asked for: boot headless with
-a real GM account and prove no ``GM_UPDATE_STATE_AFTER_LOGIN`` action/frame is
-ever composed while the guard is closed -- plus the mirror case, so the guard
-is proven to open (not just proven to always refuse), if a future round ever
-sets the confirmed version.
+This drives the real dispatcher end to end and proves three things: a GM
+account now gets the frame, at the exact byte-level header RE-105 traced
+(``12 19 5A 0B 00``); a non-GM account is unaffected; and the guard is a real
+conditional, not a hardcoded always-send -- closing it again (module constant
+back to ``None``) withholds the frame exactly as it did before this round.
 """
 from __future__ import annotations
 
@@ -88,20 +90,34 @@ class GmLoginStateGuardTests(unittest.TestCase):
         ))
         return state, actions
 
-    def test_a_gm_account_gets_no_state_frame_while_the_guard_is_closed(self):
-        self.assertIsNone(state_wire.GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED)
+    def test_a_gm_account_gets_the_re105_pinned_state_frame(self):
+        self.assertEqual(state_wire.GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED, 0)
         path = self._config(["gm_runner"])
         with mock.patch.dict(
             gm_accounts.os.environ, {gm_accounts.ENV_OVERRIDE: str(path)},
         ):
             state, actions = self._login_and_start("gm_runner")
-        labels = [action[0] for action in actions]
-        self.assertNotIn("GM_UPDATE_STATE_AFTER_LOGIN", labels)
-        self.assertIn(
+        by_label = {action[0]: action for action in actions}
+        self.assertIn("GM_UPDATE_STATE_AFTER_LOGIN", by_label)
+        self.assertNotIn(
             "gm_update_state_frame_withheld_no_confirmed_vital_version_"
             "re105_open",
             state.events,
         )
+        _, pc, frame, delay = by_label["GM_UPDATE_STATE_AFTER_LOGIN"]
+        self.assertEqual(delay, 0.0)
+        expected_pc, expected_frame = state_wire.make_gm_update_state_frame(
+            self.legacy, 0, 0, 0, 0,
+        )
+        self.assertEqual(pc, expected_pc)
+        self.assertEqual(frame, expected_frame)
+        # RE-105 T1/T3: nested vital id 0x5A19 (tag 0x12, u16 LE) followed
+        # directly by version tag 0x0B with value 0 -- the one byte GT-101
+        # proved fatal as 1. The outer envelope's own protocol version
+        # (0x08, 4) is a separate field and is untouched by this change.
+        self.assertIn(b"\x08\x04", pc)
+        self.assertIn(b"\x12\x19\x5a\x0b\x00", pc)
+        self.assertNotIn(b"\x12\x19\x5a\x0b\x01", pc)
 
     def test_a_non_gm_account_is_unaffected(self):
         path = self._config(["gm_runner"])
@@ -117,20 +133,21 @@ class GmLoginStateGuardTests(unittest.TestCase):
             state.events,
         )
 
-    def test_the_guard_opens_once_a_version_is_confirmed(self):
-        # Proves this is a real gate, not a permanent no-op: patch the
-        # module's own constant (not a local copy runtime.py could have
-        # captured at import time) and the frame must now be sent.
+    def test_the_guard_still_closes_if_the_constant_is_unset(self):
+        # Proves this is a real gate, not a hardcoded always-send: patch the
+        # module's own constant back to None (not a local copy runtime.py
+        # could have captured at import time) and the frame must be
+        # withheld again, exactly as it was before RE-105 closed.
         path = self._config(["gm_runner"])
         with mock.patch.object(
-            state_wire, "GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED", 7,
+            state_wire, "GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED", None,
         ), mock.patch.dict(
             gm_accounts.os.environ, {gm_accounts.ENV_OVERRIDE: str(path)},
         ):
             state, actions = self._login_and_start("gm_runner")
         labels = [action[0] for action in actions]
-        self.assertIn("GM_UPDATE_STATE_AFTER_LOGIN", labels)
-        self.assertNotIn(
+        self.assertNotIn("GM_UPDATE_STATE_AFTER_LOGIN", labels)
+        self.assertIn(
             "gm_update_state_frame_withheld_no_confirmed_vital_version_"
             "re105_open",
             state.events,

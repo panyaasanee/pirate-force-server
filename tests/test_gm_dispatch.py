@@ -31,6 +31,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation.gm import accounts as gm_accounts  # noqa: E402
+from pirateforce_foundation.gm import state_wire  # noqa: E402
 from pirateforce_foundation.legacy_bridge import (  # noqa: E402
     LegacyProjector, load_legacy,
 )
@@ -121,23 +122,26 @@ class GmDispatchTests(unittest.TestCase):
 
     # ----- an account ON the allowlist gets the frame, riding alongside ----
 
-    def test_a_gm_account_gets_no_state_frame_while_the_version_guard_is_closed(self):
-        # UPDATED CORE-REQUEST-016 (LANE-GM, 2026-08-27T15:24+07:00): GT-101
-        # (attended, OBSERVER_CONFIRMED) measured that sending this frame
-        # with vital_version=1 kills the client's session -- the exact
-        # placeholder this test used to pin as correct wiring. runtime.py's
-        # call site is now gated on gm.state_wire.
-        # GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED (None until RE-105 pins
-        # the real version), so a GM account gets NO frame today. See
-        # tests/test_gm_login_state_guard.py for the real-dispatcher proof
-        # that the guard actually opens once that constant is set.
+    def test_a_gm_account_gets_the_re105_pinned_state_frame(self):
+        # UPDATED CORE-REQUEST-016 (LANE-GM, 2026-08-27T15:24+07:00) / RE-105
+        # (STATIC-ON-BRIDGE, DONE/PASS,
+        # notes_to_chief/20260827_1613_RE-105-RESULT-VITAL-VERSION-ZERO-GENERIC-MISMATCH-PATH.md):
+        # GT-101 (attended, OBSERVER_CONFIRMED) measured that sending this
+        # frame with vital_version=1 -- the placeholder this test used to
+        # pin as correct wiring -- kills the client's session. RE-105 then
+        # pinned the real value as 0. runtime.py's call site is gated on
+        # gm.state_wire.GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED, which is
+        # now that pinned 0, so a GM account gets the frame again. See
+        # tests/test_gm_login_state_guard.py for the byte-level assertion
+        # and for the proof the guard still closes if the constant is unset.
+        self.assertEqual(state_wire.GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED, 0)
         path = self._config(["gm_listed"])
         with mock.patch.dict(
             gm_accounts.os.environ, {gm_accounts.ENV_OVERRIDE: str(path)},
         ):
             state, actions = self._login_and_start("gm_listed")
-        self.assertIsNone(self._gm_action(actions))
-        self.assertIn(
+        self.assertIsNotNone(self._gm_action(actions))
+        self.assertNotIn(
             "gm_update_state_frame_withheld_no_confirmed_vital_version_"
             "re105_open",
             state.events,
