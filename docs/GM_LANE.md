@@ -336,6 +336,42 @@ Like `warp_executor.py`, this module does not send anything -- it returns
 frame bytes for a caller to send. `say` still does not execute after this
 round: no account gets anything it could not already get before.
 
+## Modules delivered (warp-executor args-shape follow-up round)
+
+- **fixed** `gm/warp_executor.py`'s args-shape gap named as a known
+  follow-up in the say-wire round above: `make_warp_force_pos_frame` now
+  wraps `len(command.args)` and its three positional reads the same way
+  `say_wire.py` already does, converting a shape-mismatched `args` (`None`,
+  a `set`, a `dict`) into `WarpExecutorError` instead of a bare
+  `TypeError`/`KeyError`.
+- `pf-adversary` (this round) then found the `say_wire.py`-style three-type
+  catch (`TypeError`/`KeyError`/`IndexError`) itself still leaves two gaps
+  open, reproduced live: (a) a custom `__len__`/`__getitem__` raising
+  anything outside those three types (e.g. `AttributeError`, `ValueError`)
+  still leaked past `WarpExecutorError`, contradicting the module's own
+  "every failure surfaces as `WarpExecutorError`" promise -- both guards now
+  catch `Exception` broadly instead; (b) a `str`/`bytes` scalar of length 3
+  (e.g. `"123"`) is not a crash at all -- it passes `len(args) == 3` and is
+  positionally indexable, so it was silently read as a real
+  `(scene_id, x, y)` tuple instead of being refused as the wrong container
+  shape -- `args` is now rejected by `isinstance` before either guard runs.
+  Both gaps also apply to `gm/say_wire.py`'s identical three-type catch;
+  this round's write-zone fix only covers `warp_executor.py`, so
+  `say_wire.py` carries the same two gaps as a known follow-up (see below).
+- `tests/test_gm_warp_executor.py` -- 4 new tests: a `str` args scalar, a
+  `bytes` args scalar, an `args` object whose `__len__` raises `ValueError`,
+  and one whose `__getitem__` raises `AttributeError`. All four must raise
+  `WarpExecutorError`, not the underlying bare exception.
+- **known, deliberately not fixed this round**: `gm/say_wire.py` has the
+  same two gaps this round found and fixed in `warp_executor.py` (narrow
+  three-type catch instead of broad `Exception`; no `str`/`bytes` scalar
+  guard on `args`, though `say_wire.py`'s own `arg_count != 1` check plus
+  its `isinstance(body, str)` check on the extracted element happens to
+  make the scalar case less exploitable there than in `warp_executor.py` --
+  not independently re-verified this round). Out of this round's scope
+  (`say_wire.py` was not touched); a follow-up round should apply the same
+  broadened catch and scalar guard there.
+
 ## Attempted and retracted (broadcast-wire round)
 
 This round tried to give `say` a wire codec for `Channel_GMGlobalMessageVital`
