@@ -1389,6 +1389,16 @@ class MobDeathTests(unittest.TestCase):
         self.assertIn("runtime.py", joined)
         self.assertIn("hold", joined)
         self.assertNotIn("corpse is", joined)
+        # [NOTE, round B_20260827_1637, 2026-08-27, comment only - no new
+        # assertion, per this round's charter] MOB_DEATH_NONCLAIMS gained an
+        # appended [STALE]/[MEASURED] update on the "named and hostile"
+        # entries this round: GT-084-R2 (attended, OBSERVER_CONFIRMED
+        # 2026-08-27T15:52-15:55+07:00) observed that body for the first
+        # time at zero HP and it froze instead of falling like GT-022/GT-025.
+        # Not asserted here on purpose - the update is prose, not a new
+        # invariant, and this test already covers that the tuple keeps
+        # growing (assertGreaterEqual above) without shrinking below what it
+        # already promised.
         # the two nonclaims the first half retired are recorded, not deleted
         retired = dict(mob_combat.MOB_COMBAT_RETIRED_NONCLAIMS)
         self.assertEqual(len(retired), 2)
