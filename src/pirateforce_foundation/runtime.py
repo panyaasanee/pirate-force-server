@@ -4222,6 +4222,24 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             """CORE-REQUEST-014: Columbus (MOBS n_ID 156, bg0001 placement
             index 1) NPCConversation -> QuestOperateVital op1/quest 3021.
 
+            CORE-REQUEST-019 (Lane A, 2026-08-27T18:48+07:00) added a second
+            quest to this same method despite the name: the ``ChooseNPC``
+            branch below now composes a two-option conversation (3021 AND
+            quest 3205 / Q_BORNAGAIN), and the ``QuestOperateVital`` branch
+            gained its own parallel ``elif`` for op1/3205, with its own
+            independent per-session latch
+            (``columbus_quest3205_dispatch_attempted``) -- see
+            ``columbus_quest_dispatch.dispatch_columbus_quest3205`` for why
+            that half always refuses today. pf-adversary-flagged
+            (round n2ws3l): widening the outer gate to
+            ``not attempted3021 or not attempted3205`` means a session that
+            completes 3021 but never deliberately triggers 3205 keeps
+            parsing and checking every later ``QuestOperateVital`` frame
+            (any quest) for the rest of that session, instead of the single
+            early exit the pre-widening gate gave 3021 alone -- accepted
+            for now (no wrong output, not client-visible, cost is one parse
+            plus two dict-key checks per frame), not decoupled this round.
+
             UNCONDITIONAL and ADDITIVE, the same convention as
             ``_dispatch_mob_combat`` above: no scenario flag gates this, and
             it is called on every frame whose ``nested_id`` it cares about,
