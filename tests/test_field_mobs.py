@@ -501,9 +501,22 @@ class FieldMobTests(unittest.TestCase):
         # of field_mobs/mob_combat/mob_death is the wiring pinned above, not
         # anything this module added; wiring the diagnostic in is a separate
         # CORE-REQUEST, not this round.
+        # WIDENED AGAIN by the GT-DIAG-MULTI-OBJECT-001 WIRING round (lane B,
+        # 2026-08-27): diag_multi_object_wiring.py is the runtime-facing half
+        # of that diagnostic and it takes this module's FIELD_MOB_FACTION as
+        # the default for the two composers it forwards to (mob_death's own
+        # signature default, mirrored rather than re-guessed) and FieldMob as
+        # the type it widens a roster with.  IT STILL DISPATCHES NOTHING: it
+        # composes and returns bytes, and every one of its functions is a
+        # pass-through when the diagnostic gate is off.  runtime.py's mention
+        # of field_mobs is the MOB-COMBAT/MOB-DEATH wiring already pinned
+        # above, not anything this round added -- wiring THIS module into
+        # runtime.py is a CORE-REQUEST that has not landed at the time this
+        # line is written.
         self.assertEqual(
             importers,
-            ["mob_ai_control.py", "mob_combat.py", "mob_death.py",
+            ["diag_multi_object_wiring.py", "mob_ai_control.py",
+             "mob_combat.py", "mob_death.py",
              "mob_diag_multi_object.py", "mob_loot.py",
              "player_hostile_pairing.py", "runtime.py"],
             "field_mobs importers changed; update the letter")

@@ -8,6 +8,7 @@ import threading
 import time
 
 from . import columbus_quest_dispatch
+from . import diag_multi_object_wiring
 from . import field_mobs
 from . import mob_ai_control
 from . import mob_combat
@@ -1084,6 +1085,12 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.mob_death_register = mob_death.DeathRegister()
                 self.mob_combat_hit_count = 0
                 self.mob_combat_kill_count = 0
+                # CORE-REQUEST (GT-DIAG-MULTI-OBJECT-001).  Empty for every
+                # account that is not in config/diag_multi_object.json, which
+                # this repo does not ship: the default is a zero-length tuple
+                # read per session.  See diag_multi_object_wiring.py's own
+                # RUNTIME_WIRING_PATCH docstring for the full call-site list.
+                self.diag_multi_objects = ()
                 # CORE-REQUEST-014 (Columbus, MOBS n_ID 156, bg0001 placement
                 # index 1).  UNCONDITIONAL, like WORLD-CENSUS-001/MOB-COMBAT-
                 # 001 above -- no scenario flag gates this.  Per-session
@@ -3793,6 +3800,16 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 )
                 return []
             roster = field_mobs.load_roster()
+            # CORE-REQUEST (GT-DIAG-MULTI-OBJECT-001), point (2) of
+            # GT_DIAG_MULTI_OBJECT_WIRING.  Off (self.diag_multi_objects ==
+            # ()) this returns roster/self.mob_combat_ledger untouched.
+            roster, self.mob_combat_ledger, diag_widen_refusal = (
+                diag_multi_object_wiring.widen_for_combat(
+                    roster, self.mob_combat_ledger, self.diag_multi_objects,
+                )
+            )
+            if diag_widen_refusal is not None:
+                self.events.append(diag_widen_refusal)
             for _attempt in range(MOB_COMBAT_STALE_RETRY_LIMIT):
                 try:
                     step = mob_combat.attack_from_observed_action(
@@ -3907,10 +3924,11 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     ):
                         try:
                             bar_pc, bar_frame = (
-                                mob_death.hostile_census_frames(
+                                diag_multi_object_wiring.hostile_census_frames(
                                     legacy, anchor, count, roster,
                                     self.mob_death_register,
                                     ledger=self.mob_combat_ledger,
+                                    objects=self.diag_multi_objects,
                                 )
                             )
                         except Exception as error:
@@ -3966,50 +3984,82 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # against this same roster, so it is here.
                 mob = next(m for m in roster if m.actor_identity == target)
                 death_step = None
-                for _attempt in range(MOB_COMBAT_STALE_RETRY_LIMIT):
-                    try:
-                        candidate = mob_death.kill(
-                            legacy, mob, step.outcome, self.mob_death_register,
-                            widened=(
-                                "COO-RULING-20260827-1350 "
-                                "widen-death-scope-bg0001"
-                            ),
-                        )
-                    except mob_death.MobDeathContractError as error:
-                        # Honest degradation, not a bug.  COO-RULING-
-                        # 20260827-1350 widened this wiring past the
-                        # SANCTIONING_RULING gate to the 10 template ids
-                        # mob_death.WIDENING_RULINGS names for that ruling
-                        # (the bg0001 field roster) -- 0x201F and those ten
-                        # templates get a finished kill on this build.  Any
-                        # OTHER template id (a mob outside that named
-                        # roster) still refuses here: it stays at 0 HP with
-                        # no death frames and answers further hits with
-                        # silence (mob_combat's own no_room path) -- the
-                        # pre-death-half state this project already shipped
-                        # and disclosed, not a new one.
+                # CORE-REQUEST (GT-DIAG-MULTI-OBJECT-001), point (3) of
+                # GT_DIAG_MULTI_OBJECT_WIRING: dispatch by obj.label, not by
+                # the bg0001 COO-RULING widened above.  diag_object_for
+                # returns None for every real census identity, so an
+                # ordinary bg0001 kill falls straight to the unchanged
+                # retry loop in the else branch below.
+                diag_obj = diag_multi_object_wiring.diag_object_for(
+                    self.diag_multi_objects, target,
+                )
+                if diag_obj is not None:
+                    dispatch = diag_multi_object_wiring.death_dispatch(
+                        legacy, diag_obj, step.outcome, self.mob_death_register,
+                    )
+                    self.events.append(dispatch.event)
+                    if dispatch.step is not None:
+                        try:
+                            self.mob_death_register = mob_death.commit_death(
+                                self.mob_death_register, dispatch.step,
+                            )
+                        except mob_death.MobDeathContractError as error:
+                            # Same per-session caveat as the ledger/register
+                            # retries below: not reachable today.  Refuse by
+                            # name rather than send frames for a death this
+                            # session did not record.
+                            self.events.append(
+                                "diag_multi_object_commit_refused_"
+                                f"{error.reason}"
+                            )
+                        else:
+                            death_step = dispatch.step
+                else:
+                    for _attempt in range(MOB_COMBAT_STALE_RETRY_LIMIT):
+                        try:
+                            candidate = mob_death.kill(
+                                legacy, mob, step.outcome,
+                                self.mob_death_register,
+                                widened=(
+                                    "COO-RULING-20260827-1350 "
+                                    "widen-death-scope-bg0001"
+                                ),
+                            )
+                        except mob_death.MobDeathContractError as error:
+                            # Honest degradation, not a bug.  COO-RULING-
+                            # 20260827-1350 widened this wiring past the
+                            # SANCTIONING_RULING gate to the 10 template ids
+                            # mob_death.WIDENING_RULINGS names for that ruling
+                            # (the bg0001 field roster) -- 0x201F and those ten
+                            # templates get a finished kill on this build.  Any
+                            # OTHER template id (a mob outside that named
+                            # roster) still refuses here: it stays at 0 HP with
+                            # no death frames and answers further hits with
+                            # silence (mob_combat's own no_room path) -- the
+                            # pre-death-half state this project already shipped
+                            # and disclosed, not a new one.
+                            self.events.append(
+                                f"mob_death_refused_{error.reason}_"
+                                "no_death_frames"
+                            )
+                            break
+                        try:
+                            self.mob_death_register = mob_death.commit_death(
+                                self.mob_death_register, candidate,
+                            )
+                        except mob_death.MobDeathContractError as error:
+                            if error.reason == mob_death.REFUSE_REGISTER_STALE:
+                                # Same per-session caveat as the ledger retry
+                                # above: unreachable today, kept for the contract.
+                                continue
+                            raise
+                        death_step = candidate
+                        break
+                    else:
                         self.events.append(
-                            f"mob_death_refused_{error.reason}_"
+                            "mob_death_register_stale_retry_limit_exceeded_"
                             "no_death_frames"
                         )
-                        break
-                    try:
-                        self.mob_death_register = mob_death.commit_death(
-                            self.mob_death_register, candidate,
-                        )
-                    except mob_death.MobDeathContractError as error:
-                        if error.reason == mob_death.REFUSE_REGISTER_STALE:
-                            # Same per-session caveat as the ledger retry
-                            # above: unreachable today, kept for the contract.
-                            continue
-                        raise
-                    death_step = candidate
-                    break
-                else:
-                    self.events.append(
-                        "mob_death_register_stale_retry_limit_exceeded_"
-                        "no_death_frames"
-                    )
                 if death_step is not None:
                     self.mob_combat_kill_count += 1
                     # CORE-REQUEST-007, step (2) of MOB_AI_CONTROL_WIRING:
@@ -4077,18 +4127,20 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     ):
                         try:
                             dying_pc, dying_frame = (
-                                mob_death.hostile_census_frames(
+                                diag_multi_object_wiring.hostile_census_frames(
                                     legacy, anchor, count, roster,
                                     self.mob_death_register,
                                     ledger=self.mob_combat_ledger,
                                     dead_timer=mob_death.DYING_TIMER_SECONDS,
+                                    objects=self.diag_multi_objects,
                                 )
                             )
                             dead_pc, dead_frame = (
-                                mob_death.hostile_census_frames(
+                                diag_multi_object_wiring.hostile_census_frames(
                                     legacy, anchor, count, roster,
                                     self.mob_death_register,
                                     ledger=self.mob_combat_ledger,
+                                    objects=self.diag_multi_objects,
                                 )
                             )
                         except Exception as error:
@@ -5752,22 +5804,55 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 "world_density_console_line_failed_"
                                 f"{type(error).__name__}"
                             )
+                        # CORE-REQUEST (GT-DIAG-MULTI-OBJECT-001).  See
+                        # diag_multi_object_wiring.py's own module docstring
+                        # and RUNTIME_WIRING_PATCH for the full reasoning.
+                        # Off (the default -- this repo ships no
+                        # config/diag_multi_object.json) this block reads
+                        # exactly two attributes and leaves census_pc/frame
+                        # byte-identical to generation.pc/frame.
+                        activation = diag_multi_object_wiring.activate(
+                            self.token, scene_id,
+                        )
+                        if activation.event is not None:
+                            self.events.append(activation.event)
+                        self.diag_multi_objects = activation.objects
+                        census_pc, census_frame = generation.pc, generation.frame
+                        if activation.objects:
+                            for line in diag_multi_object_wiring.console_lines(
+                                activation.objects,
+                            ):
+                                print(line)
+                            census_pc, census_frame, refusal = (
+                                diag_multi_object_wiring.census_frames(
+                                    legacy, generation, activation.objects,
+                                )
+                            )
+                            if refusal is not None:
+                                self.events.append(refusal)
+                                self.diag_multi_objects = ()
+                            print(diag_multi_object_wiring.describe_census(
+                                generation, self.diag_multi_objects, census_pc,
+                            ))
                         # The count is in the LABEL too: v141 prints every
                         # queued action as "[G>] <label> (N bytes)" at SEND
                         # time (v141:7762), so the attended tester can tell the
                         # four staircase boots apart from the console alone,
                         # and a boot that composed but never sent is visibly
-                        # different from one that sent.
+                        # different from one that sent.  Labels keep the
+                        # CENSUS count (generation.actor_count) so no existing
+                        # grep moves -- the DIAG_CENSUS line above carries the
+                        # diagnostic +5 separately.
                         census_actions = [
                             (
                                 "WORLD_CENSUS_INITIAL_"
                                 f"{generation.actor_count}",
-                                generation.pc, generation.frame, 0.0,
+                                census_pc, census_frame, 0.0,
                             ),
                             (
                                 "WORLD_CENSUS_REAPPLY_"
                                 f"{generation.actor_count}",
-                                generation.pc, generation.frame,
+                                census_pc, census_frame,
                                 world_population.INITIAL_REAPPLY_MS / 1000.0,
                             ),
                         ]
