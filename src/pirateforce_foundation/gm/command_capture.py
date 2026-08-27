@@ -48,6 +48,23 @@ DEFAULT_CAPTURE_ROOT = "capture/gm_command_capture"
 # capture sink into a crash point for its own caller).
 _MAX_SAFE_ACCOUNT_LEN = 40
 
+# pf-adversary (round 50x5xt, verify-pass addendum, docs/GM_LANE.md): the
+# collision-suffix loop below used to be `while True`, unbounded on both the
+# suffix value and the iteration count. Not an uncaught-exception risk on
+# its own -- gm/dispatch.py already wraps this whole function in
+# `except OSError` -- but under a capture root with many pre-existing or
+# colliding filenames for the same account+second, one authorized call
+# could spin through repeated os.open attempts before finding a free
+# suffix, or never find one at all. Bounded here instead: past this many
+# collisions for the same base_name, give up and raise (dispatch.py's
+# existing OSError guard turns that into REFUSAL_CAPTURE_WRITE_FAILED_PREFIX
+# the same way any other capture write failure already does) rather than
+# spin unboundedly. Far larger than any realistic same-second collision
+# count for one account (this project's own rate limiter, gm/dispatch.py's
+# RATE_LIMIT_MAX_CALLS_PER_WINDOW, now also bounds how often this loop can
+# even be entered).
+_MAX_FILENAME_COLLISION_ATTEMPTS = 1000
+
 
 def _hex_dump(raw: bytes) -> str:
     lines = []
@@ -152,7 +169,7 @@ def capture_raw_gm_command(
     file_body = (header + _hex_dump(bytes(raw)) + "\n").encode("utf-8")
 
     suffix = 0
-    while True:
+    while suffix <= _MAX_FILENAME_COLLISION_ATTEMPTS:
         candidate_name = base_name if suffix == 0 else f"{base_name}_{suffix}"
         out_path = root / f"{candidate_name}.txt"
         try:
@@ -165,3 +182,7 @@ def capture_raw_gm_command(
         finally:
             os.close(fd)
         return out_path
+    raise OSError(
+        f"capture_raw_gm_command: exceeded {_MAX_FILENAME_COLLISION_ATTEMPTS} "
+        f"filename collision retries for base name {base_name!r} under {root}"
+    )

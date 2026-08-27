@@ -38,6 +38,11 @@ class GmCommandDispatchTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.capture_root = Path(self.tmp.name) / "capture"
+        # Rate-limit history is process-global (gm/dispatch.py's own
+        # thread-safety/test-isolation tradeoff, see RATE_LIMIT_* comment) --
+        # start every test from a known-empty state regardless of what ran
+        # before it in this same process.
+        gm_dispatch.reset_rate_limit_state_for_tests()
 
     def _config(self, gm_accounts_value):
         path = Path(self.tmp.name) / "gm_accounts.json"
@@ -235,6 +240,156 @@ class GmCommandDispatchTests(unittest.TestCase):
             outcome.refusal_reason,
             f"{gm_dispatch.REFUSAL_CAPTURE_WRITE_FAILED_PREFIX}OSError",
         )
+
+    # ----- pf-adversary (round 50x5xt, deferred): per-account rate limit --
+
+    def test_calls_up_to_the_window_max_all_succeed(self):
+        config = self._config(["gm_listed"])
+        with mock.patch.object(
+            gm_dispatch, "RATE_LIMIT_MAX_CALLS_PER_WINDOW", 3,
+        ):
+            for i in range(3):
+                outcome = gm_dispatch.handle_gm_run_command_vital(
+                    "gm_listed", _PRESENCE_ZERO_PAYLOAD,
+                    config_path=config, capture_root=self.capture_root,
+                    now_ts=1000.0 + i,
+                )
+                self.assertTrue(outcome.authorized)
+                self.assertIsNotNone(outcome.captured_path)
+                self.assertIsNone(outcome.refusal_reason)
+
+    def test_the_call_past_the_window_max_is_refused_not_captured(self):
+        config = self._config(["gm_listed"])
+        with mock.patch.object(
+            gm_dispatch, "RATE_LIMIT_MAX_CALLS_PER_WINDOW", 2,
+        ):
+            for i in range(2):
+                outcome = gm_dispatch.handle_gm_run_command_vital(
+                    "gm_listed", _PRESENCE_ZERO_PAYLOAD,
+                    config_path=config, capture_root=self.capture_root,
+                    now_ts=1000.0 + i,
+                )
+                self.assertIsNotNone(outcome.captured_path)
+            before = list(self.capture_root.glob("*")) if self.capture_root.exists() else []
+            outcome = gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", _PRESENCE_ZERO_PAYLOAD,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1002.0,
+            )
+            self.assertTrue(outcome.authorized)
+            self.assertIsNone(outcome.captured_path)
+            self.assertEqual(
+                outcome.refusal_reason, gm_dispatch.REFUSAL_RATE_LIMITED,
+            )
+            after = list(self.capture_root.glob("*"))
+            self.assertEqual(before, after)
+
+    def test_the_window_slides_a_call_after_it_elapses_succeeds_again(self):
+        config = self._config(["gm_listed"])
+        with mock.patch.object(
+            gm_dispatch, "RATE_LIMIT_MAX_CALLS_PER_WINDOW", 1,
+        ), mock.patch.object(
+            gm_dispatch, "RATE_LIMIT_WINDOW_SECONDS", 5.0,
+        ):
+            first = gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", _PRESENCE_ZERO_PAYLOAD,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1000.0,
+            )
+            self.assertIsNotNone(first.captured_path)
+
+            still_limited = gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", _PRESENCE_ZERO_PAYLOAD,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1004.9,
+            )
+            self.assertEqual(
+                still_limited.refusal_reason, gm_dispatch.REFUSAL_RATE_LIMITED,
+            )
+
+            after_window = gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", _PRESENCE_ZERO_PAYLOAD,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1005.1,
+            )
+            self.assertIsNotNone(after_window.captured_path)
+            self.assertIsNone(after_window.refusal_reason)
+
+    def test_rate_limit_is_scoped_per_account_not_global(self):
+        config = self._config(["gm_one", "gm_two"])
+        with mock.patch.object(
+            gm_dispatch, "RATE_LIMIT_MAX_CALLS_PER_WINDOW", 1,
+        ):
+            first = gm_dispatch.handle_gm_run_command_vital(
+                "gm_one", _PRESENCE_ZERO_PAYLOAD,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1000.0,
+            )
+            self.assertIsNotNone(first.captured_path)
+            # gm_one is now at its own cap -- gm_two must be unaffected.
+            second = gm_dispatch.handle_gm_run_command_vital(
+                "gm_two", _PRESENCE_ZERO_PAYLOAD,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1000.0,
+            )
+            self.assertIsNotNone(second.captured_path)
+            self.assertIsNone(second.refusal_reason)
+
+    def test_refused_non_gm_calls_do_not_consume_a_gm_accounts_budget(self):
+        config = self._config(["gm_listed"])
+        with mock.patch.object(
+            gm_dispatch, "RATE_LIMIT_MAX_CALLS_PER_WINDOW", 1,
+        ):
+            for _ in range(5):
+                outcome = gm_dispatch.handle_gm_run_command_vital(
+                    "not_listed", _PRESENCE_ZERO_PAYLOAD,
+                    config_path=config, capture_root=self.capture_root,
+                    now_ts=1000.0,
+                )
+                self.assertEqual(
+                    outcome.refusal_reason, gm_dispatch.REFUSAL_NOT_GM,
+                )
+            gm_outcome = gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", _PRESENCE_ZERO_PAYLOAD,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1000.0,
+            )
+            self.assertIsNotNone(gm_outcome.captured_path)
+
+    def test_reset_rate_limit_state_for_tests_clears_history(self):
+        config = self._config(["gm_listed"])
+        with mock.patch.object(
+            gm_dispatch, "RATE_LIMIT_MAX_CALLS_PER_WINDOW", 1,
+        ):
+            capped = gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", _PRESENCE_ZERO_PAYLOAD,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1000.0,
+            )
+            self.assertIsNotNone(capped.captured_path)
+            gm_dispatch.reset_rate_limit_state_for_tests()
+            after_reset = gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", _PRESENCE_ZERO_PAYLOAD,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1000.0,
+            )
+            self.assertIsNotNone(after_reset.captured_path)
+            self.assertIsNone(after_reset.refusal_reason)
+
+    def test_default_window_and_limit_do_not_trip_on_a_handful_of_calls(self):
+        # No mock.patch here -- proves the shipped defaults (not a
+        # test-only override) stay out of the way of ordinary same-second
+        # test/attended-use traffic for one account.
+        config = self._config(["gm_listed"])
+        for i in range(5):
+            outcome = gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", _PRESENCE_ZERO_PAYLOAD,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1000.0,
+            )
+            self.assertIsNotNone(
+                outcome.captured_path, f"call {i} was unexpectedly refused"
+            )
 
 
 if __name__ == "__main__":

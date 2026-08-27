@@ -27,6 +27,7 @@ from pirateforce_foundation.gm import accounts as gm_accounts  # noqa: E402
 from pirateforce_foundation.gm.dispatch import (  # noqa: E402
     GM_RUN_GM_COMMAND_VITAL_ID,
     MAX_RAW_PAYLOAD_LENGTH,
+    reset_rate_limit_state_for_tests,
 )
 from pirateforce_foundation.legacy_bridge import (  # noqa: E402
     LegacyProjector, load_legacy,
@@ -72,6 +73,11 @@ def _synthetic_gm_run_command_pc(legacy, payload: bytes) -> bytes:
 
 class GmRunCommandDispatchWiringTests(unittest.TestCase):
     def setUp(self):
+        # Rate-limit history is process-global (gm/dispatch.py's own
+        # thread-safety/test-isolation tradeoff) -- start every test from a
+        # known-empty state regardless of what ran before it in this
+        # process, same as tests/test_gm_command_dispatch.py's own setUp.
+        reset_rate_limit_state_for_tests()
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.store = SQLiteStore(
