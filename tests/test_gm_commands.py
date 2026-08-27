@@ -172,6 +172,16 @@ class ArgsShapeGuardTests(unittest.TestCase):
         with self.assertRaises(GmCommandArgsError):
             describe_warp_target(cmd)
 
+    def test_describe_warp_target_rejects_non_numeric_scene_id(self):
+        # pf-adversary (round dnh0ai): shape-valid tuple, non-numeric content
+        # -- int(args[0]) used to raise a bare ValueError instead of
+        # GmCommandArgsError. A GmCommand "regardless of source" (this
+        # module's own stated threat model) is not guaranteed to have gone
+        # through parse_gm_command's _require_int first.
+        cmd = GmCommand("warp", ("abc",), "warp abc")
+        with self.assertRaises(GmCommandArgsError):
+            describe_warp_target(cmd)
+
     def test_describe_npc_target_rejects_none_args(self):
         cmd = GmCommand("npc", None, "npc on 1")
         with self.assertRaises(GmCommandArgsError):
@@ -179,6 +189,14 @@ class ArgsShapeGuardTests(unittest.TestCase):
 
     def test_describe_npc_target_rejects_short_args(self):
         cmd = GmCommand("npc", ("on",), "npc on")
+        with self.assertRaises(GmCommandArgsError):
+            describe_npc_target(cmd)
+
+    def test_describe_npc_target_rejects_non_numeric_mob_id(self):
+        # pf-adversary (round dnh0ai): same gap as
+        # test_describe_warp_target_rejects_non_numeric_scene_id, second call
+        # site.
+        cmd = GmCommand("npc", ("on", "not_an_int"), "npc on not_an_int")
         with self.assertRaises(GmCommandArgsError):
             describe_npc_target(cmd)
 

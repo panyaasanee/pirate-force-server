@@ -710,6 +710,55 @@ frame (that needs an attended GT rerun), and it does not touch
 `CORE-REQUEST-020`) or any other field semantics. Wire/DB evidence only,
 no client-observable claim from this lane's own testing this round.
 
+## Modules delivered (round `dnh0ai`, pf-adversary sweep of newer modules)
+
+`CORE-REQUEST-011`/`012` stay blocked (the two-wide-string semantic gap in
+`GM_RunGMCommandVital` still needs a live capture, `GAME_TEST_QUEUE.md`
+GT-103 -- see "RE requests open" below, unchanged this round), so this
+round's own write-zone work is a full `pf-adversary` pass over every `gm/`
+module added since round `50x5xt`'s sweep (`say_wire.py`, `teleport_wire.py`,
+`warp_executor.py`, `npc_switch_catalog.py`, `login_scene_override.py`) plus
+a re-check of the whole package.
+
+- **`gm/commands.py`**: `describe_warp_target`/`describe_npc_target` checked
+  `command.args`'s *shape* via `_require_args_tuple` (the round `50x5xt` fix)
+  but then called bare `int(args[0])`/`int(args[1])` with no
+  `try`/`except` -- a shape-valid tuple with non-numeric content
+  (`GmCommand("warp", ("abc",), "warp abc")`) crashed with an uncaught
+  `ValueError` instead of this module's own `GmCommandArgsError`, directly
+  contradicting the "regardless of source" contract `GmCommandArgsError`'s
+  own docstring states. Not reachable from any live path today (`grep -rn
+  "describe_warp_target|describe_npc_target" src/` -- called only from this
+  module's own tests, not yet wired into `runtime.py`/`lane_hooks/`), but
+  latent: the moment a future round bridges the still-unmapped `0x51E9` wide
+  strings (RE-091) into a `GmCommand` that skips `parse_gm_command`, this
+  was going to be exactly the crash it hit. Fixed with a new
+  `_require_arg_int` helper (mirrors `_require_int`'s error message, raises
+  `GmCommandArgsError` not `GmCommandParseError` -- the args-shape family,
+  since this is the "regardless of source" path, not the parse-from-text
+  path).
+- No other finding: rate limiter, filename-collision loop, wire codec
+  round-trips (`command_wire.py`, `teleport_wire.py`), fail-closed
+  authorization (`accounts.py`/`dispatch.py`/`login_scene_override.py`), and
+  the two committed data-table SHA pins (`scene_catalog.py`,
+  `npc_switch_catalog.py`) were all specifically tried against and held.
+- `tests/test_gm_commands.py`: 2 new tests in `ArgsShapeGuardTests` --
+  `describe_warp_target`/`describe_npc_target` each reject a shape-valid,
+  content-invalid tuple with `GmCommandArgsError`.
+
+`tests/test_gm_*.py`: 234/234 (up from 232 -- the 2 new tests above).
+Repo-wide `pytest tests/ --continue-on-collection-errors`: 3536 passed, 212
+skipped, 17 pre-existing `capstone`-import collection errors only (same
+baseline every prior round reports, confirmed unrelated by inspection --
+`ModuleNotFoundError: No module named 'capstone'`, not a `gm/` import), no
+new failures.
+
+nonclaim: pure robustness fix inside this lane's own write zone -- the bug
+was unreachable from any live path before this fix and still is after it
+(no caller of `describe_warp_target`/`describe_npc_target` exists yet); no
+wire fact, no RE citation, no `runtime.py` edit, no command's happy-path
+behavior changed. This round sent no frame and ran no game test.
+
 ## Attempted and retracted (broadcast-wire round)
 
 This round tried to give `say` a wire codec for `Channel_GMGlobalMessageVital`
