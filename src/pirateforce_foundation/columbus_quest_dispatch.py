@@ -73,6 +73,25 @@ BOUNDED-NEGATIVE, NEITHER MEASURED.
   the evidence ceiling being reached, not a step toward an answer appearing
   in a table.
 
+  CLOSED (PROVISIONALLY) 2026-08-27T14:45+07:00, APPENDED RATHER THAN
+  EDITED SO THE PARAGRAPH ABOVE STAYS TRUE AS HISTORY.  ``PANYA-DECISION``
+  2026-08-27T14:45+07:00 (``pf_bridge/notes_to_chief/20260827_1445_PANYA-
+  DECISION-scene17-provisional-arrival-xyz-0-0-0-owner-decree-ka1-B.md``)
+  exercised the owner's own authority to decree a PROVISIONAL spawn (0, 0,
+  0) for this scene, tagged ``PROVISIONAL-OWNER-DECREE-20260827-1445`` in
+  the registry's ``spawn.provenance`` field.  ``resolve_columbus_arrival``
+  now SUCCEEDS instead of refusing, and ``world_scene_entry.resolve_entry``
+  prints a ``SCENE_ENTRY ... source=PROVISIONAL-OWNER-DECREE-20260827-1445``
+  token the moment that spawn is actually used, so a decreed landing is
+  never mistaken for a measured one.  This is not a retraction of the
+  paragraph above: no player-arrival row has been found in the placements
+  table, the decree is the owner's own exception to the no-invented-
+  coordinate rule, for this exact scene and value only, and it expires the
+  day RE-103 T3 evidence lands (tracked as ``GT-106``, not ``GT-104`` -
+  that number is MOB-DEATH-002's, a different ticket).  ``dispatch_
+  columbus_quest3021`` below therefore no longer reports this half as a
+  refusal reason - see its own docstring's matching update.
+
 * **No wire evidence for what a vehicle-bind message should contain.**
   RE-085 (``notes_to_chief/20260827_0156_RE-085-RESULT-SAME-ACTOR-VEHICLE-
   MODULE.md``) proves the CLIENT mechanism is actor-local (``CGCVehicleModule``
@@ -95,21 +114,29 @@ BOUNDED-NEGATIVE, NEITHER MEASURED.
   field exactly as much as to a database row, and RE-096 closing did not
   loosen that.
 
-``dispatch_columbus_quest3021`` therefore ALWAYS refuses today (see its own
-docstring) - not because the dispatch is unwired, but because two of the
-things it would need to send have no measured value ANYWHERE this project can
-still look, per the RE tickets above.  Both are reported, not merged into one
-vague refusal, so a human reading the console can tell which evidence gap is
-which - see ``COO-DECISION 20260827_1350`` (pf_bridge), which put both
-tickets at the top of the RE-runner queue for exactly this reason and got
-both bounded-negatives back before its own 20:00 deadline.
+``dispatch_columbus_quest3021`` used to ALWAYS refuse for exactly this reason
+- neither evidence gap has a measured value ANYWHERE this project can still
+look, per the RE tickets above.  UPDATED 2026-08-27T15:25+07:00
+(``PANYA-DECISION`` M2-accept-scene17-entry-without-vehicle-fix-later): the
+owner decided this project does not need the vehicle bind's answer today at
+all - M2 accepts "arrive at scene 17 as an ordinary character" as its bar,
+tagged ``M2-NO-VEHICLE-OWNER-20260827-1525`` - so the function below no
+longer attempts the vehicle half, and RE-096's gap stops being something
+this dispatch waits on.  It still cannot be composed from evidence this
+project has today, and remains undone; the owner chose not to require it for
+this milestone, which is a decision about SCOPE, not a claim that the
+evidence gap closed.
 
-WHAT THIS MODULE DOES NOT DO.  It does not decide when the vehicle bind or
-the teleport becomes safe to send - both RE-096 and RE-103 have now searched
-the static/gamedata evidence ceiling this project holds and found neither
-answer there, so what unblocks this is an ATTENDED capture (a live Teleport
-frame into scene 17, and a live ``CVehicleVital`` frame with a non-zero
-handler to observe), not a further static ticket.  It does not touch
+WHAT THIS MODULE DOES NOT DO.  It does not decide when the vehicle bind
+becomes safe to send if a future round wants it after all - RE-096 has
+searched the static/gamedata evidence ceiling this project holds and found
+no answer there, so unblocking THAT (separately from M2, which no longer
+needs it) would take an ATTENDED capture (a live ``CVehicleVital`` frame with
+a non-zero handler to observe), not a further static ticket.  It does not
+persist anything about this dispatch (no quest-state row, no completion
+flag, no rewards) - the teleport is a one-shot wire effect, matching
+``FUNCTIONAL_COVERAGE.json``'s ``quest_accept_and_progress`` row, which
+stays ``in_progress`` for that reason.  It does not touch
 ``current/pf_login_game_server_v141
 .py`` - every frozen symbol it uses (``qwordtag``, ``u16tag``, ``u8tag``,
 ``make_runtime_vitals``, ``NPC_CONVERSATION``, ``parse_quest_operate_vital``)
@@ -250,29 +277,43 @@ def resolve_columbus_arrival(*, registry=None, emit=print):
     )
 
 
-def dispatch_columbus_quest3021(*, registry=None, emit=print):
-    """The compound action CORE-REQUEST-014 asks for: bind the vehicle, then
-    move the player to scene 17.
+M2_NO_VEHICLE_TAG = "M2-NO-VEHICLE-OWNER-20260827-1525"
 
-    ALWAYS REFUSES TODAY.  Both computed reasons are genuine, independent
-    evidence gaps (see the module docstring) rather than one gap reported
-    twice: the scene-17 arrival is attempted FIRST (so a human reading the
-    console also gets whatever ``world_scene_entry`` would have printed had
-    it not refused), and the vehicle bind is refused unconditionally because
-    no wire evidence for its payload exists in this tree at all - there is
-    no code path here that would ever compose it today, evidenced or not.
-    Never partially applies: no frame is queued unless both halves clear,
-    so a future evidence close on only one gap still cannot ship a player
-    riding nothing or a player stranded mid-transform.
+
+def dispatch_columbus_quest3021(*, registry=None, emit=print):
+    """The compound action CORE-REQUEST-014 asked for was bind-vehicle-then-
+    teleport; what M2 actually ships today, by owner decree, is teleport
+    alone.
+
+    UPDATED 2026-08-27T15:25+07:00 (``PANYA-DECISION`` M2-accept-scene17-
+    entry-without-vehicle-fix-later, answering the exact question the
+    14:45 decree and the 12:15 CHIEF-STATUS both left open): the owner
+    accepted "talk to Columbus -> arrive at scene 17 as an ordinary
+    character, not a ship" as M2's bar for today, tagged
+    ``M2-NO-VEHICLE-OWNER-20260827-1525``, explicitly deferring the vehicle
+    transform to a later round.  RE-096's own gap (no wire evidence for a
+    ``CVehicleVital`` payload -- see the module docstring) is therefore no
+    longer this function's problem to solve before it can succeed; it is
+    simply not attempted.
+
+    SUCCEEDS TODAY, RETURNING THE ``SceneEntry``, IF THE SCENE-17 ARRIVAL
+    ITSELF SUCCEEDS.  The only way this still raises is if
+    :func:`resolve_columbus_arrival` itself raises -- e.g. the scene-17
+    pin or its provisional decree is ever removed from the registry
+    without a replacement.  Reasons stay a tuple (rather than switching
+    return shape) for exactly that case, so a caller's existing
+    ``except ColumbusDispatchRefused`` handling keeps working unchanged.
     """
-    reasons: list[str] = []
     try:
-        resolve_columbus_arrival(registry=registry, emit=emit)
+        entry = resolve_columbus_arrival(registry=registry, emit=emit)
     except world_scene_entry.SceneEntryRefused as error:
-        reasons.append(f"scene17_teleport_refused_{error.reason}")
-    reasons.append(VEHICLE_BIND_REFUSED_NO_VEHICLE_ROW)
-    raise ColumbusDispatchRefused(
-        tuple(reasons),
-        "Columbus quest 3021 op1 dispatch cannot complete yet: "
-        + "; ".join(reasons),
+        reason = f"scene17_teleport_refused_{error.reason}"
+        raise ColumbusDispatchRefused(
+            (reason,),
+            "Columbus quest 3021 op1 dispatch cannot complete yet: " + reason,
+        ) from error
+    emit(
+        "COLUMBUS_QUEST3021_NO_VEHICLE_DISPATCH scene=17 source="
+        + M2_NO_VEHICLE_TAG
     )
+    return entry

@@ -230,6 +230,9 @@ def _require_float(value: Any, label: str) -> float:
     return float(value)
 
 
+PROVISIONAL_SPAWN_PROVENANCE_PREFIX = "PROVISIONAL-OWNER-DECREE"
+
+
 def _spawn(raw: Any, ground: Any, n_id: int) -> tuple[
     tuple[float, float, float] | None, str | None
 ]:
@@ -240,11 +243,35 @@ def _spawn(raw: Any, ground: Any, n_id: int) -> tuple[
     point = tuple(_require_float(raw[axis], f"scene {n_id} spawn {axis}")
                   for axis in "xyz")
     provenance = _require_text(raw["provenance"], f"scene {n_id} spawn provenance")
-    if ground is not None:
+    is_provisional = provenance.startswith(PROVISIONAL_SPAWN_PROVENANCE_PREFIX)
+    if ground is not None and not is_provisional:
         # A spawn point outside the only ground this scene has evidence for is
         # a standing position nobody measured.  This can fire: the spawn and
         # the bounds are separate rows in the pin and an edit to either one
-        # alone breaks the relation.
+        # alone breaks the relation.  Skipped for a PROVISIONAL-OWNER-DECREE
+        # spawn on purpose: the owner's decree (scene 17, 2026-08-27T14:45+07:00,
+        # see world_scene_entry.py's SCENE_ENTRY token) is explicitly NOT
+        # derived from ground evidence -- checking it against ground would
+        # refuse the very override it exists to make, and the registry itself
+        # already lands the ground block and the decree in the same round
+        # without either one retracting the other (see world_scene_registry_
+        # 001.json's own merge note on this entry).
+        #
+        # TWO KNOWN LIMITS, NAMED RATHER THAN HIDDEN (pf-adversary, round
+        # e0daaa). (1) This is a bare string-prefix match on JSON text this
+        # loader trusts completely -- nothing here cross-checks the
+        # provenance against a real letter under pf_bridge/notes_to_chief/,
+        # so a hand-edit that merely types the right prefix would exempt any
+        # destination's spawn from its ground check, real decree or not.
+        # This matches how every OTHER provenance string in this file is
+        # already trusted (hashes here pin gamedata files, never decree
+        # authorization), so it is not a new hole this exemption introduces,
+        # but it is a real one. (2) Nothing here or in resolve_entry expires
+        # this exemption when the decree's own stated condition (RE-103 T3
+        # evidence landing) is met -- retiring it today means a human
+        # hand-edits this JSON back to a measured spawn. There is no
+        # mechanism that would notice or alert if that day arrives and
+        # nobody remembers.
         for axis, low, high in (
             ("x", ground["x_min"], ground["x_max"]),
             ("y", ground["y_min"], ground["y_max"]),

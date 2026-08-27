@@ -258,9 +258,26 @@ def _within_ground(target: SceneDestination, stored: Position) -> bool:
     the placement z of its own mobs, which says where a developer put an NPC
     and not how far above or below it the ground goes; a z test would refuse
     positions for a reason the data cannot support.
+
+    A PROVISIONAL-OWNER-DECREE spawn never counts as ground evidence here
+    (pf-adversary, round e0daaa, found this the hard way after scene 17
+    gained BOTH a decree and a real ground block the same round): this
+    radius test is centred on ``target.spawn`` and is safe to be generous
+    around ONLY because a normal spawn is itself a measured point already
+    inside the real ground. A decreed spawn carries no such guarantee -- it
+    was never derived from the ground data at all, so a stored row merely
+    numerically close to it is not evidence of anything. Refusing here
+    forces every arrival at such a destination through the pinned-spawn
+    branch instead, so it always lands on exactly the decreed point rather
+    than on some nearby row nobody measured either.
     """
     extent = target.ground_extent
     if extent is None:
+        return False
+    if (
+        target.spawn_provenance is not None
+        and target.spawn_provenance.startswith("PROVISIONAL-OWNER-DECREE")
+    ):
         return False
     spawn_x, spawn_y, _spawn_z = target.spawn
     extent_x, extent_y = extent
@@ -391,6 +408,41 @@ def resolve_entry(
         lines.append(
             _relocated_line(target, row, position, reason) if moved
             else _kept_row_line(target, row, position)
+        )
+
+    # PANYA-DECISION 2026-08-27T14:45+07:00 item 2: a spawn this project did
+    # not measure or model, and used only because the owner decreed it for
+    # this exact scene/value, must print a distinct grep-able token the
+    # moment it is actually used -- not merely pinned in the registry --
+    # so WIRED v2 and an attended tester can tell a decreed landing from a
+    # measured one.  Detected from the pin's own provenance text rather than
+    # a hardcoded scene id, so this is not scene-17-specific code: whichever
+    # scene's spawn provenance is tagged this way gets the token when the
+    # position actually used for this arrival equals that decreed spawn.
+    #
+    # DELIBERATELY NOT KEYED ON WHICH BRANCH ABOVE PRODUCED ``position``
+    # (pf-adversary-shaped bug found this round, before it shipped): once a
+    # scene has BOTH a decreed spawn AND ground evidence -- exactly what
+    # happened to scene 17 this same round, independently, in
+    # world_scene_registry_001.json -- a row that already sits inside that
+    # ground (the ``_within_ground`` branch, e.g. a synthetic row built at
+    # the decreed value itself) takes the "kept row" path, never touching
+    # ``target.spawn`` at all.  Gating the token on "did we take the
+    # pinned-spawn branch" would then silently stop firing for the exact
+    # arrival it exists to mark, while the arrival still lands on the
+    # decreed coordinate.  Comparing the FINAL position against the pin
+    # instead catches both branches.
+    if (
+        target.n_id != HOME_SCENE_ID
+        and target.spawn is not None
+        and (position.x, position.y, position.z) == target.spawn
+        and target.spawn_provenance is not None
+        and target.spawn_provenance.startswith("PROVISIONAL-OWNER-DECREE")
+    ):
+        decree_tag = target.spawn_provenance.split(" ", 1)[0]
+        lines.append(
+            "SCENE_ENTRY scene={0} xyz={1:.3f},{2:.3f},{3:.3f} source={4}"
+            .format(target.n_id, position.x, position.y, position.z, decree_tag)
         )
 
     for line in lines:

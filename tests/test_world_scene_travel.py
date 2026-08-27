@@ -117,14 +117,28 @@ class SceneRegistryTests(unittest.TestCase):
         """Round kqrlhr: packages the numbers scene 17's own
         table_row_differences.ground_is_null_because already cited as
         'measured this round' into the same ground schema scene 278 uses -
-        no re-derivation, nothing invented. Unlike scene 278, scene 17's
-        spawn stays null (RE-103 closed bounded-negative: no player-arrival
-        marker exists to measure), so this only widens what the console can
-        report, it does not change where anybody lands.
+        no re-derivation, nothing invented.
+
+        UPDATED, round e0daaa (chief): this test originally asserted scene
+        17's spawn stays null, on the assumption that only this ground block
+        would land this round. Independently, in the same round,
+        PANYA-DECISION 2026-08-27T14:45+07:00 decreed a PROVISIONAL spawn
+        (0,0,0) for scene 17 -- NOT derived from this ground data, an owner
+        override of the "no invented coordinate" rule for this scene only
+        (see world_scene_registry_001.json's own merge note on this entry,
+        and world_scene_travel._spawn()'s PROVISIONAL_SPAWN_PROVENANCE_PREFIX
+        carve-out, which is why loading this pin does not refuse even though
+        the decreed z=0.0 falls outside this very ground block's z bounds).
+        RE-103 is still closed bounded-negative -- no MEASURED player-arrival
+        marker exists -- so this scene's ground evidence and its spawn are
+        independent facts, exactly as this test's own name says: the ground
+        is pinned from placements.tsv, the spawn is a decree, and neither
+        retracts the other.
         """
         sea = destination(17, self.registry)
         self.assertEqual(sea.native_placement_count, 8)
-        self.assertIsNone(sea.spawn)
+        self.assertEqual(sea.spawn, (0.0, 0.0, 0.0))
+        self.assertTrue(sea.spawn_provenance.startswith("PROVISIONAL-OWNER-DECREE"))
         self.assertAlmostEqual(sea.ground_z_spread, 526.6963500976562)
         extent_x, extent_y = sea.ground_extent
         self.assertAlmostEqual(extent_x, 1815.9349365234375)
@@ -262,6 +276,39 @@ class SceneRegistryRefusalTests(unittest.TestCase):
         for row in data["destinations"]:
             if row["n_id"] == 278:
                 row["spawn"]["z"] = row["ground"]["z_max"] + 50.0
+        with self.assertRaises(ValueError):
+            load_scene_registry(_write(self.tmp, data))
+
+    def test_a_provisional_owner_decree_spawn_is_exempt_from_the_ground_bound_check(self):
+        # Round e0daaa: scene 17's real pin has exactly this shape (a
+        # PROVISIONAL-OWNER-DECREE spawn whose z falls outside its own
+        # scene's ground z bounds) and it must still load. Proven here with
+        # a mutated copy of 278 (rather than reading scene 17's own numbers)
+        # so this test does not silently stop meaning anything the day some
+        # other round changes scene 17's own data.
+        data = _raw()
+        out_of_bounds_z = None
+        for row in data["destinations"]:
+            if row["n_id"] == 278:
+                out_of_bounds_z = row["ground"]["z_max"] + 999.0
+                row["spawn"] = {
+                    "x": row["ground"]["x_min"],
+                    "y": row["ground"]["y_min"],
+                    "z": out_of_bounds_z,
+                    "provenance": "PROVISIONAL-OWNER-DECREE-TEST-ONLY",
+                }
+        registry = load_scene_registry(_write(self.tmp, data))
+        stage = destination(278, registry)
+        # Same mutation, non-provisional provenance: must still refuse - the
+        # exemption is keyed on THIS spawn's own provenance text, not on
+        # "some spawn somewhere is out of bounds and got let through".
+        self.assertEqual(stage.spawn[2], out_of_bounds_z)
+        self.assertTrue(stage.spawn_provenance.startswith("PROVISIONAL-OWNER-DECREE"))
+        data["destinations"] = [
+            dict(row, spawn=dict(row["spawn"], provenance="not a decree"))
+            if row["n_id"] == 278 else row
+            for row in data["destinations"]
+        ]
         with self.assertRaises(ValueError):
             load_scene_registry(_write(self.tmp, data))
 

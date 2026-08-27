@@ -326,15 +326,18 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
 
     # CORE-REQUEST-014 re-grade (chief, R192, 2026-08-27): columbus_quest_
     # dispatch.py names "quest" throughout -- it is Columbus's NPCConversation/
-    # QuestOperateVital dispatch -- but dispatch_columbus_quest3021() ALWAYS
-    # refuses today (two open evidence gaps: no scene-17 spawn, no vehicle-
-    # bind wire payload; see that module's own docstring) and stores nothing:
-    # no quest-state row, no tracker update, no completion, no reward. The
+    # QuestOperateVital dispatch. UPDATED round e0daaa (2026-08-27 ~15:2x):
+    # dispatch_columbus_quest3021() no longer always refuses -- PANYA-DECISION
+    # 2026-08-27T15:25+07:00 accepted M2 without a vehicle bind, so it now
+    # teleports the player to scene 17 on a real op1/3021 dispatch. It still
+    # stores nothing: no quest-state row, no tracker update, no completion,
+    # no reward, no persistence of "this player did the Columbus quest" --
+    # the teleport is a one-shot wire effect, not quest bookkeeping. The
     # quest_accept_and_progress row's note ("no quest state is stored
-    # server-side") stays true, so the matrix does not need to move off
-    # in_progress for this. Allow exactly this one file for exactly the word
-    # "quest" -- any OTHER word from the list, or any OTHER file, still trips
-    # this guard, on purpose.
+    # server-side") stays true for that reason, so the matrix does not need
+    # to move off in_progress for this. Allow exactly this one file for
+    # exactly the word "quest" -- any OTHER word from the list, or any OTHER
+    # file, still trips this guard, on purpose.
     ALLOWED_HITS = {
         "columbus_quest_dispatch.py": {"quest"},
         "runtime.py": {"quest"},

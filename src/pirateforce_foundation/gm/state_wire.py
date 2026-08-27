@@ -35,6 +35,19 @@ SERIALIZER_FIELDS_SPAN_SHA256 = (
     "03b186737b43884c61c7e82dc9805f7ee161cce3ae3436f2c5d0a5db8033c661"
 )
 
+# GT-101 (attended, OBSERVER_CONFIRMED 2026-08-27T14:39+07:00) measured what
+# sending vital_version=1 actually does: the client rejects the frame with a
+# modal error naming this vital by id ("VitalData version wrong,
+# ErrorData=23065" -- 23065 decimal IS 0x5A19), halts processing on the
+# whole connection, and closes the socket itself. Not sending this frame at
+# all is always safe (every login before this lane existed did exactly
+# that); sending version 1 kills the session. CORE-REQUEST-016 (LANE-GM,
+# 2026-08-27T15:24+07:00): this stays None -- and runtime.py's call site
+# stays gated on it being not-None -- until RE-105 (STATIC-ON-BRIDGE) pins
+# the real version. Setting this to a number without that citation is
+# exactly the mistake that produced GT-101.
+GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED = None
+
 
 def make_gm_update_state_payload(
     legacy, field_0x0b_first: int, field_0x0b_second: int, field_0x14: int

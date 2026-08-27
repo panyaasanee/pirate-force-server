@@ -262,6 +262,63 @@ def _require_int(value: Any, label: str, minimum: int, maximum: int) -> int:
     return value
 
 
+def assert_single_scene_tables(table_modules: Any) -> None:
+    """Refuse the moment more than one scene's field-mob table would be merged.
+
+    ``WIDENING_RULINGS`` (``mob_death.py``) keys a kill-permission purely by
+    MOBS ``template_id``, with no scene dimension -- COO-DECISION
+    2026-08-27T14:41+07:00 (answering ``CHIEF-ASK-COO`` 14:25) deferred
+    adding one (a ``FieldMob.scene`` field and a scene-keyed
+    ``WIDENING_RULINGS``) until a second scene actually needs it, and chose
+    the lighter option instead: gate the load/merge point itself rather than
+    trust every future caller to remember why merging scenes is unsafe. The
+    danger is concrete, not theoretical -- bg0001's and a second scene's
+    already-committed field-mob table (kept unwired by its own guard test,
+    see that module's docstring) share four template ids: 31, 34, 35, 103.
+    So a mob from the wrong scene could pass a ruling that only ever named
+    the other one -- the same "an unnamed value passes a named check" shape
+    pf-adversary caught in round ``67jejl`` for ``widened=`` strings, just at
+    the scene boundary instead of the ruling-name boundary.
+
+    :func:`load_roster` calls this with its own one-module tuple, which
+    always passes today (bg0001 is the only table it reads). The check
+    exists for the day THIS module's own load/merge point is extended to
+    combine more than one scene's rows into one roster.
+
+    WHAT THIS DOES NOT COVER, NAMED RATHER THAN IMPLIED (pf-adversary, this
+    round). ``mob_death.kill()`` checks ``WIDENING_RULINGS`` against a bare
+    ``FieldMob`` argument -- it does not call :func:`load_roster` or this
+    function, and ``FieldMob`` itself carries no scene field. So a
+    ``FieldMob`` obtained from some OTHER future loader (a sibling function
+    reading a second scene's table, never routed through this one) would
+    reach ``kill()`` without ever being checked here. This function closes
+    the one call site named in COO-DECISION 2026-08-27T14:41+07:00
+    (``load_roster()`` itself); it is not a scene tag on the record and
+    cannot catch a second, independently-written loader that skips it --
+    that residual reliance on the next caller routing through the right
+    place is the exact cost COO's decision named for choosing not to do
+    the heavier fix (a scene field on ``FieldMob``/``WIDENING_RULINGS``) now.
+    """
+    modules = tuple(table_modules)
+    if not modules:
+        raise FieldMobContractError("no field-mob table module given")
+    scenes = []
+    for module in modules:
+        scene = getattr(module, "SCENE", None)
+        if type(scene) is not str or not scene:
+            raise FieldMobContractError(
+                "field-mob table module %r has no SCENE constant" % (module,)
+            )
+        scenes.append(scene)
+    if len(set(scenes)) > 1:
+        raise FieldMobContractError(
+            "refusing to merge more than one scene's field-mob table into "
+            "one roster (scenes: %r) -- WIDENING_RULINGS has no scene "
+            "dimension yet, see COO-DECISION 2026-08-27T14:41+07:00"
+            % sorted(set(scenes))
+        )
+
+
 def load_roster() -> tuple[FieldMob, ...]:
     """Type and check the generated roster.  No file is read at import time.
 
@@ -269,6 +326,7 @@ def load_roster() -> tuple[FieldMob, ...]:
     a duplicate placement, a template that cannot fit the u16 the client reads,
     a non-positive HP or an empty visual preset each refuse by name.
     """
+    assert_single_scene_tables((field_mob_tables,))
     rows = getattr(field_mob_tables, "HOSTILE_PLACEMENTS", None)
     if type(rows) is not list or not rows:
         raise FieldMobContractError("generated roster is missing or empty")

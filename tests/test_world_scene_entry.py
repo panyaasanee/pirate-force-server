@@ -551,6 +551,67 @@ class SceneWithNoPinnedGroundTests(unittest.TestCase):
         self.assertTrue(resolve_entry(PRISON_ISLAND_ROW, emit=Sink()).relocated)
 
 
+class ProvisionalDecreeTests(unittest.TestCase):
+    """Scene 17 (Bg1001): the real registry entry that carries BOTH a real
+    ground block AND a PROVISIONAL-OWNER-DECREE spawn at once, added the
+    same round (e0daaa) independently of each other. pf-adversary found
+    that combination breaks the "kept row" branch's own promise -- this
+    class is the coverage gap that same review named (grep for "17" in
+    this file used to return nothing).
+    """
+
+    SEA_SCENE_ID = 17
+    DECREE_XYZ = (0.0, 0.0, 0.0)
+    DECREE_TOKEN = (
+        "SCENE_ENTRY scene=17 xyz=0.000,0.000,0.000 "
+        "source=PROVISIONAL-OWNER-DECREE-20260827-1445"
+    )
+
+    def test_scene_17_has_both_a_decree_and_real_ground_this_round(self):
+        # Guard for the fixture itself: every test below assumes this shape.
+        # If a future round changes either half, this fails LOUDLY here
+        # instead of the tests below passing for the wrong reason.
+        sea = world_scene_travel.destination(self.SEA_SCENE_ID)
+        self.assertEqual(sea.spawn, self.DECREE_XYZ)
+        self.assertTrue(sea.spawn_provenance.startswith("PROVISIONAL-OWNER-DECREE"))
+        self.assertIsNotNone(sea.ground_extent)
+
+    def test_a_row_far_outside_real_ground_but_near_the_decree_point_still_relocates(self):
+        # Before this round's fix, a row here (or anywhere numerically near
+        # (0,0,*)) was wrongly treated as "on ground this scene has evidence
+        # for", because the acceptance radius is centred on the decree point,
+        # not on anything measured. This row is deliberately (0,0,z) - inside
+        # the naive radius test - to prove the fix, not just avoid it.
+        row = Position(self.SEA_SCENE_ID, 0, 0.0, 0.0, 5000.0, 0.0)
+        entry = resolve_entry(row, emit=Sink())
+        self.assertTrue(entry.relocated)
+        self.assertEqual(
+            (entry.position.x, entry.position.y, entry.position.z),
+            self.DECREE_XYZ,
+        )
+
+    def test_a_row_genuinely_far_from_the_decree_also_relocates_and_prints_the_token(self):
+        row = Position(self.SEA_SCENE_ID, 0, -1800.0, 2300.0, 900.0, 0.0)
+        sink = Sink()
+        entry = resolve_entry(row, emit=sink)
+        self.assertTrue(entry.relocated)
+        self.assertEqual(
+            (entry.position.x, entry.position.y, entry.position.z),
+            self.DECREE_XYZ,
+        )
+        self.assertIn(self.DECREE_TOKEN, sink.lines)
+
+    def test_the_token_never_fires_for_an_unrelated_destination(self):
+        # Sanity check on the token's own gate: a destination with real
+        # ground and a REAL (non-decreed) spawn must never print it, even
+        # when its own row is kept unmoved.
+        sink = Sink()
+        resolve_entry(STANDING_ON_THE_STAGE, emit=sink)
+        self.assertFalse(
+            any(line.startswith("SCENE_ENTRY ") for line in sink.lines)
+        )
+
+
 class ReportingTests(unittest.TestCase):
 
     def test_the_relocation_line_is_refused_when_no_row_was_overridden(self):
