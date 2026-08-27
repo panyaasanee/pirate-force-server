@@ -339,7 +339,18 @@ jobs:
             # failure.  Under `set -e` without it, a lost race would kill this
             # script with the pull request still open - which is the one thing
             # this file may not do.
-            MERGE_OUT=$(gh pr merge "$PR" --repo "$REPO" --merge --match-head-commit "$SHA" 2>&1) && MRC=0 || MRC=$?
+            # "Base branch was modified" is a transient race with the Windows sync, which commits
+            # to main every few minutes; measured 2026-08-27 13:22 (+07:00) on pf_bridge #197 and
+            # earlier on #163-#166. Retry a few times before treating it as a real failure.
+            MRC=1; MERGE_OUT=""
+            for mtry in 1 2 3 4 5; do
+              MERGE_OUT=$(gh pr merge "$PR" --repo "$REPO" --merge --match-head-commit "$SHA" 2>&1) && MRC=0 || MRC=$?
+              [ "$MRC" -eq 0 ] && break
+              case "$MERGE_OUT" in
+                *"Base branch was modified"*|*"base branch was modified"*) echo "  merge> base moved under us (try ${mtry}) - waiting 15s"; sleep 15 ;;
+                *) break ;;
+              esac
+            done
             printf '%s\n' "$MERGE_OUT" | sed 's/^/  merge> /'
 
             if [ "$MRC" -eq 0 ]; then
@@ -481,7 +492,18 @@ jobs:
             done
             [ "$MERGEABLE" = "true" ] || { echo "  mergeable=${MERGEABLE} - left alone (conflict handling is reap's job)"; continue; }
             echo "  green + ready + eligible and decide never ran for this head -> merging"
-            MERGE_OUT=$(gh pr merge "$PR" --repo "$REPO" --merge --match-head-commit "$HEAD_SHA" 2>&1) && MRC=0 || MRC=$?
+            # "Base branch was modified" is a transient race with the Windows sync, which commits
+            # to main every few minutes; measured 2026-08-27 13:22 (+07:00) on pf_bridge #197 and
+            # earlier on #163-#166. Retry a few times before treating it as a real failure.
+            MRC=1; MERGE_OUT=""
+            for mtry in 1 2 3 4 5; do
+              MERGE_OUT=$(gh pr merge "$PR" --repo "$REPO" --merge --match-head-commit "$HEAD_SHA" 2>&1) && MRC=0 || MRC=$?
+              [ "$MRC" -eq 0 ] && break
+              case "$MERGE_OUT" in
+                *"Base branch was modified"*|*"base branch was modified"*) echo "  merge> base moved under us (try ${mtry}) - waiting 15s"; sleep 15 ;;
+                *) break ;;
+              esac
+            done
             printf '%s\n' "$MERGE_OUT" | sed 's/^/  merge> /'
             if [ "$MRC" -eq 0 ]; then
               echo "  FINISHED -> merged #${PR}"
