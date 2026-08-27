@@ -26,6 +26,7 @@ from .gm.accounts import is_gm_account
 from .gm.dispatch import GM_RUN_GM_COMMAND_VITAL_ID
 from .gm import state_wire
 from .gm.state_wire import make_gm_update_state_frame
+from .gm.login_scene_override import get_login_scene_override
 
 from .model import Position
 from .inventory import (
@@ -3041,7 +3042,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             )
             return actions
 
-        def _npc_hostile_start_game_response(self, pc, frame):
+        def _npc_hostile_start_game_response(self, pc, frame, position=None):
             """The entry half of HYP-PF-027: the SCENE-005 player faction.
 
             The relation the client renders is a PAIR: the arena-v2 negative
@@ -3058,6 +3059,16 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             bytes with a named event, and the sweep dispatch below then
             refuses by name -- the tester sees the full proven pairing or no
             experiment at all, never a half-paired one.
+
+            ``position``: CORE-REQUEST-017 point 1's login-scene override,
+            threaded through here too (pf-adversary, second pass) even
+            though this whole method is a no-op for any character that
+            isn't the pinned smoke identity below -- that identity check is
+            the only thing making a real GM-login override coexisting with
+            this opt-in scenario safe, and nothing in this file enforces
+            the two never running together.  ``None`` (the default)
+            reproduces the exact prior behaviour: ``start_game`` falls back
+            to ``character.position`` itself.
             """
             selected = self.foundation.selected
             if (
@@ -3074,6 +3085,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             try:
                 faction_pc, faction_frame = self.foundation.projector.start_game(
                     selected,
+                    position=position,
                     basic_faction=(
                         npc_hostile_hypothesis_scenario.player_pair_faction
                     ),
@@ -4672,6 +4684,15 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 load_only = scene_load_scenario is not None
                 entry = None
                 gm_state_action = None
+                # CORE-REQUEST-017 point 1: default "no override" for the
+                # load_only path, where the block below that assigns this
+                # never runs. Read again much further down (the flagless
+                # basic_faction=1 recompose) to decide whether ITS OWN
+                # start_game() recompose has to keep this round's overridden
+                # position too -- see the comment there for why leaving that
+                # one on the untouched character.position default would
+                # silently undo this override on every real production boot.
+                login_scene_override = None
                 if not load_only:
                     # WORLD-SCENE-TRAVEL-001 / CORE-REQUEST-003
                     # (LANE-A BUILD-002 slice 1, v2), wired here because
@@ -4708,9 +4729,65 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     # and the retry guard at the top of this handler then
                     # silently no-ops every later START_GAME_REQ from the
                     # same client -- found by pf-adversary.
+                    #
+                    # CORE-REQUEST-017 point 1 (LANE-GM, 2026-08-27T15:24
+                    # +07:00): fast-path per-account login-scene override
+                    # for an already-listed GM account, wired here rather
+                    # than through lane_hooks because it has to change
+                    # WHICH position resolve_entry() below resolves, and
+                    # lane_hooks.fire() is deliberately report-only (see
+                    # lane_hooks/__init__.py's own docstring: "hooks that
+                    # need to hand something back ... are not what this
+                    # point shape is for") -- threading a value back into
+                    # a chief-owned local is exactly this call site's job,
+                    # the same way CORE-REQUEST-003/006 above and below it
+                    # already are.  get_login_scene_override() re-checks
+                    # gm_accounts.json itself on every call (fail-closed
+                    # default: no override for anyone), so a non-GM
+                    # account can never get one even if a malformed
+                    # override config named it by mistake.  Only scene_id
+                    # is substituted -- x/y/z/heading stay the character's
+                    # own stored row -- so resolve_entry()'s own safety
+                    # rules apply exactly as they do for every other
+                    # login: a destination with no ground evidence at that
+                    # XY lands on ITS pinned spawn instead (never a raw
+                    # coordinate transplant), home is still never touched
+                    # unless the override names home, and a destination
+                    # pinned login_entry_allowed=False (today: scene 17)
+                    # still refuses via SceneEntryRefused below rather than
+                    # opening a side door around that guard.  This block only
+                    # feeds resolve_entry() (the teleport packet) -- see the
+                    # "resync pc/frame" block right after the try/except
+                    # below for why the ActorAttr/MovementAttr frame already
+                    # composed above ALSO has to be redone when an override
+                    # actually applies, not just this half.
+                    login_row = self.foundation.selected.position
+                    try:
+                        login_scene_override = get_login_scene_override(
+                            self.token
+                        )
+                    except (ValueError, OSError) as error:
+                        # Same refuse-by-name-not-by-crash shape as the
+                        # is_gm_account() guard below (CORE-REQUEST-006):
+                        # a malformed override config is an error in that
+                        # config, not a reason to take down the listener
+                        # thread for every other login. No override is
+                        # applied; the character logs in at its own row.
+                        login_scene_override = None
+                        self.events.append(
+                            "gm_login_scene_override_lookup_failed_"
+                            f"{type(error).__name__}"
+                        )
+                    if login_scene_override is not None:
+                        login_row = replace(
+                            login_row, scene_id=login_scene_override
+                        )
+                        self.events.append(
+                            f"gm_login_scene_override_applied_{login_scene_override}"
+                        )
                     try:
                         entry = world_scene_entry.resolve_entry(
-                            self.foundation.selected.position,
+                            login_row,
                             registry=scene_entry_registry,
                         )
                     except world_scene_entry.SceneEntryRefused as exc:
@@ -4728,6 +4805,62 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             "world_scene_entry_refused_no_reply"
                         )
                         return []
+                    # CORE-REQUEST-017 point 1, continued: resync pc/frame.
+                    # pc/frame were already composed above by
+                    # select_and_start() -> projector.start_game(), FROM THE
+                    # CHARACTER'S REAL STORED ROW -- entirely before this
+                    # override was even computed.  Only entry (the teleport
+                    # packet) was built from the overridden login_row.  Left
+                    # alone, that is exactly world_scene_entry.py's own
+                    # documented "biggest trap" (its module docstring: "the
+                    # teleport carries one point while the ActorAttr and the
+                    # MovementAttr built from the same row carry another...
+                    # a boot whose answer depends on that is a boot that
+                    # cannot be graded") -- found by pf-adversary reviewing
+                    # this exact change, with a byte-level repro (ActorAttr
+                    # encoding scene 1 while the teleport right after it
+                    # carried scene 2). It was latent, not new: every
+                    # pre-existing login is at HOME_SCENE_ID, where resolve_
+                    # entry() never relocates away from the stored row, so
+                    # entry.position and self.foundation.selected.position
+                    # have always been equal in practice -- this override is
+                    # the first login path in this project where they can
+                    # differ. Recompose from entry.position (the ONE
+                    # resolved position resolve_entry() already derived the
+                    # teleport from, complete with the correct scene_seq for
+                    # the destination, not login_row's stale one) so both
+                    # frames name the same arrival, the same defensive shape
+                    # HYP-PF-027's basic_faction recompose above already uses
+                    # for this identical projector call: on any anomaly, fall
+                    # back to the untouched production bytes rather than risk
+                    # a malformed START_GAME_RES.
+                    if login_scene_override is not None:
+                        try:
+                            override_pc, override_frame = (
+                                self.foundation.projector.start_game(
+                                    self.foundation.selected,
+                                    position=entry.position,
+                                    backpack=self.foundation.backpack,
+                                )
+                            )
+                        except (ValueError, RuntimeError, TypeError) as exc:
+                            self.events.append(
+                                "gm_login_scene_override_frame_resync_"
+                                f"refused_{type(exc).__name__}"
+                            )
+                        else:
+                            if len(override_pc) == len(pc) and len(
+                                override_frame
+                            ) == len(frame):
+                                pc, frame = override_pc, override_frame
+                                self.events.append(
+                                    "gm_login_scene_override_frame_resynced"
+                                )
+                            else:
+                                self.events.append(
+                                    "gm_login_scene_override_frame_resync_"
+                                    "length_drift"
+                                )
                     # CORE-REQUEST (LANE-A, notes_to_chief/20260826_1010
                     # letter item 4-2/4-3).  Report-only, appended right
                     # after CORE-REQUEST-003's own resolve_entry call: the
@@ -4869,8 +5002,24 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     # through the frozen faction-1 serializer, or fall back to
                     # the byte-identical production response with a named
                     # event -- in which case the sweep below refuses by name.
+                    #
+                    # CORE-REQUEST-017 point 1: this scenario is opt-in
+                    # (never on in a real production boot) and its own
+                    # recompose only fires for one hardcoded pinned smoke
+                    # identity (see the method's own docstring) -- a real GM
+                    # account's character will not match it in practice. Not
+                    # provably unreachable by code, though (pf-adversary,
+                    # second pass): pass the override position through
+                    # anyway, same shape as the two other recompose sites,
+                    # so this stays correct even if this scenario is ever
+                    # left on against a real GM login.
                     pc, frame = self._npc_hostile_start_game_response(
                         pc, frame,
+                        position=(
+                            entry.position
+                            if login_scene_override is not None
+                            else None
+                        ),
                     )
                 elif not active_lanes:
                     # PANYA-CHASE 20260827_0915 item (1).2 -- no exceptions,
@@ -4922,6 +5071,29 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         faction_pc, faction_frame = (
                             self.foundation.projector.start_game(
                                 self.foundation.selected,
+                                # CORE-REQUEST-017 point 1: this recompose
+                                # runs on every flagless production login,
+                                # AFTER the override's own "resync pc/frame"
+                                # block above -- left on the default (None ->
+                                # character.position, the real unmodified
+                                # row), it would silently discard that resync
+                                # and put the character's real scene right
+                                # back into the ActorAttr/MovementAttr this
+                                # call composes, undoing the override on the
+                                # one path every real login actually takes
+                                # (found reasoning through pf-adversary's
+                                # finding on the first version of this
+                                # override, which predates this recompose
+                                # existing in scope). entry is only None for
+                                # load_only, where login_scene_override is
+                                # also always None (see its own default
+                                # above), so this is a no-op for every login
+                                # that isn't this override.
+                                position=(
+                                    entry.position
+                                    if login_scene_override is not None
+                                    else None
+                                ),
                                 basic_faction=NPC_HOSTILE_PLAYER_PAIR_FACTION,
                                 backpack=self.foundation.backpack,
                             )
