@@ -62,17 +62,23 @@ class SceneRegistryTests(unittest.TestCase):
         cls.registry = load_scene_registry()
 
     def test_the_registry_pins_exactly_the_scenes_that_have_evidence(self):
-        """Four since round 4fhdxv, when COO-DECISION 0246 named the M2 stage.
+        """Five since round 8pfksm, when the Columbus M2 crosswalk correction
+        named scene 17.
 
-        1 and 2 are the two this client has loaded.  278 is the stage the
-        owner asked for.  997 is FilmScene, which COO-DECISION 20260826_0246
-        section 1.2 named for M2 - a green screen with fog and environment
-        still on.  Round 4fhdxv pointed the travel gate at it and then pointed
-        it back at 278 after the adversary pass; 997 stays pinned with the
-        reasons on both sides, because the COO's ruling stands.  A fifth id
-        appearing here without a decision behind it is what this test is for.
+        1 and 2 are the two this client has loaded.  17 (Bg1001) is the real
+        M2 destination: round 8pfksm re-derived, from sha256-pinned gamedata
+        tables, that Columbus (MOBS n_ID 156, bg0001 placement index 1) opens
+        quest 3021, not 3023 as an earlier status letter assumed, and quest
+        3021's Q_TELEPORT1 target is scene 17 - not the debug/test stage 278.
+        278 is the stage the owner asked for as a walk-in debug tool. 997 is
+        FilmScene, which COO-DECISION 20260826_0246 section 1.2 named for M2 -
+        a green screen with fog and environment still on.  Round 4fhdxv
+        pointed the travel gate at it and then pointed it back at 278 after
+        the adversary pass; 997 stays pinned with the reasons on both sides,
+        because the COO's ruling stands.  A sixth id appearing here without a
+        decision behind it is what this test is for.
         """
-        self.assertEqual(self.registry.ids, (1, 2, TEST_STAGE_SCENE_ID, 997))
+        self.assertEqual(self.registry.ids, (1, 2, 17, TEST_STAGE_SCENE_ID, 997))
 
     def test_the_default_destination_is_still_home(self):
         # Nothing in this module may move where a player lands by existing.
@@ -236,13 +242,19 @@ class SceneRegistryRefusalTests(unittest.TestCase):
 
     def test_a_destination_missing_its_table_columns_is_refused(self):
         data = _raw()
-        del data["destinations"][2]["table_row"]["n_SAVE"]
+        for row in data["destinations"]:
+            if row["n_id"] == 278:
+                del row["table_row"]["n_SAVE"]
         with self.assertRaises(ValueError):
             load_scene_registry(_write(self.tmp, data))
 
     def test_a_half_written_ground_block_is_refused_by_contract(self):
         data = _raw()
-        del data["destinations"][2]["ground"]["z_min"]
+        # n_id lookup, not a positional index: scene 17 (round 8pfksm) sits
+        # at index 2 now but has no ground block of its own to half-write.
+        for row in data["destinations"]:
+            if row["n_id"] == 278:
+                del row["ground"]["z_min"]
         with self.assertRaises(ValueError):
             load_scene_registry(_write(self.tmp, data))
 
@@ -254,14 +266,18 @@ class SceneRegistryRefusalTests(unittest.TestCase):
 
     def test_a_destination_missing_a_field_is_refused(self):
         data = _raw()
-        del data["destinations"][2]["ground"]
+        for row in data["destinations"]:
+            if row["n_id"] == 278:
+                del row["ground"]
         with self.assertRaises(ValueError):
             load_scene_registry(_write(self.tmp, data))
 
     def test_a_non_ascii_scene_name_is_refused(self):
         data = _raw()
         # written as escapes so this test file itself stays 7-bit ASCII
-        data["destinations"][2]["scene_name_ascii"] = "\u6c99\u7058"
+        for row in data["destinations"]:
+            if row["n_id"] == 278:
+                row["scene_name_ascii"] = "\u6c99\u7058"
         with self.assertRaises(ValueError):
             load_scene_registry(_write(self.tmp, data))
 

@@ -128,6 +128,44 @@
       "ground": null
     },
     {
+      "n_id": 17,
+      "model_id": "Bg1001",
+      "scene_name_source_utf8_hex": "e6b5b7e4b88ae4b880e88998e888b9",
+      "scene_name_ascii": "a ship at sea",
+      "image_name": "BgNull",
+      "native_placement_count": 8,
+      "native_definition_count": 6,
+      "native_sha256": "da5c560af6c483490a041f0605a1b0cfe047a7ee00e515de07567d0c1247e821",
+      "role": "m2_columbus_quest_destination_candidate",
+      "status": "never_sent_to_any_client_by_this_project",
+      "table_row": {
+        "n_SCENE_WEATHER": 5,
+        "n_SCENE_DAYANDNIGHT": 2,
+        "n_SCENE_TYPE": 4,
+        "n_SCENE_SUBTYPE": 0,
+        "n_CLINE_TYPE": 4294967295,
+        "n_CANGLIDE": 0,
+        "n_CANRIDE": 0,
+        "n_LIMIT_HEIGHT": 0,
+        "n_SAVE": 0,
+        "n_MARKER": 0,
+        "n_CAMERA_TYPE": 1,
+        "n_COLLECT_MAP": 0,
+        "n_SCENE_LV": 0,
+        "n_VIDEO_NAME": 0
+      },
+      "table_row_differences": {
+        "why_this_entry_exists": "CORRECTED CROSSWALK, added 2026-08-27 (Lane A, Columbus M2 identity correction round). MOBS n_ID 156 (Port Royal's real Columbus, bg0001 census placement index 1 - see scenarios/world_travel_gates_001.json gates[0].centre.why_an_authored_placement_and_not_a_bare_coordinate for the full identity chain) offers quest n_ID 3021 (CONSTDATA_TH__MOBS.tsv s_QUEST_BEGIN: 111;998;3021;3205;7062;7063, sha256 3c0d33d68f832eefda56c845495008338dcef56f4277584b9ca479b7e1b3916b). Quest 3021 (QUESTDATA_TH__QUEST.tsv, sha256 cc9927286def2bda166c320a2dddd16f5457eb4579ce5207a3d76758707527bd) is n_TYPE=20, s_LUASCRIPT=Q_TELEPORT1, n_VARI_2=17 - this scene. ~~STALE, SUPERSEDED: an earlier chief status letter (pf_bridge/notes_to_chief/20260827_1830_CHIEF-REPLY-...) named Columbus's quest as 3023, which would point at scene 19, not this one.~~ Quest 3023 is real but is MOBS n_ID 36's quest (a different, real MOBS row, level 35), and its own n_VARI_2 is 19; that is MOBS 36's destination, not Port Royal's. ('Spice Paradise's Columbus' for MOBS 36, used elsewhere, is a HYPOTHESIS - an adjacency-pattern reading, not a table field; MOBS.tsv's own n_ID_MAP/s_LOCATION are blank for both 36 and 156.) This entry, scene 17, is the correct M2 destination once the real Columbus (MOBS 156) dispatches quest 3021.",
+        "table_row_provenance": "CONSTDATA_TH__SCENE_NAME.tsv row n_ID=17, sha256 e38114a802576266ce37b2abcf8ebce3f105d7d5abaf4bc5ca066e7848c5d60b (same table, same hash as the root provenance.scene_name_table_sha256 pinned for this whole file).",
+        "role_name_explained": "'m2_columbus_quest_destination_candidate' and not simply 'm2_destination': n_SCENE_TYPE=4 (sea family) matches the M2 plan (talk to Columbus, teleport to a sea map, become a ship), and the static gamedata crosswalk is now double-derived and pinned, but NO client has ever been sent this scene id and quest 3021 itself has only been confirmed at the [STATIC] gamedata layer - nobody has re-run an RE-095-style wire capture for 3021 the way RE-095 did for the wrong 3023. That gap is an open ask to an RE runner, not a reason to withhold the pin.",
+        "why_no_scene_type_1_comparison": "n_SCENE_TYPE 4 has no precedent among scenes 1 (type 1) or 2 (type 2) already pinned in this file; nothing in this project has measured what a client does with type 4, and this entry makes no claim that it renders, loads, or floats a ship.",
+        "spawn_is_null_because": "no invented coordinate: pf_bridge/gamedata/scene/Bg1001/Bg1001.placements.tsv (sha256 5e4de48707a87061d9a95471a1c3c25c56f0469fe2ece7ef0709a9c79f40fec7) holds exactly 8 rows and every one of them is a Mob_set_* monster-spawn placement (index 0-7) - there is no explicit player-arrival marker anywhere in the committed placements table for this scene, and n_MARKER in the table_row above is 0 (no authored entry marker either, same signal scene 278 carries for the same reason). This lane will not fabricate a landing point; someone with an attended client needs to answer where a teleport into scene 17 actually lands a player. Until then, spawn_position() for n_id=17 refuses rather than inventing a position, per its own existing contract. UNKNOWN, NOT GUESSED - flagged, not hidden.",
+        "ground_is_null_because": "the 8 Mob_set_* placements DO carry real x/y/z (measured this round: x -971.2965087890625..844.638427734375, y -869.072998046875..1526.1767578125, z 746.0424194335938..1272.73876953125, a 526.696-unit z spread) - NOT flat the way Bg1177's placements are (0.002-unit spread there), consistent with several deck levels on a ship rather than one flat surface. A full 'ground' block matching scene 278's shape was not assembled this round, to keep this identity/quest/destination correction focused and to avoid a rushed reading of the undecoded per-record fields; a future round MAY add it from this same sha256-pinned placements.tsv without re-deriving anything new. This is a scope choice, not a missing-data refusal - the raw numbers above are real and already measured, just not yet packaged into the full ground schema."
+      },
+      "spawn": null,
+      "ground": null
+    },
+    {
       "n_id": 278,
       "model_id": "Bg1177",
       "scene_name_source_utf8_hex": "e6b299e78198e8b6b3e79083e5a0b4285445535429",
