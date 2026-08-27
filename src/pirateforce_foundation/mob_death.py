@@ -195,6 +195,25 @@ MOB_DEATH_MILESTONE = "MOB-DEATH-001"
 MOB_DEATH_BUILD_ORDER = "M4 second half"
 MOB_DEATH_LANE = "B_COMBAT"
 
+# COO-DECISION 2026-08-27T22:49+07:00 (answering LANE-B-ASK-COO 2026-08-27
+# 21:53+07:00, notes_to_chief/20260827_2153_LANE-B-ASK-COO-actor-identity-
+# needs-a-scene-term.md): FieldMob.actor_identity is 0x2000 + placement_index
+# + 1 with NO scene term (field_mobs.cross_scene_identity_collisions() finds
+# 4 real bg0001 x Bg0002 collisions today, e.g. placement 58 -> 0x203B for
+# BOTH bg0001's Jungle Big Tiger and Bg0002's Fighting Fish soldier).  The
+# COO's chosen fix is option 3 of 3 offered: do NOT touch that wire formula
+# (options 1/2 would move pins already proven against bg0001) -- instead key
+# this SERVER-SIDE register by the pair (scene, actor_identity), so two
+# different mobs in two different scenes that happen to share a wire
+# identity die independently.  DEFAULT_SCENE exists so every call site that
+# predates this round (and every test built on the single scene this project
+# has ever booted) keeps working with no change: bg0001 is the only scene a
+# session has ever loaded, so "no scene given" and "bg0001" are the same
+# fact today.  A caller that HAS a FieldMob in hand should pass mob.scene
+# explicitly rather than lean on this default -- see kill(), live_roster(),
+# repopulation_entries() and corpse_override() below, all updated this round.
+DEFAULT_SCENE = field_mob_tables.SCENE
+
 # The one line this lane owes the chief, written where a reader of the module
 # finds it rather than only in a PR body.
 MOB_DEATH_WIRING = (
@@ -590,6 +609,7 @@ REFUSE_VALUE_NOT_INT = "value_not_int"
 REFUSE_VALUE_OUT_OF_RANGE = "value_out_of_range"
 REFUSE_TYPE_NOT_TYPED_RECORD = "type_not_typed_record"
 REFUSE_IDENTITY_NOT_POSITIVE = "identity_not_positive"
+REFUSE_SCENE_NOT_TEXT = "scene_not_text"
 REFUSE_TIMER_NOT_FINITE = "timer_not_finite"
 REFUSE_TIMER_WRONG_SIDE_OF_THE_GATE = "timer_wrong_side_of_the_gate"
 REFUSE_LIVE_HP_WITH_A_DEATH_TIMER = "live_hp_with_a_death_timer"
@@ -635,6 +655,7 @@ MOB_DEATH_REFUSAL_REASONS = (
     REFUSE_VALUE_OUT_OF_RANGE,
     REFUSE_TYPE_NOT_TYPED_RECORD,
     REFUSE_IDENTITY_NOT_POSITIVE,
+    REFUSE_SCENE_NOT_TEXT,
     REFUSE_TIMER_NOT_FINITE,
     REFUSE_TIMER_WRONG_SIDE_OF_THE_GATE,
     REFUSE_LIVE_HP_WITH_A_DEATH_TIMER,
@@ -691,6 +712,21 @@ def _require_identity(value: Any, label: str) -> int:
     return identity
 
 
+def _require_scene(value: Any, label: str) -> str:
+    """The other half of the key COO-DECISION 2026-08-27T22:49+07:00 added.
+
+    Same shape as field_mobs.load_roster's own ``scene`` check: non-empty
+    text, nothing more -- this module trusts a FieldMob's own ``.scene``
+    field the same way it already trusts every other column on that typed
+    record (see field_mobs.assert_single_scene_tables' own "WHAT THIS DOES
+    NOT COVER" paragraph, which says so explicitly for the same field).
+    """
+    if type(value) is not str or not value:
+        raise MobDeathContractError(
+            REFUSE_SCENE_NOT_TEXT, "%s must be non-empty text" % label)
+    return value
+
+
 def _require_timer(value: Any) -> float:
     """The timer AS THE CLIENT WILL READ IT, not as Python holds it.
 
@@ -727,16 +763,31 @@ def _require_mob(mob: Any) -> FieldMob:
 
 @dataclass(frozen=True)
 class DeathRecord:
-    """One monster's death: who it was, who killed it, what it stood at."""
+    """One monster's death: who it was, who killed it, what it stood at.
+
+    ``scene`` was ADDED this round (COO-DECISION 2026-08-27T22:49+07:00) and
+    put LAST with a default of :data:`DEFAULT_SCENE`, so every existing
+    3-positional-argument construction in this tree keeps meaning exactly
+    what it always meant (a bg0001 record, the only scene this project has
+    ever booted) and only a caller that names a different scene needs to
+    change anything.  Two records may now legitimately share
+    ``actor_identity`` as long as their ``scene`` differs -- that is the
+    whole point: two different mobs in two different scenes that happen to
+    compute the same wire identity (``field_mobs.cross_scene_identity_
+    collisions()`` measures 4 such pairs today) are two different graves,
+    not one.
+    """
 
     actor_identity: int
     killer_identity: int
     max_hp: int
+    scene: str = DEFAULT_SCENE
 
     def __post_init__(self) -> None:
         _require_identity(self.actor_identity, "actor identity")
         _require_identity(self.killer_identity, "killer identity")
         _require_int(self.max_hp, "max hp", 1, 0xFFFFFFFF)
+        _require_scene(self.scene, "scene")
         if self.actor_identity == self.killer_identity:
             raise MobDeathContractError(
                 REFUSE_OUTCOME_NAMES_ANOTHER_MONSTER,
@@ -745,7 +796,7 @@ class DeathRecord:
 
 @dataclass(frozen=True)
 class DeathRegister:
-    """Who is dead, as a tuple sorted by identity.
+    """Who is dead, as a tuple sorted by ``(scene, actor_identity)``.
 
     Sorted-tuple rather than a set or a dict for the reason ``CombatLedger``
     gives: two registers built from the same kills compare equal in any
@@ -759,6 +810,19 @@ class DeathRegister:
     erases the other kill.  Nothing raises - and the erased monster stands
     back up at full HP on the next rebuild.  :func:`commit_death` is the
     compare-and-swap that makes the loser retry instead.
+
+    KEYED BY ``(scene, actor_identity)``, NOT ``actor_identity`` ALONE - added
+    this round by COO-DECISION 2026-08-27T22:49+07:00.  ``FieldMob.
+    actor_identity`` is ``0x2000 + placement_index + 1`` with no scene term,
+    so two different mobs in two different scenes can and do compute the same
+    wire identity (``field_mobs.cross_scene_identity_collisions()`` measures
+    4 real bg0001 x Bg0002 pairs today).  Before this round a single bare-
+    identity register would have let killing one of a colliding pair mark the
+    OTHER one dead too, in whichever scene it happened to stand in - the
+    wrong grave.  Every query method below takes an optional ``scene``
+    defaulting to :data:`DEFAULT_SCENE` (bg0001, the only scene this project
+    has ever booted), so no existing single-scene call site needed to change
+    to keep passing.
     """
 
     records: tuple[DeathRecord, ...] = ()
@@ -774,51 +838,60 @@ class DeathRegister:
                 raise MobDeathContractError(
                     REFUSE_TYPE_NOT_TYPED_RECORD,
                     "every register row must be a typed DeathRecord")
-            if record.actor_identity in seen:
+            key = (record.scene, record.actor_identity)
+            if key in seen:
                 raise MobDeathContractError(
                     REFUSE_DUPLICATE_REGISTER_IDENTITY,
-                    "identity 0x%X appears twice" % record.actor_identity)
-            seen.add(record.actor_identity)
+                    "identity 0x%X in scene %r appears twice" % key[::-1])
+            seen.add(key)
         ordered = tuple(sorted(
-            self.records, key=lambda row: row.actor_identity))
+            self.records, key=lambda row: (row.scene, row.actor_identity)))
         if ordered != self.records:
             raise MobDeathContractError(
                 REFUSE_REGISTER_NOT_SORTED,
-                "register rows must be given in ascending identity order")
+                "register rows must be given in ascending (scene, "
+                "actor_identity) order")
         _require_int(self.generation, "generation", 0, 2 ** 62)
 
     def identities(self) -> tuple[int, ...]:
         return tuple(row.actor_identity for row in self.records)
 
-    def is_dead(self, actor_identity: int) -> bool:
+    def is_dead(self, actor_identity: int, scene: str = DEFAULT_SCENE) -> bool:
         wanted = _require_identity(actor_identity, "actor identity")
-        return any(row.actor_identity == wanted for row in self.records)
+        wanted_scene = _require_scene(scene, "scene")
+        return any(
+            row.actor_identity == wanted and row.scene == wanted_scene
+            for row in self.records)
 
-    def record_of(self, actor_identity: int) -> DeathRecord:
+    def record_of(
+            self, actor_identity: int, scene: str = DEFAULT_SCENE
+    ) -> DeathRecord:
         wanted = _require_identity(actor_identity, "actor identity")
+        wanted_scene = _require_scene(scene, "scene")
         for row in self.records:
-            if row.actor_identity == wanted:
+            if row.actor_identity == wanted and row.scene == wanted_scene:
                 return row
         raise MobDeathContractError(
             REFUSE_NOT_DEAD,
-            "identity 0x%X is not in this register" % wanted)
+            "identity 0x%X in scene %r is not in this register" % (
+                wanted, wanted_scene))
 
     def with_death(self, record: DeathRecord) -> "DeathRegister":
         if type(record) is not DeathRecord:
             raise MobDeathContractError(
                 REFUSE_TYPE_NOT_TYPED_RECORD,
                 "the addition must be a typed DeathRecord")
-        if self.is_dead(record.actor_identity):
+        if self.is_dead(record.actor_identity, record.scene):
             raise MobDeathContractError(
                 REFUSE_ALREADY_DEAD,
-                "identity 0x%X is already in the register: a second kill on "
-                "the same monster is a caller bug, not an event" % (
-                    record.actor_identity),
+                "identity 0x%X in scene %r is already in the register: a "
+                "second kill on the same monster is a caller bug, not an "
+                "event" % (record.actor_identity, record.scene),
             )
         return DeathRegister(
             tuple(sorted(
                 self.records + (record,),
-                key=lambda row: row.actor_identity)),
+                key=lambda row: (row.scene, row.actor_identity))),
             self.generation + 1,
         )
 
@@ -1249,7 +1322,8 @@ class DeathStep:
                 REFUSE_TIMER_WRONG_SIDE_OF_THE_GATE,
                 "the two frames are byte-identical, so only one side of the "
                 "gate is on the wire")
-        if not self.register.is_dead(self.record.actor_identity):
+        if not self.register.is_dead(
+                self.record.actor_identity, self.record.scene):
             raise MobDeathContractError(
                 REFUSE_NOT_DEAD,
                 "the step's own register does not carry the monster it killed")
@@ -1423,15 +1497,16 @@ def kill(
                     widened, required_scene, mob.actor_identity,
                     mob.template_id, mob.scene),
             )
-    if live.is_dead(mob.actor_identity):
+    if live.is_dead(mob.actor_identity, mob.scene):
         raise MobDeathContractError(
             REFUSE_ALREADY_DEAD,
-            "identity 0x%X is already dead: a second kill would send a second "
-            "pair of frames for a corpse" % mob.actor_identity,
+            "identity 0x%X in scene %r is already dead: a second kill would "
+            "send a second pair of frames for a corpse" % (
+                mob.actor_identity, mob.scene),
         )
     _require_int(hold_ms, "hold ms", 0, 60_000)
     record = DeathRecord(
-        mob.actor_identity, outcome.attacker_identity, mob.max_hp)
+        mob.actor_identity, outcome.attacker_identity, mob.max_hp, mob.scene)
     dying_pc, dying_frame = dying_frames(
         legacy, mob, death_timer=dying_timer, faction=faction,
         with_name=with_name)
@@ -1505,7 +1580,14 @@ def live_roster(
     roster: tuple[FieldMob, ...],
     register: DeathRegister,
 ) -> tuple[FieldMob, ...]:
-    """The monsters that are still alive, in the order they were given."""
+    """The monsters that are still alive, in the order they were given.
+
+    Checked per mob with the mob's OWN ``scene`` (``register.is_dead(m.
+    actor_identity, m.scene)``), not a bare ``actor_identity in {register.
+    identities()}`` set - the latter would wrongly call a live mob dead the
+    moment the register also carries a DIFFERENT scene's mob sharing the same
+    wire identity (COO-DECISION 2026-08-27T22:49+07:00).
+    """
     if type(roster) is not tuple:
         raise MobDeathContractError(
             REFUSE_TYPE_NOT_TYPED_RECORD, "roster must be a tuple of FieldMob")
@@ -1515,8 +1597,8 @@ def live_roster(
             "register must be a typed DeathRegister")
     for mob in roster:
         _require_mob(mob)
-    dead = set(register.identities())
-    return tuple(m for m in roster if m.actor_identity not in dead)
+    return tuple(
+        m for m in roster if not register.is_dead(m.actor_identity, m.scene))
 
 
 def _balance_in(ledger: Any, actor_identity: int) -> int:
@@ -1586,9 +1668,16 @@ def repopulation_entries(
     # result: the override comes back empty, every one of them stands back up
     # at full HP on the rebuild, and nothing raises.  A skipped corpse is not
     # a handled corpse.
+    #
+    # Checked by (scene, actor_identity), not bare identity (COO-DECISION
+    # 2026-08-27T22:49+07:00): a register that also carries a DIFFERENT
+    # scene's dead mob sharing this wire identity must not be mistaken for
+    # "this roster forgot a row" - that dead mob simply belongs to a roster
+    # this call was never given.
+    roster_keys = set((m.scene, m.actor_identity) for m in roster)
     missing = tuple(
-        identity for identity in register.identities()
-        if identity not in tuple(m.actor_identity for m in roster)
+        record.actor_identity for record in register.records
+        if (record.scene, record.actor_identity) not in roster_keys
     )
     if missing:
         raise MobDeathContractError(
@@ -1601,7 +1690,7 @@ def repopulation_entries(
     entries = []
     for mob in roster:
         _require_mob(mob)
-        if not register.is_dead(mob.actor_identity):
+        if not register.is_dead(mob.actor_identity, mob.scene):
             current_hp = None
             if ledger is not None:
                 # balance_of raises mob_combat's own named refusal when the
@@ -1622,7 +1711,7 @@ def repopulation_entries(
                 legacy, mob, current_hp=current_hp, faction=faction,
                 with_name=with_name))
             continue
-        row = register.record_of(mob.actor_identity)
+        row = register.record_of(mob.actor_identity, mob.scene)
         if ledger is not None:
             # The mirror of the case above: dead in the register and standing
             # in the arithmetic.  Sending the corpse would be right on the
@@ -1720,7 +1809,7 @@ def corpse_override(
     )
     override: dict[int, bytes] = {}
     for mob, entry in zip(roster, entries):
-        if register.is_dead(mob.actor_identity):
+        if register.is_dead(mob.actor_identity, mob.scene):
             override[mob.actor_identity] = entry
             continue
         if ledger is not None and _balance_in(
