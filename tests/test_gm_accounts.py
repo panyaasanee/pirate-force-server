@@ -75,6 +75,17 @@ class GmAccountsMalformedConfigTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             is_gm_account(12345)
 
+    def test_non_object_top_level_json_raises_value_error(self):
+        # A JSON list/string/null at the top level must fail loud with
+        # ValueError like every other malformed shape here, not fall through
+        # to an unhandled AttributeError from a bare dict.get() call.
+        for bad_top_level in ([1, 2, 3], "not an object", None):
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "gm_accounts.json"
+                path.write_text(json.dumps(bad_top_level), encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    load_gm_accounts(path)
+
 
 if __name__ == "__main__":
     unittest.main()

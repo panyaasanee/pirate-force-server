@@ -39,6 +39,10 @@ def load_gm_accounts(config_path: str | os.PathLike | None = None) -> frozenset[
         return frozenset()
     with path.open("r", encoding="utf-8") as handle:
         data = json.load(handle)
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"{path}: top-level JSON must be an object, got {type(data).__name__}"
+        )
     accounts = data.get("gm_accounts", [])
     if not isinstance(accounts, list):
         raise ValueError(
