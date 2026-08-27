@@ -372,6 +372,33 @@ round: no account gets anything it could not already get before.
   (`say_wire.py` was not touched); a follow-up round should apply the same
   broadened catch and scalar guard there.
 
+## Modules delivered (say-wire args-shape follow-up round)
+
+- **fixed** `gm/say_wire.py`'s own copy of the args-shape gap named as a
+  known follow-up above: `make_say_broadcast_frame`'s `len(args)` and
+  `args[0]` guards now catch `Exception` broadly instead of the narrow
+  `TypeError`/`KeyError`/`IndexError` set, and `args` is rejected via
+  `isinstance` if it is `str`/`bytes` before either guard runs -- same
+  fix, same order, as `warp_executor.py`'s own follow-up round applied to
+  itself.
+- `pf-adversary` reviewed this change before commit (house rule) against
+  the same failure modes the warp-executor round found (a custom
+  `__len__`/`__getitem__` raising outside the original three types; a
+  `str`/`bytes` scalar passing the bare length check) plus a cross-check
+  against `warp_executor.py`'s shipped version for drift; no further gap
+  found in the args-shape validation itself.
+- `tests/test_gm_say_wire.py` -- 4 new tests (`SayWireArgsShapeFollowUpTests`):
+  a `str` args scalar, a `bytes` args scalar, an `args` object whose
+  `__len__` raises `ValueError`, and one whose `__getitem__` raises
+  `AttributeError`. All four must raise `SayWireError`, not the underlying
+  bare exception.
+
+No behavior change on the happy path -- a real one-element `args` sequence
+carrying a `str` produces a byte-identical frame to before. `say` still
+does not execute after this round: this module only returns frame bytes,
+it sends nothing, and no account gets anything it could not already get
+before this round (`CORE-REQUEST-012` is not wired into `runtime.py`).
+
 ## Attempted and retracted (broadcast-wire round)
 
 This round tried to give `say` a wire codec for `Channel_GMGlobalMessageVital`
