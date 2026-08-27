@@ -25,7 +25,12 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from pirateforce_foundation import field_mob_tables, field_mobs
+from pirateforce_foundation import (
+    field_mob_tables,
+    field_mob_tables_bg0002,
+    field_mob_tables_bg0015,
+    field_mobs,
+)
 from pirateforce_foundation.legacy_bridge import load_legacy
 from pirateforce_foundation.population import (
     NPC_ATTR_ID,
@@ -44,6 +49,8 @@ from pirateforce_foundation.field_mobs import (
     PLAYER_PAIR_FACTION,
     assert_frozen_controls,
     build_field_mob_population,
+    cross_scene_identity_collisions,
+    describe_cross_scene_identity_collisions,
     hostile_actor_entry,
     hostile_npc_attr,
     hostile_placement_indices,
@@ -500,6 +507,131 @@ class FieldMobTypeTests(unittest.TestCase):
             30, 31, 0.0, 0.0, 0.0, "P", "N", 27, 1, 0, 1, 100, 3857, 0, 0, 0,
         )
         self.assertEqual(mob.actor_identity, 0x2000 + 30 + 1)
+
+
+class CrossSceneIdentityCollisionTests(unittest.TestCase):
+    # round `k25cur`: turns the prose already on record (this module's
+    # ``load_roster`` docstring, and
+    # ``test_bg0001_and_bg0002_actor_identities_are_NOT_disjoint_a_real_
+    # collision`` above) into a reusable, reproducible report.  Also
+    # extends the MEASUREMENT (not the default, and not any import in
+    # ``src/``) to Bg0015, a third mined-but-still-COO-gated-dormant scene
+    # table nothing previously compared against the other two -- see
+    # ``test_bg0015_is_measurable_...`` below for why that stays an
+    # explicit, test-only argument rather than joining the default set.
+
+    def test_default_set_is_the_two_live_known_scenes_only(self) -> None:
+        # Bg0015 is deliberately NOT in the default: COO-DECISION
+        # 2026-08-26T12:46+07:00 keeps field_mob_tables_bg0015 unimported
+        # anywhere under src/pirateforce_foundation/, so this function's own
+        # module-level default cannot reference it either.
+        collisions = cross_scene_identity_collisions()
+        by_pair: dict[tuple[str, str], list[dict]] = {}
+        for row in collisions:
+            by_pair.setdefault((row["scene_a"], row["scene_b"]), []).append(row)
+        self.assertEqual(sorted(by_pair), [("bg0001", "Bg0002")])
+        self.assertEqual(len(by_pair[("bg0001", "Bg0002")]), 4)
+        self.assertEqual(len(collisions), 4)
+
+    def test_bg0001_vs_bg0002_matches_the_identities_the_load_roster_test_pins(
+            self) -> None:
+        # cross-check against the OTHER test's independently-computed set
+        # (test_bg0001_and_bg0002_actor_identities_are_NOT_disjoint_a_real_
+        # collision above) rather than trusting one number twice.
+        collisions = cross_scene_identity_collisions(
+            (field_mob_tables, field_mob_tables_bg0002))
+        found = {row["actor_identity"] for row in collisions}
+        self.assertEqual(found, {0x203B, 0x203C, 0x203D, 0x2060})
+        by_placement = {row["placement_index"]: row for row in collisions}
+        self.assertEqual(by_placement[58]["name_a"], "Jungle Big Tiger")
+        self.assertEqual(by_placement[58]["name_b"], "Fighting Fish soldier")
+        self.assertEqual(by_placement[95]["name_a"], "An Gebo Little Firebird")
+        self.assertEqual(by_placement[95]["name_b"], "Orc Chief")
+
+    def test_bg0015_is_measurable_even_though_load_roster_refuses_it(self) -> None:
+        # field_mob_tables_bg0015 is deliberately NOT in
+        # field_mobs._SCENE_TABLE_MODULES (still unwired, still COO-gated
+        # out of src/) -- this function must still be able to read it for a
+        # caller-supplied report, without that meaning load_roster() can
+        # load it, and without field_mobs.py itself ever importing it (this
+        # test file is under tests/, not src/pirateforce_foundation/, so its
+        # own import of field_mob_tables_bg0015 above does not trip
+        # test_field_mob_tables_bg0015.py's src-only AST guard).
+        with self.assertRaises(FieldMobContractError):
+            load_roster(scene=field_mob_tables_bg0015.SCENE)
+        collisions = cross_scene_identity_collisions(
+            (field_mob_tables, field_mob_tables_bg0015))
+        self.assertEqual(len(collisions), 3)
+        for row in collisions:
+            self.assertEqual({row["scene_a"], row["scene_b"]}, {"bg0001", "Bg0015"})
+
+    def test_all_three_known_tables_together_find_ten_pairwise_collisions(
+            self) -> None:
+        # The full picture across every scene table this project has mined
+        # so far (bg0001 live, Bg0002 about to be wired per this round's
+        # letter, Bg0015 COO-gated dormant) -- passed explicitly, never the
+        # default, for the reason the two tests above document.
+        collisions = cross_scene_identity_collisions(
+            (field_mob_tables, field_mob_tables_bg0002, field_mob_tables_bg0015))
+        by_pair: dict[tuple[str, str], list[dict]] = {}
+        for row in collisions:
+            by_pair.setdefault((row["scene_a"], row["scene_b"]), []).append(row)
+        self.assertEqual(
+            sorted(by_pair),
+            [("Bg0002", "Bg0015"), ("bg0001", "Bg0002"), ("bg0001", "Bg0015")],
+        )
+        self.assertEqual(len(by_pair[("bg0001", "Bg0002")]), 4)
+        self.assertEqual(len(by_pair[("bg0001", "Bg0015")]), 3)
+        self.assertEqual(len(by_pair[("Bg0002", "Bg0015")]), 3)
+        self.assertEqual(len(collisions), 10)
+
+    def test_two_disjoint_scenes_report_zero_collisions(self) -> None:
+        # bg0002 vs a hand-built single-mob table sharing no placement index
+        # with it: the function must not manufacture a false positive.
+        class _FakeModule:
+            SCENE = "FakeSceneNoOverlap"
+            HOSTILE_PLACEMENTS = [
+                (9001, 31, 0.0, 0.0, 0.0, "P", "N", 1, 1, 0, 1, 1, 1, 0, 0, 0),
+            ]
+        collisions = cross_scene_identity_collisions(
+            (field_mob_tables_bg0002, _FakeModule))
+        self.assertEqual(collisions, ())
+
+    def test_refuses_fewer_than_two_modules(self) -> None:
+        with self.assertRaises(FieldMobContractError):
+            cross_scene_identity_collisions((field_mob_tables,))
+
+    def test_refuses_a_module_missing_its_scene_constant(self) -> None:
+        class _NoScene:
+            HOSTILE_PLACEMENTS = []
+        with self.assertRaises(FieldMobContractError):
+            cross_scene_identity_collisions((field_mob_tables, _NoScene))
+
+    def test_describe_is_ascii_and_carries_the_same_count(self) -> None:
+        collisions = cross_scene_identity_collisions()
+        lines = describe_cross_scene_identity_collisions()
+        self.assertEqual(lines[0], "FIELD_MOB_CROSS_SCENE_IDENTITY_COLLISIONS count=4")
+        self.assertEqual(len(lines), 1 + len(collisions))
+        for line in lines:
+            self.assertTrue(line.isascii())
+            self.assertTrue(line.encode("cp874"))
+
+    def test_describe_reports_zero_by_name_not_by_absence(self) -> None:
+        lines = describe_cross_scene_identity_collisions(
+            (field_mob_tables_bg0002, field_mob_tables_bg0015))
+        # These two DO collide (measured above) -- exercise the true
+        # zero-collision shape explicitly instead, mirroring
+        # test_two_disjoint_scenes_report_zero_collisions.
+        class _FakeModule:
+            SCENE = "FakeSceneNoOverlap2"
+            HOSTILE_PLACEMENTS = [
+                (9002, 34, 0.0, 0.0, 0.0, "P", "N", 1, 1, 0, 1, 1, 1, 0, 0, 0),
+            ]
+        zero_lines = describe_cross_scene_identity_collisions(
+            (field_mob_tables_bg0002, _FakeModule))
+        self.assertEqual(
+            zero_lines, ("FIELD_MOB_CROSS_SCENE_IDENTITY_COLLISIONS count=0",))
+        self.assertNotEqual(lines[0], zero_lines[0])
 
 
 if __name__ == "__main__":
