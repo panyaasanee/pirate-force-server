@@ -237,8 +237,10 @@ ASSUMPTION_SITES = (
     ("X02", "interlock", RUNTIME, r"self\._checkpoint_exact_target\(", 2,
      "both checkpoint call sites sit at try-depth 0 inside dispatch (see X06)"),
     ("X03", "interlock", STORE,
-     r'raise PermissionError\("stale or non-owning character session"\)', 2,
-     "a stale lease raises out of the store rather than returning a status"),
+     r'raise PermissionError\("stale or non-owning character session"\)', 3,
+     "a stale lease raises out of the store rather than returning a status "
+     "(CORE-REQUEST-018 added save_position's write_position=False branch, "
+     "its own ownership check, its own raise -- 2->3)"),
     ("X04", "interlock", SHUTDOWN, r'controller\.request_stop\("server thread failure"\)', 1,
      "an exception escaping the listener stops the entire server"),
     ("X05", "interlock", STORE,

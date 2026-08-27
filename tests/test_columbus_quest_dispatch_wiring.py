@@ -404,6 +404,117 @@ class ColumbusQuest3021WiringTests(unittest.TestCase):
         self.assertEqual(actions, [])
         self.assertFalse(state.columbus_quest3021_dispatch_attempted)
 
+    def test_choosing_columbus_sends_both_quest_options_now(self):
+        """CORE-REQUEST-019 (Lane A, 2026-08-27T18:48+07:00): the composed
+        conversation must carry BOTH quest 3021 and quest 3205 -- reverting
+        the ``runtime.py`` call site back to the single-option
+        ``make_columbus_conversation`` makes this fail (only 3021's tag
+        would be present)."""
+        state = self._real_state("tok-columbus-two-options")
+        columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
+            self.legacy,
+        )
+        actions = state.dispatch(self.legacy.parse_outer(
+            _choose_npc_pc(self.legacy, columbus_identity)
+        ))
+        conv_pc = [
+            action[1] for action in actions
+            if action[0].startswith("CORE_REQUEST_014")
+        ][0]
+        self.assertIn(
+            self.legacy.u16tag(0x12, columbus_quest_dispatch.COLUMBUS_QUEST_ID),
+            conv_pc,
+        )
+        self.assertIn(
+            self.legacy.u16tag(
+                0x12, columbus_quest_dispatch.COLUMBUS_QUEST_BORNAGAIN_ID,
+            ),
+            conv_pc,
+        )
+        self.assertIn(self.legacy.u16tag(0x0F, 2), conv_pc)
+
+    def test_quest_operate_op1_quest3205_after_conversation_refuses_named_reason(self):
+        """CORE-REQUEST-019: option 2 (quest 3205, Q_BORNAGAIN) has its own
+        independent latch and always refuses today (no persisted
+        home-marker column, no captured wire ack -- RE-112) -- mutation
+        check: revert the new ``elif`` branch in ``runtime.py`` and this
+        fails silently (no refusal event, no console token)."""
+        state = self._real_state("tok-columbus-op1-3205")
+        columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
+            self.legacy,
+        )
+        state.dispatch(self.legacy.parse_outer(
+            _choose_npc_pc(self.legacy, columbus_identity)
+        ))
+        self.assertTrue(state.columbus_quest3021_conversation_sent)
+        actions = state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_quest_operate_pc(
+                columbus_quest_dispatch.COLUMBUS_QUEST_BORNAGAIN_ID,
+                1, 0, 0, 0, 0,
+            )
+        ))
+        self.assertEqual(actions, [])
+        self.assertIn(
+            "columbus_quest3205_dispatch_refused_"
+            + columbus_quest_dispatch.BORNAGAIN_MARKER_RESET_REFUSED_NO_PERSISTENCE_ROW,
+            state.events,
+        )
+        self.assertTrue(state.columbus_quest3205_dispatch_attempted)
+        # 3021's own latch must be untouched by a 3205 attempt.
+        self.assertFalse(state.columbus_quest3021_dispatch_attempted)
+
+    def test_quest_operate_op1_quest3021_still_works_after_two_option_wiring(self):
+        """Regression guard: composing the two-option conversation must not
+        break quest 3021's own dispatch/teleport path."""
+        state = self._real_state("tok-columbus-3021-still-works")
+        columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
+            self.legacy,
+        )
+        state.dispatch(self.legacy.parse_outer(
+            _choose_npc_pc(self.legacy, columbus_identity)
+        ))
+        actions = state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_quest_operate_pc(
+                columbus_quest_dispatch.COLUMBUS_QUEST_ID, 1, 0, 0, 0, 0,
+            )
+        ))
+        labels = [action[0] for action in actions]
+        self.assertIn(
+            "CORE_REQUEST_014_COLUMBUS_Q3021_TELEPORT_SCENE17_ONCE", labels,
+        )
+        self.assertTrue(state.columbus_quest3021_dispatch_attempted)
+        self.assertFalse(state.columbus_quest3205_dispatch_attempted)
+
+    def test_quest_operate_op1_quest3021_then_3205_both_dispatch_independently(self):
+        """A player who tries option 1 first, then goes back and tries
+        option 2, must still get option 2's own refusal -- the outer gate
+        must not stop checking once ONLY the 3021 latch is set."""
+        state = self._real_state("tok-columbus-both-in-order")
+        columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
+            self.legacy,
+        )
+        state.dispatch(self.legacy.parse_outer(
+            _choose_npc_pc(self.legacy, columbus_identity)
+        ))
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_quest_operate_pc(
+                columbus_quest_dispatch.COLUMBUS_QUEST_ID, 1, 0, 0, 0, 0,
+            )
+        ))
+        self.assertTrue(state.columbus_quest3021_dispatch_attempted)
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_quest_operate_pc(
+                columbus_quest_dispatch.COLUMBUS_QUEST_BORNAGAIN_ID,
+                1, 0, 0, 0, 0,
+            )
+        ))
+        self.assertIn(
+            "columbus_quest3205_dispatch_refused_"
+            + columbus_quest_dispatch.BORNAGAIN_MARKER_RESET_REFUSED_NO_PERSISTENCE_ROW,
+            state.events,
+        )
+        self.assertTrue(state.columbus_quest3205_dispatch_attempted)
+
 
 if __name__ == "__main__":
     unittest.main()
