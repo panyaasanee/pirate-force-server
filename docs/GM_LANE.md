@@ -1004,20 +1004,26 @@ one line, which step the shortcut skipped, e.g.:
 
 ## RE requests open (owned by static RE lane, filed via chief)
 
-**`RE-118`** (round `y2nhzz`, `pf_bridge/CLIENT_RE_QUEUE.md`): an attended
-run (`GT-107-R3`, reported under the filename `GT101R3-RESULT` but matching
-`GT-107-R3`'s own scope byte-for-byte -- see that entry's result) confirmed
-`GM_UpdateGMStateVital` now reaches a real client cleanly (no modal, no
-session kill) and `BT_GM` is visible, closing the last open question from
-`RE-113`/`CORE-REQUEST-020` -- but clicking `BT_GM` produces nothing at all
-(no window, no outbound frame). `RE-118` asks static RE to trace the click
-dispatcher (`0x0053B9B0` -> gate `0x0044A3B0` -> current-UI-key vfunc ->
-`0x00AA0710` -> factory `0x007280D0`) for the condition that stops it --
-this lane does not guess at it. `GT-103` stays blocked on the answer.
+None filed by this lane are open as of round `4djeqi`.
 
-RE-088, RE-089, RE-090, RE-091, RE-104, RE-105, and RE-113 are all closed
-(see above) -- kept here so the next round does not have to re-derive that
-from the closed list.
+`RE-118` (round `y2nhzz`, `pf_bridge/CLIENT_RE_QUEUE.md`) is now **CLOSED
+PASS/DONE** (round `4djeqi`,
+`notes_to_chief/20260828_0411_RE-118-RESULT-CURRENT-UI-KEY-MUST-BE-NONEMPTY.md`):
+the click chain from `BT_GM` uses only the existing `GMModule_Client+0x19`
+gate (`+0x18`/`+0x1C` are read by an unrelated adapter, not this click path
+-- do not tweak them). After that gate passes, dispatcher `0x00AA0710`
+requires a non-null current-UI object whose vfunc `+0x04` returns a
+non-empty UTF-16 key; when the key is empty, factory `0x007280D0` is never
+reached and nothing is logged -- exactly the silent no-window/no-frame
+outcome `GT-107-R3` observed. No new field on `0x5A19` needed. Static
+cannot say whether the key was actually empty during that specific run, so
+`GT-103` now carries an attended A/B step (click from an empty HUD vs. click
+after opening a panel known to give a non-empty current-UI key,
+`pf_bridge/GAME_TEST_QUEUE.md`) instead of staying blocked.
+
+RE-088, RE-089, RE-090, RE-091, RE-104, RE-105, RE-113, and RE-118 are all
+closed (see above) -- kept here so the next round does not have to
+re-derive that from the closed list.
 
 Remaining semantic gaps (what the
 `GM_RunGMCommandVital` two wide strings and three scalars mean; what the
@@ -1133,3 +1139,23 @@ nonclaim: headless-only round, no `runtime.py` edit, no frame fired at a
 real client -- `GT-110` itself (now unblocked) is what proves this on a
 real client. Full detail:
 `pf_bridge/rounds/GM_20260828_0222_gt110-standalone-login-scene-safety-fix.md`.
+
+## Modules delivered (round `4djeqi`, RE-118 closed, no code change)
+
+`RE-118` (opened round `y2nhzz`, asking static RE to trace why clicking
+`BT_GM` produces nothing) came back CLOSED PASS/DONE this round -- see "RE
+requests open" above, now empty, for the mechanism. No `gm/` module needed
+a change: the gap is a client-side UI dispatch precondition (a non-empty
+current-UI key), not a server-sent field. `pf_bridge/GAME_TEST_QUEUE.md`
+`GT-103` gained an attended A/B step (further split into 2a/2b after a
+same-round `pf-adversary` fix -- see that file's own "Correction" note in
+`pf_bridge/rounds/GM_20260828_0418_re118-closed-gt103-ab-procedure-added.md`)
+in place of its `BLOCKED-ON RE-118` header; `GT-107-R3`'s own RESULT text
+is untouched as of this round's final push, with a pointer paragraph
+appended after it -- this round's first push briefly edited that section's
+`nonclaim:` line in place before `pf-adversary` caught it and a follow-up
+commit restored it verbatim.
+
+nonclaim: headless-only round, no `runtime.py` edit, no frame fired at a
+real client, no `gm/` code touched. Full detail:
+`pf_bridge/rounds/GM_20260828_0418_re118-closed-gt103-ab-procedure-added.md`.
