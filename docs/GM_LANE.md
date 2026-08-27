@@ -1147,9 +1147,14 @@ real client. Full detail:
 requests open" above, now empty, for the mechanism. No `gm/` module needed
 a change: the gap is a client-side UI dispatch precondition (a non-empty
 current-UI key), not a server-sent field. `pf_bridge/GAME_TEST_QUEUE.md`
-`GT-103` gained an attended A/B step in place of its `BLOCKED-ON RE-118`
-header; `GT-107-R3`'s own RESULT text was left untouched, with a pointer
-paragraph appended after it instead.
+`GT-103` gained an attended A/B step (further split into 2a/2b after a
+same-round `pf-adversary` fix -- see that file's own "Correction" note in
+`pf_bridge/rounds/GM_20260828_0418_re118-closed-gt103-ab-procedure-added.md`)
+in place of its `BLOCKED-ON RE-118` header; `GT-107-R3`'s own RESULT text
+is untouched as of this round's final push, with a pointer paragraph
+appended after it -- this round's first push briefly edited that section's
+`nonclaim:` line in place before `pf-adversary` caught it and a follow-up
+commit restored it verbatim.
 
 nonclaim: headless-only round, no `runtime.py` edit, no frame fired at a
 real client, no `gm/` code touched. Full detail:
