@@ -15,6 +15,7 @@ from . import mob_combat
 from . import mob_death
 from . import mob_loot
 from . import mob_pickup
+from . import trace_path
 from . import world_density
 from . import world_population
 from . import world_population_bg0002
@@ -4529,6 +4530,24 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.rx_frames += 1
                 self.events.append("logout_hypothesis_post_ack_frame_no_reply")
                 return []
+            if nested_id == trace_path.TRACE_PATH_REQ_VITAL_ID:
+                # CORE-REQUEST-025 (LANE-A, 20260828_0427): the player's GO!
+                # click in the map window sends CTracePathReqVital (0x4391)
+                # and the server never answered -- client stays stuck on
+                # "finding path..." forever (KA1A finding, 20260828_0235).
+                # RE-119 (STATIC-ON-BRIDGE, PASS/DONE) proved an empty
+                # CTracePathVital (record count=0) makes the client dispatch
+                # EndFindPath and clear the stall; scope is empty-vector
+                # only -- no waypoint/auto-walk semantics, per the letter's
+                # explicit nonclaim (RE-119 T4 leaves the request's own
+                # discriminator field bounded negative).
+                self.rx_frames += 1
+                if self.foundation.selected is None:
+                    self.events.append("trace_path_no_selected_no_reply")
+                    return []
+                pc, frame = trace_path.make_trace_path_empty_response(legacy)
+                self.events.append("trace_path_empty_vector_reply")
+                return [("TRACE_PATH_EMPTY_VECTOR_REPLY", pc, frame, 0.0)]
             if (
                 logout_hypothesis_scenario is not None
                 and logout_hypothesis_scenario.response_policy
