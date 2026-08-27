@@ -419,6 +419,16 @@ WIDENING_RULING_SCENES: dict[str, str] = {
 BASIC_BIT_NAME = 0x0001
 BASIC_BIT_CURRENT_HP = 0x0004          # u32 tag 0x14 @ +0x44
 BASIC_BIT_MAX_HP = 0x0008              # u32 tag 0x14 @ +0x48
+# ADDED this round (COO-DECISION 2026-08-28T01:46+07:00): field_mobs.
+# hostile_npc_attr now always sends the mined MOBS speed via
+# legacy.make_npc_attr's own movement_speed parameter, bit 0x0040, f32 tag
+# 0x2A @ +0x54 -- the same bit that function's own docstring already RE's
+# (0x45C103/0x464960/0x45D2EA/0x484580).  This module's hand-written composer
+# must widen by the same bit in the same ascending-mask-bit slot (after max
+# HP, before the death timer) or its own self-check below (the timerless
+# projection must reproduce field_mobs.hostile_npc_attr byte for byte) fails
+# closed -- which is exactly what caught this composer needing the update.
+BASIC_BIT_MOVEMENT_SPEED = 0x0040      # f32 tag 0x2A @ +0x54
 BASIC_BIT_DEATH_TIMER = 0x0080         # f32 tag 0x2A @ +0x58
 BASIC_BIT_SCENE_ID = 0x0100            # u16 tag 0x12
 BASIC_BIT_SCENE_SEQ = 0x0200           # qword tag 0x32
@@ -917,7 +927,7 @@ def _compose_body(
     ``field_mobs.hostile_npc_attr`` byte for byte.
     """
     basic_mask = (
-        BASIC_BIT_CURRENT_HP | BASIC_BIT_MAX_HP
+        BASIC_BIT_CURRENT_HP | BASIC_BIT_MAX_HP | BASIC_BIT_MOVEMENT_SPEED
         | BASIC_BIT_SCENE_ID | BASIC_BIT_SCENE_SEQ | BASIC_BIT_FACTION
     )
     if with_name and mob.display_name:
@@ -936,6 +946,7 @@ def _compose_body(
         out += legacy.wstr_tag(mob.display_name)               # 0x0001
     out += legacy.u32tag(U32_TAG, current_hp)                  # 0x0004
     out += legacy.u32tag(U32_TAG, mob.max_hp)                  # 0x0008
+    out += legacy.f32tag(float(mob.speed_walk))                # 0x0040
     if death_timer is not None:
         out += legacy.f32tag(death_timer)                      # 0x0080
     out += legacy.u16tag(BASIC_ATTR_MASK_TAG, scene_id)        # 0x0100
@@ -1093,12 +1104,16 @@ def _timer_offset(
     current_hp: int,
     with_name: bool,
 ) -> int:
-    """Where bit 0x0080 belongs: after max HP, before the scene id.
+    """Where bit 0x0080 belongs: after max HP and speed, before the scene id.
 
     Computed from the frozen serializers rather than written down, because the
     name field ahead of it is variable-length.  The head is checked against
     the body it is measuring, so a drift in ``make_npc_attr``'s field order
     refuses here instead of putting the timer in the wrong place.
+
+    ADDED this round: the speed field (bit 0x0040) sits between max HP and
+    the death timer in ascending-mask-bit order, so its bytes must be
+    accounted for here too -- see ``BASIC_BIT_MOVEMENT_SPEED``.
     """
     head = (
         bytes(legacy.u8tag(DB_ATTRIBUTE_MASK_TAG, DB_ATTRIBUTE_IDENTITY_MASK))
@@ -1108,15 +1123,18 @@ def _timer_offset(
         bytes(legacy.wstr_tag(mob.display_name))
         if with_name and mob.display_name else b""
     )
+    speed = bytes(legacy.f32tag(float(mob.speed_walk)))
     upto = (
         len(head) + 3 + len(name)
         + len(bytes(legacy.u32tag(U32_TAG, current_hp)))
         + len(bytes(legacy.u32tag(U32_TAG, mob.max_hp)))
+        + len(speed)
     )
     expected = (
         head + timerless[len(head):len(head) + 3] + name
         + bytes(legacy.u32tag(U32_TAG, current_hp))
         + bytes(legacy.u32tag(U32_TAG, mob.max_hp))
+        + speed
     )
     if timerless[:upto] != expected:
         raise MobDeathContractError(

@@ -81,6 +81,7 @@ class FieldMobTests(unittest.TestCase):
             baseline = self.legacy.make_npc_attr(
                 mob.template_id, mob.actor_identity, SCENE_ID, SCENE_SEQUENCE,
                 mob.visual_preset, mob.max_hp, mob.max_hp,
+                movement_speed=float(mob.speed_walk),
                 basic_name=mob.display_name,
             )
             hostile = hostile_npc_attr(self.legacy, mob)
@@ -142,6 +143,64 @@ class FieldMobTests(unittest.TestCase):
                 + rebuilt[mask_at + 2:]
             )
             self.assertEqual(restored, baseline)
+
+    def test_the_speed_field_carries_the_mined_value_not_the_owners_pc_guess(
+            self) -> None:
+        # COO-DECISION 2026-08-28T01:46+07:00 told this lane to widen its own
+        # ActorAttr composition toward PANYA-DECISION 2026-08-28T01:25+07:00's
+        # table's "most complete" philosophy.  That table's own field 7 (Basic
+        # 0x0040 +0x54 f32, move speed) is an explicit NONCLAIM: the owner's
+        # 400 is a PC-actor screen guess, not sourced.  This test proves the
+        # value this lane actually sends is NOT that guess -- it is
+        # ``mob.speed_walk``, ``field_mob_tables``'s own mined MOBS column,
+        # fed through a parameter ``legacy.make_npc_attr`` already carried
+        # (and already statically RE'd: 0x45C103/0x464960/0x45D2EA/0x484580,
+        # see that function's own docstring) before this round touched it.
+        #
+        # pf-adversary (this round) caught that an earlier draft of this test
+        # only iterated ``load_roster()``'s bg0001 default, while its own
+        # docstring/comment claimed "both live scenes" -- Bg0002 was never
+        # actually exercised even though its mined speed_walk column exists.
+        # Both scenes ``load_roster`` can load are iterated explicitly below
+        # so the claim and the coverage cannot drift apart again; a future
+        # third scene added to ``field_mobs._SCENE_TABLE_MODULES`` without an
+        # entry here would silently narrow this test's scope back to the same
+        # gap, so this list -- not ``_SCENE_TABLE_MODULES`` -- is the thing to
+        # extend when that happens.
+        for scene in (field_mob_tables.SCENE, field_mobs.BG0002_SCENE):
+            for mob in load_roster(scene=scene):
+                self.assertEqual(mob.speed_walk, 100)
+                self.assertNotEqual(
+                    mob.speed_walk, 400,
+                    "this must be the mined MOBS speed, never the owner's "
+                    "unsourced PC-actor guess",
+                )
+                hostile = hostile_npc_attr(self.legacy, mob)
+                baseline_with_speed = self.legacy.make_npc_attr(
+                    mob.template_id, mob.actor_identity, SCENE_ID,
+                    SCENE_SEQUENCE, mob.visual_preset, mob.max_hp, mob.max_hp,
+                    movement_speed=float(mob.speed_walk),
+                    basic_name=mob.display_name,
+                )
+                baseline_without_speed = self.legacy.make_npc_attr(
+                    mob.template_id, mob.actor_identity, SCENE_ID,
+                    SCENE_SEQUENCE, mob.visual_preset, mob.max_hp, mob.max_hp,
+                    basic_name=mob.display_name,
+                )
+                # Sending the speed field costs exactly one f32tag: 1 tag
+                # byte + 4 float bytes, and nothing else on the wire moves.
+                self.assertEqual(
+                    len(baseline_with_speed),
+                    len(baseline_without_speed) + 5,
+                )
+                self.assertEqual(
+                    len(hostile),
+                    len(baseline_with_speed) + FACTION_SPLICE_BYTES,
+                )
+                self.assertIn(
+                    bytes(self.legacy.f32tag(float(mob.speed_walk))),
+                    baseline_with_speed,
+                )
 
     def test_the_derived_columns_re_derive_two_frozen_constants(self) -> None:
         assert_frozen_controls(self.legacy)

@@ -125,15 +125,35 @@ GROUND_LOOT_SCENARIO = (
 #        frame=1A50BE5CC31C9E6809AD289CBBA30F86F31F6EF3B99DB8E839B6A2B7B9D9DF35
 #   115: pc=D0F55C5ECF93642BCB560AC928BEB6750B1856CAA0475C876E1FB0A76C904C47
 #        frame=C77D1F5CE5F3AD7E39D320A5FC6DB302CF23A2B6EF4F0C5D6B8DD2DE6C60F55D
+# AMENDMENT 2026-08-28 (COO-DECISION 2026-08-28T01:46+07:00, lane B).  Every
+# digest below moved a THIRD time: field_mobs.hostile_npc_attr now always
+# sends the mined MOBS speed (BasicAttr bit 0x0040, f32 @ +0x54) alongside the
+# existing FACTION_SPLICE_BYTES=5 insert, so every full_roster_override'd
+# identity on the wire carries 10 extra bytes, not 5 -- see
+# field_mobs.hostile_npc_attr's own docstring and
+# mob_death.BASIC_BIT_MOVEMENT_SPEED.  Re-derived here from the real
+# dispatcher at PIN_ANCHOR, not hand-typed, same as every prior amendment.
+# The pre-this-round (1cwih0-era) digests this replaces are kept as comment
+# history rather than deleted, because they are still correct for what they
+# described (a census whose overridden bodies carry no speed field):
+#
+#   3:   pc=EEFB8C3DE32C623FE5A593C694AC4F6DC1DF0C4431EF16DAB1E302C92EC729E7
+#        frame=4EB642ED7FFA5B0010FA1BC2A35599047DE5C432B826C459E0749694353B9F50
+#   20:  pc=1467DF0CEE8BA32BE6D37794A936BE02DDBB9127CD0A660C581AA5718CA78EC4
+#        frame=751148EB2F60046C5709C2E273AE4018A9E8706430F2347E9850B90DA6C63239
+#   60:  pc=25C7F8F75D65A5C0C3D8DF6475C7D73E011AEA11EAFEC23A243AD6D0F371BB6F
+#        frame=7D37FE495273276C7DFEB2D8E02F7391785F7E2EB07AE092F284D832B682A651
+#   115: pc=9C3BB2790E9B6BB7CDC61A1E366E87666755461B3BC8EE90ADE7F563E4C4FEED
+#        frame=49E4A252B6258A575079C8656DA774ACEE5E9270F405D37178F03A890A677BA7
 CENSUS_WIRE_SHA256 = {
-    3: ("EEFB8C3DE32C623FE5A593C694AC4F6DC1DF0C4431EF16DAB1E302C92EC729E7",
-        "4EB642ED7FFA5B0010FA1BC2A35599047DE5C432B826C459E0749694353B9F50"),
-    20: ("1467DF0CEE8BA32BE6D37794A936BE02DDBB9127CD0A660C581AA5718CA78EC4",
-         "751148EB2F60046C5709C2E273AE4018A9E8706430F2347E9850B90DA6C63239"),
-    60: ("25C7F8F75D65A5C0C3D8DF6475C7D73E011AEA11EAFEC23A243AD6D0F371BB6F",
-         "7D37FE495273276C7DFEB2D8E02F7391785F7E2EB07AE092F284D832B682A651"),
-    115: ("9C3BB2790E9B6BB7CDC61A1E366E87666755461B3BC8EE90ADE7F563E4C4FEED",
-          "49E4A252B6258A575079C8656DA774ACEE5E9270F405D37178F03A890A677BA7"),
+    3: ("0CF18E300AF2BC9916000A96BDE25388A183779E8CF89572BC879AD297643FEE",
+        "25D452BF8EA5E2E071E0DB89C3C866EAE3964AA3DE5E7A7182A92546A4BE1FAE"),
+    20: ("7856DFD0021C927241C9B0866FD94BE5D36401DBD9729AA3EA7C59DF119454B1",
+         "454E5E644177217DA11769E40B8B55B2E67C0ADB58C2A426C73D7B0B9ACCA4B8"),
+    60: ("D4F2FAB89B560F6C915B98E69B22B4825F26E789B666C4D5FC8BCF834B4BFB9A",
+         "D897F247C9FA4808D988BA4B453195FBB56981AE3F4053FED4C5B00019CF2424"),
+    115: ("3BE1911DD640E55BED181E92CEE8E465973ACC6049DDC69A08DBC970A1DA74E7",
+          "60E179E88BFE4777DC5DF96B3D3AE1850433B7C1ACEBFD172E133896B5A7F1A3"),
 }
 PIN_ANCHOR = (10.0, 20.0, 30.0)
 
@@ -410,8 +430,12 @@ class WorldCensusWiringTests(unittest.TestCase):
             len(census[0][2]) - len(frozen_frame),
             added_bytes + roster_splice_bytes,
         )
-        self.assertEqual(len(census[0][1]), 569)
-        self.assertEqual(len(census[0][2]), 582)
+        # AMENDMENT 2026-08-28 (COO-DECISION 2026-08-28T01:46+07:00): +5 bytes
+        # again -- field_mobs.hostile_npc_attr now also sends the mined MOBS
+        # speed field (bit 0x0040) for the one field_mobs roster member
+        # (P30) inside this rung, alongside its existing faction splice.
+        self.assertEqual(len(census[0][1]), 574)
+        self.assertEqual(len(census[0][2]), 587)
         self.assertEqual(
             state.population_indices, tuple(row[0] for row in frozen_rows),
         )
@@ -435,6 +459,13 @@ class WorldCensusWiringTests(unittest.TestCase):
         ``_with_roster_override``'s docstring), so ``generation`` here is
         overridden the same way the dispatch itself overrides it before this
         event string is computed downstream.
+
+        AMENDMENT 2026-08-28 (COO-DECISION 2026-08-28T01:46+07:00, lane B).
+        21007/21021 moved a third time, to 21072/21086: field_mobs.
+        hostile_npc_attr now always sends the mined MOBS speed field too
+        (bit 0x0040), so each of the same 13 overridden identities carries
+        one MORE tagged f32 (5 bytes) on top of its existing faction splice
+        -- 13 * 5 = 65 extra bytes total, re-derived here, not hand-typed.
         """
         state = self._state("census_once")
         self.assertEqual(len(self._census(self._step(state))), 2)
@@ -454,7 +485,7 @@ class WorldCensusWiringTests(unittest.TestCase):
             ],
         )
         self.assertEqual((generation.pc_bytes, generation.frame_bytes),
-                          (21007, 21021))
+                          (21072, 21086))
 
     def test_world_density_line_is_printed_alongside_the_census_line(self):
         """world_density is LANE-A's tenth production lane (production_allowed

@@ -212,14 +212,36 @@ class FrozenGaitProvenanceTests(_LegacyCase):
 
 
 class FoundationPopulationEmitsNoGaitTests(_LegacyCase):
-    """The negative: the Foundation population path never asks for a speed.
+    """The negative: the Foundation POPULATION (census) path never asks for a
+    speed -- narrowed this round, not weakened, see below.
 
     This is deliberately an assertion about absence.  The coverage matrix row
     is graded on legacy-scenario-runner runtime evidence, and the Foundation
     server does not reproduce it.  If someone wires gait into the Foundation
     population, these tests fail and the matrix row must be revisited in the
     same change.
+
+    NARROWED 2026-08-28 (COO-DECISION 2026-08-28T01:46+07:00, lane B).
+    ``field_mobs.hostile_npc_attr`` now always requests ``movement_speed``
+    (the mined MOBS ``n_SPEED_WALK`` for that exact monster, not a guess --
+    see that function's own docstring), and ``mob_death.py`` /
+    ``mob_diag_multi_object.py`` widen the same field consistently into
+    their own hand-written and D3-diagnostic NPCAttr composers so that EVERY
+    generation of a field-mob body (live, damaged, dying, dead) carries it --
+    which is exactly the "must be present in every generation" rule this
+    module's own ``FrozenGaitProvenanceTests`` pins from the V85 walk-to-run
+    regression, not a violation of it.  This is a DIFFERENT identity space
+    from the Foundation POPULATION (ambient) census this class's two byte
+    tests below cover (``population.py`` / ``world_population.py``, neither
+    touched this round) -- so the two byte-level tests below are unchanged
+    and still pass, and only the blanket whole-``src/``-tree source sweep
+    below is narrowed to name its three known, now-legitimate exceptions
+    rather than silently going green for the wrong reason.
     """
+
+    KNOWN_GAIT_REQUESTING_MODULES = (
+        "field_mobs.py", "mob_death.py", "mob_diag_multi_object.py",
+    )
 
     def test_initial_population_carries_no_walk_speed_field(self):
         transition = build_port_royal_initial_population(self.legacy, (0.0, 0.0, 0.0))
@@ -240,7 +262,19 @@ class FoundationPopulationEmitsNoGaitTests(_LegacyCase):
         self.assertEqual(count_plain_carriers(transition.pc, identities), (1,) * 20)
 
     def test_no_foundation_module_requests_a_movement_speed(self):
-        self.assertEqual(modules_requesting_movement_speed(SRC_ROOT), [])
+        # See this class's own docstring, "NARROWED 2026-08-28": the three
+        # named exceptions are lane B's own hostile field-mob composers, not
+        # the Foundation POPULATION (census) path this test is actually
+        # about.  Anything else showing up here is still a real find.
+        hits = modules_requesting_movement_speed(SRC_ROOT)
+        self.assertEqual(
+            sorted(set(hits) - set(self.KNOWN_GAIT_REQUESTING_MODULES)), [],
+        )
+        self.assertEqual(
+            sorted(set(self.KNOWN_GAIT_REQUESTING_MODULES) - set(hits)), [],
+            "a named exception no longer requests movement_speed -- narrow "
+            "KNOWN_GAIT_REQUESTING_MODULES back down",
+        )
 
     def test_the_frame_detector_would_notice_a_generation_that_did_carry_speed(self):
         """Kept in the suite so the two absence assertions cannot go vacuous."""

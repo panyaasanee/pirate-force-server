@@ -736,12 +736,41 @@ def hostile_npc_attr(
     faction: int = FIELD_MOB_FACTION,
     with_name: bool = True,
 ) -> bytes:
-    """The frozen named body plus EXACTLY the five faction bytes.
+    """The frozen named body plus its own mined speed, plus EXACTLY the five
+    faction bytes.
 
     The result is refused unless it equals ``legacy.make_npc_attr(...)`` for the
     same monster with the BasicAttr mask widened by exactly bit 0x0400 and the
     tagged faction spliced in at ascending-mask-bit order.  Any other delta
     means the field landed somewhere else and no bytes come back.
+
+    ADDED this round (COO-DECISION 2026-08-28T01:46+07:00, answering
+    PANYA-DECISION 2026-08-28T01:25+07:00 item 3): ``movement_speed`` is now
+    always passed as ``float(mob.speed_walk)`` -- unlike every field named in
+    that decision's table, this is NOT a leap off the owner's PC-actor probe.
+    ``legacy.make_npc_attr`` has carried this exact parameter, at this exact
+    BasicAttr bit (0x0040, float at +0x54), with its own independent static RE
+    chain (0x45C103 reads MOBS+0x3C / n_SPEED_WALK; 0x464960 the setter;
+    0x45D2EA/0x484580 the movement-control consumer) since before this module
+    existed -- see that function's own docstring.  ``mob.speed_walk`` is
+    ``field_mob_tables``'s own mined MOBS column for this exact monster, not a
+    guess (every row mined so far in both live scenes is 100 -- see
+    ``tests/test_field_mobs.py``'s
+    ``test_the_speed_field_carries_the_mined_value_not_the_owners_pc_guess``).
+    This is therefore a mechanical pass-through of an already-proven parameter
+    fed with already-mined data,
+    not new byte-layout code.  What did NOT get the same treatment, and why,
+    is in ``pf_bridge/CLIENT_RE_QUEUE.md`` (see the round's PR body): every
+    other x-numbered field in that table either has no NPCAttr/BasicAttr bit
+    at all in this codebase (class id, epithet, sub-class, SP, STR/CON/DEX/
+    INT/PER, EXP, money, guild, CP, alias -- the whole ``Actor`` b0-b41 block
+    the table names) or, for level (Basic bit 0x0002, mined and available as
+    ``mob.level``), has no static RE chain proving that bit for AN NPCAttr
+    body specifically -- only the owner's screen probe on a PC ActorAttr,
+    which is exactly the single most important open question this round was
+    told to resolve before writing code, and it resolves negative for that
+    field: inventing the splice would be exactly the kind of byte this
+    project's evidence rule forbids.
     """
     if type(mob) is not FieldMob:
         raise FieldMobContractError("mob must be the typed FieldMob record")
@@ -771,6 +800,7 @@ def hostile_npc_attr(
         mob.visual_preset,
         hp,
         mob.max_hp,
+        movement_speed=float(mob.speed_walk),
         basic_name=name,
     )
     offset = _faction_splice_offset(
