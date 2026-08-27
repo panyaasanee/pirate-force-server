@@ -4461,6 +4461,21 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 except (KeyError, PermissionError):
                     self.events.append("foundation_start_game_rejected_no_reply")
                     return []
+                except (ValueError, RuntimeError) as exc:
+                    # Gate 1 (character-select) can also fail inside the
+                    # Backpack load: _load_backpack raises ValueError when
+                    # require_known_backpack rejects the stored row, or
+                    # RuntimeError when the row is missing outright. Neither
+                    # was in the tuple above, so either one used to escape
+                    # this handler uncaught and unwind the listener thread in
+                    # silence -- the client was left parked on "connecting"
+                    # with nothing logged, for a bag that was malformed today
+                    # and not only on the day a new row shape ships. Same
+                    # loud-refusal shape as the SceneEntryRefused handler
+                    # above: print the reason, refuse by name, no latch.
+                    print(f"BACKPACK_LOAD_REFUSED {exc}")
+                    self.events.append("foundation_start_game_rejected_no_reply")
+                    return []
                 load_only = scene_load_scenario is not None
                 entry = None
                 gm_state_action = None

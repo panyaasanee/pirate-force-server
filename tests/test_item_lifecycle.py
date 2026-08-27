@@ -16,7 +16,11 @@ from pirateforce_foundation.inventory import (
     INITIAL_BACKPACK,
     MERGED_V111_BACKPACK,
     V111_MERGE_REQUEST_PC,
+    BackpackState,
+    ItemAttrState,
     make_backpack_attr,
+    require_backpack_shape,
+    require_known_backpack,
 )
 from pirateforce_foundation.legacy_bridge import LegacyProjector, load_legacy
 from pirateforce_foundation.lifecycle import CharacterLifecycle
@@ -27,6 +31,65 @@ from pirateforce_foundation.store import SQLiteStore
 
 
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
+
+
+class RequireBackpackShapeTests(unittest.TestCase):
+    """COO-DECISION 20260826_0950 (a): golden-drift detection now lives here,
+
+    in a test fixture, instead of in the character-select runtime load path.
+    """
+
+    def test_both_golden_snapshots_still_pass_the_full_content_gate(self):
+        # This is the drift detector (a).2 asked for: if either snapshot's
+        # exact byte content ever moves, require_known_backpack (still
+        # content-restricted) goes red here instead of silently in
+        # production.
+        self.assertIs(require_known_backpack(INITIAL_BACKPACK), INITIAL_BACKPACK)
+        self.assertIs(require_known_backpack(MERGED_V111_BACKPACK), MERGED_V111_BACKPACK)
+
+    def test_shape_gate_accepts_well_formed_content_outside_the_two_goldens(self):
+        drifted = BackpackState(
+            INITIAL_BACKPACK.base_mask,
+            INITIAL_BACKPACK.base_identity,
+            INITIAL_BACKPACK.range_mask,
+            (
+                ItemAttrState(1, 2600001, 2, 0),
+                ItemAttrState(2, 2400901, 1, 1),
+                ItemAttrState(3, 2600001, 1, 2),
+                ItemAttrState(4, 2200002, 1, 3),
+            ),
+        )
+        self.assertIs(require_backpack_shape(drifted), drifted)
+        with self.assertRaisesRegex(ValueError, "outside the governed V111 allowlist"):
+            require_known_backpack(drifted)
+
+    def test_shape_gate_still_rejects_duplicate_identity_or_slot(self):
+        duplicate_identity = BackpackState(
+            INITIAL_BACKPACK.base_mask,
+            INITIAL_BACKPACK.base_identity,
+            INITIAL_BACKPACK.range_mask,
+            (ItemAttrState(1, 2600001, 1, 0), ItemAttrState(1, 2400901, 1, 1)),
+        )
+        with self.assertRaisesRegex(ValueError, "identity/slot must be unique"):
+            require_backpack_shape(duplicate_identity)
+        duplicate_slot = BackpackState(
+            INITIAL_BACKPACK.base_mask,
+            INITIAL_BACKPACK.base_identity,
+            INITIAL_BACKPACK.range_mask,
+            (ItemAttrState(1, 2600001, 1, 0), ItemAttrState(2, 2400901, 1, 0)),
+        )
+        with self.assertRaisesRegex(ValueError, "identity/slot must be unique"):
+            require_backpack_shape(duplicate_slot)
+
+    def test_shape_gate_still_rejects_out_of_range_fields(self):
+        out_of_range_slot = BackpackState(
+            INITIAL_BACKPACK.base_mask,
+            INITIAL_BACKPACK.base_identity,
+            INITIAL_BACKPACK.range_mask,
+            (ItemAttrState(1, 2600001, 1, 40),),
+        )
+        with self.assertRaises(ValueError):
+            require_backpack_shape(out_of_range_slot)
 
 
 class ItemLifecycleTests(unittest.TestCase):
@@ -347,7 +410,18 @@ class ItemLifecycleTests(unittest.TestCase):
             INITIAL_BACKPACK,
         )
 
-    def test_unknown_persisted_shape_and_read_only_mutation_reject(self):
+    def test_unknown_persisted_content_loads_but_write_paths_still_reject(self):
+        """COO-DECISION 20260826_0950 (a): the character-select load gate
+
+        (``store.get_backpack`` / ``_load_backpack``) is now shape-only, so a
+        real player whose bag has drifted off the two golden snapshots can
+        still select their character and load in -- that used to raise here
+        and it no longer does.  Every content-aware write path underneath it
+        (``apply_v111_stack_merge`` and friends) still calls
+        ``require_known_backpack`` on its own before it commits anything, so
+        the drifted row is still refused the moment something tries to act on
+        its *contents*; only the load itself stopped being that wall.
+        """
         state, character, _, _ = self.ready_state("strict")
         with self.store.connect() as db:
             db.execute(
@@ -355,14 +429,90 @@ class ItemLifecycleTests(unittest.TestCase):
                 "WHERE character_id=? AND item_identity=2",
                 (character.id,),
             )
-        with self.assertRaisesRegex(ValueError, "outside the governed V111 allowlist"):
-            self.store.get_backpack(state.foundation.session_id, character.id)
-        with self.assertRaisesRegex(ValueError, "outside the governed V111 allowlist"):
+        loaded = self.store.get_backpack(state.foundation.session_id, character.id)
+        self.assertEqual(loaded.base_mask, INITIAL_BACKPACK.base_mask)
+        self.assertEqual(
+            {(item.identity, item.quantity) for item in loaded.items},
+            {(1, 1), (2, 2), (3, 1), (4, 1)},
+        )
+        with self.assertRaisesRegex(ValueError, "outside the exact V111 pre-state"):
             self.store.apply_v111_stack_merge(
                 state.foundation.session_id, character.id
             )
         with self.assertRaises(PermissionError):
             ReadOnlyFoundationSession.merge_v111_stack(object())
+
+    def test_migration_005_backfills_next_item_identity_per_character(self):
+        """migrations/005 (COO-DECISION 20260826_0950 c), tested against rows
+
+        that pre-date it -- not against a database created after 005 already
+        existed, where every row would get the column's own ADD COLUMN
+        default and the backfill UPDATE would never be exercised.  Builds a
+        database on migrations 001-004 only (the real runner, so its
+        transaction handling is exactly production's), seeds two characters
+        (one with only the initial four items, one with a fifth item at
+        identity 7) directly at the row level, then lets the real runner
+        apply 005 on top and checks each character's counter lands one past
+        ITS OWN highest identity, not a single shared default.
+        """
+        migrations_dir = ROOT / "migrations"
+        all_migrations = sorted(migrations_dir.glob("[0-9][0-9][0-9]_*.sql"))
+        with tempfile.TemporaryDirectory() as mig_dir, tempfile.TemporaryDirectory() as db_dir:
+            for path in all_migrations:
+                if path.name.startswith("005_"):
+                    continue
+                (Path(mig_dir) / path.name).write_text(
+                    path.read_text(encoding="utf-8"), encoding="utf-8",
+                )
+            db_path = Path(db_dir) / "state.sqlite3"
+            store = SQLiteStore(db_path, mig_dir)
+            store.migrate()
+            stamp = "2026-08-27T00:00:00+00:00"
+            with store.connect() as db:
+                db.execute(
+                    "INSERT INTO accounts(id,login_name,created_at) VALUES (1,'a',?)",
+                    (stamp,),
+                )
+                db.executemany(
+                    "INSERT INTO characters(id,account_id,selector,name,actor_wire,"
+                    "avatar_wire,identity_lo,identity_hi,created_at,updated_at,"
+                    "name_key,create_fingerprint) VALUES (?,1,?,?,x'',x'',?,0,?,?,?,?)",
+                    [
+                        (1, 0, "Plain", 1, stamp, stamp, "plain", "fp1"),
+                        (2, 1, "Looted", 2, stamp, stamp, "looted", "fp2"),
+                    ],
+                )
+                db.executemany(
+                    "INSERT INTO character_backpacks(character_id,base_mask,"
+                    "base_identity,range_mask,updated_at) VALUES (?,255,0,1,?)",
+                    [(1, stamp), (2, stamp)],
+                )
+                db.executemany(
+                    "INSERT INTO character_backpack_items(character_id,item_identity,"
+                    "template_id,quantity,slot,raw_u8_38,raw_u8_39,detail_present) "
+                    "VALUES (?,?,?,?,?,0,255,0)",
+                    [
+                        (1, 1, 2600001, 1, 0), (1, 2, 2400901, 1, 1),
+                        (1, 3, 2600001, 1, 2), (1, 4, 2200002, 1, 3),
+                        (2, 1, 2600001, 1, 0), (2, 2, 2400901, 1, 1),
+                        (2, 3, 2600001, 1, 2), (2, 4, 2200002, 1, 3),
+                        (2, 7, 9000001, 1, 4),
+                    ],
+                )
+            (Path(mig_dir) / "005_character_backpack_identity_counter.sql").write_text(
+                (migrations_dir / "005_character_backpack_identity_counter.sql")
+                .read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            store.migrate()
+            with store.connect() as db:
+                rows = dict(
+                    db.execute(
+                        "SELECT character_id,next_item_identity FROM character_backpacks "
+                        "ORDER BY character_id"
+                    ).fetchall()
+                )
+        self.assertEqual(rows, {1: 5, 2: 8})
 
 
 if __name__ == "__main__":

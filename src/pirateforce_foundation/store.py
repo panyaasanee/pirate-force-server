@@ -13,7 +13,7 @@ from .inventory import (
     ItemAttrState,
     merge_known_item_into_occupied_slot,
     move_known_item_to_free_slot,
-    require_known_backpack,
+    require_backpack_shape,
     swap_known_item_with_occupied_slot,
 )
 from .model import Character, Position
@@ -318,7 +318,13 @@ class SQLiteStore:
                 for row in rows
             ),
         )
-        return require_known_backpack(state)
+        # Shape only here (COO-DECISION 20260826_0950): this is the
+        # character-select load path, and it must return a real player's bag
+        # whatever its contents are.  Every mutation reached through this
+        # loader (move/merge/swap) still re-validates full content via its
+        # own require_known_backpack call in inventory.py before it commits
+        # anything, so this relaxation does not widen those.
+        return require_backpack_shape(state)
 
     @staticmethod
     def _require_selected_session(db, sid: str, character_id: int) -> None:
