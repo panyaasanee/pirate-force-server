@@ -173,6 +173,7 @@ from .npc_hostile_hypothesis import (
     NPC_HOSTILE_PLAYER_FACTION_WIRE_DELTA,
     NPC_HOSTILE_PLAYER_IDENTITY_HI,
     NPC_HOSTILE_PLAYER_IDENTITY_LO,
+    NPC_HOSTILE_PLAYER_PAIR_FACTION,
     build_npc_hostile_sweep,
     npc_hostile_wire_unlock,
     require_npc_hostile_hypothesis_scenario,
@@ -4676,6 +4677,84 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     pc, frame = self._npc_hostile_start_game_response(
                         pc, frame,
                     )
+                elif not active_lanes:
+                    # PANYA-CHASE 20260827_0915 item (1).2 -- no exceptions,
+                    # no flag.  The client renders hostility from the
+                    # FACTION PAIR, not from either side alone (proven by
+                    # HYP-PF-027's SCENE-005/007 negative above): a field
+                    # mob can carry faction 6 forever and GT-084 will never
+                    # see red until the PLAYER half of the pair goes out
+                    # too.  Unlike the hypothesis path above, this is not
+                    # scoped to one pinned smoke identity -- every player on
+                    # the truly flagless (production) boot gets
+                    # basic_faction=1.
+                    #
+                    # Gated on "not active_lanes" -- runtime.py's OWN
+                    # definition of "no opt-in lane is selected at all"
+                    # (built once at factory time, ~line 423; the same
+                    # frozenset world_census_enabled and the travel-gate
+                    # scenario-stand-down already key on) -- NOT "not
+                    # load_only", which pf-adversary caught this round: that
+                    # would have let this branch fire under every OTHER
+                    # opt-in hypothesis scenario too (damage_hp_link,
+                    # npc_hp_link, logout, channel_message, ground_loot,
+                    # ...), silently tagging a byte those controlled
+                    # experiments never asked for and never measured
+                    # against.  active_lanes already contains
+                    # scene_load_scenario (so the scene-load milestone's OWN
+                    # dedicated scenario.player_basic_faction plumbing in
+                    # session.py's ReadOnlyFoundationSession.select_and_start
+                    # is still never double-composed here) and
+                    # npc_hostile_hypothesis_scenario (irrelevant here since
+                    # that case already took the `if` branch above and never
+                    # reaches this `elif`).
+                    #
+                    # Same frozen serializer, same fail-closed shape: any
+                    # refusal or length drift falls back to the untouched
+                    # production bytes with a named event, never a
+                    # half-composed frame.  KNOWN GAP (pf-adversary,
+                    # unresolved this round): the serializer itself only
+                    # accepts scene_id in (1, 2) -- a character stored in
+                    # any OTHER pinned scene (e.g. 278, 997/FilmScene) still
+                    # falls back to plain bytes here, silently, because the
+                    # frozen probe was never proven for those scenes.  Not
+                    # reachable by a normal player today (world-travel gates
+                    # stay closed by default), but real for RE-073's
+                    # FilmScene work and for any future world-travel
+                    # unlock -- flagged to COO/Panya in this round's reply,
+                    # not silently declared solved.
+                    try:
+                        faction_pc, faction_frame = (
+                            self.foundation.projector.start_game(
+                                self.foundation.selected,
+                                basic_faction=NPC_HOSTILE_PLAYER_PAIR_FACTION,
+                                backpack=self.foundation.backpack,
+                            )
+                        )
+                    except (ValueError, RuntimeError, TypeError) as exc:
+                        self.events.append(
+                            "player_faction1_compose_refused_production_"
+                            f"start_game_{exc!r}"
+                        )
+                    else:
+                        if (
+                            len(faction_pc)
+                            != len(pc) + NPC_HOSTILE_PLAYER_FACTION_WIRE_DELTA
+                        ):
+                            self.events.append(
+                                "player_faction1_length_drift_production_"
+                                "start_game"
+                            )
+                        else:
+                            pc, frame = faction_pc, faction_frame
+                            print(
+                                "PLAYER_FACTION basic_faction="
+                                f"{NPC_HOSTILE_PLAYER_PAIR_FACTION} "
+                                "sent_on_flagless_start_game"
+                            )
+                            self.events.append(
+                                "player_faction1_start_game_sent"
+                            )
                 self.start_game_reply_sent = True
                 self.events.append("start_game_res_scene_identity_sent")
                 actions = [(
