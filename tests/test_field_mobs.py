@@ -363,10 +363,19 @@ class FieldMobTests(unittest.TestCase):
         # source of truth, so the two halves cannot drift apart) instead of
         # redefining them.  It still dispatches nothing -- runtime.py does
         # not call it yet; that is CORE-REQUEST-009, not this round.
+        # WIDENED AGAIN by GT-DIAG-MULTI-OBJECT-001 (lane B, 2026-08-27,
+        # PANYA-ORDER 18:55/ADDENDUM 19:05): the diagnostic module reads a
+        # real roster row for its control body and reuses
+        # ``hostile_actor_entry``/``hostile_npc_attr`` for four of its five
+        # objects.  It dispatches nothing itself -- runtime.py's own mention
+        # of field_mobs/mob_combat/mob_death is the wiring pinned above, not
+        # anything this module added; wiring the diagnostic in is a separate
+        # CORE-REQUEST, not this round.
         self.assertEqual(
             importers,
             ["mob_ai_control.py", "mob_combat.py", "mob_death.py",
-             "mob_loot.py", "player_hostile_pairing.py", "runtime.py"],
+             "mob_diag_multi_object.py", "mob_loot.py",
+             "player_hostile_pairing.py", "runtime.py"],
             "field_mobs importers changed; update the letter")
         runtime_body = (
             ROOT / "src/pirateforce_foundation/runtime.py"
