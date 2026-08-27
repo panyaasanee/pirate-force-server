@@ -1,1 +1,1 @@
-{"sha":"fe89b5517ccc28ad3177b14b4b58f828daded808","conclusion":"failure","event":"push","ref":"refs/heads/claude/awesome-darwin-kjtyku","run_id":"33071259888","utc":"2026-08-27T12:23:18Z"}
+{"sha":"fe89b5517ccc28ad3177b14b4b58f828daded808","conclusion":"failure","event":"pull_request","ref":"refs/pull/140/merge","run_id":"33071262930","utc":"2026-08-27T12:23:20Z"}
