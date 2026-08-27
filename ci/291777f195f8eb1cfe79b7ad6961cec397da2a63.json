@@ -1,1 +1,1 @@
-{"sha":"291777f195f8eb1cfe79b7ad6961cec397da2a63","conclusion":"failure","event":"push","ref":"refs/heads/claude/trusting-curie-tzyv43","run_id":"33047781616","utc":"2026-08-27T07:02:29Z"}
+{"sha":"291777f195f8eb1cfe79b7ad6961cec397da2a63","conclusion":"failure","event":"pull_request","ref":"refs/pull/119/merge","run_id":"33047783550","utc":"2026-08-27T07:15:47Z"}
