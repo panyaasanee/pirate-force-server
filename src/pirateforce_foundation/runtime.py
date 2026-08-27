@@ -16,6 +16,7 @@ from . import mob_loot
 from . import mob_pickup
 from . import world_density
 from . import world_population
+from . import world_population_bg0002
 from . import world_scene_entry
 from . import world_scene_liveness
 from . import world_scene_travel
@@ -5532,7 +5533,94 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 x, y, z, _heading = self.last_target_pos
                 anchor = (float(x), float(y), float(z))
                 scene_id = self.foundation.selected.position.scene_id
-                if scene_id != world_population.SCENE_ID:
+                if scene_id == world_population_bg0002.SCENE2_N_ID:
+                    # CORE-REQUEST-021 (LANE-A M1-P item 2).  Prison Exile
+                    # Island's own census, parallel to the bg0001 branch
+                    # below rather than a fork of it: a different builder,
+                    # a different table, no faction bit (see
+                    # world_population_bg0002.py's module docstring - the
+                    # hostile-faction widening for this scene is LANE B's
+                    # item, not this one).  Reachable only once a stored
+                    # character row actually names scene 2, which nothing in
+                    # this tree seeds today (see the handback).
+                    try:
+                        generation = (
+                            world_population_bg0002.build_bg0002_population(
+                                legacy, anchor, scene_id=scene_id,
+                                count_source=(
+                                    world_population_bg0002
+                                    .COUNT_SOURCE_FULL_ROSTER
+                                ),
+                            )
+                        )
+                    except Exception as error:
+                        # Fail closed, same reasoning as the bg0001 branch's
+                        # own catch-all below: the builder reads frozen
+                        # constants and calls frozen serializers, so drift can
+                        # arrive as AttributeError or struct.error as easily
+                        # as ValueError, and an escape here unwinds out of the
+                        # listener thread (v141:7440 has no except).  There is
+                        # no frozen bg0002 fallback the way bg0001 has
+                        # ``_world_census_frozen_fallback``, so a refusal
+                        # here sends NO frame at all rather than inventing
+                        # one.
+                        self.world_census_refused = True
+                        self.events.append(
+                            "world_census_bg0002_compose_refused_"
+                            f"{type(error).__name__}"
+                        )
+                    else:
+                        # Console proof, in this exact order, before the
+                        # frame is queued - built ONCE from this one
+                        # ``generation`` (never calling
+                        # ``scene_and_census_console_lines`` separately,
+                        # which would compose the whole roster a second
+                        # time).
+                        print(world_scene_travel.entry_console_line(
+                            world_scene_travel.destination(
+                                scene_id, scene_entry_registry,
+                            )
+                        ))
+                        print(
+                            world_population_bg0002.census_console_line(
+                                generation,
+                            )
+                        )
+                        for line in world_population_bg0002.actor_lines(
+                            generation,
+                        ):
+                            print(line)
+                        self.world_census_sent = True
+                        self.events.append(
+                            "world_census_bg0002_committed_actors_"
+                            f"{generation.actor_count}_pc_"
+                            f"{generation.pc_bytes}_frame_"
+                            f"{generation.frame_bytes}"
+                        )
+                        # Deliberately NOT set here: population_indices,
+                        # population_refresh_anchor, world_census_indices,
+                        # npc_idle_action_sent.  Those are read elsewhere by
+                        # bg0001-placement-index-specific NPC-click/idle-
+                        # action dispatch code; bg0002 has no click-dispatch
+                        # system wired yet, and populating those fields with
+                        # bg0002's placement indices would silently leak
+                        # bg0001 semantics onto a table that means something
+                        # different.  Out of this CORE-REQUEST's scope.
+                        census_actions = [
+                            (
+                                "WORLD_CENSUS_BG0002_INITIAL_"
+                                f"{generation.actor_count}",
+                                generation.pc, generation.frame, 0.0,
+                            ),
+                            (
+                                "WORLD_CENSUS_BG0002_REAPPLY_"
+                                f"{generation.actor_count}",
+                                generation.pc, generation.frame,
+                                world_population_bg0002.INITIAL_REAPPLY_MS
+                                / 1000.0,
+                            ),
+                        ]
+                elif scene_id != world_population.SCENE_ID:
                     # Away from home the bg0001 census is not merely useless,
                     # it is wrong: every actor in it is encoded with scene 1.
                     # The inherited branch is already disarmed, so this sends
