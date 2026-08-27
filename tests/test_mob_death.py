@@ -102,6 +102,12 @@ WIDENED_916_RULING = (
     "2026-08-27T09:55+07:00 (ref PANYA-DECISION 2026-08-27T09:50+07:00 "
     "section 3, supersedes COO 0954)"
 )
+# The exact ruling string COO-DECISION 2026-08-27T13:50+07:00 gives as the
+# value of widened= to authorise all 13 real bg0001 field mobs (stage two,
+# see notes_to_chief/20260827_1350_COO-DECISION-widen-death-scope-bg0001-
+# full-roster-approved.md). Chief is told to hardcode this exact string at
+# runtime.py:3925.
+WIDENED_BG0001_RULING = "COO-RULING-20260827-1350 widen-death-scope-bg0001"
 
 
 class MobDeathTests(unittest.TestCase):
@@ -1589,6 +1595,54 @@ class MobDeathTests(unittest.TestCase):
             self.legacy, tim, tim_step.outcome, DeathRegister(),
             widened=WIDENED_916_RULING)
         self.assertTrue(widened_step.register.is_dead(tim.actor_identity))
+
+    def test_the_bg0001_ruling_authorises_every_real_roster_mob(self):
+        # COO-DECISION 2026-08-27T13:50+07:00 (stage two): every one of the
+        # 13 real bg0001 field mobs, not just SANCTIONED_FIRST_TARGET_
+        # IDENTITY, can now die with widened=WIDENED_BG0001_RULING. This
+        # loops the REAL roster (field_mobs.load_roster()), not a hand-typed
+        # subset, so a future roster edit that adds/removes a mob is
+        # exercised by this test automatically rather than silently going
+        # unwidened or over-widened.
+        self.assertEqual(len(self.roster), 13)
+        for mob in self.roster:
+            outcome = self.killing_outcome(mob).outcome
+            step = kill(
+                self.legacy, mob, outcome, DeathRegister(),
+                widened=WIDENED_BG0001_RULING)
+            self.assertTrue(step.register.is_dead(mob.actor_identity))
+
+    def test_the_bg0001_ruling_covers_exactly_the_real_rosters_templates(self):
+        # pf-adversary (round 67jejl) shape, re-applied to the new ruling:
+        # the covered_templates set this module pins for
+        # WIDENED_BG0001_RULING must be RE-DERIVABLE from the real roster,
+        # not a hand-copied literal that can drift silently out of sync with
+        # field_mobs.load_roster() the moment the roster changes.
+        self.assertEqual(
+            mob_death.WIDENING_RULINGS[WIDENED_BG0001_RULING],
+            frozenset(m.template_id for m in self.roster))
+
+    def test_the_bg0001_ruling_still_refuses_a_template_outside_the_roster(
+            self):
+        # The same over-widening hole pf-adversary proved for the 916 ruling
+        # applies here: WIDENED_BG0001_RULING must authorise ONLY the 13 real
+        # bg0001 templates, not "any" mob a caller happens to pass it for.
+        # Training Iron Man (MOBS.n_ID 916) is not one of bg0001's field-mob
+        # templates, so it is the same off-roster stand-in the 916 tests
+        # above already use, reused here for the opposite direction.
+        tim = self.training_iron_man_stand_in()
+        self.assertNotIn(
+            tim.template_id,
+            mob_death.WIDENING_RULINGS[WIDENED_BG0001_RULING])
+        tim_ledger = open_ledger(roster=(tim,))
+        tim_step = strike(
+            self.legacy, None, tim_ledger, None, tim, PERFORMER, LETHAL)
+        with self.assertRaises(MobDeathContractError) as caught:
+            kill(self.legacy, tim, tim_step.outcome, DeathRegister(),
+                 widened=WIDENED_BG0001_RULING)
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
 
 
 if __name__ == "__main__":
