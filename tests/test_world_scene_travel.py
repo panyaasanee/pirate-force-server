@@ -100,8 +100,11 @@ class SceneRegistryTests(unittest.TestCase):
             self.assertTrue(destination(measured, self.registry).sent_before)
 
     def test_the_census_is_offered_only_where_the_census_is_true(self):
+        # GENERALIZED 2026-08-27 (PANYA-DECISION 20:10, M1-P): scene 2 now has
+        # its own named source (world_population_bg0002.py's roster), not
+        # bg0001's census and not None - see CENSUS_SOURCES.
         self.assertEqual(population_source(1), CENSUS_SOURCE)
-        self.assertIsNone(population_source(2))
+        self.assertEqual(population_source(2), "bg0002_roster")
         self.assertIsNone(population_source(TEST_STAGE_SCENE_ID))
 
     def test_the_flat_ground_measurement_the_choice_rests_on_is_pinned(self):
