@@ -671,6 +671,45 @@ The rate limiter changes when an already-authorized GM's capture gets
 written, never who is authorized -- a non-GM account still gets exactly
 nothing, same as every prior round.
 
+## Modules delivered (round `fmgvbx`, RE-113 trailing-mask fix)
+
+- **`gm/state_wire.py`**: `make_gm_update_state_frame` now builds the
+  `0x5A19` frame via the legacy bridge's plural `make_runtime_vitals()`
+  helper (a single-item list) instead of the singular `make_runtime_vital()`
+  helper. The singular helper does not append the trailing derived-class
+  change-mask byte (`u8tag(0x0B, 0)`) that `GSCN_RunTimeProtocolRes` v4
+  requires after its VitalData collection; `GT-107` (attended) measured the
+  client throwing `ErrorData=28317` and closing the socket immediately after
+  receiving exactly the frame the singular helper produces. `RE-113` traces
+  this to the plural helper's own pre-existing code comment (citing this
+  same error code) and to three independent prior incidents documented in
+  `reports/PF_DELETE_SOFT002_NATURAL_0x36DB_DECODE_20260818.md` Sec.(c) --
+  not a new disassembly finding, a pattern this codebase had already hit and
+  fixed elsewhere that this lane's own frame builder had not picked up.
+  Output shape is otherwise unchanged: same three fields, same tags, same
+  `vital_version`; the only wire difference is one trailing `0x0B 0x00`.
+- `tests/test_gm_state_wire.py`: `test_frame_carries_the_gm_update_state_vital_id`
+  updated to compare against `make_runtime_vitals()` instead of the old
+  `make_runtime_vital()`; new regression test
+  `test_frame_carries_the_re113_trailing_change_mask_byte` asserts the built
+  PC's last two bytes are the trailing change-mask tag, so a future
+  regression back to the singular helper fails loudly here instead of
+  waiting for another attended GT to notice.
+
+`tests/test_gm_*.py`: 232/232 (up from 225 -- 6 new assertions in the one
+new test plus the updated existing one; no other test file touched).
+`tests/test_gm_login_state_guard.py`'s end-to-end login test is unaffected
+by this change (it does not assert on the trailing bytes), but is a
+separate, already-known casualty of `CORE-REQUEST-020` (below) once that
+lands, not of this fix.
+
+nonclaim: this closes the specific `ErrorData=28317` failure mode `RE-113`
+traced -- it does not itself prove a real client accepts the corrected
+frame (that needs an attended GT rerun), and it does not touch
+`field_0x0b_second`'s value (still `0`, unproven-but-safe pending
+`CORE-REQUEST-020`) or any other field semantics. Wire/DB evidence only,
+no client-observable claim from this lane's own testing this round.
+
 ## Attempted and retracted (broadcast-wire round)
 
 This round tried to give `say` a wire codec for `Channel_GMGlobalMessageVital`
@@ -844,12 +883,29 @@ one line, which step the shortcut skipped, e.g.:
    non-GM account can see the `BT_GM` control -- that stays an open question
    for a real capture/attended matrix, same as `GM_UpdateGMStateVital`'s
    three field meanings below.
+7. `GM_UpdateGMStateVital` (`0x5A19`) `GSCN_RunTimeProtocolRes` envelope,
+   `ErrorData=28317`: **CLOSED PASS/DONE by RE-113** (round `fmgvbx`,
+   `pf_bridge/CLIENT_RE_QUEUE.md`). Not a field-layout defect in the vital
+   itself -- `gm/state_wire.py` built the frame via the legacy bridge's
+   singular `make_runtime_vital()` helper, which omits a trailing
+   derived-class change-mask byte (`u8tag(0x0B, 0)`) that
+   `GSCN_RunTimeProtocolRes` v4 requires after its VitalData collection; the
+   sibling `make_runtime_vitals()` helper appends it and already carries a
+   comment citing this exact error code, independently corroborated three
+   times in `reports/PF_DELETE_SOFT002_NATURAL_0x36DB_DECODE_20260818.md`
+   Sec.(c). Fixed this round -- see "Modules delivered (round `fmgvbx`,
+   RE-113 trailing-mask fix)" below. Residual bounded-negative: no single
+   client-binary instruction address was found for the trailing-byte read
+   itself (the proof rests on the legacy bridge's own code comment plus the
+   committed report's wire/behavioral precedent, not a fresh disassembly of
+   this exact continuation) -- does not block closure.
 
 ## RE requests open (owned by static RE lane, filed via chief)
 
-None filed by this lane are open as of this round -- RE-088, RE-089, RE-090,
-RE-091, RE-104, and RE-105 are all closed (see above). This section is kept
-so the next round does not have to re-derive that from the closed list.
+None filed by this lane are open as of this round -- RE-088, RE-089,
+RE-090, RE-091, RE-104, RE-105, and RE-113 are all closed (see above). This
+section is kept so the next round does not have to re-derive that from the
+closed list.
 
 Remaining semantic gaps (what the
 `GM_RunGMCommandVital` two wide strings and three scalars mean; what the
