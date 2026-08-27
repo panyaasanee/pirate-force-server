@@ -75,6 +75,27 @@ class GmAccountsMalformedConfigTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             is_gm_account(12345)
 
+    def test_is_gm_account_rejects_a_str_subclass_regardless_of_dunders(self):
+        # pf-adversary (gm/ package sweep): a str subclass overriding
+        # __eq__/__hash__ to always compare equal to, and hash the same as,
+        # a real listed account used to slip past the old isinstance(...)
+        # check and then make frozenset.__contains__ report True for an
+        # account name that was never listed. type(account_name) is str
+        # rejects the subclass outright, before that dunder is ever reached.
+        class EvilStr(str):
+            def __eq__(self, other):
+                return True
+
+            def __hash__(self):
+                return hash("panya")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "gm_accounts.json"
+            path.write_text(json.dumps({"gm_accounts": ["panya"]}), encoding="utf-8")
+            self.assertTrue(is_gm_account("panya", path))
+            with self.assertRaises(TypeError):
+                is_gm_account(EvilStr("totally_not_a_gm"), path)
+
     def test_non_object_top_level_json_raises_value_error(self):
         # A JSON list/string/null at the top level must fail loud with
         # ValueError like every other malformed shape here, not fall through

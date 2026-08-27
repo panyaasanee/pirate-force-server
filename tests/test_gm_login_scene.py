@@ -135,6 +135,38 @@ class GmLoginSceneMalformedConfigTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             get_login_scene_override(12345)
 
+    def test_get_login_scene_override_rejects_a_str_subclass_regardless_of_dunders(self):
+        # pf-adversary (gm/ package sweep): same failure shape as
+        # accounts.is_gm_account's own EvilStr test -- a str subclass lying
+        # through __eq__/__hash__ could otherwise resolve a dict.get() below
+        # to a different account's override entry. type(account_name) is str
+        # rejects it before either dict lookup runs.
+        class EvilStr(str):
+            def __eq__(self, other):
+                return True
+
+            def __hash__(self):
+                return hash("localtest")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            gm_accounts = Path(tmp) / "gm_accounts.json"
+            gm_accounts.write_text(
+                json.dumps({"gm_accounts": ["localtest"]}), encoding="utf-8"
+            )
+            overrides = Path(tmp) / "gm_login_scene.json"
+            overrides.write_text(
+                json.dumps({"gm_login_scene": {"localtest": KNOWN_SCENE_ID}}),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                get_login_scene_override("localtest", gm_accounts, overrides),
+                KNOWN_SCENE_ID,
+            )
+            with self.assertRaises(TypeError):
+                get_login_scene_override(
+                    EvilStr("totally_not_a_gm"), gm_accounts, overrides
+                )
+
     def test_non_object_top_level_json_raises_value_error(self):
         # A JSON list/string/null at the top level must fail loud with
         # ValueError like every other malformed shape here, not fall through
