@@ -195,6 +195,24 @@ def _require_args_tuple(args: object, *, min_length: int) -> tuple[str, ...]:
     return args
 
 
+def _require_arg_int(value: str, label: str) -> int:
+    """Parse one `GmCommand.args` element as int, or raise `GmCommandArgsError`.
+
+    `describe_warp_target`/`describe_npc_target` accept a `GmCommand`
+    "regardless of source" (see `GmCommandArgsError`'s docstring) -- a
+    hand-built command whose `args` tuple has the right shape but a
+    non-numeric element (e.g. `("abc",)`) must not raise a bare `ValueError`
+    out of `int()`; that would break the same threat model `_require_args_tuple`
+    exists to close, just one field deeper. `parse_gm_command`'s own
+    `_require_int` already guarantees this for its own input path, so this is
+    a separate check for callers that skip `parse_gm_command` entirely.
+    """
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise GmCommandArgsError(f"{label} must be an integer, got {value!r}") from exc
+
+
 def describe_warp_target(command: GmCommand) -> str | None:
     """The GM scene name for a parsed warp command's scene_id, or None if
     the id has no row in the GM-004 catalog -- a hint, not a validity gate.
@@ -202,7 +220,7 @@ def describe_warp_target(command: GmCommand) -> str | None:
     if command.name != "warp":
         raise ValueError("describe_warp_target only applies to warp commands")
     args = _require_args_tuple(command.args, min_length=1)
-    scene_id = int(args[0])
+    scene_id = _require_arg_int(args[0], "scene_id")
     if not scene_catalog.is_known_scene_id(scene_id):
         return None
     return scene_catalog.gm_scene_name(scene_id)
@@ -218,7 +236,7 @@ def describe_npc_target(command: GmCommand) -> str | None:
     if command.name != "npc":
         raise ValueError("describe_npc_target only applies to npc commands")
     args = _require_args_tuple(command.args, min_length=2)
-    mob_id = int(args[1])
+    mob_id = _require_arg_int(args[1], "mob_id")
     if not npc_switch_catalog.is_gm_switchable_npc(mob_id):
         return None
     return npc_switch_catalog.npc_gm_name(mob_id)
