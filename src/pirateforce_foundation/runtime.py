@@ -21,8 +21,9 @@ from . import world_scene_liveness
 from . import world_scene_travel
 from . import world_travel_gate
 
+from . import lane_hooks
 from .gm.accounts import is_gm_account
-from .gm.dispatch import GM_RUN_GM_COMMAND_VITAL_ID, handle_gm_run_command_vital
+from .gm.dispatch import GM_RUN_GM_COMMAND_VITAL_ID
 from .gm import state_wire
 from .gm.state_wire import make_gm_update_state_frame
 
@@ -4628,22 +4629,18 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 return [("FOUNDATION_CREATE_COMMITTED", pc, frame, 0.10)]
             if nested_id == GM_RUN_GM_COMMAND_VITAL_ID:
                 # CORE-REQUEST-010 (LANE-GM).  ALWAYS ON, no scenario flag.
-                # handle_gm_run_command_vital enforces the gm_accounts
-                # allowlist and the 64 KiB cap BEFORE anything touches the
-                # payload; this call site only counts the frame and logs
-                # which outcome happened.  No reply is sent
-                # (GM_RunGMCommandResultVital's meaning is unproven) and
-                # nothing here decodes or executes a command.
+                # The actual authorize/capture/event logic moved to
+                # lane_hooks/lane_gm_run_command.py (v6.3 lane_hooks
+                # architecture, first move-out demo) -- this call site only
+                # counts the frame and fires the hook point; no reply is
+                # sent either way (GM_RunGMCommandResultVital's meaning is
+                # unproven) and nothing here decodes or executes a command.
                 self.rx_frames += 1
-                outcome = handle_gm_run_command_vital(
-                    self.token, bytes(parsed.nested_payload),
+                lane_hooks.fire(
+                    "vital_inbound_gm_run_command",
+                    session=self,
+                    payload=bytes(parsed.nested_payload),
                 )
-                if outcome.captured_path is not None:
-                    self.events.append("gm_run_command_authorized_capture")
-                else:
-                    self.events.append(
-                        f"gm_run_command_refused_{outcome.refusal_reason}"
-                    )
                 return []
             if nested_id == legacy.START_GAME_REQ:
                 self.rx_frames += 1
