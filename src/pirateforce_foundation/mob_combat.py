@@ -236,6 +236,25 @@ MOB_COMBAT_CADENCE_WIRING = (
     "self.mob_combat_cadence starts life as mob_combat.open_cadence_ledger(), "
     "opened next to self.mob_combat_ledger."
 )
+# [STALE as of runtime.py CORE-REQUEST (LANE-B, 20260828_0337), round
+# confident-ride-d9704m, 2026-08-28] [MEASURED, by call-site reading]: the
+# wiring line above HAS been written and runs on the production dispatch
+# path -- with one DEVIATION from the literal recipe, found by pf-adversary
+# before push and applied by chief: the gate above only fires when
+# ``target`` resolves to a roster member (the same membership test
+# ``attack_from_observed_action`` itself runs), not on every inbound
+# ActionVital. Gating unconditionally, as originally written, let an
+# ActionVital at a non-monster target silently spend the performer's
+# cadence window before the roster-membership check ever ran, so a
+# following genuine first attack could be rejected as "too soon" though no
+# damage-bearing attack had happened yet -- see
+# tests/test_mob_combat_cadence_wiring.py and runtime.py's own comment at
+# the call site for the reproduction. Rejections also append
+# "mob_combat_cadence_rejected_no_reply" to ``self.events``, matching the
+# ``..._no_reply`` convention every other silent return in
+# ``_dispatch_mob_combat`` already follows -- the first draft only printed
+# the console line, which pf-adversary flagged as inconsistent with that
+# convention.
 
 # ---------------------------------------------------------------------------
 # [LANE-B ASSUMPTION - PROVISIONAL, awaiting RE-110] Minimum attack cadence.
