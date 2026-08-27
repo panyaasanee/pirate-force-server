@@ -1,20 +1,44 @@
 """LANE-B / GT-DIAG-MULTI-OBJECT-001: five objects, each one field from D0.
 
-SUPERSEDED BODY PICK -- READ THIS FIRST.  ADDENDUM 20:18 (+07:00, the SAME
-day, landed on main after this module was built and pf-adversary-reviewed)
-has the owner naming the body herself: Mountain Deer, MOBS n_ID 27, NOT
-Jungle Big Tiger (template 60, below).  Mountain Deer is not a member of
-bg0001's mined roster (:data:`field_mobs.HOSTILE_PLACEMENTS`), so
-:func:`_control_body` -- which only searches that roster -- cannot find it;
-swapping to it needs a fresh mine of MOBS/MOBS_TIP/STANDARD_MOB for n_ID 27
-(this module's ``_control_body`` docstring below explains why it insists on
-a roster row rather than composing one), AND a new entry in
-mob_death.WIDENING_RULINGS covering template 27, which the existing
-bg0001 ruling's covered set does NOT include.  Both are next round's work,
-not done here.  Everything below still answers ADDENDUM 19:05's original
-two-criteria question (aggro + EXP) correctly for the body it names; it is
-the OWNER'S OWN LATER, MORE SPECIFIC DECISION that supersedes the pick, not
-a defect in the reasoning below.
+BODY SWAP DONE THIS ROUND (PANYA-DECISION 2026-08-27T20:10+07:00 "M1-P" item
+3).  ADDENDUM 20:18 (+07:00, the SAME day, landed on main after this module
+was first built and pf-adversary-reviewed) has the owner naming the body
+herself: Mountain Deer, MOBS n_ID 27, NOT Jungle Big Tiger (template 60, the
+previous pick, kept below as a struck record rather than deleted).  Mountain
+Deer is not a member of ANY generated roster -- neither bg0001's
+(:data:`field_mobs.HOSTILE_PLACEMENTS`) nor Bg0002's (which this same round
+mined for the first time, :data:`field_mob_tables_bg0002.HOSTILE_PLACEMENTS`)
+-- so :func:`_control_body`, which used to search a generated roster, now
+builds the body directly from a hand-mined row instead (see the
+``DIAG_MOUNTAIN_DEER_*`` constants below for the exact figures and their
+provenance).  A NEW entry in ``mob_death.WIDENING_RULINGS`` (and its
+companion ``WIDENING_RULING_SCENES``) covers template 27 on its own, scoped
+to bg0001 (where these diagnostic objects are actually placed) -- see that
+dict's own comments in mob_death.py.
+
+~~"Everything below still answers ADDENDUM 19:05's original two-criteria
+question (aggro + EXP) correctly for the body it names"~~ -- STRUCK, this
+round, by re-checking the SAME table this module already mines from for a
+DIFFERENT template.  Mountain Deer's own ``n_AI_WANDER`` is 16
+(:data:`field_mob_ai_tables.AI_WANDER_ROWS`\\ [16] = ``n_AGGRO`` 0), the SAME
+zero-aggro row "WHY THE BODY IS A REAL FIELD MONSTER" below says most
+bg0001 hostiles use and explicitly picked AWAY from; Jungle Big Tiger's
+``n_AI_WANDER`` was 11 (``n_AGGRO`` 1200).  So the owner's later, more
+specific instruction trades away the FIRST of ADDENDUM 19:05's two original
+criteria (aggro AI) -- Mountain Deer is NOT an aggro monster by this
+project's own reading of that column.  It keeps the second: Mountain Deer's
+``f_RATIO_EXP`` is 1.0, the same "grants EXP" contrast this module's EXP
+paragraph below already established (bg0001's hand-placed story NPCs read
+0.0).  This module follows the owner's later, more specific, explicitly
+provenance-checked instruction rather than re-arguing it -- ADDENDUM 20:18
+outranks ADDENDUM 19:05's own criteria where the two disagree, and the
+disagreement is recorded here rather than silently absorbed.  Also worth
+naming: Mountain Deer's ``n_AI_COMBAT`` is 150, which has no row in
+:data:`field_mob_ai_tables.AI_COMBAT_ROWS` (Jungle Big Tiger's 123 did), so
+this body carries no mined combat-AI script either -- irrelevant to what
+GT-114 actually tests (click/Tab/fall/freeze on a body the server itself
+kills, not autonomous monster behaviour), but named here rather than left
+for someone else to notice later.
 
 WHAT THIS MODULE IS FOR.  PANYA-ORDER 2026-08-27 18:55 (+07:00, ADDENDUM 19:05)
 asks for one boot that answers RE-107, RE-108 and RE-109 at once by placing
@@ -27,28 +51,32 @@ socket and schedules nothing; :mod:`runtime` (the chief's file) is the only
 thing that can put these bytes on a wire, through one CORE-REQUEST call site
 this module exists to make small.
 
-WHY THE BODY IS A REAL FIELD MONSTER, NOT TORNADO EAGLE.  The order's first
-draft used Tornado Eagle; ADDENDUM 19:05 forbids it and asks for a monster
-that (a) has aggro AI and (b) grants EXP, "so that it is unmistakably born as
-a monster" rather than a re-flagged NPC.  ``field_mob_ai_tables.AI_WANDER_ROWS``
-already carries a mined, committed ``n_AGGRO`` column.  Checked against every
-row of ``field_mobs.HOSTILE_PLACEMENTS`` (bg0001's own roster, itself filtered
-on "a MOBS row with a rank AND a combat AI" -- the project's own standing test
-for "a real monster, not a story NPC wearing the MOBS table"), exactly THREE
+WHY THE BODY WAS A REAL FIELD MONSTER, NOT TORNADO EAGLE -- ORIGINAL REASONING,
+KEPT FOR THE RECORD, SUPERSEDED BY THE OWNER'S OWN LATER PICK ABOVE.  The
+order's first draft used Tornado Eagle; ADDENDUM 19:05 forbids it and asks
+for a monster that (a) has aggro AI and (b) grants EXP, "so that it is
+unmistakably born as a monster" rather than a re-flagged NPC.
+``field_mob_ai_tables.AI_WANDER_ROWS`` already carries a mined, committed
+``n_AGGRO`` column.  Checked against every row of
+``field_mobs.HOSTILE_PLACEMENTS`` (bg0001's own roster, itself filtered on "a
+MOBS row with a rank AND a combat AI" -- the project's own standing test for
+"a real monster, not a story NPC wearing the MOBS table"), exactly THREE
 have a nonzero ``n_AGGRO`` (all 1200, via ``ai_wander=11``): placement 58
 (Jungle Big Tiger, template 60, level 37), placement 63 (Ward Apes, template
 65, level 43) and placement 132 (Orc Chief, template 103, level 58).  This
-module picks Jungle Big Tiger, the lowest-level of the three, over the
+module PICKED Jungle Big Tiger, the lowest-level of the three, over the
 order's own example (Mountain Deer, a different scene entirely) to avoid
-opening new cross-scene RE for a criterion bg0001 already answers with mined,
-committed, digest-pinned data, and to keep the diagnostic body away from the
-higher-level pair on no stronger reason than "smaller number" -- a
+opening new cross-scene RE for a criterion bg0001 already answered with
+mined, committed, digest-pinned data, and to keep the diagnostic body away
+from the higher-level pair on no stronger reason than "smaller number" -- a
 tie-breaker, not a claim that level matters to the test.
 
 ``CONSTDATA_TH__MOBS.tsv`` row 60 reads ``f_RATIO_EXP=1.0`` (a normal,
 nonzero EXP ratio); the two hand-placed story NPCs checked for contrast
-(rows 1 and 2) both read ``f_RATIO_EXP=0.0``.  That contrast is this module's
-only "grants EXP" evidence.
+(rows 1 and 2) both read ``f_RATIO_EXP=0.0``.  That contrast was this
+module's only "grants EXP" evidence, and it is re-checked for Mountain Deer
+in the module docstring's update above (also 1.0 -- the EXP half of this
+reasoning still holds for the NEW body; the aggro half does not, see above).
 
     [LANE-B ASSUMPTION - PROVISIONAL, awaiting RE/COO confirmation]
     ``f_RATIO_EXP`` is read here as a "grants EXP" signal by contrast with
@@ -150,6 +178,7 @@ from dataclasses import dataclass
 import math
 from typing import Any
 
+from . import field_mob_tables
 from . import field_mobs
 from . import mob_death
 from .field_mobs import FieldMob
@@ -180,11 +209,14 @@ GT_DIAG_MULTI_OBJECT_WIRING = (
     "the refusal, since that is the one fact this object exists to test; D3 "
     "needs no death handling, it is not expected to reach zero HP in this "
     "round. D0/D2/D1a's calls above (kill_schedule/dying_timer_hold_schedule) "
-    "pass DIAG_WIDENED_RULING, mob_death's own already-registered bg0001 "
-    "ruling (template 60 is in its covered set), not a new one -- D1b does "
-    "NOT: dead_only_schedule calls mob_death.dead_frames() directly, which "
-    "carries no identity/template gate at all (only kill() does), so no "
-    "widened= applies there; D3 calls neither, per the line above."
+    "pass DIAG_WIDENED_RULING, mob_death's own dedicated Mountain-Deer "
+    "ruling (template 27 is its only covered template, and it is scoped to "
+    "scene 'bg0001' in WIDENING_RULING_SCENES, matching this module's own "
+    "objects, which are placed here and not at any real Bg0002 placement) "
+    "-- D1b does NOT: dead_only_schedule calls mob_death.dead_frames() "
+    "directly, which carries no identity/template/scene gate at all (only "
+    "kill() does), so no widened= applies there; D3 calls neither, per the "
+    "line above."
 )
 
 # The owner's test point (PANYA-ORDER 18:55, unchanged by ADDENDUM 19:05).
@@ -206,28 +238,82 @@ DIAG_FAR_RADIUS = 450.0
 # live census member.
 DIAG_PLACEMENT_BASE = 9000
 
-# Jungle Big Tiger: field_mobs.HOSTILE_PLACEMENTS placement 58, template 60.
-# Picked over the order's own example (Mountain Deer) because this scene's
-# already-mined, digest-pinned data answers the addendum's two criteria
-# without opening new cross-scene RE -- see the module docstring.
-DIAG_BODY_TEMPLATE_ID = 60
+# ~~Jungle Big Tiger: field_mobs.HOSTILE_PLACEMENTS placement 58, template
+# 60.~~ SUPERSEDED THIS ROUND by ADDENDUM 20:18's own, later, more specific
+# pick.  Kept struck rather than deleted, per this project's own convention.
+# DIAG_BODY_TEMPLATE_ID = 60
+
+# MOUNTAIN DEER (MOBS n_ID 27) -- ADDENDUM 20:18's own pick for all five
+# GT-114/DIAG-001 objects, superseding the Jungle Big Tiger pick above.  NOT
+# a member of ANY generated roster: both field_mob_tables.py (bg0001) and
+# field_mob_tables_bg0002.py (Bg0002, mined for the first time this same
+# round) exclude it on the SAME ground -- CONSTDATA_TH__MOBS.tsv row 27's
+# s_OUTFIT is the two-variant list "M005_000_000_SP1;M005_000_000_SP2",
+# which fails tools/pf_mine_scene_mob_roster.py's own "single unambiguous
+# basename" selection rule (see that tool's docstring).  So
+# :func:`_control_body` cannot find it by searching a mined roster the way
+# it used to for template 60; it builds the record from the constants below
+# instead, hand-mined from the SAME committed tables at the SAME digests
+# field_mob_tables_bg0002.py's own header already records (mobs
+# 3c0d33d68f832eefda56c845495008338dcef56f4277584b9ca479b7e1b3916b,
+# mobs_tip e25ac667c9029e07752fbfd5d13b548d2e62ea439936884f30187c0c553ce38f,
+# standard_mob 4b2db7f9553c877c2ec471105754dd08982d9e80027cc468c1ceaee840d68925
+# -- CONSTDATA_TH__STANDARD_MOB.tsv, read at level 17, not the placements
+# table, since this body has no real placement of its own):
+#
+#   CONSTDATA_TH__MOBS.tsv row 27: s_ID_MODEL_CLASS M005, n_LEVEL_MIN 17,
+#     n_LEVEL_MAX 19, n_RANK 1, n_AI_WANDER 16, n_AI_COMBAT 150,
+#     n_SPEED_WALK 100, f_RATIO_EXP 1.0, n_DROPS_NORMAL 2701001,
+#     n_DROPS_EQUIPMENT 5400001, n_DROPS_SPECIALLY 2802222.
+#   CONSTDATA_TH__STANDARD_MOB.tsv row 17: n_HPMAX 1201.
+#   TEXTDATA_TH__MOBS_TIP.tsv row 27: s_NAME "Mountain Deer".
+#
+# Every one of these was checked against ADDENDUM 20:18's own relayed
+# numbers (n_AI_COMBAT 150, n_AI_WANDER 16, f_RATIO_EXP 1.0, drops
+# 5400001/2701001/2802222) and AGREES exactly -- the addendum's text is
+# correct, but this module cites the primary table, per PANYA-DECISION
+# 2026-08-27T20:10+07:00's own instruction to re-derive rather than
+# hand-copy a relayed number.
+#
+# s_OUTFIT carries TWO variants; this diagnostic body deterministically picks
+# the FIRST token (M005_000_000_SP1).  This project has no evidence for
+# which variant a real spawn would use, so this is a NAMED CHOICE for a
+# synthetic diagnostic placement, not a discovery -- it does not need to
+# match a real spawn's rule, since Mountain Deer has never had a real
+# placement in this project's mined data at all.
+DIAG_MOUNTAIN_DEER_TEMPLATE_ID = 27
+DIAG_MOUNTAIN_DEER_LEVEL = 17
+DIAG_MOUNTAIN_DEER_RANK = 1
+DIAG_MOUNTAIN_DEER_AI_WANDER = 16
+DIAG_MOUNTAIN_DEER_AI_COMBAT = 150
+DIAG_MOUNTAIN_DEER_SPEED_WALK = 100
+DIAG_MOUNTAIN_DEER_MAX_HP = 1201
+DIAG_MOUNTAIN_DEER_DROPS_NORMAL = 2701001
+DIAG_MOUNTAIN_DEER_DROPS_EQUIPMENT = 5400001
+DIAG_MOUNTAIN_DEER_DROPS_SPECIALLY = 2802222
+DIAG_MOUNTAIN_DEER_VISUAL_PRESET = "M005_000_000_SP1"
+DIAG_MOUNTAIN_DEER_DISPLAY_NAME = "Mountain Deer"
+
+DIAG_BODY_TEMPLATE_ID = DIAG_MOUNTAIN_DEER_TEMPLATE_ID
 
 # mob_death.kill() refuses any target that is not the sanctioned first target
 # (0x201F, Tornado Eagle) unless the caller names a ruling from
 # mob_death.WIDENING_RULINGS, and even then only if mob.template_id is in
-# that ruling's covered set -- the gate is BY TEMPLATE, not by identity or
-# scene (mob_death.py says so of itself, in its own [OPEN RISK] note on this
-# exact ruling).  "COO-RULING-20260827-1350 widen-death-scope-bg0001" covers
-# template 60 (Jungle Big Tiger, DIAG_BODY_TEMPLATE_ID below), so this
-# diagnostic's synthetic placements of that same body pass the gate under
-# the ruling's own exact wording -- no paraphrase, no new ruling needed.
-# What that [OPEN RISK] note flags, and what this comment is flagging back:
-# the ruling's PROSE only ever named bg0001's 13 real placements, and this
-# module is the first caller to reach kill() with a template-60 mob that is
-# NOT one of them.  mob_death.py's own gate design already decided that is
-# authorised; this is not a new assumption on top of it, but the round note
-# says so plainly for RE/COO to correct if they read the ruling narrower.
-DIAG_WIDENED_RULING = "COO-RULING-20260827-1350 widen-death-scope-bg0001"
+# that ruling's covered set AND (this round) mob.scene agrees with whatever
+# mob_death.WIDENING_RULING_SCENES ties that ruling to, if anything does.
+# Template 27 is deliberately NOT in the bg0001 ruling's covered set (that
+# set is the bg0001 roster's own 13 templates) and NOT in the new Bg0002
+# roster ruling's covered set either (Bg0002's mining run excludes template
+# 27 on the same outfit-ambiguity ground this module's own comment above
+# explains) -- so it gets its OWN dedicated ruling, citing the same letter
+# and timestamp as the Bg0002 roster ruling (they are two separate sentences
+# of the SAME PANYA-DECISION/ADDENDUM), scoped to scene "bg0001" because
+# these five objects are placed at DIAG_CENTER_X/Y, a bg0001 point, not at
+# any real Bg0002 placement.
+DIAG_WIDENED_RULING = (
+    "PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18) "
+    "diag-mountain-deer-template-27"
+)
 
 DIAG_LABEL_CONTROL = "D0"
 DIAG_LABEL_DYING_TIMER_HOLD = "D1a"
@@ -274,14 +360,37 @@ def _diag_position(slot: int) -> tuple[float, float, float]:
 
 
 def _control_body() -> FieldMob:
-    """Jungle Big Tiger's real row, every field but placement/xyz untouched."""
-    for mob in field_mobs.load_roster():
-        if mob.template_id == DIAG_BODY_TEMPLATE_ID:
-            return mob
-    raise MobDiagContractError(
-        "template %d is not in the mined bg0001 roster any more; "
-        "regenerate field_mob_tables or pick a different body" %
-        DIAG_BODY_TEMPLATE_ID)
+    """Mountain Deer's real row, built from the hand-mined constants above.
+
+    Template 27 is not a member of ANY generated roster (bg0001's or
+    Bg0002's): both mining runs exclude it on the SAME ground, an ambiguous
+    two-variant ``s_OUTFIT`` that fails tools/pf_mine_scene_mob_roster.py's
+    own "single unambiguous basename" rule.  So, unlike the earlier
+    Jungle-Big-Tiger version of this function, this cannot search a
+    generated roster for the row -- the ``DIAG_MOUNTAIN_DEER_*`` constants
+    above ARE the row, mined by hand from the same committed tables at the
+    same digests, with their own provenance comment.  ``placement_index``
+    and ``x``/``y``/``z`` are placeholders here; :func:`_diag_mob`
+    overwrites both per slot, and ``scene`` is set to bg0001 (where these
+    synthetic objects are actually placed), NOT Bg0002 (where the template's
+    stats were mined from) -- see ``DIAG_WIDENED_RULING``'s own comment for
+    why that distinction matters to mob_death.kill().
+    """
+    return FieldMob(
+        placement_index=0, template_id=DIAG_MOUNTAIN_DEER_TEMPLATE_ID,
+        x=0.0, y=0.0, z=0.0,
+        visual_preset=DIAG_MOUNTAIN_DEER_VISUAL_PRESET,
+        display_name=DIAG_MOUNTAIN_DEER_DISPLAY_NAME,
+        level=DIAG_MOUNTAIN_DEER_LEVEL, rank=DIAG_MOUNTAIN_DEER_RANK,
+        ai_wander=DIAG_MOUNTAIN_DEER_AI_WANDER,
+        ai_combat=DIAG_MOUNTAIN_DEER_AI_COMBAT,
+        speed_walk=DIAG_MOUNTAIN_DEER_SPEED_WALK,
+        max_hp=DIAG_MOUNTAIN_DEER_MAX_HP,
+        drops_normal=DIAG_MOUNTAIN_DEER_DROPS_NORMAL,
+        drops_equipment=DIAG_MOUNTAIN_DEER_DROPS_EQUIPMENT,
+        drops_specially=DIAG_MOUNTAIN_DEER_DROPS_SPECIALLY,
+        scene=field_mob_tables.SCENE,
+    )
 
 
 def _diag_mob(slot: int) -> FieldMob:
@@ -292,6 +401,7 @@ def _diag_mob(slot: int) -> FieldMob:
         body.visual_preset, body.display_name, body.level, body.rank,
         body.ai_wander, body.ai_combat, body.speed_walk, body.max_hp,
         body.drops_normal, body.drops_equipment, body.drops_specially,
+        scene=body.scene,
     )
 
 

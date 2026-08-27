@@ -181,6 +181,79 @@ class FieldMobTests(unittest.TestCase):
             self.assertTrue(mob.display_name.isascii())
             self.assertTrue(mob.visual_preset.isascii())
 
+    def test_load_roster_defaults_to_bg0001_and_tags_every_mob_with_its_scene(
+            self) -> None:
+        # ADDED this round (PANYA-DECISION 2026-08-27T20:10+07:00): the
+        # no-argument call must be byte-for-byte the same roster it always
+        # was, and every returned mob must carry the SAME scene string the
+        # generated module itself declares, not a hardcoded literal.
+        roster = load_roster()
+        self.assertEqual(len(roster), 13)
+        for mob in roster:
+            self.assertEqual(mob.scene, field_mob_tables.SCENE)
+            self.assertEqual(mob.scene, "bg0001")
+
+    def test_load_roster_can_load_bg0002s_own_mined_roster(self) -> None:
+        from pirateforce_foundation import field_mob_tables_bg0002
+        bg0002_roster = load_roster(scene=field_mobs.BG0002_SCENE)
+        self.assertEqual(field_mobs.BG0002_SCENE, "Bg0002")
+        self.assertEqual(len(bg0002_roster), 17)
+        self.assertEqual(
+            len({mob.template_id for mob in bg0002_roster}), 4)
+        self.assertEqual(
+            {mob.template_id for mob in bg0002_roster}, {31, 34, 35, 103})
+        for mob in bg0002_roster:
+            self.assertEqual(mob.scene, field_mob_tables_bg0002.SCENE)
+            self.assertEqual(mob.scene, "Bg0002")
+
+    def test_bg0001_and_bg0002_actor_identities_are_NOT_disjoint_a_real_collision(
+            self) -> None:
+        # DISCOVERED this round, not fixed: FieldMob.actor_identity is
+        # ``0x2000 + placement_index + 1`` with NO scene component (the same
+        # rule world_population uses), and both scenes' placement indices are
+        # small numbers assigned independently by their own .npc files -- so
+        # four bg0001 mobs and four Bg0002 mobs land on the EXACT SAME actor
+        # identity, four different monsters two-by-two: placement 58 (bg0001
+        # Jungle Big Tiger / Bg0002 Fighting Fish soldier), 59 (Toxic Vine /
+        # Fighting Fish soldier), 60 (Ancient Civilization Alert Weapon /
+        # Fighting Fish soldier) and 95 (An Gebo Little Firebird / Orc
+        # Chief). This is a SEPARATE hazard from the WIDENING_RULINGS
+        # template/scene collision this round otherwise closes: it is about
+        # the WIRE IDENTITY two different monsters would carry, not about
+        # who is allowed to kill them. It is harmless today because nothing
+        # sends both scenes' collections in the same generation (players
+        # occupy one scene at a time, and load_roster() itself refuses to
+        # merge them -- see assert_single_scene_tables) and mob_death's own
+        # DeathRegister/CombatLedger are per-caller, not a cross-scene
+        # global. It would stop being harmless the moment any single process
+        # needs to reference BOTH scenes' mobs at once (a cross-scene admin
+        # view, a shared in-memory registry, etc.) -- flagged here rather
+        # than fixed, since fixing it means changing what actor_identity IS
+        # (adding a scene component), which reaches world_population and the
+        # wire format this project has not asked this round to touch.
+        bg0001_identities = {mob.actor_identity for mob in load_roster()}
+        bg0002_identities = {
+            mob.actor_identity
+            for mob in load_roster(scene=field_mobs.BG0002_SCENE)
+        }
+        shared = bg0001_identities & bg0002_identities
+        self.assertEqual(shared, {0x203B, 0x203C, 0x203D, 0x2060})
+
+    def test_load_roster_never_merges_the_two_scenes_in_one_call(self) -> None:
+        # The guard this round widened (assert_single_scene_tables) still
+        # does its one job: a single load_roster() call for either scene
+        # returns rows from ONLY that scene, never both.
+        bg0001_scenes = {mob.scene for mob in load_roster()}
+        bg0002_scenes = {
+            mob.scene for mob in load_roster(scene=field_mobs.BG0002_SCENE)
+        }
+        self.assertEqual(bg0001_scenes, {"bg0001"})
+        self.assertEqual(bg0002_scenes, {"Bg0002"})
+
+    def test_load_roster_refuses_an_unregistered_scene(self) -> None:
+        with self.assertRaises(FieldMobContractError):
+            load_roster(scene="Bg9999")
+
     def test_the_generated_module_carries_its_sources_and_its_census(self) -> None:
         self.assertEqual(field_mob_tables.SCENE, "bg0001")
         self.assertEqual(
@@ -202,7 +275,9 @@ class FieldMobTests(unittest.TestCase):
     def test_the_generated_module_is_pure_ascii(self) -> None:
         # Lesson 86: one character with no code page 874 mapping raises
         # UnicodeEncodeError inside print() and kills a tool mid-report.
-        for name in ("field_mob_tables.py", "field_mobs.py"):
+        for name in (
+            "field_mob_tables.py", "field_mob_tables_bg0002.py", "field_mobs.py",
+        ):
             source = (ROOT / "src/pirateforce_foundation" / name).read_bytes()
             self.assertTrue(source.decode("utf-8").isascii(), name)
         tool = ROOT / "tools/pf_mine_scene_mob_roster.py"

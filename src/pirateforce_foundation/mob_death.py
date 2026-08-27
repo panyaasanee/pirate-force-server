@@ -170,6 +170,8 @@ import math
 import struct
 from typing import Any
 
+from . import field_mob_tables
+from . import field_mob_tables_bg0002
 from . import field_mobs
 from . import mob_combat
 from . import world_population
@@ -272,22 +274,117 @@ WIDENING_RULINGS: dict[str, frozenset[int]] = {
     # Eagle x4 identities, 103 Orc Chief), re-derived from the roster
     # itself in tests/test_mob_death.py rather than hand-copied twice.
     #
-    # [OPEN RISK, NOT MEASURED -- pf-adversary, this round] this ruling is
-    # NAMED for bg0001 but enforced only by template_id, not by scene or by
-    # call site: a second scene's own field-mob table already committed
-    # elsewhere in this repo (deliberately kept unwired, see that module's
-    # own guard test for why) shares 4 of these 10 template ids (31, 34,
-    # 35, 103) with bg0001's own roster. Nothing reachable today lets a
-    # mob from that table reach kill() at all, so this authorises nothing
-    # extra right now -- but the day that table (or any second scene) IS
-    # wired through this same kill() path, a mob carrying one of these
-    # template ids would pass this check even though this ruling only
-    # ever named bg0001. WIDENING_RULINGS has no scene-awareness to catch
-    # that by itself; whoever wires a second scene through kill() must add
-    # one (or a new, separately-scoped ruling) before reusing this key.
+    # [OPEN RISK -- pf-adversary, round 67jejl-era] [PARTIALLY CLOSED, this
+    # round, PANYA-DECISION 2026-08-27T20:10+07:00 "M1-P" item 3] this
+    # ruling is NAMED for bg0001 and enforced by template_id AS BEFORE, but
+    # is now ALSO checked by scene: WIDENING_RULING_SCENES below ties this
+    # exact key to field_mob_tables.SCENE ("bg0001"), and kill() refuses a
+    # mob whose own .scene disagrees, even when its template_id is also a
+    # member of this set. This closes the risk this comment used to
+    # describe only as theoretical: Bg0002's own mined roster
+    # (field_mob_tables_bg0002.HOSTILE_PLACEMENTS, loaded via
+    # field_mobs.load_roster(scene=field_mobs.BG0002_SCENE)) really does
+    # share 4 of these 10 template ids (31, 34, 35, 103), and a Bg0002 mob
+    # is now refused here rather than silently authorised. What is NOT
+    # closed: FieldMob.scene is a plain string a hand-built stand-in could
+    # still set wrong -- see field_mobs.assert_single_scene_tables' own
+    # "WHAT THIS DOES NOT COVER" paragraph, which says so explicitly rather
+    # than implying this is airtight.
     "COO-RULING-20260827-1350 widen-death-scope-bg0001": frozenset(
         {31, 34, 35, 60, 61, 62, 65, 94, 97, 103}
     ),
+    # PANYA-DECISION 2026-08-27T20:10+07:00 ("M1-P" item 3, notes_to_chief/
+    # 20260827_2010_PANYA-DECISION-pause-M2-M1-identity-first-Prison-Exile-
+    # Bg0002-MOBSET-equals-nID.md) + its ADDENDUM 20:18 (owner: "nap wa pen
+    # khao dee tham loei" / "count it as good news, do it"): widen death
+    # scope to cover Bg0002's own hostile roster.  The set below is
+    # EXACTLY what tools/pf_mine_scene_mob_roster.py selects for Bg0002
+    # (field_mob_tables_bg0002.HOSTILE_PLACEMENTS' distinct template_ids),
+    # not a hand-guessed slice of the 27-35 census block the decision
+    # letter names: templates 27-30, 32 and 33 all fail the mining tool's
+    # outfit-unambiguous rule (their CONSTDATA_TH__MOBS.s_OUTFIT is a
+    # multi-variant ";"-joined list) and so are NOT members of this ruling,
+    # even though several of them (27 included) pass the RANK+AI_COMBAT
+    # hostility predicate on their own. Re-derived from
+    # field_mob_tables_bg0002 itself in tests/test_mob_death.py rather than
+    # hand-copied twice, the same discipline the bg0001 ruling above is
+    # held to. Template 27 (Mountain Deer), the ADDENDUM's separately-named
+    # DIAG-001 body, is covered by ITS OWN ruling below, not folded into
+    # this one -- see that entry's comment for why.  Tied to
+    # field_mob_tables_bg0002.SCENE ("Bg0002") in WIDENING_RULING_SCENES:
+    # a bg0001 mob carrying one of these same four template ids (31, 34, 35
+    # and 103 all are) is refused here even though the OTHER ruling above
+    # would authorise it, because that mob's own .scene is "bg0001", not
+    # "Bg0002" -- the exact reverse-direction hazard the task that added
+    # this entry named explicitly.
+    "PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18) "
+    "widen-death-scope-bg0002": frozenset({31, 34, 35, 103}),
+    # Same letter, same timestamp, ADDENDUM 20:18's SEPARATE sentence:
+    # the owner named Mountain Deer (MOBS n_ID 27) as the body for all five
+    # GT-114/DIAG-001 diagnostic objects
+    # (mob_diag_multi_object.DIAG_MOUNTAIN_DEER_TEMPLATE_ID), superseding
+    # that module's own earlier Jungle Big Tiger (template 60) pick.
+    # Template 27 is deliberately NOT a member of the ruling above: it
+    # fails the SAME outfit-unambiguous rule that excludes it from Bg0002's
+    # own mined roster (s_OUTFIT is the two-variant list
+    # "M005_000_000_SP1;M005_000_000_SP2"), so a caller must not be able to
+    # infer "Bg0002's ruling covers Mountain Deer" from template proximity
+    # to 31/34/35 alone -- it does not, and this is why it gets its own
+    # entry rather than being added to the set above.  Tied to
+    # field_mob_tables.SCENE ("bg0001") in WIDENING_RULING_SCENES, NOT
+    # "Bg0002": GT-114's five diagnostic objects are placed at the owner's
+    # bg0001 city-center test point
+    # (mob_diag_multi_object.DIAG_CENTER_X/Y), not at any real Bg0002
+    # placement, so the scene tag records WHERE THE KILL HAPPENS, not
+    # which scene's MOBS row the body's stats were mined from.
+    "PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18) "
+    "diag-mountain-deer-template-27": frozenset({27}),
+}
+
+# Companion to WIDENING_RULINGS, added this round (PANYA-DECISION
+# 2026-08-27T20:10+07:00 "M1-P" item 3) rather than changing that dict's own
+# value shape, which several existing tests and the 916 ruling's own
+# machinery (registered_widening() in tests/test_mob_death.py) index as a
+# bare frozenset.  A ruling with an entry HERE additionally requires
+# ``mob.scene`` (FieldMob's own new field) to equal the scene named, on top
+# of the template_id check WIDENING_RULINGS already does; a ruling with NO
+# entry here (the 916 Training Iron Man ruling, which names no real scene at
+# all -- it is a training-dummy stand-in with no placement anywhere) is
+# UNAFFECTED, exactly as before this round.  This is the "lighter" of the
+# two options COO-DECISION 2026-08-27T14:41+07:00 named (a scene-scoped
+# ruling NAME plus a call-site check, not a scene field threaded through
+# every existing WIDENING_RULINGS value) -- chosen because the two rulings
+# that actually need it (the bg0001 one and the new Bg0002 one) have covered
+# template sets that OVERLAP (31, 34, 35, 103 are in both), so the
+# ruling-name string alone cannot disambiguate them and pf-adversary's own
+# 67jejl-round finding ("an unnamed value passes a named check") would
+# otherwise re-open across the scene boundary the moment Bg0002 rows reach
+# kill() at all -- which, as of field_mobs.load_roster(scene=...), they now
+# can.
+#
+# [CONFIRMED, not just this lane's assumption] pf-adversary (round y7koj9)
+# flagged an authority gap here before this was found: this round gives
+# FieldMob a `scene` field (field_mobs.py) -- literally the thing
+# COO-DECISION 2026-08-27T14:41+07:00 named as "option 1" and said not to do
+# yet, deferred to "after M4, when lane A/B actually needs a second scene".
+# PANYA-DECISION 2026-08-27T20:10+07:00 item 3 alone ("widen the
+# assert_single_scene_tables guard, don't disable it") does not by itself
+# name a FieldMob.scene field or this dict. What closes the gap: COO-DECISION
+# 2026-08-27T20:45+07:00 (notes_to_chief/20260827_2045_COO-DECISION-
+# widening-guard-move-into-kill-closes-gap.md, answering chief's own
+# 15:15 CHIEF-STATUS letter that first named this exact gap) explicitly
+# picks "add a scene field to check in kill(), comparing mob.template_id /
+# the mob's own scene" as this round's M1-P item-3 work, not a separate
+# round -- so this is COO-authorised, not merely this lane's own reading of
+# the owner's authority. Kept as a dated citation trail rather than deleted,
+# per this project's own rule against silently erasing what a round actually
+# reasoned through.
+WIDENING_RULING_SCENES: dict[str, str] = {
+    "COO-RULING-20260827-1350 widen-death-scope-bg0001": field_mob_tables.SCENE,
+    "PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18) "
+    "widen-death-scope-bg0002": field_mob_tables_bg0002.SCENE,
+    "PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18) "
+    "diag-mountain-deer-template-27": field_mob_tables.SCENE,
 }
 
 # ---------------------------------------------------------------------------
@@ -1305,6 +1402,26 @@ def kill(
                 "this monster" % (
                     widened, sorted(covered_templates), mob.actor_identity,
                     mob.template_id),
+            )
+        # ADDED this round (PANYA-DECISION 2026-08-27T20:10+07:00 "M1-P" item
+        # 3): the template_id check above is no longer sufficient by itself
+        # once a second scene's roster can reach this function at all -- the
+        # bg0001 and Bg0002 rulings' covered template sets OVERLAP (31, 34,
+        # 35, 103 are in both), so a mob whose template_id passes could still
+        # be the WRONG scene's instance of that template. WIDENING_RULING_
+        # SCENES only names the rulings that actually need this (see its own
+        # docstring); a ruling with no entry there is unaffected.
+        required_scene = WIDENING_RULING_SCENES.get(widened)
+        if required_scene is not None and mob.scene != required_scene:
+            raise MobDeathContractError(
+                REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE,
+                "widened=%r only authorises scene %r; mob 0x%X carries "
+                "template_id %d (which IS in the ruling's covered set) but "
+                "scene %r, so this ruling's own scope does not cover it - "
+                "a template_id match alone is not enough once more than one "
+                "scene shares that template" % (
+                    widened, required_scene, mob.actor_identity,
+                    mob.template_id, mob.scene),
             )
     if live.is_dead(mob.actor_identity):
         raise MobDeathContractError(

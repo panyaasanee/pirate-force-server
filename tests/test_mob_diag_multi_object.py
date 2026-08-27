@@ -87,33 +87,65 @@ class DiagObjectsTests(unittest.TestCase):
             self.assertEqual(mob.ai_combat, control.ai_combat)
             self.assertEqual(mob.max_hp, control.max_hp)
 
-    def test_the_body_is_a_real_roster_row_not_composed(self):
+    def test_the_body_is_the_hand_mined_mountain_deer_row_not_a_roster_search(
+            self):
+        # Template 27 is NOT a member of either generated roster -- this is
+        # the replacement for the old "search field_mobs.load_roster()"
+        # assertion, which no longer applies (that search would now find
+        # nothing at all, in either scene).
         control = self.by_label[diag.DIAG_LABEL_CONTROL].mob
-        matches = [
-            mob for mob in field_mobs.load_roster()
-            if mob.template_id == control.template_id
-        ]
-        self.assertEqual(len(matches), 1)
-        real = matches[0]
-        self.assertEqual(control.visual_preset, real.visual_preset)
-        self.assertEqual(control.display_name, real.display_name)
-        self.assertEqual(control.max_hp, real.max_hp)
+        self.assertEqual(control.template_id, diag.DIAG_MOUNTAIN_DEER_TEMPLATE_ID)
+        self.assertEqual(control.template_id, 27)
+        for mob in field_mobs.load_roster():
+            self.assertNotEqual(mob.template_id, 27)
+        for mob in field_mobs.load_roster(scene=field_mobs.BG0002_SCENE):
+            self.assertNotEqual(mob.template_id, 27)
+        self.assertEqual(control.visual_preset, diag.DIAG_MOUNTAIN_DEER_VISUAL_PRESET)
+        self.assertEqual(control.display_name, "Mountain Deer")
+        self.assertEqual(control.max_hp, diag.DIAG_MOUNTAIN_DEER_MAX_HP)
+        self.assertEqual(control.scene, field_mobs.field_mob_tables.SCENE)
 
-    def test_the_chosen_body_has_proven_nonzero_aggro(self):
-        # field_mob_ai_tables.AI_WANDER_ROWS[11] is the only nonzero-aggro row
-        # this scene's mined data carries; the control's ai_wander must point
-        # at it, not at the zero-aggro row (16) most bg0001 hostiles use.
+    def test_the_chosen_body_is_NOT_aggro_this_is_a_known_tradeoff(self):
+        # pf-adversary / this round's swap: ADDENDUM 19:05's original
+        # criterion (a) was "has aggro AI", and the PREVIOUS body (Jungle Big
+        # Tiger, ai_wander=11, n_AGGRO 1200) satisfied it. Mountain Deer
+        # (ai_wander=16) does NOT -- field_mob_ai_tables.AI_WANDER_ROWS[16]'s
+        # own n_AGGRO is 0, the SAME zero-aggro row the module docstring
+        # says most bg0001 hostiles use and the old pick was chosen away
+        # from. This test pins that fact plainly rather than silently
+        # dropping the old assertion, per the owner's own later, more
+        # specific ADDENDUM 20:18 instruction, which is followed here even
+        # though it trades this criterion away.
         from pirateforce_foundation import field_mob_ai_tables
         control = self.by_label[diag.DIAG_LABEL_CONTROL].mob
+        self.assertEqual(control.ai_wander, 16)
         _wander, _faction, _offensive, aggro = (
             field_mob_ai_tables.AI_WANDER_ROWS[control.ai_wander])
-        self.assertGreater(aggro, 0)
+        self.assertEqual(aggro, 0)
 
-    def test_exactly_three_bg0001_hostiles_have_nonzero_aggro_and_control_is_lowest_level(self):
-        # pf-adversary (this round) caught an earlier draft claiming only
-        # TWO bg0001 hostiles have nonzero aggro; there are three (placement
-        # 132, Orc Chief, was missed). Pinned here by scanning the full
-        # roster, not by re-asserting the module's own count.
+    def test_the_chosen_body_still_grants_exp(self):
+        # The SECOND of ADDENDUM 19:05's two criteria still holds for the
+        # new body: f_RATIO_EXP 1.0, same contrast the module used for the
+        # old pick (the two hand-placed story NPCs read 0.0). This project
+        # has no per-scene EXP table wired here, so this is pinned as a
+        # constant checked against the module's own provenance comment
+        # rather than re-derived from a table this test would have to mine
+        # itself.
+        control = self.by_label[diag.DIAG_LABEL_CONTROL].mob
+        self.assertEqual(diag.DIAG_MOUNTAIN_DEER_AI_COMBAT, 150)
+        # f_RATIO_EXP is not carried on FieldMob; the module's own docstring
+        # cites CONSTDATA_TH__MOBS row 27's f_RATIO_EXP as 1.0, matching
+        # ADDENDUM 20:18's own relayed number -- there is no live column on
+        # this record to assert it against directly, so this test instead
+        # pins the one MOBS figure that IS carried (ai_combat) as the anchor
+        # a human re-checking the docstring's other cited figures can use.
+        self.assertEqual(control.ai_combat, diag.DIAG_MOUNTAIN_DEER_AI_COMBAT)
+
+    def test_exactly_three_bg0001_hostiles_have_nonzero_aggro_and_none_is_the_control(self):
+        # Still true of bg0001's own roster (unaffected by the body swap);
+        # what changed is that the control is no longer one of them --
+        # pinned explicitly so a future reader does not assume otherwise
+        # from this test's name alone surviving the swap.
         from pirateforce_foundation import field_mob_ai_tables
         aggro_mobs = [
             mob for mob in field_mobs.load_roster()
@@ -121,11 +153,8 @@ class DiagObjectsTests(unittest.TestCase):
         ]
         self.assertEqual(len(aggro_mobs), 3)
         control = self.by_label[diag.DIAG_LABEL_CONTROL].mob
-        self.assertIn(control.template_id, {m.template_id for m in aggro_mobs})
-        self.assertEqual(
-            control.level, min(m.level for m in aggro_mobs),
-            "the control should be the lowest-level of the three qualifying "
-            "hostiles, per the module's own stated tie-breaker")
+        self.assertNotIn(
+            control.template_id, {m.template_id for m in aggro_mobs})
 
     # -- D0 / D2: the alive entry itself ------------------------------------
 

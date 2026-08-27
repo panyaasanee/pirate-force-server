@@ -143,6 +143,7 @@ import math
 from typing import Any
 
 from . import field_mob_tables
+from . import field_mob_tables_bg0002
 from .population import (
     FULL_MOVEMENT_MASK,
     MOVEMENT_ATTR_ID,
@@ -206,6 +207,21 @@ class FieldMob:
     drops_normal: int
     drops_equipment: int
     drops_specially: int
+    # ADDED this round (PANYA-DECISION 2026-08-27T20:10+07:00 "M1-P" item 3):
+    # which scene's roster this instance was mined from (or, for a
+    # hand-built stand-in that never went through load_roster(), whichever
+    # scene the caller says it belongs to).  Defaults to bg0001 so every
+    # 16-positional-arg construction already in this tree (and every
+    # keyword one) keeps working unchanged.  This is the field
+    # mob_death.WIDENING_RULING_SCENES reads to stop a mob from ONE scene
+    # riding a ruling that only ever named a DIFFERENT scene's roster, even
+    # when the two share a template_id -- see that dict's own docstring
+    # and field_mobs.assert_single_scene_tables' for the concrete
+    # collision (31, 34, 35, 103 are hostile in both bg0001 and Bg0002).
+    # It is a plain string a caller could still get wrong by hand -- see
+    # assert_single_scene_tables' own "WHAT THIS DOES NOT COVER" note for
+    # the residual this does NOT close.
+    scene: str = field_mob_tables.SCENE
 
     @property
     def actor_identity(self) -> int:
@@ -280,24 +296,57 @@ def assert_single_scene_tables(table_modules: Any) -> None:
     pf-adversary caught in round ``67jejl`` for ``widened=`` strings, just at
     the scene boundary instead of the ruling-name boundary.
 
-    :func:`load_roster` calls this with its own one-module tuple, which
-    always passes today (bg0001 is the only table it reads). The check
-    exists for the day THIS module's own load/merge point is extended to
-    combine more than one scene's rows into one roster.
+    [UPDATE, PANYA-DECISION 2026-08-27T20:10+07:00 "M1-P" item 3] The day
+    named above has arrived: :func:`load_roster` now takes a ``scene=``
+    argument and can load ``field_mob_tables_bg0002`` as well as the
+    original ``field_mob_tables`` (bg0001) -- and Bg0002's own mined roster
+    is exactly the four-template collision this docstring warned about (31,
+    34, 35, 103, the same set bg0015's already-committed, still-unwired
+    table shares).  This function's OWN logic did not need to change to
+    support that: it was already written generically over "the modules in
+    this one tuple", never hardcoded to bg0001, so calling it with a single
+    ``(field_mob_tables_bg0002,)`` tuple was already covered.  What changed
+    is that COO's deferred heavier fix is now PARTLY done too, in
+    ``mob_death.py`` rather than here: ``FieldMob`` carries a ``scene``
+    field (set by :func:`load_roster` from the table module's own ``SCENE``
+    constant) and ``mob_death.WIDENING_RULING_SCENES`` ties the bg0001 and
+    Bg0002 rulings each to their own scene string, so ``kill()`` refuses a
+    mob whose ``.scene`` disagrees with the ruling's, even when the
+    template_id alone would have passed.  That is a call-site check paired
+    with a scene-scoped ruling NAME (the lighter of the two options COO's
+    decision named), not a full scene-keyed rewrite of every existing
+    ``WIDENING_RULINGS`` entry -- the 916 (Training Iron Man) ruling, which
+    names no real scene at all, is deliberately left untagged, and this
+    function's own gate below is UNCHANGED, still doing exactly the one job
+    it always did: refuse a single call site from merging two scenes'
+    ``HOSTILE_PLACEMENTS`` into one roster.
+
+    :func:`load_roster` calls this with its own one-module tuple for
+    whichever scene it was asked to load, which always passes (each call
+    names exactly one scene). The check exists for the day this module's
+    own load/merge point is extended to combine more than one scene's rows
+    into ONE roster in a SINGLE call -- which still never happens: bg0001
+    and Bg0002 are each loaded by their own separate call, never merged.
 
     WHAT THIS DOES NOT COVER, NAMED RATHER THAN IMPLIED (pf-adversary, this
-    round). ``mob_death.kill()`` checks ``WIDENING_RULINGS`` against a bare
+    round, re-confirmed this round). ``mob_death.kill()`` checks
+    ``WIDENING_RULINGS``/``WIDENING_RULING_SCENES`` against a bare
     ``FieldMob`` argument -- it does not call :func:`load_roster` or this
-    function, and ``FieldMob`` itself carries no scene field. So a
-    ``FieldMob`` obtained from some OTHER future loader (a sibling function
-    reading a second scene's table, never routed through this one) would
-    reach ``kill()`` without ever being checked here. This function closes
-    the one call site named in COO-DECISION 2026-08-27T14:41+07:00
-    (``load_roster()`` itself); it is not a scene tag on the record and
-    cannot catch a second, independently-written loader that skips it --
-    that residual reliance on the next caller routing through the right
-    place is the exact cost COO's decision named for choosing not to do
-    the heavier fix (a scene field on ``FieldMob``/``WIDENING_RULINGS``) now.
+    function. So a ``FieldMob`` obtained from some OTHER loader (a sibling
+    function reading a scene's table, or a hand-built stand-in like
+    ``mob_diag_multi_object``'s Mountain Deer body, never routed through
+    this one) reaches ``kill()`` carrying whatever ``scene=`` string that
+    OTHER code chose to set, unchecked by this function. This function
+    closes the one call site named in COO-DECISION 2026-08-27T14:41+07:00
+    (``load_roster()`` itself); it is not a cryptographic provenance tag on
+    the record and cannot catch a caller that constructs a ``FieldMob`` by
+    hand and sets ``scene=`` to the wrong string, deliberately or by
+    mistake. Trusting a typed record's own self-reported field once
+    constructed is the same trust boundary this codebase already accepts
+    for every other ``FieldMob`` column (a hand-built stand-in could just as
+    easily lie about ``template_id``); ``scene`` is not held to a higher
+    standard than the rest of the record, and this paragraph says so rather
+    than implying otherwise.
     """
     modules = tuple(table_modules)
     if not modules:
@@ -319,15 +368,63 @@ def assert_single_scene_tables(table_modules: Any) -> None:
         )
 
 
-def load_roster() -> tuple[FieldMob, ...]:
-    """Type and check the generated roster.  No file is read at import time.
+# The scene -> generated-table-module map :func:`load_roster` reads.  Adding
+# a third scene means adding one line here and one new generated module --
+# NOT touching the merge/guard logic, which is already scene-count-agnostic.
+# Keyed by each module's own ``SCENE`` string so a typo here fails loudly
+# (KeyError at import time) rather than silently loading the wrong table.
+_SCENE_TABLE_MODULES = {
+    field_mob_tables.SCENE: field_mob_tables,
+    field_mob_tables_bg0002.SCENE: field_mob_tables_bg0002,
+}
+BG0002_SCENE = field_mob_tables_bg0002.SCENE
+
+
+def load_roster(scene: str = field_mob_tables.SCENE) -> tuple[FieldMob, ...]:
+    """Type and check ONE scene's generated roster.  No file read at import time.
+
+    ``scene`` defaults to bg0001 (the live/default roster, unchanged from
+    before this parameter existed), so every existing no-argument call site
+    keeps returning exactly what it always returned.  Passing
+    ``scene=field_mobs.BG0002_SCENE`` (or the literal ``"Bg0002"``) loads
+    Bg0002's own mined roster instead -- a SEPARATE call, never merged with
+    bg0001's: :func:`assert_single_scene_tables` runs against a one-module
+    tuple for whichever scene was asked for, exactly as it always has, so
+    the two scenes' rows can never land in the same returned tuple from one
+    call.  Each returned :class:`FieldMob` carries the table module's own
+    ``SCENE`` string, not a hardcoded literal, so the tag cannot drift from
+    which table it actually came from.
+
+    DISCOVERED, NOT FIXED, THIS ROUND: ``actor_identity`` is
+    ``0x2000 + placement_index + 1`` with no scene component, so bg0001's
+    and Bg0002's own small, independently-assigned placement indices
+    collide on four identities (placements 58, 59, 60 and 95 -- eight
+    different monsters, four shared wire identities two-by-two; see
+    ``tests/test_field_mobs.py``'s
+    ``test_bg0001_and_bg0002_actor_identities_are_NOT_disjoint_a_real_
+    collision`` for the exact pairs).  This is harmless today because no
+    caller sends both scenes' collections in one generation and this
+    function itself refuses to merge their rows into one roster (see
+    :func:`assert_single_scene_tables`); it would stop being harmless the
+    moment a single process needs to reference both scenes' mobs at once.
+    Fixing it means changing what ``actor_identity`` IS, which reaches
+    ``world_population`` and the wire format -- named here rather than
+    fixed, since this round was not asked to touch either.
 
     The generated module is data, so it is validated here rather than trusted:
     a duplicate placement, a template that cannot fit the u16 the client reads,
     a non-positive HP or an empty visual preset each refuse by name.
     """
-    assert_single_scene_tables((field_mob_tables,))
-    rows = getattr(field_mob_tables, "HOSTILE_PLACEMENTS", None)
+    if type(scene) is not str or not scene:
+        raise FieldMobContractError("scene must be non-empty text")
+    module = _SCENE_TABLE_MODULES.get(scene)
+    if module is None:
+        raise FieldMobContractError(
+            "no field-mob table module is registered for scene %r (known: "
+            "%s)" % (scene, sorted(_SCENE_TABLE_MODULES))
+        )
+    assert_single_scene_tables((module,))
+    rows = getattr(module, "HOSTILE_PLACEMENTS", None)
     if type(rows) is not list or not rows:
         raise FieldMobContractError("generated roster is missing or empty")
     mobs: list[FieldMob] = []
@@ -360,6 +457,7 @@ def load_roster() -> tuple[FieldMob, ...]:
             _require_int(row[13], "drops normal", 0, 0x7FFFFFFF),
             _require_int(row[14], "drops equipment", 0, 0x7FFFFFFF),
             _require_int(row[15], "drops specially", 0, 0x7FFFFFFF),
+            scene=module.SCENE,
         ))
     return tuple(mobs)
 
