@@ -35,11 +35,25 @@ WHAT IS EVIDENCED AND BUILT HERE.
    not repeat that over-narrowing onto the fields RE-094 could only call
    opaque.
 
-WHAT IS EVIDENCED BUT DELIBERATELY REFUSED - TWO OPEN GAPS, NOT ONE.
+WHAT IS EVIDENCED BUT DELIBERATELY REFUSED - TWO GAPS, BOTH NOW CLOSED
+BOUNDED-NEGATIVE, NEITHER MEASURED.
+
+    CORRECTION 2026-08-27 ~14:2x (Lane A, mailbox-consumption round kqrlhr).
+    Both gaps below used to read "open" - naming a ticket a reader could
+    expect to watch move.  Both RE tickets have since CLOSED, and closing did
+    not open either gap: ``RE-096`` (``notes_to_chief/20260827_0509_RE-096-
+    RESULT-NO-VEHICLE-SEASCENE-CROSSWALK.md``) and ``RE-103``
+    (``notes_to_chief/20260827_1321_RE-103-RESULT-NO-STATIC-SEA-ARRIVAL-
+    MARKER.md``) are both DONE/BOUNDED-NEGATIVE: the static/gamedata layer
+    that this whole tree already treats as its evidence ceiling has been
+    searched and does not contain either answer.  Nothing below changes
+    behaviour - both refusals still fire, unconditionally, exactly as
+    before - this correction only stops a reader from waiting on a ticket
+    that already reported back "no answer here."
 
 * **Scene 17 has no pinned player-arrival spawn.**
-  ``scenarios/world_scene_registry_001.json``'s scene-17 entry (added this
-  round by Lane A) carries ``spawn: null`` - ``Bg1001.placements.tsv`` has
+  ``scenarios/world_scene_registry_001.json``'s scene-17 entry (added round
+  8pfksm by Lane A) carries ``spawn: null`` - ``Bg1001.placements.tsv`` has
   only 8 monster-spawn rows, no player marker.  ``world_scene_entry.
   resolve_entry`` (the SAME entry point CORE-REQUEST-003/004 already wired at
   login, and the one RE-077 - DONE, T0-T4 pinned - names as the correct wire
@@ -47,8 +61,17 @@ WHAT IS EVIDENCED BUT DELIBERATELY REFUSED - TWO OPEN GAPS, NOT ONE.
   with no pinned spawn by raising ``SceneEntryRefused(REFUSED_NO_PINNED_
   SPAWN, ...)``.  Reusing it here means the teleport half of this request
   fails CLOSED on real evidence rather than inventing an XYZ nobody
-  measured.  Open ask: an RE runner needs to find scene 17's arrival marker
-  (or an owner-attended measurement) before this can complete.
+  measured.  ``RE-103`` confirmed this is not an oversight: it re-checked
+  ``Bg1001``'s ``.gat``/``.dmc`` files (identical across all seven sea
+  scenes, so no differentiated arrival datum exists there either) and the
+  land-scene control case that DOES have a marker crosswalk
+  (``SCENE_NAME.n_MARKER -> MARKER.n_ID -> n_SCENE``), and found no
+  equivalent for scenes 17-23.  Its own words: "TELEPORT-TARGET-OWNS-XYZ" -
+  the only place this coordinate can come from is an attended capture of a
+  live Teleport frame, which nobody has run for scene 17.  This module keeps
+  refusing until that capture happens; RE-103 closing bounded-negative is
+  the evidence ceiling being reached, not a step toward an answer appearing
+  in a table.
 
   CLOSED (PROVISIONALLY) 2026-08-27T14:45+07:00, APPENDED RATHER THAN
   EDITED SO THE PARAGRAPH ABOVE STAYS TRUE AS HISTORY.  ``PANYA-DECISION``
@@ -75,20 +98,38 @@ WHAT IS EVIDENCED BUT DELIBERATELY REFUSED - TWO OPEN GAPS, NOT ONE.
   binds the player's own actor, no separate ship actor) but its own nonclaims
   say plainly: "did not prove which ship model/vehicle row is actually used"
   and "CVehicleVital's qword meaning is not proven enough to name it vehicle
-  id/actor id".  RE-096 (open) exists exactly to close that gap.  Composing a
-  ``CVehicleVital`` frame today would mean inventing the one field RE-085
-  says is unproven - CHARTER-02's "never invent a row the client's own tables
-  do not have" applies to a wire field exactly as much as to a database row.
+  id/actor id".  ``RE-096`` closed BOUNDED-NEGATIVE, not positive: the
+  ``VEHICLE`` table (79 rows) carries no model/type/speed/scene
+  column at all - the ship data RE-096 expected to find there
+  (``n_SHIP_VELOCITY``, ``s_OUTFIT``) lives in a SEPARATE ``SHIP`` table (17
+  rows) that nothing crosswalks to a sea scene or to ``VEHICLE``.  Worse for
+  this module specifically: the ``CVehicleVital`` handler itself
+  (``0x00710440``) is SHA-pinned as the five bytes ``mov al,1; ret 4`` - it
+  does not read the qword, write it anywhere, or look anything up, and zero
+  capture frames exist in either direction.  So RE-096 did not just fail to
+  name the row; it found the one place that field is read does not read it
+  for anything.  Composing a ``CVehicleVital`` frame today would still mean
+  inventing the one field RE-085 already said was unproven - CHARTER-02's
+  "never invent a row the client's own tables do not have" applies to a wire
+  field exactly as much as to a database row, and RE-096 closing did not
+  loosen that.
 
 ``dispatch_columbus_quest3021`` therefore ALWAYS refuses today (see its own
 docstring) - not because the dispatch is unwired, but because two of the
-things it would need to send have no measured value yet.  Both are reported,
-not merged into one vague refusal, so a human reading the console can tell
-which RE ticket to chase.
+things it would need to send have no measured value ANYWHERE this project can
+still look, per the RE tickets above.  Both are reported, not merged into one
+vague refusal, so a human reading the console can tell which evidence gap is
+which - see ``COO-DECISION 20260827_1350`` (pf_bridge), which put both
+tickets at the top of the RE-runner queue for exactly this reason and got
+both bounded-negatives back before its own 20:00 deadline.
 
 WHAT THIS MODULE DOES NOT DO.  It does not decide when the vehicle bind or
-the teleport becomes safe to send - that is the day RE-096 closes and a scene
-17 spawn is measured.  It does not touch ``current/pf_login_game_server_v141
+the teleport becomes safe to send - both RE-096 and RE-103 have now searched
+the static/gamedata evidence ceiling this project holds and found neither
+answer there, so what unblocks this is an ATTENDED capture (a live Teleport
+frame into scene 17, and a live ``CVehicleVital`` frame with a non-zero
+handler to observe), not a further static ticket.  It does not touch
+``current/pf_login_game_server_v141
 .py`` - every frozen symbol it uses (``qwordtag``, ``u16tag``, ``u8tag``,
 ``make_runtime_vitals``, ``NPC_CONVERSATION``, ``parse_quest_operate_vital``)
 is read through the ``legacy`` module the same way ``legacy_bridge.py``

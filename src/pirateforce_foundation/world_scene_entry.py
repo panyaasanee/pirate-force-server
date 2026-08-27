@@ -352,7 +352,6 @@ def resolve_entry(
     lines = [world_scene_travel.entry_console_line(target)]
     scene_id, scene_seq = world_scene_travel.entry_fields(target)
 
-    used_pinned_spawn = False
     if target.n_id == HOME_SCENE_ID:
         position = row
         reason = None
@@ -367,7 +366,6 @@ def resolve_entry(
         reason = None
     else:
         position = world_scene_travel.entry_position(target, row.heading)
-        used_pinned_spawn = True
         reason = (
             RELOCATED_NO_GROUND_EVIDENCE if target.ground_extent is None
             else RELOCATED_OUTSIDE_GROUND
@@ -402,10 +400,26 @@ def resolve_entry(
     # so WIRED v2 and an attended tester can tell a decreed landing from a
     # measured one.  Detected from the pin's own provenance text rather than
     # a hardcoded scene id, so this is not scene-17-specific code: whichever
-    # scene's spawn provenance is tagged this way gets the token when its
-    # pinned spawn is the position actually used for this arrival.
-    if used_pinned_spawn and (
-        target.spawn_provenance is not None
+    # scene's spawn provenance is tagged this way gets the token when the
+    # position actually used for this arrival equals that decreed spawn.
+    #
+    # DELIBERATELY NOT KEYED ON WHICH BRANCH ABOVE PRODUCED ``position``
+    # (pf-adversary-shaped bug found this round, before it shipped): once a
+    # scene has BOTH a decreed spawn AND ground evidence -- exactly what
+    # happened to scene 17 this same round, independently, in
+    # world_scene_registry_001.json -- a row that already sits inside that
+    # ground (the ``_within_ground`` branch, e.g. a synthetic row built at
+    # the decreed value itself) takes the "kept row" path, never touching
+    # ``target.spawn`` at all.  Gating the token on "did we take the
+    # pinned-spawn branch" would then silently stop firing for the exact
+    # arrival it exists to mark, while the arrival still lands on the
+    # decreed coordinate.  Comparing the FINAL position against the pin
+    # instead catches both branches.
+    if (
+        target.n_id != HOME_SCENE_ID
+        and target.spawn is not None
+        and (position.x, position.y, position.z) == target.spawn
+        and target.spawn_provenance is not None
         and target.spawn_provenance.startswith("PROVISIONAL-OWNER-DECREE")
     ):
         decree_tag = target.spawn_provenance.split(" ", 1)[0]

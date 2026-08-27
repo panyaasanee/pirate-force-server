@@ -218,6 +218,23 @@ MOB_PICKUP_MILESTONE = "MOB-PICKUP-001"
 MOB_PICKUP_BUILD_ORDER = "BUILD-006 / M5 second half"
 MOB_PICKUP_LANE = "B_COMBAT"
 
+# THE EXACT HEADLINE CALL, AS ONE STRING, SO IT CAN BE PINNED RATHER THAN
+# DESCRIBED.  MOB_PICKUP_WIRING below is built FROM this constant instead of
+# spelling the call out a second time in its own literal text -- an
+# adversarial pass proved why that separation matters: it swapped the
+# drop_ledger_cell/legacy argument order in the wiring's copy of this exact
+# text and the full suite stayed green, because nothing executed the string,
+# only searched it for substrings.  tests/test_mob_pickup.py now does both:
+# asserts this constant appears verbatim inside MOB_PICKUP_WIRING (so nobody
+# can edit the wiring's copy without editing the one place this file and that
+# test both read), AND execs this exact text against real fixture objects
+# bound under the same names it uses, so a wrong argument order, a wrong
+# argument count or a call to the wrong function name all turn red.
+MOB_PICKUP_DISPATCH_HEADLINE_CALL = (
+    "mob_pickup.dispatch_pickup_request(bag_cell, drop_ledger_cell, legacy, "
+    "identity, x, y, z, object_ref_u32, opaque_u8)"
+)
+
 MOB_PICKUP_WIRING = (
     "runtime.py.  The scene already holds ONE mob_loot.DropLedgerCell (see "
     "mob_loot.MOB_LOOT_WIRING).  This lane adds no second owner of the ground "
@@ -235,39 +252,45 @@ MOB_PICKUP_WIRING = (
     "lane wants.\n"
     "  ON AN INBOUND PICKUP REQUEST, decoded to (claimant identity, claimant "
     "position, object reference dword, the request u8):\n"
-    "  1. claim = mob_pickup.PickupClaim(identity, x, y, z, object_ref_u32, "
-    "opaque_u8)\n"
-    "  2. outcome = bag_cell.commit_pickup(drop_ledger_cell, claim, legacy)\n"
+    "  outcome = " + MOB_PICKUP_DISPATCH_HEADLINE_CALL + "\n"
+    "     - ONE CALL for steps 1, 2, 3 (log-only) and 4 below.  Inside it: "
+    "1. claim = mob_pickup.PickupClaim(identity, x, y, z, object_ref_u32, "
+    "opaque_u8); 2. outcome = bag_cell.commit_pickup(drop_ledger_cell, "
+    "claim, legacy); 3. logs what outcome.row_write would have inserted "
+    "instead of running it (see the STOP below); 4. returns outcome so you "
+    "still send outcome.delta yourself.  Call this instead of assembling "
+    "the four pieces by hand -- that recipe used to be this note's whole "
+    "body and an adversarial pass still found a call site in it that could "
+    "not typecheck.\n"
     "     - PASS THE LEGACY MODULE.  With it, the response bytes are composed "
     "INSIDE the transaction, before the row leaves the ground, and a byte "
     "problem refuses the pickup instead of eating it.  Composing them "
     "afterwards is how an earlier version of this very line put four "
     "refusals on the far side of the take.\n"
     "     - every refusal is a MobPickupContractError whose first argument is "
-    "one of MOB_PICKUP_REFUSAL_REASONS.  EXACTLY ONE of them means the row is "
-    "gone: drop_left_the_ground.  Every other refusal, including "
-    "object_ref_never_issued and drop_already_taken, leaves the ground "
-    "untouched.  Do not retry drop_left_the_ground.\n"
+    "one of MOB_PICKUP_REFUSAL_REASONS, unchanged and unwrapped from what "
+    "commit_pickup(drop_ledger_cell, claim, legacy) itself raises.  EXACTLY "
+    "ONE of them means the row is gone: drop_left_the_ground.  Every other "
+    "refusal, including object_ref_never_issued and drop_already_taken, "
+    "leaves the ground untouched.  Do not retry drop_left_the_ground.\n"
     "     - THE LOSER OF A RACE USUALLY SEES drop_already_taken, not "
     "drop_left_the_ground: the window between resolve and take is a handful "
     "of instructions and the row is normally gone before resolve runs.  "
     "NEITHER refusal is evidence about RE-082 -- see the note on that split "
     "in resolve_claim.\n"
-    "  3. PERSIST outcome.row_write with ONE INSERT into "
-    "character_backpack_items, in the same transaction as the ack.  The "
-    "column order is BagRowWrite.COLUMNS and the values are "
-    "outcome.row_write.values().  A stale identity is refused by the primary "
-    "key and a stale slot by UNIQUE(character_id, slot); if either fires, "
-    "two cells were claimed for one character and the session is wrong, not "
-    "the row.\n"
-    "     - STOP: THIS INSERT IS NOT SAFE TO MAKE YET.  See THE WALL in the "
-    "module docstring: the character-select path refuses a bag holding it.  "
-    "The item lane must widen inventory.require_known_backpack FIRST.  Until "
-    "then, wire steps 0, 1, 2 and 4 and log step 3 rather than running it -- "
-    "which is safe precisely because the bag cell, not the database, is what "
-    "keeps two pickups in one session apart.\n"
+    "  3. STOP: PERSISTING outcome.row_write WITH AN INSERT INTO "
+    "character_backpack_items IS NOT SAFE YET.  See THE WALL in the module "
+    "docstring: the character-select path refuses a bag holding it.  The "
+    "item lane must widen inventory.require_known_backpack FIRST.  When it "
+    "does, the column order is BagRowWrite.COLUMNS and the values are "
+    "outcome.row_write.values().  Until then, dispatch_pickup_request "
+    "already logs the row it would have written (token "
+    "MOB_PICKUP_ROW_WOULD_INSERT, via bag_row_write_console_line) and calls "
+    "nothing DB-shaped -- do not add an INSERT of your own around this "
+    "call.\n"
     "  4. send outcome.delta to the claimant -- it is the (pc, frame) pair "
-    "step 2 already composed and validated.  Do NOT call bag_delta_pc here.\n"
+    "dispatch_pickup_request already composed and validated.  Do NOT call "
+    "bag_delta_pc here.\n"
     "  5. nothing else.  There is no ground object to delete: the label lives "
     "0.2-0.4 s and expires by itself, and taking the row through the cell "
     "stops mob_loot.refresh_frames from re-emitting it.\n"
@@ -420,7 +443,10 @@ MOB_PICKUP_NONCLAIMS = (
     "the world at all.",
     "10. Nothing here writes a database row, opens a socket, reads a clock or "
     "reads a file.  It is a pure transaction over values plus one take "
-    "through mob_loot's cell.",
+    "through mob_loot's cell.  dispatch_pickup_request is the one exception "
+    "to 'nothing prints': it prints one ASCII console line reporting what an "
+    "INSERT would have been (see THE WALL) -- it still does not write a "
+    "database row, open a socket, read a clock or read a file.",
     "11. THE BAG NEEDS AN OWNER; BagCell IS IT AND BagCellRegistry IS WHAT "
     "MAKES IT ONE.  A BackpackState is a VALUE, and two pickups resolved "
     "against one value pick the same slot and the same identity.  ~~'the "
@@ -456,6 +482,20 @@ MOB_PICKUP_NONCLAIMS = (
     "from the caller and falls back to the derived form.  Which lane owns "
     "that column is an open question and is in this round's letter to the "
     "COO, not silently decided here.",
+    "15. [OPEN RISK, NOT MEASURED - flagged, not fixed, this round "
+    "(`37ts2b`)] NOTHING HERE BINDS bag_cell TO THE CLAIMANT IN THE REQUEST "
+    "IT IS PASSED AGAINST.  dispatch_pickup_request (and BagCell.commit_pickup "
+    "underneath it) checks that bag_cell is a typed BagCell -- it does not "
+    "check that the bag_cell handed in is the one the connection carrying "
+    "claim.claimant_identity was given at character select.  A mismatched "
+    "pair (connection A's decoded claimant_identity paired with connection "
+    "B's live BagCell) is not refused by anything in this module today: this "
+    "is pre-existing behaviour inherited unchanged from BagCell.commit_pickup, "
+    "not something this round introduced or fixed.  Whether that binding "
+    "belongs to runtime.py (match the decoded identity to the caller's own "
+    "claimed cell before calling in) or is an open design question for the "
+    "COO is not decided here; this module provides no defense-in-depth "
+    "against a mismatched pair.",
 )
 
 
@@ -1194,6 +1234,110 @@ class BagCell:
             return PickupOutcome(
                 taken, item, bag, bag_after, row_write, delta,
                 claim.opaque_u8)
+
+
+# ---------------------------------------------------------------------------
+# Dispatch.  The single call MOB_PICKUP_WIRING now hands the chief for an
+# inbound pickup request: steps 1, 2, 3 (log-only) and 4, collapsed so a
+# transcription slip in runtime.py has one line to happen in, not four.
+# ---------------------------------------------------------------------------
+def bag_row_write_console_line(row_write: Any) -> str:
+    """One ASCII line reporting the INSERT a pickup WOULD have made.
+
+    Same shape as ``mob_loot.drops_console_line``: a pure function that
+    RETURNS a string rather than reaching for a console itself, so a caller
+    decides whether and where it is printed.  ``dispatch_pickup_request``
+    below is the one caller that does print it, and it says so in its own
+    docstring.
+
+    ``MOB_PICKUP_ROW_WOULD_INSERT`` is the token.  WOULD, not DID: see THE
+    WALL in the module docstring -- ``inventory.require_known_backpack``
+    refuses a bag holding a fifth item at the very next character select, so
+    nothing in this file ever turns this line into a real INSERT.  It exists
+    so the row a widened allowlist would eventually let through is visible on
+    the console by name today, instead of being silently discarded between
+    the take and the wall.
+    """
+    if type(row_write) is not BagRowWrite:
+        raise MobPickupContractError(
+            REFUSE_TYPE_NOT_TYPED_RECORD,
+            "a console line describes a typed BagRowWrite")
+    return (
+        "MOB_PICKUP_ROW_WOULD_INSERT table=character_backpack_items "
+        "claimant=0x%X character_id=%d item_identity=%d template_id=%d "
+        "quantity=%d slot=%d raw_u8_38=%d raw_u8_39=%d detail_present=%d"
+        % (row_write.claimant_identity, row_write.character_id,
+           row_write.item_identity, row_write.template_id,
+           row_write.quantity, row_write.slot, row_write.raw_u8_38,
+           row_write.raw_u8_39, row_write.detail_present)
+    )
+
+
+def dispatch_pickup_request(
+        bag_cell: Any, ledger_cell: Any, legacy: Any,
+        claimant_identity: Any, x: Any, y: Any, z: Any,
+        object_ref_u32: Any, opaque_u8: Any = 0) -> PickupOutcome:
+    """Steps 1, 2, 3 (log-only) and 4 of MOB_PICKUP_WIRING.  ONE call.
+
+    THIS IS WHAT runtime.py CALLS ON AN INBOUND PICKUP REQUEST, not the four
+    pieces the wiring note used to spell out by hand.  Before this function
+    existed, that note asked the chief to assemble ``PickupClaim``, call
+    ``commit_pickup``, remember NOT to persist ``outcome.row_write`` (see THE
+    WALL), and send ``outcome.delta`` -- four places for a transcription
+    slip.  ``test_the_wiring_line_this_lane_hands_the_chief_actually_runs``
+    is what walked that OLD four-piece recipe and caught the transcription
+    slip an adversarial pass had left in it.  This collapses all four into
+    the one call the wiring note now names --
+    ``MOB_PICKUP_DISPATCH_HEADLINE_CALL`` below -- and THAT call is itself
+    pinned as an EXECUTED test, not only as a described paragraph:
+    ``test_the_headline_dispatch_call_the_wiring_hands_the_chief_actually_runs``.
+    A docstring's own example is exactly the kind of line a transcription
+    slip hides in, and a test that only greps for substrings of it (as the
+    older test above still does, for the OLD recipe) would not have caught a
+    swapped argument order in THIS one -- an adversarial pass proved that
+    concretely, by swapping ``drop_ledger_cell``/``legacy`` in the exact
+    headline text and watching the full suite stay green.
+
+    ``bag_cell`` is the character's OWN cell, the one
+    ``BagCellRegistry.claim`` handed back at character select (step 0) --
+    NOT the registry, and NOT re-claimed here.  ``ledger_cell`` is the
+    scene's ``mob_loot.DropLedgerCell``.  Pass the real ``legacy`` module:
+    with it, the response bytes are composed INSIDE the transaction, before
+    the row leaves the ground, exactly as ``BagCell.commit_pickup``
+    documents.
+
+    REFUSES EXACTLY AS commit_pickup DOES, BY NOT CATCHING ANYTHING.  Every
+    ``MobPickupContractError`` this raises is the SAME exception, with the
+    same ``args[0]`` reason from ``MOB_PICKUP_REFUSAL_REASONS``, that
+    assembling ``PickupClaim`` and calling ``commit_pickup`` by hand would
+    raise for the same input.  Wrapping or swallowing it here would make a
+    caller reading that reason see something this lane never produced.
+
+    ON SUCCESS, STEP 3 IS A LOG, NOT AN INSERT.  See THE WALL in the module
+    docstring: persisting ``outcome.row_write`` is refused at the very next
+    character select until the item lane widens
+    ``inventory.require_known_backpack``.  This function never calls
+    anything DB-shaped -- no cursor, no connection, no store function -- it
+    prints ``bag_row_write_console_line(outcome.row_write)`` (token
+    ``MOB_PICKUP_ROW_WOULD_INSERT``) and returns ``outcome`` UNCHANGED, so
+    the caller still has ``outcome.delta`` to send (step 4) and
+    ``outcome.row_write`` to inspect or log again itself if it wants to.
+
+    NO FLAG.  No scenario id, no opt-in kwarg, no dispatch gate of its own --
+    exactly as unconditional as every other symbol in this file.  As the
+    module docstring says of the transaction underneath it: the day this is
+    wired to a real opcode, one dispatch line at the call site changes and
+    nothing in here does.
+    """
+    if type(bag_cell) is not BagCell:
+        raise MobPickupContractError(
+            REFUSE_TYPE_NOT_TYPED_RECORD,
+            "dispatch_pickup_request needs the character's own typed "
+            "BagCell, the one BagCellRegistry.claim handed back")
+    claim = PickupClaim(claimant_identity, x, y, z, object_ref_u32, opaque_u8)
+    outcome = bag_cell.commit_pickup(ledger_cell, claim, legacy)
+    print(bag_row_write_console_line(outcome.row_write))
+    return outcome
 
 
 # ---------------------------------------------------------------------------
