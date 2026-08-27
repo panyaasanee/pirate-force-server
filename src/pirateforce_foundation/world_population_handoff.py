@@ -167,7 +167,7 @@ from .world_population import (
     census_count_for_dispatch,
     dispatch_report,
 )
-from .world_scene_travel import CENSUS_SCENE_ID, population_source
+from .world_scene_travel import CENSUS_SCENE_ID, CENSUS_SOURCE, population_source
 
 # What the handoff turned out to be.  Recorded, never inferred from the actor
 # count afterwards: an empty census and a deliberate clear encode to the same
@@ -434,12 +434,35 @@ def handoff_for_arrival(
     """
     scene = _require_scene_id(scene_id)
     arrival_anchor = _require_anchor(anchor)
-    if population_source(scene) is None:
+    # GENERALIZED 2026-08-27 (PANYA-DECISION 20:10, M1-P) BROKE THE OLD GUARD
+    # HERE, AND THIS IS THE FIX.  ``population_source`` used to answer for
+    # exactly one scene (1), so "not None" and "== bg0001's census" were the
+    # same test.  M1-P gave scene 2 its own named source
+    # ("bg0002_roster", ``world_population_bg0002.py``) so they no longer
+    # are: the branch below UNCONDITIONALLY calls ``build_world_population``
+    # with ``scene_id=CENSUS_SCENE_ID`` (1) hardcoded, so a bare "is not
+    # None" test here would have handed scene 2's arrival the BG0001 CENSUS -
+    # dock NPCs delivered into Prison Exile Island, the exact cross-build-
+    # order defect this module's own docstring says it exists to prevent.
+    # This module still only builds the CENSUS branch for the source it has
+    # always built it for; a scene with any OTHER named source (today: just
+    # "bg0002_roster") still gets the CLEAR branch below, UNCHANGED from
+    # before this round - wiring a live in-session CROSSING handoff for
+    # Bg0002 is M2-shaped work (paused, PANYA-DECISION 2026-08-27 20:10) and
+    # is deliberately NOT done here.  M1-P's own Bg0002 population is built
+    # by ``world_population_bg0002.build_bg0002_population`` on the LOGIN
+    # path, which this module does not touch.
+    if population_source(scene) != CENSUS_SOURCE:
         pc, frame = build_clear_generation(legacy)
+        source = population_source(scene)
+        reason = (
+            f"scene_{scene}_has_no_population_table" if source is None
+            else f"scene_{scene}_source_{source}_has_no_crossing_handoff_yet"
+        )
         return SceneHandoff(
             scene_id=scene,
             kind=KIND_CLEAR,
-            reason=f"scene_{scene}_has_no_population_table",
+            reason=reason,
             label=LABEL_CLEAR.format(scene),
             actor_count=0,
             pc=pc,
@@ -448,10 +471,6 @@ def handoff_for_arrival(
             dispatch_slot=SLOT_BEFORE_TELEPORT,
             generation=None,
         )
-    # ``population_source`` answers for exactly one scene, and
-    # ``build_world_population`` refuses any other, so there is no third branch
-    # to write here.  The day the table answers for two scenes, that refusal
-    # is what fires, in the module that owns the table.
     if actor_count is None:
         count, count_source = census_count_for_dispatch()
     else:
