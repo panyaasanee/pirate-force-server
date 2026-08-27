@@ -795,6 +795,21 @@
         "ToolRunTests::test_the_verifier_exits_clean"
       ],
       "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "bridge_gamedata",
+      "module": "tests/test_world_columbus_m2_crosswalk.py",
+      "count": 7,
+      "tests": [
+        "ColumbusM2CrosswalkTest::test_provenance_hashes_match_the_pinned_tables",
+        "ColumbusM2CrosswalkTest::test_port_royal_columbus_mobs_156_quest_begin_contains_3021",
+        "ColumbusM2CrosswalkTest::test_port_royal_columbus_mobs_156_does_not_require_3023",
+        "ColumbusM2CrosswalkTest::test_quest_3021_destination_scene_is_17",
+        "ColumbusM2CrosswalkTest::test_quest_3023_destination_scene_is_19_not_17",
+        "ColumbusM2CrosswalkTest::test_scene_17_is_bg1001_and_is_a_sea_scene",
+        "ColumbusM2CrosswalkTest::test_bg1001_placements_hold_no_player_arrival_spawn"
+      ],
+      "note": "round 8pfksm (LANE-A): pins the Columbus M2 identity/quest/scene crosswalk (MOBS 156 -> quest 3021 -> scene 17, not the 3023/scene-19 conflation an earlier status letter made) against the bridge gamedata TSVs. A clone without pf_bridge beside it cannot re-check the tables, so the skip is declared here - pf-adversary caught this module shipping with no matching pin, same defect shape as test_pf_scan_field_scene_candidates.py (round ctflxc) and test_field_mob_tables_bg0015.py (round 2vxlx2)."
     }
   ],
   "windows_gate_excluded_modules": {
