@@ -847,9 +847,22 @@ one line, which step the shortcut skipped, e.g.:
 
 ## RE requests open (owned by static RE lane, filed via chief)
 
-None filed by this lane are open as of this round -- RE-088, RE-089, RE-090,
-RE-091, RE-104, and RE-105 are all closed (see above). This section is kept
-so the next round does not have to re-derive that from the closed list.
+**RE-113** (`GM-UPDATE-STATE-VITAL-NESTED-READER-LAYOUT-001`, opened round
+`fmgvbx`, `pf_bridge/CLIENT_RE_QUEUE.md`): after `RE-105`'s `vital_version=0`
+fix passed the client's outer version check, `GT-107` (attended) found the
+client throws a *new* error -- `28317 GSCN_RunTimeProtocolRes` read-failed --
+and closes the socket before `GT-103` is reached. This asks what the nested
+per-vital reader for `0x5A19` (handler `0x00729F00`) actually consumes once
+the version check passes: field count, tag/length shape, total byte length,
+and whether the 3-field/9-byte payload `state_wire.py` currently sends is
+the right shape or a sequencing/state precondition is the real cause
+instead. Blocks `GT-103`/`GT-110` and `PANYA-ORDER` (2026-08-27T14:25+07:00)
+path B (real cross-scene warp) entirely -- `localtest` stays out of
+`gm_accounts` until this closes (same rule as `GT-101`/`GT-107`).
+
+RE-088, RE-089, RE-090, RE-091, RE-104, and RE-105 are all closed (see
+above). This section is kept so the next round does not have to re-derive
+that from the closed list.
 
 Remaining semantic gaps (what the
 `GM_RunGMCommandVital` two wide strings and three scalars mean; what the
