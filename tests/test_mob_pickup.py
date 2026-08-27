@@ -32,6 +32,8 @@ and a round that only wrote that in prose would be a round whose prose rots.
 """
 
 import ast
+import contextlib
+import io
 import json
 from pathlib import Path
 import sqlite3
@@ -75,6 +77,8 @@ from pirateforce_foundation.mob_pickup import (
     PickupClaim,
     PickupOutcome,
     bag_delta_pc,
+    bag_row_write_console_line,
+    dispatch_pickup_request,
     first_free_slot,
     next_item_identity,
     pickup_report,
@@ -929,6 +933,185 @@ class MobPickupTests(unittest.TestCase):
         pc, frame = outcome.delta
         self.assertTrue(pc and frame)
         self.assertTrue(registry.release(CHARACTER))
+
+    def test_the_headline_dispatch_call_the_wiring_hands_the_chief_actually_runs(
+            self):
+        """THE ONE LINE THIS WHOLE REFACTOR EXISTS TO MAKE TRANSCRIPTION-PROOF.
+
+        ``test_the_wiring_line_this_lane_hands_the_chief_actually_runs``
+        above only ever walks the OLD four-piece recipe MOB_PICKUP_WIRING
+        used to spell out by hand -- it never once calls the NEW headline
+        one-call line the wiring note (and dispatch_pickup_request's own
+        docstring) now actually hands the chief.  An adversarial pass proved
+        that gap concretely: swapping the ``drop_ledger_cell``/``legacy``
+        argument order in that exact headline string left the full 70-test
+        suite green, because the older test only searches the string for
+        substrings and never runs it.
+
+        So this test does two things the older one does not.  First, it
+        proves ``MOB_PICKUP_DISPATCH_HEADLINE_CALL`` -- the one place this
+        exact call text is written down -- lives verbatim inside
+        ``MOB_PICKUP_WIRING``, so nobody can edit the wiring's copy of the
+        call without also editing the constant this test reads.  Second, it
+        EXECUTES that exact text against real fixture objects, bound under
+        the very names the headline text itself uses (``bag_cell``,
+        ``drop_ledger_cell``, ``legacy``, ``identity``, ``x``, ``y``, ``z``,
+        ``object_ref_u32``, ``opaque_u8``).  A wrong argument order sends the
+        legacy module where the ledger cell belongs (or the reverse), which
+        ``commit_pickup``'s own type check refuses; a wrong argument count is
+        a ``TypeError``; a call to the wrong function name is an
+        ``AttributeError``.  All three turn this test red instead of leaving
+        it silently unable to notice.
+        """
+        headline = mob_pickup.MOB_PICKUP_DISPATCH_HEADLINE_CALL
+        self.assertIn(headline, mob_pickup.MOB_PICKUP_WIRING)
+
+        registry = BagCellRegistry()
+        bag_cell = registry.claim(CHARACTER, INITIAL_BACKPACK)
+        ground = a_cell(a_drop())
+        namespace = {
+            "mob_pickup": mob_pickup,
+            "bag_cell": bag_cell,
+            "drop_ledger_cell": ground,
+            "legacy": self.legacy,
+            "identity": KILLER,
+            "x": 10.0,
+            "y": 20.0,
+            "z": 30.0,
+            "object_ref_u32": KEY,
+            "opaque_u8": 3,
+        }
+        exec("outcome = " + headline, namespace)  # noqa: S102 -- see docstring
+        outcome = namespace["outcome"]
+        self.assertEqual(type(outcome), PickupOutcome)
+        self.assertEqual(ground.ledger.drops, (), "the drop left the ground")
+        self.assertIsNotNone(outcome.delta)
+        self.assertEqual(outcome.delta, bag_delta_pc(self.legacy, outcome.item))
+        self.assertEqual(outcome.opaque_u8, 3)
+        self.assertTrue(registry.release(CHARACTER))
+
+    # -- dispatch_pickup_request: the one call that now replaces steps 1-4 --
+    def test_dispatch_pickup_request_returns_a_usable_outcome_and_logs_the_row(
+            self):
+        """Success: one call, a usable delta, and the intended row on stdout.
+
+        The row is LOGGED, not written -- this module has no cursor and no
+        connection anywhere, so there is nothing for it to persist through.
+        ``outcome.persisted`` stays the property's own hard-coded False, and
+        the printed line names exactly the row ``outcome.row_write`` carries,
+        so a human reading the console sees the same INSERT the wiring note
+        promises once the item lane widens the allowlist.
+        """
+        registry = BagCellRegistry()
+        bag_cell = registry.claim(CHARACTER, INITIAL_BACKPACK)
+        ground = a_cell(a_drop())
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            outcome = dispatch_pickup_request(
+                bag_cell, ground, self.legacy, KILLER, 10.0, 20.0, 30.0, KEY,
+                7)
+        self.assertEqual(type(outcome), PickupOutcome)
+        self.assertEqual(ground.ledger.drops, (), "the drop left the ground")
+        self.assertIsNotNone(outcome.delta)
+        self.assertEqual(outcome.delta, bag_delta_pc(self.legacy, outcome.item))
+        self.assertEqual(outcome.opaque_u8, 7)
+        self.assertFalse(outcome.persisted, "this lane has never written a row")
+
+        lines = captured.getvalue().splitlines()
+        self.assertEqual(
+            len(lines), 1, "exactly one console line for one accepted claim")
+        line = lines[0]
+        self.assertTrue(line.startswith("MOB_PICKUP_ROW_WOULD_INSERT"))
+        self.assertEqual(line, bag_row_write_console_line(outcome.row_write))
+        row = outcome.row_write
+        self.assertIn("character_id=%d" % row.character_id, line)
+        self.assertIn("item_identity=%d" % row.item_identity, line)
+        self.assertIn("template_id=%d" % row.template_id, line)
+        self.assertIn("slot=%d" % row.slot, line)
+        self.assertTrue(registry.release(CHARACTER))
+
+    def test_dispatch_pickup_request_never_touches_anything_db_shaped(self):
+        """The module has no cursor and no connection; prove nothing reaches for one.
+
+        A test double that fails loudly the moment anything DB-shaped is
+        touched: if a future edit slipped a ``sqlite3.connect(...)`` (or any
+        other use of the real module-level ``connect``) into the dispatch
+        path, this turns red instead of quietly starting to persist rows the
+        module's own NONCLAIM 10 and THE WALL say it must not.
+        """
+        def poisoned_connect(*args, **kwargs):
+            raise AssertionError(
+                "dispatch_pickup_request must never open a database "
+                "connection -- persistence is refused until the item lane "
+                "widens inventory.require_known_backpack")
+
+        bag_cell = BagCell(INITIAL_BACKPACK, CHARACTER)
+        ground = a_cell(a_drop())
+        real_connect = sqlite3.connect
+        sqlite3.connect = poisoned_connect
+        try:
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                outcome = dispatch_pickup_request(
+                    bag_cell, ground, self.legacy, KILLER, 10.0, 20.0, 30.0,
+                    KEY)
+        finally:
+            sqlite3.connect = real_connect
+        self.assertEqual(type(outcome), PickupOutcome)
+        self.assertFalse(outcome.persisted)
+
+    def test_dispatch_pickup_request_refuses_cleanly_like_the_pieces_it_replaces(
+            self):
+        """A refusal through the single call is the SAME refusal by hand.
+
+        Two shapes, both refused before any take: a reference this lane
+        never issued, and one it issued but that has already left the
+        ground.  Neither call site may wrap, swallow or rename the reason --
+        callers of the one-call entry point need the exact same
+        ``MOB_PICKUP_REFUSAL_REASONS`` name a caller assembling
+        ``PickupClaim``/``commit_pickup`` by hand would see.
+        """
+        cell = a_cell(a_drop(key=KEY + 1))  # issued_through == KEY + 2
+        bag_cell = BagCell(INITIAL_BACKPACK, CHARACTER)
+
+        with self.assertRaises(MobPickupContractError) as caught:
+            dispatch_pickup_request(
+                bag_cell, cell, self.legacy, KILLER, 10.0, 20.0, 30.0,
+                KEY + 500)
+        self.assertEqual(caught.exception.args[0], "object_ref_never_issued")
+        manual = self._refusal(
+            resolve_claim, cell.ledger, a_claim(key=KEY + 500))
+        self.assertEqual(manual, caught.exception.args[0])
+
+        with self.assertRaises(MobPickupContractError) as caught:
+            dispatch_pickup_request(
+                bag_cell, cell, self.legacy, KILLER, 10.0, 20.0, 30.0, KEY)
+        self.assertEqual(caught.exception.args[0], "drop_already_taken")
+        manual = self._refusal(resolve_claim, cell.ledger, a_claim(key=KEY))
+        self.assertEqual(manual, caught.exception.args[0])
+        # Every refusal above leaves the one real row on the ground, and the
+        # bag cell untouched -- a refusal through the one-call path costs
+        # nothing more than a refusal through the pieces would have.
+        self.assertEqual(len(cell.ledger.drops), 1)
+        self.assertEqual(bag_cell.bag, INITIAL_BACKPACK)
+
+    def test_dispatch_pickup_request_refuses_a_non_bagcell_type(self):
+        """Not the registry, not a lookalike, not any other object type.
+
+        This proves the TYPE check only: a ``bag_cell`` argument that is not
+        an exact ``BagCell`` is refused by name instead of reaching an
+        ``AttributeError`` from deep inside ``commit_pickup``.  It does NOT
+        prove that the ``BagCell`` handed in belongs to the connection the
+        claim's identity names -- a ``BagCell`` for a DIFFERENT character is
+        the right TYPE and passes this check untouched.  See NONCLAIM 15:
+        that ownership binding is not checked anywhere in this module today.
+        """
+        ground = a_cell(a_drop())
+        self.assertEqual(
+            self._refusal(
+                dispatch_pickup_request, object(), ground, self.legacy,
+                KILLER, 10.0, 20.0, 30.0, KEY),
+            "type_not_typed_record")
 
     def test_a_key_taken_by_a_pickup_is_never_handed_out_again(self):
         ground = a_cell(a_drop())
