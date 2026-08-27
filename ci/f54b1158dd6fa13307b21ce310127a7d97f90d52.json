@@ -1,1 +1,1 @@
-{"sha":"f54b1158dd6fa13307b21ce310127a7d97f90d52","conclusion":"success","event":"push","ref":"refs/heads/claude/attended-srv-merge-retry-08271336","run_id":"33046517251","utc":"2026-08-27T06:41:07Z"}
+{"sha":"f54b1158dd6fa13307b21ce310127a7d97f90d52","conclusion":"success","event":"pull_request","ref":"refs/pull/120/merge","run_id":"33046520448","utc":"2026-08-27T06:41:36Z"}
