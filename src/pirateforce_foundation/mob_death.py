@@ -113,6 +113,27 @@ client through this exact carrier, and the results are split:
 * What GT-023 watched escalate all the way to a death window was the LOCAL
   PLAYER's own path, a different actor class, and it is not this lane's
   evidence either.
+* [UPDATE, round B_20260827_1637, 2026-08-27] THE NAMED+HOSTILE CASE HAS NOW
+  BEEN SENT AND OBSERVED, AND IT DID NOT FALL.  GT-084-R2 (attended,
+  OBSERVER_CONFIRMED 2026-08-27T15:52-15:55+07:00, Panya at the screen) hit
+  identity 0x201F - named "Tornado Eagle", hostile, actor_type 4, this
+  module's own :data:`SANCTIONED_FIRST_TARGET_IDENTITY` - to 0 HP with 5 real
+  ActionVital hits, and the dying frame (timer 20.0) then the dead frame
+  (700 ms later) both went out on the same carrier GT-022/GT-025 used.  The
+  result was NOT the GT-022/GT-025 fall: the corpse froze in a floating pose,
+  played no animation, and stopped answering the cursor as an actor at all
+  (stayed frozen until logout).  Single-click also got a red outline + red
+  lock arrows but NO select-target UI panel (contrast GT-045 v3, a different
+  actor, which got one).  So the fall documented above as "PROVEN, TWICE
+  OVER" is proven only for the NAMELESS/FACTIONLESS body GT-022/GT-025 used -
+  the two-frame chain's client-side effect is confirmed BODY-DEPENDENT, not
+  merely a property of actor_type 4 the way the nonclaims below previously
+  flagged it as an open question.  RE-107 (CLIENT_RE_QUEUE.md, opened this
+  round) asks which field/frame actually drives the fall-vs-freeze branch;
+  RE-108 asks what the select-target panel needs.  This module is UNCHANGED
+  pending those answers - no guess-fix.  See
+  ``notes_to_chief/20260827_1620_GT084R2-RESULT-PASS-hostile-kill-full-wire-
+  but-corpse-freezes-no-target-panel.md`` for the full attended account.
 
 WHAT THE PLAYER SEES THAT THEY DID NOT SEE YESTERDAY.  Yesterday a monster a
 player fought converged to 1 HP and stayed there forever, and the server
@@ -127,6 +148,14 @@ It is PROPOSED and not MEASURED for two named reasons: nobody has yet observed
 a real attack input producing the EA7D ActionVital ``mob_combat`` reads, and
 nobody has watched this lane's own body - named AND hostile AND at zero - land
 on a screen at all.
+
+[UPDATE, round B_20260827_1637, 2026-08-27]: both named reasons are now
+MEASURED, and the measurement is mixed.  GT-084-R2 sent 5 real ActionVital
+hits from a real attack input (first reason resolved: the wire path is real).
+The body's landing has also now been watched (second reason resolved), but
+~~"falls flat and stays there"~~ did NOT hold - it froze floating instead, so
+"stays there" is true and "falls flat" is false.  See the CLIENT-OBSERVABLE
+section above for the full account and RE-107/RE-108 for what is still open.
 
 NOTHING IS INSTALLED.  No socket, no clock, no randomness, no database, no
 global state, no import-time side effect.  Every function is a pure function of
@@ -396,13 +425,28 @@ MOB_DEATH_NONCLAIMS = (
     "kills has not been observed",
     "the fall was watched on a NAMELESS, FACTIONLESS actor_type 4 body "
     "(GT-022/GT-025 at identity 0x2001); this lane's body is named and "
-    "hostile and nobody has seen one of those at zero HP",
+    "hostile and nobody has seen one of those at zero HP. "
+    "[STALE as of GT-084-R2, attended, OBSERVER_CONFIRMED "
+    "2026-08-27T15:52-15:55+07:00] [MEASURED, by "
+    "notes_to_chief/20260827_1620_GT084R2-RESULT-PASS-hostile-kill-full-wire-"
+    "but-corpse-freezes-no-target-panel.md]: someone HAS now seen the "
+    "named+hostile body at zero HP (0x201F, this lane's own sanctioned "
+    "target) - and it did NOT fall.  The corpse froze in a floating pose "
+    "instead of lying flat; see the module docstring's CLIENT-OBSERVABLE "
+    "section for the full account.  The chain's effect is BODY-DEPENDENT, "
+    "confirmed, not just an untested extrapolation from actor_type. RE-107 "
+    "(opened this round) asks what drives the difference; this module is "
+    "unchanged pending that answer",
     "a real attack input has never been observed producing the EA7D "
     "ActionVital that reaches mob_combat, so the inbound half of the kill is "
     "as unproven as the inbound half of the hit",
     "named AND hostile in one body has never been sent and never been "
     "observed; the corpse body inherits that nonclaim from field_mobs and "
-    "adds a bit nobody has combined with it either (mask 0x078D)",
+    "adds a bit nobody has combined with it either (mask 0x078D). "
+    "[STALE as of GT-084-R2, 2026-08-27] [MEASURED]: it HAS now been sent "
+    "and observed - see the CLIENT-OBSERVABLE update above and "
+    "RE-107/RE-108 (CLIENT_RE_QUEUE.md, opened this round) for what is "
+    "still open about it",
     "nothing here decides loot: what a dead monster drops is M5, and the "
     "drop ids in the roster are carried, not read, by this lane",
     "the register lives in the caller's process only; nothing in this project "
