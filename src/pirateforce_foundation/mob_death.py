@@ -225,6 +225,40 @@ WIDENING_RULINGS: dict[str, frozenset[int]] = {
     "COO-DECISION widen-death-scope-916-training-iron-man "
     "2026-08-27T09:55+07:00 (ref PANYA-DECISION 2026-08-27T09:50+07:00 "
     "section 3, supersedes COO 0954)": frozenset({916}),
+    # COO-DECISION 2026-08-27T13:50+07:00 (notes_to_chief/20260827_1350_
+    # COO-DECISION-widen-death-scope-bg0001-full-roster-approved.md),
+    # answering LANE-B-ASK-COO 2026-08-27 15:00 (round t48epl): approves
+    # stage two, all 13 real MOBS-table field mobs in bg0001 (not just
+    # SANCTIONED_FIRST_TARGET_IDENTITY). The letter tells chief to pass
+    # this EXACT string as widened= on runtime.py's mob_death.kill() call
+    # site (pf-adversary, this round: the letter's own cited line number
+    # is already stale -- as of this round that call site passes NO
+    # widened= argument at all, so "the string chief adds", not "the
+    # string chief changes"; do not trust a hardcoded line number here,
+    # re-find the call site by name). The template id set below is the
+    # distinct template_id values of field_mobs.load_roster()'s 13
+    # entries as of this round (31 Tornado Eagle, 34/35 Fighting Fish,
+    # 60 Jungle Big Tiger, 61 Toxic Vine, 62 Ancient Civilization Alert
+    # Weapon, 65 Ward Apes, 94 An Gebo Little Firebird, 97 Mutant Green
+    # Eagle x4 identities, 103 Orc Chief), re-derived from the roster
+    # itself in tests/test_mob_death.py rather than hand-copied twice.
+    #
+    # [OPEN RISK, NOT MEASURED -- pf-adversary, this round] this ruling is
+    # NAMED for bg0001 but enforced only by template_id, not by scene or by
+    # call site: a second scene's own field-mob table already committed
+    # elsewhere in this repo (deliberately kept unwired, see that module's
+    # own guard test for why) shares 4 of these 10 template ids (31, 34,
+    # 35, 103) with bg0001's own roster. Nothing reachable today lets a
+    # mob from that table reach kill() at all, so this authorises nothing
+    # extra right now -- but the day that table (or any second scene) IS
+    # wired through this same kill() path, a mob carrying one of these
+    # template ids would pass this check even though this ruling only
+    # ever named bg0001. WIDENING_RULINGS has no scene-awareness to catch
+    # that by itself; whoever wires a second scene through kill() must add
+    # one (or a new, separately-scoped ruling) before reusing this key.
+    "COO-RULING-20260827-1350 widen-death-scope-bg0001": frozenset(
+        {31, 34, 35, 60, 61, 62, 65, 94, 97, 103}
+    ),
 }
 
 # ---------------------------------------------------------------------------

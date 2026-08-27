@@ -27,6 +27,8 @@ composes.  No client has ever been shown one byte of either.
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import sys
 import tempfile
 import unittest
@@ -160,6 +162,36 @@ class MobCombatDispatchTests(unittest.TestCase):
         state.mob_combat_ledger = state.mob_combat_ledger.with_balance(
             mob_combat.MobBalance(identity, row.max_hp, current_hp)
         )
+
+    def _arrive(self, state):
+        """Send the real arrival TargetPos BEFORE any attack, exactly the
+        production order (login -> StartGame -> TargetPos -> census) instead
+        of the after-the-attack ordering the two ``test_world_census_*``
+        tests above use to isolate the NEXT census. This is what sets
+        ``population_refresh_anchor``/``world_census_actor_count`` on
+        ``state`` for real, the same two attributes CORE-REQUEST-008's
+        ``MOB_COMBAT_BAR``/``MOB_DEATH_*`` recompose reads at
+        ``runtime.py``'s combat dispatch site.
+        """
+        anchor = (
+            state.foundation.selected.position.x,
+            state.foundation.selected.position.y,
+            state.foundation.selected.position.z,
+        )
+        pc = (
+            self.legacy.u16tag(0x12, self.legacy.GSCN_RUNTIME_PROTOCOL_REQ)
+            + self.legacy.u32tag(0x14, 0)
+            + self.legacy.u8tag(0x08, 0)
+            + self.legacy.u8tag(0x0B, 2)
+            + self.legacy.u16tag(0x12, 1)
+            + self.legacy.u16tag(0x12, self.legacy.TARGET_POS_VITAL)
+            + self.legacy.u8tag(0x0B, 0)
+            + b"".join(self.legacy.f32tag(v) for v in (*anchor, 0.0))
+            + self.legacy.u8tag(0x0B, 0)
+            + self.legacy.u8tag(0x0B, 0)
+        )
+        state.dispatch(self.legacy.parse_outer(pc))
+        return anchor
 
     # ----- construction --------------------------------------------------
 
@@ -465,6 +497,125 @@ class MobCombatDispatchTests(unittest.TestCase):
         )
         self.assertNotEqual(census[0][1], no_kill_generation.pc)
         self.assertEqual(census[0][2], self.legacy.frame_pc(census[0][1]))
+
+    # ----- PANYA-ORDER 2026-08-27 12:30 section 3: the world-wipe fix,   ----
+    # ----- proven on the REAL production sequence and the REAL 115-actor ---
+    # ----- census, not the after-the-attack ordering above that never    ---
+    # ----- reaches the recompose branch at all (population_refresh_anchor
+    # ----- is still None when those two tests attack).                  ----
+
+    def test_a_hit_after_real_arrival_recomposes_the_bar_frame_over_115(self):
+        """The order this test drives is login -> StartGame -> TargetPos
+        (arrival census, sets population_refresh_anchor/world_census_actor_
+        count for real) -> attack -- the actual sequence a live client
+        produces, and the one CHIEF-REPLY 2026-08-27T13:30+07:00's WIRED v2
+        audit measured live on the bridge (``combat_first_hit`` row). The
+        two ``test_world_census_*`` tests above deliberately attack BEFORE
+        any TargetPos, which lands in the ``mob_combat_bar_census_compose_
+        skipped_no_population_anchor`` branch and never exercises the
+        recompose this test is the missing proof for.
+        """
+        state = self._state("mc_real_arrival_bar")
+        anchor = self._arrive(state)
+        self.assertEqual(state.world_census_actor_count, 115)
+        self.assertEqual(state.population_refresh_anchor, anchor)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            actions = self._attack(state, SANCTIONED_TARGET)
+        self.assertEqual(
+            [label for label, _pc, _f, _d in actions],
+            ["MOB_COMBAT_ANNOUNCE", "MOB_COMBAT_BAR"],
+        )
+        printed = buf.getvalue()
+        self.assertIn(
+            "MOB_COMBAT_BAR_CENSUS_RECOMPOSE "
+            f"actor_count={state.world_census_actor_count} "
+            f"target=0x{SANCTIONED_TARGET:X}",
+            printed,
+        )
+        self.assertFalse(any(
+            event.startswith("mob_combat_bar_census_compose_skipped_")
+            or event.startswith("mob_combat_bar_census_compose_refused_")
+            for event in state.events
+        ))
+        bar_pc, bar_frame, _delay = next(
+            (pc, frame, delay) for label, pc, frame, delay in actions
+            if label == "MOB_COMBAT_BAR"
+        )
+        balance = state.mob_combat_ledger.balance_of(SANCTIONED_TARGET)
+        expected_pc, expected_frame = mob_death.hostile_census_frames(
+            self.legacy, anchor, state.world_census_actor_count, self.roster,
+            mob_death.DeathRegister(), ledger=state.mob_combat_ledger,
+        )
+        # If this ever regressed back to the one-entry frame, this equality
+        # would fail (the one-entry frame is a strict subset of the 115-actor
+        # collection below) -- that is the world-wipe RE-092/CORE-REQUEST-008
+        # exists to prevent, proven here on the real dispatch path instead of
+        # by calling the encoder directly the way mob_death.py's own offline
+        # tests do.
+        self.assertEqual(bar_pc, expected_pc)
+        self.assertEqual(bar_frame, expected_frame)
+        wounded_entry = field_mobs.hostile_actor_entry(
+            self.legacy, self.p30, current_hp=balance.current_hp,
+        )
+        self.assertIn(wounded_entry, bar_pc)
+
+    def test_a_kill_after_real_arrival_recomposes_dying_and_dead_over_115(self):
+        """Same real-sequence proof as the hit test above, for the death
+        half of CORE-REQUEST-008 (``combat_death`` row of the same WIRED v2
+        audit).
+        """
+        state = self._state("mc_real_arrival_death")
+        anchor = self._arrive(state)
+        self.assertEqual(state.world_census_actor_count, 115)
+        self._set_balance(state, SANCTIONED_TARGET, 500)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            actions = self._attack(state, SANCTIONED_TARGET)
+        labels = [label for label, _pc, _f, _d in actions]
+        self.assertEqual(
+            labels[:3],
+            ["MOB_COMBAT_ANNOUNCE", "MOB_DEATH_DYING", "MOB_DEATH_DEAD"],
+        )
+        # CORE-REQUEST-007 (MOB-LOOT-001) may append MOB_LOOT_DROP frames
+        # after the death frames; this test proves census-recompose behavior,
+        # not loot -- same carve-out as the two pre-existing census tests.
+        self.assertTrue(all(label == "MOB_LOOT_DROP" for label in labels[3:]))
+        printed = buf.getvalue()
+        self.assertIn(
+            "MOB_DEATH_FRAMES_CENSUS_RECOMPOSE "
+            f"actor_count={state.world_census_actor_count} "
+            f"target=0x{SANCTIONED_TARGET:X}",
+            printed,
+        )
+        self.assertFalse(any(
+            event.startswith("mob_death_frames_census_compose_skipped_")
+            or event.startswith("mob_death_frames_census_compose_refused_")
+            for event in state.events
+        ))
+        dying_pc, _dying_frame, _d1 = next(
+            (pc, frame, delay) for label, pc, frame, delay in actions
+            if label == "MOB_DEATH_DYING"
+        )
+        dead_pc, _dead_frame, _d2 = next(
+            (pc, frame, delay) for label, pc, frame, delay in actions
+            if label == "MOB_DEATH_DEAD"
+        )
+        expected_dying_pc, _ = mob_death.hostile_census_frames(
+            self.legacy, anchor, state.world_census_actor_count, self.roster,
+            state.mob_death_register, ledger=state.mob_combat_ledger,
+            dead_timer=mob_death.DYING_TIMER_SECONDS,
+        )
+        expected_dead_pc, _ = mob_death.hostile_census_frames(
+            self.legacy, anchor, state.world_census_actor_count, self.roster,
+            state.mob_death_register, ledger=state.mob_combat_ledger,
+        )
+        self.assertEqual(dying_pc, expected_dying_pc)
+        self.assertEqual(dead_pc, expected_dead_pc)
+        corpse_entry = mob_death.death_actor_entry(
+            self.legacy, self.p30, death_timer=mob_death.DEAD_TIMER_SECONDS,
+        )
+        self.assertIn(corpse_entry, dead_pc)
 
 
 if __name__ == "__main__":
