@@ -79,22 +79,52 @@ would show for outfit-ambiguous instances 2..N of a set is unverified, and
 
 ANCHOR REPORT - THE STRONG HYPOTHESIS IS NOT YET FULLY CONFIRMED.
 PANYA-DECISION 2026-08-27 20:10 names 7 anchors and forbids treating "NN =
-MOBS.n_ID" as fact until all 7 match under one sign-flip transform (HUD_x =
--placement_x, HUD_y = placement_y - re-derived below from the one anchor that
-carries a numeric HUD reading, not invented here).  This module can check
-only the anchors that carry NUMBERS in the letters this lane has read; the
-rest are photographic (evidence_screens/*.jpg this lane did not open) and are
-recorded as NOT INDEPENDENTLY VERIFIED, not as failed:
+MOBS.n_ID" as fact until all 7 match under one transform (HUD_x = placement_x,
+HUD_y = placement_y - see the CORRECTION paragraph for why this is an
+identity, not a sign flip).  Three of the anchors were previously
+"photographic (evidence_screens/*.jpg this lane did not open)" - this round
+opened all three committed files (no new capture, same evidence, first read):
 
-* Veronica (NN 14): HUD (3825, 12447) vs placement (-3598.77, 12550.46).
-  Sign-flip X: 3598.77 vs 3825 -> delta 226.23; Y unchanged: 12550.46 vs 12447
-  -> delta 103.46.  MATCHES the letter's own "227/103" to within rounding.
-  CONFIRMED (numeric).
+CORRECTION (round 5irwkp, 2026-08-27).  The transform above was previously
+documented as "negate X, keep Y", re-derived from Veronica's HUD reading.
+Re-reading the SAME screenshot this round at higher zoom
+(``pf_bridge/evidence_screens/REF_ORIGINAL_SERVER_PrisonExile_Veronica_
+ApprenticeWitch_20260827.jpg``) shows the minimap actually prints
+``X:-3,825`` - a minus sign the earlier description dropped, not a new
+observation or a different frame.  Comparing that against Veronica's own
+placement (-3598.77, 12550.46) with NO sign flip gives the SAME 248.76-unit
+match distance as before (the old sign flip was self-cancelling for this one
+anchor - both her HUD X and her placement X are negative - which is exactly
+how the wrong transform rule went unnoticed).  The two transforms diverge for
+every OTHER anchor, though: under the old (wrong) rule, Sebastian's placement
+X of +23184.36 would predict a NEGATIVE HUD X.  This lane tried to read
+Sebastian's own screenshot the same way at multiple zoom levels and filters
+and could NOT do it with confidence either way - the frame is materially more
+JPEG-compressed than Veronica's, and a stray minus-sign-shaped compression
+artefact is exactly the kind of thing this lane will not treat as a digit.
+No sign claim is made for Sebastian's HUD reading at all - see NAME/TITLE
+MATCH below for what this lane could actually confirm from that photo.
+
+* Veronica (NN 14): HUD (-3825, 12447) vs placement (-3598.77, 12550.46).  No
+  sign flip: delta_x 226.23, delta_y 103.46, distance 248.76.  MATCHES the
+  letter's own "227/103" to within rounding - the transform's sign convention
+  changed, the match itself did not.  CONFIRMED (numeric).
 * Legend Jack (6) / Legend Jack Men (7, x2) / Mountain Deer (27 instance 2):
   pairwise distances 601-1647 units - the group clusters together as the
-  letter's screenshot describes.  CONFIRMED (numeric, clustering only - not a
-  HUD coordinate match, because no HUD reading for this group was quoted to
-  this lane).
+  letter's screenshot describes, and the same evidence_screens/*.jpg image
+  (opened this round) shows all four nameplates together in one frame:
+  "Legend Jack" (Drunken Captain), "Legend Jack Men" x2, "Mountain Deer".
+  CONFIRMED (numeric, clustering only - not a HUD coordinate match, because
+  no HUD reading for this group was quoted to this lane).
+* Navy Transfer (1) and Warden Sebastian (2) / Goliaon: opened this round -
+  the SAME frame (``REF_ORIGINAL_SERVER_PrisonExile_NavyTransfer_at_dock_
+  gate_20260827.jpg``) shows both nameplates together at what the image's own
+  UI labels the "Prison Exile Island" entry gate: "Navy Transfer" close by,
+  "Warden / Sebastian / Goliaon" visible through the gate opening beyond.
+  Their placements measure 3079.9 units apart - the same order of magnitude
+  as the already-accepted Columbus-Navy-Transfer pairing below.  SUPPORTIVE
+  (numeric proximity + visual co-location in one frame), not a tight match -
+  no HUD reading is legible in this frame either.
 * Columbus (36) near Navy Transfer (1): 3935 units apart, both in the harbor
   quadrant - CONSISTENT, not a tight match; recorded as SUPPORTIVE, not
   CONFIRMED.
@@ -102,21 +132,35 @@ recorded as NOT INDEPENDENTLY VERIFIED, not as failed:
   scene-2 arrival spawn (26905, 21185, 1680 -
   ``scenarios/world_scene_registry_001.json``) - SUPPORTIVE of "at the dock
   gate you arrive near", not a tight numeric match either.
-* Sebastian+Goliaon (2), Pike in a wooden pen (5): NO numeric anchor was
-  quoted to this lane, only photographs this lane did not open.  NOT
-  INDEPENDENTLY VERIFIED.  ("Goliaon" itself never appears in MOBS_TIP for
-  NN 1-41 and is read as a scene prop/object, not an NPC placement - it is not
-  and cannot be a row in this table.)
+* Sebastian (2) / Warden, and Pike (5) / Unemployed Sailor: opened this round
+  for the first time.  Both screenshots' floating nameplates read EXACTLY the
+  name/title pair this table already carries for those NN rows - "Warden" /
+  "Sebastian" for NN 2, "Unemployed Sailor" / "Pike" for NN 5 - letter for
+  letter, not a fuzzy match (checked programmatically against
+  :data:`KNOWN_PLACEMENTS`, not eyeballed once and hardcoded - see
+  ``PHOTO_NAME_TITLE_EVIDENCE`` / :func:`anchor_report`).  Pike's screenshot
+  also shows a wooden-fenced enclosure with a lit torch, matching the
+  letter's own "Pike in a wooden pen".  NEITHER frame has a legible HUD
+  coordinate - both are far more JPEG-compressed than Veronica's; digit
+  shapes are visible under 10x zoom but this lane will not quote numbers it
+  cannot read with confidence.  NAME/TITLE MATCH (visual, no coordinate) -
+  weaker than a numeric anchor, stronger than "not opened".  ("Goliaon"
+  itself never appears in MOBS_TIP for NN 1-41 and is read as a scene
+  prop/object, not an NPC placement - it is not and cannot be a row in this
+  table; that stays true after opening the photo.)
 
-So: 2 of 7 anchors are numerically confirmed by this lane, 2 more are
-supportive-but-not-tight, and 2 have no numeric evidence this lane possesses.
-THIS MODULE THEREFORE DOES NOT DECLARE "NN = MOBS.n_ID" A FACT.  It ships the
-roster the hypothesis predicts, tagged with that hypothesis's name, because
-CHARTER-02 and the M1-P order both call for building around the hole rather
-than stopping - and because every one of the anchors checked here supports the
-hypothesis and none contradicts it - but a human confirming names/positions in
-person (the M1-P headless-then-attended gate) is still what promotes this from
-hypothesis to fact, exactly as the owner's own letter requires.
+So, after this round: 2 of 7 anchors are numerically confirmed, 3 are
+supportive-but-not-tight (one new this round: Navy Transfer near Sebastian),
+and 2 are name/title-confirmed-but-not-numeric (both new this round:
+Sebastian, Pike).  Zero anchors remain entirely unopened.  THIS MODULE STILL
+DOES NOT DECLARE "NN = MOBS.n_ID" A FACT - every anchor checked, in either
+round, supports the hypothesis and none contradicts it, but a human
+confirming names/positions in person (the M1-P headless-then-attended gate)
+is still what promotes this from hypothesis to fact, exactly as the owner's
+own letter requires.  What remains is upgrading name/proximity matches to
+numeric HUD matches, which needs either a higher-resolution capture or the
+attended session itself - not something this lane can manufacture from the
+same compressed frames twice.
 """
 
 from __future__ import annotations
@@ -410,7 +454,14 @@ def load_unresolved_placements() -> tuple[Bg0002UnresolvedPlacement, ...]:
 # and what it does NOT mean.
 # ---------------------------------------------------------------------------
 VERONICA_N_ID = 14
-VERONICA_HUD_X = 3825.0
+# CORRECTED round 5irwkp (2026-08-27): was +3825.0.  A higher-zoom re-read of
+# the same committed screenshot this round
+# (pf_bridge/evidence_screens/REF_ORIGINAL_SERVER_PrisonExile_Veronica_
+# ApprenticeWitch_20260827.jpg) shows the minimap prints "X:-3,825", not
+# "X:3,825" - the minus sign the earlier round's description dropped.  See
+# the module docstring's CORRECTION paragraph for why the match distance is
+# unchanged even though the sign and the transform below both flipped.
+VERONICA_HUD_X = -3825.0
 VERONICA_HUD_Y = 12447.0
 # How far the Veronica anchor is allowed to miss and still count as a match --
 # set to the letter's own reported miss (227/103) plus a small margin, not to
@@ -428,6 +479,14 @@ COLUMBUS_N_ID = 36
 NAVY_TRANSFER_N_ID = 1
 COLUMBUS_NAVY_TRANSFER_MAX_UNITS = 5000.0
 
+# NEW round 5irwkp: Navy Transfer and Sebastian appear together, one frame,
+# at the scene-2 entry gate (see docstring).  Same tolerance order of
+# magnitude as COLUMBUS_NAVY_TRANSFER_MAX_UNITS above, for the same reason
+# (a "same quadrant, one screenshot" claim, not a tight coordinate claim).
+SEBASTIAN_N_ID = 2
+PIKE_N_ID = 5
+NAVY_TRANSFER_SEBASTIAN_MAX_UNITS = 5000.0
+
 # scenarios/world_scene_registry_001.json's OWN pinned scene-2 spawn -- copied
 # here as a plain number, not imported, so this module stays a pure data
 # module with no path/JSON dependency.  The test for this module cross-checks
@@ -437,18 +496,50 @@ SCENE2_REGISTRY_SPAWN_X = 26905.0
 SCENE2_REGISTRY_SPAWN_Y = 21185.0
 NAVY_TRANSFER_SPAWN_MAX_UNITS = 1500.0
 
+# NEW round 5irwkp: the two screenshots this round opened for the first time
+# (evidence_screens/*.jpg, committed already, not a new capture).  Each
+# entry's observed_name/observed_title is the exact floating-nameplate text
+# read off that file; anchor_report() below checks it against
+# KNOWN_PLACEMENTS programmatically rather than trusting this dict blindly,
+# the same discipline the numeric anchors already use.
+PHOTO_NAME_TITLE_EVIDENCE = {
+    SEBASTIAN_N_ID: {
+        "photo": (
+            "pf_bridge/evidence_screens/"
+            "REF_ORIGINAL_SERVER_PrisonExile_Warden_Sebastian_Goliaon_"
+            "20260827.jpg"
+        ),
+        "observed_name": "Sebastian",
+        "observed_title": "Warden",
+    },
+    PIKE_N_ID: {
+        "photo": (
+            "pf_bridge/evidence_screens/"
+            "REF_ORIGINAL_SERVER_PrisonExile_Pike_UnemployedSailor_"
+            "20260827.jpg"
+        ),
+        "observed_name": "Pike",
+        "observed_title": "Unemployed Sailor",
+    },
+}
+
 
 def hud_from_placement(x: float, y: float) -> tuple[float, float]:
-    """The one transform this lane could re-derive: negate X, keep Y.
+    """The one transform this lane could re-derive: identity, no sign flip.
 
-    Re-derived from the Veronica anchor (the only anchor this lane has a
-    numeric HUD reading for), not invented: HUD_x = -placement_x reproduces
-    her reported HUD X to within the letter's own stated error, and HUD_y =
-    placement_y (unchanged) reproduces her HUD Y the same way.  No other axis
-    combination was tried because no other anchor gives this lane a number to
-    try it against.
+    CORRECTED round 5irwkp: previously documented (and coded) as "negate X,
+    keep Y".  Re-derived again from the Veronica anchor, the only anchor this
+    lane has a numeric HUD reading for - a higher-zoom re-read of the SAME
+    screenshot shows her HUD X is itself negative ("X:-3,825"), which the
+    earlier round's description missed.  Comparing that directly against her
+    placement X (also negative, -3598.77) with no sign flip reproduces her
+    reported HUD X to within the letter's own stated error, exactly as the
+    old (wrong) flip-then-compare also happened to do for this one anchor
+    (see the module docstring's CORRECTION paragraph for why that mistake
+    went unnoticed).  No other axis combination was tried because no other
+    anchor gives this lane a number to try it against.
     """
-    return (-float(x), float(y))
+    return (float(x), float(y))
 
 
 def _by_n_id(placements: tuple[Bg0002Placement, ...], n_id: int) -> list[Bg0002Placement]:
@@ -459,9 +550,10 @@ def anchor_report() -> dict:
     """What this lane could check of PANYA-DECISION 2026-08-27 20:10's 7
     anchors, computed from :data:`KNOWN_PLACEMENTS` -- and, just as loudly,
     what it could NOT check.  ``all_seven_confirmed`` is always False here on
-    purpose: the remaining anchors are photographic evidence this module has
-    no numeric access to, and the letter's own rule is that the hypothesis is
-    not fact until a human confirms all 7 in person.
+    purpose: even after round 5irwkp opened the three remaining screenshots,
+    two of them (Sebastian, Pike) only yielded a name/title match, not a
+    numeric one, and the letter's own rule is that the hypothesis is not fact
+    until a human confirms all 7 in person.
     """
     placements = load_known_placements()
 
@@ -503,6 +595,39 @@ def anchor_report() -> dict:
         navy[0].x - SCENE2_REGISTRY_SPAWN_X, navy[0].y - SCENE2_REGISTRY_SPAWN_Y)
     navy_spawn_match = navy_spawn_distance <= NAVY_TRANSFER_SPAWN_MAX_UNITS
 
+    sebastian = _by_n_id(placements, SEBASTIAN_N_ID)
+    if len(sebastian) != 1:
+        raise Scene2TableError("Sebastian anchor: expected exactly one n_id 2 row")
+    navy_sebastian_distance = math.hypot(
+        navy[0].x - sebastian[0].x, navy[0].y - sebastian[0].y)
+    navy_sebastian_match = navy_sebastian_distance <= NAVY_TRANSFER_SEBASTIAN_MAX_UNITS
+
+    # NEW round 5irwkp: check the two name/title-only anchors programmatically
+    # against KNOWN_PLACEMENTS, instead of trusting PHOTO_NAME_TITLE_EVIDENCE
+    # by eye - if a future edit to a display_name/title ever drifts from what
+    # this lane actually read off the screenshot, this is where that shows up.
+    photo_name_title_matches = []
+    for n_id, evidence in PHOTO_NAME_TITLE_EVIDENCE.items():
+        rows = _by_n_id(placements, n_id)
+        if len(rows) != 1:
+            raise Scene2TableError(
+                f"photo name/title anchor: expected exactly one n_id {n_id} row"
+            )
+        row = rows[0]
+        match = (
+            row.display_name == evidence["observed_name"]
+            and row.title == evidence["observed_title"]
+        )
+        photo_name_title_matches.append({
+            "n_id": n_id,
+            "table_name": row.display_name,
+            "table_title": row.title,
+            "observed_name": evidence["observed_name"],
+            "observed_title": evidence["observed_title"],
+            "photo": evidence["photo"],
+            "match": match,
+        })
+
     return {
         "hypothesis": NAMING_SCHEME,
         "hypothesis_status": NAMING_SCHEME_STATUS,
@@ -535,10 +660,19 @@ def anchor_report() -> dict:
                 "distance": round(navy_spawn_distance, 1),
                 "match": navy_spawn_match,
             },
+            {
+                "name": "navy_transfer_near_sebastian_same_frame",
+                "distance": round(navy_sebastian_distance, 1),
+                "match": navy_sebastian_match,
+                "photo": (
+                    "pf_bridge/evidence_screens/"
+                    "REF_ORIGINAL_SERVER_PrisonExile_NavyTransfer_at_dock_"
+                    "gate_20260827.jpg"
+                ),
+            },
         ],
+        "name_title_confirmed_no_coordinate": photo_name_title_matches,
         "not_independently_verified": [
-            "navy_transfer_at_dock_gate_photo_only",
-            "sebastian_plus_goliaon_photo_only_goliaon_is_not_an_npc_row",
-            "pike_in_wooden_pen_photo_only",
+            "goliaon_is_a_scene_prop_not_an_npc_row_no_placement_to_verify",
         ],
     }
