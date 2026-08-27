@@ -198,6 +198,33 @@ class WarpExecutorArgsShapeTests(unittest.TestCase):
             make_warp_force_pos_frame(self.legacy, 1, bad, 1, 0.0)
         self.assertNotIsInstance(ctx.exception, AttributeError)
 
+    def test_refuses_an_integer_keyed_dict_instead_of_silently_reading_it_positionally(self):
+        # pf-adversary (say-wire args-shape follow-up round): a dict keyed
+        # 0/1/2 passes len()==3 and is indexable at [0]/[1]/[2] without ever
+        # raising, so the previous blacklist (str/bytes guard + broad except)
+        # never caught it -- it silently built a real ForcePos frame from a
+        # dict that was never the intended (scene_id, x, y) tuple. The
+        # isinstance(args, tuple) allowlist closes this without needing to
+        # special-case dicts at all.
+        bad = GmCommand("warp", {0: 1, 1: 100.0, 2: 200.0}, "warp 1 100 200")
+        with self.assertRaises(WarpExecutorError) as ctx:
+            make_warp_force_pos_frame(self.legacy, 1, bad, 1, 0.0)
+        self.assertNotIsInstance(ctx.exception, KeyError)
+
+    def test_refuses_a_list_args_container(self):
+        # GmCommand.args is typed tuple[str, ...]; a list is a plausible
+        # caller mistake (JSON deserializes arrays as lists) that behaves
+        # identically to a tuple under len()/indexing, so it was never
+        # caught by any of the previous guards either.
+        bad = GmCommand("warp", ["1", "100", "200"], "warp 1 100 200")
+        with self.assertRaises(WarpExecutorError):
+            make_warp_force_pos_frame(self.legacy, 1, bad, 1, 0.0)
+
+    def test_refuses_a_bytearray_args_scalar(self):
+        bad = GmCommand("warp", bytearray(b"123"), "warp 123")
+        with self.assertRaises(WarpExecutorError):
+            make_warp_force_pos_frame(self.legacy, 1, bad, 1, 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

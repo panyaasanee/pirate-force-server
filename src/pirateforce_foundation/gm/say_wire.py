@@ -53,14 +53,27 @@ flagged in `docs/GM_LANE.md` as this module's own follow-up: (a) a custom
 "every failure surfaces as `SayWireError`" promise; (b) a `str`/`bytes`
 scalar of length 1 (e.g. `"x"`) passes `len(args) == 1` and is positionally
 indexable, so it would be read as a real one-element args sequence instead
-of being refused as the wrong container shape -- less exploitable here than
-in `warp_executor.py` (the extracted element must still pass `isinstance
-(body, str)`, so a single-character `str` args scalar merely produces a
-one-character message, not a wrong-type frame) but not previously
-independently verified, and inconsistent with this module's own shape
-contract either way. This round (warp-executor's follow-up) applies the
-same fix here: both guards now catch `Exception` broadly, and `args` is
-rejected by `isinstance` if it is `str`/`bytes` before either guard runs.
+of being refused as the wrong container shape.
+
+A later round (`say-wire args-shape follow-up`, not the warp-executor round
+itself) first applied that same blacklist-style fix here (broad `except
+Exception` plus an `isinstance(args, (str, bytes))` reject), then
+`pf-adversary` broke it again the same day: an integer-keyed `dict` (e.g.
+`{0: "hello"}`) is exactly the "mapping" shape `docs/GM_LANE.md` already
+names as one of the three canonical wrong shapes (`None`, a `set`, a
+`dict`), yet `len(d)` and `d[0]` both succeed normally for it -- no
+exception is ever raised, so neither the `str`/`bytes` guard nor either
+`except Exception` clause fires, and a hand-built `GmCommand` with such a
+dict silently builds a real frame. `warp_executor.py` has the identical
+gap for the same reason. Enumerating one more forbidden shape every time
+adversary finds one that happens not to raise is an unbounded blacklist
+against a `tuple[str, ...]`-typed field (see `gm/commands.py`'s
+`GmCommand.args` annotation) with exactly one legitimate shape -- so this
+module now asserts that shape directly (`isinstance(args, tuple)`) instead
+of continuing to chase individual non-tuple shapes that happen not to
+raise. Every non-`tuple` `args` -- `None`, a `set`, a `dict` of any key
+type, a `str`/`bytes` scalar, a `bytearray`, a custom object, a `list` --
+is refused up front, before `len()`/indexing ever runs.
 """
 from __future__ import annotations
 
@@ -100,28 +113,19 @@ def make_say_broadcast_frame(
             f"make_say_broadcast_frame only applies to say commands, got {command.name!r}"
         )
     args = command.args
-    if isinstance(args, (str, bytes)):
-        # A str/bytes of length 1 passes a bare len()==1 check and is
-        # positionally indexable, so without this guard a single-character
-        # args scalar would silently be read as a one-element args sequence
-        # instead of being refused as the wrong container shape.
-        raise SayWireError(f"say command args must not be str/bytes, got {args!r}")
-    try:
-        arg_count = len(args)
-    except Exception as exc:
-        # Broad on purpose: docs/GM_LANE.md and this module's own docstring
-        # commit to accepting a GmCommand "regardless of source," so args is
-        # fully caller-controlled -- any custom __len__ implementation must
-        # convert to SayWireError here, not just TypeError.
-        raise SayWireError(f"say command args must be a sequence, got {args!r}") from exc
-    if arg_count != 1:
+    if not isinstance(args, tuple):
+        # GmCommand.args is typed tuple[str, ...] (gm/commands.py) -- every
+        # legitimate caller, parse_gm_command included, produces a tuple.
+        # A blacklist of individually-discovered wrong shapes (None, a set,
+        # a dict, a str/bytes scalar) is unbounded and was twice defeated by
+        # a shape that happened not to raise (a string-keyed dict, then an
+        # integer-keyed one) -- asserting the one legitimate shape directly
+        # closes the whole class at once, including shapes not yet tried
+        # (bytearray, memoryview, a list).
+        raise SayWireError(f"say command args must be a tuple, got {args!r}")
+    if len(args) != 1:
         raise SayWireError("say <message> must carry exactly one message argument")
-    try:
-        body = args[0]
-    except Exception as exc:
-        # Broad for the same reason as the len() guard above -- any custom
-        # __getitem__ implementation must convert to SayWireError here.
-        raise SayWireError(f"say command args must be indexable, got {args!r}") from exc
+    body = args[0]
     if not isinstance(body, str):
         raise SayWireError(f"say message must be a str, got {body!r}")
     if len(body) > MAX_SAY_MESSAGE_LENGTH:

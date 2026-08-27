@@ -211,6 +211,32 @@ class SayWireArgsShapeFollowUpTests(unittest.TestCase):
             make_say_broadcast_frame(self.legacy, bad)
         self.assertNotIsInstance(ctx.exception, AttributeError)
 
+    def test_refuses_an_integer_keyed_dict_instead_of_silently_reading_it_positionally(self):
+        # pf-adversary (this round): a dict keyed 0 passes len()==1 and is
+        # indexable at [0] without ever raising, so the previous blacklist
+        # (str/bytes guard + broad except) never caught it -- it silently
+        # built a real frame from a dict that was never the intended
+        # one-element tuple. The isinstance(args, tuple) allowlist closes
+        # this without needing to special-case dicts at all.
+        bad = GmCommand("say", {0: "hello"}, "say hello")
+        with self.assertRaises(SayWireError) as ctx:
+            make_say_broadcast_frame(self.legacy, bad)
+        self.assertNotIsInstance(ctx.exception, KeyError)
+
+    def test_refuses_a_list_args_container(self):
+        # GmCommand.args is typed tuple[str, ...]; a list is a plausible
+        # caller mistake (JSON deserializes arrays as lists) that behaves
+        # identically to a tuple under len()/indexing, so it was never
+        # caught by any of the previous guards either.
+        bad = GmCommand("say", ["hello"], "say hello")
+        with self.assertRaises(SayWireError):
+            make_say_broadcast_frame(self.legacy, bad)
+
+    def test_refuses_a_bytearray_args_scalar(self):
+        bad = GmCommand("say", bytearray(b"x"), "say x")
+        with self.assertRaises(SayWireError):
+            make_say_broadcast_frame(self.legacy, bad)
+
 
 if __name__ == "__main__":
     unittest.main()

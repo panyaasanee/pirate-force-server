@@ -50,12 +50,30 @@ gaps the `say_wire.py`-style three-type catch (`TypeError`/`KeyError`/
 object: (a) a custom `__len__`/`__getitem__` that raises anything outside
 those three types (e.g. `AttributeError`, `ValueError`) still leaked past
 this module's own "every failure surfaces as `WarpExecutorError`" promise,
-so both guards now catch `Exception` broadly instead of three named types;
+so both guards now caught `Exception` broadly instead of three named types;
 (b) a `str`/`bytes` scalar of length 3 (e.g. `"123"`) is not a crash at
 all -- it passes `len(args) == 3` and is positionally indexable, so it was
 silently read as a real `(scene_id, x, y)` tuple instead of being refused
-as the wrong container shape, so `args` is now rejected by `isinstance`
-before either guard runs.
+as the wrong container shape, so `args` was rejected by `isinstance` before
+either guard ran.
+
+A later round applied the identical broad-catch-plus-`str`/`bytes`-guard
+fix to `gm/say_wire.py`'s own copy of this gap, and `pf-adversary` broke it
+again the same day: an integer-keyed `dict` (e.g. `{0: 1, 1: 2, 2: 3}`) is
+exactly the "mapping" shape `docs/GM_LANE.md` already names as one of the
+three canonical wrong shapes, yet `len(d)` and `d[0]`/`d[1]`/`d[2]` all
+succeed normally for it -- no exception is ever raised, so neither the
+`str`/`bytes` guard nor either `except Exception` clause fires, and the
+identical gap applies here (`{0: 1, 1: 2, 2: 3}` builds a real `ForcePos`
+frame from a dict that was never the intended `(scene_id, x, y)` tuple).
+Enumerating one more forbidden shape every time adversary finds one that
+happens not to raise is an unbounded blacklist against a `tuple[str, ...]`-
+typed field (`gm/commands.py`'s `GmCommand.args` annotation) with exactly
+one legitimate shape, so this module now asserts that shape directly
+(`isinstance(args, tuple)`) instead: every non-`tuple` `args` -- `None`, a
+`set`, a `dict` of any key type, a `str`/`bytes` scalar, a `bytearray`, a
+custom object, a `list` -- is refused up front, before `len()`/indexing
+ever runs.
 
 This module does not read off a live socket, does not track player state,
 and does not send anything -- it returns frame bytes for a caller to send.
@@ -105,33 +123,23 @@ def make_warp_force_pos_frame(
             f"make_warp_force_pos_frame only applies to warp commands, got {command.name!r}"
         )
     args = command.args
-    if isinstance(args, (str, bytes)):
-        # A str/bytes of length 3 passes a bare len()==3 check and is
-        # positionally indexable, so without this guard "123"/b"123" would
-        # silently be read as (scene_id=1, x=2, y=3) -- a real, wrong frame
-        # built from a shape that was never the intended (scene_id, x, y)
-        # sequence, not a crash and therefore not caught by the except
-        # clauses below.
-        raise WarpExecutorError(f"warp command args must not be str/bytes, got {args!r}")
-    try:
-        arg_count = len(args)
-    except Exception as exc:
-        # Broad on purpose: docs/GM_LANE.md and this module's own docstring
-        # commit to accepting a GmCommand "regardless of source," so args is
-        # fully caller-controlled -- any custom __len__ implementation must
-        # convert to WarpExecutorError here, not just TypeError.
-        raise WarpExecutorError(f"warp command args must be a sequence, got {args!r}") from exc
-    if arg_count != 3:
+    if not isinstance(args, tuple):
+        # GmCommand.args is typed tuple[str, ...] (gm/commands.py) -- every
+        # legitimate caller, parse_gm_command included, produces a tuple.
+        # A blacklist of individually-discovered wrong shapes (None, a set,
+        # a dict, a str/bytes scalar) is unbounded: pf-adversary defeated
+        # the str/bytes-scalar blacklist entry with an integer-keyed dict
+        # (len()/[i] both succeed normally for e.g. {0: 1, 1: 2, 2: 3), so
+        # no exception was ever raised for it to catch) -- asserting the one
+        # legitimate shape directly closes the whole class at once,
+        # including shapes not yet tried (bytearray, memoryview, a list).
+        raise WarpExecutorError(f"warp command args must be a tuple, got {args!r}")
+    if len(args) != 3:
         raise WarpExecutorError(
             "warp <scene_id> with no x/y has no position for ForcePos to carry; "
             "cross-scene warp needs TeleportVital, not built yet -- see module docstring"
         )
-    try:
-        raw_scene_id, raw_x, raw_y = args[0], args[1], args[2]
-    except Exception as exc:
-        # Broad for the same reason as the len() guard above -- any custom
-        # __getitem__ implementation must convert to WarpExecutorError here.
-        raise WarpExecutorError(f"warp command args must be indexable, got {args!r}") from exc
+    raw_scene_id, raw_x, raw_y = args[0], args[1], args[2]
     scene_id = _require_int(raw_scene_id, "scene_id")
     if scene_id != current_scene_id:
         raise WarpExecutorError(
