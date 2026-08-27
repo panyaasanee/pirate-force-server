@@ -140,6 +140,24 @@ as a tuple sorted by identity so its representation is unique.  Contract
 breaches raise :class:`MobCombatContractError` with a NAMED reason from
 :data:`MOB_COMBAT_REFUSAL_REASONS`, never a bare ValueError and never a silent
 coercion.
+
+[UPDATE, round B_20260827_1734 (ebbhzt), 2026-08-27]: Panya's attended-session
+reference letter (pf_bridge/notes_to_chief/20260827_1635_PANYA-REFERENCE-
+original-server-combat-loop-colors-death-loot-vs-ours.md, section "command 3a")
+named a real gap directly: nothing before this round limited how OFTEN the
+SAME performer's attacks land, so a player who clicks faster than the
+original server's own auto-attack cadence (which the letter's clip shows as a
+real, timed loop the client drives) extracts more damage per second than the
+formula above was ever meant to allow.  :func:`check_attack_cadence` closes
+that hole, in front of :func:`strike` rather than inside it, so this module's
+"pure function of its arguments, no clock" promise above stays true: the
+function takes a caller-supplied millisecond timestamp, it does not read a
+clock itself.  :data:`ATTACK_CADENCE_MS_PROVISIONAL` IS A GUESS, LABELLED AS
+ONE: nobody has RE'd the original server's real auto-attack period, RE-110
+(pf_bridge, opened 2026-08-27) is the open ticket for that number, and this
+round does not stop to wait for the answer - it ships a conservative round
+number so the exploit closes today, and the docstring says so at the one
+place a later round has to look to swap it for a measured value.
 """
 
 from __future__ import annotations
@@ -190,6 +208,52 @@ MOB_COMBAT_WIRING = (
 # than a handle it cannot.  See mob_ai_control.MOB_AI_CONTROL_WIRING.
 MOB_COMBAT_THREAT_HANDLE_IS_OPTIONAL = True
 MOB_COMBAT_THREAT_FOLD_OWNER = "mob_ai_control.damage_step"
+
+# [UPDATE, round B_20260827_1734 (ebbhzt), 2026-08-27] appended to
+# MOB_COMBAT_WIRING above, not edited into it: BEFORE the call the paragraph
+# above describes, call mob_combat.check_attack_cadence(cadence, performer,
+# at_ms), where ``cadence`` is a per-session mob_combat.AttackCadenceLedger
+# the caller opens ONCE with mob_combat.open_cadence_ledger() - alongside the
+# existing per-session mob_combat_ledger, see runtime.py's
+# ``self.mob_combat_ledger = mob_combat.open_ledger()`` - and ``at_ms`` is a
+# wall-clock integer millisecond reading the CALLER takes itself (this module
+# owns no clock; see NOTHING IS INSTALLED and the round's own update, above).
+# If check.accepted is False: print mob_combat.describe_cadence_rejection
+# (check), send NOTHING, and do not call attack_from_observed_action at all
+# this dispatch - no damage, no ledger commit, no threat fold.  If True:
+# store check.cadence back onto the session (cadence = check.cadence) and run
+# the rest of this wiring exactly as already written.  CORE-REQUEST to chief:
+# wire this into runtime.py's _dispatch_mob_combat, immediately before its
+# existing `for _attempt in range(MOB_COMBAT_STALE_RETRY_LIMIT):` /
+# `mob_combat.attack_from_observed_action(...)` call.
+MOB_COMBAT_CADENCE_WIRING = (
+    "runtime.py, in _dispatch_mob_combat, before attack_from_observed_action: "
+    "check = mob_combat.check_attack_cadence(self.mob_combat_cadence, "
+    "performer, at_ms_wallclock); if not check.accepted: print each line of "
+    "mob_combat.describe_cadence_rejection(check) and return [] (no frames, "
+    "no ledger touch); else: self.mob_combat_cadence = check.cadence and "
+    "proceed exactly as MOB_COMBAT_WIRING already says. "
+    "self.mob_combat_cadence starts life as mob_combat.open_cadence_ledger(), "
+    "opened next to self.mob_combat_ledger."
+)
+
+# ---------------------------------------------------------------------------
+# [LANE-B ASSUMPTION - PROVISIONAL, awaiting RE-110] Minimum attack cadence.
+# Panya's 2026-08-27 16:35 reference letter asked this lane to close the
+# "spam-click = runaway damage" gap FIRST, ahead of every colour/panel/death/
+# loot item the same letter raised, because it is the one gap that changes
+# how much damage a player extracts per real second versus the frozen
+# formula below.  The original server's own cadence comes from a real,
+# timed auto-attack loop the client drives (letter section 3); nobody on
+# this project has RE'd that loop's actual period.  RE-110 (pf_bridge,
+# opened 2026-08-27) is the open ticket for the measured number.  The value
+# below is NOT that number: it is a conservative, round, PLACEHOLDER
+# millisecond figure, picked only so the exploit closes today rather than
+# waiting on RE, and named so a later round has exactly one constant to
+# change once RE-110 answers - no other line in this module should need to
+# move.
+# ---------------------------------------------------------------------------
+ATTACK_CADENCE_MS_PROVISIONAL = 600
 
 # ---------------------------------------------------------------------------
 # The damage formula.  Copied value-for-value, WITH provenance, from the lanes
@@ -330,6 +394,10 @@ REFUSE_FLAGS_DISAGREE_WITH_DAMAGE = "flags_disagree_with_damage"
 REFUSE_AGGRO_HANDLE_INCOMPLETE = "aggro_handle_incomplete"
 REFUSE_ACTION_FIELDS_MALFORMED = "action_fields_malformed"
 REFUSE_COMPOSED_BYTES_OFF_PIN = "composed_bytes_off_pin"
+# [UPDATE, round B_20260827_1734 (ebbhzt), 2026-08-27] attack-cadence reasons.
+REFUSE_DUPLICATE_CADENCE_IDENTITY = "duplicate_cadence_identity"
+REFUSE_CADENCE_NOT_SORTED = "cadence_not_sorted"
+REFUSE_CADENCE_OUTCOME_SELF_CONTRADICTORY = "cadence_outcome_self_contradictory"
 MOB_COMBAT_REFUSAL_REASONS = (
     REFUSE_VALUE_NOT_INT,
     REFUSE_VALUE_OUT_OF_RANGE,
@@ -352,6 +420,9 @@ MOB_COMBAT_REFUSAL_REASONS = (
     REFUSE_AGGRO_HANDLE_INCOMPLETE,
     REFUSE_ACTION_FIELDS_MALFORMED,
     REFUSE_COMPOSED_BYTES_OFF_PIN,
+    REFUSE_DUPLICATE_CADENCE_IDENTITY,
+    REFUSE_CADENCE_NOT_SORTED,
+    REFUSE_CADENCE_OUTCOME_SELF_CONTRADICTORY,
 )
 
 
@@ -1083,6 +1154,226 @@ def commit_step(current: CombatLedger, step: CombatStep) -> CombatLedger:
                 step.base_generation, current.generation),
         )
     return step.ledger
+
+
+# ---------------------------------------------------------------------------
+# [LANE-B ASSUMPTION - PROVISIONAL, awaiting RE-110] Attack cadence: the gate
+# in front of :func:`strike`, not inside it - see MOB_COMBAT_CADENCE_WIRING
+# and the round update on the module docstring, above.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CadenceRecord:
+    """One performer's last ACCEPTED attack, in caller-supplied wall-clock ms.
+
+    ``last_accepted_at_ms`` is never read by a clock this module owns: the
+    caller hands the timestamp in, at both write time (:func:`with_accepted`)
+    and read time (:func:`check_attack_cadence`), so two calls with the same
+    two integers always agree - the reason every other function in this
+    module is a pure function of its arguments, unbroken here too.
+    """
+
+    performer_identity: int
+    last_accepted_at_ms: int
+
+    def __post_init__(self) -> None:
+        _require_identity(self.performer_identity, "performer identity")
+        _require_int(
+            self.last_accepted_at_ms, "last accepted at ms", 0, 2 ** 62)
+
+
+@dataclass(frozen=True)
+class AttackCadenceLedger:
+    """Per-performer attack-cadence state: sorted, unique, replace-not-mutate.
+
+    Shaped the way :class:`CombatLedger` and ``mob_death.DeathRegister``
+    already are - a tuple sorted by identity, so two ledgers built from the
+    same accepted attacks compare equal in any process and no caller can
+    mutate a row behind this lane's back.
+
+    GROWTH, LOOKED AT AND ACCEPTED RATHER THAN GUESSED AT: unlike
+    ``DeathRegister`` (whose rows are capped by the roster's own size - a
+    monster dies once and stays in the register) this ledger REPLACES a
+    row's timestamp on every accepted attack rather than appending a new
+    one, so its size is capped by the count of DISTINCT PERFORMER IDENTITIES
+    that have ever landed an accepted hit against the object holding this
+    ledger - one row per attacking player, not one row per attack.  No row
+    is ever deleted, matching this module's own no-shrink convention for
+    ``CombatLedger`` (a monster's balance row lives for the ledger's whole
+    life too).  A caller that wants this bounded to a single connection's
+    lifetime, rather than a whole process's, gets that for free by storing
+    it exactly where ``runtime.py`` already stores the per-session
+    ``mob_combat_ledger`` this ledger is meant to sit beside - a wiring
+    choice, not a change to this class.
+    """
+
+    records: tuple[CadenceRecord, ...] = ()
+
+    def __post_init__(self) -> None:
+        if type(self.records) is not tuple:
+            raise MobCombatContractError(
+                REFUSE_TYPE_NOT_TYPED_RECORD, "records must be a tuple")
+        seen = set()
+        for record in self.records:
+            if type(record) is not CadenceRecord:
+                raise MobCombatContractError(
+                    REFUSE_TYPE_NOT_TYPED_RECORD,
+                    "every cadence row must be a typed CadenceRecord")
+            if record.performer_identity in seen:
+                raise MobCombatContractError(
+                    REFUSE_DUPLICATE_CADENCE_IDENTITY,
+                    "performer identity 0x%X appears twice" % (
+                        record.performer_identity),
+                )
+            seen.add(record.performer_identity)
+        ordered = tuple(sorted(
+            self.records, key=lambda row: row.performer_identity))
+        if ordered != self.records:
+            raise MobCombatContractError(
+                REFUSE_CADENCE_NOT_SORTED,
+                "cadence rows must be given in ascending identity order")
+
+    def identities(self) -> tuple[int, ...]:
+        return tuple(row.performer_identity for row in self.records)
+
+    def last_accepted_at(self, performer_identity: int) -> int | None:
+        """The last accepted timestamp for this performer, or None if new."""
+        wanted = _require_identity(performer_identity, "performer identity")
+        for row in self.records:
+            if row.performer_identity == wanted:
+                return row.last_accepted_at_ms
+        return None
+
+    def with_accepted(
+        self, performer_identity: int, at_ms: int,
+    ) -> "AttackCadenceLedger":
+        """Replace (or add) one performer's row.  Called on ACCEPT only."""
+        wanted = _require_identity(performer_identity, "performer identity")
+        stamp = _require_int(at_ms, "at ms", 0, 2 ** 62)
+        kept = tuple(
+            row for row in self.records
+            if row.performer_identity != wanted)
+        return AttackCadenceLedger(tuple(sorted(
+            kept + (CadenceRecord(wanted, stamp),),
+            key=lambda row: row.performer_identity)))
+
+
+def open_cadence_ledger() -> AttackCadenceLedger:
+    """A fresh cadence ledger: nobody has landed an accepted attack yet."""
+    return AttackCadenceLedger()
+
+
+@dataclass(frozen=True)
+class CadenceCheck:
+    """The verdict on one attack attempt against the minimum cadence.
+
+    VALIDATED ON CONSTRUCTION for the same reason :class:`HitOutcome` is: a
+    hand-built check claiming ``accepted=True`` with a nonzero
+    ``early_by_ms`` (or the reverse) would be taken at face value by
+    :func:`describe_cadence_rejection` and by whatever wiring reads
+    ``accepted`` - exactly the class of bug an adversarial review of this
+    module already found once, in ``HitOutcome``, before it had this guard.
+    """
+
+    accepted: bool
+    cadence: AttackCadenceLedger
+    performer_identity: int
+    at_ms: int
+    early_by_ms: int
+    cadence_ms: int
+
+    def __post_init__(self) -> None:
+        if type(self.accepted) is not bool:
+            raise MobCombatContractError(
+                REFUSE_TYPE_NOT_TYPED_RECORD, "accepted must be a bool")
+        if type(self.cadence) is not AttackCadenceLedger:
+            raise MobCombatContractError(
+                REFUSE_TYPE_NOT_TYPED_RECORD,
+                "cadence must be a typed AttackCadenceLedger")
+        _require_identity(self.performer_identity, "performer identity")
+        _require_int(self.at_ms, "at ms", 0, 2 ** 62)
+        _require_int(self.early_by_ms, "early by ms", 0, 2 ** 62)
+        _require_int(self.cadence_ms, "cadence ms", 0, 2 ** 31)
+        if self.accepted != (self.early_by_ms == 0):
+            raise MobCombatContractError(
+                REFUSE_CADENCE_OUTCOME_SELF_CONTRADICTORY,
+                "accepted %s disagrees with early_by_ms %d" % (
+                    self.accepted, self.early_by_ms),
+            )
+
+
+def check_attack_cadence(
+    cadence: AttackCadenceLedger,
+    performer_identity: int,
+    at_ms: int,
+    *,
+    cadence_ms: int = ATTACK_CADENCE_MS_PROVISIONAL,
+) -> CadenceCheck:
+    """Accept or reject one attack attempt by wall-clock spacing alone.
+
+    ``at_ms`` is a CALLER-SUPPLIED integer millisecond clock reading, not a
+    value this function reads itself - no ``time.time()``, no
+    ``time.monotonic()``, matching NOTHING IS INSTALLED at the top of this
+    module.  A test drives this with any two integers it likes and the
+    result is exactly reproducible; a production caller (see
+    MOB_COMBAT_CADENCE_WIRING) takes the reading itself, once, per dispatch.
+
+    A REJECTION DOES NOT MOVE THE LEDGER: the window is measured from the
+    last ACCEPTED attack only, so a burst of spam-clicks cannot slide its
+    own deadline forward one reject at a time - the shortfall this function
+    reports for the fifth click in a row is measured against the same
+    accepted timestamp as the second.
+
+    Clock skew (an ``at_ms`` earlier than this performer's own last accepted
+    timestamp) FAILS CLOSED: it is scored as zero elapsed time, i.e. a
+    maximal rejection, never as a free pass - this lane's rule elsewhere
+    (missing data means a smaller world, never a fabricated one) applies to
+    a suspicious clock the same way it applies to a missing table row.
+    """
+    if type(cadence) is not AttackCadenceLedger:
+        raise MobCombatContractError(
+            REFUSE_TYPE_NOT_TYPED_RECORD,
+            "cadence must be a typed AttackCadenceLedger")
+    performer = _require_identity(performer_identity, "performer identity")
+    stamp = _require_int(at_ms, "at ms", 0, 2 ** 62)
+    window = _require_int(cadence_ms, "cadence ms", 0, 2 ** 31)
+    last = cadence.last_accepted_at(performer)
+    if last is None:
+        elapsed = window
+    else:
+        elapsed = stamp - last
+        if elapsed < 0:
+            elapsed = 0
+    if elapsed >= window:
+        return CadenceCheck(
+            True, cadence.with_accepted(performer, stamp), performer, stamp,
+            0, window,
+        )
+    return CadenceCheck(
+        False, cadence, performer, stamp, window - elapsed, window)
+
+
+def describe_cadence_rejection(check: CadenceCheck) -> tuple[str, ...]:
+    """The console line PANYA-REFERENCE 2026-08-27 asked for, every rejection.
+
+    ASCII, one line, names the performer and the shortfall - printed by the
+    caller, the same convention :func:`describe_step` already documents:
+    this module composes the line, it does not call ``print`` itself.
+    """
+    if type(check) is not CadenceCheck:
+        raise MobCombatContractError(
+            REFUSE_TYPE_NOT_TYPED_RECORD, "check must be a typed CadenceCheck")
+    if check.accepted:
+        raise MobCombatContractError(
+            REFUSE_CADENCE_OUTCOME_SELF_CONTRADICTORY,
+            "describe_cadence_rejection called on an accepted attempt")
+    return (
+        "MOB-COMBAT-001 attack cadence REJECTED: performer 0x%X, %d ms too "
+        "soon (PROVISIONAL minimum %d ms, awaiting RE-110; no damage "
+        "applied, no hit consumed)" % (
+            check.performer_identity, check.early_by_ms, check.cadence_ms),
+    )
 
 
 def strike(
