@@ -166,7 +166,7 @@
         "x": 0.0,
         "y": 0.0,
         "z": 0.0,
-        "provenance": "PROVISIONAL-OWNER-DECREE-20260827-1445 (owner decree, pf_bridge/notes_to_chief/20260827_1445_PANYA-DECISION-scene17-provisional-arrival-xyz-0-0-0-owner-decree-ka1-B.md) -- NOT measured, NOT modeled; this is the owner exercising a one-time exception to the no-invented-coordinate rule below, for this exact scene and this exact value only. Expires the day RE-103 T3 client-observable or wire evidence lands (GT-105 tracks it, not GT-104 - that number is a different, unrelated ticket); until then every arrival here must print the SCENE_ENTRY ... source=PROVISIONAL-OWNER-DECREE-20260827-1445 token (world_scene_entry.py resolve_entry) so a decreed landing is never mistaken for a measured one."
+        "provenance": "PROVISIONAL-OWNER-DECREE-20260827-1445 (owner decree, pf_bridge/notes_to_chief/20260827_1445_PANYA-DECISION-scene17-provisional-arrival-xyz-0-0-0-owner-decree-ka1-B.md) -- NOT measured, NOT modeled; this is the owner exercising a one-time exception to the no-invented-coordinate rule below, for this exact scene and this exact value only. Expires the day RE-103 T3 client-observable or wire evidence lands (GT-106 tracks it, not GT-104 - that number is a different, unrelated ticket); until then every arrival here must print the SCENE_ENTRY ... source=PROVISIONAL-OWNER-DECREE-20260827-1445 token (world_scene_entry.py resolve_entry) so a decreed landing is never mistaken for a measured one."
       },
       "ground": {
         "derived_from": "the eight native placements of this scene",

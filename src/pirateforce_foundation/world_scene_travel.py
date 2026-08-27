@@ -256,6 +256,22 @@ def _spawn(raw: Any, ground: Any, n_id: int) -> tuple[
         # already lands the ground block and the decree in the same round
         # without either one retracting the other (see world_scene_registry_
         # 001.json's own merge note on this entry).
+        #
+        # TWO KNOWN LIMITS, NAMED RATHER THAN HIDDEN (pf-adversary, round
+        # e0daaa). (1) This is a bare string-prefix match on JSON text this
+        # loader trusts completely -- nothing here cross-checks the
+        # provenance against a real letter under pf_bridge/notes_to_chief/,
+        # so a hand-edit that merely types the right prefix would exempt any
+        # destination's spawn from its ground check, real decree or not.
+        # This matches how every OTHER provenance string in this file is
+        # already trusted (hashes here pin gamedata files, never decree
+        # authorization), so it is not a new hole this exemption introduces,
+        # but it is a real one. (2) Nothing here or in resolve_entry expires
+        # this exemption when the decree's own stated condition (RE-103 T3
+        # evidence landing) is met -- retiring it today means a human
+        # hand-edits this JSON back to a measured spawn. There is no
+        # mechanism that would notice or alert if that day arrives and
+        # nobody remembers.
         for axis, low, high in (
             ("x", ground["x_min"], ground["x_max"]),
             ("y", ground["y_min"], ground["y_max"]),

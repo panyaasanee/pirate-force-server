@@ -23,6 +23,7 @@ from . import world_travel_gate
 
 from .gm.accounts import is_gm_account
 from .gm.dispatch import GM_RUN_GM_COMMAND_VITAL_ID, handle_gm_run_command_vital
+from .gm import state_wire
 from .gm.state_wire import make_gm_update_state_frame
 
 from .model import Position
@@ -1086,8 +1087,19 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # because one ChooseNPC -> NPCConversation -> QuestOperateVital
                 # sequence belongs to one connection, same as move_authority/
                 # mob_combat state above.  See columbus_quest_dispatch.py for
-                # what these flags gate and why the dispatch they gate always
-                # refuses today (two open evidence gaps, named there).
+                # what these flags gate.  UPDATED round e0daaa: the dispatch
+                # no longer always refuses -- PANYA-DECISION 2026-08-27T15:25
+                # +07:00 dropped the vehicle-bind requirement, so a matching
+                # op1/3021 frame now sends a real teleport.  ``_dispatch_
+                # attempted`` still latches permanently on the FIRST attempt,
+                # success or refusal alike -- pf-adversary flagged this as a
+                # real (not merely theoretical) stuck-player risk now that
+                # success is possible: if that one teleport is ever lost
+                # (dropped packet, or the client's own FSM state refusing an
+                # unsolicited TeleportVital per RE-077 T3 -- never checked
+                # for this call site), a retry from the client silently
+                # no-ops here with no event and no reply.  Not fixed this
+                # round; see CHIEF-STATUS 2026-08-27T15:45+07:00 and GT-106.
                 self.columbus_quest3021_conversation_sent = False
                 self.columbus_quest3021_dispatch_attempted = False
                 # CORE-REQUEST-007 (MOB-AI-CONTROL-001).  Same per-session
@@ -4291,16 +4303,47 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     quest_fields,
                 ):
                     self.columbus_quest3021_dispatch_attempted = True
+                    # PF-ADVERSARY FINDING, round e0daaa: emit=self.events.
+                    # append alone (unlike the LOGIN resolve_entry call
+                    # site above, which defaults to emit=print) never
+                    # reaches the actual console unless the process was
+                    # started with --export-events -- the SAME
+                    # SCENE_ENTRY/WORLD_SCENE tokens both PANYA-DECISION
+                    # 2026-08-27T14:45+07:00 and GT-106's own pass criteria
+                    # require a human to be able to read off the console
+                    # would silently never print. Printing AND recording
+                    # matches this file's own PLAYER_FACTION convention a
+                    # few hundred lines below.
+                    def _emit(line):
+                        print(line)
+                        self.events.append(line)
                     try:
-                        columbus_quest_dispatch.dispatch_columbus_quest3021(
+                        entry = columbus_quest_dispatch.dispatch_columbus_quest3021(
                             registry=scene_entry_registry,
-                            emit=self.events.append,
+                            emit=_emit,
                         )
                     except columbus_quest_dispatch.ColumbusDispatchRefused as error:
                         for reason in error.reasons:
                             self.events.append(
                                 f"columbus_quest3021_dispatch_refused_{reason}"
                             )
+                    else:
+                        # PANYA-DECISION 2026-08-27T15:25+07:00
+                        # (M2-NO-VEHICLE-OWNER-20260827-1525): no vehicle
+                        # frame -- just the same TeleportVital encoder the
+                        # login path already uses (RE-077: proven the
+                        # correct wire for moving an ALREADY-LIVE character
+                        # too, not just at login).
+                        tp_pc, tp_frame = legacy.make_login_teleport(
+                            *entry.teleport_fields
+                        )
+                        actions.append((
+                            "CORE_REQUEST_014_COLUMBUS_Q3021_TELEPORT_SCENE17_ONCE",
+                            tp_pc, tp_frame, 0.0,
+                        ))
+                        self.events.append(
+                            "core_request_014_columbus_scene17_teleport_sent"
+                        )
             return actions
 
         def dispatch(self, parsed):
@@ -4745,12 +4788,36 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         self.events.append(
                             f"gm_account_lookup_failed_{type(error).__name__}"
                         )
-                    if is_gm:
+                    # CORE-REQUEST-016 (LANE-GM, 2026-08-27T15:24+07:00,
+                    # citing GT-101 -- attended, OBSERVER_CONFIRMED): sending
+                    # this frame with the unproven version=1 above KILLS the
+                    # session (client rejects it by this vital's own id,
+                    # halts, closes the socket) -- measured against the
+                    # owner's own real GM account.  gm_accounts.json ships
+                    # with no accounts today so nothing is live-broken by
+                    # this repo yet, but the very next account added before
+                    # RE-105 pins the real version would hit this exact
+                    # crash on login.  Gated on the module's own confirmed-
+                    # version constant, not a local guess: not sending this
+                    # frame is always safe (every login before this lane
+                    # existed did exactly that).
+                    if (
+                        is_gm
+                        and state_wire.GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED
+                        is not None
+                    ):
                         gm_pc, gm_frame = make_gm_update_state_frame(
-                            legacy, 1, 0, 0, 0,
+                            legacy,
+                            state_wire.GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED,
+                            0, 0, 0,
                         )
                         gm_state_action = (
                             "GM_UPDATE_STATE_AFTER_LOGIN", gm_pc, gm_frame, 0.0,
+                        )
+                    elif is_gm:
+                        self.events.append(
+                            "gm_update_state_frame_withheld_no_confirmed_"
+                            "vital_version_re105_open"
                         )
                     # CORE-REQUEST-007 (MOB-PICKUP-001), MOB_PICKUP_WIRING
                     # step 0, "AT CHARACTER SELECT": claim this character's

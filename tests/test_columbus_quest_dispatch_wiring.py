@@ -204,20 +204,19 @@ class ColumbusQuest3021WiringTests(unittest.TestCase):
         )
         self.assertFalse(state.columbus_quest3021_conversation_sent)
 
-    def test_quest_operate_op1_quest3021_after_conversation_refuses_on_the_remaining_vehicle_gap(self):
+    def test_quest_operate_op1_quest3021_after_conversation_teleports_to_scene17_no_vehicle(self):
         """The mutation-proof half: BEFORE this round's wiring there was no
-        Columbus branch at all, so this refused event could never appear --
+        Columbus branch at all, so this teleport action could never appear --
         revert the runtime.py Columbus branch and this fails.
 
-        UPDATED PANYA-DECISION 2026-08-27T14:45+07:00: the owner decreed a
-        PROVISIONAL scene-17 spawn (see world_scene_registry_001.json and
-        world_scene_entry.py's SCENE_ENTRY token), closing the scene17 half
-        of this refusal.  It used to assert TWO refusal events (scene17 +
-        vehicle bind); now only the vehicle-bind gap (RE-096, still open)
-        remains, and the scene-17 half succeeds and prints its own tokens
-        instead of refusing.  Both WORLD_SCENE and the SCENE_ENTRY provisional
-        token are asserted below so a future regression that silently drops
-        either one is still caught here.
+        UPDATED PANYA-DECISION 2026-08-27T15:25+07:00
+        (M2-accept-scene17-entry-without-vehicle-fix-later): the owner
+        accepted M2 without a vehicle transform. This dispatch now SUCCEEDS
+        end to end through the real dispatcher -- a real TeleportVital
+        action is queued, no refusal event fires, and every token
+        (WORLD_SCENE, the SCENE_ENTRY provisional-decree token, and the
+        no-vehicle dispatch token) is still asserted so a future regression
+        dropping any one of them is caught here.
         """
         state = self._real_state("tok-columbus-op1")
         columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
@@ -232,18 +231,17 @@ class ColumbusQuest3021WiringTests(unittest.TestCase):
                 columbus_quest_dispatch.COLUMBUS_QUEST_ID, 1, 0, 0, 0, 0,
             )
         ))
-        self.assertEqual(actions, [])
+        labels = [action[0] for action in actions]
+        self.assertIn(
+            "CORE_REQUEST_014_COLUMBUS_Q3021_TELEPORT_SCENE17_ONCE", labels,
+        )
         refusal_events = [
             event for event in state.events
             if event.startswith("columbus_quest3021_dispatch_refused_")
         ]
-        self.assertEqual(
-            refusal_events,
-            [
-                "columbus_quest3021_dispatch_refused_"
-                + columbus_quest_dispatch.VEHICLE_BIND_REFUSED_NO_VEHICLE_ROW,
-            ],
-            state.events,
+        self.assertEqual(refusal_events, [], state.events)
+        self.assertIn(
+            "core_request_014_columbus_scene17_teleport_sent", state.events,
         )
         self.assertTrue(any(
             event.startswith("WORLD_SCENE scene_id=17 ")
@@ -254,7 +252,51 @@ class ColumbusQuest3021WiringTests(unittest.TestCase):
             "source=PROVISIONAL-OWNER-DECREE-20260827-1445",
             state.events,
         )
+        self.assertIn(
+            "COLUMBUS_QUEST3021_NO_VEHICLE_DISPATCH scene=17 source="
+            + columbus_quest_dispatch.M2_NO_VEHICLE_TAG,
+            state.events,
+        )
         self.assertTrue(state.columbus_quest3021_dispatch_attempted)
+
+    def test_the_scene_entry_and_no_vehicle_tokens_actually_reach_stdout(self):
+        """PF-ADVERSARY FINDING, round e0daaa: emit=self.events.append alone
+        (unlike the login resolve_entry call site, which defaults to
+        emit=print) never reaches the real console unless the process was
+        started with --export-events -- exactly the tokens PANYA-DECISION
+        2026-08-27T14:45+07:00 and GT-106's own pass criteria require a
+        human to read off the console. Proves the fix: these lines must
+        appear on stdout, not merely in state.events, with no
+        --export-events flag involved at all in this harness.
+        """
+        import io
+        from contextlib import redirect_stdout
+
+        state = self._real_state("tok-columbus-stdout")
+        columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
+            self.legacy,
+        )
+        state.dispatch(self.legacy.parse_outer(
+            _choose_npc_pc(self.legacy, columbus_identity)
+        ))
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            state.dispatch(self.legacy.parse_outer(
+                self.legacy._synthetic_quest_operate_pc(
+                    columbus_quest_dispatch.COLUMBUS_QUEST_ID, 1, 0, 0, 0, 0,
+                )
+            ))
+        printed = buffer.getvalue()
+        self.assertIn(
+            "SCENE_ENTRY scene=17 xyz=0.000,0.000,0.000 "
+            "source=PROVISIONAL-OWNER-DECREE-20260827-1445",
+            printed,
+        )
+        self.assertIn(
+            "COLUMBUS_QUEST3021_NO_VEHICLE_DISPATCH scene=17 source="
+            + columbus_quest_dispatch.M2_NO_VEHICLE_TAG,
+            printed,
+        )
 
     def test_columbus_dispatch_reuses_the_boot_loaded_registry_not_a_fresh_disk_read(self):
         """PF-ADVERSARY FINDING, round 4txjyg (R192): the first draft of

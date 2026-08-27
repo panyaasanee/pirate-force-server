@@ -31,9 +31,6 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation.gm import accounts as gm_accounts  # noqa: E402
-from pirateforce_foundation.gm.state_wire import (  # noqa: E402
-    make_gm_update_state_frame,
-)
 from pirateforce_foundation.legacy_bridge import (  # noqa: E402
     LegacyProjector, load_legacy,
 )
@@ -124,28 +121,29 @@ class GmDispatchTests(unittest.TestCase):
 
     # ----- an account ON the allowlist gets the frame, riding alongside ----
 
-    def test_a_gm_account_gets_the_state_frame_after_login(self):
+    def test_a_gm_account_gets_no_state_frame_while_the_version_guard_is_closed(self):
+        # UPDATED CORE-REQUEST-016 (LANE-GM, 2026-08-27T15:24+07:00): GT-101
+        # (attended, OBSERVER_CONFIRMED) measured that sending this frame
+        # with vital_version=1 kills the client's session -- the exact
+        # placeholder this test used to pin as correct wiring. runtime.py's
+        # call site is now gated on gm.state_wire.
+        # GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED (None until RE-105 pins
+        # the real version), so a GM account gets NO frame today. See
+        # tests/test_gm_login_state_guard.py for the real-dispatcher proof
+        # that the guard actually opens once that constant is set.
         path = self._config(["gm_listed"])
         with mock.patch.dict(
             gm_accounts.os.environ, {gm_accounts.ENV_OVERRIDE: str(path)},
         ):
             state, actions = self._login_and_start("gm_listed")
-        action = self._gm_action(actions)
-        self.assertIsNotNone(action)
-        _label, pc, frame, delay = action
-        self.assertEqual(delay, 0.0)
-        self.assertEqual(frame, self.legacy.frame_pc(pc))
-        # [ASSUMED - awaiting RE, CORE-REQUEST-GM-001]: the placeholder
-        # field values runtime.py currently sends.  This test pins THAT
-        # WIRING, not the (unproven) field meanings -- if the placeholder
-        # changes, this assertion is meant to move with it, deliberately.
-        expected_pc, expected_frame = make_gm_update_state_frame(
-            self.legacy, 1, 0, 0, 0,
+        self.assertIsNone(self._gm_action(actions))
+        self.assertIn(
+            "gm_update_state_frame_withheld_no_confirmed_vital_version_"
+            "re105_open",
+            state.events,
         )
-        self.assertEqual(pc, expected_pc)
-        self.assertEqual(frame, expected_frame)
-        # The frame rides alongside the inherited dispatch, never replacing
-        # it: the ordinary START_GAME response action is still present.
+        # The rest of login is unaffected: the ordinary START_GAME response
+        # action is still present.
         self.assertTrue(
             any(a[0] == "FOUNDATION_SELECTED_START_GAME" for a in actions)
         )

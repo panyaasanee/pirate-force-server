@@ -258,9 +258,26 @@ def _within_ground(target: SceneDestination, stored: Position) -> bool:
     the placement z of its own mobs, which says where a developer put an NPC
     and not how far above or below it the ground goes; a z test would refuse
     positions for a reason the data cannot support.
+
+    A PROVISIONAL-OWNER-DECREE spawn never counts as ground evidence here
+    (pf-adversary, round e0daaa, found this the hard way after scene 17
+    gained BOTH a decree and a real ground block the same round): this
+    radius test is centred on ``target.spawn`` and is safe to be generous
+    around ONLY because a normal spawn is itself a measured point already
+    inside the real ground. A decreed spawn carries no such guarantee -- it
+    was never derived from the ground data at all, so a stored row merely
+    numerically close to it is not evidence of anything. Refusing here
+    forces every arrival at such a destination through the pinned-spawn
+    branch instead, so it always lands on exactly the decreed point rather
+    than on some nearby row nobody measured either.
     """
     extent = target.ground_extent
     if extent is None:
+        return False
+    if (
+        target.spawn_provenance is not None
+        and target.spawn_provenance.startswith("PROVISIONAL-OWNER-DECREE")
+    ):
         return False
     spawn_x, spawn_y, _spawn_z = target.spawn
     extent_x, extent_y = extent

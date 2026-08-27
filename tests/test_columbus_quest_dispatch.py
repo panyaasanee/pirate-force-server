@@ -150,36 +150,57 @@ class ResolveColumbusArrivalTests(unittest.TestCase):
 
 
 class DispatchColumbusQuest3021Tests(unittest.TestCase):
-    def test_still_refuses_today_on_the_remaining_vehicle_bind_gap_only(self):
-        """UPDATED PANYA-DECISION 2026-08-27T14:45+07:00: the scene17 half of
-        this refusal is now closed by the owner's provisional decree (see
-        ResolveColumbusArrivalTests above) -- only RE-096's vehicle-bind gap
-        (still open) remains, so the compound dispatch still always refuses,
-        but with one named reason instead of two."""
+    def test_succeeds_today_without_a_vehicle_bind(self):
+        """UPDATED PANYA-DECISION 2026-08-27T15:25+07:00
+        (M2-accept-scene17-entry-without-vehicle-fix-later): the owner
+        accepted "arrive at scene 17 as an ordinary character" as M2's bar
+        for today, tagged M2-NO-VEHICLE-OWNER-20260827-1525. The vehicle
+        bind (RE-096's still-open gap) is no longer attempted at all, so
+        this now succeeds and returns the SceneEntry instead of always
+        raising ColumbusDispatchRefused."""
+        lines = []
+        entry = columbus_quest_dispatch.dispatch_columbus_quest3021(
+            emit=lines.append,
+        )
+        self.assertEqual(
+            (entry.position.x, entry.position.y, entry.position.z),
+            (0.0, 0.0, 0.0),
+        )
+        self.assertIn(
+            "COLUMBUS_QUEST3021_NO_VEHICLE_DISPATCH scene=17 source="
+            + columbus_quest_dispatch.M2_NO_VEHICLE_TAG,
+            lines,
+        )
+
+    def test_still_refuses_if_the_scene17_arrival_itself_refuses(self):
+        # The one remaining failure mode: a registry with no scene-17 pin
+        # (or no spawn) at all -- proven with a synthetic registry rather
+        # than mutating the real shipped one.
+        import json
+        import tempfile
+        from pathlib import Path
+        from pirateforce_foundation import world_scene_travel
+
+        data = json.loads(
+            world_scene_travel.REGISTRY_PATH.read_text(encoding="ascii")
+        )
+        data["destinations"] = [
+            row for row in data["destinations"] if row["n_id"] != 17
+        ]
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "registry.json"
+            path.write_text(json.dumps(data), encoding="ascii")
+            registry = world_scene_travel.load_scene_registry(path)
         with self.assertRaises(
             columbus_quest_dispatch.ColumbusDispatchRefused
         ) as ctx:
             columbus_quest_dispatch.dispatch_columbus_quest3021(
-                emit=lambda line: None,
+                registry=registry, emit=lambda line: None,
             )
         self.assertEqual(
             ctx.exception.reasons,
-            (columbus_quest_dispatch.VEHICLE_BIND_REFUSED_NO_VEHICLE_ROW,),
+            ("scene17_teleport_refused_scene_not_pinned",),
         )
-
-    def test_never_partially_applies(self):
-        """No side effect this module could observe (no frame composed, no
-        registry mutated) survives the refusal -- there is nothing here to
-        assert BESIDES the raise, which is itself the assertion: a compound
-        action that partially applied would have something else to check."""
-        try:
-            columbus_quest_dispatch.dispatch_columbus_quest3021(
-                emit=lambda line: None,
-            )
-        except columbus_quest_dispatch.ColumbusDispatchRefused:
-            pass
-        else:
-            self.fail("dispatch_columbus_quest3021 must refuse today")
 
 
 if __name__ == "__main__":
