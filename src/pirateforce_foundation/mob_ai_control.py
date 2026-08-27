@@ -850,6 +850,25 @@ def reconcile(register: MobAiRegister, death_register: Any) -> MobAiStep:
     would drag a frame composer into the decision lane for one predicate.  Only
     ``is_dead`` and ``identities`` are used, and a handle missing either is
     refused by name rather than skipped.
+
+    NOT UPDATED for COO-DECISION 2026-08-27T22:49+07:00 (``mob_death.
+    DeathRegister`` now keys ``is_dead`` by ``(scene, actor_identity)``, with
+    ``scene`` an OPTIONAL second parameter defaulting to bg0001) - and this is
+    a deliberate scope line, not an oversight.  This function calls ``is_dead(
+    row.actor_identity)`` with ONE argument on purpose: the handle contract
+    this docstring documents (``is_dead``/``identities``, nothing else) is
+    pinned by ``tests/test_mob_ai_control.py``'s own hand-written
+    ``FakeDeaths.is_dead(self, identity)`` stand-in, which takes exactly one
+    argument, and widening the call here to two positional arguments would
+    break that stand-in (and every test built on it) for a collision that
+    cannot happen yet: ``MobAiRegister`` is opened from one ``load_roster()``
+    call per session, and cross-scene-in-session (M2) is still paused per
+    PANYA-DECISION 2026-08-27T20:10+07:00, so a real ``mob_death.
+    DeathRegister`` handed here today only ever carries ONE scene's dead
+    identities - the default answers correctly with no scene passed.  The day
+    M2 lifts, this call site (and the ``FakeDeaths`` duck-type contract with
+    it) needs its own scoped decision to add ``scene``; noted here rather than
+    guessed at, per this lane's own nonclaim discipline.
     """
     if type(register) is not MobAiRegister:
         raise MobAiControlError(

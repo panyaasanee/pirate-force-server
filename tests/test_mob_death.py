@@ -1252,6 +1252,114 @@ class MobDeathTests(unittest.TestCase):
             third = third.with_death(row)
         self.assertEqual(second, third)
 
+    # -- cross-scene identity collisions (COO-DECISION 2026-08-27T22:49+07:00,
+    # answering LANE-B-ASK-COO 2026-08-27 21:53+07:00) --------------------
+
+    def test_death_register_disambiguates_a_synthetic_shared_identity_by_scene(
+            self):
+        # SYNTHETIC, SAID SO: a hand-picked identity no real table mines,
+        # used only to exercise the (scene, actor_identity) key directly at
+        # the DeathRecord/DeathRegister API level, independent of kill()'s
+        # own widened=/scope machinery.  The real-data proof is the next
+        # test below, built on field_mobs.cross_scene_identity_collisions().
+        shared_identity = 0x9999
+        bg0001_death = DeathRecord(
+            shared_identity, PERFORMER, 100, field_mobs.field_mob_tables.SCENE)
+        bg0002_death = DeathRecord(
+            shared_identity, PERFORMER, 200, field_mobs.BG0002_SCENE)
+        register = (
+            DeathRegister().with_death(bg0001_death).with_death(bg0002_death))
+        # Two records, not one collapsed row: the whole point of the fix.
+        self.assertEqual(len(register.records), 2)
+        self.assertTrue(register.is_dead(
+            shared_identity, field_mobs.field_mob_tables.SCENE))
+        self.assertTrue(register.is_dead(
+            shared_identity, field_mobs.BG0002_SCENE))
+        self.assertFalse(register.is_dead(shared_identity, "SomeOtherScene"))
+        self.assertEqual(
+            register.record_of(
+                shared_identity, field_mobs.field_mob_tables.SCENE).max_hp,
+            100)
+        self.assertEqual(
+            register.record_of(
+                shared_identity, field_mobs.BG0002_SCENE).max_hp,
+            200)
+        # A bare call with no scene assumes DEFAULT_SCENE (bg0001) - the
+        # only scene this project has ever booted - so every pre-existing
+        # single-scene call site in this file needed no change.
+        self.assertEqual(mob_death.DEFAULT_SCENE, field_mobs.field_mob_tables.SCENE)
+        self.assertTrue(register.is_dead(shared_identity))
+
+    def test_two_real_colliding_mobs_in_different_scenes_die_independently(
+            self):
+        # REAL MEASURED DATA, not invented: field_mobs.cross_scene_identity_
+        # collisions() finds 4 real bg0001 x Bg0002 pairs today; placement 58
+        # is one of them (0x203B in both), and both sides happen to be
+        # authorised by an already-landed widening ruling (bg0001's Jungle
+        # Big Tiger is template 60, covered by WIDENED_BG0001_RULING; Bg0002's
+        # Fighting Fish soldier is template 34, covered by
+        # WIDENED_BG0002_RULING), so this test drives the collision all the
+        # way through kill() rather than only through the register's own API.
+        collisions = field_mobs.cross_scene_identity_collisions()
+        pair = [c for c in collisions if c["placement_index"] == 58][0]
+        bg0001_mob = [m for m in self.roster if m.placement_index == 58][0]
+        bg0002_mob = [
+            m for m in self.bg0002_roster if m.placement_index == 58][0]
+        self.assertEqual(bg0001_mob.actor_identity, pair["actor_identity"])
+        self.assertEqual(bg0001_mob.actor_identity, bg0002_mob.actor_identity)
+        self.assertNotEqual(bg0001_mob.scene, bg0002_mob.scene)
+        self.assertEqual(bg0001_mob.template_id, 60)
+        self.assertEqual(bg0002_mob.template_id, 34)
+
+        step_a = self.killing_outcome_solo(bg0001_mob)
+        death_a = kill(
+            self.legacy, bg0001_mob, step_a.outcome, DeathRegister(),
+            widened=WIDENED_BG0001_RULING)
+        # bg0001's mob is dead in ITS scene...
+        self.assertTrue(
+            death_a.register.is_dead(bg0001_mob.actor_identity,
+                                      bg0001_mob.scene))
+        # ...and this is the fix, proven the negative way: before this round
+        # a bare-identity register would already answer True here (the wrong
+        # grave), and the kill() call two lines below would have raised
+        # REFUSE_ALREADY_DEAD instead of succeeding.
+        self.assertFalse(
+            death_a.register.is_dead(bg0002_mob.actor_identity,
+                                      bg0002_mob.scene))
+
+        step_b = self.killing_outcome_solo(bg0002_mob)
+        death_b = kill(
+            self.legacy, bg0002_mob, step_b.outcome, death_a.register,
+            widened=WIDENED_BG0002_RULING)
+
+        # Both are now dead, each correctly in its OWN scene, independently.
+        self.assertTrue(
+            death_b.register.is_dead(bg0001_mob.actor_identity,
+                                      bg0001_mob.scene))
+        self.assertTrue(
+            death_b.register.is_dead(bg0002_mob.actor_identity,
+                                      bg0002_mob.scene))
+        self.assertEqual(
+            death_b.register.record_of(
+                bg0001_mob.actor_identity, bg0001_mob.scene).max_hp,
+            bg0001_mob.max_hp)
+        self.assertEqual(
+            death_b.register.record_of(
+                bg0002_mob.actor_identity, bg0002_mob.scene).max_hp,
+            bg0002_mob.max_hp)
+        # live_roster() (used by repopulation_entries/corpse_override to
+        # decide who still stands) must agree per scene too: bg0001's own
+        # roster now excludes its dead mob but Bg0002's roster is untouched
+        # by a register that also carries a DIFFERENT scene's corpse sharing
+        # this wire identity.
+        self.assertNotIn(
+            bg0001_mob.actor_identity,
+            [m.actor_identity for m in live_roster(self.roster, death_b.register)])
+        self.assertIn(
+            bg0002_mob.actor_identity,
+            [m.actor_identity
+             for m in live_roster(self.bg0002_roster, death_a.register)])
+
     def test_a_reapply_does_not_resurrect_the_dead(self):
         step = self.killing_outcome()
         death = kill(self.legacy, self.mob, step.outcome, DeathRegister())
@@ -1740,7 +1848,12 @@ class MobDeathTests(unittest.TestCase):
             step = kill(
                 self.legacy, mob, outcome, DeathRegister(),
                 widened=WIDENED_BG0002_RULING)
-            self.assertTrue(step.register.is_dead(mob.actor_identity))
+            # scene passed explicitly: mob is a Bg0002 roster member, and
+            # DeathRegister.is_dead's own default scene is bg0001
+            # (DEFAULT_SCENE), the only scene a bare call assumes
+            # (COO-DECISION 2026-08-27T22:49+07:00).
+            self.assertTrue(
+                step.register.is_dead(mob.actor_identity, mob.scene))
 
     def test_the_bg0002_ruling_covers_exactly_the_real_bg0002_rosters_templates(
             self):
