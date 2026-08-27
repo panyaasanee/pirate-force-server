@@ -5633,6 +5633,17 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             # a position is known.  last_target_pos is read rather than
             # re-parsed because super() has already set it from THIS frame
             # (v141:4259), which is the anchor the frozen branch would use.
+            #
+            # CORE-REQUEST-026 (LANE-A, bg0002 only).  The frozen guard's
+            # last_target_pos requirement is what leaves Prison Exile Island
+            # empty until the player's first WASD press (nothing spawns a
+            # TargetPosVital before then).  bg0001 keeps the frozen
+            # requirement exactly as shipped -- this scene has no frozen
+            # branch to stay parity with, so it is allowed to trigger on
+            # arrival (teleport_sent + runtime_ack_sent alone) instead, using
+            # the scene's own pinned spawn as the anchor when no
+            # TargetPosVital has arrived yet.  A player who does move first
+            # still gets last_target_pos as the anchor, unchanged.
             census_actions = []
             if (
                 world_census_enabled
@@ -5641,13 +5652,49 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 and parsed.outer_id == legacy.GSCN_RUNTIME_PROTOCOL_REQ
                 and self.teleport_sent
                 and self.runtime_ack_sent
-                and self.last_target_pos is not None
                 and self.foundation.selected is not None
+                and (
+                    self.last_target_pos is not None
+                    or self.foundation.selected.position.scene_id
+                    == world_population_bg0002.SCENE2_N_ID
+                )
             ):
-                x, y, z, _heading = self.last_target_pos
-                anchor = (float(x), float(y), float(z))
                 scene_id = self.foundation.selected.position.scene_id
-                if scene_id == world_population_bg0002.SCENE2_N_ID:
+                if self.last_target_pos is not None:
+                    x, y, z, _heading = self.last_target_pos
+                    anchor = (float(x), float(y), float(z))
+                else:
+                    # Only reachable here for bg0002 (the disjunct above),
+                    # before any TargetPosVital has set last_target_pos.
+                    # spawn_position() refuses rather than inventing a
+                    # position for a scene with no pinned spawn -- but
+                    # unlike a genuinely transient read, scene_entry_registry
+                    # is loaded exactly once at boot (make_state_class /
+                    # app.py) and never reloaded, so a missing/unpinned
+                    # bg0002 spawn here is a deterministic, permanent fact
+                    # for the rest of this process's life, not a condition
+                    # that could clear on the next poll.  Retrying it would
+                    # mean re-raising and re-logging the identical failure on
+                    # every RuntimeProtocolReq poll for the whole session
+                    # (pf-adversary, round confident-ride-sf9kel).  Latch it
+                    # exactly like the sibling population-build refusal a
+                    # few lines below, instead.
+                    try:
+                        anchor = world_scene_travel.spawn_position(
+                            world_scene_travel.destination(
+                                scene_id, scene_entry_registry,
+                            )
+                        )
+                    except Exception as error:
+                        self.world_census_refused = True
+                        self.events.append(
+                            "world_census_bg0002_arrival_anchor_refused_"
+                            f"{type(error).__name__}"
+                        )
+                        anchor = None
+                if anchor is None:
+                    pass
+                elif scene_id == world_population_bg0002.SCENE2_N_ID:
                     # CORE-REQUEST-021 (LANE-A M1-P item 2).  Prison Exile
                     # Island's own census, parallel to the bg0001 branch
                     # below rather than a fork of it: a different builder,
