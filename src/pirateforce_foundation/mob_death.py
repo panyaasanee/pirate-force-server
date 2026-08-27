@@ -196,6 +196,33 @@ MOB_DEATH_WIRING = (
 SANCTIONED_FIRST_TARGET_IDENTITY = 0x201F
 SANCTIONING_RULING = "PANYA-RULINGS-FOUR 2026-08-25 18:15 +07:00 section 3"
 
+# A ruling that widens the scope past SANCTIONED_FIRST_TARGET_IDENTITY names
+# ONE identity, not "whatever a caller passes this string for" - but a caller
+# that hardcodes the ruling's own name at a SINGLE call site (exactly what
+# runtime.py:3925 does: one ``mob_death.kill(...)`` call reached by every
+# roster identity that dies) cannot tell, from the string alone, which mob
+# the ruling actually named.  pf-adversary (round 67jejl) proved the gap:
+# the literal one-line wiring COO-DECISION 20260827_0955's own text asks for
+# would authorise a kill on any of the OTHER twelve roster identities that
+# ruling itself calls still-misplaced data (Tornado Eagle / Toxic Vine /
+# Fighting Fish, mis-attributed from Prison Exile), the moment the line
+# existed at all, because ``widened`` only had to be non-empty.
+#
+# This dict pins every ruling this module has actually been given to the
+# MOBS template id(s) (``n_ID``, carried on :class:`field_mobs.FieldMob` as
+# ``template_id``) it names, so :func:`kill` can hold the line even when the
+# caller passes the RIGHT widened= string for the WRONG monster.  A
+# ``widened`` string that is not a key here still only needs to be
+# non-empty, exactly as before - this is a narrow guard closing the one
+# concrete hole this round found, not a general redesign of the contract;
+# every FUTURE widening ruling this lane is given should be added here by
+# name, not left to convention.
+WIDENING_RULINGS: dict[str, frozenset[int]] = {
+    "COO-DECISION widen-death-scope-916-training-iron-man "
+    "2026-08-27T09:55+07:00 (ref PANYA-DECISION 2026-08-27T09:50+07:00 "
+    "section 3, supersedes COO 0954)": frozenset({916}),
+}
+
 # ---------------------------------------------------------------------------
 # The wire.  Every constant below is a static anchor carried WITH provenance
 # rather than imported from the probe lane that proved it, and every one of
@@ -1164,6 +1191,24 @@ def kill(
                 "so in the round note" % (
                     mob.actor_identity, SANCTIONED_FIRST_TARGET_IDENTITY,
                     SANCTIONING_RULING),
+            )
+        # A KNOWN ruling authorises the template(s) it actually named, not
+        # whatever mob a call site happens to be holding when it fires - see
+        # WIDENING_RULINGS above for why this exists.  A ``widened`` string
+        # this module has never been given still only needs to be non-empty
+        # (the check above), so this narrows the gate without changing the
+        # contract for a ruling not yet catalogued here.
+        covered_templates = WIDENING_RULINGS.get(widened)
+        if covered_templates is not None and (
+                mob.template_id not in covered_templates):
+            raise MobDeathContractError(
+                REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE,
+                "widened=%r is a known ruling and it names MOBS template "
+                "id(s) %s; mob 0x%X carries template_id %d, which is not "
+                "one of them - the ruling's own string does not authorise "
+                "this monster" % (
+                    widened, sorted(covered_templates), mob.actor_identity,
+                    mob.template_id),
             )
     if live.is_dead(mob.actor_identity):
         raise MobDeathContractError(

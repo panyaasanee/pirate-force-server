@@ -85,6 +85,15 @@ LETHAL = Combatant(level=1000, ability_str=100000, ability_con=0)
 # What a caller passes to kill() for a target outside the owner's sanctioned
 # scope.  Tests that are not ABOUT the scope gate pass it and say why.
 WIDENED = "test-only: this assertion is not about the target scope"
+# The exact ruling string COO-DECISION 20260827_0955 gives as the value of
+# widened= for Training Iron Man (MOBS.n_ID 916).  Kept as one constant so a
+# test that is ABOUT this ruling and a test that only needs SOME registered
+# ruling both quote the same source rather than two hand-typed copies.
+WIDENED_916_RULING = (
+    "COO-DECISION widen-death-scope-916-training-iron-man "
+    "2026-08-27T09:55+07:00 (ref PANYA-DECISION 2026-08-27T09:50+07:00 "
+    "section 3, supersedes COO 0954)"
+)
 
 
 class MobDeathTests(unittest.TestCase):
@@ -100,6 +109,33 @@ class MobDeathTests(unittest.TestCase):
         step = strike(
             self.legacy, None, open_ledger(), None, target, PERFORMER, LETHAL)
         return step
+
+    def training_iron_man_stand_in(self):
+        """A TEST-ONLY FieldMob for Training Iron Man, MOBS.n_ID 916.
+
+        Built from the real CONSTDATA_TH__MOBS row 916 (model M016, outfit
+        M016_000_000_N, level 100/100, rank 0, n_AI_WANDER 21, n_AI_COMBAT 0,
+        no drops).  See
+        test_simultaneous_death_of_0x201f_and_916_training_iron_man for the
+        full provenance note on why max_hp=100 and placement_index=9001 are
+        both stand-ins, not captured or wire values.
+        """
+        return field_mobs.FieldMob(
+            placement_index=9001,
+            template_id=916,
+            x=0.0, y=0.0, z=0.0,
+            visual_preset="M016_000_000_N",
+            display_name="Training Iron Man",
+            level=100,
+            rank=0,
+            ai_wander=21,
+            ai_combat=0,
+            speed_walk=150,
+            max_hp=100,
+            drops_normal=0,
+            drops_equipment=0,
+            drops_specially=0,
+        )
 
     # -- the body ---------------------------------------------------------
 
@@ -1388,30 +1424,11 @@ class MobDeathTests(unittest.TestCase):
         #     real number: kill() / commit_death() / DeathRegister do not
         #     collide when the widened target's template_id is 916 and it
         #     dies in the same tick as the sanctioned target.
-        training_iron_man = field_mobs.FieldMob(
-            placement_index=9001,
-            template_id=916,
-            x=0.0, y=0.0, z=0.0,
-            visual_preset="M016_000_000_N",
-            display_name="Training Iron Man",
-            level=100,
-            rank=0,
-            ai_wander=21,
-            ai_combat=0,
-            speed_walk=150,
-            max_hp=100,
-            drops_normal=0,
-            drops_equipment=0,
-            drops_specially=0,
-        )
+        training_iron_man = self.training_iron_man_stand_in()
         self.assertNotIn(
             training_iron_man.actor_identity,
             [m.actor_identity for m in self.roster])
-        widened_ruling = (
-            "COO-DECISION widen-death-scope-916-training-iron-man "
-            "2026-08-27T09:55+07:00 (ref PANYA-DECISION "
-            "2026-08-27T09:50+07:00 section 3, supersedes COO 0954)"
-        )
+        widened_ruling = WIDENED_916_RULING
         sanctioned_outcome = self.killing_outcome().outcome
         tim_ledger = open_ledger(roster=(training_iron_man,))
         tim_step = strike(
@@ -1460,6 +1477,53 @@ class MobDeathTests(unittest.TestCase):
         self.assertTrue(stored.is_dead(training_iron_man.actor_identity))
         self.assertEqual(
             stored.record_of(training_iron_man.actor_identity).max_hp, 100)
+
+    def test_the_916_ruling_does_not_widen_the_other_roster_identities(self):
+        # pf-adversary (round 67jejl), reviewing the test above, found a real
+        # hole this project's own scar tissue warns about: kill()'s scope
+        # gate only checked that ``widened`` was a non-empty string, not
+        # WHICH mob it was being used for.  runtime.py:3925 reaches
+        # mob_death.kill() from ONE call site for every roster identity that
+        # dies -- so the literal one-line wiring COO-DECISION 0955's own
+        # text asks chief to write (hardcode that ruling's widened= string)
+        # would, without WIDENING_RULINGS, have authorised a kill on any of
+        # the OTHER twelve roster mobs too -- including Tornado Eagle
+        # (self.mob, this fixture's own SANCTIONED_FIRST_TARGET_IDENTITY
+        # 0x201F is fine on its own, needs no widened= at all) and its
+        # neighbours, which the SAME ruling calls still-misplaced Prison
+        # Exile data.  This is the guard mob_death.WIDENING_RULINGS closes:
+        # the real, correctly-quoted 916 ruling string must still be refused
+        # for a mob whose template_id is not 916.
+        other = [
+            m for m in self.roster
+            if m.actor_identity != mob_death.SANCTIONED_FIRST_TARGET_IDENTITY
+        ][0]
+        self.assertNotEqual(other.template_id, 916)
+        outcome = self.killing_outcome(other).outcome
+        with self.assertRaises(MobDeathContractError) as caught:
+            kill(self.legacy, other, outcome, DeathRegister(),
+                 widened=WIDENED_916_RULING)
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
+        self.assertIn("916", caught.exception.detail)
+        self.assertIn(str(other.template_id), caught.exception.detail)
+        # and an UNCATALOGUED ruling string still only needs to be
+        # non-empty, exactly as before this round -- the guard is narrow,
+        # not a general redesign of every widened= caller's contract.
+        step = kill(self.legacy, other, outcome, DeathRegister(),
+                    widened=WIDENED)
+        self.assertTrue(step.register.is_dead(other.actor_identity))
+        # and the real ruling still authorises the identity it actually
+        # names.
+        tim_ledger = open_ledger(roster=(self.training_iron_man_stand_in(),))
+        tim = self.training_iron_man_stand_in()
+        tim_step = strike(
+            self.legacy, None, tim_ledger, None, tim, PERFORMER, LETHAL)
+        widened_step = kill(
+            self.legacy, tim, tim_step.outcome, DeathRegister(),
+            widened=WIDENED_916_RULING)
+        self.assertTrue(widened_step.register.is_dead(tim.actor_identity))
 
 
 if __name__ == "__main__":
