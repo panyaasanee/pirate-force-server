@@ -46,6 +46,9 @@ in the game world.
 """
 from __future__ import annotations
 
+import bisect
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -53,6 +56,94 @@ from . import accounts as gm_accounts
 from .command_capture import DEFAULT_CAPTURE_ROOT, capture_raw_gm_command
 
 GM_RUN_GM_COMMAND_VITAL_ID = 0x51E9
+
+# pf-adversary (round 50x5xt, "What is intentionally NOT built yet" in
+# docs/GM_LANE.md): nothing stopped one authorized GM connection from
+# sending 0x51E9 frames back-to-back with no cooldown -- each authorized
+# call does a synchronous os.mkdir/os.open/os.write, so a scripted GM
+# client could still fill disk even after that round's OSError guard made
+# a single write failure survivable. Deferred to its own round because a
+# rate limiter needs state SHARED across calls, unlike every other guard
+# in this module (which is a pure function of its own arguments) -- that
+# raises real thread-safety (this dict is read/written from whichever
+# connection-handling thread each call lands on) and test-isolation
+# (a naive module-level dict leaks call history across every test in the
+# same process unless something resets it) questions this round answers:
+#
+# * A lock around every read+write of the shared dict, not just the write
+#   (a check-then-append with no lock is a classic TOCTOU race between two
+#   threads for the SAME account, undercounting or overcounting the window).
+# * The default window/limit are generous enough that no existing test in
+#   this package's suite (repeated same-second calls for one account name
+#   across a handful of test methods) trips it -- this is a flood guard,
+#   not a per-command throttle; a real GM issuing several commands within
+#   one second is normal and must not be refused.
+# * ``reset_rate_limit_state_for_tests()`` lets a test that specifically
+#   exercises this guard start from a known-empty state regardless of what
+#   ran before it in the same process, without having to reach into a
+#   private module attribute.
+RATE_LIMIT_WINDOW_SECONDS = 5.0
+RATE_LIMIT_MAX_CALLS_PER_WINDOW = 20
+
+_rate_limit_lock = threading.Lock()
+_rate_limit_call_history: dict[str, list[float]] = {}
+
+
+def reset_rate_limit_state_for_tests() -> None:
+    """Test-only: clear every account's recorded call history.
+
+    Production code never calls this -- the history is meant to persist for
+    the life of the process. Exists so a test that deliberately fills the
+    window (or a test that runs after one) does not have to guess what
+    history earlier tests in the same process left behind.
+    """
+    with _rate_limit_lock:
+        _rate_limit_call_history.clear()
+
+
+def _rate_limit_allows(account_name: str, now_ts: float | None) -> bool:
+    """True and records this call, or False and records nothing.
+
+    One lock scope covers reading the clock (when ``now_ts`` is not
+    supplied), pruning the account's history, the length check, and (only
+    when allowed) recording the new call -- a caller never observes or
+    acts on a length, or a clock reading, that a second thread already
+    invalidated.
+
+    pf-adversary (this round, verify pass): an earlier version of this
+    function read ``time.time()`` in the caller, *before* the lock, then
+    passed the value in. Two threads for the SAME account could read the
+    clock at T_early and T_late (T_early < T_late) but race the lock so
+    T_late's ``append`` landed first -- reproduced live with real threads,
+    no clock mocking. The prune loop below (``while history and
+    history[0] <= cutoff: history.pop(0)``) assumes ascending order; a
+    plain ``append`` after that race put a newer timestamp in front of an
+    older one, so the older, individually-expired entry could sit unpruned
+    behind it until the newer one also aged out -- self-healing, never a
+    bypass (the account was held at its cap *longer* than the window, not
+    let through early), but still a real deviation from the documented
+    window. Reading the clock inside this same lock removes the race for
+    every production caller (none passes ``now_ts`` explicitly -- see
+    ``handle_gm_run_command_vital``): whoever enters the critical section
+    first now also reads the earlier timestamp, by construction, not by
+    convention. ``bisect.insort`` (instead of ``append``) closes the
+    remaining gap for a caller that DOES pass an explicit, intentionally
+    out-of-order ``now_ts`` (a test, or a future caller) and for a wall
+    clock that steps backward (NTP correction, VM pause/resume): the
+    history list stays sorted regardless of insertion order, so the
+    front-pop prune loop's ascending-order assumption holds by
+    construction instead of by caller discipline.
+    """
+    with _rate_limit_lock:
+        ts = now_ts if now_ts is not None else time.time()
+        cutoff = ts - RATE_LIMIT_WINDOW_SECONDS
+        history = _rate_limit_call_history.setdefault(account_name, [])
+        while history and history[0] <= cutoff:
+            history.pop(0)
+        if len(history) >= RATE_LIMIT_MAX_CALLS_PER_WINDOW:
+            return False
+        bisect.insort(history, ts)
+        return True
 
 # pf-adversary (this round): command_capture.py's hex-dump sink is an
 # unbounded pure-Python loop with no size cap of its own -- its own
@@ -88,6 +179,11 @@ REFUSAL_PAYLOAD_TOO_LARGE = "payload_too_large"
 # and could take the connection-handling thread down for every player --
 # exactly the failure mode the module docstring says this lane closed.
 REFUSAL_CAPTURE_WRITE_FAILED_PREFIX = "capture_write_failed_"
+# See the RATE_LIMIT_* constants above for why this exists and how it is
+# scoped. Same shape as every other refusal in this module: authorized
+# stays True (the account really is GM), only captured_path/refusal_reason
+# say nothing was written this call.
+REFUSAL_RATE_LIMITED = "rate_limited"
 
 
 @dataclass(frozen=True)
@@ -105,7 +201,11 @@ class GmDispatchOutcome:
     ``MAX_RAW_PAYLOAD_LENGTH`` is a real GM account (so ``authorized`` says
     so truthfully), but nothing is written to disk for that one call
     (``refusal_reason`` is ``REFUSAL_PAYLOAD_TOO_LARGE``) -- see
-    ``MAX_RAW_PAYLOAD_LENGTH``'s own comment for why.
+    ``MAX_RAW_PAYLOAD_LENGTH``'s own comment for why. The same shape applies
+    when the account has made ``RATE_LIMIT_MAX_CALLS_PER_WINDOW`` or more
+    calls in the last ``RATE_LIMIT_WINDOW_SECONDS`` (``refusal_reason`` is
+    ``REFUSAL_RATE_LIMITED``) -- see the ``RATE_LIMIT_*`` constants' own
+    comment for why.
 
     ``captured_path`` is otherwise set whenever, and only whenever,
     ``command_capture.capture_raw_gm_command`` actually wrote the raw bytes
@@ -163,6 +263,13 @@ def handle_gm_run_command_vital(
     if not is_gm:
         return GmDispatchOutcome(
             authorized=False, captured_path=None, refusal_reason=REFUSAL_NOT_GM,
+        )
+
+    if not _rate_limit_allows(account_name, now_ts):
+        return GmDispatchOutcome(
+            authorized=True,
+            captured_path=None,
+            refusal_reason=REFUSAL_RATE_LIMITED,
         )
 
     if len(raw_payload) > MAX_RAW_PAYLOAD_LENGTH:

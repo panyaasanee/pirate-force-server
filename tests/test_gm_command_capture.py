@@ -172,6 +172,39 @@ class GmCommandCaptureTests(unittest.TestCase):
         forged_lines = [line for line in header_lines if line == "# forged line"]
         self.assertEqual(forged_lines, [])
 
+    # ----- pf-adversary (round 50x5xt, verify-pass addendum): bounded ------
+    # ----- collision-suffix loop, never an infinite spin -------------------
+
+    def test_collision_loop_gives_up_after_the_bound_instead_of_spinning(self):
+        from unittest import mock
+
+        from pirateforce_foundation.gm import command_capture as capture_module
+
+        with mock.patch.object(
+            capture_module, "_MAX_FILENAME_COLLISION_ATTEMPTS", 3,
+        ), mock.patch.object(
+            capture_module.os, "open", side_effect=FileExistsError,
+        ) as mock_open:
+            with self.assertRaises(OSError):
+                capture_raw_gm_command(
+                    b"x", "panya", capture_root=self.root, now_ts=0,
+                )
+        # suffix 0, 1, 2, 3 -- exactly bound + 1 attempts, not unbounded.
+        self.assertEqual(mock_open.call_count, 4)
+
+    def test_collision_loop_bound_does_not_affect_a_realistic_capture_count(self):
+        # The real-world guard this bound exists next to (gm/dispatch.py's
+        # own RATE_LIMIT_MAX_CALLS_PER_WINDOW) caps how often this loop can
+        # even be entered per account per window -- this proves the default
+        # bound leaves a generous, realistic same-second burst untouched.
+        paths = [
+            capture_raw_gm_command(
+                bytes([i % 256]), "panya", capture_root=self.root, now_ts=1000.0,
+            )
+            for i in range(50)
+        ]
+        self.assertEqual(len(set(paths)), 50)
+
 
 if __name__ == "__main__":
     unittest.main()
