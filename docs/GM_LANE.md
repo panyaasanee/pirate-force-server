@@ -1159,3 +1159,93 @@ commit restored it verbatim.
 nonclaim: headless-only round, no `runtime.py` edit, no frame fired at a
 real client, no `gm/` code touched. Full detail:
 `pf_bridge/rounds/GM_20260828_0418_re118-closed-gt103-ab-procedure-added.md`.
+
+## Modules delivered (round `i76is0`, allowlist exact-type fix + capture-volume quota)
+
+`CORE-REQUEST-011`/`012` stay blocked (unchanged), `GT-103`'s A/B procedure
+and `GT-110` stay `[PENDING]` on an attended runner. This round's own
+write-zone work is a fresh `pf-adversary` sweep of the whole `gm/` package
+(the last full sweep was round `w8t8vi`; `ccc9wj` reviewed only the module
+it touched) -- found two real gaps, fixed both, plus one stale doc
+reference corrected.
+
+- **Fixed, HIGH -- `gm/accounts.py`, `gm/login_scene_override.py`,
+  `gm/dispatch.py`**: all three checked `isinstance(account_name, str)`
+  before using `account_name` as a dict/frozenset key -- the exact bug
+  shape this package spent five documented rounds hardening for
+  `GmCommand.args` (`type(args) is not tuple`, never `isinstance`, because
+  `isinstance` admits a subclass that can lie through its own dunders), but
+  that lesson had never reached the one check this whole package's security
+  invariant is gated on. A `str` subclass overriding `__eq__`/`__hash__` to
+  always compare equal to, and hash the same as, a real listed account name
+  passed the old check, then made `frozenset.__contains__`
+  (`accounts.is_gm_account`) or `dict.get` (`login_scene_override`) report
+  a match for an account name that was never actually listed -- reproduced
+  live in all three call sites. `type(account_name) is not str` rejects any
+  subclass outright, so the object reaching the containment/lookup test is
+  always a real, final `str`. Not shown to be reachable from a raw network
+  byte stream today (`lane_hooks/lane_gm_run_command.py` passes
+  `session.token`, produced by the login deserializer as a plain built-in
+  `str`), but a real violation of this package's own "regardless of
+  source" threat model for any in-process caller -- another lane's code, a
+  future refactor wrapping an identity value, or a test double.
+- **Fixed, HIGH -- `gm/dispatch.py`**: `MAX_RAW_PAYLOAD_LENGTH` (round
+  `50x5xt`) bounds one call; `RATE_LIMIT_MAX_CALLS_PER_WINDOW`/
+  `RATE_LIMIT_WINDOW_SECONDS` (round `kzwdle`) bound burst rate -- neither
+  bounded *sustained total volume*. A scripted, already-listed GM account
+  sending max-size payloads at the sustained-legal rate (never tripping
+  `REFUSAL_RATE_LIMITED`) could write roughly 4 files/second, several
+  hundred KB each once `command_capture.py`'s hex dump expands the raw
+  bytes, unbounded over time, in one flat directory -- entirely inside the
+  range of traffic the rate limiter was deliberately built generous enough
+  to never refuse. New `MAX_CAPTURED_BYTES_PER_ACCOUNT` (50 MiB, generous
+  against any real `GT-103` capture-matrix session) caps estimated total
+  captured bytes per account for the life of the process (same accepted
+  process-global/resets-on-restart scoping as the rate limiter above,
+  `reset_capture_quota_state_for_tests()` mirrors
+  `reset_rate_limit_state_for_tests()`), charged against an estimate of
+  the actual capture-file size (`_estimate_capture_file_bytes`: 5x the raw
+  payload length plus a 1 KiB header margin, deliberately at or above the
+  hex dump's real ~4.75x expansion so the charge never undercounts real
+  disk usage) rather than the raw payload length itself. New refusal
+  reason `REFUSAL_CAPTURE_QUOTA_EXCEEDED` follows the same shape as every
+  other refusal in this module: `authorized` stays `True` (the account
+  really is GM), only `captured_path`/`refusal_reason` say nothing was
+  written for that call.
+- **Corrected, doc-only -- this file**: the "dispatch/authorization-gate
+  round" and "What is intentionally NOT built yet" sections above still
+  described `CORE-REQUEST-010` as `runtime.py`'s own inline
+  `GM_RUN_GM_COMMAND_VITAL_ID` branch calling `gm/dispatch.py` directly.
+  The real call site moved to `lane_hooks/lane_gm_run_command.py`
+  (`hook("vital_inbound_gm_run_command")`, `production_allowed = True`)
+  when `lane_hooks` landed -- verified this round to still be wired
+  correctly (same arguments, `session.token` then `payload`, exceptions
+  caught fail-closed by `lane_hooks.fire`'s own broad `except Exception`,
+  never bypassing the allowlist check), so this was a documentation-drift
+  finding, not a functional bug. Left the historical section text in
+  place and did not rewrite it line-by-line (the mechanism it describes --
+  authorize-then-capture, no reply frame -- is still accurate); this
+  paragraph is the correction, per this lane's own precedent for logging
+  drift rather than quietly editing stale prose.
+- `tests/test_gm_accounts.py`, `tests/test_gm_login_scene.py`,
+  `tests/test_gm_command_dispatch.py`: 9 new tests -- a `str` subclass
+  lying through `__eq__`/`__hash__` is rejected (not treated as a match)
+  in all three call sites; the capture quota refuses once the estimated
+  total exceeds the cap while staying `authorized=True` and writing
+  nothing; the quota is scoped per account, not global; a refused non-GM
+  call never consumes a GM account's own quota; `reset_capture_quota_
+  state_for_tests()` actually clears usage; the shipped 50 MiB default
+  survives a realistic handful of same-second calls.
+
+`tests/test_gm_*.py`: 259/259 (up from 250 -- 9 new tests, no existing
+test changed). Repo-wide `python3 -m unittest discover -s tests`: 3846
+tests, 18 pre-existing `capstone`-import collection errors only (same
+baseline every prior round reports), no new failures.
+
+nonclaim: pure robustness/correctness inside this lane's own write zone --
+no command behavior changed on the happy path for any real (non-subclass)
+`str` account name or any capture under the new 50 MiB/account cap; no
+wire fact, no RE citation, and no `runtime.py` edit involved (the doc
+correction only updates which file this lane's own docs cite, not any
+code). This round sent no frame and ran no game test. Full detail:
+`pf_bridge/rounds/GM_20260828_0517_allowlist-exact-type-plus-capture-quota.md`.

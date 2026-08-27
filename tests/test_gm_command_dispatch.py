@@ -43,6 +43,9 @@ class GmCommandDispatchTests(unittest.TestCase):
         # start every test from a known-empty state regardless of what ran
         # before it in this same process.
         gm_dispatch.reset_rate_limit_state_for_tests()
+        # Capture-quota usage is process-global too (same tradeoff, see
+        # MAX_CAPTURED_BYTES_PER_ACCOUNT comment) -- same reasoning.
+        gm_dispatch.reset_capture_quota_state_for_tests()
 
     def _config(self, gm_accounts_value):
         path = Path(self.tmp.name) / "gm_accounts.json"
@@ -143,6 +146,33 @@ class GmCommandDispatchTests(unittest.TestCase):
                 config_path=config, capture_root=self.capture_root,
             )
 
+    def test_non_str_account_name_raises(self):
+        with self.assertRaises(ValueError):
+            gm_dispatch.handle_gm_run_command_vital(
+                12345, _PRESENCE_ZERO_PAYLOAD, capture_root=self.capture_root,
+            )
+
+    def test_a_str_subclass_account_name_is_rejected_not_authorized(self):
+        # pf-adversary (gm/ package sweep): this entry point is the one
+        # place a real client's authenticated login token flows in as
+        # account_name -- if it accepted a str subclass here, the same
+        # __eq__/__hash__-lying bypass accounts.is_gm_account now rejects
+        # for itself could still be reintroduced one call earlier.
+        class EvilStr(str):
+            def __eq__(self, other):
+                return True
+
+            def __hash__(self):
+                return hash("gm_listed")
+
+        config = self._config(["gm_listed"])
+        with self.assertRaises(ValueError):
+            gm_dispatch.handle_gm_run_command_vital(
+                EvilStr("totally_not_a_gm"), _PRESENCE_ZERO_PAYLOAD,
+                config_path=config, capture_root=self.capture_root,
+            )
+        self.assertFalse(self.capture_root.exists())
+
     # ----- pf-adversary: an oversized payload from a real GM is refused ---
     # ----- (still "authorized" -- it IS a GM account -- but not captured) -
 
@@ -183,6 +213,118 @@ class GmCommandDispatchTests(unittest.TestCase):
         self.assertFalse(outcome.authorized)
         self.assertEqual(outcome.refusal_reason, gm_dispatch.REFUSAL_NOT_GM)
         self.assertFalse(self.capture_root.exists())
+
+    # ----- pf-adversary (gm/ package sweep): total-volume capture quota ---
+    # ----- (distinct from the per-call size cap and the burst rate limit) -
+
+    def test_capture_quota_refuses_once_the_estimated_total_exceeds_the_cap(self):
+        config = self._config(["gm_listed"])
+        payload = bytes(1000)  # estimate = 1000*5 + 1024 = 6024 bytes/call
+        with mock.patch.object(
+            gm_dispatch, "MAX_CAPTURED_BYTES_PER_ACCOUNT", 6024 * 2,
+        ), mock.patch.object(
+            gm_dispatch, "RATE_LIMIT_MAX_CALLS_PER_WINDOW", 100,
+        ):
+            first = gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", payload,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1000.0,
+            )
+            self.assertIsNotNone(first.captured_path)
+            second = gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", payload,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1000.1,
+            )
+            self.assertIsNotNone(second.captured_path)
+            before = list(self.capture_root.glob("*"))
+            third = gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", payload,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1000.2,
+            )
+            # Still a real GM account -- the quota refusal never says
+            # otherwise, same shape as the payload-size and rate-limit
+            # refusals above.
+            self.assertTrue(third.authorized)
+            self.assertIsNone(third.captured_path)
+            self.assertEqual(
+                third.refusal_reason, gm_dispatch.REFUSAL_CAPTURE_QUOTA_EXCEEDED,
+            )
+            after = list(self.capture_root.glob("*"))
+            self.assertEqual(before, after)
+
+    def test_capture_quota_is_scoped_per_account_not_global(self):
+        config = self._config(["gm_one", "gm_two"])
+        payload = bytes(1000)
+        with mock.patch.object(
+            gm_dispatch, "MAX_CAPTURED_BYTES_PER_ACCOUNT", 6024,
+        ):
+            first = gm_dispatch.handle_gm_run_command_vital(
+                "gm_one", payload,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1000.0,
+            )
+            self.assertIsNotNone(first.captured_path)
+            # gm_one is now at its own cap -- gm_two must be unaffected.
+            second = gm_dispatch.handle_gm_run_command_vital(
+                "gm_two", payload,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1000.0,
+            )
+            self.assertIsNotNone(second.captured_path)
+            self.assertIsNone(second.refusal_reason)
+
+    def test_refused_non_gm_calls_do_not_consume_a_gm_accounts_capture_quota(self):
+        config = self._config(["gm_listed"])
+        payload = bytes(1000)
+        with mock.patch.object(
+            gm_dispatch, "MAX_CAPTURED_BYTES_PER_ACCOUNT", 6024,
+        ):
+            for _ in range(5):
+                outcome = gm_dispatch.handle_gm_run_command_vital(
+                    "not_listed", payload, config_path=config,
+                    capture_root=self.capture_root, now_ts=1000.0,
+                )
+                self.assertEqual(outcome.refusal_reason, gm_dispatch.REFUSAL_NOT_GM)
+            gm_outcome = gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", payload, config_path=config,
+                capture_root=self.capture_root, now_ts=1000.0,
+            )
+            self.assertIsNotNone(gm_outcome.captured_path)
+
+    def test_reset_capture_quota_state_for_tests_clears_usage(self):
+        config = self._config(["gm_listed"])
+        payload = bytes(1000)
+        with mock.patch.object(
+            gm_dispatch, "MAX_CAPTURED_BYTES_PER_ACCOUNT", 6024,
+        ):
+            capped = gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", payload, config_path=config,
+                capture_root=self.capture_root, now_ts=1000.0,
+            )
+            self.assertIsNotNone(capped.captured_path)
+            gm_dispatch.reset_capture_quota_state_for_tests()
+            after_reset = gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", payload, config_path=config,
+                capture_root=self.capture_root, now_ts=1000.0,
+            )
+            self.assertIsNotNone(after_reset.captured_path)
+            self.assertIsNone(after_reset.refusal_reason)
+
+    def test_default_quota_does_not_trip_on_a_handful_of_small_calls(self):
+        # No mock.patch here -- proves the shipped default (50 MiB) stays
+        # out of the way of ordinary same-second test/attended-use traffic.
+        config = self._config(["gm_listed"])
+        for i in range(5):
+            outcome = gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", _PRESENCE_ZERO_PAYLOAD,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1000.0,
+            )
+            self.assertIsNotNone(
+                outcome.captured_path, f"call {i} was unexpectedly refused"
+            )
 
     # ----- env-var override path still works (same as accounts.py) -------
 

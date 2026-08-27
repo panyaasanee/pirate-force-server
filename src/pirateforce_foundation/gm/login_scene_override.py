@@ -165,8 +165,16 @@ def get_login_scene_override(
     Returns ``None`` if neither path has an entry for this account, so a
     config edit (either file) takes effect on the next login without a
     restart-order dependency between any of the files involved.
+
+    pf-adversary (gm/ package sweep): ``type(account_name) is not str``,
+    not ``isinstance`` -- both dict lookups below (``overrides.get``,
+    ``standalone_overrides.get``) hash then ``==`` the query object the same
+    way ``accounts.is_gm_account``'s own allowlist test does, so a ``str``
+    subclass lying through ``__eq__``/``__hash__`` could otherwise resolve
+    to a different account's override entry. See ``accounts.is_gm_account``
+    for the full failure scenario this closes.
     """
-    if not isinstance(account_name, str):
+    if type(account_name) is not str:
         raise TypeError("account_name must be a str")
     if is_gm_account(account_name, gm_accounts_config_path):
         overrides = load_login_scene_overrides(login_scene_config_path)

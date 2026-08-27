@@ -159,6 +159,79 @@ def _rate_limit_allows(account_name: str, now_ts: float | None) -> bool:
 # the gap pf-adversary found rather than leaving it as a silent limitation.
 MAX_RAW_PAYLOAD_LENGTH = 65536
 
+# pf-adversary (gm/ package sweep): MAX_RAW_PAYLOAD_LENGTH bounds one call,
+# RATE_LIMIT_MAX_CALLS_PER_WINDOW/RATE_LIMIT_WINDOW_SECONDS bound burst rate
+# -- neither bounds SUSTAINED total volume. An already-listed GM account
+# scripted to send max-size payloads at the sustained-legal rate (this
+# window's own cap, never tripping REFUSAL_RATE_LIMITED) writes roughly
+# 4 files/second, each several hundred KB once command_capture.py's hex
+# dump expands the raw bytes -- unbounded over time, in one flat directory,
+# forever, entirely inside the range of traffic the rate limiter was
+# deliberately built generous enough to never refuse (docs/GM_LANE.md,
+# round `kzwdle`: "a flood guard, not a per-command throttle"). This is a
+# distinct failure mode from the two guards above: it lives inside their
+# accepted operating range, not outside it.
+#
+# Charged per account, in-process, for the life of the process -- same
+# accepted scoping as RATE_LIMIT_* above (a restart resets the counter even
+# though prior capture files remain on disk; closing that would need a
+# directory-size scan on every call, trading a cheap O(1) check for an
+# O(n)-in-file-count one for a guard whose job is bounding a *scripted*
+# sender, not certifying exact disk usage). The charge is an estimate of
+# the actual capture file size (see _estimate_capture_file_bytes), not the
+# raw payload length, so the accounting reflects what command_capture.py
+# actually writes, not what it receives.
+MAX_CAPTURED_BYTES_PER_ACCOUNT = 50 * 1024 * 1024  # 50 MiB
+
+# command_capture._hex_dump renders 16 raw bytes as one line: an 8-hex-digit
+# offset + 2 spaces (10), up to 47 columns of hex pairs, 2 spaces, up to 16
+# ASCII columns, and a newline -- 76 output bytes per 16 input bytes in the
+# worst case, a ~4.75x expansion. The multiplier below is deliberately
+# rounder and larger (5x) plus a flat 1 KiB for the header lines
+# (account/timestamp/length/decode-section text), so this estimate always
+# meets or exceeds what capture_raw_gm_command actually writes -- charging
+# the quota too much fails closed slightly earlier than the real disk
+# usage would; charging it too little would let real usage exceed the
+# stated cap, which this guard exists to prevent.
+def _estimate_capture_file_bytes(raw_payload_length: int) -> int:
+    return raw_payload_length * 5 + 1024
+
+
+_capture_quota_lock = threading.Lock()
+_capture_quota_bytes_by_account: dict[str, int] = {}
+
+
+def reset_capture_quota_state_for_tests() -> None:
+    """Test-only: clear every account's recorded capture-quota usage.
+
+    Production code never calls this -- the usage total is meant to persist
+    for the life of the process, same as ``reset_rate_limit_state_for_tests``
+    above. Exists so a test that deliberately fills the quota (or a test
+    that runs after one) does not have to guess what usage earlier tests in
+    the same process left behind.
+    """
+    with _capture_quota_lock:
+        _capture_quota_bytes_by_account.clear()
+
+
+def _capture_quota_allows(account_name: str, raw_payload_length: int) -> bool:
+    """True and charges the estimate, or False and charges nothing.
+
+    One lock scope covers the read-then-compare-then-write of this
+    account's running total, the same reason ``_rate_limit_allows`` above
+    takes its own lock for the whole check: two threads for the same
+    account must not both read a total that is under the cap, then both
+    add their own charge past it.
+    """
+    estimate = _estimate_capture_file_bytes(raw_payload_length)
+    with _capture_quota_lock:
+        used = _capture_quota_bytes_by_account.get(account_name, 0)
+        if used + estimate > MAX_CAPTURED_BYTES_PER_ACCOUNT:
+            return False
+        _capture_quota_bytes_by_account[account_name] = used + estimate
+        return True
+
+
 # Refusal reasons are stable strings a caller (or a test) can match on --
 # same "name a config error, don't just say False" discipline
 # ``runtime.py``'s own ``gm_account_lookup_failed_<ExceptionType>`` event
@@ -184,6 +257,11 @@ REFUSAL_CAPTURE_WRITE_FAILED_PREFIX = "capture_write_failed_"
 # stays True (the account really is GM), only captured_path/refusal_reason
 # say nothing was written this call.
 REFUSAL_RATE_LIMITED = "rate_limited"
+# See MAX_CAPTURED_BYTES_PER_ACCOUNT's own comment for why this exists and
+# how it is scoped/estimated. Same shape as every other refusal in this
+# module: authorized stays True (the account really is GM), only
+# captured_path/refusal_reason say nothing was written this call.
+REFUSAL_CAPTURE_QUOTA_EXCEEDED = "capture_quota_exceeded"
 
 
 @dataclass(frozen=True)
@@ -205,7 +283,12 @@ class GmDispatchOutcome:
     when the account has made ``RATE_LIMIT_MAX_CALLS_PER_WINDOW`` or more
     calls in the last ``RATE_LIMIT_WINDOW_SECONDS`` (``refusal_reason`` is
     ``REFUSAL_RATE_LIMITED``) -- see the ``RATE_LIMIT_*`` constants' own
-    comment for why.
+    comment for why. The same shape applies once the account's estimated
+    total captured bytes for the life of this process would exceed
+    ``MAX_CAPTURED_BYTES_PER_ACCOUNT`` (``refusal_reason`` is
+    ``REFUSAL_CAPTURE_QUOTA_EXCEEDED``) -- see that constant's own comment
+    for why this is a distinct guard from the payload-size and rate-limit
+    ones above.
 
     ``captured_path`` is otherwise set whenever, and only whenever,
     ``command_capture.capture_raw_gm_command`` actually wrote the raw bytes
@@ -246,7 +329,13 @@ def handle_gm_run_command_vital(
     ``command_wire``/``command_capture`` already expect -- this function
     does not strip an envelope itself, matching the rest of this package.
     """
-    if not isinstance(account_name, str) or not account_name:
+    # pf-adversary (gm/ package sweep): ``type(account_name) is not str``,
+    # not ``isinstance`` -- this value flows straight into
+    # ``gm_accounts.is_gm_account``'s allowlist test, so a ``str`` subclass
+    # lying through ``__eq__``/``__hash__`` here is the same bypass closed
+    # in ``accounts.is_gm_account`` itself; this entry point must not
+    # reopen it by accepting a subclass one call earlier.
+    if type(account_name) is not str or not account_name:
         raise ValueError("account_name must be a non-empty str")
     if not isinstance(raw_payload, (bytes, bytearray)):
         raise TypeError("raw_payload must be bytes")
@@ -277,6 +366,13 @@ def handle_gm_run_command_vital(
             authorized=True,
             captured_path=None,
             refusal_reason=REFUSAL_PAYLOAD_TOO_LARGE,
+        )
+
+    if not _capture_quota_allows(account_name, len(raw_payload)):
+        return GmDispatchOutcome(
+            authorized=True,
+            captured_path=None,
+            refusal_reason=REFUSAL_CAPTURE_QUOTA_EXCEEDED,
         )
 
     try:

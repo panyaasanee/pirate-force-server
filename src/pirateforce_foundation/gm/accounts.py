@@ -61,7 +61,22 @@ def is_gm_account(account_name: str, config_path: str | os.PathLike | None = Non
     proven account-name normalization rule (see AGENTS.md on not inventing
     identity semantics), so silently case-folding a GM allowlist would grant
     GM status to an account nobody explicitly listed.
+
+    pf-adversary (gm/ package sweep): the check below used to be
+    ``isinstance(account_name, str)``, which admits any ``str`` subclass --
+    the exact bug shape this package spent five documented rounds hardening
+    for ``GmCommand.args`` (``type(args) is not tuple``, never
+    ``isinstance``), but that lesson had never reached the one check this
+    entire package's security invariant is ultimately gated on. A ``str``
+    subclass overriding ``__eq__``/``__hash__`` to always compare equal and
+    hash to a real listed account's value passed the old ``isinstance``
+    check and then made the ``in`` test below true for an account name that
+    was never actually listed (``frozenset.__contains__`` hashes then
+    ``==``s the query object, trusting whatever dunders it defines).
+    ``type(account_name) is str`` rejects any subclass outright, so the
+    object handed to ``in`` below is always a real, final ``str`` whose
+    ``__eq__``/``__hash__`` cannot have been overridden.
     """
-    if not isinstance(account_name, str):
+    if type(account_name) is not str:
         raise TypeError("account_name must be a str")
     return account_name in load_gm_accounts(config_path)
