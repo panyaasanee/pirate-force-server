@@ -49,6 +49,14 @@ WHAT IS PROVEN, AND BY WHOM
   * GT-045 CLOSED-ANSWERED (chief R163) measured what the ground row looks
     like on screen: a floating NAME LABEL in red text at the coordinate the
     server sent, life 0.2-0.4 s, NO MODEL under the label that was seen.
+  * RE-082 PICKUP-OBJECT-REF-SOURCE-001 PASS/DONE (RE runner, 2026-08-26
+    10:17 +07:00, STATIC-ON-BRIDGE, image sha ``96272114...b623``) proved
+    the field-14 dword GT-046 pinned IS the wire element key: an
+    instruction-exact data-flow trace ties the list codec's write of
+    ``element+0x10`` (``0x005F8779``) straight through to
+    ``PickupTerrainThing+0x14`` (``0x006B0649``) with no arithmetic, table
+    lookup, hash or index between them.  This closes NONCLAIM 2 below --
+    see there for what it does NOT close.
   * The persisted shapes are real and shipped: ``character_backpack_items``
     (migration 003) is keyed ``(character_id, item_identity)`` and carries
     exactly the seven columns ``inventory.ItemAttrState`` carries.
@@ -79,19 +87,28 @@ NONCLAIMS -- read these before using one symbol from this file
      transaction -- have no call site anywhere, because "ON AN INBOUND
      PICKUP REQUEST" stays unwired pending RE-082's vital id.  No player
      has picked anything up.
-  2. THE OBJECT REFERENCE IS AN ASSUMPTION, AND IT IS TAGGED AS ONE.
-     [LANE-B ASSUMPTION - awaiting COO/RE confirmation] GT-046 proves only
-     that the client copies the dword at [drop-object+0x10]; it does NOT
-     prove that that dword is the element key this project writes at element
-     +0x10.  This lane assumes they are the same value and RESOLVES rather
-     than TRUSTS: the claimed dword must equal a key that is live in the
-     ledger and inside this lane's key block, or the claim is refused.  If
-     the assumption is wrong, every claim refuses by name and nothing is
-     granted wrongly -- the failure mode is "pickup never works", never
-     "pickup works on the wrong object".  The ticket that answers it is
-     RE-082, opened by this round in the OTHER repository
-     (``pf_bridge/CLIENT_RE_QUEUE.md``), which is why grepping for it here
-     finds only this file.
+  2. THE OBJECT REFERENCE WAS AN ASSUMPTION; RE-082 CONFIRMED IT AT THE
+     STATIC LAYER, AND THIS MODULE'S GUARD DOES NOT RELAX BECAUSE OF THAT.
+     [LANE-B ASSUMPTION - CONFIRMED by RE-082, 2026-08-26 10:17 +07:00,
+     PASS/DONE, STATIC-ON-BRIDGE] GT-046 proved only that the client copies
+     the dword at [drop-object+0x10]; RE-082 went further and proved, by an
+     instruction-exact trace of the SAME client image, that that dword IS
+     the element key this project writes at element +0x10, with no
+     transform, handle, index or hash in between.  This lane still RESOLVES
+     rather than TRUSTS: the claimed dword must equal a key that is live in
+     the ledger and inside this lane's key block, or the claim is refused --
+     that guard is cheap defense-in-depth against a future client image or a
+     transcription mistake, not a hedge against this being unanswered any
+     more.  If the assumption were ever wrong again, every claim would still
+     refuse by name and nothing would be granted wrongly -- the failure mode
+     stays "pickup never works", never "pickup works on the wrong object".
+     RE-082's own nonclaims still apply and this module does not borrow past
+     them: it is STATIC-ONLY (no capture, no live client), it answers for
+     ONE image sha, and it does NOT lift MOB-PICKUP-001's evidence ceiling --
+     no runtime transaction has run and no DB row has been written by this
+     confirmation.  See ``notes_to_chief/20260826_1017_RE-082-RESULT-
+     OBJECT-REF-IS-ELEMENT-KEY.md`` in the OTHER repository for the full
+     trace.
   3. NOBODY HAS SEEN A CLIENT ACCEPT ``bag_delta_pc``.  It is the ItemOperate
      result shape that the item lane pinned against frozen V141 for a MOVE of
      an item the client already had.  Using it to announce an item the client
@@ -359,12 +376,16 @@ MOB_PICKUP_NONCLAIMS = (
     "resolve_claim/place_in_bag/BagCell.commit_pickup -- the actual "
     "ground-drop-to-bag transaction -- still have no call site anywhere, "
     "pending RE-082's vital id. No player has picked anything up.",
-    "2. The object reference is an ASSUMPTION [LANE-B ASSUMPTION - awaiting "
-    "COO/RE confirmation]: GT-046 proves the client copies the dword at "
-    "[drop-object+0x10], not that it is the key this project writes at "
-    "element +0x10.  The claim is RESOLVED against the live ledger, never "
-    "trusted, so a wrong assumption refuses every claim and grants none.  "
-    "RE-082 is the ticket that answers it.",
+    "2. The object reference WAS an assumption [LANE-B ASSUMPTION - "
+    "CONFIRMED by RE-082, 2026-08-26 10:17 +07:00, PASS/DONE, "
+    "STATIC-ON-BRIDGE]: GT-046 proved the client copies the dword at "
+    "[drop-object+0x10]; RE-082 traced the SAME client image further and "
+    "proved that dword IS the key this project writes at element +0x10, "
+    "no transform in between.  The claim is still RESOLVED against the "
+    "live ledger, never trusted -- that does not change because the "
+    "answer came back yes -- so a wrong assumption would still refuse "
+    "every claim and grant none.  RE-082 is static-only and answers for "
+    "one image sha; it does not lift this lane's own evidence ceiling.",
     "3. Nobody has seen a client accept bag_delta_pc.  It is the item lane's "
     "ItemOperate result shape, used for an item the client did not already "
     "have -- UNMEASURED behaviour.  The byte-for-byte pin against that lane's "
@@ -454,10 +475,12 @@ REFUSE_POSITION_NOT_FINITE = "position_not_finite"
 # lost race or the caller's own prune, and it says NOTHING about whether the
 # derived object reference is the element key.  A key at or above it, or
 # outside the lane's block, was never issued at all -- which is the only shape
-# that is evidence about RE-082.  The first draft collapsed both into one
-# refusal whose message named RE-082, so every double-click in the game would
-# have been logged as evidence against the assumption that ticket exists to
-# test.
+# that WAS evidence about RE-082 (CLOSED PASS/DONE 2026-08-26, see NONCLAIM 2:
+# the answer came back yes, this distinction is kept as defense-in-depth, not
+# as an open experiment).  The first draft collapsed both into one refusal
+# whose message named RE-082, so every double-click in the game would have
+# been logged as evidence against an assumption that ticket has since
+# answered.
 REFUSE_DROP_ALREADY_TAKEN = "drop_already_taken"
 REFUSE_OBJECT_REF_NEVER_ISSUED = "object_ref_never_issued"
 REFUSE_CLAIMANT_OUT_OF_RANGE = "claimant_out_of_range"
@@ -639,10 +662,12 @@ def resolve_claim(ledger: Any, claim: Any) -> Any:
     THE TWO WAYS A REFERENCE MISSES ARE TOLD APART, and that is not a nicety.
     A key this lane ISSUED and that has since left the ground is an ordinary
     double-click, a lost race or the caller's own prune.  A key that was NEVER
-    issued is the only shape that is evidence about the object-reference
-    assumption.  The first draft answered both with one message that named
-    RE-082, which would have made every double-click in the game look like
-    evidence against the assumption that ticket exists to test.
+    issued is the only shape that WAS evidence about the object-reference
+    assumption -- RE-082 has since closed PASS/DONE (2026-08-26, NONCLAIM 2),
+    so this split is kept as defense-in-depth, not as an open experiment.
+    The first draft answered both with one message that named RE-082, which
+    would have made every double-click in the game look like evidence
+    against an assumption that ticket has since answered.
     """
     if type(ledger) is not mob_loot.DropLedger:
         raise MobPickupContractError(
