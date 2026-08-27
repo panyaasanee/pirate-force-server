@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 
+from . import columbus_quest_dispatch
 from . import field_mobs
 from . import mob_ai_control
 from . import mob_combat
@@ -1079,6 +1080,16 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.mob_death_register = mob_death.DeathRegister()
                 self.mob_combat_hit_count = 0
                 self.mob_combat_kill_count = 0
+                # CORE-REQUEST-014 (Columbus, MOBS n_ID 156, bg0001 placement
+                # index 1).  UNCONDITIONAL, like WORLD-CENSUS-001/MOB-COMBAT-
+                # 001 above -- no scenario flag gates this.  Per-session
+                # because one ChooseNPC -> NPCConversation -> QuestOperateVital
+                # sequence belongs to one connection, same as move_authority/
+                # mob_combat state above.  See columbus_quest_dispatch.py for
+                # what these flags gate and why the dispatch they gate always
+                # refuses today (two open evidence gaps, named there).
+                self.columbus_quest3021_conversation_sent = False
+                self.columbus_quest3021_dispatch_attempted = False
                 # CORE-REQUEST-007 (MOB-AI-CONTROL-001).  Same per-session
                 # choice as mob_combat_ledger/mob_death_register just above,
                 # for the same reason: MOB_AI_CONTROL_WIRING does not say
@@ -4172,6 +4183,123 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         )
             return actions
 
+        def _dispatch_columbus_quest3021(self, parsed):
+            """CORE-REQUEST-014: Columbus (MOBS n_ID 156, bg0001 placement
+            index 1) NPCConversation -> QuestOperateVital op1/quest 3021.
+
+            UNCONDITIONAL and ADDITIVE, the same convention as
+            ``_dispatch_mob_combat`` above: no scenario flag gates this, and
+            it is called on every frame whose ``nested_id`` it cares about,
+            after every earlier, more specific branch has already had first
+            claim.  See ``columbus_quest_dispatch``'s module docstring for
+            the full evidence trail -- RE-094 for the generic NPCConversation/
+            QuestOperateVital wire shape this reuses, RE-085/RE-096 and
+            ``scenarios/world_scene_registry_001.json`` for why the compound
+            bind-vehicle-then-teleport action refuses every time it is
+            reached today.  Both refusals are genuine, currently-open data
+            gaps, not something this method papers over.
+
+            PF-ADVERSARY FINDING, round 4txjyg (R192): the first draft called
+            ``dispatch_columbus_quest3021`` without ``registry=``, which left
+            ``resolve_entry`` re-reading and re-validating
+            ``scenarios/world_scene_registry_001.json`` from disk on every
+            attempt instead of using the SAME boot-loaded
+            ``scene_entry_registry`` the login path above already threads
+            through (see ``resolve_entry``'s own docstring on why that
+            matters: a malformed pin belongs at boot, in front of an
+            operator, not as an uncaught exception on a live player's
+            connection).  Fixed by passing ``registry=scene_entry_registry``
+            below, the same closure variable the login call site at
+            ``runtime.py:4657`` already uses.
+
+            THE CENSUS-MEMBERSHIP GATE ON THE FIRST BRANCH IS LOAD-BEARING,
+            NOT DEFENSIVE.  ``self.population_indices`` is the same set
+            ``v141:4409``'s inherited ChooseNPC handler already requires
+            (``tests/test_world_census_wiring.py::...ignores_composes_
+            nothing`` pins the invariant this follows: a ChooseNPC for an
+            actor identity the arrival census never armed must compose
+            nothing).  Answering a click for an NPC the client was never told
+            about would be responding to an actor nobody's screen has -
+            evidence the client rendered Columbus at all is exactly what
+            ``population_indices`` recording placement index 1 already is.
+            """
+            nested_id = parsed.nested_id
+            actions = []
+            if (
+                nested_id in (legacy.TARGET_VITAL, legacy.CHOOSE_NPC)
+                and not self.columbus_quest3021_conversation_sent
+                and self.population_indices is not None
+                and columbus_quest_dispatch.COLUMBUS_PLACEMENT_INDEX
+                in self.population_indices
+            ):
+                try:
+                    chosen = legacy.extract_choose_npc_identities(parsed)
+                except Exception as error:
+                    self.events.append(
+                        "columbus_choose_npc_parse_error_"
+                        f"{type(error).__name__}"
+                    )
+                    return actions
+                try:
+                    columbus_identity = (
+                        columbus_quest_dispatch.columbus_actor_identity(legacy)
+                    )
+                except columbus_quest_dispatch.ColumbusActorNotFound as error:
+                    self.events.append(
+                        f"columbus_actor_not_found_{error}"
+                    )
+                    return actions
+                if columbus_identity in chosen:
+                    try:
+                        conv_pc, conv_frame = (
+                            columbus_quest_dispatch.make_columbus_conversation(
+                                legacy, columbus_identity,
+                            )
+                        )
+                    except Exception as error:
+                        self.events.append(
+                            "columbus_conversation_compose_refused_"
+                            f"{type(error).__name__}"
+                        )
+                        return actions
+                    self.columbus_quest3021_conversation_sent = True
+                    self.events.append(
+                        "core_request_014_columbus_npc_conversation_sent_once"
+                    )
+                    actions.append((
+                        "CORE_REQUEST_014_COLUMBUS_Q3021_NPC_CONVERSATION_ONCE",
+                        conv_pc, conv_frame, 0.0,
+                    ))
+                return actions
+            if (
+                nested_id == legacy.QUEST_OPERATE_VITAL
+                and self.columbus_quest3021_conversation_sent
+                and not self.columbus_quest3021_dispatch_attempted
+            ):
+                try:
+                    quest_fields = legacy.parse_quest_operate_vital(parsed)
+                except Exception as error:
+                    self.events.append(
+                        "columbus_quest_operate_parse_error_"
+                        f"{type(error).__name__}"
+                    )
+                    return actions
+                if columbus_quest_dispatch.matches_columbus_dispatch(
+                    quest_fields,
+                ):
+                    self.columbus_quest3021_dispatch_attempted = True
+                    try:
+                        columbus_quest_dispatch.dispatch_columbus_quest3021(
+                            registry=scene_entry_registry,
+                            emit=self.events.append,
+                        )
+                    except columbus_quest_dispatch.ColumbusDispatchRefused as error:
+                        for reason in error.reasons:
+                            self.events.append(
+                                f"columbus_quest3021_dispatch_refused_{reason}"
+                            )
+            return actions
+
         def dispatch(self, parsed):
             actions = self._dispatch_with_lanes(parsed)
             if move_authority_hypothesis_scenario is not None:
@@ -5277,6 +5405,18 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self._dispatch_mob_combat(parsed)
                 if nested_id == legacy.ACTION_VITAL else []
             )
+            # CORE-REQUEST-014 (Columbus/quest 3021).  Same UNCONDITIONAL,
+            # ADDITIVE convention as MOB-COMBAT-001 just above: computed after
+            # everything else has had first claim on the frame, and a no-op
+            # for every nested_id this lane does not care about.
+            columbus_quest_actions = (
+                self._dispatch_columbus_quest3021(parsed)
+                if nested_id in (
+                    legacy.TARGET_VITAL, legacy.CHOOSE_NPC,
+                    legacy.QUEST_OPERATE_VITAL,
+                ) else []
+            )
             return (actions + arena_actions + ground_loot_actions
-                    + nameprop_actions + census_actions + mob_combat_actions)
+                    + nameprop_actions + census_actions + mob_combat_actions
+                    + columbus_quest_actions)
     return PersistentGameSessionState

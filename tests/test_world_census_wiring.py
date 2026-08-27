@@ -651,16 +651,22 @@ class WorldCensusWiringTests(unittest.TestCase):
         """
         state = self._state("census_click")
         self._step(state)
-        outsider = 0x2000 + 1 + 1  # placement 1, not one of P0/P30/P91
-        self.assertNotIn(1, world_population.SHIPPED_ISOLATED_INDICES)
+        # CORE-REQUEST-014 (2026-08-27): placement index 1 is now Columbus
+        # (MOBS n_ID 156) and gets an ADDITIONAL server response of its own
+        # (see runtime.py's _dispatch_columbus_quest3021) on top of the V98
+        # generic response this test is about, so this test picks a
+        # different, still-non-special placement to keep testing "widened
+        # membership in general" without entangling Columbus's own wiring.
+        outsider = 0x2000 + 3 + 1  # placement 3, not one of P0/P30/P91/Columbus
+        self.assertNotIn(3, world_population.SHIPPED_ISOLATED_INDICES)
         actions = state.dispatch(
             self.legacy.parse_outer(self._choose_npc_pc(outsider))
         )
         self.assertEqual(
             [action[0] for action in actions],
             [
-                "V98_NPC_FACE_PLAYER_POSITION_HEADING_P1",
-                "V98_NPC_CONVERSATION_DEFAULT_P1",
+                "V98_NPC_FACE_PLAYER_POSITION_HEADING_P3",
+                "V98_NPC_CONVERSATION_DEFAULT_P3",
             ],
         )
         self.assertGreater(len(actions[0][1]), 504)

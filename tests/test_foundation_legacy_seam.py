@@ -80,6 +80,26 @@ MANIFEST_DEBT_RUNTIME_PASS = {
 # `notes` is excluded on purpose so prose corrections stay cheap while any grade
 # movement has to be deliberate.
 GRADE_SUBSET_SHA256 = (
+    # This pin covers ONE deliberate movement (CORE-REQUEST-014, chief cloud
+    # round 4txjyg/R192, 2026-08-27 +07:00): npc_conversation_handshake and
+    # quest_accept_and_progress (domain npc_interaction) each gain TWO test
+    # refs -- tests/test_columbus_quest_dispatch.py and
+    # tests/test_columbus_quest_dispatch_wiring.py.  NEITHER ROW'S STATUS
+    # MOVES: npc_conversation_handshake stays runtime_pass (a second actor,
+    # Columbus, now composes the same generalised NPCConversation shape RE-094
+    # proved, alongside the existing P0/quest-3020 singleton -- still one
+    # composition per armed actor, same wire) and quest_accept_and_progress
+    # stays in_progress (Columbus's quest-3021 op1 reaches a real dispatch
+    # call but that call ALWAYS refuses today on two open evidence gaps -- no
+    # pinned scene-17 arrival spawn, no vehicle-bind wire payload -- so no
+    # quest state is stored server-side, no tracker update is proven, and
+    # completion/rewards stay untouched, exactly as this row's notes already
+    # said).  Refs move because they are graded fields and an untested claim
+    # of "this new code exercises that row" would be exactly the kind of
+    # drift this digest exists to catch -- same lesson round 7ptoku wrote here
+    # first.  Previous pin, kept greppable rather than dropped:
+    #   R173 / merged 403D468D3D6E828D1FF61E188CCEF45160520A09B56E3987EDE41624255123F3
+    #
     # This pin covers ONE deliberate movement (WORLD-CENSUS-001, chief cloud
     # round R173, 2026-08-26 +07:00): world/scene_actor_population_streaming
     # gains ONE test ref, tests/test_world_census_wiring.py.  The row's STATUS
@@ -735,7 +755,7 @@ GRADE_SUBSET_SHA256 = (
     # the structured refs pointing only at the old lanes hides the new one
     # from any machine reading this file.
     #   R167 / parent EB932A54B4958527BA172D34A81673B6B91AA54A0979372EED3A3525902C65DB
-    "403D468D3D6E828D1FF61E188CCEF45160520A09B56E3987EDE41624255123F3"
+    "034304EA80D0C8119BC208A8EB1AA5F934F3D8C34AB473223492B7E629E3ABB3"
 )
 
 
