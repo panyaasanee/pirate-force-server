@@ -188,6 +188,54 @@ class FieldMobTests(unittest.TestCase):
             self.assertTrue(mob.display_name.isascii())
             self.assertTrue(mob.visual_preset.isascii())
 
+    def test_the_generator_never_places_two_monsters_on_one_spot(self) -> None:
+        # ADDED this round: a duplicate PLACEMENT INDEX was already refused
+        # (see the ``load_roster`` docstring's own duplicate check), but two
+        # DIFFERENT placement indices sharing the exact same (x, y, z) were
+        # not caught anywhere -- the shape a hand-edited or mis-mined table
+        # could still produce, two identities visually stacked on one spot.
+        # Both real mined tables (bg0001, Bg0002) already pass this by
+        # construction (see the next test); this one proves the guard
+        # actually FIRES rather than being an assertion nobody exercises,
+        # using a synthetic two-row module (the same "any object with a
+        # SCENE string and a HOSTILE_PLACEMENTS list" shape
+        # ``cross_scene_identity_collisions`` already documents as this
+        # package's own internal contract for a table module).
+        import types
+        row_a = (1, 31, 100.0, 200.0, 300.0, 'M011_000_000_SP3',
+                  'Tornado Eagle', 27, 1, 16, 214, 100, 3857,
+                  2701001, 5400001, 2802234)
+        row_b = (2, 34, 100.0, 200.0, 300.0, 'M025_001_000_N',
+                  'Fighting Fish soldier', 25, 1, 16, 350, 100, 3138,
+                  2701001, 5400001, 2802264)
+        fake_module = types.SimpleNamespace(
+            SCENE='TestOverlapScene',
+            HOSTILE_PLACEMENTS=[row_a, row_b],
+        )
+        with self.assertRaises(FieldMobContractError) as caught:
+            field_mobs._parse_hostile_placements(fake_module)
+        self.assertIn('duplicate spawn position', str(caught.exception))
+
+    def test_no_two_mobs_in_the_live_roster_share_a_spawn_position(
+            self) -> None:
+        # The real-data half of the guard above: both scenes
+        # load_roster() can actually load today must have as many DISTINCT
+        # (x, y, z) positions as they have mobs -- zero monsters standing
+        # inside another one.  This is a measurement of the mined tables,
+        # not a re-statement of the guard: it would still be true even if
+        # ``_parse_hostile_placements`` never checked for it.
+        for scene, expected_count in (
+            (field_mob_tables.SCENE, 13),
+            (field_mobs.BG0002_SCENE, 17),
+        ):
+            roster = load_roster(scene=scene)
+            self.assertEqual(len(roster), expected_count)
+            positions = {(mob.x, mob.y, mob.z) for mob in roster}
+            self.assertEqual(
+                len(positions), len(roster),
+                "scene %r has two mobs sharing one spawn position" % scene,
+            )
+
     def test_load_roster_defaults_to_bg0001_and_tags_every_mob_with_its_scene(
             self) -> None:
         # ADDED this round (PANYA-DECISION 2026-08-27T20:10+07:00): the
