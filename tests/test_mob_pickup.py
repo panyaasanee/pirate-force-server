@@ -1310,6 +1310,30 @@ class MobPickupTests(unittest.TestCase):
             self.source.count("[LANE-B ASSUMPTION"), 3,
             "every decision this lane made for itself carries the tag COO reads")
 
+    def test_the_object_reference_nonclaim_reports_re_082_as_closed(self):
+        """RE-082 answered NONCLAIM 2 PASS/DONE on 2026-08-26 -- say so.
+
+        The stale shape ("awaiting COO/RE confirmation") is exactly the
+        failure this whole project is built to avoid: a diagnosis that was
+        true once, never re-derived, and left standing as if it still were.
+        This pins the corrected wording so a future edit cannot silently put
+        the "awaiting" framing back without turning a test red.
+        """
+        nonclaim_2 = next(
+            claim for claim in MOB_PICKUP_NONCLAIMS
+            if claim.startswith("2. ")
+        )
+        self.assertIn("RE-082", nonclaim_2)
+        self.assertIn("CONFIRMED", nonclaim_2)
+        self.assertNotIn("awaiting COO/RE confirmation", nonclaim_2)
+        # the guard itself must still say it resolves rather than trusts --
+        # confirmation is not a reason to relax the runtime check
+        self.assertIn("RESOLVED against the", nonclaim_2)
+        # and the same correction must be in the module docstring, not only
+        # in the constant a test can see without reading the prose around it
+        self.assertIn("RE-082 CONFIRMED IT AT THE", self.source)
+        self.assertNotIn("awaiting COO/RE confirmation", self.source)
+
     def test_the_lane_carries_forward_the_precondition_its_own_half_measured(self):
         """mob_loot NONCLAIM 4, not left behind in the sibling module.
 
