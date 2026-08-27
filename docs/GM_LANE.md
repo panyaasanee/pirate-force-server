@@ -260,6 +260,46 @@ warp/npc/item/lv/spawn/say still do not execute after this round, and no
 account gets anything it could not already get from CORE-REQUEST-006's
 existing login-time check.
 
+## Modules delivered (warp-executor round)
+
+- **new** `gm/warp_executor.py` -- `make_warp_force_pos_frame(legacy,
+  vital_version, command, current_scene_id, z)`, the function
+  `CORE-REQUEST-011` asks chief to wire at the point that would send a
+  `warp` command's effect back to a GM connection. It bridges a parsed
+  `warp` `GmCommand` (from `gm/commands.py`) into a real `ForcePos` frame
+  (`gm/teleport_wire.py`, RE-090 PASS/DONE, zero unproven fields) -- but
+  **only** the same-scene case: `ForcePos` carries no scene id field at
+  all, so it cannot honor the scene-crossing half of what
+  `warp <scene_id> x y` reads as. The caller must pass
+  `current_scene_id` (the connection's real current scene; this module
+  tracks no player state itself); if the command's own `scene_id` argument
+  differs, or the command has no `x`/`y` at all (the scene-only
+  `warp <scene_id>` form), the function raises `WarpExecutorError` instead
+  of sending an in-scene hop for a command that asked to leave the scene --
+  that would misrepresent what `ForcePos` actually did. `z` is a required
+  parameter, not inferred, because the GM-003 grammar has no z argument.
+  Cross-scene warp still needs `TeleportVital`, whose `target`/`aux`
+  sub-objects carry several positional-only fields RE-090 leaves unproven
+  (`field_0x10`, `field_0x11`, `field_0x18`, `field_0x20`, `field_0x22`,
+  and most of `TeleportAux`) -- guessing values for those is exactly the
+  invention this lane's nonclaim rule forbids, so this module refuses that
+  case by name rather than attempting it.
+- **new** `tests/test_gm_warp_executor.py` -- proves the same-scene frame
+  matches the proven `ForcePos` codec byte-for-byte, and that every refusal
+  path (non-warp command, scene-only form, differing `current_scene_id`)
+  raises `WarpExecutorError` rather than returning a frame.
+- **fixed** `gm/commands.py`'s module docstring, which still said executing
+  `warp` "needs ... wiring that is not proven yet" -- stale since RE-090
+  closed the `ForcePos` layout; corrected to point at `warp_executor.py`
+  and state precisely what remains unbuilt (the scene-crossing case).
+
+This module still does not send anything -- it returns frame bytes for a
+caller to send. No account gets anything it could not already get before
+this round; the visible effect of wiring `CORE-REQUEST-011` in is that a
+GM connection already in the target scene can be repositioned within it.
+Scene-crossing `warp`, `npc`, `item`, `lv`, and `spawn` still do not
+execute after this round.
+
 ## What is intentionally NOT built yet, and why
 
 - `state_wire` IS wired into the login path as of `CORE-REQUEST-006`
@@ -276,15 +316,24 @@ existing login-time check.
   without unblocking a semantic rename. What still needs to resolve real
   semantics is a capture/attended matrix (RE-089's own stated next step),
   not yet opened; wiring itself is done and unaffected.
-- No command *execution* path (see `gm/commands.py` scope note above).
-  `gm/teleport_wire.py` gives `warp` a real, tested byte builder for
-  `ForcePos`/`CWarpResult`/`TeleportVital`, and `gm/dispatch.py` (this
-  round) gives 0x51E9 an inbound authorization gate and a real capture
-  sink, but sending a reply and applying any gameplay effect still need a
-  runtime send path -- outside this lane's write zone -- so execution stays
-  not-built until a `CORE-REQUEST-GM-<nnn>` wires one in and (separately)
-  the wide-string field mapping is proven enough to bridge into
-  `gm/commands.py`'s grammar.
+- No command *execution* path wired to a live connection (see
+  `gm/commands.py` scope note above). `gm/teleport_wire.py` gives `warp` a
+  real, tested byte builder for `ForcePos`/`CWarpResult`/`TeleportVital`,
+  `gm/warp_executor.py` (this round) bridges the same-scene case into a
+  ready `ForcePos` frame, and `gm/dispatch.py` gives 0x51E9 an inbound
+  authorization gate and a real capture sink -- but sending anything to a
+  socket still needs a runtime send path outside this lane's write zone, so
+  execution stays not-built until `CORE-REQUEST-011` (same-scene warp) and
+  a future `CORE-REQUEST-GM-<nnn>` (everything else) wire one in. Even once
+  wired, `CORE-REQUEST-011` only covers `warp` when the target scene_id
+  matches the connection's current scene -- scene-crossing `warp`, `npc`,
+  `item`, `lv`, and `spawn` all still need work beyond this round (spawn
+  and cross-scene warp need RE the lane does not have yet; `npc`/`item`/`lv`
+  need write access to player/world state in runtime.py). Separately, the
+  wide-string field mapping in `GM_RunGMCommandVital` still needs to be
+  proven enough to bridge real client input into `gm/commands.py`'s
+  grammar -- `warp_executor.py` takes an already-parsed `GmCommand`
+  regardless of source, same policy choice `gm/commands.py` itself makes.
 - No general lane-A scene registry or lane-B mob roster reuse in
   `gm/commands.py`. Both lanes' current modules
   (`world_scene_travel.py`, `field_mob_tables.py`) are single-destination /
