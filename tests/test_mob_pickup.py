@@ -1115,15 +1115,20 @@ class MobPickupTests(unittest.TestCase):
         COO-DECISION 20260826_0950 (a) tore down exactly one third of this:
         the character-SELECT load (``store._load_backpack``) is now
         ``inventory.require_backpack_shape``, which only checks structure, so
-        Gate 1 no longer rejects a bag holding a picked-up item -- a real
-        player can select their character and load in with one.  Gate 2 (the
-        HYP-PF-008 opt-in check) and Gate 3 (``make_backpack_attr``'s wire
-        encoder, which only knows how to serialize the two golden snapshots)
-        were not touched by that decision and still refuse this exact bag, so
-        BUILD-006's blocker is still real -- it moved from "can't select the
-        character at all" to "selects, but can't yet enter the world with the
-        picked-up item on". The day Gate 2 or Gate 3 is widened too, THIS test
-        goes red and this lane's prose must be rewritten in the same round.
+        this ONE layer no longer rejects a bag holding a picked-up item.
+        That is necessary but not sufficient for a relog: Gate 2
+        (``session.select_and_start``'s ``is_unmoved_baseline`` opt-in check)
+        and Gate 3 (``make_backpack_attr``'s wire encoder, which only knows
+        how to serialize the two golden snapshots) were deliberately NOT
+        touched -- an attempt to narrow Gate 2 too was tried and reverted the
+        same round, because it turned out to be the exact gate
+        ``tests/test_item_move_generalized.py::test_moved_state_reconnect_is_opt_in_and_baseline_fails_closed``
+        needs at full strength to keep a HYP-PF-010/017/018 mutated state
+        from reconnecting without its own opt-in flag -- so both still
+        refuse this exact bag, and BUILD-006's blocker is still real: a
+        picked-up item still cannot survive a relog end to end. The day any
+        of the three gates is widened, THIS test goes red and this lane's
+        prose must be rewritten in the same round.
         """
         bag, item = place_in_bag(INITIAL_BACKPACK, a_drop())
         # Gate 1: store._load_backpack -- shape only now, this bag is

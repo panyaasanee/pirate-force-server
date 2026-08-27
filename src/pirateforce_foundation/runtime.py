@@ -4605,9 +4605,13 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     # (built once in make_state_class, closed over here the
                     # same way scene_entry_registry is).
                     # self.foundation.backpack is already the BackpackState
-                    # select_and_start loaded above (store.get_backpack,
-                    # gated by inventory.require_known_backpack -- THE WALL
-                    # in mob_pickup.py) -- reused here, not a second DB
+                    # select_and_start loaded above (store.get_backpack is
+                    # shape-gated only since COO-DECISION 20260826_0950, but
+                    # session.select_and_start's own is_unmoved_baseline
+                    # check right behind it, and make_backpack_attr's wire
+                    # encoder, are UNCHANGED and still wall this lane's own
+                    # content -- see mob_pickup.py's module docstring, "THE
+                    # WALL") -- reused here, not a second DB
                     # read.  Only the "ON AN INBOUND PICKUP REQUEST" half of
                     # MOB_PICKUP_WIRING stays unwired: there is no known
                     # vital id for a client-originated pickup request on

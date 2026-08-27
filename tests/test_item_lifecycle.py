@@ -411,16 +411,24 @@ class ItemLifecycleTests(unittest.TestCase):
         )
 
     def test_unknown_persisted_content_loads_but_write_paths_still_reject(self):
-        """COO-DECISION 20260826_0950 (a): the character-select load gate
+        """COO-DECISION 20260826_0950 (a): the STORE layer's load gate
 
         (``store.get_backpack`` / ``_load_backpack``) is now shape-only, so a
-        real player whose bag has drifted off the two golden snapshots can
-        still select their character and load in -- that used to raise here
-        and it no longer does.  Every content-aware write path underneath it
+        drifted-content row -- structurally valid, but neither golden
+        snapshot -- loads at this layer where it used to raise. This is
+        necessary but NOT sufficient for a real player to select their
+        character and load in: ``session.select_and_start``'s own
+        ``is_unmoved_baseline`` gate (unchanged -- see
+        ``tests/test_item_move_generalized.py::test_moved_state_reconnect_is_opt_in_and_baseline_fails_closed``,
+        which needs that gate exactly as strict as it already is to keep a
+        HYP-PF-010/017/018 mutated state from reconnecting without its own
+        opt-in flag) sits right behind this one and still refuses a drifted
+        bag that reaches it, so this test only proves what this ONE layer
+        does now.  Every content-aware write path underneath it
         (``apply_v111_stack_merge`` and friends) still calls
         ``require_known_backpack`` on its own before it commits anything, so
         the drifted row is still refused the moment something tries to act on
-        its *contents*; only the load itself stopped being that wall.
+        its *contents* too.
         """
         state, character, _, _ = self.ready_state("strict")
         with self.store.connect() as db:
