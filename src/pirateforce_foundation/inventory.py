@@ -100,8 +100,17 @@ def _require_int(value: Any, label: str, minimum: int, maximum: int) -> int:
     return value
 
 
-def require_known_backpack(value: Any) -> BackpackState:
-    """Accept exact known contents with unique slots in the visible 40-slot bag."""
+def require_backpack_shape(value: Any) -> BackpackState:
+    """Accept any structurally well-formed Backpack, regardless of contents.
+
+    This is the character-select load gate (``store._load_backpack``).  It
+    used to be ``require_known_backpack`` below, which also rejects any
+    content outside the two exact golden snapshots -- meaning a real player
+    whose bag no longer matches either snapshot (a picked-up item, a used
+    consumable) could never load their own character again.  Structure
+    (column types, bounds, unique identity/slot) is everything this gate is
+    allowed to demand; content is this function's business, not this one's.
+    """
     if type(value) is not BackpackState:
         raise ValueError("backpack must be an exact BackpackState")
     _require_int(value.base_mask, "backpack base mask", 0, 0xFF)
@@ -125,6 +134,21 @@ def require_known_backpack(value: Any) -> BackpackState:
             raise ValueError("backpack identity/slot must be unique")
         identities.add(item.identity)
         slots.add(item.slot)
+    return value
+
+
+def require_known_backpack(value: Any) -> BackpackState:
+    """Accept exact known contents with unique slots in the visible 40-slot bag.
+
+    Still the gate for every item-content-aware operation (moving, merging,
+    swapping a known item; serializing the wire ActorAttr in
+    ``make_backpack_attr``) -- HYP-PF-010/017 and the wire encoder are all
+    scoped to the two exact snapshots below and stay that way until a real
+    item model lands (``M5``).  It is no longer the gate the character-select
+    path (``store._load_backpack``) runs; that one is ``require_backpack_shape``
+    above.
+    """
+    value = require_backpack_shape(value)
     content = tuple(_item_content_signature(item) for item in value.items)
     if content not in (_INITIAL_CONTENT, _MERGED_CONTENT):
         raise ValueError("backpack contents are outside the governed V111 allowlist")

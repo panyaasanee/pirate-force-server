@@ -296,7 +296,7 @@ class FoundationTests(unittest.TestCase):
             versions = db.execute(
                 "SELECT version,checksum FROM schema_migrations ORDER BY version"
             ).fetchall()
-            self.assertEqual([int(row[0]) for row in versions], [1, 2, 3, 4])
+            self.assertEqual([int(row[0]) for row in versions], [1, 2, 3, 4, 5])
             self.assertTrue(all(row[1] for row in versions))
             row = db.execute(
                 "SELECT name_key,create_fingerprint FROM characters WHERE id=1"

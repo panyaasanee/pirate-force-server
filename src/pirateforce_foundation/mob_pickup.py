@@ -128,31 +128,54 @@ THE WALL (read this before promising a relog)
 ---------------------------------------------
 ``inventory.require_known_backpack`` accepts exactly two CONTENT snapshots:
 the shipped initial four items and the post-V111-merge three.  A bag with a
-fifth, newly created item is outside both.  THREE gates read that judgement,
-all of them on the ONE production character-select path
-(``runtime.py`` -> ``session.select_and_start``), in the order they bite:
+fifth, newly created item is outside both.  THREE gates used to read that
+exact judgement, all on the ONE production character-select path
+(``runtime.py`` -> ``session.select_and_start``):
 
     1. store._load_backpack  -> require_known_backpack -> ValueError
     2. session.select_and_start -> is_unmoved_baseline -> PermissionError
     3. legacy_bridge.start_game -> make_backpack_attr -> require_known_backpack
 
-GATE 1 IS UNCONDITIONALLY FIRST, so 2 and 3 are unreachable while it stands;
-they are listed because they are the same judgement read again, and relaxing
-only gate 1 would walk into them.  Its ``ValueError`` is the one that matters:
-``runtime.py`` wraps that call in ``except (KeyError, PermissionError)``, which
-does NOT catch it, so it unwinds the connection's listener thread.  (Gate 2's
-``PermissionError`` IS caught there, and answered by appending an event and
-sending no reply -- a client left at "connecting".)
+COO-DECISION 20260826_0950 (a) narrowed gate 1 only.  pf-adversary caught the
+first draft of this note claiming that alone was enough for a relog to reach
+the world -- it is not, because gate 2 sits unmodified right behind it, and
+a second attempt at narrowing gate 2 too turned out to be WRONG in a
+different way: it is what stops
+``tests/test_item_move_generalized.py::test_moved_state_reconnect_is_opt_in_and_baseline_fails_closed``
+from passing a HYP-PF-010/017/018-mutated state back into a plain reconnect
+without that hypothesis's own opt-in flag.  ``is_unmoved_baseline`` guards
+EVERY governed mutation's post-state, not only the one HYP-PF-008 names, and
+narrowing it to "just the slot-2 case" silently let every other mutated
+state back in unguarded.  So gate 2 is unchanged, and this round only moved:
 
-Note the stage: this is character SELECT, not login.  The account is already
-logged in and the character is already marked selected in the database by the
-time the bag is read.
+    1. store._load_backpack now calls require_backpack_shape -- structure
+       only, no content restriction.  A drifted row LOADS from the DB.
+    2. session.select_and_start -> is_unmoved_baseline -> PermissionError
+       is UNCHANGED.  A drifted row that reaches here (real gameplay drift,
+       not a governed mutation) is STILL refused here, exactly as before --
+       this round did not find a way to tell "real item event" apart from
+       "governed hypothesis mutation" that doesn't also break the latter's
+       own reconnect guard, so it did not try.
+    3. legacy_bridge.start_game -> make_backpack_attr -> require_known_backpack
+       is unchanged too, and would still refuse a drifted bag even if gate 2
+       let one through -- there is no wire encoder for content outside the
+       two goldens (M5, a real item model, is out of scope here).
 
-So persisting a picked-up item without widening that judgement does not
-"mostly work": it makes the character UNABLE TO ENTER THE WORLD.  None of
-those three files belongs to this lane, so this module does not touch them.
-What it does instead is produce ``BagRowWrite``, which names the exact INSERT,
-and refuse to pretend the round after it is free.
+So the character-select ValueError-hang bug IS fixed: gate 1's ValueError is
+no longer possible (shape now loads unconditionally), and runtime.py's
+broadened ``except (ValueError, RuntimeError)`` (this round, prints
+``BACKPACK_LOAD_REFUSED``) is a real defense-in-depth improvement for
+whatever DOES still raise past gate 1 -- including gate 2's own
+PermissionError, which that handler already caught before this round too.
+But a bag that has genuinely drifted (a real item event, once one exists)
+still cannot select/enter today: it is refused at gate 2, cleanly, same as
+before this round.  Full relog with a drifted bag needs gate 2 redesigned to
+distinguish real gameplay drift from a governed hypothesis's own post-state
+-- that needs a way to tell them apart that does not exist yet, and is not
+this round's work.  None of those three files belongs to this lane, so this
+module does not touch them. What it does instead is produce ``BagRowWrite``,
+which names the exact INSERT, and refuse to pretend
+the round after it is free.
 """
 
 from __future__ import annotations

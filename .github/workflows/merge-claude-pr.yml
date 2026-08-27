@@ -145,6 +145,17 @@ jobs:
       # exactly that call.  reap looked green only because it had no pull
       # request to loop over, so it never reached the same call.
       actions: read
+      # actions: write is REQUIRED for the post-merge gate dispatch below.
+      # GitHub does not start a workflow from a push made with GITHUB_TOKEN
+      # (gate-windows.yml documents this same fact about itself) - so the
+      # merge commit this job just pushed to the default branch would
+      # otherwise NEVER get a gate verdict of its own. Measured 2026-08-27
+      # by an attended GT-084 session: its boot-commit resolver had to reject
+      # every merge commit for exactly this reason and fell back 14 commits
+      # to the last commit that WAS separately gated, silently testing stale
+      # code. workflow_dispatch is an explicit API call, not a token-authored
+      # push event, so it is not subject to that same suppression.
+      actions: write
     steps:
       - name: Merge on green, close on red, close on anything that goes wrong
         shell: bash
@@ -325,6 +336,14 @@ jobs:
               api -X DELETE "repos/${REPO}/git/refs/heads/${HEAD_REF}" >/dev/null 2>&1 \
                 && echo "  branch ${HEAD_REF} deleted" \
                 || echo "  branch ${HEAD_REF} not deleted (already gone?) - harmless"
+              # The merge commit this push just created on the default branch
+              # will not trigger gate-windows.yml on its own (GITHUB_TOKEN push
+              # events do not start other workflows) - so it never gets a
+              # verdict unless asked for one explicitly. Non-fatal: a failure
+              # here must not turn a real merge into a closed PR.
+              gh workflow run gate-windows.yml --repo "$REPO" --ref "$DEFAULT_BRANCH" \
+                && echo "  gate-windows dispatched on ${DEFAULT_BRANCH}" \
+                || echo "::warning::could not dispatch gate-windows on ${DEFAULT_BRANCH} - the merge commit may be untested until someone dispatches it by hand"
               continue
             fi
 
@@ -376,6 +395,9 @@ jobs:
       # exactly that call.  reap looked green only because it had no pull
       # request to loop over, so it never reached the same call.
       actions: read
+      # actions: write is REQUIRED for the post-merge gate dispatch below.
+      # See the matching comment in the `decide` job's permissions block.
+      actions: write
     steps:
       - name: Finish or close every stale claude/* pull request
         shell: bash
@@ -447,6 +469,9 @@ jobs:
                 echo "  merged by the reaper"
                 api -X DELETE "repos/${REPO}/git/refs/heads/${HEAD_REF}" >/dev/null 2>&1 \
                   && echo "  branch ${HEAD_REF} deleted" || echo "  branch not deleted - harmless"
+                gh workflow run gate-windows.yml --repo "$REPO" --ref "$DEFAULT_BRANCH" \
+                  && echo "  gate-windows dispatched on ${DEFAULT_BRANCH}" \
+                  || echo "::warning::could not dispatch gate-windows on ${DEFAULT_BRANCH} - the merge commit may be untested until someone dispatches it by hand"
                 continue
               fi
               REASON="$(printf '%s\n' \

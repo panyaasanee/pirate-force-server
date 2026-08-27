@@ -408,6 +408,29 @@ jobs:
           $excluded | Set-Content -Path $excludedFile -Encoding ascii
           Step 'pytest_subset'  { py -3 -m pytest tests -q -rs -p no:cacheprovider @ignoreArgs 2>&1 | Tee-Object -FilePath $pytestLog }
 
+          # The Step helper above only echoes the LAST 6 LINES of this
+          # step's output to the job log - correct for the short/skip/PASS
+          # summaries every other step prints, but it silently discards the
+          # FAILED test names and tracebacks pytest write earlier in
+          # $pytestLog. Round R189 hit a pytest_subset RED with no visible
+          # cause anywhere in the job log or in any artifact (none is
+          # uploaded) and had to install pytest locally and re-run the exact
+          # same invocation blind to find out what failed. Surface it here
+          # instead, on failure only, so the next red gate is diagnosable
+          # from the log alone.
+          if ($results['pytest_subset'].rc -ne 0) {
+            Write-Host ''
+            Write-Host '--- pytest_subset failure detail (full FAILED lines + tracebacks) ---'
+            $failureLines = Get-Content -Path $pytestLog | Select-String -Pattern '^FAILED |^=+ FAILURES =+$|^_+ .+ _+$' -Context 0,40
+            if ($failureLines) {
+              $failureLines | ForEach-Object { $_.Line } | Select-Object -Unique | ForEach-Object { Write-Host $_ }
+              $failureLines | ForEach-Object { $_.Context.PostContext } | ForEach-Object { Write-Host $_ }
+            } else {
+              Write-Host '  no FAILED/FAILURES marker found in the captured log - printing the last 200 lines instead:'
+              Get-Content -Path $pytestLog -Tail 200 | ForEach-Object { Write-Host "  $_" }
+            }
+          }
+
           # ---- 5b. the skip census: a skipped check is not a passed check ---
           # Printed IN FULL, by name and reason, before it is graded.  The
           # counts are pinned in docs/PYTEST_SKIP_PINS.json and the census is

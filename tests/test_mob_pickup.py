@@ -25,8 +25,10 @@ seven ItemAttr fields sailed through it.
 
 ``test_the_governed_allowlist_is_the_wall_this_lane_stops_at`` pins the
 BLOCKER as a test.  BUILD-006 asks for "relog and it is still there"; the
-persisted bag is content-governed by a lane this one does not own, and a round
-that only wrote that in prose would be a round whose prose rots.
+world-entry wire build (and the HYP-PF-008 opt-in gate) are still
+content-governed by a lane this one does not own -- COO-DECISION 20260826_0950
+(a) moved the character-SELECT load itself off that gate, but not those two --
+and a round that only wrote that in prose would be a round whose prose rots.
 """
 
 import ast
@@ -1106,19 +1108,33 @@ class MobPickupTests(unittest.TestCase):
                 bag_delta_pc, self.legacy, ItemAttrState(1, 0, 1, 0)),
             "value_out_of_range")
 
-    # -- the wall ----------------------------------------------------------
+    # -- the wall ------------------------------------------------------------
     def test_the_governed_allowlist_is_the_wall_this_lane_stops_at(self):
         """BUILD-006's relog row, pinned as the blocker it actually is.
 
-        A bag holding a picked-up item is outside the item lane's CONTENT
-        judgement, and the character-SELECT path reads that judgement three
-        times.  Gate 1 is unconditionally first and its ValueError is not
-        caught by runtime.py's (KeyError, PermissionError) handler.  The day
-        the judgement is widened, this test goes red and this lane's prose
-        must be rewritten in the same round.
+        COO-DECISION 20260826_0950 (a) tore down exactly one third of this:
+        the character-SELECT load (``store._load_backpack``) is now
+        ``inventory.require_backpack_shape``, which only checks structure, so
+        this ONE layer no longer rejects a bag holding a picked-up item.
+        That is necessary but not sufficient for a relog: Gate 2
+        (``session.select_and_start``'s ``is_unmoved_baseline`` opt-in check)
+        and Gate 3 (``make_backpack_attr``'s wire encoder, which only knows
+        how to serialize the two golden snapshots) were deliberately NOT
+        touched -- an attempt to narrow Gate 2 too was tried and reverted the
+        same round, because it turned out to be the exact gate
+        ``tests/test_item_move_generalized.py::test_moved_state_reconnect_is_opt_in_and_baseline_fails_closed``
+        needs at full strength to keep a HYP-PF-010/017/018 mutated state
+        from reconnecting without its own opt-in flag -- so both still
+        refuse this exact bag, and BUILD-006's blocker is still real: a
+        picked-up item still cannot survive a relog end to end. The day any
+        of the three gates is widened, THIS test goes red and this lane's
+        prose must be rewritten in the same round.
         """
         bag, item = place_in_bag(INITIAL_BACKPACK, a_drop())
-        # Gate 1: store._load_backpack.
+        # Gate 1: store._load_backpack -- shape only now, this bag is
+        # structurally fine (unique identities, unique slots, in-range
+        # fields), so it loads.
+        inventory.require_backpack_shape(bag)
         with self.assertRaises(ValueError):
             inventory.require_known_backpack(bag)
         # Gate 2: session.select_and_start, which answers with no reply.

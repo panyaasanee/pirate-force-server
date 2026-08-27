@@ -4461,6 +4461,21 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 except (KeyError, PermissionError):
                     self.events.append("foundation_start_game_rejected_no_reply")
                     return []
+                except (ValueError, RuntimeError) as exc:
+                    # Gate 1 (character-select) can also fail inside the
+                    # Backpack load: _load_backpack raises ValueError when
+                    # require_known_backpack rejects the stored row, or
+                    # RuntimeError when the row is missing outright. Neither
+                    # was in the tuple above, so either one used to escape
+                    # this handler uncaught and unwind the listener thread in
+                    # silence -- the client was left parked on "connecting"
+                    # with nothing logged, for a bag that was malformed today
+                    # and not only on the day a new row shape ships. Same
+                    # loud-refusal shape as the SceneEntryRefused handler
+                    # above: print the reason, refuse by name, no latch.
+                    print(f"BACKPACK_LOAD_REFUSED {exc}")
+                    self.events.append("foundation_start_game_rejected_no_reply")
+                    return []
                 load_only = scene_load_scenario is not None
                 entry = None
                 gm_state_action = None
@@ -4590,9 +4605,13 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     # (built once in make_state_class, closed over here the
                     # same way scene_entry_registry is).
                     # self.foundation.backpack is already the BackpackState
-                    # select_and_start loaded above (store.get_backpack,
-                    # gated by inventory.require_known_backpack -- THE WALL
-                    # in mob_pickup.py) -- reused here, not a second DB
+                    # select_and_start loaded above (store.get_backpack is
+                    # shape-gated only since COO-DECISION 20260826_0950, but
+                    # session.select_and_start's own is_unmoved_baseline
+                    # check right behind it, and make_backpack_attr's wire
+                    # encoder, are UNCHANGED and still wall this lane's own
+                    # content -- see mob_pickup.py's module docstring, "THE
+                    # WALL") -- reused here, not a second DB
                     # read.  Only the "ON AN INBOUND PICKUP REQUEST" half of
                     # MOB_PICKUP_WIRING stays unwired: there is no known
                     # vital id for a client-originated pickup request on
