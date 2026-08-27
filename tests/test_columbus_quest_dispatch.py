@@ -149,6 +149,44 @@ class ResolveColumbusArrivalTests(unittest.TestCase):
         )
 
 
+class LoginPathStaysRefusedTests(unittest.TestCase):
+    """Round 0z3kjx, pf-adversary-flagged regression, proven from THIS
+    module's own vantage point rather than only world_scene_entry's: the
+    decree that lets ``resolve_columbus_arrival`` succeed above must not
+    also let a character's own persisted row walk into scene 17 through the
+    exact same login call runtime.py makes.
+    """
+
+    def test_a_persisted_scene_17_row_is_refused_at_the_plain_login_call(self):
+        from pirateforce_foundation import world_scene_entry
+        from pirateforce_foundation.model import Position
+
+        persisted_row = Position(17, 0, 1.0, 2.0, 3.0, 0.5)
+        with self.assertRaises(world_scene_entry.SceneEntryRefused) as caught:
+            # No via_login keyword - exactly runtime.py's login call shape.
+            world_scene_entry.resolve_entry(persisted_row, emit=lambda line: None)
+        self.assertEqual(
+            caught.exception.reason,
+            world_scene_entry.REFUSED_NOT_ALLOWED_AT_LOGIN,
+        )
+
+    def test_resolve_columbus_arrival_still_succeeds_despite_that_refusal(self):
+        # The two facts side by side: the same scene, the same registry, one
+        # call refuses and the other succeeds, because only one of them is
+        # reading a character's persisted row.
+        from pirateforce_foundation import world_scene_entry
+        from pirateforce_foundation.model import Position
+
+        with self.assertRaises(world_scene_entry.SceneEntryRefused):
+            world_scene_entry.resolve_entry(
+                Position(17, 0, 1.0, 2.0, 3.0, 0.5), emit=lambda line: None,
+            )
+        entry = columbus_quest_dispatch.resolve_columbus_arrival(
+            emit=lambda line: None,
+        )
+        self.assertEqual(entry.destination.n_id, 17)
+
+
 class DispatchColumbusQuest3021Tests(unittest.TestCase):
     def test_succeeds_today_without_a_vehicle_bind(self):
         """UPDATED PANYA-DECISION 2026-08-27T15:25+07:00

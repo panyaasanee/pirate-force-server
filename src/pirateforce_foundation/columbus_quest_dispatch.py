@@ -92,6 +92,22 @@ BOUNDED-NEGATIVE, NEITHER MEASURED.
   columbus_quest3021`` below therefore no longer reports this half as a
   refusal reason - see its own docstring's matching update.
 
+  LOGIN-PATH GAP, CLOSED 2026-08-27 (round 0z3kjx, pf-adversary-flagged,
+  rebased onto e0daaa's shipped decree+ground merge).  Making scene 17
+  resolve here also made it resolve for ANY caller of ``world_scene_entry.
+  resolve_entry`` - including ``runtime.py``'s login path, which calls the
+  same function with whatever ``scene_id`` a character's persisted row
+  happens to carry.  Nothing in the DB schema stops that row from ever
+  naming 17, and nothing before this fix would have refused it once this
+  scene had a spawn.  Closed with two additions, neither touching
+  ``runtime.py``: the registry's ``login_entry_allowed: false`` for scene 17
+  (``world_scene_registry_001.json``), and ``resolve_entry``'s own
+  ``via_login`` parameter, which defaults to the login path's answer (fail
+  closed) so the unmodified login call site stays safe for free.
+  ``resolve_columbus_arrival`` below is the one sanctioned door through it,
+  passing ``via_login=False`` explicitly because its own ``stored`` row is
+  synthetic and never a character's persisted position.
+
 * **No wire evidence for what a vehicle-bind message should contain.**
   RE-085 (``notes_to_chief/20260827_0156_RE-085-RESULT-SAME-ACTOR-VEHICLE-
   MODULE.md``) proves the CLIENT mechanism is actor-local (``CGCVehicleModule``
@@ -270,10 +286,24 @@ def resolve_columbus_arrival(*, registry=None, emit=print):
     if scene 17 ever gains ground evidence, at which point rule 2 of
     ``resolve_entry``'s own docstring decides what happens to it, not this
     call site.
+
+    ``via_login=False``, ROUND 0z3kjx, pf-adversary-flagged.  Making
+    ``resolve_entry`` succeed for scene 17 (the owner's provisional spawn
+    decree, above) also made it succeed for ANY caller of ``resolve_entry`` -
+    including ``runtime.py``'s login path, which calls the exact same
+    function with whatever ``scene_id`` a character's persisted row happens
+    to carry, and which nothing in this schema stops from ever being 17. The
+    registry's ``login_entry_allowed: false`` for scene 17 and the
+    ``via_login=False`` passed below together keep that login path refusing a
+    stored scene-17 row exactly as it did before this scene had a spawn at
+    all, while this function - the one sanctioned door to the decree - still
+    resolves it: ``synthetic_stored`` above is built fresh every call and is
+    never a character's own persisted row, which is exactly the case
+    ``via_login=False`` exists to name.
     """
     synthetic_stored = Position(COLUMBUS_DEST_SCENE_ID, 0, 0.0, 0.0, 0.0, 0.0)
     return world_scene_entry.resolve_entry(
-        synthetic_stored, registry=registry, emit=emit,
+        synthetic_stored, registry=registry, emit=emit, via_login=False,
     )
 
 

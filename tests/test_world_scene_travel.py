@@ -152,6 +152,31 @@ class SceneRegistryTests(unittest.TestCase):
             "5e4de48707a87061d9a95471a1c3c25c56f0469fe2ece7ef0709a9c79f40fec7",
         )
 
+    def test_scene_17_is_pinned_not_allowed_as_a_login_destination(self):
+        """Round 0z3kjx, adversary-flagged: scene 17 stopped being a scene
+        with no pinned spawn (round e0daaa's owner decree), which means the
+        free login-time refusal that used to protect a stored/persisted row
+        naming it (REFUSED_NO_PINNED_SPAWN) is gone. login_entry_allowed=False
+        is what replaces it - see world_scene_entry.resolve_entry's via_login
+        parameter for who checks this and tests/test_world_scene_entry.py for
+        the login-path regression this field exists to prove."""
+        sea = destination(17, self.registry)
+        self.assertFalse(sea.login_entry_allowed)
+        raw = [row for row in _raw()["destinations"] if row["n_id"] == 17][0]
+        self.assertIs(raw["login_entry_allowed"], False)
+
+    def test_every_other_destination_defaults_login_entry_allowed_true(self):
+        """The optional field's absence must mean True, not merely 'False
+        for the one row that sets it' - a mutation that flipped the default
+        would silently lock every other destination out of login."""
+        for n_id in (1, 2, TEST_STAGE_SCENE_ID, 997):
+            with self.subTest(n_id=n_id):
+                raw = [
+                    row for row in _raw()["destinations"] if row["n_id"] == n_id
+                ][0]
+                self.assertNotIn("login_entry_allowed", raw)
+                self.assertTrue(destination(n_id, self.registry).login_entry_allowed)
+
     def test_the_pin_carries_the_hashes_a_bridge_round_reverifies(self):
         # These are the values a bridge-side round re-checks against the client
         # files themselves; a silent edit here would break that crosswalk
@@ -259,6 +284,16 @@ class SceneRegistryRefusalTests(unittest.TestCase):
         data["destinations"].append(dict(data["destinations"][0]))
         with self.assertRaises(ValueError):
             load_scene_registry(_write(self.tmp, data))
+
+    def test_a_non_bool_login_entry_allowed_is_refused(self):
+        for bad in (1, "false", None, 0):
+            with self.subTest(bad=bad):
+                data = _raw()
+                for row in data["destinations"]:
+                    if row["n_id"] == 17:
+                        row["login_entry_allowed"] = bad
+                with self.assertRaises(ValueError):
+                    load_scene_registry(_write(self.tmp, data))
 
     def test_a_spawn_outside_the_pinned_ground_is_refused(self):
         data = _raw()
