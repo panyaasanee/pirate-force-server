@@ -456,8 +456,15 @@ and `CORE-REQUEST-011`'s same-scene-only wiring).
   `PF_GM_ACCOUNTS_CONFIG`) naming a scene_id present in
   `gm/scene_catalog.py`'s 330-row committed table. Checked fresh on every
   call, not cached -- revoking an account from `gm_accounts.json` removes
-  its override on the very next call, no restart needed. Neither file alone
-  can grant anything: an override entry for a non-GM account is inert.
+  its override on the very next call, no restart needed. ~~Neither file
+  alone can grant anything: an override entry for a non-GM account is
+  inert.~~ **SUPERSEDED, round `ccc9wj` (2026-08-28): no longer true as a
+  description of the whole function.** A second, independent standalone
+  path was added that grants an override with NO `gm_accounts.json`
+  membership at all -- see "Modules delivered (round `ccc9wj`, GT-110
+  standalone login-scene safety fix)" below for the current, accurate
+  contract. This paragraph is left in place, struck through rather than
+  deleted, as the historical record of what this round actually shipped.
 - `tests/test_gm_login_scene.py`: default-empty, gating (GM+entry / GM-no-
   entry / non-GM-with-entry / unlisted), malformed config (non-object top
   level, non-dict `gm_login_scene`, non-int scene_id, `bool`-as-int,
@@ -1054,3 +1061,65 @@ element's `__int__`/`__float__` can raise past (an `AttributeError`, a
 nonclaim: headless-only round, no code outside `gm/`/`tests/gm_*` touched,
 no frame fired at a real client, no `runtime.py` edit. Full detail:
 `pf_bridge/rounds/GM_20260828_0127_args-shape-hardening-one-level-deeper.md`.
+
+## Modules delivered (round `ccc9wj`, GT-110 standalone login-scene safety fix)
+
+Answers `notes_to_chief/20260827_2240_KA1A-NOTE-GT110-unsafe-until-0x5A19-payload-fixed-plus-M1P-jobs-staged.md`:
+`GT-110` (attended test of the login-scene override) required
+`gm_accounts.json` membership, which makes `is_gm_account()` true, which
+makes `runtime.py` send `GM_UpdateGMStateVital` (`0x5A19`) on login -- the
+frame that killed `GT-101`/`GT-107` two different ways, one fix (`RE-113`)
+landed but **not yet attended-reverified** (`GT-107-R3` still `[PENDING]`).
+Running `GT-110` the old way risked a third crash for a question the ticket
+never needed to ask.
+
+- `gm/login_scene_override.py`: `get_login_scene_override` now checks TWO
+  independent paths, either sufficient alone, both fresh every call, never
+  cached: (1) the existing GM-gated path, unchanged; (2) a new
+  **standalone** path (`load_standalone_login_scene_overrides`, config key
+  `standalone_login_scene`, default `config/gm_login_scene_standalone.json`,
+  env override `PF_GM_LOGIN_SCENE_STANDALONE_CONFIG`) that never calls
+  `is_gm_account()` and never touches `gm_accounts.json` -- an account
+  listed there gets a login scene_id and NOTHING else; it cannot become
+  `is_gm_account()==True` through this path, so `runtime.py`'s
+  `CORE-REQUEST-016`-gated `GM_UpdateGMStateVital` block never fires for
+  it. `[สมมติของสาย GM - รอ COO ยืนยัน]`: this changes the module's own
+  previously-stated security contract ("neither file alone can grant
+  anything") -- see the struck-through paragraph above and
+  `notes_to_chief/20260828_0222_LANE-GM-ASK-COO-standalone-login-scene-override-path.md`.
+  Not built by touching `runtime.py`: the existing `CORE-REQUEST-015` call
+  site (`get_login_scene_override(self.token)`) already routes through this
+  function, so the new path activates at the existing wiring point with no
+  core-file edit.
+- `tests/test_gm_login_scene.py`: +7 tests for the standalone path
+  (missing-file, grant-with-zero-`gm_accounts.json`-membership,
+  gated-path-still-wins-with-**differing** scene_ids so the precedence
+  assertion is actually load-bearing, unlisted-gets-none, malformed config,
+  unknown scene_id). The original version of the precedence test used the
+  *same* scene_id for both paths -- `pf-adversary` (round `ccc9wj`) built a
+  deliberately-broken reimplementation that checks the standalone path
+  first and showed it still passed that test; fixed by giving the two paths
+  different scene_ids so a precedence regression cannot ship green.
+- `tests/test_gm_login_scene_override_wiring.py`: +3 tests through the REAL
+  dispatcher (not just the module in isolation) -- a GM-gated account gets
+  both the override AND a `GM_UPDATE_STATE_AFTER_LOGIN` action (contrast
+  case); a standalone-only account gets the override with that action
+  **absent** from `state.dispatch()`'s own return value (the core safety
+  claim, proven end to end, not just read from the source); a
+  standalone-listed account still returns `is_gm_account() == False`.
+  `pf-adversary` (round `ccc9wj`) flagged that the original version of this
+  round's change had no dispatcher-level proof of the safety claim at all --
+  these three tests close that gap.
+- `GAME_TEST_QUEUE.md`: `GT-110`'s server args, pre-boot grep checks, pass
+  criteria (added: no `GM_UPDATE_STATE_AFTER_LOGIN` line anywhere in the
+  session, or FAIL regardless of what the screen shows), teardown, and
+  nonclaims all rewritten for the standalone path; the ticket no longer
+  waits on `GT-107-R3`.
+- `tests/test_gm_*.py`: 250/250 green(cloud sanity) (240 before this round +
+  7 offline standalone-path tests + 3 dispatcher-level wiring tests), no
+  regression.
+
+nonclaim: headless-only round, no `runtime.py` edit, no frame fired at a
+real client -- `GT-110` itself (now unblocked) is what proves this on a
+real client. Full detail:
+`pf_bridge/rounds/GM_20260828_0222_gt110-standalone-login-scene-safety-fix.md`.

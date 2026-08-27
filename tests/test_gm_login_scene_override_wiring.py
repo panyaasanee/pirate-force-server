@@ -85,18 +85,22 @@ class GmLoginSceneOverrideWiringTests(unittest.TestCase):
         )
         return accounts_path, overrides_path
 
-    def _login_and_start(self, token, accounts_path, overrides_path):
+    def _login_and_start(
+        self, token, accounts_path, overrides_path, standalone_path=None
+    ):
         state_type = make_state_class(
             self.legacy, self.lifecycle, self.projector,
         )
         state = state_type(token)
-        with mock.patch.dict(
-            gm_accounts.os.environ,
-            {
-                gm_accounts.ENV_OVERRIDE: str(accounts_path),
-                login_scene_override.ENV_OVERRIDE: str(overrides_path),
-            },
-        ):
+        env = {
+            gm_accounts.ENV_OVERRIDE: str(accounts_path),
+            login_scene_override.ENV_OVERRIDE: str(overrides_path),
+        }
+        if standalone_path is not None:
+            env[login_scene_override.STANDALONE_ENV_OVERRIDE] = str(
+                standalone_path
+            )
+        with mock.patch.dict(gm_accounts.os.environ, env):
             import io
             import contextlib
             buf = io.StringIO()
@@ -290,6 +294,87 @@ class GmLoginSceneOverrideWiringTests(unittest.TestCase):
         lines = [l for l in out.splitlines() if l.startswith("WORLD_SCENE ")]
         self.assertEqual(len(lines), 1, out)
         self.assertIn("scene_id=1", lines[0])
+
+    def test_gm_gated_account_gets_the_override_and_the_gm_state_frame(self):
+        # Contrast case for the standalone tests below: a real gm_accounts.json
+        # member still rides the pre-existing path end to end -- override
+        # applied AND (since gm/state_wire.py's GM_UPDATE_STATE_VITAL_VERSION_
+        # CONFIRMED is pinned, not None) a GM_UPDATE_STATE_AFTER_LOGIN action
+        # is appended. This is the exact frame this round's standalone path
+        # exists to let GT-110 avoid.
+        accounts_path, overrides_path = self._configs(
+            ["gm_runner"], {"gm_runner": KNOWN_SCENE_ID}
+        )
+        state, _out, actions = self._login_and_start(
+            "gm_runner", accounts_path, overrides_path
+        )
+        self.assertIn(
+            f"gm_login_scene_override_applied_{KNOWN_SCENE_ID}", state.events
+        )
+        labels = [action[0] for action in actions]
+        self.assertIn("GM_UPDATE_STATE_AFTER_LOGIN", labels)
+
+    def test_standalone_only_account_gets_the_override_with_no_gm_state_frame(
+        self,
+    ):
+        # The core safety claim of the 2026-08-28 GT-110 fix (answering
+        # notes_to_chief/20260827_2240_KA1A-NOTE-GT110-unsafe-until-0x5A19-
+        # payload-fixed-plus-M1P-jobs-staged.md), proven through the REAL
+        # dispatcher rather than by reading gm/login_scene_override.py's
+        # code: an account listed ONLY in the standalone config (empty
+        # gm_accounts.json, empty gm_login_scene.json) still gets its scene
+        # override applied, but never gets GM_UPDATE_STATE_AFTER_LOGIN
+        # appended to the dispatch actions -- because is_gm_account() stays
+        # False for it the whole way through, and that frame is gated
+        # purely on is_gm_account() at the runtime.py call site
+        # (CORE-REQUEST-016), never on this module. Contrast with
+        # test_gm_gated_account_gets_the_override_and_the_gm_state_frame
+        # directly above, which proves the same harness DOES produce that
+        # action for a real GM account -- so its absence here is meaningful,
+        # not an artifact of the harness never producing it at all.
+        accounts_path, overrides_path = self._configs([], {})
+        standalone_path = Path(self.tmp.name) / "gm_login_scene_standalone.json"
+        standalone_path.write_text(
+            json.dumps(
+                {"standalone_login_scene": {"gt110_tester": KNOWN_SCENE_ID}}
+            ),
+            encoding="utf-8",
+        )
+        state, out, actions = self._login_and_start(
+            "gt110_tester", accounts_path, overrides_path, standalone_path
+        )
+        self.assertIn(
+            f"gm_login_scene_override_applied_{KNOWN_SCENE_ID}", state.events
+        )
+        lines = [l for l in out.splitlines() if l.startswith("WORLD_SCENE ")]
+        self.assertEqual(len(lines), 1, out)
+        self.assertIn(f"scene_id={KNOWN_SCENE_ID}", lines[0])
+        labels = [action[0] for action in actions]
+        self.assertNotIn("GM_UPDATE_STATE_AFTER_LOGIN", labels)
+
+    def test_standalone_config_alone_never_makes_is_gm_account_true(self):
+        # Directly exercises the predicate the whole safety argument rests
+        # on: is_gm_account() must stay False for a standalone-only account
+        # even with the standalone env var pointed at a config that lists
+        # it, because is_gm_account() never reads that file.
+        standalone_path = Path(self.tmp.name) / "gm_login_scene_standalone.json"
+        standalone_path.write_text(
+            json.dumps(
+                {"standalone_login_scene": {"gt110_tester": KNOWN_SCENE_ID}}
+            ),
+            encoding="utf-8",
+        )
+        missing_accounts_path = Path(self.tmp.name) / "does_not_exist.json"
+        with mock.patch.dict(
+            gm_accounts.os.environ,
+            {
+                gm_accounts.ENV_OVERRIDE: str(missing_accounts_path),
+                login_scene_override.STANDALONE_ENV_OVERRIDE: str(
+                    standalone_path
+                ),
+            },
+        ):
+            self.assertFalse(gm_accounts.is_gm_account("gt110_tester"))
 
 
 if __name__ == "__main__":

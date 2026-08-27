@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from pirateforce_foundation.gm.login_scene_override import (
     get_login_scene_override,
     load_login_scene_overrides,
+    load_standalone_login_scene_overrides,
 )
 
 KNOWN_SCENE_ID = 2  # Prison Exile Island -- see gm/scene_catalog.py
@@ -173,6 +174,151 @@ class GmLoginSceneRevocationTests(unittest.TestCase):
             self.assertIsNone(
                 get_login_scene_override("localtest", gm_accounts_path, overrides_path)
             )
+
+
+class GmLoginSceneStandaloneTests(unittest.TestCase):
+    """Standalone path (GT-110 safety fix): scene override with no GM status.
+
+    Answers notes_to_chief/20260827_2240_KA1A-NOTE-GT110-unsafe-until-0x5A19-
+    payload-fixed-plus-M1P-jobs-staged.md's proposal to decouple the login-
+    scene override from GM_UpdateGMStateVital (0x5A19) risk -- an account
+    listed only here never becomes is_gm_account()==True, so runtime.py's
+    guarded GM-state-frame block (CORE-REQUEST-016) never fires for it.
+    [สมมติของสาย GM - รอ COO ยืนยัน]
+    """
+
+    def test_missing_standalone_file_means_no_override(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "does_not_exist.json"
+            self.assertEqual(load_standalone_login_scene_overrides(missing), {})
+
+    def test_standalone_entry_grants_override_with_no_gm_listing_anywhere(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            gm_accounts_path = tmp / "gm_accounts.json"
+            gm_accounts_path.write_text(
+                json.dumps({"gm_accounts": []}), encoding="utf-8"
+            )
+            gm_login_scene_path = tmp / "gm_login_scene.json"
+            gm_login_scene_path.write_text(
+                json.dumps({"gm_login_scene": {}}), encoding="utf-8"
+            )
+            standalone_path = tmp / "gm_login_scene_standalone.json"
+            standalone_path.write_text(
+                json.dumps(
+                    {"standalone_login_scene": {"gt110_tester": KNOWN_SCENE_ID}}
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                get_login_scene_override(
+                    "gt110_tester",
+                    gm_accounts_path,
+                    gm_login_scene_path,
+                    standalone_path,
+                ),
+                KNOWN_SCENE_ID,
+            )
+
+    def test_standalone_path_never_reads_or_requires_gm_accounts_file(self):
+        # gm_accounts_config_path points at a file that does not exist at
+        # all -- is_gm_account() must tolerate that (existing "absence is
+        # empty" rule) and the standalone path must still resolve.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            missing_gm_accounts = tmp / "does_not_exist.json"
+            standalone_path = tmp / "gm_login_scene_standalone.json"
+            standalone_path.write_text(
+                json.dumps(
+                    {"standalone_login_scene": {"gt110_tester": KNOWN_SCENE_ID}}
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                get_login_scene_override(
+                    "gt110_tester",
+                    missing_gm_accounts,
+                    missing_gm_accounts,
+                    standalone_path,
+                ),
+                KNOWN_SCENE_ID,
+            )
+
+    def test_account_absent_from_standalone_config_gets_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            standalone_path = tmp / "gm_login_scene_standalone.json"
+            standalone_path.write_text(
+                json.dumps({"standalone_login_scene": {"someone_else": KNOWN_SCENE_ID}}),
+                encoding="utf-8",
+            )
+            self.assertIsNone(
+                get_login_scene_override(
+                    "gt110_tester", None, None, standalone_path
+                )
+            )
+
+    def test_gm_gated_path_still_wins_when_both_paths_have_an_entry(self):
+        # Not a load-bearing claim (either path alone is documented as
+        # sufficient) but pins current behavior: the GM-gated branch is
+        # checked first, so an account present in both configs still gets a
+        # deterministic single scene_id, not an error from two answers.
+        # DELIBERATELY uses two DIFFERENT scene_ids for the gated vs.
+        # standalone entries -- pf-adversary (round ccc9wj) found that the
+        # original version of this test used the same scene_id for both,
+        # which cannot distinguish "gated path answered" from "standalone
+        # path answered" and would still pass a broken implementation that
+        # checks standalone first.
+        GATED_SCENE_ID = 2  # Prison Exile Island
+        STANDALONE_SCENE_ID = 1  # Port Royal -- must NOT be what this returns
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            gm_accounts_path = tmp / "gm_accounts.json"
+            gm_accounts_path.write_text(
+                json.dumps({"gm_accounts": ["localtest"]}), encoding="utf-8"
+            )
+            gm_login_scene_path = tmp / "gm_login_scene.json"
+            gm_login_scene_path.write_text(
+                json.dumps({"gm_login_scene": {"localtest": GATED_SCENE_ID}}),
+                encoding="utf-8",
+            )
+            standalone_path = tmp / "gm_login_scene_standalone.json"
+            standalone_path.write_text(
+                json.dumps(
+                    {"standalone_login_scene": {"localtest": STANDALONE_SCENE_ID}}
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                get_login_scene_override(
+                    "localtest",
+                    gm_accounts_path,
+                    gm_login_scene_path,
+                    standalone_path,
+                ),
+                GATED_SCENE_ID,
+            )
+
+    def test_standalone_malformed_config_raises_value_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "gm_login_scene_standalone.json"
+            path.write_text(
+                json.dumps({"standalone_login_scene": [1, 2]}), encoding="utf-8"
+            )
+            with self.assertRaises(ValueError):
+                load_standalone_login_scene_overrides(path)
+
+    def test_standalone_unknown_scene_id_raises_value_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "gm_login_scene_standalone.json"
+            path.write_text(
+                json.dumps(
+                    {"standalone_login_scene": {"gt110_tester": UNKNOWN_SCENE_ID}}
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaises(ValueError):
+                load_standalone_login_scene_overrides(path)
 
 
 if __name__ == "__main__":
