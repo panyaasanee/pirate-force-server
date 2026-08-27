@@ -171,6 +171,16 @@ FACTION_TAG = 0x14
 FACTION_WIDTH = 4
 FACTION_SPLICE_BYTES = 1 + FACTION_WIDTH
 
+# BasicAttr mask bit and wire tag for level (u16 at object+0x5E), proven for
+# an NPCAttr body specifically by RE-117 (not just the owner's PC-actor
+# probe): NPCAttr serializer 0x466EB0 calls common BasicAttr serializer
+# 0x4656F0 before its own derived fields, so this bit/offset/tag applies to
+# the same object here.
+BASIC_BIT_LEVEL = 0x0002
+LEVEL_TAG = 0x12
+LEVEL_WIDTH = 2
+LEVEL_SPLICE_BYTES = 1 + LEVEL_WIDTH
+
 # The frozen constants the derived columns are checked against.
 CONTROL_PLACEMENT_INDEX = 30
 CONTROL_TEMPLATE_ID = 31
@@ -736,41 +746,48 @@ def hostile_npc_attr(
     faction: int = FIELD_MOB_FACTION,
     with_name: bool = True,
 ) -> bytes:
-    """The frozen named body plus its own mined speed, plus EXACTLY the five
-    faction bytes.
+    """The frozen named body plus its own mined speed and level, plus
+    EXACTLY the faction bytes.
 
-    The result is refused unless it equals ``legacy.make_npc_attr(...)`` for the
-    same monster with the BasicAttr mask widened by exactly bit 0x0400 and the
-    tagged faction spliced in at ascending-mask-bit order.  Any other delta
-    means the field landed somewhere else and no bytes come back.
+    The result is refused unless it equals ``legacy.make_npc_attr(...)`` for
+    the same monster with the BasicAttr mask widened by exactly bits
+    0x0002 (level) and 0x0400 (faction), each tagged value spliced in at its
+    own ascending-mask-bit position.  Any other delta means a field landed
+    somewhere else and no bytes come back.
 
-    ADDED this round (COO-DECISION 2026-08-28T01:46+07:00, answering
-    PANYA-DECISION 2026-08-28T01:25+07:00 item 3): ``movement_speed`` is now
-    always passed as ``float(mob.speed_walk)`` -- unlike every field named in
-    that decision's table, this is NOT a leap off the owner's PC-actor probe.
-    ``legacy.make_npc_attr`` has carried this exact parameter, at this exact
-    BasicAttr bit (0x0040, float at +0x54), with its own independent static RE
-    chain (0x45C103 reads MOBS+0x3C / n_SPEED_WALK; 0x464960 the setter;
-    0x45D2EA/0x484580 the movement-control consumer) since before this module
-    existed -- see that function's own docstring.  ``mob.speed_walk`` is
-    ``field_mob_tables``'s own mined MOBS column for this exact monster, not a
-    guess (every row mined so far in both live scenes is 100 -- see
+    ``movement_speed`` (COO-DECISION 2026-08-28T01:46+07:00, answering
+    PANYA-DECISION 2026-08-28T01:25+07:00 item 3) is always passed as
+    ``float(mob.speed_walk)``.  ``legacy.make_npc_attr`` has carried this
+    exact parameter, at this exact BasicAttr bit (0x0040, float at +0x54),
+    with its own independent static RE chain (0x45C103 reads MOBS+0x3C /
+    n_SPEED_WALK; 0x464960 the setter; 0x45D2EA/0x484580 the
+    movement-control consumer) since before this module existed -- see that
+    function's own docstring.  ``mob.speed_walk`` is ``field_mob_tables``'s
+    own mined MOBS column for this exact monster, not a guess (every row
+    mined so far in both live scenes is 100 -- see
     ``tests/test_field_mobs.py``'s
     ``test_the_speed_field_carries_the_mined_value_not_the_owners_pc_guess``).
-    This is therefore a mechanical pass-through of an already-proven parameter
-    fed with already-mined data,
-    not new byte-layout code.  What did NOT get the same treatment, and why,
-    is in ``pf_bridge/CLIENT_RE_QUEUE.md`` (see the round's PR body): every
-    other x-numbered field in that table either has no NPCAttr/BasicAttr bit
-    at all in this codebase (class id, epithet, sub-class, SP, STR/CON/DEX/
-    INT/PER, EXP, money, guild, CP, alias -- the whole ``Actor`` b0-b41 block
-    the table names) or, for level (Basic bit 0x0002, mined and available as
-    ``mob.level``), has no static RE chain proving that bit for AN NPCAttr
-    body specifically -- only the owner's screen probe on a PC ActorAttr,
-    which is exactly the single most important open question this round was
-    told to resolve before writing code, and it resolves negative for that
-    field: inventing the splice would be exactly the kind of byte this
-    project's evidence rule forbids.
+
+    ``level`` (RE-117, this round) is spliced in the same way: bit 0x0002,
+    u16 tag 0x12, at the position right after the mask value and the
+    optional name -- computed here, not written into ``legacy.py``, because
+    that module belongs to chief.  RE-117 traced NPCAttr serializer
+    ``0x00466EB0`` calling common BasicAttr serializer ``0x004656F0`` before
+    NPC-only fields, so the bit/offset/tag the owner's PC-actor probe found
+    for this base object applies to an NPCAttr body too -- not just a leap
+    off that probe.  ``mob.level`` is ``field_mob_tables``'s mined
+    ``MOBS.n_LEVEL_MIN``/``n_LEVEL_MAX`` column, never a guess.  MP
+    current/max are proven the same base-object bits (0x0010/0x0020) by
+    RE-117 but are NOT added here: the mined gamedata this project has has
+    no MP source for a mob/NPC, and inventing one would violate the
+    two-layer evidence rule -- see RE-117's own nonclaims.
+
+    What did NOT get either treatment, and why, is in
+    ``pf_bridge/CLIENT_RE_QUEUE.md`` (see the round's PR body): every other
+    x-numbered field in the owner's completeness table either has no
+    NPCAttr/BasicAttr bit at all in this codebase (class id, epithet,
+    sub-class, SP, STR/CON/DEX/INT/PER, EXP, money, guild, CP, alias -- the
+    whole ``Actor`` b0-b41 block the table names) or is MP, covered above.
     """
     if type(mob) is not FieldMob:
         raise FieldMobContractError("mob must be the typed FieldMob record")
@@ -818,14 +835,28 @@ def hostile_npc_attr(
             "frozen make_npc_attr already sets bit 0x0400; the splice below "
             "would double the field"
         )
+    if mask & BASIC_BIT_LEVEL:
+        raise FieldMobContractError(
+            "frozen make_npc_attr already sets bit 0x0002; the level splice "
+            "below would double the field"
+        )
+    name_bytes = bytes(legacy.wstr_tag(name)) if name else b""
+    level_at = mask_at + 2 + len(name_bytes)
+    if level_at > offset:
+        raise FieldMobContractError(
+            "level splice point falls after the faction splice point; the "
+            "frozen body layout moved and this composer needs re-deriving"
+        )
     composed = (
         baseline[:mask_at]
-        + int(mask | BASIC_BIT_FACTION).to_bytes(2, "little")
-        + baseline[mask_at + 2:offset]
+        + int(mask | BASIC_BIT_FACTION | BASIC_BIT_LEVEL).to_bytes(2, "little")
+        + baseline[mask_at + 2:level_at]
+        + bytes(legacy.u16tag(LEVEL_TAG, mob.level))
+        + baseline[level_at:offset]
         + bytes(legacy.u32tag(FACTION_TAG, faction))
         + baseline[offset:]
     )
-    if len(composed) != len(baseline) + FACTION_SPLICE_BYTES:
+    if len(composed) != len(baseline) + FACTION_SPLICE_BYTES + LEVEL_SPLICE_BYTES:
         raise FieldMobContractError("hostile NPCAttr length drift")
     return composed
 

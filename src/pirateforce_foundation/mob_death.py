@@ -417,9 +417,19 @@ WIDENING_RULING_SCENES: dict[str, str] = {
 #   legacy.make_npc_attr cannot emit it: V62 chose to omit bit 0x0080 entirely.
 # ---------------------------------------------------------------------------
 BASIC_BIT_NAME = 0x0001
+# ADDED this round (RE-117): field_mobs.hostile_npc_attr now always sends
+# the mined MOBS level, bit 0x0002, u16 tag 0x12 @ +0x5E -- proven for an
+# NPCAttr body by RE-117 (NPCAttr serializer 0x00466EB0 calls common
+# BasicAttr serializer 0x004656F0 before its own derived fields, so the base
+# object's bits apply here too, not just to the owner's PC-actor probe).
+# Same ascending-mask-bit slot rule as movement speed below: this composer
+# must widen by the same bit in the same slot (after the optional name,
+# before current HP) or its own self-check (the timerless projection must
+# reproduce field_mobs.hostile_npc_attr byte for byte) fails closed.
+BASIC_BIT_LEVEL = 0x0002               # u16 tag 0x12 @ +0x5E
 BASIC_BIT_CURRENT_HP = 0x0004          # u32 tag 0x14 @ +0x44
 BASIC_BIT_MAX_HP = 0x0008              # u32 tag 0x14 @ +0x48
-# ADDED this round (COO-DECISION 2026-08-28T01:46+07:00): field_mobs.
+# ADDED (COO-DECISION 2026-08-28T01:46+07:00): field_mobs.
 # hostile_npc_attr now always sends the mined MOBS speed via
 # legacy.make_npc_attr's own movement_speed parameter, bit 0x0040, f32 tag
 # 0x2A @ +0x54 -- the same bit that function's own docstring already RE's
@@ -927,7 +937,8 @@ def _compose_body(
     ``field_mobs.hostile_npc_attr`` byte for byte.
     """
     basic_mask = (
-        BASIC_BIT_CURRENT_HP | BASIC_BIT_MAX_HP | BASIC_BIT_MOVEMENT_SPEED
+        BASIC_BIT_LEVEL | BASIC_BIT_CURRENT_HP | BASIC_BIT_MAX_HP
+        | BASIC_BIT_MOVEMENT_SPEED
         | BASIC_BIT_SCENE_ID | BASIC_BIT_SCENE_SEQ | BASIC_BIT_FACTION
     )
     if with_name and mob.display_name:
@@ -944,6 +955,7 @@ def _compose_body(
     # 0x4656F0 writes and its reader expects.
     if basic_mask & BASIC_BIT_NAME:
         out += legacy.wstr_tag(mob.display_name)               # 0x0001
+    out += legacy.u16tag(BASIC_ATTR_MASK_TAG, mob.level)        # 0x0002
     out += legacy.u32tag(U32_TAG, current_hp)                  # 0x0004
     out += legacy.u32tag(U32_TAG, mob.max_hp)                  # 0x0008
     out += legacy.f32tag(float(mob.speed_walk))                # 0x0040
@@ -1114,6 +1126,10 @@ def _timer_offset(
     ADDED this round: the speed field (bit 0x0040) sits between max HP and
     the death timer in ascending-mask-bit order, so its bytes must be
     accounted for here too -- see ``BASIC_BIT_MOVEMENT_SPEED``.
+
+    ADDED this round (RE-117): the level field (bit 0x0002) sits between the
+    optional name and current HP in ascending-mask-bit order, so its bytes
+    must be accounted for here too -- see ``BASIC_BIT_LEVEL``.
     """
     head = (
         bytes(legacy.u8tag(DB_ATTRIBUTE_MASK_TAG, DB_ATTRIBUTE_IDENTITY_MASK))
@@ -1123,15 +1139,16 @@ def _timer_offset(
         bytes(legacy.wstr_tag(mob.display_name))
         if with_name and mob.display_name else b""
     )
+    level = bytes(legacy.u16tag(BASIC_ATTR_MASK_TAG, mob.level))
     speed = bytes(legacy.f32tag(float(mob.speed_walk)))
     upto = (
-        len(head) + 3 + len(name)
+        len(head) + 3 + len(name) + len(level)
         + len(bytes(legacy.u32tag(U32_TAG, current_hp)))
         + len(bytes(legacy.u32tag(U32_TAG, mob.max_hp)))
         + len(speed)
     )
     expected = (
-        head + timerless[len(head):len(head) + 3] + name
+        head + timerless[len(head):len(head) + 3] + name + level
         + bytes(legacy.u32tag(U32_TAG, current_hp))
         + bytes(legacy.u32tag(U32_TAG, mob.max_hp))
         + speed
