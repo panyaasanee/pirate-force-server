@@ -909,6 +909,29 @@ class DamageHpLinkDispatchTests(unittest.TestCase):
         self.assertEqual(state.damage_hp_link_sweep_count, 0)
         self.assertNotIn(SWEEP_EVENT, state.events)
 
+    # ----- pf-adversary (round 3t3klq): the flagless-boot player-faction1 --
+    # ----- wiring must not leak into an UNRELATED opt-in scenario ---------
+
+    def test_an_active_damage_hp_link_scenario_gets_no_player_faction1(self):
+        # PANYA-CHASE 20260827_0915 item (1).2 wired basic_faction=1 onto
+        # every "no opt-in lane selected" StartGame response.  pf-adversary
+        # caught a real scoping bug where the first draft keyed that off
+        # "not load_only" instead of runtime.py's own active_lanes
+        # frozenset, which let it leak into every OTHER unrelated opt-in
+        # hypothesis scenario too -- this lane (damage_hp_link) is one of
+        # the ~15 that reproduced it.  This session has
+        # damage_hp_link_hypothesis_scenario active, so it must be treated
+        # as an opt-in lane and get NEITHER the new console token NOR the
+        # extra wire tag: an unrequested byte on a controlled experiment's
+        # own StartGame response would silently confound whatever that
+        # experiment is measuring.
+        state = self._state("nhpl_no_leak")
+        self.assertNotIn("player_faction1_start_game_sent", state.events)
+        self.assertFalse(any(
+            event.startswith("player_faction1_")
+            for event in state.events
+        ))
+
 
 class HeadlessReplayToolTests(unittest.TestCase):
     """The tool is run as a real subprocess, which is the only way to prove
