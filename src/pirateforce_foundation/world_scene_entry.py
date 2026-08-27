@@ -171,10 +171,17 @@ RELOCATION_REASONS = (
 REFUSED_SCENE_NOT_PINNED = "scene_not_pinned"
 REFUSED_SCENE_ID_OUT_OF_RANGE = "scene_id_out_of_range"
 REFUSED_NO_PINNED_SPAWN = "scene_has_no_pinned_spawn"
+# Round 0z3kjx, adversary-flagged.  A destination whose pin sets
+# login_entry_allowed=False may only be resolved with via_login=False (a
+# caller that is NOT reading a character's persisted row) - see resolve_entry
+# and world_scene_travel's DEFAULT_LOGIN_ENTRY_ALLOWED comment for the full
+# story.
+REFUSED_NOT_ALLOWED_AT_LOGIN = "scene_not_allowed_at_login"
 REFUSAL_REASONS = (
     REFUSED_SCENE_NOT_PINNED,
     REFUSED_SCENE_ID_OUT_OF_RANGE,
     REFUSED_NO_PINNED_SPAWN,
+    REFUSED_NOT_ALLOWED_AT_LOGIN,
 )
 
 
@@ -311,6 +318,7 @@ def resolve_entry(
     *,
     registry: SceneRegistry | None = None,
     emit=print,
+    via_login: bool = True,
 ) -> SceneEntry:
     """Resolve one character's stored row into the arrival the boot will send.
 
@@ -329,6 +337,25 @@ def resolve_entry(
     pin to the moment the server starts, where somebody is watching, instead
     of the moment a player logs in.
 
+    ``via_login`` DEFAULTS TO THE SAFE ANSWER ON PURPOSE.  This is the same
+    call ``runtime.py``'s login path makes with whatever ``scene_id`` is
+    sitting in a character's persisted row, so the default has to be the one
+    that keeps that path fail-closed without runtime.py ever having to say so
+    explicitly - it is the chief's file and this lane does not add a kwarg to
+    its call site.  A destination pinned with ``login_entry_allowed=False``
+    (today: scene 17 only, added round 0z3kjx after the spawn above stopped
+    being null and an adversary pass noticed the free refusal that used to
+    protect it - ``REFUSED_NO_PINNED_SPAWN`` - was gone) raises
+    ``SceneEntryRefused(REFUSED_NOT_ALLOWED_AT_LOGIN, ...)`` here UNLESS the
+    caller explicitly passes ``via_login=False``, meaning "this call is not
+    reading a character's own persisted position row" - which is exactly what
+    ``columbus_quest_dispatch.resolve_columbus_arrival``'s synthetic call is,
+    and the only caller in this tree that passes it today.  Passing
+    ``via_login=False`` does not weaken the check for any other destination:
+    every pre-existing pin (1, 2, 278, 997) has no ``login_entry_allowed``
+    field at all and defaults True, so this changes nothing for them either
+    way.
+
     Refusals: a row this tree cannot compose an arrival for raises
     ``SceneEntryRefused`` - read that class before deciding what to do with
     it, because the existing handler in ``runtime.py`` would have swallowed the
@@ -338,6 +365,8 @@ def resolve_entry(
     row = _require_position(stored, "stored position")
     if not callable(emit):
         raise ValueError("emit must be callable")
+    if type(via_login) is not bool:
+        raise ValueError("via_login must be a bool")
 
     if registry is None:
         # Outside the try below on purpose: a missing, unreadable or malformed
@@ -358,6 +387,14 @@ def resolve_entry(
             f"stored row names scene {row.scene_id!r}, which is not a value "
             f"the scene field can carry ({error})",
         ) from error
+
+    if via_login and not target.login_entry_allowed:
+        raise SceneEntryRefused(
+            REFUSED_NOT_ALLOWED_AT_LOGIN,
+            f"scene {target.n_id} is pinned but not allowed as a login "
+            "destination for a persisted row - only a non-login caller "
+            "that passes via_login=False may resolve it",
+        )
 
     if target.n_id != HOME_SCENE_ID and target.spawn is None:
         raise SceneEntryRefused(

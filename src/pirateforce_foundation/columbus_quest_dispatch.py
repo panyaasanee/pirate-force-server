@@ -270,10 +270,25 @@ def resolve_columbus_arrival(*, registry=None, emit=print):
     if scene 17 ever gains ground evidence, at which point rule 2 of
     ``resolve_entry``'s own docstring decides what happens to it, not this
     call site.
+
+    ROUND 0z3kjx ADVERSARY FIX, READ ALONGSIDE THE ABOVE.  Making
+    ``resolve_entry`` succeed for scene 17 also made it succeed for ANY
+    caller of ``resolve_entry`` - including ``runtime.py``'s login path,
+    which calls the same function with whatever ``scene_id`` a character's
+    persisted row happens to carry, and which nothing in this schema stops
+    from ever being 17.  The registry's ``login_entry_allowed: false`` for
+    scene 17 and the ``via_login=False`` passed below together keep that
+    login path refusing a stored scene-17 row exactly as before, while this
+    function - the one place that is supposed to resolve the decree - still
+    can.  See ``world_scene_entry.resolve_entry``'s own docstring for the
+    full mechanism.  ``via_login=False`` is safe here specifically because
+    ``synthetic_stored`` above is built fresh every call and never loaded
+    from a database - this is the one caller in this tree entitled to
+    resolve scene 17 despite the registry's login restriction on it.
     """
     synthetic_stored = Position(COLUMBUS_DEST_SCENE_ID, 0, 0.0, 0.0, 0.0, 0.0)
     return world_scene_entry.resolve_entry(
-        synthetic_stored, registry=registry, emit=emit,
+        synthetic_stored, registry=registry, emit=emit, via_login=False,
     )
 
 

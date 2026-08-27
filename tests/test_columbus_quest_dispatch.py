@@ -148,6 +148,24 @@ class ResolveColumbusArrivalTests(unittest.TestCase):
             lines,
         )
 
+    def test_calls_resolve_entry_with_via_login_false(self):
+        """Round 0z3kjx adversary fix: this is the ONE caller in this tree
+        entitled to resolve scene 17 despite the registry's new
+        login_entry_allowed=False for it, and it must say so explicitly
+        rather than relying on resolve_entry's default - the default has to
+        stay the login-safe one for runtime.py's own unmodified call site.
+        See tests/test_world_scene_entry.py's LoginEntryRestrictionTests for
+        the login-path regression this keyword exists to fix."""
+        with mock.patch.object(
+            columbus_quest_dispatch.world_scene_entry, "resolve_entry",
+            wraps=columbus_quest_dispatch.world_scene_entry.resolve_entry,
+        ) as spy:
+            columbus_quest_dispatch.resolve_columbus_arrival(
+                emit=lambda line: None,
+            )
+        self.assertEqual(spy.call_count, 1)
+        self.assertIs(spy.call_args.kwargs.get("via_login"), False)
+
 
 class DispatchColumbusQuest3021Tests(unittest.TestCase):
     def test_succeeds_today_without_a_vehicle_bind(self):
