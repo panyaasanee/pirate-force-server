@@ -207,9 +207,14 @@ def _require_arg_int(value: str, label: str) -> int:
     `_require_int` already guarantees this for its own input path, so this is
     a separate check for callers that skip `parse_gm_command` entirely.
     """
+    # Catches Exception broadly, not just TypeError/ValueError: a hand-built
+    # element whose __int__ raises something else (AttributeError, KeyError,
+    # a custom exception) would otherwise leak past this function's own
+    # promised error type -- the same class of gap warp_executor.py's
+    # identical helper closed.
     try:
         return int(value)
-    except (TypeError, ValueError) as exc:
+    except Exception as exc:
         raise GmCommandArgsError(f"{label} must be an integer, got {value!r}") from exc
 
 
@@ -257,8 +262,6 @@ def log_gm_command(
     if not isinstance(account_name, str) or not account_name:
         raise ValueError("account_name must be a non-empty str")
     args = _require_args_tuple(command.args, min_length=0)
-    path = Path(log_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
     ts = now_ts if now_ts is not None else time.time()
     record = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts)),
@@ -269,6 +272,14 @@ def log_gm_command(
         "executed": False,
         "note": "GM-003 v1: parsed and logged only, no gameplay effect applied",
     }
+    # Serialize before touching the filesystem: a non-serializable args
+    # element (shape-valid tuple, e.g. a custom object with no JSON mapping)
+    # must not create the log directory/file and then raise -- that would
+    # violate this function's own fail-closed "writes nothing on rejection"
+    # contract for a failure mode one step past the shape check.
+    line = json.dumps(record, ensure_ascii=False) + "\n"
+    path = Path(log_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+        handle.write(line)
     return path

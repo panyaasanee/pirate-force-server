@@ -1017,3 +1017,40 @@ against, they just have not been run through this codec yet. That check
 (and everything else in this list) is attended-test / capture territory
 (GM-002), not a new RE ticket, until this lane has a build that can
 generate or observe one of these messages live.
+
+## Modules delivered (round `w8t8vi`, one level deeper than the args-shape hardening)
+
+`CORE-REQUEST-011`/`012` stay blocked (unchanged), and `GT-103`/`GT-107-R3`
+stay `[PENDING]` on an attended runner -- nothing new to report on either.
+This round instead ran the lane's own recurring `pf-adversary` sweep of
+`gm/` and found a real gap in a bug class the lane's docstrings otherwise
+describe as closed: every prior round hardened the `GmCommand.args`
+*container* shape (`type(args) is not tuple`, broad `except Exception`), but
+three call sites still only guarded the individual scalar *conversion* one
+step deeper with `except (TypeError, ValueError)`, which a hand-built
+element's `__int__`/`__float__` can raise past (an `AttributeError`, a
+`KeyError`, anything else) -- exactly the same "hand this module a
+`GmCommand` regardless of source" threat model, one field further in.
+
+- **`gm/warp_executor.py`** `_require_int`/`_require_finite_float`: now
+  catch `Exception` broadly, matching the container-shape guard already
+  above them in the same module.
+- **`gm/commands.py`** `_require_arg_int` (used by `describe_warp_target`/
+  `describe_npc_target`): same fix, same reasoning.
+- **`gm/commands.py`** `log_gm_command`: a shape-valid `args` tuple holding
+  a JSON-non-serializable element used to create the log directory and open
+  the file for append *before* `json.dumps` ran, so a rejected call still
+  left an empty file/directory behind -- violating the sibling
+  shape-rejection test's own "writes nothing on rejection" contract for
+  this different failure mode. `json.dumps` now runs before any filesystem
+  mutation; only a successfully serialized line reaches `mkdir`/`open`.
+- `tests/test_gm_*.py`: 240/240 (up from 235, five new regression tests: two
+  in `test_gm_warp_executor.py`, three in `test_gm_commands.py`). No
+  production behavior changed for any input that was already valid -- these
+  three call sites still return the same value for every input that used to
+  succeed; only the exception type/no-write guarantee changed for inputs
+  that were always supposed to be refused.
+
+nonclaim: headless-only round, no code outside `gm/`/`tests/gm_*` touched,
+no frame fired at a real client, no `runtime.py` edit. Full detail:
+`pf_bridge/rounds/GM_20260828_0127_args-shape-hardening-one-level-deeper.md`.

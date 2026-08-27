@@ -200,6 +200,29 @@ class ArgsShapeGuardTests(unittest.TestCase):
         with self.assertRaises(GmCommandArgsError):
             describe_npc_target(cmd)
 
+    def test_describe_warp_target_rejects_a_scene_id_whose_dunder_int_raises_a_non_value_error(self):
+        # pf-adversary (round w8t8vi): _require_arg_int only caught
+        # (TypeError, ValueError), same gap as warp_executor.py's identical
+        # helper before this round -- a hand-built element whose __int__
+        # raises something else leaked a bare exception past this function's
+        # own promised GmCommandArgsError-only contract.
+        class EvilInt:
+            def __int__(self):
+                raise AttributeError("boom")
+
+        cmd = GmCommand("warp", (EvilInt(),), "warp x")
+        with self.assertRaises(GmCommandArgsError):
+            describe_warp_target(cmd)
+
+    def test_describe_npc_target_rejects_a_mob_id_whose_dunder_int_raises_a_non_value_error(self):
+        class EvilInt:
+            def __int__(self):
+                raise AttributeError("boom")
+
+        cmd = GmCommand("npc", ("on", EvilInt()), "npc on x")
+        with self.assertRaises(GmCommandArgsError):
+            describe_npc_target(cmd)
+
     def test_log_gm_command_rejects_non_tuple_args_and_writes_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
             log_path = Path(tmp) / "gm_command_log.ndjson"
@@ -219,6 +242,26 @@ class ArgsShapeGuardTests(unittest.TestCase):
             log_gm_command(cmd, "panya", log_path=log_path, now_ts=0)
             record = json.loads(log_path.read_text(encoding="utf-8").splitlines()[0])
             self.assertEqual(record["args"], ["1", "2", "3"])
+
+    def test_log_gm_command_rejects_a_non_serializable_arg_and_writes_nothing(self):
+        # pf-adversary (round w8t8vi): args is shape-valid (a real tuple) but
+        # holds an element json.dumps cannot serialize. The old code built
+        # path.parent.mkdir(...) and opened the file for append BEFORE calling
+        # json.dumps -- so a rejected call still created the log directory
+        # and an empty file, violating the sibling shape-rejection test's
+        # "writes nothing on rejection" contract for this different failure
+        # mode. json.dumps must now run before any filesystem mutation.
+        class Weird:
+            def __repr__(self):
+                return "<Weird>"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = Path(tmp) / "sub" / "gm_command_log.ndjson"
+            cmd = GmCommand("warp", (Weird(),), "warp x")
+            with self.assertRaises(TypeError):
+                log_gm_command(cmd, "panya", log_path=log_path, now_ts=0)
+            self.assertFalse(log_path.exists())
+            self.assertFalse(log_path.parent.exists())
 
 
 class LogGmCommandTests(unittest.TestCase):
