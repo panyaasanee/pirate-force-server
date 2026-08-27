@@ -252,12 +252,14 @@ class MobDeathTests(unittest.TestCase):
         live_mask = basic_mask_of(self.legacy, live, self.mob.actor_identity)
         corpse_mask = basic_mask_of(
             self.legacy, corpse, self.mob.actor_identity)
-        # ADDED this round (COO-DECISION 2026-08-28T01:46+07:00): both masks
-        # now also carry bit 0x0040 (mined speed), always on -- see
+        # ADDED (COO-DECISION 2026-08-28T01:46+07:00): both masks also carry
+        # bit 0x0040 (mined speed), always on -- see
         # field_mobs.hostile_npc_attr / mob_death.BASIC_BIT_MOVEMENT_SPEED.
-        self.assertEqual(live_mask, 0x074D)
+        # ADDED this round (RE-117): both masks also carry bit 0x0002 (mined
+        # level), always on -- see mob_death.BASIC_BIT_LEVEL.
+        self.assertEqual(live_mask, 0x074F)
         self.assertEqual(corpse_mask, live_mask | 0x0080)
-        self.assertEqual(corpse_mask, 0x07CD)
+        self.assertEqual(corpse_mask, 0x07CF)
         # The five bytes are the tagged f32 and they sit in EXACTLY one place:
         # after speed, before the scene id.  Built as an insertion at a
         # computed offset rather than searched for, so this cannot pass by
@@ -265,12 +267,14 @@ class MobDeathTests(unittest.TestCase):
         timer_bytes = bytes(self.legacy.f32tag(DEAD_TIMER_SECONDS))
         self.assertEqual(len(timer_bytes), 5)
         self.assertEqual(timer_bytes[0], mob_death.DEATH_TIMER_TAG)
+        level_bytes = bytes(self.legacy.u16tag(0x12, self.mob.level))
         speed_bytes = bytes(self.legacy.f32tag(float(self.mob.speed_walk)))
         prefix = (
             bytes(self.legacy.u8tag(0x0B, 1))
             + bytes(self.legacy.qwordtag(0x32, self.mob.actor_identity))
             + bytes(self.legacy.u16tag(0x12, live_mask))
             + bytes(self.legacy.wstr_tag(self.mob.display_name))
+            + level_bytes                                       # RE-117
             + bytes(self.legacy.u32tag(0x14, self.mob.max_hp))   # current hp
             + bytes(self.legacy.u32tag(0x14, self.mob.max_hp))   # max hp
             + speed_bytes
@@ -282,6 +286,7 @@ class MobDeathTests(unittest.TestCase):
             + bytes(self.legacy.qwordtag(0x32, self.mob.actor_identity))
             + bytes(self.legacy.u16tag(0x12, corpse_mask))
             + bytes(self.legacy.wstr_tag(self.mob.display_name))
+            + level_bytes                                        # RE-117
             + bytes(self.legacy.u32tag(0x14, 0))                 # current hp
             + bytes(self.legacy.u32tag(0x14, self.mob.max_hp))   # max hp
             + speed_bytes
@@ -418,20 +423,24 @@ class MobDeathTests(unittest.TestCase):
         )
         self.assertEqual(stand_in.actor_identity, actor.actor_identity)
         # the probe lane's body carries no faction field AND no speed field
-        # (COO-DECISION 2026-08-28T01:46+07:00 added speed to THIS module's
-        # composer only, via mob_death.BASIC_BIT_MOVEMENT_SPEED -- the probe
-        # lane above is a separate, untouched module with no speed_walk
-        # concept on its probe object), so the comparison inserts BOTH: the
-        # tagged speed f32 (bit 0x0040, ascending order right after max HP)
-        # and the tagged faction u32 (bit 0x0400, at the end of the BasicAttr
-        # block) -- exactly the way field_mobs/mob_death splice each.  A
-        # drift in either lane breaks this.
+        # AND no level field (COO-DECISION 2026-08-28T01:46+07:00 added speed
+        # to THIS module's composer only, via
+        # mob_death.BASIC_BIT_MOVEMENT_SPEED; RE-117 added level the same
+        # way, via mob_death.BASIC_BIT_LEVEL -- the probe lane above is a
+        # separate, untouched module with no speed_walk/level concept on its
+        # probe object), so the comparison inserts ALL THREE: the tagged
+        # level u16 (bit 0x0002, ascending order right after the mask, no
+        # name here), the tagged speed f32 (bit 0x0040, ascending order right
+        # after max HP), and the tagged faction u32 (bit 0x0400, at the end
+        # of the BasicAttr block) -- exactly the way field_mobs/mob_death
+        # splice each.  A drift in any of the three breaks this.
         tail = (
             bytes(self.legacy.u8tag(0x0B, 0x01 | 0x04))
             + bytes(self.legacy.u16tag(0x12, actor.template_id))
             + bytes(self.legacy.wstr_tag(actor.visual_preset))
         )
         mask_at = 11 + 1
+        level_bytes = bytes(self.legacy.u16tag(0x12, stand_in.level))
         speed_bytes = bytes(self.legacy.f32tag(float(stand_in.speed_walk)))
         hp_pair_len = (
             len(bytes(self.legacy.u32tag(
@@ -454,7 +463,9 @@ class MobDeathTests(unittest.TestCase):
                 + int(
                     theirs_mask | field_mobs.BASIC_BIT_FACTION
                     | mob_death.BASIC_BIT_MOVEMENT_SPEED
+                    | mob_death.BASIC_BIT_LEVEL
                 ).to_bytes(2, "little")
+                + level_bytes
                 + theirs[mask_at + 2:speed_at]
                 + speed_bytes
                 + theirs[speed_at:splice_at]
@@ -470,7 +481,7 @@ class MobDeathTests(unittest.TestCase):
             self.assertEqual(ours, expected)
             self.assertEqual(
                 basic_mask_of(self.legacy, ours, actor.actor_identity),
-                0x07CC)
+                0x07CE)
 
     # -- the kill ---------------------------------------------------------
 
@@ -1642,8 +1653,9 @@ class MobDeathTests(unittest.TestCase):
             committed["selection"], "none_default_behaviour_no_scenario_flag")
         self.assertEqual(committed["hp_when_dead"], 0)
         # 0x078D + bit 0x0040 (mined speed, always on since COO-DECISION
-        # 2026-08-28T01:46+07:00) = 0x07CD.
-        self.assertEqual(committed["basic_mask_corpse"], "0x07CD")
+        # 2026-08-28T01:46+07:00) + bit 0x0002 (mined level, always on since
+        # RE-117, this round) = 0x07CF.
+        self.assertEqual(committed["basic_mask_corpse"], "0x07CF")
         self.assertTrue(committed["hold_ms_is_ours"])
         self.assertGreaterEqual(len(committed["nonclaims"]), 6)
 

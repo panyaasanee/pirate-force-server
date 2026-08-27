@@ -318,11 +318,13 @@ class DiagObjectsTests(unittest.TestCase):
         )
         d0_npc_attr = field_mobs.hostile_npc_attr(self.legacy, d0.mob)
         # d0's spliced body must differ from d3's unspliced body by exactly
-        # the widened mask (2 bytes) plus the 5-byte tagged faction field;
-        # nothing else on either side is allowed to move.
+        # the widened mask (2 bytes) plus the 5-byte tagged faction field and
+        # the 3-byte tagged level field (RE-117, this round); nothing else on
+        # either side is allowed to move.
         self.assertEqual(
             len(d0_npc_attr),
-            len(d3_npc_attr) + field_mobs.FACTION_SPLICE_BYTES)
+            len(d3_npc_attr)
+            + field_mobs.FACTION_SPLICE_BYTES + field_mobs.LEVEL_SPLICE_BYTES)
         mask_at = len(
             bytes(self.legacy.u8tag(0x0B, 1))
             + bytes(self.legacy.qwordtag(0x32, d0.mob.actor_identity))
@@ -330,12 +332,16 @@ class DiagObjectsTests(unittest.TestCase):
         self.assertEqual(d0_npc_attr[:mask_at], d3_npc_attr[:mask_at])
         d0_mask = int.from_bytes(d0_npc_attr[mask_at:mask_at + 2], "little")
         d3_mask = int.from_bytes(d3_npc_attr[mask_at:mask_at + 2], "little")
-        self.assertEqual(d0_mask, d3_mask | field_mobs.BASIC_BIT_FACTION)
+        self.assertEqual(
+            d0_mask,
+            d3_mask | field_mobs.BASIC_BIT_FACTION | field_mobs.BASIC_BIT_LEVEL)
         # The NPCAttr tail (mask byte + template id [+ preset]) is fixed-shape
-        # and independent of the faction splice, per field_mobs's own
+        # and independent of either splice, per field_mobs's own
         # ascending-mask-bit ordering -- so it must be byte-identical on both
         # sides, and everything BETWEEN the BasicAttr mask and that tail must
-        # be identical too, except D0 carries five extra tagged-faction bytes.
+        # be identical too, except D0 carries three extra tagged-level bytes
+        # right after the mask and five extra tagged-faction bytes right
+        # before the tail.
         npc_mask = 0x01 | (0x04 if d0.mob.visual_preset else 0)
         tail = bytes(self.legacy.u8tag(0x0B, npc_mask)) + bytes(
             self.legacy.u16tag(0x12, d0.mob.template_id))
@@ -343,14 +349,31 @@ class DiagObjectsTests(unittest.TestCase):
             tail += bytes(self.legacy.wstr_tag(d0.mob.visual_preset))
         self.assertTrue(d0_npc_attr.endswith(tail))
         self.assertTrue(d3_npc_attr.endswith(tail))
-        splice_len = field_mobs.FACTION_SPLICE_BYTES
+        faction_len = field_mobs.FACTION_SPLICE_BYTES
+        level_len = field_mobs.LEVEL_SPLICE_BYTES
         after_mask = mask_at + 2
         d0_middle = d0_npc_attr[after_mask:len(d0_npc_attr) - len(tail)]
         d3_middle = d3_npc_attr[after_mask:len(d3_npc_attr) - len(tail)]
-        self.assertEqual(len(d0_middle), len(d3_middle) + splice_len)
-        self.assertEqual(d0_middle[:len(d3_middle)], d3_middle)
         self.assertEqual(
-            d0_middle[len(d3_middle):],
+            len(d0_middle), len(d3_middle) + faction_len + level_len)
+        # Ascending-mask-bit order puts level (0x0002) right after the
+        # optional name (0x0001) and before HP (0x0004) -- the other end of
+        # the body from faction -- so the name prefix, if any, is identical
+        # on both sides and the level bytes are inserted right after it.
+        name_len = (
+            len(bytes(self.legacy.wstr_tag(d0.mob.display_name)))
+            if d0_mask & field_mobs.BASIC_BIT_NAME else 0
+        )
+        level_bytes = bytes(
+            self.legacy.u16tag(field_mobs.LEVEL_TAG, d0.mob.level))
+        self.assertEqual(d0_middle[:name_len], d3_middle[:name_len])
+        self.assertEqual(
+            d0_middle[name_len:name_len + level_len], level_bytes)
+        self.assertEqual(
+            d0_middle[name_len + level_len:len(d3_middle) + level_len],
+            d3_middle[name_len:])
+        self.assertEqual(
+            d0_middle[len(d3_middle) + level_len:],
             bytes(self.legacy.u32tag(
                 field_mobs.FACTION_TAG, field_mobs.FIELD_MOB_FACTION)))
 

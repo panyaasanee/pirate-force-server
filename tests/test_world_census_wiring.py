@@ -145,15 +145,31 @@ GROUND_LOOT_SCENARIO = (
 #        frame=7D37FE495273276C7DFEB2D8E02F7391785F7E2EB07AE092F284D832B682A651
 #   115: pc=9C3BB2790E9B6BB7CDC61A1E366E87666755461B3BC8EE90ADE7F563E4C4FEED
 #        frame=49E4A252B6258A575079C8656DA774ACEE5E9270F405D37178F03A890A677BA7
+# AMENDMENT 2026-08-28 (RE-117, this round).  Every digest below moved a
+# FOURTH time: field_mobs.hostile_npc_attr now also always sends the mined
+# MOBS level (BasicAttr bit 0x0002, u16 tag 0x12 @ +0x5E), so every
+# full_roster_override'd identity on the wire carries 3 more extra bytes on
+# top of the existing faction+speed inserts.  Re-derived here from the real
+# dispatcher at PIN_ANCHOR, not hand-typed, same as every prior amendment.
+# The pre-this-round digests this replaces are kept as comment history:
+#
+#   3:   pc=0CF18E300AF2BC9916000A96BDE25388A183779E8CF89572BC879AD297643FEE
+#        frame=25D452BF8EA5E2E071E0DB89C3C866EAE3964AA3DE5E7A7182A92546A4BE1FAE
+#   20:  pc=7856DFD0021C927241C9B0866FD94BE5D36401DBD9729AA3EA7C59DF119454B1
+#        frame=454E5E644177217DA11769E40B8B55B2E67C0ADB58C2A426C73D7B0B9ACCA4B8
+#   60:  pc=D4F2FAB89B560F6C915B98E69B22B4825F26E789B666C4D5FC8BCF834B4BFB9A
+#        frame=D897F247C9FA4808D988BA4B453195FBB56981AE3F4053FED4C5B00019CF2424
+#   115: pc=3BE1911DD640E55BED181E92CEE8E465973ACC6049DDC69A08DBC970A1DA74E7
+#        frame=60E179E88BFE4777DC5DF96B3D3AE1850433B7C1ACEBFD172E133896B5A7F1A3
 CENSUS_WIRE_SHA256 = {
-    3: ("0CF18E300AF2BC9916000A96BDE25388A183779E8CF89572BC879AD297643FEE",
-        "25D452BF8EA5E2E071E0DB89C3C866EAE3964AA3DE5E7A7182A92546A4BE1FAE"),
-    20: ("7856DFD0021C927241C9B0866FD94BE5D36401DBD9729AA3EA7C59DF119454B1",
-         "454E5E644177217DA11769E40B8B55B2E67C0ADB58C2A426C73D7B0B9ACCA4B8"),
-    60: ("D4F2FAB89B560F6C915B98E69B22B4825F26E789B666C4D5FC8BCF834B4BFB9A",
-         "D897F247C9FA4808D988BA4B453195FBB56981AE3F4053FED4C5B00019CF2424"),
-    115: ("3BE1911DD640E55BED181E92CEE8E465973ACC6049DDC69A08DBC970A1DA74E7",
-          "60E179E88BFE4777DC5DF96B3D3AE1850433B7C1ACEBFD172E133896B5A7F1A3"),
+    3: ("C14D889362DEAE4093FBF81CFF097B6B50224A0670DD731E76F59DC44D572F3A",
+        "A4A3EEA4B648B1AC853CF82B70589D3434D9A43DD90BBF46CF7F24CFB663B706"),
+    20: ("17FA4A6AADB21A2D5C4D52354676E313C7F25D5FEBFA8BFF41492F00D4BCE8F5",
+         "CE0046A5CB4E42F67BF00DB5CED290CA90BBC7FDA1A8D083CA4573A9662EC300"),
+    60: ("4187E13AC7F6A0D77C8829689737F871D99F8B07DEECCCC0BF2BCBF27270FDE2",
+         "39A9A2A6CE88201619DE91CF4AF1986823936D1B8AFFD7C81B4F6DB584FA4C5A"),
+    115: ("2D43E2A626E48D882E5B8C76E342ED9F9D705E4948B8C7954C1B5D7EF9495DAB",
+          "6D2E776F57CC2A0B1F4ABE371B95C23B18991DAD84131FB9B5BEACAB400F3A0A"),
 }
 PIN_ANCHOR = (10.0, 20.0, 30.0)
 
@@ -434,8 +450,11 @@ class WorldCensusWiringTests(unittest.TestCase):
         # again -- field_mobs.hostile_npc_attr now also sends the mined MOBS
         # speed field (bit 0x0040) for the one field_mobs roster member
         # (P30) inside this rung, alongside its existing faction splice.
-        self.assertEqual(len(census[0][1]), 574)
-        self.assertEqual(len(census[0][2]), 587)
+        # AMENDMENT 2026-08-28 (RE-117, this round): +3 bytes more, same
+        # reason -- hostile_npc_attr now also sends the mined MOBS level
+        # field (bit 0x0002) for that same P30 member.
+        self.assertEqual(len(census[0][1]), 577)
+        self.assertEqual(len(census[0][2]), 590)
         self.assertEqual(
             state.population_indices, tuple(row[0] for row in frozen_rows),
         )
@@ -466,6 +485,12 @@ class WorldCensusWiringTests(unittest.TestCase):
         (bit 0x0040), so each of the same 13 overridden identities carries
         one MORE tagged f32 (5 bytes) on top of its existing faction splice
         -- 13 * 5 = 65 extra bytes total, re-derived here, not hand-typed.
+
+        AMENDMENT 2026-08-28 (RE-117, this round).  21072/21086 moved a
+        fourth time, to 21111/21125: hostile_npc_attr now also always sends
+        the mined MOBS level field (bit 0x0002), so each of the same 13
+        overridden identities carries one MORE tagged u16 (3 bytes) --
+        13 * 3 = 39 extra bytes total, re-derived here, not hand-typed.
         """
         state = self._state("census_once")
         self.assertEqual(len(self._census(self._step(state))), 2)
@@ -485,7 +510,7 @@ class WorldCensusWiringTests(unittest.TestCase):
             ],
         )
         self.assertEqual((generation.pc_bytes, generation.frame_bytes),
-                          (21072, 21086))
+                          (21111, 21125))
 
     def test_world_density_line_is_printed_alongside_the_census_line(self):
         """world_density is LANE-A's tenth production lane (production_allowed

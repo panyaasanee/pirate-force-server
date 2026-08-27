@@ -328,8 +328,9 @@ class MobCombatTests(unittest.TestCase):
     def test_the_bar_frame_differs_from_gt035s_by_exactly_the_faction(self):
         # D1.  Stated as a test so nobody has to take the paragraph's word for
         # it: the frame this production driver refreshes is NOT the frame the
-        # attended round watched.  It is five bytes longer and its BasicAttr
-        # mask carries bit 0x0400.
+        # attended round watched.  It is eight bytes longer (five for
+        # faction, three for RE-117's level) and its BasicAttr mask carries
+        # bits 0x0400 and 0x0002.
         hp = self.mob.max_hp - 964
         mine = field_mobs.hostile_npc_attr(
             self.legacy, self.mob, current_hp=hp)
@@ -342,7 +343,9 @@ class MobCombatTests(unittest.TestCase):
             basic_name=self.mob.display_name,
         )
         self.assertEqual(
-            len(mine), len(theirs) + field_mobs.FACTION_SPLICE_BYTES)
+            len(mine),
+            len(theirs)
+            + field_mobs.FACTION_SPLICE_BYTES + field_mobs.LEVEL_SPLICE_BYTES)
         self.assertIn(
             bytes(self.legacy.u32tag(
                 field_mobs.FACTION_TAG, field_mobs.FIELD_MOB_FACTION)),

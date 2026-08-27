@@ -2,12 +2,13 @@
 
 The load-bearing tests in this file are the first three.
 
-``test_the_hostile_body_is_the_frozen_body_plus_exactly_five_bytes`` is the one
-that matters most: the body this lane sends has never been on the wire in this
-combination (named AND hostile), so the only thing that keeps it honest is that
-it differs from the frozen, client-rendered body by exactly the GT-032 splice
-and by nothing else.  If that test starts passing for a body that is not the
-frozen body, the lane is guessing.
+``test_the_hostile_body_is_the_frozen_body_plus_exactly_eight_bytes`` is the
+one that matters most: the body this lane sends has never been on the wire in
+this combination (named AND hostile AND leveled), so the only thing that
+keeps it honest is that it differs from the frozen, client-rendered body by
+exactly the GT-032 faction splice and the RE-117 level splice, and by nothing
+else.  If that test starts passing for a body that is not the frozen body,
+the lane is guessing.
 
 ``test_the_derived_columns_re_derive_two_frozen_constants`` pins the HP
 derivation and the mined name against ``v141``'s own constants, which were
@@ -40,12 +41,15 @@ from pirateforce_foundation.population import (
 )
 from pirateforce_foundation.field_mobs import (
     BASIC_BIT_FACTION,
+    BASIC_BIT_LEVEL,
     BASIC_BIT_NAME,
     FACTION_SPLICE_BYTES,
     FACTION_TAG,
     FIELD_MOB_FACTION,
     FieldMob,
     FieldMobContractError,
+    LEVEL_SPLICE_BYTES,
+    LEVEL_TAG,
     PLAYER_PAIR_FACTION,
     assert_frozen_controls,
     build_field_mob_population,
@@ -76,7 +80,7 @@ class FieldMobTests(unittest.TestCase):
 
     # --- the three load-bearing tests ------------------------------------
 
-    def test_the_hostile_body_is_the_frozen_body_plus_exactly_five_bytes(self) -> None:
+    def test_the_hostile_body_is_the_frozen_body_plus_exactly_eight_bytes(self) -> None:
         for mob in load_roster():
             baseline = self.legacy.make_npc_attr(
                 mob.template_id, mob.actor_identity, SCENE_ID, SCENE_SEQUENCE,
@@ -85,14 +89,20 @@ class FieldMobTests(unittest.TestCase):
                 basic_name=mob.display_name,
             )
             hostile = hostile_npc_attr(self.legacy, mob)
-            self.assertEqual(len(hostile), len(baseline) + FACTION_SPLICE_BYTES)
+            self.assertEqual(
+                len(hostile),
+                len(baseline) + FACTION_SPLICE_BYTES + LEVEL_SPLICE_BYTES,
+            )
 
-            # Everything except the mask and the five spliced bytes must be
-            # untouched, and the splice must be the tagged faction u32.
+            # Everything except the mask and the eight spliced bytes must be
+            # untouched: five for the tagged faction u32 (RE-032/GT-032), and
+            # three for the tagged level u16 (RE-117, this round).
             faction_bytes = bytes(
                 self.legacy.u32tag(FACTION_TAG, FIELD_MOB_FACTION),
             )
             self.assertEqual(len(faction_bytes), FACTION_SPLICE_BYTES)
+            level_bytes = bytes(self.legacy.u16tag(LEVEL_TAG, mob.level))
+            self.assertEqual(len(level_bytes), LEVEL_SPLICE_BYTES)
 
             # The POSITION is the claim, not merely the presence: ascending
             # mask-bit order puts 0x0400 after the whole BasicAttr block and
@@ -126,15 +136,35 @@ class FieldMobTests(unittest.TestCase):
                 + bytes(self.legacy.qwordtag(0x32, mob.actor_identity))
             )
             mask_at = len(head) + 1
+
+            # Ascending-mask-bit order also puts 0x0002 (level) right after
+            # the mask value and the optional name, before HP -- the other
+            # end of the body from faction.  Re-derived here independently of
+            # the module, same as the faction splice above.
+            name_bytes = bytes(self.legacy.wstr_tag(mob.display_name))
+            level_at = mask_at + 2 + len(name_bytes)
+            self.assertEqual(
+                rebuilt[level_at:level_at + LEVEL_SPLICE_BYTES], level_bytes,
+                "level is not spliced at the ascending-mask-order position",
+            )
+            rebuilt = (
+                rebuilt[:level_at]
+                + rebuilt[level_at + LEVEL_SPLICE_BYTES:]
+            )
+
             baseline_mask = int.from_bytes(
                 baseline[mask_at:mask_at + 2], "little",
             )
             hostile_mask = int.from_bytes(
                 rebuilt[mask_at:mask_at + 2], "little",
             )
-            self.assertEqual(hostile_mask, baseline_mask | BASIC_BIT_FACTION)
+            self.assertEqual(
+                hostile_mask,
+                baseline_mask | BASIC_BIT_FACTION | BASIC_BIT_LEVEL,
+            )
             self.assertTrue(baseline_mask & BASIC_BIT_NAME)
             self.assertFalse(baseline_mask & BASIC_BIT_FACTION)
+            self.assertFalse(baseline_mask & BASIC_BIT_LEVEL)
 
             # With the mask restored, the rest is byte-identical.
             restored = (
@@ -195,11 +225,31 @@ class FieldMobTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     len(hostile),
-                    len(baseline_with_speed) + FACTION_SPLICE_BYTES,
+                    len(baseline_with_speed)
+                    + FACTION_SPLICE_BYTES + LEVEL_SPLICE_BYTES,
                 )
                 self.assertIn(
                     bytes(self.legacy.f32tag(float(mob.speed_walk))),
                     baseline_with_speed,
+                )
+
+    def test_the_level_field_carries_the_mined_value_not_a_bounded_guess(
+            self) -> None:
+        # RE-117 (this round) proved NPCAttr level uses the same base-object
+        # bit/offset/tag (0x0002, +0x5E, u16 tag 0x12) the owner's PC-actor
+        # probe found -- NPCAttr serializer 0x00466EB0 calls the common
+        # BasicAttr serializer 0x004656F0 before its own derived fields, so
+        # the base object's bits apply here too.  This test proves the value
+        # sent is ``mob.level``, ``field_mob_tables``'s mined
+        # ``MOBS.n_LEVEL_MIN``/``n_LEVEL_MAX`` column, never invented.
+        for scene in (field_mob_tables.SCENE, field_mobs.BG0002_SCENE):
+            for mob in load_roster(scene=scene):
+                self.assertGreaterEqual(mob.level, 1)
+                self.assertLessEqual(mob.level, 255)
+                hostile = hostile_npc_attr(self.legacy, mob)
+                self.assertIn(
+                    bytes(self.legacy.u16tag(LEVEL_TAG, mob.level)),
+                    hostile,
                 )
 
     def test_the_derived_columns_re_derive_two_frozen_constants(self) -> None:
@@ -599,6 +649,10 @@ class FieldMobTests(unittest.TestCase):
         self.assertEqual(BASIC_BIT_NAME, 0x0001)
         self.assertEqual(FACTION_TAG, 0x14)
         self.assertEqual(FACTION_SPLICE_BYTES, 5)
+        # RE-117 (this round), pinned as a literal for the same reason.
+        self.assertEqual(BASIC_BIT_LEVEL, 0x0002)
+        self.assertEqual(LEVEL_TAG, 0x12)
+        self.assertEqual(LEVEL_SPLICE_BYTES, 3)
 
     def test_the_committed_pin_is_what_the_code_produces(self) -> None:
         path = ROOT / "scenarios/field_mobs_hostile_001.json"
