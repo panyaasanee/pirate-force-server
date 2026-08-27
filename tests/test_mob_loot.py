@@ -20,6 +20,7 @@ whoever counts them.
 """
 
 import ast
+from dataclasses import replace
 from pathlib import Path
 import random
 import struct
@@ -71,6 +72,7 @@ from pirateforce_foundation.mob_loot import (
     drop_element,
     drop_frames,
     drop_pc,
+    drops_console_line,
     loot_report,
     money_element,
     pin_document,
@@ -1048,6 +1050,34 @@ class MobLootTests(unittest.TestCase):
         for row in report["items"]:
             self.assertEqual(
                 row["name"], field_drop_tables.ITEMS[row["item_id"]][2])
+
+    # -- the console line -----------------------------------------------
+    def test_the_console_line_carries_the_token_and_the_real_drop_count(self):
+        _roll, _record, drops = self._one_kill()
+        line = drops_console_line(self.mob, drops)
+        self.assertTrue(line.startswith("MOB_LOOT_DROPS_CENSUS "))
+        self.assertIn("drops=%d" % len(drops), line)
+        self.assertIn("template=%d" % self.mob.template_id, line)
+        self.assertIn("identity=0x%X" % self.mob.actor_identity, line)
+        for drop in drops:
+            self.assertIn("%d:x%d@0x%X" % (
+                drop.item_id, drop.quantity, drop.drop_key), line)
+        line.encode("ascii")  # cp874-safe: the whole line is 7-bit ASCII
+
+    def test_the_console_line_says_none_rather_than_an_empty_field(self):
+        line = drops_console_line(self.mob, ())
+        self.assertIn("drops=0", line)
+        self.assertIn("items=none", line)
+
+    def test_the_console_line_escapes_a_display_name_cp874_cannot_map(self):
+        odd_mob = replace(self.mob, display_name="東")  # CJK, not cp874
+        line = drops_console_line(odd_mob, ())
+        line.encode("ascii")
+        self.assertNotIn("東", line)
+
+    def test_the_console_line_refuses_a_drops_list_that_is_not_a_tuple(self):
+        with self.assertRaises(MobLootContractError):
+            drops_console_line(self.mob, list(self._one_kill()[2]))
 
     # -- the mined table ----------------------------------------------------
     def test_every_item_the_tables_name_is_in_the_item_table(self):

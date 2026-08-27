@@ -211,16 +211,31 @@ class NpcHostileDispatchTests(unittest.TestCase):
         self.assertIn(plain, sg_pc)
         self.assertNotIn(paired, sg_pc)
 
-    def test_with_the_scenario_absent_start_game_stays_production(self):
+    def test_with_the_scenario_absent_start_game_still_gets_player_faction1(
+        self,
+    ):
+        # PANYA-CHASE 20260827_0915 item (1).2: this used to prove the
+        # scenario-absent flagless boot stayed byte-identical to plain
+        # production (the HYP-PF-027 lane's own event never fires, which
+        # is still true below).  The owner's order overturned that
+        # invariant on purpose -- GT-084 cannot ever see a hostile pairing
+        # without the PLAYER half of the pair going out too, so the
+        # flagless (production) path now always composes basic_faction=1
+        # through runtime.py's OWN elif branch (not this hypothesis
+        # scenario's entry hook -- npc_hostile_hypothesis_player_faction_
+        # start_sent below is correctly False, since that flag only tracks
+        # the pinned-identity hypothesis path).
         state = self._state("nhd03", sweep=False)
         selected = state.foundation.selected
         plain, paired = self._player_attrs(selected)
         sg_pc = bytes(state.last_start_actions[0][1])
-        self.assertIn(plain, sg_pc)
-        self.assertNotIn(paired, sg_pc)
+        self.assertIn(paired, sg_pc)
+        self.assertNotIn(plain, sg_pc)
         self.assertFalse(
             any("npc_hostile" in event for event in state.events),
         )
+        self.assertIs(state.npc_hostile_player_faction_start_sent, False)
+        self.assertIn("player_faction1_start_game_sent", state.events)
 
     # ----- the sweep half ---------------------------------------------------
 
