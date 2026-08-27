@@ -49,7 +49,7 @@ trusting a claim here that a mismatch would invalidate):
 | 0x51E9 | `GM_RunGMCommandVital` | client->server | **RE-088 PASS/DONE -- STRUCTURAL-LAYOUT-PINNED** (outer `0x00729E10` span_sha256 `541d82f5...c8554`, nested `0x00726C20` span_sha256 `aa3c7c8d...93559d`): one presence flag `u8tag(0x0B)`; when nonzero, exactly one nested body `u32tag(0x14) + u32tag(0x14) + u8tag(0x0B) + UNTAGGED_WSTRING16LE_LEN32LE + UNTAGGED_WSTRING16LE_LEN32LE`. RE-088 closes the earlier "two runtime-selected sub-paths" question this doc used to carry: the presence flag gates one nested serializer call, not a sub-opcode choosing between two shapes, and RE-088 found no field it could prove is a separate sub-opcode. **Field meaning is still NOT proven** -- the two wide strings are not confirmed to be a command name and its argument text, and the live chat-input trigger condition is RE-091 (open). Decoder: `gm/command_wire.py`. |
 | 0x8C77 | `GM_RunGMCommandResultVital` | server->client | **proven**: single u8tag(0x0B) @+0x14, span_sha256 `ad65d125...633e9`. Meaning of the byte not proven (RE-088 explicitly declines to call it success/error). Decoder: `gm/command_wire.py`. |
 | 0x162E | `CheatVital` | both | proven: single UNTAGGED_STRING8_LEN32LE @+0x14 (reference only, not reused as GM wire) |
-| 0x9F2C | `Channel_GMGlobalMessageVital` | server->client | registered in RUNTIME_CLASSMAP; field layout not yet pinned by this lane |
+| 0x9F2C | `Channel_GMGlobalMessageVital` | server->client (Global-scope `Channel_*` family) | **already proven elsewhere in this repo -- do not re-derive or re-codec in this lane's zone.** `reports/PF_CHAT_CHANNEL001_CHANNEL_FAMILY_AND_ROUTING_STATIC_20260818.md` (byte-exact static, 69 static guards + `tests/test_chat_channel_family_static.py`, 15 passed) proves `Channel_GMGlobalMessageVital` shares serializer `0x65AD40` with four other channels (LocalTalk/Party/Guild/ActorBoardcast) byte-for-byte identically: `tag 0x48 + u32 byte-length + UTF-16LE` wstring codec, field order `speaker@+0x34` then `body@+0x18`. This is a **different, more specific wire shape** than `pf_bridge/external/PF_SERIALIZER_FIELDS.tsv`'s coarser `UNTAGGED_WSTRING16LE_LEN32LE` label for the same offsets implies (no leading tag byte) -- the report's claim is corroborated against real captured GT-006 frames (three independent byte-for-byte hash cross-checks against pins produced by an unrelated code path), which the TSV row alone is not. `src/pirateforce_foundation/channel_message_hypothesis.py` already implements a tested encoder/decoder for all five shared-serializer channels including this one (`CHANNEL_MESSAGE_FIELD_ORDER`, `SHARED_SERIALIZER_CHANNEL_IDS["Channel_GMGlobalMessageVital"] = 0x9F2C`). **This lane tried to build its own codec for this message in a since-retracted round (see "Attempted and retracted" below) before finding this -- any future `say`-command wiring must import from `channel_message_hypothesis.py`, never re-implement.** |
 | 0x0E80 | `ForcePos` | direction NOT_OBSERVED (0 captured frames either way, `PF_FIELD_VALIDATION.tsv`) | **RE-090 PASS/DONE**: vec3 only, three `f32tag(0x2A)` (X/Y/Z), span_sha256 `7c6f6cb7...860e0d`. Vital id is not a table row in `VITAL_REGISTRY_FROM_CLIENT_BINARY_20260817.tsv` (the client computes it at runtime from the name, it is not a stored constant); reproduced here from that file's own documented formula -- see "Vital id formula" below. Codec: `gm/teleport_wire.py`. |
 | 0x1BA4 | `CWarpResult` | direction NOT_OBSERVED (0 captured frames either way) | **RE-090 PASS/DONE**: flat `qwordtag(0x32)` + vec3 (`f32tag(0x2A)` x3) + `u16tag(0x12)`, span_sha256 `5e3acf83...986c6db6a9`. The name `Result` is not evidence of direction. Codec: `gm/teleport_wire.py`. |
 | 0x25A2 | `TeleportVital` | direction not confirmed, but NOT the same evidentiary state as the two rows above: 132 candidate frames per direction exist at status `A2_STATIC_OPEN` (candidate-matched, not parse-confirmed), unlike `ForcePos`/`CWarpResult`'s genuine zero | **RE-090 PASS/DONE**: `u8tag(0x0B)` field_0x18 -> presence-gated target object (stream order per RE-090's listing: `scene_id` u16tag(0x12), `scene_seq` qwordtag(0x32), then `field_0x10`/`field_0x11` u8 -- **not** ascending object-offset order, same pattern as the aux reorder below; `scene_id`/`scene_seq` are the same RE-077 crosswalk `player_wire.py`/`npc_wire.py` already use -- then vec3 f32tag(0x2A) x3) -> presence-gated auxiliary object (untagged wstring, then four more scalars, **wire order `+0x40` before `+0x38`** even though the object offset is lower -- RE-090 confirms this is real, not a transcription slip) -> `field_0x20` u8 -> `field_0x22` u16tag(0x0F). span_sha256 `fbe813db...df990487` (top), `ec9a5421...9a724df0b5ef` (target), `105bad91...6ccc049c93` (aux). Codec: `gm/teleport_wire.py`. The target field order is this lane's own reading of RE-090's prose listing, not independently re-verified against a real frame -- a follow-up round should run it against the 132 `A2_STATIC_OPEN` candidate frames before this is used against a real client (see the `TeleportTarget` docstring). |
@@ -299,6 +299,44 @@ this round; the visible effect of wiring `CORE-REQUEST-011` in is that a
 GM connection already in the target scene can be repositioned within it.
 Scene-crossing `warp`, `npc`, `item`, `lv`, and `spawn` still do not
 execute after this round.
+
+## Attempted and retracted (broadcast-wire round)
+
+This round tried to give `say` a wire codec for `Channel_GMGlobalMessageVital`
+(0x9F2C), reading only `pf_bridge/external/PF_SERIALIZER_FIELDS.tsv`
+(`UNTAGGED_WSTRING16LE_LEN32LE`, no tag byte) and `PF_FIELD_VALIDATION.tsv`
+(one real R-direction frame). A `pf-adversary` pass (three rounds: initial
+review, fix-verify, a final targeted check) eventually caught what the first
+two passes did not: this repository's own `reports/
+PF_CHAT_CHANNEL001_CHANNEL_FAMILY_AND_ROUTING_STATIC_20260818.md` and
+`src/pirateforce_foundation/channel_message_hypothesis.py` already prove a
+**different, tag-prefixed** wire shape for this exact message (`tag 0x48 +
+u32 byte-length + UTF-16LE`, not the untagged shape this round built) --
+corroborated against real captured frames, not merely a static table row.
+The draft codec this round wrote would have produced bytes the real client
+almost certainly does not accept.
+
+**Root cause: this round's "ค้นก่อนถอด" search never covered this
+repository's own `reports/`, `docs/`, or sibling `src/` modules** -- only
+`pf_bridge/external/` and `pf_bridge/gamedata/`, per the letter that opened
+this lane. That letter's search scope is right for client-binary facts but
+was wrongly treated as the *entire* search obligation; a working,
+better-proven implementation was sitting in this same repository the whole
+time. The draft module (`gm/broadcast_wire.py`) and its tests were deleted
+rather than committed, once found to be wrong -- see the corrected wire-facts
+table row above for what actually holds.
+
+**For any future round**: `say`'s wire needs are already met by
+`channel_message_hypothesis.py` (`SHARED_SERIALIZER_CHANNEL_IDS
+["Channel_GMGlobalMessageVital"] = 0x9F2C`, field order `speaker`/`body`
+proven). Bridge `gm/commands.py`'s parsed `say` `GmCommand` to that module's
+existing encode function via import -- do not write a second codec in this
+lane's zone. That module's own docstring notes its dispatch is currently
+opt-in/`test_only: true` behind a scenario allowlist, not wired to any live
+connection by default -- coordinate with whichever lane owns it (CHAT-ECHO/
+CHAT-CHANNEL work, chief round 76) before importing, the same courtesy
+GM-003's own "reuse via import, never copy" rule already asks for `world_
+scene_travel.py`/`field_mob_tables.py`.
 
 ## What is intentionally NOT built yet, and why
 
