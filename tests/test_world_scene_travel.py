@@ -39,6 +39,7 @@ from pirateforce_foundation.world_scene_travel import (
     load_scene_registry,
     login_teleport_fields,
     entry_position,
+    is_position_persist_allowed,
     population_source,
     production_allowed,
     spawn_position,
@@ -177,6 +178,52 @@ class SceneRegistryTests(unittest.TestCase):
                 self.assertNotIn("login_entry_allowed", raw)
                 self.assertTrue(destination(n_id, self.registry).login_entry_allowed)
 
+    def test_scene_17_is_pinned_not_allowed_to_persist_position(self):
+        """Round jafskv: GT-106 (notes_to_chief/20260827_1710_GT106-RESULT-
+        M2-Columbus-3021-enters-scene17-*) watched a character walk into
+        scene 17 and come out of teardown with a character_positions row
+        reading scene_id=1 carrying scene 17's XYZ - wrong on both columns.
+        The obvious fix, persisting scene 17 for real, was refused on
+        purpose: scene 17 already carries login_entry_allowed=false (round
+        0z3kjx) precisely because a persisted row naming 17 is refused at the
+        very next login, and this scene has no measured way back
+        (return_ticket=REQUIRED). persist_position_allowed=false is the
+        smaller, reversible answer - see
+        world_scene_registry_001.json's persist_position_allowed_because for
+        the full incident."""
+        sea = destination(17, self.registry)
+        self.assertFalse(sea.persist_position_allowed)
+        self.assertFalse(is_position_persist_allowed(17, self.registry))
+        raw = [row for row in _raw()["destinations"] if row["n_id"] == 17][0]
+        self.assertIs(raw["persist_position_allowed"], False)
+
+    def test_every_other_destination_defaults_persist_position_allowed_true(self):
+        """The optional field's absence must mean True, not merely 'False for
+        the one row that sets it' - a mutation that flipped the default
+        would silently stop persisting positions for scenes that have never
+        shown the GT-106 bug at all."""
+        for n_id in (1, 2, TEST_STAGE_SCENE_ID, 997):
+            with self.subTest(n_id=n_id):
+                raw = [
+                    row for row in _raw()["destinations"] if row["n_id"] == n_id
+                ][0]
+                self.assertNotIn("persist_position_allowed", raw)
+                self.assertTrue(
+                    destination(n_id, self.registry).persist_position_allowed)
+                self.assertTrue(is_position_persist_allowed(n_id, self.registry))
+
+    def test_an_unpinned_scene_fails_open_for_position_persistence(self):
+        """Deliberately the OPPOSITE default from login_entry_allowed and
+        spawn_position, which both fail closed for a scene this registry does
+        not pin. A scene not in the registry is, by definition, a scene this
+        exact persistence bug has never had the chance to touch - fail-closed
+        here would silently stop persisting positions for every future scene
+        on the strength of a bug none of them exhibited. See
+        is_position_persist_allowed's own docstring for the full argument."""
+        self.assertTrue(is_position_persist_allowed(279, self.registry))
+        with self.assertRaises(ValueError):
+            is_position_persist_allowed(0, self.registry)
+
     def test_the_pin_carries_the_hashes_a_bridge_round_reverifies(self):
         # These are the values a bridge-side round re-checks against the client
         # files themselves; a silent edit here would break that crosswalk
@@ -292,6 +339,16 @@ class SceneRegistryRefusalTests(unittest.TestCase):
                 for row in data["destinations"]:
                     if row["n_id"] == 17:
                         row["login_entry_allowed"] = bad
+                with self.assertRaises(ValueError):
+                    load_scene_registry(_write(self.tmp, data))
+
+    def test_a_non_bool_persist_position_allowed_is_refused(self):
+        for bad in (1, "false", None, 0):
+            with self.subTest(bad=bad):
+                data = _raw()
+                for row in data["destinations"]:
+                    if row["n_id"] == 17:
+                        row["persist_position_allowed"] = bad
                 with self.assertRaises(ValueError):
                     load_scene_registry(_write(self.tmp, data))
 
