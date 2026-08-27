@@ -713,6 +713,19 @@ scene_travel.py`/`field_mob_tables.py`.
   it) that deserve a dedicated round, not a same-round bolt-on next to two
   unrelated fixes. No `CORE-REQUEST` needed either way -- this is fully
   inside this lane's own write zone.
+  **Verify-pass addendum**: the fix-verification `pf-adversary` pass for
+  round `50x5xt` (same round, second pass) noticed a companion liveness gap
+  while confirming the two fixes above: `command_capture.py`'s filename
+  collision retry loop (`while True: ... except FileExistsError: suffix +=
+  1; continue`) has no upper bound on `suffix` or on iteration count -- not
+  an uncaught-exception risk (that path is inside the now-caught `OSError`
+  boundary), but under a capture root with many pre-existing/colliding
+  filenames for the same account+second, one authorized call could spin
+  doing repeated `os.open` calls before finding a free suffix rather than
+  failing fast. Grouped with the rate-limit item above rather than opened
+  as a fourth separate item because a per-account rate limiter would also
+  bound how often this loop can even be entered -- one future round, not
+  two.
 
 ## Nonclaim rule
 
