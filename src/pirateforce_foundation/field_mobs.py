@@ -446,6 +446,19 @@ def _parse_hostile_placements(module: Any) -> tuple[FieldMob, ...]:
         raise FieldMobContractError("generated roster is missing or empty")
     mobs: list[FieldMob] = []
     seen: set[int] = set()
+    # Added this round: a duplicate PLACEMENT INDEX was already refused
+    # below, but two DIFFERENT placement indices sharing the exact same
+    # spawn point were not -- that is the shape a hand-edited or
+    # mis-mined table could still produce (two rows, two identities, one
+    # spot two monsters visually stack on).  Keyed on the raw (x, y, z)
+    # tuple, not on a distance threshold, because the client's own .npc
+    # placements are exact coordinates, not an approximate grid -- an
+    # exact match is the only claim this guard makes.  See
+    # ``tests/test_field_mobs.py``'s
+    # ``test_the_generator_never_places_two_monsters_on_one_spot`` for the
+    # proof this actually fires on synthetic data, since the two real
+    # scenes mined so far both already pass it.
+    seen_positions: set[tuple[float, float, float]] = set()
     for ordinal, row in enumerate(rows):
         if type(row) is not tuple or len(row) != 16:
             raise FieldMobContractError("roster row %d has wrong shape" % ordinal)
@@ -457,6 +470,14 @@ def _parse_hostile_placements(module: Any) -> tuple[FieldMob, ...]:
         x = _require_float32(row[2], "placement x")
         y = _require_float32(row[3], "placement y")
         z = _require_float32(row[4], "placement z")
+        position = (x, y, z)
+        if position in seen_positions:
+            raise FieldMobContractError(
+                "duplicate spawn position in roster: two placements share "
+                "the exact same (x, y, z) -- placement %d lands on a spot "
+                "another placement already claimed" % placement_index
+            )
+        seen_positions.add(position)
         visual_preset, display_name = row[5], row[6]
         if type(visual_preset) is not str or not visual_preset:
             raise FieldMobContractError("visual preset must be non-empty text")
