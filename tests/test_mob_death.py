@@ -112,6 +112,24 @@ WIDENED_916_RULING = (
 # a hardcoded line number here (see the matching note on WIDENING_RULINGS
 # in mob_death.py).
 WIDENED_BG0001_RULING = "COO-RULING-20260827-1350 widen-death-scope-bg0001"
+# PANYA-DECISION 2026-08-27T20:10+07:00 ("M1-P" item 3) + its ADDENDUM
+# 20:18, this round: widens death scope to Bg0002's own mined hostile
+# roster (field_mob_tables_bg0002.HOSTILE_PLACEMENTS' distinct templates,
+# NOT a hand-guessed 27-35 slice -- several of those fail the mining tool's
+# outfit-unambiguous rule). Exact string mob_death.py registers.
+WIDENED_BG0002_RULING = (
+    "PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18) "
+    "widen-death-scope-bg0002"
+)
+# Same letter's separate sentence: the owner named Mountain Deer (MOBS
+# n_ID 27) as the body for all five GT-114/DIAG-001 objects. Template 27
+# is NOT a member of WIDENED_BG0002_RULING's covered set (same
+# outfit-ambiguity exclusion), so it gets its own ruling, scoped to
+# bg0001 (where the diagnostic objects are actually placed), not Bg0002.
+WIDENED_DIAG_MOUNTAIN_DEER_RULING = (
+    "PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18) "
+    "diag-mountain-deer-template-27"
+)
 
 
 class MobDeathTests(unittest.TestCase):
@@ -121,11 +139,27 @@ class MobDeathTests(unittest.TestCase):
         cls.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
         cls.roster = field_mobs.load_roster()
         cls.mob = [m for m in cls.roster if m.placement_index == 30][0]
+        # This round (PANYA-DECISION 2026-08-27T20:10+07:00): the second
+        # scene's own mined roster, loaded through the SAME function with a
+        # different scene= argument -- never merged with cls.roster.
+        cls.bg0002_roster = field_mobs.load_roster(scene=field_mobs.BG0002_SCENE)
 
     def killing_outcome(self, mob=None):
         target = self.mob if mob is None else mob
         step = strike(
             self.legacy, None, open_ledger(), None, target, PERFORMER, LETHAL)
+        return step
+
+    def killing_outcome_solo(self, mob):
+        """For a mob NOT in the default bg0001 ledger open_ledger() opens --
+        this round's Bg0002-roster mobs, chiefly.  Opens a fresh one-mob
+        ledger instead, the same shape
+        tests/test_mob_diag_multi_object.py's own killing_outcome_solo
+        already uses for its off-roster diagnostic objects.
+        """
+        step = strike(
+            self.legacy, None, open_ledger((mob,)), None, mob, PERFORMER,
+            LETHAL)
         return step
 
     @contextlib.contextmanager
@@ -173,6 +207,38 @@ class MobDeathTests(unittest.TestCase):
             drops_normal=0,
             drops_equipment=0,
             drops_specially=0,
+        )
+
+    def mountain_deer_stand_in(self):
+        """A TEST-ONLY FieldMob for Mountain Deer, MOBS.n_ID 27.
+
+        Built from the real CONSTDATA_TH__MOBS row 27 (model M005, outfit
+        the FIRST of the two ";"-listed variants, M005_000_000_SP1, level
+        17/19, rank 1, n_AI_WANDER 16, n_AI_COMBAT 150, drops
+        2701001/5400001/2802222) and CONSTDATA_TH__STANDARD_MOB row 17
+        (n_HPMAX 1201) -- the same figures
+        mob_diag_multi_object.py's own provenance block cites, checked
+        against ADDENDUM 20:18's relayed numbers and matching exactly.
+        scene='bg0001' because this is a stand-in for the DIAG-001 body,
+        which is placed at the owner's bg0001 city-center test point, not
+        at a real Bg0002 placement.
+        """
+        return field_mobs.FieldMob(
+            placement_index=9002,
+            template_id=27,
+            x=11865.0, y=6147.0, z=2231.17,
+            visual_preset="M005_000_000_SP1",
+            display_name="Mountain Deer",
+            level=17,
+            rank=1,
+            ai_wander=16,
+            ai_combat=150,
+            speed_walk=100,
+            max_hp=1201,
+            drops_normal=2701001,
+            drops_equipment=5400001,
+            drops_specially=2802222,
+            scene=field_mobs.field_mob_tables.SCENE,
         )
 
     # -- the body ---------------------------------------------------------
@@ -1657,6 +1723,167 @@ class MobDeathTests(unittest.TestCase):
         self.assertEqual(
             caught.exception.reason,
             mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
+
+    # -- Bg0002 (PANYA-DECISION 2026-08-27T20:10+07:00 "M1-P" item 3) -------
+
+    def test_the_bg0002_ruling_authorises_every_real_bg0002_roster_mob(self):
+        # Same discipline as the bg0001 test above, loops the REAL mined
+        # Bg0002 roster rather than a hand-typed subset. killing_outcome_solo
+        # (a fresh one-mob ledger per mob), not killing_outcome: the shared
+        # default ledger self.killing_outcome() opens only carries bg0001's
+        # own 13 identities, and Bg0002's roster is a disjoint set of
+        # identities the default ledger was never opened with.
+        self.assertEqual(len(self.bg0002_roster), 17)
+        for mob in self.bg0002_roster:
+            self.assertEqual(mob.scene, field_mobs.BG0002_SCENE)
+            outcome = self.killing_outcome_solo(mob).outcome
+            step = kill(
+                self.legacy, mob, outcome, DeathRegister(),
+                widened=WIDENED_BG0002_RULING)
+            self.assertTrue(step.register.is_dead(mob.actor_identity))
+
+    def test_the_bg0002_ruling_covers_exactly_the_real_bg0002_rosters_templates(
+            self):
+        # Re-derivable from the real mined roster, not a hand-copied
+        # literal -- same shape as the bg0001 version of this test.
+        self.assertEqual(
+            mob_death.WIDENING_RULINGS[WIDENED_BG0002_RULING],
+            frozenset(m.template_id for m in self.bg0002_roster))
+        # And it is the SUBSET of the 27-35 census block that actually
+        # survives the mining tool's outfit-unambiguous rule, not the
+        # whole range -- 27, 28, 29, 30, 32, 33 all fail it and must NOT
+        # be members here.
+        self.assertEqual(
+            mob_death.WIDENING_RULINGS[WIDENED_BG0002_RULING],
+            frozenset({31, 34, 35, 103}))
+
+    def test_the_bg0001_and_bg0002_rulings_covered_templates_really_overlap(
+            self):
+        # Pins the concrete collision both rulings' own comments describe,
+        # rather than trusting the comment: if this ever stops being true,
+        # the scene-check tests below stop testing anything real.
+        overlap = (
+            mob_death.WIDENING_RULINGS[WIDENED_BG0001_RULING]
+            & mob_death.WIDENING_RULINGS[WIDENED_BG0002_RULING])
+        self.assertEqual(overlap, frozenset({31, 34, 35, 103}))
+
+    def test_a_bg0002_mob_is_refused_the_bg0001_ruling_despite_a_shared_template(
+            self):
+        # THE HAZARD, forward direction. cls.mob (placement 30, template 31,
+        # Tornado Eagle) is a REAL bg0001 roster member, so template_id 31
+        # alone would pass WIDENED_BG0002_RULING's covered-template check --
+        # but its scene is Bg0002's, not bg0001's, so this must FAIL.
+        bg0002_tornado_eagle = [
+            m for m in self.bg0002_roster if m.template_id == 31][0]
+        self.assertIn(
+            bg0002_tornado_eagle.template_id,
+            mob_death.WIDENING_RULINGS[WIDENED_BG0001_RULING])
+        step = self.killing_outcome_solo(bg0002_tornado_eagle)
+        with self.assertRaises(MobDeathContractError) as caught:
+            kill(self.legacy, bg0002_tornado_eagle, step.outcome,
+                 DeathRegister(), widened=WIDENED_BG0001_RULING)
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
+        self.assertIn("scene", caught.exception.detail)
+
+    def test_a_bg0001_mob_is_refused_the_bg0002_ruling_despite_a_shared_template(
+            self):
+        # THE HAZARD, reverse direction. Deliberately NOT self.mob/cls.mob
+        # (placement 30, identity SANCTIONED_FIRST_TARGET_IDENTITY 0x201F):
+        # that identity skips kill()'s whole widened= gate unconditionally,
+        # by design, regardless of which ruling string is passed, so it
+        # cannot exercise this check at all. Placement 12 (Fighting Fish
+        # Sergeant, template 35) is a real bg0001 roster member that is NOT
+        # the sanctioned identity, and template 35 is in BOTH rulings'
+        # covered sets -- the actual hazard shape.
+        fighting_fish_sergeant = [
+            m for m in self.roster if m.placement_index == 12][0]
+        self.assertEqual(fighting_fish_sergeant.template_id, 35)
+        self.assertNotEqual(
+            fighting_fish_sergeant.actor_identity,
+            mob_death.SANCTIONED_FIRST_TARGET_IDENTITY)
+        self.assertIn(
+            fighting_fish_sergeant.template_id,
+            mob_death.WIDENING_RULINGS[WIDENED_BG0002_RULING])
+        outcome = self.killing_outcome(fighting_fish_sergeant).outcome
+        with self.assertRaises(MobDeathContractError) as caught:
+            kill(self.legacy, fighting_fish_sergeant, outcome,
+                 DeathRegister(), widened=WIDENED_BG0002_RULING)
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
+        self.assertIn("scene", caught.exception.detail)
+
+    def test_the_bg0002_ruling_still_refuses_an_off_roster_template(self):
+        tim = self.training_iron_man_stand_in()
+        with self.assertRaises(MobDeathContractError) as caught:
+            kill(self.legacy, tim,
+                 strike(self.legacy, None, open_ledger(roster=(tim,)), None,
+                        tim, PERFORMER, LETHAL).outcome,
+                 DeathRegister(), widened=WIDENED_BG0002_RULING)
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
+
+    # -- DIAG-001's Mountain Deer (same letter, ADDENDUM 20:18) -------------
+
+    def test_the_diag_mountain_deer_ruling_authorises_template_27(self):
+        deer = self.mountain_deer_stand_in()
+        self.assertEqual(
+            mob_death.WIDENING_RULINGS[WIDENED_DIAG_MOUNTAIN_DEER_RULING],
+            frozenset({27}))
+        step = strike(
+            self.legacy, None, open_ledger(roster=(deer,)), None, deer,
+            PERFORMER, LETHAL)
+        self.assertTrue(step.outcome.death_due)
+        death_step = kill(
+            self.legacy, deer, step.outcome, DeathRegister(),
+            widened=WIDENED_DIAG_MOUNTAIN_DEER_RULING)
+        self.assertTrue(death_step.register.is_dead(deer.actor_identity))
+
+    def test_the_diag_mountain_deer_ruling_is_not_the_bg0002_roster_ruling(
+            self):
+        # Template 27 fails the mined roster's outfit-unambiguous rule, so
+        # it must NOT be in WIDENED_BG0002_RULING's covered set, and the
+        # bg0002 ruling must not authorise it either.
+        self.assertNotIn(
+            27, mob_death.WIDENING_RULINGS[WIDENED_BG0002_RULING])
+        deer = self.mountain_deer_stand_in()
+        with self.assertRaises(MobDeathContractError) as caught:
+            kill(self.legacy, deer,
+                 strike(self.legacy, None, open_ledger(roster=(deer,)), None,
+                        deer, PERFORMER, LETHAL).outcome,
+                 DeathRegister(), widened=WIDENED_BG0002_RULING)
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
+
+    def test_the_diag_mountain_deer_ruling_refuses_a_wrong_scene_stand_in(
+            self):
+        # A hand-built stand-in that (wrongly) claims Bg0002's scene must
+        # still be refused, even though template_id 27 is exactly what this
+        # ruling names -- the scene check applies regardless of which side
+        # of the FieldMob the mismatch comes from.
+        deer = field_mobs.FieldMob(
+            **{**self.mountain_deer_stand_in().__dict__,
+               "scene": field_mobs.BG0002_SCENE})
+        with self.assertRaises(MobDeathContractError) as caught:
+            kill(self.legacy, deer,
+                 strike(self.legacy, None, open_ledger(roster=(deer,)), None,
+                        deer, PERFORMER, LETHAL).outcome,
+                 DeathRegister(), widened=WIDENED_DIAG_MOUNTAIN_DEER_RULING)
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
+
+    def test_a_ruling_with_no_scene_entry_is_unaffected_by_this_round(self):
+        # The 916 (Training Iron Man) ruling names no real scene at all;
+        # WIDENING_RULING_SCENES must have no entry for it, and the
+        # existing 916 tests above (which pass a default-scene stand-in)
+        # must keep passing unchanged -- this just pins the absence
+        # directly rather than relying on those tests alone to notice.
+        self.assertNotIn(WIDENED_916_RULING, mob_death.WIDENING_RULING_SCENES)
 
 
 if __name__ == "__main__":
