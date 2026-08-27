@@ -102,6 +102,39 @@ class WorldPopulationBg0002Tests(unittest.TestCase):
         self.assertIs(wp2.COLLECTION_TAG, world_population.COLLECTION_TAG)
         self.assertIs(wp2.INITIAL_REAPPLY_MS, world_population.INITIAL_REAPPLY_MS)
 
+    def test_heading_cycles_the_same_four_values_bg0001_sends_not_a_constant(self):
+        from pirateforce_foundation import world_population
+
+        seen_headings = {}
+
+        class HeadingSpyLegacy:
+            def __getattr__(self, name):
+                return getattr(WorldPopulationBg0002Tests.legacy, name)
+
+            def make_remote_movement_attr(self, actor_identity, x, y, z,
+                                           heading, mask=None):
+                seen_headings[actor_identity] = heading
+                return WorldPopulationBg0002Tests.legacy.make_remote_movement_attr(
+                    actor_identity, x, y, z, heading, mask=mask,
+                )
+
+        generation = wp2.build_bg0002_population(
+            HeadingSpyLegacy(), self.anchor, scene_id=wp2.SCENE2_N_ID,
+            count_source=wp2.COUNT_SOURCE_FULL_ROSTER,
+        )
+        self.assertEqual(len(seen_headings), tables.KNOWN_COUNT)
+        # Not every actor facing the same way (the bug M1-P found in-game).
+        self.assertGreater(len(set(seen_headings.values())), 1)
+        # And exactly bg0001's own four-way cycle, keyed the same way
+        # (placement_index & 3), not an independently invented set.
+        placements = {p.placement_index: p for p in tables.load_known_placements()}
+        for index in generation.placement_indices:
+            placement = placements[index]
+            expected = world_population.HEADINGS[placement.placement_index & 3]
+            self.assertEqual(
+                seen_headings[placement.actor_identity], expected,
+            )
+
     def test_an_empty_actor_entry_would_be_refused(self):
         class BrokenLegacy:
             def __getattr__(self, name):

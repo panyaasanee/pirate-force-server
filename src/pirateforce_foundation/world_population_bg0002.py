@@ -163,6 +163,22 @@ def _entry(legacy: Any, placement: tables.Bg0002Placement) -> bytes:
     ``world_population``'s "no half-dead spawn" convention), the name is the
     real MOBS_TIP display name, and there is no faction bit - see the module
     docstring.
+
+    HEADING (M1-P2 item 2, PANYA-DECISION 2026-08-28 02:00 gap 2: "every
+    actor faces the same direction").  The raw placement TSV
+    (``gamedata/scene/Bg0002/Bg0002.placements.tsv``) has no per-row heading
+    column - ``f32_3``/``f32_4``/``f32_5`` were checked this round (measured
+    directly off all 106 rows, not guessed) and are round-number values in
+    the 0-5500 range repeated across many unrelated placements, the shape of
+    a radius/range triple, not a continuous rotation - so there is no mined
+    heading to carry here, unlike x/y/z/name/hp above. Rather than invent one
+    or leave every entry pointing the same way, this reuses
+    ``world_population.HEADINGS`` - the exact same four-way cycle
+    bg0001's own ``_entry`` already sends today via
+    ``HEADINGS[placement.placement_index & 3]`` - so Bg0002 stops being a
+    special case instead of gaining a second heading policy. If a real
+    per-placement heading is later RE'd from the client, replace this call,
+    not the encoder.
     """
     npc_attr = legacy.make_npc_attr(
         placement.n_id,
@@ -177,7 +193,7 @@ def _entry(legacy: Any, placement: tables.Bg0002Placement) -> bytes:
     movement_attr = legacy.make_remote_movement_attr(
         placement.actor_identity,
         placement.x, placement.y, placement.z,
-        0.0,
+        world_population.HEADINGS[placement.placement_index & 3],
         mask=FULL_MOVEMENT_MASK,
     )
     return legacy.make_remote_actor_entry(
