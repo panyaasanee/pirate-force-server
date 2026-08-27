@@ -406,7 +406,18 @@ jobs:
   # It never closes anything and never touches drafts - it is `decide`'s green
   # path, replayed for pull requests `decide` was never woken for.
   finish:
-    if: github.event_name != 'workflow_run'
+    # Runs on EVERY event, after decide.  Measured 2026-08-27 11:05 +07:00:
+    # GitHub had fired this repository's hourly schedule only five times in
+    # the whole of 2026-08-26 (05:58, 08:24, 11:02, 14:08, 16:58 UTC) and not
+    # once in the eleven hours after that - the */10 schedule below never
+    # fired at all in its first 90 minutes.  A cron that does not tick is not
+    # a safety net.  What DOES happen several times an hour is a gate
+    # finishing (workflow_run), so the sweep rides on that instead: every
+    # gate completion sweeps every open pull request.  Idempotent - a second
+    # sweep finds nothing left to do; a merge lost to a race is "already
+    # closed - fine", never a close.
+    needs: decide
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -485,7 +496,11 @@ jobs:
           done
 
   reap:
-    if: github.event_name != 'workflow_run'
+    # Same reason as finish: rides on every event, after finish, because the
+    # schedule cannot be relied on to tick.  Its own threshold (PF_STALE_HOURS)
+    # keeps it from acting on anything young.
+    needs: [decide, finish]
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
