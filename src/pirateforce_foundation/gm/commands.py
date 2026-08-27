@@ -5,13 +5,22 @@ Scope of this file, stated plainly so it cannot be over-claimed later:
 * It parses the six command strings the owner asked for (``warp`` ``npc``
   ``item`` ``lv`` ``spawn`` ``say``) into a structured ``GmCommand``.
 * It logs an issued command server-side (``log_gm_command``).
-* It does **not** execute any of them.  Executing ``warp``/``spawn`` needs
-  ``TeleportVital``/``ForcePos``/mob-spawn wiring that is not proven yet
-  (notes_to_chief 20260826_1630 lists these as RE-open); executing
-  ``npc``/``item``/``lv`` needs write access to player/world state that
-  lives in runtime.py, outside this lane's write zone.  Wiring any of that
-  in is a CORE-REQUEST to chief, filed per command once its dependency is
-  ready -- see docs/GM_LANE.md.
+* It does **not** execute any of them.  RE-090 (PASS/DONE) has since pinned
+  ``ForcePos``'s byte layout in full with zero unproven fields
+  (``gm/teleport_wire.py``), and ``gm/warp_executor.py`` (CORE-REQUEST-011)
+  bridges the same-scene case of a parsed ``warp`` command into a real
+  outbound ``ForcePos`` frame -- but that is still not execution: it
+  returns frame bytes, it does not send them, and it does not cover the
+  scene-crossing case (that needs ``TeleportVital``, whose ``target``/
+  ``aux`` sub-objects still carry several positional-only fields RE-090
+  leaves unproven -- see ``gm/warp_executor.py``'s own docstring for which
+  ones and why guessing them is refused rather than attempted).  ``spawn``
+  still needs mob-spawn wiring that is not proven yet (notes_to_chief
+  20260826_1630 lists this as RE-open); executing ``npc``/``item``/``lv``
+  needs write access to player/world state that lives in runtime.py,
+  outside this lane's write zone.  Wiring any of that in is a
+  CORE-REQUEST to chief, filed per command once its dependency is ready --
+  see docs/GM_LANE.md.
 * ``GM_RunGMCommandVital`` (0x51E9, client->server) is how a real client
   would deliver this text.  A structural candidate byte layout for it is now
   proven (see ``gm/command_capture.py`` for the pin), but the two
