@@ -162,16 +162,22 @@ def make_warp_force_pos_frame(
 
 
 def _require_int(value, label: str) -> int:
+    # A hand-built GmCommand (accepted "regardless of source") can carry an
+    # args element whose __int__ raises anything -- AttributeError, KeyError,
+    # a custom exception -- not just TypeError/ValueError. This module's own
+    # contract is that every failure here surfaces as WarpExecutorError, so
+    # the conversion itself is guarded the same broad way the args-container
+    # shape check already is, one field deeper.
     try:
         return int(value)
-    except (TypeError, ValueError) as exc:
+    except Exception as exc:
         raise WarpExecutorError(f"{label} must be an integer, got {value!r}") from exc
 
 
 def _require_finite_float(value, label: str) -> float:
     try:
         parsed = float(value)
-    except (TypeError, ValueError) as exc:
+    except Exception as exc:
         raise WarpExecutorError(f"{label} must be a number, got {value!r}") from exc
     if not math.isfinite(parsed):
         raise WarpExecutorError(f"{label} must be finite, got {value!r}")

@@ -117,6 +117,30 @@ class WarpExecutorAdversaryFindingsTests(unittest.TestCase):
         with self.assertRaises(WarpExecutorError):
             make_warp_force_pos_frame(self.legacy, 1, bad, 1, 0.0)
 
+    def test_refuses_a_scene_id_element_whose_dunder_int_raises_a_non_value_error(self):
+        # pf-adversary (round w8t8vi): _require_int only caught
+        # (TypeError, ValueError). A hand-built args element whose __int__
+        # raises anything else (AttributeError here) is still a shape-valid
+        # 3-tuple, so it never touched the args-container guard above -- it
+        # leaked a bare AttributeError past this module's own promised
+        # WarpExecutorError-only contract.
+        class EvilInt:
+            def __int__(self):
+                raise AttributeError("boom int")
+
+        bad = GmCommand("warp", (EvilInt(), "1", "2"), "warp x 1 2")
+        with self.assertRaises(WarpExecutorError):
+            make_warp_force_pos_frame(self.legacy, 1, bad, 0, 0.0)
+
+    def test_refuses_an_x_element_whose_dunder_float_raises_a_non_value_error(self):
+        class EvilFloat:
+            def __float__(self):
+                raise KeyError("boom float")
+
+        bad = GmCommand("warp", ("1", EvilFloat(), "2"), "warp 1 x 2")
+        with self.assertRaises(WarpExecutorError):
+            make_warp_force_pos_frame(self.legacy, 1, bad, 1, 0.0)
+
 
 class WarpExecutorArgsShapeTests(unittest.TestCase):
     """gm/say_wire.py's own docstring (pf-adversary, say-wire round) named
