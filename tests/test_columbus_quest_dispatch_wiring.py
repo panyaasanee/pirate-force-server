@@ -13,10 +13,19 @@ branch in ``runtime.py`` at all -- ``_dispatch_columbus_quest3021`` did not
 exist, and neither did ``columbus_quest_dispatch.py``.  Reverting either one
 makes ``test_choosing_columbus_sends_one_nonempty_npc_conversation_for_
 quest_3021`` and ``test_quest_operate_op1_quest3021_after_conversation_
-refuses_with_both_reasons`` fail, not merely go quiet: the first asserts a
-frame that would not exist, and the second asserts refusal EVENTS that would
-not exist either (a reverted build produces no reply and no event at all for
-that frame, which is a silent pass for a test that only checked "no crash").
+refuses_with_the_vehicle_reason`` fail, not merely go quiet: the first
+asserts a frame that would not exist, and the second asserts a refusal EVENT
+that would not exist either (a reverted build produces no reply and no event
+at all for that frame, which is a silent pass for a test that only checked
+"no crash").
+
+CORRECTION round 0z3kjx: the second test used to name TWO refusal events
+(scene-17 arrival plus vehicle bind).  It now names one -- scene 17 gained an
+owner-decreed placeholder spawn this round (see
+``pirateforce_foundation.columbus_quest_dispatch`` module docstring), so only
+the vehicle-bind gap (RE-096) still refuses.  The test was updated, not
+weakened: it still pins the exact refusal reason string, and still fails if
+runtime.py's Columbus branch is reverted.
 """
 from __future__ import annotations
 
@@ -204,10 +213,20 @@ class ColumbusQuest3021WiringTests(unittest.TestCase):
         )
         self.assertFalse(state.columbus_quest3021_conversation_sent)
 
-    def test_quest_operate_op1_quest3021_after_conversation_refuses_with_both_reasons(self):
+    def test_quest_operate_op1_quest3021_after_conversation_refuses_with_the_vehicle_reason(self):
         """The mutation-proof half: BEFORE this round's wiring there was no
-        Columbus branch at all, so this refused-event pair could never
-        appear -- revert the runtime.py Columbus branch and this fails."""
+        Columbus branch at all, so this refused event could never appear --
+        revert the runtime.py Columbus branch and this fails.
+
+        UPDATED round 0z3kjx: the scene-17 arrival half of the refusal is
+        gone -- scenarios/world_scene_registry_001.json's scene-17 entry now
+        carries an owner-decreed placeholder spawn (PANYA-DECISION
+        2026-08-27T14:45+07:00), so ``resolve_columbus_arrival`` no longer
+        raises ``SceneEntryRefused`` for scene 17.  runtime.py's own
+        ``_dispatch_columbus_quest3021`` (untouched by this lane) formats
+        one event per entry in ``error.reasons`` generically, so this test
+        changing from 2 events to 1 is that loop observing a real change in
+        ``columbus_quest_dispatch.py``, not a runtime.py edit."""
         state = self._real_state("tok-columbus-op1")
         columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
             self.legacy,
@@ -226,16 +245,18 @@ class ColumbusQuest3021WiringTests(unittest.TestCase):
             event for event in state.events
             if event.startswith("columbus_quest3021_dispatch_refused_")
         ]
-        self.assertEqual(len(refusal_events), 2, state.events)
-        self.assertIn(
+        self.assertEqual(len(refusal_events), 1, state.events)
+        self.assertEqual(
+            refusal_events,
+            [
+                "columbus_quest3021_dispatch_refused_"
+                + columbus_quest_dispatch.VEHICLE_BIND_REFUSED_NO_VEHICLE_ROW,
+            ],
+        )
+        self.assertNotIn(
             "columbus_quest3021_dispatch_refused_scene17_teleport_refused_"
             "scene_has_no_pinned_spawn",
-            refusal_events,
-        )
-        self.assertIn(
-            "columbus_quest3021_dispatch_refused_"
-            + columbus_quest_dispatch.VEHICLE_BIND_REFUSED_NO_VEHICLE_ROW,
-            refusal_events,
+            [event for event in state.events],
         )
         self.assertTrue(state.columbus_quest3021_dispatch_attempted)
 

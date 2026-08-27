@@ -35,8 +35,8 @@ WHAT IS EVIDENCED AND BUILT HERE.
    not repeat that over-narrowing onto the fields RE-094 could only call
    opaque.
 
-WHAT IS EVIDENCED BUT DELIBERATELY REFUSED - TWO GAPS, BOTH NOW CLOSED
-BOUNDED-NEGATIVE, NEITHER MEASURED.
+WHAT IS EVIDENCED BUT DELIBERATELY REFUSED - ONE GAP LEFT, ONE RESOLVED BY
+OWNER DECREE RATHER THAN BY MEASUREMENT.
 
     CORRECTION 2026-08-27 ~14:2x (Lane A, mailbox-consumption round kqrlhr).
     Both gaps below used to read "open" - naming a ticket a reader could
@@ -46,32 +46,49 @@ BOUNDED-NEGATIVE, NEITHER MEASURED.
     (``notes_to_chief/20260827_1321_RE-103-RESULT-NO-STATIC-SEA-ARRIVAL-
     MARKER.md``) are both DONE/BOUNDED-NEGATIVE: the static/gamedata layer
     that this whole tree already treats as its evidence ceiling has been
-    searched and does not contain either answer.  Nothing below changes
-    behaviour - both refusals still fire, unconditionally, exactly as
-    before - this correction only stops a reader from waiting on a ticket
-    that already reported back "no answer here."
+    searched and does not contain either answer.  At the time of that
+    correction neither gap changed dispatch behaviour - both refusals still
+    fired, unconditionally.
 
-* **Scene 17 has no pinned player-arrival spawn.**
-  ``scenarios/world_scene_registry_001.json``'s scene-17 entry (added round
-  8pfksm by Lane A) carries ``spawn: null`` - ``Bg1001.placements.tsv`` has
-  only 8 monster-spawn rows, no player marker.  ``world_scene_entry.
-  resolve_entry`` (the SAME entry point CORE-REQUEST-003/004 already wired at
-  login, and the one RE-077 - DONE, T0-T4 pinned - names as the correct wire
-  for moving an already-live character too) refuses any non-home destination
-  with no pinned spawn by raising ``SceneEntryRefused(REFUSED_NO_PINNED_
-  SPAWN, ...)``.  Reusing it here means the teleport half of this request
-  fails CLOSED on real evidence rather than inventing an XYZ nobody
-  measured.  ``RE-103`` confirmed this is not an oversight: it re-checked
-  ``Bg1001``'s ``.gat``/``.dmc`` files (identical across all seven sea
-  scenes, so no differentiated arrival datum exists there either) and the
-  land-scene control case that DOES have a marker crosswalk
-  (``SCENE_NAME.n_MARKER -> MARKER.n_ID -> n_SCENE``), and found no
-  equivalent for scenes 17-23.  Its own words: "TELEPORT-TARGET-OWNS-XYZ" -
-  the only place this coordinate can come from is an attended capture of a
-  live Teleport frame, which nobody has run for scene 17.  This module keeps
-  refusing until that capture happens; RE-103 closing bounded-negative is
-  the evidence ceiling being reached, not a step toward an answer appearing
-  in a table.
+    CORRECTION 2026-08-27T15:1x+07:00 (Lane A, round 0z3kjx).  The first gap
+    below now behaves differently, on evidence a bounded-negative RE ticket
+    cannot manufacture: an explicit owner decree
+    (``notes_to_chief/20260827_1445_PANYA-DECISION-scene17-provisional-
+    arrival-xyz-0-0-0-owner-decree-ka1-B.md``) that exercises a one-time,
+    named exception to CHARTER-02's anti-fabrication rule for exactly one
+    value at exactly this scene: XYZ=(0,0,0), the owner's own words "not a
+    coordinate the team invented, an owner order".  ``scenarios/
+    world_scene_registry_001.json``'s scene-17 entry now carries that value,
+    tagged with a ``ground_bound_waiver`` citing the decree so the sanity
+    check that would otherwise refuse it (the point sits nowhere near this
+    ship's own measured z-range, 746-1272; see that file's ``ground`` block)
+    stays honest about WHY it did not fire, instead of being silently
+    loosened for everyone.  RE-103 itself is unchanged and still open at the
+    evidence ceiling: this is the owner overriding that ceiling for one named
+    value, not a new measurement closing it.  The decree expires the moment
+    RE-103's own T3 (an attended capture) lands a real value - see that
+    letter's item 3 - and until then a boot that reaches this point prints
+    ``SCENE_ENTRY ... source=PROVISIONAL-OWNER-DECREE-20260827-1445`` so a
+    console reader always knows which arrivals used it.
+
+* **Scene 17's player-arrival spawn is a decreed placeholder, not a
+  measurement - and the dispatch no longer refuses on it.**
+  ``world_scene_entry.resolve_entry`` (the SAME entry point CORE-REQUEST-
+  003/004 already wired at login, and the one RE-077 - DONE, T0-T4 pinned -
+  names as the correct wire for moving an already-live character too) no
+  longer raises ``SceneEntryRefused(REFUSED_NO_PINNED_SPAWN, ...)`` for scene
+  17, because the pin now carries a spawn.  ``Bg1001.placements.tsv`` still
+  has only 8 monster-spawn rows and no player marker - RE-103 confirmed that
+  is not an oversight, re-checking ``Bg1001``'s ``.gat``/``.dmc`` files
+  (identical across all seven sea scenes) and the land-scene marker crosswalk
+  (``SCENE_NAME.n_MARKER -> MARKER.n_ID -> n_SCENE``) with no equivalent for
+  scenes 17-23, and its own words remain true: "TELEPORT-TARGET-OWNS-XYZ" -
+  the only place a MEASURED coordinate can come from is an attended capture
+  of a live Teleport frame, which nobody has run for scene 17.  What changed
+  is that the owner supplied a value through a different door than
+  measurement.  ``resolve_columbus_arrival`` below emits the decree's
+  required console token whenever it resolves through this value, so
+  "measured" and "decreed" never look the same on the console.
 
 * **No wire evidence for what a vehicle-bind message should contain.**
   RE-085 (``notes_to_chief/20260827_0156_RE-085-RESULT-SAME-ACTOR-VEHICLE-
@@ -95,21 +112,30 @@ BOUNDED-NEGATIVE, NEITHER MEASURED.
   field exactly as much as to a database row, and RE-096 closing did not
   loosen that.
 
-``dispatch_columbus_quest3021`` therefore ALWAYS refuses today (see its own
-docstring) - not because the dispatch is unwired, but because two of the
-things it would need to send have no measured value ANYWHERE this project can
-still look, per the RE tickets above.  Both are reported, not merged into one
-vague refusal, so a human reading the console can tell which evidence gap is
-which - see ``COO-DECISION 20260827_1350`` (pf_bridge), which put both
-tickets at the top of the RE-runner queue for exactly this reason and got
-both bounded-negatives back before its own 20:00 deadline.
+``dispatch_columbus_quest3021`` therefore STILL ALWAYS refuses today (see its
+own docstring) - not because the dispatch is unwired, and no longer because
+BOTH halves lack a value, but because the vehicle-bind half has no measured
+value ANYWHERE this project can still look, per RE-096 above, and this
+module never partially applies (see ``dispatch_columbus_quest3021``'s own
+docstring for why).  A boot that reaches this point today prints the scene-17
+arrival lines and the decree token, then still refuses on the vehicle-bind
+reason alone - one named reason now, not two, and a human reading the
+console can see exactly which one.  Whether M2 should ever let a character
+enter scene 17 WITHOUT the vehicle bind - i.e. whether these two halves
+should stop being one atomic action - is a question already in front of the
+owner as of 2026-08-27T15:10+07:00 (``notes_to_chief/20260827_1510_PANYA-
+DECISION-M2-skip-Columbus-quest-gate-path-A-...``, item 4: "NOT YET DECIDED",
+someone was asking live at the time this correction was written).  This
+module does not pre-empt that answer either way: it keeps both halves atomic
+until told otherwise, exactly as before this round.
 
-WHAT THIS MODULE DOES NOT DO.  It does not decide when the vehicle bind or
-the teleport becomes safe to send - both RE-096 and RE-103 have now searched
-the static/gamedata evidence ceiling this project holds and found neither
-answer there, so what unblocks this is an ATTENDED capture (a live Teleport
-frame into scene 17, and a live ``CVehicleVital`` frame with a non-zero
-handler to observe), not a further static ticket.  It does not touch
+WHAT THIS MODULE DOES NOT DO.  It does not decide when the vehicle bind
+becomes safe to send - RE-096 has searched the static/gamedata evidence
+ceiling this project holds and found no answer there, so what unblocks that
+half is an ATTENDED capture (a live ``CVehicleVital`` frame with a non-zero
+handler to observe), not a further static ticket.  It does not decide
+whether scene-17 entry and the vehicle bind should ever be split into two
+separate actions - see the owner-decision citation above.  It does not touch
 ``current/pf_login_game_server_v141
 .py`` - every frozen symbol it uses (``qwordtag``, ``u16tag``, ``u8tag``,
 ``make_runtime_vitals``, ``NPC_CONVERSATION``, ``parse_quest_operate_vital``)
@@ -144,6 +170,12 @@ COLUMBUS_DEST_SCENE_ID = 17
 # after the open ticket that would close it, so a console reader knows
 # exactly which RE ticket to chase rather than a generic "not implemented".
 VEHICLE_BIND_REFUSED_NO_VEHICLE_ROW = "no_re096_vehicle_row_evidence"
+
+# The exact citation the scene registry's scene-17 spawn carries in its
+# ground_bound_waiver field.  Read back from the resolved destination at
+# dispatch time (never hardcoded into a comparison) so a stale copy of this
+# string cannot silently diverge from the pin - see resolve_columbus_arrival.
+SCENE17_PROVISIONAL_SPAWN_SOURCE = "PROVISIONAL-OWNER-DECREE-20260827-1445"
 
 
 class ColumbusActorNotFound(LookupError):
@@ -228,8 +260,14 @@ def matches_columbus_dispatch(quest_fields: dict) -> bool:
 
 def resolve_columbus_arrival(*, registry=None, emit=print):
     """What ``world_scene_entry.resolve_entry`` says about arriving at scene
-    17 - or the ``SceneEntryRefused`` it raises today, letting that speak for
-    itself rather than reporting a second time.
+    17 - or the ``SceneEntryRefused`` it would raise for a scene with no
+    spawn at all, letting that speak for itself rather than reporting a
+    second time.  As of round 0z3kjx scene 17 carries a spawn (an
+    owner-decreed placeholder, not a measurement - see the module docstring's
+    "CORRECTION 2026-08-27T15:1x" section), so this no longer raises for
+    scene 17 specifically; the ``try`` in ``dispatch_columbus_quest3021``
+    stays, because a scene this project stops pinning, or a registry fault,
+    still needs to be caught by name rather than assumed away.
 
     Reuses ``world_scene_entry.resolve_entry`` - the SAME call CORE-REQUEST-
     003/004 already wired at login, not a second scene-transition path -
@@ -243,27 +281,51 @@ def resolve_columbus_arrival(*, registry=None, emit=print):
     if scene 17 ever gains ground evidence, at which point rule 2 of
     ``resolve_entry``'s own docstring decides what happens to it, not this
     call site.
+
+    THE EXTRA CONSOLE TOKEN.  PANYA-DECISION 2026-08-27T14:45+07:00 item 2
+    requires a printed token distinct from the ordinary ``WORLD_SCENE`` line,
+    naming the decree, whenever a resolution actually uses the decreed value
+    - "so WIRED v2/a tester can grep it, and so it's known which player
+    entered the sea with a temporary coordinate".  This reads the resolved
+    destination's ``spawn_ground_bound_waiver`` back from the registry rather
+    than assuming scene 17 is the only scene that will ever carry one, so a
+    future decreed scene gets the same line for free.
     """
     synthetic_stored = Position(COLUMBUS_DEST_SCENE_ID, 0, 0.0, 0.0, 0.0, 0.0)
-    return world_scene_entry.resolve_entry(
+    entry = world_scene_entry.resolve_entry(
         synthetic_stored, registry=registry, emit=emit,
     )
+    waiver = entry.destination.spawn_ground_bound_waiver
+    if waiver is not None:
+        x, y, z = entry.destination.spawn
+        emit(
+            "SCENE_ENTRY scene={0} xyz={1:g},{2:g},{3:g} source={4}".format(
+                entry.destination.n_id, x, y, z, waiver,
+            )
+        )
+    return entry
 
 
 def dispatch_columbus_quest3021(*, registry=None, emit=print):
     """The compound action CORE-REQUEST-014 asks for: bind the vehicle, then
     move the player to scene 17.
 
-    ALWAYS REFUSES TODAY.  Both computed reasons are genuine, independent
-    evidence gaps (see the module docstring) rather than one gap reported
-    twice: the scene-17 arrival is attempted FIRST (so a human reading the
-    console also gets whatever ``world_scene_entry`` would have printed had
-    it not refused), and the vehicle bind is refused unconditionally because
-    no wire evidence for its payload exists in this tree at all - there is
-    no code path here that would ever compose it today, evidenced or not.
-    Never partially applies: no frame is queued unless both halves clear,
-    so a future evidence close on only one gap still cannot ship a player
-    riding nothing or a player stranded mid-transform.
+    ALWAYS REFUSES TODAY - but on one named reason now, not the two this
+    function reported before round 0z3kjx.  The scene-17 arrival is
+    attempted FIRST (so a human reading the console also gets whatever
+    ``world_scene_entry`` would have printed, and now also the decree token
+    when the placeholder spawn is what resolved), and the vehicle bind is
+    refused unconditionally because no wire evidence for its payload exists
+    in this tree at all - there is no code path here that would ever compose
+    it today, evidenced or not.  ``reasons`` is still a tuple, and a future
+    round's registry fault or an unpinned scene would still add a second
+    entry to it - this function does not assume scene 17 stays resolvable,
+    it observes whether it was.  Never partially applies: no frame is queued
+    unless every computed reason clears, so a future evidence close on the
+    vehicle-bind gap still cannot ship a player riding nothing.  Whether the
+    two halves should ever be split into two separate, non-atomic actions is
+    the owner's open question named in the module docstring, not something
+    this function decides.
     """
     reasons: list[str] = []
     try:

@@ -121,6 +121,12 @@ _DESTINATION_FIELDS = {
 # pinned columns and carries no value the code reads.
 _DESTINATION_OPTIONAL_FIELDS = {"superseded_spawn", "table_row_differences"}
 _SPAWN_FIELDS = {"x", "y", "z", "provenance"}
+# Optional fifth field.  Present ONLY when a spawn is an owner-decreed
+# placeholder rather than a measured point - see ``_spawn``'s docstring for
+# what it does and does not exempt.  A compact, citable token (e.g.
+# "PROVISIONAL-OWNER-DECREE-20260827-1445"), not free text; the full citation
+# belongs in the sibling ``provenance`` field, which stays required.
+_SPAWN_OPTIONAL_FIELDS = {"ground_bound_waiver"}
 # Every column the client's table carries that this project has any reason to
 # look at.  They are validated as present rather than read selectively, so a
 # destination cannot be pinned with the interesting half of its row missing -
@@ -164,6 +170,10 @@ class SceneDestination:
     entry_marker: int
     camera_type: int
     limit_height: int
+    # None for every spawn measured off a placement file (all of them, until
+    # scene 17's owner-decreed placeholder).  Non-None names the citation for
+    # WHY the ground cross-check was skipped for this spawn - see ``_spawn``.
+    spawn_ground_bound_waiver: str | None = None
 
     @property
     def has_authored_entry(self) -> bool:
@@ -231,16 +241,41 @@ def _require_float(value: Any, label: str) -> float:
 
 
 def _spawn(raw: Any, ground: Any, n_id: int) -> tuple[
-    tuple[float, float, float] | None, str | None
+    tuple[float, float, float] | None, str | None, str | None
 ]:
+    """Validate one spawn row, and decide whether it owes a ground cross-check.
+
+    THE GROUND CROSS-CHECK EXISTS TO CATCH AN UNMEASURED POINT MASQUERADING
+    AS A MEASURED ONE.  Every spawn this project has pinned until round
+    ``0z3kjx`` was a position someone actually read off the scene's own
+    placement file, so "is it inside the only ground this scene has evidence
+    for" was a fair proxy for "was this measured".  ``ground_bound_waiver``
+    exists for the one case that proxy cannot see: a value the OWNER decreed
+    on purpose, explicitly NOT as a measurement (PANYA-DECISION
+    2026-08-27T14:45+07:00, scene 17: XYZ=(0,0,0), citing "not a coordinate
+    the team invented, an owner order"). Refusing that value for failing a
+    check whose whole point is "catch an unmeasured guess" would be refusing
+    the owner's own instruction on the strength of a heuristic built for a
+    different problem.  The waiver does not weaken the check for anyone else:
+    every spawn with no ``ground_bound_waiver`` key is checked exactly as
+    before, and a waiver with no text is rejected the same as a missing
+    ``provenance``.
+    """
     if raw is None:
-        return None, None
-    if type(raw) is not dict or set(raw) != _SPAWN_FIELDS:
+        return None, None, None
+    if (
+        type(raw) is not dict
+        or not _SPAWN_FIELDS <= set(raw)
+        or not set(raw) <= (_SPAWN_FIELDS | _SPAWN_OPTIONAL_FIELDS)
+    ):
         raise ValueError(f"scene {n_id} spawn is incomplete or has unknown fields")
     point = tuple(_require_float(raw[axis], f"scene {n_id} spawn {axis}")
                   for axis in "xyz")
     provenance = _require_text(raw["provenance"], f"scene {n_id} spawn provenance")
-    if ground is not None:
+    waiver = raw.get("ground_bound_waiver")
+    if waiver is not None:
+        waiver = _require_text(waiver, f"scene {n_id} spawn ground_bound_waiver")
+    if ground is not None and waiver is None:
         # A spawn point outside the only ground this scene has evidence for is
         # a standing position nobody measured.  This can fire: the spawn and
         # the bounds are separate rows in the pin and an edit to either one
@@ -255,7 +290,7 @@ def _spawn(raw: Any, ground: Any, n_id: int) -> tuple[
                 raise ValueError(
                     f"scene {n_id} spawn {axis} is outside the pinned placement bounds"
                 )
-    return point, provenance
+    return point, provenance, waiver
 
 
 def load_scene_registry(path: str | Path = REGISTRY_PATH) -> SceneRegistry:
@@ -305,7 +340,8 @@ def load_scene_registry(path: str | Path = REGISTRY_PATH) -> SceneRegistry:
                 f"scene {n_id} table row is incomplete or has unknown fields")
         for column, value in table_row.items():
             _require_int(value, f"scene {n_id} {column}", 0, 0xFFFFFFFF)
-        spawn, spawn_provenance = _spawn(row["spawn"], ground, n_id)
+        spawn, spawn_provenance, spawn_ground_bound_waiver = _spawn(
+            row["spawn"], ground, n_id)
         destinations.append(SceneDestination(
             n_id=n_id,
             model_id=_require_text(row["model_id"], "model id"),
@@ -317,6 +353,7 @@ def load_scene_registry(path: str | Path = REGISTRY_PATH) -> SceneRegistry:
             status=_require_text(row["status"], "status"),
             spawn=spawn,
             spawn_provenance=spawn_provenance,
+            spawn_ground_bound_waiver=spawn_ground_bound_waiver,
             ground_z_spread=(
                 None if ground is None
                 else _require_float(ground["z_spread"], "z spread")),

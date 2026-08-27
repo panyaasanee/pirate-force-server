@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import columbus_quest_dispatch, population
 from pirateforce_foundation.legacy_bridge import load_legacy
-from pirateforce_foundation.world_scene_entry import SceneEntryRefused
+from pirateforce_foundation.world_scene_entry import SceneEntry, SceneEntryRefused
 
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 
@@ -128,17 +128,88 @@ class MatchesColumbusDispatchTests(unittest.TestCase):
 
 
 class ResolveColumbusArrivalTests(unittest.TestCase):
-    def test_refuses_today_because_scene_17_has_no_pinned_spawn(self):
-        """The exact, currently-open gap this module's docstring names:
-        scenarios/world_scene_registry_001.json's scene-17 entry carries
-        spawn=null (Bg1001.placements.tsv has no player-arrival marker)."""
-        with self.assertRaises(SceneEntryRefused) as ctx:
-            columbus_quest_dispatch.resolve_columbus_arrival(emit=lambda line: None)
-        self.assertEqual(ctx.exception.reason, "scene_has_no_pinned_spawn")
+    def test_resolves_today_through_the_owner_decreed_placeholder_spawn(self):
+        """Round 0z3kjx: scenarios/world_scene_registry_001.json's scene-17
+        entry now carries a spawn (0,0,0), tagged PROVISIONAL-OWNER-DECREE-
+        20260827-1445 per notes_to_chief/20260827_1445_PANYA-DECISION-
+        scene17-provisional-arrival-xyz-0-0-0-owner-decree-ka1-B.md - this no
+        longer raises SceneEntryRefused for scene 17."""
+        lines = []
+        entry = columbus_quest_dispatch.resolve_columbus_arrival(
+            emit=lines.append,
+        )
+        self.assertIsInstance(entry, SceneEntry)
+        self.assertEqual(entry.destination.n_id, 17)
+        self.assertEqual(entry.position.x, 0.0)
+        self.assertEqual(entry.position.y, 0.0)
+        self.assertEqual(entry.position.z, 0.0)
+        self.assertEqual(
+            entry.destination.spawn_ground_bound_waiver,
+            columbus_quest_dispatch.SCENE17_PROVISIONAL_SPAWN_SOURCE,
+        )
+
+    def test_prints_the_decree_console_token_when_the_placeholder_is_used(self):
+        """PANYA-DECISION 2026-08-27T14:45+07:00 item 2: a token distinct
+        from the ordinary WORLD_SCENE line, naming the decree, whenever a
+        resolution actually uses the decreed value."""
+        lines = []
+        columbus_quest_dispatch.resolve_columbus_arrival(emit=lines.append)
+        token_lines = [line for line in lines if line.startswith("SCENE_ENTRY")]
+        self.assertEqual(len(token_lines), 1, lines)
+        self.assertEqual(
+            token_lines[0],
+            "SCENE_ENTRY scene=17 xyz=0,0,0 source="
+            + columbus_quest_dispatch.SCENE17_PROVISIONAL_SPAWN_SOURCE,
+        )
+
+    def test_a_resolved_entry_with_no_waiver_prints_no_decree_token(self):
+        """Mutation check: the extra token is conditional on the RESOLVED
+        destination's spawn_ground_bound_waiver, not printed unconditionally
+        for every entry resolve_columbus_arrival returns.  Fakes a measured
+        (non-decreed) scene-17 destination by mocking ``resolve_entry``
+        itself, so this does not depend on the real registry ever having a
+        measured spawn for scene 17 to exercise the negative branch."""
+        from pirateforce_foundation.model import Position
+        from pirateforce_foundation.world_scene_travel import SceneDestination
+
+        measured_destination = SceneDestination(
+            n_id=17, model_id="Bg1001", scene_name_ascii="a ship at sea",
+            image_name="BgNull", native_placement_count=8,
+            role="m2_columbus_quest_destination_candidate",
+            status="never_sent_to_any_client_by_this_project",
+            spawn=(0.0, 0.0, 0.0),
+            spawn_provenance="test fixture - a MEASURED spawn, not the decree",
+            ground_z_spread=526.696, ground_extent=(1815.9, 2395.2),
+            save_flag=0, entry_marker=0, camera_type=1, limit_height=0,
+            spawn_ground_bound_waiver=None,
+        )
+        position = Position(17, 0, 0.0, 0.0, 0.0, 0.0)
+        fake_entry = SceneEntry(
+            stored=position, position=position, destination=measured_destination,
+            teleport_fields=(17, 0, 0.0, 0.0, 0.0),
+            population_source=None, return_ticket_required=True,
+            relocated=False, relocation_reason=None,
+            console_lines=("WORLD_SCENE fixture line",),
+        )
+        lines = []
+        with mock.patch.object(
+            columbus_quest_dispatch.world_scene_entry, "resolve_entry",
+            return_value=fake_entry,
+        ):
+            columbus_quest_dispatch.resolve_columbus_arrival(emit=lines.append)
+        # resolve_entry is mocked out entirely (it owns emitting its own
+        # WORLD_SCENE line), so any line here would have to be the wrapper's
+        # own decree token - there must be none.
+        self.assertEqual(lines, [])
 
 
 class DispatchColumbusQuest3021Tests(unittest.TestCase):
-    def test_always_refuses_today_with_both_named_reasons(self):
+    def test_always_refuses_today_on_the_vehicle_bind_reason_alone(self):
+        """Round 0z3kjx: the scene-17 arrival half no longer refuses (see
+        ResolveColumbusArrivalTests above) - only the vehicle-bind gap
+        (RE-096, closed bounded-negative, no wire evidence anywhere in this
+        tree) remains, and dispatch still refuses because it never
+        partially applies."""
         with self.assertRaises(
             columbus_quest_dispatch.ColumbusDispatchRefused
         ) as ctx:
@@ -147,10 +218,7 @@ class DispatchColumbusQuest3021Tests(unittest.TestCase):
             )
         self.assertEqual(
             ctx.exception.reasons,
-            (
-                "scene17_teleport_refused_scene_has_no_pinned_spawn",
-                columbus_quest_dispatch.VEHICLE_BIND_REFUSED_NO_VEHICLE_ROW,
-            ),
+            (columbus_quest_dispatch.VEHICLE_BIND_REFUSED_NO_VEHICLE_ROW,),
         )
 
     def test_never_partially_applies(self):

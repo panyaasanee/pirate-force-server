@@ -117,14 +117,13 @@ class SceneRegistryTests(unittest.TestCase):
         """Round kqrlhr: packages the numbers scene 17's own
         table_row_differences.ground_is_null_because already cited as
         'measured this round' into the same ground schema scene 278 uses -
-        no re-derivation, nothing invented. Unlike scene 278, scene 17's
-        spawn stays null (RE-103 closed bounded-negative: no player-arrival
-        marker exists to measure), so this only widens what the console can
-        report, it does not change where anybody lands.
+        no re-derivation, nothing invented. Round 0z3kjx: scene 17's spawn is
+        no longer null, but it is still not a MEASUREMENT - see
+        test_scene_17s_spawn_is_an_owner_decree_not_a_measurement below for
+        that half. This test stays about ground alone.
         """
         sea = destination(17, self.registry)
         self.assertEqual(sea.native_placement_count, 8)
-        self.assertIsNone(sea.spawn)
         self.assertAlmostEqual(sea.ground_z_spread, 526.6963500976562)
         extent_x, extent_y = sea.ground_extent
         self.assertAlmostEqual(extent_x, 1815.9349365234375)
@@ -137,6 +136,45 @@ class SceneRegistryTests(unittest.TestCase):
             raw["ground"]["placements_tsv_sha256"],
             "5e4de48707a87061d9a95471a1c3c25c56f0469fe2ece7ef0709a9c79f40fec7",
         )
+
+    def test_scene_17s_spawn_is_an_owner_decree_not_a_measurement(self):
+        """Round 0z3kjx: PANYA-DECISION 2026-08-27T14:45+07:00 authorised
+        exactly one exception to 'this lane will not invent a coordinate',
+        for exactly this scene, exactly this value.  Pinned here as a
+        crosswalk that would fail loudly if a future edit tried to reuse the
+        same waiver mechanism for a value nobody decreed: the waiver is a
+        citation, not a blank check, and load_scene_registry() still checks
+        every OTHER spawn's x/y/z against its scene's own ground unchanged.
+        """
+        sea = destination(17, self.registry)
+        self.assertEqual(sea.spawn, (0.0, 0.0, 0.0))
+        self.assertIn("PROVISIONAL-OWNER-DECREE-20260827-1445", sea.spawn_provenance)
+        self.assertIn("not measured", sea.spawn_provenance)
+        self.assertEqual(
+            sea.spawn_ground_bound_waiver,
+            "PROVISIONAL-OWNER-DECREE-20260827-1445",
+        )
+        # The decreed point sits nowhere near this scene's own measured
+        # ground z-range - proof the waiver is doing something real, not
+        # just a label on a value that would have passed anyway.
+        self.assertFalse(sea.ground_z_spread is None)
+        self.assertLess(0.0, sea.ground_z_spread)  # ground exists at all
+        raw = [row for row in _raw()["destinations"] if row["n_id"] == 17][0]
+        self.assertTrue(0.0 < raw["ground"]["z_min"])
+        self.assertLess(sea.spawn[2], raw["ground"]["z_min"])
+
+    def test_every_other_pinned_spawn_still_has_no_waiver(self):
+        """Mutation check: adding the optional ground_bound_waiver field
+        must not quietly exempt every spawn from the ground cross-check -
+        only the one row that actually carries the field."""
+        for row in _raw()["destinations"]:
+            if row["n_id"] == 17:
+                continue
+            spawn = row["spawn"]
+            if spawn is not None:
+                self.assertNotIn("ground_bound_waiver", spawn)
+                dest = destination(row["n_id"], self.registry)
+                self.assertIsNone(dest.spawn_ground_bound_waiver)
 
     def test_the_pin_carries_the_hashes_a_bridge_round_reverifies(self):
         # These are the values a bridge-side round re-checks against the client
@@ -307,6 +345,53 @@ class SceneRegistryRefusalTests(unittest.TestCase):
         for row in data["destinations"]:
             if row["n_id"] == 278:
                 del row["ground"]
+        with self.assertRaises(ValueError):
+            load_scene_registry(_write(self.tmp, data))
+
+    def test_a_scene_17_style_spawn_outside_ground_is_only_refused_without_a_waiver(self):
+        """Regression pin for the mechanism scene 17 uses for real: mutate
+        278's spawn the same way, WITHOUT a waiver, and the ground check
+        must still fire exactly as test_a_spawn_outside_the_pinned_ground_is_
+        refused already proves - the waiver is opt-in per row, not a global
+        loosening of the check."""
+        data = _raw()
+        for row in data["destinations"]:
+            if row["n_id"] == 278:
+                row["spawn"]["z"] = row["ground"]["z_max"] + 50.0
+                self.assertNotIn("ground_bound_waiver", row["spawn"])
+        with self.assertRaises(ValueError):
+            load_scene_registry(_write(self.tmp, data))
+
+    def test_a_waiver_actually_lets_an_out_of_ground_spawn_through(self):
+        """The positive half of the mechanism scene 17 relies on: WITH a
+        waiver, the same out-of-ground mutation that the test above proves
+        still refuses without one now loads clean."""
+        data = _raw()
+        mutated_z = None
+        for row in data["destinations"]:
+            if row["n_id"] == 278:
+                mutated_z = row["ground"]["z_max"] + 50.0
+                row["spawn"]["z"] = mutated_z
+                row["spawn"]["ground_bound_waiver"] = "TEST-FIXTURE-WAIVER"
+        registry = load_scene_registry(_write(self.tmp, data))
+        stage = destination(278, registry)
+        self.assertEqual(stage.spawn_ground_bound_waiver, "TEST-FIXTURE-WAIVER")
+        self.assertEqual(stage.spawn[2], mutated_z)
+
+    def test_an_empty_waiver_is_refused_the_same_as_an_empty_provenance(self):
+        data = _raw()
+        for row in data["destinations"]:
+            if row["n_id"] == 17:
+                row["spawn"]["ground_bound_waiver"] = ""
+        with self.assertRaises(ValueError):
+            load_scene_registry(_write(self.tmp, data))
+
+    def test_an_unknown_spawn_field_is_still_refused(self):
+        # The optional-field allowance must stay exactly one field wide.
+        data = _raw()
+        for row in data["destinations"]:
+            if row["n_id"] == 17:
+                row["spawn"]["not_a_real_field"] = 1
         with self.assertRaises(ValueError):
             load_scene_registry(_write(self.tmp, data))
 
