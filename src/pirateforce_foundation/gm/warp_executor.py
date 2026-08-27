@@ -37,6 +37,26 @@ correctly typed) and wraps every conversion so any failure surfaces as
 point bytes are actually built, not only for callers that happened to route
 through `parse_gm_command`.
 
+The same round's docstring in `gm/say_wire.py` names a second, identical gap
+this module carried and its author left unfixed at the time: `command.args`
+was measured/indexed with plain `len()`/`[0]`/`[1]`/`[2]`, which raises a
+bare `TypeError`/`KeyError`/`IndexError` (never `WarpExecutorError`) for an
+`args` container of the wrong *shape* (`None`, a `set`, a `dict`), not just
+the wrong value -- `say_wire.py` fixed its own copy of this gap and flagged
+this module's copy as a known follow-up. This round applies the same guard
+here, then a `pf-adversary` pass on the fix itself (same round) found two
+gaps the `say_wire.py`-style three-type catch (`TypeError`/`KeyError`/
+`IndexError`) still left open, reproduced live against a crafted `args`
+object: (a) a custom `__len__`/`__getitem__` that raises anything outside
+those three types (e.g. `AttributeError`, `ValueError`) still leaked past
+this module's own "every failure surfaces as `WarpExecutorError`" promise,
+so both guards now catch `Exception` broadly instead of three named types;
+(b) a `str`/`bytes` scalar of length 3 (e.g. `"123"`) is not a crash at
+all -- it passes `len(args) == 3` and is positionally indexable, so it was
+silently read as a real `(scene_id, x, y)` tuple instead of being refused
+as the wrong container shape, so `args` is now rejected by `isinstance`
+before either guard runs.
+
 This module does not read off a live socket, does not track player state,
 and does not send anything -- it returns frame bytes for a caller to send.
 Wiring a real send is CORE-REQUEST territory, same as every other GM
@@ -84,20 +104,43 @@ def make_warp_force_pos_frame(
         raise WarpExecutorError(
             f"make_warp_force_pos_frame only applies to warp commands, got {command.name!r}"
         )
-    if len(command.args) != 3:
+    args = command.args
+    if isinstance(args, (str, bytes)):
+        # A str/bytes of length 3 passes a bare len()==3 check and is
+        # positionally indexable, so without this guard "123"/b"123" would
+        # silently be read as (scene_id=1, x=2, y=3) -- a real, wrong frame
+        # built from a shape that was never the intended (scene_id, x, y)
+        # sequence, not a crash and therefore not caught by the except
+        # clauses below.
+        raise WarpExecutorError(f"warp command args must not be str/bytes, got {args!r}")
+    try:
+        arg_count = len(args)
+    except Exception as exc:
+        # Broad on purpose: docs/GM_LANE.md and this module's own docstring
+        # commit to accepting a GmCommand "regardless of source," so args is
+        # fully caller-controlled -- any custom __len__ implementation must
+        # convert to WarpExecutorError here, not just TypeError.
+        raise WarpExecutorError(f"warp command args must be a sequence, got {args!r}") from exc
+    if arg_count != 3:
         raise WarpExecutorError(
             "warp <scene_id> with no x/y has no position for ForcePos to carry; "
             "cross-scene warp needs TeleportVital, not built yet -- see module docstring"
         )
-    scene_id = _require_int(command.args[0], "scene_id")
+    try:
+        raw_scene_id, raw_x, raw_y = args[0], args[1], args[2]
+    except Exception as exc:
+        # Broad for the same reason as the len() guard above -- any custom
+        # __getitem__ implementation must convert to WarpExecutorError here.
+        raise WarpExecutorError(f"warp command args must be indexable, got {args!r}") from exc
+    scene_id = _require_int(raw_scene_id, "scene_id")
     if scene_id != current_scene_id:
         raise WarpExecutorError(
             f"warp target scene_id {scene_id} != current_scene_id {current_scene_id}: "
             "ForcePos carries no scene id and cannot cross scenes; cross-scene warp "
             "needs TeleportVital, not built yet -- see module docstring"
         )
-    x = _require_finite_float(command.args[1], "x")
-    y = _require_finite_float(command.args[2], "y")
+    x = _require_finite_float(raw_x, "x")
+    y = _require_finite_float(raw_y, "y")
     z = _require_finite_float(z, "z")
     return make_force_pos_frame(legacy, vital_version, x, y, z)
 
