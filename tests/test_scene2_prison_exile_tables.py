@@ -78,7 +78,7 @@ class KnownPlacementsShapeTests(unittest.TestCase):
 
 
 class AnchorReportTests(unittest.TestCase):
-    def test_the_veronica_anchor_matches_under_the_x_sign_flip_transform(self):
+    def test_the_veronica_anchor_matches_under_the_identity_transform(self):
         report = tables.anchor_report()
         veronica = report["confirmed_numeric"][0]
         self.assertEqual(veronica["name"], "veronica_hud")
@@ -86,6 +86,9 @@ class AnchorReportTests(unittest.TestCase):
         # The letter's own reported miss is 227/103; this re-derivation lands
         # within a few units of that, not merely "under the tolerance".
         self.assertLess(veronica["distance"], 260.0)
+        # CORRECTED round 5irwkp: the target is negative (HUD read "X:-3,825"
+        # under higher zoom, not "X:3,825") - see module docstring CORRECTION.
+        self.assertEqual(veronica["target"], [-3825.0, 12447.0])
 
     def test_the_legend_jack_men_deer_cluster_stays_within_the_pinned_radius(self):
         report = tables.anchor_report()
@@ -97,10 +100,41 @@ class AnchorReportTests(unittest.TestCase):
     def test_the_report_never_claims_all_seven_anchors_confirmed(self):
         report = tables.anchor_report()
         self.assertFalse(report["all_seven_confirmed"])
-        self.assertEqual(len(report["not_independently_verified"]), 3)
+        self.assertEqual(len(report["not_independently_verified"]), 1)
 
-    def test_the_hud_transform_is_x_negate_y_unchanged(self):
-        self.assertEqual(tables.hud_from_placement(100.0, 200.0), (-100.0, 200.0))
+    def test_the_hud_transform_is_identity_no_sign_flip(self):
+        # CORRECTED round 5irwkp: was (-100.0, 200.0) under the old
+        # (wrong) "negate X" rule.  See hud_from_placement's docstring.
+        self.assertEqual(tables.hud_from_placement(100.0, 200.0), (100.0, 200.0))
+        self.assertEqual(tables.hud_from_placement(-100.0, 200.0), (-100.0, 200.0))
+
+    def test_navy_transfer_and_sebastian_are_supportive_same_frame_evidence(self):
+        report = tables.anchor_report()
+        names = [e["name"] for e in report["supportive_not_tight"]]
+        self.assertIn("navy_transfer_near_sebastian_same_frame", names)
+        entry = next(
+            e for e in report["supportive_not_tight"]
+            if e["name"] == "navy_transfer_near_sebastian_same_frame"
+        )
+        self.assertTrue(entry["match"])
+        self.assertAlmostEqual(entry["distance"], 3079.9, places=1)
+
+    def test_sebastian_and_pike_name_title_match_the_photos(self):
+        report = tables.anchor_report()
+        by_n_id = {e["n_id"]: e for e in report["name_title_confirmed_no_coordinate"]}
+        self.assertEqual(len(by_n_id), 2)
+        self.assertIn(tables.SEBASTIAN_N_ID, by_n_id)
+        self.assertIn(tables.PIKE_N_ID, by_n_id)
+        for entry in by_n_id.values():
+            self.assertTrue(entry["match"])
+            self.assertEqual(entry["table_name"], entry["observed_name"])
+            self.assertEqual(entry["table_title"], entry["observed_title"])
+        self.assertEqual(by_n_id[tables.SEBASTIAN_N_ID]["observed_name"], "Sebastian")
+        self.assertEqual(by_n_id[tables.SEBASTIAN_N_ID]["observed_title"], "Warden")
+        self.assertEqual(by_n_id[tables.PIKE_N_ID]["observed_name"], "Pike")
+        self.assertEqual(
+            by_n_id[tables.PIKE_N_ID]["observed_title"], "Unemployed Sailor"
+        )
 
     def test_the_registry_spawn_constant_matches_the_live_registry_file(self):
         # This module hardcodes the scene-2 spawn rather than importing
