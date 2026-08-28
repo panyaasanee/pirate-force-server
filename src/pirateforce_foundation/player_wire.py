@@ -52,12 +52,21 @@ PLAYER_LOGIN_LEVEL = 1
 #
 # Speed IS wired: BasicAttr +0x54, f32 tag 0x2A, mask 0x0040 (PF_STATS_PROG001
 # s4 gate 0x46579A; same bit/tag/offset mob_death.py's BASIC_BIT_MOVEMENT_
-# SPEED already wires for field mobs).  [PROPOSED, not measured] the VALUE
-# 400.0 -- unlike the MP/stat gap above, this is the owner's own single,
-# deliberately-chosen client-observable value from her probe session (same
-# status as PLAYER_LOGIN_CLASS_ID/PLAYER_LOGIN_LEVEL: one named constant an
-# owner picked, not an invented placeholder standing in for unknown
-# per-class data).
+# SPEED already wires for field mobs).  The VALUE 400.0 is [MEASURED], not
+# guessed -- pf-adversary (this round) found stronger evidence than the
+# owner's own probe letter cited below: reports/PF_RESCUE_AND_DEATH_
+# ESCALATION_STATIC_20260819.md line ~281 disassembles BasicAttr's own ctor
+# (0x00464AC6..0x00464B0E) and shows it writes the literal float at
+# 0x00F0DD9C -- 400.0f -- into this exact object offset (+0x54) via
+# ``movss [obj+0x54], xmm0`` on every fresh instance, before any wire data
+# ever arrives.  This is corroborated (not contradicted) by the client-
+# observable data point PANYA-DECISION 20260828_0125 row (3) named
+# ("เจ้าของประเมินค่าปกติ 400" -- pf_bridge/notes_to_chief, cross-repo, not
+# committed here): the owner watched a character actually walk at a normal
+# pace with this same value during her probe session.  Two independent
+# sources, one from disassembly and one from live observation, agree on the
+# same number -- same discipline this codebase already applies elsewhere
+# (RE-117 + PF_STATS_PROG001 corroborating the MP bit positions above).
 PLAYER_LOGIN_MOVEMENT_SPEED = 400.0
 
 # BasicAttr mask bit added by this widening.
