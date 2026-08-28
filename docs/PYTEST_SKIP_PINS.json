@@ -326,6 +326,30 @@
       "note": "R131: the Codex RE deliverable tables live in the pf_bridge SIBLING repo; the single-repo gate checkout cannot have them, the cloud clone and the bridge both do. First consumer: tools/pf_external_registry.py. R145: the last three tables reached the remote (pf_bridge 579b468) and the precondition now names all eight, so the count rose 12 -> 26 with the internal-consistency checks they made possible (field_offset grammar, evidence->inventory join, priority self-consistency)."
     },
     {
+      "key": "bridge_gamedata",
+      "module": "tests/test_field_mob_tables_bg0002.py",
+      "count": 4,
+      "tests": [
+        "Bg0002RegenerateAndDiffTest::test_regenerating_reproduces_the_committed_module_byte_for_byte",
+        "Bg0002RegenerateAndDiffTest::test_the_predicate_census_matches_the_recorded_finding",
+        "Bg0002RegenerateAndDiffTest::test_hostile_roster_count_is_seventeen_from_live_gamedata",
+        "Bg0002RegenerateAndDiffTest::test_template_27_fails_only_the_outfit_ambiguity_half_of_selection"
+      ],
+      "note": "round y7koj9 (LANE-B): field_mob_tables_bg0002.py is GENERATED prep data for PANYA-DECISION 2026-08-27T20:10+07:00's M1-P (Prison Exile / Bg0002 identity-first priority, M2 paused) item 3 - widen death scope toward bg0002 without merging it into bg0001's roster in one load_roster() call. These four re-run tools/pf_mine_scene_mob_roster.py --scene Bg0002 against the bridge clone's gamedata so the committed module cannot drift unnoticed, and confirm template 27 (Mountain Deer, the owner's ADDENDUM 20:18 pick for GT-114/DIAG-001) is correctly absent from this generated roster (outfit-ambiguous, not hostile-predicate-failing) rather than silently missing for the wrong reason. Pinned in the same commit as the test, per the exact defect shape pf-adversary already caught twice (test_pf_scan_field_scene_candidates.py round ctflxc, test_field_mob_tables_bg0015.py round 2vxlx2) and a third time in this round's own first draft."
+    },
+    {
+      "key": "bridge_gamedata",
+      "module": "tests/test_field_mob_tables_bg0015.py",
+      "count": 4,
+      "tests": [
+        "Bg0015RegenerateAndDiffTest::test_regenerating_reproduces_the_committed_module_byte_for_byte",
+        "Bg0015RegenerateAndDiffTest::test_the_predicate_census_matches_the_recorded_finding",
+        "Bg0015RegenerateAndDiffTest::test_hostile_roster_count_is_twelve_from_live_gamedata",
+        "Bg0015RegenerateAndDiffTest::test_this_scene_agrees_with_the_legacy_rule_on_nothing"
+      ],
+      "note": "round 2vxlx2 (LANE-B): field_mob_tables_bg0015.py is GENERATED prep data for M3/BUILD-004 (COO-DECISION 2026-08-26 12:46: Bg0015 confirmed as the real M3 map, prepared but not wired in until lane A's second gate + geometry check passes). These three re-run tools/pf_mine_scene_mob_roster.py --scene Bg0015 against the bridge clone's gamedata so the committed module cannot drift unnoticed. Following the exact pattern test_pf_scan_field_scene_candidates.py already set (round ctflxc) so this pin exists in the same commit as the test, not after it. ROUND ua236k: re-mined under cline per COO-DECISION 20260829_0345, so the roster is 12 not 17 and the third test is renamed accordingly; a fourth was added pinning that CLINE type 14 agrees with the set-number reading on 0 of 51 rows, which is why every identity in the table moved."
+    },
+    {
       "key": "original_schema_history",
       "module": "tests/test_foundation.py",
       "count": 1,
@@ -469,41 +493,6 @@
       "note": "round g627j0 (LANE-B): field_drop_tables.py is GENERATED, and this is the test that re-runs its generator with --check so the shipped table cannot drift from the bridge clone's gamedata unnoticed. A clone without pf_bridge beside it cannot answer, so the skip is declared rather than hand-written - the first draft wrote a bare skipTest and the gate's skip census caught it."
     },
     {
-      "key": "bridge_gamedata",
-      "module": "tests/test_pf_scan_field_scene_candidates.py",
-      "count": 3,
-      "tests": [
-        "FieldSceneCandidatesRegenerateAndDiffTest::test_regenerating_reproduces_the_committed_report_byte_for_byte",
-        "FieldSceneCandidatesRegenerateAndDiffTest::test_scene_278_scans_as_zero_hostile_under_the_shipped_tables",
-        "FieldSceneCandidatesRegenerateAndDiffTest::test_control_scene_refusal_fires_on_a_tampered_mobs_row"
-      ],
-      "note": "round ctflxc (LANE-B): tools/pf_scan_field_scene_candidates.py is the census behind the BUILD-004 field-scene blocker, and these three re-run it against the bridge clone's gamedata so docs/FIELD_SCENE_CANDIDATES.json cannot drift unnoticed and the scene-278-is-empty finding stays checked. pf-adversary caught the first draft shipping this test file with no matching pin, which would have failed this exact census on any machine without pf_bridge beside it."
-    },
-    {
-      "key": "bridge_gamedata",
-      "module": "tests/test_field_mob_tables_bg0015.py",
-      "count": 4,
-      "tests": [
-        "Bg0015RegenerateAndDiffTest::test_regenerating_reproduces_the_committed_module_byte_for_byte",
-        "Bg0015RegenerateAndDiffTest::test_the_predicate_census_matches_the_recorded_finding",
-        "Bg0015RegenerateAndDiffTest::test_hostile_roster_count_is_twelve_from_live_gamedata",
-        "Bg0015RegenerateAndDiffTest::test_this_scene_agrees_with_the_legacy_rule_on_nothing"
-      ],
-      "note": "round 2vxlx2 (LANE-B): field_mob_tables_bg0015.py is GENERATED prep data for M3/BUILD-004 (COO-DECISION 2026-08-26 12:46: Bg0015 confirmed as the real M3 map, prepared but not wired in until lane A's second gate + geometry check passes). These three re-run tools/pf_mine_scene_mob_roster.py --scene Bg0015 against the bridge clone's gamedata so the committed module cannot drift unnoticed. Following the exact pattern test_pf_scan_field_scene_candidates.py already set (round ctflxc) so this pin exists in the same commit as the test, not after it. ROUND ua236k: re-mined under cline per COO-DECISION 20260829_0345, so the roster is 12 not 17 and the third test is renamed accordingly; a fourth was added pinning that CLINE type 14 agrees with the set-number reading on 0 of 51 rows, which is why every identity in the table moved."
-    },
-    {
-      "key": "bridge_gamedata",
-      "module": "tests/test_field_mob_tables_bg0002.py",
-      "count": 4,
-      "tests": [
-        "Bg0002RegenerateAndDiffTest::test_regenerating_reproduces_the_committed_module_byte_for_byte",
-        "Bg0002RegenerateAndDiffTest::test_the_predicate_census_matches_the_recorded_finding",
-        "Bg0002RegenerateAndDiffTest::test_hostile_roster_count_is_seventeen_from_live_gamedata",
-        "Bg0002RegenerateAndDiffTest::test_template_27_fails_only_the_outfit_ambiguity_half_of_selection"
-      ],
-      "note": "round y7koj9 (LANE-B): field_mob_tables_bg0002.py is GENERATED prep data for PANYA-DECISION 2026-08-27T20:10+07:00's M1-P (Prison Exile / Bg0002 identity-first priority, M2 paused) item 3 - widen death scope toward bg0002 without merging it into bg0001's roster in one load_roster() call. These four re-run tools/pf_mine_scene_mob_roster.py --scene Bg0002 against the bridge clone's gamedata so the committed module cannot drift unnoticed, and confirm template 27 (Mountain Deer, the owner's ADDENDUM 20:18 pick for GT-114/DIAG-001) is correctly absent from this generated roster (outfit-ambiguous, not hostile-predicate-failing) rather than silently missing for the wrong reason. Pinned in the same commit as the test, per the exact defect shape pf-adversary already caught twice (test_pf_scan_field_scene_candidates.py round ctflxc, test_field_mob_tables_bg0015.py round 2vxlx2) and a third time in this round's own first draft."
-    },
-    {
       "key": "client_image",
       "module": "tests/test_move_authority_targetpos_static.py",
       "count": 8,
@@ -551,6 +540,17 @@
         "ToolRunTests::test_thunk_verifier_still_reproduces_the_three_round62_pins"
       ],
       "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "bridge_gamedata",
+      "module": "tests/test_pf_scan_field_scene_candidates.py",
+      "count": 3,
+      "tests": [
+        "FieldSceneCandidatesRegenerateAndDiffTest::test_regenerating_reproduces_the_committed_report_byte_for_byte",
+        "FieldSceneCandidatesRegenerateAndDiffTest::test_scene_278_scans_as_zero_hostile_under_the_shipped_tables",
+        "FieldSceneCandidatesRegenerateAndDiffTest::test_control_scene_refusal_fires_on_a_tampered_mobs_row"
+      ],
+      "note": "round ctflxc (LANE-B): tools/pf_scan_field_scene_candidates.py is the census behind the BUILD-004 field-scene blocker, and these three re-run it against the bridge clone's gamedata so docs/FIELD_SCENE_CANDIDATES.json cannot drift unnoticed and the scene-278-is-empty finding stays checked. pf-adversary caught the first draft shipping this test file with no matching pin, which would have failed this exact census on any machine without pf_bridge beside it."
     },
     {
       "key": "backups_tree",
@@ -826,6 +826,15 @@
     },
     {
       "key": "bridge_gamedata",
+      "module": "tests/test_world_scene_marker.py",
+      "count": 1,
+      "tests": [
+        "MarkerReverificationOnTheBridgeTest::test_the_reverification_script_runs_against_the_bridge_tree"
+      ],
+      "note": "round vyi2ud (LANE-A): world_scene_marker.py pins 13 MARKER rows and the totals of the two client tables they come from, and this test runs the module's own re-derivation script against the bridge clone's gamedata so neither the rows nor the sha256 pins can drift unnoticed. A clone without pf_bridge beside it cannot answer. Pinned here because the first draft wrote a bare skipTest and the Windows gate's skip census closed pull request #231 for it - the same defect shape as rounds ctflxc, 2vxlx2 and y7koj9, which is why the note in each of those says 'pinned in the same commit as the test'."
+    },
+    {
+      "key": "bridge_gamedata",
       "module": "tests/test_scene_identity_rule.py",
       "count": 9,
       "tests": [
@@ -839,7 +848,7 @@
         "TheCommittedCopyIsTheRealTable::test_no_shipped_control_was_measured_on_the_scene_it_ships_under",
         "TheCommittedCopyIsTheRealTable::test_cline_resolves_set_103_to_the_id_this_module_committed"
       ],
-      "note": "round ua236k (LANE-B): COO-DECISION 20260829_0345 made cline the project's one identity rule and ordered the 35/35 equality pinned by a test. scene_identity_rule.py commits the CLINE blocks for the two scene types in play because CONSTDATA_TH__CLINE.tsv lives on the bridge clone, not here; these four re-derive those blocks and the two readings of Mob-Set 103 from that clone so the committed copy cannot drift. Pinned in the same commit as the test, per the defect shape pf-adversary caught in rounds ctflxc, 2vxlx2 and y7koj9. Grew from four to 9 after pf-adversary's review: the scene_name and mobs_tip digests, SCENE_CLINE_TYPE itself (the crosswalk's entry point, which nothing re-derived), the n_ID-vs-n_CLINE_TYPE control, the rule's 19/271 reach, and the pin that Bg0015 ships under controls measured on another scene type."
+      "note": "round ua236k (LANE-B): COO-DECISION 20260829_0345 made cline the project's one identity rule and ordered the 35/35 equality pinned by a test. scene_identity_rule.py commits the CLINE blocks for the two scene types in play because CONSTDATA_TH__CLINE.tsv lives on the bridge clone, not here; these re-derive those blocks, both disputed readings of Mob-Set 103, SCENE_CLINE_TYPE itself (the crosswalk's entry point, which nothing re-derived before pf-adversary's review), the n_ID-vs-n_CLINE_TYPE control, the rule's 19/271 reach, and the gap that Bg0015 ships under controls measured on another scene type. Pinned in the same commit as the test, per the defect shape that closed PRs in rounds ctflxc, 2vxlx2, y7koj9 and vyi2ud."
     }
   ],
   "windows_gate_excluded_modules": {
