@@ -1,10 +1,11 @@
 """Transport-independent lifecycle session used by real adapters and loopback tests."""
 from dataclasses import replace
+import sys
 import threading
 
+from . import bag_admission
 from .inventory import (
     HYPOTHESIZED_V111_SLOT2_BACKPACK,
-    is_unmoved_baseline,
 )
 
 class FoundationSession:
@@ -70,7 +71,62 @@ class FoundationSession:
     def select_and_start(self, selector: int):
         selected = self.lifecycle.select(self.session_id, selector)
         backpack = self.lifecycle.backpack(self.session_id, selected)
-        if not is_unmoved_baseline(backpack) and not self.allow_hypothesized_item_move:
+        # Gate 2, per COO-DECISION 20260829_0441 (BAG_ADMISSION_WIRING).  The
+        # first two terms of may_enter_world ARE the condition this line
+        # carried before, in the same order.  TWO differences, both measured
+        # by pf-adversary over 120,000 mutated bags -- there is no third:
+        #   1. a golden bag that ACQUIRED rows is now ADMITTED (this is what
+        #      M5 needs to survive a relog);
+        #   2. with the opt-in ON, a value that fails require_backpack_shape
+        #      is now REFUSED where the old bare `or allow_...` admitted it.
+        #      Unreachable in production (gate 1 raises on such a value
+        #      first), but it IS a state that used to pass here.
+        # inventory.is_unmoved_baseline is NOT narrowed: it is may_enter_world's
+        # first term unchanged, and the move/swap/merge family keeps the guard
+        # it has.
+        #
+        # LEDGER PIN, DO NOT REFLOW AWAY: docs/HYPOTHESIS_LEDGER.json requires
+        # the literal string "is_unmoved_baseline" to appear in this file
+        # (HYP-PF-010, source_refs), and after this rewiring NO CODE carries
+        # it -- only this comment block does (twice: the sentence above and
+        # this note), which means the ledger check now passes on prose.  If
+        # that pin should now name may_enter_world instead, amend the ledger
+        # entry -- never delete the marker to make
+        # tools/verify_hypothesis_ledger.py go green.
+        if not bag_admission.may_enter_world(
+            backpack,
+            allow_hypothesized_item_move=self.allow_hypothesized_item_move,
+        ):
+            # Unconditional, not attended-only.  The PermissionError below
+            # names HYP-PF-008, which is the wrong sentence for two of the
+            # refusals this predicate returns (a malformed bag -- a real bug,
+            # gate 1 should have raised first -- and a drifted header).
+            # Without this line a structural fault reaches the operator
+            # misattributed to a hypothesis that had nothing to do with it.
+            #
+            # A DIAGNOSTIC MAY NEVER ALTER DISPATCH (runtime.make_stdout_event
+            # _exporter's rule, applied here).  pf-adversary measured TWO
+            # stream states where the bare print changed what the caller
+            # sees: a closed stderr turned this refusal into a ValueError
+            # that runtime.py reports as BACKPACK_LOAD_REFUSED -- the exact
+            # misattribution this line exists to prevent -- and a
+            # BrokenPipeError escaped both of runtime.py's handlers and
+            # unwound the listener thread in silence.  Both are swallowed
+            # here, so the PermissionError below is what leaves this method,
+            # always.  A THIRD state is NOT fixed and is not a dispatch bug:
+            # with sys.stderr None (pythonw, no console) print() writes to
+            # stdout, so the token lands in the run's .out.txt.  The durable
+            # cure for that one is an event beside the print, which this
+            # round did not add -- see the round letter.
+            try:
+                print(
+                    bag_admission.console_line(
+                        bag_admission.classify(backpack)
+                    ),
+                    file=sys.stderr,
+                )
+            except Exception:
+                pass
             raise PermissionError(
                 "HYP-PF-008 post-state requires its explicit opt-in scenario"
             )

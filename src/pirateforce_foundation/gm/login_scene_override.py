@@ -108,6 +108,22 @@ def _load_scene_id_map(
     return result
 
 
+def resolve_gm_login_scene_config_path(
+    config_path: str | os.PathLike | None = None,
+) -> Path:
+    """The file ``load_login_scene_overrides`` will read for this argument.
+
+    Exists so a WRITER (``gm/login_scene_stage.py``) and this reader can
+    never point at two different files.  The resolution order -- explicit
+    argument, then ``PF_GM_LOGIN_SCENE_CONFIG``, then the default path --
+    lives in ``_resolve_path`` and is exported here rather than copied,
+    because a writer that staged into the default path while a listener
+    booted with the env var set would look like it worked and change
+    nothing.
+    """
+    return _resolve_path(config_path, DEFAULT_CONFIG_PATH, ENV_OVERRIDE)
+
+
 def load_login_scene_overrides(
     config_path: str | os.PathLike | None = None,
 ) -> dict[str, int]:
