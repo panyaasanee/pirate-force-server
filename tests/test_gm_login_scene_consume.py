@@ -162,12 +162,12 @@ class SingleUseTests(_Case):
 
 
 class FailClosedTests(_Case):
-    def test_a_removal_that_fails_costs_the_warp_not_the_guarantee(self):
+    def test_an_entry_that_cannot_be_removed_costs_the_warp_not_the_guarantee(self):
         # The rule worth arguing about: rather than granting a scene whose
         # override would outlive the login, the login goes to the default.
         self.assertTrue(self.stage(self.GM_ACCOUNT, PORT_ROYAL).staged)
         with mock.patch.object(
-            login_scene_stage, "restore_login_scene", return_value=False
+            login_scene_stage, "claim_login_scene", return_value=None
         ):
             result = self.consume(self.GM_ACCOUNT)
         self.assertIsNone(result.scene_id)
@@ -176,48 +176,141 @@ class FailClosedTests(_Case):
         # half-erased.
         self.assertEqual(PORT_ROYAL, self.entries()[self.GM_ACCOUNT])
 
-    def test_a_remover_that_raises_is_the_same_answer(self):
+    def test_a_claim_that_raises_is_the_same_answer(self):
         self.assertTrue(self.stage(self.GM_ACCOUNT, PORT_ROYAL).staged)
         with mock.patch.object(
             login_scene_stage,
-            "restore_login_scene",
+            "claim_login_scene",
             side_effect=OSError("disk went away"),
         ):
             result = self.consume(self.GM_ACCOUNT)
         self.assertIsNone(result.scene_id)
         self.assertEqual(login_scene_consume.CONSUME_FAILED, result.outcome)
 
-    def test_a_removal_that_LIES_is_caught_by_the_read_back(self):
-        # The quiet failure this module exists to prevent: a remover that
-        # returns True having changed nothing.  Without the read-back, the
-        # login would get the scene AND keep the override -- and the audit
-        # trail would say it was spent.
+    def test_a_read_only_config_directory_refuses_FOR_REAL(self):
+        # No mock anywhere in this one.  The three tests above pin the
+        # branches; this pins that the branches are reachable from a real
+        # operating system, which is the half a mock can never show.
         self.assertTrue(self.stage(self.GM_ACCOUNT, PORT_ROYAL).staged)
+        euid = getattr(os, "geteuid", None)
+        bits_bite = os.name == "posix" and euid is not None and euid() != 0
+        if bits_bite:
+            self.config_path.parent.chmod(0o500)
+            self.addCleanup(self.config_path.parent.chmod, 0o700)
+        else:
+            # Windows ignores the bit and so does root, so take the write
+            # away where the real chmod takes it away: the temp file the
+            # writer makes before it renames.
+            patcher = mock.patch.object(
+                login_scene_stage.tempfile,
+                "mkstemp",
+                side_effect=PermissionError(13, "Permission denied"),
+            )
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        result = self.consume(self.GM_ACCOUNT)
+        self.assertIsNone(result.scene_id)
+        self.assertEqual(login_scene_consume.CONSUME_FAILED, result.outcome)
+        self.assertEqual(PORT_ROYAL, self.entries()[self.GM_ACCOUNT])
+
+    def test_a_remover_that_LIES_is_caught_inside_the_lock(self):
+        # The quiet failure worth the extra read: a delete that reports
+        # success and changed nothing.  Without the read-back inside
+        # `claim_login_scene`, this login would get the scene AND keep the
+        # override, with an audit row saying it was spent.  (Mutation-tested:
+        # removing that read-back leaves every other test in this file
+        # green.)
+        self.assertTrue(self.stage(self.GM_ACCOUNT, PORT_ROYAL).staged)
+        real = login_scene_stage._write_entry_locked
+
+        def lying(account_name, scene_id, config_path, **kwargs):
+            if scene_id is None:
+                return login_scene_stage.StageResult(
+                    True, login_scene_stage.REASON_OK, None, None
+                )
+            return real(account_name, scene_id, config_path, **kwargs)
+
         with mock.patch.object(
-            login_scene_stage, "restore_login_scene", return_value=True
+            login_scene_stage, "_write_entry_locked", lying
         ):
             result = self.consume(self.GM_ACCOUNT)
         self.assertIsNone(result.scene_id)
         self.assertEqual(login_scene_consume.CONSUME_FAILED, result.outcome)
         self.assertEqual(PORT_ROYAL, self.entries()[self.GM_ACCOUNT])
 
-    def test_a_config_that_cannot_be_read_grants_nothing(self):
-        self.assertTrue(self.stage(self.GM_ACCOUNT, PORT_ROYAL).staged)
-        with mock.patch.object(
-            login_scene_consume,
-            "load_login_scene_overrides",
-            side_effect=ValueError("malformed"),
-        ):
-            result = self.consume(self.GM_ACCOUNT)
+    def test_a_malformed_config_does_not_take_the_login_down(self):
+        # The first version let this RAISE out of a function whose whole
+        # contract is "four outcomes, fail-closed".
+        self.standalone_path.parent.mkdir(parents=True, exist_ok=True)
+        self.standalone_path.write_text(
+            json.dumps({login_scene_override.STANDALONE_JSON_KEY: [1, 2, 3]}),
+            encoding="utf-8",
+        )
+        result = self.consume(self.GM_ACCOUNT)
         self.assertIsNone(result.scene_id)
         self.assertEqual(login_scene_consume.CONSUME_FAILED, result.outcome)
 
-    def test_a_str_subclass_is_refused_at_the_door(self):
+    def test_a_str_subclass_is_refused_by_THIS_module_not_by_a_collaborator(self):
         class Sneaky(str):
             pass
 
-        with self.assertRaises(TypeError):
-            self.consume(Sneaky(self.GM_ACCOUNT))
+        # Asserted against this module's own door: patching the delegate out
+        # would leave a test that measures the collaborator instead.
+        with mock.patch.object(
+            login_scene_consume, "get_login_scene_override"
+        ) as delegate:
+            with self.assertRaises(TypeError):
+                self.consume(Sneaky(self.GM_ACCOUNT))
+        delegate.assert_not_called()
+
+    def test_an_empty_account_name_is_refused_at_this_door_too(self):
+        # Both collaborators raise on it; accepting it here only buys a
+        # permanently unremovable entry reported as a disk fault.
+        with self.assertRaises(ValueError):
+            self.consume("")
+
+
+class OnlyOneLoginGetsItTests(_Case):
+    """The condition is single-USE, which is a race, not a file edit.
+
+    MEASURED by pf-adversary against the first version of this module: with
+    two threads on a barrier, BOTH logins received the staged scene and both
+    recorded `consumed`, 400 trials out of 400.  The read-then-remove shape
+    could not lose, because the remover it used reports success for a delete
+    whether or not it was the caller that removed anything.
+    """
+
+    def test_two_concurrent_logins_produce_exactly_one_winner(self):
+        import threading
+
+        for _ in range(50):
+            self.assertTrue(self.stage(self.GM_ACCOUNT, PORT_ROYAL).staged)
+            barrier = threading.Barrier(2)
+            results = []
+            lock = threading.Lock()
+
+            def run():
+                barrier.wait()
+                outcome = self.consume(self.GM_ACCOUNT)
+                with lock:
+                    results.append(outcome)
+
+            threads = [threading.Thread(target=run) for _ in range(2)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+            winners = [r for r in results if r.scene_id is not None]
+            self.assertEqual(1, len(winners), results)
+            self.assertEqual(login_scene_consume.CONSUMED, winners[0].outcome)
+            self.assertEqual(PORT_ROYAL, winners[0].scene_id)
+            losers = [r for r in results if r.scene_id is None]
+            self.assertEqual(1, len(losers), results)
+            self.assertEqual(
+                login_scene_consume.NOTHING_STAGED, losers[0].outcome
+            )
+            self.assertIsNone(self.entries().get(self.GM_ACCOUNT))
 
 
 class StandaloneMapTests(_Case):

@@ -107,39 +107,54 @@ def consume_login_scene_override(
     """
     if type(account_name) is not str:
         raise TypeError("account_name must be a str")
+    if not account_name:
+        # Both collaborators refuse an empty name, so accepting it here only
+        # buys a permanently unremovable entry reported as a disk fault.
+        raise ValueError("account_name must be a non-empty str")
 
-    scene_id = get_login_scene_override(
-        account_name,
-        gm_accounts_config_path=gm_accounts_config_path,
-        login_scene_config_path=login_scene_config_path,
-        standalone_config_path=standalone_config_path,
-    )
+    # Guarded, unlike the first version: a "four outcomes, fail-closed"
+    # function that raises on a malformed config is neither.  A config this
+    # process cannot read is a config it must not act on -- and a login is
+    # never taken down by this file.
+    try:
+        scene_id = get_login_scene_override(
+            account_name,
+            gm_accounts_config_path=gm_accounts_config_path,
+            login_scene_config_path=login_scene_config_path,
+            standalone_config_path=standalone_config_path,
+        )
+    except (OSError, ValueError):
+        return ConsumeResult(None, CONSUME_FAILED)
     if scene_id is None:
         return ConsumeResult(None, NOTHING_STAGED)
 
-    # Which map answered?  Ask the GM-gated map directly rather than
-    # inferring it from the scene_id: two maps can legitimately name the
-    # same scene, and guessing would consume the wrong entry.
-    #
-    # BOTH halves of the GM path are re-asked here, not just the entry.
-    # Presence in `gm_login_scene.json` alone does NOT mean that file is
-    # what answered: `get_login_scene_override` consults the GM map only
-    # for a listed GM account, so for a NON-GM named in both files the
-    # scene came from the standalone map while the GM-gated file still
-    # holds a stale hand-written line.  Consuming on the entry alone would
-    # then delete that line -- this module editing a config on behalf of an
-    # account the allowlist does not list, which is the one thing this lane
-    # never does.  (Found by self-review this round; the remover
-    # deliberately does not re-check the allowlist itself, so the check has
-    # to be here.)
-    if not is_gm_account(account_name, gm_accounts_config_path):
-        return ConsumeResult(scene_id, STANDALONE_NOT_CONSUMED)
+    # Which map answered?  BOTH halves of the GM path are asked, not just
+    # the entry.  Presence in `gm_login_scene.json` alone does NOT mean that
+    # file is what answered: `get_login_scene_override` consults the GM map
+    # only for a LISTED GM account, so for a non-GM named in both files the
+    # scene came from the standalone map while the GM-gated file still holds
+    # a stale hand-written line.  MEASURED by pf-adversary against the first
+    # version of this module: it deleted that line, returned the OTHER map's
+    # scene, and labelled it `consumed` -- so the override survived every
+    # later login while the audit row said it had been spent.  Three
+    # failures from one missing half-check.
     try:
-        gm_gated = load_login_scene_overrides(login_scene_config_path)
+        answered_by_gm_map = is_gm_account(
+            account_name, gm_accounts_config_path
+        )
     except (OSError, ValueError):
-        # A config this process cannot read is a config it must not act on.
         return ConsumeResult(None, CONSUME_FAILED)
-    if gm_gated.get(account_name) is None:
+    if not answered_by_gm_map:
+        return ConsumeResult(scene_id, STANDALONE_NOT_CONSUMED)
+
+    # WHICH MAP supplied the scene is decided BEFORE the claim, never
+    # after: once the entry is gone there is no way to tell "the standalone
+    # map answered" from "the GM map answered and another login took it".
+    try:
+        gm_map = load_login_scene_overrides(login_scene_config_path)
+    except (OSError, ValueError):
+        return ConsumeResult(None, CONSUME_FAILED)
+    if gm_map.get(account_name) is None:
         return ConsumeResult(scene_id, STANDALONE_NOT_CONSUMED)
 
     # Imported here, not at module scope: `login_scene_stage` imports from
@@ -147,39 +162,39 @@ def consume_login_scene_override(
     # top-level import would close that loop.
     from . import login_scene_stage
 
-    # `restore_login_scene(account, None)` is the existing remover -- the
-    # same one `chat_command_action` uses to take a staged entry back off
-    # disk when its audit row cannot be written.  Reusing it rather than
-    # writing a second deleter keeps one implementation of "edit this file
-    # safely", which is the whole reason that one is as careful as it is.
-    # It deliberately does not re-check the allowlist: a removal must work
-    # even for an account someone has since delisted, or the delisting
-    # would strand exactly the entry that most needs clearing.
+    # ONE atomic take, not read-then-remove.  MEASURED by pf-adversary
+    # against the first version of this module: reading the entry and then
+    # calling `restore_login_scene(acct, None)` let two concurrent logins of
+    # the same account BOTH receive the staged scene and both write
+    # `consumed` -- 400 of 400 trials -- because that remover's check is
+    # "the entry is not what I was asked to write", which "absent" satisfies
+    # for a delete no matter who actually removed it.  There was no loser,
+    # so there was no single use.  `claim_login_scene` reads and deletes
+    # under one hold of the write lock and returns what THIS call took, so
+    # exactly one caller can be handed the scene.
+    #
+    # Not a contrived race here: this lane shares one `session.token`
+    # account across connections (`login_scene_stage`'s IDENTITY, STATED
+    # HONESTLY), so two logins of the same account at once is the ordinary
+    # case rather than the exotic one.
     try:
-        removed = login_scene_stage.restore_login_scene(
-            account_name,
-            None,
-            gm_accounts_config_path=gm_accounts_config_path,
-            config_path=login_scene_config_path,
+        claimed = login_scene_stage.claim_login_scene(
+            account_name, config_path=login_scene_config_path
         )
     except Exception:
-        # The writer is fail-closed on its own account and restores the
-        # operator's bytes; anything that still escapes it costs the warp,
-        # never the guarantee.
         return ConsumeResult(None, CONSUME_FAILED)
 
-    if not removed:
-        return ConsumeResult(None, CONSUME_FAILED)
+    if claimed is None:
+        # We know the GM map held the entry a moment ago and we did not get
+        # it.  Either another login took it -- correct, and this login gets
+        # the ordinary scene -- or the removal failed.  One read tells them
+        # apart, and only the second is a fault.
+        try:
+            after = load_login_scene_overrides(login_scene_config_path)
+        except (OSError, ValueError):
+            return ConsumeResult(None, CONSUME_FAILED)
+        if after.get(account_name) is not None:
+            return ConsumeResult(None, CONSUME_FAILED)
+        return ConsumeResult(None, NOTHING_STAGED)
 
-    # Do not take the writer's word for it: read the file back through the
-    # reader the login path itself uses.  A removal that reported success
-    # and left the entry there is the one failure this whole module exists
-    # to prevent, and it is one call to rule out.
-    try:
-        still_there = load_login_scene_overrides(login_scene_config_path)
-    except (OSError, ValueError):
-        return ConsumeResult(None, CONSUME_FAILED)
-    if still_there.get(account_name) is not None:
-        return ConsumeResult(None, CONSUME_FAILED)
-
-    return ConsumeResult(scene_id, CONSUMED)
+    return ConsumeResult(claimed, CONSUMED)

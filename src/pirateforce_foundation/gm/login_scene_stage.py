@@ -286,6 +286,75 @@ def restore_login_scene(
     return result.staged
 
 
+def claim_login_scene(
+    account_name: str,
+    *,
+    config_path: str | os.PathLike | None = None,
+) -> int | None:
+    """Take this account's staged scene OFF disk and return what was taken.
+
+    The difference from `restore_login_scene(account, None)` is the whole
+    point, and it is a race, not a style preference.  MEASURED by
+    pf-adversary, round `ank2vl`: a consumer that READ the entry and then
+    called the remover let two concurrent logins of the same account both
+    receive the staged scene and both record `consumed` -- 400 of 400 trials
+    -- because the remover's verification is "the entry is not equal to what
+    I was asked to write", and for a delete "absent" satisfies that whether
+    or not this caller is the one who removed it.  There is no loser, so
+    there is no single use.
+
+    Here the read and the delete happen under one hold of `_WRITE_LOCK`, and
+    the return value is what THIS call took: a scene_id for the winner,
+    `None` for everybody else.  A caller that gets `None` must not grant a
+    scene.
+
+    Returns `None` for "there was nothing to take", which is also what a
+    loser gets -- deliberately the same answer, because the login behaves
+    identically in both cases.  Raises only on caller-side type errors, and
+    on nothing a GM or a client can cause; an unreadable or unwritable
+    config comes back as `None` rather than as an exception, so a login can
+    never be taken down by this file.
+
+    The allowlist is NOT re-checked here, for the same reason
+    `restore_login_scene` does not: a removal has to work for an account
+    somebody has just delisted, or the delisting strands the very entry that
+    most needs clearing.  Deciding WHETHER this account's scene may come
+    from this map is the caller's job, and `login_scene_consume` does it
+    before calling.
+    """
+    if type(account_name) is not str:
+        raise TypeError("account_name must be a str")
+    if not account_name:
+        raise ValueError("account_name must be a non-empty str")
+    with _WRITE_LOCK:
+        try:
+            before = load_login_scene_overrides(config_path)
+        except (OSError, ValueError):
+            return None
+        scene_id = before.get(account_name)
+        if scene_id is None:
+            return None
+        result = _write_entry_locked(
+            account_name,
+            None,
+            config_path,
+            allow_delete=True,
+            gm_accounts_config_path=None,
+        )
+        if not result.staged:
+            return None
+        # Read back inside the lock: a remover that reported success and
+        # changed nothing would otherwise hand out a scene whose override
+        # outlives the login, with an audit row saying it was spent.
+        try:
+            after = load_login_scene_overrides(config_path)
+        except (OSError, ValueError):
+            return None
+        if after.get(account_name) is not None:
+            return None
+        return scene_id
+
+
 def _write_entry(
     account_name: str,
     scene_id: int | None,
