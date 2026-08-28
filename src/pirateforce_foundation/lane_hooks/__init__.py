@@ -60,8 +60,19 @@ Every hook prints a token twice: once at registration (import time, via the
 ``hook`` decorator below, on STDERR -- see the decorator's own comment for
 why not stdout) and once at each real firing on the production path
 (inside ``fire()``, also on STDERR since round lo7e03, for the same reason:
-the 0xAC52 point fires on a vital every client sends, and the token landed
-inside a replay tool's --json stdout artifact). These tokens are DESIGNED to be grepped by a
+the 0xAC52 point then fired on a vital every client sends, and the token
+landed inside a replay tool's --json stdout artifact).
+
+ROUND apk7ue, ACCURACY NOTE -- "once at each real firing" is now true of ONE
+of the two registered points. CORE-REQUEST-GM-029 replaced the 0xAC52 call
+site with a direct call into ``gm/chat_command_action.py``, so
+``vital_inbound_chat_local_talk`` is REGISTERED AND NEVER FIRED: its
+registration token still prints at import and no firing token can follow it.
+Only ``vital_inbound_gm_run_command`` (0x51E9) still fires. A WIRED-v2 grep
+that treats a registration token as evidence of emission would read this
+package as 2/2 when the measured answer is 1/2.
+
+These tokens are DESIGNED to be grepped by a
 WIRED v2-style check and by a headless smoke test the same way this
 project's other console tokens already are (notes_to_chief 20260827 "WIRED
 v2" -- import alone does not count, emission on the production path does)

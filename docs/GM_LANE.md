@@ -1561,9 +1561,22 @@ the per-account limiter that was already there. Deliberately shared with the
 is GM actions per account, not frames per door, and two counters would
 quietly double the ceiling this lane advertises.
 
+> 🔴 **UPDATED round `apk7ue` (R217) -- `CORE-REQUEST-GM-029` REPLACED the route this
+> section describes.** `runtime.py` no longer fires the hook at `0xAC52`; it calls
+> `gm/chat_command_action.make_gm_chat_command_action(...)` and appends the returned
+> action. Consequences, measured: `lane_hooks/lane_gm_chat_command.py` is **registered
+> and never fired** (WIRED v2 emission = 0 for that module, and its `production_allowed`
+> flag no longer gates the GM chat door -- see the ASK to COO in
+> `notes_to_chief/20260829_00xx_CHIEF-ASK-COO-*`); the console token is
+> `LANE_GM_CHAT_ACTION` (not `LANE_HOOK_FIRED`) and prints **only after the allowlist
+> passes**, so an ordinary player's chat line now produces NO console line at all
+> (pf-adversary measured `stdout='' stderr=''`); events are `gm_chat_action_*`.
+> `GT-127`'s gate-2 grep is stale until LANE-GM rewrites it. The paragraphs below are
+> kept as the record of the GM-028 route -- read them in the past tense.
+
 `lane_hooks/lane_gm_chat_command.py` registers for point
-`vital_inbound_chat_local_talk`. That point was inert for one round and is
-now live: chief wired it in round `lo7e03` (R214, `CORE-REQUEST-GM-028`) as
+`vital_inbound_chat_local_talk`. That point was inert for one round and was
+live for two: chief wired it in round `lo7e03` (R214, `CORE-REQUEST-GM-028`) as
 the second `lane_hooks.fire()` site in `runtime.py`, at the `0xAC52` branch,
 after every chat-keyed scenario lane, with no `return`, no `rx_frames` bump
 and a `foundation.selected is not None` readiness guard.
@@ -1909,6 +1922,8 @@ tripwire ตัวจริงรันเฉพาะบน Windows ใน Acti
 และจะสอนให้ทุกคนมองข้ามใบนี้ · ไม่ได้ทดสอบว่า "เป็น ASCII" — คอมเมนต์ไทย
 encode cp874 ผ่านและได้รับอนุญาตตามกติกาบ้าน สิ่งที่ทดสอบคือสิ่งที่คอนโซลทำจริง
 มีเทสกันลิสต์ไฟล์ว่างด้วย (ลูปบนศูนย์ไฟล์ = เขียวปลอม)
+
+> 🔴 **กลับด้านแล้วตั้งแต่รอบ `apk7ue` (R217):** `CORE-REQUEST-GM-029` ถูกต่อสาย — เส้นทาง `fire()` (GM-028) **ถูกถอดออก** และ `chat_command_action.py` คือเส้นทางที่ live ย่อหน้าข้างล่างนี้เป็นบันทึกของสภาพ ณ รอบ `vvxkft` อ่านเป็นอดีต
 
 **สถานะเส้นทางแชท หลังรอบนี้:** เส้นทาง `fire()` (GM-028) live บน main แล้ว
 อ่านคำสั่ง GM จากกล่องแชทได้จริงและเขียน ndjson audit ได้ — แต่ **ส่งไบต์ไม่ได้**
