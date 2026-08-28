@@ -10,9 +10,10 @@ where it happens to agree:
 * ``test_a_scene_with_no_marker_answers_none_rather_than_guessing`` - 258 of
   the client's 271 scenes have no authored arrival point, scene 17 among them,
   and None is the table's answer rather than a hole in the reader.
-* ``test_the_volcano_island_login_lands_on_the_marker_and_says_so`` - the
-  whole point of the round, driven through the real entry path: a character
-  row naming scene 14 used to refuse the login outright.
+* ``test_the_door_is_closed_and_this_is_the_load_bearing_test`` - scene 14 is
+  pinned as data with its login refused, and the docstring carries the three
+  measured defects that shut it.  A round that flips the key re-opens all
+  three, and this is where it finds that out.
 """
 
 import subprocess
@@ -24,6 +25,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from pf_preconditions import BRIDGE_GAMEDATA  # noqa: E402
 
 from pirateforce_foundation import world_scene_entry
 from pirateforce_foundation import world_scene_marker
@@ -148,28 +152,12 @@ class MarkerTableTests(unittest.TestCase):
             ),
         )
 
-    def test_the_reverification_script_runs_against_the_bridge_tree(self):
-        # Replaces a test that asserted the pinned sha256 appears in a string
-        # built from that same constant - a tautology that could not go red
-        # for any hash value (pf-adversary, D6).  This one executes the
-        # script's own assertions against the real tables when the bridge
-        # tree is beside this repository, and skips when it is not, so the
-        # 271 / 390 / 19 / 13 totals are checked by something rather than
-        # merely stated.
-        bridge = ROOT.parent / "pf_bridge"
-        if not (bridge / "gamedata" / "tables").is_dir():
-            self.skipTest("bridge tree not present beside this repository")
+    def test_the_reverification_script_is_ascii_and_self_contained(self):
         script = world_scene_marker.reverification_script()
         self.assertTrue(script.isascii())
-        with tempfile.TemporaryDirectory() as work:
-            path = Path(work) / "reverify_world_scene_marker.py"
-            path.write_text(script, encoding="ascii")
-            done = subprocess.run(
-                [sys.executable, str(path)],
-                cwd=str(bridge), capture_output=True, text=True,
-            )
-        self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertIn("13 rows re-derived", done.stdout)
+        self.assertIn("SCENE_ROWS = 271", script)
+        self.assertIn("MARKER_ROWS = 390", script)
+        self.assertIn("ID_EQUALS_SCENE = 19", script)
 
     def test_the_reverification_script_is_not_a_posix_only_command(self):
         # The bridge is a Windows host driven through py -3; the first
@@ -287,6 +275,37 @@ class Scene14RegistryTests(unittest.TestCase):
             world_population.build_world_population(
                 None, (0.0, 0.0, 0.0), 3, scene_id=VOLCANO_SCENE_ID,
             )
+
+
+@BRIDGE_GAMEDATA.skip_unless_present()
+class MarkerReverificationOnTheBridgeTest(unittest.TestCase):
+    """The check that needs the bridge clone's gamedata beside this repo.
+
+    Replaces a test that asserted the pinned sha256 appears in a string built
+    from that same constant - a tautology that could not go red for any hash
+    value (pf-adversary, round vyi2ud, D6).  This one EXECUTES the script's own
+    assertions against the real tables, so the 271 / 390 / 19 / 13 totals and
+    all thirteen rows are checked by something rather than merely stated.
+
+    Guarded through pf_preconditions rather than a hand-written skipTest, and
+    pinned in docs/PYTEST_SKIP_PINS.json in the same commit: the first draft
+    of this file wrote the bare skip, and the Windows gate's skip census
+    closed the round's pull request for it - the fourth time this project has
+    made that exact mistake, after rounds ctflxc, 2vxlx2 and y7koj9.
+    """
+
+    def test_the_reverification_script_runs_against_the_bridge_tree(self):
+        script = world_scene_marker.reverification_script()
+        with tempfile.TemporaryDirectory() as work:
+            path = Path(work) / "reverify_world_scene_marker.py"
+            path.write_text(script, encoding="ascii")
+            done = subprocess.run(
+                [sys.executable, str(path)],
+                cwd=str(ROOT.parent / "pf_bridge"),
+                capture_output=True, text=True,
+            )
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("13 rows re-derived", done.stdout)
 
 
 if __name__ == "__main__":
