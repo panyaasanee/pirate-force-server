@@ -189,9 +189,12 @@ proven (HYP-PF-010/017), so the remaining work was reusing an already-proven
 encoder, not new reverse engineering.  ``inventory.make_backpack_attr`` now
 calls ``require_backpack_shape`` (structure only) instead of
 ``require_known_backpack`` (content-restricted) -- it can serialize any
-structurally valid bag, including one holding a picked-up item, while the
-two golden snapshots still byte-pin exactly as before (a drift in either one
-is still caught).  Gate 2 is explicitly OUT of that grant and stays
+structurally valid bag, including one holding a picked-up item, while a
+drift in either golden snapshot is still caught exactly as before --
+``INITIAL_BACKPACK`` inline in ``make_backpack_attr`` itself,
+``MERGED_V111_BACKPACK`` one layer out in ``tests/test_item_lifecycle.py``'s
+own golden-hash comparison (an asymmetry that predates this round).  Gate 2
+is explicitly OUT of that grant and stays
 unchanged: ``is_unmoved_baseline`` still refuses any non-baseline bag at
 ``session.select_and_start``, before gate 3 would ever run for one.  So the
 gates now read:

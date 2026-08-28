@@ -463,9 +463,13 @@ def make_backpack_attr(legacy: Any, state: BackpackState) -> bytes:
     ``require_known_backpack`` (the two exact V111 golden snapshots only) to
     ``require_backpack_shape`` (structure only, same gate ``store.
     _load_backpack`` already runs) -- the narrow scope that decision granted:
-    generalize the WIRE ENCODER past the two goldens, nothing more.  The two
-    golden snapshots still byte-pin below, so a drift in either one is still
-    caught here exactly as before.  This does NOT by itself make a
+    generalize the WIRE ENCODER past the two goldens, nothing more.  Drift in
+    ``INITIAL_BACKPACK`` still byte-pins below exactly as before (the inline
+    check against ``legacy.make_backpack_attr_four_items()``); drift in
+    ``MERGED_V111_BACKPACK`` is caught one layer out, by
+    ``tests/test_item_lifecycle.py``'s own golden-hash comparison against
+    ``tests/golden/item_lifecycle_v1.json`` -- that asymmetry predates this
+    round and this round does not change it.  This does NOT by itself make a
     picked-up item survive a relog: ``session.select_and_start``'s
     ``is_unmoved_baseline`` gate (Gate 2, mob_pickup.py's THE WALL) still
     refuses any non-baseline bag before this encoder would ever run for one,
