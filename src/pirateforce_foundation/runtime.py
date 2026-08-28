@@ -17,6 +17,7 @@ from . import mob_loot
 from . import mob_pickup
 from . import trace_path
 from . import world_density
+from . import world_face_frame
 from . import world_population
 from . import world_population_bg0002
 from . import world_scene_entry
@@ -5823,6 +5824,21 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 ]
 
             actions = super().dispatch(parsed)
+            # CORE-REQUEST from LANE-A (2026-08-29T01:46+07:00), answered
+            # here rather than in the frozen builder that carries the defect:
+            # `current/pf_login_game_server_v141.py` is pinned immutable by
+            # six independent checks (see world_face_frame's docstring), so
+            # the click frame is corrected on the way out instead.  Without
+            # this, every NPC click re-tags the actor under the frozen row's
+            # Mob-Set number and the client draws a different PERSON than the
+            # login census named - measured on the owner's screen at
+            # 2026-08-29T00:17+07:00, Columbus answering as Sebastian.
+            # Total and additive: a dispatch with no face frame in it gets
+            # back exactly what it passed in.
+            actions = world_face_frame.rebuild_face_actions(
+                legacy, actions, self.population_indices,
+                self.last_target_pos, self.events,
+            )
             if gm_action is not None:
                 # CORE-REQUEST-GM-029 (LANE-GM).  The action composed at the
                 # 0xAC52 branch far above, appended here because this is the
