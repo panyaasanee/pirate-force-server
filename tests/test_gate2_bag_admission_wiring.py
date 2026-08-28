@@ -24,6 +24,7 @@ un-proven end to end until that INSERT exists, and no line here should be
 quoted as evidence for M5.
 """
 from pathlib import Path
+import ast
 import io
 import sys
 import unittest
@@ -55,6 +56,28 @@ def a_drop():
         mob_loot.as_wire_float(30.0),
         MOB, KILLER,
     )
+
+
+def _imports_bag_admission(path):
+    """True when this module actually imports ``bag_admission``.
+
+    Both spellings the package uses: ``from . import bag_admission`` and
+    ``from .bag_admission import ...`` (and the absolute forms of each).
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if (node.module or "").endswith("bag_admission"):
+                return True
+            if any(alias.name == "bag_admission" for alias in node.names):
+                return True
+        elif isinstance(node, ast.Import):
+            if any(
+                alias.name.split(".")[-1] == "bag_admission"
+                for alias in node.names
+            ):
+                return True
+    return False
 
 
 class StubProjector:
@@ -186,7 +209,95 @@ class TheConsoleLineIsAsciiOnly(unittest.TestCase):
             with self.subTest(label):
                 _session, stderr, error = enter(bag)
                 self.assertIsInstance(error, PermissionError)
+                # Assert the line is THERE before asserting it is ASCII.  ""
+                # encodes as ASCII, so without this the test is green about a
+                # line that was never emitted -- measured: it survived the
+                # mutant that deletes the print entirely.
+                self.assertIn("BAG_ADMISSION", stderr, stderr)
                 stderr.encode("ascii")
+
+
+class TheDiagnosticNeverAltersDispatch(unittest.TestCase):
+    """A refusal must leave this method as a PermissionError, always.
+
+    pf-adversary measured three stderr states that turned the bare print into
+    something else: a closed stream raised ValueError (which runtime.py then
+    reports as BACKPACK_LOAD_REFUSED -- the misattribution the line exists to
+    prevent), stderr=None sent the token to stdout, and a stream whose write
+    raises BrokenPipeError escaped both of runtime.py's handlers and unwound
+    the listener thread in silence.
+    """
+
+    def _refuse_with_stderr(self, stream):
+        session = FoundationSession(
+            StubLifecycle(HYPOTHESIZED_V111_SLOT2_BACKPACK),
+            StubProjector(), "gate2-user",
+        )
+        saved = sys.stderr
+        sys.stderr = stream
+        try:
+            with self.assertRaises(PermissionError):
+                session.select_and_start(0)
+        finally:
+            sys.stderr = saved
+
+    def test_a_closed_stderr_still_raises_permission_error(self):
+        closed = io.StringIO()
+        closed.close()
+        self._refuse_with_stderr(closed)
+
+    def test_stderr_set_to_none_still_raises_permission_error(self):
+        self._refuse_with_stderr(None)
+
+    def test_a_stream_that_raises_on_write_still_raises_permission_error(self):
+        class Hostile:
+            def write(self, _text):
+                raise BrokenPipeError("downstream is gone")
+
+            def flush(self):
+                raise BrokenPipeError("downstream is gone")
+
+        self._refuse_with_stderr(Hostile())
+
+
+class OnlyTheCharacterSelectPathAsksThisPredicate(unittest.TestCase):
+    """The property the deleted anti-wiring guard used to carry.
+
+    That test asserted the caller set was EMPTY; wiring makes that false.
+    What is not false, and what nothing else pins, is that the caller set is
+    KNOWN.  Without this, a later round can put may_enter_world inside gate 1
+    (store._load_backpack) or gate 3 (inventory.make_backpack_attr) with the
+    whole suite green, quietly turning a loud structural raise into a quiet
+    refusal and staling every gate table in the tree again.
+    """
+
+    def test_session_py_is_the_only_module_in_the_package_that_calls_it(self):
+        root = Path(bag_admission.__file__).parent
+        # rglob, not glob: gm/ and lane_hooks/ are where a lane registration
+        # would most plausibly live, and the non-recursive form never opens
+        # them.  The count pin keeps this scan honest -- a glob that silently
+        # stopped matching would otherwise report an empty caller list as a
+        # clean one.
+        package = sorted(
+            path for path in root.rglob("*.py")
+            if path.name != "bag_admission.py"
+            and "__pycache__" not in path.parts
+        )
+        self.assertGreater(len(package), 90, len(package))
+        # The AST, not a grep.  A plain text search counts the comment in
+        # runtime.py that merely SAYS which predicate gate 2 asks, and a gate
+        # whose check cannot tell a comment from a call is the trap
+        # EVIDENCE_GATES.md section 3 exists for.
+        callers = sorted(
+            str(path.relative_to(root)) for path in package
+            if _imports_bag_admission(path)
+        )
+        self.assertEqual(
+            callers, ["session.py"],
+            "the set of modules that ask bag_admission changed.  Gate 2 is "
+            "the only gate this predicate was reviewed for; adding it to "
+            "another gate needs its own review and its own round.",
+        )
 
 
 if __name__ == "__main__":

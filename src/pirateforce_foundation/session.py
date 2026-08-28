@@ -73,11 +73,24 @@ class FoundationSession:
         backpack = self.lifecycle.backpack(self.session_id, selected)
         # Gate 2, per COO-DECISION 20260829_0441 (BAG_ADMISSION_WIRING).  The
         # first two terms of may_enter_world ARE the condition this line
-        # carried before, in the same order, so every state refused before is
-        # refused here for the same reason -- except a golden-plus-acquired
-        # bag, which is what M5 needs to survive a relog.  inventory
-        # .is_unmoved_baseline is NOT narrowed; the move/swap/merge family
-        # keeps the guard it has.
+        # carried before, in the same order.  TWO differences, both measured
+        # by pf-adversary over 120,000 mutated bags -- there is no third:
+        #   1. a golden bag that ACQUIRED rows is now ADMITTED (this is what
+        #      M5 needs to survive a relog);
+        #   2. with the opt-in ON, a value that fails require_backpack_shape
+        #      is now REFUSED where the old bare `or allow_...` admitted it.
+        #      Unreachable in production (gate 1 raises on such a value
+        #      first), but it IS a state that used to pass here.
+        # inventory.is_unmoved_baseline is NOT narrowed: it is may_enter_world's
+        # first term unchanged, and the move/swap/merge family keeps the guard
+        # it has.
+        #
+        # LEDGER PIN, DO NOT REFLOW AWAY: docs/HYPOTHESIS_LEDGER.json requires
+        # the literal string "is_unmoved_baseline" to appear in this file
+        # (HYP-PF-010, source_refs), and after this rewiring the only
+        # occurrence is the sentence above.  If that pin should now name
+        # may_enter_world instead, amend the ledger entry -- never delete the
+        # marker to make tools/verify_hypothesis_ledger.py go green.
         if not bag_admission.may_enter_world(
             backpack,
             allow_hypothesized_item_move=self.allow_hypothesized_item_move,
@@ -88,10 +101,26 @@ class FoundationSession:
             # gate 1 should have raised first -- and a drifted header).
             # Without this line a structural fault reaches the operator
             # misattributed to a hypothesis that had nothing to do with it.
-            print(
-                bag_admission.console_line(bag_admission.classify(backpack)),
-                file=sys.stderr,
-            )
+            #
+            # A DIAGNOSTIC MAY NEVER ALTER DISPATCH (runtime.make_stdout_event
+            # _exporter's rule, applied here).  pf-adversary measured all three
+            # ways the bare print changed what the caller sees: a closed
+            # stderr turned this refusal into a ValueError that runtime.py
+            # reports as BACKPACK_LOAD_REFUSED -- the exact misattribution
+            # this line exists to prevent; stderr=None sent the token to
+            # stdout; a BrokenPipeError escaped both of runtime.py's handlers
+            # and unwound the listener thread in silence.  So the write is
+            # swallowed whole and the PermissionError below is what leaves
+            # this method, always.
+            try:
+                print(
+                    bag_admission.console_line(
+                        bag_admission.classify(backpack)
+                    ),
+                    file=sys.stderr,
+                )
+            except Exception:
+                pass
             raise PermissionError(
                 "HYP-PF-008 post-state requires its explicit opt-in scenario"
             )
