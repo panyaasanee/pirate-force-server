@@ -12,7 +12,7 @@ It attached a mandatory condition, and this module exists to make that
 condition executable rather than quoted:
 
     "ตาราง Bg0002 ที่ regenerate ด้วย cline ต้องออกมาเหมือนเดิมทุกแถว 35/35
-     ⇒ ต้องมีเทสพินความเท่ากันนี้ไว้ ถ้าวันไหนมีแถวไหนต่าง ⇒ หยุด ห้าม merge
+     => ต้องมีเทสพินความเท่ากันนี้ไว้ ถ้าวันไหนมีแถวไหนต่าง => หยุด ห้าม merge
      และส่งใบถามเจ้าของ"
 
 WHAT THE PIN FOUND, AND WHY THIS LANE DID NOT FLIP Bg0002 THIS ROUND.  The
