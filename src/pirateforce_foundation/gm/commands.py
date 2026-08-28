@@ -89,7 +89,18 @@ AUDIT_RECORD_OUTCOME = "outcome"
 # What a reader may conclude from a half-pair: NOTHING WAS SENT. Every path
 # above ends with the action withheld -- `_make_action` returns the action
 # only after the outcome row is on disk. What a reader may NOT conclude is
-# which of the four happened; that is on stderr, not in the file. Said here
+# which of the four happened; that is on stderr, not in the file.
+#
+# !! ONE THING A HALF-PAIR NO LONGER RULES OUT, as of the cross-scene `/warp`
+# (round `gejldf`): that nothing at all HAPPENED. "Nothing was sent" is still
+# exact -- no byte leaves this lane either way -- but a `/warp` to another
+# scene writes `config/gm_login_scene.json` BEFORE the outcome row, and only
+# three of the four half-pair paths take it back off (`_make_action` runs the
+# undo when the write fails; a process that dies between the two appends runs
+# nothing at all, and an undo can itself fail, which is what
+# `gm_chat_action_outcome_stage_not_reverted` on stderr says).  A reader who
+# finds an `issued` row for a `warp` with no `outcome` row has to CHECK THAT
+# CONFIG FILE before concluding the command left no trace. Said here
 # because "two rows so the file stops having one meaning for two states" is
 # only honest if the third state is named too. The "nothing was sent" half is
 # pinned as behaviour, not as a constant nothing reads:
