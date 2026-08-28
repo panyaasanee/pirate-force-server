@@ -225,6 +225,11 @@ class WorldPopulationGeneration:
     frame: bytes
     entry_bytes: tuple[int, ...] = ()
     count_source: str = COUNT_SOURCE_CALLER
+    # Which scene this rung was built for.  Carried on the generation rather
+    # than read from the module constant at print time, so the identity-guard
+    # token on the census line describes the census actually in hand.  Defaults
+    # to this module's scene so existing constructions keep their meaning.
+    scene_id: int = SCENE_ID
 
     @property
     def pc_bytes(self) -> int:
@@ -412,6 +417,7 @@ def build_world_population(
         frame,
         tuple(len(entry) for entry in entries),
         count_source,
+        scene_id,
     )
 
 
@@ -700,12 +706,12 @@ def census_console_line(generation: WorldPopulationGeneration) -> str:
     two ways ``115`` can be printed over a frame that is not 115 actors.  The
     bridge console is cp874, so this stays inside 7-bit ASCII deliberately.
 
-    The line also carries the identity-namespace verdict for the scene it is
-    reporting on (``world_scene_numbering``).  Count and identity are the two
-    independent ways this census can be wrong, and ``GT-078`` is the round
-    that proved a log showing ``115/115`` says nothing at all about the second
-    one.  The token is appended rather than spliced in, so every existing
-    reader that matches on the ``WORLD_CENSUS `` prefix keeps working.
+    The line also carries the identity-guard verdict for the scene this
+    generation was built for (``world_scene_numbering``).  Count and identity
+    are the two independent ways this census can be wrong, and ``GT-078`` is
+    the round that proved a log showing ``115/115`` says nothing at all about
+    the second one.  The token is appended rather than spliced in, so every
+    existing reader that matches on the ``WORLD_CENSUS `` prefix keeps working.
     """
     report = dispatch_report(generation)
     return (
@@ -720,7 +726,8 @@ def census_console_line(generation: WorldPopulationGeneration) -> str:
             report["anchor"][0], report["anchor"][1], report["anchor"][2],
             report["initial_reapply_ms"], report["count_source"],
             report["shortfall_reason"] or "none",
-            world_scene_numbering.numbering_console_suffix(SCENE_ID),
+            world_scene_numbering.numbering_console_suffix(
+                generation.scene_id),
         )
     )
 

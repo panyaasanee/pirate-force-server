@@ -1,30 +1,29 @@
-"""Pin the identity-namespace rule and its fail-closed edge.
+"""Pin that the identity guard refuses every scene, and that it cannot be
+loosened by accident.
 
-The rule under test is the one thing ``GT-078`` cost an attended round to
-learn: a Mob-Set number is a global ``MOBS.n_ID`` only in a scene whose set
-numbering is SPARSE.  ``bg0001`` is dense, so its numbers are per-scene
-ordinals, so the 115 identities Port Royal ships today are a category error
-rather than an unconfirmed guess.
+The guard says: no scene's Mob-Set numbers may be shipped as ``MOBS.n_ID``
+today.  That is a stronger and much duller statement than the one this round
+first tried to make, and it is the one that survived adversary review.  The
+tests are therefore mostly about the *shape* of the refusal - that no input,
+including the scenes this tree actually ships identities for, can get a True
+out of it - rather than about any classification.
 
-Three separate things are watched here, because each can rot without the
-others:
+Two things get real teeth here:
 
-1. the frozen measurement itself (aggregates and per-scene rows), so that a
-   gamedata re-export which changes the corpus turns this red instead of
-   quietly moving the rule;
-2. the classifier's arithmetic, including the inputs that are not small
-   scenes but broken parses;
-3. the fail-closed direction of every consumer - ``identity_is_provable``,
-   ``assert_identity_claim`` and both console emitters - since a guard that
-   fails open is worse than no guard, and the boot line is the only place a
-   human sees this verdict.
+1. ``OWNER_CONFIRMED_SCENES`` is empty, and every consumer agrees with that.
+   If somebody adds a scene to it, several of these turn red at once, which is
+   the point: making a scene assertable should be a reviewed diff, never a
+   side effect.
+2. The refusal reason for ``Bg0002`` must stay consistent with
+   ``scene2_prison_exile_tables.NAMING_SCHEME_STATUS``, the module that owns
+   that hypothesis.  That test reads the other module rather than restating a
+   literal, so the two cannot drift apart silently.
 
-Nonclaims: nothing here claims to know a ``bg0001`` identity, that the ten
-predicted town scenes are classified correctly, or that any wire byte changed.
+Nonclaims: nothing here claims to know a ``bg0001`` identity, that ``Bg0002``'s
+hypothesis is wrong, or that any wire byte changed.
 """
 
 from pathlib import Path
-import re
 import sys
 import unittest
 
@@ -34,185 +33,125 @@ sys.path.insert(0, str(ROOT / "src"))
 from pirateforce_foundation import world_scene_numbering as wsn
 
 
-class FrozenMeasurementTest(unittest.TestCase):
-    """The numbers the rule was read off, pinned as numbers."""
+class RefusalIsUnconditionalTest(unittest.TestCase):
 
-    def test_corpus_aggregates_are_pinned(self):
-        self.assertEqual(wsn.SCENE_FILES_WITH_SETS, 266)
-        self.assertEqual(wsn.DENSE_SCENE_COUNT, 202)
-        self.assertEqual(wsn.SPARSE_SCENE_COUNT, 64)
-        self.assertEqual(
-            wsn.DENSE_SCENE_COUNT + wsn.SPARSE_SCENE_COUNT,
-            wsn.SCENE_FILES_WITH_SETS,
-            "dense + sparse must exhaust the measured corpus",
-        )
+    def test_no_scene_is_provable_today(self):
+        self.assertEqual(wsn.OWNER_CONFIRMED_SCENES, ())
+        for scene in ("bg0001", "Bg0002", "bg0003", "Bg9999", "", "1"):
+            self.assertFalse(
+                wsn.identity_is_provable(scene),
+                f"{scene!r} must not be assertable",
+            )
+            self.assertIsNotNone(wsn.identity_block_reason(scene))
+            with self.assertRaises(ValueError, msg=f"{scene!r} must refuse"):
+                wsn.assert_identity_claim(scene)
 
-    def test_census_rows_are_well_formed_and_unique(self):
-        seen = set()
-        for scene, rows, sets_, max_set, family in wsn.FROZEN_SCENE_SET_CENSUS:
-            self.assertNotIn(scene, seen, f"{scene} listed twice")
-            seen.add(scene)
-            self.assertGreaterEqual(sets_, 20, f"{scene} below the >=20 cut")
-            self.assertGreaterEqual(rows, sets_, f"{scene} has fewer rows than sets")
-            self.assertGreaterEqual(max_set, sets_, f"{scene} max below count")
-            self.assertTrue(family, f"{scene} has no set-name family")
+    def test_the_two_shipping_scenes_have_recorded_reasons(self):
+        """A refusal with a generic reason is a refusal nobody can audit, and
+        these are the two scenes that actually put identities on the wire."""
+        for scene in ("bg0001", "Bg0002"):
+            self.assertIn(scene, wsn.REFUSAL_REASONS)
+            self.assertEqual(
+                wsn.identity_block_reason(scene), wsn.REFUSAL_REASONS[scene])
 
-    def test_bg0001_is_the_only_dense_large_town(self):
-        """The whole rule rests on this asymmetry, so state it as a test."""
-        towns = [
-            row for row in wsn.FROZEN_SCENE_SET_CENSUS
-            if re.fullmatch(r"[Bb]g00\d\d", row[0]) and row[2] >= 30
-        ]
-        dense = sorted(row[0] for row in towns if row[3] == row[2])
-        self.assertEqual(
-            dense, ["Bg0020", "bg0001"],
-            "dense large scenes changed; the bg0001 asymmetry must be re-argued",
-        )
-        # bg0001 is dense at 113 of a ~115 slot space; Bg0020 is a 30/30
-        # scene, far from the 102-115 band the town files occupy.
-        bg0001 = dict((r[0], r) for r in wsn.FROZEN_SCENE_SET_CENSUS)["bg0001"]
-        self.assertEqual((bg0001[2], bg0001[3]), (113, 113))
+    def test_port_royal_reason_cites_the_client_observable_evidence(self):
+        """bg0001's refusal rests on the owner's 2026-08-27 map-window
+        observation, not on any inference made in this module."""
+        reason = wsn.identity_block_reason("bg0001")
+        self.assertIn("156", reason)
+        self.assertIn("113", reason)
+        self.assertIn("GT-078", reason)
 
-    def test_the_two_owner_verdicts_are_the_evidence_and_are_disjoint(self):
-        self.assertEqual(wsn.OWNER_CONFIRMED_GLOBAL_NID, ("Bg0002",))
-        self.assertEqual(wsn.OWNER_REJECTED_LOCAL_ORDINAL, ("bg0001",))
+    def test_an_unlisted_scene_is_refused_with_its_own_reason(self):
+        reason = wsn.identity_block_reason("Bg9999")
+        self.assertIn("not_individually_assessed", reason)
+        self.assertNotEqual(reason, "")
+
+    def test_refusal_reasons_are_not_silently_emptied(self):
+        for scene, reason in wsn.REFUSAL_REASONS.items():
+            self.assertTrue(reason.strip(), f"{scene} has a blank reason")
+            reason.encode("ascii")
+
+
+class ConsistentWithTheHypothesisOwnerTest(unittest.TestCase):
+    """Bg0002's refusal must track the module that owns that hypothesis."""
+
+    def test_bg0002_refusal_tracks_naming_scheme_status(self):
+        from pirateforce_foundation import scene2_prison_exile_tables as s2
+
+        status = s2.NAMING_SCHEME_STATUS
+        assertable = "confirmed" in status and "not_yet_confirmed" not in status
         self.assertFalse(
-            set(wsn.OWNER_CONFIRMED_GLOBAL_NID)
-            & set(wsn.OWNER_REJECTED_LOCAL_ORDINAL))
-
-    def test_the_two_evidence_scenes_classify_the_way_they_were_observed(self):
-        self.assertEqual(
-            wsn.classify_scene("Bg0002"), wsn.NAMESPACE_GLOBAL_NID)
-        self.assertEqual(
-            wsn.classify_scene("bg0001"), wsn.NAMESPACE_LOCAL_ORDINAL)
+            assertable,
+            "scene2 now claims NN=n_ID is confirmed; the guard's Bg0002 entry "
+            "and OWNER_CONFIRMED_SCENES must be revisited deliberately",
+        )
+        self.assertFalse(wsn.identity_is_provable("Bg0002"))
 
 
-class ClassifierTest(unittest.TestCase):
+class SceneIdMappingTest(unittest.TestCase):
 
-    def test_dense_reads_as_ordinal_and_sparse_as_global(self):
-        self.assertEqual(
-            wsn.classify_counts(113, 113), wsn.NAMESPACE_LOCAL_ORDINAL)
-        self.assertEqual(
-            wsn.classify_counts(45, 104), wsn.NAMESPACE_GLOBAL_NID)
-
-    def test_a_single_set_scene_is_dense_not_a_special_case(self):
-        self.assertEqual(
-            wsn.classify_counts(1, 1), wsn.NAMESPACE_LOCAL_ORDINAL)
-
-    def test_impossible_and_malformed_shapes_raise(self):
-        for bad in ((0, 5), (5, 0), (-1, 3), (6, 5)):
-            with self.assertRaises(ValueError, msg=f"{bad} should raise"):
-                wsn.classify_counts(*bad)
-        for bad in (("113", 113), (113, 113.0), (True, 5)):
-            with self.assertRaises(ValueError, msg=f"{bad} should raise"):
-                wsn.classify_counts(*bad)
-
-    def test_an_unmeasured_scene_is_unknown_not_an_exception(self):
-        self.assertEqual(
-            wsn.classify_scene("Bg9999"), wsn.NAMESPACE_UNKNOWN)
-
-    def test_scene_id_mapping_is_explicit_and_closed(self):
+    def test_mapping_is_explicit_and_closed(self):
         self.assertEqual(wsn.scene_file_for_scene_id(1), "bg0001")
         self.assertEqual(wsn.scene_file_for_scene_id(2), "Bg0002")
         self.assertIsNone(wsn.scene_file_for_scene_id(278))
-        with self.assertRaises(ValueError):
-            wsn.scene_file_for_scene_id("1")
 
+    def test_non_integer_scene_ids_raise(self):
+        for bad in ("1", 1.0, True, None):
+            with self.assertRaises(ValueError, msg=f"{bad!r} should raise"):
+                wsn.scene_file_for_scene_id(bad)
 
-class FailClosedTest(unittest.TestCase):
-    """Every consumer must answer 'no' when it does not know."""
-
-    def test_port_royal_identity_is_refused(self):
-        self.assertFalse(wsn.identity_is_provable("bg0001"))
-        self.assertIn("GT-078", wsn.identity_block_reason("bg0001"))
-        with self.assertRaises(ValueError) as caught:
-            wsn.assert_identity_claim("bg0001")
-        self.assertIn("bg0001", str(caught.exception))
-
-    def test_the_owner_confirmed_scene_is_the_only_thing_allowed(self):
-        self.assertTrue(wsn.identity_is_provable("Bg0002"))
-        self.assertIsNone(wsn.identity_block_reason("Bg0002"))
-        wsn.assert_identity_claim("Bg0002")  # must not raise
-
-    def test_sparse_but_unconfirmed_is_still_refused(self):
-        """bg0003 is sparse, so the rule predicts its numbers are n_IDs - and
-        no owner has looked at it, so shipping on that prediction is exactly
-        the move that produced GT-078."""
-        self.assertEqual(
-            wsn.classify_scene("bg0003"), wsn.NAMESPACE_GLOBAL_NID)
-        self.assertFalse(wsn.identity_is_provable("bg0003"))
-        self.assertEqual(
-            wsn.identity_block_reason("bg0003"),
-            "sparse_but_not_owner_confirmed")
-        with self.assertRaises(ValueError):
-            wsn.assert_identity_claim("bg0003")
-
-    def test_an_unmeasured_scene_is_refused_with_its_own_reason(self):
-        self.assertFalse(wsn.identity_is_provable("Bg9999"))
-        self.assertEqual(
-            wsn.identity_block_reason("Bg9999"), "scene_not_in_frozen_census")
-
-    def test_no_scene_in_the_census_is_provable_by_accident(self):
-        provable = [
-            row[0] for row in wsn.FROZEN_SCENE_SET_CENSUS
-            if wsn.identity_is_provable(row[0])
-        ]
-        self.assertEqual(provable, ["Bg0002"])
+    def test_every_mapped_scene_has_a_recorded_reason(self):
+        for scene in wsn.SCENE_ID_TO_SCENE_FILE.values():
+            self.assertIn(scene, wsn.REFUSAL_REASONS)
 
 
 class ConsoleTest(unittest.TestCase):
 
     def _assert_ascii(self, line):
-        line.encode("ascii")  # raises if a non-ASCII byte crept in
+        line.encode("ascii")
         self.assertNotIn("\n", line)
 
-    def test_port_royal_line_carries_verdict_and_raw_numbers(self):
-        line = wsn.numbering_console_line("bg0001")
-        self._assert_ascii(line)
-        self.assertTrue(line.startswith("WORLD_IDENTITY_NAMESPACE "))
-        self.assertIn("scene=bg0001", line)
-        self.assertIn("kind=local_ordinal", line)
-        self.assertIn("sets=113", line)
-        self.assertIn("max=113", line)
-        self.assertIn("identity_provable=0", line)
-
-    def test_prison_island_line_reports_provable(self):
-        line = wsn.numbering_console_line("Bg0002")
-        self._assert_ascii(line)
-        self.assertIn("kind=global_nid", line)
-        self.assertIn("identity_provable=1", line)
-        self.assertIn("reason=-", line)
-
-    def test_unmeasured_scene_still_emits_a_line(self):
-        line = wsn.numbering_console_line("Bg9999")
-        self._assert_ascii(line)
-        self.assertIn("kind=unknown", line)
-        self.assertIn("sets=?", line)
-        self.assertIn("identity_provable=0", line)
+    def test_line_reports_refusal_for_both_shipping_scenes(self):
+        for scene in ("bg0001", "Bg0002"):
+            line = wsn.numbering_console_line(scene)
+            self._assert_ascii(line)
+            self.assertTrue(line.startswith("WORLD_IDENTITY_GUARD "))
+            self.assertIn(f"scene={scene}", line)
+            self.assertIn("verdict=refused", line)
+            self.assertIn("identity_provable=0", line)
 
     def test_suffix_resolves_scene_ids_and_never_fails_open(self):
         self.assertEqual(
             wsn.numbering_console_suffix(1),
             wsn.numbering_console_line("bg0001"))
+        self.assertEqual(
+            wsn.numbering_console_suffix(2),
+            wsn.numbering_console_line("Bg0002"))
         unmapped = wsn.numbering_console_suffix(278)
         self._assert_ascii(unmapped)
         self.assertIn("identity_provable=0", unmapped)
         self.assertIn("scene_id_278_not_mapped", unmapped)
 
+    def test_no_console_path_can_print_provable_1_today(self):
+        lines = [wsn.numbering_console_line(s)
+                 for s in ("bg0001", "Bg0002", "Bg9999")]
+        lines += [wsn.numbering_console_suffix(i) for i in (1, 2, 278)]
+        for line in lines:
+            self.assertIn("identity_provable=0", line)
+
 
 class CensusLineIntegrationTest(unittest.TestCase):
-    """The boot line must carry the verdict, without breaking its readers."""
+    """The boot line must carry the verdict for the scene it actually built."""
 
     @classmethod
     def setUpClass(cls):
         from pirateforce_foundation.legacy_bridge import load_legacy
         cls.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
 
-    def test_census_line_appends_the_namespace_token(self):
+    def test_census_line_appends_the_guard_token(self):
         from pirateforce_foundation import world_population
 
-        # Build the line through the real function on a real generation, so
-        # this cannot pass against a hand-made string.
         gen = world_population.build_world_population(
             self.legacy, (0.0, 0.0, 0.0), 3, scene_id=1)
         line = world_population.census_console_line(gen)
@@ -221,9 +160,23 @@ class CensusLineIntegrationTest(unittest.TestCase):
             line.startswith("WORLD_CENSUS "),
             "existing readers match on this prefix and must keep working",
         )
-        self.assertIn("WORLD_IDENTITY_NAMESPACE ", line)
+        self.assertIn("WORLD_IDENTITY_GUARD ", line)
         self.assertIn("scene=bg0001", line)
         self.assertIn("identity_provable=0", line)
+
+    def test_the_token_follows_the_generation_not_a_module_constant(self):
+        """A census built for another scene must not be reported as bg0001 -
+        that mis-reporting is the defect this field was added to remove."""
+        from pirateforce_foundation import world_population
+        import dataclasses
+
+        gen = world_population.build_world_population(
+            self.legacy, (0.0, 0.0, 0.0), 3, scene_id=1)
+        self.assertEqual(gen.scene_id, 1)
+        moved = dataclasses.replace(gen, scene_id=2)
+        line = world_population.census_console_line(moved)
+        self.assertIn("scene=Bg0002", line)
+        self.assertNotIn("scene=bg0001", line)
 
 
 if __name__ == "__main__":

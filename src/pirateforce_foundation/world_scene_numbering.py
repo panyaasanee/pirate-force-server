@@ -1,225 +1,147 @@
-"""Which scenes' Mob-Set numbers are real ``MOBS.n_ID`` values, and which are
-per-scene ordinals that mean nothing outside their own file.
+"""No scene's Mob-Set numbers may be shipped as ``MOBS.n_ID`` identities today.
 
-LANE-A (WORLD).  This module exists because of one attended failure.
-``GT-078`` booted the flagless path, put 115 actors into Port Royal
-(``bg0001``) at 115 correct positions, and the owner rejected it on sight:
-every placement was right and **every NPC was the wrong character**.  The
-rule that produced those identities is ``n_ID = <set number>``, and that same
-rule is owner-CONFIRMED correct for the prison island (``Bg0002``).  Nobody
-could say why one scene obeys it and the other does not, so the project has
-been treating ``bg0001``'s identities as "unconfirmed" - i.e. as something a
-future round might confirm.
+LANE-A (WORLD).  This module is a refusal, not a discovery.  It exists because
+two separate paths in this tree put a scene file's set number on the wire as an
+actor identity, and neither of them can currently justify doing so:
 
-They are not unconfirmed.  They are a category error, and the discriminator
-is in the shipped scene files.
+* ``bg0001`` (Port Royal) ships 115 actors with ``n_ID = <set number>``.
+  ``GT-078`` booted that path, and the owner rejected it on sight: every
+  placement right, every NPC wrong.
+* ``Bg0002`` (prison island) ships 97 on the same rule.  That one is a
+  ``strong_hypothesis_not_yet_confirmed`` - see ``NAMING_SCHEME_STATUS`` and
+  the docstring in ``scene2_prison_exile_tables``, which is the source of truth
+  for how strong the ``NN = n_ID`` hypothesis is: 2 of 7 anchors numerically
+  confirmed, and the owner's written instruction is not to state it as fact
+  until all 7 clear.
 
-WHAT WAS MEASURED (round ``o8cy9q``, from committed artifacts only; no game
-client, no DB, no capture).  Source: ``pf_bridge/gamedata/scene/*/*.placements
-.tsv`` (266 scenes that declare any set) and
-``pf_bridge/gamedata/tables/CONSTDATA_TH__MOBS.tsv`` (3,210 rows, max
-``n_ID`` 10,080).
+WHY ``bg0001`` CANNOT BE RIGHT, at the client-observable layer.  This is the
+part that is settled, and it was settled by the owner on 2026-08-27, not here.
+``notes_to_chief/20260827_1240_PANYA-EVIDENCE-video2-Port-Royal-NPC-tour-*``
+records the in-game map window listing Port Royal's scene NPCs in ``n_ID``
+order 156, 157, 158, 159, 160, 161, 162, 163, tabulates 32 confirmed Port Royal
+``n_ID`` values spanning 156-913, and states that **none** of them come from the
+``MOBS`` 1-35 block.  ``bg0001``'s set numbers run 1..113.  A roster that lives
+at 156-913 cannot be addressed by numbers that stop at 113.  That is sufficient
+on its own, and it needs no theory about how scene files are numbered.
 
-1. A scene's set numbers are either DENSE - exactly ``1..N`` with no gap - or
-   SPARSE.  Across all 266 scenes: **202 dense, 64 sparse**.
-2. Every large continent/town scene is SPARSE with a maximum in the 102-115
-   band, as if its author picked specific rows out of a shared table:
-   ``Bg0002`` 45 sets in 1..104, ``bg0003`` 51 in 1..111, ``Bg0015`` 51 in
-   1..115, ``bg0005`` 64 in 1..105, and so on.
-3. **``bg0001`` is the only large town scene that is dense**: 113 sets, and
-   they are exactly ``1..113``.  A file that uses 113 of a ~115-slot space
-   with no gap at all, while all ten of its siblings have gaps, was numbered
-   by counting - not by choosing.
-4. Reading ``bg0001``'s sets 1..113 as ``n_ID`` returns the prison island's
-   cast: 1 Navy transport soldier, 2 Sebastian, 4 Mo Yuzi, 16/17/26 pirate
-   prisoners - all ``n_LEVEL_MIN/MAX`` 20/20.  That is ``Bg0002``'s roster,
-   arriving in a level 10-20 port town.  It is exactly the picture the owner
-   rejected on ``GT-078``, reproduced here from the tables alone.
+WHAT THIS MODULE DELIBERATELY DOES NOT DO.  An earlier draft of this round
+tried to derive a general rule - that a set number is a real ``n_ID`` in scenes
+numbered "sparsely" and a per-scene ordinal in scenes numbered "densely" - and
+to let sparse+confirmed scenes through the guard.  Adversary review killed it
+and it is recorded here so nobody rebuilds it:
 
-THE RULE THIS PINS.  A set number is a global ``MOBS.n_ID`` only in a scene
-whose numbering is SPARSE.  In a DENSE scene the number is a per-scene
-ordinal and the real identity lives in a table that is not in the scene file
-(the gap ``RE-128`` was opened for).  ``Bg0002`` sparse + owner-confirmed and
-``bg0001`` dense + owner-rejected are the two ends this rests on; the other
-ten town scenes are predictions this module states but does not claim.
+* The comparison group was selected on the dependent variable.  "Density" was
+  defined as ``max_set == distinct_sets``, and the group was chosen by
+  ``max_set`` in the 102-115 band, so only a scene with >= 102 distinct sets
+  could possibly come out dense.  Every sibling had 40-64.  "14 of 15 are
+  sparse" was arithmetic, not evidence.
+* The rule's single positive example refutes it.  ``Bg0002``'s set numbers are
+  ``{1..41}`` plus ``{101..104}``; the confirmed region is the contiguous
+  ``1..41``, which the rule classifies as a per-scene ordinal.  Its "sparse"
+  verdict rested entirely on 101-104 - the four numbers the owner explicitly
+  forbade guessing about, and which ``scene2_prison_exile_tables`` ships as
+  UNRESOLVED.
+* The converse fails at scale: dozens of small interiors are "sparse" only
+  because one set number is absent, which would have licensed shipping the
+  prison cast into them.
 
-WHY IT IS A GUARD AND NOT A FIX.  Knowing ``bg0001``'s numbers are ordinals
-does not reveal what they map to, so this module cannot put the right NPCs in
-Port Royal.  What it can do is stop the project from spending another
-attended round re-learning ``GT-078``: ``identity_is_provable()`` is
-fail-closed, ``assert_identity_claim()`` refuses, and
-``numbering_console_line()`` puts the verdict in every boot log next to the
-census that carries the identities.
+A simpler explanation already covers the evidence without any of that:
+``n_ID`` is allocated in per-region blocks, the prison island owns the low
+block, Port Royal owns 156+ and 600-900, and every scene file numbers its own
+sets from 1 - so ``Bg0002``'s numbers coincide with ``n_ID`` only because its
+region block happens to start at 1.  Under that reading every scene's set
+numbers are ordinals, which is why this module refuses every scene rather than
+sorting them into two kinds.
 
-NONCLAIMS.  This module does not claim to know any ``bg0001`` identity; that
-``RE-128`` is answered (it is narrowed, not closed); that the ten predicted
-scenes are correct (untested); that dense numbering has one single cause -
-"authored by counting" is the reading, and a re-export or a renumbering pass
-would look the same and would not change the consequence; or that any byte on
-the wire changes because this module exists.  It reads frozen numbers and
-returns verdicts.  It sends nothing.
+SO THE GUARD IS UNCONDITIONAL.  ``identity_is_provable()`` returns False for
+every scene, including ``Bg0002``.  It is not a placeholder for a future
+classifier; it encodes that no scene has cleared the bar the owner set.  The
+one thing that should ever flip an entry here is anchors clearing, recorded by
+the module that owns that hypothesis - not a numeric pattern found in the
+scene files.
+
+NONCLAIMS.  This module does not identify any ``bg0001`` NPC; does not close or
+answer ``RE-128``; does not claim ``Bg0002``'s hypothesis is wrong (only that
+it is not yet assertable); and changes no byte on the wire.  Nothing calls
+``assert_identity_claim()`` on a dispatch path yet - wiring it into the two
+paths that ship identities is a separate decision, asked of the owner in
+``notes_to_chief/20260828_1841_LANE-A-*``.
 """
 
 from typing import Optional
 
-# --- namespace verdicts -----------------------------------------------------
+# --- verdicts ---------------------------------------------------------------
 
-NAMESPACE_GLOBAL_NID = "global_nid"
-NAMESPACE_LOCAL_ORDINAL = "local_ordinal"
-NAMESPACE_UNKNOWN = "unknown"
+# Kept as a closed vocabulary so a caller cannot invent a third state that
+# happens to be truthy.
+IDENTITY_REFUSED = "refused"
+IDENTITY_ALLOWED = "allowed"
 
-NAMESPACE_KINDS = (
-    NAMESPACE_GLOBAL_NID,
-    NAMESPACE_LOCAL_ORDINAL,
-    NAMESPACE_UNKNOWN,
-)
+# Every scene this tree can currently ship identities for, and the single
+# reason each one is refused.  A scene absent from this table is refused too
+# (see ``identity_block_reason``); listing these two explicitly is what makes
+# the refusal auditable rather than merely a default.
+REFUSAL_REASONS = {
+    "bg0001": (
+        "port_royal_roster_is_n_ID_156-913_per_owner_video2_20260827;"
+        "set_numbers_stop_at_113;owner_rejected_GT-078"
+    ),
+    "Bg0002": (
+        "NN=n_ID_is_strong_hypothesis_not_yet_confirmed;"
+        "2_of_7_anchors;owner_forbids_stating_as_fact_until_7"
+    ),
+}
 
-# --- the measurement, frozen ------------------------------------------------
-
-# Aggregate over every scene file that declares at least one set.  Pinned so a
-# re-export of gamedata that changes the shape of the corpus turns a test red
-# rather than silently moving the rule underneath it.
-SCENE_FILES_WITH_SETS = 266
-DENSE_SCENE_COUNT = 202
-SPARSE_SCENE_COUNT = 64
-
-# (scene, placement_rows, distinct_sets, max_set, set_name_family) for every
-# scene declaring >= 20 sets.  These are the scenes big enough for a
-# population round to care about; the long tail of 3-to-8-set interiors is
-# summarised by the aggregates above.  Density is derived, never stored:
-# a scene is dense exactly when ``max_set == distinct_sets``.
-FROZEN_SCENE_SET_CENSUS = (
-    ("bg0001", 149, 113, 113, "Mob_Set_N"),
-    ("Bg0002", 106, 45, 104, "MOBSET_N"),
-    ("bg0003", 72, 51, 111, "MOBSET_N"),
-    ("bg0004", 116, 55, 108, "Mob_Set_N"),
-    ("bg0005", 92, 64, 105, "MOBSET_N"),
-    ("bg0006", 80, 52, 114, "Mob_Set_N"),
-    ("Bg0007", 68, 56, 111, "MOBSET_N"),
-    ("Bg0008", 76, 48, 106, "MOBSET_N"),
-    ("bg0009", 63, 44, 105, "Mob_set_N"),
-    ("Bg0010", 100, 40, 105, "Mob_Set_N"),
-    ("Bg0011", 56, 31, 105, "Mob_Set_N"),
-    ("Bg0012", 67, 44, 102, "MIXED"),
-    ("Bg0015", 91, 51, 115, "MOBSET_N"),
-    ("Bg0016", 74, 48, 107, "MOBSET_N"),
-    ("bg0017", 61, 46, 47, "Mob_Set_N"),
-    ("Bg0020", 93, 30, 30, "Mob_Set_N"),
-    ("Bg0021", 105, 28, 28, "Mob_Set_N"),
-    ("Bg0022", 69, 28, 28, "Mob_Set_N"),
-    ("Bg0023", 80, 23, 23, "Mob_Set_N"),
-    ("bg2004", 64, 24, 26, "MIXED"),
-    ("Bg2006", 227, 27, 29, "MobSet_N"),
-    ("bg2007", 72, 23, 28, "MIXED"),
-    ("Bg2016", 240, 23, 27, "MIXED"),
-    ("Bg2017", 91, 23, 23, "MOBSET_N"),
-    ("Bg3001", 38, 24, 56, "MIXED"),
-    ("Bg3002", 39, 25, 55, "MIXED"),
-    ("Bg3003", 42, 34, 34, "MIXED"),
-    ("Bg3004", 46, 46, 46, "MobSet_N"),
-    ("Bg3007", 66, 40, 58, "MIXED"),
-    ("Bg3008", 59, 46, 56, "MIXED"),
-    ("Bg5002", 38, 30, 30, "MOBSET_N"),
-    ("Bg5003", 74, 47, 48, "MOBSET_N"),
-    ("Bg5004", 30, 29, 29, "MIXED"),
-)
-
-# The two scenes an owner has actually looked at, and what they said.  Every
-# other verdict in this module is a prediction; these two are the evidence the
-# rule was read off, so they are named separately and never inferred.
-OWNER_CONFIRMED_GLOBAL_NID = ("Bg0002",)
-OWNER_REJECTED_LOCAL_ORDINAL = ("bg0001",)
-
-# The scene ids the Foundation actually serves, mapped to the scene file whose
-# numbering governs them.  Kept tiny and explicit: an unlisted scene id is
-# UNKNOWN, which is fail-closed, rather than guessed from the number.
+# The scene ids the Foundation serves, mapped to the scene file that governs
+# them.  Explicit and closed: an unlisted id is refused, never guessed.
 SCENE_ID_TO_SCENE_FILE = {
     1: "bg0001",
     2: "Bg0002",
 }
 
-_CENSUS_BY_SCENE = {row[0]: row for row in FROZEN_SCENE_SET_CENSUS}
-
-
-# --- classification ---------------------------------------------------------
-
-def classify_counts(distinct_sets: int, max_set: int) -> str:
-    """The namespace verdict for one scene's set-number shape.
-
-    Dense (``max_set == distinct_sets``, i.e. exactly ``1..N``) reads as a
-    per-scene ordinal; sparse reads as a selection out of ``MOBS.n_ID``.
-    Both arguments come from a scene file, so both are validated: a zero or
-    negative count is not a small scene, it is a parse that went wrong, and
-    ``max_set < distinct_sets`` is arithmetically impossible for a set of
-    distinct positive integers.
-    """
-    if type(distinct_sets) is not int or type(max_set) is not int:
-        raise ValueError("set counts must be integers")
-    if distinct_sets < 1 or max_set < 1:
-        raise ValueError("set counts must be positive")
-    if max_set < distinct_sets:
-        raise ValueError(
-            "max set %d cannot be below the count of distinct sets %d"
-            % (max_set, distinct_sets))
-    if max_set == distinct_sets:
-        return NAMESPACE_LOCAL_ORDINAL
-    return NAMESPACE_GLOBAL_NID
-
-
-def classify_scene(scene: str) -> str:
-    """The namespace verdict for a scene file, or UNKNOWN if it is not in the
-    frozen census.  Never raises for an unmeasured scene - an unmeasured scene
-    is precisely the case the fail-closed path downstream exists for."""
-    row = _CENSUS_BY_SCENE.get(scene)
-    if row is None:
-        return NAMESPACE_UNKNOWN
-    return classify_counts(row[2], row[3])
+# Deliberately empty, and deliberately present.  When anchors clear for a
+# scene, the change is one entry here plus the evidence in the owning module -
+# which makes the moment a scene becomes assertable a reviewable diff instead
+# of a silent consequence of some other edit.
+OWNER_CONFIRMED_SCENES: tuple[str, ...] = ()
 
 
 def scene_file_for_scene_id(scene_id: int) -> Optional[str]:
     """The scene file governing a served scene id, or None when unmapped."""
-    if type(scene_id) is not int:
+    if type(scene_id) is not int or type(scene_id) is bool:
         raise ValueError("scene id must be an integer")
     return SCENE_ID_TO_SCENE_FILE.get(scene_id)
 
 
 def identity_is_provable(scene: str) -> bool:
-    """Whether ``n_ID = <set number>`` may be asserted for this scene.
+    """Whether ``n_ID = <set number>`` may be asserted for ``scene``.
 
-    True only for a scene that is BOTH classified global-``n_ID`` AND on the
-    owner-confirmed list.  Sparse-but-unconfirmed is a prediction this module
-    is willing to print and unwilling to ship identities on, so it returns
-    False - the conservative answer is the one that cannot cost an attended
-    round.
+    False for every scene today.  This is not a stub: it is the finding.  The
+    only path that can return True is a scene added to
+    ``OWNER_CONFIRMED_SCENES``, which is empty because no scene has cleared the
+    anchors the owner required.
     """
-    if scene in OWNER_REJECTED_LOCAL_ORDINAL:
-        return False
-    if scene not in OWNER_CONFIRMED_GLOBAL_NID:
-        return False
-    return classify_scene(scene) == NAMESPACE_GLOBAL_NID
+    return scene in OWNER_CONFIRMED_SCENES
 
 
 def identity_block_reason(scene: str) -> Optional[str]:
     """Why identity may not be asserted for ``scene``, or None when it may.
 
-    The string is short, ASCII, and meant to be printed beside the census.
+    Short, ASCII, and meant to be printed beside the census.  A scene with no
+    recorded reason still gets refused - with a reason saying exactly that,
+    rather than an empty string that reads like an absence of a problem.
     """
     if identity_is_provable(scene):
         return None
-    kind = classify_scene(scene)
-    if scene in OWNER_REJECTED_LOCAL_ORDINAL:
-        return "owner_rejected_on_sight(GT-078);set_numbers_are_ordinals"
-    if kind == NAMESPACE_LOCAL_ORDINAL:
-        return "dense_1..N_numbering;set_number_is_not_n_ID"
-    if kind == NAMESPACE_UNKNOWN:
-        return "scene_not_in_frozen_census"
-    return "sparse_but_not_owner_confirmed"
+    recorded = REFUSAL_REASONS.get(scene)
+    if recorded is not None:
+        return recorded
+    return "no_scene_has_cleared_owner_anchors;scene_not_individually_assessed"
 
 
 def assert_identity_claim(scene: str) -> None:
-    """Refuse, loudly, to assert ``n_ID = <set number>`` where it is not
-    provable.  Call this from any path about to put a set number on the wire
-    as an identity."""
+    """Refuse to assert ``n_ID = <set number>``.  Call this from any path about
+    to put a set number on the wire as an actor identity."""
     reason = identity_block_reason(scene)
     if reason is not None:
         raise ValueError(
@@ -229,39 +151,33 @@ def assert_identity_claim(scene: str) -> None:
 # --- console -----------------------------------------------------------------
 
 def numbering_console_line(scene: str) -> str:
-    """One ASCII token stating the namespace verdict for ``scene``.
+    """One ASCII token stating the identity verdict for ``scene``.
 
-    The bridge console is cp874, so this stays inside 7-bit ASCII, same rule
-    as ``world_population.census_console_line()``.  It carries the two raw
-    numbers the verdict is derived from, so a reader can re-derive the
-    verdict from the line itself rather than trusting the word.
+    The bridge console is cp874, so this stays inside 7-bit ASCII, same rule as
+    ``world_population.census_console_line()``.
     """
-    row = _CENSUS_BY_SCENE.get(scene)
-    kind = classify_scene(scene)
     provable = identity_is_provable(scene)
     reason = identity_block_reason(scene)
-    if row is None:
-        shape = "sets=? max=? family=?"
-    else:
-        shape = "sets=%d max=%d family=%s" % (row[2], row[3], row[4])
     return (
-        "WORLD_IDENTITY_NAMESPACE scene={0} kind={1} {2} "
-        "identity_provable={3} reason={4}".format(
-            scene, kind, shape, 1 if provable else 0,
-            reason if reason is not None else "-")
+        "WORLD_IDENTITY_GUARD scene={0} verdict={1} identity_provable={2} "
+        "reason={3}".format(
+            scene,
+            IDENTITY_ALLOWED if provable else IDENTITY_REFUSED,
+            1 if provable else 0,
+            reason if reason is not None else "-",
+        )
     )
 
 
 def numbering_console_suffix(scene_id: int) -> str:
-    """The namespace token for a served scene id, ready to append to the
-    census line.  An unmapped scene id still produces a token, carrying
-    ``scene=?`` and the fail-closed verdict, because a census going out for a
-    scene this module cannot name is the case most worth seeing in a log."""
+    """The verdict token for a served scene id, ready to append to a census
+    line.  An unmapped scene id still produces a token carrying ``scene=?`` and
+    a refusal, because a census going out for a scene this module cannot name
+    is the case most worth seeing in a log."""
     scene = scene_file_for_scene_id(scene_id)
     if scene is None:
         return (
-            "WORLD_IDENTITY_NAMESPACE scene=? kind=%s sets=? max=? family=? "
-            "identity_provable=0 reason=scene_id_%d_not_mapped"
-            % (NAMESPACE_UNKNOWN, scene_id)
+            "WORLD_IDENTITY_GUARD scene=? verdict=%s identity_provable=0 "
+            "reason=scene_id_%d_not_mapped" % (IDENTITY_REFUSED, scene_id)
         )
     return numbering_console_line(scene)
