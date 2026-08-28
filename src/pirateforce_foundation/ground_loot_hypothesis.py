@@ -91,13 +91,18 @@ PROVENANCE OF EVERY BYTE (layer-tagged; see docs/HYPOTHESIS_LEDGER.json)
   reproduce it.
 * [PROVEN, and it reshaped this lane before it ever shipped] The two
   elements travel as TWO single-element frames, count=1 each, NOT as one
-  count=2 collection.  V43 measured a real client raising ErrorData=28317
-  on a combined multi-record derived-mask RuntimeRes collection, and the
-  fix this project still ships is one record per frame
-  (make_port_royal_npc_single_packets).  Whether the 0x5F85B0 list parser
-  shares that fragility is unknown -- and that is exactly why the lane
-  must not bet the one attended run on it: a count=2 frame that errors
-  would measure the count, not the rendering.  Round-124's adversarial
+  count=2 collection.  ~~"V43 measured a real client raising ErrorData=28317
+  on a combined multi-record derived-mask RuntimeRes collection"~~ IS STRUCK
+  (round ``kfs01z``): 28317 = 0x6E9D = GSCN_RunTimeProtocolRes, the class id
+  of whichever envelope failed to deserialize, echoed back -- a parse-failure
+  echo, not a count report (``world_population.py:105-115``, decoded
+  2026-08-18), and V43 measured it on the mask-0x02 ACTOR list, not on this
+  0x08 one.  What survives unchanged: the fix this project still ships is one
+  record per frame (make_port_royal_npc_single_packets), and whether the
+  0x5F85B0 list parser tolerates a count>1 frame is unknown -- which is still
+  exactly why the lane must not bet the one attended run on it: a count=2
+  frame that errors would measure the count, not the rendering.  The
+  conclusion is unchanged; only its stated reason was wrong.  Round-124's adversarial
   review raised this; the single-record shape is the answer.
 
 COORDINATES [OUR DESIGN, derived from committed constants]
@@ -410,11 +415,14 @@ def make_ground_loot_frames(
     Envelope restated from the proven sibling make_runtime_remote_actors():
     only the derived mask byte differs (0x08 instead of 0x02) and the list
     body is the re-derived 0x5F85B0 shape instead of actor entries.  ONE
-    element per frame, count=1, deliberately mirroring the V43 lesson
-    (make_port_royal_npc_single_packets): a combined multi-record
+    element per frame, count=1, deliberately mirroring the shape
+    make_port_royal_npc_single_packets ships.  ~~"a combined multi-record
     derived-mask collection is the one shape a real client has already
-    rejected with ErrorData=28317, and this lane must not spend the
-    attended run measuring the count instead of the rendering.
+    rejected with ErrorData=28317"~~ IS STRUCK (round ``kfs01z``): that number
+    is a parse-failure class-id echo, not a count report, and V43 met it on
+    the mask-0x02 actor list.  The operative reason is unchanged and does not
+    depend on it: a count>1 frame here is UNMEASURED, and this lane must not
+    spend the attended run measuring the count instead of the rendering.
     """
     scenario = require_ground_loot_hypothesis_scenario(scenario)
     try:
