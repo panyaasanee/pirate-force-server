@@ -338,10 +338,50 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
     # to move off in_progress for this. Allow exactly this one file for
     # exactly the word "quest" -- any OTHER word from the list, or any OTHER
     # file, still trips this guard, on purpose.
+    # AMENDMENT 2026-08-28 (LANE-A, RE-128).  world_port_royal_identity.py
+    # trips the word "shop" three times and implements no shop behaviour at
+    # all: the hits are inside the MOBS_TIP TITLE TEXT the client's own tables
+    # give three NPCs ("Gold Shop", "PVP Shop", "Nutrition Jelly Shop"), which
+    # this lane now sends as name/title data.  A title string is not a
+    # capability, and deleting the word would mean shipping a different NPC's
+    # label than the client's table has.  The exemption is kept honest by
+    # ``test_the_identity_tables_shop_hits_are_all_npc_title_data`` below,
+    # which fails the moment a "shop" appears anywhere in that file except in
+    # a data row of the identity table.
     ALLOWED_HITS = {
         "columbus_quest_dispatch.py": {"quest"},
         "runtime.py": {"quest"},
+        "world_port_royal_identity.py": {"shop"},
     }
+
+    # A data row of world_port_royal_identity._RESOLVED_ROWS, e.g.
+    #     (82, 833, 'M070_000_002_N', 'Brin', 'Gold Shop'),
+    IDENTITY_TABLE_ROW = re.compile(
+        r"^ {4}\(\d+, \d+, '[^']*', '[^']*', '[^']*'\),$"
+    )
+
+    def test_the_identity_tables_shop_hits_are_all_npc_title_data(self):
+        """The premise of the one exemption above, checked rather than argued.
+
+        Every line of world_port_royal_identity.py that contains the word
+        "shop" must be a row of the crosswalk table - a tuple of (Mob-Set
+        number, MOBS.n_ID, s_OUTFIT, MOBS_TIP name, MOBS_TIP title).  If a
+        "shop" ever appears in code, in a function name or in a docstring
+        promising behaviour, this goes red and the exemption has to be
+        re-argued instead of silently covering it.
+        """
+        path = (
+            ROOT / "src/pirateforce_foundation/world_port_royal_identity.py"
+        )
+        hits = [
+            line for line in path.read_text(encoding="utf-8").splitlines()
+            if re.search(r"\bshop\b", line.lower())
+        ]
+        self.assertTrue(hits)
+        for line in hits:
+            self.assertRegex(line, self.IDENTITY_TABLE_ROW)
+            # ...and the word is in the TITLE field, the last of the five.
+            self.assertIn("shop", line.rsplit("', '", 1)[-1].lower())
 
     def test_no_foundation_module_implements_quest_or_shop_behavior(self):
         offenders = {}

@@ -47,7 +47,23 @@ from pirateforce_foundation.world_population import (
     production_allowed,
     staircase_report,
     test_only,
+    unshippable_placements,
 )
+
+
+# AMENDMENT 2026-08-28 (LANE-A, RE-128 / CLINE identities).  115 is still the
+# size of the frozen placement table (``CENSUS_COUNT``), and this lane still
+# reports it as the target on every console line.  108 is what ASSEMBLES: seven
+# of those placements have a Mob-Set number whose CLINE leader has no
+# ``CONSTDATA MOBS`` row (or is 0, or has no avatar template), so they have no
+# identity that can be shipped without going back to the Mob-Set number GT-078
+# proved wrong.  They are dropped, loudly, with a reason each - see
+# ``world_port_royal_identity.UNRESOLVED`` and
+# ``world_population.unshippable_placements``.  Every "115" below that meant
+# "the whole census as built" became this number; every "115" that meant "the
+# size of the source table" stayed ``CENSUS_COUNT``.
+SHIPPED_CENSUS_COUNT = 108
+UNSHIPPABLE_PLACEMENT_INDICES = (0, 75, 86, 87, 145, 147, 148)
 
 
 class WorldPopulationTests(unittest.TestCase):
@@ -72,57 +88,120 @@ class WorldPopulationTests(unittest.TestCase):
 
     # --- the control -----------------------------------------------------
 
-    def test_rung_three_differs_from_the_shipped_default_by_exactly_the_two_added_names(
+    def test_rung_three_ships_resolved_identities_the_frozen_default_never_had(
         self,
     ) -> None:
-        """Was byte-identical; GT-078 OWNER-REJECTED ended that on purpose.
+        """Was ``..._differs_from_the_shipped_default_by_exactly_the_two_added_names``.
 
-        ``make_v112_monster_shop_population_state()`` is the frozen diagnostic
-        isolation lane other hypotheses measure against, and this project does
-        not edit it: it still sends P0 and P91 nameless, by design, forever.
-        This module no longer matches it byte-for-byte, because ``_entry()``
-        now puts every placement's own ``source_name`` on the wire (P30's
-        pinned V119 override is unchanged and unaffected).  The invariant that
-        survives is narrower than byte-identity: the ONLY bytes rung 3 adds,
-        anywhere, are the two UTF-16LE name tags for P0 and P91 - P30's name
-        tag was already present in both frames via the pinned monster override,
-        so it contributes nothing to the delta.
+        SUPERSEDED HISTORY, kept because this project strikes through rather
+        than erases.  ~~Rung 3 was byte-identical to
+        ``make_v112_monster_shop_population_state()``.~~  ~~Then GT-078
+        OWNER-REJECTED made ``_entry()`` put every placement's own
+        ``source_name`` on the wire, so the surviving invariant was narrower:
+        the ONLY bytes rung 3 added, anywhere, were the two UTF-16LE name tags
+        for P0 and P91, and the pinned sizes were 564/577.~~
+
+        SUPERSEDED 2026-08-28 (RE-128 / CLINE identities).  Byte-comparability
+        with that frozen snapshot is gone for good, in two independent ways:
+
+        1.  The frozen snapshot sends each placement's MOB-SET NUMBER (1, 31,
+            91) where ``make_npc_attr``'s own docstring wants "the MOBS/template
+            u16 at +0x78", and it sends the scene file's Mob-Set-numbered
+            preset with it.  That substitution is exactly what GT-078 put on
+            the owner's screen and had rejected.  Rung 3 now sends the resolved
+            ``MOBS.n_ID``, that MOBS row's own ``s_OUTFIT`` and its
+            ``MOBS_TIP`` name, so a byte-delta against the frozen bytes would
+            be a delta against identities this lane has stopped shipping.
+        2.  The frozen control set is not even rung 3's membership any more.
+            P0's Mob-Set 1 resolves to CLINE leader 155, which has no
+            ``CONSTDATA MOBS`` row, so P0 has no shippable identity and is
+            dropped; the third slot goes to the nearest resolvable placement.
+
+        This project does not edit ``make_v112_monster_shop_population_state``,
+        so it stays exactly as it is and stays correct for what it describes.
+        What is asserted here instead is the new rule, per entry: every member
+        carries its resolved MOBS id, that row's avatar template and its own
+        MOBS_TIP name, and no member carries its Mob-Set number as an identity.
         """
+        from pirateforce_foundation import world_port_royal_identity as identity_table
         from pirateforce_foundation.population import load_port_royal_placements
-        from pirateforce_foundation.world_population import SHIPPED_MONSTER_INDEX
 
-        shipped_pc, shipped_frame, shipped_rows = (
+        shipped_pc, _shipped_frame, shipped_rows = (
             self.legacy.make_v112_monster_shop_population_state()
         )
         rung = build_world_population(self.legacy, self.anchor, 3, scene_id=1)
-        self.assertEqual(rung.indices, tuple(row[0] for row in shipped_rows))
-        self.assertEqual(rung.indices, SHIPPED_ISOLATED_INDICES)
+
+        # The frozen control set is still (0, 30, 91) - this module did not
+        # touch it - and rung 3 is no longer that set, for a recorded reason.
+        self.assertEqual(
+            tuple(row[0] for row in shipped_rows), SHIPPED_ISOLATED_INDICES)
+        self.assertEqual(rung.indices, (30, 91, 1))
+        self.assertIsNotNone(
+            identity_table.unresolved_reason(
+                {
+                    placement.placement_index: placement
+                    for placement in load_port_royal_placements(self.legacy)
+                }[0].template_id
+            )
+        )
 
         placements = {
             placement.placement_index: placement
             for placement in load_port_royal_placements(self.legacy)
         }
-        added_name_tags = [
-            self.legacy.wstr_tag(placements[index].source_name)
-            for index in SHIPPED_ISOLATED_INDICES
-            if index != SHIPPED_MONSTER_INDEX
-        ]
-        added_bytes = sum(len(tag) for tag in added_name_tags)
-        self.assertEqual(len(rung.pc) - len(shipped_pc), added_bytes)
-        self.assertEqual(len(rung.frame) - len(shipped_frame), added_bytes)
-        for tag in added_name_tags:
-            self.assertNotIn(tag, shipped_pc)
-            self.assertIn(tag, rung.pc)
+        # NPCAttr writes the identity as u8tag(0x0B, npc_mask) followed by
+        # u16tag(0x12, template_id) (v141:1196-1197), so this looks for the
+        # exact two-tag sequence rather than a bare u16 that could match any
+        # coincidental pair of bytes in the payload.
+        for index in rung.indices:
+            placement = placements[index]
+            identity = identity_table.resolve(placement.template_id)
+            self.assertIsNotNone(identity)
+            id_tags = (
+                self.legacy.u8tag(0x0B, 0x01 | 0x04)
+                + self.legacy.u16tag(0x12, identity.mobs_n_id)
+            )
+            set_number_tags = (
+                self.legacy.u8tag(0x0B, 0x01 | 0x04)
+                + self.legacy.u16tag(0x12, placement.template_id)
+            )
+            self.assertIn(id_tags, rung.pc)
+            self.assertNotIn(set_number_tags, rung.pc)
+            self.assertIn(self.legacy.wstr_tag(identity.outfit), rung.pc)
+            self.assertIn(self.legacy.wstr_tag(identity.name), rung.pc)
+            # ...and the frozen snapshot carries none of those names, which is
+            # the shortest true statement of what the owner will see change.
+            self.assertNotIn(self.legacy.wstr_tag(identity.name), shipped_pc)
 
         # Pinned so a future encoder change is caught here too, not only in
-        # scenarios/world_population_full_001.json.
-        self.assertEqual((rung.pc_bytes, rung.frame_bytes), (564, 577))
+        # scenarios/world_population_full_001.json.  Was (564, 577) while rung
+        # 3 was (P0, P30, P91) carrying the frozen table's own names.
+        self.assertEqual((rung.pc_bytes, rung.frame_bytes), (550, 563))
 
-    def test_the_control_rung_is_anchor_invariant(self) -> None:
-        """Which is what makes it a control - and also its only limitation."""
-        first = build_world_population(self.legacy, self.anchor, 3, scene_id=1)
-        for other in (self.spawn, self.far, (0.0, 0.0, 0.0)):
-            self.assertEqual(build_world_population(self.legacy, other, 3, scene_id=1).pc, first.pc)
+    def test_the_control_rungs_first_two_members_are_anchor_invariant(self) -> None:
+        """Was ``test_the_control_rung_is_anchor_invariant``.
+
+        ~~The whole rung-3 collection is identical at every anchor, which is
+        what makes it a control - and also its only limitation.~~  SUPERSEDED
+        2026-08-28 (RE-128): the frozen V112 3-actor control rung is NO LONGER
+        anchor-invariant, because its P0 member has no shippable identity
+        (Mob-Set 1 -> CLINE leader 155, no MOBS row) and is dropped from the
+        census.  Two pinned members survive the filter, so the third slot is
+        filled by the nearest resolvable placement - which is a function of the
+        anchor, and really does differ between the anchors below.
+
+        The honest invariant is therefore narrower: the FIRST TWO members are
+        (30, 91) at every anchor, in that order.  Anything wider than that
+        would be asserting a control this lane no longer has.
+        """
+        anchors = (self.anchor, self.spawn, self.far, (0.0, 0.0, 0.0))
+        thirds = set()
+        for anchor in anchors:
+            rung = build_world_population(self.legacy, anchor, 3, scene_id=1)
+            self.assertEqual(rung.indices[:2], (30, 91))
+            thirds.add(rung.indices[2])
+        # Non-vacuous: the part that is no longer invariant demonstrably varies.
+        self.assertGreater(len(thirds), 1)
 
     # --- the honesty pin -------------------------------------------------
 
@@ -141,8 +220,21 @@ class WorldPopulationTests(unittest.TestCase):
     # --- the staircase ---------------------------------------------------
 
     def test_every_rung_is_a_prefix_of_the_next(self) -> None:
+        """Was ``... == STAIRCASE_RUNGS``, i.e. (3, 20, 60, 115).
+
+        SUPERSEDED 2026-08-28 (RE-128): the top rung ASKS for 115 and
+        ASSEMBLES 108, because seven of the frozen placements have no
+        shippable identity and ``census_order`` drops them.  The rung sizes
+        below are what was built, not what was requested - which is the whole
+        point of ``build_world_population`` taking its count from the
+        assembled list (CHARTER-02: a shortfall arrives with its reason
+        attached, never as a quietly rewritten target).
+        """
         built = build_staircase(self.legacy, self.anchor)
-        self.assertEqual(tuple(item.actor_count for item in built), STAIRCASE_RUNGS)
+        self.assertEqual(
+            tuple(item.actor_count for item in built), (3, 20, 60, SHIPPED_CENSUS_COUNT))
+        self.assertEqual(STAIRCASE_RUNGS[:3], (3, 20, 60))
+        self.assertEqual(STAIRCASE_RUNGS[-1], CENSUS_COUNT)
         for lower, higher in zip(built, built[1:]):
             self.assertEqual(higher.indices[: lower.actor_count], lower.indices)
             self.assertGreater(higher.frame_bytes, lower.frame_bytes)
@@ -172,46 +264,97 @@ class WorldPopulationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             nesting_break((high, low))
 
-    def test_top_rung_is_the_whole_census_without_repeats(self) -> None:
-        top = build_world_population(self.legacy, self.anchor, CENSUS_COUNT, scene_id=1)
-        self.assertEqual(top.actor_count, CENSUS_COUNT)
-        self.assertEqual(len(set(top.indices)), CENSUS_COUNT)
+    def test_top_rung_is_the_whole_census_minus_the_unshippable_seven(self) -> None:
+        """Was ``test_top_rung_is_the_whole_census_without_repeats`` at 115.
 
-    def test_top_rung_differs_from_the_frozen_golden_115_by_every_members_own_name(
+        ~~top.actor_count == CENSUS_COUNT.~~  SUPERSEDED 2026-08-28 (RE-128):
+        it is 108, and the seven that are missing are named here rather than
+        left as a number, so a future drift in either direction is a failure
+        with a list attached.
+        """
+        top = build_world_population(self.legacy, self.anchor, CENSUS_COUNT, scene_id=1)
+        self.assertEqual(top.actor_count, SHIPPED_CENSUS_COUNT)
+        self.assertEqual(len(set(top.indices)), SHIPPED_CENSUS_COUNT)
+        dropped = unshippable_placements(self.legacy)
+        self.assertEqual(
+            tuple(item[0] for item in dropped), UNSHIPPABLE_PLACEMENT_INDICES)
+        self.assertEqual(
+            len(top.indices) + len(dropped), CENSUS_COUNT)
+        self.assertTrue(
+            set(UNSHIPPABLE_PLACEMENT_INDICES).isdisjoint(set(top.indices)))
+
+    def test_top_rung_carries_a_resolved_identity_the_frozen_golden_115_never_had(
         self,
     ) -> None:
-        """v141:1441 already builds a 115-member snapshot; this one is that one.
+        """Was ``..._differs_from_the_frozen_golden_115_by_every_members_own_name``.
 
-        Was "by P30 alone", when P30's BasicAttr name was the only name this
-        module put on the wire.  GT-078 OWNER-REJECTED ended that: ``_entry()``
-        now puts every placement's own frozen ``source_name`` on the wire, and
-        ``make_v62_port_royal_population_snapshot`` never sets a name for
-        ANYONE (it calls ``make_npc_attr`` with no ``basic_name`` argument at
-        all, not even for P30).  So the true invariant is no longer "P30's tag
-        alone" - it is the sum of every top-rung member's own name-tag length,
-        computed from the encoder's own ``wstr_tag`` rather than hand-counted,
-        so a change to any placement's name text is still caught here.
+        v141:1441 builds a 115-member snapshot and this one used to be that
+        one, member for member.  ~~Was "by P30 alone", when P30's BasicAttr
+        name was the only name this module put on the wire; then GT-078 widened
+        it to the sum of every top-rung member's own frozen ``source_name``
+        tag.~~
+
+        SUPERSEDED 2026-08-28 (RE-128 / CLINE identities).  A byte-delta
+        against ``make_v62_port_royal_population_snapshot`` cannot state
+        anything true any more: that snapshot encodes each placement's Mob-Set
+        number as its identity and the scene file's own preset with it, which
+        is the pair the owner rejected on sight in GT-078, and it is seven
+        members larger than this census because it does not know that seven of
+        those Mob-Set numbers resolve to no MOBS row at all.  The frozen
+        function is not edited and stays exactly correct for what it describes.
+
+        The invariant asserted instead is the new rule, stated plainly: the top
+        rung is the golden membership minus the seven unshippable placements,
+        every entry carries the resolved ``MOBS.n_ID`` and that row's own
+        ``MOBS_TIP`` name, and no entry reproduces its Mob-Set number as an
+        identity.
         """
+        from pirateforce_foundation import world_port_royal_identity as identity_table
         from pirateforce_foundation.population import load_port_royal_placements
 
         _label, golden_pc, _frame, chosen = (
             self.legacy.make_v62_port_royal_population_snapshot(*self.anchor)
         )
         top = build_world_population(self.legacy, self.anchor, CENSUS_COUNT, scene_id=1)
-        self.assertEqual(set(top.indices), {row[0] for row in chosen})
+        self.assertEqual(
+            set(top.indices),
+            {row[0] for row in chosen} - set(UNSHIPPABLE_PLACEMENT_INDICES),
+        )
 
         placements = {
             placement.placement_index: placement
             for placement in load_port_royal_placements(self.legacy)
         }
-        name_tags = [
-            self.legacy.wstr_tag(placements[index].source_name)
-            for index in top.indices
-        ]
-        expected_delta = sum(len(tag) for tag in name_tags)
-        self.assertEqual(top.pc_bytes - len(golden_pc), expected_delta)
-        for tag in name_tags:
-            self.assertNotIn(tag, golden_pc)
+        named = 0
+        for index in top.indices:
+            placement = placements[index]
+            identity = identity_table.resolve(placement.template_id)
+            self.assertIsNotNone(identity)
+            self.assertNotEqual(identity.mobs_n_id, placement.template_id)
+            id_tags = (
+                self.legacy.u8tag(0x0B, 0x01 | 0x04)
+                + self.legacy.u16tag(0x12, identity.mobs_n_id)
+            )
+            self.assertIn(id_tags, top.pc)
+            if identity.name:
+                named += 1
+                self.assertIn(self.legacy.wstr_tag(identity.name), top.pc)
+                # The golden snapshot names nobody, so every one of these tags
+                # is a name line the player did not have yesterday.
+                self.assertNotIn(self.legacy.wstr_tag(identity.name), golden_pc)
+        # Exactly one census member ships without a name: placement 132, whose
+        # Mob-Set 103 resolves to n_ID 917, which has a MOBS row (so it can be
+        # raised) but no MOBS_TIP row (so it has no label).  It ships nameless
+        # rather than borrowing a name - recorded, not papered over.
+        self.assertEqual(named, SHIPPED_CENSUS_COUNT - 1)
+        self.assertEqual(
+            [
+                index for index in top.indices
+                if not identity_table.resolve(
+                    placements[index].template_id).name
+            ],
+            [132],
+        )
 
     def test_every_member_is_now_absent_from_the_golden_115_because_every_member_is_named(
         self,
@@ -238,26 +381,47 @@ class WorldPopulationTests(unittest.TestCase):
         NONCLAIM: a substring miss proves each entry's bytes are absent, not
         that the collection orders them the way V62 orders them.  Ordering is
         not compared here, and no other test compares it either.
+
+        AMENDMENT 2026-08-28 (RE-128 / CLINE identities).  The reason every
+        entry is absent got wider - it is no longer only the name tag, it is
+        also the identity u16 and the avatar template, which now come from the
+        resolved ``MOBS`` row instead of from the Mob-Set number V62 sends.
+        The ITERATION had to change too: ``_entry()`` now REFUSES a placement
+        with no shippable identity rather than falling back to its Mob-Set
+        number, so this walks the census as ``census_order`` built it (108)
+        instead of walking all 115 rows of the frozen table.  The seven it no
+        longer walks are asserted to be exactly the ones that were dropped, so
+        this cannot quietly shrink further.
         """
-        from pirateforce_foundation.population import load_port_royal_placements
         from pirateforce_foundation.world_population import _entry
 
         _label, golden_pc, _frame, _chosen = (
             self.legacy.make_v62_port_royal_population_snapshot(*self.anchor)
         )
-        placements = load_port_royal_placements(self.legacy)
+        placements = census_order(self.legacy, self.anchor)
         absent = [
             placement.placement_index
             for placement in placements
             if _entry(self.legacy, placement) not in golden_pc
         ]
         self.assertEqual(absent, [placement.placement_index for placement in placements])
-        self.assertEqual(len(absent), CENSUS_COUNT)
+        self.assertEqual(len(absent), SHIPPED_CENSUS_COUNT)
+        from pirateforce_foundation.population import load_port_royal_placements
 
-    def test_every_members_own_name_reaches_the_wire_as_a_utf16_basic_name_tag(
+        self.assertEqual(
+            set(absent) | set(UNSHIPPABLE_PLACEMENT_INDICES),
+            {
+                placement.placement_index
+                for placement in load_port_royal_placements(self.legacy)
+            },
+        )
+
+    def test_every_members_resolved_name_reaches_the_wire_as_a_utf16_basic_name_tag(
         self,
     ) -> None:
-        """GT-078 OWNER-REJECTED, direct: no client screenshot ever showed a
+        """Was ``test_every_members_own_name_reaches_the_wire_...``.
+
+        GT-078 OWNER-REJECTED, direct: no client screenshot ever showed a
         name line under any NPC in town, only a title line.  This is the test
         that would have caught it - there was none before this lane's fix
         (a static-RE grep of tests/test_population.py and
@@ -267,11 +431,20 @@ class WorldPopulationTests(unittest.TestCase):
         Reuses the codebase's own frozen tag helper (``legacy.wstr_tag``)
         rather than hand-rolling UTF-16LE, the same way
         tests/test_field_mobs.py checks ``mob.display_name`` reaches the
-        wire.  Checked for three specific, distinct placements: the pinned
-        control's two non-monster members (P0, P91) plus one ordinary
-        mid-table member (P35, "Columbus") that carries no special-case
-        handling at all - so this is not merely re-proving the control rung.
+        wire.
+
+        SUPERSEDED 2026-08-28 (RE-128 / CLINE identities).  ~~The name on the
+        wire is the frozen placement row's own ``source_name``, checked for
+        P0, P91 and P35.~~  It is now the ``MOBS_TIP`` name of the RESOLVED
+        ``MOBS.n_ID``, so that the id, the avatar template and the label in one
+        entry all describe the same person; the placement's ``source_name`` is
+        a Mob-Set-numbered label and is no longer sent.  P0 is not checkable at
+        all any more - it has no shippable identity - so the three placements
+        below are the two surviving pinned members (P30, P91) plus the owner's
+        own confirmed anchor P65, which the owner named specifically: it used
+        to ship as "Columbus" (the slave market's) and now ships as 802 Loie.
         """
+        from pirateforce_foundation import world_port_royal_identity as identity_table
         from pirateforce_foundation.population import load_port_royal_placements
         from pirateforce_foundation.world_population import _entry
 
@@ -279,29 +452,50 @@ class WorldPopulationTests(unittest.TestCase):
             placement.placement_index: placement
             for placement in load_port_royal_placements(self.legacy)
         }
-        for index in (0, 91, 35):
+        for index in (30, 91, 65):
             placement = placements[index]
-            self.assertTrue(placement.source_name)
+            identity = identity_table.resolve(placement.template_id)
+            self.assertIsNotNone(identity)
+            self.assertTrue(identity.name)
             entry = _entry(self.legacy, placement)
-            name_tag = self.legacy.wstr_tag(placement.source_name)
-            self.assertIn(name_tag, entry)
+            self.assertIn(self.legacy.wstr_tag(identity.name), entry)
+            # ...and the Mob-Set-numbered label the table carries for the same
+            # row does NOT reach the wire, which is the half the owner rejected.
+            if placement.source_name != identity.name:
+                self.assertNotIn(
+                    self.legacy.wstr_tag(placement.source_name), entry)
 
-    def test_p30_uses_the_measured_override_name_not_the_tables_own(self) -> None:
-        """pf-adversary (this round): today
+    def test_p30_now_ships_its_resolved_identity_not_the_measured_override_name(
+        self,
+    ) -> None:
+        """Was ``test_p30_uses_the_measured_override_name_not_the_tables_own``.
+
+        THE OLD TEST'S REASONING, kept because the premise it guarded is gone
+        rather than wrong: ~~pf-adversary (round pqx4fj-1): today
         ``PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS[30].source_name`` and
         ``V119_P30_TARGET_NAME`` happen to both be "Tornado Eagle", so the
-        ``is_monster`` branch in ``_entry()`` is untestable coincidence, not
-        a proven precedence - deleting the branch entirely (falling through
-        to ``placement.source_name`` for every member, P30 included) passes
-        every other test in this file unchanged. This test forces the two
-        values apart with a drifted legacy stand-in (same pattern as
-        ``test_control_rung_refuses_to_measure_a_drifted_default``) and
-        proves the override wins: if a future edit collapses the ternary,
-        or the frozen table's P30 name ever drifts from the measured V119
-        override without anyone noticing, this is what catches it.
+        ``is_monster`` branch in ``_entry()`` is untestable coincidence, not a
+        proven precedence - deleting the branch entirely passes every other
+        test in this file unchanged.  This test forces the two values apart
+        with a drifted legacy stand-in and proves the override wins.~~
+
+        SUPERSEDED 2026-08-28 (RE-128 / CLINE identities).  There is no name
+        branch left to guard: ``_entry()`` sends no ``V119_P30_TARGET_NAME``
+        for anybody.  "Tornado Eagle" was P30's name UNDER THE MOB-SET
+        NUMBERING, and P30's Mob-Set 31 resolves to ``MOBS.n_ID`` 248, Da
+        Vinci, whom the owner filmed standing beside 904 Chalais - which is
+        P91, 436 units away, the 0.1 percentile of this scene's pairwise
+        distances.  So the new intended rule is the one pinned here: P30 ships
+        248 / P_MALE_018_000_DAVINCI / "Da Vinci".
+
+        The HP override is a different measurement and is deliberately
+        untouched, so it is pinned here too - if a future edit collapses the
+        ``is_monster`` branch entirely, this is what still catches it.
         """
+        from pirateforce_foundation import world_port_royal_identity as identity_table
         from pirateforce_foundation.population import load_port_royal_placements
         from pirateforce_foundation.world_population import (
+            DEFAULT_HP,
             SHIPPED_MONSTER_INDEX,
             _entry,
         )
@@ -311,15 +505,35 @@ class WorldPopulationTests(unittest.TestCase):
             for placement in load_port_royal_placements(self.legacy)
         }
         p30 = placements[SHIPPED_MONSTER_INDEX]
+        # The frozen table still says what it always said; this lane just
+        # stopped treating that label as an identity.
         self.assertEqual(p30.source_name, self.legacy.V119_P30_TARGET_NAME)
 
-        drifted = types.SimpleNamespace(**vars(self.legacy))
-        drifted.V119_P30_TARGET_NAME = "Adversary Drift Probe"
-        self.assertNotEqual(drifted.V119_P30_TARGET_NAME, p30.source_name)
+        identity = identity_table.resolve(p30.template_id)
+        self.assertEqual(
+            (identity.mobs_n_id, identity.outfit, identity.name),
+            (248, "P_MALE_018_000_DAVINCI", "Da Vinci"),
+        )
+        entry = _entry(self.legacy, p30)
+        self.assertIn(self.legacy.wstr_tag("Da Vinci"), entry)
+        self.assertIn(self.legacy.wstr_tag("P_MALE_018_000_DAVINCI"), entry)
+        self.assertNotIn(
+            self.legacy.wstr_tag(self.legacy.V119_P30_TARGET_NAME), entry)
+        self.assertNotIn(
+            self.legacy.u8tag(0x0B, 0x01 | 0x04)
+            + self.legacy.u16tag(0x12, p30.template_id),
+            entry,
+        )
 
-        entry = _entry(drifted, p30)
-        self.assertIn(drifted.wstr_tag("Adversary Drift Probe"), entry)
-        self.assertNotIn(drifted.wstr_tag(p30.source_name), entry)
+        # The HP override survives untouched: P30 is still the one member
+        # built with the measured V117 hp instead of the default 100.
+        drifted = types.SimpleNamespace(**vars(self.legacy))
+        drifted.V117_P30_EXACT_HP = 4242
+        drifted_entry = _entry(drifted, p30)
+        self.assertIn(drifted.u32tag(0x14, 4242), drifted_entry)
+        self.assertNotIn(drifted.u32tag(0x14, DEFAULT_HP), drifted_entry)
+        self.assertIn(
+            self.legacy.u32tag(0x14, self.legacy.V117_P30_EXACT_HP), entry)
 
     def test_identities_follow_the_frozen_actor_identity_rule(self) -> None:
         top = build_world_population(self.legacy, self.anchor, CENSUS_COUNT, scene_id=1)
@@ -335,29 +549,53 @@ class WorldPopulationTests(unittest.TestCase):
         self.assertEqual(first.indices, second.indices)
 
     def test_order_is_pinned_first_then_nearest_first(self) -> None:
+        """Was ``placements[:3] == SHIPPED_ISOLATED_INDICES``.
+
+        SUPERSEDED 2026-08-28 (RE-128): the pinned prefix is the pinned set
+        MINUS whatever the identity filter dropped from it, which today is P0.
+        So the prefix is (30, 91) and the nearest-first tail starts one place
+        earlier.  The pinned set itself is unchanged and still refused if it
+        drifts (``_pinned_indices``).
+        """
         placements = census_order(self.legacy, self.anchor)
         self.assertEqual(
-            tuple(item.placement_index for item in placements[:3]),
-            SHIPPED_ISOLATED_INDICES,
+            tuple(item.placement_index for item in placements[:2]),
+            tuple(
+                index for index in SHIPPED_ISOLATED_INDICES
+                if index not in UNSHIPPABLE_PLACEMENT_INDICES
+            ),
         )
         x, y, z = self.anchor
         distances = [
             (item.x - x) ** 2 + (item.y - y) ** 2 + (item.z - z) ** 2
-            for item in placements[3:]
+            for item in placements[2:]
         ]
         self.assertEqual(distances, sorted(distances))
 
-    def test_rung_twenty_membership_coincides_with_v94_at_this_anchor(self) -> None:
-        """A weak coincidence, recorded as one - not a second control.
+    def test_rung_twenty_now_differs_from_v94_by_the_placements_v94_cannot_name(
+        self,
+    ) -> None:
+        """Was ``test_rung_twenty_membership_coincides_with_v94_at_this_anchor``.
 
-        At the V134 anchor the pinned three happen to fall inside V94's
-        nearest-20, so the SETS match.  The frames do not, the orders do not,
-        and at other anchors the sets do not either.  No client has accepted
-        this frame.
+        ~~A weak coincidence, recorded as one - not a second control.  At the
+        V134 anchor the pinned three happen to fall inside V94's nearest-20, so
+        the SETS match.~~  SUPERSEDED 2026-08-28 (RE-128): they no longer
+        match, and the difference is exactly the interesting one.  Four of
+        V94's nearest-20 (P0, P86, P87, P145) have no shippable identity, so
+        this rung drops them and reaches four placements deeper into the
+        nearest-first order to still send twenty actors.  Everything the old
+        test said about frames and orders never matching is unchanged.
         """
         v94 = build_port_royal_initial_population(self.legacy, self.anchor)
         rung = build_world_population(self.legacy, self.anchor, AUTHORITATIVE_COUNT, scene_id=1)
-        self.assertEqual(set(rung.indices), set(v94.current_indices))
+        only_v94 = set(v94.current_indices) - set(rung.indices)
+        only_rung = set(rung.indices) - set(v94.current_indices)
+        self.assertEqual(only_v94, {0, 86, 87, 145})
+        self.assertTrue(only_v94 <= set(UNSHIPPABLE_PLACEMENT_INDICES))
+        self.assertEqual(len(only_rung), len(only_v94))
+        self.assertTrue(
+            only_rung.isdisjoint(set(UNSHIPPABLE_PLACEMENT_INDICES)))
+        self.assertEqual(rung.actor_count, AUTHORITATIVE_COUNT)
         self.assertNotEqual(rung.pc, v94.pc)
         self.assertNotEqual(rung.indices, v94.current_indices)
 
@@ -391,11 +629,16 @@ class WorldPopulationTests(unittest.TestCase):
                 effective_actor_count(bad)
 
     def test_report_pins_sizes_and_membership(self) -> None:
+        """``counts == list(STAIRCASE_RUNGS)`` until RE-128; see
+        ``test_every_rung_is_a_prefix_of_the_next`` for why the top rung
+        assembles 108 when 115 is asked for.  ``census_count`` stays 115: it is
+        the size of the source table, which did not change.
+        """
         report = staircase_report(self.legacy, self.anchor)
         self.assertEqual(report["census_count"], CENSUS_COUNT)
         self.assertEqual(report["initial_reapply_ms"], INITIAL_REAPPLY_MS)
         counts = [rung["actor_count"] for rung in report["rungs"]]
-        self.assertEqual(counts, list(STAIRCASE_RUNGS))
+        self.assertEqual(counts, [3, 20, 60, SHIPPED_CENSUS_COUNT])
         for rung in report["rungs"]:
             self.assertEqual(len(rung["indices"]), rung["actor_count"])
         sizes = [rung["frame_bytes"] for rung in report["rungs"]]
@@ -424,6 +667,32 @@ class WorldPopulationTests(unittest.TestCase):
         from pirateforce_foundation.population import PORT_ROYAL_SOURCE_SHA256
 
         self.assertEqual(population["source_sha256"], PORT_ROYAL_SOURCE_SHA256)
+
+        # AMENDMENT 2026-08-28 (RE-128).  The pin now has to describe the two
+        # numbers that differ - what is ASKED for and what ASSEMBLES - and the
+        # seven placements that account for the difference, by index, Mob-Set
+        # number and reason.  Read from the module rather than from a second
+        # hand-written list, so the file cannot drift away from the code.
+        self.assertEqual(
+            population["assembled_actor_count_at_default"], SHIPPED_CENSUS_COUNT)
+        self.assertEqual(
+            population["count_source_when_short"],
+            world_population.COUNT_SOURCE_IDENTITY_RESOLVED,
+        )
+        self.assertEqual(
+            [
+                (item["placement_index"], item["mob_set_number"], item["reason"])
+                for item in population["unshippable_placements"]
+            ],
+            [tuple(item) for item in unshippable_placements(self.legacy)],
+        )
+        self.assertEqual(
+            tuple(
+                item["placement_index"]
+                for item in population["unshippable_placements"]
+            ),
+            UNSHIPPABLE_PLACEMENT_INDICES,
+        )
 
         anchors = pinned["staircase"]["reference_anchors"]
         self.assertEqual(len(anchors), 2)
@@ -527,26 +796,55 @@ class CensusDispatchCountTests(unittest.TestCase):
             cls.legacy.V135_PLAYER_Z,
         )
 
-    def test_the_full_census_reports_no_shortfall(self) -> None:
+    def test_the_full_census_reports_its_shortfall_with_the_identity_reason(
+        self,
+    ) -> None:
+        """Was ``test_the_full_census_reports_no_shortfall``.
+
+        ~~A full-census build assembles 115, so there is nothing to report.~~
+        SUPERSEDED 2026-08-28 (RE-128): it assembles 108, and CHARTER-02's hard
+        half applies - the shortfall arrives with its reason attached, and the
+        caller's stated ``full_census`` reason is REPLACED by the one that is
+        actually true (``identity_resolved``) rather than left saying 115 went
+        out.  The parts that still hold - wire count agrees with the assembled
+        count, every body is intact - are asserted unchanged.
+        """
         generation = build_world_population(
             self.legacy, self.spawn,
             scene_id=1, count_source=world_population.COUNT_SOURCE_FULL_CENSUS,
         )
         report = dispatch_report(generation)
-        self.assertEqual(report["assembled_count"], CENSUS_COUNT)
-        self.assertEqual(report["wire_actor_count"], CENSUS_COUNT)
+        self.assertEqual(report["assembled_count"], SHIPPED_CENSUS_COUNT)
+        self.assertEqual(report["wire_actor_count"], SHIPPED_CENSUS_COUNT)
+        self.assertEqual(report["census_count"], CENSUS_COUNT)
         self.assertTrue(report["counts_agree"])
         self.assertTrue(report["bodies_intact"])
-        self.assertIsNone(report["shortfall_reason"])
+        self.assertEqual(
+            report["count_source"], world_population.COUNT_SOURCE_IDENTITY_RESOLVED)
+        self.assertEqual(
+            report["shortfall_reason"], f"identity_resolved={SHIPPED_CENSUS_COUNT}")
         self.assertEqual(report["initial_reapply_ms"], INITIAL_REAPPLY_MS)
 
     def test_the_wire_count_is_read_back_out_of_the_bytes(self) -> None:
-        """Not copied from the request - decoded from the header the client reads."""
-        for count in (1, 3, 20, CENSUS_COUNT):
+        """Not copied from the request - decoded from the header the client reads.
+
+        AMENDMENT 2026-08-28 (RE-128): asking for ``CENSUS_COUNT`` (115) now
+        puts 108 in the header, because 108 bodies follow.  That is the whole
+        point of the count being read back out of the bytes: telling the client
+        115 while sending 108 bodies is the stream-tail misalignment this
+        client answers with ErrorData=28317.
+        """
+        for count in (1, 3, 20, SHIPPED_CENSUS_COUNT):
             generation = build_world_population(
                 self.legacy, self.spawn, count, scene_id=1)
             self.assertEqual(
                 world_population.wire_actor_count(generation), count)
+        asked_for_everything = build_world_population(
+            self.legacy, self.spawn, CENSUS_COUNT, scene_id=1)
+        self.assertEqual(
+            world_population.wire_actor_count(asked_for_everything),
+            SHIPPED_CENSUS_COUNT,
+        )
         # and it refuses bytes that are not that header rather than guessing
         broken = build_world_population(self.legacy, self.spawn, 3, scene_id=1)
         with self.assertRaises(ValueError):
@@ -565,8 +863,11 @@ class CensusDispatchCountTests(unittest.TestCase):
         last = honest.entry_bytes[-1]
         maimed = dataclasses.replace(honest, pc=honest.pc[:-last])
         report = dispatch_report(maimed)
-        self.assertEqual(report["assembled_count"], CENSUS_COUNT)
-        self.assertEqual(report["wire_actor_count"], CENSUS_COUNT)
+        # 115 until RE-128; the default build now assembles 108 (seven
+        # placements have no shippable identity).  The defect this test
+        # reproduces is unchanged: header says N, N-1 bodies follow.
+        self.assertEqual(report["assembled_count"], SHIPPED_CENSUS_COUNT)
+        self.assertEqual(report["wire_actor_count"], SHIPPED_CENSUS_COUNT)
         self.assertFalse(report["bodies_intact"])
         self.assertEqual(
             report["body_bytes"], report["entry_bytes_total"] - last)
@@ -650,15 +951,34 @@ class CensusDispatchCountTests(unittest.TestCase):
         line = census_console_line(generation)
         line.encode("ascii")
         self.assertNotIn("\n", line)
-        self.assertIn("assembled=115/115", line)
-        self.assertIn("wire=115", line)
-        self.assertIn("shortfall=none", line)
-        self.assertIn("source=full_census", line)
+        # Was "assembled=115/115 wire=115 shortfall=none source=full_census".
+        # SUPERSEDED 2026-08-28 (RE-128): the boot line now says what really
+        # went out and why fewer than the target did, in one line a grep can
+        # read - 108 of the 115-row source, dropped by the identity filter.
+        self.assertIn(f"assembled={SHIPPED_CENSUS_COUNT}/{CENSUS_COUNT}", line)
+        self.assertIn(f"wire={SHIPPED_CENSUS_COUNT}", line)
+        self.assertIn(f"shortfall=identity_resolved={SHIPPED_CENSUS_COUNT}", line)
+        self.assertIn("source=identity_resolved", line)
         self.assertIn(f"reapply_ms={INITIAL_REAPPLY_MS}", line)
+        # The identity token names the crosswalk and both halves of the count,
+        # so one grep for "identity=CLINE" finds every boot.
+        self.assertIn(
+            f"identity=CLINE:{SHIPPED_CENSUS_COUNT} composed,"
+            f"{CENSUS_COUNT - SHIPPED_CENSUS_COUNT} unresolvable",
+            line,
+        )
         short = census_console_line(
             build_world_population(self.legacy, self.spawn, 3, scene_id=1))
         self.assertIn("assembled=3/115", short)
         self.assertIn("shortfall=caller_requested=3", short)
+        # A rung SMALLER than the whole census is short because someone asked
+        # for three, so the token names the source without claiming 112 are
+        # unresolvable.
+        self.assertTrue(
+            short.endswith("identity=CLINE:3 composed"),
+            f"census line does not end with the identity token: {short!r}",
+        )
+        self.assertNotIn("unresolvable", short)
 
     def test_the_report_refuses_anything_that_is_not_a_generation(self) -> None:
         for bad in (None, 115, {"actor_count": 115}, [1, 2, 3]):

@@ -363,34 +363,43 @@ class PopulationAdapterTests(unittest.TestCase):
             )
 
     def test_no_scenario_baseline_actions_remain_golden(self):
-        """WORLD-CENSUS-001 changed the LABEL of the no-scenario boot, and the
-        golden proves the ONLY other thing that changed is the two name tags
-        GT-078's fix added.
+        """WORLD-CENSUS-001 changed the LABEL of the no-scenario boot; what
+        else changed has now been re-stated twice.
 
         Before BUILD-001 was wired this boot emitted the frozen
         ``V134_P0_P30_P91_ISOLATED_*`` pair, and the golden below is still
         those exact bytes - captured from ``make_v112_monster_shop_
         population_state()``, which this project does not edit and which is
-        still nameless for P0/P91 today.  This boot now emits the census
-        instead, whose rung 3 is pinned to the same three placements in the
-        same frozen order, so set/order equality still holds.  Byte equality
-        does NOT any more:
+        still nameless for P0/P91 today.
 
-        AMENDMENT 2026-08-26 (post-GT-078 OWNER-REJECTED name fix, this
-        lane).  ``_entry()`` in world_population.py stopped discarding
-        ``SceneActorPlacement.source_name`` for every non-P30 member, so
-        rung 3 now carries P0's and P91's own frozen names while the golden
-        (the frozen fallback) still does not.  The golden bytes stay exactly
-        as captured - they are still correct for what they represent - and
-        the invariant this test proves is narrower: the wire is the golden
-        bytes plus exactly those two name tags, nothing else moved.  See
-        tests/test_world_population.py's
-        ``test_rung_three_differs_from_the_shipped_default_by_exactly_the_
-        two_added_names`` for the same invariant proven directly against the
-        two encoders.
+        ~~AMENDMENT 2026-08-26 (post-GT-078 OWNER-REJECTED name fix): rung 3
+        is the same three placements in the same frozen order, so set/order
+        equality still holds, and the wire is the golden bytes plus exactly
+        the two name tags ``_entry()`` now adds for P0 and P91, nothing
+        else.~~
+
+        SUPERSEDED 2026-08-28 (RE-128 / CLINE identities).  Both halves of
+        that are gone.  ``_entry()`` now sends the RESOLVED ``MOBS.n_ID``,
+        that MOBS row's own avatar template and its ``MOBS_TIP`` name, where
+        the golden sends the scene file's Mob-Set number and preset - the
+        substitution GT-078 put on the owner's screen and had rejected - so
+        the delta is no longer a couple of appended name tags.  And the
+        MEMBERSHIP moved: P0's Mob-Set 1 resolves to CLINE leader 155, which
+        has no MOBS row, so P0 has no shippable identity, is dropped, and the
+        third slot goes to the nearest resolvable placement.
+
+        The golden bytes stay exactly as captured - they are still correct for
+        what they represent, and they are still what a REFUSING session falls
+        back to, which is why the labels/delays below are still compared.  The
+        invariant that survives is stated plainly instead of as a byte delta:
+        the queued frame is not the golden frame, every member on the wire
+        carries its resolved id and MOBS_TIP name, and no member carries its
+        Mob-Set number as an identity.  See tests/test_world_population.py's
+        ``test_rung_three_ships_resolved_identities_the_frozen_default_never_
+        had`` for the same invariant proven directly against the two encoders.
         """
+        from pirateforce_foundation import world_port_royal_identity as identity
         from pirateforce_foundation.population import load_port_royal_placements
-        from pirateforce_foundation.world_population import SHIPPED_MONSTER_INDEX
 
         state, _ = self.state(
             scenario=False, token="baseline", world_census_actor_count=3,
@@ -417,19 +426,13 @@ class PopulationAdapterTests(unittest.TestCase):
             placement.placement_index: placement
             for placement in load_port_royal_placements(self.legacy)
         }
-        added_bytes = sum(
-            len(self.legacy.wstr_tag(placements[index].source_name))
-            for index in (0, 30, 91)
-            if index != SHIPPED_MONSTER_INDEX
-        )
         # AMENDMENT 2026-08-26 (round 1cwih0, runtime.py swapped
         # corpse_override -> full_roster_override).  This no-scenario boot
-        # now goes through the census path that applies the mob_death
-        # roster override, so its rung-3 bytes carry P30's own
-        # FACTION_SPLICE_BYTES insert on top of the GT-078 name tags the
-        # golden itself never carried.  Measured, not assumed, the same way
-        # ``added_bytes`` above is measured: the delta between an
-        # overridden and a plain rung-3 build.
+        # goes through the census path that applies the mob_death roster
+        # override, so P30's whole body on the wire is field_mobs'
+        # hostile body rather than this lane's census entry - which is why
+        # P30 is excluded from the per-member identity check below and
+        # checked as a spliced body instead.
         plain_rung3 = world_population.build_world_population(
             self.legacy, state.population_refresh_anchor, scene_id=1,
             actor_count=3,
@@ -444,16 +447,48 @@ class PopulationAdapterTests(unittest.TestCase):
             )
             if roster_override else plain_rung3
         )
-        roster_splice_bytes = len(overridden_rung3.pc) - len(plain_rung3.pc)
+        # The membership the census actually built, and the two facts that
+        # replace the old byte-delta: P0 is gone for a recorded reason, and
+        # the queued bytes are the census module's own.
+        self.assertEqual(plain_rung3.indices[:2], (30, 91))
+        self.assertNotIn(0, plain_rung3.indices)
+        self.assertIsNotNone(
+            identity.unresolved_reason(placements[0].template_id))
+        for action in actions:
+            self.assertEqual(bytes(action[1]), overridden_rung3.pc)
+            self.assertEqual(bytes(action[2]), overridden_rung3.frame)
         for action, golden_action in zip(actions, golden["actions"]):
-            self.assertEqual(
-                len(action[1]) - golden_action["pc_length"],
-                added_bytes + roster_splice_bytes,
+            self.assertNotEqual(len(action[1]), golden_action["pc_length"])
+        # Every member on the wire carries its resolved MOBS id, and none
+        # carries its Mob-Set number: make_npc_attr writes the identity as
+        # u8tag(0x0B, npc_mask) + u16tag(0x12, id) (v141:1196-1197).
+        npc_mask = self.legacy.u8tag(0x0B, 0x01 | 0x04)
+        for index in plain_rung3.indices:
+            resolved = identity.resolve(placements[index].template_id)
+            self.assertIsNotNone(resolved)
+            if index == 30:
+                # Replaced wholesale by the roster splice; its identity is
+                # LANE-B's mined roster row, not this crosswalk.
+                self.assertIn(
+                    field_mobs.hostile_actor_entry(
+                        self.legacy,
+                        [mob for mob in field_mobs.load_roster()
+                         if mob.placement_index == 30][0],
+                    ),
+                    bytes(actions[0][1]),
+                )
+                continue
+            self.assertIn(
+                npc_mask + self.legacy.u16tag(0x12, resolved.mobs_n_id),
+                bytes(actions[0][1]),
             )
-            self.assertEqual(
-                len(action[2]) - golden_action["frame_length"],
-                added_bytes + roster_splice_bytes,
+            self.assertNotIn(
+                npc_mask
+                + self.legacy.u16tag(0x12, placements[index].template_id),
+                bytes(actions[0][1]),
             )
+            self.assertIn(
+                self.legacy.wstr_tag(resolved.name), bytes(actions[0][1]))
         # And both actions of the pair (initial + reapply) are the identical
         # generation replayed, exactly as the golden's own identical pair is.
         self.assertEqual(actions[0][1], actions[1][1])
@@ -469,13 +504,20 @@ class PopulationAdapterTests(unittest.TestCase):
         """
         state, _ = self.state(scenario=False, token="census")
         actions = state.dispatch(self.legacy.parse_outer(self.target_pc()))
+        # Was 115 in all four places.  SUPERSEDED 2026-08-28 (RE-128): the
+        # default boot still asks for the WHOLE census and still sends
+        # everything it can build - 108 actors - because seven of the 115
+        # frozen placements have a Mob-Set number that resolves to no MOBS
+        # row and therefore have no identity that can be shipped.  The
+        # shortfall is recorded as count_source=identity_resolved and printed
+        # with its reason; it is not a smaller default.
         self.assertEqual(
             [action[0] for action in actions],
-            ["WORLD_CENSUS_INITIAL_115", "WORLD_CENSUS_REAPPLY_115"],
+            ["WORLD_CENSUS_INITIAL_108", "WORLD_CENSUS_REAPPLY_108"],
         )
         self.assertEqual([action[3] for action in actions], [0.0, 3.0])
-        self.assertEqual(state.world_census_actor_count, 115)
-        self.assertEqual(len(state.population_indices), 115)
+        self.assertEqual(state.world_census_actor_count, 108)
+        self.assertEqual(len(state.population_indices), 108)
         self.assertIs(state.npc_spawn_sent, True)
 
     def test_the_population_scenario_boot_keeps_its_own_population(self):

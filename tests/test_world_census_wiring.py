@@ -13,9 +13,15 @@ no client -- and proves the part that was missing:
   * the count is IN THE LABEL, because v141 prints one console line per queued
     action at send time and four staircase boots have to be distinguishable
     from that line alone;
-  * at rung 3 the wire is byte-identical to the frozen
+  * ~~at rung 3 the wire is byte-identical to the frozen
     ``make_v112_monster_shop_population_state()`` collection, so the control
-    rung is a control on the dispatch path and not only in the builder;
+    rung is a control on the dispatch path and not only in the builder~~
+    SUPERSEDED 2026-08-28 (RE-128): rung 3 carries the RESOLVED ``MOBS.n_ID``
+    of each member and has dropped P0 (whose Mob-Set number resolves to a
+    CLINE leader with no MOBS row), so it is neither byte-identical to the
+    frozen collection nor the same three placements.  What the dispatch path
+    is checked for now is that it queues the census module's own bytes and
+    that every member on the wire carries its resolved identity;
   * CONTAINMENT: a boot that opted into any lane keeps the frozen three-actor
     population it was measured against.  This is the whole reason the wiring
     is keyed on "no lane is active" rather than on nothing at all;
@@ -24,9 +30,11 @@ no client -- and proves the part that was missing:
   * the anchor is THIS frame's TargetPos, not the previous one.
 
 NOT proven here, and not provable without a person at a screen: whether the
-client accepts a 115-actor RuntimeRes collection at all, and whether any of
-those actors becomes a model on screen.  The highest count with a recorded
-result anywhere in this project is 20.  That is GT-078, attended, not run.
+client accepts a 108-actor RuntimeRes collection at all (115 before RE-128
+dropped the seven placements with no shippable identity), and whether any of
+those actors becomes a model on screen, or shows the name this lane now sends.
+The highest count with a recorded result anywhere in this project is 20.  That
+is GT-078, attended, not run.
 """
 from __future__ import annotations
 
@@ -161,17 +169,52 @@ GROUND_LOOT_SCENARIO = (
 #        frame=D897F247C9FA4808D988BA4B453195FBB56981AE3F4053FED4C5B00019CF2424
 #   115: pc=3BE1911DD640E55BED181E92CEE8E465973ACC6049DDC69A08DBC970A1DA74E7
 #        frame=60E179E88BFE4777DC5DF96B3D3AE1850433B7C1ACEBFD172E133896B5A7F1A3
+# AMENDMENT 2026-08-28 (RE-128 / CLINE identities, this round).  Every digest
+# below moved a FIFTH time, and this one is not a byte-size change: ``_entry()``
+# in world_population.py now sends the RESOLVED ``MOBS.n_ID``, that MOBS row's
+# own ``s_OUTFIT`` and its ``MOBS_TIP`` name instead of the scene file's Mob-Set
+# number, its preset and its Mob-Set-numbered label -- which is the substitution
+# GT-078 put on the owner's screen and had rejected.  MEMBERSHIP moved too: the
+# seven placements whose Mob-Set number resolves to no MOBS row are dropped, so
+# the top rung is 108 actors and rung 3 is (30, 91, 1) rather than (0, 30, 91).
+# Re-derived here from the real dispatcher at PIN_ANCHOR, not hand-typed, same
+# as every prior amendment.  The pre-this-round digests this replaces are kept
+# as comment history rather than deleted, because they are still correct for
+# what they described (a census that shipped Mob-Set numbers as identities):
+#
+#   3:   pc=C14D889362DEAE4093FBF81CFF097B6B50224A0670DD731E76F59DC44D572F3A
+#        frame=A4A3EEA4B648B1AC853CF82B70589D3434D9A43DD90BBF46CF7F24CFB663B706
+#   20:  pc=17FA4A6AADB21A2D5C4D52354676E313C7F25D5FEBFA8BFF41492F00D4BCE8F5
+#        frame=CE0046A5CB4E42F67BF00DB5CED290CA90BBC7FDA1A8D083CA4573A9662EC300
+#   60:  pc=4187E13AC7F6A0D77C8829689737F871D99F8B07DEECCCC0BF2BCBF27270FDE2
+#        frame=39A9A2A6CE88201619DE91CF4AF1986823936D1B8AFFD7C81B4F6DB584FA4C5A
+#   115: pc=2D43E2A626E48D882E5B8C76E342ED9F9D705E4948B8C7954C1B5D7EF9495DAB
+#        frame=6D2E776F57CC2A0B1F4ABE371B95C23B18991DAD84131FB9B5BEACAB400F3A0A
+#
+# The key is still the rung that was ASKED for.  115 is a request; 108 is what
+# assembled and what the label, the header and the console line all say.
 CENSUS_WIRE_SHA256 = {
-    3: ("C14D889362DEAE4093FBF81CFF097B6B50224A0670DD731E76F59DC44D572F3A",
-        "A4A3EEA4B648B1AC853CF82B70589D3434D9A43DD90BBF46CF7F24CFB663B706"),
-    20: ("17FA4A6AADB21A2D5C4D52354676E313C7F25D5FEBFA8BFF41492F00D4BCE8F5",
-         "CE0046A5CB4E42F67BF00DB5CED290CA90BBC7FDA1A8D083CA4573A9662EC300"),
-    60: ("4187E13AC7F6A0D77C8829689737F871D99F8B07DEECCCC0BF2BCBF27270FDE2",
-         "39A9A2A6CE88201619DE91CF4AF1986823936D1B8AFFD7C81B4F6DB584FA4C5A"),
-    115: ("2D43E2A626E48D882E5B8C76E342ED9F9D705E4948B8C7954C1B5D7EF9495DAB",
-          "6D2E776F57CC2A0B1F4ABE371B95C23B18991DAD84131FB9B5BEACAB400F3A0A"),
+    3: ("393D3E9E4A2F4AB939E90F09EA0E5C6DC6B0E871D5D4D7DAB01946EABAF4B1DD",
+        "11AB0C5C95C8A3F7EC3E85CC004508C0C34727E26AA0AA5B742FEBBBF8052AB9"),
+    20: ("70D7D8914CD8BA2D7C909853ECED3C3320C7920EF9E12229B3A746F9486E1AAA",
+         "DDABF41B17648CA9B8E3F4EB13039DF352A627124601DFA1398E42A9A336721B"),
+    60: ("9CEF203F8DED6FE73EAA9DF8D044330FB98046776A2840728EFCE5EA046007C7",
+         "42DA2662CBF20BE6A774CD578C61DBDD77F779DCAB795F3DA8E2A26AA364F165"),
+    115: ("1E52C78765C59DC313313505BD690B1B7F0D2040FC4111D45AC66F7CF300C53E",
+          "FC1F9B1FA4C1853ED42F9BE22F50483B2C11E2FA516B9D7981FD9C68FBF2D4D7"),
 }
 PIN_ANCHOR = (10.0, 20.0, 30.0)
+
+# AMENDMENT 2026-08-28 (LANE-A, RE-128 / CLINE identities).  115 is still the
+# frozen placement table's size and still the target every console line reports
+# against; 108 is what ASSEMBLES, because seven of those placements have a
+# Mob-Set number whose CLINE leader has no CONSTDATA MOBS row (or is 0, or has
+# no avatar template) and therefore no identity that can be shipped without
+# going back to the numbering GT-078 disproved.  Every "115" in this file that
+# meant "the census as built" became this constant; the ones that mean "the
+# size of the source table" stayed 115.  See
+# world_population.unshippable_placements() for the seven, with reasons.
+SHIPPED_CENSUS_COUNT = 108
 
 INITIAL_PREFIX = "WORLD_CENSUS_INITIAL_"
 REAPPLY_PREFIX = "WORLD_CENSUS_REAPPLY_"
@@ -305,12 +348,17 @@ class WorldCensusWiringTests(unittest.TestCase):
     # ----- the default boot is the census -----------------------------------
 
     def test_the_default_boot_queues_the_whole_census_twice(self):
+        """The label said 115 until RE-128; it says 108 now, and that IS the
+        whole census - the count in the label is what ASSEMBLED, and seven of
+        the 115 frozen placements have no shippable identity.
+        """
         state = self._state("census_default")
         actions = self._step(state)
         census = self._census(actions)
         self.assertEqual(
             [action[0] for action in census],
-            [f"{INITIAL_PREFIX}115", f"{REAPPLY_PREFIX}115"],
+            [f"{INITIAL_PREFIX}{SHIPPED_CENSUS_COUNT}",
+             f"{REAPPLY_PREFIX}{SHIPPED_CENSUS_COUNT}"],
         )
         self.assertEqual([action[3] for action in census], [0.0, 3.0])
         # The same collection twice, exactly as the frozen branch does it: the
@@ -331,8 +379,9 @@ class WorldCensusWiringTests(unittest.TestCase):
         self.assertEqual(
             census[1][3], world_population.INITIAL_REAPPLY_MS / 1000.0,
         )
-        self.assertEqual(state.world_census_actor_count, 115)
-        self.assertEqual(len(state.world_census_indices), 115)
+        self.assertEqual(state.world_census_actor_count, SHIPPED_CENSUS_COUNT)
+        self.assertEqual(
+            len(state.world_census_indices), SHIPPED_CENSUS_COUNT)
         self.assertIs(state.world_census_refused, False)
 
     def test_the_frozen_three_actor_labels_are_gone_from_the_default_boot(self):
@@ -367,66 +416,81 @@ class WorldCensusWiringTests(unittest.TestCase):
         (v141:7762).  The rung has to be readable from that one line, or four
         attended boots of the GT-078 staircase are indistinguishable in the
         console the tester is actually watching.
+
+        AMENDMENT 2026-08-28 (RE-128).  The label carries what ASSEMBLED, not
+        what was requested, and those are now two different numbers at the top
+        rung: a request for the whole 115-row census assembles 108 because
+        seven placements have no shippable identity.  That is the point of the
+        label - a tester reading one console line has to see the count that
+        really went on the wire, not the count somebody asked for.
         """
         for rung in world_population.STAIRCASE_RUNGS:
             with self.subTest(rung=rung):
+                assembled = (
+                    SHIPPED_CENSUS_COUNT
+                    if rung == world_population.CENSUS_COUNT else rung
+                )
                 state = self._state(
                     f"census_rung{rung}", world_census_actor_count=rung,
                 )
                 census = self._census(self._step(state))
                 self.assertEqual(
                     [action[0] for action in census],
-                    [f"{INITIAL_PREFIX}{rung}", f"{REAPPLY_PREFIX}{rung}"],
+                    [f"{INITIAL_PREFIX}{assembled}",
+                     f"{REAPPLY_PREFIX}{assembled}"],
                 )
-                self.assertEqual(state.world_census_actor_count, rung)
-                self.assertEqual(len(state.population_indices), rung)
+                self.assertEqual(state.world_census_actor_count, assembled)
+                self.assertEqual(len(state.population_indices), assembled)
 
-    def test_rung_three_differs_from_the_frozen_collection_by_the_two_added_names(
+    def test_rung_three_carries_resolved_identities_the_frozen_collection_lacks(
         self,
     ) -> None:
-        """The control rung, checked against the frozen encoder itself.
+        """Was ``test_rung_three_differs_from_the_frozen_collection_by_the_two_added_names``.
 
-        ``make_v112_monster_shop_population_state`` is what the shipped branch
-        sends today, still nameless for P0/P91 -- this project does not edit
-        it.  Before GT-078's name fix, rung 3 matched it byte for byte; now it
-        differs by exactly the two name tags ``_entry()`` (world_population.py)
-        adds for P0 and P91, and membership/order stay the control they always
-        were.  See tests/test_world_population.py's
-        ``test_rung_three_differs_from_the_shipped_default_by_exactly_the_two_
-        added_names`` for the same invariant proven directly against the two
-        encoders, without the dispatcher in between.
+        The control rung, checked against the frozen encoder itself.
+        ``make_v112_monster_shop_population_state`` is what a REFUSING session
+        still falls back to, and this project does not edit it.
 
-        AMENDMENT 2026-08-26 (round 1cwih0, runtime.py swapped
-        corpse_override -> full_roster_override).  The delta from the frozen
-        collection grew again: P30 (placement 30, actor identity 0x201F) is
-        also the one ``field_mobs.load_roster()`` member inside this rung's
-        fixed {0, 30, 91} membership, so full_roster_override's own
-        ``FACTION_SPLICE_BYTES`` insert lands on this rung too.
-        ``roster_splice_bytes`` below is measured, not assumed to be 5*1 --
-        it is the actual delta between an overridden and a plain rung-3
-        build, so it stays correct even if roster membership at these three
-        placements ever changes.
+        SUPERSEDED HISTORY.  ~~Before GT-078's name fix, rung 3 matched it byte
+        for byte.~~  ~~Then it differed by exactly the two name tags
+        ``_entry()`` added for P0 and P91, plus the measured
+        ``roster_splice_bytes`` full_roster_override inserts for P30, and the
+        pinned sizes were 577/590.~~
+
+        SUPERSEDED 2026-08-28 (RE-128 / CLINE identities).  Byte-delta
+        equality is gone for good.  The frozen collection sends each
+        placement's MOB-SET NUMBER and the scene file's preset as its identity
+        -- the pair GT-078 put on the owner's screen and had rejected -- and
+        rung 3 now sends the resolved ``MOBS.n_ID``, that row's ``s_OUTFIT``
+        and its ``MOBS_TIP`` name.  Membership moved too: P0's Mob-Set 1
+        resolves to CLINE leader 155, which has no MOBS row, so P0 is dropped
+        and the third slot is the nearest resolvable placement at this anchor.
+
+        What is asserted instead is the new invariant, plainly: the dispatcher
+        queues exactly the census module's own rung-3 bytes (with the roster
+        splice the dispatch applies), every member carries its resolved id and
+        MOBS_TIP name, and none of those names appear in the frozen bytes.
+        See tests/test_world_population.py's
+        ``test_rung_three_ships_resolved_identities_the_frozen_default_never_had``
+        for the same invariant proven without the dispatcher in between.
         """
+        from pirateforce_foundation import world_port_royal_identity as identity
         from pirateforce_foundation.population import load_port_royal_placements
-        from pirateforce_foundation.world_population import SHIPPED_MONSTER_INDEX
 
         state = self._state("census_control", world_census_actor_count=3)
         census = self._census(self._step(state))
         frozen_pc, frozen_frame, frozen_rows = (
             self.legacy.make_v112_monster_shop_population_state()
         )
+        # The frozen collection is untouched by this lane, at its pinned size.
         self.assertEqual(len(frozen_pc), 504)
         self.assertEqual(len(frozen_frame), 517)
+        self.assertEqual(tuple(row[0] for row in frozen_rows), (0, 30, 91))
 
         placements = {
             placement.placement_index: placement
             for placement in load_port_royal_placements(self.legacy)
         }
-        added_bytes = sum(
-            len(self.legacy.wstr_tag(placements[index].source_name))
-            for index in (0, 30, 91)
-            if index != SHIPPED_MONSTER_INDEX
-        )
         plain_rung3 = world_population.build_world_population(
             self.legacy, (10.0, 20.0, 30.0), scene_id=1, actor_count=3,
         )
@@ -438,26 +502,50 @@ class WorldCensusWiringTests(unittest.TestCase):
             len(overridden_rung3.frame) - len(plain_rung3.frame),
             roster_splice_bytes,
         )
-        self.assertEqual(
-            len(census[0][1]) - len(frozen_pc),
-            added_bytes + roster_splice_bytes,
-        )
-        self.assertEqual(
-            len(census[0][2]) - len(frozen_frame),
-            added_bytes + roster_splice_bytes,
-        )
-        # AMENDMENT 2026-08-28 (COO-DECISION 2026-08-28T01:46+07:00): +5 bytes
-        # again -- field_mobs.hostile_npc_attr now also sends the mined MOBS
-        # speed field (bit 0x0040) for the one field_mobs roster member
-        # (P30) inside this rung, alongside its existing faction splice.
-        # AMENDMENT 2026-08-28 (RE-117, this round): +3 bytes more, same
-        # reason -- hostile_npc_attr now also sends the mined MOBS level
-        # field (bit 0x0002) for that same P30 member.
-        self.assertEqual(len(census[0][1]), 577)
-        self.assertEqual(len(census[0][2]), 590)
-        self.assertEqual(
-            state.population_indices, tuple(row[0] for row in frozen_rows),
-        )
+
+        # P0 is gone from the control rung, for a recorded reason, and the two
+        # pinned members that survive still lead it.
+        self.assertEqual(plain_rung3.indices[:2], (30, 91))
+        self.assertIsNotNone(
+            identity.unresolved_reason(placements[0].template_id))
+        self.assertNotIn(0, plain_rung3.indices)
+        self.assertEqual(state.population_indices, plain_rung3.indices)
+
+        queued_pc = census[0][1]
+        for index in plain_rung3.indices:
+            resolved = identity.resolve(placements[index].template_id)
+            self.assertIsNotNone(resolved)
+            if index == 30:
+                # P30's census body does not survive to the wire on this path
+                # at all: full_roster_override replaces it wholesale with
+                # ``field_mobs.hostile_actor_entry``, whose identity comes from
+                # LANE-B's mined roster row rather than from this crosswalk.
+                # Recorded here so the exception is visible rather than
+                # silently making the loop below weaker; the byte-for-byte
+                # check of that substitution is
+                # ``test_every_field_mob_body_in_the_queued_frame_is_the_
+                # hostile_body`` below.
+                self.assertIn(
+                    field_mobs.hostile_actor_entry(
+                        self.legacy,
+                        [mob for mob in field_mobs.load_roster()
+                         if mob.placement_index == 30][0],
+                    ),
+                    queued_pc,
+                )
+                continue
+            self.assertIn(
+                self.legacy.u8tag(0x0B, 0x01 | 0x04)
+                + self.legacy.u16tag(0x12, resolved.mobs_n_id),
+                queued_pc,
+            )
+            self.assertIn(self.legacy.wstr_tag(resolved.name), queued_pc)
+            self.assertNotIn(
+                self.legacy.wstr_tag(resolved.name), frozen_pc)
+        # Pinned sizes, re-derived: 577/590 while rung 3 was (P0, P30, P91)
+        # carrying the frozen table's own names.
+        self.assertEqual(len(census[0][1]), 567)
+        self.assertEqual(len(census[0][2]), 580)
 
     def test_the_census_is_one_shot_per_session(self):
         """The pc/frame byte counts below are RE-DERIVED, not hand-typed.
@@ -505,12 +593,12 @@ class WorldCensusWiringTests(unittest.TestCase):
             [event for event in state.events
              if event.startswith("world_census_committed_")],
             [
-                "world_census_committed_actors_115_pc_"
+                f"world_census_committed_actors_{SHIPPED_CENSUS_COUNT}_pc_"
                 f"{generation.pc_bytes}_frame_{generation.frame_bytes}"
             ],
         )
         self.assertEqual((generation.pc_bytes, generation.frame_bytes),
-                          (21111, 21125))
+                          (20402, 20416))
 
     def test_world_density_line_is_printed_alongside_the_census_line(self):
         """world_density is LANE-A's tenth production lane (production_allowed
@@ -655,7 +743,7 @@ class WorldCensusWiringTests(unittest.TestCase):
         finally:
             world_density.m1_console_line = original
         self.assertEqual(len(self._census(actions)), 2)
-        self.assertEqual(state.world_census_actor_count, 115)
+        self.assertEqual(state.world_census_actor_count, SHIPPED_CENSUS_COUNT)
         self.assertIs(state.world_census_sent, True)
         self.assertTrue(
             any(
@@ -682,7 +770,7 @@ class WorldCensusWiringTests(unittest.TestCase):
         """
         state = self._state("census_v138")
         self._step(state)
-        self.assertEqual(len(state.population_indices), 115)
+        self.assertEqual(len(state.population_indices), SHIPPED_CENSUS_COUNT)
         state.v137_marker1_transport_sent = True
         state.dispatch(self.legacy.parse_outer(
             self.legacy.V138_MARKER1_READY_PC
@@ -768,10 +856,10 @@ class WorldCensusWiringTests(unittest.TestCase):
         actions = self._step(state)
         labels = [action[0] for action in actions]
         self.assertIn("RUNTIME_RES_ACK_FIRST_REQ", labels)
-        self.assertIn(f"{INITIAL_PREFIX}115", labels)
+        self.assertIn(f"{INITIAL_PREFIX}{SHIPPED_CENSUS_COUNT}", labels)
         for frozen in FROZEN_LABELS:
             self.assertNotIn(frozen, labels)
-        self.assertEqual(state.world_census_actor_count, 115)
+        self.assertEqual(state.world_census_actor_count, SHIPPED_CENSUS_COUNT)
 
     def test_a_target_pos_the_inherited_dispatcher_ignores_composes_nothing(self):
         """The invariant v141:4416 relies on, restated as a test.
@@ -836,7 +924,7 @@ class WorldCensusWiringTests(unittest.TestCase):
             event_exporter=lambda event: None,
         )
         labels = [action[0] for action in self._step(state)]
-        self.assertIn(f"{INITIAL_PREFIX}115", labels)
+        self.assertIn(f"{INITIAL_PREFIX}{SHIPPED_CENSUS_COUNT}", labels)
 
     # ----- the refusal is byte-identical to what shipped --------------------
 
@@ -977,15 +1065,18 @@ class WorldCensusWiringTests(unittest.TestCase):
         self.assertEqual(
             overridden.actor_identities, plain.actor_identities,
         )
-        self.assertEqual(overridden.actor_count, 115)
-        self.assertEqual(world_population.wire_actor_count(overridden), 115)
+        self.assertEqual(overridden.actor_count, SHIPPED_CENSUS_COUNT)
+        self.assertEqual(
+            world_population.wire_actor_count(overridden), SHIPPED_CENSUS_COUNT)
         # ...and that is what the dispatcher actually queued, both times.
         for action in census:
-            self.assertEqual(action[0].endswith("_115"), True)
+            self.assertEqual(
+                action[0].endswith(f"_{SHIPPED_CENSUS_COUNT}"), True)
             self.assertEqual(action[1], overridden.pc)
             self.assertEqual(action[2], overridden.frame)
-        self.assertEqual(state.world_census_actor_count, 115)
-        self.assertEqual(len(state.world_census_indices), 115)
+        self.assertEqual(state.world_census_actor_count, SHIPPED_CENSUS_COUNT)
+        self.assertEqual(
+            len(state.world_census_indices), SHIPPED_CENSUS_COUNT)
 
     def test_the_arrival_frame_queues_no_second_actor_collection(self):
         """The world-wipe guard, and it does not depend on counting encoder
@@ -1018,7 +1109,8 @@ class WorldCensusWiringTests(unittest.TestCase):
         ]
         self.assertEqual(
             [action[0] for action in collections],
-            [f"{INITIAL_PREFIX}115", f"{REAPPLY_PREFIX}115"],
+            [f"{INITIAL_PREFIX}{SHIPPED_CENSUS_COUNT}",
+             f"{REAPPLY_PREFIX}{SHIPPED_CENSUS_COUNT}"],
             "an actor collection other than the census was queued on the "
             "arrival frame: under replace-by-omission that despawns the "
             "actors the other frame carried",
@@ -1034,7 +1126,7 @@ class WorldCensusWiringTests(unittest.TestCase):
                     ],
                     "little",
                 ),
-                115,
+                SHIPPED_CENSUS_COUNT,
             )
 
     def test_every_field_mob_body_in_the_queued_frame_is_the_hostile_body(self):
@@ -1130,7 +1222,7 @@ class WorldCensusWiringTests(unittest.TestCase):
         self.assertEqual(len(calls), 2, f"encoder call shapes: {calls!r}")
         for shape in calls:
             self.assertEqual(
-                len(shape), 115,
+                len(shape), SHIPPED_CENSUS_COUNT,
                 "an actor collection was composed over something other than "
                 "the full census",
             )

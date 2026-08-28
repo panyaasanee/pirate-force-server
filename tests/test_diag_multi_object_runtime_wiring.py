@@ -55,7 +55,14 @@ from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
 
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
-REAL_CENSUS_COUNT = 115  # bg0001's own committed WORLD-CENSUS-001 roster
+# Was 115, the size of bg0001's frozen placement table.  SUPERSEDED
+# 2026-08-28 (LANE-A, RE-128 / CLINE identities): the census a flagless boot
+# ASSEMBLES is 108 - seven of those 115 placements have a Mob-Set number whose
+# CLINE leader has no CONSTDATA MOBS row, so they have no shippable identity
+# and world_population drops them with a recorded reason.  This constant is the
+# census bookkeeping the diagnostic path must not touch, so it tracks what was
+# built, not what the table holds.
+REAL_CENSUS_COUNT = 108  # bg0001's own committed WORLD-CENSUS-001 roster
 DIAG_COUNT = len(diag.diagnostic_objects())
 
 
@@ -205,8 +212,8 @@ class DiagMultiObjectRuntimeWiringTests(unittest.TestCase):
             self.assertIn("object=%s" % label, line)
         self.assertEqual(len(state.diag_multi_objects), DIAG_COUNT)
         # The CENSUS bookkeeping (world_census_actor_count) stays at the real
-        # 113 -- see census_frames()'s own docstring on why the extra five
-        # must live in the bytes, never in this count.
+        # census count -- see census_frames()'s own docstring on why the extra
+        # five must live in the bytes, never in this count.
         self.assertEqual(state.world_census_actor_count, REAL_CENSUS_COUNT)
         self.assertIn("DIAG_CENSUS assembled=%d" % DIAG_COUNT, console)
 

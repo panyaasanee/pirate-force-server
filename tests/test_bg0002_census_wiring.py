@@ -328,9 +328,16 @@ class Bg0002CensusWiringTests(unittest.TestCase):
         actions, _out = self._start_game(state, character)
         self.assertEqual(state.foundation.selected.position.scene_id, 1)
         census = self._census(self._step(state))
+        # Was _115.  SUPERSEDED 2026-08-28 (LANE-A, RE-128 / CLINE
+        # identities): the bg0001 census assembles 108 of its 115 frozen
+        # placements, because seven of them have a Mob-Set number whose CLINE
+        # leader has no CONSTDATA MOBS row and therefore no shippable
+        # identity.  The label carries what assembled, so the control moved
+        # with it; what this test proves - scene 1 still takes the bg0001
+        # branch, under bg0001 labels, at its own count - is unchanged.
         self.assertEqual(
             [action[0] for action in census],
-            ["WORLD_CENSUS_INITIAL_115", "WORLD_CENSUS_REAPPLY_115"],
+            ["WORLD_CENSUS_INITIAL_108", "WORLD_CENSUS_REAPPLY_108"],
         )
         independent = world_population.build_world_population(
             self.legacy, PIN_ANCHOR, scene_id=1,

@@ -45,6 +45,14 @@ ANCHOR = (diag.DIAG_CENTER_X, diag.DIAG_CENTER_Y, diag.DIAG_CENTER_Z)
 PERFORMER = 0x750059
 LETHAL = mob_combat.Combatant(level=1000, ability_str=100000, ability_con=0)
 CENSUS_COUNT = world_population.CENSUS_COUNT
+# AMENDMENT 2026-08-28 (LANE-A, RE-128 / CLINE identities).  CENSUS_COUNT (115)
+# is the size of the frozen placement table and is still what every call below
+# ASKS for.  What the census ASSEMBLES is 108: seven of those placements have a
+# Mob-Set number whose CLINE leader has no CONSTDATA MOBS row, so they have no
+# shippable identity and world_population drops them with a reason.  Every
+# assertion about what is on the wire reads this constant now; the requests
+# keep reading CENSUS_COUNT, because that is what the caller asks for.
+SHIPPED_CENSUS_COUNT = 108
 
 
 def _legacy():
@@ -158,10 +166,13 @@ class DiagCensusTests(_Fixture):
             self.legacy, generation, self.objects)
         self.assertIsNone(refusal)
         self.assertEqual(
-            world_population.wire_actor_count(generation), CENSUS_COUNT)
-        self.assertEqual(wiring.wire_actor_count(pc), CENSUS_COUNT + 5)
-        # The census's own 115 entries are byte-identical and still first:
-        # only the header (which now says 120) and the appended tail differ.
+            world_population.wire_actor_count(generation),
+            SHIPPED_CENSUS_COUNT)
+        self.assertEqual(
+            wiring.wire_actor_count(pc), SHIPPED_CENSUS_COUNT + 5)
+        # The census's own 108 entries (115 before RE-128) are byte-identical
+        # and still first: only the header (which now says 113) and the
+        # appended tail differ.
         body = world_population.WIRE_HEADER_BYTES
         original_body_len = sum(generation.entry_bytes)
         self.assertEqual(
@@ -193,7 +204,7 @@ class DiagCensusTests(_Fixture):
             (generation.actor_count, generation.entry_bytes, generation.pc),
             before,
         )
-        self.assertEqual(generation.actor_count, CENSUS_COUNT)
+        self.assertEqual(generation.actor_count, SHIPPED_CENSUS_COUNT)
 
     def test_console_lines_are_one_per_object_in_order(self):
         lines = wiring.console_lines(self.objects)
@@ -213,8 +224,10 @@ class DiagCensusTests(_Fixture):
             self.legacy, generation, self.objects)
         line = wiring.describe_census(generation, self.objects, pc)
         self.assertIn("assembled=5", line)
-        self.assertIn("census=115", line)
-        self.assertIn("wire=120", line)
+        # Was census=115 / wire=120 before RE-128 dropped the seven
+        # placements with no shippable identity.
+        self.assertIn("census=%d" % SHIPPED_CENSUS_COUNT, line)
+        self.assertIn("wire=%d" % (SHIPPED_CENSUS_COUNT + 5), line)
         self.assertNotIn("MISMATCH", line)
         line.encode("cp874")
 
@@ -223,7 +236,9 @@ class DiagCensusTests(_Fixture):
         # Bytes that carry only the census: the number this line would print
         # if the splice had silently not happened.
         line = wiring.describe_census(generation, self.objects, generation.pc)
-        self.assertIn("MISMATCH:expected_120", line)
+        # Was expected_120: 108 census actors plus the five diag objects.
+        self.assertIn(
+            "MISMATCH:expected_%d" % (SHIPPED_CENSUS_COUNT + 5), line)
 
     def test_a_broken_splice_fails_closed_to_the_real_census(self):
         class _Broken:
@@ -502,7 +517,8 @@ class DiagRecomposeTests(_Fixture):
             self.legacy, ANCHOR, CENSUS_COUNT, self.roster, self.register,
             ledger=self.ledger, objects=self.objects,
         )
-        self.assertEqual(wiring.wire_actor_count(pc), CENSUS_COUNT + 5)
+        self.assertEqual(
+            wiring.wire_actor_count(pc), SHIPPED_CENSUS_COUNT + 5)
         self.assertEqual(frame, self.legacy.frame_pc(pc))
 
     def test_a_killed_diag_object_is_recomposed_as_a_corpse_not_healed(self):
@@ -512,7 +528,8 @@ class DiagRecomposeTests(_Fixture):
             self.legacy, ANCHOR, CENSUS_COUNT, self.roster, self.register,
             ledger=self.ledger, objects=self.objects,
         )
-        self.assertEqual(wiring.wire_actor_count(pc), CENSUS_COUNT + 5)
+        self.assertEqual(
+            wiring.wire_actor_count(pc), SHIPPED_CENSUS_COUNT + 5)
         corpse = mob_death.death_actor_entry(
             self.legacy, d0.mob, death_timer=mob_death.DEAD_TIMER_SECONDS)
         alive = diag.alive_entry(self.legacy, d0)
@@ -548,7 +565,8 @@ class DiagRecomposeTests(_Fixture):
         printed.encode("cp874")
         # Four objects, the whole census, and no exception: the other four
         # diagnostic objects and every real actor survive D1b's own experiment.
-        self.assertEqual(wiring.wire_actor_count(pc), CENSUS_COUNT + 4)
+        self.assertEqual(
+            wiring.wire_actor_count(pc), SHIPPED_CENSUS_COUNT + 4)
 
     def test_calling_with_the_real_roster_while_active_refuses_by_name(self):
         with self.assertRaises(wiring.DiagWiringError):
