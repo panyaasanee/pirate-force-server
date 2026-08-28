@@ -9,18 +9,160 @@
   "not_a_scenario": "this file is a pin, not a switch - no flag loads it and no scenario loader accepts it",
   "scene": "bg0001",
   "source_digests": {
+    "cline": "aa4a55b8db882eb965d0b7e186cd7bc7b5a81da8f057fee24586a27c94b2dc40",
     "mobs": "3c0d33d68f832eefda56c845495008338dcef56f4277584b9ca479b7e1b3916b",
     "mobs_tip": "e25ac667c9029e07752fbfd5d13b548d2e62ea439936884f30187c0c553ce38f",
     "placements": "2e5b4115169160d609289d0e638e953d7da16a0000e267c12c118c7c1a4cfc5f",
+    "scene_name": "e38114a802576266ce37b2abcf8ebce3f105d7d5abaf4bc5ca066e7848c5d60b",
     "standard_mob": "4b2db7f9553c877c2ec471105754dd08982d9e80027cc468c1ceaee840d68925"
   },
   "predicate_census": {
-    "ai_combat": 13,
-    "drops_normal": 13,
-    "rank": 13,
-    "rank_and_ai_combat": 13,
-    "unambiguous": 115
+    "ai_combat": 9,
+    "drops_normal": 0,
+    "rank": 0,
+    "rank_and_ai_combat": 0,
+    "town_target": 4,
+    "unambiguous": 140
   },
+  "identity_rule": "cline",
+  "identity_rule_per_placement": {
+    "12": "setnum",
+    "30": "setnum",
+    "33": "setnum",
+    "58": "setnum",
+    "59": "setnum",
+    "60": "setnum",
+    "63": "setnum",
+    "95": "setnum",
+    "103": "cline",
+    "105": "cline",
+    "107": "cline",
+    "109": "cline",
+    "132": "setnum"
+  },
+  "legacy_setnum_pending_migration": [
+    12,
+    30,
+    33,
+    58,
+    59,
+    60,
+    63,
+    95,
+    132
+  ],
+  "withdrawn_under_this_rule": [
+    {
+      "placement_index": 12,
+      "was_template_id": 35,
+      "was_display_name": "Fighting Fish Sergeant",
+      "now_template_id": 359,
+      "now_display_name": "Deserter Navy"
+    },
+    {
+      "placement_index": 30,
+      "was_template_id": 31,
+      "was_display_name": "Tornado Eagle",
+      "now_template_id": 248,
+      "now_display_name": "Da Vinci"
+    },
+    {
+      "placement_index": 33,
+      "was_template_id": 34,
+      "was_display_name": "Fighting Fish soldier",
+      "now_template_id": 358,
+      "now_display_name": "Babu"
+    },
+    {
+      "placement_index": 58,
+      "was_template_id": 60,
+      "was_display_name": "Jungle Big Tiger",
+      "now_template_id": 741,
+      "now_display_name": "Juliet"
+    },
+    {
+      "placement_index": 59,
+      "was_template_id": 61,
+      "was_display_name": "Toxic Vine",
+      "now_template_id": 796,
+      "now_display_name": "Sase"
+    },
+    {
+      "placement_index": 60,
+      "was_template_id": 62,
+      "was_display_name": "Ancient Civilization Alert Weapon",
+      "now_template_id": 797,
+      "now_display_name": "Jonathan"
+    },
+    {
+      "placement_index": 63,
+      "was_template_id": 65,
+      "was_display_name": "Ward Apes",
+      "now_template_id": 800,
+      "now_display_name": "Remad"
+    },
+    {
+      "placement_index": 95,
+      "was_template_id": 94,
+      "was_display_name": "An Gebo Little Firebird",
+      "now_template_id": 910,
+      "now_display_name": "Saben [not carried: n_id_910_avatar_is_a_variant_list]"
+    },
+    {
+      "placement_index": 132,
+      "was_template_id": 103,
+      "was_display_name": "Orc Chief",
+      "now_template_id": 917,
+      "now_display_name": "(no MOBS_TIP name)"
+    }
+  ],
+  "unresolved_placements": [
+    {
+      "placement_index": 0,
+      "set_number": 1,
+      "reason": "n_id_155_has_no_MOBS_row"
+    },
+    {
+      "placement_index": 75,
+      "set_number": 76,
+      "reason": "n_id_819_has_no_MOBS_row"
+    },
+    {
+      "placement_index": 83,
+      "set_number": 101,
+      "reason": "n_id_10002_has_no_avatar_template"
+    },
+    {
+      "placement_index": 86,
+      "set_number": 86,
+      "reason": "cline_leader_is_zero_or_absent"
+    },
+    {
+      "placement_index": 87,
+      "set_number": 87,
+      "reason": "cline_leader_is_zero_or_absent"
+    },
+    {
+      "placement_index": 95,
+      "set_number": 94,
+      "reason": "n_id_910_avatar_is_a_variant_list"
+    },
+    {
+      "placement_index": 145,
+      "set_number": 110,
+      "reason": "n_id_9107_has_no_MOBS_row"
+    },
+    {
+      "placement_index": 147,
+      "set_number": 112,
+      "reason": "n_id_937_has_no_MOBS_row"
+    },
+    {
+      "placement_index": 148,
+      "set_number": 113,
+      "reason": "n_id_942_has_no_MOBS_row"
+    }
+  ],
   "hostility": {
     "basic_attr_mask_bit": 1024,
     "wire_tag": 20,
@@ -44,8 +186,8 @@
       "x": -9239.95703125,
       "y": -2780.045166015625,
       "z": 223.29209899902344,
-      "pc_bytes": 2677,
-      "frame_bytes": 2690,
+      "pc_bytes": 2653,
+      "frame_bytes": 2666,
       "placement_indices": [
         30,
         33,
@@ -67,8 +209,8 @@
       "x": -9239.95703125,
       "y": -2830.045166015625,
       "z": 223.29209899902344,
-      "pc_bytes": 2677,
-      "frame_bytes": 2690,
+      "pc_bytes": 2653,
+      "frame_bytes": 2666,
       "placement_indices": [
         30,
         33,
@@ -210,62 +352,62 @@
     {
       "placement_index": 103,
       "actor_identity": 8296,
-      "template_id": 97,
-      "display_name": "Mutant Green Eagle",
-      "visual_preset": "M011_000_002_SP3",
-      "level": 51,
-      "max_hp": 25564,
+      "template_id": 916,
+      "display_name": "Training Iron Man",
+      "visual_preset": "M016_000_000_N",
+      "level": 100,
+      "max_hp": 198125,
       "x": 14455.2685546875,
       "y": 9356.755859375,
       "z": 2200.45849609375,
-      "drops_normal": 2701003,
-      "drops_equipment": 5400003,
-      "drops_specially": 2802236
+      "drops_normal": 0,
+      "drops_equipment": 0,
+      "drops_specially": 0
     },
     {
       "placement_index": 105,
       "actor_identity": 8298,
-      "template_id": 97,
-      "display_name": "Mutant Green Eagle",
-      "visual_preset": "M011_000_002_SP3",
-      "level": 51,
-      "max_hp": 25564,
+      "template_id": 916,
+      "display_name": "Training Iron Man",
+      "visual_preset": "M016_000_000_N",
+      "level": 100,
+      "max_hp": 198125,
       "x": 13236.265625,
       "y": 9364.3427734375,
       "z": 2200.4599609375,
-      "drops_normal": 2701003,
-      "drops_equipment": 5400003,
-      "drops_specially": 2802236
+      "drops_normal": 0,
+      "drops_equipment": 0,
+      "drops_specially": 0
     },
     {
       "placement_index": 107,
       "actor_identity": 8300,
-      "template_id": 97,
-      "display_name": "Mutant Green Eagle",
-      "visual_preset": "M011_000_002_SP3",
-      "level": 51,
-      "max_hp": 25564,
+      "template_id": 916,
+      "display_name": "Training Iron Man",
+      "visual_preset": "M016_000_000_N",
+      "level": 100,
+      "max_hp": 198125,
       "x": 15649.916015625,
       "y": 9317.12109375,
       "z": 2200.456298828125,
-      "drops_normal": 2701003,
-      "drops_equipment": 5400003,
-      "drops_specially": 2802236
+      "drops_normal": 0,
+      "drops_equipment": 0,
+      "drops_specially": 0
     },
     {
       "placement_index": 109,
       "actor_identity": 8302,
-      "template_id": 97,
-      "display_name": "Mutant Green Eagle",
-      "visual_preset": "M011_000_002_SP3",
-      "level": 51,
-      "max_hp": 25564,
+      "template_id": 916,
+      "display_name": "Training Iron Man",
+      "visual_preset": "M016_000_000_N",
+      "level": 100,
+      "max_hp": 198125,
       "x": 11789.4384765625,
       "y": 9318.8798828125,
       "z": 2200.461181640625,
-      "drops_normal": 2701003,
-      "drops_equipment": 5400003,
-      "drops_specially": 2802236
+      "drops_normal": 0,
+      "drops_equipment": 0,
+      "drops_specially": 0
     },
     {
       "placement_index": 132,
@@ -293,7 +435,8 @@
     "named AND hostile in one body has never been on the wire: the named half is V119/V117, the hostile half is GT-032, the combination is new",
     "no claim about NAME COLOUR - what decides it is RE-067, open, lane C. [STALE as of pf_bridge/CLIENT_RE_QUEUE.md chief R163/R165, 2026-08-25, round dvxb6f] [MEASURED]: RE-067 is CLOSED (PASS/MIXED, actor half BOUNDED NEGATIVE) - still no claim about name colour, but the static-layer search is finished, not open; GT-084/RIDER-084-A carries the client-observable question now",
     "no aggro, no attack, no death, no drop: this lane builds the monster, not the fight",
-    "max_hp is DERIVED from STANDARD_MOB by level; the two frozen controls it re-derives are placement 30 only",
+    "max_hp is DERIVED from STANDARD_MOB by level.  ~~the two frozen controls it re-derives are placement 30 only~~ - round szdkgs: those two v141 constants came out of a run of the same set-number reading they were checking, so they are no longer the control on identity; they are held as a pin on the LEGACY reading nine of these rows still ship, and the derived column is checked against a hand-written level/HP literal for the four crosswalk rows",
+    "nine of the thirteen rows below still carry the set-number reading this round's own finding calls false: they are Port Royal townspeople shipped with monster names and the field-mob faction, listed per row under withdrawn_under_this_rule, and migrating them is this lane's next round, not a claim of this one",
     "nothing imports this module, so on its own it changes nothing the player sees",
     "RE-098 (2026-08-27, DONE / BOUNDED-NEGATIVE) closed off using the raw definition payload's b5/b15/u32@11 as level/rank/spawn-rate shortcuts - none of the three matched on the measured crosswalk. This module never read those bytes; level/rank/max_hp come from MOBS/STANDARD_MOB proper",
     "HEADINGS (the four spawn-facing values below) is OUR synthetic cosmetic round-robin, not recovered per-placement data - RE-116 (2026-08-28, DONE / BOUNDED-NEGATIVE) confirmed the wire mechanism (MovementAttr+0x34, mask bit 0x02, exactly what hostile_actor_entry already sends) but found no crosswalk from either the raw .npc placement bytes or CONSTDATA_TH__MARKER.n_DIRTECTION to an authentic per-mob heading value"

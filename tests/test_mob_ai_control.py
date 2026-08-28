@@ -18,7 +18,8 @@ zero radius alone still admits a player standing exactly on the monster.
 ``test_the_profile_of_every_roster_row_is_buildable`` is what stops the
 promotion from being decorative.  Before this round the profile contract
 refused a zero aggro radius and required the attack range inside it, and BOTH
-rules refuse ten of the thirteen real monsters.  A contract written against an
+rules refuse ten of the thirteen real rows on the offensive flag, and six of
+them on a zero radius (round szdkgs).  A contract written against an
 imagined roster is not a contract.
 
 ``test_two_players_hitting_two_monsters_in_one_tick_do_not_erase_each_other``
@@ -63,6 +64,8 @@ SECOND_PLAYER = 0x750060
 # reading them back out of the module it is testing.
 AI_WANDER_OFFENSIVE_ROW = 11
 AI_WANDER_PASSIVE_ROW = 16
+# Round szdkgs: the practice dummy's wander row, mined for the first time.
+AI_WANDER_DUMMY_ROW = 21
 MINED_AGGRO_RADIUS = 1200
 OFFENSIVE_PLACEMENTS = (58, 63, 132)
 
@@ -104,7 +107,15 @@ class MinedRowTests(unittest.TestCase):
         for mob in self.roster:
             with self.subTest(placement=mob.placement_index):
                 self.assertIn(mob.ai_wander, field_mob_ai_tables.AI_WANDER_ROWS)
-                self.assertIn(mob.ai_combat, field_mob_ai_tables.AI_COMBAT_ROWS)
+                if mob.ai_combat:
+                    self.assertIn(
+                        mob.ai_combat, field_mob_ai_tables.AI_COMBAT_ROWS)
+                else:
+                    # n_AI_COMBAT 0 is the table saying THIS ACTOR HAS NO
+                    # COMBAT AI (round szdkgs's practice dummy), not a
+                    # dangling key: there is no row to find and the join
+                    # returns None rather than inventing one.
+                    self.assertIsNone(mob_ai_control.ai_rows_of(mob)[1])
 
     def test_the_links_table_agrees_with_the_roster(self):
         derived = sorted(
@@ -116,12 +127,22 @@ class MinedRowTests(unittest.TestCase):
 
     def test_the_two_wander_rows_are_the_ones_this_round_read(self):
         rows = field_mob_ai_tables.AI_WANDER_ROWS
+        # ~~two rows~~ three from round szdkgs: the practice dummy points at
+        # AI_WANDER 21, mined here for the first time.
         self.assertEqual(sorted(rows), [AI_WANDER_OFFENSIVE_ROW,
-                                        AI_WANDER_PASSIVE_ROW])
+                                        AI_WANDER_PASSIVE_ROW,
+                                        AI_WANDER_DUMMY_ROW])
         _script, _faction, offensive, aggro = rows[AI_WANDER_OFFENSIVE_ROW]
         self.assertEqual((offensive, aggro), (1, MINED_AGGRO_RADIUS))
         _script, _faction, offensive, aggro = rows[AI_WANDER_PASSIVE_ROW]
         self.assertEqual((offensive, aggro), (0, 0))
+        # !! The dummy's row CONTRADICTS its own MOBS row and that is the
+        # measurement, not a defect of the mining: n_OFFESIVE 1 with
+        # n_AGGRO 3000, on an actor whose n_AI_COMBAT is 0.  profile_of
+        # resolves the contradiction downward (cannot initiate) and says so
+        # at the branch; here we pin what the TABLE says, unresolved.
+        _script, _faction, offensive, aggro = rows[AI_WANDER_DUMMY_ROW]
+        self.assertEqual((offensive, aggro), (1, 3000))
 
     def test_no_wander_row_is_offensive_with_no_radius(self):
         # THE ONE DIRECTION THE TABLE SUPPORTS.  An earlier version of this
@@ -185,7 +206,9 @@ class ProfileJoinTests(unittest.TestCase):
     def test_the_profile_of_every_roster_row_is_buildable(self):
         # Before this round the profile refused a zero aggro radius AND
         # required attack_range <= aggro_radius.  Either rule alone refuses
-        # every passive monster in the roster, which is ten of thirteen.
+        # every passive row in the roster, which is ten of thirteen (four
+        # of those ten are the practice dummies, passive because they have
+        # no combat AI rather than because their wander row says so).
         for mob in self.roster:
             with self.subTest(placement=mob.placement_index):
                 built = profile_of(mob)

@@ -11,8 +11,13 @@ else.  If that test starts passing for a body that is not the frozen body,
 the lane is guessing.
 
 ``test_the_derived_columns_re_derive_two_frozen_constants`` pins the HP
-derivation and the mined name against ``v141``'s own constants, which were
-frozen from a live run rather than from a table join.  ``test_the_roster_is_a_
+derivation and the mined name against ``v141``'s own constants.  ~~which were
+frozen from a live run rather than from a table join~~ -- WITHDRAWN, round
+szdkgs (pf-adversary D11): that live run was a run of a server making the SAME
+set-number read, so the two directions were never independent and this pin
+could not have caught the reading being wrong.  It still holds, and is still
+worth running, as a pin on the LEGACY reading that nine of these rows deliber-
+ately still ship; it is one of the assertions the migration round has to move.  ``test_the_roster_is_a_
 subset_of_the_census`` pins the integration hazard: these monsters ARE census
 members, so anything that sends both collections duplicates identities.
 """
@@ -198,8 +203,30 @@ class FieldMobTests(unittest.TestCase):
         # gap, so this list -- not ``_SCENE_TABLE_MODULES`` -- is the thing to
         # extend when that happens.
         for scene in (field_mob_tables.SCENE, field_mobs.BG0002_SCENE):
+            module = field_mobs._SCENE_TABLE_MODULES[scene]
+            mined = {
+                row[0]: row[11]
+                for row in getattr(
+                    module, "SHIPPED_PLACEMENTS", module.HOSTILE_PLACEMENTS,
+                )
+            }
             for mob in load_roster(scene=scene):
-                self.assertEqual(mob.speed_walk, 100)
+                # ~~self.assertEqual(mob.speed_walk, 100)~~ -- 100 was every
+                # row's speed only while every row was a Prison Exile monster
+                # read through the wrong column.  Round szdkgs's town target
+                # (n_ID 916) carries 150 in the same MOBS column.
+                # pf-adversary D10: comparing the parse against the same list
+                # it parsed asserts that the parser is the identity function,
+                # which is not what this test is for.  So BOTH: the parse is
+                # faithful, AND the value is the LITERAL the MOBS table
+                # carries for that actor -- 150 for the practice dummy, 100
+                # for every row still read as a Prison Exile monster.
+                self.assertEqual(mob.speed_walk, mined[mob.placement_index])
+                self.assertEqual(
+                    mob.speed_walk,
+                    150 if mob.template_id == field_mobs.TOWN_TARGET_N_ID
+                    else 100,
+                )
                 self.assertNotEqual(
                     mob.speed_walk, 400,
                     "this must be the mined MOBS speed, never the owner's "
@@ -270,9 +297,25 @@ class FieldMobTests(unittest.TestCase):
         for mob in load_roster():
             self.assertIn(mob.placement_index, census)
             placement = census[mob.placement_index]
-            # Same row, mined twice by two different pipelines.
-            self.assertEqual(mob.template_id, placement.template_id)
-            self.assertEqual(mob.visual_preset, placement.visual_preset)
+            # Same row, mined twice by two different pipelines.  The census
+            # pipeline still carries the scene file's Mob-SET number in its
+            # ``template_id`` (that is v141's frozen table, and lane A's own
+            # census resolves identity later); this roster carries the
+            # RESOLVED n_ID for the rows it resolved.  So the comparison that
+            # holds for every row is against the number the table itself says
+            # each row came from.
+            rule = field_mob_tables.IDENTITY_RULE_PER_PLACEMENT[
+                mob.placement_index
+            ]
+            set_number = field_mob_tables.SET_NUMBER_FOR_PLACEMENT[
+                mob.placement_index
+            ]
+            self.assertEqual(set_number, placement.template_id)
+            if rule == "cline":
+                self.assertNotEqual(mob.template_id, placement.template_id)
+            else:
+                self.assertEqual(mob.template_id, placement.template_id)
+                self.assertEqual(mob.visual_preset, placement.visual_preset)
             self.assertEqual(mob.x, placement.x)
             self.assertEqual(mob.y, placement.y)
             self.assertEqual(mob.z, placement.z)
@@ -283,6 +326,14 @@ class FieldMobTests(unittest.TestCase):
     # --- the roster ------------------------------------------------------
 
     def test_the_roster_is_the_mined_thirteen(self) -> None:
+        # ~~Thirteen monsters.~~  Still thirteen placements, and the SAME
+        # thirteen indices, but round szdkgs split them by which identity rule
+        # produced each one: four are the crosswalk's n_ID 916 practice
+        # dummies (rank 0, no combat AI -- a dummy is not a monster and this
+        # test no longer pretends otherwise), and nine still carry the legacy
+        # set-number reading with their migration named in the generated
+        # module.  ZERO placements in this town satisfy the hostility
+        # predicate under the crosswalk, which is the finding, not a defect.
         roster = load_roster()
         self.assertEqual(len(roster), 13)
         self.assertEqual(len({mob.template_id for mob in roster}), 10)
@@ -290,12 +341,26 @@ class FieldMobTests(unittest.TestCase):
             hostile_placement_indices(),
             (12, 30, 33, 58, 59, 60, 63, 95, 103, 105, 107, 109, 132),
         )
+        self.assertEqual(field_mob_tables.HOSTILE_PLACEMENTS, [])
+        self.assertEqual(len(field_mob_tables.TOWN_TARGET_PLACEMENTS), 4)
+        self.assertEqual(
+            len(field_mob_tables.LEGACY_SETNUM_PLACEMENTS_PENDING_MIGRATION), 9,
+        )
         for mob in roster:
             self.assertGreater(mob.max_hp, 0)
-            self.assertGreater(mob.rank, 0)
-            self.assertGreater(mob.ai_combat, 0)
             self.assertTrue(mob.display_name.isascii())
             self.assertTrue(mob.visual_preset.isascii())
+            rule = field_mob_tables.IDENTITY_RULE_PER_PLACEMENT[
+                mob.placement_index
+            ]
+            if rule == "cline":
+                self.assertEqual(mob.template_id, field_mobs.TOWN_TARGET_N_ID)
+                self.assertEqual(mob.display_name, field_mobs.TOWN_TARGET_NAME)
+                self.assertEqual(mob.rank, 0)
+                self.assertEqual(mob.ai_combat, 0)
+            else:
+                self.assertGreater(mob.rank, 0)
+                self.assertGreater(mob.ai_combat, 0)
 
     def test_the_generator_never_places_two_monsters_on_one_spot(self) -> None:
         # ADDED this round: a duplicate PLACEMENT INDEX was already refused
@@ -422,19 +487,33 @@ class FieldMobTests(unittest.TestCase):
         self.assertEqual(field_mob_tables.SCENE, "bg0001")
         self.assertEqual(
             sorted(field_mob_tables.SOURCE_DIGESTS),
-            ["mobs", "mobs_tip", "placements", "standard_mob"],
+            # cline + scene_name joined the list in round szdkgs: the identity
+            # rule now reads two more committed tables, so two more digests
+            # have to travel with the module that depends on them.
+            ["cline", "mobs", "mobs_tip", "placements", "scene_name",
+             "standard_mob"],
         )
         for digest in field_mob_tables.SOURCE_DIGESTS.values():
             self.assertEqual(len(digest), 64)
             int(digest, 16)
+        self.assertEqual(field_mob_tables.IDENTITY_RULE, "cline")
+        self.assertEqual(field_mob_tables.SCENE_CLINE_TYPE, 1)
         census = field_mob_tables.PREDICATE_CENSUS
-        self.assertEqual(census["unambiguous"], 115)
-        # On THIS scene the four readings agree.  They do not agree over the
-        # whole MOBS table, which is why the census is carried at all.
-        self.assertEqual(census["rank"], 13)
-        self.assertEqual(census["ai_combat"], 13)
-        self.assertEqual(census["drops_normal"], 13)
-        self.assertEqual(census["rank_and_ai_combat"], 13)
+        # ~~115 unambiguous, and the four hostility readings all agree at
+        # 13.~~  Both numbers were counted over the SET-NUMBER reading.  Under
+        # the crosswalk this scene resolves 140 placements unambiguously and
+        # not one of them has a rank: Port Royal is a town.  The nine legacy
+        # rows still shipped are counted in the module's own lists, not here.
+        self.assertEqual(census["unambiguous"], 140)
+        self.assertEqual(census["rank"], 0)
+        self.assertEqual(census["rank_and_ai_combat"], 0)
+        self.assertEqual(census["drops_normal"], 0)
+        # Nine placements DO carry a combat AI at rank 0 (seven of them are
+        # the Navy Private guards).  Named, not shipped -- see the module's
+        # COMBAT_AI_AT_RANK_ZERO.
+        self.assertEqual(census["ai_combat"], 9)
+        self.assertEqual(len(field_mob_tables.COMBAT_AI_AT_RANK_ZERO), 9)
+        self.assertEqual(census["town_target"], 4)
 
     def test_the_generated_module_is_pure_ascii(self) -> None:
         # Lesson 86: one character with no code page 874 mapping raises
@@ -539,13 +618,35 @@ class FieldMobTests(unittest.TestCase):
                 build_field_mob_population(self.legacy, self.spawn, count)
 
     def test_it_refuses_a_control_that_no_longer_re_derives(self) -> None:
-        class Drifted:
-            def __getattr__(self, name):
-                return getattr(FieldMobTests.legacy, name)
-            V117_P30_EXACT_HP = 1
-
-        with self.assertRaises(FieldMobContractError):
-            assert_frozen_controls(Drifted())
+        # ~~A drifted V117_P30_EXACT_HP.~~  That constant is no longer the
+        # control (see assert_frozen_controls): it was produced by the same
+        # reading it was checking.  What must refuse now is a shipped row that
+        # stops matching the independently mined crosswalk table.
+        row = list(field_mob_tables.TOWN_TARGET_PLACEMENTS[0])
+        row[6] = "Not The Dummy"
+        original = field_mob_tables.SHIPPED_PLACEMENTS
+        field_mob_tables.SHIPPED_PLACEMENTS = [tuple(row)] + [
+            item for item in original if item[0] != row[0]
+        ]
+        try:
+            with self.assertRaises(FieldMobContractError):
+                assert_frozen_controls(FieldMobTests.legacy)
+        finally:
+            field_mob_tables.SHIPPED_PLACEMENTS = original
+        # And the legacy rows are still held to the one thing their own rule
+        # claims: the shipped id IS the scene file's Mob-Set number.
+        legacy_row = list(
+            field_mob_tables.LEGACY_SETNUM_PLACEMENTS_PENDING_MIGRATION[0]
+        )
+        legacy_row[1] = 4242
+        field_mob_tables.SHIPPED_PLACEMENTS = [tuple(legacy_row)] + [
+            item for item in original if item[0] != legacy_row[0]
+        ]
+        try:
+            with self.assertRaises(FieldMobContractError):
+                assert_frozen_controls(FieldMobTests.legacy)
+        finally:
+            field_mob_tables.SHIPPED_PLACEMENTS = original
 
     def test_a_current_hp_below_max_is_allowed_and_changes_only_that_field(self) -> None:
         # M4 needs a body whose current HP is lower than its max; the shape
@@ -806,6 +907,82 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
         self.assertEqual(
             zero_lines, ("FIELD_MOB_CROSS_SCENE_IDENTITY_COLLISIONS count=0",))
         self.assertNotEqual(lines[0], zero_lines[0])
+
+
+
+
+class Bg0001RegenerateAndDiffTest(unittest.TestCase):
+    """The control bg0002 and bg0015 have had all along and bg0001 did not.
+
+    pf-adversary (round szdkgs, D6): the one scene this round REWROTE was the
+    one scene with no re-derivation test, so every new table in it -- the
+    per-placement rule labels, the Mob-Set numbers, the withdrawn rows, the
+    unresolved rows -- rested on the author having run the tool by hand.  It
+    reproduces byte-for-byte; now something says so on every run.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        if not (ROOT.parent / "pf_bridge" / "gamedata").is_dir():
+            raise unittest.SkipTest("the bridge clone's gamedata is not here")
+
+    def test_regenerating_reproduces_the_committed_bg0001_module(self) -> None:
+        import importlib.util
+
+        gamedata = ROOT.parent / "pf_bridge" / "gamedata"
+        spec = importlib.util.spec_from_file_location(
+            "pf_mine_scene_mob_roster",
+            ROOT / "tools" / "pf_mine_scene_mob_roster.py",
+        )
+        tool = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tool)
+
+        rule = tool.IDENTITY_RULE_CLINE
+        sources = tool.Sources(gamedata, "bg0001")
+        controls = tool.check_crosswalk_controls(sources)
+        roster = tool.hostile_roster(sources, rule)
+        town = tool.town_target_roster(sources, rule)
+        withdrawn = tool.withdrawn_under_rule(sources, rule)
+        kept = {item["placement_index"] for item in withdrawn}
+        pending = [
+            row for row in tool.hostile_roster(sources, tool.IDENTITY_RULE_SETNUM)
+            if row["placement_index"] in kept
+        ]
+        regenerated = tool.render_module(
+            "bg0001", roster, sources.digests(),
+            tool.predicate_census(sources, rule),
+            rule=rule, cline_type=sources.cline_type, town=town,
+            withdrawn=withdrawn, controls=controls, pending=pending,
+            rank_zero_combat=[
+                tool._roster_row(sources, item)
+                for item in tool.unambiguous_placements(sources, rule)
+                if tool._nonzero(item[6], "n_AI_COMBAT")
+                and not tool._nonzero(item[6], "n_RANK")
+            ],
+            unresolved=tool.unresolved_placements(sources, rule),
+        )
+        committed = (
+            ROOT / "src/pirateforce_foundation/field_mob_tables.py"
+        ).read_text(encoding="ascii")
+        self.assertEqual(
+            regenerated, committed,
+            "field_mob_tables.py is stale - regenerate it with "
+            "tools/pf_mine_scene_mob_roster.py --identity-rule cline "
+            "--keep-withdrawn-rows",
+        )
+
+    def test_the_scene_is_fully_accounted_for(self) -> None:
+        # pf-adversary D8: "zero hostiles" is a claim about the placements the
+        # rule resolves, so the denominator has to be visible.  140 read + 9
+        # unreadable = the scene's whole 149.
+        self.assertEqual(
+            field_mob_tables.PREDICATE_CENSUS["unambiguous"]
+            + len(field_mob_tables.UNRESOLVED_PLACEMENTS),
+            149,
+        )
+        for _index, _set_number, reason in (
+                field_mob_tables.UNRESOLVED_PLACEMENTS):
+            self.assertTrue(reason, "an unreadable placement with no reason")
 
 
 if __name__ == "__main__":

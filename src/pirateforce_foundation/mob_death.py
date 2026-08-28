@@ -309,8 +309,27 @@ WIDENING_RULINGS: dict[str, frozenset[int]] = {
     # still set wrong -- see field_mobs.assert_single_scene_tables' own
     # "WHAT THIS DOES NOT COVER" paragraph, which says so explicitly rather
     # than implying this is airtight.
+    # ROUND szdkgs: ~~97~~ -> 916, and the first draft of this round got it
+    # WRONG in a way pf-adversary caught by execution.  That draft removed 97
+    # and added nothing, on the principle "do not extend a COO ruling to a
+    # template it never saw".  The principle is right; the application was a
+    # REGRESSION: ``runtime.py``'s only roster kill site passes THIS string
+    # and nothing else, so the four placements that used to die stopped being
+    # killable at all -- a dummy stuck at 0 HP forever, with yesterday's
+    # behaviour lost, which is worse than either reading of the ruling.
+    # 916 is restored to this set on the ruling's own words: COO 2026-08-27
+    # 13:50 approves "all 13 real MOBS-table field mobs in bg0001", i.e. it
+    # names THE ROSTER, and the set below has always been the roster's own
+    # distinct template ids (re-derived in tests/test_mob_death.py, never
+    # hand-copied).  This does not enlarge what COO authorised: killing 916 is
+    # ALREADY granted outright by the 2026-08-27T09:55 ruling above, so the
+    # union of permissions is unchanged and only the string that carries it
+    # moves.  What is still unanswered, and is written up as this round's open
+    # question: kill() takes ONE widened= string and a roster can now need
+    # two, so a lane whose roster stops fitting through one string has to ask
+    # chief for its file.  Named, not hidden.
     "COO-RULING-20260827-1350 widen-death-scope-bg0001": frozenset(
-        {31, 34, 35, 60, 61, 62, 65, 94, 97, 103}
+        {31, 34, 35, 60, 61, 62, 65, 94, 103, 916}
     ),
     # PANYA-DECISION 2026-08-27T20:10+07:00 ("M1-P" item 3, notes_to_chief/
     # 20260827_2010_PANYA-DECISION-pause-M2-M1-identity-first-Prison-Exile-
@@ -367,8 +386,11 @@ WIDENING_RULINGS: dict[str, frozenset[int]] = {
 # bare frozenset.  A ruling with an entry HERE additionally requires
 # ``mob.scene`` (FieldMob's own new field) to equal the scene named, on top
 # of the template_id check WIDENING_RULINGS already does; a ruling with NO
-# entry here (the 916 Training Iron Man ruling, which names no real scene at
-# all -- it is a training-dummy stand-in with no placement anywhere) is
+# entry here (the 916 Training Iron Man ruling, which ~~names no real scene at
+# all~~ -- ROUND szdkgs: 916 has FOUR real bg0001 placements now, so that
+# sentence is false; the ruling still carries no scene tie in this dict, which
+# is a hole worth closing in the round that migrates the rest of the roster
+# rather than in the round that discovered it -- it is a training-dummy stand-in with no placement anywhere) is
 # UNAFFECTED, exactly as before this round.  This is the "lighter" of the
 # two options COO-DECISION 2026-08-27T14:41+07:00 named (a scene-scoped
 # ruling NAME plus a call-site check, not a scene field threaded through
@@ -2247,7 +2269,15 @@ def describe_death(step: DeathStep) -> tuple[str, ...]:
 PIN_ID = "mob_death_second_half_001"
 PIN_BUILD_ORDER = MOB_DEATH_BUILD_ORDER
 PIN_LANE = MOB_DEATH_LANE
-PIN_PLACEMENT_INDEX = field_mobs.CONTROL_PLACEMENT_INDEX
+# ~~field_mobs.CONTROL_PLACEMENT_INDEX~~ -- round szdkgs moved that constant
+# to the roster's own control row (placement 103), and this pin must NOT
+# follow it: what this document pins is a kill on the SANCTIONED FIRST TARGET
+# 0x201F, an actor named by PANYA-RULINGS-FOUR, not by whichever row the table
+# happens to use as its control.  Placement 30 is still in the shipped roster
+# (as the legacy set-number reading, pending migration), so the pin is
+# unchanged this round; when that row is migrated, this pin moves WITH a
+# ruling, not with a table.
+PIN_PLACEMENT_INDEX = field_mobs.LEGACY_SETNUM_CONTROL_PLACEMENT_INDEX
 
 
 def pin_document(legacy: Any, mob: FieldMob, killer_identity: int = 0x750059) -> dict:

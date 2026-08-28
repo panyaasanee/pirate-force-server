@@ -98,7 +98,8 @@ class ProfileContractTests(unittest.TestCase):
             (dict(leash_radius=float("inf")),
              ma.REFUSE_PROFILE_VALUE_NOT_FINITE),
             # A ZERO AGGRO RADIUS USED TO BE REFUSED HERE.  It is a real row:
-            # ten of the thirteen bg0001 monsters have n_AGGRO = 0.  The case
+            # ~~ten~~ six of the thirteen bg0001 rows have n_AGGRO = 0 as of
+            # round szdkgs (the four dummies carry 3000).  The case
             # is kept, inverted, rather than deleted.
             (dict(aggro_radius=-1.0), ma.REFUSE_PROFILE_RADIUS_NOT_POSITIVE),
             (dict(home_radius=0.0), ma.REFUSE_PROFILE_RADIUS_NOT_POSITIVE),

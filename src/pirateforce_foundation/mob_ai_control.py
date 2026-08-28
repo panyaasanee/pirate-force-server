@@ -374,12 +374,18 @@ def _require_outcome(value: Any) -> HitOutcome:
 # The profile join: two mined values, three of ours.
 
 
-def ai_rows_of(mob: FieldMob) -> tuple[tuple, tuple]:
+def ai_rows_of(mob: FieldMob) -> tuple[tuple, tuple | None]:
     """The mined ``(wander_row, combat_row)`` this monster points at.
 
     Refused by name rather than defaulted: a monster whose AI row is absent has
     no radius and no offensive flag, and inventing either is exactly what this
     round stopped doing.
+
+    ``combat_row`` is ``None`` when the actor's ``n_AI_COMBAT`` is 0 -- the
+    table saying it HAS no combat AI, which is every NPC in a town and the
+    practice dummy this lane ships from round szdkgs.  That is a value, not a
+    missing row, and the difference matters: a dangling key is still refused
+    by name.
     """
     _require_mob(mob)
     wander = field_mob_ai_tables.AI_WANDER_ROWS.get(mob.ai_wander)
@@ -389,6 +395,8 @@ def ai_rows_of(mob: FieldMob) -> tuple[tuple, tuple]:
             "placement %d points at AI_WANDER %d, which is not in the mined "
             "rows: regenerate field_mob_ai_tables" % (
                 mob.placement_index, mob.ai_wander))
+    if not mob.ai_combat:
+        return wander, None
     combat = field_mob_ai_tables.AI_COMBAT_ROWS.get(mob.ai_combat)
     if combat is None:
         raise MobAiControlError(
@@ -407,8 +415,23 @@ def profile_of(mob: FieldMob) -> mob_aggro.MobAiProfile:
     ``attack_range`` and the cadence are this module's constants, each tagged
     at its definition.
     """
-    wander, _combat = ai_rows_of(mob)
+    wander, combat = ai_rows_of(mob)
     _script, _faction, offensive, aggro_radius = wander
+    if combat is None:
+        # AN ACTOR WITH NO COMBAT AI CANNOT INITIATE, WHATEVER ITS WANDER ROW
+        # SAYS -- and this is OURS, not the table's.  Measured (round szdkgs):
+        # the practice dummy n_ID 916 points at AI_WANDER 21, whose n_OFFESIVE
+        # is 1 and n_AGGRO is 3000, while its n_AI_COMBAT is 0.  The two
+        # columns of the shipped data disagree: the wander row says "acquires
+        # targets out to 3000", the MOBS row says "has no combat script at
+        # all".  This lane will not invent the missing script, and the safe
+        # reading of a disagreement is the one that does not make the server
+        # start a fight the data cannot describe: offensive is forced False
+        # and the mined radius is carried through unchanged so nothing is
+        # hidden from a caller that wants to read it.
+        # [LANE-B READING - AWAITING COO CONFIRMATION] if the owner wants
+        # dummies to aggro, this is the one branch to change.
+        offensive = 0
     return mob_aggro.MobAiProfile(
         aggro_radius=float(aggro_radius),
         leash_radius=leash_radius_for(aggro_radius),

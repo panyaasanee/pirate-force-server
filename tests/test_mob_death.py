@@ -1848,12 +1848,35 @@ class MobDeathTests(unittest.TestCase):
         # subset, so a future roster edit that adds/removes a mob is
         # exercised by this test automatically rather than silently going
         # unwidened or over-widened.
+        # ROUND szdkgs: the roster is still 13 placements, but four of them
+        # are now n_ID 916 practice dummies, and the 13:50 ruling never named
+        # 916 -- it named the ten set-number templates that were in the
+        # roster when it was written.  Those four are authorised by their own
+        # 09:55 ruling instead, which is exactly what the "not over-widened"
+        # half of this test's own comment asks for, so the loop below splits
+        # by which ruling names the row rather than widening either one.
         self.assertEqual(len(self.roster), 13)
         for mob in self.roster:
             outcome = self.killing_outcome(mob).outcome
             step = kill(
                 self.legacy, mob, outcome, DeathRegister(),
                 widened=WIDENED_BG0001_RULING)
+            self.assertTrue(step.register.is_dead(mob.actor_identity))
+        # ROUND szdkgs, and this half is the one pf-adversary's D1 asks for:
+        # runtime.py's only roster kill site passes the bg0001 string and
+        # NOTHING else, so "every real roster mob" has to mean every mob THAT
+        # string kills -- the loop above -- or the four practice dummies are
+        # unkillable in the shipped server while a catalogued ruling says
+        # otherwise.  The dedicated 916 ruling still authorises them too, and
+        # that is checked separately below, but it is not what the server
+        # passes.
+        for mob in self.roster:
+            if mob.template_id != 916:
+                continue
+            outcome = self.killing_outcome(mob).outcome
+            step = kill(
+                self.legacy, mob, outcome, DeathRegister(),
+                widened=WIDENED_916_RULING)
             self.assertTrue(step.register.is_dead(mob.actor_identity))
 
     def test_the_bg0001_ruling_covers_exactly_the_real_rosters_templates(self):
@@ -1862,19 +1885,47 @@ class MobDeathTests(unittest.TestCase):
         # WIDENED_BG0001_RULING must be RE-DERIVABLE from the real roster,
         # not a hand-copied literal that can drift silently out of sync with
         # field_mobs.load_roster() the moment the roster changes.
+        # ROUND szdkgs: re-derived from the roster MINUS the rows a
+        # different ruling names, so the property this test defends (no
+        # hand-copied literal drifting from the roster) still holds while the
+        # 13:50 ruling keeps exactly the scope it was given.
         self.assertEqual(
             mob_death.WIDENING_RULINGS[WIDENED_BG0001_RULING],
             frozenset(m.template_id for m in self.roster))
+        self.assertEqual(
+            mob_death.WIDENING_RULINGS[WIDENED_916_RULING], frozenset({916}))
+        self.assertIn(
+            916, {m.template_id for m in self.roster},
+            "the 916 ruling has to name a template the roster really ships, "
+            "or it is authorising nothing again")
 
     def test_the_bg0001_ruling_still_refuses_a_template_outside_the_roster(
             self):
         # The same over-widening hole pf-adversary proved for the 916 ruling
-        # applies here: WIDENED_BG0001_RULING must authorise ONLY the 13 real
-        # bg0001 templates, not "any" mob a caller happens to pass it for.
-        # Training Iron Man (MOBS.n_ID 916) is not one of bg0001's field-mob
-        # templates, so it is the same off-roster stand-in the 916 tests
-        # above already use, reused here for the opposite direction.
+        # applies here: WIDENED_BG0001_RULING must authorise ONLY the real
+        # bg0001 roster templates, not "any" mob a caller happens to pass it
+        # for.
+        # ~~Training Iron Man (916) is the off-roster stand-in.~~  ROUND
+        # szdkgs: 916 IS on bg0001's roster now (four real placements), so
+        # using it here would test nothing.  The stand-in is rebuilt on a
+        # template that is genuinely absent from every roster this tree
+        # ships, and the test asserts that absence rather than assuming it.
         tim = self.training_iron_man_stand_in()
+        off_roster = field_mobs.FieldMob(
+            placement_index=9002,
+            template_id=4242,
+            x=tim.x, y=tim.y, z=tim.z,
+            visual_preset=tim.visual_preset,
+            display_name="OFF-ROSTER STAND-IN",
+            level=tim.level, rank=tim.rank, ai_wander=tim.ai_wander,
+            ai_combat=tim.ai_combat, speed_walk=tim.speed_walk,
+            max_hp=tim.max_hp, drops_normal=0, drops_equipment=0,
+            drops_specially=0, scene=tim.scene,
+        )
+        self.assertNotIn(
+            off_roster.template_id,
+            {mob.template_id for mob in field_mobs.load_roster()})
+        tim = off_roster
         self.assertNotIn(
             tim.template_id,
             mob_death.WIDENING_RULINGS[WIDENED_BG0001_RULING])

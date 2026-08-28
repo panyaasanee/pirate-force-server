@@ -1561,7 +1561,15 @@ PIN_LANE = MOB_COMBAT_LANE
 # rung of the ladder two observers watched land on a real screen in GT-035.  A
 # pin whose numbers nobody has ever seen would prove only that the code agrees
 # with itself.
-PIN_PLACEMENT_INDEX = field_mobs.CONTROL_PLACEMENT_INDEX
+# ~~field_mobs.CONTROL_PLACEMENT_INDEX~~ -- round szdkgs moved that constant
+# to the roster's own control row (placement 103), and this pin must NOT
+# follow it: what this document pins is a kill on the SANCTIONED FIRST TARGET
+# 0x201F, an actor named by PANYA-RULINGS-FOUR, not by whichever row the table
+# happens to use as its control.  Placement 30 is still in the shipped roster
+# (as the legacy set-number reading, pending migration), so the pin is
+# unchanged this round; when that row is migrated, this pin moves WITH a
+# ruling, not with a table.
+PIN_PLACEMENT_INDEX = field_mobs.LEGACY_SETNUM_CONTROL_PLACEMENT_INDEX
 PIN_ATTACKER_LEVEL = 7
 PIN_ATTACKER_ABILITY_STR = 132
 

@@ -83,13 +83,25 @@ gets a monster that is merely present.  This module builds the monster half
 only; the player half lives on the StartGame path, which is the chief's file.
 
 WHAT THIS SCENE CANNOT DELIVER, MEASURED BEFORE THIS MODULE WAS COMMITTED.
-bg0001 is a town and its monster placements are sparse.  All thirteen exist,
+bg0001 is a town and its monster placements are sparse.  ~~All thirteen exist,
 but no monster in this roster has ANOTHER monster within 1,000 units, and the
 densest spot in the whole scene - the Mutant Green Eagle line near
 (14455, 9357, 2200) - holds three within 2,000 units and four within about
 3,900.  The nearest monster to a new character's spawn is 12,095 units away.
 So this module delivers "the monsters this scene's own data defines exist and
-are hostile", and it does NOT deliver "a field full of red names in one view".
+are hostile"~~ -- ROUND szdkgs, and the correction is bigger than the numbers:
+bg0001 is a town in the strong sense.  Resolved through the RE-128 crosswalk,
+ZERO of its placements have both a rank and a combat AI; the thirteen rows
+this module ships are four real practice dummies (n_ID 916 "Training Iron
+Man", the line near (14455, 9357, 2200) that the struck-through paragraph
+called Mutant Green Eagle) plus nine placements still carrying the legacy
+set-number reading, which are Port Royal's own townspeople and are labelled as
+such per row in the generated table.  The distances above still describe those
+same thirteen placements, because no placement moved.  What this module
+delivers today is "the actors this scene's data defines exist, four of them
+under their real identity", and it does NOT deliver "a field full of red names
+in one view", nor -- until the remaining nine are migrated -- "every actor
+under its real identity".
 That second thing needs a field scene, which is M2's delivery, and the same
 code runs against it the moment the generator is pointed at one.
 :func:`neighbour_census` computes those numbers rather than asserting them, so
@@ -181,9 +193,41 @@ LEVEL_TAG = 0x12
 LEVEL_WIDTH = 2
 LEVEL_SPLICE_BYTES = 1 + LEVEL_WIDTH
 
-# The frozen constants the derived columns are checked against.
-CONTROL_PLACEMENT_INDEX = 30
-CONTROL_TEMPLATE_ID = 31
+# ~~The frozen constants the derived columns are checked against.~~
+# ~~CONTROL_PLACEMENT_INDEX = 30 / CONTROL_TEMPLATE_ID = 31~~ -- withdrawn in
+# round szdkgs: placement 30 is not in this scene's roster any more, because
+# the crosswalk (RE-128) says Mob-Set 31 is n_ID 248 "Da Vinci", a townsman,
+# and the town has no monsters at all.  The old pair is kept below under its
+# own name: every sentence in this tree that cites "P30 / 0x201F / Tornado
+# Eagle" was measured on a real actor the server really sent, so those
+# measurements stand as measurements of THAT actor -- what changed is that
+# the actor was never a monster and is no longer shipped as one.
+LEGACY_SETNUM_CONTROL_PLACEMENT_INDEX = 30
+LEGACY_SETNUM_CONTROL_TEMPLATE_ID = 31
+
+# The control row of the roster this lane actually ships for bg0001: the first
+# of the four practice dummies, resolved through the crosswalk.
+CONTROL_PLACEMENT_INDEX = 103
+CONTROL_TEMPLATE_ID = 916
+
+# The town-target decision, in code rather than in a comment: which n_ID this
+# lane ships as attackable in a town, and the name it must still carry.  See
+# tools/pf_mine_scene_mob_roster.py's TOWN_TARGET_N_IDS for the reasoning and
+# the [LANE-B ASSUMPTION - AWAITING COO CONFIRMATION] label on it.
+TOWN_TARGET_N_ID = 916
+TOWN_TARGET_NAME = "Training Iron Man"
+# STANDARD_MOB[100].n_HPMAX, the derived column's value for this actor.
+TOWN_TARGET_LEVEL = 100
+TOWN_TARGET_MAX_HP = 198125
+
+# Which placements this lane ships under which identity rule.  Hand-written
+# here so the generated table cannot certify its own labelling: relabelling a
+# row in field_mob_tables.py now contradicts this file instead of escaping the
+# check (pf-adversary, round szdkgs).  Both sets move only in a round that
+# means to move them, and the second one shrinks to empty when the remaining
+# nine rows are migrated.
+EXPECTED_CROSSWALK_PLACEMENTS = frozenset({103, 105, 107, 109})
+EXPECTED_LEGACY_PLACEMENTS = frozenset({12, 30, 33, 58, 59, 60, 63, 95, 132})
 
 # The proven schedule: the identical collection is queued once immediately and
 # once after model readiness.  Carried, not re-derived, from world_population.
@@ -469,7 +513,17 @@ def _parse_hostile_placements(module: Any) -> tuple[FieldMob, ...]:
     that) can be measured here, by a caller who imports it from OUTSIDE this
     package, without becoming loadable through this module.
     """
-    rows = getattr(module, "HOSTILE_PLACEMENTS", None)
+    # ``SHIPPED_PLACEMENTS`` is what a table module generated from round
+    # szdkgs on says this lane ships for its scene: the rows the hostility
+    # predicate selects PLUS the named town targets it cannot select (a
+    # practice dummy has rank 0 and no combat AI, so no predicate over MOBS
+    # picks it out; see the generator's TOWN_TARGET_N_IDS).  Older modules
+    # carry only ``HOSTILE_PLACEMENTS`` and are read exactly as before -- the
+    # fallback is not a compatibility shim to remove later, it is the correct
+    # answer for a scene whose whole roster IS its hostiles.
+    rows = getattr(module, "SHIPPED_PLACEMENTS", None)
+    if rows is None:
+        rows = getattr(module, "HOSTILE_PLACEMENTS", None)
     if type(rows) is not list or not rows:
         raise FieldMobContractError("generated roster is missing or empty")
     mobs: list[FieldMob] = []
@@ -512,9 +566,19 @@ def _parse_hostile_placements(module: Any) -> tuple[FieldMob, ...]:
         if type(display_name) is not str or not display_name:
             raise FieldMobContractError("display name must be non-empty text")
         level = _require_int(row[7], "level", 1, 255)
-        rank = _require_int(row[8], "rank", 1, 0xFFFF)
+        # ~~rank and ai_combat were floored at 1~~ -- that floor WAS the
+        # hostility predicate, asserted a second time in the parser: a row
+        # could not reach here unless the generator had already selected it
+        # for having both.  Round szdkgs ships a named town target (a practice
+        # dummy: rank 0, no combat AI), so the floor would now refuse a row
+        # this lane deliberately built.  Zero is a real value in MOBS and is
+        # kept as one; what the roster ships is decided by the generator's
+        # named lists, and re-checked against the crosswalk in
+        # ``assert_frozen_controls`` -- not by squeezing a predicate into a
+        # range check here.
+        rank = _require_int(row[8], "rank", 0, 0xFFFF)
         ai_wander = _require_int(row[9], "ai wander", 0, 0xFFFF)
-        ai_combat = _require_int(row[10], "ai combat", 1, 0xFFFF)
+        ai_combat = _require_int(row[10], "ai combat", 0, 0xFFFF)
         speed_walk = _require_int(row[11], "speed walk", 0, 0xFFFF)
         max_hp = _require_int(row[12], "max hp", 1, 0xFFFFFFFF)
         mobs.append(FieldMob(
@@ -694,37 +758,183 @@ def describe_cross_scene_identity_collisions(
 
 
 def assert_frozen_controls(legacy: Any) -> None:
-    """Refuse if either independently frozen constant no longer re-derives.
+    """Refuse if this scene's roster no longer agrees with the crosswalk.
 
-    This is the check that keeps the derived HP column and the mined name
+    ~~This is the check that keeps the derived HP column and the mined name
     honest.  It compares against ``v141``'s own constants, which were pinned
-    from a different direction (a live run, not a table join).
+    from a different direction (a live run, not a table join).~~
+    WITHDRAWN AS THE CONTROL, round szdkgs (2026-08-29), and the withdrawal is
+    the point of this round: ``V117_P30_EXACT_HP`` (3857) and
+    ``V119_P30_TARGET_NAME`` ("Tornado Eagle") are what placement 30 looks
+    like when a Mob-SET number is read as a ``MOBS.n_ID``.  ``v141`` pinned
+    them from a live run of a server making that same read, so the two
+    directions were never independent, and this check could not have caught
+    the one thing that was wrong.  ``GT-078`` (the owner rejecting every name
+    on sight) and ``RE-128`` (the client's own ``SCENE_NAME`` ->
+    ``CLINE.n_LEADER_BK1`` crosswalk) between them settled it: bg0001
+    placement 30 is Mob-Set 31 -> ``n_ID`` 248, "Da Vinci".  The two legacy
+    constants are NOT deleted -- they are still true statements about the
+    legacy reading, and the generated table records them as such in
+    ``LEGACY_SETNUM_READING_OF_PLACEMENT_30``.
+
+    WHAT IS CHECKED INSTEAD, and why it is not circular: every shipped row is
+    held against :mod:`world_port_royal_identity`, which lane A mined from the
+    same client tables INDEPENDENTLY (a different tool, a different round, its
+    own owner anchors) and committed into this repository.  Two separately
+    mined tables agreeing on ``n_ID``, avatar template and displayed name for
+    every row this lane ships is a real second opinion; re-deriving one table
+    from itself never was.  Scenes with no committed crosswalk table (Bg0002,
+    whose Mob-Set numbers ARE its ``n_ID`` by the owner's own 2026-08-27
+    ruling) are not held to it -- see the scene guard below.
     """
-    roster = {mob.placement_index: mob for mob in load_roster()}
-    control = roster.get(CONTROL_PLACEMENT_INDEX)
+    from . import world_port_royal_identity
+
+    roster = load_roster()
+    if not roster:
+        raise FieldMobContractError("roster is empty")
+    scene_numbers = getattr(field_mob_tables, "SET_NUMBER_FOR_PLACEMENT", None)
+    rule = getattr(field_mob_tables, "IDENTITY_RULE", None)
+    if rule != "cline" or type(scene_numbers) is not dict:
+        raise FieldMobContractError(
+            "bg0001's table is not the crosswalk-resolved one (IDENTITY_RULE "
+            "%r): regenerate it with tools/pf_mine_scene_mob_roster.py "
+            "--identity-rule cline" % (rule,)
+        )
+    per_placement = getattr(
+        field_mob_tables, "IDENTITY_RULE_PER_PLACEMENT", {},
+    )
+    # THE SHAPE GATE, and it exists because pf-adversary (round szdkgs, D2)
+    # proved the first draft of this function passed on a table with the four
+    # crosswalk rows DELETED, and on a table that relabelled them 'setnum'
+    # with a doctored Mob-Set number.  A control whose subject can be removed
+    # by the data it checks is not a control.  The expected split is written
+    # HERE, in hand-written code, not read out of the generated module.
+    expected = {
+        "cline": EXPECTED_CROSSWALK_PLACEMENTS,
+        "setnum": EXPECTED_LEGACY_PLACEMENTS,
+    }
+    actual = {"cline": set(), "setnum": set()}
+    for mob in roster:
+        rule = per_placement.get(mob.placement_index)
+        if rule not in actual:
+            raise FieldMobContractError(
+                "placement %d carries identity rule %r, which is neither "
+                "reading" % (mob.placement_index, rule)
+            )
+        actual[rule].add(mob.placement_index)
+    for rule, wanted in expected.items():
+        if actual[rule] != wanted:
+            raise FieldMobContractError(
+                "the %s rows of this scene are %s, not the %s this lane "
+                "ships" % (rule, sorted(actual[rule]), sorted(wanted))
+            )
+    for mob in roster:
+        set_number = scene_numbers.get(mob.placement_index)
+        if set_number is None:
+            raise FieldMobContractError(
+                "roster row %d carries no Mob-Set number, so its identity "
+                "cannot be re-resolved" % mob.placement_index
+            )
+        if per_placement.get(mob.placement_index) != "cline":
+            # A row the table itself labels as the legacy set-number reading,
+            # kept for one more round with its migration named (see the
+            # generated module's LEGACY_SETNUM_PLACEMENTS_PENDING_MIGRATION).
+            # It is held to the ONE thing that reading claims -- that the
+            # shipped template id IS the scene file's Mob-Set number -- so a
+            # row cannot drift into being neither reading.  It is deliberately
+            # NOT held to the crosswalk: it is known not to match, and that
+            # mismatch is written down per row rather than asserted away.
+            if mob.template_id != set_number:
+                raise FieldMobContractError(
+                    "placement %d is labelled the legacy set-number reading "
+                    "but ships n_ID %d for Mob-Set %d"
+                    % (mob.placement_index, mob.template_id, set_number)
+                )
+            continue
+        identity = world_port_royal_identity.resolve(set_number)
+        if identity is None:
+            raise FieldMobContractError(
+                "Mob-Set %d (placement %d) does not resolve in the committed "
+                "crosswalk" % (set_number, mob.placement_index)
+            )
+        if mob.template_id != identity.mobs_n_id:
+            raise FieldMobContractError(
+                "placement %d ships n_ID %d, the crosswalk says %d"
+                % (mob.placement_index, mob.template_id, identity.mobs_n_id)
+            )
+        if mob.visual_preset != identity.outfit:
+            raise FieldMobContractError(
+                "placement %d ships avatar %r, the crosswalk says %r"
+                % (mob.placement_index, mob.visual_preset, identity.outfit)
+            )
+        if mob.display_name != identity.name:
+            raise FieldMobContractError(
+                "placement %d ships name %r, the crosswalk says %r"
+                % (mob.placement_index, mob.display_name, identity.name)
+            )
+    # The town targets are named, not predicated (see the generator).  A row
+    # that lost its name or its rank-0/AI-0 shape is no longer the dummy this
+    # lane decided to ship, so it refuses rather than shipping something else
+    # under that decision.
+    for mob in roster:
+        if mob.template_id != TOWN_TARGET_N_ID:
+            continue
+        if mob.display_name != TOWN_TARGET_NAME:
+            raise FieldMobContractError(
+                "town target %d is named %r, not %r"
+                % (mob.template_id, mob.display_name, TOWN_TARGET_NAME)
+            )
+        if mob.rank or mob.ai_combat:
+            raise FieldMobContractError(
+                "town target %d is no longer rank 0 / no combat AI "
+                "(rank %r, ai_combat %r): it is not a practice dummy any more"
+                % (mob.template_id, mob.rank, mob.ai_combat)
+            )
+        # THE DERIVED COLUMN, which the first draft of this round left with no
+        # check at all (pf-adversary D2): the withdrawn control's one real job
+        # was holding max_hp, and dropping it meant 198125 could become 4242
+        # and nothing would notice.  These two literals are hand-written here,
+        # in a file the generator does not write, exactly as V117_P30_EXACT_HP
+        # was -- STANDARD_MOB[100].n_HPMAX for a level-100 actor.
+        if (mob.level, mob.max_hp) != (TOWN_TARGET_LEVEL, TOWN_TARGET_MAX_HP):
+            raise FieldMobContractError(
+                "town target %d ships level %r / max HP %r, not the mined "
+                "%d / %d" % (mob.template_id, mob.level, mob.max_hp,
+                             TOWN_TARGET_LEVEL, TOWN_TARGET_MAX_HP)
+            )
+    # ~~The legacy constants, kept reachable so a reader can see they were not
+    # deleted.~~  ASSERTED AGAIN, but about what they actually describe.  They
+    # are no longer the control on this roster's identity -- they were made by
+    # the reading this round replaced -- but they ARE exact statements about
+    # the legacy reading that nine of these rows still ship, so holding the
+    # table to them is a real check with a real subject, and it is the one
+    # that makes the ``legacy`` parameter mean something again (pf-adversary
+    # D2: assert_frozen_controls(None) used to pass).
+    legacy_hp = getattr(legacy, "V117_P30_EXACT_HP", None)
+    legacy_name = getattr(legacy, "V119_P30_TARGET_NAME", None)
+    legacy_index = getattr(legacy, "V112_MONSTER_INDEX", None)
+    if legacy_index != LEGACY_SETNUM_CONTROL_PLACEMENT_INDEX:
+        raise FieldMobContractError(
+            "frozen monster index drift: %r" % (legacy_index,)
+        )
+    control = {mob.placement_index: mob for mob in roster}.get(
+        LEGACY_SETNUM_CONTROL_PLACEMENT_INDEX
+    )
     if control is None:
         raise FieldMobContractError(
-            "roster no longer carries the control placement %d"
-            % CONTROL_PLACEMENT_INDEX
+            "placement %d is not in the roster, so the legacy reading this "
+            "table still ships has no control at all"
+            % LEGACY_SETNUM_CONTROL_PLACEMENT_INDEX
         )
-    if control.template_id != CONTROL_TEMPLATE_ID:
+    if (control.template_id, control.display_name, control.max_hp) != (
+            LEGACY_SETNUM_CONTROL_TEMPLATE_ID, legacy_name, legacy_hp):
         raise FieldMobContractError(
-            "control placement template drift: %d" % control.template_id
+            "placement %d no longer reproduces the legacy reading v141 froze "
+            "(%r/%r/%r vs %r/%r/%r)"
+            % (LEGACY_SETNUM_CONTROL_PLACEMENT_INDEX,
+               control.template_id, control.display_name, control.max_hp,
+               LEGACY_SETNUM_CONTROL_TEMPLATE_ID, legacy_name, legacy_hp)
         )
-    frozen_hp = getattr(legacy, "V117_P30_EXACT_HP", None)
-    if control.max_hp != frozen_hp:
-        raise FieldMobContractError(
-            "derived HP %r does not match frozen V117_P30_EXACT_HP %r"
-            % (control.max_hp, frozen_hp)
-        )
-    frozen_name = getattr(legacy, "V119_P30_TARGET_NAME", None)
-    if control.display_name != frozen_name:
-        raise FieldMobContractError(
-            "mined name %r does not match frozen V119_P30_TARGET_NAME %r"
-            % (control.display_name, frozen_name)
-        )
-    if getattr(legacy, "V112_MONSTER_INDEX", None) != CONTROL_PLACEMENT_INDEX:
-        raise FieldMobContractError("frozen monster index drift")
 
 
 def _faction_splice_offset(
@@ -1063,6 +1273,35 @@ def pin_document(legacy: Any) -> dict:
         "scene": field_mob_tables.SCENE,
         "source_digests": dict(field_mob_tables.SOURCE_DIGESTS),
         "predicate_census": dict(field_mob_tables.PREDICATE_CENSUS),
+        # pf-adversary (round szdkgs, D3): the round labelled the split in the
+        # generated module and left the SHIPPED artifact presenting all
+        # thirteen rows identically.  The pin is what a report quotes, so the
+        # split travels with it: which rule produced each row, who the legacy
+        # rows really are, and the placements no rule could read at all.
+        "identity_rule": field_mob_tables.IDENTITY_RULE,
+        "identity_rule_per_placement": {
+            str(index): rule for index, rule
+            in sorted(field_mob_tables.IDENTITY_RULE_PER_PLACEMENT.items())
+        },
+        "legacy_setnum_pending_migration": sorted(
+            row[0] for row
+            in field_mob_tables.LEGACY_SETNUM_PLACEMENTS_PENDING_MIGRATION
+        ),
+        "withdrawn_under_this_rule": [
+            {
+                "placement_index": row[0],
+                "was_template_id": row[1],
+                "was_display_name": row[2],
+                "now_template_id": row[3],
+                "now_display_name": row[4],
+            }
+            for row in field_mob_tables.WITHDRAWN_UNDER_THIS_RULE
+        ],
+        "unresolved_placements": [
+            {"placement_index": row[0], "set_number": row[1],
+             "reason": row[2]}
+            for row in field_mob_tables.UNRESOLVED_PLACEMENTS
+        ],
         "hostility": {
             "basic_attr_mask_bit": BASIC_BIT_FACTION,
             "wire_tag": FACTION_TAG,
@@ -1130,8 +1369,20 @@ def pin_document(legacy: Any) -> dict:
             "client-observable question now",
             "no aggro, no attack, no death, no drop: this lane builds the "
             "monster, not the fight",
-            "max_hp is DERIVED from STANDARD_MOB by level; the two frozen "
-            "controls it re-derives are placement 30 only",
+            "max_hp is DERIVED from STANDARD_MOB by level.  ~~the two "
+            "frozen controls it re-derives are placement 30 only~~ - round "
+            "szdkgs: those two v141 constants came out of a run of the same "
+            "set-number reading they were checking, so they are no longer "
+            "the control on identity; they are held as a pin on the LEGACY "
+            "reading nine of these rows still ship, and the derived column "
+            "is checked against a hand-written level/HP literal for the four "
+            "crosswalk rows",
+            "nine of the thirteen rows below still carry the set-number "
+            "reading this round's own finding calls false: they are Port "
+            "Royal townspeople shipped with monster names and the field-mob "
+            "faction, listed per row under withdrawn_under_this_rule, and "
+            "migrating them is this lane's next round, not a claim of this "
+            "one",
             "nothing imports this module, so on its own it changes nothing "
             "the player sees",
             "RE-098 (2026-08-27, DONE / BOUNDED-NEGATIVE) closed off using "

@@ -178,7 +178,16 @@ def load_roster_module(repo_root: Path):
 def mine(gamedata: Path, repo_root: Path,
          accept_new_digests: bool = False) -> tuple[dict, dict, dict, dict]:
     roster_module = load_roster_module(repo_root)
-    placements = getattr(roster_module, "HOSTILE_PLACEMENTS", None)
+    # Every row the roster module SHIPS, not only the ones its hostility
+    # predicate selected: from round szdkgs a scene can ship a named town
+    # target (rank 0, no combat AI) whose n_AI_WANDER row is still a foreign
+    # key something has to resolve.  Reading only HOSTILE_PLACEMENTS here is
+    # what made a boot refuse with "ai_row_missing: placement 103 points at
+    # AI_WANDER 21".  Older modules that carry no SHIPPED_PLACEMENTS are read
+    # exactly as before.
+    placements = getattr(roster_module, "SHIPPED_PLACEMENTS", None)
+    if placements is None:
+        placements = getattr(roster_module, "HOSTILE_PLACEMENTS", None)
     if type(placements) is not list or not placements:
         raise MineError("the generated roster is missing or empty")
 
@@ -230,12 +239,18 @@ def mine(gamedata: Path, repo_root: Path,
             raise MineError(
                 "placement %d points at AI_WANDER %r, which has no row"
                 % (placement_index, ai_wander))
-        if ai_combat not in combat:
+        # n_AI_COMBAT 0 is not a dangling key, it is the table saying THIS
+        # ACTOR HAS NO COMBAT AI - the shape of every NPC in a town, and of
+        # the practice dummy this lane ships from round szdkgs.  It is carried
+        # through as 0 with no row, and the consumer must handle "no combat
+        # profile" rather than being handed an invented one.
+        if ai_combat and ai_combat not in combat:
             raise MineError(
                 "placement %d points at AI_COMBAT %r, which has no row"
                 % (placement_index, ai_combat))
         wander_wanted.add(ai_wander)
-        combat_wanted.add(ai_combat)
+        if ai_combat:
+            combat_wanted.add(ai_combat)
         links.append((placement_index, ai_wander, ai_combat))
 
     wander_out = {}
