@@ -317,6 +317,26 @@ paths, with no replacement clone/worktree/project folder.
   existing cash field. Exact `NameBoardPlayer` update `0x5BD320` consumes that
   field at `0x5BD4D5..0x5BD512`. Do not use BasicAttr `+0x28` for this claim;
   it belongs to NPC/other UI lanes.
+  **CORRECTION (CORE-REQUEST-027, chief round `03d46t`, 2026-08-28): this bullet
+  is now believed WRONG and superseded.** `PANYA-DECISION 20260828_0125`
+  (owner's own live-client probe, single-field-isolated: each `x` probed
+  independently rather than sent as one combined frame) found ActorAttr
+  `+0x164`/`0x01000000` renders as the GUILD name (empty/purple for a fresh
+  guildless character), not the player's own name, and that BasicAttr
+  `+0x28`/`0x0001` (the exact field this bullet said not to use) is the real
+  name field -- already proven and wired for every NPC/mob/object in this
+  codebase (`BASIC_BIT_NAME`), just never wired for the player's own login
+  path until this round. This also matches `reports/PF_CHUNK2_
+  Q1_ACTORATTR_MASK_FINDINGS_20260819.md` (2026-08-19/20, independent static
+  disassembly sweep, 86 guards), which already pinned `+0x164` as `LABEL_GUILD`
+  -- contradicting this 2026-08-16 bullet's `NameBoardPlayer` claim two days
+  after it was written, a contradiction this doc never resolved until now.
+  `player_wire.py`'s login composer now wires BasicAttr `+0x28`; the frozen
+  NAME-002 baseline other lanes crosscheck against is untouched. Not deleting
+  this bullet -- it is what CHARACTER-NAME-001 actually measured/claimed at
+  the time -- but do not treat it as current. See CHARACTER-NAME-002's own
+  correction note below for why its live observation likely did not test what
+  it thought it was testing.
 - CHARACTER-NAME-002 supplies the controlled runtime proof. Exact StartGame raw
   bytes carry actor identity `0x10010001`, unchanged BasicAttr mask `0x070C`,
   ActorAttr low/high masks `0x01000800/0`, mandatory bool `1`, cash `10000`, and
@@ -326,6 +346,21 @@ paths, with no replacement clone/worktree/project folder.
   was retained, so keep the visual fact attributed to the direct UI observation.
   This does not prove remote-player names, rename/uniqueness policy, authenticated
   ownership, or server-process restart durability.
+  **CORRECTION (CORE-REQUEST-027, chief round `03d46t`, 2026-08-28): the visual
+  fact ("Arena01" rendered above the character) is not disputed, but this round
+  believes it was misattributed to the wrong wire field.** This test sent only
+  ONE combination (name present at ActorAttr `+0x164`, nowhere else) and did not
+  run the negative control (name absent from `+0x164`) to check whether the
+  client still shows the name from a different source -- e.g. a value the
+  client already cached client-side from an earlier Create/List/character-select
+  frame in the same session, independent of this specific StartGame field. Per
+  G1 (this project's own no-single-source rule), a positive-only observation
+  without that negative control cannot distinguish "this field causes the
+  render" from "the client already knew the name and rendered it regardless."
+  `PANYA-DECISION 20260828_0125` ran the negative-control-equivalent (probing
+  each field independently) and reached the opposite conclusion. Not deleting
+  this bullet, not disputing what was seen on screen -- disputing which wire
+  field the screen result should be attributed to.
 - FND-006 proves one bounded server-process restart. Round A started existing
   `Arena01` at scene 1/seq 0 `(-9239.95703125,-2830.045166015625,186)`, heading 0;
   a single click-to-move gesture produced TargetPos updates and committed final

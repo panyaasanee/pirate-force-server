@@ -127,6 +127,19 @@ short of `complete`. A narrow fixture, golden, or single controlled run earns
   responsive. No screenshot was retained. Remote-player naming, rename/uniqueness
   policy, authenticated ownership, and server-process restart durability remain
   unproven.
+  **CORRECTION (CORE-REQUEST-027, chief round `03d46t`, 2026-08-28): both bullets
+  above are now believed WRONG.** `PANYA-DECISION 20260828_0125`'s single-field
+  live probe found ActorAttr `+0x164`/`0x01000000` is the GUILD-name field, not
+  the player's own name -- and `reports/PF_CHUNK2_
+  Q1_ACTORATTR_MASK_FINDINGS_20260819.md` (2026-08-19/20 static disassembly)
+  already agreed, unreconciled until now. The real name field is BasicAttr
+  `+0x28`/`0x0001`, already proven/wired for every NPC/mob/object in this
+  codebase, now also wired for the player's own login path. CHARACTER-NAME-002's
+  "Arena01" observation is not disputed as a visual fact, but its attribution to
+  `+0x164` was never negative-controlled (that field vs. name-known-from-an-
+  earlier-frame) -- see `docs/COMMAND_HANDOFF.md`'s matching correction for
+  detail. Not rewritten/deleted, only flagged: this is what was actually
+  measured at the time, just not current.
 - Commit-before-reply: implemented for character creation and selection.
 - Golden/state/restart/loopback/negative/legacy-dispatch verification: implemented.
 - Deterministic source archive verification: implemented and excluded from Git.

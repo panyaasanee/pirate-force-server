@@ -57,8 +57,12 @@ class PlayerNameProjectionTests(unittest.TestCase):
         # through make_actor_attr_with_name_and_class, which adds level
         # (BasicAttr +0x5E, bit 0x0002), movement speed (+0x54, bit 0x0040)
         # and class_id (ActorAttr +0x8C, bit 0x00000001) on top of the
-        # proven name/HP/scene/cash baseline (CORE-REQUEST-023 probe-base-1
-        # widening; see player_wire.py's own module docstring). MP current/
+        # proven HP/scene/cash baseline (CORE-REQUEST-023 probe-base-1
+        # widening; see player_wire.py's own module docstring). PANYA-
+        # DECISION 20260828_0125 (row x1/x37) also moved the name itself
+        # from ActorAttr bit 0x01000000 (the GUILD-name field, per the
+        # owner's live probe) to BasicAttr bit 0x0001 (the real character-
+        # name field, same one NPCs/mobs/objects already use). MP current/
         # max and STR/CON/DEX/INT/PER are deliberately NOT emitted -- no
         # committed source names a value for them (same docstring).
         actor = make_actor_attr_with_name_and_class(
@@ -70,18 +74,18 @@ class PlayerNameProjectionTests(unittest.TestCase):
         expected_prefix = (
             self.legacy.u8tag(0x0B, 1)
             + identity
-            + self.legacy.u16tag(0x12, 0x034E)
+            + self.legacy.u16tag(0x12, 0x034F)
+            + name_wire
             + self.legacy.u16tag(0x12, 1)
             + self.legacy.u32tag(0x14, 100)
             + self.legacy.u32tag(0x14, 100)
             + self.legacy.f32tag(400.0)
             + self.legacy.u16tag(0x12, character.position.scene_id)
             + bytes([0x32]) + character.position.scene_seq.to_bytes(8, "little")
-            + bytes([0x32]) + (0x01000801).to_bytes(4, "little") + bytes(4)
+            + bytes([0x32]) + (0x00000801).to_bytes(4, "little") + bytes(4)
             + self.legacy.u8tag(0x05, 1)
             + self.legacy.u32tag(0x19, 1)
             + bytes([0x32]) + self.legacy.V116_INITIAL_CASH.to_bytes(8, "little")
-            + name_wire
         )
         self.assertEqual(actor, expected_prefix)
         self.assertEqual(actor.count(name_wire), 1)

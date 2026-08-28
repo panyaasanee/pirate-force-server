@@ -72,9 +72,21 @@ PLAYER_LOGIN_MOVEMENT_SPEED = 400.0
 # BasicAttr mask bit added by this widening.
 _BASIC_BIT_MOVEMENT_SPEED = 0x0040
 
+# CORE-REQUEST-022's "probe base 1" fix (PANYA-DECISION 20260828_0125 row
+# x1/x37): the real login path was sending the character's own name into
+# ActorAttr bit 0x01000000 @ +0x164, which the probe identified as the
+# GUILD-name field (LABEL_GUILD), not the character-name field -- a bug
+# inherited from the V1-V141 author per the owner's own diagnosis in that
+# letter.  BasicAttr bit 0x0001 @ +0x28 (wstring, tag 0x48) is the real
+# character-name field and is already proven and wired for NPCs/mobs/objects
+# (BASIC_BIT_NAME in mob_death.py, npc_wire.py, remote_player_hypothesis.py,
+# hostile_hp_link_hypothesis.py, and the field-mob roster module) -- only
+# the player's own real-login composer below was still missing it.
+_BASIC_BIT_NAME = 0x0001
+
 
 def _encode_character_name(legacy, character_name: str) -> bytes:
-    """Encode the persisted name with the exact ActorAttr+0x164 wstring codec."""
+    """Encode the persisted name with the project's shared wstring tag codec."""
     if not isinstance(character_name, str):
         raise TypeError("character name must be str")
     if not character_name:
@@ -150,14 +162,28 @@ def _make_actor_attr_with_name_and_class(
     are already proven). Adds level+speed to the proven
     ``_make_actor_attr_with_name`` projection, in the same ascending-mask-bit
     emission order the rest of this codebase's field tables use: BasicAttr
-    level 0x0002, hp_current/hp_max 0x0004/0x0008, movement speed 0x0040,
-    scene id/seq 0x0100/0x0200; ActorAttr class_id 0x00000001, cash
-    0x00000800, name 0x01000000 -- so this stays additive, not a rewrite of
-    the proven frame. The optional faction field is spliced in at the exact
-    same relative position ``_make_actor_attr_with_name`` uses for it.
+    name 0x0001, level 0x0002, hp_current/hp_max 0x0004/0x0008, movement
+    speed 0x0040, scene id/seq 0x0100/0x0200; ActorAttr class_id 0x00000001,
+    cash 0x00000800.
+
+    Same PANYA-DECISION 20260828_0125 letter (row x1/x37) also fixes the
+    inherited name-placement bug: the character's own name now rides
+    BasicAttr bit 0x0001 (the field every other actor type -- NPC, mob,
+    object -- already uses for its name) instead of ActorAttr bit
+    0x01000000, which the owner's live-client probe proved is the GUILD-name
+    field (LABEL_GUILD), not the character-name field. A freshly-created
+    character has no guild, so that ActorAttr bit is simply no longer set
+    (omitted, not sent-empty) rather than carrying the player's own name
+    into the guild-name slot. The optional faction field is spliced in at
+    the exact same relative position ``_make_actor_attr_with_name`` uses for
+    it; this reordering keeps that splice point and the frame's total length
+    unchanged (the name wstring moves, it is not duplicated or dropped).
     """
     name_wire = _encode_character_name(legacy, character_name)
-    basic_mask = 0x0002 | 0x000C | _BASIC_BIT_MOVEMENT_SPEED | 0x0100 | 0x0200
+    basic_mask = (
+        _BASIC_BIT_NAME | 0x0002 | 0x000C | _BASIC_BIT_MOVEMENT_SPEED
+        | 0x0100 | 0x0200
+    )
     faction_wire = b""
     if basic_faction is not None:
         basic_mask |= 0x0400
@@ -167,6 +193,7 @@ def _make_actor_attr_with_name_and_class(
         + bytes([0x32])
         + struct.pack("<II", identity_lo & 0xFFFFFFFF, identity_hi & 0xFFFFFFFF)
         + legacy.u16tag(0x12, basic_mask)
+        + name_wire
         + legacy.u16tag(0x12, level)
         + legacy.u32tag(0x14, 100)
         + legacy.u32tag(0x14, 100)
@@ -174,11 +201,10 @@ def _make_actor_attr_with_name_and_class(
         + legacy.u16tag(0x12, scene_id)
         + bytes([0x32]) + struct.pack("<Q", scene_seq)
         + faction_wire
-        + bytes([0x32]) + struct.pack("<II", 0x01000801, 0)
+        + bytes([0x32]) + struct.pack("<II", 0x00000801, 0)
         + legacy.u8tag(0x05, 1)
         + legacy.u32tag(0x19, class_id)
         + bytes([0x32]) + struct.pack("<Q", legacy.V116_INITIAL_CASH)
-        + name_wire
     )
 
 
