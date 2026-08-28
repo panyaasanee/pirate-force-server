@@ -2014,26 +2014,43 @@ lane now has two independent reasons not to send one yet.
 1. `gm/teleport_wire.py` -- the constant's comment block rewritten: the old
    reasoning kept under a `SUPERSEDED` marker (history is struck, not
    deleted), the new lock stated with its source, and the release sequence
-   written down as three steps in order (chief's write point on `main`, COO
-   lifts the lock, *then* the constant). Two new names record RE-129's
+   written down as the real sequence, in order (chief's write point on `main`,
+   COO lifts the lock, *then* the constant, *then* the second test file named
+   below). Two new names record RE-129's
    measurement without acting on it: `FORCE_POS_VITAL_VERSION_PROVEN_BY_RE129
    = 0`, `TELEPORT_VITAL_VERSION_PROVEN_BY_RE129 = 4`.
-2. `tests/test_gm_force_pos_version_lock.py` (new, 5 tests) -- **the lock is
-   enforced, not described.** If the constant is ever non-`None` while
-   `runtime.py` carries no `GM_WARP_POSITION_CONFIRMED` write point, the
-   suite goes red and the failure message names the precondition. It also
-   pins both recorded values against the result letter, proves they are two
-   different measurements, greps every tracked lane source to keep the
-   records inert (a record is not a switch -- using one to gate a send would
-   route around the locked line without changing it), and refuses a default
-   `vital_version` on any ForcePos/Teleport frame builder, since a default is
-   a guess with a polite name. Only one direction is enforced: landing the
-   write point does **not** force the constant on. Lifting the lock is COO's
-   call, and a red inside chief's pull request for a lane he does not own is
-   a red he cannot fix.
-   Mutation-checked in all four directions: flipping the switch, mis-recording
-   the teleport value, defaulting a builder's version, and naming a record in
-   another lane file each turn the suite red; reverting each restores green.
+2. `tests/test_gm_force_pos_version_lock.py` (new, 7 tests) -- **the lock is
+   enforced, not described** -- but only after pf-adversary rewrote what
+   "enforced" had to mean. The first version guarded a NAME; COO's order is
+   about BYTES, and the adversary put four working senders through it with all
+   five tests green (details in the adversary section below). The shipped
+   version is AST-based and asks about frames:
+   * the `runtime.py` write point must be a string constant **inside a call**
+     (`print(...)`, `events.append(...)`) -- a `# TODO: GM_WARP_POSITION_CONFIRMED`
+     comment saying the point does *not* exist satisfied the earlier substring check;
+   * **no shipped module under `src/` may compose a ForcePos/Teleport frame
+     with a literal version** -- the byte must come from the gated constant, so
+     switching the constant off switches every sender off with it. The version
+     byte is public now (RE-129, three letters, two source files); knowing it
+     is not permission to send it;
+   * the `*_PROVEN_BY_RE129` records may be written in their home file and read
+     **nowhere in `src/`, that home file included** -- the adversary's second
+     bypass was a sender added to `teleport_wire.py` itself, the one file the
+     earlier check skipped;
+   * no builder may default its `vital_version`, checked over **every function
+     the two modules expose** rather than a hand-written list of four names.
+   The file set is `git ls-files` **union a filesystem walk**, so a brand-new
+   untracked module is covered before anyone remembers to `git add` it, and a
+   missing git costs nothing instead of erroring.
+   Only one direction is enforced: landing the write point does **not** force
+   the constant on. Lifting the lock is COO's call, and a red inside chief's
+   pull request for a lane he does not own is a red he cannot fix.
+   All five bypasses now go red, and the honest release shape (a real `print`
+   of the token) still passes; the four original mutations (flip the switch,
+   mis-record the teleport value, default a builder's version, read a record
+   elsewhere) go red and revert green.
+   **[ไม่อ้าง]** ว่าด่านนี้กันการส่งได้ทุกทาง: เฟรมที่แพ็คเองด้วย `struct.pack` โดยไม่แตะ builder
+   ทั้งสองตัวอยู่นอกสิ่งที่มันมองเห็น มันปิดทางที่วิศวกรจะเดินจริง ไม่ใช่ทุกทางที่มีอยู่
 3. `gm/chat_command_action.py` -- the position-ownership section is no longer
    an open question. The ruling is written in as this module's contract, with
    the original question kept below it unedited, and one sentence that exists
@@ -2043,6 +2060,24 @@ lane now has two independent reasons not to send one yet.
    which is not this lane's zone.
 4. `docs/GM_LANE.md` -- the `hs9m2r` heading corrected from RE-126 (above):
    the button *is* bound to its handler; only the silence is still a fact.
+
+### Release day touches two test files, not one
+
+`tests/test_gm_chat_command_action.py::VersionGateTests::test_the_shipped_constant_is_still_none_so_no_bytes_can_go_out`
+asserts `assertIsNone` **unconditionally** and predates this round. Whoever
+lifts the lock must edit it in the same commit or take three reds with no
+explanation. pf-adversary found that the release sequence -- in
+`teleport_wire.py`, in this file, and in CORE-REQUEST-GM-030 -- mentioned it
+nowhere; all three now do.
+
+### Deviation from COO's order, stated rather than hidden
+
+COO ③ says to write the ruling into `gm/chat_command_action.py`'s header **in
+place of the question** (`แทนคำถาม`). This round wrote the ruling at the top and
+kept the question below it under "THE QUESTION AS IT WAS ASKED (kept, not
+deleted)", following the house rule that history is struck, not deleted. That
+is a deviation, not a reading of the order; it is recorded here and in this
+round's letter so COO can overrule it in one line.
 
 ### Sent to chief
 
@@ -2062,9 +2097,72 @@ positional parameters and the 4-tuple-or-`None` return are exactly as the
 ticket wrote them, the two keyword-only parameters are optional and exist for
 tests.
 
+### pf-adversary: NOT APPROVED on the first pass -- 17 findings, 5 of them fatal
+
+The round's own headline claim ("the lock is enforced") was the thing that
+failed hardest. Every bypass below was reproduced by the adversary, and every
+fix was re-tested against it:
+
+1. **[fatal] A comment satisfied the lock.** The check was
+   `TOKEN in runtime.py.read_text()`. A one-line `# TODO(GM-030): ... NOT
+   implemented yet` -- a comment saying the write point does not exist -- made
+   the switch flippable with five green tests. **Fixed:** AST, and the token
+   must be a string constant inside a call.
+2. **[fatal] A literal `0` at any call site skipped the whole property.** The
+   version byte is public now; a sender never has to mention the locked
+   constant. COO's order is about bytes leaving the server, and the tests were
+   about one name. **Fixed:** no shipped module under `src/` may pass a literal
+   version to a ForcePos/Teleport builder.
+3. **[fatal] The inertness check skipped `teleport_wire.py` itself** -- the
+   adversary added a sender there using the record constant: green, and
+   `pytest -k "gm or lane_hook"` returned the identical 400 this file was
+   publishing as evidence. The metric could not tell a locked repo from a
+   routed-around one. **Fixed:** the home file is scanned like every other; a
+   record may be written there and read nowhere.
+4. **[fatal] The file set missed where chief's wiring actually lands**
+   (`runtime.py`, `lane_hooks/__init__.py`) and any brand-new file before
+   `git add`. **Fixed:** all of `src/`, tracked union walked.
+5. **[fatal] A stronger gate already existed and the release sequence never
+   mentioned it** -- `VersionGateTests`' unconditional `assertIsNone`. On
+   release day it must be edited or it reds for no stated reason. **Fixed:**
+   named in three places (see above).
+6. Stale `runtime.py:5107` pin re-typed into a new comment instead of
+   re-derived (correct: `5168`/`5173`) -- fixed. 7. The CORE-REQUEST letter
+   pinned `chat_command_action.py:206`, a line number this round's own diff
+   created, while claiming to read `main` (`163` there) -- fixed to name the
+   symbol. 8. `_tracked_lane_files` promised `None` when git is missing and
+   raised `FileNotFoundError` instead, and its "no git" skip also swallowed
+   the not-a-repo case under a wrong message -- fixed; the walk now covers
+   both. 9. "greps every tracked lane source" and "any builder" were both
+   larger than the code -- reworded to what it does. 10. "the third measured
+   data point" over a list of four -- fixed. 11. The four version values
+   flattened two evidence layers into one list (three from client
+   constructors, `SelectActor -> 10` from the legacy **server** source) --
+   separated. 12. The lane's assumption tag was forked into a third spelling
+   (`[assumed by LANE-GM - awaiting RE]`), one of them replacing an existing
+   canonical Thai tag, so a grep for either form missed both live assumptions
+   -- canonical tag restored. 13. "Verbatim" over a rendering of a Thai letter
+   -- reworded. 14. A shipped placeholder timestamp (`22:xx`) -- fixed.
+   15. The deviation from COO ③ was undeclared -- declared (above).
+   16. Missing nonclaim about what the lock cannot stop -- added.
+
+**Checked and clean:** the adversary compared ASTs of both modified modules
+against `origin/main` with docstrings stripped -- `chat_command_action.py` is
+AST-identical, `teleport_wire.py` differs only by the two record assignments.
+No behaviour change for an ordinary player or for the live `0xAC52` route. It
+also independently confirmed `#204`'s merge sha and time, the signature
+reported to chief, and that both RE letters and the COO ruling are rendered
+accurately in this round's text.
+
+**The question it left open, recorded because it is not fully answered:**
+*what goes red for a `ForcePos` send that never mentions the constant at all?*
+Fixes 2 and 3 close that for anything built through the two frame builders.
+A frame hand-packed with `struct.pack` is still outside the net, and this file
+now says so rather than implying otherwise.
+
 ### Tests
 
-`pytest -k "gm or lane_hook"`: **400 passed, 4 skipped, 86 subtests** --
+`pytest -k "gm or lane_hook"`: **402 passed, 4 skipped, 86 subtests** --
 green(cloud sanity), not an Actions run and not the bridge's full gate.
 `python -m compileall src tests` = 0.
 
@@ -2087,5 +2185,10 @@ client ยืนจุดใหม่แต่ DB จำจุดเก่า (a
 3. [ไม่อ้าง] ว่าชื่อแกน x/y/z ของ `ForcePosBody` ถูก -- RE-129 T2 ปิดเฉพาะ offset
    (`+0x14/+0x18/+0x1C`) และให้ bounded negative กับชื่อ [สมมติของสาย GM - รอ RE]
 4. [ไม่อ้าง] ว่าปุ่ม `BT_GM` ใช้การได้ -- RE-126 พิสูจน์แค่ว่า binding ถูกตัว ไม่ได้อธิบายความเงียบ
-5. **GM nonclaim:** ทุกอย่างในสายนี้เป็นเครื่องมือเพื่อไปให้ถึงสภาพที่จะเทส
+5. [ไม่อ้าง] ว่าด่านของรอบนี้กันการส่ง `ForcePos` ได้ทุกทาง -- มันเห็นเฉพาะเฟรมที่ประกอบผ่าน builder
+   ทั้งสองตัว เฟรมที่แพ็คเองด้วย `struct.pack` อยู่นอกตาข่าย และตัวตัดสินจริงยังเป็น
+   `FORCE_POS_VITAL_VERSION_CONFIRMED` + วินัยของคนเขียน ไม่ใช่เทส
+6. [ไม่อ้าง] ว่ารอบนี้ผ่าน pf-adversary ตั้งแต่รอบแรก -- **NOT APPROVED** 17 ข้อ ห้าข้อ fatal
+   ของที่ push คือฉบับหลังแก้ครบและทดสอบกับ bypass ทั้งห้าแล้ว
+7. **GM nonclaim:** ทุกอย่างในสายนี้เป็นเครื่องมือเพื่อไปให้ถึงสภาพที่จะเทส
    **ไม่ใช่**หลักฐานว่าฟีเจอร์ใดทำงาน หรือว่า milestone ใดผ่าน

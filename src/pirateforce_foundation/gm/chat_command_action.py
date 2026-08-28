@@ -73,15 +73,20 @@ WHAT IT DOES NOT DO
   open)~~ RE-129 ANSWERED on 2026-08-28T20:09+07:00 -- the byte is 0 -- and
   the constant is still None on purpose: COO-DECISION 21:30 locks it there
   until chief's confirmed-position write point is on main (CORE-REQUEST-GM-030).
-  See that constant's block and `test_gm_force_pos_version_lock.py`.
+  See that constant's block and `test_gm_force_pos_version_lock.py` -- and note
+  that release day edits TWO test files: `VersionGateTests` in this module's
+  own suite asserts the constant is None unconditionally.
   The rest of that constant's comment still holds: the vital version byte is
-  per-vital (0x5A19 -> 0, ForcePos -> 0, SelectActor -> 10, TeleportVital ->
-  4 -- four measured values, still no default) and GT-101 measured what an unproven
+  per-vital (0x5A19 -> 0, ForcePos -> 0, TeleportVital -> 4 from the client's
+  own constructors; SelectActor -> 10 from the legacy server source -- four
+  values, two layers, still no default) and GT-101 measured what an unproven
   version does to a real client -- modal error, connection halted, socket
   closed.  This module gates on the constant being not-None for the same
   reason `runtime.py:5168`/`5173` gates the login GM-state frame on
   `state_wire.GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED`, and refuses by name
-  instead.  When RE-129 answers, that one constant is the whole change.
+  instead.  ~~When RE-129 answers, that one constant is the whole change.~~
+  It answered, and it is not: the change is chief's write point on main, then
+  COO lifting the lock, then the constant, then the second test file above.
 
 POSITION OWNERSHIP AFTER A WARP -- ANSWERED, AND THE ANSWER IS THE DESIGN
 --------------------------------------------------------------------------
@@ -161,7 +166,7 @@ ALSO OPEN, same reason (recorded, not fixed here):
   `PF_FIELD_VALIDATION.tsv` is NOT_OBSERVED both ways -- so no client-side
   crosswalk separates first/second/third into x/y/z.  RE-129's own words:
   do not use the resemblance to another message's Position as evidence.
-  Still [assumed by LANE-GM - awaiting RE].
+  Still [สมมติของสาย GM - รอ RE].
 
 FAIL-CLOSED
 -----------
