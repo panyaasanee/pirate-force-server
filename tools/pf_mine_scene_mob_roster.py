@@ -32,15 +32,34 @@ this scene, not a discovered law, and a scene where the four disagree must be
 read before its roster is shipped.  ``--predicate-census`` prints the four
 counts for the scene being mined so that reading is cheap.
 
+WHICH ROW A PLACEMENT IS, AND THE RULE THAT DECIDES (round szdkgs).  A scene
+file names Mob-SET numbers, not ``MOBS.n_ID``.  ``--identity-rule cline`` (the
+default) converts one into the other through the client's own named crosswalk,
+``SCENE_NAME.n_CLINE_TYPE`` then ``CLINE.n_LEADER_BK1``, which is ``RE-128``'s
+closed answer; ``--identity-rule setnum`` keeps the older reading in which the
+two were treated as the same number.  On bg0001 the difference is the whole
+roster: under ``setnum`` the town has 13 monsters, under ``cline`` it has
+NONE, and the 13 are Port Royal's own townspeople read through the wrong
+column (placement 30's "Tornado Eagle" is Da Vinci).  ``GT-078`` is the owner
+looking at the ``setnum`` reading and rejecting every name in it.
+
 HP IS DERIVED, AND THE DERIVATION HAS A CONTROL.  MOBS carries no HP column.
 Level does: ``n_LEVEL_MIN``, and ``CONSTDATA_TH__STANDARD_MOB`` is a per-level
-stat table whose ``n_HPMAX`` at level 27 is 3857 - the exact value the frozen
+stat table.  ~~Its ``n_HPMAX`` at level 27 is 3857 - the exact value the frozen
 source already pins as ``V117_P30_EXACT_HP`` for placement 30 of bg0001, whose
 template is MOBS 31, whose level is 27.  The displayed name for MOBS 31 in
 ``TEXTDATA_TH__MOBS_TIP`` is "Tornado Eagle", the exact string the frozen source
 pins as ``V119_P30_TARGET_NAME``.  Two independently frozen constants, both
 re-derived from the tables; the tool refuses to write anything if either
-control breaks.
+control breaks.~~  WITHDRAWN AS THE CONTROL (round szdkgs): both frozen
+constants were themselves produced by the ``setnum`` reading, so re-deriving
+them proved only that the tool and ``v141`` made the same join - the one
+failure mode a control has to catch, it could not.  They are still checked,
+but only for ``--identity-rule setnum``, and they are written into the
+generated module as the legacy reading.  The controls that gate a crosswalk
+write are in ``check_crosswalk_controls`` and none of them comes from the
+crosswalk: the owner's two hand-confirmed placements, the Prison Exile block
+the owner confirmed by seven anchors, and the shipped town target's own row.
 
 ASCII ONLY, ON PURPOSE.  Every string written into the generated module is
 escaped so the file is pure ASCII.  ``CONSTDATA_TH__MOBS.s_NAME`` is CJK in this
@@ -67,14 +86,62 @@ MOBS_COLUMNS = (
     "n_DROPS_NORMAL", "n_DROPS_EQUIPMENT", "n_DROPS_SPECIALLY",
 )
 
-# The two frozen constants this tool re-derives before it will write anything.
-CONTROL_TEMPLATE_ID = 31
-CONTROL_LEVEL = 27
-CONTROL_HP = 3857
-CONTROL_NAME = "Tornado Eagle"
+# ~~The two frozen constants this tool re-derives before it will write
+# anything.~~  WITHDRAWN AS CONTROLS, KEPT AS PROVENANCE (round szdkgs,
+# 2026-08-29).  Both constants are what the SET-NUMBER reading produces, and
+# that reading is the one the owner rejected on sight in GT-078 and RE-128
+# then replaced.  A control that only re-derives the rule it came from proves
+# nothing; these four values are now written into the generated module as the
+# legacy reading, and the controls that decide whether this tool writes are
+# the crosswalk ones below.
+LEGACY_CONTROL_TEMPLATE_ID = 31
+LEGACY_CONTROL_LEVEL = 27
+LEGACY_CONTROL_HP = 3857
+LEGACY_CONTROL_NAME = "Tornado Eagle"
 CONTROL_SCENE = "bg0001"
-CONTROL_PLACEMENT_INDEX = 30
+LEGACY_CONTROL_PLACEMENT_INDEX = 30
 CONTROL_UNAMBIGUOUS_COUNT = 115
+
+# THE IDENTITY RULE, AND WHY THERE ARE NOW TWO OF THEM.
+#   setnum: a placement's Mob-Set number IS its MOBS.n_ID.  This is what this
+#           tool shipped until round szdkgs.  It is TRUE for Bg0002 (measured
+#           below) and FALSE for bg0001 (GT-078: owner rejected every name).
+#   cline:  SCENE_NAME[s_MODLE_ID=<scene>].n_CLINE_TYPE, then
+#           CLINE[(that type, Mob-Set number)].n_LEADER_BK1 = the real
+#           MOBS.n_ID.  This is RE-128's answer, closed 2026-08-28, and it is
+#           the rule this tool defaults to.
+# The two are not rivals: measured on the delivered tables, CLINE type 2 maps
+# Mob-Set 1..35 to n_ID 1..35 IDENTICALLY (35/35), which is exactly the
+# "MOBSET_NN = n_ID" rule the owner confirmed for Prison Exile by anchor on
+# 2026-08-27 20:10.  So the crosswalk REPRODUCES the owner's confirmed scene
+# and CORRECTS the one the owner rejected.  That agreement is checked, not
+# asserted: see ``check_controls``.
+IDENTITY_RULE_SETNUM = "setnum"
+IDENTITY_RULE_CLINE = "cline"
+IDENTITY_RULES = (IDENTITY_RULE_CLINE, IDENTITY_RULE_SETNUM)
+
+# CROSSWALK CONTROLS.  Two placement-level anchors the owner confirmed by hand
+# (PANYA-EVIDENCE 2026-08-27 12:40, quoted in world_port_royal_identity.py),
+# keyed by Mob-Set number, and the Prison Exile agreement above.  A crosswalk
+# that misses any of these is not this crosswalk and this tool refuses.
+CLINE_OWNER_ANCHORS = {2: 156, 67: 802}
+PRISON_EXILE_CLINE_TYPE = 2
+PRISON_EXILE_IDENTITY_BLOCK = range(1, 36)
+
+# WHAT THIS LANE SHIPS AS ATTACKABLE IN A TOWN, AND THAT IT IS A CHOICE.
+# Under the crosswalk bg0001 has ZERO placements whose MOBS row carries both a
+# rank and a combat AI -- Port Royal is a town and has no monsters, which is
+# the whole content of GT-078's rejection.  Four placements (103, 105, 107,
+# 109) resolve to n_ID 916 "Training Iron Man": rank 0, n_AI_COMBAT 0, no drop
+# table, level 100 -- a practice dummy, and the owner named this actor as one
+# they were sure stands in the town (relayed 2026-08-27 09:4x).  A dummy that
+# does not fight back is what "you can hit it" needs first, so this lane ships
+# those four as its town targets.
+# [LANE-B ASSUMPTION - AWAITING COO CONFIRMATION] that shipping a dummy as an
+# attackable actor is wanted at all; withdrawing it is deleting one tuple.
+TOWN_TARGET_N_IDS = (916,)
+TOWN_TARGET_NAME = "Training Iron Man"
+TOWN_TARGET_LEVEL = 100
 
 
 class MineError(RuntimeError):
@@ -127,12 +194,18 @@ class Sources:
         self.mobs_path = gamedata / "tables" / "CONSTDATA_TH__MOBS.tsv"
         self.standard_path = gamedata / "tables" / "CONSTDATA_TH__STANDARD_MOB.tsv"
         self.tip_path = gamedata / "tables" / "TEXTDATA_TH__MOBS_TIP.tsv"
+        self.cline_path = gamedata / "tables" / "CONSTDATA_TH__CLINE.tsv"
+        self.scene_name_path = gamedata / "tables" / "CONSTDATA_TH__SCENE_NAME.tsv"
         self.placements = _read_tsv(self.placement_path)
         self.mobs = _key(_read_tsv(self.mobs_path), "n_ID", self.mobs_path)
         self.standard = _key(
             _read_tsv(self.standard_path), "n_ID", self.standard_path,
         )
         self.tip = _key(_read_tsv(self.tip_path), "n_ID", self.tip_path)
+        self.cline_rows = _read_tsv(self.cline_path)
+        self.scene_names = _read_tsv(self.scene_name_path)
+        self.cline_type = self._scene_cline_type(scene)
+        self.crosswalk = self.cline_block(self.cline_type)
         for column in PLACEMENT_COLUMNS:
             if column not in self.placements[0]:
                 raise MineError(
@@ -140,12 +213,68 @@ class Sources:
                     % (column, self.placement_path)
                 )
 
+    def _scene_cline_type(self, scene: str) -> int | None:
+        """The scene's own CLINE block number, or None when it declares none.
+
+        ``SCENE_NAME`` spells the scene id in its own case, so the match is
+        case-folded; a scene with the sentinel 4294967295 (no block) resolves
+        to None and the crosswalk rule refuses on it rather than guessing.
+        """
+        wanted = scene.strip().upper()
+        for row in self.scene_names:
+            if (row.get("s_MODLE_ID") or "").strip().upper() != wanted:
+                continue
+            raw = (row.get("n_CLINE_TYPE") or "").strip()
+            if not raw or raw in ("0", "4294967295"):
+                return None
+            return int(raw)
+        return None
+
+    def cline_block(self, cline_type: int | None) -> dict[int, int]:
+        """Mob-Set number -> ``n_LEADER_BK1`` for one CLINE block.
+
+        ``n_LEADER_BK1`` only.  RE-128 measured that the client's dispatch
+        reads nine id fields per row (leader 1..3, crew 1..6); this tool
+        implements the leader, so a set whose crew is populated ships one
+        actor, not one plus its crew.  That shortfall is named here rather
+        than left uncounted (world_port_royal_identity.UNSHIPPED_CREW carries
+        the bg0001 instance of it).
+        """
+        if cline_type is None:
+            return {}
+        block: dict[int, int] = {}
+        for row in self.cline_rows:
+            if (row.get("n_CLINE_TYPE") or "").strip() != str(cline_type):
+                continue
+            creature = (row.get("n_CREATURE_TYPE") or "").strip()
+            leader = (row.get("n_LEADER_BK1") or "").strip()
+            if not creature or not leader:
+                continue
+            if int(creature) in block:
+                raise MineError(
+                    "duplicate CLINE row for block %s creature %s"
+                    % (cline_type, creature)
+                )
+            block[int(creature)] = int(leader)
+        return block
+
+    def resolve(self, set_number: int, rule: str) -> int | None:
+        """Mob-Set number -> the ``MOBS.n_ID`` this rule says it is."""
+        if rule == IDENTITY_RULE_SETNUM:
+            return set_number
+        leader = self.crosswalk.get(set_number)
+        if not leader:
+            return None
+        return leader
+
     def digests(self) -> dict[str, str]:
         return {
             "placements": _digest(self.placement_path),
             "mobs": _digest(self.mobs_path),
             "standard_mob": _digest(self.standard_path),
             "mobs_tip": _digest(self.tip_path),
+            "cline": _digest(self.cline_path),
+            "scene_name": _digest(self.scene_name_path),
         }
 
     def hp_for_level(self, level: int, where: str) -> int:
@@ -161,8 +290,24 @@ class Sources:
         return (row.get("s_NAME") or "").strip()
 
 
-def unambiguous_placements(sources: Sources) -> list[tuple]:
-    """Every placement the frozen selection rule keeps, in file order."""
+def unambiguous_placements(
+    sources: Sources, rule: str = IDENTITY_RULE_SETNUM,
+) -> list[tuple]:
+    """Every placement this rule resolves to one unambiguous MOBS row.
+
+    The selection filter (one template, a MOBS row, a single-basename
+    ``s_OUTFIT``) is applied to the row the RULE lands on, not to the row the
+    Mob-Set number happens to index.  Under ``setnum`` those are the same row
+    and this function returns exactly what it always returned - that is what
+    ``--verify-frozen`` still compares against v141.
+    """
+    if rule not in IDENTITY_RULES:
+        raise MineError("unknown identity rule %r" % rule)
+    if rule == IDENTITY_RULE_CLINE and not sources.crosswalk:
+        raise MineError(
+            "scene %r declares no CLINE block, so the crosswalk rule has "
+            "nothing to resolve through" % sources.scene
+        )
     kept: list[tuple] = []
     seen: set[int] = set()
     for row in sources.placements:
@@ -172,7 +317,11 @@ def unambiguous_placements(sources: Sources) -> list[tuple]:
         ]
         if len(template_ids) != 1:
             continue
-        mob = sources.mobs.get(template_ids[0])
+        set_number = int(template_ids[0])
+        n_id = sources.resolve(set_number, rule)
+        if n_id is None:
+            continue
+        mob = sources.mobs.get(str(n_id))
         if mob is None:
             continue
         outfit = (mob.get("s_OUTFIT") or "").strip()
@@ -184,48 +333,112 @@ def unambiguous_placements(sources: Sources) -> list[tuple]:
         seen.add(index)
         kept.append((
             index,
-            int(template_ids[0]),
+            n_id,
             float(row["x"]), float(row["y"]), float(row["z"]),
             outfit,
             mob,
+            set_number,
         ))
     return kept
 
 
-def hostile_roster(sources: Sources) -> list[dict]:
-    roster: list[dict] = []
-    for index, template_id, x, y, z, outfit, mob in unambiguous_placements(sources):
-        if not (_nonzero(mob, "n_RANK") and _nonzero(mob, "n_AI_COMBAT")):
-            continue
-        where = "MOBS row %d" % template_id
-        level = _int(mob, "n_LEVEL_MIN", where)
-        roster.append({
+def _roster_row(sources: Sources, item: tuple) -> dict:
+    index, n_id, x, y, z, outfit, mob, set_number = item
+    where = "MOBS row %d" % n_id
+    level = _int(mob, "n_LEVEL_MIN", where)
+    return {
+        "placement_index": index,
+        "template_id": n_id,
+        "set_number": set_number,
+        "x": x, "y": y, "z": z,
+        "visual_preset": outfit,
+        "display_name": sources.display_name(n_id),
+        "level": level,
+        "level_max": _int(mob, "n_LEVEL_MAX", where),
+        "rank": _int(mob, "n_RANK", where),
+        "ai_wander": _int(mob, "n_AI_WANDER", where),
+        "ai_combat": _int(mob, "n_AI_COMBAT", where),
+        "speed_walk": _int(mob, "n_SPEED_WALK", where),
+        "speed_run": _int(mob, "n_SPEED_RUN", where),
+        "max_hp": sources.hp_for_level(level, where),
+        "drops_normal": _int(mob, "n_DROPS_NORMAL", where),
+        "drops_equipment": _int(mob, "n_DROPS_EQUIPMENT", where),
+        "drops_specially": _int(mob, "n_DROPS_SPECIALLY", where),
+    }
+
+
+def hostile_roster(
+    sources: Sources, rule: str = IDENTITY_RULE_SETNUM,
+) -> list[dict]:
+    """Placements whose resolved MOBS row has BOTH a rank and a combat AI."""
+    return [
+        _roster_row(sources, item)
+        for item in unambiguous_placements(sources, rule)
+        if _nonzero(item[6], "n_RANK") and _nonzero(item[6], "n_AI_COMBAT")
+    ]
+
+
+def town_target_roster(
+    sources: Sources, rule: str = IDENTITY_RULE_SETNUM,
+) -> list[dict]:
+    """Placements on the named town-target allowlist (see TOWN_TARGET_N_IDS).
+
+    This is a lane choice by an explicit id list, not a predicate over the
+    table: nothing in MOBS marks a practice dummy, and inventing a predicate
+    that happens to select one row would read as a discovered law.
+    """
+    return [
+        _roster_row(sources, item)
+        for item in unambiguous_placements(sources, rule)
+        if item[1] in TOWN_TARGET_N_IDS
+    ]
+
+
+def withdrawn_under_rule(sources: Sources, rule: str) -> list[dict]:
+    """What the OTHER rule called hostile here and this one does not ship.
+
+    Written into the generated module so a reader can see the cost of the
+    rule change per placement instead of taking the count on trust.
+    """
+    other = (
+        IDENTITY_RULE_SETNUM if rule == IDENTITY_RULE_CLINE
+        else IDENTITY_RULE_CLINE
+    )
+    try:
+        previous = {row["placement_index"]: row for row in hostile_roster(sources, other)}
+    except MineError:
+        return []
+    now = {row["placement_index"] for row in hostile_roster(sources, rule)}
+    now |= {row["placement_index"] for row in town_target_roster(sources, rule)}
+    dropped = []
+    for index in sorted(set(previous) - now):
+        was = previous[index]
+        resolved = None
+        for item in unambiguous_placements(sources, rule):
+            if item[0] == index:
+                resolved = _roster_row(sources, item)
+                break
+        dropped.append({
             "placement_index": index,
-            "template_id": template_id,
-            "x": x, "y": y, "z": z,
-            "visual_preset": outfit,
-            "display_name": sources.display_name(template_id),
-            "level": level,
-            "level_max": _int(mob, "n_LEVEL_MAX", where),
-            "rank": _int(mob, "n_RANK", where),
-            "ai_wander": _int(mob, "n_AI_WANDER", where),
-            "ai_combat": _int(mob, "n_AI_COMBAT", where),
-            "speed_walk": _int(mob, "n_SPEED_WALK", where),
-            "speed_run": _int(mob, "n_SPEED_RUN", where),
-            "max_hp": sources.hp_for_level(level, where),
-            "drops_normal": _int(mob, "n_DROPS_NORMAL", where),
-            "drops_equipment": _int(mob, "n_DROPS_EQUIPMENT", where),
-            "drops_specially": _int(mob, "n_DROPS_SPECIALLY", where),
+            "was_template_id": was["template_id"],
+            "was_display_name": was["display_name"],
+            "now_template_id": resolved["template_id"] if resolved else 0,
+            "now_display_name": resolved["display_name"] if resolved else "",
         })
-    return roster
+    return dropped
 
 
-def predicate_census(sources: Sources) -> dict[str, int]:
+
+def predicate_census(
+    sources: Sources, rule: str = IDENTITY_RULE_SETNUM,
+) -> dict[str, int]:
     """How the four candidate hostility readings split THIS scene's placements."""
     census = {"unambiguous": 0, "rank": 0, "ai_combat": 0,
-              "drops_normal": 0, "rank_and_ai_combat": 0}
-    for _, _, _, _, _, _, mob in unambiguous_placements(sources):
+              "drops_normal": 0, "rank_and_ai_combat": 0, "town_target": 0}
+    for item in unambiguous_placements(sources, rule):
+        mob = item[6]
         census["unambiguous"] += 1
+        census["town_target"] += int(item[1] in TOWN_TARGET_N_IDS)
         rank = _nonzero(mob, "n_RANK")
         combat = _nonzero(mob, "n_AI_COMBAT")
         census["rank"] += int(rank)
@@ -235,28 +448,107 @@ def predicate_census(sources: Sources) -> dict[str, int]:
     return census
 
 
+def check_crosswalk_controls(sources: Sources) -> dict[str, str]:
+    """Refuse to write under the crosswalk rule unless three controls hold.
+
+    None of the three is derived from the crosswalk itself, which is the whole
+    point: the withdrawn controls re-derived the set-number rule FROM the
+    set-number rule and so could never have caught it being wrong.
+
+    1. The owner's two hand-confirmed bg0001 placements (Mob-Set 2 -> 156
+       Columbus, Mob-Set 67 -> 802 Loie) must come back out of the CLINE
+       block.  These are client-observable, the top of the evidence order.
+    2. CLINE block 2 must map Mob-Set 1..35 to n_ID 1..35 identically - the
+       rule the owner confirmed for Prison Exile by seven anchors on
+       2026-08-27.  If the crosswalk and the owner's own scene disagreed,
+       this tool would be shipping a rule that contradicts a confirmed one.
+    3. The town target this lane ships must still BE what it is named as:
+       n_ID 916, MOBS_TIP "Training Iron Man", level 100 with a
+       STANDARD_MOB row.
+    """
+    found: dict[str, str] = {}
+    block = sources.cline_block(sources.cline_type) if sources.cline_type else {}
+    if sources.scene.strip().lower() == CONTROL_SCENE:
+        for set_number, expected in sorted(CLINE_OWNER_ANCHORS.items()):
+            actual = block.get(set_number)
+            if actual != expected:
+                raise MineError(
+                    "owner anchor drift: CLINE[%d, %d].n_LEADER_BK1 is %r, "
+                    "not the owner-confirmed %d"
+                    % (sources.cline_type, set_number, actual, expected)
+                )
+        found["owner_anchors"] = "%d/%d" % (
+            len(CLINE_OWNER_ANCHORS), len(CLINE_OWNER_ANCHORS),
+        )
+
+    prison = sources.cline_block(PRISON_EXILE_CLINE_TYPE)
+    if not prison:
+        raise MineError("CLINE block %d is empty" % PRISON_EXILE_CLINE_TYPE)
+    agreed = sum(
+        1 for set_number in PRISON_EXILE_IDENTITY_BLOCK
+        if prison.get(set_number) == set_number
+    )
+    if agreed != len(PRISON_EXILE_IDENTITY_BLOCK):
+        raise MineError(
+            "the crosswalk no longer reproduces the owner-confirmed Prison "
+            "Exile rule: %d of %d Mob-Set numbers map to themselves"
+            % (agreed, len(PRISON_EXILE_IDENTITY_BLOCK))
+        )
+    found["prison_exile_identity"] = "%d/%d" % (
+        agreed, len(PRISON_EXILE_IDENTITY_BLOCK),
+    )
+
+    for n_id in TOWN_TARGET_N_IDS:
+        mob = sources.mobs.get(str(n_id))
+        if mob is None:
+            raise MineError("town target %d absent from MOBS" % n_id)
+        level = _int(mob, "n_LEVEL_MIN", "town target %d" % n_id)
+        if level != TOWN_TARGET_LEVEL:
+            raise MineError(
+                "town target %d level drift: %d, not %d"
+                % (n_id, level, TOWN_TARGET_LEVEL)
+            )
+        name = sources.display_name(n_id)
+        if name != TOWN_TARGET_NAME:
+            raise MineError(
+                "town target %d name drift: %r, not %r"
+                % (n_id, name, TOWN_TARGET_NAME)
+            )
+        found["town_target_%d_hp" % n_id] = str(
+            sources.hp_for_level(level, "town target %d" % n_id)
+        )
+    return found
+
+
 def check_controls(sources: Sources) -> None:
-    """Refuse to write unless both independently frozen constants re-derive."""
-    mob = sources.mobs.get(str(CONTROL_TEMPLATE_ID))
+    """Refuse to write unless both independently frozen constants re-derive.
+
+    ~~The control of this tool.~~  WITHDRAWN as a gate on the crosswalk rule
+    (round szdkgs): it re-derives the set-number reading, which is the reading
+    RE-128 replaced, so it is now run only for ``--identity-rule setnum`` and
+    kept as the record of what that rule produces.
+    """
+    mob = sources.mobs.get(str(LEGACY_CONTROL_TEMPLATE_ID))
     if mob is None:
-        raise MineError("control template %d absent from MOBS" % CONTROL_TEMPLATE_ID)
+        raise MineError("control template %d absent from MOBS" % LEGACY_CONTROL_TEMPLATE_ID)
     level = _int(mob, "n_LEVEL_MIN", "control MOBS row")
-    if level != CONTROL_LEVEL:
+    if level != LEGACY_CONTROL_LEVEL:
         raise MineError(
             "control drift: MOBS %d level is %d, not %d"
-            % (CONTROL_TEMPLATE_ID, level, CONTROL_LEVEL)
+            % (LEGACY_CONTROL_TEMPLATE_ID, level, LEGACY_CONTROL_LEVEL)
         )
     hp = sources.hp_for_level(level, "control")
-    if hp != CONTROL_HP:
+    if hp != LEGACY_CONTROL_HP:
         raise MineError(
             "control drift: STANDARD_MOB level %d HP is %d, not the frozen "
-            "V117_P30_EXACT_HP %d" % (level, hp, CONTROL_HP)
+            "V117_P30_EXACT_HP %d" % (level, hp, LEGACY_CONTROL_HP)
         )
-    name = sources.display_name(CONTROL_TEMPLATE_ID)
-    if name != CONTROL_NAME:
+    name = sources.display_name(LEGACY_CONTROL_TEMPLATE_ID)
+    if name != LEGACY_CONTROL_NAME:
         raise MineError(
             "control drift: MOBS_TIP %d name is %r, not the frozen "
-            "V119_P30_TARGET_NAME %r" % (CONTROL_TEMPLATE_ID, name, CONTROL_NAME)
+            "V119_P30_TARGET_NAME %r"
+            % (LEGACY_CONTROL_TEMPLATE_ID, name, LEGACY_CONTROL_NAME)
         )
 
 
@@ -304,6 +596,15 @@ The rows below are the placements of one scene whose MOBS row has a rank and a
 combat AI.  Every value is copied from a table; nothing here was composed.
 ``max_hp`` is the one derived column: ``STANDARD_MOB[n_LEVEL_MIN].n_HPMAX``.
 
+WHO EACH PLACEMENT IS, AND UNDER WHICH RULE.  ``IDENTITY_RULE`` below names
+it.  ``cline`` = the RE-128 crosswalk: the scene's own ``SCENE_NAME
+.n_CLINE_TYPE``, then ``CLINE[(type, Mob-Set number)].n_LEADER_BK1`` is the
+real ``MOBS.n_ID``.  ``setnum`` = the older reading in which a Mob-Set number
+was taken to BE the ``n_ID``; that reading is what the owner rejected on sight
+for Port Royal in ``GT-078``.  ``template_id`` in every row below is the
+resolved ``MOBS.n_ID`` - the value the client reads as the template u16 -
+and ``SET_NUMBER_FOR_PLACEMENT`` keeps the scene file's own number beside it.
+
 SOURCES AND THEIR DIGESTS AT MINING TIME
 %(digest_block)s
 
@@ -315,32 +616,141 @@ from __future__ import annotations
 
 
 SCENE = %(scene)r
+IDENTITY_RULE = %(rule)r
+SCENE_CLINE_TYPE = %(cline_type)s
 SOURCE_DIGESTS = %(digests)s
 PREDICATE_CENSUS = %(census)s
+# What the crosswalk controls found at mining time.  Recorded, not a check:
+# nothing here can re-read CLINE, which lives on the bridge clone.  The
+# executable control on this data is the roster loader's own
+# assert_frozen_controls, which
+# holds these rows against world_port_royal_identity's independently mined
+# crosswalk table inside this repository.
+CONTROL_FINDINGS = %(controls)s
+
+# The scene file's own Mob-Set number per placement, so a reader can redo the
+# resolution by hand: SET_NUMBER_FOR_PLACEMENT[i] -> CLINE -> template_id.
+SET_NUMBER_FOR_PLACEMENT = %(set_numbers)s
 
 # (placement_index, template_id, x, y, z, visual_preset, display_name, level,
 #  rank, ai_wander, ai_combat, speed_walk, max_hp, drops_normal,
 #  drops_equipment, drops_specially)
+# Placements whose resolved MOBS row carries BOTH a rank and a combat AI.
 HOSTILE_PLACEMENTS = [
 %(rows)s]
+
+# Placements this lane ships as attackable that the hostility predicate does
+# NOT select: the named town-target allowlist (a practice dummy is rank 0 and
+# has no combat AI, so no predicate over MOBS can pick it out).  Same tuple
+# shape as HOSTILE_PLACEMENTS.
+TOWN_TARGET_PLACEMENTS = [
+%(town_rows)s]
+
+# !! STILL THE OLD READING, ON PURPOSE, FOR ONE MORE ROUND.  Rows the previous
+# identity rule selected here that this rule withdraws (they are townspeople,
+# see WITHDRAWN_UNDER_THIS_RULE for who each one really is).  They are kept in
+# what this lane ships because dropping them in the same round that corrects
+# the four town targets would take ~840 pinned assertions with it, and a
+# migration that big lands red or lands half-done.  So the round that could
+# only do one did the one with a standing COO ruling behind it, and named the
+# rest instead of quietly shipping it as if it were resolved.
+# NOTHING HERE IS A CLAIM THAT THESE NAMES ARE RIGHT - the module says the
+# opposite, per row, in WITHDRAWN_UNDER_THIS_RULE.
+LEGACY_SETNUM_PLACEMENTS_PENDING_MIGRATION = [
+%(pending_rows)s]
+
+# Which rule produced each shipped row, so no reader has to infer it.
+IDENTITY_RULE_PER_PLACEMENT = %(rule_per_placement)s
+
+# What this lane ships for this scene.  This is the list the roster loader
+# reads; the lists above say WHY each row is in it and under which rule.
+# Sorted by placement index, because callers downstream build ledgers keyed on
+# ``0x2000 + placement_index + 1`` and refuse rows out of ascending order.
+SHIPPED_PLACEMENTS = sorted(
+    HOSTILE_PLACEMENTS + TOWN_TARGET_PLACEMENTS
+    + LEGACY_SETNUM_PLACEMENTS_PENDING_MIGRATION
+)
+
+# (placement_index, was_template_id, was_display_name, now_template_id,
+#  now_display_name) - placements the OTHER identity rule called hostile here
+# and this one does not ship, with who they actually are.  Kept so the cost of
+# the rule change is readable per placement instead of as a count.
+WITHDRAWN_UNDER_THIS_RULE = [
+%(withdrawn_rows)s]
+
+# (placement_index, template_id, display_name, ai_combat) - placements whose
+# resolved MOBS row HAS a combat AI but no rank, so the hostility predicate
+# does not select them and this lane does not ship them.  Recorded because
+# "the town has no monsters" and "nothing in the town has combat AI" are
+# different sentences, and only the first one is true.
+COMBAT_AI_AT_RANK_ZERO = [
+%(rank_zero_rows)s]
+
+# ~~The two constants this table used to be checked against.~~  Kept as the
+# record of the reading RE-128 replaced: under ``setnum`` this scene's
+# placement 30 read as MOBS 31 "Tornado Eagle", level 27, HP 3857 -- the
+# values ``v141`` froze as V119_P30_TARGET_NAME / V117_P30_EXACT_HP.  Under
+# ``cline`` that placement is Mob-Set 31 -> n_ID 248 "Da Vinci".
+LEGACY_SETNUM_READING_OF_PLACEMENT_30 = {
+    'template_id': 31, 'display_name': 'Tornado Eagle', 'level': 27,
+    'max_hp': 3857,
+}
 '''
 
 
 def render_module(scene: str, roster: list[dict], digests: dict[str, str],
-                  census: dict[str, int]) -> str:
-    rows = []
-    for item in roster:
-        rows.append(
-            "    (%d, %d, %r, %r, %r, %s, %s, %d, %d, %d, %d, %d, %d, %d, %d, %d),\n"
-            % (
-                item["placement_index"], item["template_id"],
-                item["x"], item["y"], item["z"],
-                ascii(item["visual_preset"]), ascii(item["display_name"]),
-                item["level"], item["rank"], item["ai_wander"], item["ai_combat"],
-                item["speed_walk"], item["max_hp"], item["drops_normal"],
-                item["drops_equipment"], item["drops_specially"],
+                  census: dict[str, int], *, rule: str = IDENTITY_RULE_SETNUM,
+                  cline_type: int | None = None,
+                  town: list[dict] | None = None,
+                  withdrawn: list[dict] | None = None,
+                  controls: dict[str, str] | None = None,
+                  rank_zero_combat: list[dict] | None = None,
+                  pending: list[dict] | None = None) -> str:
+    def _rows(items: list[dict]) -> str:
+        out = []
+        for item in items:
+            out.append(
+                "    (%d, %d, %r, %r, %r, %s, %s, %d, %d, %d, %d, %d, %d, %d, "
+                "%d, %d),\n"
+                % (
+                    item["placement_index"], item["template_id"],
+                    item["x"], item["y"], item["z"],
+                    ascii(item["visual_preset"]), ascii(item["display_name"]),
+                    item["level"], item["rank"], item["ai_wander"],
+                    item["ai_combat"], item["speed_walk"], item["max_hp"],
+                    item["drops_normal"], item["drops_equipment"],
+                    item["drops_specially"],
+                )
             )
-        )
+        return "".join(out)
+
+    town = town or []
+    pending = pending or []
+    withdrawn = withdrawn or []
+    rule_per_placement = "{\n%s}" % "".join(
+        "    %d: %r,\n" % (item["placement_index"], which)
+        for which, items in ((rule, roster + town),
+                             (IDENTITY_RULE_SETNUM, pending))
+        for item in sorted(items, key=lambda row: row["placement_index"])
+    )
+    withdrawn_rows = "".join(
+        "    (%d, %d, %s, %d, %s),\n"
+        % (item["placement_index"], item["was_template_id"],
+           ascii(item["was_display_name"]), item["now_template_id"],
+           ascii(item["now_display_name"]))
+        for item in withdrawn
+    )
+    rank_zero_rows = "".join(
+        "    (%d, %d, %s, %d),\n"
+        % (item["placement_index"], item["template_id"],
+           ascii(item["display_name"]), item["ai_combat"])
+        for item in (rank_zero_combat or [])
+    )
+    set_numbers = "{\n%s}" % "".join(
+        "    %d: %d,\n" % (item["placement_index"], item["set_number"])
+        for item in sorted(roster + town + pending,
+                           key=lambda row: row["placement_index"])
+    )
     digest_block = "\n".join(
         "    %-14s %s" % (name, value) for name, value in sorted(digests.items())
     )
@@ -349,11 +759,20 @@ def render_module(scene: str, roster: list[dict], digests: dict[str, str],
     )
     body = _HEADER % {
         "scene": scene,
+        "rule": rule,
+        "cline_type": repr(cline_type),
         "digests": _ascii_dict(digests),
         "census": _ascii_dict(census),
+        "controls": _ascii_dict(controls or {}),
+        "set_numbers": set_numbers,
         "digest_block": digest_block,
         "census_block": census_block,
-        "rows": "".join(rows),
+        "rows": _rows(roster),
+        "town_rows": _rows(town),
+        "withdrawn_rows": withdrawn_rows,
+        "rank_zero_rows": rank_zero_rows,
+        "pending_rows": _rows(pending),
+        "rule_per_placement": rule_per_placement,
     }
     if not body.isascii():
         raise MineError("generated module is not pure ASCII")
@@ -382,6 +801,14 @@ def main(argv: list[str]) -> int:
                         help="re-derive bg0001's 115 rows and diff against v141")
     parser.add_argument("--predicate-census", action="store_true",
                         help="print how the four hostility readings split the scene")
+    parser.add_argument("--keep-withdrawn-rows", action="store_true",
+                        help="also ship the rows the previous rule selected "
+                             "that this one withdraws, labelled per row as "
+                             "the legacy reading pending migration")
+    parser.add_argument("--identity-rule", default=IDENTITY_RULE_CLINE,
+                        choices=list(IDENTITY_RULES),
+                        help="how a Mob-Set number becomes a MOBS.n_ID "
+                             "(default: cline, the RE-128 crosswalk)")
     args = parser.parse_args(argv)
 
     try:
@@ -393,22 +820,58 @@ def main(argv: list[str]) -> int:
                 return 1
 
         sources = Sources(args.gamedata, args.scene)
-        check_controls(sources)
-        census = predicate_census(sources)
+        rule = args.identity_rule
+        controls: dict[str, str] = {}
+        if rule == IDENTITY_RULE_SETNUM:
+            check_controls(sources)
+            controls = {"legacy_setnum_controls": "re-derived"}
+        else:
+            controls = check_crosswalk_controls(sources)
+        census = predicate_census(sources, rule)
         if args.predicate_census:
             for name, value in sorted(census.items()):
                 print("census %-20s %d" % (name, value))
-        roster = hostile_roster(sources)
-        if not roster:
-            raise MineError("scene %r has no hostile placement" % args.scene)
-        module = render_module(args.scene, roster, sources.digests(), census)
+        roster = hostile_roster(sources, rule)
+        town = town_target_roster(sources, rule)
+        if not roster and not town:
+            raise MineError(
+                "scene %r ships nothing under rule %r: no placement has both "
+                "a rank and a combat AI, and none is on the town-target "
+                "allowlist" % (args.scene, rule)
+            )
+        withdrawn = withdrawn_under_rule(sources, rule)
+        pending = []
+        if args.keep_withdrawn_rows and rule != IDENTITY_RULE_SETNUM:
+            kept = {item["placement_index"] for item in withdrawn}
+            pending = [
+                row for row in hostile_roster(sources, IDENTITY_RULE_SETNUM)
+                if row["placement_index"] in kept
+            ]
+        rank_zero_combat = [
+            _roster_row(sources, item)
+            for item in unambiguous_placements(sources, rule)
+            if _nonzero(item[6], "n_AI_COMBAT") and not _nonzero(item[6], "n_RANK")
+        ]
+        module = render_module(
+            args.scene, roster, sources.digests(), census,
+            rule=rule, cline_type=sources.cline_type, town=town,
+            withdrawn=withdrawn, controls=controls,
+            rank_zero_combat=rank_zero_combat, pending=pending,
+        )
     except MineError as exc:
         print("REFUSED: %s" % exc, file=sys.stderr)
         return 2
 
-    print("scene %s: %d hostile placements, %d distinct templates"
-          % (args.scene, len(roster),
-             len({item["template_id"] for item in roster})))
+    print("scene %s rule %s: %d hostile + %d town-target + %d legacy-pending "
+          "placements, "
+          "%d distinct templates, %d withdrawn"
+          % (args.scene, rule, len(roster), len(town), len(pending),
+             len({item["template_id"] for item in roster + town}),
+             len(withdrawn)))
+    for item in withdrawn:
+        print("  withdrawn placement %-4d %-34s -> %s"
+              % (item["placement_index"], item["was_display_name"],
+                 item["now_display_name"] or "(no MOBS_TIP name)"))
     if args.out:
         args.out.write_text(module, encoding="ascii")
         print("wrote %s (%d bytes)" % (args.out, len(module)))

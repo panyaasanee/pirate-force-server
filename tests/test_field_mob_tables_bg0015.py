@@ -53,10 +53,17 @@ GAMEDATA = ROOT.parent / "pf_bridge" / "gamedata"
 # to this repository, and never to be updated to make a future edit of
 # field_mob_tables.py pass silently -- if bg0001's roster changes for a real
 # reason this constant moves in that same commit and says why.
+# ~~"158704080cc23180d0829d81848119327f335461519a848a1cab599aefaabb9e", 3978
+# bytes~~ -- moved in round szdkgs, which is the "real reason" the comment
+# above says this constant may move for: bg0001's roster was re-mined through
+# the RE-128 crosswalk (four placements are now n_ID 916 Training Iron Man;
+# the other nine are labelled as the legacy set-number reading pending
+# migration).  The old digest is kept, not deleted, so the change is auditable
+# from either side.
 BG0001_UNTOUCHED_SHA256 = (
-    "158704080cc23180d0829d81848119327f335461519a848a1cab599aefaabb9e"
+    "c25f0d15e93db6d6700a22f6ebb142885d3c000d592caa47d745a45129115a61"
 )
-BG0001_UNTOUCHED_SIZE = 3978
+BG0001_UNTOUCHED_SIZE = 9636
 
 EXPECTED_SCENE = "Bg0015"
 EXPECTED_HOSTILE_COUNT = 17
@@ -205,8 +212,26 @@ class Bg0015RegenerateAndDiffTest(unittest.TestCase):
         tool.check_controls(sources)
         census = tool.predicate_census(sources)
         roster = tool.hostile_roster(sources)
+        # Round szdkgs: the generator grew an identity rule and this scene is
+        # still mined under the legacy set-number one, on purpose -- see
+        # LEGACY_SETNUM_PLACEMENTS_PENDING_MIGRATION in bg0001's module and
+        # this lane's round note.  The call below names that rule explicitly
+        # rather than inheriting the tool's new default, so a future round
+        # that re-mines this scene through the crosswalk has to come here and
+        # say so.
         regenerated = tool.render_module(
-            EXPECTED_SCENE, roster, sources.digests(), census
+            EXPECTED_SCENE, roster, sources.digests(), census,
+            rule=tool.IDENTITY_RULE_SETNUM, cline_type=sources.cline_type,
+            controls={"legacy_setnum_controls": "re-derived"},
+            withdrawn=tool.withdrawn_under_rule(
+                sources, tool.IDENTITY_RULE_SETNUM),
+            rank_zero_combat=[
+                tool._roster_row(sources, item)
+                for item in tool.unambiguous_placements(
+                    sources, tool.IDENTITY_RULE_SETNUM)
+                if tool._nonzero(item[6], "n_AI_COMBAT")
+                and not tool._nonzero(item[6], "n_RANK")
+            ],
         )
         committed = MODULE_PATH.read_text(encoding="ascii")
         self.assertEqual(

@@ -198,10 +198,21 @@ CENSUS_WIRE_SHA256 = {
         "11AB0C5C95C8A3F7EC3E85CC004508C0C34727E26AA0AA5B742FEBBBF8052AB9"),
     20: ("70D7D8914CD8BA2D7C909853ECED3C3320C7920EF9E12229B3A746F9486E1AAA",
          "DDABF41B17648CA9B8E3F4EB13039DF352A627124601DFA1398E42A9A336721B"),
-    60: ("9CEF203F8DED6FE73EAA9DF8D044330FB98046776A2840728EFCE5EA046007C7",
-         "42DA2662CBF20BE6A774CD578C61DBDD77F779DCAB795F3DA8E2A26AA364F165"),
-    115: ("1E52C78765C59DC313313505BD690B1B7F0D2040FC4111D45AC66F7CF300C53E",
-          "FC1F9B1FA4C1853ED42F9BE22F50483B2C11E2FA516B9D7981FD9C68FBF2D4D7"),
+    # AMENDMENT round szdkgs (LANE-B): the two rungs large enough to include
+    # placements 103/105/107/109 moved, and THAT MOVEMENT IS THE ROUND'S
+    # DELIVERABLE, not a regression: those four now ship n_ID 916 "Training
+    # Iron Man" with avatar M016_000_000_N instead of Mob-Set 97 "Mutant Green
+    # Eagle" with M011_000_002_SP3, which is 24 bytes shorter across the four.
+    # Rungs 3 and 20 do not include those placements and are byte-identical,
+    # which is the control that says only the intended rows moved.
+    # ~~60:  pc=9CEF203F8DED6FE73EAA9DF8D044330FB98046776A2840728EFCE5EA046007C7
+    #        frame=42DA2662CBF20BE6A774CD578C61DBDD77F779DCAB795F3DA8E2A26AA364F165
+    # ~~115: pc=1E52C78765C59DC313313505BD690B1B7F0D2040FC4111D45AC66F7CF300C53E
+    #        frame=FC1F9B1FA4C1853ED42F9BE22F50483B2C11E2FA516B9D7981FD9C68FBF2D4D7~~
+    60: ("DB350F54119E20C06858028F55E2F1545CFA0F290787B24F9CB6E5859D42F074",
+         "30984FB4FB1D53D35AA1614D587A538B6815709CF8EB6A71C83539679ABA97D0"),
+    115: ("9A7BA9A5822E7E4809C51DD22B1C0E03396D3083F732A5EF63FA7334FC3C3D85",
+          "41A71F1BBBF490E787E2A090372A15076AEFA7A1340B683BD8BE84CFC34B91E0"),
 }
 PIN_ANCHOR = (10.0, 20.0, 30.0)
 
@@ -597,8 +608,12 @@ class WorldCensusWiringTests(unittest.TestCase):
                 f"{generation.pc_bytes}_frame_{generation.frame_bytes}"
             ],
         )
+        # ~~(20402, 20416)~~ round szdkgs: 24 bytes shorter, because the four
+        # practice dummies carry a shorter avatar name than the eagles they
+        # replace.  This number is the cheapest proof that this round's
+        # identity change actually reaches the wire.
         self.assertEqual((generation.pc_bytes, generation.frame_bytes),
-                          (20402, 20416))
+                          (20378, 20392))
 
     def test_world_density_line_is_printed_alongside_the_census_line(self):
         """world_density is LANE-A's tenth production lane (production_allowed

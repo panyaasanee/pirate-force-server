@@ -1848,12 +1848,22 @@ class MobDeathTests(unittest.TestCase):
         # subset, so a future roster edit that adds/removes a mob is
         # exercised by this test automatically rather than silently going
         # unwidened or over-widened.
+        # ROUND szdkgs: the roster is still 13 placements, but four of them
+        # are now n_ID 916 practice dummies, and the 13:50 ruling never named
+        # 916 -- it named the ten set-number templates that were in the
+        # roster when it was written.  Those four are authorised by their own
+        # 09:55 ruling instead, which is exactly what the "not over-widened"
+        # half of this test's own comment asks for, so the loop below splits
+        # by which ruling names the row rather than widening either one.
         self.assertEqual(len(self.roster), 13)
         for mob in self.roster:
+            ruling = (
+                WIDENED_916_RULING if mob.template_id == 916
+                else WIDENED_BG0001_RULING
+            )
             outcome = self.killing_outcome(mob).outcome
             step = kill(
-                self.legacy, mob, outcome, DeathRegister(),
-                widened=WIDENED_BG0001_RULING)
+                self.legacy, mob, outcome, DeathRegister(), widened=ruling)
             self.assertTrue(step.register.is_dead(mob.actor_identity))
 
     def test_the_bg0001_ruling_covers_exactly_the_real_rosters_templates(self):
@@ -1862,9 +1872,20 @@ class MobDeathTests(unittest.TestCase):
         # WIDENED_BG0001_RULING must be RE-DERIVABLE from the real roster,
         # not a hand-copied literal that can drift silently out of sync with
         # field_mobs.load_roster() the moment the roster changes.
+        # ROUND szdkgs: re-derived from the roster MINUS the rows a
+        # different ruling names, so the property this test defends (no
+        # hand-copied literal drifting from the roster) still holds while the
+        # 13:50 ruling keeps exactly the scope it was given.
         self.assertEqual(
             mob_death.WIDENING_RULINGS[WIDENED_BG0001_RULING],
-            frozenset(m.template_id for m in self.roster))
+            frozenset(
+                m.template_id for m in self.roster if m.template_id != 916))
+        self.assertEqual(
+            mob_death.WIDENING_RULINGS[WIDENED_916_RULING], frozenset({916}))
+        self.assertIn(
+            916, {m.template_id for m in self.roster},
+            "the 916 ruling has to name a template the roster really ships, "
+            "or it is authorising nothing again")
 
     def test_the_bg0001_ruling_still_refuses_a_template_outside_the_roster(
             self):

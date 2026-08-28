@@ -151,7 +151,19 @@ class DiagObjectsTests(unittest.TestCase):
             mob for mob in field_mobs.load_roster()
             if field_mob_ai_tables.AI_WANDER_ROWS[mob.ai_wander][3] > 0
         ]
-        self.assertEqual(len(aggro_mobs), 3)
+        # ~~3~~ 7 from round szdkgs: the four practice-dummy rows point at
+        # AI_WANDER 21, whose n_AGGRO is 3000.  A NONZERO RADIUS IS NOT AN
+        # AGGRESSIVE ACTOR here -- those four have n_AI_COMBAT 0, so
+        # mob_ai_control.profile_of forces offensive False for them (see that
+        # branch); this test reads the raw mined column, which is why the
+        # number moved and the behaviour did not.
+        self.assertEqual(len(aggro_mobs), 7)
+        from pirateforce_foundation import mob_ai_control as _ai
+        self.assertEqual(
+            sorted(mob.placement_index for mob in aggro_mobs
+                   if _ai.profile_of(mob).offensive),
+            [58, 63, 132],
+        )
         control = self.by_label[diag.DIAG_LABEL_CONTROL].mob
         self.assertNotIn(
             control.template_id, {m.template_id for m in aggro_mobs})

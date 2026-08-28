@@ -536,7 +536,15 @@ def main(argv: list) -> int:
             % (field_mob_tables.SCENE, args.scene))
     sources = Sources(args.gamedata)
     controls = check_controls(sources)
-    roster = list(field_mob_tables.HOSTILE_PLACEMENTS)
+    # Round szdkgs: every row the scene module SHIPS, not only the ones its
+    # hostility predicate selected.  bg0001's HOSTILE_PLACEMENTS is empty
+    # under the crosswalk (a town has no monsters) while nine legacy rows and
+    # four town targets are still shipped, and a drop table mined from the
+    # empty list would silently drop every loot set this lane already sends.
+    roster = list(getattr(
+        field_mob_tables, "SHIPPED_PLACEMENTS",
+        field_mob_tables.HOSTILE_PLACEMENTS,
+    ))
     mined = mine(sources, roster)
     mobs = sources.load_mobs()
     quest_sets = 0

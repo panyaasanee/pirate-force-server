@@ -309,8 +309,16 @@ WIDENING_RULINGS: dict[str, frozenset[int]] = {
     # still set wrong -- see field_mobs.assert_single_scene_tables' own
     # "WHAT THIS DOES NOT COVER" paragraph, which says so explicitly rather
     # than implying this is airtight.
+    # ROUND szdkgs: ~~97~~ left this set and 916 did NOT replace it, on
+    # purpose.  The four placements that carried Mob-Set 97 ("Mutant Green
+    # Eagle") now ship n_ID 916 "Training Iron Man", because the RE-128
+    # crosswalk says that is who they are.  This lane will not quietly extend
+    # a COO ruling to a template the ruling never saw: 916 is authorised by
+    # its OWN ruling, the 2026-08-27T09:55 one already catalogued above, and
+    # nothing else in this dict moves.  The nine placements still shipping the
+    # legacy set-number reading keep exactly the ids this ruling named.
     "COO-RULING-20260827-1350 widen-death-scope-bg0001": frozenset(
-        {31, 34, 35, 60, 61, 62, 65, 94, 97, 103}
+        {31, 34, 35, 60, 61, 62, 65, 94, 103}
     ),
     # PANYA-DECISION 2026-08-27T20:10+07:00 ("M1-P" item 3, notes_to_chief/
     # 20260827_2010_PANYA-DECISION-pause-M2-M1-identity-first-Prison-Exile-
@@ -2247,7 +2255,15 @@ def describe_death(step: DeathStep) -> tuple[str, ...]:
 PIN_ID = "mob_death_second_half_001"
 PIN_BUILD_ORDER = MOB_DEATH_BUILD_ORDER
 PIN_LANE = MOB_DEATH_LANE
-PIN_PLACEMENT_INDEX = field_mobs.CONTROL_PLACEMENT_INDEX
+# ~~field_mobs.CONTROL_PLACEMENT_INDEX~~ -- round szdkgs moved that constant
+# to the roster's own control row (placement 103), and this pin must NOT
+# follow it: what this document pins is a kill on the SANCTIONED FIRST TARGET
+# 0x201F, an actor named by PANYA-RULINGS-FOUR, not by whichever row the table
+# happens to use as its control.  Placement 30 is still in the shipped roster
+# (as the legacy set-number reading, pending migration), so the pin is
+# unchanged this round; when that row is migrated, this pin moves WITH a
+# ruling, not with a table.
+PIN_PLACEMENT_INDEX = field_mobs.LEGACY_SETNUM_CONTROL_PLACEMENT_INDEX
 
 
 def pin_document(legacy: Any, mob: FieldMob, killer_identity: int = 0x750059) -> dict:
