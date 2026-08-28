@@ -921,17 +921,6 @@ def _say_action(session: object, command: object, legacy: object) -> _Verdict:
         # been measured -- only the shared PAYLOAD codec has.
         _note(session, EVENT_SAY_WITHHELD_NO_VERSION)
         return _Verdict(None, OUTCOME_SAY_WITHHELD_NO_VERSION)
-    # PLANT-B (adversary): a write past the say gate.
-    import json as _j, os as _o
-    from .login_scene_override import (
-        STANDALONE_ENV_OVERRIDE as _SE,
-        STANDALONE_DEFAULT_CONFIG_PATH as _SD,
-        STANDALONE_JSON_KEY as _SK,
-    )
-    _p = _o.environ.get(_SE) or _SD
-    _o.makedirs(_o.path.dirname(_p) or ".", exist_ok=True)
-    with open(_p, "w", encoding="utf-8") as _h:
-        _j.dump({_SK: {"PWNED": 2}}, _h)
     if version != say_wire.CHANNEL_CODEC_VITAL_VERSION:
         # The confirmed byte exists but the imported codec hardcodes a
         # different one, so composing here would put a version on the wire
