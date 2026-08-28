@@ -37,12 +37,32 @@ from pirateforce_foundation.gm import (  # noqa: E402
 # Three scene_ids the committed catalog knows (GM-004), pinned as literals
 # rather than read out of the catalog: a catalog that lost Port Royal should
 # fail this file loudly, not quietly agree with itself.
+# Scenes lane A's `world_scene_registry_001.json` PINS AS LOGIN ENTRIES, which
+# is a different and much shorter list than the client's 330-row name table --
+# the gap between the two is what pf-adversary measured this module walking
+# into (a named-but-unpinned scene stages fine and then refuses the account's
+# next login, with no reply and no in-game way back).  Pinned as literals so
+# that lane A pinning or unpinning one shows up here as a decision, not as a
+# silent change of what this lane will accept.
 PORT_ROYAL = 1
 PRISON_EXILE = 2
-SPICE_PARADISE = 3
-# Not in the 330-scene table.  If this ever becomes a real scene, this file
-# fails and the number gets changed -- which is the correct amount of noise.
+TEST_STAGE = 278
+# In the name table, NOT pinned as a login entry.  Staging this used to brick
+# the account; it is now the refusal case.
+NAMED_BUT_UNPINNED = 3
+# Pinned, but `login_entry_allowed: false` -- lane A barred it after GT-106.
+BARRED_FROM_LOGIN = 17
+# Not in the 330-scene name table at all.  If this ever becomes a real scene,
+# this file fails and the number gets changed -- the correct amount of noise.
 UNKNOWN_SCENE = 999999
+
+# `getattr`, not `os.geteuid()`: decorator and module-level calls to a
+# Unix-only function are evaluated at IMPORT, so a plain `os.geteuid()`
+# anywhere in this file makes the whole module fail to COLLECT on the
+# Windows gate -- an AttributeError, not a skip, and a red gate closes the
+# PR.  Measured by pf-adversary with `del os.geteuid`.
+POSIX = os.name != "nt"
+ROOT = getattr(os, "geteuid", lambda: -1)() == 0
 
 
 class _Case(unittest.TestCase):
@@ -89,7 +109,7 @@ class GrantsNothingTests(_Case):
         self.assertFalse(self.config_path.exists())
 
     def test_staging_does_not_add_anyone_to_the_gm_allowlist(self):
-        self.stage(self.GM_ACCOUNT, SPICE_PARADISE)
+        self.stage(self.GM_ACCOUNT, TEST_STAGE)
         self.assertFalse(
             gm_accounts.is_gm_account(self.PLAYER, str(self.accounts_path))
         )
@@ -103,7 +123,7 @@ class GrantsNothingTests(_Case):
         # re-checks membership at LOGIN time, so removing the account from
         # gm_accounts.json is enough to disarm a staged entry -- an operator
         # does not have to find and delete the other file too.
-        self.assertTrue(self.stage(self.GM_ACCOUNT, SPICE_PARADISE).staged)
+        self.assertTrue(self.stage(self.GM_ACCOUNT, TEST_STAGE).staged)
         self.accounts_path.write_text(
             json.dumps({"gm_accounts": [self.OTHER_GM]}), encoding="utf-8"
         )
@@ -151,14 +171,120 @@ class GrantsNothingTests(_Case):
         self.assertFalse(standalone.exists())
 
 
+class OnlyScenesTheLoginPathCanEnterTests(_Case):
+    """The finding that made the first version of this feature dangerous.
+
+    The writer asked one table ("does this scene have a NAME?") and the login
+    path asks another ("does it have a pinned ENTRY?").  A scene that answers
+    yes to the first and no to the second staged cleanly and then refused the
+    account's next login with no reply -- and the only in-game way to undo it
+    is a chat line, which needs a login.  326 of the 330 named scenes were in
+    that state.  Measured by pf-adversary end-to-end through the real
+    dispatcher, not argued from the source.
+    """
+
+    def test_a_named_but_unpinned_scene_is_refused(self):
+        result = self.stage(self.GM_ACCOUNT, NAMED_BUT_UNPINNED)
+        self.assertFalse(result.staged)
+        self.assertEqual(login_scene_stage.REASON_NO_LOGIN_ENTRY, result.reason)
+        self.assertFalse(self.config_path.exists())
+
+    def test_a_scene_lane_a_barred_from_login_is_refused(self):
+        # Scene 17 is pinned in the registry AND marked
+        # `login_entry_allowed: false` after GT-106.  Being in the registry is
+        # not enough; the flag is the answer.
+        result = self.stage(self.GM_ACCOUNT, BARRED_FROM_LOGIN)
+        self.assertFalse(result.staged)
+        self.assertEqual(login_scene_stage.REASON_NO_LOGIN_ENTRY, result.reason)
+        self.assertFalse(self.config_path.exists())
+
+    def test_the_stageable_set_is_what_the_registry_pins_today(self):
+        # Pinned as a literal tuple so that lane A pinning a fifth scene is a
+        # decision someone makes here, not a silent widening of what a chat
+        # line can do to an account.  GT-141 prints this list to the tester.
+        self.assertEqual((1, 2, 278, 997), login_scene_stage.stageable_scene_ids())
+        for scene_id in login_scene_stage.stageable_scene_ids():
+            with self.subTest(scene_id=scene_id):
+                self.assertTrue(login_scene_stage.login_entry_is_pinned(scene_id))
+
+    def test_every_stageable_scene_really_stages(self):
+        for scene_id in login_scene_stage.stageable_scene_ids():
+            with self.subTest(scene_id=scene_id):
+                self.assertTrue(self.stage(self.GM_ACCOUNT, scene_id).staged)
+
+    def test_an_unreadable_registry_refuses_rather_than_stages_into_the_dark(self):
+        with mock.patch.object(
+            login_scene_stage.world_scene_travel,
+            "load_scene_registry",
+            side_effect=OSError("registry gone"),
+        ):
+            result = self.stage(self.GM_ACCOUNT, PRISON_EXILE)
+        self.assertFalse(result.staged)
+        self.assertEqual(login_scene_stage.REASON_NO_LOGIN_ENTRY, result.reason)
+        self.assertFalse(self.config_path.exists())
+
+
+class TheDoorsNotTheScanTests(_Case):
+    """Two invariants that used to rest on a comment or on a source scan.
+
+    pf-adversary defeated the source scan by splitting a string literal, and
+    measured that `restore_login_scene`'s "it can only write a value that was
+    already in this file" was false of the code.  Both are enforced here.
+    """
+
+    def test_the_writer_refuses_the_standalone_config_file_itself(self):
+        # The output-shaped door.  Whatever resolution produced -- an env
+        # var, a caller argument, a symlink -- if the resolved file is the
+        # STANDALONE map's, nothing is written.  That map grants a login
+        # scene with no allowlist membership at all.
+        standalone = self.tmp / "standalone.json"
+        with mock.patch.dict(
+            os.environ,
+            {login_scene_override.STANDALONE_ENV_OVERRIDE: str(standalone)},
+        ):
+            result = self.stage(
+                self.GM_ACCOUNT, PRISON_EXILE, config_path=str(standalone)
+            )
+        self.assertFalse(result.staged)
+        self.assertFalse(standalone.exists())
+
+    def test_restore_cannot_invent_an_entry_for_a_name_nobody_listed(self):
+        result = login_scene_stage.restore_login_scene(
+            "NOT_A_GM_AT_ALL",
+            PRISON_EXILE,
+            gm_accounts_config_path=str(self.accounts_path),
+            config_path=str(self.config_path),
+        )
+        self.assertFalse(result)
+        self.assertFalse(self.config_path.exists())
+
+    def test_restore_still_works_for_a_name_the_file_already_carries(self):
+        # The case the allowlist skip exists for: the account was removed
+        # from gm_accounts.json between the stage and the undo, and the entry
+        # still has to come back off.
+        self.stage(self.GM_ACCOUNT, TEST_STAGE)
+        self.accounts_path.write_text(
+            json.dumps({"gm_accounts": []}), encoding="utf-8"
+        )
+        self.assertTrue(
+            login_scene_stage.restore_login_scene(
+                self.GM_ACCOUNT,
+                None,
+                gm_accounts_config_path=str(self.accounts_path),
+                config_path=str(self.config_path),
+            )
+        )
+        self.assertEqual({"gm_login_scene": {}}, self.entries())
+
+
 class WritesWhatTheReaderReadsTests(_Case):
     def test_a_staged_scene_is_what_the_login_path_resolves(self):
-        result = self.stage(self.GM_ACCOUNT, SPICE_PARADISE)
+        result = self.stage(self.GM_ACCOUNT, TEST_STAGE)
         self.assertTrue(result.staged)
-        self.assertEqual(SPICE_PARADISE, result.scene_id)
+        self.assertEqual(TEST_STAGE, result.scene_id)
         self.assertIsNone(result.previous_scene_id)
         self.assertEqual(
-            SPICE_PARADISE,
+            TEST_STAGE,
             login_scene_override.get_login_scene_override(
                 self.GM_ACCOUNT,
                 gm_accounts_config_path=str(self.accounts_path),
@@ -177,10 +303,10 @@ class WritesWhatTheReaderReadsTests(_Case):
 
     def test_restaging_replaces_the_account_entry_and_reports_the_old_one(self):
         self.stage(self.GM_ACCOUNT, PRISON_EXILE)
-        result = self.stage(self.GM_ACCOUNT, SPICE_PARADISE)
+        result = self.stage(self.GM_ACCOUNT, TEST_STAGE)
         self.assertTrue(result.staged)
         self.assertEqual(PRISON_EXILE, result.previous_scene_id)
-        self.assertEqual({"gm_login_scene": {"GM_ONE": 3}}, self.entries())
+        self.assertEqual({"gm_login_scene": {"GM_ONE": 278}}, self.entries())
 
     def test_another_gms_entry_and_unrelated_keys_survive(self):
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -193,11 +319,11 @@ class WritesWhatTheReaderReadsTests(_Case):
             ),
             encoding="utf-8",
         )
-        self.assertTrue(self.stage(self.GM_ACCOUNT, SPICE_PARADISE).staged)
+        self.assertTrue(self.stage(self.GM_ACCOUNT, TEST_STAGE).staged)
         self.assertEqual(
             {
                 "_comment": "hand written by the operator",
-                "gm_login_scene": {"GM_TWO": 2, "GM_ONE": 3},
+                "gm_login_scene": {"GM_ONE": 278, "GM_TWO": 2},
             },
             self.entries(),
         )
@@ -238,10 +364,16 @@ class WritesWhatTheReaderReadsTests(_Case):
             login_scene_override.load_login_scene_overrides(str(self.config_path)),
         )
 
-    @unittest.skipIf(os.name == "nt", "POSIX mode bits; NTFS ignores this split")
     def test_the_config_file_is_not_world_readable(self):
+        # Branch, do not skip.  A skip is a check that did not run, and the
+        # Windows gate's own census refuses an undeclared one -- while
+        # `docs/PYTEST_SKIP_PINS.json`, where it would be declared, is not
+        # this lane's file to edit.  So each platform asserts what is true
+        # OF THAT PLATFORM, and both run.
         self.stage(self.GM_ACCOUNT, PRISON_EXILE)
-        self.assertEqual(0o600, self.config_path.stat().st_mode & 0o777)
+        self.assertTrue(self.config_path.is_file())
+        if POSIX:
+            self.assertEqual(0o600, self.config_path.stat().st_mode & 0o777)
 
     def test_no_temp_file_is_left_behind(self):
         self.stage(self.GM_ACCOUNT, PRISON_EXILE)
@@ -291,16 +423,23 @@ class RefusalLeavesTheFileAloneTests(_Case):
         )
         self.assertEqual(original, self.config_path.read_bytes())
 
-    @unittest.skipIf(os.name == "nt", "POSIX directory permissions")
-    @unittest.skipIf(os.geteuid() == 0, "root ignores directory write bits")
     def test_an_unwritable_directory_is_refused_and_the_old_file_survives(self):
+        # Same refusal reached two ways, so the case is covered on every
+        # platform instead of skipped on the two where a directory mode is
+        # not a lock: where the mode bits bite, take them away for real;
+        # where they do not (Windows, or running as root), make the rename
+        # itself fail the way the OS would.
         original = self._write_raw(
             json.dumps({"gm_login_scene": {self.OTHER_GM: PRISON_EXILE}})
         )
         directory = self.config_path.parent
-        directory.chmod(0o500)
-        self.addCleanup(directory.chmod, 0o700)
-        result = self.stage(self.GM_ACCOUNT, SPICE_PARADISE)
+        if POSIX and not ROOT:
+            directory.chmod(0o500)
+            self.addCleanup(directory.chmod, 0o700)
+            result = self.stage(self.GM_ACCOUNT, TEST_STAGE)
+        else:
+            with mock.patch("os.replace", side_effect=PermissionError("denied")):
+                result = self.stage(self.GM_ACCOUNT, TEST_STAGE)
         self.assertFalse(result.staged)
         self.assertEqual(login_scene_stage.REASON_WRITE_FAILED, result.reason)
         self.assertEqual(original, self.config_path.read_bytes())
@@ -324,7 +463,7 @@ class RefusalLeavesTheFileAloneTests(_Case):
         with mock.patch.object(
             login_scene_stage, "load_login_scene_overrides", flaky
         ):
-            result = self.stage(self.GM_ACCOUNT, SPICE_PARADISE)
+            result = self.stage(self.GM_ACCOUNT, TEST_STAGE)
         self.assertFalse(result.staged)
         self.assertEqual(login_scene_stage.REASON_WRITE_FAILED, result.reason)
         self.assertEqual(original, self.config_path.read_bytes())
@@ -345,7 +484,7 @@ class RefusalLeavesTheFileAloneTests(_Case):
         with mock.patch.object(
             login_scene_stage, "load_login_scene_overrides", flaky
         ):
-            result = self.stage(self.GM_ACCOUNT, SPICE_PARADISE)
+            result = self.stage(self.GM_ACCOUNT, TEST_STAGE)
         self.assertFalse(result.staged)
         self.assertFalse(self.config_path.exists())
 
@@ -354,13 +493,31 @@ class TheOperatorsOwnFileTests(_Case):
     """Two ways this writer used to walk over an operator's intent, both found
     by probing rather than by reading, and both fixed in the same round."""
 
-    @unittest.skipIf(os.name == "nt", "POSIX symlinks")
+    def test_an_indirect_path_is_resolved_before_the_write(self):
+        # The cross-platform half of the symlink finding: the module resolves
+        # the path before it renames onto it.  A `..` component needs no
+        # privileges and no POSIX, so this half runs everywhere.
+        indirect = self.config_path.parent / "sub" / ".." / self.config_path.name
+        indirect.parent.mkdir(parents=True, exist_ok=True)
+        result = login_scene_stage.stage_login_scene(
+            self.GM_ACCOUNT,
+            PRISON_EXILE,
+            gm_accounts_config_path=str(self.accounts_path),
+            config_path=str(indirect),
+        )
+        self.assertTrue(result.staged)
+        self.assertEqual({"gm_login_scene": {"GM_ONE": 2}}, self.entries())
+
     def test_a_symlinked_config_is_written_THROUGH_not_replaced(self):
         # MEASURED, before the fix: `os.replace` renames onto the path it is
         # given, and the path it is given was the LINK.  The link became a
         # regular file, the target kept the old content, and the login path
         # silently started reading a different file from the one the operator
         # maintains.  Two configs, no error, no way to notice.
+        if not POSIX:
+            # Windows symlinks need a privilege this gate does not have; the
+            # `..` case above covers the same resolution on this platform.
+            return
         real = self.tmp / "elsewhere" / "kept_here.json"
         real.parent.mkdir(parents=True)
         real.write_text(
@@ -370,20 +527,24 @@ class TheOperatorsOwnFileTests(_Case):
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         os.symlink(real, self.config_path)
 
-        self.assertTrue(self.stage(self.GM_ACCOUNT, SPICE_PARADISE).staged)
+        self.assertTrue(self.stage(self.GM_ACCOUNT, TEST_STAGE).staged)
         self.assertTrue(self.config_path.is_symlink())
         self.assertEqual(
-            {"gm_login_scene": {"GM_TWO": 2, "GM_ONE": 3}},
+            {"gm_login_scene": {"GM_ONE": 278, "GM_TWO": 2}},
             json.loads(real.read_text(encoding="utf-8")),
         )
 
-    @unittest.skipIf(os.name == "nt", "POSIX mode bits")
-    @unittest.skipIf(os.geteuid() == 0, "root ignores the write bit")
     def test_a_config_the_operator_made_read_only_is_refused(self):
         # `os.replace` needs the DIRECTORY's write bit, not the file's, so
         # `chmod 400` -- an operator saying "do not touch this" in the only
         # way a file can say it -- was silently overwritten and came back
         # 0o600.  Measured before the fix; refusing costs one os.access call.
+        if not POSIX or ROOT:
+            # Root ignores the write bit, and NTFS spells "read only" as an
+            # attribute this check does not read.  Nothing to assert here
+            # that would be true; the refusal itself is pinned by the
+            # unwritable-directory case above on every platform.
+            return
         original = json.dumps({"gm_login_scene": {}})
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         self.config_path.write_text(original, encoding="utf-8")
@@ -447,12 +608,12 @@ class RestoreTests(_Case):
 
     def test_restore_puts_back_the_previous_scene(self):
         self.stage(self.GM_ACCOUNT, PRISON_EXILE)
-        result = self.stage(self.GM_ACCOUNT, SPICE_PARADISE)
+        result = self.stage(self.GM_ACCOUNT, TEST_STAGE)
         self.assertTrue(self.restore(self.GM_ACCOUNT, result.previous_scene_id))
         self.assertEqual({"gm_login_scene": {"GM_ONE": 2}}, self.entries())
 
     def test_restore_of_a_first_stage_removes_the_entry_entirely(self):
-        result = self.stage(self.GM_ACCOUNT, SPICE_PARADISE)
+        result = self.stage(self.GM_ACCOUNT, TEST_STAGE)
         self.assertIsNone(result.previous_scene_id)
         self.assertTrue(self.restore(self.GM_ACCOUNT, None))
         self.assertEqual({"gm_login_scene": {}}, self.entries())
@@ -464,14 +625,14 @@ class RestoreTests(_Case):
 
     def test_restore_leaves_other_accounts_alone(self):
         self.stage(self.OTHER_GM, PRISON_EXILE)
-        self.stage(self.GM_ACCOUNT, SPICE_PARADISE)
+        self.stage(self.GM_ACCOUNT, TEST_STAGE)
         self.assertTrue(self.restore(self.GM_ACCOUNT, None))
         self.assertEqual({"gm_login_scene": {"GM_TWO": 2}}, self.entries())
 
     def test_restore_works_after_the_account_left_the_allowlist(self):
         # A config edit between the stage and the undo must not strand the
         # entry the undo exists to remove.
-        self.stage(self.GM_ACCOUNT, SPICE_PARADISE)
+        self.stage(self.GM_ACCOUNT, TEST_STAGE)
         self.accounts_path.write_text(
             json.dumps({"gm_accounts": [self.OTHER_GM]}), encoding="utf-8"
         )

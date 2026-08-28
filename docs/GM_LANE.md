@@ -2779,3 +2779,77 @@ round, both about walking over an operator rather than about a client:
 3. **A failed rename leaves no temp file behind** -- probed because a
    stray `.gm_login_scene.XXXX` in `config/` is one more file an operator
    has to reason about.  Clean, and now pinned by a test.
+
+### The adversary came back after the round had already been written, and it was right
+
+The subagent had not stalled; it was working without writing to its
+transcript, and it returned after this round's PR was already out of draft.
+It brought one finding that falsified the headline claim above, and the
+claim is corrected here rather than left standing with a correction
+underneath it.
+
+**~~330 scenes become typeable~~ -- FALSE.  Four do: 1, 2, 278, 997.**
+This lane's writer asked the client's scene NAME table (`gm/scene_catalog.py`,
+330 rows).  The login path resolves through lane A's
+`scenarios/world_scene_registry_001.json`, which pins **five** destinations
+and marks one of them `login_entry_allowed: false` (scene 17, after GT-106).
+Two different tables, and nothing checked the second one before writing.
+
+What that cost, measured end-to-end through the real dispatcher rather than
+argued from the source: staging any of the other 326 named scenes wrote a
+clean-looking entry and then made the account's **next login fail with no
+reply** -- `WORLD_SCENE_ENTRY_REFUSED [scene_not_pinned]`, `return []`, the
+client parked on "connecting".  It does not self-heal: the entry is re-read
+on every login, and the only in-game fix is a chat line, which needs a login.
+Recovery is an operator deleting the file on the server host.  The kill
+switch does not help either -- it gates the chat call site, not the login
+override read.  The lane had shipped a chat command that bricks a GM account
+with probability 326/330, and had written "the worst it can do is put a
+listed GM in a different scene" in three places.
+
+Fixed the only way that is not a second copy of lane A's data:
+`login_entry_is_pinned` asks `world_scene_travel.load_scene_registry()`
+itself, fail-closed on unknown and on a registry it cannot read, and
+`stageable_scene_ids()` publishes the answer so a ticket can print the list
+instead of a tester discovering it by locking an account out.
+
+The same pass also produced, all fixed here:
+
+* **The new test module would not have IMPORTED on the Windows gate.**
+  `os.geteuid()` in a `skipIf` decorator is evaluated at import and does not
+  exist on Windows -- a collection error, not a skip, and a red gate closes
+  the PR.  Every skip in that module is now a branch instead: each platform
+  asserts what is true of it, and nothing is silently not-run.  (That also
+  answers the second finding: the skips were undeclared in
+  `docs/PYTEST_SKIP_PINS.json`, which the Windows gate's own census fails on
+  and which is not this lane's file to edit.)
+* **The privilege invariant had a detector, not a door.**  The source scan
+  for the standalone map's names was defeated by splitting a string literal
+  -- the same shape as last round's `AUDIT_OUTCOMES[-1]`, and the same
+  lesson this lane wrote down and then did not apply.  The writer now
+  refuses to write the standalone map's resolved file, whatever resolution
+  produced it.  And `restore_login_scene`, whose comment claimed it "can
+  only write a value that was already in this file", would in fact add any
+  name at all; it now refuses a name that is neither listed nor already in
+  the map.
+* **The `issued` audit row still said "no gameplay effect applied"** in the
+  file GT-127 and GT-141 are graded on, one row above an outcome that names
+  a durable config write.  Rewritten to what that row can honestly say.
+* **A successful undo left its own "staged" event standing.**  Retracted
+  explicitly now (`gm_chat_action_outcome_stage_reverted`).
+
+### The one thing this round did NOT fix, and who owns it
+
+After a staged relogin the server's own `selected.position.scene_id` still
+reads the character's stored scene, not the scene the override sent them to
+(the override substitutes only the id fed to `resolve_entry`).  So `/warp`'s
+routing predicate compares against a stale number: standing in scene 2 via a
+staged login, `/warp 2 x y` stages again instead of taking the ForcePos
+branch, and `/warp 1 x y` takes it.  Nothing is on the wire today, so nothing
+is misdirected today -- but the day COO opens the version gate, that branch
+would compose a ForcePos for the wrong scene, which is the exact
+misrepresentation `warp_executor` refuses cross-scene warps to avoid.
+
+That row is written in `runtime.py`'s login path, which is chief's zone:
+`CORE-REQUEST-GM-033`.  Until it lands, `GT-141` tells the tester to log out
+again rather than type a second `/warp` in the same session.

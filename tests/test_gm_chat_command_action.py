@@ -253,12 +253,12 @@ class WarpActionTests(_Case):
         # gate patched open.
         session = FakeSession(position=FakePosition(scene_id=2))
         with self.open_the_version_gate():
-            action = self.act(session, "/warp 3 100 200")
+            action = self.act(session, "/warp 278 100 200")
         self.assertIsNone(action)
         self.assertIn(
-            f"{chat_command_action.EVENT_WARP_STAGED_PREFIX}3", session.events
+            f"{chat_command_action.EVENT_WARP_STAGED_PREFIX}278", session.events
         )
-        self.assertEqual({self.GM_ACCOUNT: 3}, self.staged_login_scenes())
+        self.assertEqual({self.GM_ACCOUNT: 278}, self.staged_login_scenes())
 
     def test_scene_only_warp_with_no_coordinates_stages_and_sends_nothing(self):
         # ~~Refused~~ (round `gejldf`): the bare form carries no coordinates
@@ -372,7 +372,7 @@ class WarpTargetRecordingTests(_Case):
     def test_a_refused_warp_parks_nothing(self):
         session = self.session_with_character()
         with self.open_the_version_gate():
-            self.assertIsNone(self.act(session, "/warp 3 100 200"))
+            self.assertIsNone(self.act(session, "/warp 278 100 200"))
         self.assertIsNone(warp_target_record.take_warp_target(session, 41))
 
     def test_a_gm_with_no_selected_character_parks_nothing(self):
@@ -753,6 +753,7 @@ class EventNameContractTests(_Case):
         "EVENT_OUTCOME_STAGE_NOT_REVERTED": (
             "gm_chat_action_outcome_stage_not_reverted"
         ),
+        "EVENT_OUTCOME_STAGE_REVERTED": "gm_chat_action_outcome_stage_reverted",
     }
 
     # Action labels are the same kind of interface as the event names, and a
@@ -1056,13 +1057,13 @@ class ProductionCallShapeTests(_Case):
         # worked and change nothing the login path reads.
         session = FakeSession(position=FakePosition(scene_id=1))
         action = chat_command_action.make_gm_chat_command_action(
-            session, make_chat_payload("/warp 3"), self.legacy
+            session, make_chat_payload("/warp 278"), self.legacy
         )
         self.assertIsNone(action)
         landed = self.tmp / "config" / "gm_login_scene.json"
         self.assertTrue(landed.is_file(), sorted(p.name for p in self.tmp.iterdir()))
         self.assertEqual(
-            {"gm_login_scene": {self.GM_ACCOUNT: 3}},
+            {"gm_login_scene": {self.GM_ACCOUNT: 278}},
             json.loads(landed.read_text(encoding="utf-8")),
         )
 

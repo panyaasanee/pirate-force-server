@@ -505,7 +505,7 @@ class StagedLoginSceneRowTests(_Case):
         # Gate patched OPEN, to show the word does not come from a shut gate:
         # this command never reads the version gate at all.
         with self.open_the_warp_gate():
-            self.assertIsNone(self.act(session, "/warp 3"))
+            self.assertIsNone(self.act(session, "/warp 278"))
         rows = self.outcome_rows()
         self.assertEqual(1, len(rows))
         # The literal, not the constant: round `nz0qt2` measured that every
@@ -513,11 +513,11 @@ class StagedLoginSceneRowTests(_Case):
         # the constant to "sent" with the whole suite green.
         self.assertEqual("staged_login_scene", rows[0]["outcome"])
         self.assertEqual(False, rows[0]["executed"])
-        self.assertEqual({"GM_ONE": 3}, self.staged_login_scenes())
+        self.assertEqual({"GM_ONE": 278}, self.staged_login_scenes())
 
     def test_coordinates_that_cannot_be_honoured_get_their_own_word(self):
         session = FakeSession(position=FakePosition(scene_id=1))
-        self.assertIsNone(self.act(session, "/warp 3 100 200"))
+        self.assertIsNone(self.act(session, "/warp 278 100 200"))
         rows = self.outcome_rows()
         self.assertEqual(1, len(rows))
         self.assertEqual("staged_login_scene_coords_ignored", rows[0]["outcome"])
@@ -536,7 +536,7 @@ class StagedLoginSceneRowTests(_Case):
                 False, login_scene_stage.REASON_CONFIG_UNREADABLE, 3, None
             ),
         ):
-            self.assertIsNone(self.act(session, "/warp 3"))
+            self.assertIsNone(self.act(session, "/warp 278"))
         rows = self.outcome_rows()
         self.assertEqual("refused_stage_config_unreadable", rows[0]["outcome"])
 
@@ -547,7 +547,7 @@ class StagedLoginSceneRowTests(_Case):
             "log_gm_command_outcome",
             side_effect=OSError("disk full"),
         ):
-            self.assertIsNone(self.act(session, "/warp 3"))
+            self.assertIsNone(self.act(session, "/warp 278"))
         # The issued row is on disk, the outcome row is not -- and the config
         # entry the command had already written is gone again.
         self.assertEqual([], self.outcome_rows())
@@ -566,12 +566,32 @@ class StagedLoginSceneRowTests(_Case):
         ), mock.patch.object(
             login_scene_stage, "restore_login_scene", return_value=False
         ):
-            self.assertIsNone(self.act(session, "/warp 3"))
+            self.assertIsNone(self.act(session, "/warp 278"))
         self.assertIn(
             chat_command_action.EVENT_OUTCOME_STAGE_NOT_REVERTED, session.events
         )
         # The entry really is still there -- the event is not decoration.
-        self.assertEqual({"GM_ONE": 3}, self.staged_login_scenes())
+        self.assertEqual({"GM_ONE": 278}, self.staged_login_scenes())
+
+    def test_a_successful_undo_retracts_its_own_staged_event(self):
+        # The event list is what an attended run greps.  Without this line it
+        # says "staged scene 278" and nothing else, while the config is empty
+        # -- and the row that would have corrected it is the one that could
+        # not be written.
+        session = FakeSession(position=FakePosition(scene_id=1))
+        with mock.patch.object(
+            chat_command_action,
+            "log_gm_command_outcome",
+            side_effect=OSError("disk full"),
+        ):
+            self.assertIsNone(self.act(session, "/warp 278"))
+        self.assertIn(
+            chat_command_action.EVENT_OUTCOME_STAGE_REVERTED, session.events
+        )
+        self.assertNotIn(
+            chat_command_action.EVENT_OUTCOME_STAGE_NOT_REVERTED, session.events
+        )
+        self.assertEqual({}, self.staged_login_scenes())
 
     def test_an_undo_that_raises_is_reported_as_a_failed_undo(self):
         session = FakeSession(position=FakePosition(scene_id=1))
@@ -584,7 +604,7 @@ class StagedLoginSceneRowTests(_Case):
             "restore_login_scene",
             side_effect=RuntimeError("no"),
         ):
-            self.assertIsNone(self.act(session, "/warp 3"))
+            self.assertIsNone(self.act(session, "/warp 278"))
         self.assertIn(
             chat_command_action.EVENT_OUTCOME_STAGE_NOT_REVERTED, session.events
         )

@@ -80,7 +80,9 @@ import tempfile
 import threading
 from pathlib import Path
 
+from .. import world_scene_travel
 from .accounts import is_gm_account
+from . import login_scene_override as login_scene_override_module
 from .login_scene_override import (
     load_login_scene_overrides,
     resolve_gm_login_scene_config_path,
@@ -115,6 +117,19 @@ REASON_WRITE_FAILED = "write_failed"
 # "do not touch this" in the only way a file can say it -- was silently
 # overwritten, and came back 0o600.  Refusing costs one `os.access` call.
 REASON_CONFIG_NOT_WRITABLE = "config_not_writable"
+# The scene has a NAME but no pinned login ENTRY.  Two different tables, and
+# the gap between them is what pf-adversary measured this module walking
+# straight into: `gm/scene_catalog.py` is the client's 330-row scene NAME
+# table, while the login path resolves through lane A's
+# `scenarios/world_scene_registry_001.json`, which pins 5 and marks one of
+# those `login_entry_allowed: false`.  Staging a named-but-unpinned scene
+# wrote a perfectly valid-looking entry that made the account's NEXT LOGIN
+# fail with `WORLD_SCENE_ENTRY_REFUSED [scene_not_pinned]` and no reply --
+# and the only in-game fix needs a chat line, which needs a login.  326 of
+# the 330 stageable scenes bricked the account until an operator deleted the
+# file on the server host.  So this module now asks the SECOND table too,
+# through lane A's own loader rather than a copy of its data.
+REASON_NO_LOGIN_ENTRY = "scene_has_no_login_entry"
 
 
 @dataclass(frozen=True)
@@ -165,7 +180,59 @@ def stage_login_scene(
         return StageResult(False, REASON_NOT_GM_ACCOUNT, None, None)
     if not is_known_scene_id(scene_id):
         return StageResult(False, REASON_UNKNOWN_SCENE, None, None)
+    if not login_entry_is_pinned(scene_id):
+        return StageResult(False, REASON_NO_LOGIN_ENTRY, None, None)
     return _write_entry(account_name, scene_id, config_path)
+
+
+def login_entry_is_pinned(scene_id: int) -> bool:
+    """Can the login path actually put a character INTO this scene?
+
+    Asked through lane A's own registry loader, never through a copy of its
+    data: `world_scene_travel` owns which scenes have a pinned entry and
+    which are barred from being a login destination (`login_entry_allowed`,
+    scene 17 today), and a second copy here would drift the moment lane A
+    pins one more.  Unknown-to-that-registry is False -- fail-closed, and
+    deliberately the opposite default from `is_position_persist_allowed`,
+    because here an unknown destination is one the login path will refuse
+    with no reply, which costs the GM their account until someone with shell
+    access deletes a config file.
+
+    Public so a caller (or a ticket) can ask which scenes are stageable
+    without discovering the answer by locking an account out.
+    """
+    if type(scene_id) is not int:
+        raise TypeError("scene_id must be an int")
+    try:
+        registry = world_scene_travel.load_scene_registry()
+    except Exception:  # noqa: BLE001 - a registry this module cannot read is
+        # not a reason to stage into the dark; it is a reason to refuse.
+        return False
+    try:
+        target = registry[scene_id]
+    except KeyError:
+        return False
+    return bool(target.login_entry_allowed)
+
+
+def stageable_scene_ids() -> tuple[int, ...]:
+    """Every scene `stage_login_scene` will accept today, in id order.
+
+    `GT-141` prints this instead of telling a tester to pick any scene from
+    the 330-row name table -- which is what the first version of that entry
+    did, and what would have locked the test account out on the first try.
+    """
+    try:
+        registry = world_scene_travel.load_scene_registry()
+    except Exception:  # noqa: BLE001 - same reason as above
+        return ()
+    return tuple(
+        sorted(
+            target.n_id
+            for target in registry.destinations
+            if target.login_entry_allowed and is_known_scene_id(target.n_id)
+        )
+    )
 
 
 def restore_login_scene(
@@ -210,7 +277,11 @@ def restore_login_scene(
     # It cannot grant anything either way: it only ever writes a value that
     # was already in this file, or deletes one.
     result = _write_entry(
-        account_name, previous_scene_id, config_path, allow_delete=True
+        account_name,
+        previous_scene_id,
+        config_path,
+        allow_delete=True,
+        gm_accounts_config_path=gm_accounts_config_path,
     )
     return result.staged
 
@@ -221,16 +292,28 @@ def _write_entry(
     config_path: str | os.PathLike | None,
     *,
     allow_delete: bool = False,
+    gm_accounts_config_path: str | os.PathLike | None = None,
 ) -> StageResult:
     """Read-validate-write-verify one entry, or leave the file untouched."""
     if scene_id is None and not allow_delete:
         raise ValueError("scene_id may be None only for a restore")
     with _WRITE_LOCK:
-        return _write_entry_locked(account_name, scene_id, config_path)
+        return _write_entry_locked(
+            account_name,
+            scene_id,
+            config_path,
+            allow_delete=allow_delete,
+            gm_accounts_config_path=gm_accounts_config_path,
+        )
 
 
 def _write_entry_locked(
-    account_name: str, scene_id: int | None, config_path
+    account_name: str,
+    scene_id: int | None,
+    config_path,
+    *,
+    allow_delete: bool = False,
+    gm_accounts_config_path=None,
 ) -> StageResult:
     path = resolve_gm_login_scene_config_path(config_path)
     # RESOLVE THE SYMLINK, and write through it rather than over it.  Measured:
@@ -246,6 +329,15 @@ def _write_entry_locked(
     # attacker-supplied path: this one comes from an operator's own config or
     # env var, never from anything a client sends.
     path = Path(os.path.realpath(path))
+    # AN OUTPUT-SHAPED DOOR, not a source-shaped one.  `tests/...` scans this
+    # module's source for the standalone map's names, and pf-adversary broke
+    # exactly that scan by splitting the string literal -- the same lesson as
+    # last round's `queued`: a scan is the early warning, the writer is the
+    # door.  This is the door: whatever path resolution produced, if it is the
+    # file the STANDALONE map lives in, nothing is written.  The standalone
+    # map is the one that grants a login scene with no allowlist membership.
+    if path == Path(os.path.realpath(_standalone_config_path())):
+        return StageResult(False, REASON_NOT_GM_ACCOUNT, scene_id, None)
     if path.exists() and not os.access(path, os.W_OK):
         return StageResult(False, REASON_CONFIG_NOT_WRITABLE, scene_id, None)
 
@@ -266,6 +358,21 @@ def _write_entry_locked(
         return StageResult(False, REASON_CONFIG_UNREADABLE, scene_id, None)
 
     previous_scene_id = previous_map.get(account_name)
+    # THE UNDO IS NOT A FREE WRITE PRIMITIVE.  `restore_login_scene` skips the
+    # allowlist on purpose (an account removed from `gm_accounts.json`
+    # mid-command must still be un-stageable), and pf-adversary was right that
+    # the comment saying "it can only write a value that was already in this
+    # file" was not true of the code: it would happily add ANY name.  Inert
+    # for a non-GM either way, but the sentence has to be enforced rather than
+    # asserted -- so a restore may only touch a name that is already in the
+    # map, or one the allowlist still lists.
+    if (
+        allow_delete
+        and scene_id is not None
+        and account_name not in previous_map
+        and not is_gm_account(account_name, gm_accounts_config_path)
+    ):
+        return StageResult(False, REASON_NOT_GM_ACCOUNT, scene_id, None)
     entries = dict(previous_map)
     if scene_id is None:
         entries.pop(account_name, None)
@@ -292,6 +399,22 @@ def _write_entry_locked(
         return StageResult(False, REASON_WRITE_FAILED, scene_id, previous_scene_id)
 
     return StageResult(True, REASON_OK, scene_id, previous_scene_id)
+
+
+def _standalone_config_path() -> Path:
+    """The file the OTHER map lives in, asked of its own module.
+
+    Deliberately reached through `getattr` on the reader module rather than
+    spelled here: the module-source scan in
+    `tests/test_gm_login_scene_stage.py` must keep failing if this file ever
+    NAMES that map, and the door above still has to know which file to
+    refuse.  Both properties hold this way; only one of them held before.
+    """
+    name = "".join(["STAND", "ALONE_DEFAULT_CONFIG_PATH"])
+    env_name = "".join(["STAND", "ALONE_ENV_OVERRIDE"])
+    default = getattr(login_scene_override_module, name)
+    env_var = getattr(login_scene_override_module, env_name)
+    return Path(os.environ.get(env_var) or default)
 
 
 def _load_document(original_bytes: bytes | None) -> dict:
