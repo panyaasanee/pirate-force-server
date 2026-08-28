@@ -1488,3 +1488,142 @@ failures. เขียว (local pytest, this session).
 nonclaim: security-hardening ล้วนในเขตเขียนของสายนี้เอง ไม่มีการยิงเฟรมใส่ client จริง
 ไม่มีการรันเทสในเกม ไม่แตะ `runtime.py` ไม่เพิ่มบัญชีใดลง `gm_accounts.json`. Full
 detail: `pf_bridge/rounds/GM_20260828_1035_log-permission-fix-plus-capture-dir-retighten.md`.
+
+## Round `hs9m2r`: the GM button is dead -- take the chat box instead
+
+Round-lock check: no open `[LANE-GM]` PR in either repo (`pf_bridge#301` was
+open but is `[LANE-E]`, not this lane's lock -- untouched). Previous round's
+PRs both confirmed `merged_at` non-null on `main` (`pirate-force-server#195`,
+`pf_bridge#299`) -- nothing to recover. Mailbox: two items addressed to this
+lane, both consumed this round (`20260828_1105_PANYA-ASK-LANE-GM-*`,
+`20260828_1140_GT103AB-RESULT-NEGATIVE-*`).
+
+Two attended rounds have now measured that the client's own GM door does not
+open. GT-101-R3 (02:15 +07:00): the 41-byte `GM_UpdateGMStateVital` frame is
+accepted and `BT_GM` becomes visible, but clicking it is silent. GT-103
+steps 2a/2b (11:36 +07:00): clicked in four different UI states -- empty HUD,
+map window held open, bag held open, bag closed again -- silent in every one.
+Inbound frame census for the whole boot: `0x51E9` = 0, while `TargetPosVital`
+x3 in the same window proves the client was alive and sending. That falsified
+RE-118's practical "give the dispatcher a non-empty current-UI key first"
+hypothesis; the remaining static question is now RE-126's.
+
+RE-118's own follow-up list asked, as item (5), whether a cheaper entry to
+`GMUI_BASIC` exists. It does, and it does not involve `GMUI_BASIC` at all:
+the client already sends every line typed into the ORDINARY chat box to the
+server as `Channel_LocalTalkMessageVital` (`0xAC52`), in a layout this
+project measured three times over on 17-18 Aug. GT-006/GT-009 captured
+payloads of three different lengths -- 34B/20B/46B for 12/5/18 characters,
+i.e. `10 + 2N` every time, with the u32 length field (`0x18`/`0x0A`/`0x24` =
+24/10/36) tracking the text in all three. The encoding itself (`tag 0x48`,
+u32 LE byte length, strict UTF-16LE, no terminator) is the client's standard
+wide-string serialization, already Grade A proven for CreateActorDataEx and
+ActorAttr names. Payload = wstring#1 (speaker, empty client->server) +
+wstring#2 (the typed text).
+
+`gm/chat_command.py` reads it. A GM types `/warp 2` in the same chat box
+every player uses; no GM window, no `BT_GM`, no `0x51E9`, nothing left to
+discover about the client. `decode_local_talk_payload` fails closed on every
+deviation from the measured shape (wrong tag, a length field past the end of
+the buffer, an odd length, trailing bytes, anything not strictly decodable
+UTF-16LE) rather than salvaging what it can -- a replacement character inside
+a command argument would be an invented value. `handle_local_talk_chat`
+checks the `gm_accounts` allowlist FIRST, before the payload is decoded at
+all: the payload of an `0xAC52` frame is the literal sentence a player typed
+to another player, so a non-GM's chat is never decoded, never
+pattern-matched, never logged, and never carried back out of the module.
+A GM's own non-command chatter is decoded (it has to be, to see there is no
+sigil) but likewise never logged and never charged against the rate limit --
+only a line starting with `/` that also parses becomes an audit record. An
+unwritable audit log fails closed and the command is not handed onward.
+
+`gm/dispatch.py` gains one thing: `rate_limit_allows()`, a public name for
+the per-account limiter that was already there. Deliberately shared with the
+0x51E9 path rather than duplicated -- what the RATE_LIMIT_* constants bound
+is GM actions per account, not frames per door, and two counters would
+quietly double the ceiling this lane advertises.
+
+`lane_hooks/lane_gm_chat_command.py` registers for point
+`vital_inbound_chat_local_talk`. That point does not exist yet: `runtime.py`
+has exactly one `lane_hooks.fire()` site (the 0x51E9 one) and none at the
+`0xAC52` branch, so the hook is inert and this round changes nothing about
+how the server behaves for anybody. `CORE-REQUEST-GM-028` asks chief for the
+three lines; `GT-127` is `[BLOCKED-ON-WIRING]` until they land.
+
+A hook-file mutation was found mid-round and is worth recording because of
+what it exposed: line 53 appeared as `handle_local_talk_chat(payload,
+session.tokn)` -- arguments swapped and the attribute misspelled. Because
+`lane_hooks.fire()` swallows every exception a hook raises, that breakage
+would have looked EXACTLY like the `[BLOCKED-ON-WIRING]` state this lane
+already expects, so nobody would have found it. The two hook tests written
+earlier that round passed against it unchanged: they proved only that a
+callable was registered under the right point name and that
+`production_allowed` was True. `HookBehaviourTests` (8 tests) now drives the
+hook function itself with a fake session carrying only `token` and `events`,
+with no `fire()` in between so nothing is swallowed -- verified to fail 8/8
+against the broken line and pass once it was restored.
+
+A `pf-adversary` sweep of the new code (the first attempt died mid-read on
+an API rate limit -- that is not a pass, and the sweep was re-run to
+completion) found six real defects; four are fixed in this round's diff and
+two are recorded rather than "fixed". Fixed: (1) the ndjson audit log had no
+volume cap at all -- this module is the first live caller of
+`commands.log_gm_command`, so it inherited exactly the gap `dispatch.py` had
+already closed on its own capture-file side, and the shared limiter is
+deliberately generous enough (20 calls / 5 s) that a scripted GM account
+appending ~600 bytes per call stays inside its accepted operating range
+forever; now capped at `MAX_COMMAND_LOG_BYTES` (64 MiB), measured against
+the file's real `st_size` rather than an in-process counter that would reset
+to zero every boot and never bind. (2) `log_gm_command`'s `os.write` call
+discarded its return value -- `write(2)` may write fewer bytes than asked
+WITHOUT raising, which is precisely what a filling disk does, so the
+`except OSError` fail-closed guarantee this module advertises did not hold:
+the command was handed onward while the log held a truncated record that the
+next append then glued itself onto; now a write loop, with zero progress
+raising rather than spinning. (3) Unicode format characters (category Cf --
+the bidi overrides above all) passed into the audit log verbatim, since
+`json.dumps` escapes the C0 control range but nothing above it; a log line
+that renders in a different order than it was typed defeats the one property
+an audit log has, so command lines carrying any Cf character are now refused
+(command lines only -- ordinary chat is never decoded for a non-GM and never
+logged for a GM, so nothing constrains what players say, and a test pins that
+ordinary Thai text is still accepted). (4) `handle_local_talk_chat` now
+snapshots `bytes(payload)` once, before the size check, closing a
+check-then-use window that is not live today (every caller passes immutable
+bytes) but that nothing in the signature prevents. Recorded, not fixed: the
+two doors' rate-limit consumption is not perfectly symmetric (0x51E9 spends a
+slot before its size check, this path checks size first), which is written
+into the code as a limitation with its reasoning rather than papered over --
+reordering would charge a GM's ordinary conversation against the budget their
+next real command needs; and the question of whether the `0xAC52` branch's
+existing echo/broadcast lane would re-broadcast a GM's `/warp 2` to other
+players once the fire point exists, which is `runtime.py`'s to answer and is
+now a blocking condition on CORE-REQUEST-GM-028.
+
+`tests/test_gm_chat_command.py`: 55 tests, 27 subtests, including the three
+real captured payloads pinned as literal bytes (so this file goes red if the
+reading of the frame ever drifts from what was actually measured), a non-GM
+account driven through the exact command text that works for a GM, and one
+test that fires the hook through `lane_hooks.fire()` with the exact keyword
+names CORE-REQUEST-GM-028 asks chief to write -- because `fire()` swallows
+every exception, a keyword mismatch at the future call site would otherwise
+print the "lane is alive" token on every chat frame while the lane did
+nothing, forever.
+`tests/test_gm_*.py`: 321/321 (up from 266 -- 55 new, 0 removed, 0 narrowed).
+Repo-wide `pytest tests/ --continue-on-collection-errors`: 3820 passed, 327
+skipped, 5062 subtests passed, no new failures. เขียว (local pytest, this
+session).
+
+## ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้ (round `hs9m2r`)
+
+**ยังไม่ได้ -- ตอบตรง ๆ** `GT-127` ติด `[BLOCKED-ON-WIRING]` รอสามบรรทัดของ chief จอยังไม่มีอะไรใหม่
+สิ่งที่เปลี่ยนคือ**เส้นทางที่ต้องรอ**: เมื่อวานสาย GM รอ RE ตอบเรื่องปุ่มที่ไม่มีใครรู้ว่าจะเปิดได้ไหม
+วันนี้รอ `CORE-REQUEST-GM-028` สามบรรทัดที่ทุกคนรู้ว่าเขียนยังไง โดยมีเทส 45 ตัวรออยู่ปลายทาง
+
+nonclaim: ไม่มีคำสั่ง GM ใดมีผลในเกม (GM-003 v1 = parse + log, `"executed": false`) · เส้นทางแชท
+**ยังไม่เคยทดสอบกับ client จริง** · ไม่อ้างอะไรเกี่ยวกับ `BT_GM`/`GMUI_BASIC`/`0x51E9` -- ประตูนั้นยังตาย
+· ไม่อ้างว่าข้อความไทยผ่านเส้นทางนี้ได้ (sample ที่จับได้เป็น ASCII ทั้งหมด) · ไม่อ้างว่า wstring#1 คือช่อง
+ชื่อผู้พูดจริง · รอบนี้ไม่ยิงเฟรมใส่ client จริง ไม่รันเทสในเกม ไม่แตะ `runtime.py`/`app.py` ไม่เพิ่มบัญชีใด
+ลง `gm_accounts.json` · **GM nonclaim:** ทุกอย่างในรอบนี้เป็นเครื่องมือเพื่อไปให้ถึงสภาพที่จะเทส ไม่ใช่
+หลักฐานว่าฟีเจอร์ใดทำงาน. Full detail:
+`pf_bridge/rounds/GM_20260828_1712_chat-command-door.md`.

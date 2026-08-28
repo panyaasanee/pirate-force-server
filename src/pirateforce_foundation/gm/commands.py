@@ -312,7 +312,34 @@ def log_gm_command(
     # bit split; this write zone has no ACL API to close that gap from here).
     fd = os.open(path, os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
     try:
-        os.write(fd, line.encode("utf-8"))
+        # pf-adversary (round hs9m2r): this used to be a bare
+        # `os.write(fd, ...)` whose return value was discarded. write(2) is
+        # not required to write every requested byte in one call, and a
+        # filesystem that fills up mid-write is the classic case where it
+        # writes fewer WITHOUT raising. The old code therefore reported
+        # success for a short write: `log_gm_command` returned normally,
+        # `chat_command.handle_local_talk_chat`'s `except OSError` never
+        # fired, and the caller handed the GM command onward believing it
+        # was audited -- while the ndjson file held a truncated fragment
+        # with no trailing newline, which the next successful append then
+        # glued itself onto, corrupting two records instead of one. That is
+        # exactly the "a full disk silently turns audited GM actions into
+        # unaudited ones" failure this function's callers claim to be
+        # closed against.
+        #
+        # O_APPEND makes the loop safe: every write lands at the current
+        # end of file atomically, so a resumed write cannot interleave with
+        # another process's record. Zero bytes written with no exception
+        # means no forward progress is possible -- raise rather than spin.
+        payload = line.encode("utf-8")
+        written = 0
+        while written < len(payload):
+            count = os.write(fd, payload[written:])
+            if count <= 0:
+                raise OSError(
+                    f"short write to {path}: {written}/{len(payload)} bytes"
+                )
+            written += count
     finally:
         os.close(fd)
     return path
