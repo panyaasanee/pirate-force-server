@@ -151,18 +151,22 @@ class DiagObjectsTests(unittest.TestCase):
             mob for mob in field_mobs.load_roster()
             if field_mob_ai_tables.AI_WANDER_ROWS[mob.ai_wander][3] > 0
         ]
-        # ~~3~~ 7 from round szdkgs: the four practice-dummy rows point at
-        # AI_WANDER 21, whose n_AGGRO is 3000.  A NONZERO RADIUS IS NOT AN
-        # AGGRESSIVE ACTOR here -- those four have n_AI_COMBAT 0, so
-        # mob_ai_control.profile_of forces offensive False for them (see that
-        # branch); this test reads the raw mined column, which is why the
-        # number moved and the behaviour did not.
-        self.assertEqual(len(aggro_mobs), 7)
+        # ~~3~~ ~~7 from round szdkgs~~ 4 from round 8ftmbx: the four
+        # practice-dummy rows point at AI_WANDER 21, whose n_AGGRO is 3000,
+        # and they are now the WHOLE bg0001 roster -- COO-DECISION
+        # 2026-08-29T00:41+07:00 withdrew the nine set-number rows, three of
+        # which (58, 63, 132) were the only ones this scene had that really
+        # initiate.  A NONZERO RADIUS IS NOT AN AGGRESSIVE ACTOR here: those
+        # four have n_AI_COMBAT 0, so mob_ai_control.profile_of forces
+        # offensive False for them (see that branch); this test reads the raw
+        # mined column, which is why the number moved and the behaviour did
+        # not.  Nothing in Port Royal initiates now, and that is the finding.
+        self.assertEqual(len(aggro_mobs), 4)
         from pirateforce_foundation import mob_ai_control as _ai
         self.assertEqual(
             sorted(mob.placement_index for mob in aggro_mobs
                    if _ai.profile_of(mob).offensive),
-            [58, 63, 132],
+            [],
         )
         control = self.by_label[diag.DIAG_LABEL_CONTROL].mob
         self.assertNotIn(

@@ -56,7 +56,14 @@ from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
 
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
-SANCTIONED_TARGET = mob_death.SANCTIONED_FIRST_TARGET_IDENTITY  # 0x201F, P30
+# ~~CONTROL_TARGET = mob_death.SANCTIONED_FIRST_TARGET_IDENTITY  # 0x201F,
+# P30~~  ROUND 8ftmbx: bg0001 placement 30 is a townsman under the RE-128
+# crosswalk and COO-DECISION 2026-08-29T00:41+07:00 withdrew it from what this
+# lane ships, so the identity this end-to-end test drives is the roster's own
+# control row -- the practice dummy the same ruling approved as the thing a
+# player can hit.  The scope lock itself is untouched: runtime.py's kill site
+# passes COO-RULING-20260827-1350, which covers this template.
+CONTROL_TARGET = 0x2000 + field_mobs.CONTROL_PLACEMENT_INDEX + 1
 
 
 def _legacy():
@@ -83,8 +90,8 @@ class MobCombatDispatchTests(unittest.TestCase):
             self.legacy.extract_avatar_attr_wire_from_actor,
         )
         self.roster = field_mobs.load_roster()
-        self.p30 = next(
-            m for m in self.roster if m.actor_identity == SANCTIONED_TARGET
+        self.control_mob = next(
+            m for m in self.roster if m.actor_identity == CONTROL_TARGET
         )
 
     def tearDown(self):
@@ -212,7 +219,7 @@ class MobCombatDispatchTests(unittest.TestCase):
 
     def test_a_hit_that_does_not_kill_sends_announce_then_bar(self):
         state = self._state("mc_hit")
-        actions = self._attack(state, SANCTIONED_TARGET)
+        actions = self._attack(state, CONTROL_TARGET)
         self.assertEqual(
             [label for label, _pc, _f, _d in actions],
             ["MOB_COMBAT_ANNOUNCE", "MOB_COMBAT_BAR"],
@@ -222,11 +229,11 @@ class MobCombatDispatchTests(unittest.TestCase):
             self.assertEqual(frame, self.legacy.frame_pc(pc))
         self.assertEqual(state.mob_combat_hit_count, 1)
         self.assertEqual(state.mob_combat_kill_count, 0)
-        balance = state.mob_combat_ledger.balance_of(SANCTIONED_TARGET)
+        balance = state.mob_combat_ledger.balance_of(CONTROL_TARGET)
         self.assertEqual(
             balance.current_hp,
-            self.p30.max_hp - mob_combat.resolve_damage(
-                mob_combat.pin_attacker(), mob_combat.mob_defender(self.p30),
+            self.control_mob.max_hp - mob_combat.resolve_damage(
+                mob_combat.pin_attacker(), mob_combat.mob_defender(self.control_mob),
             ),
         )
         self.assertGreater(balance.current_hp, 0)
@@ -250,8 +257,8 @@ class MobCombatDispatchTests(unittest.TestCase):
         # Bring the sanctioned target within one hit of the floor without
         # re-deriving the damage arithmetic here -- that is
         # tests/test_mob_combat.py's job, not this file's.
-        self._set_balance(state, SANCTIONED_TARGET, 500)
-        actions = self._attack(state, SANCTIONED_TARGET)
+        self._set_balance(state, CONTROL_TARGET, 500)
+        actions = self._attack(state, CONTROL_TARGET)
         labels = [label for label, _pc, _f, _d in actions]
         self.assertEqual(
             labels[:3],
@@ -272,10 +279,10 @@ class MobCombatDispatchTests(unittest.TestCase):
         for _label, pc, frame, _delay in actions:
             self.assertEqual(frame, self.legacy.frame_pc(pc))
         self.assertEqual(
-            state.mob_combat_ledger.balance_of(SANCTIONED_TARGET).current_hp,
+            state.mob_combat_ledger.balance_of(CONTROL_TARGET).current_hp,
             0,
         )
-        self.assertTrue(state.mob_death_register.is_dead(SANCTIONED_TARGET))
+        self.assertTrue(state.mob_death_register.is_dead(CONTROL_TARGET))
         self.assertEqual(state.mob_combat_hit_count, 1)
         self.assertEqual(state.mob_combat_kill_count, 1)
         # The dying frame carries a strictly-positive timer (the latch); the
@@ -301,19 +308,19 @@ class MobCombatDispatchTests(unittest.TestCase):
                 )
             return real_commit_step(current, step)
 
-        before = state.mob_combat_ledger.balance_of(SANCTIONED_TARGET).current_hp
+        before = state.mob_combat_ledger.balance_of(CONTROL_TARGET).current_hp
         with mock.patch.object(
             mob_combat, "commit_step", side_effect=flaky_commit_step,
         ):
-            actions = self._attack(state, SANCTIONED_TARGET)
+            actions = self._attack(state, CONTROL_TARGET)
         self.assertEqual(calls["n"], 2)
         self.assertEqual(
             [label for label, _pc, _f, _d in actions],
             ["MOB_COMBAT_ANNOUNCE", "MOB_COMBAT_BAR"],
         )
-        after = state.mob_combat_ledger.balance_of(SANCTIONED_TARGET).current_hp
+        after = state.mob_combat_ledger.balance_of(CONTROL_TARGET).current_hp
         expected_damage = mob_combat.resolve_damage(
-            mob_combat.pin_attacker(), mob_combat.mob_defender(self.p30),
+            mob_combat.pin_attacker(), mob_combat.mob_defender(self.control_mob),
         )
         # Exactly one hit's worth of damage landed, not two: the retry must
         # not re-apply the arithmetic a second time.
@@ -325,14 +332,14 @@ class MobCombatDispatchTests(unittest.TestCase):
 
     def test_a_hit_on_an_already_dead_mob_sends_nothing(self):
         state = self._state("mc_corpse")
-        self._set_balance(state, SANCTIONED_TARGET, 0)
-        actions = self._attack(state, SANCTIONED_TARGET)
+        self._set_balance(state, CONTROL_TARGET, 0)
+        actions = self._attack(state, CONTROL_TARGET)
         self.assertEqual(actions, [])
         # The ledger still moves generation (a real hit was processed and
         # committed), but the balance stays at the floor and nothing is
         # queued for the wire -- mob_combat's own no_room path.
         self.assertEqual(
-            state.mob_combat_ledger.balance_of(SANCTIONED_TARGET).current_hp,
+            state.mob_combat_ledger.balance_of(CONTROL_TARGET).current_hp,
             0,
         )
         self.assertEqual(state.mob_combat_hit_count, 1)
@@ -353,7 +360,7 @@ class MobCombatDispatchTests(unittest.TestCase):
         """
         state = self._state("mc_widened_roster")
         other = next(
-            m for m in self.roster if m.actor_identity != SANCTIONED_TARGET
+            m for m in self.roster if m.actor_identity != CONTROL_TARGET
         )
         self._set_balance(state, other.actor_identity, 1)
         actions = self._attack(state, other.actor_identity)
@@ -388,7 +395,7 @@ class MobCombatDispatchTests(unittest.TestCase):
         # field_mob_ai_tables rows would refuse at boot for a reason
         # unrelated to what this test proves.
         outsider_mob = dataclasses.replace(
-            self.p30,
+            self.control_mob,
             placement_index=9999,
             template_id=1,
             display_name="Unruled Test Mob",
@@ -433,15 +440,15 @@ class MobCombatDispatchTests(unittest.TestCase):
         code.
         """
         state = self._state("mc_census_wound", world_census_actor_count=None)
-        actions = self._attack(state, SANCTIONED_TARGET)
+        actions = self._attack(state, CONTROL_TARGET)
         self.assertEqual(
             [label for label, _pc, _f, _d in actions],
             ["MOB_COMBAT_ANNOUNCE", "MOB_COMBAT_BAR"],
         )
-        balance = state.mob_combat_ledger.balance_of(SANCTIONED_TARGET)
+        balance = state.mob_combat_ledger.balance_of(CONTROL_TARGET)
         self.assertGreater(balance.current_hp, 0)
-        self.assertLess(balance.current_hp, self.p30.max_hp)
-        self.assertFalse(state.mob_death_register.is_dead(SANCTIONED_TARGET))
+        self.assertLess(balance.current_hp, self.control_mob.max_hp)
+        self.assertFalse(state.mob_death_register.is_dead(CONTROL_TARGET))
         anchor = (
             state.foundation.selected.position.x,
             state.foundation.selected.position.y,
@@ -465,13 +472,13 @@ class MobCombatDispatchTests(unittest.TestCase):
         ]
         self.assertEqual(len(census), 2)
         wounded_entry = field_mobs.hostile_actor_entry(
-            self.legacy, self.p30, current_hp=balance.current_hp,
+            self.legacy, self.control_mob, current_hp=balance.current_hp,
         )
         full_hp_entry = field_mobs.hostile_actor_entry(
-            self.legacy, self.p30, current_hp=self.p30.max_hp,
+            self.legacy, self.control_mob, current_hp=self.control_mob.max_hp,
         )
         dead_entry = mob_death.death_actor_entry(
-            self.legacy, self.p30, death_timer=mob_death.DEAD_TIMER_SECONDS,
+            self.legacy, self.control_mob, death_timer=mob_death.DEAD_TIMER_SECONDS,
         )
         # The next census composition ships the SAME identity at the SAME
         # reduced HP the ledger holds after the hit -- not the ceiling
@@ -485,8 +492,8 @@ class MobCombatDispatchTests(unittest.TestCase):
 
     def test_world_census_override_reflects_a_committed_kill(self):
         state = self._state("mc_census", world_census_actor_count=None)
-        self._set_balance(state, SANCTIONED_TARGET, 500)
-        actions = self._attack(state, SANCTIONED_TARGET)
+        self._set_balance(state, CONTROL_TARGET, 500)
+        actions = self._attack(state, CONTROL_TARGET)
         labels = [label for label, _pc, _f, _d in actions]
         self.assertEqual(
             labels[:3],
@@ -521,7 +528,7 @@ class MobCombatDispatchTests(unittest.TestCase):
         ]
         self.assertEqual(len(census), 2)
         expected_corpse_entry = mob_death.death_actor_entry(
-            self.legacy, self.p30, death_timer=mob_death.DEAD_TIMER_SECONDS,
+            self.legacy, self.control_mob, death_timer=mob_death.DEAD_TIMER_SECONDS,
         )
         self.assertIn(expected_corpse_entry, census[0][1])
         default_generation = world_population.build_world_population(
@@ -573,7 +580,7 @@ class MobCombatDispatchTests(unittest.TestCase):
         self.assertEqual(state.population_refresh_anchor, anchor)
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            actions = self._attack(state, SANCTIONED_TARGET)
+            actions = self._attack(state, CONTROL_TARGET)
         self.assertEqual(
             [label for label, _pc, _f, _d in actions],
             ["MOB_COMBAT_ANNOUNCE", "MOB_COMBAT_BAR"],
@@ -582,7 +589,7 @@ class MobCombatDispatchTests(unittest.TestCase):
         self.assertIn(
             "MOB_COMBAT_BAR_CENSUS_RECOMPOSE "
             f"actor_count={state.world_census_actor_count} "
-            f"target=0x{SANCTIONED_TARGET:X}",
+            f"target=0x{CONTROL_TARGET:X}",
             printed,
         )
         self.assertFalse(any(
@@ -594,7 +601,7 @@ class MobCombatDispatchTests(unittest.TestCase):
             (pc, frame, delay) for label, pc, frame, delay in actions
             if label == "MOB_COMBAT_BAR"
         )
-        balance = state.mob_combat_ledger.balance_of(SANCTIONED_TARGET)
+        balance = state.mob_combat_ledger.balance_of(CONTROL_TARGET)
         expected_pc, expected_frame = mob_death.hostile_census_frames(
             self.legacy, anchor, state.world_census_actor_count, self.roster,
             mob_death.DeathRegister(), ledger=state.mob_combat_ledger,
@@ -608,7 +615,7 @@ class MobCombatDispatchTests(unittest.TestCase):
         self.assertEqual(bar_pc, expected_pc)
         self.assertEqual(bar_frame, expected_frame)
         wounded_entry = field_mobs.hostile_actor_entry(
-            self.legacy, self.p30, current_hp=balance.current_hp,
+            self.legacy, self.control_mob, current_hp=balance.current_hp,
         )
         self.assertIn(wounded_entry, bar_pc)
 
@@ -621,10 +628,10 @@ class MobCombatDispatchTests(unittest.TestCase):
         anchor = self._arrive(state)
         # Was 115; see the hit test above for why the arrival census is 108.
         self.assertEqual(state.world_census_actor_count, 108)
-        self._set_balance(state, SANCTIONED_TARGET, 500)
+        self._set_balance(state, CONTROL_TARGET, 500)
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            actions = self._attack(state, SANCTIONED_TARGET)
+            actions = self._attack(state, CONTROL_TARGET)
         labels = [label for label, _pc, _f, _d in actions]
         self.assertEqual(
             labels[:3],
@@ -638,7 +645,7 @@ class MobCombatDispatchTests(unittest.TestCase):
         self.assertIn(
             "MOB_DEATH_FRAMES_CENSUS_RECOMPOSE "
             f"actor_count={state.world_census_actor_count} "
-            f"target=0x{SANCTIONED_TARGET:X}",
+            f"target=0x{CONTROL_TARGET:X}",
             printed,
         )
         self.assertFalse(any(
@@ -666,7 +673,7 @@ class MobCombatDispatchTests(unittest.TestCase):
         self.assertEqual(dying_pc, expected_dying_pc)
         self.assertEqual(dead_pc, expected_dead_pc)
         corpse_entry = mob_death.death_actor_entry(
-            self.legacy, self.p30, death_timer=mob_death.DEAD_TIMER_SECONDS,
+            self.legacy, self.control_mob, death_timer=mob_death.DEAD_TIMER_SECONDS,
         )
         self.assertIn(corpse_entry, dead_pc)
 

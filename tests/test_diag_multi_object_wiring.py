@@ -276,8 +276,8 @@ class DiagCombatResolutionTests(_Fixture):
         roster, ledger, refusal = wiring.widen_for_combat(
             roster, ledger, self.objects)
         self.assertIsNone(refusal)
-        self.assertEqual(len(roster), 13 + 5)
-        self.assertEqual(len(ledger.balances), 13 + 5)
+        self.assertEqual(len(roster), len(field_mobs.load_roster()) + 5)
+        self.assertEqual(len(ledger.balances), len(field_mobs.load_roster()) + 5)
         for obj in self.objects:
             step = self.hit(
                 self.legacy, roster, ledger, obj.mob.actor_identity,
@@ -313,8 +313,8 @@ class DiagCombatResolutionTests(_Fixture):
         roster2, ledger2, refusal = wiring.widen_for_combat(
             field_mobs.load_roster(), ledger, self.objects)
         self.assertIsNone(refusal)
-        self.assertEqual(len(roster2), 13 + 5)
-        self.assertEqual(len(ledger2.balances), 13 + 5)
+        self.assertEqual(len(roster2), len(field_mobs.load_roster()) + 5)
+        self.assertEqual(len(ledger2.balances), len(field_mobs.load_roster()) + 5)
         self.assertEqual(ledger2.balance_of(target).current_hp, damaged)
         self.assertIsNotNone(
             self.hit(self.legacy, roster2, ledger2, target,

@@ -89,7 +89,7 @@ class MobCombatTests(unittest.TestCase):
     def setUpClass(cls):
         cls.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
         cls.roster = field_mobs.load_roster()
-        cls.mob = [m for m in cls.roster if m.placement_index == 30][0]
+        cls.mob = [m for m in cls.roster if m.placement_index == field_mobs.CONTROL_PLACEMENT_INDEX][0]
         cls.attacker = Combatant(level=27, ability_str=132, ability_con=10)
 
     # -- the arithmetic ---------------------------------------------------
@@ -292,8 +292,15 @@ class MobCombatTests(unittest.TestCase):
         unlock = hostile_hp_link_hypothesis.hostile_hp_link_wire_unlock(
             hostile_hp_link_hypothesis._PROFILE)
         target = hostile_hp_link_hypothesis.hostile_hp_link_target_identity()
-        self.assertEqual(target, self.mob.actor_identity)
-        position = (self.mob.x, self.mob.y, self.mob.z)
+        # ROUND 8ftmbx: ~~self.mob~~.  The probe lane is pinned to ONE target,
+        # bg0001 placement 30, and that row left the shipped roster with
+        # COO-DECISION 2026-08-29T00:41+07:00.  The comparison is against
+        # THAT lane's bytes, so the subject has to stay that lane's actor;
+        # rebuilt from the preserved row rather than looked up in a roster
+        # that no longer has it.
+        subject = field_mobs.gt035_observed_subject()
+        self.assertEqual(target, subject.actor_identity)
+        position = (subject.x, subject.y, subject.z)
         for damage_wire, flags in ((-964, FLAGS_HIT), (-2122, FLAGS_HIT),
                                    (0, FLAGS_MISS)):
             mine = encode_hit_entry(
@@ -693,33 +700,53 @@ class MobCombatTests(unittest.TestCase):
         # target; this is a general production driver, and it must land on the
         # SAME two damage numbers for the same two attacker profiles - or the
         # thing the owner boots without a flag is not the thing anybody saw.
-        ledger = open_ledger()
+        # ROUND 8ftmbx: ~~self.mob~~.  The bar those two observers watched
+        # belonged to bg0001 placement 30 as the set-number reading rendered
+        # it -- level 27, 3857 HP -- and COO-DECISION 2026-08-29T00:41+07:00
+        # withdrew that row from the shipped roster.  The subject here is
+        # therefore the actor the ladder was watched ON, rebuilt from the row
+        # the generated table preserves for this, not the roster's new control
+        # row: 916 is level 100 with 198,125 HP, and running this comparison
+        # against it would have "reproduced" numbers nobody ever saw.
+        subject = field_mobs.gt035_observed_subject()
+        self.assertEqual(subject.max_hp, 3857)
+        ledger = open_ledger(roster=(subject,))
         profiles = hostile_hp_link_hypothesis.HOSTILE_HP_LINK_ATTACKER_PROFILES
         pinned = hostile_hp_link_hypothesis.HOSTILE_HP_LINK_DAMAGE_PINNED
         for name, expected_after in (("MOB_WEAK", 2893), ("MOB_STRONG", 771)):
             level, ability_str = profiles[name]
             attacker = Combatant(
                 level=level, ability_str=ability_str, ability_con=0)
-            damage = resolve_damage(attacker, mob_defender(self.mob))
+            damage = resolve_damage(attacker, mob_defender(subject))
             ledger, outcome = apply_hit(
-                ledger, PERFORMER, self.mob.actor_identity, damage)
+                ledger, PERFORMER, subject.actor_identity, damage)
             self.assertEqual(outcome.damage_wire, pinned[name])
             self.assertEqual(outcome.hp_after, expected_after)
         self.assertEqual(
             hostile_hp_link_hypothesis.DEFENDER_ABILITY_CON,
             mob_combat.MOB_ABILITY_CON)
         self.assertEqual(
-            hostile_hp_link_hypothesis.DEFENDER_LEVEL, self.mob.level)
+            hostile_hp_link_hypothesis.DEFENDER_LEVEL, subject.level)
 
     def test_the_committed_pin_is_what_the_code_produces(self):
         path = ROOT / "scenarios/combat_first_hit_001.json"
         raw = path.read_bytes()
         self.assertTrue(raw.decode("utf-8").isascii())
         committed = json.loads(raw.decode("ascii"))
-        pinned_mob = [
-            m for m in self.roster
-            if m.placement_index == mob_combat.PIN_PLACEMENT_INDEX
-        ][0]
+        # ROUND 8ftmbx: ~~a roster lookup on PIN_PLACEMENT_INDEX~~.  The row
+        # this pin's numbers were watched on is withdrawn from the shipped
+        # roster (COO-DECISION 2026-08-29T00:41+07:00), and the pin
+        # deliberately did NOT follow the table -- see mob_combat.pin_subject
+        # on why moving it to the new control row would have compared today's
+        # arithmetic against numbers nobody saw.
+        pinned_mob = mob_combat.pin_subject()
+        self.assertEqual(
+            pinned_mob.placement_index, mob_combat.PIN_PLACEMENT_INDEX)
+        self.assertNotIn(
+            pinned_mob.placement_index,
+            [m.placement_index for m in self.roster],
+            "the GT-035 subject is a shipped roster row again: this pin has "
+            "to be re-read before it can be trusted")
         self.assertEqual(committed, pin_document(self.legacy, pinned_mob))
         self.assertTrue(committed["production_allowed"])
         self.assertFalse(committed["test_only"])

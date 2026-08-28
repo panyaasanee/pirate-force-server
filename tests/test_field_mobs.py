@@ -281,9 +281,17 @@ class FieldMobTests(unittest.TestCase):
 
     def test_the_derived_columns_re_derive_two_frozen_constants(self) -> None:
         assert_frozen_controls(self.legacy)
-        control = {
-            mob.placement_index: mob for mob in load_roster()
-        }[self.legacy.V112_MONSTER_INDEX]
+        # ROUND 8ftmbx: ~~a lookup in load_roster()~~.  Placement 30 is
+        # withdrawn from what this lane ships (COO-DECISION
+        # 2026-08-29T00:41+07:00), so the two frozen constants are re-derived
+        # against the row the generated module PRESERVES for that reading --
+        # they are still exact statements about it, and they are still what
+        # makes the ``legacy`` argument mean something.
+        control = field_mobs.gt035_observed_subject()
+        self.assertEqual(control.placement_index, self.legacy.V112_MONSTER_INDEX)
+        self.assertNotIn(
+            control.placement_index,
+            [mob.placement_index for mob in load_roster()])
         self.assertEqual(control.max_hp, self.legacy.V117_P30_EXACT_HP)
         self.assertEqual(control.display_name, self.legacy.V119_P30_TARGET_NAME)
         self.assertEqual(control.template_id, 31)
@@ -325,27 +333,30 @@ class FieldMobTests(unittest.TestCase):
 
     # --- the roster ------------------------------------------------------
 
-    def test_the_roster_is_the_mined_thirteen(self) -> None:
-        # ~~Thirteen monsters.~~  Still thirteen placements, and the SAME
-        # thirteen indices, but round szdkgs split them by which identity rule
-        # produced each one: four are the crosswalk's n_ID 916 practice
-        # dummies (rank 0, no combat AI -- a dummy is not a monster and this
-        # test no longer pretends otherwise), and nine still carry the legacy
-        # set-number reading with their migration named in the generated
-        # module.  ZERO placements in this town satisfy the hostility
-        # predicate under the crosswalk, which is the finding, not a defect.
+    def test_the_roster_is_the_four_practice_dummies_and_nothing_else(self):
+        # ~~Thirteen monsters.~~  ~~Still thirteen placements, split by which
+        # identity rule produced each one: four crosswalk dummies and nine
+        # still carrying the legacy set-number reading.~~
+        # ROUND 8ftmbx: FOUR, and they are all the same practice dummy.
+        # COO-DECISION 2026-08-29T00:41+07:00 gave the nine set-number rows
+        # one round and this is the round after it: they are withdrawn, and
+        # who each of them really is stays readable per row in the generated
+        # module's WITHDRAWN_UNDER_THIS_RULE.  ZERO placements in this town
+        # satisfy the hostility predicate under the crosswalk -- Port Royal
+        # is a town and has no monsters -- which is the finding, not a defect,
+        # and HOSTILE_PLACEMENTS being empty is how the module says it.
         roster = load_roster()
-        self.assertEqual(len(roster), 13)
-        self.assertEqual(len({mob.template_id for mob in roster}), 10)
-        self.assertEqual(
-            hostile_placement_indices(),
-            (12, 30, 33, 58, 59, 60, 63, 95, 103, 105, 107, 109, 132),
-        )
+        self.assertEqual(len(roster), 4)
+        self.assertEqual({mob.template_id for mob in roster}, {916})
+        self.assertEqual(hostile_placement_indices(), (103, 105, 107, 109))
         self.assertEqual(field_mob_tables.HOSTILE_PLACEMENTS, [])
         self.assertEqual(len(field_mob_tables.TOWN_TARGET_PLACEMENTS), 4)
         self.assertEqual(
-            len(field_mob_tables.LEGACY_SETNUM_PLACEMENTS_PENDING_MIGRATION), 9,
+            field_mob_tables.LEGACY_SETNUM_PLACEMENTS_PENDING_MIGRATION, [],
         )
+        self.assertEqual(
+            len(field_mob_tables.WITHDRAWN_UNDER_THIS_RULE), 9,
+            "the nine withdrawn rows must stay named, not deleted")
         for mob in roster:
             self.assertGreater(mob.max_hp, 0)
             self.assertTrue(mob.display_name.isascii())
@@ -353,14 +364,55 @@ class FieldMobTests(unittest.TestCase):
             rule = field_mob_tables.IDENTITY_RULE_PER_PLACEMENT[
                 mob.placement_index
             ]
-            if rule == "cline":
-                self.assertEqual(mob.template_id, field_mobs.TOWN_TARGET_N_ID)
-                self.assertEqual(mob.display_name, field_mobs.TOWN_TARGET_NAME)
-                self.assertEqual(mob.rank, 0)
-                self.assertEqual(mob.ai_combat, 0)
-            else:
-                self.assertGreater(mob.rank, 0)
-                self.assertGreater(mob.ai_combat, 0)
+            self.assertEqual(rule, "cline")
+            self.assertEqual(mob.template_id, field_mobs.TOWN_TARGET_N_ID)
+            self.assertEqual(mob.display_name, field_mobs.TOWN_TARGET_NAME)
+            # A dummy, not a monster: this is the condition COO attached to
+            # shipping 916 at all, asserted rather than only written down.
+            self.assertEqual(mob.rank, 0)
+            self.assertEqual(mob.ai_combat, 0)
+
+    def test_the_withdrawn_row_guard_actually_raises(self) -> None:
+        """The withdrawn-row guard, tripped rather than asserted.
+
+        pf-adversary (same round, D11) mutated both to ``if False:`` and the
+        whole suite stayed green: the tests around them asserted the
+        CONDITION was false (assertNotIn) and never that the guard refuses.
+        A guard nothing trips is a comment.  So this puts the withdrawn row
+        back into the shipped roster and requires each one to raise.
+        """
+        returning = tuple(field_mob_tables.GT035_OBSERVED_SETNUM_ROW)
+        original = field_mob_tables.SHIPPED_PLACEMENTS
+        original_rules = field_mob_tables.IDENTITY_RULE_PER_PLACEMENT
+        field_mob_tables.SHIPPED_PLACEMENTS = sorted(
+            [returning] + list(original))
+        field_mob_tables.IDENTITY_RULE_PER_PLACEMENT = {
+            **original_rules, returning[0]: "cline"}
+        try:
+            # Guard 1: gt035_observed_subject refuses to hand back a row that
+            # is shipped, so a pin cannot quietly change subject to a live
+            # roster member.
+            with self.assertRaises(FieldMobContractError) as caught:
+                field_mobs.gt035_observed_subject()
+            self.assertIn("shipped roster", str(caught.exception))
+            # And the boot-time control refuses too -- by its SHAPE GATE,
+            # which reaches the returning row before the guard above does.
+            # Recorded as what actually catches it rather than assumed: this
+            # is also why assert_frozen_controls carries ONE guard and not
+            # two.  The second copy this round first wrote into it could
+            # never execute (pf-adversary D11 mutation), and was removed
+            # rather than left looking like a second line of defence.
+            with self.assertRaises(FieldMobContractError) as caught:
+                assert_frozen_controls(FieldMobTests.legacy)
+            self.assertIn(
+                str(field_mobs.LEGACY_SETNUM_CONTROL_PLACEMENT_INDEX),
+                str(caught.exception))
+            self.assertIn("this lane ships", str(caught.exception))
+        finally:
+            field_mob_tables.SHIPPED_PLACEMENTS = original
+            field_mob_tables.IDENTITY_RULE_PER_PLACEMENT = original_rules
+        # And the tree is back where it started.
+        assert_frozen_controls(FieldMobTests.legacy)
 
     def test_the_generator_never_places_two_monsters_on_one_spot(self) -> None:
         # ADDED this round: a duplicate PLACEMENT INDEX was already refused
@@ -399,7 +451,9 @@ class FieldMobTests(unittest.TestCase):
         # not a re-statement of the guard: it would still be true even if
         # ``_parse_hostile_placements`` never checked for it.
         for scene, expected_count in (
-            (field_mob_tables.SCENE, 13),
+            # ROUND 8ftmbx: ~~13~~ -> 4 for bg0001 (COO-DECISION
+            # 2026-08-29T00:41+07:00); Bg0002 is untouched by that ruling.
+            (field_mob_tables.SCENE, 4),
             (field_mobs.BG0002_SCENE, 17),
         ):
             roster = load_roster(scene=scene)
@@ -417,7 +471,8 @@ class FieldMobTests(unittest.TestCase):
         # was, and every returned mob must carry the SAME scene string the
         # generated module itself declares, not a hardcoded literal.
         roster = load_roster()
-        self.assertEqual(len(roster), 13)
+        self.assertEqual(len(roster), 4)  # ROUND 8ftmbx: ~~13~~ -> 4 (COO-DECISION 2026-08-29T00:41+07:00
+        # withdrew the nine set-number rows; bg0001 ships four dummies)
         for mob in roster:
             self.assertEqual(mob.scene, field_mob_tables.SCENE)
             self.assertEqual(mob.scene, "bg0001")
@@ -435,7 +490,7 @@ class FieldMobTests(unittest.TestCase):
             self.assertEqual(mob.scene, field_mob_tables_bg0002.SCENE)
             self.assertEqual(mob.scene, "Bg0002")
 
-    def test_bg0001_and_bg0002_actor_identities_are_NOT_disjoint_a_real_collision(
+    def test_bg0001_and_bg0002_actor_identities_no_longer_collide(
             self) -> None:
         # DISCOVERED this round, not fixed: FieldMob.actor_identity is
         # ``0x2000 + placement_index + 1`` with NO scene component (the same
@@ -466,7 +521,15 @@ class FieldMobTests(unittest.TestCase):
             for mob in load_roster(scene=field_mobs.BG0002_SCENE)
         }
         shared = bg0001_identities & bg0002_identities
-        self.assertEqual(shared, {0x203B, 0x203C, 0x203D, 0x2060})
+        # ROUND 8ftmbx: ~~{0x203B, 0x203C, 0x203D, 0x2060}~~ -> EMPTY.  The
+        # four colliding bg0001 rows (placements 58, 59, 60, 95) were four of
+        # the nine COO-DECISION 2026-08-29T00:41+07:00 withdrew, and what the
+        # town still ships (103/105/107/109) meets nothing Bg0002 ships
+        # (50..96).  THE HAZARD IS NOT FIXED, it is merely not realised: the
+        # identity rule is still 0x2000 + placement_index + 1 with no scene
+        # term, so the next roster either scene grows can bring it straight
+        # back.  This assertion is what would say so.
+        self.assertEqual(shared, set())
 
     def test_load_roster_never_merges_the_two_scenes_in_one_call(self) -> None:
         # The guard this round widened (assert_single_scene_tables) still
@@ -547,9 +610,10 @@ class FieldMobTests(unittest.TestCase):
     def test_the_collection_is_nearest_first_and_reframes(self) -> None:
         generation = build_field_mob_population(self.legacy, self.spawn)
         self.assertEqual(generation.scene, "bg0001")
-        self.assertEqual(generation.mob_count, 13)
+        self.assertEqual(generation.mob_count, 4)  # ROUND 8ftmbx: ~~13~~ -> 4 (COO-DECISION 2026-08-29T00:41+07:00
+        # withdrew the nine set-number rows; bg0001 ships four dummies)
         self.assertEqual(generation.faction, FIELD_MOB_FACTION)
-        self.assertEqual(len(set(generation.actor_identities)), 13)
+        self.assertEqual(len(set(generation.actor_identities)), 4)
         self.assertEqual(generation.frame, self.legacy.frame_pc(generation.pc))
         self.assertGreater(generation.frame_bytes, generation.pc_bytes)
         ordered = nearest_first(self.spawn)
@@ -560,7 +624,10 @@ class FieldMobTests(unittest.TestCase):
 
     def test_a_shorter_collection_is_a_prefix_of_the_full_one(self) -> None:
         full = build_field_mob_population(self.legacy, self.spawn)
-        for count in (1, 4, 12):
+        # ROUND 8ftmbx: ~~(1, 4, 12)~~ -- the roster is four rows now
+        # (COO-DECISION 2026-08-29T00:41+07:00), and a count above its length
+        # is refused by name, which is a different test.
+        for count in (1, 2, 4):
             partial = build_field_mob_population(self.legacy, self.spawn, count)
             self.assertEqual(partial.mob_count, count)
             self.assertEqual(
@@ -633,20 +700,29 @@ class FieldMobTests(unittest.TestCase):
                 assert_frozen_controls(FieldMobTests.legacy)
         finally:
             field_mob_tables.SHIPPED_PLACEMENTS = original
-        # And the legacy rows are still held to the one thing their own rule
-        # claims: the shipped id IS the scene file's Mob-Set number.
-        legacy_row = list(
-            field_mob_tables.LEGACY_SETNUM_PLACEMENTS_PENDING_MIGRATION[0]
-        )
-        legacy_row[1] = 4242
-        field_mob_tables.SHIPPED_PLACEMENTS = [tuple(legacy_row)] + [
-            item for item in original if item[0] != legacy_row[0]
-        ]
+        # ~~And the legacy rows are still held to the one thing their own
+        # rule claims: the shipped id IS the scene file's Mob-Set number.~~
+        # ROUND 8ftmbx: there are no legacy rows left to hold (COO-DECISION
+        # 2026-08-29T00:41+07:00), and the check that replaces that one is
+        # stronger: with EXPECTED_LEGACY_PLACEMENTS empty, a row that comes
+        # BACK labelled as the set-number reading is refused outright rather
+        # than merely held to its own weaker claim.  Proven by putting one
+        # back, which is the regression this migration has to stay closed
+        # against.
+        self.assertEqual(field_mobs.EXPECTED_LEGACY_PLACEMENTS, frozenset())
+        returning_row = tuple(field_mob_tables.GT035_OBSERVED_SETNUM_ROW)
+        original_rules = field_mob_tables.IDENTITY_RULE_PER_PLACEMENT
+        field_mob_tables.SHIPPED_PLACEMENTS = sorted(
+            [returning_row] + list(original))
+        field_mob_tables.IDENTITY_RULE_PER_PLACEMENT = {
+            **original_rules, returning_row[0]: "setnum"}
         try:
-            with self.assertRaises(FieldMobContractError):
+            with self.assertRaises(FieldMobContractError) as caught:
                 assert_frozen_controls(FieldMobTests.legacy)
+            self.assertIn("setnum", str(caught.exception))
         finally:
             field_mob_tables.SHIPPED_PLACEMENTS = original
+            field_mob_tables.IDENTITY_RULE_PER_PLACEMENT = original_rules
 
     def test_a_current_hp_below_max_is_allowed_and_changes_only_that_field(self) -> None:
         # M4 needs a body whose current HP is lower than its max; the shape
@@ -766,13 +842,18 @@ class FieldMobTests(unittest.TestCase):
         self.assertEqual(
             committed["selection"], "none_default_behaviour_no_scenario_flag",
         )
-        self.assertEqual(len(committed["roster"]), 13)
+        # ROUND 8ftmbx: ~~13~~ -> 4 (COO-DECISION 2026-08-29T00:41+07:00
+        # withdrew the nine set-number rows; bg0001 ships four dummies).
+        self.assertEqual(len(committed["roster"]), 4)
         self.assertGreaterEqual(len(committed["nonclaims"]), 6)
 
     def test_the_report_is_ascii_safe(self) -> None:
         report = roster_report(self.legacy, self.spawn)
-        self.assertEqual(report["mob_count"], 13)
-        self.assertEqual(report["distinct_templates"], 10)
+        # ROUND 8ftmbx: ~~13 mobs / 10 templates~~ -> four placements of one
+        # template (COO-DECISION 2026-08-29T00:41+07:00 withdrew the nine
+        # set-number rows; what Port Royal ships is four practice dummies).
+        self.assertEqual(report["mob_count"], 4)
+        self.assertEqual(report["distinct_templates"], 1)
         self.assertTrue(repr(report).isascii())
 
 
@@ -800,28 +881,52 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
         # 2026-08-26T12:46+07:00 keeps field_mob_tables_bg0015 unimported
         # anywhere under src/pirateforce_foundation/, so this function's own
         # module-level default cannot reference it either.
+        # ROUND 8ftmbx: ~~four bg0001 x Bg0002 pairs~~ -> none.  All four
+        # were bg0001 rows COO-DECISION 2026-08-29T00:41+07:00 withdrew.  The
+        # report is not broken by having nothing to report; that is what a
+        # report does when there is nothing there, and the tests below still
+        # exercise it on data that does collide.
         collisions = cross_scene_identity_collisions()
-        by_pair: dict[tuple[str, str], list[dict]] = {}
-        for row in collisions:
-            by_pair.setdefault((row["scene_a"], row["scene_b"]), []).append(row)
-        self.assertEqual(sorted(by_pair), [("bg0001", "Bg0002")])
-        self.assertEqual(len(by_pair[("bg0001", "Bg0002")]), 4)
-        self.assertEqual(len(collisions), 4)
+        self.assertEqual(collisions, ())
 
     def test_bg0001_vs_bg0002_matches_the_identities_the_load_roster_test_pins(
             self) -> None:
         # cross-check against the OTHER test's independently-computed set
-        # (test_bg0001_and_bg0002_actor_identities_are_NOT_disjoint_a_real_
-        # collision above) rather than trusting one number twice.
+        # (test_bg0001_and_bg0002_actor_identities_no_longer_collide
+        # above (renamed round 8ftmbx: it now pins the empty set)) rather than trusting one number twice.
+        # ROUND 8ftmbx: both sides now compute the empty set, and they are
+        # still computed independently -- that is still the point.  The four
+        # names this used to pin (Jungle Big Tiger / Fighting Fish soldier /
+        # An Gebo Little Firebird / Orc Chief) were bg0001 rows read through
+        # the set-number column, and every one of them is withdrawn; naming
+        # them here as if they were still shipped would be the exact thing
+        # the withdrawal was for.
         collisions = cross_scene_identity_collisions(
             (field_mob_tables, field_mob_tables_bg0002))
         found = {row["actor_identity"] for row in collisions}
-        self.assertEqual(found, {0x203B, 0x203C, 0x203D, 0x2060})
-        by_placement = {row["placement_index"]: row for row in collisions}
-        self.assertEqual(by_placement[58]["name_a"], "Jungle Big Tiger")
-        self.assertEqual(by_placement[58]["name_b"], "Fighting Fish soldier")
-        self.assertEqual(by_placement[95]["name_a"], "An Gebo Little Firebird")
-        self.assertEqual(by_placement[95]["name_b"], "Orc Chief")
+        independent = (
+            {mob.actor_identity for mob in load_roster()}
+            & {mob.actor_identity
+               for mob in load_roster(scene=field_mobs.BG0002_SCENE)})
+        self.assertEqual(found, independent)
+        self.assertEqual(found, set())
+        # NOT VACUOUS, and pf-adversary (round 8ftmbx, D10) is why this is
+        # spelled out: with both sides empty, `assertEqual(set(), set())`
+        # passes for a function replaced by `return ()`.  So the same report
+        # is run on a pair that DOES collide, built from the same real rows,
+        # and has to find it.  Agreement on nothing is only evidence when the
+        # thing agreeing can still say something.
+        overlapping = type(
+            "_OverlappingScene", (), {
+                "SCENE": "OverlapProbe",
+                "HOSTILE_PLACEMENTS": list(
+                    field_mob_tables.SHIPPED_PLACEMENTS),
+            })
+        probe = cross_scene_identity_collisions(
+            (field_mob_tables, overlapping))
+        self.assertEqual(
+            {row["actor_identity"] for row in probe},
+            {mob.actor_identity for mob in load_roster()})
 
     def test_bg0015_is_measurable_even_though_load_roster_refuses_it(self) -> None:
         # field_mob_tables_bg0015 is deliberately NOT in
@@ -834,13 +939,15 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
         # test_field_mob_tables_bg0015.py's src-only AST guard).
         with self.assertRaises(FieldMobContractError):
             load_roster(scene=field_mob_tables_bg0015.SCENE)
+        # ROUND 8ftmbx: ~~3~~ -> 0 for this pair too; the three were
+        # withdrawn bg0001 rows.  What this test is actually about -- that a
+        # COO-gated dormant table can still be MEASURED without becoming
+        # loadable -- is unchanged and is the assertion above.
         collisions = cross_scene_identity_collisions(
             (field_mob_tables, field_mob_tables_bg0015))
-        self.assertEqual(len(collisions), 3)
-        for row in collisions:
-            self.assertEqual({row["scene_a"], row["scene_b"]}, {"bg0001", "Bg0015"})
+        self.assertEqual(collisions, ())
 
-    def test_all_three_known_tables_together_find_ten_pairwise_collisions(
+    def test_all_three_known_tables_together_find_three_pairwise_collisions(
             self) -> None:
         # The full picture across every scene table this project has mined
         # so far (bg0001 live, Bg0002 about to be wired per this round's
@@ -851,14 +958,13 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
         by_pair: dict[tuple[str, str], list[dict]] = {}
         for row in collisions:
             by_pair.setdefault((row["scene_a"], row["scene_b"]), []).append(row)
-        self.assertEqual(
-            sorted(by_pair),
-            [("Bg0002", "Bg0015"), ("bg0001", "Bg0002"), ("bg0001", "Bg0015")],
-        )
-        self.assertEqual(len(by_pair[("bg0001", "Bg0002")]), 4)
-        self.assertEqual(len(by_pair[("bg0001", "Bg0015")]), 3)
+        # ROUND 8ftmbx: ~~ten pairs across three scenes~~ -> three, all of
+        # them Bg0002 x Bg0015.  The seven that went were every pair with a
+        # bg0001 side, and they went because bg0001's colliding rows were
+        # withdrawn, not because anything about the identity rule changed.
+        self.assertEqual(sorted(by_pair), [("Bg0002", "Bg0015")])
         self.assertEqual(len(by_pair[("Bg0002", "Bg0015")]), 3)
-        self.assertEqual(len(collisions), 10)
+        self.assertEqual(len(collisions), 3)
 
     def test_two_disjoint_scenes_report_zero_collisions(self) -> None:
         # bg0002 vs a hand-built single-mob table sharing no placement index
@@ -871,6 +977,117 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
         collisions = cross_scene_identity_collisions(
             (field_mob_tables_bg0002, _FakeModule))
         self.assertEqual(collisions, ())
+
+    # -- same-scene collisions (LANE-A letter 20260829_0014, round 8ftmbx) --
+
+    @staticmethod
+    def _second_table_for(scene, rows):
+        """A second table module naming a scene another module already names.
+
+        This is the shape lane A's letter reported and this function exists
+        for: two committed tables for ONE scene, disagreeing about who stands
+        at a placement.  Built by hand here because the real second table for
+        that scene belongs to lane A and lives outside this package -- and
+        because a synthetic pair is the only way to prove the report FIRES
+        rather than merely returns an empty tuple today.
+        """
+        class _SecondTable:
+            SCENE = scene
+            HOSTILE_PLACEMENTS = list(rows)
+        return _SecondTable
+
+    def test_same_scene_collisions_are_found_where_the_old_report_was_blind(
+            self) -> None:
+        # THE REGRESSION THIS CLOSES, proven by execution rather than by the
+        # docstring: cross_scene_identity_collisions keyed its rosters by
+        # SCENE and skipped a repeat, so the second table was dropped in
+        # silence and the report said "nothing".
+        rows = [
+            row for row in field_mob_tables_bg0002.HOSTILE_PLACEMENTS[:2]
+        ]
+        disagreeing = [
+            (row[0], 916) + row[2:5] + ("M016_000_000_N", "Training Iron Man")
+            + row[7:]
+            for row in rows
+        ]
+        second = self._second_table_for(
+            field_mob_tables_bg0002.SCENE, disagreeing)
+        found = field_mobs.same_scene_identity_collisions(
+            (field_mob_tables_bg0002, second))
+        self.assertEqual(len(found), 2)
+        for collision, row in zip(found, rows):
+            self.assertTrue(collision["same_scene"])
+            self.assertEqual(collision["scene_a"], collision["scene_b"])
+            self.assertEqual(collision["placement_index"], row[0])
+            self.assertEqual(
+                collision["actor_identity"], 0x2000 + row[0] + 1)
+            self.assertEqual(collision["template_a"], row[1])
+            self.assertEqual(collision["template_b"], 916)
+            self.assertNotEqual(collision["name_a"], collision["name_b"])
+        # And the OLD report still says nothing about them, which is the
+        # whole reason a second function exists rather than a wider one.
+        self.assertEqual(
+            cross_scene_identity_collisions(
+                (field_mob_tables_bg0002, second)),
+            (),
+        )
+
+    def test_the_same_module_passed_twice_is_not_a_collision_with_itself(
+            self) -> None:
+        # The trap in keying by module instead of by scene: comparing a table
+        # with itself would report EVERY one of its own rows as a clash.
+        self.assertEqual(
+            field_mobs.same_scene_identity_collisions(
+                (field_mob_tables_bg0002, field_mob_tables_bg0002)),
+            (),
+        )
+
+    def test_two_tables_of_one_scene_that_agree_report_nothing(self) -> None:
+        # A collision is a DISAGREEMENT about a placement, but this report
+        # keys on the placement index alone -- so two tables that agree still
+        # collide, and it says so rather than pretending to compare bodies.
+        # Recorded as the report's real contract, not asserted away.
+        same = self._second_table_for(
+            field_mob_tables_bg0002.SCENE,
+            field_mob_tables_bg0002.HOSTILE_PLACEMENTS[:1])
+        found = field_mobs.same_scene_identity_collisions(
+            (field_mob_tables_bg0002, same))
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]["template_a"], found[0]["template_b"])
+
+    def test_same_scene_describe_is_ascii_and_names_the_scene_once(
+            self) -> None:
+        second = self._second_table_for(
+            field_mob_tables_bg0002.SCENE,
+            field_mob_tables_bg0002.HOSTILE_PLACEMENTS[:1])
+        lines = field_mobs.describe_same_scene_identity_collisions(
+            (field_mob_tables_bg0002, second))
+        self.assertEqual(
+            lines[0], "FIELD_MOB_SAME_SCENE_IDENTITY_COLLISIONS count=1")
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(lines[1].count(field_mob_tables_bg0002.SCENE), 1)
+        for line in lines:
+            self.assertTrue(line.isascii())
+            self.assertTrue(line.encode("cp874"))
+
+    def test_the_default_set_reports_no_same_scene_collision(self) -> None:
+        # Two modules, two different scenes: nothing for this report to find,
+        # and it says zero by name rather than by absence.
+        self.assertEqual(field_mobs.same_scene_identity_collisions(), ())
+        self.assertEqual(
+            field_mobs.describe_same_scene_identity_collisions()[0],
+            "FIELD_MOB_SAME_SCENE_IDENTITY_COLLISIONS count=0")
+
+    def test_same_scene_report_refuses_the_same_way_its_sibling_does(
+            self) -> None:
+        with self.assertRaises(FieldMobContractError):
+            field_mobs.same_scene_identity_collisions((field_mob_tables,))
+
+        class _NoScene:
+            HOSTILE_PLACEMENTS = []
+        with self.assertRaises(FieldMobContractError):
+            field_mobs.same_scene_identity_collisions(
+                (field_mob_tables, _NoScene))
 
     def test_refuses_fewer_than_two_modules(self) -> None:
         with self.assertRaises(FieldMobContractError):
@@ -885,7 +1102,11 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
     def test_describe_is_ascii_and_carries_the_same_count(self) -> None:
         collisions = cross_scene_identity_collisions()
         lines = describe_cross_scene_identity_collisions()
-        self.assertEqual(lines[0], "FIELD_MOB_CROSS_SCENE_IDENTITY_COLLISIONS count=4")
+        # ROUND 8ftmbx: ~~count=4~~ -> count=0; the four were withdrawn
+        # bg0001 rows.  The line still has to be PRINTED, which is what
+        # test_describe_reports_zero_by_name_not_by_absence is about.
+        self.assertEqual(
+            lines[0], "FIELD_MOB_CROSS_SCENE_IDENTITY_COLLISIONS count=0")
         self.assertEqual(len(lines), 1 + len(collisions))
         for line in lines:
             self.assertTrue(line.isascii())
@@ -943,16 +1164,24 @@ class Bg0001RegenerateAndDiffTest(unittest.TestCase):
         roster = tool.hostile_roster(sources, rule)
         town = tool.town_target_roster(sources, rule)
         withdrawn = tool.withdrawn_under_rule(sources, rule)
-        kept = {item["placement_index"] for item in withdrawn}
-        pending = [
-            row for row in tool.hostile_roster(sources, tool.IDENTITY_RULE_SETNUM)
-            if row["placement_index"] in kept
-        ]
+        # ROUND 8ftmbx: ~~pending = the withdrawn rows, kept one more round~~.
+        # COO-DECISION 2026-08-29T00:41+07:00 ended that round, so the module
+        # is regenerated WITHOUT --keep-withdrawn-rows and pending is empty.
+        # The GT-035 row the tool now preserves is the set-number reading of
+        # the control placement, and it is passed here the same way the tool's
+        # own main() computes it -- so this stays a re-derivation, not a copy.
+        pending = []
+        legacy_control_row = next(
+            row for row in tool.hostile_roster(
+                sources, tool.IDENTITY_RULE_SETNUM)
+            if row["placement_index"] == tool.LEGACY_CONTROL_PLACEMENT_INDEX
+        )
         regenerated = tool.render_module(
             "bg0001", roster, sources.digests(),
             tool.predicate_census(sources, rule),
             rule=rule, cline_type=sources.cline_type, town=town,
             withdrawn=withdrawn, controls=controls, pending=pending,
+            legacy_control_row=legacy_control_row,
             rank_zero_combat=[
                 tool._roster_row(sources, item)
                 for item in tool.unambiguous_placements(sources, rule)
@@ -967,8 +1196,7 @@ class Bg0001RegenerateAndDiffTest(unittest.TestCase):
         self.assertEqual(
             regenerated, committed,
             "field_mob_tables.py is stale - regenerate it with "
-            "tools/pf_mine_scene_mob_roster.py --identity-rule cline "
-            "--keep-withdrawn-rows",
+            "tools/pf_mine_scene_mob_roster.py --identity-rule cline",
         )
 
     def test_the_scene_is_fully_accounted_for(self) -> None:

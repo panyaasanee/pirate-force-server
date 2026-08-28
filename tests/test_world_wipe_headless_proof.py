@@ -128,7 +128,14 @@ from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
 
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
-SANCTIONED_TARGET = mob_death.SANCTIONED_FIRST_TARGET_IDENTITY  # 0x201F, P30
+# ~~CONTROL_TARGET = mob_death.SANCTIONED_FIRST_TARGET_IDENTITY  # 0x201F,
+# P30~~  ROUND 8ftmbx: placement 30 is withdrawn from what this lane ships
+# (COO-DECISION 2026-08-29T00:41+07:00), so the headless proof drives the
+# roster's own control row instead -- the practice dummy the same ruling
+# approved as the thing a player can hit.  GT-084 is about the census
+# surviving a hit and a death; which roster row takes the hit was never the
+# subject, only that it is a real shipped one.
+CONTROL_TARGET = 0x2000 + field_mobs.CONTROL_PLACEMENT_INDEX + 1
 IDENTITY_TAG = 0x32  # the qword tag every identity write uses
 
 
@@ -435,7 +442,7 @@ class WorldWipeHeadlessProofTests(unittest.TestCase):
         state = self._state()
         _anchor, (census_pc, census_frame) = self._arrive(state)
         baseline = self._baseline(state, census_pc, census_frame)
-        actions = self._attack(state, SANCTIONED_TARGET)
+        actions = self._attack(state, CONTROL_TARGET)
         self.assertEqual(
             [label for label, _pc, _f, _d in actions],
             ["MOB_COMBAT_ANNOUNCE", "MOB_COMBAT_BAR"],
@@ -455,8 +462,8 @@ class WorldWipeHeadlessProofTests(unittest.TestCase):
         state = self._state()
         _anchor, (census_pc, census_frame) = self._arrive(state)
         baseline = self._baseline(state, census_pc, census_frame)
-        self._set_balance(state, SANCTIONED_TARGET, 500)
-        actions = self._attack(state, SANCTIONED_TARGET)
+        self._set_balance(state, CONTROL_TARGET, 500)
+        actions = self._attack(state, CONTROL_TARGET)
         labels = [label for label, _pc, _f, _d in actions]
         self.assertEqual(
             labels[:3],
@@ -486,10 +493,10 @@ class WorldWipeHeadlessProofTests(unittest.TestCase):
         baseline = self._baseline(state, census_pc, census_frame)
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            actions = self._attack(state, SANCTIONED_TARGET)
+            actions = self._attack(state, CONTROL_TARGET)
         self.assertIn(
             "MOB_COMBAT_BAR_CENSUS_RECOMPOSE actor_count=%d target=0x%X"
-            % (state.world_census_actor_count, SANCTIONED_TARGET),
+            % (state.world_census_actor_count, CONTROL_TARGET),
             buf.getvalue(),
         )
         _bar_pc, bar_frame = self._wire(actions, "MOB_COMBAT_BAR")
@@ -504,14 +511,14 @@ class WorldWipeHeadlessProofTests(unittest.TestCase):
         state = self._state()
         _anchor, (census_pc, census_frame) = self._arrive(state)
         baseline = self._baseline(state, census_pc, census_frame)
-        self._set_balance(state, SANCTIONED_TARGET, 500)
+        self._set_balance(state, CONTROL_TARGET, 500)
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            actions = self._attack(state, SANCTIONED_TARGET)
+            actions = self._attack(state, CONTROL_TARGET)
         announced = state.world_census_actor_count
         self.assertIn(
             "MOB_DEATH_FRAMES_CENSUS_RECOMPOSE actor_count=%d target=0x%X"
-            % (announced, SANCTIONED_TARGET),
+            % (announced, CONTROL_TARGET),
             buf.getvalue(),
         )
         for wanted in ("MOB_DEATH_DYING", "MOB_DEATH_DEAD"):

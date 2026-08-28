@@ -194,10 +194,10 @@ GROUND_LOOT_SCENARIO = (
 # The key is still the rung that was ASKED for.  115 is a request; 108 is what
 # assembled and what the label, the header and the console line all say.
 CENSUS_WIRE_SHA256 = {
-    3: ("393D3E9E4A2F4AB939E90F09EA0E5C6DC6B0E871D5D4D7DAB01946EABAF4B1DD",
-        "11AB0C5C95C8A3F7EC3E85CC004508C0C34727E26AA0AA5B742FEBBBF8052AB9"),
-    20: ("70D7D8914CD8BA2D7C909853ECED3C3320C7920EF9E12229B3A746F9486E1AAA",
-         "DDABF41B17648CA9B8E3F4EB13039DF352A627124601DFA1398E42A9A336721B"),
+    3: ("66CD1E228AEAD7F6B19C3DD954AD4BCA7356AC29102CCDFDBDA98E32B7924264",
+        "27310785595327DEDB2010C57928932E898DFEC8940410429411553A69C69BAB"),
+    20: ("6ABF98DEC5A6215A2E35E23F7F07F1EB5C2F98CC22AA96EFC027C6F5ACA3B7E1",
+         "46E6E2C7C607D2C425B414A6F03E92C6CECD6A7998D4C16D011886F3CC50199D"),
     # AMENDMENT round szdkgs (LANE-B): the two rungs large enough to include
     # placements 103/105/107/109 moved, and THAT MOVEMENT IS THE ROUND'S
     # DELIVERABLE, not a regression: those four now ship n_ID 916 "Training
@@ -205,14 +205,33 @@ CENSUS_WIRE_SHA256 = {
     # Eagle" with M011_000_002_SP3, which is 24 bytes shorter across the four.
     # Rungs 3 and 20 do not include those placements and are byte-identical,
     # which is the control that says only the intended rows moved.
+    # AMENDMENT round 8ftmbx (LANE-B): ALL FOUR rungs moved this time, and
+    # again that movement is the deliverable.  COO-DECISION
+    # 2026-08-29T00:41+07:00 withdrew the nine set-number rows from what this
+    # lane ships, so placements 12/30/33/58/59/60/63/95/132 stop being
+    # overridden with a monster body and go out as the townspeople the census
+    # itself resolves them to.  Rung 3 contains placement 30 -- the one the
+    # owner rejected on sight in GT-078 as "Tornado Eagle" -- which is why
+    # even the smallest rung moved, and it is the single clearest thing a
+    # player sees differently: that actor stops being a monster.  The
+    # previous round's digests are kept above and below as history, correct
+    # for what they described.
+    # ~~3:   pc=393D3E9E4A2F4AB939E90F09EA0E5C6DC6B0E871D5D4D7DAB01946EABAF4B1DD
+    #        frame=11AB0C5C95C8A3F7EC3E85CC004508C0C34727E26AA0AA5B742FEBBBF8052AB9
+    # ~~20:  pc=70D7D8914CD8BA2D7C909853ECED3C3320C7920EF9E12229B3A746F9486E1AAA
+    #        frame=DDABF41B17648CA9B8E3F4EB13039DF352A627124601DFA1398E42A9A336721B
+    # ~~60:  pc=DB350F54119E20C06858028F55E2F1545CFA0F290787B24F9CB6E5859D42F074
+    #        frame=30984FB4FB1D53D35AA1614D587A538B6815709CF8EB6A71C83539679ABA97D0
+    # ~~115: pc=9A7BA9A5822E7E4809C51DD22B1C0E03396D3083F732A5EF63FA7334FC3C3D85
+    #        frame=41A71F1BBBF490E787E2A090372A15076AEFA7A1340B683BD8BE84CFC34B91E0~~
     # ~~60:  pc=9CEF203F8DED6FE73EAA9DF8D044330FB98046776A2840728EFCE5EA046007C7
     #        frame=42DA2662CBF20BE6A774CD578C61DBDD77F779DCAB795F3DA8E2A26AA364F165
     # ~~115: pc=1E52C78765C59DC313313505BD690B1B7F0D2040FC4111D45AC66F7CF300C53E
     #        frame=FC1F9B1FA4C1853ED42F9BE22F50483B2C11E2FA516B9D7981FD9C68FBF2D4D7~~
-    60: ("DB350F54119E20C06858028F55E2F1545CFA0F290787B24F9CB6E5859D42F074",
-         "30984FB4FB1D53D35AA1614D587A538B6815709CF8EB6A71C83539679ABA97D0"),
-    115: ("9A7BA9A5822E7E4809C51DD22B1C0E03396D3083F732A5EF63FA7334FC3C3D85",
-          "41A71F1BBBF490E787E2A090372A15076AEFA7A1340B683BD8BE84CFC34B91E0"),
+    60: ("F7C2D26613EA0A6FC98EBAE47E870C255063D0060FAC27A6D99C40F4D96A16F2",
+         "D0931EA657DC9B007B2331DD6169D092C5CC37977D886E9D26FBF473503C4B35"),
+    115: ("D21FD174A2F9740B194F7D71E8ECEBDEACF654BBE2874C65A3B1471356E96637",
+          "14A45111DF96CFB6F8FCAB157A2C4EFDA3CCB439DE9DBF0FC69EFC930F6594AA"),
 }
 PIN_ANCHOR = (10.0, 20.0, 30.0)
 
@@ -526,25 +545,16 @@ class WorldCensusWiringTests(unittest.TestCase):
         for index in plain_rung3.indices:
             resolved = identity.resolve(placements[index].template_id)
             self.assertIsNotNone(resolved)
-            if index == 30:
-                # P30's census body does not survive to the wire on this path
-                # at all: full_roster_override replaces it wholesale with
-                # ``field_mobs.hostile_actor_entry``, whose identity comes from
-                # LANE-B's mined roster row rather than from this crosswalk.
-                # Recorded here so the exception is visible rather than
-                # silently making the loop below weaker; the byte-for-byte
-                # check of that substitution is
-                # ``test_every_field_mob_body_in_the_queued_frame_is_the_
-                # hostile_body`` below.
-                self.assertIn(
-                    field_mobs.hostile_actor_entry(
-                        self.legacy,
-                        [mob for mob in field_mobs.load_roster()
-                         if mob.placement_index == 30][0],
-                    ),
-                    queued_pc,
-                )
-                continue
+            # ~~if index == 30: P30's census body does not survive to the
+            # wire on this path at all -- full_roster_override replaces it
+            # wholesale with field_mobs.hostile_actor_entry.~~
+            # ROUND 8ftmbx: THE EXCEPTION IS GONE, and its disappearance is
+            # the round.  Placement 30 was one of the nine rows COO-DECISION
+            # 2026-08-29T00:41+07:00 withdrew, so nothing overrides it any
+            # more and it goes out as what the crosswalk resolves it to --
+            # "Da Vinci", avatar P_MALE_018_000_DAVINCI -- through the same
+            # general branch as every other member.  This is the actor the
+            # owner rejected on sight in GT-078 as "Tornado Eagle".
             self.assertIn(
                 self.legacy.u8tag(0x0B, 0x01 | 0x04)
                 + self.legacy.u16tag(0x12, resolved.mobs_n_id),
@@ -554,9 +564,12 @@ class WorldCensusWiringTests(unittest.TestCase):
             self.assertNotIn(
                 self.legacy.wstr_tag(resolved.name), frozen_pc)
         # Pinned sizes, re-derived: 577/590 while rung 3 was (P0, P30, P91)
-        # carrying the frozen table's own names.
-        self.assertEqual(len(census[0][1]), 567)
-        self.assertEqual(len(census[0][2]), 580)
+        # carrying the frozen table's own names; ~~567/580~~ while placement
+        # 30 was still overridden with a monster body.  ROUND 8ftmbx: 556/569
+        # -- eleven bytes less, which is the monster splice this rung stopped
+        # carrying when placement 30 was withdrawn.
+        self.assertEqual(len(census[0][1]), 556)
+        self.assertEqual(len(census[0][2]), 569)
 
     def test_the_census_is_one_shot_per_session(self):
         """The pc/frame byte counts below are RE-DERIVED, not hand-typed.
@@ -610,10 +623,14 @@ class WorldCensusWiringTests(unittest.TestCase):
         )
         # ~~(20402, 20416)~~ round szdkgs: 24 bytes shorter, because the four
         # practice dummies carry a shorter avatar name than the eagles they
-        # replace.  This number is the cheapest proof that this round's
-        # identity change actually reaches the wire.
+        # replace.  ~~(20378, 20392)~~ round 8ftmbx: 280 bytes shorter again,
+        # and this is the biggest single move the number has made.  The nine
+        # withdrawn set-number rows stop being overridden with a monster body
+        # (name + faction splice + level + speed + HP pair) and go out as the
+        # townspeople the census resolves them to.  This number is still the
+        # cheapest proof that the identity change reaches the wire.
         self.assertEqual((generation.pc_bytes, generation.frame_bytes),
-                          (20378, 20392))
+                          (20098, 20112))
 
     def test_world_density_line_is_printed_alongside_the_census_line(self):
         """world_density is LANE-A's tenth production lane (production_allowed
@@ -1145,16 +1162,16 @@ class WorldCensusWiringTests(unittest.TestCase):
             )
 
     def test_every_field_mob_body_in_the_queued_frame_is_the_hostile_body(self):
-        """The load-bearing one.  For all thirteen roster identities, the bytes
+        """The load-bearing one.  For every roster identity, the bytes
         the DISPATCHER queued at that identity's placement must equal
         ``field_mobs.hostile_actor_entry`` for that roster row -- byte for
         byte, including the BasicAttr faction bit 0x0400 and the five-byte
         tagged faction splice that makes the monster hostile rather than
         merely present.
 
-        Non-vacuous in both directions: the count is asserted at 13 (so a
-        roster that stopped overlapping the census fails instead of passing
-        with zero comparisons), and the expected side is built from
+        Non-vacuous in both directions: the count is asserted (so a roster
+        that stopped overlapping the census fails instead of passing with
+        zero comparisons), and the expected side is built from
         ``field_mobs`` directly, which is NOT the producer
         ``world_population`` uses for a default census member.
         """
@@ -1170,7 +1187,8 @@ class WorldCensusWiringTests(unittest.TestCase):
         self.assertEqual(queued_pc, overridden.pc)
         entries = self._queued_entries_by_identity(overridden)
         roster = field_mobs.load_roster()
-        self.assertEqual(len(roster), 13)
+        # ROUND 8ftmbx: ~~13~~ -> 4 (COO-DECISION 2026-08-29T00:41+07:00).
+        self.assertEqual(len(roster), 4)
         checked = 0
         for mob in roster:
             self.assertIn(
@@ -1193,7 +1211,8 @@ class WorldCensusWiringTests(unittest.TestCase):
                 entries[mob.actor_identity],
             )
             checked += 1
-        self.assertEqual(checked, 13)
+        self.assertEqual(checked, len(roster))
+        self.assertEqual(checked, 4)
         # And the default census body for the same identity is NOT the
         # hostile body -- otherwise the assertion above proves nothing.
         plain = world_population.build_world_population(
@@ -1257,7 +1276,8 @@ class WorldCensusWiringTests(unittest.TestCase):
         the silence as proof that no hostile byte went out.
 
         This pins the line that answers the question, with the numbers a
-        grep can read: ``matched=13/13 missing=none``.  ASCII-only, because
+        grep can read: ``matched=4/4 missing=none`` (~~13/13~~ before round
+        8ftmbx withdrew the nine set-number rows).  ASCII-only, because
         the bridge console is cp874.
         """
         state = self._state("census_coverage_line")
@@ -1275,7 +1295,8 @@ class WorldCensusWiringTests(unittest.TestCase):
         )
         self.assertEqual(
             coverage[0],
-            "MOB_DEATH_ROSTER_OVERRIDE_COVERAGE matched=13/13 missing=none",
+            # ROUND 8ftmbx: ~~13/13~~ -> 4/4; the roster is four rows now.
+            "MOB_DEATH_ROSTER_OVERRIDE_COVERAGE matched=4/4 missing=none",
         )
         coverage[0].encode("ascii")
         # It does not crowd out the two lines that were already there.
