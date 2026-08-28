@@ -95,7 +95,7 @@ PROVENANCE OF EVERY BYTE (layer-tagged; see docs/HYPOTHESIS_LEDGER.json)
   on a combined multi-record derived-mask RuntimeRes collection"~~ IS STRUCK
   (round ``kfs01z``): 28317 = 0x6E9D = GSCN_RunTimeProtocolRes, the class id
   of whichever envelope failed to deserialize, echoed back -- a parse-failure
-  echo, not a count report (``world_population.py:105-115``, decoded
+  echo, not a count report (``world_population.py:104-113``, decoded
   2026-08-18), and V43 measured it on the mask-0x02 ACTOR list, not on this
   0x08 one.  What survives unchanged: the fix this project still ships is one
   record per frame (make_port_royal_npc_single_packets), and whether the
@@ -229,7 +229,10 @@ _BIT08_RENDER = GroundLootScenario(
 )
 
 # Masked-template pins for the two frames this lane may emit -- one per
-# element, count=1 each (the V43-proven-safe single-record shape).  The
+# element, count=1 each (~~"the V43-proven-safe single-record shape"~~ IS
+# STRUCK, round ``kfs01z``: V43 is the run that MET ErrorData=28317; it was
+# V42 that proved the single-record shape parse-safe, and it proved it on the
+# mask-0x02 ACTOR list, not on this 0x08 element list.  See lines 94-107).  The
 # template sha256 is taken over the composed 44-byte pc with its twelve
 # coordinate payload bytes (offsets [30:34]/[35:39]/[40:44], the three
 # tag-0x2A f32 payloads) zeroed: coordinates are the one legitimately

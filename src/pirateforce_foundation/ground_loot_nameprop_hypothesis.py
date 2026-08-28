@@ -72,9 +72,15 @@ readable:
     both labels drawn, different appearance -> the selector reaches the label
     both labels drawn, same appearance      -> it does not, and the control
                                                proves the pipe was alive
-    A drawn, B not drawn                    -> the client REJECTS the wider
-                                               element (the V43 question,
-                                               answered for free)
+    A drawn, B not drawn                    -> the client does not draw the
+                                               wider element (~~"REJECTS ...
+                                               the V43 question, answered for
+                                               free"~~ STRUCK round kfs01z:
+                                               V43 was about record COUNT on
+                                               the mask-0x02 actor list, not
+                                               element WIDTH here, and
+                                               ErrorData=28317 named no cause
+                                               at all -- see mob_loot.py:100)
     neither drawn                           -> the session or the geometry
                                                failed; discard, and NOT a
                                                negative about the selector

@@ -1026,7 +1026,7 @@ def _walk_envelope(pc: bytes) -> int:
             "parse-safe). V43 met ErrorData=28317 on a six-actor stream, but "
             "that number is the echoed class id of an envelope that failed to "
             "deserialize -- a parse-failure echo, not a count report "
-            "(world_population.py:105-115, decoded 2026-08-18) -- so it "
+            "(world_population.py:104-113, decoded 2026-08-18) -- so it "
             "bounds an interval, it does not name count as the cause"
         )
     return ACTOR_ENTRY_LIST_OFFSET
