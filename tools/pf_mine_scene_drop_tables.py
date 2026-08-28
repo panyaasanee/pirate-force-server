@@ -383,12 +383,28 @@ def mine(sources: Sources, roster: list) -> dict:
             referenced_by.setdefault(set_id, [])
             if template_id not in referenced_by[set_id]:
                 referenced_by[set_id].append(template_id)
-            if set_id in bucket:
-                continue
             if kind == "DROPS_NORMAL":
-                bucket[set_id] = resolve_normal(sources, set_id)
+                resolved = resolve_normal(sources, set_id)
             else:
-                bucket[set_id] = resolve_weighted(sources, set_id, kind)
+                resolved = resolve_weighted(sources, set_id, kind)
+            # THE DUPLICATE CHECK, and it is here because pf-adversary (round
+            # 8ftmbx, D8) caught this tool CLAIMING one that did not exist.
+            # The first draft of the union just did `if set_id in bucket:
+            # continue` -- first writer wins, in silence -- while a comment in
+            # main() told the reader that _render proved the union was
+            # collision-free.  It proved nothing.  Two scenes CAN name the
+            # same drop-set id, and if they ever resolved it differently this
+            # tool would have shipped whichever one it read first.  They
+            # cannot today (a set id is resolved from the global tables and
+            # carries no scene), and that is now asserted rather than assumed.
+            if set_id in bucket:
+                if bucket[set_id] != resolved:
+                    raise MineError(
+                        "%s set %d resolves differently for two scenes in "
+                        "this union; a drop-set id was assumed to mean the "
+                        "same thing everywhere and does not" % (kind, set_id))
+                continue
+            bucket[set_id] = resolved
     for entry in normal.values():
         for index, item, rate, low_qty, high_qty in entry["slots"]:
             if item == 0:
@@ -419,7 +435,7 @@ def mine(sources: Sources, roster: list) -> dict:
     }
 
 
-def _render(mined: dict, digests: dict, scene: str, quest_sets: int) -> str:
+def _render(mined: dict, digests: dict, scenes: tuple, quest_sets: int) -> str:
     escaped = sum(1 for row in mined["items"].values() if row["name_escaped"])
     lines = []
     add = lines.append
@@ -456,7 +472,14 @@ def _render(mined: dict, digests: dict, scene: str, quest_sets: int) -> str:
     add("from __future__ import annotations")
     add("")
     add("")
-    add("SCENE = %r" % scene)
+    add("# The scenes whose shipped rosters were mined into this module.  The")
+    add("# tables below are their UNION: a drop-set id and an item id mean the")
+    add("# same thing in every scene, so this is a superset of each scene's own")
+    add("# table and never a merge of disagreeing rows.")
+    add("SCENES = %r" % (scenes,))
+    add("# ~~SCENE~~, kept as the first mined scene so an existing reader does")
+    add("# not break; SCENES is what this module is actually about now.")
+    add("SCENE = %r" % scenes[0])
     add("SOURCE_DIGESTS = {")
     for stem, digest in digests.items():
         add("    %r: %r," % (stem, digest))
@@ -521,7 +544,10 @@ def main(argv: list) -> int:
     parser.add_argument(
         "--out", type=Path,
         default=here / "src" / "pirateforce_foundation" / "field_drop_tables.py")
-    parser.add_argument("--scene", default=CONTROL_SCENE)
+    parser.add_argument(
+        "--scene", action="append", default=None,
+        help="scene to mine; repeat to mine the UNION of several scenes' "
+             "rosters (default: every scene this lane ships a roster for)")
     parser.add_argument(
         "--check", action="store_true",
         help="compose and compare against --out; write nothing")
@@ -529,22 +555,44 @@ def main(argv: list) -> int:
 
     sys.path.insert(0, str(args.roster))
     from pirateforce_foundation import field_mob_tables
+    from pirateforce_foundation import field_mob_tables_bg0002
 
-    if field_mob_tables.SCENE != args.scene:
+    # ROUND 8ftmbx: THE UNION OF THE SCENES THIS LANE SHIPS, NOT ONE OF THEM.
+    # Until this round the tool mined bg0001 alone, and that was fine while
+    # bg0001 had thirteen monsters with drop sets.  COO-DECISION
+    # 2026-08-29T00:41+07:00 withdrew nine of those rows and the four that
+    # remain are practice dummies with n_DROPS_NORMAL 0 -- so a bg0001-only
+    # mining now produces an EMPTY table, and every loot set the server can
+    # actually roll (Bg0002's, the scene the owner confirmed by sight) would
+    # be missing from the one module mob_loot imports.  The keys are global to
+    # the game data on both sides (a drop-set id and an item id mean the same
+    # thing in every scene), so a union is a superset rather than a merge of
+    # disagreeing rows -- and `mine()` REFUSES BY NAME if that ever stops
+    # being true, which is what makes this a claim rather than a hope.
+    # (pf-adversary, D8: an earlier draft of this comment cited a duplicate
+    # check in _render that did not exist, and the real behaviour was
+    # first-writer-wins in silence.  The check exists now, in mine().)
+    roster_modules = (field_mob_tables, field_mob_tables_bg0002)
+    by_scene = {module.SCENE: module for module in roster_modules}
+    scenes = args.scene if args.scene else [
+        module.SCENE for module in roster_modules]
+    unknown = [scene for scene in scenes if scene not in by_scene]
+    if unknown:
         raise MineError(
-            "control 4 broke: the roster module is scene %r, this run is %r"
-            % (field_mob_tables.SCENE, args.scene))
+            "control 4 broke: no roster module ships scene(s) %r; this lane "
+            "has %r" % (unknown, sorted(by_scene)))
     sources = Sources(args.gamedata)
     controls = check_controls(sources)
     # Round szdkgs: every row the scene module SHIPS, not only the ones its
     # hostility predicate selected.  bg0001's HOSTILE_PLACEMENTS is empty
-    # under the crosswalk (a town has no monsters) while nine legacy rows and
-    # four town targets are still shipped, and a drop table mined from the
-    # empty list would silently drop every loot set this lane already sends.
-    roster = list(getattr(
-        field_mob_tables, "SHIPPED_PLACEMENTS",
-        field_mob_tables.HOSTILE_PLACEMENTS,
-    ))
+    # under the crosswalk (a town has no monsters) while its four town targets
+    # are still shipped, and a drop table mined from the empty list would
+    # silently drop every loot set this lane already sends.
+    roster = []
+    for scene in scenes:
+        module = by_scene[scene]
+        roster.extend(getattr(
+            module, "SHIPPED_PLACEMENTS", module.HOSTILE_PLACEMENTS))
     mined = mine(sources, roster)
     mobs = sources.load_mobs()
     quest_sets = 0
@@ -556,9 +604,24 @@ def main(argv: list) -> int:
                 "tool are reading different data" % mob[1])
         if _int(row, "n_DROPS_QUEST", "MOBS %d" % mob[1]) != 0:
             quest_sets += 1
-    rendered = _render(mined, sources.digests(), args.scene, quest_sets)
+    # D9 (pf-adversary, round 8ftmbx): `--scene bg0001` alone used to write a
+    # module with every table empty and exit 0.  bg0001 ships four practice
+    # dummies with n_DROPS_* zero in all three columns, so that is exactly the
+    # command a reader who thinks this tool is "about bg0001" would run -- and
+    # it would delete every loot set the server can roll, with a success
+    # message.  The roster generator refuses an empty result by name; so does
+    # this one now.
+    if not (mined["normal"] or mined["equipment"] or mined["specially"]):
+        raise MineError(
+            "scene(s) %s name no drop set at all, so this would write an "
+            "EMPTY table over the one the server rolls from.  bg0001 alone "
+            "does this: its roster is four n_ID 916 practice dummies with "
+            "n_DROPS_NORMAL/EQUIPMENT/SPECIALLY all zero.  Mine the union "
+            "(no --scene at all) or name a scene that has monsters."
+            % ", ".join(scenes))
+    rendered = _render(mined, sources.digests(), tuple(scenes), quest_sets)
 
-    print("scene                %s" % args.scene)
+    print("scenes               %s" % ", ".join(scenes))
     print("roster rows          %d" % len(roster))
     print("drops_normal sets    %d" % len(mined["normal"]))
     print("drops_equipment sets %d" % len(mined["equipment"]))

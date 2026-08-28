@@ -1569,7 +1569,28 @@ PIN_LANE = MOB_COMBAT_LANE
 # (as the legacy set-number reading, pending migration), so the pin is
 # unchanged this round; when that row is migrated, this pin moves WITH a
 # ruling, not with a table.
+# ROUND 8ftmbx: that row IS migrated, and this pin STILL does not follow the
+# table -- for the opposite reason to mob_death's.  This document is the
+# cross-check against GT-035, the only ladder anyone has WATCHED, and it was
+# watched on this actor.  Pointing it at the new control row would compare
+# today's arithmetic against numbers nobody ever saw land on that monster,
+# which is exactly the "the code agrees with itself" pin the paragraph above
+# refuses.  So the subject stays placement 30 and is now built explicitly by
+# field_mobs.gt035_observed_subject() rather than looked up in a roster that
+# no longer contains it.  The index is kept as the name of that subject.
 PIN_PLACEMENT_INDEX = field_mobs.LEGACY_SETNUM_CONTROL_PLACEMENT_INDEX
+
+
+def pin_subject() -> FieldMob:
+    """The actor this pin's numbers were watched on (GT-035), never a roster row.
+
+    Callers used to find it with ``[m for m in load_roster() if
+    m.placement_index == PIN_PLACEMENT_INDEX][0]``; that lookup is what broke
+    when the row was withdrawn, and re-pointing it at a shipped row would
+    have changed the pin's subject in silence.  Named here so a reader of the
+    pin can see which actor produced its numbers without reconstructing it.
+    """
+    return field_mobs.gt035_observed_subject()
 PIN_ATTACKER_LEVEL = 7
 PIN_ATTACKER_ABILITY_STR = 132
 
@@ -1592,7 +1613,12 @@ def pin_document(
     """
     if attacker is None:
         attacker = pin_attacker()
-    ledger = open_ledger()
+    # ~~open_ledger()~~ -- the default ledger is bg0001's shipped roster, and
+    # round 8ftmbx withdrew this pin's subject from it (see PIN_PLACEMENT_INDEX
+    # on why the subject did not move).  The ledger is opened on the mob being
+    # pinned instead, which is what it always meant: a ledger is a per-monster
+    # HP balance, and the only monster this document is about is this one.
+    ledger = open_ledger(roster=(mob,))
     step = strike(legacy, None, ledger, None, mob, 0x750059, attacker)
     outcome = step.outcome
     return {
@@ -1606,8 +1632,30 @@ def pin_document(
         "target_identity": mob.actor_identity,
         # ascii() for the same reason field_mobs.roster_report uses it: this
         # gets printed on a code page 874 console, and a field scene's MOBS_TIP
-        # name is not guaranteed to be ASCII the way bg0001's thirteen are.
+        # name is not guaranteed to be ASCII the way bg0001's own rows are.
         "target_name": ascii(mob.display_name),
+        # ADDED round 8ftmbx, because pf-adversary (D5) showed this document
+        # was the more misleading of the two pins after the migration: it
+        # names an actor with production_allowed true and test_only false,
+        # and said nothing about the fact that the actor is no longer on the
+        # wire at all.  An attended ticket written from this pin would have
+        # sent a tester to hunt 0x201F in game and find a townsman.
+        "target_is_in_the_shipped_roster": mob.actor_identity in {
+            row.actor_identity for row in field_mobs.load_roster()
+        },
+        "target_is_the_gt035_observed_actor": (
+            mob.placement_index == PIN_PLACEMENT_INDEX),
+        "target_withdrawn_note": (
+            "bg0001 placement 30 as the SET-NUMBER reading rendered it.  "
+            "COO-DECISION 2026-08-29T00:41+07:00 withdrew that row: under "
+            "the RE-128 crosswalk this placement is n_ID 248 'Da Vinci', a "
+            "townsman, and that is what the census sends today.  This pin "
+            "keeps the withdrawn actor ON PURPOSE -- GT-035's damage ladder "
+            "was watched on it, and comparing today's arithmetic against a "
+            "different actor's numbers would prove nothing.  DO NOT target "
+            "this identity in an attended session; the roster's own control "
+            "row is placement 103."
+        ),
         "target_position": [mob.x, mob.y, mob.z],
         "target_faction": field_mobs.FIELD_MOB_FACTION,
         "target_level": mob.level,

@@ -44,18 +44,8 @@ AI_WANDER_ROWS = {
 
 # n_ID -> (s_CONDITOIN, s_ACTION)
 AI_COMBAT_ROWS = {
-    123: ('DISTANCE_ENEMY>(700);BUFF_I(4986,0,0);RATE(30)\\nDISTANCE_ENEMY<(700);BUFF_I(4985,0,0);RATE(40)\\nDISTANCE_ENEMY<(700);BUFF_I(4981,0,0);RATE(15)\\nGO(0)',
-         'CHASE(2)\\nCHASE(4)\\nCHASE(3)\\nCHASE(1)'),
-    133: ('BUFF_I(4984,0,0);HP_I<(0.6);RATE(10)\\nDISTANCE_ENEMY>(400);BUFF_I(4981,0,0);RATE(20)\\nDISTANCE_ENEMY>(1000);BUFF_I(4980,0,0);RATE(40)\\nGO(0)',
-         'CHASE(4)\\nCHASE(3)\\nCHASE(2)\\nCHASE(1)'),
-    140: ('DISTANCE_ENEMY>(500);HP_I<(0.5);BUFF_I(4981,0,0);RATE(8)\\nDISTANCE_ENEMY>(500);RATE(20)\\nGO(0)',
-         'CHASE(3)\\nCHASE(2)\\nCHASE(1)'),
     214: ('DOONCE(0)\\nBUFF_I(4984,0,0);RATE(10)\\nDISTANCE_ENEMY>(500);BUFF_I(4980,0,0);RATE(60)\\nDISTANCE_ENEMY<(500);BUFF_I(4982,0,0);RATE(15)\\nRATE(25)\\nDISTANCE_ENEMY<(400);BUFF_I(4981,0,0);RATE(15)\\nRATE(5)\\nGO(0)',
          'CHASE(5)\\nCHASE(5)\\nCHASE(2)\\nCHASE(4)\\nCHASE(1)\\nCHASE(3)\\nCHASE(3)\\nCHASE(1)'),
-    240: ('DISTANCE_ENEMY>(400);RATE(95)\\nDISTANCE_ENEMY<(450);RATE(60)\\nGO(0)',
-         'CHASE(2)\\nCHASE(2)\\nCHASE(1)'),
-    300: ('HP_I<(0.3);RATE(3)\\nBUFF_I(4980,0,0);DISTANCE_ENEMY>(300);RATE(60)\\nBUFF_I(4982,0,0);DISTANCE_ENEMY<(650);RATE(20)\\nRATE(30)\\nGO(0)',
-         'CHASE(5)\\nCHASE(2)\\nCHASE(3)\\nCHASE(2)\\nCHASE(1)'),
     332: ('BUFF_I(4983,0,0);BUFF_I(4982,0,1);RATE(40)\\nBUFF_I(4982,0,0);HP_I<(0.8);RATE(25)\\nBUFF_I(4983,0,0);HP_I<(0.5);RATE(25)\\nBUFF_I(4980,0,0);DISTANCE_ENEMY>(450);RATE(60)\\nGO(0)',
          'CHASE(4)\\nCHASE(3)\\nCHASE(4)\\nCHASE(2)\\nCHASE(1)'),
     350: ('BUFF_I(4981,0,0);BUFF_I(4983,0,0);HP_I<(0.5);RATE(10)\\nBUFF_I(4980,0,0);DISTANCE_ENEMY>(400);RATE(80)\\nDISTANCE_ENEMY<(275);RATE(80)\\nGO(0)',
@@ -68,12 +58,7 @@ AI_COMBAT_ROWS = {
 # not enforced: six of the 276 shipped rows are False, so the parallel-list
 # reading is a property of most rows and not a law of the table.
 AI_COMBAT_PARALLEL = {
-    123: True,
-    133: True,
-    140: True,
     214: True,
-    240: True,
-    300: True,
     332: True,
     350: True,
     352: True,
@@ -82,17 +67,25 @@ AI_COMBAT_PARALLEL = {
 # (placement_index, ai_wander_id, ai_combat_id) -- the join this module exists
 # to make checkable without the bridge clone present.
 PLACEMENT_AI_LINKS = [
-    (12, 16, 352),
-    (30, 16, 214),
-    (33, 16, 350),
-    (58, 11, 123),
-    (59, 16, 140),
-    (60, 16, 240),
-    (63, 11, 133),
-    (95, 16, 300),
+    (50, 16, 214),
+    (58, 16, 350),
+    (59, 16, 350),
+    (60, 16, 350),
+    (61, 16, 352),
+    (77, 16, 214),
+    (78, 16, 214),
+    (79, 16, 352),
+    (80, 16, 352),
+    (86, 16, 350),
+    (87, 16, 350),
+    (88, 16, 350),
+    (92, 11, 332),
+    (93, 11, 332),
+    (94, 11, 332),
+    (95, 11, 332),
+    (96, 11, 332),
     (103, 21, 0),
     (105, 21, 0),
     (107, 21, 0),
     (109, 21, 0),
-    (132, 11, 332),
 ]
