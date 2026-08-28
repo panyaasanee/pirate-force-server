@@ -1,1 +1,1 @@
-{"sha":"24b0d06fed0b76ba7564a1b84b4296c2ec5481c8","conclusion":"failure","event":"push","ref":"refs/heads/claude/festive-brahmagupta-w0pu2i","run_id":"33194610604","utc":"2026-08-28T17:26:10Z"}
+{"sha":"24b0d06fed0b76ba7564a1b84b4296c2ec5481c8","conclusion":"failure","event":"pull_request","ref":"refs/pull/217/merge","run_id":"33194686270","utc":"2026-08-28T17:27:04Z"}
