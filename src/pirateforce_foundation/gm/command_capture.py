@@ -173,7 +173,20 @@ def capture_raw_gm_command(
         candidate_name = base_name if suffix == 0 else f"{base_name}_{suffix}"
         out_path = root / f"{candidate_name}.txt"
         try:
-            fd = os.open(out_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            # Explicit mode=0o600 (owner read/write only, no execute bit for
+            # anyone). `os.open` without a `mode` argument defaults to 0o777
+            # (masked by umask) -- unlike the builtin `open()` used elsewhere
+            # in this lane (`commands.py`'s `log_gm_command`, default 0o666,
+            # no execute bit ever), so this one call site was silently
+            # writing forensic captures -- real client-controlled bytes,
+            # account names, and free-text a GM typed, per this module's own
+            # docstring -- as world-readable and, under a permissive umask,
+            # world-writable and executable by every OS user on the host.
+            # Reproduced live under this project's own default umask
+            # (0o022): the old call produced mode 0o755 (rwxr-xr-x); this
+            # explicit mode produces 0o600 regardless of umask, since 0o600
+            # has no group/other bits for umask to need to clear.
+            fd = os.open(out_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         except FileExistsError:
             suffix += 1
             continue
