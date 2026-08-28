@@ -306,6 +306,35 @@ class AuditFailureIsFailClosedTests(_Case):
             self.assertIsNone(self.act(session, "/warp 2 100 200"))
         self.assertIsNone(getattr(session, "gm_last_warp_target", None))
 
+    def test_a_withheld_say_does_not_clear_an_earlier_warps_target(self):
+        # The clearing above must be tied to the command that PARKED the
+        # target, not to "any withheld action".  A `/say` whose audit row
+        # fails would otherwise delete the comparison a real, sent `/warp`
+        # set up moments earlier -- a second bug wearing the first one's
+        # clothes.
+        session = FakeSession(position=FakePosition(scene_id=2))
+        with self.open_the_warp_gate():
+            self.assertIsNotNone(self.act(session, "/warp 2 100 200"))
+        parked = getattr(session, "gm_last_warp_target", None)
+        self.assertIsNotNone(parked)
+        with mock.patch.object(
+            say_wire, "GM_GLOBAL_MESSAGE_VITAL_VERSION_CONFIRMED",
+            say_wire.CHANNEL_CODEC_VITAL_VERSION,
+        ), mock.patch.object(
+            chat_command_action,
+            "log_gm_command_outcome",
+            side_effect=OSError("disk full"),
+        ):
+            self.assertIsNone(self.act(session, "/say all hands"))
+        # Not vacuous: the say really did compose and really was withheld for
+        # the audit failure, which is the only path that could have cleared
+        # the target.
+        self.assertIn(
+            chat_command_action.EVENT_OUTCOME_NOT_AUDITED_ACTION_WITHHELD,
+            session.events,
+        )
+        self.assertIs(getattr(session, "gm_last_warp_target", None), parked)
+
     def test_a_warp_that_is_audited_keeps_its_parked_target(self):
         # The control for the test above: the clearing must be tied to the
         # withholding, not to every warp.

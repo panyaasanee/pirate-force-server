@@ -551,8 +551,15 @@ def _make_action(
             # step the player took against a warp that never happened.
             # Withholding here is a new way to reach that state, so it
             # clears it the same way the refusal paths never create it.
-            if not clear_warp_target(session):
-                _note(session, EVENT_OUTCOME_STALE_TARGET_NOT_CLEARED)
+            #
+            # ONLY FOR THE COMMAND THAT PARKED IT.  A withheld `/say` must not
+            # clear the target an EARLIER `/warp` parked and really sent: that
+            # would delete a live comparison because an unrelated chat line
+            # could not be audited, which is a second bug wearing the first
+            # one's clothes.  `say` parks nothing, so it has nothing to undo.
+            if action[0] == WARP_ACTION_LABEL:
+                if not clear_warp_target(session):
+                    _note(session, EVENT_OUTCOME_STALE_TARGET_NOT_CLEARED)
             _note(session, EVENT_OUTCOME_NOT_AUDITED_ACTION_WITHHELD)
             return None
     return action
