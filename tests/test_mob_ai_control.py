@@ -135,7 +135,7 @@ class MinedRowTests(unittest.TestCase):
         self.assertEqual((offensive, aggro), (1, MINED_AGGRO_RADIUS))
         _script, _faction, offensive, aggro = rows[AI_WANDER_PASSIVE_ROW]
         self.assertEqual((offensive, aggro), (0, 0))
-        # 🔴 The dummy's row CONTRADICTS its own MOBS row and that is the
+        # !! The dummy's row CONTRADICTS its own MOBS row and that is the
         # measurement, not a defect of the mining: n_OFFESIVE 1 with
         # n_AGGRO 3000, on an actor whose n_AI_COMBAT is 0.  profile_of
         # resolves the contradiction downward (cannot initiate) and says so
