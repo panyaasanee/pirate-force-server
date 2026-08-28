@@ -601,3 +601,6 @@
 # B_20260826_1138) -- writes docs/FIELD_SCENE_CANDIDATES.json, and D19 of
 # round ywm4v1 already found this exact allowlist gap once for a sibling tool.
 !/tools/pf_scan_field_scene_candidates.py
+
+# round swlc56 - shared code-token scanner for the static verifiers negatives
+!/tools/pf_code_token_scan.py
