@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 import sys
 import tempfile
 import unittest
@@ -291,6 +293,84 @@ class LogGmCommandTests(unittest.TestCase):
     def test_rejects_empty_account_name(self):
         with self.assertRaises(ValueError):
             log_gm_command(parse_gm_command("lv 1"), "", log_path=self.log_path)
+
+    def test_log_file_mode_is_owner_only_no_execute_regardless_of_umask(self):
+        # Same bug class and same fix as
+        # gm/command_capture.py's test_capture_file_mode_is_owner_only_no_execute_regardless_of_umask,
+        # found by pf-adversary in a sibling file that fix did not touch:
+        # the builtin open("a") this function used to call creates a new
+        # file at the platform default (0o666 masked by umask, no execute
+        # bit but still world-readable, world-writable under a permissive
+        # umask) with no way to request an explicit mode -- for an ndjson
+        # audit log of every GM command issued, including full `say
+        # <message>` bodies. Assert under a deliberately permissive umask
+        # (0o000) so this cannot pass by accident of the container's own
+        # umask; 0o600 has no group/other bits for any umask to add back.
+        old_umask = os.umask(0o000)
+        try:
+            out = log_gm_command(
+                parse_gm_command("lv 1"), "panya", log_path=self.log_path, now_ts=0
+            )
+        finally:
+            os.umask(old_umask)
+        mode = stat.S_IMODE(out.stat().st_mode)
+        if os.name == "posix":
+            self.assertEqual(mode, 0o600, oct(mode))
+        else:
+            # No POSIX mode bits to check on this OS -- the call must still
+            # succeed and produce a real file. Same Windows caveat as
+            # command_capture.py: NTFS ignores this bit split, real access
+            # control there is the containing directory's ACL.
+            self.assertTrue(out.is_file())
+
+    def test_log_directory_mode_is_owner_only_regardless_of_umask(self):
+        # Sibling of gm/command_capture.py's directory-mode fix: a
+        # world-writable containing directory would let another local user
+        # delete or rename this audit log even though they cannot read it.
+        nested_log_path = Path(self._tmp.name) / "nested" / "gm_command_log.ndjson"
+        old_umask = os.umask(0o000)
+        try:
+            log_gm_command(
+                parse_gm_command("lv 1"), "panya", log_path=nested_log_path, now_ts=0
+            )
+        finally:
+            os.umask(old_umask)
+        mode = stat.S_IMODE(nested_log_path.parent.stat().st_mode)
+        if os.name == "posix":
+            self.assertEqual(mode, 0o700, oct(mode))
+        else:
+            self.assertTrue(nested_log_path.parent.is_dir())
+
+    def test_log_directory_mode_is_retightened_on_a_preexisting_loose_directory(self):
+        # Sibling of gm/command_capture.py's identical fix (pf-adversary
+        # verification pass, same round): `mkdir(..., exist_ok=True)` never
+        # chmods a directory that already exists, and this function shares
+        # its literal parent (`capture/`) with command_capture.py's own
+        # default root -- whichever function runs first on a real host
+        # locks that shared parent's mode in, forever, without this.
+        # Simulate "some earlier call already created it loose."
+        #
+        # No POSIX mode bits to check on Windows (same caveat as the
+        # sibling first-creation test above) -- runs assertions only on
+        # POSIX; the call under test still runs and must still succeed on
+        # every OS.
+        nested_log_path = Path(self._tmp.name) / "preexisting" / "gm_command_log.ndjson"
+        nested_log_path.parent.mkdir(mode=0o777)
+        if os.name == "posix":
+            os.chmod(nested_log_path.parent, 0o777)
+            self.assertEqual(stat.S_IMODE(nested_log_path.parent.stat().st_mode), 0o777)
+        old_umask = os.umask(0o022)
+        try:
+            log_gm_command(
+                parse_gm_command("lv 1"), "panya", log_path=nested_log_path, now_ts=0
+            )
+        finally:
+            os.umask(old_umask)
+        if os.name == "posix":
+            mode = stat.S_IMODE(nested_log_path.parent.stat().st_mode)
+            self.assertEqual(mode, 0o700, oct(mode))
+        else:
+            self.assertTrue(nested_log_path.parent.is_dir())
 
 
 if __name__ == "__main__":

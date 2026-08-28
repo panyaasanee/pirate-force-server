@@ -147,7 +147,31 @@ def capture_raw_gm_command(
     if not isinstance(account_name, str) or not account_name:
         raise ValueError("account_name must be a non-empty str")
     root = Path(capture_root)
-    root.mkdir(parents=True, exist_ok=True)
+    # mode=0o700 on the leaf directory only -- Path.mkdir(parents=True)
+    # creates any missing *parents* at the platform default mode, ignoring
+    # `mode` (a Python stdlib behavior, not something this call can override).
+    # Without this, a permissive host umask (e.g. 0o000) leaves this
+    # directory world-writable, which lets another local user delete or
+    # rename the 0o600 capture files inside even though they can't read
+    # their contents -- a partial defeat of this function's own "nothing
+    # captured is ever lost" guarantee. Same regardless-of-umask reasoning
+    # as the file mode below: 0o700 has no group/other bits for any umask to
+    # add back.
+    #
+    # pf-adversary (verification pass, same round): `mkdir(..., exist_ok=True)`
+    # is a silent no-op on a directory that already exists -- it never
+    # chmods it. `DEFAULT_CAPTURE_ROOT` and `gm/commands.py`'s
+    # `DEFAULT_LOG_PATH` share the literal parent `capture/`, which
+    # `.gitignore` documents as never cleaned up: whichever of the two
+    # functions runs first on a real host creates that shared parent at
+    # whatever mode a stale/permissive umask left it at on that one call,
+    # and every later call -- under this project's own real default umask
+    # included -- would otherwise leave it stuck there forever. The explicit
+    # `os.chmod` below re-asserts 0o700 on every call, not just first
+    # creation, so the directory cannot stay wide open from one unlucky
+    # umask at creation time.
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(root, 0o700)
     ts = now_ts if now_ts is not None else time.time()
     ts_label = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(ts))
     safe_account = _sanitize_account(account_name)

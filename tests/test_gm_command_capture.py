@@ -245,6 +245,65 @@ class GmCommandCaptureTests(unittest.TestCase):
             # succeed and produce a real file; see the comment above.
             self.assertTrue(out.is_file())
 
+    def test_capture_directory_mode_is_owner_only_regardless_of_umask(self):
+        # `Path.mkdir` with no explicit `mode` is masked by the process
+        # umask the same way `os.open` is -- a permissive host umask (e.g.
+        # 0o000) leaves this directory world-writable, which lets another
+        # local user delete or rename the 0o600 capture files inside even
+        # though they cannot read their contents, partially defeating this
+        # module's own "nothing captured is ever lost" guarantee. Uses a
+        # fresh subdirectory (not self.root, created in setUp before this
+        # test could set the umask) so the mkdir call under test is the one
+        # that actually creates it.
+        nested_root = Path(self.root) / "nested"
+        old_umask = os.umask(0o000)
+        try:
+            capture_raw_gm_command(b"x", "panya", capture_root=nested_root, now_ts=0)
+        finally:
+            os.umask(old_umask)
+        mode = stat.S_IMODE(nested_root.stat().st_mode)
+        if os.name == "posix":
+            self.assertEqual(mode, 0o700, oct(mode))
+        else:
+            self.assertTrue(nested_root.is_dir())
+
+    def test_capture_directory_mode_is_retightened_on_a_preexisting_loose_directory(self):
+        # pf-adversary (verification pass, same round): `mkdir(...,
+        # exist_ok=True)` is a silent no-op when the directory already
+        # exists -- it never chmods it. `DEFAULT_CAPTURE_ROOT` shares its
+        # literal parent (`capture/`) with gm/commands.py's
+        # `DEFAULT_LOG_PATH`, and `.gitignore` documents that parent as
+        # never cleaned up, so on a real host whichever function runs first
+        # locks in whatever mode the umask in effect at that one moment
+        # produced -- every later call, even under a strict umask, would
+        # otherwise leave a once-loose directory stuck wide open forever.
+        # Simulate that: create the directory loose *before* calling the
+        # function under test (standing in for "some earlier call, or the
+        # other function, created it under a permissive umask"), then call
+        # with a strict umask and assert the mode is retightened anyway.
+        #
+        # No POSIX mode bits to check on Windows (same caveat as the
+        # sibling first-creation test above) -- this test's own precondition
+        # (a directory already sitting at a loose mode) cannot be
+        # constructed there either, so it only runs its assertions on
+        # POSIX; the call under test still runs and must still succeed on
+        # every OS.
+        nested_root = Path(self.root) / "preexisting"
+        nested_root.mkdir(mode=0o777, parents=True)
+        if os.name == "posix":
+            os.chmod(nested_root, 0o777)
+            self.assertEqual(stat.S_IMODE(nested_root.stat().st_mode), 0o777)
+        old_umask = os.umask(0o022)
+        try:
+            capture_raw_gm_command(b"x", "panya", capture_root=nested_root, now_ts=0)
+        finally:
+            os.umask(old_umask)
+        if os.name == "posix":
+            mode = stat.S_IMODE(nested_root.stat().st_mode)
+            self.assertEqual(mode, 0o700, oct(mode))
+        else:
+            self.assertTrue(nested_root.is_dir())
+
     def test_collision_loop_bound_does_not_affect_a_realistic_capture_count(self):
         # The real-world guard this bound exists next to (gm/dispatch.py's
         # own RATE_LIMIT_MAX_CALLS_PER_WINDOW) caps how often this loop can
