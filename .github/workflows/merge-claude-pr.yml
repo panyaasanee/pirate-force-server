@@ -26,10 +26,24 @@
 # The answer is that NO CLOUD ROUND IS EVER ASKED TO CLEAN THIS UP.  GitHub does
 # it, here, with GITHUB_TOKEN, on the runner.  THE INVARIANT THIS FILE OWES:
 #
-#   *** NO PATH THROUGH EITHER JOB MAY END WITH AN ELIGIBLE PR STILL OPEN. ***
+#   *** NO PATH THROUGH EITHER JOB MAY END WITH AN ELIGIBLE PR STILL OPEN,
+#       EXCEPT ONE: A HEAD THAT MOVED, AND ONLY WHILE THE PR IS YOUNGER THAN
+#       PF_STALE_HOURS. ***
 #
-# An eligible PR ends merged, or closed with a comment saying why.  If merging
-# fails for ANY reason - a race, a 403, an API error - the PR is CLOSED instead.
+# THE ONE EXCEPTION, stated here so the rule and the code agree (R219,
+# 2026-08-29).  When the merge is refused because the head moved between the
+# decision and the call, the pull request is LEFT OPEN.  Discharge obligation:
+# the new head gets a gate run of its own, which wakes `decide` again; `finish`
+# sweeps every open PR on every workflow_run; and past PF_STALE_HOURS this same
+# skip stops applying, so the close path takes it.  The bound is enforced in
+# code at the skip site - if you remove the age test, you remove the invariant.
+# Why the exception exists: closing on a moved head threw away a GREEN round
+# (#218, measured; see the comment at the skip site), and a moved head is the
+# same condition as the `HEAD_SHA != SHA` check that already skips, only noticed
+# a few seconds later.
+#
+# Otherwise: an eligible PR ends merged, or closed with a comment saying why.
+# If merging fails for any other reason - a 403, an API error - it is CLOSED.
 # Closing is never the loss it looks like: the branch is kept, deliberately, and
 # the comment names it.  What is thrown away is the LOCK, which is the only
 # thing here that must never get stuck.
@@ -376,9 +390,58 @@ jobs:
             # HTTP 403, meaning `pull-requests: write` was refused on this
             # repository - the one permission nobody has measured.  Either way
             # the pull request may not be left open.
-            STATE=$(api "repos/${REPO}/pulls/${PR}" | jq -r '.state')
+            # One read, three facts.  DECIDE ON THE SHA, NOT ON THE ERROR TEXT:
+            # the wording is GitHub's and may drift, while "did the head move?"
+            # is the actual question - and the SHA test also REFUSES to skip when
+            # the head did NOT move, so a 403 or any other real failure still
+            # reaches the close path even if its text happens to mention a head.
+            META2=$(api "repos/${REPO}/pulls/${PR}")
+            STATE=$(printf '%s' "$META2" | jq -r '.state')
+            NOW_SHA=$(printf '%s' "$META2" | jq -r '.head.sha')
+            CREATED=$(printf '%s' "$META2" | jq -r '.created_at')
             if [ "$STATE" != "open" ]; then
               echo "  merge failed but the PR is already ${STATE} - another run got there first, fine"
+              continue
+            fi
+
+            # THE HEAD MOVED WHILE WE WERE DECIDING.  This is the SAME condition
+            # as the `HEAD_SHA != SHA` check above - which leaves the pull
+            # request open and skips - only detected seconds later, after the
+            # `mergeable` poll (up to 30s of sleep) and the base-moved retry loop
+            # (up to 60s more) gave the round time to push again.  The two must
+            # be handled the SAME way; closing here was an inconsistency, not a
+            # decision.
+            #
+            # BOUNDED BY AGE, and the bound is the point.  Left unbounded, a skip
+            # here converts a bounded loss (one closed round) into an unbounded
+            # one: anything that keeps pushing would hold the round lock while
+            # every later round ended on sight.  Younger than PF_STALE_HOURS: a
+            # live round, leave it for the gate its new head will get.  Older and
+            # still moving: close it, whatever is moving it.  THAT IS THE ANSWER
+            # TO "how long may this skip hold the lock" - PF_STALE_HOURS,
+            # enforced here in code rather than asserted in a comment.
+            #
+            # This is the ONE exception to the invariant at the top of this file,
+            # and it is stated there too.  It is not the "escape hatch that
+            # reports rather than acts": it acts by handing the decision to the
+            # gate the new head is already getting, and it hands it back to the
+            # close path the moment the bound is exceeded.  Note the asymmetry
+            # with pf_bridge: there `reap` itself had to be bounded because it is
+            # that repo's only reaper, while here `reap` still closes on a moved
+            # head unconditionally, so this repository keeps a hard backstop.
+            #
+            # MEASURED 2026-08-28 18:27:54 UTC, pirate-force-server #218: the
+            # round's own `wake gate:` empty commit (chief prompt v6.2, section
+            # 3 step 4) landed 6 seconds before this merge call, GitHub answered
+            # "Head branch was modified", and a GREEN round - the COO-ordered
+            # reconnection of the production_allowed kill switch - was closed
+            # and lost from `main` for 7 hours until R219 recovered it by hand.
+            CSEC=$(date -u -d "$CREATED" +%s 2>/dev/null || echo 0)
+            AGE=$(( $(date -u +%s) - CSEC ))
+            LIMIT=$(( PF_STALE_HOURS * 3600 ))
+            if [ "$NOW_SHA" != "$SHA" ] && [ "$AGE" -lt "$LIMIT" ]; then
+              echo "::warning::#${PR} left open - head moved ${SHA} -> ${NOW_SHA} at age $(( AGE / 60 ))m (bound ${PF_STALE_HOURS}h)"
+              echo "  the gate for the new head decides it; finish/reap are the backstop"
               continue
             fi
             echo "::warning::merge of #${PR} failed on a GREEN gate (exit ${MRC}) - closing it to release the round lock"
