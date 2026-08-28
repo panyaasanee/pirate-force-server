@@ -142,7 +142,7 @@ Port Royal ships ``MAP001_000_000`` "Mirage reel" the same way, so this is a
 pre-existing pattern rather than a regression, and this module does NOT add
 a rule to drop it: a new drop rule with no control under it is exactly what
 this round has just been beaten for.  It is recorded, it is in
-``MAP_PROP_ROWS``, and ``GT-132`` tells the tester to expect one level-1
+``MAP_PROP_ROWS``, and ``GT-134`` tells the tester to expect one level-1
 "Big Sword" among the level-105 monsters.
 
 A COLUMN THIS ROUND DID NOT OPEN, and the adversary is right that it is
@@ -156,7 +156,7 @@ asked it and this module cannot answer it: a per-row locator that a second
 party can re-open (added this round - every row carries its ``CLINE.n_ID``),
 the scene's native ``.npc`` digest (not in this clone), an independent table
 that ties one set number to one ``MOBS.n_ID`` (a mission or drop table -
-not searched yet), or ``GT-132``.  Until one of those lands, the 81 sentences
+not searched yet), or ``GT-134``.  Until one of those lands, the 81 sentences
 this module ships are a hypothesis with a strong table under it and nothing
 under the assignment.
 
@@ -170,7 +170,7 @@ WHAT THIS MODULE DOES NOT CLAIM.
   COO-DECISION 2026-08-28T22:50 used to promote scene 2.  Scene 14 is the
   one nobody has stood in.)  The client-observable layer for this scene is
   empty and
-  the ticket that fills it is ``GT-132``.  Until it comes back, every name
+  the ticket that fills it is ``GT-134``.  Until it comes back, every name
   below is a table inference - the bottom of the evidence order COO set on
   2026-08-28T21:30 - however good the four controls above are.
 * Not that the census this feeds is what raises these actors.  ``RE-128``'s

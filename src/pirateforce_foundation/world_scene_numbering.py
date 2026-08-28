@@ -114,10 +114,10 @@ REFUSAL_REASONS = {
     # failure this guard was built for cannot happen there.  It is listed
     # anyway, refused, for the OTHER half of what this guard is for: nobody
     # has stood in that scene and read a name, so its identities are table
-    # inference and must not be stated as fact until GT-132 comes back.
+    # inference and must not be stated as fact until GT-134 comes back.
     "Bg0015": (
         "identities_are_CLINE_resolved_not_set_numbers;"
-        "no_owner_eyes_on_this_scene_yet;GT-132_open"
+        "no_owner_eyes_on_this_scene_yet;GT-134_open"
     ),
 }
 

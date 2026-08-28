@@ -79,7 +79,7 @@ tests.  The one-line request is in this round's PR body and in
 WHAT THIS MODULE DOES NOT CLAIM.  Everything ``world_bg0015_identity``'s
 "WHAT THIS MODULE DOES NOT CLAIM" says, unchanged, and one more: no human has
 ever seen this scene in this project, so there is no client-observable layer
-under any of it.  ``GT-132`` is the ticket that opens one.  Until it comes
+under any of it.  ``GT-134`` is the ticket that opens one.  Until it comes
 back, ``census_console_line`` and ``actor_lines`` are wire/DB-layer evidence
 and nothing above that.
 """

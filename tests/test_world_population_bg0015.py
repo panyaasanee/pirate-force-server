@@ -8,7 +8,7 @@ Mob-Set number, the builder refuses every scene but 14, and the console lines
 a headless boot would print say the true numbers including the shortfall.
 
 What it cannot prove, and does not: that a client draws any of it.  Nobody
-has been in this scene.  ``GT-132`` is that ticket.
+has been in this scene.  ``GT-134`` is that ticket.
 """
 from __future__ import annotations
 

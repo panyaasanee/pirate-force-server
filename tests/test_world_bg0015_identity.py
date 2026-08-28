@@ -9,7 +9,7 @@ executable here.  Two things this file deliberately does NOT do:
   re-mine, and this file says so rather than pretending to check it.
 * It does not claim any of these actors has been SEEN.  Nobody has been in
   this scene.  Everything below is wire/DB-layer and table-layer evidence;
-  the client-observable layer is ``GT-132`` and it is empty today.
+  the client-observable layer is ``GT-134`` and it is empty today.
 """
 from __future__ import annotations
 
@@ -190,7 +190,7 @@ class Bg0015TableShape(unittest.TestCase):
         # prop on a level-100 volcano) and control 4 did not notice --
         # pf-adversary did.  It still ships, because a new drop rule with no
         # control under it is what this round was beaten for; what changed is
-        # that it is named, here and in GT-132.
+        # that it is named, here and in GT-134.
         self.assertEqual(sorted(identity.MAP_PROP_ROWS), [111])
         row = identity.IDENTITIES[111]
         self.assertEqual(row.mobs_n_id, 923)
