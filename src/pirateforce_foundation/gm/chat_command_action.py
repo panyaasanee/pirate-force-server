@@ -69,18 +69,59 @@ WHAT IT DOES NOT DO
   as "not wired yet" by event is the difference between a lane that is
   honest about its coverage and one that looks broken.
 * !! It does not put a single ForcePos byte on the wire today, because
-  `teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED` is None (RE-129 open).
-  See that constant's own comment: the vital version byte is per-vital
-  (0x5A19 -> 0, SelectActor -> 10) and GT-101 measured what an unproven
+  `teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED` is None.  ~~(RE-129
+  open)~~ RE-129 ANSWERED on 2026-08-28T20:09+07:00 -- the byte is 0 -- and
+  the constant is still None on purpose: COO-DECISION 21:30 locks it there
+  until chief's confirmed-position write point is on main (CORE-REQUEST-GM-030).
+  See that constant's block and `test_gm_force_pos_version_lock.py` -- and note
+  that release day edits TWO test files: `VersionGateTests` in this module's
+  own suite asserts the constant is None unconditionally.
+  The rest of that constant's comment still holds: the vital version byte is
+  per-vital (0x5A19 -> 0, ForcePos -> 0, TeleportVital -> 4 from the client's
+  own constructors; SelectActor -> 10 from the legacy server source -- four
+  values, two layers, still no default) and GT-101 measured what an unproven
   version does to a real client -- modal error, connection halted, socket
   closed.  This module gates on the constant being not-None for the same
   reason `runtime.py:5168`/`5173` gates the login GM-state frame on
   `state_wire.GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED`, and refuses by name
-  instead.  When RE-129 answers, that one constant is the whole change.
+  instead.  ~~When RE-129 answers, that one constant is the whole change.~~
+  It answered, and it is not: the change is chief's write point on main, then
+  COO lifting the lock, then the constant, then the second test file above.
 
-!! OPEN, AND IT MUST BE ANSWERED BEFORE RE-129 CHANGES THE CONSTANT
--------------------------------------------------------------------
-pf-adversary (this round) asked the question this design does not answer:
+POSITION OWNERSHIP AFTER A WARP -- ANSWERED, AND THE ANSWER IS THE DESIGN
+--------------------------------------------------------------------------
+~~OPEN, AND IT MUST BE ANSWERED BEFORE RE-129 CHANGES THE CONSTANT~~
+ANSWERED 2026-08-28T21:30+07:00 by COO-DECISION (pf_bridge/notes_to_chief/
+20260828_2130_COO-DECISION-position-ownership-after-gm-warp.md), replying to
+this lane's ASK-COO of 19:05.  The question and the reasoning that produced it
+are kept below unchanged, because they are why the rule exists.  The ruling,
+in three lines, is now the contract of this module:
+
+  1. THE OWNER OF A POSITION IS THE POSITION THE CLIENT CONFIRMED.
+     A `ForcePos` frame is a REQUEST that left the server.  It is never
+     evidence that a character moved -- and RE-129 (2026-08-28T20:09+07:00)
+     made that concrete rather than cautious: the handler the client has
+     REGISTERED for ForcePos is `mov al,1; ret 4` and reads no payload at all.
+  2. THE SERVER MUST NEVER WRITE A POSITION IT DID NOT OBSERVE.  Not to the
+     durable row, not to `selected.position`.  Writing the requested point at
+     send time is the "false green" this project has already paid for three
+     times, except that this one would make the DB lie silently and take
+     aggro range, pickup range and the logout point down with it.
+  3. THE CONFIRMING EVENT IS THE FIRST `TargetPos` AFTER THE FRAME, and the
+     write belongs there.  That write point lives in `runtime.py`, which is
+     not this lane's zone: CORE-REQUEST-GM-030 (round `fo2lgh`) asks chief
+     for it, and until it is on main the version constant stays locked (see
+     `teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED`).
+
+So THIS MODULE'S BEHAVIOUR IS ALREADY CORRECT AND MUST NOT BE "FIXED": it
+composes a frame and does not checkpoint.  A future round that adds a
+`foundation.checkpoint` call here, meaning well, would be implementing the
+one option COO explicitly struck out.  The gap that remains is not in this
+file; it is the missing confirmed write point in runtime.py.
+
+THE QUESTION AS IT WAS ASKED (kept, not deleted)
+------------------------------------------------
+pf-adversary (round `gr2q9j`) asked the question that design did not answer:
 after a ForcePos leaves, WHO OWNS THE CHARACTER'S POSITION?  This module
 composes a frame and stops.  It does not call `foundation.checkpoint`, so the
 durable row and `selected.position` still hold the pre-warp point, and the
@@ -117,8 +158,15 @@ ALSO OPEN, same reason (recorded, not fixed here):
   assigned, and this module is what makes it load-bearing by pairing the
   command's two arguments with `Position.z`.  `Position`'s own ordering is
   proven by `make_login_teleport`, but that is a different message, and two
-  layers agreeing is consistency, not proof.  RE-129 carries this as its
-  second question.  [สมมติของสาย GM - รอ RE]
+  layers agreeing is consistency, not proof.  ~~RE-129 carries this as its
+  second question.~~ RE-129 ANSWERED the version and CLOSED THE OFFSETS
+  (f32 at struct +0/+4/+8, i.e. ForcePos +0x14/+0x18/+0x1C) but returned a
+  BOUNDED NEGATIVE on the names: the common vec3 helper carries no field
+  names, the registered handler never reads the three values, and
+  `PF_FIELD_VALIDATION.tsv` is NOT_OBSERVED both ways -- so no client-side
+  crosswalk separates first/second/third into x/y/z.  RE-129's own words:
+  do not use the resemblance to another message's Position as evidence.
+  Still [สมมติของสาย GM - รอ RE].
 
 FAIL-CLOSED
 -----------

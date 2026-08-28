@@ -100,14 +100,97 @@ TELEPORT_VITAL_ID = 0x25A2
 # HALTED the whole connection and closed the socket.  Not sending a frame is
 # always safe; sending one with the wrong version kills the owner's session.
 #
-# So: None until RE-129 reads the byte the 0x0E80 prototype constructor
-# stores, by exactly the method RE-105 already succeeded with.  Every caller
-# that would put ForcePos bytes on a real wire MUST gate on this being
-# not-None, the same way runtime.py:5107 gates the 0x5A19 login frame on
+# SUPERSEDED 2026-08-28T22:30+07:00, kept because the reasoning above is
+# still why this constant exists at all:
+#     "So: None until RE-129 reads the byte the 0x0E80 prototype constructor
+#      stores, by exactly the method RE-105 already succeeded with."
+# RE-129 ANSWERED IT.  The byte is 0 (see the record constants below).  This
+# constant is STILL None, and the reason changed -- read the next paragraph
+# before touching it, because "RE-129 is open" is no longer true and is no
+# longer what holds this line.
+#
+# !! HARD LOCK, NOT A TODO.  COO-DECISION 2026-08-28T21:30+07:00
+# (pf_bridge/notes_to_chief/20260828_2130_COO-DECISION-position-ownership-
+# after-gm-warp.md, answering this lane's ASK-COO of 19:05) ruled on who owns
+# a character's position after a GM warp, and ruled it in the direction that
+# keeps this line None:
+#   * The owner is the position the CLIENT confirmed.  ForcePos is a REQUEST
+#     that left the server, never evidence that anything moved.
+#   * The server must NEVER write a position it did not observe.  The write
+#     happens on the first TargetPos after the frame, not before it.
+#   * The lock itself, rendered from the Thai original (not a quote -- the
+#     letter's own words are `!! LOCK: ...` in Thai): do not change
+#     FORCE_POS_VITAL_VERSION_CONFIRMED from None until that confirmed write
+#     point is on main -- EVEN THOUGH RE-129 has already answered.  GT-128's
+#     third precondition stays.
+# So the release is no longer "one constant".  It is, in order: (a) chief
+# wires the confirmed write point in runtime.py (CORE-REQUEST-GM-030, this
+# lane's round `fo2lgh`; runtime.py is not this lane's zone), (b) COO lifts
+# the lock, (c) this line becomes FORCE_POS_VITAL_VERSION_PROVEN_BY_RE129.
+# tests/test_gm_force_pos_version_lock.py enforces (a) mechanically -- this
+# file cannot go non-None while runtime.py has no LIVE write point (the token
+# must be a string inside a call there, not a comment saying it is coming) --
+# because the last two times this lane left a rule standing on a sentence in a
+# letter, the sentence lost.
+#
+# !! RELEASE DAY TOUCHES TWO TEST FILES, NOT ONE.  Step (c) also requires
+# editing tests/test_gm_chat_command_action.py::VersionGateTests::test_the_
+# shipped_constant_is_still_none_so_no_bytes_can_go_out, which asserts
+# assertIsNone UNCONDITIONALLY and predates the lock file.  Left unedited it
+# gives whoever lifts the lock three reds with no explanation -- pf-adversary
+# (round `fo2lgh`) found that this file, docs/GM_LANE.md and CORE-REQUEST-GM-030
+# all documented a release sequence that never mentioned it.
+#
+# Every caller that would put ForcePos bytes on a real wire MUST gate on this
+# being not-None, the same way runtime.py:5168/5173 (re-derived at this
+# commit, cb1a847; the pin read 5107 before chief's 0xAC52 merge) gates the
+# 0x5A19 login frame on
 # state_wire.GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED.  Unit tests and
 # decoders pass their own explicit version and are unaffected -- this
 # constant gates SENDING, not composing.
 FORCE_POS_VITAL_VERSION_CONFIRMED = None
+
+# --- RE-129 RESULT, RECORDED BUT DELIBERATELY INERT ------------------------
+# Source: pf_bridge/notes_to_chief/20260828_2009_RE-129-RESULT-VERSION-ZERO-
+# HANDLER-NOOP.md (DONE/PASS, static-on-bridge, image GameClient.local.bin
+# sha256 9627211412ac60d50ad189ce5a629443ce928ec23a9f8d219dfb2b157028b623).
+#
+# ForcePos: the prototype constructor [0x005E5170,0x005E51A2) does
+# `xor ecx,ecx` then `mov byte ptr [eax+0x10],cl` at 0x005E5186 -- the version
+# byte is written as literal 0 -- and the generic reader compares it with
+# exact equality (`cmp cl,byte ptr [esi+0x10]` at 0x005F3EFC, passing only on
+# the `je` at 0x005F3F01).  Same method RE-105 used for 0x5A19.
+#
+# TeleportVital: constructor [0x005E53D0,0x005E5459) does
+# `mov byte ptr [esi+0x10],4` at 0x005E5425 -- version 4, not 0.  Recorded
+# here as the FOURTH measured data point against ever assuming a project-wide
+# default -- and the four are not all the same KIND of evidence, which is why
+# they are listed with their layer rather than as one flat set:
+#   * 0x5A19 -> 0, ForcePos -> 0, TeleportVital -> 4: static disassembly of the
+#     CLIENT's own prototype constructors (RE-105, RE-129).
+#   * SelectActor -> 10: a literal in the legacy SERVER source
+#     (current/pf_login_game_server_v141.py:2205 and :2289), plus the inference
+#     that every successful login this project has done accepted it.  A
+#     different layer, and it is only cited because it points the same way.
+#
+# !! WHAT RE-129 DID *NOT* PROVE, and it is the more important half:
+# the handler the client has REGISTERED for ForcePos is the complete body
+# [0x00710440,0x00710445) = `mov al,1; ret 4`.  It reads no payload and
+# writes no position.  A version-correct ForcePos frame is therefore NOT
+# known to move anything on screen; RE-129's own nonclaim 3 says so.  The
+# three f32 at +0x14/+0x18/+0x1C are position-shaped by offset, but the axis
+# NAMES are still [สมมติของสาย GM - รอ RE]: no client crosswalk
+# distinguishes first/second/third as x/y/z (RE-129 T2, bounded negative).
+#
+# These two names are a RECORD of a measurement, not a switch.  Nothing in
+# this package may pass them to a frame builder or use them to gate a send;
+# tests/test_gm_force_pos_version_lock.py parses every shipped module under
+# src/ (tracked or not, THIS FILE INCLUDED) and fails if either name is ever
+# READ -- pf-adversary bypassed an earlier version by adding a sender here,
+# the one file that check skipped.  The switch is
+# FORCE_POS_VITAL_VERSION_CONFIRMED above, and it is locked by COO.
+FORCE_POS_VITAL_VERSION_PROVEN_BY_RE129 = 0
+TELEPORT_VITAL_VERSION_PROVEN_BY_RE129 = 4
 
 FORCE_POS_SPAN_SHA256 = (
     "7c6f6cb751692845d2eb5973fc9499a10dce4eda7caff5f80f82f968bc860e0d"
