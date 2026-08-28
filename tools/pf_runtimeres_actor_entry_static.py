@@ -878,23 +878,52 @@ guard("make_remote_actor_entry" in _v141,
 # (BUILD-002, commit f716215) and is named here because this census counts
 # every module, not because this round wrote it.  The numbers move; what the guard is FOR does not -
 # a new call site still has to be named here before it can go green.
-guard(SRC_ACTOR_ENTRY_SITES == 13,
-      "src/ builds actor entries at exactly 13 call sites (4 spawns + the "
+# Round swlc56 re-pin, and the first one that had to correct a PREVIOUS re-pin
+# rather than record a new lane.  The 2026-08-28 bridge full-pytest run found
+# this file exiting 1 on four section-[5] censuses at once.  Measured twice --
+# once by that run on the bridge, once by a cloud clone of the same HEAD
+# (336857c) counting the same regexes over src/ -- the tree holds 15 entry
+# sites, 23 carrier sites, 14 entry-building modules and 25 vital-carrier
+# sites.  Two of those four pins were WRONG THE DAY THEY WERE WRITTEN: at
+# d9f9aac, the commit that introduced "== 16" and "== 21", the same tree
+# already measured 21 and 23.  The tool cannot run on a cloud clone (it opens
+# the client image at import), so that round re-pinned by reading and
+# miscounted, and nothing caught it until somebody ran the full suite five
+# weeks of rounds later -- the gate runs a client-free SUBSET that excludes
+# this module.  tests/test_static_verifier_pins_cloud.py now recomputes every
+# src-derived number in this section from src/ alone, and compares it against
+# all three places it is written down -- these guards, the report's
+# RUNTIMERES_COUNTS block, and the bridge-only test module's own assertions --
+# so the next miscount is a red PR instead of a silent one.
+#
+# What actually moved since d9f9aac, named as this census requires:
+#   entry sites   13 -> 15: mob_diag_multi_object.py (lane B, the GT-114
+#                 multi-object diagnostic) and world_population_bg0002.py
+#                 (lane A, the bg0002 scene-2 census) build one entry each.
+#   carrier sites 21 -> 23 (never 16): diag_multi_object_wiring.py and
+#                 world_population_bg0002.py send one each.
+#   modules       12 -> 14: the same two names, and no other module gained or
+#                 lost its first entry.
+guard(SRC_ACTOR_ENTRY_SITES == 15,
+      "src/ builds actor entries at exactly 15 call sites (4 spawns + the "
       "round-86 death re-send + the round-96 remote-player probe + the "
       "round-99 hostile spawn + the round-111 NPC HP ladder + the "
-      "HYP-PF-038 hostile HP link + the lane-B production modules)")
-guard(SRC_ACTOR_STREAM_SITES == 16,
-      "src/ sends the actor-entry carrier at exactly 16 call sites")
-guard(SRC_MODULES_WITH_ACTOR_ENTRY == 12
+      "HYP-PF-038 hostile HP link + the lane-B production modules + the "
+      "GT-114 multi-object diagnostic + the lane-A bg0002 census)")
+guard(SRC_ACTOR_STREAM_SITES == 23,
+      "src/ sends the actor-entry carrier at exactly 23 call sites")
+guard(SRC_MODULES_WITH_ACTOR_ENTRY == 14
       and SRC_MODULES_WITH_ACTOR_ENTRY_NAMES == (
           "field_mobs.py",
           "hostile_hp_link_hypothesis.py",
           "mob_combat.py", "mob_death.py",
+          "mob_diag_multi_object.py",
           "npc_hostile_hypothesis.py", "npc_hp_link_hypothesis.py",
           "population.py", "remote_player_hypothesis.py",
           "runtimeres_death_hypothesis.py", "scenario.py",
-          "scene_object.py", "world_population.py"),
-      "12 named src/ modules build actor entries %s"
+          "scene_object.py", "world_population.py",
+          "world_population_bg0002.py"),
+      "14 named src/ modules build actor entries %s"
       % (SRC_MODULES_WITH_ACTOR_ENTRY_NAMES,))
 # Round 97 re-pin, 4 -> 5.  DAMAGE-HP-LINK-001 added the fifth mention:
 # damage_hp_link_hypothesis.py names bit 0x0080 because its two lethal frames
@@ -1069,8 +1098,15 @@ guard(SRC_ZERO_HP_SITES == 0 and V141_ZERO_HP_SITES == 0
 # one was left red, which would have exited 1 on the attended machine and taken
 # the whole test file with it - the tool cannot run on a cloud clone, so the
 # only thing that catches it here is reading it.
-guard(SRC_VITAL_STREAM_SITES == 21,
-      "src/ sends the VitalData carrier (make_runtime_vitals) at 21 call sites")
+# Round swlc56 re-pin, 21 -> 25, and the same correction as the three guards
+# above: "21" was already wrong at d9f9aac, where this tree measured 23.  The
+# two real moves since then are columbus_quest_dispatch.py 1 -> 2 (lane A,
+# CORE-REQUEST-019, the quest-3205 option-2 dispatch) and trace_path.py 0 -> 1
+# (CORE-REQUEST-025, the empty-vector tracepath fallback).  Counted on a cloud
+# clone of 336857c and by the bridge full-pytest run of 2026-08-28, which
+# agree.
+guard(SRC_VITAL_STREAM_SITES == 25,
+      "src/ sends the VitalData carrier (make_runtime_vitals) at 25 call sites")
 guard(_count(r"make_runtime_remote_actors\(",
              _src.get("stats_progression_hypothesis.py", "")) == 0
       and _count(r"make_runtime_vitals\(",
