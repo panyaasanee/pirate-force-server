@@ -1491,6 +1491,24 @@ detail: `pf_bridge/rounds/GM_20260828_1035_log-permission-fix-plus-capture-dir-r
 
 ## Round `hs9m2r`: the GM button is dead -- take the chat box instead
 
+> **CORRECTION (round `fo2lgh`, from RE-126 RESULT 2026-08-28T18:09+07:00).**
+> The heading's *observation* stands: two attended rounds clicked `BT_GM` and
+> the client stayed silent. The *explanation* this lane was carrying does not.
+> RE-126 asked whether the rendered button and the control the handler
+> registers are different objects, and the answer is **no, they are the same
+> object** -- the binder writes the `BT_GM` lookup result to `this+0x48` at
+> `0x0053B0CB`, and the same vtable's dispatcher (`0x00F21FA8+0x28`) compares
+> `event.source` against that very field at `0x0053BCEF` before calling
+> `0x0053B9B0` with the same `this`. A field/data-flow crosswalk, not a
+> name-or-id coincidence. ~~So the button may simply not be wired to its
+> handler.~~ It is wired. Why the click produces nothing is now an OPEN
+> question about something later in the chain (connection context, the query
+> gate, the current-UI object/key, or a create path) that RE-126 explicitly
+> declined to fold into its identity objective. This lane is not chasing it:
+> the chat door (`0xAC52`) makes it unnecessary, and RE-126's own closing
+> warning is that the chat door is **not** an alternate entry into
+> `GMUI_BASIC` and must never be cited as evidence that the UI path works.
+
 Round-lock check: no open `[LANE-GM]` PR in either repo (`pf_bridge#301` was
 open but is `[LANE-E]`, not this lane's lock -- untouched). Previous round's
 PRs both confirmed `merged_at` non-null on `main` (`pirate-force-server#195`,
@@ -1950,3 +1968,124 @@ nonclaim ของรอบ: **[ไม่อ้าง]** ว่ารอบน�
 ก็หมดไปกับการกู้ของ · **แก้: `OneOfTwoWiringTests`** อ่าน `runtime.py` จริงแล้วปฏิเสธสถานะที่มี
 ทั้งสองจุดพร้อมกัน (และปฏิเสธสถานะที่ไม่มีเลยด้วย) — พิสูจน์ด้วย mutation ทั้งสองทิศ
 เป็นสิ่งเดียวในรอบนี้ที่ **ทำ** แทนที่จะ **รายงาน**
+
+## Round `fo2lgh`: RE-129 answered, and the switch stays off anyway
+
+Round-lock check: no open `[LANE-GM]` PR in either repo at 22:16 +07:00
+(`list_pull_requests state=open` on both -- both empty). Previous round's PRs
+both `merged_at` non-null: `pirate-force-server#204` merged
+2026-08-28T14:31:27Z, `pf_bridge#316` merged 14:32:39Z. Nothing to recover.
+
+Mailbox, four items consumed (ADDENDUM v2 section B): `RE-126 RESULT`,
+`RE-129 RESULT`, `COO-DECISION` on position ownership, and `CHIEF-REPLY` to
+`CORE-REQUEST-GM-029`.
+
+### The one thing that would have been wrong to do
+
+RE-129 came back DONE/PASS at 20:09 +07:00 with the byte this lane had been
+blocked on since 26 Aug: the `ForcePos` (`0x0E80`) vital version is **0**,
+written as a literal by the prototype constructor (`xor ecx,ecx` then
+`mov byte ptr [eax+0x10],cl` at `0x005E5186`) and compared by the generic
+reader with exact equality at `0x005F3EFC` -- the same method RE-105 used for
+`0x5A19`. `TeleportVital` is **4** (`mov byte ptr [esi+0x10],4` at
+`0x005E5425`), which makes four measured values and still no default:
+`0x5A19` -> 0, `ForcePos` -> 0, `SelectActor` -> 10, `TeleportVital` -> 4.
+
+The obvious move was to set `FORCE_POS_VITAL_VERSION_CONFIRMED = 0` and let
+`/warp` send. **This round did not do that, and no future round may, until a
+precondition that has nothing to do with RE-129 is met on `main`.**
+
+COO-DECISION 21:30 +07:00 answered this lane's own ASK-COO of 19:05 (who owns
+a character's position after a GM warp) and ruled: the owner is the position
+the **client confirmed**; the server must **never** write a position it did
+not observe; the confirming event is the first `TargetPos` after the frame.
+Then, verbatim, a hard lock: do not change that constant from `None` until
+the confirmed write point is on `main` -- *even though RE-129 already
+answered* -- and `GT-128`'s third precondition stays.
+
+RE-129 independently made that caution concrete rather than theoretical: the
+handler the client has **registered** for `ForcePos` is the complete body
+`[0x00710440,0x00710445)` = `mov al,1; ret 4`. It reads no payload and writes
+no position. A version-correct frame is necessary, not sufficient, and this
+lane now has two independent reasons not to send one yet.
+
+### What this round shipped
+
+1. `gm/teleport_wire.py` -- the constant's comment block rewritten: the old
+   reasoning kept under a `SUPERSEDED` marker (history is struck, not
+   deleted), the new lock stated with its source, and the release sequence
+   written down as three steps in order (chief's write point on `main`, COO
+   lifts the lock, *then* the constant). Two new names record RE-129's
+   measurement without acting on it: `FORCE_POS_VITAL_VERSION_PROVEN_BY_RE129
+   = 0`, `TELEPORT_VITAL_VERSION_PROVEN_BY_RE129 = 4`.
+2. `tests/test_gm_force_pos_version_lock.py` (new, 5 tests) -- **the lock is
+   enforced, not described.** If the constant is ever non-`None` while
+   `runtime.py` carries no `GM_WARP_POSITION_CONFIRMED` write point, the
+   suite goes red and the failure message names the precondition. It also
+   pins both recorded values against the result letter, proves they are two
+   different measurements, greps every tracked lane source to keep the
+   records inert (a record is not a switch -- using one to gate a send would
+   route around the locked line without changing it), and refuses a default
+   `vital_version` on any ForcePos/Teleport frame builder, since a default is
+   a guess with a polite name. Only one direction is enforced: landing the
+   write point does **not** force the constant on. Lifting the lock is COO's
+   call, and a red inside chief's pull request for a lane he does not own is
+   a red he cannot fix.
+   Mutation-checked in all four directions: flipping the switch, mis-recording
+   the teleport value, defaulting a builder's version, and naming a record in
+   another lane file each turn the suite red; reverting each restores green.
+3. `gm/chat_command_action.py` -- the position-ownership section is no longer
+   an open question. The ruling is written in as this module's contract, with
+   the original question kept below it unedited, and one sentence that exists
+   to stop a well-meaning future round: **this module's behaviour is already
+   correct and must not be "fixed"** by adding a `foundation.checkpoint` call
+   here. That is the one option COO struck out. The gap is in `runtime.py`,
+   which is not this lane's zone.
+4. `docs/GM_LANE.md` -- the `hs9m2r` heading corrected from RE-126 (above):
+   the button *is* bound to its handler; only the silence is still a fact.
+
+### Sent to chief
+
+`CORE-REQUEST-GM-030` -- the confirmed-position write point COO ordered, one
+letter for one point: on the first `TargetPos` after a GM warp, checkpoint the
+observed position and print `GM_WARP_POSITION_CONFIRMED`. The token is a
+literal in the test above, so the two sides cannot drift apart silently. COO's
+deadline for the letter is 2026-08-29 09:00 +07:00; it went out tonight.
+
+Also answered chief's two asks from his 21:43 reply: `#204` **is** merged
+(his clone was at `cfb016c`, before the 21:31 merge), so
+`gm/chat_command_action.py` is on `main` now and `GM-029` is unblocked; and
+the signature on `main` is
+`make_gm_chat_command_action(session, payload, legacy, *, config_path=None,
+log_path=None) -> tuple[str, bytes, bytes, float] | None` -- the three
+positional parameters and the 4-tuple-or-`None` return are exactly as the
+ticket wrote them, the two keyword-only parameters are optional and exist for
+tests.
+
+### Tests
+
+`pytest -k "gm or lane_hook"`: **400 passed, 4 skipped, 86 subtests** --
+green(cloud sanity), not an Actions run and not the bridge's full gate.
+`python -m compileall src tests` = 0.
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้ (round `fo2lgh`)
+
+เมื่อวานคำถาม "ถ้า RE-129 ตอบแล้วเปิดใช้ `/warp` ได้เลยไหม" ไม่มีคำตอบที่ผูกกับอะไรเลย --
+มีแต่ประโยคในจดหมาย วันนี้ RE-129 **ตอบแล้ว** (version = 0) และผู้เทสได้ของสองอย่าง:
+(1) คำตอบว่า **ยังไม่เปิด** พร้อมเหตุผลที่วัดได้ทั้งสองชั้น -- คำตัดสิน COO เรื่องเจ้าของตำแหน่ง
+และ handler ของ client ที่เป็น `mov al,1; ret 4` อ่าน payload ไม่เลย
+(2) เทสที่**บังคับ**คำตอบนั้น: ถ้ารอบไหนเผลอเปิดสวิตช์ก่อนจุดเขียนแบบยืนยันจะลง `main`
+ชุดเทสแดงทันทีพร้อมข้อความที่บอกว่าขาดอะไร ⇒ `GT-128` จะไม่ถูกบูตในสภาพที่
+client ยืนจุดใหม่แต่ DB จำจุดเก่า (aggro / ระยะเก็บของ / จุด logout ผิดตามทั้งชุด)
+
+### nonclaims (round `fo2lgh`)
+
+1. [ไม่อ้าง] ว่ารอบนี้ทำให้ `/warp` ส่งไบต์ได้ -- ตรงกันข้าม รอบนี้คือรอบที่**ยืนยันว่ายังไม่ส่ง**
+   และเขียนด่านที่ทำให้เปิดเองไม่ได้
+2. [ไม่อ้าง] ว่า version = 0 แปลว่า client จะขยับ -- RE-129 nonclaim 3 พูดตรงกันข้าม
+   (handler ที่จดทะเบียนเป็น no-op) และเป็นข้อที่ `GT-128` เท่านั้นตัดสินได้
+3. [ไม่อ้าง] ว่าชื่อแกน x/y/z ของ `ForcePosBody` ถูก -- RE-129 T2 ปิดเฉพาะ offset
+   (`+0x14/+0x18/+0x1C`) และให้ bounded negative กับชื่อ [สมมติของสาย GM - รอ RE]
+4. [ไม่อ้าง] ว่าปุ่ม `BT_GM` ใช้การได้ -- RE-126 พิสูจน์แค่ว่า binding ถูกตัว ไม่ได้อธิบายความเงียบ
+5. **GM nonclaim:** ทุกอย่างในสายนี้เป็นเครื่องมือเพื่อไปให้ถึงสภาพที่จะเทส
+   **ไม่ใช่**หลักฐานว่าฟีเจอร์ใดทำงาน หรือว่า milestone ใดผ่าน
