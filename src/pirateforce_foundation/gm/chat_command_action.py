@@ -210,7 +210,8 @@ import sys
 from . import say_wire, teleport_wire
 from .chat_command import handle_local_talk_chat
 from .say_wire import make_say_broadcast_frame
-from .warp_executor import make_warp_force_pos_frame
+from .warp_executor import make_warp_force_pos_frame_with_target
+from .warp_target_record import current_character_id, record_warp_target
 
 # The action label the serve loop logs for a real GM warp.  ASCII, screaming
 # snake case, same convention as every other label in runtime.py's action
@@ -296,6 +297,12 @@ EVENT_WARP_WITHHELD_NO_VERSION = (
     "gm_chat_action_warp_withheld_no_confirmed_force_pos_vital_version_re129_open"
 )
 EVENT_WARP_NO_POSITION = "gm_chat_action_warp_no_current_position"
+# The warp went out but its destination could not be parked for the position
+# reader (a session that refuses attributes).  NOT a refusal -- the frame is
+# real -- so it is deliberately outside `EVENT_WARP_REFUSED_PREFIX`, whose
+# contract is "exception type names only" and whose consumers read it as
+# "nothing was sent".
+EVENT_WARP_TARGET_NOT_RECORDED = "gm_chat_action_warp_target_not_recorded"
 EVENT_WARP_REFUSED_PREFIX = "gm_chat_action_warp_refused_"
 EVENT_UNEXPECTED_PREFIX = "gm_chat_action_unexpected_"
 EVENT_SAY_WITHHELD_NO_VERSION = (
@@ -342,10 +349,16 @@ def make_gm_chat_command_action(
     """Authorize + audit one chat line; return one outbound action, or None.
 
     `session` is `runtime.py`'s session object (`self` at the call site).
-    Only two attributes are read: `.token` (the authenticated login name --
-    the identity, never read from `payload`) and `.events` (diagnostics), plus
-    `.foundation.selected.position` for the warp case, which is the
-    connection's own current scene/elevation.
+    The full surface this module touches, which chief's call site has to
+    provide (pinned by `SessionSurfaceTests`, not by this sentence):
+    READS `.token` (the authenticated login name -- the identity, never read
+    from `payload`), `.events` (diagnostics), and for the warp case
+    `.foundation.selected.position` (the connection's own current
+    scene/elevation) and `.foundation.selected.id` (which character the warp
+    was for).  WRITES `.gm_last_warp_target` on an accepted warp only --
+    `warp_target_record`'s parked destination, for `runtime.py` to compare a
+    later position row against; a session that cannot hold it still gets its
+    warp.
 
     `legacy` is the loaded `pf_login_game_server_v141` module, the same seam
     `state_wire`/`teleport_wire` already take from their wiring caller rather
@@ -446,7 +459,7 @@ def _warp_action(
         return None
 
     try:
-        pc, frame = make_warp_force_pos_frame(
+        pc, frame, target = make_warp_force_pos_frame_with_target(
             legacy, version, command, position.scene_id, position.z
         )
     except Exception as error:  # noqa: BLE001 - includes WarpExecutorError
@@ -456,6 +469,25 @@ def _warp_action(
         # above -- a WarpExecutorError message embeds the typed arguments.
         _note(session, f"{EVENT_WARP_REFUSED_PREFIX}{type(error).__name__}")
         return None
+
+    # Park the destination for the reader of the NEXT position report.  After
+    # the frame was built, never before: a refusal above leaves no bytes on
+    # the wire, so it must leave no target either -- a parked target that no
+    # frame corresponds to would let chief's confirmation token measure a
+    # position row against a warp that never went out.
+    #
+    # Nothing is claimed by the parking itself, and no event is emitted for
+    # it: `EVENT_ACCEPTED_PREFIX` above already names the accepted command
+    # once, and a second line per warp saying only "the module remembered
+    # where it sent you" is console noise that reads, wrongly, like an extra
+    # step succeeding.  The consumer is `runtime.py`; the round's
+    # CORE-REQUEST is what asks for it to be read.
+    if not record_warp_target(session, target, current_character_id(session)):
+        # A session that cannot hold the record loses the comparison, not the
+        # warp: the frame is real and is still returned.  Named so a missing
+        # confirmation line has a reason in the trail instead of looking like
+        # the warp itself failing.
+        _note(session, EVENT_WARP_TARGET_NOT_RECORDED)
 
     return (WARP_ACTION_LABEL, pc, frame, 0.0)
 
@@ -484,7 +516,8 @@ def _say_action(
 
     !! WHAT THAT DOES *NOT* MEAN.  It does not make `say` two blockers away
     from a screen.  There is a third, and it is not this lane's:
-    `runtime.py:4765-4774`, at the very 0xAC52 branch CORE-REQUEST-GM-029
+    `runtime.py`'s `IDENTITY, STATED HONESTLY` comment (4886-4896 at this
+    commit), at the very 0xAC52 branch CORE-REQUEST-GM-029
     would convert, records that `self.token` is the process-wide `--token`
     CLI value, NOT a per-connection authenticated login, and says the
     question "has to be answered before any executor is wired onto this

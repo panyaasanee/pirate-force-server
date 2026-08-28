@@ -107,11 +107,21 @@ RECORD_HOME = "src/pirateforce_foundation/gm/teleport_wire.py"
 
 # Frame builders whose second argument is the version byte. A call to any of
 # them is how a ForcePos or Teleport frame gets composed in this project.
+# The `_with_body`/`_with_target` pair are the same two builders returning one
+# extra value (round `z6gu2n`, so `runtime.py` can compare a durable row
+# against where the warp actually sent the connection).  They are listed here
+# for the reason the tripwire below exists: when `make_warp_force_pos_frame`
+# was rewritten to delegate to `make_warp_force_pos_frame_with_target`, the
+# scan's only remaining shipped `make_force_pos_frame` call site moved -- so a
+# literal version passed to the NEW name would have walked straight through
+# COO's lock while every test here stayed green.
 VERSION_TAKING_BUILDERS = {
     "make_force_pos_frame": 1,
+    "make_force_pos_frame_with_body": 1,
     "make_cwarp_result_frame": 1,
     "make_teleport_vital_frame": 1,
     "make_warp_force_pos_frame": 1,
+    "make_warp_force_pos_frame_with_target": 1,
 }
 
 
@@ -264,16 +274,50 @@ class NoLiteralVersionReachesAFrameTests(unittest.TestCase):
         self.assertGreater(len(sources), 20, sources)
         self.assertIn(RECORD_HOME, [_rel(p) for p in sources])
         seen = set()
+        cross_module = set()
         for path in sources:
             tree = _parse(path)
             if tree is None:
                 continue
+            defined_here = {
+                node.name
+                for node in ast.walk(tree)
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            }
             for node in ast.walk(tree):
                 if isinstance(node, ast.Call):
                     name = _called_name(node)
                     if name in VERSION_TAKING_BUILDERS:
                         seen.add(name)
-        self.assertIn("make_force_pos_frame", seen, sorted(seen))
+                        if name not in defined_here:
+                            # A call from a module that does not define the
+                            # builder: a real composition site, not a
+                            # back-compat wrapper delegating to its neighbour.
+                            cross_module.add((_rel(path), name))
+        self.assertIn("make_force_pos_frame_with_body", seen, sorted(seen))
+        self.assertIn("make_warp_force_pos_frame_with_target", seen, sorted(seen))
+        # !! THE ASSERTION ABOVE IS NOT ENOUGH ON ITS OWN, and this round found
+        # that out the expensive way.  When `make_warp_force_pos_frame` was
+        # rewritten to delegate, both names became reachable from inside their
+        # OWN defining modules -- so pf-adversary deleted the only production
+        # ForcePos composition site in `gm/chat_command_action.py`, replaced it
+        # with `raise RuntimeError`, and this file still went green: the scan
+        # was satisfied by two wrappers calling their neighbours.  A tripwire
+        # that a delegation can satisfy is not a tripwire.  What the lock needs
+        # to know is that a REAL caller still composes ForcePos frames, so the
+        # check below counts only calls made from a module that does not define
+        # the builder it calls.
+        self.assertIn(
+            ("src/pirateforce_foundation/gm/chat_command_action.py",
+             "make_warp_force_pos_frame_with_target"),
+            cross_module,
+            "No shipped module OUTSIDE the composers themselves builds a "
+            "ForcePos frame any more, so the literal-version scan above is a "
+            "green loop over wrappers. Either the production call site moved "
+            "(point this assertion at the new one) or it is gone (then COO's "
+            "lock is guarding nothing and that is the finding). Call sites "
+            "seen: %s" % sorted(cross_module),
+        )
 
 
 class RecordsAreInertTests(unittest.TestCase):

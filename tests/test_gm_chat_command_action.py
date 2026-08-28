@@ -45,6 +45,7 @@ from pirateforce_foundation.gm import chat_command  # noqa: E402
 from pirateforce_foundation.gm import chat_command_action  # noqa: E402
 from pirateforce_foundation.gm import dispatch as gm_dispatch  # noqa: E402
 from pirateforce_foundation.gm import teleport_wire  # noqa: E402
+from pirateforce_foundation.gm import warp_target_record  # noqa: E402
 from pirateforce_foundation.gm.commands import GmCommand  # noqa: E402
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 
@@ -85,11 +86,19 @@ class FakeFoundation:
 
 
 class FakeSession:
-    """The three attributes the module is allowed to read, and nothing else.
+    """The session surface this module is allowed to touch, and nothing else.
 
     Deliberately not a runtime session: if this module ever starts reaching
-    for a fourth attribute, these tests must fail rather than quietly work
-    because a real session happened to have it.
+    for something outside the surface, these tests must fail rather than
+    quietly work because a real session happened to have it.
+
+    !! THE SURFACE GREW IN ROUND `z6gu2n` AND THIS DOCSTRING IS THE RECORD OF
+    IT (pf-adversary caught the first draft leaving the old wording in place
+    while the module quietly read a fourth attribute).  Reads: `.token`,
+    `.events`, `.foundation.selected.position`, and now
+    `.foundation.selected.id` (`warp_target_record.current_character_id`).
+    Writes: `.gm_last_warp_target` on an accepted warp.  Pinned by
+    `SessionSurfaceTests` below, which fails on any name outside that list.
     """
 
     def __init__(self, token="GM_ONE", position=None):
@@ -281,6 +290,200 @@ class WarpActionTests(_Case):
         )
 
 
+class WarpTargetRecordingTests(_Case):
+    """The destination is parked for the position reader -- and only then.
+
+    `tests/test_gm_warp_target_record.py` proves the record's own behaviour.
+    What is proved HERE is the wiring: that an accepted warp parks the frame's
+    own destination, that everything which sends no bytes parks nothing, and
+    that a session which cannot hold a record still gets its warp.
+    """
+
+    def session_with_character(self, character_id=41, scene_id=2, z=30.0):
+        session = FakeSession(position=FakePosition(scene_id=scene_id, z=z))
+        session.foundation.selected.id = character_id
+        return session
+
+    def test_an_accepted_warp_parks_the_frames_own_destination(self):
+        session = self.session_with_character()
+        with self.open_the_version_gate():
+            action = self.act(session, "/warp 2 11865.7 6147")
+        self.assertIsNotNone(action)
+        record = warp_target_record.take_warp_target(session, 41)
+        self.assertIsNotNone(record)
+        expected = struct.unpack("<f", struct.pack("<f", 11865.7))[0]
+        self.assertEqual(record.target.x, expected)
+        self.assertEqual(record.target.y, 6147.0)
+        self.assertEqual(record.target.z, 30.0)
+        self.assertEqual(record.target.scene_id, 2)
+        self.assertEqual(record.character_id, 41)
+
+    def test_the_parked_target_rebuilds_the_action_bytes_exactly(self):
+        # The property the comparison rests on, checked through the real call
+        # site rather than only in the record's own suite.
+        session = self.session_with_character()
+        with self.open_the_version_gate():
+            _label, _pc, frame, _delay = self.act(session, "/warp 2 100.5 200.25")
+        target = warp_target_record.take_warp_target(session, 41).target
+        _pc2, expected = teleport_wire.make_force_pos_frame(
+            self.legacy, UNPROVEN_TEST_VERSION, target.x, target.y, target.z
+        )
+        self.assertEqual(bytes(frame), bytes(expected))
+
+    def test_a_withheld_warp_parks_nothing(self):
+        # The shipped state today (RE-129 open): no bytes, so no destination
+        # for a later position row to be measured against.
+        session = self.session_with_character()
+        self.assertIsNone(self.act(session, "/warp 2 100 200"))
+        self.assertIsNone(warp_target_record.take_warp_target(session, 41))
+
+    def test_a_refused_warp_parks_nothing(self):
+        session = self.session_with_character()
+        with self.open_the_version_gate():
+            self.assertIsNone(self.act(session, "/warp 3 100 200"))
+        self.assertIsNone(warp_target_record.take_warp_target(session, 41))
+
+    def test_a_gm_with_no_selected_character_parks_nothing(self):
+        # The path most likely to regress: it refuses BEFORE the composer
+        # runs, so a future edit that moves the parking earlier would park a
+        # destination for a frame that was never built.
+        session = FakeSession(position=None)
+        with self.open_the_version_gate():
+            self.assertIsNone(self.act(session, "/warp 2 100 200"))
+        self.assertIsNone(warp_target_record.take_warp_target(session, None))
+
+    def test_an_unreadable_character_id_still_gets_its_warp(self):
+        # The id is read AFTER the frame exists.  A session whose id raises
+        # must cost the comparison, never the warp.
+        class Exploding:
+            def __init__(self, position):
+                self.position = position
+
+            @property
+            def id(self):
+                raise RuntimeError("boom")
+
+        session = FakeSession(position=FakePosition(scene_id=2, z=30.0))
+        session.foundation.selected = Exploding(FakePosition(scene_id=2, z=30.0))
+        with self.open_the_version_gate():
+            action = self.act(session, "/warp 2 100 200")
+        self.assertIsNotNone(action)
+        self.assertNotIn(
+            f"{chat_command_action.EVENT_UNEXPECTED_PREFIX}RuntimeError",
+            session.events,
+        )
+        self.assertIsNone(
+            warp_target_record.take_warp_target(
+                session, warp_target_record.UNREADABLE_CHARACTER_ID
+            )
+        )
+
+    def test_a_non_gm_parks_nothing(self):
+        session = self.session_with_character()
+        session.token = self.PLAYER_ACCOUNT
+        with self.open_the_version_gate():
+            self.assertIsNone(self.act(session, "/warp 2 100 200"))
+        self.assertIsNone(warp_target_record.take_warp_target(session, 41))
+
+    def test_a_say_parks_nothing_even_when_it_is_authorized(self):
+        session = self.session_with_character()
+        with self.open_the_version_gate():
+            self.act(session, "/say hello")
+        self.assertIsNone(warp_target_record.take_warp_target(session, 41))
+
+    def test_two_warps_before_a_report_park_only_the_second(self):
+        session = self.session_with_character()
+        with self.open_the_version_gate():
+            self.act(session, "/warp 2 100 200")
+            self.act(session, "/warp 2 300 400")
+        record = warp_target_record.take_warp_target(session, 41)
+        self.assertEqual((record.target.x, record.target.y), (300.0, 400.0))
+
+    def test_a_session_that_cannot_hold_a_record_still_gets_its_warp(self):
+        class Sealed:
+            __slots__ = ("token", "events", "foundation")
+
+            def __init__(self, position):
+                self.token = "GM_ONE"
+                self.events = []
+                self.foundation = FakeFoundation(FakeSelected(position))
+
+        session = Sealed(FakePosition(scene_id=2, z=30.0))
+        with self.open_the_version_gate():
+            action = self.act(session, "/warp 2 100 200")
+        self.assertIsNotNone(action)
+        self.assertIn(
+            chat_command_action.EVENT_WARP_TARGET_NOT_RECORDED, session.events
+        )
+
+    def test_the_not_recorded_event_is_not_read_as_a_refusal(self):
+        # Consumers strip EVENT_WARP_REFUSED_PREFIX to recover an exception
+        # type name, and read that family as "nothing was sent".  A warp that
+        # DID send must never land in it.
+        self.assertFalse(
+            chat_command_action.EVENT_WARP_TARGET_NOT_RECORDED.startswith(
+                chat_command_action.EVENT_WARP_REFUSED_PREFIX
+            )
+        )
+
+
+class SessionSurfaceTests(_Case):
+    """What the module may read off a session, pinned by measurement.
+
+    The old guard was a sentence in `FakeSession`'s docstring, and round
+    `z6gu2n` walked straight past it: the module started reading
+    `.foundation.selected.id` and writing `.gm_last_warp_target`, and every
+    test stayed green because the fake happened to allow it.  A docstring is
+    not a guard; this is.
+    """
+
+    ALLOWED_ON_SESSION = {
+        "token",
+        "events",
+        "foundation",
+        "gm_last_warp_target",
+    }
+    ALLOWED_ON_SELECTED = {"position", "id"}
+
+    def test_the_module_touches_only_the_named_session_surface(self):
+        seen_session = set()
+        seen_selected = set()
+
+        class Watched:
+            def __init__(self, seen, **attributes):
+                object.__setattr__(self, "_seen", seen)
+                for name, value in attributes.items():
+                    object.__setattr__(self, name, value)
+
+            def __getattribute__(self, name):
+                if not name.startswith("_"):
+                    object.__getattribute__(self, "_seen").add(name)
+                return object.__getattribute__(self, name)
+
+            def __setattr__(self, name, value):
+                object.__getattribute__(self, "_seen").add(name)
+                object.__setattr__(self, name, value)
+
+        selected = Watched(
+            seen_selected, position=FakePosition(scene_id=2, z=30.0), id=41
+        )
+        session = Watched(
+            seen_session,
+            token=self.GM_ACCOUNT,
+            events=[],
+            foundation=FakeFoundation(selected),
+        )
+        with self.open_the_version_gate():
+            action = self.act(session, "/warp 2 100 200")
+        self.assertIsNotNone(action)
+        self.assertLessEqual(seen_session, self.ALLOWED_ON_SESSION, seen_session)
+        self.assertLessEqual(seen_selected, self.ALLOWED_ON_SELECTED, seen_selected)
+        # And the surface is actually exercised, or the check above is a
+        # comparison against an empty set.
+        self.assertIn("gm_last_warp_target", seen_session)
+        self.assertIn("id", seen_selected)
+
+
 class PermissionTests(_Case):
     def test_a_non_gm_typing_the_working_command_gets_no_action(self):
         session = FakeSession(token=self.PLAYER_ACCOUNT,
@@ -404,7 +607,7 @@ class FailClosedTests(_Case):
         session = FakeSession(position=FakePosition(scene_id=2))
         with self.open_the_version_gate(), mock.patch.object(
             chat_command_action,
-            "make_warp_force_pos_frame",
+            "make_warp_force_pos_frame_with_target",
             side_effect=OverflowError("nope"),
         ):
             action = self.act(session, "/warp 2 1 2")
@@ -420,7 +623,7 @@ class FailClosedTests(_Case):
         session = FakeSession(position=FakePosition(scene_id=2))
         with self.open_the_version_gate(), mock.patch.object(
             chat_command_action,
-            "make_warp_force_pos_frame",
+            "make_warp_force_pos_frame_with_target",
             side_effect=ValueError("ทดสอบ secret"),
         ):
             self.act(session, "/warp 2 1 2")
@@ -483,6 +686,7 @@ class EventNameContractTests(_Case):
         "EVENT_BAD_PAYLOAD_PREFIX": "gm_chat_action_bad_payload_",
         "EVENT_WARP_NO_POSITION": "gm_chat_action_warp_no_current_position",
         "EVENT_WARP_REFUSED_PREFIX": "gm_chat_action_warp_refused_",
+        "EVENT_WARP_TARGET_NOT_RECORDED": "gm_chat_action_warp_target_not_recorded",
         "EVENT_UNEXPECTED_PREFIX": "gm_chat_action_unexpected_",
         "EVENT_WARP_WITHHELD_NO_VERSION": (
             "gm_chat_action_warp_withheld_no_confirmed_force_pos_vital_"

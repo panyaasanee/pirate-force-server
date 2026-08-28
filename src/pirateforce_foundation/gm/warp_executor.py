@@ -83,13 +83,41 @@ wire-builder in this package (see docs/GM_LANE.md, CORE-REQUEST-011).
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 
 from .commands import GmCommand
-from .teleport_wire import make_force_pos_frame
+from .teleport_wire import make_force_pos_frame_with_body
 
 
 class WarpExecutorError(ValueError):
     """A `warp` command cannot be executed via `ForcePos` as given."""
+
+
+@dataclass(frozen=True)
+class WarpTarget:
+    """Where one accepted `warp` actually sent the connection, in wire terms.
+
+    Every field is the value the ForcePos frame CARRIES, not the value the GM
+    typed: `x`/`y`/`z` are read back out of the built payload, so they are
+    IEEE binary32 (see `teleport_wire.make_force_pos_frame_with_body`), and
+    `scene_id` is the scene the frame is valid in -- which
+    `make_warp_force_pos_frame` has already proven equal to the connection's
+    current scene, because ForcePos carries no scene id and this module
+    refuses to cross scenes.
+
+    !! WHAT A `WarpTarget` IS EVIDENCE OF, AND IT IS ONE THING.  It says
+    "these bytes went out".  It is not evidence that the client moved: RE-129
+    measured the client's registered ForcePos handler as `mov al,1; ret 4`.
+    Comparing a later durable position row against this target is exactly how
+    a reader tells those two apart, which is why chief asked this lane to
+    expose it (`CHIEF-REPLY 20260828_2301`, appendix item 5) -- not so that a
+    match can be assumed.
+    """
+
+    scene_id: int
+    x: float
+    y: float
+    z: float
 
 
 def make_warp_force_pos_frame(
@@ -117,6 +145,32 @@ def make_warp_force_pos_frame(
     module inventing an elevation. Every numeric field (`scene_id`, `x`,
     `y`, `z`) is re-validated here regardless of whether `command` came from
     `parse_gm_command` -- see module docstring's pf-adversary note.
+    """
+    pc, frame, _target = make_warp_force_pos_frame_with_target(
+        legacy, vital_version, command, current_scene_id, z
+    )
+    return pc, frame
+
+
+def make_warp_force_pos_frame_with_target(
+    legacy,
+    vital_version: int,
+    command: GmCommand,
+    current_scene_id: int,
+    z: float,
+) -> tuple[bytes, bytes, WarpTarget]:
+    """`make_warp_force_pos_frame`, plus where those bytes send the connection.
+
+    Identical validation, identical refusals, identical bytes -- the function
+    above is this one with the target dropped.  It is written in this
+    direction on purpose: a second copy of the argument validation would be
+    free to disagree with the frame, and a target that disagrees with the
+    bytes is worse than no target at all, because a reader comparing a
+    durable row against it would blame the client for this module's drift.
+    The one validation pass also matters against the threat model this
+    module's docstring already carries -- a hand-built `GmCommand` whose
+    `args` elements have a `__float__` that returns a different number every
+    call would otherwise put one value on the wire and record another.
     """
     if command.name != "warp":
         raise WarpExecutorError(
@@ -158,7 +212,11 @@ def make_warp_force_pos_frame(
     x = _require_finite_float(raw_x, "x")
     y = _require_finite_float(raw_y, "y")
     z = _require_finite_float(z, "z")
-    return make_force_pos_frame(legacy, vital_version, x, y, z)
+    pc, frame, body = make_force_pos_frame_with_body(legacy, vital_version, x, y, z)
+    # `body`, not `(x, y, z)`: see WarpTarget's docstring -- the target has to
+    # be the wire's own binary32 values, or every later comparison inherits an
+    # encoding error that grows with the coordinate's magnitude.
+    return pc, frame, WarpTarget(scene_id, body.x, body.y, body.z)
 
 
 def _require_int(value, label: str) -> int:

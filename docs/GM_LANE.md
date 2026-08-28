@@ -2348,3 +2348,148 @@ on 2026-08-27) -- it will ask the owning lane for a version parameter.
 8. [ไม่อ้าง] ว่ารอบนี้ผ่าน pf-adversary ตั้งแต่ฉบับแรก -- **NOT APPROVED** 8 ข้อ แก้ครบก่อน push
 9. **GM nonclaim:** ทุกอย่างในสายนี้เป็นเครื่องมือเพื่อไปให้ถึงสภาพที่จะเทส
    **ไม่ใช่**หลักฐานว่าฟีเจอร์ใดทำงาน หรือว่า milestone ใดผ่าน
+
+---
+
+## Round `z6gu2n`: the destination comes out of the lane, and RE-132 is spent
+
+Two things happened between rounds, and they pull in opposite directions.
+
+**Chief wired GM-030 and then filed its limit himself.**  `runtime.py` now
+prints `GM_WARP_POSITION_CONFIRMED` when the first position report after a GM
+warp causes a real durable write (PR #212, merged; re-run here on main with
+`tests/test_gm_force_pos_version_lock.py` + `tests/test_gm_warp_position_
+confirmed.py` = 20 passed, which is the check chief asked this lane to make
+because his own clone predated the lane's lock file).  His appendix item 5
+says what the token cannot say: the action tuple `(label, pc, frame, delay)`
+carries no destination, so the token means "a row was written", never "the row
+is the point the GM asked for" -- and the destination only exists inside this
+lane.
+
+**RE-132 came back, and it did not unblock what people expected.**  The byte
+is `0` (client's own base constructor, `mov byte ptr [esi+0x10],al` at
+`0x00657CC9`, reached from 0x9F2C's prototype at `0x0065BCD0`), equal to the
+byte the codec already emits; and question 3 found the handler both vtables
+bind (`0x0065C850`) is not a `mov al,1; ret 4` -- it routes, reads the body
+wstring at `+0x18`, and calls a display sink.  That is two of the four
+release-day items in `say_wire.py` gone.  The gate is still `None`, because
+the remaining item is the one nothing static can touch: per-connection
+identity at `runtime.py:4765-4774`.
+
+### What shipped
+
+1. **`gm/warp_target_record.py` (new).**  Parks one `WarpTarget` on the
+   session an accepted warp was built for, and hands it back **once**.  On the
+   session and not in a module-level map: the record must die with the
+   connection and must never be readable from another one, and a map keyed by
+   anything coarser than the session would hand connection A's target to
+   connection B -- a second copy of the identity confusion this lane spends
+   its rounds refusing to add to.  Also `distance_to_target` /
+   `position_matches_target`, where every not-comparable case (another scene,
+   a missing axis, NaN, Inf, an overflowing square measured live at 1e200) is
+   `None`/False rather than a number that reads as "close".
+2. **`gm/warp_executor.py` + `gm/teleport_wire.py` -- the target is the wire.**
+   `make_warp_force_pos_frame_with_target` validates ONCE and the old
+   `make_warp_force_pos_frame` delegates to it, so the recorded target and the
+   frame bytes cannot disagree even for a hand-built `GmCommand` whose
+   `__float__` returns a new number every call (pinned by a test that counts
+   the reads).  The coordinates are read back out of the payload via
+   `make_force_pos_frame_with_body`, so they are the binary32 values the
+   client receives -- `11865.7` typed is `11865.6997...` on the wire, and a
+   comparison against the typed value would charge that gap to the client at
+   every coordinate in the tens of thousands.
+3. **`gm/chat_command_action.py`.**  The target is parked after the frame is
+   built and never before: the version gate shut, a cross-scene refusal, a
+   non-GM, a `/say`, a GM with no selected character -- five paths that send
+   no bytes, one test each.  (`_make_action` has more no-byte paths than
+   that -- bad session, bad payload, an unwired command; these five are the
+   ones a future edit could plausibly move the parking above.)  A session that
+   cannot hold the record still gets its warp and gets
+   `gm_chat_action_warp_target_not_recorded`, deliberately outside the
+   refused-prefix family whose consumers read it as "nothing was sent".
+4. **`gm/say_wire.py` -- RE-132 pinned, gate untouched.**
+   `GM_GLOBAL_MESSAGE_VITAL_VERSION_RE132_STATIC = 0` plus the image SHA-256
+   and three VAs, kept SEPARATE from the send gate because they answer
+   different questions ("what byte?" vs "may we send?").  Collapsing them
+   would make a lane blocked on identity look like a lane waiting for RE work
+   that is already paid for.  A test pins that the send path never reads the
+   static one.
+5. **`tests/test_gm_force_pos_version_lock.py`.**  `VERSION_TAKING_BUILDERS`
+   gained both new builder names.  This was not tidiness: the delegation moved
+   the last shipped `make_force_pos_frame` call site, and the lock's own
+   tripwire (`test_the_scan_actually_sees_the_calls_it_claims_to_check`) went
+   red -- correctly -- because a literal version byte passed to the new name
+   would have walked straight through COO's lock with every other test green.
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้ (round `z6gu2n`)
+
+เมื่อวาน: warp แล้วเห็นบรรทัด `GM_WARP_POSITION_CONFIRMED` ซึ่งบอกได้แค่ว่า "มีการเขียนแถวเกิดขึ้น"
+วันนี้: ปลายทางของ warp ใบนั้นถูกเก็บไว้ให้เทียบได้แล้ว หนึ่งเฟรม หนึ่งตัวละคร หยิบได้ครั้งเดียว
+พร้อมตัวเทียบที่ตอบ `None` แทนที่จะเดาเมื่อเทียบไม่ได้ ⇒ วันที่ `CORE-REQUEST-GM-031` ต่อสาย
+ผู้เทสจะอ่านออกจากคอนโซลได้ว่า client "ขยับไปผิดที่" หรือ "ไม่ขยับเลย" ซึ่งวันนี้สองอย่างนี้หน้าตาเหมือนกัน
+
+### nonclaims (round `z6gu2n`)
+
+1. [ไม่อ้าง] ว่ามี byte ใดออกสายในรอบนี้ — `FORCE_POS_VITAL_VERSION_CONFIRMED` ยัง `None`
+   (ล็อกของ COO) และ `GM_GLOBAL_MESSAGE_VITAL_VERSION_CONFIRMED` ยัง `None` ⇒ ทั้งสองเส้นยังหลับ
+2. [ไม่อ้าง] ว่า RE-132 พิสูจน์ว่าข้อความ `/say` ขึ้นจอ — static render path เป็นชั้น client-binary
+   ต่ำกว่า client-observable หนึ่งขั้น และใบผลเองเขียน nonclaim ข้อนี้ไว้ ต้อง `GT-016`/`GT-133`
+3. [ไม่อ้าง] ว่า `WARP_TARGET_MATCH_TOLERANCE = 1.0` มาจากการวัด — [สมมติของสาย GM - รอ COO ยืนยัน]
+   สิ่งที่พิสูจน์แล้วมีข้อเดียว: มันใหญ่กว่าความคลาด binary32 ที่พิกัดของเจ้าของราวสามอันดับ
+4. [ไม่อ้าง] ว่าเทส allowlist ของรอบนี้พิสูจน์สิทธิ์ระดับเซิร์ฟเวอร์ — ระดับโมดูลเท่านั้น
+   ตราบใดที่ `runtime.py:4765-4774` ยังใช้ `--token` ของโปรเซสร่วมกันทุก connection
+5. เขียว(cloud sanity): สวีตเต็ม 4035 passed 327 skipped · gate ตัวจริงตัดสินบน Actions
+
+### pf-adversary รอบ `z6gu2n`: NOT APPROVED รอบแรก — 10 ข้อ แก้ก่อน commit ทั้งหมด
+
+The findings that changed the design, not just the wording:
+
+1. **[fatal] The COO lock's own tripwire became self-satisfying.**  Making
+   `make_warp_force_pos_frame` delegate meant both scanned builder names were
+   called from inside their own defining modules, so adversary deleted the
+   ONLY production ForcePos composition site
+   (`chat_command_action.py`, replaced with `raise RuntimeError`) and
+   `test_gm_force_pos_version_lock.py` stayed green: seven passed with nothing
+   in the repo able to compose a ForcePos frame.  A tripwire a delegation can
+   satisfy is not a tripwire.  Fixed by counting only CROSS-MODULE calls (a
+   call from a file that does not define the builder) and asserting the real
+   call site by name; re-run of the same mutant now fails, as it must.
+2. **[fatal] `current_character_id` returned `None` for two different things**
+   -- "no character selected" and "id unreadable" -- and `None == None`, so
+   two connections that both failed to read an id matched each other and one
+   GM's destination could be handed to another character.  Now
+   `UNREADABLE_CHARACTER_ID`, a sentinel `take_warp_target_with_reason`
+   REFUSES rather than compares.
+3. **[fatal] `distance_to_target` raised the exception it guards.**
+   `isinstance(x, int)` admits arbitrary precision and `float(10**400)` raises
+   `OverflowError` one line above the `except OverflowError`.  Reproduced live;
+   both conversions are guarded now.
+4. **[fatal] `current_character_id` was unguarded on the dispatch path** and
+   ran AFTER the frame existed, so a `selected.id` property that raises threw
+   away a warp that was already built and blamed this module on the event
+   trail.  It never raises now, and a test drives that through the real path.
+5. **`runtime.py:4765-4774` had drifted** to damage dispatch; the identity text
+   is at 4886-4896.  Every citation in this lane now names the anchor
+   (`IDENTITY, STATED HONESTLY`), and a test greps `runtime.py` for it, so the
+   load-bearing citation cannot rot silently again.
+6. **The say_wire write-up overclaimed against its own text** -- "the reason it
+   stays None is now exactly ONE item" while release-day item 0 names two and
+   the screen is a third.  RE-132 removed the cheapest way (B) could fail (a
+   handler that draws nothing); it did not satisfy (B).  Rewritten to count
+   three.
+7. Smaller, all fixed: `record_warp_target` returning True for a session that
+   SWALLOWS the write (now reads back); consume-once broken when the clear
+   fails (now refuses with `REASON_NOT_CLEARED`); `tolerance=inf` turning the
+   comparison into `return True`; a "five paths, five tests" count that was
+   four; the four `RE132_*` pins that nothing read (now pinned by a test); and
+   `FakeSession`'s "three attributes and nothing else" docstring, which this
+   round's own edit walked past -- replaced by `SessionSurfaceTests`, which
+   measures every attribute name the module touches.
+
+What adversary tried and could not break, which is the other half of the
+deliverable: 35,343 random float64 triples through encode/decode with zero
+round-trip mismatches and zero new refusals; the send gate (a mutant making
+`_say_action` read the static pin is caught by two tests); a literal version
+byte passed to either new builder name; the target-as-float64 mutant; removing
+the character guard; and any cross-connection leak -- the module has no
+module-level mutable state at all.

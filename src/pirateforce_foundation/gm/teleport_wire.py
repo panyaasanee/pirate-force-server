@@ -240,11 +240,38 @@ def make_force_pos_payload(legacy, x: float, y: float, z: float) -> bytes:
     return legacy.f32tag(x) + legacy.f32tag(y) + legacy.f32tag(z)
 
 
+def make_force_pos_frame_with_body(
+    legacy, vital_version: int, x: float, y: float, z: float
+) -> tuple[bytes, bytes, ForcePosBody]:
+    """The frame, plus the vec3 READ BACK OUT of the payload just built.
+
+    Why a decode instead of returning the three arguments unchanged: the
+    caller wants to compare a later durable position row against "where the
+    warp actually sent the connection", and the arguments are NOT that.
+    ``legacy.f32tag`` encodes each coordinate as IEEE binary32, so a Python
+    float (binary64) argument of 11865.7 leaves this function as
+    11865.6997070... on the wire.  A comparison against the argument would
+    charge that rounding to the client, and at coordinates in the tens of
+    thousands the gap grows with magnitude rather than staying at a fixed
+    epsilon.  Decoding the payload makes the returned body the same bytes the
+    connection is about to receive, by construction -- it cannot drift from
+    the frame later even if the tag encoding changes, because there is only
+    one encode and the decode reads its output.
+
+    ``make_force_pos_frame`` below is this function with the body dropped, so
+    both callers are guaranteed to emit identical bytes for identical
+    arguments; do not re-implement either in terms of a second encode.
+    """
+    payload = make_force_pos_payload(legacy, x, y, z)
+    pc, frame = legacy.make_runtime_vital(FORCE_POS_VITAL_ID, vital_version, payload)
+    return pc, frame, decode_force_pos(payload)
+
+
 def make_force_pos_frame(
     legacy, vital_version: int, x: float, y: float, z: float
 ) -> tuple[bytes, bytes]:
-    payload = make_force_pos_payload(legacy, x, y, z)
-    return legacy.make_runtime_vital(FORCE_POS_VITAL_ID, vital_version, payload)
+    pc, frame, _body = make_force_pos_frame_with_body(legacy, vital_version, x, y, z)
+    return pc, frame
 
 
 def decode_force_pos(raw: bytes) -> ForcePosBody:
