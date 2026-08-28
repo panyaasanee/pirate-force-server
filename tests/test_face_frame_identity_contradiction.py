@@ -135,25 +135,16 @@ class FaceFrameContradictsTheCensusTests(unittest.TestCase):
             "identity, and strike the CORE-REQUEST letter as done",
         )
 
-    def test_the_fixed_face_frame_ships_the_census_identity(self):
-        """The acceptance test for the fix, over the same bytes.
-
-        It fails today on purpose-free grounds: the identity the census
-        already sends is simply not in this frame.  It is expected to pass
-        once the call site resolves, and it is skipped rather than failed
-        while the defect stands, so the suite stays green without pretending
-        the wire is right.
-        """
-        fixed = self._attr(
-            COLUMBUS_MOBS_N_ID, "M055_000_000_N", name="Columbus",
-        )
-        if fixed not in self.frame:
-            self.skipTest(
-                "face-frame fix not landed yet - the frame still ships the "
-                "stale identity (see the sibling test, which is the one "
-                "that goes red when it lands)"
-            )
-        self.assertIn(fixed, self.frame)
+    # THERE IS DELIBERATELY NO SECOND TEST HERE ASSERTING THE FIXED FRAME.
+    # An earlier version of this file carried one that called skipTest while
+    # the defect stands.  That is an UNPINNED SKIP, and this repository pins
+    # every skip by module in docs/PYTEST_SKIP_PINS.json precisely so a real
+    # test cannot drift into the skip pile unnoticed - the Windows gate's
+    # skip_census step went red on it and the automerge workflow closed the
+    # pull request.  A skipped check is not a passed check, so the check that
+    # matters lives in the method above, which FAILS when the fix lands and
+    # says so in its message.  The identity the fixed frame must carry is
+    # asserted, without any frame, by the method below.
 
     def test_the_census_side_resolves_the_same_row_to_columbus(self):
         """The half of the contradiction that is already correct.
