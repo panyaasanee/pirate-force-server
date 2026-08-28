@@ -53,10 +53,14 @@ class PlayerNameProjectionTests(unittest.TestCase):
         self.assertEqual(character.actor_wire.count(self.legacy.wstr_tag(character.name)), 1)
 
         name_wire = self.legacy.wstr_tag(character.name)
-        # CORE-REQUEST-022: the real login path (select_and_start) now goes
+        # CORE-REQUEST-023: the real login path (select_and_start) now goes
         # through make_actor_attr_with_name_and_class, which adds level
-        # (BasicAttr +0x5E, bit 0x0002) and class_id (ActorAttr +0x8C, bit
-        # 0x00000001) on top of the proven name/HP/scene/cash baseline.
+        # (BasicAttr +0x5E, bit 0x0002), movement speed (+0x54, bit 0x0040)
+        # and class_id (ActorAttr +0x8C, bit 0x00000001) on top of the
+        # proven name/HP/scene/cash baseline (CORE-REQUEST-023 probe-base-1
+        # widening; see player_wire.py's own module docstring). MP current/
+        # max and STR/CON/DEX/INT/PER are deliberately NOT emitted -- no
+        # committed source names a value for them (same docstring).
         actor = make_actor_attr_with_name_and_class(
             self.legacy, character.identity_lo, character.identity_hi,
             character.position.scene_id, character.position.scene_seq,
@@ -66,10 +70,11 @@ class PlayerNameProjectionTests(unittest.TestCase):
         expected_prefix = (
             self.legacy.u8tag(0x0B, 1)
             + identity
-            + self.legacy.u16tag(0x12, 0x030E)
+            + self.legacy.u16tag(0x12, 0x034E)
             + self.legacy.u16tag(0x12, 1)
             + self.legacy.u32tag(0x14, 100)
             + self.legacy.u32tag(0x14, 100)
+            + self.legacy.f32tag(400.0)
             + self.legacy.u16tag(0x12, character.position.scene_id)
             + bytes([0x32]) + character.position.scene_seq.to_bytes(8, "little")
             + bytes([0x32]) + (0x01000801).to_bytes(4, "little") + bytes(4)
