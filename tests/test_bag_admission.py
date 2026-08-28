@@ -736,7 +736,12 @@ class ContractTests(unittest.TestCase):
         self.assertIn("select_and_start", wiring)
         self.assertIn("may_enter_world", wiring)
         self.assertIn("is_unmoved_baseline", wiring)
-        self.assertEqual(len(bag_admission.BAG_ADMISSION_NONCLAIMS), 7)
+        # ~~7~~ -> 8 in round ua236k: COO-DECISION 20260829_0441 item 2
+        # ordered the interim rule's expiry written into the module, and it
+        # went in as nonclaim 8.  The count is pinned rather than open-ended
+        # so a nonclaim cannot be dropped quietly; raising it is a deliberate
+        # edit here, which is the point.
+        self.assertEqual(len(bag_admission.BAG_ADMISSION_NONCLAIMS), 8)
 
 
 if __name__ == "__main__":

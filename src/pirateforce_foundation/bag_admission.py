@@ -224,7 +224,7 @@ NONCLAIMS -- read these before quoting this module as a safety argument.
       replacement criterion arrives just after M5.  ``store.py`` is not in
       lane B's write zone, and this lane must not pre-empt it here.
 
-      THE PRICE COO ACCEPTED, IN ONE LINE, SO NOBODY RE-DISCOVERS IT AS A
+      THE COST COO ACCEPTED, IN ONE LINE, SO NOBODY RE-DISCOVERS IT AS A
       BUG.  Nonclaim 1's hole stays open for the interim: a backpack row
       hand-edited into the right shape with a high enough identity is
       admitted.  COO's stated reason -- gate 2 is regression protection, not
@@ -659,7 +659,7 @@ BAG_ADMISSION_NONCLAIMS = (
     "Superseded the day store.py does a real backpack INSERT and advances "
     "character_backpacks.next_item_identity; that round DELETES "
     "_classify_against rather than keeping it as a fallback.  chief owns "
-    "the trigger ticket.  Until then nonclaim 1's hole is an accepted price, "
+    "the trigger ticket.  Until then nonclaim 1's hole is an accepted cost, "
     "on record, not an oversight.",
 )
 
