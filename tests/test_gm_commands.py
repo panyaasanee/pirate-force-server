@@ -341,6 +341,29 @@ class LogGmCommandTests(unittest.TestCase):
         else:
             self.assertTrue(nested_log_path.parent.is_dir())
 
+    @unittest.skipUnless(os.name == "posix", "POSIX mode bits only")
+    def test_log_directory_mode_is_retightened_on_a_preexisting_loose_directory(self):
+        # Sibling of gm/command_capture.py's identical fix (pf-adversary
+        # verification pass, same round): `mkdir(..., exist_ok=True)` never
+        # chmods a directory that already exists, and this function shares
+        # its literal parent (`capture/`) with command_capture.py's own
+        # default root -- whichever function runs first on a real host
+        # locks that shared parent's mode in, forever, without this.
+        # Simulate "some earlier call already created it loose."
+        nested_log_path = Path(self._tmp.name) / "preexisting" / "gm_command_log.ndjson"
+        nested_log_path.parent.mkdir(mode=0o777)
+        os.chmod(nested_log_path.parent, 0o777)
+        self.assertEqual(stat.S_IMODE(nested_log_path.parent.stat().st_mode), 0o777)
+        old_umask = os.umask(0o022)
+        try:
+            log_gm_command(
+                parse_gm_command("lv 1"), "panya", log_path=nested_log_path, now_ts=0
+            )
+        finally:
+            os.umask(old_umask)
+        mode = stat.S_IMODE(nested_log_path.parent.stat().st_mode)
+        self.assertEqual(mode, 0o700, oct(mode))
+
 
 if __name__ == "__main__":
     unittest.main()

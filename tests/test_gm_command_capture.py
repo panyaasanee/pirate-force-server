@@ -267,6 +267,33 @@ class GmCommandCaptureTests(unittest.TestCase):
         else:
             self.assertTrue(nested_root.is_dir())
 
+    @unittest.skipUnless(os.name == "posix", "POSIX mode bits only")
+    def test_capture_directory_mode_is_retightened_on_a_preexisting_loose_directory(self):
+        # pf-adversary (verification pass, same round): `mkdir(...,
+        # exist_ok=True)` is a silent no-op when the directory already
+        # exists -- it never chmods it. `DEFAULT_CAPTURE_ROOT` shares its
+        # literal parent (`capture/`) with gm/commands.py's
+        # `DEFAULT_LOG_PATH`, and `.gitignore` documents that parent as
+        # never cleaned up, so on a real host whichever function runs first
+        # locks in whatever mode the umask in effect at that one moment
+        # produced -- every later call, even under a strict umask, would
+        # otherwise leave a once-loose directory stuck wide open forever.
+        # Simulate that: create the directory loose *before* calling the
+        # function under test (standing in for "some earlier call, or the
+        # other function, created it under a permissive umask"), then call
+        # with a strict umask and assert the mode is retightened anyway.
+        nested_root = Path(self.root) / "preexisting"
+        nested_root.mkdir(mode=0o777, parents=True)
+        os.chmod(nested_root, 0o777)
+        self.assertEqual(stat.S_IMODE(nested_root.stat().st_mode), 0o777)
+        old_umask = os.umask(0o022)
+        try:
+            capture_raw_gm_command(b"x", "panya", capture_root=nested_root, now_ts=0)
+        finally:
+            os.umask(old_umask)
+        mode = stat.S_IMODE(nested_root.stat().st_mode)
+        self.assertEqual(mode, 0o700, oct(mode))
+
     def test_collision_loop_bound_does_not_affect_a_realistic_capture_count(self):
         # The real-world guard this bound exists next to (gm/dispatch.py's
         # own RATE_LIMIT_MAX_CALLS_PER_WINDOW) caps how often this loop can
