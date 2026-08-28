@@ -95,71 +95,109 @@ class FrozenFaceFrameRowTests(unittest.TestCase):
 class FaceFrameContradictsTheCensusTests(unittest.TestCase):
     """The two frames the client receives for actor 0x2002 disagree.
 
-    Both assertions below describe TODAY.  The first is the defect; the day
-    the CORE-REQUEST in this module's docstring lands, it fails and this
-    class is what tells the next reader that the failure is the good news.
+    These assertions read the BYTES the face-frame builder produces, not the
+    table it reads.  An earlier version of this file read the table instead,
+    and pf-adversary proved the difference by applying the prescribed fix:
+    the tests stayed green while the wire changed.  A detector that cannot
+    see the thing it detects is worse than no detector, because it is quoted
+    as one.
     """
 
     def setUp(self):
         self.legacy = _legacy()
+        # Two placements, one of them the one the owner clicked.  Both must
+        # exist in the frozen table or the builder raises.
+        face, idx = self.legacy.make_v98_conversation_face_state(
+            (0, COLUMBUS_PLACEMENT_INDEX), COLUMBUS_ACTOR_IDENTITY,
+            100.0, 200.0,
+        )
+        self.assertEqual(idx, COLUMBUS_PLACEMENT_INDEX)
+        _pc, self.frame = face
 
-    def _npc_attr_template_in_face_frame(self) -> int:
-        """The MOBS/template u16 the face frame ships for actor 0x2002.
+    def _attr(self, template_id, preset, name=""):
+        return self.legacy.make_npc_attr(
+            template_id, COLUMBUS_ACTOR_IDENTITY, 1, 0, preset,
+            basic_name=name,
+        )
 
-        Read from the frozen builder's own inputs rather than by parsing the
-        frame: the builder passes the row's field 1 straight into
-        ``make_npc_attr``'s first parameter (v141:1094-1096), and that
-        parameter is documented there as "the MOBS/template u16 at +0x78".
-        Parsing the bytes would test the serializer, which V97 already pins;
-        what is at stake here is WHICH NUMBER is handed to it.
+    def test_the_frame_carries_sebastians_identity_for_columbus_actor(self):
+        """TODAY's wire, read from the frame itself.
+
+        When the CORE-REQUEST in this module's docstring lands, this test
+        FAILS - that is the success signal.  Delete this method then; the
+        one below it becomes the permanent assertion.
+        """
+        self.assertIn(
+            self._attr(SEBASTIAN_MOBS_N_ID, "M010_001_000_N"), self.frame,
+            "the face frame no longer ships MOBS 2 for actor 0x2002 - if "
+            "this fails, the v141 face-frame fix has landed: delete this "
+            "method, keep test_the_fixed_face_frame_ships_the_census_"
+            "identity, and strike the CORE-REQUEST letter as done",
+        )
+
+    def test_the_fixed_face_frame_ships_the_census_identity(self):
+        """The acceptance test for the fix, over the same bytes.
+
+        It fails today on purpose-free grounds: the identity the census
+        already sends is simply not in this frame.  It is expected to pass
+        once the call site resolves, and it is skipped rather than failed
+        while the defect stands, so the suite stays green without pretending
+        the wire is right.
+        """
+        fixed = self._attr(
+            COLUMBUS_MOBS_N_ID, "M055_000_000_N", name="Columbus",
+        )
+        if fixed not in self.frame:
+            self.skipTest(
+                "face-frame fix not landed yet - the frame still ships the "
+                "stale identity (see the sibling test, which is the one "
+                "that goes red when it lands)"
+            )
+        self.assertIn(fixed, self.frame)
+
+    def test_the_census_side_resolves_the_same_row_to_columbus(self):
+        """The half of the contradiction that is already correct.
+
+        Asserts the resolver only, deliberately: the frame side is asserted
+        once, by the method above, so that the fix produces EXACTLY ONE red
+        with a message that explains it.  A second red saying something
+        subtly different is how a green-again suite gets misread.
         """
         row = {
             r[0]: r for r in self.legacy.PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS
         }[COLUMBUS_PLACEMENT_INDEX]
-        return row[1]
-
-    def test_face_frame_ships_the_set_number_while_census_ships_the_mobs_id(self):
-        face_value = self._npc_attr_template_in_face_frame()
-        census_value = world_port_royal_identity.resolve(face_value).mobs_n_id
-        self.assertNotEqual(
-            face_value, census_value,
-            "PLACEMENT 1's identity now agrees across both frames - if this "
-            "test fails, the v141 face-frame CORE-REQUEST has landed: delete "
-            "this class and turn the assertion in "
-            "test_the_fixed_face_frame_must_ship_the_census_identity into the "
-            "permanent one.",
-        )
-
-    def test_the_fixed_face_frame_must_ship_the_census_identity(self):
-        """The invariant the fix has to satisfy, written before the fix.
-
-        This one is not a description of today - it is the acceptance test
-        for the CORE-REQUEST, expressed over the resolver both paths will
-        share.  It passes now because it asserts the resolver, and it is
-        what the fixed call site must reproduce on the wire.
-        """
-        identity = world_port_royal_identity.resolve(
-            self._npc_attr_template_in_face_frame()
-        )
+        identity = world_port_royal_identity.resolve(row[1])
         self.assertEqual(identity.mobs_n_id, COLUMBUS_MOBS_N_ID)
-        self.assertEqual(identity.outfit, "M055_000_000_N")
         self.assertEqual(identity.name, "Columbus")
+        self.assertEqual(identity.outfit, "M055_000_000_N")
 
     def test_the_frozen_builder_drops_the_name_field(self):
-        """Why the name line vanishes after a click, in one assertion.
+        """Why the name line is at risk after a click, over the source text.
 
-        ``make_npc_attr``'s docstring: BasicAttr bit 0x0001 is the name
-        std::wstring the target-panel updater copies into LABEL_NAME.  The
-        face-frame builder never passes ``basic_name``, so every click
-        re-sends every population actor with an empty name.  Read from the
-        frozen source text because the defect is an ARGUMENT THAT IS NOT
-        THERE, which no frame can show.
+        ``make_npc_attr`` sets BasicAttr bit 0x0001 only when ``basic_name``
+        is truthy, and the face-frame call site passes none - so the field is
+        ABSENT, not empty.  Whether the client then clears or retains the
+        label it already has is UNMEASURED here, and the attended note's
+        "labels vanish after moving" finding carries its own hypothesis tag;
+        this test claims only what it reads.
+
+        Matched on the call-site string, which occurs exactly once in the
+        frozen file, rather than on a line window: an absolute offset into a
+        7,000-line file fires a false red for any edit above it.
         """
-        source = LEGACY_PATH.read_text(encoding="utf-8").splitlines()
-        builder = "\n".join(source[1077:1100])
-        self.assertIn("make_npc_attr(template_id, aid, 1, 0, preset)", builder,
-                      "the face-frame call site moved; re-read v141:1088-1100")
-        self.assertNotIn("basic_name", builder)
+        source = LEGACY_PATH.read_text(encoding="utf-8")
+        call = "make_npc_attr(template_id, aid, 1, 0, preset)"
+        self.assertEqual(
+            source.count(call), 1,
+            "the face-frame call site moved or multiplied; re-read the "
+            "builder before trusting anything else in this file",
+        )
+        self.assertNotIn(
+            self._attr(SEBASTIAN_MOBS_N_ID, "M010_001_000_N", name="Sebastian"),
+            self.frame,
+            "a name-bearing attr would mean the builder started passing "
+            "basic_name, which is half the CORE-REQUEST",
+        )
 
 
 if __name__ == "__main__":
