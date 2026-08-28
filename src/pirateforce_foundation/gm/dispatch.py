@@ -145,6 +145,24 @@ def _rate_limit_allows(account_name: str, now_ts: float | None) -> bool:
         bisect.insort(history, ts)
         return True
 
+
+def rate_limit_allows(account_name: str, now_ts: float | None = None) -> bool:
+    """Public name for this lane's per-account GM-action rate limiter.
+
+    Added for `gm/chat_command.py`, which needs the same bound for the
+    same account when a command arrives through the chat box (0xAC52)
+    instead of through 0x51E9.  It shares this window deliberately rather
+    than keeping a second one: what the RATE_LIMIT_* constants exist to
+    bound is GM actions per account, not frames per door -- two independent
+    counters would let one account run both budgets at once and quietly
+    double the ceiling this lane says it enforces.
+
+    A thin wrapper, not a re-implementation: `_rate_limit_allows` keeps the
+    one lock, the one history dict, and the clock-inside-the-lock property
+    its own docstring records the pf-adversary history for.
+    """
+    return _rate_limit_allows(account_name, now_ts)
+
 # pf-adversary (this round): command_capture.py's hex-dump sink is an
 # unbounded pure-Python loop with no size cap of its own -- its own
 # docstring's promise is "never lose a real capture," which is right for a
