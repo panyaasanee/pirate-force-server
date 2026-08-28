@@ -28,7 +28,11 @@ be taken off disk, this returns **None** -- the login gets the DEFAULT
 scene, not the staged one.  Granting a scene whose override survives is the
 exact state the COO's condition exists to forbid, so a failure to consume
 has to cost the warp rather than cost the guarantee.  The entry is left on
-disk untouched, where an operator can see it, rather than being half-erased.
+disk where an operator can see it.  One exception, named rather than
+implied: if the writer's own byte-restore fails (`login_scene_stage`
+swallows that `OSError`), the entry can be gone while the outcome still
+says `CONSUME_FAILED`.  The guarantee that holds in every case is the one
+that matters -- no scene is returned -- not "the file is always unchanged".
 
 [สมมติของสาย GM - รอ COO ยืนยัน] The STANDALONE map
 (`gm_login_scene_standalone.json`) is NOT consumed.  The decision answers a
@@ -37,8 +41,13 @@ command; the standalone map is typed by an operator into a file, for a
 scene they want to keep entering (`GT-110`).  Silently erasing an
 operator's own config line on first use is a different and worse surprise
 than the one the condition was written to prevent.  Asked in
-`notes_to_chief/20260829_0515_LANE-GM-ASK-COO-standalone-map-single-use-too.md`;
-if the answer is "both", this file changes in one place.
+`notes_to_chief/20260829_0515_LANE-GM-ASK-COO-standalone-map-single-use-too.md`.
+If the answer is "both", it is NOT a one-line change here, and an earlier
+draft of this docstring said it was: `login_scene_stage` refuses that file
+by design and `restore_login_scene` has no standalone path, so it needs a
+new remover, a relaxation of that module's source-scan guard, and a change
+to this file's own `test_this_module_cannot_reach_the_standalone_writer`.
+Three places, two modules, two test files.
 
 NONCLAIM, permanent, per the same decision: the caller's identity is a
 process-level `session.token`, not a per-connection identity.  This module
