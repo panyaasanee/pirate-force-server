@@ -1046,6 +1046,26 @@ class ProductionCallShapeTests(_Case):
         os.chdir(self.tmp)
         self.addCleanup(os.chdir, previous_cwd)
 
+    def test_the_default_argument_call_stages_where_gt141_says_it_does(self):
+        # The staging half has the same exposure the audit half had: every
+        # other case in this file names a throwaway config, so the path an
+        # attended tester actually reads -- `config/gm_login_scene.json`
+        # under the server's own working directory, which is what GT-141's
+        # cleanup step tells them to delete -- would otherwise run zero
+        # times.  A default that resolved somewhere else would look like it
+        # worked and change nothing the login path reads.
+        session = FakeSession(position=FakePosition(scene_id=1))
+        action = chat_command_action.make_gm_chat_command_action(
+            session, make_chat_payload("/warp 3"), self.legacy
+        )
+        self.assertIsNone(action)
+        landed = self.tmp / "config" / "gm_login_scene.json"
+        self.assertTrue(landed.is_file(), sorted(p.name for p in self.tmp.iterdir()))
+        self.assertEqual(
+            {"gm_login_scene": {self.GM_ACCOUNT: 3}},
+            json.loads(landed.read_text(encoding="utf-8")),
+        )
+
     def test_the_default_argument_call_authorizes_and_audits(self):
         session = FakeSession(position=FakePosition(scene_id=2))
         action = chat_command_action.make_gm_chat_command_action(
