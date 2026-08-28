@@ -37,7 +37,10 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from dataclasses import replace  # noqa: E402
+
 from pirateforce_foundation import world_population  # noqa: E402
+from pirateforce_foundation import world_scene_entry  # noqa: E402
 from pirateforce_foundation.gm import accounts as gm_accounts  # noqa: E402
 from pirateforce_foundation.gm import login_scene_override  # noqa: E402
 from pirateforce_foundation.legacy_bridge import (  # noqa: E402
@@ -167,17 +170,23 @@ class GmLoginSceneOverridePositionResyncTests(unittest.TestCase):
         self.assertEqual(
             state.foundation.selected.position.scene_id, KNOWN_SCENE_ID,
         )
-        # Not merely the scene number: the whole resolved arrival, scene_seq
-        # included.  resolve_entry() is the one authority on where this login
-        # landed, and the teleport was built from the same object.
-        self.assertEqual(
-            state.foundation.selected.position.scene_seq,
-            self.store.get_character(
-                state.foundation.selected.id
-            ).position.scene_seq,
-            "the stored row's scene_seq is what resolve_entry passes through "
-            "for a scene with a pinned spawn; a different value here would "
-            "mean this test stopped comparing the resolved arrival",
+        # Not merely the scene number: the WHOLE resolved arrival, compared
+        # against an independently resolved one rather than against a field
+        # copied out of the same object.  An earlier version of this test
+        # pinned scene_seq alone, which pf-adversary measured as
+        # unfalsifiable: world_scene_travel.entry_fields() hardcodes
+        # scene_seq=0 for every destination today, so that assertion held
+        # for the resolved arrival and for the stale row alike.
+        stored = self.store.get_character(state.foundation.selected.id)
+        expected = world_scene_entry.resolve_entry(
+            replace(stored.position, scene_id=KNOWN_SCENE_ID),
+            emit=lambda _line: None,
+        ).position
+        self.assertEqual(state.foundation.selected.position, expected)
+        self.assertNotEqual(
+            expected, stored.position,
+            "the two candidate positions must actually differ, or this test "
+            "cannot tell the resolved arrival from the untouched row",
         )
 
     def test_a_login_with_no_override_changes_no_field_of_selected(self):
@@ -236,24 +245,160 @@ class GmLoginSceneOverridePositionResyncTests(unittest.TestCase):
 
     # ----- D2: the checkpoint stamps it -----------------------------------
 
-    def test_the_checkpoint_stamps_the_scene_the_player_is_actually_in(self):
-        """LANE-A's D2.
+    def test_the_checkpoint_of_an_overridden_login_writes_no_durable_row(
+        self,
+    ):
+        """LANE-A's D2, and the answer to what replaced it.
 
         ``_checkpoint_exact_target`` labels the coordinate it writes with
-        ``selected.position.scene_id``.  Measured before this fix: an
+        ``selected.position.scene_id``.  Measured before this round: an
         overridden login walking one step wrote its new XY under scene 1 --
         a durable row claiming the player is somewhere they have never been.
+
+        Resyncing the in-memory character alone would have fixed the LABEL
+        and broken something worse, which pf-adversary measured on this
+        round's own first half: the row would then be stamped with the
+        overridden scene, and a SINGLE-USE override (COO-DECISION
+        20260829_0441 item 2) would become a permanent relocation -- the
+        next login carries no override and starts there anyway.  At scene
+        278 (`sent_before=NO, return_ticket=REQUIRED`) that is a character
+        who cannot walk home, which CHARTER-02 rule 2 calls damage.
+
+        So an overridden login is a VISIT: the in-memory position tracks the
+        player (nothing this session decides is stale), and no durable row
+        is written for it at all.  The mislabelled row D2 reported is gone
+        because there is no row.
         """
         self._write_configs(["gm_runner"], {"gm_runner": KNOWN_SCENE_ID})
         state, _selector = self._login_and_start("gm_runner")
+        character_id = state.foundation.selected.id
+        before = self.store.get_character(character_id).position
+
+        moved = (111.0, 222.0, 333.0)
+        self._step(state, xyz=moved)
+
+        row = self.store.get_character(character_id).position
+        self.assertEqual(row, before, "an override login is a visit")
+        self.assertNotEqual(row.scene_id, KNOWN_SCENE_ID)
+        self.assertIn(
+            "gm_login_scene_override_visit_no_durable_write_scene_"
+            f"{KNOWN_SCENE_ID}",
+            state.events,
+        )
+        # In memory the step is tracked, scene and coordinates together --
+        # withholding the row must not blind this session to its own player.
+        self.assertEqual(
+            state.foundation.selected.position.scene_id, KNOWN_SCENE_ID,
+        )
+        position = state.foundation.selected.position
+        self.assertEqual((position.x, position.y, position.z), moved)
+        # And the token that means "a durable write survived" stays silent.
+        self.assertNotIn("gm_warp_position_confirmed", state.events)
+
+    def test_an_ordinary_login_still_checkpoints_durably(self):
+        """The control for the test above: the visit rule is scoped.
+
+        Without this, "no row was written" would pass just as well against a
+        checkpoint path that had stopped working for everybody.
+        """
+        self._write_configs([], {})
+        state, _selector = self._login_and_start("ordinary_player")
         character_id = state.foundation.selected.id
 
         moved = (111.0, 222.0, 333.0)
         self._step(state, xyz=moved)
 
         row = self.store.get_character(character_id).position
-        self.assertEqual(row.scene_id, KNOWN_SCENE_ID)
         self.assertEqual((row.x, row.y, row.z), moved)
+        self.assertEqual(
+            [event for event in state.events
+             if event.startswith("gm_login_scene_override_visit_")],
+            [],
+        )
+
+    def test_a_refused_destination_gives_the_staged_entry_back(self):
+        """The entry is spent before the destination can refuse it.
+
+        Scene 17 is pinned `login_entry_allowed=False`, so `resolve_entry`
+        refuses it and the login sends no reply -- deliberately leaving the
+        client free to retry.  pf-adversary measured what that cost: the
+        staged entry was already off disk, so the retry logged in at home
+        with no event saying the operator's warp had been destroyed, and the
+        audit row read `consumed` for a scene nobody ever entered.
+
+        A destination can stop being enterable between staging and login (a
+        registry edit flipping `login_entry_allowed` is this week's real
+        example), so this is a live path, not a contrived one.
+        """
+        refused_scene = 17
+        self._write_configs(["gm_runner"], {"gm_runner": refused_scene})
+        state, _selector = self._login_and_start("gm_runner")
+
+        self.assertIn("world_scene_entry_refused_no_reply", state.events)
+        self.assertIn(
+            f"gm_login_scene_override_restored_after_refusal_{refused_scene}",
+            state.events,
+        )
+        self.assertEqual(
+            json.loads(self.overrides_path.read_text(encoding="utf-8"))[
+                "gm_login_scene"
+            ],
+            {"gm_runner": refused_scene},
+            "the operator's instruction has to survive a login that never "
+            "reached the scene it names",
+        )
+
+    # ----- the frame-resync failure branch --------------------------------
+
+    def test_a_refused_frame_recompose_still_leaves_selected_on_the_arrival(
+        self,
+    ):
+        """The deliberate answer to a question this design had left open.
+
+        The override path recomposes the ActorAttr/MovementAttr frame from
+        `entry.position`, and that recompose has two named failure exits: it
+        can raise (`..._frame_resync_refused_*`) or come back the wrong
+        length (`..._length_drift`).  Either way the login falls back to the
+        untouched production bytes, which name the character's stored scene
+        -- while the TELEPORT in the same reply still carries the resolved
+        arrival, because it was built from `entry` before any of this.
+
+        So on that branch the login is already split-brained, with or
+        without this round's change; what this test pins is WHICH half the
+        in-memory character follows.  It follows the teleport (the packet
+        that actually moves the client), not the fallback frame: the
+        alternative -- leaving `selected` on the stored row -- would bring
+        back exactly the census and checkpoint faults the resync exists to
+        remove, on the one login least able to afford them.  Both named
+        events fire, so the fallback is never silent.
+
+        Found by pf-adversary, which noted no test drove this combination.
+        """
+        self._write_configs(["gm_runner"], {"gm_runner": KNOWN_SCENE_ID})
+        real_start_game = self.projector.start_game
+
+        def refuse_the_recompose(*args, **kwargs):
+            # The first call (select_and_start's own) passes no position and
+            # must succeed, or there is no login to speak of.  Every
+            # recompose from the resolved arrival is refused.
+            if kwargs.get("position") is not None:
+                raise ValueError("refused by the test")
+            return real_start_game(*args, **kwargs)
+
+        with mock.patch.object(
+            self.projector, "start_game", side_effect=refuse_the_recompose,
+        ):
+            state, _selector = self._login_and_start("gm_runner")
+
+        self.assertIn(
+            "gm_login_scene_override_frame_resync_refused_ValueError",
+            state.events,
+        )
+        self.assertIn(
+            "gm_login_scene_override_selected_position_resynced_"
+            f"{KNOWN_SCENE_ID}",
+            state.events,
+        )
         self.assertEqual(
             state.foundation.selected.position.scene_id, KNOWN_SCENE_ID,
         )
