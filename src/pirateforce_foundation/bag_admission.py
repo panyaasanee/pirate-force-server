@@ -193,7 +193,8 @@ from .inventory import (
 #: The snapshots ``is_unmoved_baseline`` admits.  This is a SECOND copy of a
 #: list that lives inside that function, and the honest way to hold it is not
 #: a subset assertion.  The first draft guarded it with
-#: ``GOLDEN_BACKPACKS ⊆ baseline``, which cannot see the case that matters: add
+#: "GOLDEN_BACKPACKS is a subset of baseline", which cannot see the case that
+#: matters: add
 #: a THIRD baseline to ``is_unmoved_baseline`` and this module silently becomes
 #: STRICTLY NARROWER than the gate it claims to reproduce, with the guard still
 #: green -- measured by pf-adversary, who added one and watched the test pass
