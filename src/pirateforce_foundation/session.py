@@ -1,10 +1,11 @@
 """Transport-independent lifecycle session used by real adapters and loopback tests."""
 from dataclasses import replace
+import sys
 import threading
 
+from . import bag_admission
 from .inventory import (
     HYPOTHESIZED_V111_SLOT2_BACKPACK,
-    is_unmoved_baseline,
 )
 
 class FoundationSession:
@@ -70,7 +71,27 @@ class FoundationSession:
     def select_and_start(self, selector: int):
         selected = self.lifecycle.select(self.session_id, selector)
         backpack = self.lifecycle.backpack(self.session_id, selected)
-        if not is_unmoved_baseline(backpack) and not self.allow_hypothesized_item_move:
+        # Gate 2, per COO-DECISION 20260829_0441 (BAG_ADMISSION_WIRING).  The
+        # first two terms of may_enter_world ARE the condition this line
+        # carried before, in the same order, so every state refused before is
+        # refused here for the same reason -- except a golden-plus-acquired
+        # bag, which is what M5 needs to survive a relog.  inventory
+        # .is_unmoved_baseline is NOT narrowed; the move/swap/merge family
+        # keeps the guard it has.
+        if not bag_admission.may_enter_world(
+            backpack,
+            allow_hypothesized_item_move=self.allow_hypothesized_item_move,
+        ):
+            # Unconditional, not attended-only.  The PermissionError below
+            # names HYP-PF-008, which is the wrong sentence for two of the
+            # refusals this predicate returns (a malformed bag -- a real bug,
+            # gate 1 should have raised first -- and a drifted header).
+            # Without this line a structural fault reaches the operator
+            # misattributed to a hypothesis that had nothing to do with it.
+            print(
+                bag_admission.console_line(bag_admission.classify(backpack)),
+                file=sys.stderr,
+            )
             raise PermissionError(
                 "HYP-PF-008 post-state requires its explicit opt-in scenario"
             )
