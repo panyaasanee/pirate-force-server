@@ -163,7 +163,9 @@ CHANNEL_CODEC_VITAL_VERSION = 0
 #   itself with "nobody".  pf-adversary asked the question; the lane's answer,
 #   pending COO ([สมมติของสาย GM - รอ COO ยืนยัน], letter filed round
 #   `w8hnu9`), is that TWO conditions outside this lane must hold first:
-#     (A) the per-connection identity question at `runtime.py:4765-4774` is
+#     (A) the per-connection identity question in `runtime.py`'s own
+#         `IDENTITY, STATED HONESTLY` comment (lines 4886-4896 at this
+#         commit; cite the ANCHOR, the line numbers drift) is
 #         resolved -- while every connection shares one `--token`, opening
 #         this gate hands `/say` to whoever connects, and the allowlist that
 #         is supposed to stop them cannot tell two humans apart; and
@@ -172,12 +174,53 @@ CHANNEL_CODEC_VITAL_VERSION = 0
 #         frame into a branch that draws nothing looks exactly like a wrong
 #         version byte from the tester's chair.
 #
-# RELEASE DAY, IN ORDER (which branch is likelier is NOT known -- nothing in
-# this repo measures it, which is the whole reason RE-132 exists):
-#   0. (A) and (B) above hold, and COO has said the flip is allowed.
-#   1. RE-132 answers with a byte V for Channel_GMGlobalMessageVital.
+# RE-132 CAME BACK, AND IT MOVED TWO OF THE FOUR ITEMS BELOW.  Result letter
+# `notes_to_chief/20260829_0010_RE-132-RESULT-VERSION-ZERO-RENDER-PATH.md`
+# (DONE/PASS, static, verifier 61/61), consumed by this lane in round
+# `z6gu2n`.  What it settled, and the pins are in
+# `GM_GLOBAL_MESSAGE_VITAL_VERSION_RE132_STATIC` below:
+#   * step 1 -- the byte is 0, from the client's own base constructor
+#     (`xor eax,eax` at 0x00657CB8, `mov byte ptr [esi+0x10],al` at
+#     0x00657CC9), reached through the 0x9F2C prototype's ctor call at
+#     0x0065BCD0.  It equals CHANNEL_CODEC_VITAL_VERSION, so branch 3 of the
+#     ladder is dead and the codec needs no version parameter.
+#   * (B), AT THE STATIC LAYER ONLY -- RE-132's question 3 found the handler
+#     both vtables bind (0x0065C850) is not a no-op: it routes to 0x00659870,
+#     the GMGlobal discriminator matches, the body wstring is read at
+#     object+0x18 and a display sink is called at 0x0065A053.  That is a
+#     client-binary fact, one rung BELOW client-observable, and the RE letter
+#     says so itself in its nonclaims.
+#     !! (B) IS NOT SATISFIED BY IT, and the first draft of this block said it
+#     was "satisfied for the byte", which pf-adversary correctly called a
+#     re-scope: (B) as written above is about the branch RENDERING, and the
+#     byte was step 1's question, not (B)'s.  What RE-132 did is REMOVE THE
+#     CHEAPEST WAY (B) COULD FAIL -- a handler that draws nothing, the
+#     `mov al,1; ret 4` shape RE-129 found on ForcePos.  (B) still needs
+#     GT-016 or GT-133: nobody has seen a line render.
+# WHAT IT DID NOT MOVE, AND IT IS THE ONE THAT MATTERS: (A).  The identity
+# question in `runtime.py`'s `IDENTITY, STATED HONESTLY` comment is
+# untouched by anything static, and the
+# RE letter closes with the same sentence -- the result "does not authorize
+# the RE runner to open the gate".  So this constant stays None.
+#
+# WHAT IS ACTUALLY LEFT, COUNTED HONESTLY (the first draft said "exactly ONE
+# item" and pf-adversary counted three):
+#   (A) the identity fix -- nothing static can touch it;
+#   COO's word on the flip -- item 0 has always been two conditions; and
+#   (B) the SCREEN, from GT-016 or GT-133, at the client-observable rung.
+# What is no longer left is the byte.  A round that flips this constant
+# without (A) fixed is handing `/say` to every connection that shares the
+# process `--token`, which is every connection.
+#
+# RELEASE DAY, IN ORDER:
+#   0. (A) holds, and COO has said the flip is allowed, and (B) has been
+#      answered at the client-observable rung.  [<- the remaining THREE]
+#   1. RE-132 answers with a byte V for Channel_GMGlobalMessageVital.  [DONE:
+#      V = 0]
 #   2. If V == CHANNEL_CODEC_VITAL_VERSION, set this constant to V.  The
-#      codec already emits that byte, so nothing else changes.
+#      codec already emits that byte, so nothing else changes.  [V == 0 ==
+#      CHANNEL_CODEC_VITAL_VERSION, so this step is a one-line edit whenever
+#      step 0 clears.]
 #   3. If V != CHANNEL_CODEC_VITAL_VERSION, STOP: setting this constant would
 #      open a gate onto a frame the codec cannot build.  The version-mismatch
 #      refusal in `gm/chat_command_action.py` catches that, but the fix is a
@@ -193,6 +236,31 @@ CHANNEL_CODEC_VITAL_VERSION = 0
 #      this lane owns `say_wire.py`'s suite outright and did not need a
 #      separate lock file for it.)
 GM_GLOBAL_MESSAGE_VITAL_VERSION_CONFIRMED: int | None = None
+
+# The byte RE-132 measured, kept SEPARATE from the gate above on purpose.
+#
+# Two different questions were being answered by one constant, and holding
+# them apart is what keeps the ledger honest in both directions:
+#   * "what byte does the client's 0x9F2C constructor write?" -- answered, 0,
+#     statically, and worth pinning so no later round re-opens an RE ticket
+#     that has already been paid for; and
+#   * "may this server put those bytes on a socket?" -- NOT answered, because
+#     that one is about identity (A), not about bytes at all.
+# Collapsing them would make the gate look like it is waiting for RE work
+# that is finished, which is how a blocked lane gets re-measured instead of
+# unblocked.  This constant is therefore read by tests and by readers; it is
+# NEVER read by `chat_command_action._say_action`, which reads the gate.
+GM_GLOBAL_MESSAGE_VITAL_VERSION_RE132_STATIC = 0
+# Pins for the result this lane consumed, so a future round can tell whether
+# it is looking at the same measurement (`GameClient.local.bin` SHA-256, plus
+# the three VAs the answer hangs on: where the byte is written, the ctor call
+# that proves it is 0x9F2C's, and the handler question 3 read).
+RE132_CLIENT_IMAGE_SHA256 = (
+    "9627211412ac60d50ad189ce5a629443ce928ec23a9f8d219dfb2b157028b623"
+)
+RE132_VERSION_WRITE_VA = 0x00657CC9
+RE132_GM_GLOBAL_CTOR_CALL_VA = 0x0065BCD0
+RE132_HANDLER_VA = 0x0065C850
 
 
 class SayWireError(ValueError):

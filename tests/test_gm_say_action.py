@@ -31,7 +31,9 @@ pins:
 permission test in this file is a MODULE-layer fact: `FakeSession` sets
 `.token` per test, so what they prove is "this module decides on the token it
 is handed".  They are NOT a server-layer fact, because on this server
-`runtime.py:4765-4774` records that `session.token` is the process-wide
+`runtime.py`'s `IDENTITY, STATED HONESTLY` comment (4886-4896 at this
+commit -- the anchor is the citation, the numbers drift) records that
+`session.token` is the process-wide
 `--token` CLI value shared by every accepted connection, not a per-connection
 authenticated login.  Until that is fixed, two humans cannot be told apart at
 this point at all -- so `SayPermissionTests` passing says nothing about what
@@ -140,6 +142,63 @@ class SayVersionGateTests(_Case):
         # different vital -- the exact reasoning that produced the hardcoded
         # `1` GT-101 measured as session-killing.
         self.assertIsNone(say_wire.GM_GLOBAL_MESSAGE_VITAL_VERSION_CONFIRMED)
+
+    def test_re132_is_answered_and_the_gate_is_still_shut_for_the_other_reason(self):
+        # The point of this test is that those two facts are BOTH true, and
+        # that a future round cannot quietly merge them.  RE-132 (result
+        # letter 20260829_0010, consumed round `z6gu2n`) measured the byte as
+        # 0 from the client's own constructor, and it is the byte the codec
+        # already emits -- so nothing about BYTES is blocking `/say` any more.
+        # What blocks it is condition (A) in say_wire.py's own comment: every
+        # connection shares the process `--token` (`runtime.py`'s
+        # `IDENTITY, STATED HONESTLY` comment), so
+        # opening the gate hands `/say` to whoever connects and the allowlist
+        # cannot tell two humans apart.  If someone flips the gate, this test
+        # is where they have to come and say which of those two changed.
+        self.assertEqual(say_wire.GM_GLOBAL_MESSAGE_VITAL_VERSION_RE132_STATIC, 0)
+        self.assertEqual(
+            say_wire.GM_GLOBAL_MESSAGE_VITAL_VERSION_RE132_STATIC,
+            say_wire.CHANNEL_CODEC_VITAL_VERSION,
+        )
+        self.assertIsNone(say_wire.GM_GLOBAL_MESSAGE_VITAL_VERSION_CONFIRMED)
+
+    def test_the_re132_pins_are_the_letters_numbers(self):
+        # pf-adversary: a pin nothing reads is a comment with an `=` in it.
+        # These four are the only handle a later round has on WHICH
+        # measurement the byte above came from, so changing one has to be a
+        # deliberate edit here, not a quiet edit there.  The values are
+        # RE-132's result letter (20260829_0010) verbatim.
+        self.assertEqual(
+            say_wire.RE132_CLIENT_IMAGE_SHA256,
+            "9627211412ac60d50ad189ce5a629443ce928ec23a9f8d219dfb2b157028b623",
+        )
+        self.assertEqual(say_wire.RE132_VERSION_WRITE_VA, 0x00657CC9)
+        self.assertEqual(say_wire.RE132_GM_GLOBAL_CTOR_CALL_VA, 0x0065BCD0)
+        self.assertEqual(say_wire.RE132_HANDLER_VA, 0x0065C850)
+
+    def test_the_identity_citation_still_points_at_something(self):
+        # The round found the old pin (`runtime.py:4765-4774`) had drifted to
+        # damage dispatch, and it is the citation the whole "why the gate
+        # stays shut" argument hangs on.  Anchor text, not line numbers, and
+        # checked rather than asserted in prose.
+        runtime_source = (
+            ROOT / "src/pirateforce_foundation/runtime.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("IDENTITY, STATED HONESTLY", runtime_source)
+        self.assertIn("process-wide --token CLI value", runtime_source)
+
+    def test_the_static_pin_is_never_what_the_send_path_reads(self):
+        # Two constants, two questions ("what byte?" / "may we send?").  If
+        # the action path ever reads the static pin, the gate becomes
+        # decorative without a single line of it changing.
+        session = FakeSession()
+        with mock.patch.object(
+            say_wire, "GM_GLOBAL_MESSAGE_VITAL_VERSION_RE132_STATIC", 0
+        ):
+            self.assertIsNone(self.act(session, "/say all hands on deck"))
+        self.assertIn(
+            chat_command_action.EVENT_SAY_WITHHELD_NO_VERSION, session.events
+        )
 
     def test_a_valid_gm_say_yields_no_action_while_the_version_is_unknown(self):
         session = FakeSession()
