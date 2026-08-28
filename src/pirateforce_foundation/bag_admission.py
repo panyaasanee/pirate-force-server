@@ -138,21 +138,37 @@ NONCLAIMS -- read these before quoting this module as a safety argument.
     code path can currently produce LANDS ON A GOLDEN, so refusing shrinkage
     costs nothing today.  A round that adds real consumption must revisit
     this, and must not quote a "nothing can consume" that was never true.
- 3. IT CHANGES NOTHING ON ITS OWN.  No production caller.  Gate 2 is
+ 3. ~~IT CHANGES NOTHING ON ITS OWN.  No production caller.  Gate 2 is
     byte-identical after this round.  The relog still fails today, exactly
     as it failed before this round, and any report that says otherwise is
-    reading this module as wired when it is not.
+    reading this module as wired when it is not.~~  TRUE OF THE ROUND THAT
+    WROTE IT, AND BEING RETIRED.  COO-DECISION 20260829_0441 item 1 tasks
+    chief with the one-line wire in ``session.select_and_start`` per
+    ``BAG_ADMISSION_WIRING``, and that work is in flight as
+    ``pirate-force-server`` PR #233.  Read this nonclaim against the head
+    you are on, not against this sentence: if
+    ``session.select_and_start`` calls ``may_enter_world``, gate 2 is NOT
+    byte-identical any more and this module is load-bearing on the
+    character-select path.  Lane B does not own that wire and did not make
+    it; lane B owns nonclaim 8 below, which is the condition COO attached
+    to letting it happen at all.
  4. THE THREE NEW-ROW CONSTANTS ARE DUPLICATED, ON PURPOSE.  Importing
     ``mob_pickup`` here would pull ``field_drop_tables`` and ``mob_loot``
     onto the character-select path to read three integers.  They are
     declared locally instead, and ``tests/test_bag_admission.py`` asserts
     each one equals ``mob_pickup``'s, so a drift fails the suite rather than
     silently splitting the definition.
- 5. [สมมติของสาย B - รอ COO ยืนยัน] That "golden items unchanged + extra
+ 5. ~~[สมมติของสาย B - รอ COO ยืนยัน] That "golden items unchanged + extra
     items above the golden's highest identity" is the RIGHT admission rule
-    for gate 2 is this lane's reading, not a ruling.  The letter is
+    for gate 2 is this lane's reading, not a ruling.~~  ANSWERED.  It is a
+    ruling now: ``COO-DECISION 20260829_0441`` question A, "ใช่ ... เป็นกฎ
+    รับที่ยอมรับได้ของด่าน 2 วันนี้".  The ask was
     ``notes_to_chief/20260829_0353_LANE-B-ASK-COO-gate-2-admission-rule.md``
-    IN THE pf_bridge REPOSITORY -- this repository has no ``notes_to_chief``.
+    and the answer is
+    ``notes_to_chief/20260829_0441_COO-DECISION-gate-2-shape-rule-approved-as-interim-with-an-expiry.md``
+    -- both IN THE pf_bridge REPOSITORY; this repository has no
+    ``notes_to_chief``.  What that ruling is NOT is an endorsement of this
+    rule as final: read nonclaim 8.
  6. WHAT IT DOES NOT CHECK ABOUT AN ACQUIRED ROW, AND WHY THAT IS A CHOICE.
     A real ``place_in_bag`` output is fully determined -- lowest free slot,
     ``highest + 1``, a template from ``field_drop_tables.ITEMS`` -- and three
@@ -174,6 +190,47 @@ NONCLAIMS -- read these before quoting this module as a safety argument.
     gives TWO reasons for deferring (not a priority, and the metadata risk);
     this module answers the second only, and it is dated two days before the
     "revisit ต้นสัปดาห์ M5 (30-31 ส.ค.)" that decision names.
+ 8. THIS RULE IS INTERIM AND ITS EXPIRY IS WRITTEN HERE, NOT IMPLIED.
+    Required by ``COO-DECISION 20260829_0441`` item 2, in the same round
+    chief wires the gate.  The full sentence of that decision:
+
+        "เขียนวันหมดอายุลงในโมดูลเลย -- กฎรูปร่างถูกแทนด้วยเกณฑ์ที่มา
+        ทันทีที่ ``store.py`` ทำ INSERT จริงและเดินตัวนับ ตอนนั้น
+        ``_classify_against`` ตัดทิ้ง ไม่ใช่ต่อเติม"
+
+    So, stated as a condition a later round can evaluate rather than a
+    date:
+
+      EXPIRY CONDITION.  This shape rule is superseded on the day
+      ``store.py`` performs a real backpack INSERT for a pickup AND advances
+      ``character_backpacks.next_item_identity`` past it.  Until then the
+      counter cannot be the criterion -- ``MOB_PICKUP_ROW_WOULD_INSERT`` is
+      a log, so every live character still reads migration 005's backfilled
+      value and a real pickup's identity would be REFUSED by a counter
+      check.  That is why COO took the shape rule today and not the counter:
+      taking the counter today fails M5 outright.
+
+      WHAT THE SUPERSEDING ROUND MUST DO.  Replace, not extend.
+      ``_classify_against`` is DELETED and the admission term becomes the
+      counter question -- "was this identity issued by this server to this
+      character?" -- read from the row the INSERT wrote.  A round that keeps
+      ``_classify_against`` as a fallback beside the counter has not done
+      what this nonclaim says; it has kept the interim rule forever under a
+      new name.
+
+      WHO OWNS THE TRIGGER.  Not this lane.  ``COO-DECISION 20260829_0441``
+      item 3 makes chief the owner of the "real INSERT + advance the counter
+      in ``store.py``" ticket, queued to open by 30 ส.ค. 12:00 so the
+      replacement criterion arrives just after M5.  ``store.py`` is not in
+      lane B's write zone, and this lane must not pre-empt it here.
+
+      THE PRICE COO ACCEPTED, IN ONE LINE, SO NOBODY RE-DISCOVERS IT AS A
+      BUG.  Nonclaim 1's hole stays open for the interim: a backpack row
+      hand-edited into the right shape with a high enough identity is
+      admitted.  COO's stated reason -- gate 2 is regression protection, not
+      a defence against an untrusted client, and whoever can hand-edit the
+      DB is already running the server.  That is a decision on record, not
+      an oversight, and it EXPIRES with this rule.
 """
 
 from __future__ import annotations
@@ -587,12 +644,33 @@ BAG_ADMISSION_NONCLAIMS = (
     "2. Shrinkage is refused.  Not because nothing can consume an item -- a "
     "merge can -- but because the only shrinkage reachable today lands on a "
     "golden.",
-    "3. Not wired.  Gate 2 is byte-identical after the round that added this.",
+    "3. Not wired by lane B.  Byte-identical after the round that added "
+    "this; COO-DECISION 20260829_0441 item 1 gives chief the wire, so check "
+    "session.select_and_start on the head you are reading.",
     "4. The three new-row constants are duplicated from mob_pickup and pinned "
     "equal to it by the test file.",
-    "5. The admission rule itself is this lane's reading, awaiting COO.",
+    "5. The admission rule is APPROVED by COO-DECISION 20260829_0441 as an "
+    "interim, not endorsed as final -- see nonclaim 8.",
     "6. An acquired row's slot, template and quantity are NOT pinned, on "
     "purpose; only its identity floor is.",
     "7. COO-DECISION 20260828_0844 is silent on gate 2 rather than explicit "
     "about it.",
+    "8. INTERIM WITH A WRITTEN EXPIRY (COO-DECISION 20260829_0441 item 2). "
+    "Superseded the day store.py does a real backpack INSERT and advances "
+    "character_backpacks.next_item_identity; that round DELETES "
+    "_classify_against rather than keeping it as a fallback.  chief owns "
+    "the trigger ticket.  Until then nonclaim 1's hole is an accepted price, "
+    "on record, not an oversight.",
+)
+
+#: The expiry of nonclaim 8, as something a later round can evaluate instead
+#: of re-reading the prose.  Both must be true before the counter can BE the
+#: admission criterion; today the second is False, which is the whole reason
+#: the shape rule exists.  Deliberately not a runtime check: this module must
+#: not import ``store``, and a stale True here would be worse than no
+#: constant at all -- the test file asserts the flag against
+#: ``mob_pickup``'s own text instead.
+BAG_ADMISSION_EXPIRY_CONDITION = (
+    "store.py INSERTs a real backpack row for a pickup",
+    "that INSERT advances character_backpacks.next_item_identity",
 )
