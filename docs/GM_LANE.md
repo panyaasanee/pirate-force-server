@@ -2853,3 +2853,80 @@ misrepresentation `warp_executor` refuses cross-scene warps to avoid.
 That row is written in `runtime.py`'s login path, which is chief's zone:
 `CORE-REQUEST-GM-033`.  Until it lands, `GT-141` tells the tester to log out
 again rather than type a second `/warp` in the same session.
+
+---
+
+## Round `ank2vl` (2026-08-29 05:0x +07:00) -- a tripwire for the way `#224` died
+
+This round set out to recover `#224` and fix the `os.geteuid()` line that
+closed it.  **The recovery is not this round's**: the `gejldf` session did
+the same work in parallel and landed it first, as `#232` (merge `b229269`),
+and its `POSIX` / `ROOT` split is what is on `main`.  Where both rounds
+touched a file, `main` won outright -- this round's own version of
+`tests/test_gm_login_scene_stage.py` was discarded rather than merged, so
+nothing here competes with what already landed.
+
+What is left is the part `main` does not have: a guard against the failure
+mode itself, rather than against the one line that caused it.
+
+### The failure mode, kept on the record
+
+```
+tests\test_gm_login_scene_stage.py:295: in RefusalLeavesTheFileAloneTests
+    @unittest.skipIf(os.geteuid() == 0, "root ignores directory write bits")
+E   AttributeError: module 'os' has no attribute 'geteuid'
+!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+```
+
+(Actions run 33210364835, job `gate`.)  Two things worth keeping, neither
+obvious from the line:
+
+1. **A `skipIf` protects the test body, never its own argument.**  The
+   condition runs while the class body runs -- at import -- so a POSIX-only
+   call in a skip condition executes on Windows no matter how many
+   `os.name` guards sit above it.  No ordering of decorators helps.
+2. **A collection error is not one red test, it is the whole gate.**
+   pytest aborted, so `pytest_subset` (exit 2) AND `skip_census` (exit 1)
+   went red together -- the census saw 0 skips where nine modules pin 48
+   between them and reported nine PIN DRIFTs unrelated to the cause.
+   Chasing those first would have cost another round.
+
+### `tests/test_gm_tests_collect_without_posix.py`
+
+Imports **every** `tests/test_gm_*.py` for real, in a child process with the
+POSIX-only names removed from `os` and the POSIX-only modules refusing to
+import.  Not a grep: it reproduces the failure mode.  Measured both ways --
+the file exactly as `#224` pushed it fails the probe with the gate's own
+message, and every file on `main` today passes.
+
+pf-adversary found three things worth naming:
+
+- **The file was not `git add`ed.**  The gate checks out what git has, so the
+  whole deliverable would have shipped as zero bytes.  There is now a test
+  that goes red when a `tests/test_gm_*.py` exists on disk and git does not
+  know it -- it caught itself.
+- **The name list was hand-written and incomplete**: `os.setpriority`,
+  `os.wait`, `signal.SIGKILL`, `socket.AF_UNIX`, `select.epoll` and
+  `readline` all walked past the first version, two of them inside the very
+  module it claimed to cover.  All six are pinned by their own bait tests
+  now, the list reaches modules beyond `os`, and the docstring states that
+  the lists are `[proposed]` with only `geteuid` measured.
+- **`subprocess.run(text=True)` with no `encoding=`** puts the cp874 trap in
+  the reporting path -- the place a tripwire can least afford it.  Both ends
+  are explicit now.
+
+A negative result kept rather than dropped: setting `os.name = "nt"` in the
+child, so that import-time `if os.name == "nt":` branches would execute, is a
+**false red on all 28 lane-GM modules** -- `pathlib.Path()` picks
+`WindowsPath` off `os.name` at instantiation.  Not shipped; the docstring
+says that half stays unwitnessed rather than implying coverage.
+
+### nonclaim
+
+1. **No GM capability changed this round, in any direction**, and
+   **ไม่มีการใช้ GM ข้ามขั้นใดในรอบนี้**.  One new test file, nothing else.
+2. **[withdrawn]** This round does not claim the `#224` recovery.  `#232`
+   landed it; an earlier draft of this section claimed otherwise and was
+   wrong.
+3. เขียว(cloud sanity) only -- the lane suite is 567 passed / 0 skipped on
+   `main`'s files plus this one.  Actions decides.
