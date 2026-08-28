@@ -350,9 +350,15 @@ class TestTheAnswer(unittest.TestCase):
         # 23 -> 24, 15 -> 16, 14 -> 15 on 2026-08-28 (LANE-A round w0pu2i):
         # world_population_bg0015.py, the Bg0015 census, builds one entry and
         # sends one carrier -- the same single-module move bg0002 made.
-        self.assertEqual(counts["src_actor_stream_call_sites"], 24)
-        self.assertEqual(counts["src_actor_entry_call_sites"], 16)
-        self.assertEqual(counts["src_modules_building_actor_entries"], 15)
+        # 24 -> 25, 16 -> 17, 15 -> 16 on 2026-08-29 (LANE-E round
+        # c5nwjc): world_face_frame.py rebuilds the ChooseNPC face frame
+        # under the resolved census identity, so it builds one entry per
+        # shipped placement and sends one carrier.  It reuses the frozen
+        # serializers rather than reimplementing them, which is exactly
+        # why it shows up in this census.
+        self.assertEqual(counts["src_actor_stream_call_sites"], 25)
+        self.assertEqual(counts["src_actor_entry_call_sites"], 17)
+        self.assertEqual(counts["src_modules_building_actor_entries"], 16)
         self.assertIn(
             "npc_hostile_hypothesis.py",
             counts["src_modules_building_actor_entries_names"],
