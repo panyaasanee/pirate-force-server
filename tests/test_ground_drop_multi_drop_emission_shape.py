@@ -45,7 +45,7 @@ So "a combined multi-record derived-mask collection is the one shape a real
 client has already rejected" (``drop_frames``'s own justification, from the
 V43 ErrorData=28317 note) is NOT a property of this envelope in general.
 Its sibling ships a 97-element collection that a client demonstrably drew.
-Whether the 0x08 CONSUMER can take the same treatment is RE-129's question,
+Whether the 0x08 CONSUMER can take the same treatment is RE-130's question,
 and this file exists to state the contrast precisely enough that the
 question can be answered instead of guessed at.
 
@@ -58,7 +58,7 @@ report", and V43's six actors were on the 0x02 REMOTE-ACTOR list -- the
 very list offered above as the counter-example.  So the V43 note is an
 interval, not a ceiling, and several modules still describe it as a
 rejection of multi-record collections.  Correcting that prose is lane work,
-not an RE question; it is named in RE-129 as such.
+not an RE question; it is named in RE-130 as such.
 
 WHAT IS NOT CLAIMED.  Read before quoting anything here.
 
@@ -81,7 +81,7 @@ WHAT IS NOT CLAIMED.  Read before quoting anything here.
   NEAR, ground_loot_nameprop_hypothesis.py:103 says the observer could not
   tell which element it belonged to) AND that a label's life is bound to
   its element's membership in the list at all (nobody knows; it is
-  RE-129's first objective).  If labels are one-shot and self-expiring,
+  RE-130's first objective).  If labels are one-shot and self-expiring,
   seeing one is evidence about omission in neither direction.
 * NOT CLAIMED: that a count of one MEANS "the list is exactly this".  That
   reading is the question, not a finding.  What is measured is the count
@@ -311,7 +311,7 @@ class MultiDropEmissionShapeTests(unittest.TestCase):
         see the module docstring.  And per world_population.py:105-115 the
         V43 number is a parse-failure echo, not a count report, measured on
         the 0x02 list itself.  Whether multi-element works for the 0x08
-        CONSUMER is RE-129.
+        CONSUMER is RE-130.
         """
         for count in (2, 5):
             census_pc = self._census_pc(count)
