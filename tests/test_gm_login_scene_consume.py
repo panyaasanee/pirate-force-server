@@ -312,9 +312,79 @@ class OnlyOneLoginGetsItTests(_Case):
             )
             self.assertIsNone(self.entries().get(self.GM_ACCOUNT))
 
+    def test_the_loser_of_a_claim_is_not_told_the_standalone_map_answered(self):
+        """The second way this module lost a single-use race, made determin-
+
+        istic instead of left to load.  pf-adversary reproduced it 4/4 under
+        parallel load and 0/8 alone -- a contention-gated flake, the kind that
+        gets re-run rather than diagnosed, which is why it is forced here
+        rather than chased with more threads.
+
+        The window: `get_login_scene_override` reads the scene, and the GM
+        map is read again a few lines later.  If another login's atomic claim
+        lands between the two, the second read finds nothing -- and the code
+        used to conclude "then the STANDALONE map answered", handing the
+        single-use scene to the loser as well.  Both logins got it, and the
+        audit row named a map that does not even have a file on disk.
+        """
+        self.assertTrue(self.stage(self.GM_ACCOUNT, PORT_ROYAL).staged)
+        self.assertFalse(self.standalone_path.exists())
+
+        real_is_gm_account = login_scene_consume.is_gm_account
+        state = {"claimed": False}
+
+        def claim_in_the_window(account_name, config_path=None):
+            # `is_gm_account` is called inside the window, so the other
+            # login's claim is forced to land exactly there.
+            result = real_is_gm_account(account_name, config_path)
+            if not state["claimed"]:
+                state["claimed"] = True
+                self.assertEqual(
+                    PORT_ROYAL,
+                    login_scene_stage.claim_login_scene(
+                        self.GM_ACCOUNT, config_path=str(self.config_path)
+                    ),
+                )
+            return result
+
+        with mock.patch.object(
+            login_scene_consume, "is_gm_account", claim_in_the_window
+        ):
+            loser = self.consume(self.GM_ACCOUNT)
+
+        self.assertTrue(state["claimed"], "the window was never entered")
+        self.assertIsNone(
+            loser.scene_id, "the loser was handed the single-use scene too"
+        )
+        self.assertEqual(login_scene_consume.NOTHING_STAGED, loser.outcome)
+        # And the outcome word has to be true of the world: there is no
+        # standalone file at all here, so `standalone_not_consumed` would be
+        # a lie in the audit row as well as a wrong scene.
+        self.assertFalse(self.standalone_path.exists())
+
+    def test_a_real_standalone_entry_still_wins_that_same_window(self):
+        # The fix must not turn "the standalone map really did answer" into
+        # NOTHING_STAGED: a non-GM has no GM-map entry to lose, and this is
+        # the case the previous code got right.
+        self.write_standalone(self.PLAYER, PRISON_EXILE)
+        result = self.consume(self.PLAYER)
+        self.assertEqual(PRISON_EXILE, result.scene_id)
+        self.assertEqual(
+            login_scene_consume.STANDALONE_NOT_CONSUMED, result.outcome
+        )
+
 
 class StandaloneMapTests(_Case):
-    """[สมมติของสาย GM - รอ COO ยืนยัน] -- see the module docstring."""
+    """CONFIRMED by `COO-DECISION 20260829_0542` -- these do NOT flip.
+
+    Item 1 of that decision says so in as many words: `STANDALONE_NOT
+    _CONSUMED` stays and the two cases below are not to be inverted.  What
+    keeps the decision true is item 3's condition -- nothing a client sends
+    or a chat line triggers may write that file -- and the tripwire for it
+    lives in `tests/test_gm_standalone_map_is_not_chat_writable.py`, not
+    here.  Reading these two as evidence that the standalone path is SAFE
+    would be reading them backwards; see the module docstring's NONCLAIM.
+    """
 
     def test_a_standalone_entry_is_used_but_not_spent(self):
         self.write_standalone(self.PLAYER, PRISON_EXILE)
@@ -371,6 +441,17 @@ class GrantsNothingTests(_Case):
         # A behavioural test only covers routes someone thought to write.
         # The standalone map is the one that works with NO allowlist
         # membership; nothing here may write to it.
+        #
+        # THE READER IS NOW ALLOWED AND THE WRITER IS STILL NOT, which is a
+        # narrowing of this guard, so the reason is recorded rather than
+        # left in a diff: pf-adversary measured this module concluding "the
+        # GM map is empty, therefore the standalone map answered" and
+        # handing the single-use scene to the LOSER of a concurrent claim,
+        # labelled `standalone_not_consumed`, with no standalone file on
+        # disk.  Asking that map directly is the fix, and asking it means
+        # importing its reader.  `load_standalone_login_scene_overrides` is
+        # a pure read -- the writer names below are what this guard is for,
+        # and `login_scene_stage` still refuses that file at its own door.
         source = (
             REPO_ROOT
             / "src/pirateforce_foundation/gm/login_scene_consume.py"
@@ -384,12 +465,36 @@ class GrantsNothingTests(_Case):
             line for line in code.splitlines()
             if not line.strip().startswith("#")
         )
+        # The one read this module is allowed is removed before the scan, so
+        # the JSON key inside its NAME cannot satisfy the key check for a
+        # real write that follows it.
+        allowed_reader = "load_standalone_login_scene_overrides"
+        code = code.replace(allowed_reader, "")
         for forbidden in (
             login_scene_override.STANDALONE_JSON_KEY,
             "STANDALONE_DEFAULT_CONFIG_PATH",
+            "STANDALONE_ENV_OVERRIDE",
             "stage_login_scene",
+            "restore_login_scene",
+            "claim_standalone",
+            "open(",
+            "write_text",
+            "write_bytes",
         ):
             self.assertNotIn(forbidden, code, forbidden)
+
+    def test_that_guard_still_sees_a_write_hidden_behind_the_allowed_reader(self):
+        # The `.replace(allowed_reader, "")` above is a hole if it is done
+        # carelessly: a module could spell a write as
+        # `load_standalone_login_scene_overrides` + a real writer and have
+        # the key stripped along with the reader's name.  Prove the stripped
+        # source still carries a planted key.
+        planted = (
+            "load_standalone_login_scene_overrides(p)\n"
+            f'doc["{login_scene_override.STANDALONE_JSON_KEY}"] = x\n'
+        )
+        stripped = planted.replace("load_standalone_login_scene_overrides", "")
+        self.assertIn(login_scene_override.STANDALONE_JSON_KEY, stripped)
 
     def test_the_permanent_identity_nonclaim_is_stated_in_the_module(self):
         # COO-DECISION 20260829_0441 made this a permanent NONCLAIM of the

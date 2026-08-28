@@ -34,20 +34,43 @@ swallows that `OSError`), the entry can be gone while the outcome still
 says `CONSUME_FAILED`.  The guarantee that holds in every case is the one
 that matters -- no scene is returned -- not "the file is always unchanged".
 
-[สมมติของสาย GM - รอ COO ยืนยัน] The STANDALONE map
-(`gm_login_scene_standalone.json`) is NOT consumed.  The decision answers a
-ticket about `/warp`, and only the GM-gated map is reachable from a chat
-command; the standalone map is typed by an operator into a file, for a
-scene they want to keep entering (`GT-110`).  Silently erasing an
-operator's own config line on first use is a different and worse surprise
-than the one the condition was written to prevent.  Asked in
-`notes_to_chief/20260829_0515_LANE-GM-ASK-COO-standalone-map-single-use-too.md`.
-If the answer is "both", it is NOT a one-line change here, and an earlier
-draft of this docstring said it was: `login_scene_stage` refuses that file
-by design and `restore_login_scene` has no standalone path, so it needs a
-new remover, a relaxation of that module's source-scan guard, and a change
-to this file's own `test_this_module_cannot_reach_the_standalone_writer`.
-Three places, two modules, two test files.
+CONFIRMED, no longer an assumption: the STANDALONE map
+(`gm_login_scene_standalone.json`) is NOT consumed.  This lane asked in
+`notes_to_chief/20260829_0515_LANE-GM-ASK-COO-standalone-map-single-use-too.md`
+and `COO-DECISION 20260829_0542` upheld it -- item 2 of the 0441 decision
+binds `config/gm_login_scene.json` (the file a chat command can reach) to
+the letter, and stops there.  The reasoning, which is the COO's and not
+this module's: the danger 0441 names is a command whose effect lands ON
+DISK instead of ending with the chat line, and the standalone map does not
+come from a command at all.  Silently erasing an operator's own config line
+on first use is a different and worse surprise than the one the condition
+was written to prevent, and `GT-110` has to be able to re-enter the same
+scene on every retry.
+
+NONCLAIM, and it is the condition that decision rests on (item 3): the
+standalone map is NOT safer in general.  It grants a login scene with no
+`gm_accounts.json` membership at all, which is a STRONGER capability than
+anything the GM-gated map grants.  Its only protection is that nothing a
+client sends and no chat line can write it -- an operator at the machine
+types it or it does not exist.  **The day any path lets a client or a chat
+command write that file, this decision is void without asking again and the
+standalone map becomes single-use.**  `tests/test_gm_standalone_map_is_not
+_chat_writable.py` is the tripwire for exactly that (COO-DECISION 0542 item
+4): it drives every command name this lane parses, AND the client's inbound
+`0x51E9` route, past the file, and asks whether any write-capable call named
+a file with that BASENAME -- not whether one particular resolved path was
+touched, which is what the first version asked and what a write to the real
+cwd-relative default walked straight past.  What it proves is "no route that
+RAN", not "no route that exists": a write deferred past the assertions, or
+one made through a call it does not wrap, would need the file, the directory
+or the reader to show it.
+
+If the answer ever flips to "both", it is NOT a one-line change here, and an
+earlier draft of this docstring said it was: `login_scene_stage` refuses
+that file by design and `restore_login_scene` has no standalone path, so it
+needs a new remover, a relaxation of that module's source-scan guard, and a
+change to this file's own `test_this_module_cannot_reach_the_standalone
+_writer`.  Three places, two modules, two test files.
 
 NONCLAIM, permanent, per the same decision: the caller's identity is a
 process-level `session.token`, not a per-connection identity.  This module
@@ -63,6 +86,7 @@ from .accounts import is_gm_account
 from .login_scene_override import (
     get_login_scene_override,
     load_login_scene_overrides,
+    load_standalone_login_scene_overrides,
 )
 
 # The outcome words, so a caller (and an audit row) can tell the three
@@ -91,6 +115,36 @@ class ConsumeResult:
         return (self.scene_id, self.outcome) == (other.scene_id, other.outcome)
 
 
+def _ask_the_standalone_map(
+    account_name: str,
+    standalone_config_path: str | os.PathLike | None,
+) -> ConsumeResult:
+    """Did the STANDALONE map really answer, and with which scene?
+
+    The scene id is taken from this read, not carried down from
+    `get_login_scene_override`'s earlier one: the two reads can straddle
+    another login's claim, and the answer that matters is the one the
+    standalone map holds NOW.  If it holds nothing for this account, the
+    scene came from the GM-gated map and somebody else has since spent it --
+    so this login gets `NOTHING_STAGED` and the ordinary default scene,
+    which is what the loser of a single-use race is supposed to get.
+
+    Reading it is also the only way this module can say `STANDALONE_NOT
+    _CONSUMED` truthfully; the previous version could say it about a file
+    that did not exist.
+    """
+    try:
+        standalone = load_standalone_login_scene_overrides(
+            standalone_config_path
+        )
+    except (OSError, ValueError):
+        return ConsumeResult(None, CONSUME_FAILED)
+    scene_id = standalone.get(account_name)
+    if scene_id is None:
+        return ConsumeResult(None, NOTHING_STAGED)
+    return ConsumeResult(scene_id, STANDALONE_NOT_CONSUMED)
+
+
 def consume_login_scene_override(
     account_name: str,
     gm_accounts_config_path: str | os.PathLike | None = None,
@@ -108,7 +162,8 @@ def consume_login_scene_override(
       A second call in the same login returns `NOTHING_STAGED`, which is the
       whole point of the condition.
     * `STANDALONE_NOT_CONSUMED` -- the standalone map supplied the scene; it
-      is left alone (see the module docstring, and the open question there).
+      is left alone, upheld by `COO-DECISION 20260829_0542` (see the module
+      docstring for the condition that would reverse it).
     * `NOTHING_STAGED` -- no override for this account, the ordinary case.
     * `CONSUME_FAILED` -- an entry was found but could not be removed, so
       **no scene is returned**: the login goes to the default rather than to
@@ -154,7 +209,7 @@ def consume_login_scene_override(
     except (OSError, ValueError):
         return ConsumeResult(None, CONSUME_FAILED)
     if not answered_by_gm_map:
-        return ConsumeResult(scene_id, STANDALONE_NOT_CONSUMED)
+        return _ask_the_standalone_map(account_name, standalone_config_path)
 
     # WHICH MAP supplied the scene is decided BEFORE the claim, never
     # after: once the entry is gone there is no way to tell "the standalone
@@ -164,7 +219,22 @@ def consume_login_scene_override(
     except (OSError, ValueError):
         return ConsumeResult(None, CONSUME_FAILED)
     if gm_map.get(account_name) is None:
-        return ConsumeResult(scene_id, STANDALONE_NOT_CONSUMED)
+        # NOT "therefore the standalone map answered".  MEASURED by
+        # pf-adversary against the version that concluded exactly that:
+        # `scene_id` was read at the top of this function, and if ANOTHER
+        # login's atomic claim lands in the window between that read and
+        # this one, the GM map no longer holds the entry -- so this branch
+        # handed the staged scene to the loser of the race as well, labelled
+        # `standalone_not_consumed`, with no standalone file on disk at all.
+        # Two logins got the single-use scene (COO-DECISION 0441 item 2 not
+        # held) and the audit row named a map that had not answered.
+        # Reproduced 4/4 under parallel load, 0/8 alone -- a contention-gated
+        # flake, the kind that gets re-run rather than diagnosed.
+        #
+        # The comment above about deciding WHICH MAP before the claim is true
+        # of this call's claim and false of everybody else's.  So ask the
+        # standalone map itself rather than inferring it by elimination.
+        return _ask_the_standalone_map(account_name, standalone_config_path)
 
     # Imported here, not at module scope: `login_scene_stage` imports from
     # `login_scene_override`, which this module also imports, and a

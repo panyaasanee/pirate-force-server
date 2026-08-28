@@ -2930,3 +2930,172 @@ says that half stays unwitnessed rather than implying coverage.
    wrong.
 3. เขียว(cloud sanity) only -- the lane suite is 567 passed / 0 skipped on
    `main`'s files plus this one.  Actions decides.
+
+## Round `tp8mq6`: the condition that keeps `COO-DECISION 20260829_0542` true
+
+`COO-DECISION 2026-08-29T05:42+07:00`
+(`pf_bridge/notes_to_chief/20260829_0542_COO-DECISION-standalone-map-is-not-consumed.md`)
+answered this lane's own ASK and upheld the lane's assumption: the STANDALONE
+login-scene map (`config/gm_login_scene_standalone.json`) is **not** consumed
+on login, while the GM-gated map (`config/gm_login_scene.json`) stays
+single-use per `COO-DECISION 20260829_0441` item 2.
+
+The confirmation is conditional, and the condition is the whole round:
+
+> **Item 3.** If any path ever lets the client or a chat command write or
+> modify the standalone file, this decision is **void immediately** and the
+> standalone map becomes single-use, without asking again.
+>
+> **Item 4.** Lane GM writes the test that pins item 3 -- if somebody adds a
+> write path later, the test must go RED. Due this round.
+
+### Delivered
+
+| file | what |
+|---|---|
+| `tests/test_gm_standalone_map_is_not_chat_writable.py` (new) | the item-4 tripwire |
+| `src/pirateforce_foundation/gm/login_scene_consume.py` | docstring: assumption -> CONFIRMED, plus item 3 as a NONCLAIM |
+| `src/pirateforce_foundation/gm/login_scene_override.py` | docstring: what 0542 did and did **not** confirm |
+| `tests/test_gm_login_scene_consume.py` | `StandaloneMapTests` docstring: these do not flip (item 1) |
+
+Nothing was inverted, per item 1 of the decision: `STANDALONE_NOT_CONSUMED`
+is the same outcome it was and the two `StandaloneMapTests` cases stand as
+they were.
+
+**One behaviour DID change, and it was not in this round's plan**: the D3 fix
+below. An earlier draft of this paragraph said `login_scene_consume.py` had
+no code change at all -- true when written, false after `pf-adversary`, and
+struck here rather than deleted. The change RESTORES the guarantee
+`COO-DECISION 0441` item 2 ordered; it grants nothing new.
+
+### How the tripwire is built, and why not as a scan
+
+Two layers, with the weaker one labelled weak in the file itself:
+
+1. **The door (primary).** Every name in `commands.COMMAND_NAMES` is driven
+   end to end through the production entry point
+   (`chat_command_action.make_gm_chat_command_action`) as a listed GM, with
+   the standalone map pointed at a throwaway file that already holds an
+   operator's line. Afterwards the file must be byte-identical, its directory
+   must hold no new file, the reader must still return what the operator
+   typed, and **no write-capable filesystem call made anywhere during the run
+   may have named it** (`WriteWatch` wraps `builtins.open`, `io.open`,
+   `os.open`, and `os.replace/rename/remove/unlink/truncate`).
+2. **The scan (early warning only).** A source scan over the package for the
+   map's two names, prose stripped, allowlisting only the reader. It is
+   explicitly *not* the guard: `login_scene_stage._standalone_config_path`
+   already records pf-adversary defeating a scan of this exact shape by
+   splitting a string literal.
+
+**The tripwire for tomorrow's command.** A test enumerating today's six
+commands says nothing about the seventh, so the exercise table is compared
+against `commands.COMMAND_NAMES` itself. Adding a command without adding a
+line here fails the file -- the new command has to be walked past the door
+before it ships.
+
+### pf-adversary rebuilt this file, and the first version was not a guard
+
+The tripwire was written, measured against two planted writes, and reported
+as working. `pf-adversary` then walked a **nine-line** write straight past
+it. Everything below is a defect it found and this round fixed; the entries
+are kept because the shapes repeat.
+
+| # | what it broke | how |
+|---|---|---|
+| **D1** | the door asked about **one resolved path** | the fixture binds the map via `STANDALONE_ENV_OVERRIDE`; production falls back to a **cwd-relative** `config/gm_login_scene_standalone.json` whenever that env var is unset -- the ordinary deployment. A `/lv` handler writing the production default left the real file in the checkout with **4299 tests passing**. |
+| **D2** | only ONE of the two client doors was driven | item 3 says "the client **or** a chat command". `runtime.py`'s `0x51E9` branch fires `lane_hooks.fire("vital_inbound_gm_run_command", ...)` -> `lane_hooks/lane_gm_run_command.py` (`production_allowed = True`) -> `gm/dispatch`. A write planted there changed the map **from a client frame** with the suite green -- and needed no split literal, because the scan globbed `gm/` and `lane_hooks/` is not in it. |
+| **D3** | the GM-gated map's **single-use** guarantee was already broken | `login_scene_consume` read the scene, then re-read the GM map; if another login's atomic claim landed between the two it concluded "then the STANDALONE map answered" and handed the single-use scene to the **loser** as well, labelled `standalone_not_consumed`, with no standalone file on disk. 4/4 under parallel load, 0/8 alone. |
+| **D4** | "tomorrow's command" tripwire was satisfiable by `()` | the check compared KEYS; the per-line loops never execute on an empty tuple, so a new command shipped "walked past the door" without reaching it. |
+| **D5** | the run could be silently emptied | with the shared rate limit lowered, 5 of 6 command names came back `refused_rate_limited` and every "did not write" assertion stayed green and meaningless. |
+| **D6** | two recorder gaps | a `dir_fd`-relative `os.open` records a **bare relative name**, which never matched a realpath; a deferred (thread/timer) write outlives the watch. |
+| **D7** | prose asserted more than the code did | "catches a write through ANY route", "watches the syscalls", and the Thai closing line all claimed the strong form. |
+| **D8** | scan mechanics | the docstring strip ran **after** `#`-line removal, so any docstring containing a markdown heading survived into the scan; `glob("*.py")` never descended; the floor was a magic number. |
+
+### What changed in response
+
+- **Ask about the NAME.** `WriteWatch.named_basename()` flags any recorded
+  write whose file name is `gm_login_scene_standalone.json`, however it was
+  resolved -- which also closes D6's `dir_fd` route -- and every assertion
+  additionally checks that the **production default path** did not appear.
+- **Drive the client door too.** `TheOtherClientDoorTests` fires the real
+  `vital_inbound_gm_run_command` hook (real hook, real dispatcher, real
+  allowlist; only the capture root is pinned to a temp dir) with six hostile
+  payloads, as a player and as a listed GM, and reads `runtime.py` to confirm
+  the point it drives is the one the runtime actually fires.
+- **Fix D3 in the module.** `_ask_the_standalone_map()` asks that map
+  directly instead of inferring it by elimination; the loser of a claim now
+  gets `NOTHING_STAGED` and the default scene. Pinned by
+  `test_the_loser_of_a_claim_is_not_told_the_standalone_map_answered`, which
+  forces the interleaving deterministically and **fails against the pre-fix
+  code** rather than waiting for a loaded CI.
+- **Un-empty the table and the run.** Every command name must have at least
+  one line, and every name must appear as `gm_chat_action_accepted_<name>`
+  in the session's events -- a refusal that empties the run is now red.
+- **Scan**: docstring cut from the original source first, `**/*.py` plus
+  `lane_hooks/lane_gm_*.py`, and the magic floor replaced by naming the
+  modules that must be in scope.
+
+### Measured, not asserted: every plant trips it now
+
+Each row was executed against the fixed file and then reverted.
+
+| plant | result |
+|---|---|
+| `open(standalone, "w")` with the JSON key as a **split literal** | RED |
+| **write-then-restore** (file ends byte-identical) | RED, recorder only |
+| **D1**: production cwd-relative default, split literals | **RED, 8 tests** |
+| **D2**: write inside `lane_gm_run_command.py`, client route | **RED, 3 tests** |
+| **D4**: new `COMMAND_NAMES` entry with `()` | **RED, 3 tests** |
+| **D5**: rate limit lowered to 3 | **RED, 11 failures** |
+| **D6 route A**: `dir_fd`-relative `os.open` + `os.write` + restore | **caught by basename** (exact-path check still misses it, as designed) |
+
+The non-GM case stayed green under the write plants, which is correct: a
+player is refused before the payload is decoded, so that route never reached
+them.
+
+### nonclaim
+
+1. **No GM capability changed this round, in any direction**, and
+   **ไม่มีการใช้ GM ข้ามขั้นใดในรอบนี้**. One new test file, one behaviour
+   fix inside `login_scene_consume`, and three docstrings.
+2. **This does not claim the standalone map is safe.** It skips
+   `gm_accounts.json` membership entirely, which is a *stronger* capability
+   than anything the GM-gated map grants -- this lane said so in the ASK the
+   COO answered, and the COO accepted that nonclaim. All that is claimed is
+   the property item 3 rests on: nothing a client sends, and no chat line,
+   can write that file. Its remaining protection is operator-at-the-machine
+   access, nothing else.
+3. **The door proves "no route that RAN", not "no route that exists".** It
+   wraps five families of Python-level call -- module attributes, not
+   syscalls -- plus the file, its directory and the production default path.
+   A write deferred past the assertions (thread, timer, `atexit`) is a route
+   it does not cover, and that is named here rather than left to be found.
+4. **D3 was a live defect on `main`, not one this round introduced**, and it
+   is fixed here because this round's docstrings assert the guarantee it
+   broke. The single-use condition (`COO-DECISION 0441` item 2) was **not**
+   held before this commit whenever two logins of one account overlapped --
+   which `login_scene_consume`'s own identity note calls the ordinary case,
+   since the lane shares one `session.token`.
+5. **`GT-110` stays PARKED** -- untouched by this round. What changes for it
+   is only that its repeatability is now a confirmed decision rather than
+   this lane's assumption.
+6. **[correction to an earlier round's figure]** The round `dnh0ai` section
+   above says "the lane suite is 567 passed / 0 skipped". That was true when
+   written; it is stale, not wrong-at-the-time, and is struck rather than
+   edited. Today: lane GM **623 passed / 4 skipped**, whole repo **4310
+   passed / 327 skipped / 0 failed**. Those 327 skips are not named, counted
+   or capped anywhere this lane owns -- flagged, not claimed as handled.
+7. เขียว(cloud sanity) only. Actions decides.
+
+## ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้ (round `tp8mq6`)
+
+ผู้เทสที่ตั้ง `gm_login_scene_standalone.json` ไว้เอง **เข้าฉากเดิมซ้ำได้ทุกครั้งที่รีทราย โดยไม่ต้องพิมพ์คอนฟิกใหม่**
+และตอนนี้เป็นคำตัดสินที่ตรึงด้วยเทส ไม่ใช่พฤติกรรมที่บังเอิญเป็นอยู่
+
+และของที่ใหญ่กว่านั้นซึ่งไม่ได้อยู่ในแผนของรอบนี้: **ผู้เทสสองคน (หรือสองหน้าต่าง) ที่ล็อกอินพร้อมกัน
+จะไม่ได้ฉากที่ stage ไว้ทั้งคู่อีกแล้ว** — ก่อนคอมมิตนี้ ผู้แพ้ของการแย่งชิงได้ฉากนั้นไปด้วย
+และแถวออดิตเขียนว่ามาจากแผนที่ standalone ที่ไม่มีไฟล์อยู่จริง
+
+**บรรทัดที่ต้องแม่น** (ฉบับก่อนของบรรทัดนี้อ้างเกินจริงและ pf-adversary หักล้างแล้ว):
+ถ้าใครเพิ่มทางเขียนไฟล์นั้น **ผ่านเส้นทางที่เทสนี้ขับ และในคอลที่มันเฝ้า** ชุดเทสแดงก่อนถึงมือผู้เทส
+ทางที่เลื่อนการเขียนออกไปหลังเทสจบ ยังเป็นช่องที่เขียนกำกับไว้ ไม่ใช่ช่องที่ปิดแล้ว

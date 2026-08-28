@@ -20,7 +20,10 @@ cached:
    concern -- this module never sets it, only reads it).
 
 2. Standalone path (``standalone_login_scene``, [สมมติของสาย GM - รอ COO
-   ยืนยัน], added 2026-08-28 answering the KA1A-NOTE at
+   ยืนยัน] that this path may exist at all -- `COO-DECISION 20260829_0542`
+   ruled only that it is NOT consumed on use, which is a narrower question;
+   it did not bless the path itself, and this tag stays until something
+   does), added 2026-08-28 answering the KA1A-NOTE at
    ``notes_to_chief/20260827_2240_KA1A-NOTE-GT110-unsafe-until-0x5A19-payload-fixed-plus-M1P-jobs-staged.md``):
    an account listed ONLY in this module's own standalone config, by name,
    with no ``gm_accounts.json`` membership at all.  This exists so a scene
