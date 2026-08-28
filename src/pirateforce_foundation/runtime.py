@@ -4856,7 +4856,45 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             if (
                 nested_id == CHAT_INPUT_VITAL_ID
                 and self.foundation.selected is not None
+                and lane_hooks.module_production_allowed("lane_gm_chat_command")
             ):
+                # KILL SWITCH, RECONNECTED (round wi1m62, COO-DECISION
+                # 20260829_0041 option (b), answering chief's own ASK
+                # 20260829_0023).  The third clause above is the whole of
+                # that decision: this branch reaches LANE-GM's code without
+                # going through `lane_hooks.fire()`, so `_discover()`'s
+                # withdrawal -- the thing that makes `production_allowed`
+                # mean anything for a hook -- cannot see it.  For one round
+                # the 0xAC52 route ran with no such gate over it at all,
+                # dropping a switch PANYA-ORDER 20260827_1230 approved.
+                # Reading the flag here restores it: flip
+                # `production_allowed = False` in
+                # lane_hooks/lane_gm_chat_command.py, RESTART THE PROCESS
+                # (the flag is read once, at import, by lane_hooks'
+                # discovery -- editing the file under a running listener
+                # changes nothing), and this branch stands down, composing
+                # nothing and writing no audit row.  That is the tree from
+                # before GM-028, not before GM-029: GM-029 replaced a
+                # `fire()` call that appended an event and printed a token
+                # on every chat line of every player, so "switched off" is
+                # quieter than either wired route ever was.  [pf-adversary,
+                # round wi1m62, caught that comparison naming the wrong
+                # round.]  Which is why the stand-down is NOT silent -- see
+                # the else-branch below.
+                #
+                # WHAT THE DECISION ASKED FOR, AND WHERE THIS DIFFERS.  The
+                # COO decision accepted a named cost: that chief would
+                # `import` the LANE-GM module here.  This does not do that.
+                # It reads the flag through lane_hooks instead, so a lane
+                # file that is deleted or raises on import answers False and
+                # closes the door, where a direct import would take boot
+                # down for every other lane -- the exact failure lane_hooks'
+                # second fail-closed layer exists to prevent.  The deviation
+                # is reported to the COO in
+                # pf_bridge/notes_to_chief/20260829_0103_CHIEF-REPLY-COO-gm-
+                # kill-switch-reconnected-option-b.md; if it is refused,
+                # the import is a one-round change.
+                #
                 # CORE-REQUEST-GM-029 (LANE-GM), replacing CORE-REQUEST-GM-028
                 # at this same branch.  No scenario flag.  GM-028's
                 # `lane_hooks.fire(...)` at the chat-local-talk point was
@@ -4937,6 +4975,36 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     session=self,
                     payload=bytes(parsed.nested_payload),
                     legacy=legacy,
+                )
+            elif (
+                nested_id == CHAT_INPUT_VITAL_ID
+                and self.foundation.selected is not None
+            ):
+                # THE SWITCH, SAID OUT LOUD.  Reached only when the branch
+                # above stood down on `production_allowed` -- the two
+                # conditions repeated here are the branch's first two, so
+                # nothing else can land in it.
+                #
+                # Why this exists at all: with the stand-down silent, the
+                # console and the event trail could not tell "the owner
+                # switched the GM chat route off" apart from "the wiring is
+                # dead" or "nobody typed anything" -- and GT-127 grades on
+                # capture/gm_command_log.ndjson, which is empty in all three
+                # cases.  That is the failure this file already refuses to
+                # ship one lane over, for GM-030, in the same words
+                # ("silence would be indistinguishable from 'the wiring is
+                # dead'").  [pf-adversary, round wi1m62.]
+                #
+                # One event and one stderr line per chat line, which is what
+                # GM-028's removed `fire()` did for every chat line of every
+                # player, so the volume is a shape this tree has run before
+                # -- and only while the switch is off, which is a deliberate
+                # state, not the default.
+                self.events.append("gm_chat_action_route_closed_not_production_allowed")
+                print(
+                    "LANE_GM_CHAT_ACTION route=closed"
+                    " reason=lane_gm_chat_command_not_production_allowed",
+                    file=sys.stderr,
                 )
             if (
                 learn_skill_request_hypothesis_scenario is not None

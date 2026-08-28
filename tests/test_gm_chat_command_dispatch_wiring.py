@@ -433,6 +433,61 @@ class ChatCommandDispatchWiringTests(unittest.TestCase):
         self.assertNotIn("gm_chat_action_accepted_warp", state.events)
         self.assertEqual(self._audit_lines(), [])
 
+    def test_the_kill_switch_closes_this_route_when_the_lane_is_not_allowed(self):
+        """`production_allowed = False` must shut the door GM-029 opened.
+
+        Round wi1m62, COO-DECISION 20260829_0041 option (b).  GM-029 left
+        the hook shape for a direct call, and with it the withdrawal that
+        made `production_allowed` mean anything: for one round the owner's
+        approved switch (PANYA-ORDER 20260827_1230) could be flipped to
+        False and this branch would keep authorizing chat lines anyway.
+
+        Driven at `lane_hooks`' recorded answer rather than by rewriting
+        the lane's file, which is the same value flipping the flag on disk
+        produces -- discovery reads the file once, at import, and a test
+        process has already passed that point.  What it pins is the only
+        thing runtime.py can get wrong: whether the branch ASKS.
+        """
+        qualified = "pirateforce_foundation.lane_hooks.lane_gm_chat_command"
+        path = self._config(["gm_runner"])
+        previous = lane_hooks._PRODUCTION_ALLOWED[qualified]
+        self.assertIs(previous, True)  # the state the other tests run in
+        lane_hooks._PRODUCTION_ALLOWED[qualified] = False
+        self.addCleanup(
+            lane_hooks._PRODUCTION_ALLOWED.__setitem__, qualified, previous
+        )
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        with mock.patch.dict(
+            gm_accounts.os.environ, {gm_accounts.ENV_OVERRIDE: str(path)},
+        ):
+            state = self._login_and_start("gm_runner")
+            out, err = io.StringIO(), io.StringIO()
+            with redirect_stdout(out), redirect_stderr(err):
+                actions = self._say(state, "/warp 2")
+        # Nothing composed: no appended action, no audit row -- and the
+        # frame itself still behaves exactly as it did.
+        self.assertEqual(
+            self._labels(actions),
+            [
+                "RUNTIME_RES_ACK_FIRST_REQ",
+                "V99_SHOW_MESSAGE_LOCAL_SERVER_ONLINE",
+                "V100_MUSIC_CONTROL_CURRENT_SCENE",
+            ],
+        )
+        self.assertEqual(self._audit_lines(), [])
+        # But NOT silent, on either trail. An empty audit log means three
+        # different things (switch off / wiring dead / nobody typed) and
+        # GT-127 grades on that file; the stand-down has to say which.
+        # [pf-adversary, round wi1m62]
+        self.assertEqual(
+            [event for event in state.events if event.startswith("gm_chat_")],
+            ["gm_chat_action_route_closed_not_production_allowed"],
+        )
+        self.assertIn("LANE_GM_CHAT_ACTION route=closed", err.getvalue())
+        self.assertNotIn("LANE_GM_CHAT_ACTION", out.getvalue())
+
     def test_the_fired_token_goes_to_stderr_so_tool_stdout_stays_clean(self):
         """0xAC52 is a vital every client sends; stdout is a tool contract.
 
