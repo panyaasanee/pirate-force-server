@@ -21,23 +21,38 @@ login/select sites at 7994/8002.  None of them is reachable from a lane; the
 claim is about what a lane can queue, not about how many sockets writes exist.)
 Nothing on a session object can queue a frame either -- `src/.../connection.py`
 is accept/bind/close plumbing with no action queue, and `gm/dispatch.py`'s own
-docstring already said it out loud: "this lane has no send path outside a
-CORE-REQUEST wiring point".
+docstring already said it, though only as the tail of a bullet about not sending
+0x8C77 back on the 0x51E9 lane: "this lane has no send path outside a
+CORE-REQUEST wiring point regardless" (`gm/dispatch.py:40`, quoted with its
+last word restored -- pf-adversary round `vvxkft` flagged the earlier
+version for dropping it and reading the caveat as an architectural fact).
 
 So GT-127 under GM-028's shape decides "did the server READ the line",
 judged on the ndjson audit log -- which is what that entry honestly says it
 decides.  It does not and cannot decide "did the character move".  This
 module is the missing half: a single function chief can call from the same
 0xAC52 branch that RETURNS an action, in exactly the shape
-`runtime.py:5122`'s `gm_state_action` (CORE-REQUEST-006) already uses and
-`runtime.py:5331` already appends.  `CORE-REQUEST-GM-029` asks for that one
+`gm_state_action` (CORE-REQUEST-006) already uses at `runtime.py:5181` and
+appends at `runtime.py:5396`.  `CORE-REQUEST-GM-029` asks for that one
 call site and SUPERSEDES GM-028's fire-only shape.
 
-🔴 WIRE EXACTLY ONE OF THE TWO.  If both the `fire()` point and this
-function are wired at the 0xAC52 branch, every GM chat line is authorized
-twice, audited twice (two ndjson rows for one typed line) and charged twice
-against `chat_command`'s own rate limit -- the second charge being the one
-that silently starts refusing real commands.
+!! WIRE EXACTLY ONE OF THE TWO -- AND THE OTHER ONE IS ALREADY WIRED.
+Chief answered GM-028 before this module's own pull request could land (it
+was closed gate-RED for an unrelated reason, see below), so as of
+`runtime.py:4784` on main the `fire()` point EXISTS and the hook route is the
+live one.  This module is therefore DORMANT: nothing calls it, and
+`CORE-REQUEST-GM-029` no longer asks chief to ADD a call site.  It asks him
+to REPLACE the `fire()` line with a call to this function, in one commit, so
+that the two never coexist.  If both were wired, every GM chat line would be
+authorized twice, audited twice (two ndjson rows for one typed line) and
+charged twice against `chat_command`'s own rate limit -- the second charge
+being the one that silently starts refusing real commands.
+
+That is also why this module's event names were renamed away from the hook
+route's, and not the other way round: the hook route is live, chief pinned
+its names as literals in `tests/test_gm_chat_command_dispatch_wiring.py` on
+main, and GT-127's headless drill greps for them.  A dormant route renames
+for free; a live one does not.  See `EVENT_ACCEPTED_PREFIX` below.
 
 WHAT IT DOES NOT DO
 -------------------
@@ -53,25 +68,25 @@ WHAT IT DOES NOT DO
   parse and audit exactly as before and return no action -- naming them here
   as "not wired yet" by event is the difference between a lane that is
   honest about its coverage and one that looks broken.
-* 🔴 It does not put a single ForcePos byte on the wire today, because
+* !! It does not put a single ForcePos byte on the wire today, because
   `teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED` is None (RE-129 open).
   See that constant's own comment: the vital version byte is per-vital
   (0x5A19 -> 0, SelectActor -> 10) and GT-101 measured what an unproven
   version does to a real client -- modal error, connection halted, socket
   closed.  This module gates on the constant being not-None for the same
-  reason `runtime.py:5107` gates the login GM-state frame on
+  reason `runtime.py:5168`/`5173` gates the login GM-state frame on
   `state_wire.GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED`, and refuses by name
   instead.  When RE-129 answers, that one constant is the whole change.
 
-🔴 OPEN, AND IT MUST BE ANSWERED BEFORE RE-129 CHANGES THE CONSTANT
+!! OPEN, AND IT MUST BE ANSWERED BEFORE RE-129 CHANGES THE CONSTANT
 -------------------------------------------------------------------
 pf-adversary (this round) asked the question this design does not answer:
 after a ForcePos leaves, WHO OWNS THE CHARACTER'S POSITION?  This module
 composes a frame and stops.  It does not call `foundation.checkpoint`, so the
 durable row and `selected.position` still hold the pre-warp point, and the
 only thing that reconciles them is the client's next `TargetPos` -- which
-requires the GM to move, and which `runtime.py:5595` does not even checkpoint
-while a `scene_load_scenario` is loaded.  Meanwhile the ndjson audit row says
+requires the GM to move, and which `runtime.py`'s scene-load path does not
+even checkpoint while a `scene_load_scenario` is loaded.  Meanwhile the ndjson audit row says
 `executed: false` and is written identically whether the frame went out or
 was withheld at the version gate, so the log cannot answer it either.
 
@@ -119,6 +134,8 @@ players said, and stays cp874-safe on the bridge console.
 """
 from __future__ import annotations
 
+import sys
+
 from . import teleport_wire
 from .chat_command import handle_local_talk_chat
 from .warp_executor import make_warp_force_pos_frame
@@ -128,8 +145,9 @@ from .warp_executor import make_warp_force_pos_frame
 # lists ("GM_UPDATE_STATE_AFTER_LOGIN", "V113_TELEPORT_..."), so an attended
 # run can grep the console for it the same way.
 #
-# 🔴 THE SUBSTRING `TELEPORT` IS LOAD-BEARING, NOT DECORATION.
-# `runtime.py:3653-3660` (`_move_authority_note_server_moves`) identifies a
+# !! THE SUBSTRING `TELEPORT` IS LOAD-BEARING, NOT DECORATION.
+# `runtime.py:3654` (`_move_authority_note_server_moves`, the label test at
+# 3668 -- re-derived at this commit, not carried over) identifies a
 # server-initiated move by exactly one thing -- "the action it queued carries
 # TELEPORT in its label" -- and reopens the move-authority grace window on it.
 # pf-adversary (this round) measured what a label without it costs, and it is
@@ -154,19 +172,37 @@ WARP_ACTION_LABEL = "LANE_GM_CHAT_WARP_TELEPORT_FORCE_POS"
 # line from the serve loop) -- pf-adversary's defect 15.  Printed only for a
 # line that passed the allowlist, so an ordinary player's chat never reaches
 # it and the console does not fill with one line per player per sentence.
-CONSOLE_TOKEN = "LANE_GM_CHAT_COMMAND"
+CONSOLE_TOKEN = "LANE_GM_CHAT_ACTION"
 
-EVENT_ACCEPTED_PREFIX = "gm_chat_command_accepted_"
-EVENT_REFUSED_PREFIX = "gm_chat_command_refused_"
-EVENT_NO_WIRE_PATH_PREFIX = "gm_chat_command_no_wire_path_"
-EVENT_BAD_SESSION_PREFIX = "gm_chat_command_bad_session_"
-EVENT_BAD_PAYLOAD_PREFIX = "gm_chat_command_bad_payload_"
+# Every event this route emits is namespaced `gm_chat_action_`, and the live
+# hook route keeps the `gm_chat_command_` names it has always had.  The
+# direction of that rename is the whole point and is not a style choice:
+# chief's `tests/test_gm_chat_command_dispatch_wiring.py` on main pins
+# `gm_chat_command_accepted_warp` and `gm_chat_command_refused_*` as literals
+# against the LIVE hook, and GT-127's headless drill greps the console for
+# them.  Renaming the live route to disambiguate would have broken both --
+# which is exactly what round `gr2q9j` tried to do and why the fix belongs on
+# the dormant side.
+#
+# What the two namespaces buy, if a future commit ever wires both call sites
+# at once: pf-adversary measured that with shared names one typed
+# `/warp 2 100 200` produced two byte-identical ndjson rows at the same
+# second-granularity timestamp -- indistinguishable from a GM typing the same
+# command twice -- and two identical event lines, while silently charging the
+# rate limit twice and halving the GM's real command budget.  Distinct
+# prefixes cannot PREVENT a double-wire; they make one legible the first time
+# anyone reads the event trail, instead of looking like normal operation.
+EVENT_ACCEPTED_PREFIX = "gm_chat_action_accepted_"
+EVENT_REFUSED_PREFIX = "gm_chat_action_refused_"
+EVENT_NO_WIRE_PATH_PREFIX = "gm_chat_action_no_wire_path_"
+EVENT_BAD_SESSION_PREFIX = "gm_chat_action_bad_session_"
+EVENT_BAD_PAYLOAD_PREFIX = "gm_chat_action_bad_payload_"
 EVENT_WARP_WITHHELD_NO_VERSION = (
-    "gm_chat_warp_withheld_no_confirmed_force_pos_vital_version_re129_open"
+    "gm_chat_action_warp_withheld_no_confirmed_force_pos_vital_version_re129_open"
 )
-EVENT_WARP_NO_POSITION = "gm_chat_warp_no_current_position"
-EVENT_WARP_REFUSED_PREFIX = "gm_chat_warp_refused_"
-EVENT_UNEXPECTED_PREFIX = "gm_chat_command_unexpected_"
+EVENT_WARP_NO_POSITION = "gm_chat_action_warp_no_current_position"
+EVENT_WARP_REFUSED_PREFIX = "gm_chat_action_warp_refused_"
+EVENT_UNEXPECTED_PREFIX = "gm_chat_action_unexpected_"
 
 
 def _note(session: object, event: str) -> None:
@@ -257,7 +293,18 @@ def _make_action(
     _note(session, f"{EVENT_ACCEPTED_PREFIX}{command.name}")
     # WIRED-v2 evidence, on the production path, for an authorized command
     # only.  See CONSOLE_TOKEN's own comment.
-    print(f"{CONSOLE_TOKEN} {command.name} route=action")
+    #
+    # !! STDERR, NOT STDOUT, AND THAT IS NOT A STYLE CHOICE.
+    # `lane_hooks/__init__.py` (lines 117-123) records the incident this
+    # would otherwise repeat verbatim: when its own console token went to
+    # stdout, `tools/pf_runtimeres_death_headless_replay.py --json` gained a
+    # stray token line inside its JSON artifact, because that tool's
+    # scenario-off control dispatches a chat frame.  Its fix was
+    # `file=sys.stderr` (lane_hooks/__init__.py:161).  This route sits on the
+    # same 0xAC52 branch, which every client sends freely, so it inherits the
+    # same exposure the moment CORE-REQUEST-GM-029 is wired -- found by
+    # pf-adversary in round `vvxkft` before that wiring exists, not after.
+    print(f"{CONSOLE_TOKEN} {command.name} route=action", file=sys.stderr)
 
     if command.name != "warp":
         # Parsed and audited, but this lane has no proven server->client

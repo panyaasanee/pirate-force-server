@@ -26,6 +26,8 @@ SEND half, which is the one that decides whether anything happens on screen:
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import struct
@@ -456,18 +458,27 @@ class EventNameContractTests(_Case):
     """
 
     EXPECTED = {
-        "EVENT_ACCEPTED_PREFIX": "gm_chat_command_accepted_",
-        "EVENT_REFUSED_PREFIX": "gm_chat_command_refused_",
-        "EVENT_NO_WIRE_PATH_PREFIX": "gm_chat_command_no_wire_path_",
-        "EVENT_BAD_SESSION_PREFIX": "gm_chat_command_bad_session_",
-        "EVENT_BAD_PAYLOAD_PREFIX": "gm_chat_command_bad_payload_",
-        "EVENT_WARP_NO_POSITION": "gm_chat_warp_no_current_position",
-        "EVENT_WARP_REFUSED_PREFIX": "gm_chat_warp_refused_",
-        "EVENT_UNEXPECTED_PREFIX": "gm_chat_command_unexpected_",
+        "EVENT_ACCEPTED_PREFIX": "gm_chat_action_accepted_",
+        "EVENT_REFUSED_PREFIX": "gm_chat_action_refused_",
+        "EVENT_NO_WIRE_PATH_PREFIX": "gm_chat_action_no_wire_path_",
+        "EVENT_BAD_SESSION_PREFIX": "gm_chat_action_bad_session_",
+        "EVENT_BAD_PAYLOAD_PREFIX": "gm_chat_action_bad_payload_",
+        "EVENT_WARP_NO_POSITION": "gm_chat_action_warp_no_current_position",
+        "EVENT_WARP_REFUSED_PREFIX": "gm_chat_action_warp_refused_",
+        "EVENT_UNEXPECTED_PREFIX": "gm_chat_action_unexpected_",
         "EVENT_WARP_WITHHELD_NO_VERSION": (
-            "gm_chat_warp_withheld_no_confirmed_force_pos_vital_version_re129_open"
+            "gm_chat_action_warp_withheld_no_confirmed_force_pos_vital_"
+            "version_re129_open"
         ),
     }
+
+    # The live hook route's names, pinned here as text for the disjointness
+    # test below. These are not this lane's to change any more: chief pins the
+    # same two literals against the wired call site in
+    # tests/test_gm_chat_command_dispatch_wiring.py, and GT-127's headless
+    # drill greps the console for them.
+    LIVE_HOOK_ACCEPTED_PREFIX = "gm_chat_command_accepted_"
+    LIVE_HOOK_REFUSED_PREFIX = "gm_chat_command_refused_"
 
     def test_every_event_name_is_the_literal_string_it_has_always_been(self):
         for name, literal in self.EXPECTED.items():
@@ -482,23 +493,179 @@ class EventNameContractTests(_Case):
             with self.subTest(name=name):
                 self.assertEqual(value, value.encode("ascii").decode())
 
-    def test_this_route_and_the_hook_route_never_share_an_event_name(self):
-        # Exactly one of the two may be wired at the 0xAC52 branch. If both
-        # were, identical event names would make the double-wire look like
-        # normal operation -- one typed command producing two audit rows and
-        # two rate-limit charges, indistinguishable from a GM typing twice.
+    def test_the_live_hook_route_still_emits_the_names_pinned_above(self):
+        # LIVE_HOOK_*_PREFIX is a claim about a module this lane no longer
+        # edits: if chief ever renames the wired route's events, the
+        # disjointness test below would otherwise keep passing against a
+        # string nothing emits any more.
+        #
+        # The first version of this test read inspect.getsource() and did an
+        # `assertIn` on the TEXT. pf-adversary killed it: renaming the hook's
+        # emitted literals while leaving `# was gm_chat_command_accepted_` in
+        # a trailing comment kept it green while chief's own tests went red --
+        # so it asserted "the string appears somewhere in the file", not "the
+        # route emits it". Drive the hook and read what actually lands on
+        # session.events instead.
         from pirateforce_foundation.lane_hooks import lane_gm_chat_command
 
+        gm = FakeSession(self.GM_ACCOUNT, FakePosition())
+        player = FakeSession(self.PLAYER_ACCOUNT, FakePosition())
+        with mock.patch.dict(
+            os.environ, {"PF_GM_ACCOUNTS_CONFIG": str(self.config_path)}
+        ):
+            lane_gm_chat_command._on_chat_local_talk(
+                gm, make_chat_payload("/warp 2")
+            )
+            lane_gm_chat_command._on_chat_local_talk(
+                player, make_chat_payload("/warp 2")
+            )
+
+        self.assertEqual(len(gm.events), 1, gm.events)
+        self.assertTrue(
+            gm.events[0].startswith(self.LIVE_HOOK_ACCEPTED_PREFIX),
+            "the live hook emitted %r; this file pins %r as the accepted "
+            "prefix and the disjointness test below depends on it"
+            % (gm.events[0], self.LIVE_HOOK_ACCEPTED_PREFIX),
+        )
+        self.assertEqual(len(player.events), 1, player.events)
+        self.assertTrue(
+            player.events[0].startswith(self.LIVE_HOOK_REFUSED_PREFIX),
+            "the live hook emitted %r; this file pins %r as the refused prefix"
+            % (player.events[0], self.LIVE_HOOK_REFUSED_PREFIX),
+        )
+
+    def test_this_route_and_the_hook_route_never_share_an_event_name(self):
+        # Exactly one of the two may be wired at the 0xAC52 branch, and since
+        # CORE-REQUEST-GM-028 landed (runtime.py:4784) the wired one is the
+        # hook. If a later commit wired both, identical event names would make
+        # the double-wire look like normal operation -- one typed command
+        # producing two audit rows and two rate-limit charges, indistinguish-
+        # able from a GM typing twice. Distinct namespaces do not prevent
+        # that; they make it legible the first time anyone reads the trail.
         for ours, theirs in (
             (chat_command_action.EVENT_ACCEPTED_PREFIX,
-             lane_gm_chat_command.HOOK_EVENT_ACCEPTED_PREFIX),
+             self.LIVE_HOOK_ACCEPTED_PREFIX),
             (chat_command_action.EVENT_REFUSED_PREFIX,
-             lane_gm_chat_command.HOOK_EVENT_REFUSED_PREFIX),
+             self.LIVE_HOOK_REFUSED_PREFIX),
         ):
             with self.subTest(ours=ours):
                 self.assertNotEqual(ours, theirs)
                 self.assertFalse(theirs.startswith(ours))
                 self.assertFalse(ours.startswith(theirs))
+
+
+class ConsoleTokenTests(_Case):
+    """The console token, which had no test at all until round `vvxkft`.
+
+    pf-adversary measured the gap: deleting the `print` outright, and renaming
+    `CONSOLE_TOKEN` to `zzz_LANE_HOOK_FIRED`, both left the suite green. The
+    token is WIRED-v2 evidence -- the project's rule is that a lane counts as
+    wired when it EMITS on the production path, not when it imports -- so an
+    untested token means a correctly wired call site and a call site chief
+    never wrote produce identical console output for as long as RE-129 keeps
+    the version gate shut. Three properties, each pinned separately: the
+    literal, the stream, and that it is emitted at all.
+    """
+
+    def emit_one_accepted_command(self):
+        session = FakeSession(self.GM_ACCOUNT, FakePosition())
+        err, out = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(out):
+            self.act(session, "/lv 30")
+        return out.getvalue(), err.getvalue()
+
+    def test_the_token_is_the_literal_string_it_has_always_been(self):
+        self.assertEqual(
+            chat_command_action.CONSOLE_TOKEN, "LANE_GM_CHAT_ACTION"
+        )
+
+    def test_the_token_is_ascii_for_the_cp874_bridge_console(self):
+        value = chat_command_action.CONSOLE_TOKEN
+        self.assertEqual(value, value.encode("ascii").decode())
+
+    def test_it_differs_from_the_lane_hooks_token(self):
+        # Both routes sit on the same 0xAC52 branch. A shared token would make
+        # a double-wire look like one route firing twice.
+        self.assertNotEqual(chat_command_action.CONSOLE_TOKEN, "LANE_HOOK_FIRED")
+
+    def test_an_authorized_command_emits_the_token(self):
+        out, err = self.emit_one_accepted_command()
+        self.assertIn("LANE_GM_CHAT_ACTION", out + err)
+        self.assertIn("route=action", out + err)
+
+    def test_the_token_goes_to_stderr_and_never_to_stdout(self):
+        # !! This is a regression test for a bug lane_hooks ALREADY paid for.
+        # lane_hooks/__init__.py:117-123 records it: its own console token
+        # went to stdout and immediately leaked one line into the JSON
+        # artifact of tools/pf_runtimeres_death_headless_replay.py --json,
+        # because that tool's scenario-off control dispatches a chat frame.
+        # Its fix was file=sys.stderr. This route sits on the same branch,
+        # which every client sends freely, so the moment
+        # CORE-REQUEST-GM-029 is wired it inherits the identical exposure --
+        # a stray token in the middle of a JSON document a consumer parses.
+        out, err = self.emit_one_accepted_command()
+        self.assertIn("LANE_GM_CHAT_ACTION", err)
+        self.assertEqual(out, "")
+
+    def test_an_ordinary_players_chat_never_reaches_the_console(self):
+        # The token must not turn into one console line per player per
+        # sentence: the identity check comes first, so a non-GM prints nothing.
+        session = FakeSession(self.PLAYER_ACCOUNT, FakePosition())
+        err, out = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(out):
+            self.act(session, "/warp 2")
+        self.assertEqual(out.getvalue(), "")
+        self.assertNotIn("LANE_GM_CHAT_ACTION", err.getvalue())
+
+
+class OneOfTwoWiringTests(_Case):
+    """Nothing in this repository could see a double-wire and refuse. Now it can.
+
+    pf-adversary (round `vvxkft`) put the question the design had dodged:
+    every artefact meant to protect the one-of-two invariant -- two event
+    namespaces, the disjointness test, the console token -- makes a
+    double-wire LEGIBLE, and each says in its own comment that it cannot
+    PREVENT one. The invariant was held by a sentence in a request letter,
+    and the last time this lane relied on chief reading a request letter,
+    chief shipped the other half first and a whole round went to recovering
+    from it.
+
+    This test is the thing that acts instead of reporting. It reads the real
+    runtime.py and refuses the state where both call sites exist at once.
+    """
+
+    RUNTIME = ROOT / "src/pirateforce_foundation/runtime.py"
+    FIRE_POINT = '"vital_inbound_chat_local_talk"'
+    ACTION_CALL = "make_gm_chat_command_action"
+
+    def runtime_source(self):
+        return self.RUNTIME.read_text(encoding="utf-8")
+
+    def test_runtime_never_carries_both_call_sites_at_once(self):
+        source = self.runtime_source()
+        fired = self.FIRE_POINT in source
+        called = self.ACTION_CALL in source
+        self.assertFalse(
+            fired and called,
+            "runtime.py wires BOTH the GM-028 fire() point and the GM-029 "
+            "action call at the 0xAC52 branch. CORE-REQUEST-GM-029 asks for "
+            "a REPLACEMENT in one commit, not an addition: with both, every "
+            "GM chat line is authorized twice, written to the ndjson audit "
+            "log twice for one typed line, and charged twice against the "
+            "rate limit -- the second charge being the one that silently "
+            "starts refusing real commands. Delete the fire() call in the "
+            "same commit that adds the action call.",
+        )
+
+    def test_exactly_one_of_the_two_is_wired_and_the_module_knows_which(self):
+        # Not just "never both" -- "never neither" would silently mean the
+        # chat door closed entirely. One of the two must be there.
+        source = self.runtime_source()
+        self.assertTrue(
+            self.FIRE_POINT in source or self.ACTION_CALL in source,
+            "runtime.py wires NEITHER route at the 0xAC52 branch. GT-127's "
+            "gate 2 greps for the fire() point and would report BLOCKED.",
+        )
 
 
 class DeadGuardTests(_Case):

@@ -1658,6 +1658,17 @@ nonclaim: ไม่มีคำสั่ง GM ใดมีผลในเกม
 `make_gm_chat_command_action(session, payload, legacy)`, returning a
 `(label, pc, frame, delay_before)` action or `None`.
 
+> **แก้ในรอบ `vvxkft` (ขีดฆ่า ไม่ลบ):** ประโยค "this round found that out
+> before chief acted on it" ~~ผิด~~ — chief ต่อสาย GM-028 ลง main แล้ว
+> (`runtime.py:4784`, PR #201 merge `d139f12`, จดหมาย
+> `20260828_1845_CHIEF-REPLY-CORE-REQUEST-GM-028-chat-point-wired.md`) ก่อนที่ PR
+> ของรอบ `gr2q9j` จะได้ merge — PR #200 ถูกปิดอัตโนมัติเพราะ gate แดง
+> (Actions run 33168539342: !! U+1F534 ห้าตัวในคอมเมนต์ ไม่ผ่าน cp874 tripwire)
+> จึงเป็น **เส้นทาง hook ที่ live ตอนนี้** และโมดูลใน section นี้ยัง dormant
+> ไม่มีอะไรเรียกมัน · GM-029 จึงไม่ใช่ "เพิ่มจุดเรียก" อีกต่อไป แต่เป็น
+> "**แทนที่** บรรทัด `fire()` ด้วยการเรียกที่คืน action ในคอมมิตเดียว"
+> รายละเอียดในหัวข้อรอบ `vvxkft` ท้ายไฟล์
+
 WHY IT EXISTS: `CORE-REQUEST-GM-028` (previous round) asked chief for a
 `lane_hooks.fire()` point at the `0xAC52` chat branch.  That request could
 never have moved a character on screen, and this round found that out before
@@ -1672,7 +1683,7 @@ would have unblocked `GT-127` (decided on the ndjson audit log, which is
 what that entry honestly claims to decide) and nothing else, forever.
 `CORE-REQUEST-GM-029` replaces it with one action-returning call site, the
 same shape `gm_state_action` (CORE-REQUEST-006) already uses at
-`runtime.py:5122`/`5331`.  🔴 Exactly one of the two may be wired: both at
+`runtime.py:5122`/`5331`.  !! Exactly one of the two may be wired: both at
 the same branch would authorize every GM chat line twice, write two ndjson
 rows for one typed line, and charge the rate limit twice.
 
@@ -1690,13 +1701,30 @@ the vital by id, connection halted, socket closed by the client itself.
 `RE-129` asks for the one byte, by exactly RE-105's method.  Until it
 answers, a valid `/warp` from a real GM is refused by name
 (`gm_chat_warp_withheld_no_confirmed_force_pos_vital_version_re129_open`),
-the same shape `runtime.py:5107` already gates the login GM-state frame with.
+the same shape `runtime.py:5168`/`5173` already gates the login GM-state
+frame with (line pins re-derived at HEAD in round `vvxkft`; chief's merged
+hook block shifted everything after `runtime.py:4729` by ~60 lines).
 
 ANSWERED THIS ROUND, from source, closing GM-028's own open blocker (b): a
-GM's `/warp 2` cannot leak to other players as ordinary chat.  Every
+GM's `/warp 2` cannot leak to other players as ordinary chat.  ~~Every
 `CHAT_INPUT_VITAL_ID` branch in `runtime.py` (14 of them, lines 4591-4720) is
 gated on `<name>_hypothesis_scenario is not None`, so on a flagless boot the
-frame falls through to `super().dispatch(parsed)`, and the legacy dispatcher
+frame falls through to `super().dispatch(parsed)`~~
+
+> **แก้รอบ `vvxkft` (pf-adversary จับได้ — ขีดฆ่า ไม่ลบ):** ประโยคที่ขีดฆ่าไว้ **ผิดสองข้อ**
+> ที่ HEAD ปัจจุบัน (re-derive แล้ว): (1) สาขา `nested_id == CHAT_INPUT_VITAL_ID` มี **16**
+> ไม่ใช่ 14 (2) และข้อที่สำคัญกว่า — **ไม่ใช่ทุกสาขาที่ gate ด้วย scenario** อีกต่อไป
+> สาขาที่ chief เพิ่งเพิ่มตาม GM-028 (`runtime.py:4729-4732`) มีเงื่อนไขแค่
+> `nested_id == CHAT_INPUT_VITAL_ID and self.foundation.selected is not None`
+> พร้อมคอมเมนต์ `# CORE-REQUEST-GM-028 (LANE-GM). No scenario flag` ⇒ **บนบูตไร้แฟล็ก
+> ที่เลือกตัวละครแล้ว เฟรมแชท "ไม่ได้" falls through อีกต่อไป** มันถึง `lane_hooks.fire`
+> และเพิ่ม refusal event หนึ่งบรรทัดต่อหนึ่งบรรทัดแชทของผู้เล่นทุกคน (ตั้งใจ ไม่ใช่บั๊ก —
+> เป็นเส้นทางที่ GM-028 ขอเอง และ event ไม่พก sentence ที่ผู้เล่นพิมพ์)
+> ข้อสรุป "warp ของ GM ไม่รั่วไปหาผู้เล่นอื่น" **ยังจริงอยู่** แต่ยืนบนสองชั้นที่เหลือ
+> (hook ไม่คืนค่าและไม่ส่งไบต์ · เซิร์ฟเวอร์ไม่มี broadcast machinery เลย) **ไม่ใช่**
+> บนวิธีพิสูจน์ที่เขียนไว้ข้างบน ซึ่งซอร์สวันนี้บอกตรงข้าม
+
+ส่วนที่เหลือของข้อพิสูจน์เดิมยัง re-derive ได้ตามเดิม: และ the legacy dispatcher
 has no `0xAC52` branch at all (`grep -n "0xAC52\|44114\|CHAT_INPUT\|LocalTalk\|broadcast"`
 on `current/pf_login_game_server_v141.py` = 0 rows; it is an if/elif chain
 keyed by `nested_id`, so an unknown id produces no outbound bytes).  Second
@@ -1821,3 +1849,53 @@ repo-wide `pytest tests/` see the round file.  Mutation-checked, not merely
 run: the version gate, the label substring, the identity check, the event
 literals, the position guards and the exception-text leak each fail the suite
 when removed.
+
+## Modules delivered (round `vvxkft`, recovery of the gate-RED round + cp874 tripwire)
+
+รอบนี้ไม่มีของใหม่ที่ผู้เล่นเห็น — เป็นรอบกู้ของ เพราะ PR ของรอบ `gr2q9j`
+(`pirate-force-server#200`) **ไม่ได้ merge**: `.github/workflows/merge-claude-pr.yml`
+ปิดให้อัตโนมัติเพราะ job `gate` แดง (Actions run 33168539342, commit `b262be7`)
+branch `claude/sleepy-sagan-gr2q9j` ยังอยู่ครบตามที่ workflow บอก
+
+**เหตุที่แดง มีสองข้อ ไม่ใช่ข้อเดียว** — ข้อแรกคือข้อที่ workflow รายงาน
+ข้อที่สองรอบนี้เจอเองก่อน push:
+
+1. **cp874 static tripwire (เหตุที่ทำให้ปิด PR จริง).** `U+1F534` (!!) ห้าตัว
+   ในคอมเมนต์ — สี่ตัวใน `gm/chat_command_action.py` สามตัว/บรรทัด 36 56 66 131
+   และหนึ่งตัวใน `lane_hooks/lane_gm_chat_command.py` บรรทัด 50 ตัวอักษรนี้
+   **ไม่มี mapping ใน cp874** จึงไม่กลาย `?` แต่ยก `UnicodeEncodeError`
+   กลางคำสั่ง `print()` บนคอนโซลสะพาน กติกา "โค้ดเป็น ASCII อังกฤษ" ของสายนี้ (อยู่ในใบตั้งสายบนสะพาน ไม่ได้อยู่ในรีโปนี้ —
+   pf-adversary ชี้ว่าประโยคเดิมอ้างว่า "มีมาตั้งแต่ใบตั้งสาย" โดยไม่มีอะไรให้ผู้อ่านเปิดดูได้)
+   มีอยู่แล้วตั้งแต่ใบตั้งสาย — รอบ `gr2q9j` ละเมิดเอง แล้วเสียทั้งรอบไปกับมัน
+   แก้: เปลี่ยนเป็นมาร์กเกอร์ ASCII `!!`
+2. **การเปลี่ยนชื่อ event ของเส้นทางที่ live อยู่ (ยังไม่เคยแดง เพราะ gate ตาย
+   ที่ข้อ 1 ก่อน).** รอบ `gr2q9j` เปลี่ยนชื่อ event ของ hook จาก
+   `gm_chat_command_*` เป็น `gm_chat_hook_command_*` เพื่อกันชนกับโมดูลใหม่
+   แต่ระหว่างนั้น chief merge PR #201 ซึ่ง **หมุดชื่อเดิมไว้เป็น literal** ใน
+   `tests/test_gm_chat_command_dispatch_wiring.py` บน main และด่าน headless ของ
+   GT-127 grep ชื่อเดิม ⇒ cherry-pick ตรง ๆ จะแดงซ้ำที่เทสของ chief
+   แก้: **เปลี่ยนชื่อฝั่ง dormant แทน** เส้นทางที่ live ไม่ถูกแตะแม้แต่ไบต์เดียว
+   (`gm_chat_action_*` สำหรับโมดูลนี้ · `LANE_GM_CHAT_ACTION` เป็น console token)
+   หลักคิดที่เขียนไว้ในโค้ดด้วย: เส้นทางที่ยังไม่มีใครเรียก เปลี่ยนชื่อฟรี
+   เส้นทางที่ live ไม่ฟรี
+
+`tests/test_gm_source_is_cp874_safe.py` (ใหม่) — ด่านที่ทำให้ข้อ 1 เกิดซ้ำไม่ได้
+tripwire ตัวจริงรันเฉพาะบน Windows ใน Actions **หลัง** PR เปิดแล้ว ซึ่งตอนนั้น
+ตัวปิด PR อัตโนมัติทำงานไปแล้ว ใบนี้ทำการทดสอบเดียวกัน (`str.encode("cp874")`
+บนไฟล์ชุดเดียวกัน) ในชุดเทสที่สายนี้รันได้ **ก่อน** push
+ขอบเขต = เขตเขียนของสายนี้เท่านั้น (`gm/**` + `lane_hooks/lane_gm_*.py`)
+ไม่ใช่ทั้ง repo เพราะไฟล์ของสายอื่นแดงที่นี่ = ความล้มเหลวที่สายนี้แก้ไม่ได้
+และจะสอนให้ทุกคนมองข้ามใบนี้ · ไม่ได้ทดสอบว่า "เป็น ASCII" — คอมเมนต์ไทย
+encode cp874 ผ่านและได้รับอนุญาตตามกติกาบ้าน สิ่งที่ทดสอบคือสิ่งที่คอนโซลทำจริง
+มีเทสกันลิสต์ไฟล์ว่างด้วย (ลูปบนศูนย์ไฟล์ = เขียวปลอม)
+
+**สถานะเส้นทางแชท หลังรอบนี้:** เส้นทาง `fire()` (GM-028) live บน main แล้ว
+อ่านคำสั่ง GM จากกล่องแชทได้จริงและเขียน ndjson audit ได้ — แต่ **ส่งไบต์ไม่ได้**
+ตามสัญญาของ `fire()` เอง · โมดูล `chat_command_action.py` (GM-029) recover แล้ว
+แต่ dormant · `FORCE_POS_VITAL_VERSION_CONFIRMED` ยังเป็น `None` (RE-129 เปิดอยู่)
+⇒ ต่อให้ chief wire GM-029 พรุ่งนี้ ก็ยังไม่มีไบต์ ForcePos ออกจนกว่า RE-129 ตอบ
+
+nonclaim ของรอบ: **[ไม่อ้าง]** ว่ารอบนี้ทำให้ผู้เทสทำอะไรได้เพิ่ม — เป็นรอบกู้ของ
+ล้วน ๆ · **[ไม่อ้าง]** ว่าเส้นทางแชท→warp ใช้กับ client จริงได้ (GT-127/GT-128)
+· **GM nonclaim:** ทุกอย่างในสายนี้เป็นเครื่องมือไปให้ถึงสภาพที่จะเทส ไม่ใช่
+หลักฐานว่าฟีเจอร์ใดทำงาน
