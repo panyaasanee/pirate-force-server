@@ -286,7 +286,17 @@ def log_gm_command(
     # own directory). 0o700 has no group/other bits, so no umask can add any
     # back regardless of this project's own default (0o022) or a permissive
     # one (0o000).
+    #
+    # pf-adversary (verification pass, same round): `mkdir(..., exist_ok=True)`
+    # never chmods a directory that already exists. This function's own
+    # `DEFAULT_LOG_PATH` and command_capture.py's `DEFAULT_CAPTURE_ROOT`
+    # share the literal parent directory `capture/`, which `.gitignore`
+    # documents as never cleaned up -- whichever of the two functions runs
+    # first on a real host creates that shared parent at whatever mode the
+    # umask in effect at that one moment left it, and it would otherwise
+    # stay there forever. `os.chmod` re-asserts 0o700 on every call.
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(path.parent, 0o700)
     # Explicit mode=0o600, same fix and same rationale as
     # capture_raw_gm_command's os.open() call in gm/command_capture.py: the
     # builtin open("a") this line used to call creates a new file at the
