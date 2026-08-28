@@ -253,6 +253,47 @@ class SceneRegistryTests(unittest.TestCase):
             stage["ground"]["placements_tsv_sha256"],
             "4f09dfeaa5b75d65a09009fe0ad58b01a4e6644e1f2eb64b55af3d7e7c4a0f02",
         )
+        # Round uajlve, from a pf-adversary finding: scene 17's two hashes
+        # were pinned in round kqrlhr and asserted NOWHERE, and its ground
+        # source was missing from reverify_on_the_bridge as well - so both
+        # halves of the crosswalk this test exists to protect were open for
+        # scene 17 while being closed for 278.  Re-hashed on the bridge tree
+        # this round and matched; asserted here so the next silent edit is
+        # caught the same way 278's would be.
+        sea = [row for row in raw["destinations"] if row["n_id"] == 17][0]
+        self.assertEqual(
+            sea["native_sha256"],
+            "da5c560af6c483490a041f0605a1b0cfe047a7ee00e515de07567d0c1247e821",
+        )
+        self.assertEqual(
+            sea["ground"]["placements_tsv_sha256"],
+            "5e4de48707a87061d9a95471a1c3c25c56f0469fe2ece7ef0709a9c79f40fec7",
+        )
+        self.assertIn("Bg1001", raw["provenance"]["reverify_on_the_bridge"])
+
+    def test_the_pin_does_not_claim_to_be_unread_by_the_runtime(self):
+        """Round uajlve, pf-adversary finding.
+
+        This file's own ``not_a_scenario`` and its last ``nonclaims`` line
+        both said no runtime path reads it.  That was true when they were
+        written and false at HEAD: runtime.py loads this registry at startup
+        and asks it whether a character's position may be persisted, and
+        ``login_entry_allowed``/``persist_position_allowed`` are enforced
+        from it.  A reader who believed those sentences would read a live
+        safety interlock as an inert note - which is the failure this test
+        pins, not the wording.
+        """
+        raw = _raw()
+        stale = "no runtime path reads it until"
+        self.assertIn(stale, raw["not_a_scenario"])
+        # Struck, not deleted - and the correction has to travel with it.
+        self.assertIn("~~", raw["not_a_scenario"])
+        self.assertIn("runtime.py:520", raw["not_a_scenario"])
+        self.assertTrue(
+            any("~~" in claim and "no runtime path reads it yet" in claim
+                for claim in raw["nonclaims"]),
+            "the nonclaim that this file is unread must stay struck",
+        )
 
     def test_the_pin_file_is_pure_ascii(self):
         # The bridge console is cp874; a scene name in its source glyphs would
