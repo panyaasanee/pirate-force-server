@@ -170,6 +170,101 @@ class SourceDigestTests(unittest.TestCase):
         )
 
 
+class MirageReelRe123GuardTests(unittest.TestCase):
+    """RE-123 RESULT (2026-08-28T09:13+07:00) identified the "Mirage reel"
+    quest NPC the owner reported missing from Prison Exile as MOBS/TIP
+    n_id=230, but closed BUILD_IMPACT_NONE / hard guard: no authoritative XYZ
+    and no lifecycle/visibility policy exist in the static corpus, so n_id 230
+    must NOT be added to KNOWN_PLACEMENTS (no placement row exists for it in
+    Bg0002.placements.tsv) and must NOT borrow Mo Yuzi's (n_id 39) coordinates.
+    These tests turn that hard guard into something that goes red instead of
+    being a comment someone can miss, exactly as RE-122's guard did for stat
+    fabrication.
+    """
+
+    MIRAGE_REEL_N_ID = 230
+
+    def test_mirage_reel_n_id_is_not_a_known_placement(self):
+        known_n_ids = {row[2] for row in tables.KNOWN_PLACEMENTS}
+        self.assertNotIn(self.MIRAGE_REEL_N_ID, known_n_ids)
+
+    def test_mirage_reel_n_id_is_not_an_unresolved_placement_either(self):
+        # RE-123 found no placement row (known or unresolved) for 230 at all
+        # in Bg0002.placements.tsv -- it is not "unresolved", it is simply
+        # absent from the placement table entirely (server-owned quest NPC).
+        unresolved_n_ids = {row[1] for row in tables.UNRESOLVED_PLACEMENTS}
+        self.assertNotIn(self.MIRAGE_REEL_N_ID, unresolved_n_ids)
+
+    def test_known_placement_loader_rejects_n_id_230_out_of_range(self):
+        """Proves the ACTUAL mechanism: n_id-range validation (1..41), not
+        the unrelated KNOWN_PLACEMENTS-count-drift check.  Adversary review
+        (round z851j4) found the first version of this test only ever
+        exercised the count-drift guard, which fires before the per-row
+        n_id check is reached and masks it -- reproducible with any
+        out-of-range n_id (including 42 or 1), not specific to 230.  This
+        version bumps KNOWN_COUNT/TOTAL_PLACEMENT_COUNT to match the
+        appended row so the count-drift check does not short-circuit, then
+        asserts the raised error message is specifically the n_id
+        rejection (not just any Scene2TableError).
+        """
+        original_known = tables.KNOWN_PLACEMENTS
+        original_count = tables.KNOWN_COUNT
+        original_total = tables.TOTAL_PLACEMENT_COUNT
+        try:
+            fake_row = (
+                tables.TOTAL_PLACEMENT_COUNT, 1, self.MIRAGE_REEL_N_ID,
+                0.0, 0.0, 0.0, 'M015_000_000_SP2', False, 'Mirage reel', '',
+                20, 20, 0, 2, 0, 150, 1771, 0, 0, 0,
+            )
+            tables.KNOWN_PLACEMENTS = original_known + [fake_row]
+            tables.KNOWN_COUNT = original_count + 1
+            tables.TOTAL_PLACEMENT_COUNT = original_total + 1
+            with self.assertRaises(tables.Scene2TableError) as ctx:
+                tables.load_known_placements()
+            message = str(ctx.exception)
+            self.assertIn("n_id", message)
+            self.assertIn("[1,41]", message)
+        finally:
+            tables.KNOWN_PLACEMENTS = original_known
+            tables.KNOWN_COUNT = original_count
+            tables.TOTAL_PLACEMENT_COUNT = original_total
+
+    def test_loader_rejects_n_id_230_even_when_baited_with_mo_yuzis_coordinates(self):
+        """Adversary review (round z851j4) found the original coordinate-
+        reuse test looped over KNOWN_PLACEMENTS for an n_id 230 row that
+        never exists there (230 cannot be a known row -- see the test
+        above), so its assertNotEqual line never executed: a vacuous pass
+        that protected nothing beyond the tests above it. This replaces it
+        with a real experiment: try to smuggle n_id 230 in using Mo Yuzi's
+        (n_id 39) EXACT coordinates as bait -- the specific fabrication
+        RE-123's nonclaims section forbids -- and confirm the loader's
+        n_id-range guard rejects it anyway, coordinates notwithstanding.
+        """
+        mo_yuzi_rows = [row for row in tables.KNOWN_PLACEMENTS if row[2] == 39]
+        self.assertEqual(len(mo_yuzi_rows), 1)
+        mo_yuzi_x, mo_yuzi_y, mo_yuzi_z = mo_yuzi_rows[0][3:6]
+
+        original_known = tables.KNOWN_PLACEMENTS
+        original_count = tables.KNOWN_COUNT
+        original_total = tables.TOTAL_PLACEMENT_COUNT
+        try:
+            fake_row = (
+                tables.TOTAL_PLACEMENT_COUNT, 1, self.MIRAGE_REEL_N_ID,
+                mo_yuzi_x, mo_yuzi_y, mo_yuzi_z, 'M015_000_000_SP2', False,
+                'Mirage reel', '', 20, 20, 0, 2, 0, 150, 1771, 0, 0, 0,
+            )
+            tables.KNOWN_PLACEMENTS = original_known + [fake_row]
+            tables.KNOWN_COUNT = original_count + 1
+            tables.TOTAL_PLACEMENT_COUNT = original_total + 1
+            with self.assertRaises(tables.Scene2TableError) as ctx:
+                tables.load_known_placements()
+            self.assertIn("n_id", str(ctx.exception))
+        finally:
+            tables.KNOWN_PLACEMENTS = original_known
+            tables.KNOWN_COUNT = original_count
+            tables.TOTAL_PLACEMENT_COUNT = original_total
+
+
 class RefusalTests(unittest.TestCase):
     def test_a_shape_drifted_known_row_is_refused(self):
         import dataclasses
