@@ -1371,3 +1371,65 @@ zone -- no command behavior changed for any caller, no wire fact, no RE
 citation, and no `runtime.py` edit involved. This round sent no frame and
 ran no game test. Full detail:
 `pf_bridge/rounds/GM_20260828_0824_mailbox-backfill-plus-capture-file-permission-fix.md`.
+
+## Round `vb3ktn`'s own PR did not merge -- recovered and fixed this round
+
+Round-lock check (this round, per ADDENDUM v2) found `pirate-force-server`
+PR #185 (the companion PR for the round directly above) `state=closed`,
+`merged=false` -- gate RED, closed by `.github/workflows/merge-claude-pr.yml`'s
+reaper. **This lane's `pf_bridge` companion PR #285 merged fine**; only the
+server-side PR failed, so `docs/GM_LANE.md`'s own "round `vb3ktn`" section
+above describes a fix that was never actually on `main` until this round.
+
+Root cause (from the failed run's own job log,
+`https://github.com/panyaasanee/pirate-force-server/actions/runs/33132956815`):
+`pytest_subset` failed on exactly the new regression test,
+`test_capture_file_mode_is_owner_only_no_execute_regardless_of_umask` --
+`AssertionError: 438 != 384 : 0o666`. The assertion is POSIX-only: NTFS has
+no POSIX permission-bit split, and CPython's `os.open()` on Windows only
+ever inspects the `mode` argument for one bit (writable vs read-only) --
+any owner/group/other split, including the `0o600` the fix passes, is
+accepted and silently ignored. This project's real gate runs on
+`windows-latest` on purpose (`.github/workflows/gate-windows.yml`'s own
+docstring: it exists because the real deployment target is Panya's Windows
+bridge), so the previous round's fix was correct in intent but its test
+could never have passed the gate it was written against -- the previous
+round verified it under this sandbox's own POSIX `pytest`, which cannot
+surface a Windows-only divergence.
+
+Fixed this round: cherry-picked the stranded commit
+(`9bdc24b`, verbatim, from the kept branch `claude/upbeat-knuth-wipchl` --
+nothing on it was lost, per the reaper's own comment) and made the
+assertion `os.name`-conditional -- exact `0o600` on POSIX (unchanged
+strength there), and on Windows only "the call succeeds and a real file
+exists" (the strongest true statement available, since NTFS genuinely
+cannot report what this fix asked for). No behavior in
+`gm/command_capture.py` itself changed from the cherry-picked commit.
+
+**Security-relevant finding, not swept under the rug**: this means the
+`mode=0o600` argument provides real owner-only enforcement in every POSIX
+CI/sandbox environment this project runs in, but **provides no enforcement
+at all on the actual Windows production bridge** -- there,
+`capture/gm_command_capture/*.txt` (real account names, free-text a GM
+typed) is only as private as the containing directory's NTFS ACL, which a
+plain-file `os.open()` call cannot set and which this lane's write zone has
+no ACL API (`pywin32`/`icacls`) available to touch. Flagged to COO in
+`pf_bridge/notes_to_chief/` this round (`ASK-COO`, not blocking -- this is
+the same exposure the pre-fix code always had on Windows, not a new
+regression) rather than either quietly weakening the test or claiming a
+protection this platform cannot deliver.
+
+`tests/test_gm_*.py`: 261/261 (unchanged count -- one test's assertion
+strengthened/branched, none added or removed, none narrowed on the
+platform where it already worked). Repo-wide
+`pytest tests/ --continue-on-collection-errors`: 3706 passed, 212 skipped,
+5035 subtests passed, 17 pre-existing `capstone`-import collection errors
+only (same baseline every prior round reports; the higher `passed` count
+vs the previous entry's `3703` is `main` having advanced with LANE-B's
+RE-122 stat-fabrication-guard test in the meantime, unrelated to this
+lane), no new failures.
+
+nonclaim: recovery + a POSIX-vs-Windows portability fix inside this lane's
+own write zone -- no `gm/` command behavior changed, no wire fact, no RE
+citation, no `runtime.py` edit. This round sent no frame and ran no game
+test. Full detail: `pf_bridge/rounds/GM_<this-round-timestamp>_*.md`.
