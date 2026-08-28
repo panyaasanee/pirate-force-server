@@ -1,1 +1,1 @@
-{"sha":"6b41e91bbedcecb029c7aeb2e97b747eb309409e","conclusion":"failure","event":"push","ref":"refs/heads/claude/sleepy-sagan-gejldf","run_id":"33210211175","utc":"2026-08-28T20:55:00Z"}
+{"sha":"6b41e91bbedcecb029c7aeb2e97b747eb309409e","conclusion":"failure","event":"pull_request","ref":"refs/pull/224/merge","run_id":"33210213750","utc":"2026-08-28T20:55:07Z"}
