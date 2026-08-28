@@ -123,7 +123,10 @@ position.
 AMENDMENT 2026-08-26 (LANE-A, post-GT-078 OWNER-REJECTED / identity).  The
 struck-through claim above stopped being true the moment ``_entry()``
 started passing ``placement.source_name`` as ``basic_name`` (see that
-function).  Rung 3 is now 564/577 bytes, not 504/517: it still uses the
+function).  Rung 3 was 564/577 bytes, not 504/517 (SUPERSEDED 2026-08-28: it
+is 550/563 now, and its membership is (30, 91, <nearest>) rather than
+(0, 30, 91), because P0's Mob-Set number has no shippable identity - see
+``world_port_royal_identity``).  It still uses the
 exact same encoder and the same three frozen members in the same order, but
 P0 and P91 now also carry the names the frozen table always had for them
 (``Navy Transfer``, ``Local people``) and the old shipped default never
@@ -163,6 +166,7 @@ from .population import (
     load_port_royal_placements,
 )
 from . import world_scene_numbering
+from . import world_port_royal_identity
 
 
 # Convention marker only.  Nothing in this tree branches on it; see the module
@@ -201,10 +205,16 @@ COLLECTION_TAG = 0x12
 COUNT_SOURCE_FULL_CENSUS = "full_census"
 COUNT_SOURCE_MEASURED_CEILING = "measured_client_ceiling"
 COUNT_SOURCE_CALLER = "caller_requested"
+# Added 2026-08-28 (LANE-A, RE-128): fewer went out than were asked for because
+# some placements have no shippable identity, not because anyone chose a rung
+# or measured a client ceiling.  Three ways to send fewer than 115, three names
+# for them - a shortfall line that guesses between them is worse than none.
+COUNT_SOURCE_IDENTITY_RESOLVED = "identity_resolved"
 COUNT_SOURCES = (
     COUNT_SOURCE_FULL_CENSUS,
     COUNT_SOURCE_MEASURED_CEILING,
     COUNT_SOURCE_CALLER,
+    COUNT_SOURCE_IDENTITY_RESOLVED,
 )
 
 DEFAULT_HP = 100
@@ -283,21 +293,37 @@ def census_order(
     legacy: Any,
     player_xyz: tuple[float, float, float],
 ) -> tuple[SceneActorPlacement, ...]:
-    """Order the whole census once: pinned control set first, then nearest-first.
+    """Order the census once: pinned control set first, then nearest-first.
 
     The ordering is computed for the whole census and every rung is a prefix of
     it, so rung membership is monotone within one anchor.  ``load_port_royal_
     placements`` has already refused duplicate or missing rows and checked the
     table against its sha256, so this does not re-check the table's shape.
+
+    AMENDMENT 2026-08-28 (LANE-A, RE-128 / CLINE identities).  A placement
+    whose Mob-Set number has no shippable identity
+    (``world_port_royal_identity.UNRESOLVED``: a CLINE leader with no MOBS row,
+    a leader of 0, or a MOBS row with no avatar template) is dropped here
+    rather than sent under the Mob-Set number ``GT-078`` proved wrong.  Seven
+    of the 115 go, including P0 of the pinned control set - which is why the
+    pinned lookup below now tolerates a missing pinned index instead of
+    raising ``KeyError``.  The drop is never silent: ``build_world_population``
+    records it as this generation's count source and the boot line prints
+    ``identity=CLINE:<shipped>,<unresolvable>`` beside the count.
     """
     placements = load_port_royal_placements(legacy)
     pinned = _pinned_indices(legacy)
     x, y, z = _require_anchor(player_xyz)
 
-    # No "is the pinned index present" guard: _pinned_indices has already
-    # refused anything but (0,30,91) and load_port_royal_placements has already
-    # checked the table against its sha256, so their presence is not in doubt.
-    # A guard that cannot fire is decoration, and decoration reads as coverage.
+    placements = tuple(
+        item for item in placements
+        if world_port_royal_identity.resolve(item.template_id) is not None
+    )
+
+    # The "is the pinned index present" guard is real now, not decoration:
+    # _pinned_indices still refuses anything but (0,30,91), but the identity
+    # filter above can and does remove one of them (P0 -> CLINE leader 155,
+    # which has no MOBS row).
     by_index = {item.placement_index: item for item in placements}
     rest = []
     for placement in placements:
@@ -311,22 +337,60 @@ def census_order(
         rest.append((distance2, placement.placement_index, placement))
     rest.sort(key=lambda item: (item[0], item[1]))
 
-    ordered = [by_index[index] for index in pinned]
+    ordered = [by_index[index] for index in pinned if index in by_index]
     ordered.extend(item[2] for item in rest)
     return tuple(ordered)
 
 
+def unshippable_placements(legacy: Any) -> tuple[tuple[int, int, str], ...]:
+    """(placement index, Mob-Set number, why) for every placement dropped.
+
+    Read from the same two sources the census reads, so this cannot drift away
+    from what ``census_order`` actually did: the frozen placement table, and
+    ``world_port_royal_identity``'s refusals.
+    """
+    dropped = []
+    for placement in load_port_royal_placements(legacy):
+        reason = world_port_royal_identity.unresolved_reason(
+            placement.template_id)
+        if reason is not None:
+            dropped.append(
+                (placement.placement_index, placement.template_id, reason))
+    return tuple(dropped)
+
+
 def _entry(legacy: Any, placement: SceneActorPlacement) -> bytes:
-    """Exactly the frozen V134 per-actor shape, for every member of the census."""
+    """Exactly the frozen V134 per-actor shape, for every member of the census.
+
+    AMENDMENT 2026-08-28 (LANE-A, RE-128 / CLINE identities).  The first three
+    fields of a placement that the client turns into a person - the MOBS id,
+    the avatar template and the name label - come from
+    ``world_port_royal_identity`` now, not from the frozen row's Mob-Set number
+    and its Mob-Set-numbered name.  ``make_npc_attr``'s own docstring names its
+    first parameter as "the MOBS/template u16 at +0x78", and a Mob-Set number
+    is not a ``MOBS.n_ID``: that substitution is exactly what ``GT-078`` put on
+    the owner's screen and had rejected, placement by placement.  The hp
+    override for P30 is deliberately NOT touched here - identity and hp are two
+    different measurements, and only identity is what RE-128 answered.
+    """
+    identity = world_port_royal_identity.resolve(placement.template_id)
+    if identity is None:
+        # census_order filters these out, so reaching here means a caller built
+        # a census some other way.  Refuse rather than fall back to the
+        # Mob-Set number: the fallback IS the bug this round removed.
+        raise ValueError(
+            f"placement {placement.placement_index} has no shippable identity: "
+            f"{world_port_royal_identity.unresolved_reason(placement.template_id)}"
+        )
     actor_identity = placement.actor_identity
     is_monster = placement.placement_index == SHIPPED_MONSTER_INDEX
     hp = legacy.V117_P30_EXACT_HP if is_monster else DEFAULT_HP
     npc_attr = legacy.make_npc_attr(
-        placement.template_id,
+        identity.mobs_n_id,
         actor_identity,
         SCENE_ID,
         SCENE_SEQUENCE,
-        placement.visual_preset,
+        identity.outfit,
         current_hp=hp,
         max_hp=hp,
         # AMENDMENT 2026-08-26 (LANE-A, post-GT-078 OWNER-REJECTED / identity).
@@ -341,10 +405,16 @@ def _entry(legacy: Any, placement: SceneActorPlacement) -> bytes:
         # WHICH template_id/visual_preset is sent (that is a placement-
         # identity question RE-077's follow-up owns), only whether the name
         # this table already has for that placement reaches the wire.
-        basic_name=(
-            legacy.V119_P30_TARGET_NAME if is_monster
-            else placement.source_name
-        ),
+        #   SUPERSEDED 2026-08-28 (RE-128): the name now comes from
+        #   MOBS_TIP for the RESOLVED id, so it agrees with the id and the
+        #   avatar in the same entry.  ``V119_P30_TARGET_NAME`` ("Tornado
+        #   Eagle") is no longer sent: it was P30's name under the Mob-Set
+        #   numbering, and P30's Mob-Set 31 resolves to 248 Da Vinci, whom
+        #   the owner filmed standing beside 904 Chalais (P91) - the two
+        #   placements 436 units apart, the 0.1 percentile of this scene.
+        #   n_ID 917 has no MOBS_TIP row at all; it ships with an empty
+        #   name line rather than a borrowed one.
+        basic_name=identity.name,
     )
     movement_attr = legacy.make_remote_movement_attr(
         actor_identity,
@@ -394,8 +464,29 @@ def build_world_population(
         )
     if count_source not in COUNT_SOURCES:
         raise ValueError(f"unknown count source {count_source!r}")
-    count = _require_actor_count(actor_count)
-    ordered = census_order(legacy, player_xyz)[:count]
+    requested = _require_actor_count(actor_count)
+    available = census_order(legacy, player_xyz)
+    ordered = available[:requested]
+    # AMENDMENT 2026-08-28 (LANE-A, RE-128).  The count that goes in the
+    # collection header is what ASSEMBLED, never what was asked for: with the
+    # identity filter in census_order a request for the full 115 yields 108
+    # placements, and telling the client 115 while sending 108 bodies is the
+    # stream-tail misalignment this client answers with ErrorData=28317.
+    count = len(ordered)
+    # AMENDED after pf-adversary (this round): the reason is read from whether
+    # the identity filter actually removed anything, NOT from ``count !=
+    # requested``.  Inferring it from the number made three byte-identical
+    # 108-actor frames report three different reasons - and a boot with
+    # MEASURED_CLIENT_ACTOR_CEILING pinned at 108 would have attributed seven
+    # identity refusals to a client ceiling, which is the exact
+    # misattribution ``census_shortfall_reason``'s own docstring forbids.
+    if count < CENSUS_COUNT and count == len(available):
+        # Short because the identity filter took them, not because this
+        # caller chose a rung: that is only true when the whole of what is
+        # available went out.  A caller that deliberately asks for 60 keeps
+        # ITS reason, which is the distinction census_shortfall_reason exists
+        # to preserve.
+        count_source = COUNT_SOURCE_IDENTITY_RESOLVED
     entries = [_entry(legacy, placement) for placement in ordered]
     for position, entry in enumerate(entries):
         # An entry that encodes to nothing still counts in the collection's
@@ -542,6 +633,8 @@ def census_shortfall_reason(
         return None
     if count_source == COUNT_SOURCE_MEASURED_CEILING:
         return f"{COUNT_SOURCE_MEASURED_CEILING}={assembled}"
+    if count_source == COUNT_SOURCE_IDENTITY_RESOLVED:
+        return f"{COUNT_SOURCE_IDENTITY_RESOLVED}={assembled}"
     return f"{COUNT_SOURCE_CALLER}={assembled}"
 
 
@@ -717,7 +810,7 @@ def census_console_line(generation: WorldPopulationGeneration) -> str:
     return (
         "WORLD_CENSUS assembled={0}/{1} wire={2} bodies={3} pc={4}B frame={5}B "
         "anchor=({6:.3f},{7:.3f},{8:.3f}) reapply_ms={9} source={10} "
-        "shortfall={11} | {12}".format(
+        "shortfall={11} | {12} | {13}".format(
             report["assembled_count"], report["census_count"],
             report["wire_actor_count"] if report["counts_agree"]
             else "MISMATCH:%d" % report["wire_actor_count"],
@@ -728,6 +821,16 @@ def census_console_line(generation: WorldPopulationGeneration) -> str:
             report["shortfall_reason"] or "none",
             world_scene_numbering.numbering_console_suffix(
                 generation.scene_id),
+            # This token describes what this module COMPOSED, before any
+            # other lane's splice runs.  runtime.py may overwrite entries
+            # afterwards (mob_death.full_roster_override does, for the 13
+            # hostile roster members), so it is deliberately not phrased as a
+            # claim about the bytes that finally leave (pf-adversary).
+            world_port_royal_identity.identity_console_token(
+                report["assembled_count"],
+                report["census_count"] - report["assembled_count"]
+                if report["count_source"] == COUNT_SOURCE_IDENTITY_RESOLVED
+                else None),
         )
     )
 
@@ -747,7 +850,16 @@ def staircase_report(
     return {
         "anchor": _require_anchor(player_xyz),
         "census_count": CENSUS_COUNT,
+        # The frozen constant, and what the rung REALLY contains now.  Since
+        # 2026-08-28 P0 has no shippable identity, so the frozen control rung
+        # is no longer a control: its membership moves with the anchor.
+        # Reporting only the literal would have printed [0,30,91] over a rung
+        # that contains neither 0 nor a fixed third member (pf-adversary).
         "control_rung_indices": list(SHIPPED_ISOLATED_INDICES),
+        "control_rung_is_intact": all(
+            index in set(built[0].indices) for index in SHIPPED_ISOLATED_INDICES
+        ),
+        "control_rung_actual_indices": list(built[0].indices),
         "initial_reapply_ms": INITIAL_REAPPLY_MS,
         "rungs": [
             {

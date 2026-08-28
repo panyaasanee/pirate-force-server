@@ -51,6 +51,17 @@ from pirateforce_foundation.world_population_handoff import (  # noqa: E402
 
 LEGACY_PATH = ROOT / "current/pf_login_game_server_v141.py"
 
+# AMENDMENT 2026-08-28 (LANE-A, RE-128 / CLINE identities).  ``CENSUS_COUNT``
+# (115) is the size of the frozen placement table and is unchanged.  What a
+# home arrival ASSEMBLES is 108: seven of those placements have a Mob-Set
+# number whose CLINE leader has no CONSTDATA MOBS row (or is 0, or has no
+# avatar template), so they have no identity that can be shipped without
+# reviving the numbering GT-078 disproved, and ``census_order`` drops them with
+# a reason each.  Every assertion below that meant "the census as built" now
+# reads this constant; the ones that mean "the size of the source table" still
+# read CENSUS_COUNT.
+SHIPPED_CENSUS_COUNT = 108
+
 # Every scene pinned in scenarios/world_scene_registry_001.json except home.
 # 2 is the one this project has actually rendered besides Port Royal, 278 is
 # the M2 stage, 997 is the pinned candidate COO-DECISION 0550 did not choose.
@@ -258,8 +269,11 @@ class HandoffTests(unittest.TestCase):
         self.assertEqual(handoff.kind, KIND_CENSUS)
         self.assertEqual(handoff.pc, direct.pc)
         self.assertEqual(handoff.frame, direct.frame)
-        self.assertEqual(handoff.actor_count, CENSUS_COUNT)
-        self.assertEqual(wire_count_of(handoff.pc), CENSUS_COUNT)
+        # Was CENSUS_COUNT on both lines.  SUPERSEDED 2026-08-28 (RE-128): a
+        # request for the whole census assembles 108, and the handoff reports
+        # what assembled - which is exactly the delegation this test is about.
+        self.assertEqual(handoff.actor_count, SHIPPED_CENSUS_COUNT)
+        self.assertEqual(wire_count_of(handoff.pc), SHIPPED_CENSUS_COUNT)
         self.assertEqual(handoff.reapply_ms, INITIAL_REAPPLY_MS)
         self.assertEqual(handoff.label, LABEL_CENSUS.format(1))
 
@@ -279,7 +293,9 @@ class HandoffTests(unittest.TestCase):
         runtime.py's, but it cannot be corrected without this list.
         """
         census = handoff_for_arrival(self.legacy, 1, self.anchor)
-        self.assertEqual(len(census.membership), CENSUS_COUNT)
+        # Was CENSUS_COUNT; the membership offered is the membership built,
+        # which is 108 since RE-128 dropped the seven unshippable placements.
+        self.assertEqual(len(census.membership), SHIPPED_CENSUS_COUNT)
         self.assertEqual(handoff_report(census)["membership"], census.membership)
         clear = handoff_for_arrival(self.legacy, 278, self.anchor)
         self.assertEqual(handoff_report(clear)["membership"], ())
@@ -494,7 +510,10 @@ class HandoffTests(unittest.TestCase):
         line = handoff_console_line(lying)
         self.assertIn("kind=clear", line)
         self.assertIn("actors=0", line)
-        self.assertIn("wire=%d" % CENSUS_COUNT, line)
+        # Was CENSUS_COUNT: the real generation whose bytes this lying
+        # handoff borrows now declares 108 actors in its header, and the point
+        # of the line is that it reports the HEADER, not the claim.
+        self.assertIn("wire=%d" % SHIPPED_CENSUS_COUNT, line)
 
     def test_an_unreadable_header_says_so_rather_than_guessing_a_count(self):
         broken = SceneHandoff(
@@ -534,8 +553,12 @@ class HandoffTests(unittest.TestCase):
         report = handoff_report(handoff)
         self.assertTrue(report["census"]["counts_agree"])
         self.assertTrue(report["census"]["bodies_intact"])
-        self.assertEqual(report["census"]["assembled_count"], CENSUS_COUNT)
-        self.assertEqual(report["wire_actor_count"], CENSUS_COUNT)
+        # Was CENSUS_COUNT on both lines; 108 assembles since RE-128, and the
+        # two numbers still have to agree with each other, which is what this
+        # test is really about.
+        self.assertEqual(
+            report["census"]["assembled_count"], SHIPPED_CENSUS_COUNT)
+        self.assertEqual(report["wire_actor_count"], SHIPPED_CENSUS_COUNT)
         clear = handoff_report(handoff_for_arrival(self.legacy, 278, self.anchor))
         self.assertIsNone(clear["census"])
 
@@ -584,7 +607,9 @@ class MembershipResetTests(unittest.TestCase):
         self.assertEqual(handoff.kind, KIND_CENSUS)
         reset = handoff.membership_reset
         self.assertEqual(reset.population_indices, handoff.membership)
-        self.assertEqual(len(reset.population_indices), CENSUS_COUNT)
+        # Was CENSUS_COUNT; the reset carries the membership that was built.
+        self.assertEqual(
+            len(reset.population_indices), SHIPPED_CENSUS_COUNT)
         self.assertEqual(reset.population_refresh_anchor, self.anchor)
         self.assertFalse(reset.clears_everything)
         # The anchor is the generation's own, not one the caller passed twice.

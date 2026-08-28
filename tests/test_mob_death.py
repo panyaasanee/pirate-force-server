@@ -805,7 +805,12 @@ class MobDeathTests(unittest.TestCase):
         generation = world_population.build_world_population(
             self.legacy, (10.0, 20.0, 30.0), scene_id=1,
         )
-        self.assertEqual(generation.actor_count, 115)
+        # Was 115.  SUPERSEDED 2026-08-28 (LANE-A, RE-128): the default census
+        # assembles 108 of the 115 frozen placements - the other seven have a
+        # Mob-Set number that resolves to no CONSTDATA MOBS row, so they have
+        # no shippable identity and are dropped with a reason.  All 13 roster
+        # identities are still inside it, which is what this test measures.
+        self.assertEqual(generation.actor_count, 108)
         override = full_roster_override(
             self.legacy, self.roster, DeathRegister())
         coverage = roster_override_coverage(
@@ -901,7 +906,16 @@ class MobDeathTests(unittest.TestCase):
             offset += length
         self.assertEqual(offset, len(pc))
 
-    def test_hostile_census_frames_carries_all_115_actors_not_fewer(self):
+    def test_hostile_census_frames_carries_the_whole_census_not_fewer(self):
+        """Was ``..._carries_all_115_actors_not_fewer``.
+
+        SUPERSEDED 2026-08-28 (LANE-A, RE-128): asking for 115 builds 108,
+        because seven placements have no shippable identity.  The claim this
+        test makes is unchanged - the recompose carries the WHOLE census, not
+        a one-entry collection that would replace-by-omission every other
+        actor - and the number it checks is now the census that a flagless
+        boot really builds at this anchor.
+        """
         pc, frame = hostile_census_frames(
             self.legacy, self.REAL_CENSUS_ANCHOR, 115, self.roster,
             DeathRegister(), ledger=open_ledger())
@@ -910,7 +924,13 @@ class MobDeathTests(unittest.TestCase):
                world_population.WIRE_COUNT_TAG_OFFSET + 3],
             "little",
         )
-        self.assertEqual(count, 115)
+        self.assertEqual(count, 108)
+        self.assertEqual(
+            count,
+            world_population.build_world_population(
+                self.legacy, self.REAL_CENSUS_ANCHOR, 115, scene_id=1,
+            ).actor_count,
+        )
 
     def test_hostile_census_frames_gives_an_untouched_roster_member_the_hostile_body_not_the_plain_default(
             self):

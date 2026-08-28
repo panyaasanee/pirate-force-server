@@ -564,7 +564,12 @@ class MobCombatDispatchTests(unittest.TestCase):
         """
         state = self._state("mc_real_arrival_bar")
         anchor = self._arrive(state)
-        self.assertEqual(state.world_census_actor_count, 115)
+        # Was 115.  SUPERSEDED 2026-08-28 (LANE-A, RE-128): the arrival census
+        # assembles 108 of the 115 frozen placements, because seven of them
+        # have a Mob-Set number that resolves to no CONSTDATA MOBS row and so
+        # have no shippable identity.  The recompose is still over the WHOLE
+        # census this boot built, which is what this test is about.
+        self.assertEqual(state.world_census_actor_count, 108)
         self.assertEqual(state.population_refresh_anchor, anchor)
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
@@ -595,7 +600,7 @@ class MobCombatDispatchTests(unittest.TestCase):
             mob_death.DeathRegister(), ledger=state.mob_combat_ledger,
         )
         # If this ever regressed back to the one-entry frame, this equality
-        # would fail (the one-entry frame is a strict subset of the 115-actor
+        # would fail (the one-entry frame is a strict subset of the 108-actor
         # collection below) -- that is the world-wipe RE-092/CORE-REQUEST-008
         # exists to prevent, proven here on the real dispatch path instead of
         # by calling the encoder directly the way mob_death.py's own offline
@@ -614,7 +619,8 @@ class MobCombatDispatchTests(unittest.TestCase):
         """
         state = self._state("mc_real_arrival_death")
         anchor = self._arrive(state)
-        self.assertEqual(state.world_census_actor_count, 115)
+        # Was 115; see the hit test above for why the arrival census is 108.
+        self.assertEqual(state.world_census_actor_count, 108)
         self._set_balance(state, SANCTIONED_TARGET, 500)
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):

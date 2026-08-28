@@ -13,12 +13,53 @@
       "reason": "GT-078 OWNER-REJECTED (no NPC anywhere in town showed a name line, only a title line)",
       "change": "_entry() stopped discarding SceneActorPlacement.source_name for every non-P30 member; every one of the 115 placements now carries a basic_name, so pc_bytes/frame_bytes grew for every rung. Membership and order (the 'indices' lists below) did NOT change - only the per-entry byte length did, because a name tag is now present on entries that used to have none. Also removed the now-false nonclaim 'name_for_any_member_other_than_placement_30' from the nonclaims list below - it stopped being true the moment this fix landed.",
       "superseded_pc_frame_bytes_at_both_anchors": {
-        "3": [504, 517],
-        "20": [3148, 3161],
-        "60": [9302, 9315],
-        "115": [17928, 17942]
+        "3": [
+          504,
+          517
+        ],
+        "20": [
+          3148,
+          3161
+        ],
+        "60": [
+          9302,
+          9315
+        ],
+        "115": [
+          17928,
+          17942
+        ]
       },
       "note": "the superseded numbers stay here rather than being deleted - they are still correct for make_v112_monster_shop_population_state() and make_v62_port_royal_population_snapshot(), the frozen nameless encoders this project does not edit."
+    },
+    {
+      "date": "2026-08-28",
+      "reason": "RE-128 CLINE crosswalk, answered by the RE runner and cross-checked by this lane: SCENE_NAME[BG0001].n_CLINE_TYPE=1 -> CLINE[(1,<Mob-Set number>)].n_LEADER_BK1 = the real MOBS.n_ID. GT-078 OWNER-REJECTED had put the scene file's Mob-Set number on the wire as make_npc_attr's template u16 (every placement right, every NPC wrong).",
+      "change": "_entry() now sends world_port_royal_identity's resolved MOBS.n_ID, that MOBS row's own s_OUTFIT and its MOBS_TIP name instead of placement.template_id / visual_preset / source_name, and no longer sends the V119 'Tornado Eagle' name override for placement 30 (its Mob-Set 31 resolves to 248 Da Vinci). census_order() drops every placement whose Mob-Set number has no shippable identity, so a full-census request now ASSEMBLES 108 of the 115 frozen rows and build_world_population records the shortfall as count_source=identity_resolved. Both membership AND per-entry bytes moved at every rung; the P30 hp override (V117) is unchanged.",
+      "superseded_pc_frame_bytes_at_both_anchors": {
+        "3": [
+          564,
+          577
+        ],
+        "20": [
+          3567,
+          3580
+        ],
+        "60": [
+          10851,
+          10864
+        ],
+        "115": [
+          20944,
+          20958
+        ]
+      },
+      "superseded_control_rung_membership": [
+        0,
+        30,
+        91
+      ],
+      "note": "the superseded numbers stay here rather than being deleted - they are still correct for what they described: a census that shipped Mob-Set numbers as identities, which is the world the owner rejected on sight in GT-078. The 115 target is NOT rewritten to 108 anywhere in this file: 115 is still the source count and still what the console line reports the shortfall against."
     }
   ],
   "entry": {
@@ -31,12 +72,54 @@
     "source_count": 115,
     "source_sha256": "22D7430E5954196E007D56CF1116BA1635BFFBB9AADA4501D2166E3772659618",
     "default_actor_count": 115,
+    "assembled_actor_count_at_default": 108,
+    "assembled_count_shortfall_reason": "identity_resolved=108",
+    "count_source_when_short": "identity_resolved",
     "initial_reapply_ms": 3000,
     "order": "pinned_v112_test_indices_then_nearest_first_by_squared_distance_then_index",
     "control_rung_indices": [
       0,
       30,
       91
+    ],
+    "identity_source": "world_port_royal_identity (RE-128): CONSTDATA CLINE type 1 leader -> MOBS.n_ID + s_OUTFIT, TEXTDATA MOBS_TIP.s_NAME",
+    "identity_console_token": "identity=CLINE:108 composed,7 unresolvable",
+    "unshippable_placements": [
+      {
+        "placement_index": 0,
+        "mob_set_number": 1,
+        "reason": "CLINE leader 155 has no CONSTDATA MOBS row, so no s_OUTFIT (MOBS_TIP does name it: Port transportation)"
+      },
+      {
+        "placement_index": 75,
+        "mob_set_number": 76,
+        "reason": "CLINE leader 819 has no CONSTDATA MOBS row, so no s_OUTFIT (MOBS_TIP names it: Tuna)"
+      },
+      {
+        "placement_index": 86,
+        "mob_set_number": 86,
+        "reason": "CLINE leader is 0 (no creature)"
+      },
+      {
+        "placement_index": 87,
+        "mob_set_number": 87,
+        "reason": "CLINE leader is 0 (no creature)"
+      },
+      {
+        "placement_index": 145,
+        "mob_set_number": 110,
+        "reason": "CLINE leader 9107 has no CONSTDATA MOBS row, so no s_OUTFIT (MOBS_TIP names it: Jack)"
+      },
+      {
+        "placement_index": 147,
+        "mob_set_number": 112,
+        "reason": "CLINE leader 937 has no CONSTDATA MOBS row, so no s_OUTFIT (MOBS_TIP names it: Mengsk)"
+      },
+      {
+        "placement_index": 148,
+        "mob_set_number": 113,
+        "reason": "CLINE leader 942 has no CONSTDATA MOBS row, so no s_OUTFIT (MOBS_TIP has a name for it)"
+      }
     ]
   },
   "staircase": {
@@ -50,25 +133,23 @@
         "rungs": [
           {
             "actor_count": 3,
-            "pc_bytes": 564,
-            "frame_bytes": 577,
+            "pc_bytes": 550,
+            "frame_bytes": 563,
             "indices": [
-              0,
               30,
-              91
+              91,
+              1
             ]
           },
           {
             "actor_count": 20,
-            "pc_bytes": 3567,
-            "frame_bytes": 3580,
+            "pc_bytes": 3621,
+            "frame_bytes": 3634,
             "indices": [
-              0,
               30,
               91,
               1,
               65,
-              86,
               80,
               22,
               16,
@@ -78,24 +159,24 @@
               84,
               50,
               89,
-              145,
               144,
-              87,
               39,
-              82
+              82,
+              88,
+              79,
+              70,
+              146
             ]
           },
           {
             "actor_count": 60,
-            "pc_bytes": 10851,
-            "frame_bytes": 10864,
+            "pc_bytes": 10814,
+            "frame_bytes": 10827,
             "indices": [
-              0,
               30,
               91,
               1,
               65,
-              86,
               80,
               22,
               16,
@@ -105,9 +186,7 @@
               84,
               50,
               89,
-              145,
               144,
-              87,
               39,
               82,
               88,
@@ -115,7 +194,6 @@
               70,
               146,
               68,
-              147,
               6,
               33,
               95,
@@ -138,7 +216,6 @@
               10,
               4,
               59,
-              148,
               9,
               109,
               51,
@@ -149,20 +226,24 @@
               14,
               49,
               102,
-              103
+              103,
+              20,
+              101,
+              132,
+              107,
+              99,
+              128
             ]
           },
           {
-            "actor_count": 115,
-            "pc_bytes": 20944,
-            "frame_bytes": 20958,
+            "actor_count": 108,
+            "pc_bytes": 20046,
+            "frame_bytes": 20060,
             "indices": [
-              0,
               30,
               91,
               1,
               65,
-              86,
               80,
               22,
               16,
@@ -172,9 +253,7 @@
               84,
               50,
               89,
-              145,
               144,
-              87,
               39,
               82,
               88,
@@ -182,7 +261,6 @@
               70,
               146,
               68,
-              147,
               6,
               33,
               95,
@@ -205,7 +283,6 @@
               10,
               4,
               59,
-              148,
               9,
               109,
               51,
@@ -268,7 +345,6 @@
               140,
               34,
               38,
-              75,
               12,
               141,
               142
@@ -284,25 +360,23 @@
         "rungs": [
           {
             "actor_count": 3,
-            "pc_bytes": 564,
-            "frame_bytes": 577,
+            "pc_bytes": 550,
+            "frame_bytes": 563,
             "indices": [
-              0,
               30,
-              91
+              91,
+              1
             ]
           },
           {
             "actor_count": 20,
-            "pc_bytes": 3567,
-            "frame_bytes": 3580,
+            "pc_bytes": 3621,
+            "frame_bytes": 3634,
             "indices": [
-              0,
               30,
               91,
               1,
               65,
-              86,
               80,
               22,
               16,
@@ -312,24 +386,24 @@
               84,
               50,
               89,
-              145,
               144,
-              87,
               39,
-              82
+              82,
+              88,
+              79,
+              70,
+              146
             ]
           },
           {
             "actor_count": 60,
-            "pc_bytes": 10851,
-            "frame_bytes": 10864,
+            "pc_bytes": 10814,
+            "frame_bytes": 10827,
             "indices": [
-              0,
               30,
               91,
               1,
               65,
-              86,
               80,
               22,
               16,
@@ -339,9 +413,7 @@
               84,
               50,
               89,
-              145,
               144,
-              87,
               39,
               82,
               88,
@@ -349,7 +421,6 @@
               70,
               146,
               68,
-              147,
               6,
               33,
               95,
@@ -372,7 +443,6 @@
               10,
               4,
               59,
-              148,
               9,
               109,
               51,
@@ -383,20 +453,24 @@
               14,
               49,
               102,
-              103
+              103,
+              20,
+              101,
+              132,
+              107,
+              99,
+              128
             ]
           },
           {
-            "actor_count": 115,
-            "pc_bytes": 20944,
-            "frame_bytes": 20958,
+            "actor_count": 108,
+            "pc_bytes": 20046,
+            "frame_bytes": 20060,
             "indices": [
-              0,
               30,
               91,
               1,
               65,
-              86,
               80,
               22,
               16,
@@ -406,9 +480,7 @@
               84,
               50,
               89,
-              145,
               144,
-              87,
               39,
               82,
               88,
@@ -416,7 +488,6 @@
               70,
               146,
               68,
-              147,
               6,
               33,
               95,
@@ -439,7 +510,6 @@
               10,
               4,
               59,
-              148,
               9,
               109,
               51,
@@ -502,7 +572,6 @@
               140,
               34,
               38,
-              75,
               12,
               141,
               142
@@ -526,7 +595,8 @@
     "densest_placement": {
       "placement_index": 67,
       "neighbours_within_1000u": 8
-    }
+    },
+    "note_2026-08-28": "these distances are measured over all 115 frozen placement rows, including the seven that no longer ship: the table did not change, only who can be given an identity. distance_of_115th is therefore still the span of the source table, not of the 108-actor census."
   },
   "entry_shape": {
     "actor_type": 4,
@@ -535,8 +605,11 @@
       "movement_attr_full_mask"
     ],
     "hp": "100_for_every_member_except_placement_30_which_keeps_the_measured_v117_hp",
-    "basic_name": "every_member_carries_its_own_frozen_source_name_since_the_2026-08-26_amendment_above; placement_30_still_keeps_the_measured_v119_name_override_instead_of_its_table_source_name",
-    "basic_name_superseded": "empty_for_every_member_except_placement_30_which_keeps_the_measured_v119_name (true before the 2026-08-26 amendment above; kept here, not deleted)"
+    "basic_name": "the resolved MOBS_TIP s_NAME for that MOBS.n_ID; n_ID 917 has no MOBS_TIP row and ships nameless rather than borrowing a name; placement_30 no longer carries the measured v119 name override (its Mob-Set 31 resolves to 248 Da Vinci)",
+    "basic_name_superseded": "empty_for_every_member_except_placement_30_which_keeps_the_measured_v119_name (true before the 2026-08-26 amendment above; kept here, not deleted)",
+    "identity": "resolved MOBS.n_ID from world_port_royal_identity (RE-128), never the scene file Mob-Set number",
+    "visual_preset": "the resolved MOBS row s_OUTFIT, never the scene file preset",
+    "basic_name_superseded_2026-08-28": "every_member_carries_its_own_frozen_source_name_since_the_2026-08-26_amendment_above; placement_30_still_keeps_the_measured_v119_name_override_instead_of_its_table_source_name"
   },
   "capabilities": [
     "full_scene_npc_style_census"

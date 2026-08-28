@@ -687,17 +687,25 @@ class NamePropDispatchTests(unittest.TestCase):
         )
 
         from pirateforce_foundation.population import load_port_royal_placements
-        from pirateforce_foundation.world_population import SHIPPED_MONSTER_INDEX
+        from pirateforce_foundation import (
+            world_port_royal_identity as scene_identity,
+        )
 
         placements = {
             placement.placement_index: placement
             for placement in load_port_royal_placements(self.legacy)
         }
-        added_bytes = sum(
-            len(self.legacy.wstr_tag(placements[index].source_name))
-            for index in (0, 30, 91)
-            if index != SHIPPED_MONSTER_INDEX
-        )
+        # SUPERSEDED 2026-08-28 (RE-128 / CLINE identities).  ~~added_bytes:
+        # the census rung differed from the frozen fallback by exactly the two
+        # UTF-16LE name tags _entry() adds for P0 and P91.~~  It differs by
+        # much more now, and in kind rather than in length: the census sends
+        # the resolved MOBS.n_ID, that row's own avatar template and its
+        # MOBS_TIP name, while the frozen fallback sends the scene file's
+        # Mob-Set number and preset (the pair GT-078 had rejected), and the
+        # census has dropped P0 entirely because its Mob-Set number resolves
+        # to a CLINE leader with no MOBS row.  A byte-delta between the two
+        # can no longer state anything true, so the assertions below state the
+        # new invariant instead.
         # AMENDMENT 2026-08-26 (round 1cwih0, runtime.py swapped
         # corpse_override -> full_roster_override).  ``control`` goes
         # through the census path that applies the mob_death roster
@@ -721,7 +729,11 @@ class NamePropDispatchTests(unittest.TestCase):
             )
             if roster_override else plain_rung3
         )
+        # Kept as a measurement rather than deleted: it is the size of the
+        # hostile splice the dispatch applies over the census, and it must be
+        # positive or nothing was spliced at all.
         roster_splice_bytes = len(overridden_rung3.pc) - len(plain_rung3.pc)
+        self.assertGreater(roster_splice_bytes, 0)
         population_frozen_labels = {
             "V134_P0_P30_P91_ISOLATED_INITIAL_READY",
             "V134_P0_P30_P91_ISOLATED_REAPPLY_READY",
@@ -737,14 +749,26 @@ class NamePropDispatchTests(unittest.TestCase):
             self.assertEqual(g_delay, u_delay)
             if g_label in population_frozen_labels:
                 self.assertIn(u_label, population_census_labels)
-                self.assertEqual(
-                    len(bytes(u_pc)) - len(bytes(g_pc)),
-                    added_bytes + roster_splice_bytes,
-                )
-                self.assertEqual(
-                    len(bytes(u_frame)) - len(bytes(g_frame)),
-                    added_bytes + roster_splice_bytes,
-                )
+                # The census frame is the census module's own rung-3 build
+                # with the dispatch's roster splice applied...
+                self.assertEqual(bytes(u_pc), overridden_rung3.pc)
+                self.assertEqual(bytes(u_frame), overridden_rung3.frame)
+                # ...and it is not the frozen fallback's bytes, member for
+                # member: each census member carries the MOBS_TIP name of its
+                # resolved MOBS.n_ID, which appears nowhere in the frozen
+                # collection.  P30 is skipped because full_roster_override
+                # replaces its whole body with field_mobs' hostile body.
+                self.assertNotEqual(bytes(u_pc), bytes(g_pc))
+                for index in plain_rung3.indices:
+                    if index == 30:
+                        continue
+                    resolved = scene_identity.resolve(
+                        placements[index].template_id)
+                    self.assertIsNotNone(resolved)
+                    self.assertIn(
+                        self.legacy.wstr_tag(resolved.name), bytes(u_pc))
+                    self.assertNotIn(
+                        self.legacy.wstr_tag(resolved.name), bytes(g_pc))
             else:
                 self.assertEqual(bytes(g_pc), bytes(u_pc))
                 self.assertEqual(bytes(g_frame), bytes(u_frame))

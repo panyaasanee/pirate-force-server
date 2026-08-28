@@ -64,7 +64,7 @@ and each action's frame is checked against its own pc so the two cannot
 drift apart unnoticed.
 
 THE CONSOLE TOKEN IS NOT EVIDENCE OF COUNT, AND THIS FILE DOES NOT MAKE IT
-SO.  ``MOB_COMBAT_BAR_CENSUS_RECOMPOSE actor_count=115`` prints
+SO.  ``MOB_COMBAT_BAR_CENSUS_RECOMPOSE actor_count=108`` prints
 ``self.world_census_actor_count``, read from session state BEFORE the frame
 is composed.  It is an INPUT.  Two tests here assert the token appears
 (proving the recompose branch was TAKEN, which is all the token can
@@ -136,6 +136,17 @@ def _legacy():
     if not hasattr(_legacy, "cached"):
         _legacy.cached = load_legacy(LEGACY_PATH)
     return _legacy.cached
+
+
+# AMENDMENT 2026-08-28 (LANE-A, RE-128 / CLINE identities).  The committed
+# census size stopped being ``world_population.CENSUS_COUNT``.  115 is still
+# the size of the frozen placement table; 108 is what a flagless boot
+# ASSEMBLES, because seven of those placements have a Mob-Set number whose
+# CLINE leader has no CONSTDATA MOBS row and therefore no identity that can be
+# shipped without reviving the numbering GT-078 disproved.  Pinned as a literal
+# here, exactly like the number it replaces, so a composer that shrank for
+# every caller still cannot move this file's expectation with it.
+SHIPPED_CENSUS_COUNT = 108
 
 
 class WorldWipeHeadlessProofTests(unittest.TestCase):
@@ -335,7 +346,7 @@ class WorldWipeHeadlessProofTests(unittest.TestCase):
         ``qwordtag(0x32, scene_seq)``, a byte-identical shape holding a scene
         sequence rather than an identity.  ``SCENE_SEQUENCE`` is 0 today and
         a structural walk of the arrival collection confirmed zero collisions
-        for all 115 identities.  Should that constant ever take a value equal
+        for all 108 identities.  Should that constant ever take a value equal
         to a census identity, the inflation would appear in the baseline and
         the frames alike and this counter would not notice.
         """
@@ -349,9 +360,11 @@ class WorldWipeHeadlessProofTests(unittest.TestCase):
 
         The identity LIST comes from the composer, but the two numbers that
         decide whether the census is whole do not: the arrival frame's own
-        collection header, and ``world_population.CENSUS_COUNT``.  A composer
-        that shrank for every caller would move the list and the frames
-        together (pf-adversary D2) -- these pins are what refuse it.
+        collection header, and ``SHIPPED_CENSUS_COUNT`` (was
+        ``world_population.CENSUS_COUNT`` until RE-128 -- see that constant's
+        comment).  A composer that shrank for every caller would move the list
+        and the frames together (pf-adversary D2) -- these pins are what
+        refuse it.
         """
         identities = world_population.build_world_population(
             self.legacy, state.population_refresh_anchor,
@@ -359,12 +372,12 @@ class WorldWipeHeadlessProofTests(unittest.TestCase):
             scene_id=world_population.SCENE_ID,
         ).actor_identities
         self.assertEqual(
-            self._declared_count(census_pc), world_population.CENSUS_COUNT,
+            self._declared_count(census_pc), SHIPPED_CENSUS_COUNT,
             "the arrival census on the wire is not the committed census "
             "size; every later comparison in this file would be against a "
             "world that was already short before anything was hit",
         )
-        self.assertEqual(len(set(identities)), world_population.CENSUS_COUNT)
+        self.assertEqual(len(set(identities)), SHIPPED_CENSUS_COUNT)
         counts = self._bodies(census_frame, identities)
         self.assertEqual(
             sorted(i for i, n in counts.items() if n == 0), [],
@@ -374,7 +387,7 @@ class WorldWipeHeadlessProofTests(unittest.TestCase):
 
     def _assert_whole_world_present(self, pc, frame, baseline, what):
         self.assertEqual(
-            self._declared_count(pc), world_population.CENSUS_COUNT,
+            self._declared_count(pc), SHIPPED_CENSUS_COUNT,
             f"{what}: the collection header tells the client a different "
             f"number of actors than the committed census size",
         )
@@ -411,7 +424,7 @@ class WorldWipeHeadlessProofTests(unittest.TestCase):
         state = self._state()
         _anchor, (census_pc, census_frame) = self._arrive(state)
         self.assertEqual(
-            state.world_census_actor_count, world_population.CENSUS_COUNT,
+            state.world_census_actor_count, SHIPPED_CENSUS_COUNT,
         )
         baseline = self._baseline(state, census_pc, census_frame)
         self._assert_whole_world_present(

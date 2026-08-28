@@ -253,13 +253,20 @@ class ArenaTests(unittest.TestCase):
         # default boot now sends the whole bg0001 census instead of the frozen
         # V134_P0_P30_P91_ISOLATED_* pair.  What this test is here to prove is
         # unchanged: no ARENA frame composes without the arena scenario.
+        #
+        # AMENDMENT 2026-08-28 (LANE-A, RE-128 / CLINE identities): the count
+        # in these labels was 115 and is now 108.  The default boot still
+        # sends the whole census - the count in the label is what ASSEMBLED,
+        # and seven of the 115 frozen placements have a Mob-Set number whose
+        # CLINE leader has no CONSTDATA MOBS row, so they have no shippable
+        # identity and are dropped with a recorded reason.
         self.assertEqual(labels, [
-            "WORLD_CENSUS_INITIAL_115",
-            "WORLD_CENSUS_REAPPLY_115",
+            "WORLD_CENSUS_INITIAL_108",
+            "WORLD_CENSUS_REAPPLY_108",
         ])
         self.assertFalse(any(label.startswith("ARENA_V1_") for label in labels))
         census_event = (
-            "world_census_committed_actors_115"
+            "world_census_committed_actors_108"
             f"_pc_{len(actions[0][1])}_frame_{len(actions[0][2])}"
         )
         # The census event comes LAST because the census composes AFTER the
