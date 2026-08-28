@@ -2780,165 +2780,76 @@ round, both about walking over an operator rather than about a client:
    stray `.gm_login_scene.XXXX` in `config/` is one more file an operator
    has to reason about.  Clean, and now pinned by a test.
 
----
+### The adversary came back after the round had already been written, and it was right
 
-## Round `ank2vl` (2026-08-29 04:1x +07:00) -- the round above was lost, and why
+The subagent had not stalled; it was working without writing to its
+transcript, and it returned after this round's PR was already out of draft.
+It brought one finding that falsified the headline claim above, and the
+claim is corrected here rather than left standing with a correction
+underneath it.
 
-Everything written in the section before this one was true of the code and
-false of `main`.  `pirate-force-server#224` never merged: the Windows gate
-went red, and `merge-claude-pr.yml` closed the PR to stop a red lane lock
-jamming every later round shut.  The branch was kept, the work was
-recovered here, and this section is about the one line that cost it.
+**~~330 scenes become typeable~~ -- FALSE.  Four do: 1, 2, 278, 997.**
+This lane's writer asked the client's scene NAME table (`gm/scene_catalog.py`,
+330 rows).  The login path resolves through lane A's
+`scenarios/world_scene_registry_001.json`, which pins **five** destinations
+and marks one of them `login_entry_allowed: false` (scene 17, after GT-106).
+Two different tables, and nothing checked the second one before writing.
 
-### What actually failed (Actions run 33210364835, job `gate`)
+What that cost, measured end-to-end through the real dispatcher rather than
+argued from the source: staging any of the other 326 named scenes wrote a
+clean-looking entry and then made the account's **next login fail with no
+reply** -- `WORLD_SCENE_ENTRY_REFUSED [scene_not_pinned]`, `return []`, the
+client parked on "connecting".  It does not self-heal: the entry is re-read
+on every login, and the only in-game fix is a chat line, which needs a login.
+Recovery is an operator deleting the file on the server host.  The kill
+switch does not help either -- it gates the chat call site, not the login
+override read.  The lane had shipped a chat command that bricks a GM account
+with probability 326/330, and had written "the worst it can do is put a
+listed GM in a different scene" in three places.
 
-```
-tests\test_gm_login_scene_stage.py:295: in RefusalLeavesTheFileAloneTests
-    @unittest.skipIf(os.geteuid() == 0, "root ignores directory write bits")
-E   AttributeError: module 'os' has no attribute 'geteuid'
-!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
-```
+Fixed the only way that is not a second copy of lane A's data:
+`login_entry_is_pinned` asks `world_scene_travel.load_scene_registry()`
+itself, fail-closed on unknown and on a registry it cannot read, and
+`stageable_scene_ids()` publishes the answer so a ticket can print the list
+instead of a tester discovering it by locking an account out.
 
-Two things about that are worth keeping, because neither is obvious from
-reading the line:
+The same pass also produced, all fixed here:
 
-1. **A `skipIf` protects the test body, never its own argument.**  The
-   decorator's condition is evaluated while the class body runs -- at
-   import.  `os.geteuid()` therefore ran on Windows no matter that an
-   `os.name == "nt"` skip sat directly above it.  There is no ordering of
-   decorators that would have saved it.
-2. **A collection error is not one red test, it is the whole gate.**
-   pytest aborted, so `pytest_subset` exited 2 AND `skip_census` exited 1 --
-   the census saw 0 skips where nine modules pin 48 between them, and
-   reported nine PIN DRIFTs that had nothing to do with the defect.  Two
-   red checks, one cause; chasing the census entries first would have been
-   a whole round spent on a symptom.
+* **The new test module would not have IMPORTED on the Windows gate.**
+  `os.geteuid()` in a `skipIf` decorator is evaluated at import and does not
+  exist on Windows -- a collection error, not a skip, and a red gate closes
+  the PR.  Every skip in that module is now a branch instead: each platform
+  asserts what is true of it, and nothing is silently not-run.  (That also
+  answers the second finding: the skips were undeclared in
+  `docs/PYTEST_SKIP_PINS.json`, which the Windows gate's own census fails on
+  and which is not this lane's file to edit.)
+* **The privilege invariant had a detector, not a door.**  The source scan
+  for the standalone map's names was defeated by splitting a string literal
+  -- the same shape as last round's `AUDIT_OUTCOMES[-1]`, and the same
+  lesson this lane wrote down and then did not apply.  The writer now
+  refuses to write the standalone map's resolved file, whatever resolution
+  produced it.  And `restore_login_scene`, whose comment claimed it "can
+  only write a value that was already in this file", would in fact add any
+  name at all; it now refuses a name that is neither listed nor already in
+  the map.
+* **The `issued` audit row still said "no gameplay effect applied"** in the
+  file GT-127 and GT-141 are graded on, one row above an outcome that names
+  a durable config write.  Rewritten to what that row can honestly say.
+* **A successful undo left its own "staged" event standing.**  Retracted
+  explicitly now (`gm_chat_action_outcome_stage_reverted`).
 
-### What was changed, and one thing that was deliberately NOT done
+### The one thing this round did NOT fix, and who owns it
 
-The obvious repair -- `getattr(os, "geteuid", None)` -- was made.  But that
-alone would still have lost the round on the SECOND fault the first one was
-hiding, and the first attempt at the repair introduced a THIRD, caught by
-pf-adversary before this shipped and worth recording because the mistake is
-easy to repeat.
+After a staged relogin the server's own `selected.position.scene_id` still
+reads the character's stored scene, not the scene the override sent them to
+(the override substitutes only the id fed to `resolve_entry`).  So `/warp`'s
+routing predicate compares against a stale number: standing in scene 2 via a
+staged login, `/warp 2 x y` stages again instead of taking the ForcePos
+branch, and `/warp 1 x y` takes it.  Nothing is on the wire today, so nothing
+is misdirected today -- but the day COO opens the version gate, that branch
+would compose a ForcePos for the wrong scene, which is the exact
+misrepresentation `warp_executor` refuses cross-scene warps to avoid.
 
-**WITHDRAWN, and why.**  The first version of this repair folded the "not
-Windows" half of the question into one constant, `PERMISSION_BITS_BITE`,
-on the reasoning that "a mode bit NTFS ignores is the same non-condition as
-one root ignores."  **That sentence is false**, and it cost real coverage:
-NTFS does not RECORD the owner/group/other split; root records it perfectly
-and merely declines to OBEY it.  `stat()` under root returns exactly what
-`chmod` wrote.  Routing an assertion about what the writer WROTE through the
-OBEY question therefore disabled it on the gate machine and in every root
-container -- measured: mutating `os.chmod(temp_path, 0o600)` to `0o666`, which
-makes the GM login-scene config world-writable, stayed GREEN as root and
-would have stayed green on Windows, while the sibling files in this lane
-(`tests/test_gm_commands.py:317`, `tests/test_gm_command_capture.py:241`)
-still caught it.
-
-So the file now carries two constants, and every branch says which question
-it is asking: `MODE_BITS_RECORDED` (`os.name == "posix"`) for what was
-written, `MODE_BITS_OBEYED` (that, and not root) for a refusal the OS has to
-produce.  Re-measured after the split: the same `0o666` mutant now fails as
-root, at `test_the_config_file_is_not_world_readable`.
-
-`docs/PYTEST_SKIP_PINS.json` pins every skip this suite is allowed to
-produce, and an unpinned skip turns the gate red on its own.  This file's
-four platform skips were unpinned, and that pin file is outside this lane's
-write zone.  So the four skips were **removed**, not repaired: each test now
-runs on both platforms with the platform-specific assertion behind an
-in-body branch -- the pattern `tests/test_gm_commands.py` and
-`tests/test_gm_command_capture.py` already used in this lane.
-
-Where a mode bit could not deny this process (Windows, or root), the refusal
-under test is reached the portable way instead -- and at the same place the
-real `chmod` reaches it, which the first attempt got wrong: a read-only
-directory makes `tempfile.mkstemp` fail BEFORE any temp file exists, so that
-is what the substitute patches.  (Patching `os.replace` instead, as the first
-version did, fails AFTER a fully written temp file -- a different code path
-under the same test name -- and it also disabled the restore path that the
-second half of that same test checks, making that half unfalsifiable.)  The
-read-only-config case answers no through `os.access`, the call the module
-actually consults; mutating that guard away, or changing `os.W_OK` to
-`os.R_OK`, turns the test red as root, so it is testing the real decision and
-not the mock.
-
-These substitutes are still weaker than a real `chmod` and are labelled as
-such: they prove the module refuses when the OS says no, not that this OS
-says no.  The strong form runs wherever the bits are obeyed -- every non-root
-POSIX machine, the bridge included.
-
-The symlink test keeps the same shape but not the same evidence as the first
-attempt: where a symlink cannot be made (Windows without
-`SeCreateSymbolicLinkPrivilege`), it no longer greps the module's source for
-the literal `os.path.realpath(path)` -- renaming a local variable would have
-turned the Windows gate red while changing no behaviour at all, which is the
-exact failure this round exists to stop.  It now patches `os.path.realpath`
-and asserts behaviourally that the write lands on the RESOLVED file and not
-on the path it was handed.
-
-### The tripwire
-
-`tests/test_gm_tests_collect_without_posix.py` imports **every**
-`tests/test_gm_*.py` for real, in a child process with the POSIX-only names
-deleted from `os` and the POSIX-only modules refusing to import.  It is not
-a grep for `os.geteuid`; it reproduces the failure mode.
-
-Its first version claimed more than it did.  pf-adversary drove six real
-gaps straight past it -- `os.setpriority`, `os.wait`, `signal.SIGKILL`,
-`socket.AF_UNIX`, `select.epoll` and `readline`, every one absent on Windows
-and every one able to abort collection exactly as `geteuid` did.  Two of the
-six sat inside the very module the list claimed to cover (it pinned
-`getpriority` but not `setpriority`, `wait3`/`wait4` but not `wait`), which
-is what hand enumeration looks like from the outside.  All six are now
-pinned by their own bait tests, the list reaches other modules besides `os`,
-and the docstring states plainly that the lists are `[proposed]` and only
-`geteuid` is measured.
-
-One thing was tried and NOT shipped, recorded because the negative result is
-worth as much: setting `os.name = "nt"` in the child, so import-time
-`if os.name == "nt":` branches would execute, produces a **false red** on all
-28 lane-GM modules -- `pathlib.Path()` picks `WindowsPath` off `os.name` at
-instantiation and every file dies with `NotImplementedError`, for a reason
-unrelated to the defect.  A probe that cries wolf on every file is worse
-than a narrower one, so the `nt` half of an import-time branch remains
-unwitnessed, and the docstring says so rather than implying coverage.
-
-It also now fails if a `tests/test_gm_*.py` file exists on disk but is not
-tracked by git.  That is not tidiness: the gate checks out what git has, and
-pf-adversary found this very file unstaged in the round that wrote it --
-which would have shipped the whole "stop it recurring" deliverable as zero
-bytes on the only machine that decides.
-
-Measured both ways before it was believed: the file exactly as `#224`
-pushed it fails the probe with `AttributeError: module 'os' has no
-attribute 'geteuid'` -- the gate's own message -- and the repaired file
-passes.  A third test feeds the probe a bait file carrying that same line,
-so a probe that quietly stopped importing anything cannot keep reporting
-success.
-
-### nonclaim
-
-1. **No GM capability changed this round, in any direction.**  Nothing new
-   can be granted, nothing that could be granted before cannot be now; the
-   recovered work is byte-for-byte what `#224` carried apart from the two
-   test files named above.  **ไม่มีการใช้ GM ข้ามขั้นใดในรอบนี้** -- no
-   milestone is claimed and none could be.
-2. This does not prove the round passes the Windows gate.  It proves the
-   two checks that failed pass their local equivalents: the full client-free
-   subset with the gate's own 48 exclusions (3355 passed, 8 skipped, 0
-   failed) and `tools/pf_pytest_precondition_census.py` over that
-   transcript (RESULT: PASS, every skip declared and pinned).  Only Actions
-   decides -- เขียว(cloud sanity) is the claim here, not เขียว(Actions).
-3. The Linux container runs as root, so `MODE_BITS_OBEYED` is False here and
-   the substitute branches are what ran locally; the strong branches were
-   exercised by re-running as an unprivileged user (`nobody`).  Zero skips
-   both ways -- checked, because a skip is the other way this round could
-   have been lost.  Neither run is Windows.
-4. The round's own review was NOT self-review this time: `pf-adversary`
-   reported ten defects and this section is what survived them.  Two were
-   false greens (the mode-bit conflation above, and the tripwire's list),
-   one was the unstaged file, and the rest are folded in above.  It also
-   destroyed an uncommitted draft of this very section with a
-   `git checkout --`; the section was rewritten rather than reconstructed
-   from memory, and nothing else in the tree was lost.
+That row is written in `runtime.py`'s login path, which is chief's zone:
+`CORE-REQUEST-GM-033`.  Until it lands, `GT-141` tells the tester to log out
+again rather than type a second `/warp` in the same session.

@@ -411,7 +411,17 @@ def log_gm_command(
         "args": list(args),
         "raw": command.raw,
         "executed": False,
-        "note": "GM-003 v1: parsed and logged only, no gameplay effect applied",
+        # ~~"parsed and logged only, no gameplay effect applied"~~ -- that
+        # note was true of every command this lane had until the cross-scene
+        # `/warp` (round `gejldf`), which writes a login-scene config entry
+        # before its own outcome row.  pf-adversary caught the row still
+        # saying it, in the file GT-127 and GT-141 are graded on.  The note
+        # now says what this row can honestly say at the moment it is
+        # written: the line parsed, and nothing has been decided yet.
+        "note": (
+            "GM-003 v1: parsed and logged; what became of it is the outcome "
+            "row with the same record_id"
+        ),
         "record": AUDIT_RECORD_ISSUED,
         "record_id": record_id if record_id is not None else new_audit_record_id(),
     }

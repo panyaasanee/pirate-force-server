@@ -421,6 +421,12 @@ EVENT_OUTCOME_NOT_AUDITED_ACTION_WITHHELD = (
 # rather than sharing the target-not-cleared one: an operator who sees it has
 # a config entry to check by hand.
 EVENT_OUTCOME_STAGE_NOT_REVERTED = "gm_chat_action_outcome_stage_not_reverted"
+# The undo SUCCEEDED, so the `..._warp_staged_login_scene_<id>` line further
+# up the same event list is now describing a config entry that no longer
+# exists.  pf-adversary: an event trail that only ever adds "it happened"
+# lines reads as if it did, and the audit row that would have corrected it is
+# the one that could not be written.  Retract it explicitly.
+EVENT_OUTCOME_STAGE_REVERTED = "gm_chat_action_outcome_stage_reverted"
 EVENT_OUTCOME_STALE_TARGET_NOT_CLEARED = (
     "gm_chat_action_outcome_stale_warp_target_not_cleared"
 )
@@ -622,8 +628,12 @@ def _make_action(
             except Exception:  # noqa: BLE001 - a failed undo must not mask the
                 # audit failure that caused it; both are reported as events.
                 reverted = False
-            if not reverted:
-                _note(session, EVENT_OUTCOME_STAGE_NOT_REVERTED)
+            _note(
+                session,
+                EVENT_OUTCOME_STAGE_REVERTED
+                if reverted
+                else EVENT_OUTCOME_STAGE_NOT_REVERTED,
+            )
         # The issued row is on disk and its outcome is not, so this command's
         # audit trail is broken -- and `handle_local_talk_chat` already
         # refuses to hand onward a command it could not record at all, for
