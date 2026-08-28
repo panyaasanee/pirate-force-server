@@ -2632,3 +2632,112 @@ issued row already had, and the file modes plus short-write handling that moved
 into the shared helper are still killed by their own tests.
 
 Suite after every fix: **4080 passed, 327 skipped** (cloud sanity).
+
+## Round `gejldf`: `/warp` stops dead-ending, by taking the door that is already open
+
+`/warp` had exactly one half.  `warp <scene_id> x y` INSIDE the scene the
+connection is already in composes a `ForcePos` frame -- and that half is
+frozen shut by COO order (`FORCE_POS_VITAL_VERSION_CONFIRMED = None`,
+COO-DECISION 20260829_0041, liftable only by a new COO-DECISION).  Every
+other form of `/warp` -- a different scene, or the bare `warp <scene_id>` --
+was REFUSED, because `ForcePos` carries no scene id (RE-129) and
+`TeleportVital`'s target/aux fields are unproven (RE-090), and this lane does
+not guess bytes.
+
+So a tester who typed `/warp 126` got a refusal and no way at all to see
+scene 126, while a path that DOES cross scenes sat one config file away,
+already wired into `runtime.py`'s login path and already tested: the
+per-account login-scene override (GM-005, `CORE-REQUEST-016`), which
+`login_scene_override.get_login_scene_override` re-reads FRESH ON EVERY
+LOGIN.  This round connects the command the owner asked for to the mechanism
+that works.
+
+### What shipped
+
+`gm/login_scene_stage.py` (new).  `stage_login_scene(account, scene_id)`
+writes ONE entry into `config/gm_login_scene.json`; `restore_login_scene`
+takes it back off.  `gm/chat_command_action.py` routes `/warp` to it for
+every form except same-scene-with-coordinates, and audits the result with two
+new words, `staged_login_scene` and `staged_login_scene_coords_ignored`
+(`gm/commands.py`).  `gm/warp_executor.py` grew two public readers
+(`warp_command_scene_id`, `warp_command_has_coordinates`) so the routing
+decision and the frame builder validate a hand-built `GmCommand` through ONE
+implementation, and `gm/login_scene_override.py` grew
+`resolve_gm_login_scene_config_path` so the writer and the reader can never
+resolve to two different files (`PF_GM_LOGIN_SCENE_CONFIG` is the case that
+would otherwise look like it worked and change nothing).
+
+### What it is not, said in the module and repeated here
+
+It is NOT a warp.  No frame is composed, no byte goes on the wire, and
+nothing at all happens until the GM logs out and back in.  `executed` stays
+`false` in the audit row, because the gameplay command did not execute -- a
+config entry was written, and the outcome word says exactly that.  `GT-141`
+carries the same sentence as a nonclaim: seeing the island because a GM
+staged the scene is not the sea route working.
+
+### Why it cannot grant anything
+
+* Only the GM-GATED map (`gm_login_scene`) is writable.  The STANDALONE map,
+  which grants a login scene to an account with no `gm_accounts.json`
+  membership at all, is unreachable from this writer -- checked behaviourally
+  AND by reading the module's own source, since the last round's lesson was
+  that a source-shaped scan cannot make an output-shaped guarantee (so the
+  scan is the early warning; the absence of any import is the door).
+* An entry is worth nothing on its own: `get_login_scene_override` re-checks
+  `is_gm_account` at login time, so removing the account from the allowlist
+  disarms a staged entry without touching this file.
+* A refusal leaves the config byte-identical, including the case where an
+  operator's file is already malformed: this module validates the whole file
+  through the READER's own rules before writing and again after, and restores
+  the original bytes if the read-back disagrees.  A config writer that
+  "repairs" a file it did not understand is worse than one that refuses.
+
+### The identity limit, named before anyone asks
+
+[สมมติของสาย GM - รอ COO ยืนยัน]  `session.token` is the process-wide
+`--token`, not a per-connection authenticated login, so on a listener whose
+token is a listed GM account ANY connected player who types `/warp 126`
+stages that account's next login scene.  Every command in this lane already
+shares that gap; this is the first one whose effect OUTLIVES the chat line,
+which is why it is in the module docstring, in the round letter, and in an
+ASK-COO of its own rather than left to be discovered.  Blast radius: a listed
+GM logs in somewhere else next time, recoverable by typing another `/warp` or
+deleting the config.  No status, no command, no frame.
+
+### The reorder, which is the one behaviour change nobody asked for
+
+The version gate used to be the FIRST thing `_warp_action` read, so with the
+gate shut every warp wrote `withheld_force_pos_vital_version`.  It is now
+read only on the branch it actually governs.  A cross-scene warp never
+touches it and no longer claims to have been withheld by a gate that had
+nothing to do with why it did nothing.  Cost: with no current position, the
+outcome is now `refused_warp_no_current_position` where it used to be the
+version word -- more honest (this function cannot route without a scene), and
+unreachable in production, where the call site requires a selected character.
+
+### Tickets moved in the same round, not the next one
+
+`GT-127`'s P1 told the tester `/warp 2` produces
+`withheld_force_pos_vital_version`.  This round made that false, so this
+round rewrote it -- PANYA-RULING 20260829_0127, the lane that changes the
+fact fixes the entry in the same round as the code.  It also gained the
+cleanup step the new behaviour needs: `/warp 2` now WRITES a file, and a
+tester who leaves it there logs into Prison Exile forever after.  `GT-141` is
+the new attended entry for the thing itself (stage, relog, see the island).
+
+### Tests
+
+`tests/test_gm_login_scene_stage.py` (new, 27 cases): grants-nothing,
+writes-what-the-reader-reads, refusal-leaves-the-file-alone, hostile
+arguments, restore.  `tests/test_gm_command_audit_outcome.py` gained
+`StagedLoginSceneRowTests`, including the property that cost the design work:
+a command whose `outcome` row cannot be written takes its staged entry BACK
+OFF DISK, because unlike every other outcome in this vocabulary this one has
+already changed durable state by the time the write point is reached -- and
+an undo that fails is named (`gm_chat_action_outcome_stage_not_reverted`)
+rather than silent.
+
+Two test files also gained a throwaway config path in `setUp`: the first run
+of the new routing created a real `config/gm_login_scene.json` under the
+repo checkout, which is a test writing into the tree it is testing.

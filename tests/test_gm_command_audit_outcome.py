@@ -40,6 +40,7 @@ from pirateforce_foundation.gm import chat_command  # noqa: E402
 from pirateforce_foundation.gm import chat_command_action  # noqa: E402
 from pirateforce_foundation.gm import commands  # noqa: E402
 from pirateforce_foundation.gm import dispatch as gm_dispatch  # noqa: E402
+from pirateforce_foundation.gm import login_scene_stage  # noqa: E402
 from pirateforce_foundation.gm import say_wire  # noqa: E402
 from pirateforce_foundation.gm import teleport_wire  # noqa: E402
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
@@ -119,6 +120,10 @@ class _Case(unittest.TestCase):
             json.dumps({"gm_accounts": [self.GM_ACCOUNT]}), encoding="utf-8"
         )
         self.log_path = self.tmp / "capture" / "gm_command_log.ndjson"
+        # The cross-scene half of `/warp` writes this file (round `gejldf`).
+        # Named into the temp dir in every case, so no test can stage into
+        # the checkout it is testing.
+        self.login_scene_config_path = self.tmp / "config" / "gm_login_scene.json"
         self.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
 
     def act(self, session, text):
@@ -128,7 +133,15 @@ class _Case(unittest.TestCase):
             self.legacy,
             config_path=str(self.config_path),
             log_path=str(self.log_path),
+            login_scene_config_path=str(self.login_scene_config_path),
         )
+
+    def staged_login_scenes(self):
+        if not self.login_scene_config_path.exists():
+            return {}
+        return json.loads(
+            self.login_scene_config_path.read_text(encoding="utf-8")
+        ).get("gm_login_scene", {})
 
     def log_records(self):
         if not self.log_path.exists():
@@ -474,6 +487,107 @@ class HalfPairTests(_Case):
                     getattr(session, "gm_last_warp_target", None),
                     "a half-pair must not leave a target parked either",
                 )
+
+
+class StagedLoginSceneRowTests(_Case):
+    """The cross-scene half of `/warp` (round `gejldf`) in the audit file.
+
+    Two properties, and the second is the one that cost the design work:
+    the row says `staged_login_scene` and NOT `composed` (nothing was put on
+    the wire), and a command whose outcome row cannot be written takes its
+    staged config entry back off disk -- because unlike every other outcome
+    in this vocabulary, this one has already changed durable state by the
+    time the write point is reached.
+    """
+
+    def test_a_cross_scene_warp_writes_the_staged_word_not_composed(self):
+        session = FakeSession(position=FakePosition(scene_id=1))
+        # Gate patched OPEN, to show the word does not come from a shut gate:
+        # this command never reads the version gate at all.
+        with self.open_the_warp_gate():
+            self.assertIsNone(self.act(session, "/warp 3"))
+        rows = self.outcome_rows()
+        self.assertEqual(1, len(rows))
+        # The literal, not the constant: round `nz0qt2` measured that every
+        # assertion comparing a row to `commands.OUTCOME_*` survived mutating
+        # the constant to "sent" with the whole suite green.
+        self.assertEqual("staged_login_scene", rows[0]["outcome"])
+        self.assertEqual(False, rows[0]["executed"])
+        self.assertEqual({"GM_ONE": 3}, self.staged_login_scenes())
+
+    def test_coordinates_that_cannot_be_honoured_get_their_own_word(self):
+        session = FakeSession(position=FakePosition(scene_id=1))
+        self.assertIsNone(self.act(session, "/warp 3 100 200"))
+        rows = self.outcome_rows()
+        self.assertEqual(1, len(rows))
+        self.assertEqual("staged_login_scene_coords_ignored", rows[0]["outcome"])
+
+    def test_a_stage_refused_by_the_allowlist_says_so(self):
+        # Reachable only through a config edit between the authorization and
+        # the stage; the word still has to be readable rather than a crash.
+        session = FakeSession(position=FakePosition(scene_id=1))
+        self.config_path.write_text(
+            json.dumps({"gm_accounts": [self.GM_ACCOUNT]}), encoding="utf-8"
+        )
+        with mock.patch.object(
+            login_scene_stage,
+            "stage_login_scene",
+            return_value=login_scene_stage.StageResult(
+                False, login_scene_stage.REASON_CONFIG_UNREADABLE, 3, None
+            ),
+        ):
+            self.assertIsNone(self.act(session, "/warp 3"))
+        rows = self.outcome_rows()
+        self.assertEqual("refused_stage_config_unreadable", rows[0]["outcome"])
+
+    def test_an_unwritable_outcome_row_takes_the_staged_entry_back(self):
+        session = FakeSession(position=FakePosition(scene_id=1))
+        with mock.patch.object(
+            chat_command_action,
+            "log_gm_command_outcome",
+            side_effect=OSError("disk full"),
+        ):
+            self.assertIsNone(self.act(session, "/warp 3"))
+        # The issued row is on disk, the outcome row is not -- and the config
+        # entry the command had already written is gone again.
+        self.assertEqual([], self.outcome_rows())
+        self.assertEqual({}, self.staged_login_scenes())
+        self.assertIn(
+            f"{chat_command_action.EVENT_OUTCOME_LOG_FAILED_PREFIX}OSError",
+            session.events,
+        )
+
+    def test_an_undo_that_fails_is_named_rather_than_silent(self):
+        session = FakeSession(position=FakePosition(scene_id=1))
+        with mock.patch.object(
+            chat_command_action,
+            "log_gm_command_outcome",
+            side_effect=OSError("disk full"),
+        ), mock.patch.object(
+            login_scene_stage, "restore_login_scene", return_value=False
+        ):
+            self.assertIsNone(self.act(session, "/warp 3"))
+        self.assertIn(
+            chat_command_action.EVENT_OUTCOME_STAGE_NOT_REVERTED, session.events
+        )
+        # The entry really is still there -- the event is not decoration.
+        self.assertEqual({"GM_ONE": 3}, self.staged_login_scenes())
+
+    def test_an_undo_that_raises_is_reported_as_a_failed_undo(self):
+        session = FakeSession(position=FakePosition(scene_id=1))
+        with mock.patch.object(
+            chat_command_action,
+            "log_gm_command_outcome",
+            side_effect=OSError("disk full"),
+        ), mock.patch.object(
+            login_scene_stage,
+            "restore_login_scene",
+            side_effect=RuntimeError("no"),
+        ):
+            self.assertIsNone(self.act(session, "/warp 3"))
+        self.assertIn(
+            chat_command_action.EVENT_OUTCOME_STAGE_NOT_REVERTED, session.events
+        )
 
 
 class VocabularyTests(unittest.TestCase):
