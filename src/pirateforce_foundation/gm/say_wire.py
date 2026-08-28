@@ -228,13 +228,27 @@ CHANNEL_CODEC_VITAL_VERSION = 0
 #      version parameter -- NOT a second codec in this lane's zone (that is
 #      the round `rounds/GM_20260827_1415_broadcast-wire-attempted-and-
 #      retracted.md` already tried and retracted).
-#   4. Either way, release day also edits ONE test: `tests/test_gm_say_
-#      action.py`'s `SayVersionGateTests::test_the_shipped_constant_is_still_
-#      none_so_no_bytes_can_go_out` asserts this constant is None
-#      unconditionally, on purpose.  (Unlike ForcePos, whose release day edits
-#      TWO test files -- there is no second assertion on this one, because
-#      this lane owns `say_wire.py`'s suite outright and did not need a
-#      separate lock file for it.)
+#   4. Either way, release day edits THREE files, and ~~ONE test~~ is no
+#      longer true.  The struck sentence read: "release day also edits ONE
+#      test ... there is no second assertion on this one, because this lane
+#      owns `say_wire.py`'s suite outright and did not need a separate lock
+#      file for it."  COO-DECISION 2026-08-29T00:41+07:00 (`notes_to_chief/
+#      20260829_0041_COO-DECISION-say-gate-lock-is-official-and-gt016-goes-
+#      first.md`) is precisely the thing that made it false, and for the
+#      reason the sentence itself gave away: a lane that owns the suite
+#      outright can lift the lock in the same commit that wants the byte,
+#      and COO ruled that is not a lock.  So release day now edits:
+#        1. this file (the constant);
+#        2. `tests/test_gm_say_action.py`'s `SayVersionGateTests` -- TWO
+#           unconditional `assertIsNone`s, not one (`test_the_shipped_
+#           constant_is_still_none_so_no_bytes_can_go_out` and `test_re132_is_
+#           answered_and_the_gate_is_still_shut_for_the_other_reason`); and
+#        3. `tests/test_gm_say_gate_lock.py` -- the separate lock file COO
+#           ordered, which also refuses an UNGATED composer and a second
+#           composition route through the shared codec.  Flipping the
+#           constant alone leaves that file red, on purpose.
+#      Same shape as ForcePos after all.  And the flip is not this lane's to
+#      make: only a NEW COO-DECISION lifts it.
 GM_GLOBAL_MESSAGE_VITAL_VERSION_CONFIRMED: int | None = None
 
 # The byte RE-132 measured, kept SEPARATE from the gate above on purpose.
