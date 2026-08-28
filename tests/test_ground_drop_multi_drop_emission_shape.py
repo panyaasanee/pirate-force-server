@@ -22,8 +22,17 @@ that comparison: the SHAPE this server emits for N drops, and the shape its
 SIBLING list emits for N actors through the very same envelope.  The
 contrast is the point, and it is what makes the open question worth asking:
 
-* the ground list (derived bit 0x08) emits N drops as N SEPARATE
-  collections, each declaring a count of ONE;
+* ~~the ground list (derived bit 0x08) emits N drops as N SEPARATE
+  collections, each declaring a count of ONE~~ -- TRUE WHEN THIS FILE WAS
+  WRITTEN, FALSE NOW, and struck rather than deleted because the contrast
+  below is why the question got asked.  Round ``zxnwtd`` changed it on
+  ``RE-130`` (DONE/PASS 2026-08-28T20:18+07:00): the ground list now emits
+  N drops as ONE collection declaring a count of N, like its sibling,
+  because the consumer ERASES every key a nonempty generation omits
+  (``0x005E0D40`` at ``0x006AFF84``/``0x006B0368``) and the old shape
+  therefore left only the LAST drop of a multi-drop kill in the client's
+  keyed tree.  The tests below now measure the NEW shape and the
+  ``kfs01z``-era ones that asserted the old one are struck in place;
 * the census list (derived bit 0x02), through the SAME
   ``GSCN_RunTimeProtocolRes`` envelope, puts N actors in ONE collection
   with a count of N.
@@ -45,9 +54,13 @@ So "a combined multi-record derived-mask collection is the one shape a real
 client has already rejected" (``drop_frames``'s own justification, from the
 V43 ErrorData=28317 note) is NOT a property of this envelope in general.
 Its sibling ships a 97-element collection that a client demonstrably drew.
-Whether the 0x08 CONSUMER can take the same treatment is RE-130's question,
-and this file exists to state the contrast precisely enough that the
-question can be answered instead of guessed at.
+~~Whether the 0x08 CONSUMER can take the same treatment is RE-130's
+question~~ -- RE-130 ANSWERED IT: the codec loop reads its count from the
+list object at ``+0x2C`` and takes more than one (span ``[0x006AF970,
+0x006B03E3)``, sha e5eb9e15..).  What is still open, and is now ``GT-132``
+rather than an RE ticket, is whether a client DRAWS the labels it accepts.
+This file kept the contrast precise enough for the question to be answered
+instead of guessed at, and that is what it was for.
 
 AND THE V43 NUMBER DOES NOT MEAN WHAT drop_frames SAYS IT MEANS.  This is
 not this file's finding -- ``world_population.py:105-115`` settled it on
@@ -73,8 +86,14 @@ WHAT IS NOT CLAIMED.  Read before quoting anything here.
   mid-air and would not open a target panel at all.  A client that will not
   draw a target panel is not a controlled observer for "did a label
   render".
-* NOT CLAIMED: that the 0x08 list is replace-by-omission.  RE-092 settled
-  that for the 0x02 list ONLY.  ~~"GT-045's own evidence leans the other
+* ~~NOT CLAIMED: that the 0x08 list is replace-by-omission.  RE-092 settled
+  that for the 0x02 list ONLY.~~  IT IS NOW CLAIMED, AND NOT BY THIS FILE:
+  ``RE-130`` closed DONE/PASS on 2026-08-28T20:18+07:00 with the spans --
+  a nonempty generation reconciles the keyed tree and erases every key it
+  omits (``0x005E0D40`` at ``0x006AFF84``/``0x006B0368``), and the element
+  key is the wire's ``u32 tag 0x14`` at element ``+0x10`` with no
+  transform.  That is a STATIC fact about the deserialiser, still not a
+  statement about what gets drawn.  ~~"GT-045's own evidence leans the other
   way -- two elements 42 ms apart and a label was still seen"~~ IS
   DOWNGRADED to a conditional: that reading needs BOTH that the label seen
   was the FIRST element (contested in-repo -- mob_loot.py:57 says it was
@@ -225,54 +244,74 @@ class MultiDropEmissionShapeTests(unittest.TestCase):
         return pc
 
     # -- the measurement ---------------------------------------------------
-    def test_each_drop_travels_as_its_own_collection_of_exactly_one(self):
-        """N drops -> N collections, each count=1 with a ONE-element payload.
+    def test_a_multi_drop_kill_travels_as_one_collection_of_exactly_n(self):
+        """~~N drops -> N collections~~ -> N drops -> ONE collection of N.
 
-        The count byte alone would not be enough: a count of one in front of
-        a concatenated payload is a different defect, and an earlier draft
-        of this test passed on exactly that.  So the payload LENGTH is
-        asserted against a literal element width written in this file, which
-        is what makes the count meaningful.
+        Struck and inverted in round ``zxnwtd`` on ``RE-130``.  The reason
+        the old assertion is not merely re-pointed: it described the DEFECT.
+        Under replacement-by-omission, N collections of one leave one drop.
+
+        The count field alone is still not enough -- a count of N in front
+        of a one-element payload is the mirror of the defect the previous
+        version of this test guarded against -- so the payload LENGTH is
+        still asserted against the element width written in this file.
         """
         drops = self._multi_drop_kill()
         frames = drop_frames(self.legacy, drops)
-        self.assertEqual(len(frames), len(drops))
+        self.assertEqual(
+            len(frames), 1,
+            "a multi-drop kill must be ONE generation; %d of them erase "
+            "each other's keys" % len(frames))
         self.assertGreaterEqual(
-            len(frames), 2,
-            "this test is about what the SECOND collection contains; with "
-            "one frame the assertions below are vacuous")
-        for index, (pc, _frame) in enumerate(frames):
-            self.assertEqual(
-                struct.unpack("<H", pc[ELEMENT_COUNT_OFFSET:
-                                       ELEMENT_COUNT_OFFSET + 2])[0],
-                1,
-                "collection %d does not declare a count of one" % index)
-            self.assertEqual(
-                len(pc), GROUND_PC_BYTES,
-                "collection %d is not the pinned 44-byte pc" % index)
-            self.assertEqual(
-                len(pc) - DROP_ENVELOPE_SIZE, GROUND_ELEMENT_BYTES,
-                "collection %d carries a payload that is not exactly one "
-                "element wide, so its count of one is a lie" % index)
+            len(drops), 2,
+            "this test is about a collection carrying MORE than one "
+            "element; with one drop the assertions below are vacuous")
+        pc, _frame = frames[0]
+        self.assertEqual(
+            struct.unpack("<H", pc[ELEMENT_COUNT_OFFSET:
+                                   ELEMENT_COUNT_OFFSET + 2])[0],
+            len(drops),
+            "the collection does not declare the number of drops it carries")
+        self.assertEqual(
+            len(pc), DROP_ENVELOPE_SIZE + GROUND_ELEMENT_BYTES * len(drops),
+            "the collection's payload is not exactly %d elements wide, so "
+            "its count is a lie" % len(drops))
 
-    def test_no_frame_of_a_multi_drop_kill_carries_another_drops_element(self):
-        """The omission is by CONTENT, not only by the count field."""
+    def test_the_one_collection_carries_every_drops_element_exactly_once(self):
+        """Presence by CONTENT, not only by the count field."""
         drops = self._multi_drop_kill()
-        frames = drop_frames(self.legacy, drops)
+        (pc, frame), = drop_frames(self.legacy, drops)
         elements = [drop_element(self.legacy, drop) for drop in drops]
         self.assertEqual(
             len(set(elements)), len(elements),
             "the drops composed to identical element bytes; the containment "
             "assertion below would then pass for the wrong reason")
-        for index, (pc, _frame) in enumerate(frames):
-            self.assertEqual(pc[DROP_ENVELOPE_SIZE:], elements[index])
-            for other, element in enumerate(elements):
-                if other == index:
-                    continue
-                self.assertNotIn(
-                    element, pc,
-                    "collection %d carries drop %d's element too" % (
-                        index, other))
+        self.assertEqual(pc[DROP_ENVELOPE_SIZE:], b"".join(elements))
+        for index, element in enumerate(elements):
+            self.assertEqual(
+                pc.count(element), 1,
+                "drop %d's element appears %d times in the collection"
+                % (index, pc.count(element)))
+            self.assertIn(
+                element, frame,
+                "drop %d's element did not survive framing" % index)
+
+    def test_a_one_drop_kill_is_byte_for_byte_what_gt045_sent(self):
+        """The change must not move the only shape a client has taken.
+
+        This is the guard on the round-``zxnwtd`` change: whatever the wide
+        generation looks like, a kill that rolled ONE object still composes
+        the 44-byte pc and 54-byte frame of GT-045, and the count record in
+        it still reads one.
+        """
+        drops = self._multi_drop_kill()
+        (pc, frame), = drop_frames(self.legacy, drops[:1])
+        self.assertEqual(len(pc), GROUND_PC_BYTES)
+        self.assertEqual(len(frame), GROUND_FRAME_BYTES)
+        self.assertEqual(pc[:DROP_ENVELOPE_SIZE], DROP_ENVELOPE_PIN)
+        self.assertEqual(
+            struct.unpack("<H", pc[ELEMENT_COUNT_OFFSET:
+                                   ELEMENT_COUNT_OFFSET + 2])[0], 1)
 
     def test_the_ground_bit_and_the_census_bit_are_read_off_real_frames(self):
         """Both composers are RUN, and their derived-mask bytes compared.
@@ -303,15 +342,16 @@ class MultiDropEmissionShapeTests(unittest.TestCase):
     def test_the_same_envelope_carries_many_elements_on_the_census_bit(self):
         """The sibling list does what the ground list refuses to do.
 
-        ``drop_frames`` justifies one-element-per-frame with the V43
-        ErrorData=28317 note about "a combined multi-record derived-mask
-        collection".  This test measures that the SAME envelope, one derived
-        bit over, ships N elements in ONE collection.  The client-observable
+        ~~``drop_frames`` justifies one-element-per-frame with the V43
+        ErrorData=28317 note~~ -- it no longer does either thing (round
+        ``zxnwtd``).  This test still measures that the SAME envelope, one
+        derived bit over, ships N elements in ONE collection, and it is now
+        the SIDE the ground list also emits on.  The client-observable
         number that licenses the contrast is 97 (GT-121, PASS) -- NOT 115,
         see the module docstring.  And per world_population.py:105-115 the
         V43 number is a parse-failure echo, not a count report, measured on
-        the 0x02 list itself.  Whether multi-element works for the 0x08
-        CONSUMER is RE-130.
+        the 0x02 list itself.  Whether multi-element is DRAWN by the 0x08
+        consumer is GT-132; that its codec ACCEPTS it is RE-130, closed.
         """
         for count in (2, 5):
             census_pc = self._census_pc(count)
