@@ -1,1 +1,1 @@
-{"sha":"7d82dad63bd8628a348c7d9388f1414a0ffebe67","conclusion":"failure","event":"push","ref":"refs/heads/claude/funny-volta-ua236k","run_id":"33218787407","utc":"2026-08-28T23:05:09Z"}
+{"sha":"7d82dad63bd8628a348c7d9388f1414a0ffebe67","conclusion":"failure","event":"pull_request","ref":"refs/pull/235/merge","run_id":"33218790660","utc":"2026-08-28T23:05:52Z"}
