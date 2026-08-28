@@ -90,6 +90,110 @@ GM_GLOBAL_CHANNEL_ID = SHARED_SERIALIZER_CHANNEL_IDS["Channel_GMGlobalMessageVit
 # invent a GM display name, so a caller who wants one must pass it.
 DEFAULT_SPEAKER = ""
 
+# The vital_version byte that `channel_message_hypothesis.
+# make_channel_message_response` hardcodes for EVERY channel on serializer
+# 0x65AD40 -- it is the middle element of the one tuple it hands
+# `legacy.make_runtime_vitals`, and v141 writes it as `u8tag(0x0B, ...)` per
+# nested vital (`current/pf_login_game_server_v141.py:702-704`, re-derived at
+# this commit).  Named here, not because this lane may change it (that module
+# is another lane's proven work and is NOT in this lane's write zone), but
+# because the gate below has to be able to say WHICH byte it is gating.
+CHANNEL_CODEC_VITAL_VERSION = 0
+
+# !! THIS LANE'S SEND GATE FOR 0x9F2C.  `None` means: no vital_version byte
+# has been proven for THIS vital, so no GM COMMAND may put a `say` frame on a
+# real socket.
+#
+# THAT IS A LANE-LOCAL PROPERTY, NOT A REPO-WIDE ONE, and the first draft of
+# this comment overstated it (pf-adversary, this round, enumerated every
+# caller rather than trusting the sentence).  `make_channel_message_response`
+# has exactly two call sites in `src/`: this module, and
+# `runtime.py:2126-2147`, which is NOT gated by this constant.  Booted with
+# `--channel-message-hypothesis-scenario .../channel_sweep.json`, that path
+# already composes a real `Channel_GMGlobalMessageVital` frame carrying the
+# very byte RE-132 is being asked to prove, and the v141 serve loop sends it
+# (`v141:7755`).  So the honest claim is: no GM command can send one, and
+# nothing in this lane can open that.
+#
+# WHICH MEANS RE-132 IS NOT THE ONLY INSTRUMENT AIMED AT THIS BYTE.
+# `docs/HYPOTHESIS_LEDGER.json` and `docs/FUNCTIONAL_COVERAGE.json` both name
+# **GT-016** as the queued attended test that sends all five shared-serializer
+# channels, GMGlobal included, to a real client and reads what renders -- a
+# client-observable measurement, which is a STRONGER layer than RE-132's
+# static constructor read.  If GT-016 runs first and the client accepts the
+# frame, that answers this byte from the higher rung and RE-132 becomes a
+# corroboration rather than the gate's key.  Whoever opens this constant
+# should check GT-016's state first.
+#
+# It is deliberately shaped like
+# `teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED` and read at the same
+# place -- the module that returns an ACTION, not this one, which stays a
+# pure byte builder its own tests can exercise.
+#
+# WHAT IS PROVEN, AND IT IS A LOT (do not re-derive):
+#   CHAT-CHANNEL-001 (`reports/PF_CHAT_CHANNEL001_CHANNEL_FAMILY_AND_ROUTING_
+#   STATIC_20260818.md`, byte-exact static read) pins this channel's 16-bit
+#   wire id 0x9F2C, pins that five channels share serializer 0x65AD40
+#   wire-IDENTICALLY, and pins the field order and the `0x48` + u32-length
+#   UTF-16LE wstring codec.  `channel_message_hypothesis.py` then reproduces
+#   real captured GT-006 payload bytes and the CHAT-ECHO-001/002 pinned PC and
+#   frame hashes exactly.  None of that is in question here.
+#
+# WHAT IS NOT PROVEN, AND IT IS EXACTLY ONE BYTE:
+#   every one of those three byte-level cross-checks composes `channel_id ==
+#   0xAC52` (Channel_LocalTalkMessageVital).  They pin the PAYLOAD codec,
+#   which the family shares; they say nothing about the vital_version this
+#   family's OTHER class ids are accepted with, because that byte is not part
+#   of the payload -- it sits in the envelope, one per nested vital.
+#   This lane has measured that byte four times and it is per-vital with no
+#   project default: 0x5A19 -> 0 and ForcePos -> 0 and TeleportVital -> 4
+#   (RE-105 / RE-129, from the client's own constructors), SelectActor -> 10
+#   (server source, a different layer).  Inheriting 0xAC52's byte for 0x9F2C
+#   because the payload codec is shared is precisely the reasoning shape that
+#   produced the hardcoded `1` GT-101 measured as fatal on a real client
+#   (modal `ErrorData=23065`, connection halted, socket closed).
+#   `RE-132` (filed this round, via chief) asks for this vital's constructor
+#   byte using the recipe RE-105/RE-129 already ran twice.
+#
+# !! WHO GETS TO OPEN THIS, AND IT IS NOT THIS LANE ALONE.
+#   `teleport_wire`'s constant has an external lock (COO-DECISION
+#   20260828_2130 + `tests/test_gm_force_pos_version_lock.py`).  This one had
+#   nothing but the lane's own test -- and the release-day note below tells a
+#   future round to edit that very test, so "who else has to agree" answered
+#   itself with "nobody".  pf-adversary asked the question; the lane's answer,
+#   pending COO ([สมมติของสาย GM - รอ COO ยืนยัน], letter filed round
+#   `w8hnu9`), is that TWO conditions outside this lane must hold first:
+#     (A) the per-connection identity question at `runtime.py:4765-4774` is
+#         resolved -- while every connection shares one `--token`, opening
+#         this gate hands `/say` to whoever connects, and the allowlist that
+#         is supposed to stop them cannot tell two humans apart; and
+#     (B) something has established that the client's GMGlobal branch RENDERS
+#         a received frame (GT-016, or RE-132 question 3).  A byte-perfect
+#         frame into a branch that draws nothing looks exactly like a wrong
+#         version byte from the tester's chair.
+#
+# RELEASE DAY, IN ORDER (which branch is likelier is NOT known -- nothing in
+# this repo measures it, which is the whole reason RE-132 exists):
+#   0. (A) and (B) above hold, and COO has said the flip is allowed.
+#   1. RE-132 answers with a byte V for Channel_GMGlobalMessageVital.
+#   2. If V == CHANNEL_CODEC_VITAL_VERSION, set this constant to V.  The
+#      codec already emits that byte, so nothing else changes.
+#   3. If V != CHANNEL_CODEC_VITAL_VERSION, STOP: setting this constant would
+#      open a gate onto a frame the codec cannot build.  The version-mismatch
+#      refusal in `gm/chat_command_action.py` catches that, but the fix is a
+#      letter to `channel_message_hypothesis.py`'s owning lane asking for a
+#      version parameter -- NOT a second codec in this lane's zone (that is
+#      the round `rounds/GM_20260827_1415_broadcast-wire-attempted-and-
+#      retracted.md` already tried and retracted).
+#   4. Either way, release day also edits ONE test: `tests/test_gm_say_
+#      action.py`'s `SayVersionGateTests::test_the_shipped_constant_is_still_
+#      none_so_no_bytes_can_go_out` asserts this constant is None
+#      unconditionally, on purpose.  (Unlike ForcePos, whose release day edits
+#      TWO test files -- there is no second assertion on this one, because
+#      this lane owns `say_wire.py`'s suite outright and did not need a
+#      separate lock file for it.)
+GM_GLOBAL_MESSAGE_VITAL_VERSION_CONFIRMED: int | None = None
+
 
 class SayWireError(ValueError):
     """A `say` command cannot be composed into a `Channel_GMGlobalMessageVital`
@@ -147,7 +251,17 @@ def make_say_broadcast_frame(
         return make_channel_message_response(
             legacy, GM_GLOBAL_CHANNEL_ID, speaker, body,
         )
-    except ValueError as exc:
+    except (ValueError, RuntimeError) as exc:
+        # `RuntimeError` added round `w8hnu9` after pf-adversary: this clause
+        # caught only `ValueError`, but every drift check inside
+        # `make_channel_message_response` raises `RuntimeError`
+        # (`channel_message_hypothesis.py:547/549/555/570/572` -- composed PC
+        # size drift, payload mismatch, re-decode mismatch, pinned-composition
+        # drift), so a bare `RuntimeError` could escape a function whose
+        # docstring promises every failure surfaces as `SayWireError`.  Not
+        # reachable from a typed `/say` today (the pinned checks only fire for
+        # the probe bodies), but `gm/chat_command_action._say_action` is the
+        # first caller that turns an escape into a wrong event name.
         raise SayWireError(
             f"say command rejected by the channel wire codec: {exc}"
         ) from exc

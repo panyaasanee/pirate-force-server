@@ -64,10 +64,33 @@ WHAT IT DOES NOT DO
   `gm/warp_executor.py` refuses a cross-scene `warp` rather than send an
   in-scene hop that misrepresents what happened.  Cross-scene warp needs
   `TeleportVital`, whose target/aux fields RE-090 leaves unproven.
-* It does not send anything for `npc`/`item`/`lv`/`spawn`/`say`.  Those
+* It does not send anything for `npc`/`item`/`lv`/`spawn`.  Those
   parse and audit exactly as before and return no action -- naming them here
   as "not wired yet" by event is the difference between a lane that is
   honest about its coverage and one that looks broken.
+  ~~`say` belongs in that list too~~ -- NO LONGER TRUE as of round `w8hnu9`:
+  `say` now has an action path of its own (`_say_action`), gated on
+  `say_wire.GM_GLOBAL_MESSAGE_VITAL_VERSION_CONFIRMED` exactly the way `warp`
+  is gated on `teleport_wire`'s.  Both gates are shut today, but they are
+  shut on DIFFERENT things and that difference is the point of the round:
+  `warp` waits on chief's confirmed-position write point plus a COO unlock
+  (CORE-REQUEST-GM-030), while `say` waits on one measurable byte (RE-132)
+  and on nothing about position at all -- it moves nobody and writes no DB
+  row.  `say` is therefore the SHORTEST REMAINING PATH from a typed chat line
+  to something a tester can see -- [สมมติของสาย GM - รอ RE], and the label is
+  not decoration.  What is measured: the payload codec (CHAT-CHANNEL-001) and
+  the blocker count.  What is NOT: that the client draws it.
+  `reports/PF_CHAT_CHANNEL001_*_20260818.md` enumerates eight per-channel
+  style names off the client's ordered downcast chain at `0x659870`
+  (LocalTalk, WhisperTalk, GuildTalk, PartyTalk, YellTalk, LocalPerformance,
+  CustomDefine, ClassTalk) and GMGlobal is NOT among them, and that report's
+  own section 6 lists on-screen rendering under "does not claim".  RE-129
+  taught this lane the difference the hard way -- `ForcePos`'s registered
+  handler turned out to be `mov al,1; ret 4` -- so RE-132 asks for 0x9F2C's
+  downcast branch body alongside the version byte.  Until one of those
+  answers, "shortest path" ranks the blockers; it does not promise a pixel.
+* It does not broadcast.  `say` returns a per-connection action like every
+  other action in this file; the GM sees his own line.  See `_say_action`.
 * !! It does not put a single ForcePos byte on the wire today, because
   `teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED` is None.  ~~(RE-129
   open)~~ RE-129 ANSWERED on 2026-08-28T20:09+07:00 -- the byte is 0 -- and
@@ -184,8 +207,9 @@ from __future__ import annotations
 
 import sys
 
-from . import teleport_wire
+from . import say_wire, teleport_wire
 from .chat_command import handle_local_talk_chat
+from .say_wire import make_say_broadcast_frame
 from .warp_executor import make_warp_force_pos_frame
 
 # The action label the serve loop logs for a real GM warp.  ASCII, screaming
@@ -209,6 +233,29 @@ from .warp_executor import make_warp_force_pos_frame
 # prevent.  A test pins this substring against that call site; do not rename
 # this constant without reading it.
 WARP_ACTION_LABEL = "LANE_GM_CHAT_WARP_TELEPORT_FORCE_POS"
+
+# The action label for a GM `say`.
+#
+# !! THIS ONE MUST *NOT* CONTAIN `TELEPORT`, FOR THE SAME REASON THE WARP
+# LABEL MUST.  The rule at `runtime.py:3654-3675` is a substring test on the
+# label of a queued action -- `if action and "TELEPORT" in action[0]` -- and
+# it reopens the move-authority grace window, which admits position readings
+# far from the last one the gate accepted.
+# PRECISION, after pf-adversary (this round) re-derived the call site rather
+# than trusting the earlier wording here: it is NOT "every queued action" on
+# every boot.  `runtime.py:4518-4521` calls
+# `_move_authority_note_server_moves(actions)` only when
+# `move_authority_hypothesis_scenario is not None`, so on a default boot the
+# substring is inert -- in BOTH directions, which also means the warp label's
+# TELEPORT is inert there.  The label still must not carry it: the scenario
+# is exactly the configuration an anti-cheat measurement runs under, and that
+# is the run where a `say` must not look like a server-initiated move.
+# A `say` moves nobody.
+# Naming this label "..._TELEPORT_..." out of symmetry would hand every GM a
+# way to widen the anti-cheat window on demand, one chat line at a time,
+# while the character never moved an inch.  A test pins the absence of that
+# substring against the same call site, not against this comment.
+SAY_ACTION_LABEL = "LANE_GM_CHAT_SAY_GM_GLOBAL_MESSAGE"
 
 # Console token printed on the production path whenever an authorized GM
 # command is handled.  `lane_hooks` prints `LANE_HOOK_FIRED` for the route
@@ -251,6 +298,23 @@ EVENT_WARP_WITHHELD_NO_VERSION = (
 EVENT_WARP_NO_POSITION = "gm_chat_action_warp_no_current_position"
 EVENT_WARP_REFUSED_PREFIX = "gm_chat_action_warp_refused_"
 EVENT_UNEXPECTED_PREFIX = "gm_chat_action_unexpected_"
+EVENT_SAY_WITHHELD_NO_VERSION = (
+    "gm_chat_action_say_withheld_no_confirmed_gm_global_vital_version_re132_open"
+)
+# Not the same refusal as the one above, and the difference is the whole
+# point: this one fires only AFTER RE-132 answered, when the answer is a byte
+# `channel_message_hypothesis.py` cannot emit.  Reading them as one event
+# would let release day look like "still waiting for RE" forever.
+# !! DELIBERATELY NOT UNDER `EVENT_SAY_REFUSED_PREFIX`.  pf-adversary (this
+# round) measured that the first spelling of this name --
+# `gm_chat_action_say_refused_confirmed_version_is_not_the_codec_version` --
+# started with that prefix, whose own contract is "exception TYPE names only".
+# A consumer stripping the prefix to recover a class name would have got a
+# sentence, and the round's own over-length test already read the two as one
+# family.  `EVENT_WARP_WITHHELD_NO_VERSION` has no such collision with the
+# warp prefix; this one now has none either.
+EVENT_SAY_VERSION_CODEC_MISMATCH = "gm_chat_action_say_version_codec_mismatch"
+EVENT_SAY_REFUSED_PREFIX = "gm_chat_action_say_refused_"
 
 
 def _note(session: object, event: str) -> None:
@@ -354,13 +418,21 @@ def _make_action(
     # pf-adversary in round `vvxkft` before that wiring exists, not after.
     print(f"{CONSOLE_TOKEN} {command.name} route=action", file=sys.stderr)
 
-    if command.name != "warp":
-        # Parsed and audited, but this lane has no proven server->client
-        # wire for it yet.  Named, not silent: "nothing happened" and "we
-        # never built that half" look identical on screen.
-        _note(session, f"{EVENT_NO_WIRE_PATH_PREFIX}{command.name}")
-        return None
+    if command.name == "warp":
+        return _warp_action(session, command, legacy)
+    if command.name == "say":
+        return _say_action(session, command, legacy)
 
+    # Parsed and audited, but this lane has no proven server->client
+    # wire for it yet.  Named, not silent: "nothing happened" and "we
+    # never built that half" look identical on screen.
+    _note(session, f"{EVENT_NO_WIRE_PATH_PREFIX}{command.name}")
+    return None
+
+
+def _warp_action(
+    session: object, command: object, legacy: object
+) -> tuple[str, bytes, bytes, float] | None:
     version = teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED
     if version is None:
         # RE-129.  Refusing here is the whole safety property: GT-101
@@ -386,6 +458,74 @@ def _make_action(
         return None
 
     return (WARP_ACTION_LABEL, pc, frame, 0.0)
+
+
+def _say_action(
+    session: object, command: object, legacy: object
+) -> tuple[str, bytes, bytes, float] | None:
+    """One authorized `say` -> a `Channel_GMGlobalMessageVital` action.
+
+    !! WHAT THIS SENDS AND TO WHOM.  An action goes to ONE socket -- the
+    connection whose frame this dispatch is answering, i.e. the GM's own.
+    The vital is NAMED GMGlobal because that is the client class the GM
+    client renders it as; nothing in this path fans the message out to other
+    players, and nothing in this lane can: the action list `dispatch()`
+    returns is per-connection by construction.  A server-wide announcement is
+    a separate runtime point and a separate CORE-REQUEST, not a rename of
+    this one.  Said here so an attended run reads "the GM saw his own line"
+    as the expected result rather than as a half-broken broadcast.
+
+    Position is not read, and there is no equivalent of the warp path's
+    COO position-ownership lock here: a chat line moves nobody, writes no
+    DB row, and leaves the move-authority baseline exactly where it was.
+    (`no DB row` is the precise claim, corrected by pf-adversary: an ndjson
+    AUDIT row is written by `handle_local_talk_chat` before either gate is
+    reached, and GT-133's wire-layer criterion counts exactly those rows.)
+
+    !! WHAT THAT DOES *NOT* MEAN.  It does not make `say` two blockers away
+    from a screen.  There is a third, and it is not this lane's:
+    `runtime.py:4765-4774`, at the very 0xAC52 branch CORE-REQUEST-GM-029
+    would convert, records that `self.token` is the process-wide `--token`
+    CLI value, NOT a per-connection authenticated login, and says the
+    question "has to be answered before any executor is wired onto this
+    point, not after".  Corroborated independently by
+    `reports/PF_MULTIPLAYER_READINESS_AUDIT001_*_20260818.md` (I01-I04:
+    `v141:7859` default `"localtest"`, `v141:7399` one token per accepted
+    connection, no `parse_login*` anywhere, so the account name a client puts
+    on the wire is never read).  Until that is fixed, "GM status is decided
+    on the authenticated token" is true of THIS MODULE and false of THIS
+    SERVER, and every allowlist test in this lane is a module-layer fact.
+    `say` is the command that reaches that point first precisely because it
+    is the least locked, so it is the one that would cash the identity bug.
+    """
+    version = say_wire.GM_GLOBAL_MESSAGE_VITAL_VERSION_CONFIRMED
+    if version is None:
+        # RE-132.  Same safety property as the warp gate above, same
+        # precedent behind it (GT-101): an unproven vital_version byte is
+        # what kills a real client's session, and 0x9F2C's byte has never
+        # been measured -- only the shared PAYLOAD codec has.
+        _note(session, EVENT_SAY_WITHHELD_NO_VERSION)
+        return None
+    if version != say_wire.CHANNEL_CODEC_VITAL_VERSION:
+        # The confirmed byte exists but the imported codec hardcodes a
+        # different one, so composing here would put a version on the wire
+        # that RE just measured as WRONG.  See that constant's release-day
+        # note: the fix is a letter to the codec's owning lane, never a
+        # second codec in this lane's zone.
+        _note(session, EVENT_SAY_VERSION_CODEC_MISMATCH)
+        return None
+
+    try:
+        pc, frame = make_say_broadcast_frame(legacy, command)
+    except Exception as error:  # noqa: BLE001 - includes SayWireError
+        # Covers the over-length message, the wrong `args` shape, and every
+        # rejection the channel codec itself raises.  Type name only: a
+        # SayWireError message embeds the GM's typed text, which is both a
+        # console cp874 hazard and a needless echo of client-supplied bytes.
+        _note(session, f"{EVENT_SAY_REFUSED_PREFIX}{type(error).__name__}")
+        return None
+
+    return (SAY_ACTION_LABEL, pc, frame, 0.0)
 
 
 def _current_position(session: object) -> object | None:
