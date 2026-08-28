@@ -1309,3 +1309,65 @@ zone -- no command behavior changed for any payload under the (now
 correctly enforced) 50 MiB/account cap; no wire fact, no RE citation, and
 no `runtime.py` edit involved. This round sent no frame and ran no game
 test. Full detail: `pf_bridge/rounds/GM_20260828_0727_capture-quota-estimate-fix.md`.
+
+## Modules delivered (round `vb3ktn`, capture-file permission fix + mailbox backfill)
+
+Mailbox scan (correct `<filename>.md.CONSUMED.txt` standard, per
+`20260828_0043_COO-DECISION-consumed-txt-naming-standard.md`, with the
+legacy no-`.md` pattern checked as a fallback) found 5 letters addressed to
+or opened by this lane with no stub in either location: `RE-088-RESULT`,
+`RE-089-RESULT` (already consumed once by chief, but only at a
+non-standard `notes_to_chief/consumed/` path this lane's own scan never
+checks -- a stub-*location* gap, not a naming gap), and three of this
+lane's own `ASK-COO` letters whose replies had already landed and were
+already actionable (`pr131-pr72-undraft`, `two-consumed-txt-naming-
+conventions`, `standalone-login-scene-override-path`). All 5 stubbed this
+round at the correct top-level path; none needed new code action --
+their content was already folded into this lane's code/docs by earlier
+rounds. See `pf_bridge/rounds/GM_20260828_0824_mailbox-backfill-plus-capture-file-permission-fix.md`
+for the full list.
+
+`CORE-REQUEST-011`/`012` stay blocked (unchanged), `GT-103`/`GT-107-R3`/
+`GT-110` all stay `[PENDING]`/attended-only. This round's own write-zone
+work is a fresh `pf-adversary`-style pass over `gm/command_capture.py`
+(the module handling real inbound bytes since `CORE-REQUEST-010` landed)
+that found one real, reproduced gap no prior sweep of this file had
+caught:
+
+- **Fixed, MEDIUM -- `gm/command_capture.py`**: the capture-file write used
+  raw `os.open(out_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)` with no
+  explicit `mode` argument. Unlike the builtin `open()` this codebase uses
+  everywhere else for file writes (`commands.py`'s `log_gm_command`,
+  default mode `0o666` masked by umask, never an execute bit), `os.open`
+  with no `mode` defaults to `0o777`. Reproduced live under this
+  project's own default umask (`0o022`): the old call produced file mode
+  `0o755` -- world-readable **and** world-executable -- for a file whose
+  own module docstring already describes its contents as sensitive
+  ("a decoded string comes straight from client-controlled bytes"): real
+  account names and free-text a GM typed into the in-game command editor.
+  Under a more permissive host umask (e.g. `0o000`) the same call would
+  have produced a world-*writable* forensic file. Fixed with an explicit
+  `mode=0o600` (owner read/write only, no execute for anyone) -- verified
+  live to hold regardless of umask (0o600 has no group/other bits for any
+  umask to need to clear; tested under a deliberately permissive `0o000`
+  umask, not just this container's default). `grep`-confirmed this is the
+  only `os.open` call site in `gm/`; every other file write in the package
+  goes through `Path.open`/builtin `open`, already safe.
+- `tests/test_gm_command_capture.py`: one new test,
+  `test_capture_file_mode_is_owner_only_no_execute_regardless_of_umask`,
+  forces `umask(0o000)` for the duration of one capture call and asserts
+  the resulting file mode is exactly `0o600` -- a test that would have
+  failed under the pre-fix code (mode `0o777` under a `0o000` umask) and
+  cannot pass by accident of this container's own umask.
+
+`tests/test_gm_*.py`: 261/261 (up from 260 -- 1 new test, no existing test
+changed or narrowed). Repo-wide `pytest tests/ --continue-on-collection-errors`:
+3703 passed, 212 skipped, 5035 subtests passed, 17 pre-existing
+`capstone`-import collection errors only (same baseline every prior round
+reports, confirmed unrelated by inspection), no new failures.
+
+nonclaim: pure file-permission hardening inside this lane's own write
+zone -- no command behavior changed for any caller, no wire fact, no RE
+citation, and no `runtime.py` edit involved. This round sent no frame and
+ran no game test. Full detail:
+`pf_bridge/rounds/GM_20260828_0824_mailbox-backfill-plus-capture-file-permission-fix.md`.
