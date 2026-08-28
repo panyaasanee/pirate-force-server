@@ -123,7 +123,7 @@ PROVENANCE OF EVERY CLAIM THE CODE MAKES
   therefore gives an INTERVAL, not a cause, and it was measured on the
   mask-0x02 actor list, not on this 0x08 list at all.  ~~One element per frame
   is what this lane SHIPS~~ -- no longer true of what it SHIPS (see above);
-  still true of what has been on a real wire, and that gap is GT-131.  ~~"it is not a
+  still true of what has been on a real wire, and that gap is GT-132.  ~~"it is not a
   restriction the client has been shown to impose"~~ IS ITSELF STRUCK in the
   same round that wrote it (pf-adversary, D14): a real client DID refuse the
   one combined multi-record stream ever sent to it (V43).  What is not shown
@@ -520,7 +520,7 @@ MOB_LOOT_NONCLAIMS = (
     "first and a player sees one name instead of three') is what the client "
     "does.  So this lane no longer sends one element per frame: a kill's "
     "drops go out as ONE generation carrying every key.  What is still "
-    "unproven, and is now GT-131's question rather than this nonclaim's, is "
+    "unproven, and is now GT-132's question rather than this nonclaim's, is "
     "whether the client DRAWS the labels it accepts.  (~~'because a "
     "multi-record derived-mask collection is the shape a real client "
     "rejected'~~ IS STRUCK, round kfs01z: ErrorData=28317 is a parse-failure "
@@ -600,7 +600,7 @@ MOB_LOOT_NONCLAIMS = (
     "IT SHIPS UNFLAGGED.  Round zxnwtd's 2-drop kill puts an 82-byte frame "
     "on a production path (44/54 remains the ONE-drop shape and is the only "
     "one GT-045 measured).  The evidence for the change is ONE static "
-    "letter, RE-130; the client-observable layer is GT-131 and it has not "
+    "letter, RE-130; the client-observable layer is GT-132 and it has not "
     "run.  The old shape is not a safe alternative -- RE-130 proves it "
     "loses k-1 drops -- so both shapes carry a cost and this lane took the "
     "one whose cost is measured.  [ASSUMPTION OF LANE B - awaiting COO "
@@ -1616,7 +1616,7 @@ def drop_collection_pc(legacy: Any, drops: Any) -> bytes:
         membership confound "does not guarantee visible label lifetime".
       * NOT that the client DRAWS N labels at once.  The codec accepting
         ``count > 1`` is a static fact about the deserialiser.  What a
-        player sees is client-observable and is what ``GT-131`` is for.
+        player sees is client-observable and is what ``GT-132`` is for.
       * NOT that ``count = 0`` clears anything: RE-130 found that branch
         goes straight to the epilogue in this consumer.  This lane never
         emits an empty generation and refuses to compose one.
@@ -2083,7 +2083,7 @@ def drops_console_line(mob: Any, drops: Any) -> str:
         for drop in drops
     )
     # generations= AND pc_bytes= EXIST FOR AN ATTENDED TESTER, round zxnwtd.
-    # GT-131 has to tell a build that coalesces from one that does not, from
+    # GT-132 has to tell a build that coalesces from one that does not, from
     # a console with NO flags on it, and its first draft told the tester to
     # grep a token that is never printed (pf-adversary D3).  These two are
     # printed, they are the emitter's own arithmetic (the same numbers

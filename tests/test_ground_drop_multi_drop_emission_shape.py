@@ -57,7 +57,7 @@ Its sibling ships a 97-element collection that a client demonstrably drew.
 ~~Whether the 0x08 CONSUMER can take the same treatment is RE-130's
 question~~ -- RE-130 ANSWERED IT: the codec loop reads its count from the
 list object at ``+0x2C`` and takes more than one (span ``[0x006AF970,
-0x006B03E3)``, sha e5eb9e15..).  What is still open, and is now ``GT-131``
+0x006B03E3)``, sha e5eb9e15..).  What is still open, and is now ``GT-132``
 rather than an RE ticket, is whether a client DRAWS the labels it accepts.
 This file kept the contrast precise enough for the question to be answered
 instead of guessed at, and that is what it was for.
@@ -351,7 +351,7 @@ class MultiDropEmissionShapeTests(unittest.TestCase):
         see the module docstring.  And per world_population.py:105-115 the
         V43 number is a parse-failure echo, not a count report, measured on
         the 0x02 list itself.  Whether multi-element is DRAWN by the 0x08
-        consumer is GT-131; that its codec ACCEPTS it is RE-130, closed.
+        consumer is GT-132; that its codec ACCEPTS it is RE-130, closed.
         """
         for count in (2, 5):
             census_pc = self._census_pc(count)

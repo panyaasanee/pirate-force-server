@@ -846,7 +846,7 @@ class MobLootTests(unittest.TestCase):
 
     def test_the_console_line_reports_the_shape_that_is_actually_composed(
             self):
-        """GT-131's build check reads these two numbers off the console.
+        """GT-132's build check reads these two numbers off the console.
 
         They are useless if they are the module's arithmetic and not the
         emitter's, so both are compared against a REALLY COMPOSED frame.
