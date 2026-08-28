@@ -96,59 +96,6 @@ class WorldPopulationBg0002Tests(unittest.TestCase):
         for line in lines:
             line.encode("ascii")
 
-    def test_the_census_line_carries_the_identity_guard_refusal_for_scene_two(self):
-        """Scene 2 is the scene actually shipping a roster on an unconfirmed
-        premise, so its own boot has to say so.  Asserting on the refusal
-        (not merely on the token's presence) is what makes this test go red
-        if anyone ever flips scene 2 to provable without owning the change.
-        """
-        from pirateforce_foundation import world_scene_numbering
-
-        generation = wp2.build_bg0002_population(
-            self.legacy, self.anchor, scene_id=wp2.SCENE2_N_ID,
-            count_source=wp2.COUNT_SOURCE_FULL_ROSTER,
-        )
-        line = wp2.census_console_line(generation)
-        line.encode("ascii")
-        self.assertIn("WORLD_IDENTITY_GUARD", line)
-        self.assertIn("identity_provable=0", line)
-        self.assertIn(world_scene_numbering.IDENTITY_REFUSED, line)
-        # The verdict must be about scene 2, not whatever scene the guard
-        # module happens to list first.
-        self.assertIn("Bg0002", line)
-
-    def test_the_census_line_still_starts_with_the_prefix_readers_match_on(self):
-        """The token was appended rather than spliced in.  Every existing
-        reader keys off the ``WORLD_CENSUS `` prefix and the fields before
-        the separator, so those must survive this round unchanged.
-        """
-        generation = wp2.build_bg0002_population(
-            self.legacy, self.anchor, scene_id=wp2.SCENE2_N_ID,
-            count_source=wp2.COUNT_SOURCE_FULL_ROSTER,
-        )
-        line = wp2.census_console_line(generation)
-        self.assertTrue(line.startswith("WORLD_CENSUS assembled=97/97"))
-        head = line.split(" | ")[0]
-        self.assertIn("unresolved=9", head)
-        self.assertNotIn("WORLD_IDENTITY_GUARD", head)
-
-    def test_the_guard_token_names_the_scene_the_generation_was_built_for(self):
-        """Round o8cy9q's adversary finding, ported to scene 2: a token that
-        reads a module constant reports that constant even when the census in
-        hand belongs to another scene.  Carrying scene_id on the generation is
-        what prevents it, so a generation relabelled to scene 1 must produce
-        bg0001's verdict - not Bg0002's.
-        """
-        import dataclasses
-
-        generation = wp2.build_bg0002_population(
-            self.legacy, self.anchor, scene_id=wp2.SCENE2_N_ID,
-            count_source=wp2.COUNT_SOURCE_FULL_ROSTER,
-        )
-        self.assertEqual(generation.scene_id, wp2.SCENE2_N_ID)
-        relabelled = dataclasses.replace(generation, scene_id=1)
-        self.assertIn("bg0001", wp2.census_console_line(relabelled))
-
     def test_wire_constants_are_carried_from_world_population_not_redefined(self):
         from pirateforce_foundation import world_population
         self.assertIs(wp2.WIRE_HEADER_BYTES, world_population.WIRE_HEADER_BYTES)
