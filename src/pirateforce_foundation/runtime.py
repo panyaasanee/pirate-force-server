@@ -26,6 +26,7 @@ from . import world_travel_gate
 
 from . import lane_hooks
 from .gm.accounts import is_gm_account
+from .gm import chat_command_action
 from .gm.dispatch import GM_RUN_GM_COMMAND_VITAL_ID
 from .gm import state_wire
 from .gm.state_wire import make_gm_update_state_frame
@@ -1056,6 +1057,16 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # unmeasured writes at the start of every connection would be
                 # an unbounded bypass a client could re-arm by reconnecting.
                 self.move_authority_grace_remaining = 0
+                # CORE-REQUEST-GM-030: armed when a GM warp action is queued,
+                # cleared by the first TargetPos that actually WRITES.  It is
+                # unconditional on purpose -- GT-128 boots with no scenario
+                # flag at all, so a flag that lived behind one would never be
+                # raised on the only boot shape the attended test uses.
+                self.gm_warp_position_pending = False
+                # Open for exactly one frame: the first TargetPos after the
+                # warp.  dispatch() opens it, dispatch() closes it.
+                self.gm_warp_confirm_window_open = False
+                self.gm_warp_pending_character = None
                 self.delete_actor_soft_delete_count = 0
                 self.delete_refresh_list_rebuild_count = 0
                 self.transport_socket_closer = None
@@ -3599,6 +3610,37 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             )
             if candidate != selected.position:
                 self.foundation.checkpoint(candidate)
+                if (
+                    self.gm_warp_confirm_window_open
+                    and world_scene_travel.is_position_persist_allowed(
+                        candidate.scene_id, scene_entry_registry,
+                    )
+                ):
+                    # CORE-REQUEST-GM-030.  AFTER the durable write survived,
+                    # never at the entry: a refused move-authority verdict
+                    # returns above and a candidate equal to the current row
+                    # skips the write, and neither of those may print a token
+                    # that says the position was confirmed.
+                    #
+                    # The persist gate is the same predicate the writer uses
+                    # (lifecycle.checkpoint -> is_position_persist_allowed ->
+                    # the store's save_position, write_position=).  Spelling
+                    # that call out in full here would trip the caller-set pin
+                    # in tests/test_move_authority_dispatch.py, which counts
+                    # the literal on any line of any module.  pf-adversary
+                    # measured the hole it closes: in a scene pinned
+                    # persist_position_allowed=False -- scene 17 today, which
+                    # this project's own Columbus lane teleports into --
+                    # checkpoint() returns cleanly having written no row at
+                    # all, and the token printed over an unchanged row.
+                    #
+                    # stderr, not stdout: lane_hooks/__init__.py records the
+                    # incident this would repeat -- a token on stdout landed
+                    # inside the JSON artifact of
+                    # tools/pf_runtimeres_death_headless_replay.py --json.
+                    self.gm_warp_confirm_window_open = False
+                    print("GM_WARP_POSITION_CONFIRMED", file=sys.stderr)
+                    self.events.append("gm_warp_position_confirmed")
             if verdict is not None:
                 # Only now.  A checkpoint that raised (a stale or stolen lease
                 # is the frozen path's own refusal) must not leave an event
@@ -4515,10 +4557,90 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             return actions
 
         def dispatch(self, parsed):
+            # CORE-REQUEST-GM-030.  Open the confirm window BEFORE the lanes
+            # run (the durable write happens inside them) and close it after,
+            # so the window lives for exactly one frame: the first TargetPos
+            # after a GM warp.  pf-adversary measured what a longer-lived
+            # lock does -- the client ignores ForcePos (RE-129: mov al,1;
+            # ret 4), so its first report repeats the old point and writes
+            # nothing, and a lock that survived that would fire the token on
+            # the next frame the tester walked by hand.
+            warp_frame = self._gm_warp_open_confirm_window(parsed)
             actions = self._dispatch_with_lanes(parsed)
             if move_authority_hypothesis_scenario is not None:
                 self._move_authority_note_server_moves(actions)
+            self._gm_warp_close_confirm_window(warp_frame)
+            self._gm_warp_note_position_pending(actions)
             return actions
+
+        def _gm_warp_open_confirm_window(self, parsed) -> bool:
+            """CORE-REQUEST-GM-030: this frame is the warp's TargetPos or none is.
+
+            Disarms the pending lock on the first TargetPos that arrives after
+            a GM warp, whatever that frame goes on to do.  The token itself is
+            printed later, and only if that frame produced a durable write.
+            """
+            if not self.gm_warp_position_pending:
+                return False
+            if parsed.nested_id != legacy.TARGET_POS_VITAL:
+                return False
+            self.gm_warp_position_pending = False
+            selected = self.foundation.selected
+            if getattr(selected, "id", None) != self.gm_warp_pending_character:
+                # The warp was armed for another character (re-select on the
+                # same connection).  Disarm and name it: a token here would
+                # put one character's warp on another character's row.
+                self.events.append(
+                    "gm_warp_position_not_confirmed_character_changed"
+                )
+                return False
+            self.gm_warp_confirm_window_open = True
+            return True
+
+        def _gm_warp_close_confirm_window(self, warp_frame) -> None:
+            """CORE-REQUEST-GM-030: a warp frame that did not write says so.
+
+            Silence would be indistinguishable from "the wiring is dead", the
+            failure GT-128 cannot afford, so the refusal is named on the event
+            trail.  No console token: nothing was written.
+            """
+            if not warp_frame or not self.gm_warp_confirm_window_open:
+                return
+            self.gm_warp_confirm_window_open = False
+            reason = (
+                "scene_load_scenario" if scene_load_scenario is not None
+                else "no_durable_position_write"
+            )
+            self.events.append(
+                f"gm_warp_position_not_confirmed_{reason}"
+            )
+
+        def _gm_warp_note_position_pending(self, actions) -> None:
+            """CORE-REQUEST-GM-030: arm the "next TargetPos is the warp's" flag.
+
+            Called UNCONDITIONALLY from dispatch, next to (never inside) the
+            move-authority note above: GT-128 boots with no scenario object at
+            all, and a flag raised only behind one would never be raised on the
+            boot shape the attended test actually uses.
+
+            Keyed on the EXACT GM warp label, not on the substring TELEPORT
+            that ``_move_authority_note_server_moves`` matches: scene entry and
+            the Columbus lane also carry TELEPORT in their labels, and a token
+            that fired for those would say "the GM's warp landed" about a frame
+            no GM ever typed.
+            """
+            for action in actions or ():
+                if action and action[0] == chat_command_action.WARP_ACTION_LABEL:
+                    if self.gm_warp_position_pending:
+                        # Two warps before one write: the trail must not read
+                        # like one warp that armed twice.
+                        self.events.append("gm_warp_position_pending_rearmed")
+                        return
+                    selected = self.foundation.selected
+                    self.gm_warp_position_pending = True
+                    self.gm_warp_pending_character = getattr(selected, "id", None)
+                    self.events.append("gm_warp_position_pending_armed")
+                    return
 
         def _dispatch_with_lanes(self, parsed):
             nested_id = parsed.nested_id
