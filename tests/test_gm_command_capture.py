@@ -1,6 +1,8 @@
 """GM-002: raw GM_RunGMCommandVital capture sink writes bytes untouched."""
 from __future__ import annotations
 
+import os
+import stat
 import sys
 import tempfile
 import unittest
@@ -191,6 +193,57 @@ class GmCommandCaptureTests(unittest.TestCase):
                 )
         # suffix 0, 1, 2, 3 -- exactly bound + 1 attempts, not unbounded.
         self.assertEqual(mock_open.call_count, 4)
+
+    # ----- pf-adversary (this round): capture files must not be world- -----
+    # ----- readable/executable regardless of the process umask -------------
+
+    def test_capture_file_mode_is_owner_only_no_execute_regardless_of_umask(self):
+        # `os.open` with no explicit `mode` argument defaults to 0o777
+        # (masked by umask) -- reproduced live before this fix: under this
+        # project's own default umask (0o022) that produced 0o755
+        # (world-readable AND world-executable) for a file holding
+        # forensic, client-controlled bytes (real account names, free-text
+        # a GM typed). A permissive host umask (e.g. 0o000) would have made
+        # it world-writable too. The fix passes an explicit mode=0o600, which
+        # has no group/other bits for any umask to need to clear -- assert
+        # that holds under a deliberately permissive umask (0o000) so this
+        # test cannot pass by accident of the container's own umask.
+        #
+        # gate RED, round vb3ktn (this lane, self-caught after the fact):
+        # this assertion is POSIX-only. NTFS has no POSIX permission bits --
+        # CPython's os.open() on Windows only ever inspects the `mode`
+        # argument for a single bit (stat.S_IWRITE, i.e. "not read-only");
+        # any owner/group/other split, including the 0o600 this fix passes,
+        # is accepted and then silently ignored. Measured on this project's
+        # own real gate (windows-latest, run 33132956815): the identical fix
+        # and test produced mode 0o666 there, not 0o600 -- proving this is
+        # not a container-umask fluke, it is what Windows actually does.
+        # The gate this project trusts runs on Windows on purpose (see
+        # .github/workflows/gate-windows.yml's own docstring) because that
+        # is the real deployment target, so the exact-mode assertion below
+        # is only meaningful -- and only run -- on a POSIX os.stat(). On
+        # Windows this test still proves the call does not raise and the
+        # file is written, but the owner-only *enforcement* this fix's
+        # commit message claims is a POSIX-only guarantee: on the real
+        # Windows bridge, `capture/gm_command_capture/*.txt` is only as
+        # private as the containing directory's NTFS ACL, which this lane's
+        # write zone (a plain file write, no `pywin32`/ACL API available)
+        # cannot set. Flagged to COO in a companion pf_bridge letter this
+        # round rather than silently narrowing what this test proves.
+        old_umask = os.umask(0o000)
+        try:
+            out = capture_raw_gm_command(
+                b"x", "panya", capture_root=self.root, now_ts=0
+            )
+        finally:
+            os.umask(old_umask)
+        mode = stat.S_IMODE(out.stat().st_mode)
+        if os.name == "posix":
+            self.assertEqual(mode, 0o600, oct(mode))
+        else:
+            # No POSIX mode bits to check on this OS -- the call must still
+            # succeed and produce a real file; see the comment above.
+            self.assertTrue(out.is_file())
 
     def test_collision_loop_bound_does_not_affect_a_realistic_capture_count(self):
         # The real-world guard this bound exists next to (gm/dispatch.py's

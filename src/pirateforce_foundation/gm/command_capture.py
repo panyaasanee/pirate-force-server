@@ -173,7 +173,35 @@ def capture_raw_gm_command(
         candidate_name = base_name if suffix == 0 else f"{base_name}_{suffix}"
         out_path = root / f"{candidate_name}.txt"
         try:
-            fd = os.open(out_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            # Explicit mode=0o600 (owner read/write only, no execute bit for
+            # anyone). `os.open` without a `mode` argument defaults to 0o777
+            # (masked by umask) -- unlike the builtin `open()` used elsewhere
+            # in this lane (`commands.py`'s `log_gm_command`, default 0o666,
+            # no execute bit ever), so this one call site was silently
+            # writing forensic captures -- real client-controlled bytes,
+            # account names, and free-text a GM typed, per this module's own
+            # docstring -- as world-readable and, under a permissive umask,
+            # world-writable and executable by every OS user on the host.
+            # Reproduced live under this project's own default umask
+            # (0o022): the old call produced mode 0o755 (rwxr-xr-x); this
+            # explicit mode produces 0o600 regardless of umask, since 0o600
+            # has no group/other bits for umask to need to clear -- ON
+            # POSIX. This project's real deployment target is Windows (the
+            # gate this repo trusts runs on windows-latest on purpose, see
+            # .github/workflows/gate-windows.yml), and NTFS has no POSIX
+            # permission bits: CPython's os.open() on Windows only reads
+            # this argument for a single bit (writable vs read-only) and
+            # otherwise ignores it, so the owner-only enforcement this call
+            # provides is POSIX-only -- confirmed by this project's own
+            # Windows gate reporting mode 0o666 for this exact call (round
+            # vb3ktn, run 33132956815). On the real Windows bridge, access
+            # to this capture directory is governed by its NTFS ACL, not by
+            # this argument; this lane's write zone has no ACL API
+            # available to close that gap from here. See
+            # `tests/test_gm_command_capture.py`'s
+            # `test_capture_file_mode_is_owner_only_no_execute_regardless_of_umask`
+            # and the round `vb3ktn` follow-up letter to COO.
+            fd = os.open(out_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         except FileExistsError:
             suffix += 1
             continue
