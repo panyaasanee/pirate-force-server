@@ -1432,4 +1432,59 @@ lane), no new failures.
 nonclaim: recovery + a POSIX-vs-Windows portability fix inside this lane's
 own write zone -- no `gm/` command behavior changed, no wire fact, no RE
 citation, no `runtime.py` edit. This round sent no frame and ran no game
-test. Full detail: `pf_bridge/rounds/GM_<this-round-timestamp>_*.md`.
+test. Full detail: `pf_bridge/rounds/GM_20260828_0920_round-lock-recovery-windows-gate-fix-plus-mailbox-backfill.md`.
+
+## Round `usinho`: `log_gm_command` permission fix + shared `capture/` parent directory retightening
+
+Round-lock check: both repos' most recent `[LANE-GM]` PRs (`pf_bridge#285`,
+`pirate-force-server#188`) confirmed `merged=true` on `main` -- nothing to
+recover. Mailbox: one item pending, `COO-DECISION-capture-file-windows-acl-
+risk-accepted` (answers this lane's own prior `ASK-COO`) -- risk accepted
+as proposed, no code action, stubbed.
+
+A `pf-adversary` sweep of every file in this write zone (first sweep since
+round `i76is0`) found `gm/commands.py`'s `log_gm_command` reintroduced the
+exact permission-bug class round `vb3ktn` fixed for `gm/command_capture.py`:
+its ndjson audit file (full `say`-message bodies and other GM-typed
+free-text) was created via builtin `open("a")` with no explicit mode
+(`0o666` masked by umask -- world-readable, world-writable under a
+permissive umask), in a sibling file the `vb3ktn` fix never touched.
+Fixed with the same `os.open(..., mode=0o600)` pattern.
+
+The same sweep found both `log_gm_command`'s and `capture_raw_gm_command`'s
+containing directories were created via `mkdir` with no explicit mode --
+under a permissive umask the directory itself is world-writable even
+though the files inside are `0o600`, letting another local user delete or
+rename them without disclosure. First fix pass added `mode=0o700` to both
+leaf `mkdir` calls; a follow-up `pf-adversary` verification pass on that
+exact diff then found the fix was incomplete: `Path.mkdir(exist_ok=True)`
+never chmods a directory that already exists, and `DEFAULT_LOG_PATH` and
+`DEFAULT_CAPTURE_ROOT` share the literal parent `capture/` (`.gitignore`
+documents it as never cleaned up) -- whichever function ran first on a
+real host would lock that shared parent at whatever mode the umask in
+effect at that one moment produced, forever. Fixed with an unconditional
+`os.chmod(leaf_dir, 0o700)` after `mkdir` on every call, not just first
+creation, plus two new tests that create the directory loose (`0o777`)
+first to prove the retightening actually fires.
+
+Same Windows caveat as round `vb3ktn`'s original fix applies to every mode
+bit in this round's diff: NTFS ignores the owner/group/other split
+entirely, so none of this provides real enforcement on the actual
+production bridge -- only on every POSIX CI/sandbox this project runs in.
+Not a new regression; not re-flagged to COO since it is the identical,
+already-accepted risk the standing `20260828_0945_COO-DECISION` covers.
+
+`tests/test_gm_*.py`: 266/266 (up from 261 -- 5 new tests, 0 removed, 0
+narrowed). Repo-wide `pytest tests/ --continue-on-collection-errors`: 3717
+passed, 212 skipped, 5035 subtests passed, 17 pre-existing `capstone`-import
+collection errors only (same baseline every prior round reports), no new
+failures. เขียว (local pytest, this session).
+
+## ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้ (round `usinho`)
+
+ไม่มีอะไรใหม่บนจอ -- headless-only ล้วน เป็นการอุดช่องโหว่สิทธิ์ไฟล์/โฟลเดอร์ในเขตเขียนของ
+สายนี้เท่านั้น ไม่มีผลต่อพฤติกรรมคำสั่ง GM ใด ๆ ที่ผู้เทสเห็นบนจอ
+
+nonclaim: security-hardening ล้วนในเขตเขียนของสายนี้เอง ไม่มีการยิงเฟรมใส่ client จริง
+ไม่มีการรันเทสในเกม ไม่แตะ `runtime.py` ไม่เพิ่มบัญชีใดลง `gm_accounts.json`. Full
+detail: `pf_bridge/rounds/GM_20260828_1035_log-permission-fix-plus-capture-dir-retighten.md`.
