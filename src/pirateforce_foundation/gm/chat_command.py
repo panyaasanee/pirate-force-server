@@ -116,6 +116,7 @@ from .commands import (
     GmCommandArgsError,
     GmCommandParseError,
     log_gm_command,
+    new_audit_record_id,
     parse_gm_command,
 )
 from .dispatch import (
@@ -222,12 +223,20 @@ class ChatCommandOutcome:
     account from the decode step onward -- including on a parse refusal, so
     a caller can log what a GM mistyped.  It stays None for a non-GM
     account and for an undecodable payload.
+
+    `record_id` is the id of the `issued` audit row this call appended, and
+    is set on exactly the one path that appends one (`command` not None).
+    It is how the caller that later learns the command's fate closes the
+    pair -- see `gm/commands.py`'s AUDIT VOCABULARY block and
+    `gm/chat_command_action.py`, which writes the `outcome` row.  A refusal
+    wrote no row, so it carries no id; there is nothing to close.
     """
 
     authorized: bool
     command: GmCommand | None
     text: str | None
     refusal_reason: str | None
+    record_id: str | None = None
 
 
 def decode_local_talk_payload(payload: bytes) -> tuple[str, str]:
@@ -367,6 +376,12 @@ def handle_local_talk_chat(
     `outcome.command` and routes it (today: `gm/warp_executor.py` for
     `warp`, `gm/say_wire.py` for `say`); this function's contract ends at
     "a GM really typed this, it parses, and it is now in the audit log".
+
+    That contract is why the row written here says nothing about what the
+    command achieved: at this point in the call, nothing has read a version
+    gate and nothing has composed a frame.  The caller that does both
+    (`gm/chat_command_action.py`) closes the story by appending a second
+    `outcome` row carrying `record_id` -- CORE-REQUEST-GM-032 items 1-2.
     """
     # `type(...) is not str`, not isinstance: this value flows into the
     # allowlist test, where a str subclass lying through __eq__/__hash__ is
@@ -498,12 +513,22 @@ def handle_local_talk_chat(
     # a command the server cannot record is a command it should not hand
     # onward.  Returning the command anyway would let a full or read-only
     # disk silently turn audited GM actions into unaudited ones.
+    # Minted here, not inside `log_gm_command`: the caller needs the id back
+    # to close the pair, and the only way to hand it back from a function
+    # that returns a Path is to know it before the call.
+    record_id = new_audit_record_id()
     try:
         if log_path is None:
-            log_gm_command(command, account_name, now_ts=now_ts)
+            log_gm_command(
+                command, account_name, now_ts=now_ts, record_id=record_id
+            )
         else:
             log_gm_command(
-                command, account_name, log_path=log_path, now_ts=now_ts
+                command,
+                account_name,
+                log_path=log_path,
+                now_ts=now_ts,
+                record_id=record_id,
             )
     except OSError as error:
         return ChatCommandOutcome(
@@ -516,7 +541,11 @@ def handle_local_talk_chat(
         )
 
     return ChatCommandOutcome(
-        authorized=True, command=command, text=text, refusal_reason=None,
+        authorized=True,
+        command=command,
+        text=text,
+        refusal_reason=None,
+        record_id=record_id,
     )
 
 

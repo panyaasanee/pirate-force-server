@@ -42,6 +42,7 @@ import json
 import math
 import os
 import time
+import uuid
 from pathlib import Path
 
 from . import npc_switch_catalog
@@ -56,6 +57,60 @@ DEFAULT_LOG_PATH = "capture/gm_command_log.ndjson"
 # growing without bound once execution is wired in, and keeps each logged
 # record to roughly one write() call worth of bytes.
 MAX_SAY_MESSAGE_LENGTH = 480
+
+# ---------------------------------------------------------------------------
+# AUDIT VOCABULARY (CORE-REQUEST-GM-032 items 1-2)
+#
+# One GM command writes up to two rows in `DEFAULT_LOG_PATH`, distinguished
+# by the `record` field and tied together by `record_id`:
+#
+#   issued  -- a GM account typed a line, it parses, here it is.  Written by
+#              `log_gm_command` BEFORE any gate is read.
+#   outcome -- what this lane then did with it.  Written by
+#              `log_gm_command_outcome` AFTER the gates and the composer had
+#              their say.
+#
+# Why the second row is not optional: COO-DECISION 20260829_0041 measured
+# that the issued row alone cannot answer the question GT-127 asks it.  With
+# both version gates shut, `/warp 2 100 200` produced exactly the row it
+# would produce on the day the gate opens and a real frame goes out.
+AUDIT_RECORD_ISSUED = "issued"
+AUDIT_RECORD_OUTCOME = "outcome"
+
+AUDIT_OUTCOME_NOTE = (
+    "CORE-REQUEST-GM-032: what this lane did with the command named by "
+    "record_id; not a claim about what the runtime or the client did"
+)
+
+# A frame was composed and handed back to the caller.  This is the STRONGEST
+# thing this lane can honestly write, and it is deliberately not "sent" and
+# not "queued": `make_gm_chat_command_action` returns an action tuple to
+# `runtime.py`, and whether that tuple is appended to the action list --
+# `actions = actions + [gm_action]`, runtime.py:5763 -- happens in a zone
+# this lane cannot read back.
+OUTCOME_COMPOSED = "composed"
+
+# RESERVED, AND UNREACHABLE ON PURPOSE.  `queued` is the word CORE-REQUEST-
+# GM-032 item 3 asks chief for: it may only be written once the append site
+# reports back (a callback handed out with the action, or anything else this
+# lane can read).  No code path passes it today, and
+# `tests/test_gm_command_audit_outcome.py` fails if one starts to without
+# that confirmation arriving -- i.e. the day someone makes this reachable,
+# they have to delete a test that says why they may not.  A token that
+# claims more than it measured is the failure COO-DECISION 20260829_0141
+# item 3 made a standing pf-adversary check.
+OUTCOME_QUEUED = "queued"
+
+# `withheld_` = the command was valid and authorized, and this lane chose to
+# put nothing on the wire; the suffix names the shut gate.
+# `refused_` = the command could not be turned into a frame; the suffix names
+# the reason (an exception TYPE name, never a message -- messages embed the
+# GM's typed text).
+OUTCOME_WITHHELD_PREFIX = "withheld_"
+OUTCOME_REFUSED_PREFIX = "refused_"
+
+AUDIT_OUTCOMES = (OUTCOME_COMPOSED, OUTCOME_QUEUED)
+AUDIT_OUTCOME_PREFIXES = (OUTCOME_WITHHELD_PREFIX, OUTCOME_REFUSED_PREFIX)
 
 
 @dataclass(frozen=True)
@@ -248,20 +303,45 @@ def describe_npc_target(command: GmCommand) -> str | None:
     return npc_switch_catalog.npc_gm_name(mob_id)
 
 
+def new_audit_record_id() -> str:
+    """One id tying an `issued` row to the `outcome` row that closes it.
+
+    Random, not a counter: two processes appending to the same ndjson file
+    (the runtime and a replay tool, or two runtimes sharing a capture root)
+    would hand out the same counter value and silently merge two commands
+    into one story.  16 hex characters, because the whole population is one
+    audit file, and short enough that a human reading the file can match a
+    pair by eye.
+    """
+    return uuid.uuid4().hex[:16]
+
+
 def log_gm_command(
     command: GmCommand,
     account_name: str,
     *,
     log_path: str | Path = DEFAULT_LOG_PATH,
     now_ts: float | None = None,
+    record_id: str | None = None,
 ) -> Path:
     """Append one ndjson line recording that account_name issued command.
 
     This is the "log ฝั่งเซิร์ฟเวอร์" step GM-003 calls for before any
     command has real execution wired in.  It performs no gameplay effect.
+
+    The row this writes says only that a GM typed a parseable command.  It
+    cannot say what became of it -- at the moment it is written, no gate has
+    been read and no frame has been composed (see `log_gm_command_outcome`,
+    which writes the second row that can).  `record_id` correlates the two;
+    a caller that passes None gets a fresh one, so every row in the file has
+    the field whether or not anyone closes it.
     """
     if not isinstance(account_name, str) or not account_name:
         raise ValueError("account_name must be a non-empty str")
+    if record_id is not None and (
+        not isinstance(record_id, str) or not record_id
+    ):
+        raise ValueError("record_id must be a non-empty str or None")
     args = _require_args_tuple(command.args, min_length=0)
     ts = now_ts if now_ts is not None else time.time()
     record = {
@@ -272,7 +352,89 @@ def log_gm_command(
         "raw": command.raw,
         "executed": False,
         "note": "GM-003 v1: parsed and logged only, no gameplay effect applied",
+        "record": AUDIT_RECORD_ISSUED,
+        "record_id": record_id if record_id is not None else new_audit_record_id(),
     }
+    return _append_audit_record(record, log_path)
+
+
+def log_gm_command_outcome(
+    command: GmCommand,
+    account_name: str,
+    outcome: str,
+    *,
+    record_id: str,
+    log_path: str | Path = DEFAULT_LOG_PATH,
+    now_ts: float | None = None,
+) -> Path:
+    """Append the second ndjson row: what became of an already-logged command.
+
+    CORE-REQUEST-GM-032 items 1-2, from `COO-DECISION 20260829_0041`'s
+    finding that "the audit has to record whether the queueing really
+    happened".  Until this row existed, `/warp 2 100 200` with the version
+    gate SHUT and the same line with the gate OPEN wrote byte-identical
+    rows, because `log_gm_command` runs before either gate is read -- so
+    the audit file, which `GT-127` decides on, could not tell a withheld
+    command from a sent one.
+
+    Appended, never an amend of the issued row: this house does not rewrite
+    history, and an audit log whose earlier lines can change is not an audit
+    log.  Two rows sharing one `record_id` say more than one mutated row
+    anyway -- the pair carries the order of events.
+
+    `outcome` must be one of `AUDIT_OUTCOMES`.  What each value claims is
+    documented on those constants; the one thing NO value here claims today
+    is that the frame reached a socket, which is not knowable from inside
+    this lane (see `OUTCOME_QUEUED`).
+    """
+    if not isinstance(account_name, str) or not account_name:
+        raise ValueError("account_name must be a non-empty str")
+    if not isinstance(record_id, str) or not record_id:
+        raise ValueError("record_id must be a non-empty str")
+    if not isinstance(outcome, str) or not outcome:
+        raise ValueError("outcome must be a non-empty str")
+    # Prefixed values (`refused_<ExcType>`, `withheld_<gate>`) are open sets
+    # by construction -- the suffix is a type name or a gate name -- so the
+    # check is "starts with a known prefix, or is a known exact value", not
+    # membership in a closed list.  An unrecognised outcome is a programming
+    # error in this lane, not a client input, so it raises rather than
+    # writing a row nobody can interpret.
+    if not is_known_outcome(outcome):
+        raise ValueError(f"unknown outcome: {outcome!r}")
+    args = _require_args_tuple(command.args, min_length=0)
+    ts = now_ts if now_ts is not None else time.time()
+    record = {
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts)),
+        "account": account_name,
+        "command": command.name,
+        "args": list(args),
+        "raw": command.raw,
+        "executed": False,
+        "note": AUDIT_OUTCOME_NOTE,
+        "record": AUDIT_RECORD_OUTCOME,
+        "record_id": record_id,
+        "outcome": outcome,
+    }
+    return _append_audit_record(record, log_path)
+
+
+def is_known_outcome(outcome: str) -> bool:
+    """True for a value `log_gm_command_outcome` will write."""
+    if outcome in AUDIT_OUTCOMES:
+        return True
+    return any(
+        outcome.startswith(prefix) and len(outcome) > len(prefix)
+        for prefix in AUDIT_OUTCOME_PREFIXES
+    )
+
+
+def _append_audit_record(record: dict, log_path: str | Path) -> Path:
+    """Serialize one record and append it as one ndjson line.
+
+    Shared by both audit rows so the fail-closed properties below (short
+    write detection, 0o600/0o700 modes, serialize-before-touching-disk) are
+    one implementation rather than two that drift.
+    """
     # Serialize before touching the filesystem: a non-serializable args
     # element (shape-valid tuple, e.g. a custom object with no JSON mapping)
     # must not create the log directory/file and then raise -- that would

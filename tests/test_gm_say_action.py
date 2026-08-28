@@ -212,9 +212,16 @@ class SayVersionGateTests(_Case):
         session = FakeSession()
         self.act(session, "/say all hands on deck")
         records = self.log_records()
-        self.assertEqual(len(records), 1)
+        # Issued row + the outcome row that names the shut gate
+        # (CORE-REQUEST-GM-032).  Before that row existed, this log said the
+        # same thing whether or not the message reached anyone.
+        self.assertEqual(len(records), 2)
         self.assertEqual(records[0]["command"], "say")
         self.assertFalse(records[0]["executed"])
+        self.assertEqual(
+            records[1]["outcome"],
+            chat_command_action.OUTCOME_SAY_WITHHELD_NO_VERSION,
+        )
         self.assertIn(
             f"{chat_command_action.EVENT_ACCEPTED_PREFIX}say", session.events
         )

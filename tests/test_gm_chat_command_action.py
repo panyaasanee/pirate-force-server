@@ -43,6 +43,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from pirateforce_foundation.gm import accounts as gm_accounts  # noqa: E402
 from pirateforce_foundation.gm import chat_command  # noqa: E402
 from pirateforce_foundation.gm import chat_command_action  # noqa: E402
+from pirateforce_foundation.gm import commands  # noqa: E402
 from pirateforce_foundation.gm import dispatch as gm_dispatch  # noqa: E402
 from pirateforce_foundation.gm import teleport_wire  # noqa: E402
 from pirateforce_foundation.gm import warp_target_record  # noqa: E402
@@ -171,9 +172,19 @@ class VersionGateTests(_Case):
         session = FakeSession(position=FakePosition(scene_id=2))
         self.act(session, "/warp 2 100 200")
         records = self.log_records()
-        self.assertEqual(len(records), 1)
+        # Two rows since CORE-REQUEST-GM-032: the issued row this test has
+        # always checked, plus the outcome row that says the frame was
+        # withheld.  `test_gm_command_audit_outcome.py` owns the pairing
+        # rules; what matters here is that the audit half did not regress.
+        self.assertEqual(len(records), 2)
         self.assertEqual(records[0]["command"], "warp")
         self.assertFalse(records[0]["executed"])
+        self.assertEqual(records[0]["record"], commands.AUDIT_RECORD_ISSUED)
+        self.assertEqual(records[1]["record"], commands.AUDIT_RECORD_OUTCOME)
+        self.assertEqual(
+            records[1]["outcome"],
+            chat_command_action.OUTCOME_WARP_WITHHELD_NO_VERSION,
+        )
         self.assertIn(
             f"{chat_command_action.EVENT_ACCEPTED_PREFIX}warp", session.events
         )
@@ -704,6 +715,17 @@ class EventNameContractTests(_Case):
             "gm_chat_action_say_version_codec_mismatch"
         ),
         "EVENT_SAY_REFUSED_PREFIX": "gm_chat_action_say_refused_",
+        # CORE-REQUEST-GM-032: the audit's own failure names.  Pinned like
+        # the rest -- an attended run that greps for the reason a warp went
+        # missing must not be looking for a name a refactor renamed.
+        "EVENT_OUTCOME_LOG_FAILED_PREFIX": "gm_chat_action_outcome_log_failed_",
+        "EVENT_OUTCOME_NO_RECORD_ID": "gm_chat_action_outcome_no_record_id",
+        "EVENT_OUTCOME_NOT_AUDITED_ACTION_WITHHELD": (
+            "gm_chat_action_outcome_not_audited_action_withheld"
+        ),
+        "EVENT_OUTCOME_STALE_TARGET_NOT_CLEARED": (
+            "gm_chat_action_outcome_stale_warp_target_not_cleared"
+        ),
     }
 
     # Action labels are the same kind of interface as the event names, and a
@@ -1016,8 +1038,14 @@ class ProductionCallShapeTests(_Case):
             for line in landed.read_text(encoding="utf-8").splitlines()
             if line.strip()
         ]
-        self.assertEqual(len(rows), 1)
+        # Issued row + outcome row (CORE-REQUEST-GM-032), both through the
+        # default-argument production path, because that is what GT-127 reads.
+        self.assertEqual(len(rows), 2)
         self.assertEqual(rows[0]["command"], "warp")
+        self.assertEqual(
+            rows[1]["outcome"],
+            chat_command_action.OUTCOME_WARP_WITHHELD_NO_VERSION,
+        )
 
     def test_the_default_argument_call_refuses_a_non_gm(self):
         session = FakeSession(token=self.PLAYER_ACCOUNT,
