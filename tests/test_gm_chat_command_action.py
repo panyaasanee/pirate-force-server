@@ -244,8 +244,14 @@ class WarpActionTests(_Case):
         )
 
     def test_the_other_commands_parse_and_audit_but_send_nothing_yet(self):
+        # `say` is deliberately NOT in this list any more.  Round `w8hnu9`
+        # built its action path, so it sends nothing for a different and
+        # louder reason -- its own version gate -- and is pinned in
+        # tests/test_gm_say_action.py.  Note what `open_the_version_gate`
+        # opens here: the ForcePos constant only.  A command that started
+        # sending on the strength of the WARP gate would be a real defect,
+        # which is why this loop keeps running with it open.
         for text, name in (
-            ("/say hello", "say"),
             ("/lv 5", "lv"),
             ("/item 1001 2", "item"),
             ("/npc on 7", "npc"),
@@ -261,6 +267,18 @@ class WarpActionTests(_Case):
                     f"{chat_command_action.EVENT_NO_WIRE_PATH_PREFIX}{name}",
                     session.events,
                 )
+
+    def test_say_sends_nothing_on_the_strength_of_the_warp_gate_alone(self):
+        # The two gates are independent, and this is the pin that says so:
+        # opening ForcePos's constant must not make a `say` frame go out.
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        session = FakeSession(position=FakePosition(scene_id=2))
+        with self.open_the_version_gate():
+            action = self.act(session, "/say hello")
+        self.assertIsNone(action)
+        self.assertIn(
+            chat_command_action.EVENT_SAY_WITHHELD_NO_VERSION, session.events
+        )
 
 
 class PermissionTests(_Case):
@@ -470,6 +488,26 @@ class EventNameContractTests(_Case):
             "gm_chat_action_warp_withheld_no_confirmed_force_pos_vital_"
             "version_re129_open"
         ),
+        # Round `w8hnu9`, the say action path.  pf-adversary measured that
+        # without these three rows, renaming any of them left all 3941 tests
+        # green -- the same missing pin that let GT-128 ship a console grep
+        # for a label the code never had.
+        "EVENT_SAY_WITHHELD_NO_VERSION": (
+            "gm_chat_action_say_withheld_no_confirmed_gm_global_vital_"
+            "version_re132_open"
+        ),
+        "EVENT_SAY_VERSION_CODEC_MISMATCH": (
+            "gm_chat_action_say_version_codec_mismatch"
+        ),
+        "EVENT_SAY_REFUSED_PREFIX": "gm_chat_action_say_refused_",
+    }
+
+    # Action labels are the same kind of interface as the event names, and a
+    # louder one: an attended tester greps the server console for them, and
+    # `runtime.py` reads one of them as a substring.  Same pin, same reason.
+    EXPECTED_LABELS = {
+        "WARP_ACTION_LABEL": "LANE_GM_CHAT_WARP_TELEPORT_FORCE_POS",
+        "SAY_ACTION_LABEL": "LANE_GM_CHAT_SAY_GM_GLOBAL_MESSAGE",
     }
 
     # The live hook route's names, pinned here as text for the disjointness
@@ -484,6 +522,31 @@ class EventNameContractTests(_Case):
         for name, literal in self.EXPECTED.items():
             with self.subTest(name=name):
                 self.assertEqual(getattr(chat_command_action, name), literal)
+
+    def test_every_action_label_is_the_literal_string_it_has_always_been(self):
+        # GT-128 shipped a console grep for a label the code never carried,
+        # and nothing caught it because no test pinned the string. Both
+        # labels are pinned here now; renaming one without editing this table
+        # is what an attended tester experiences as a FAIL on a working
+        # system.
+        for name, literal in self.EXPECTED_LABELS.items():
+            with self.subTest(name=name):
+                self.assertEqual(getattr(chat_command_action, name), literal)
+
+    def test_the_two_tables_above_cover_every_name_the_module_exposes(self):
+        # Without this, the tables are pinned but not COMPLETE: a new event
+        # or label added next round is unpinned by default, which is exactly
+        # how the say events shipped unpinned in their own first draft.
+        exposed_events = {
+            name for name in vars(chat_command_action) if name.startswith("EVENT_")
+        }
+        self.assertEqual(exposed_events, set(self.EXPECTED))
+        exposed_labels = {
+            name
+            for name in vars(chat_command_action)
+            if name.endswith("_ACTION_LABEL")
+        }
+        self.assertEqual(exposed_labels, set(self.EXPECTED_LABELS))
 
     def test_every_event_name_is_ascii_for_the_cp874_bridge_console(self):
         # The label had this test; the event strings -- which are what

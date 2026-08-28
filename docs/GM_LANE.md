@@ -2192,3 +2192,159 @@ client ยืนจุดใหม่แต่ DB จำจุดเก่า (a
    ของที่ push คือฉบับหลังแก้ครบและทดสอบกับ bypass ทั้งห้าแล้ว
 7. **GM nonclaim:** ทุกอย่างในสายนี้เป็นเครื่องมือเพื่อไปให้ถึงสภาพที่จะเทส
    **ไม่ใช่**หลักฐานว่าฟีเจอร์ใดทำงาน หรือว่า milestone ใดผ่าน
+
+## Round `w8hnu9`: `say` gets the action path `warp` cannot have yet
+
+The lane spent three rounds on one command (`warp`) and ended each of them
+with the same sentence: no bytes went out.  That was correct each time, but
+it hid something this round went looking for -- **`warp` is not blocked on
+one thing, it is blocked on three, and only one of them is about `say` at
+all.**  Sorted:
+
+| blocker | `warp` | `say` |
+|---|---|---|
+| a call site that RETURNS an action (`CORE-REQUEST-GM-029`) | yes | yes |
+| this vital's own `vital_version` byte | answered (RE-129) | **open (RE-132, filed this round)** |
+| COO's position-ownership lock + chief's confirmed write point (GM-030) | yes | **no -- a chat line moves nobody** |
+| per-connection identity at the 0xAC52 branch (`runtime.py:4765-4774`) | yes | **yes -- added after pf-adversary, see below** |
+
+So `say` is the shorter road to a screen, and this round built it.
+
+**The fourth row is not a formality, and the first draft of this section did
+not have it.** `runtime.py:4765-4774`, at the exact branch GM-029 would
+convert, records that `self.token` is the process-wide `--token` CLI value and
+NOT a per-connection authenticated login, and states that the question "has to
+be answered before any executor is wired onto this point, not after"
+(corroborated by `reports/PF_MULTIPLAYER_READINESS_AUDIT001_*_20260818.md`
+I01-I04).  `warp` is triple-locked so it never arrives at that point first.
+`say`, being the least locked, is exactly the command that would arrive there
+first and cash the bug: with one shared token, the allowlist cannot tell two
+humans apart, so an ordinary player's `/say` would be authorized if the shared
+token is in `gm_accounts.json`.  Every allowlist test in this lane is
+therefore a MODULE-layer fact, not a server-layer one.  Tagged as such in
+`tests/test_gm_say_action.py`'s docstring and in `GT-133`.
+
+### What shipped
+
+1. **`gm/say_wire.py` -- two constants, no behaviour change.**
+   `CHANNEL_CODEC_VITAL_VERSION = 0` names the byte the imported codec
+   hardcodes (`channel_message_hypothesis.make_channel_message_response` ->
+   `legacy.make_runtime_vitals([(channel_id, 0, payload)])`, written as
+   `u8tag(0x0B, vital_version)` at
+   `current/pf_login_game_server_v141.py:702-704`, re-derived at this commit).
+   `GM_GLOBAL_MESSAGE_VITAL_VERSION_CONFIRMED = None` is this lane's send gate
+   for 0x9F2C, the same shape as `teleport_wire`'s.  The builder itself stays
+   ungated on purpose -- it is a pure byte function its own tests exercise;
+   the gate belongs where a socket is decided, which is the action module.
+2. **`gm/chat_command_action.py` -- `_say_action`.**  An authorized `/say`
+   now yields `(SAY_ACTION_LABEL, pc, frame, 0.0)` when the gate is open, and
+   two DIFFERENT named refusals when it is not: `..._say_withheld_no_confirmed_
+   gm_global_vital_version_re132_open` (RE-132 has not answered) and
+   `..._say_refused_confirmed_version_is_not_the_codec_version` (RE-132
+   answered with a byte the imported codec cannot emit).  Collapsing those two
+   into one event would make release day look like "still waiting for RE"
+   forever.
+3. **`SAY_ACTION_LABEL = "LANE_GM_CHAT_SAY_GM_GLOBAL_MESSAGE"` -- and the
+   absence of one word in it is load-bearing.**  `runtime.py:3654-3675`
+   reopens the move-authority grace window for any queued action whose label
+   contains `TELEPORT` (`if action and "TELEPORT" in action[0]`).  The warp
+   label must carry it; this one must not.  A `say` label copied from the warp
+   path out of symmetry would hand every GM a way to widen the anti-cheat
+   window one chat line at a time, while the character never moved.  Pinned
+   both directions against that call site's own source, not against a comment.
+4. **`tests/test_gm_say_action.py` (new).**  The gate is shut and pinned shut;
+   the path works when it is opened; the bytes are the imported codec's bytes;
+   the refusal events never echo the GM's typed text; a non-GM gets nothing;
+   `say` is no longer reported as "no wire path" and the other four still are.
+5. **`GAME_TEST_QUEUE.md` `GT-128`: a grep the tester could never have hit.**
+   Its wire-layer criterion said to look for `LANE_GM_CHAT_WARP_FORCE_POS`.
+   The real constant has been `LANE_GM_CHAT_WARP_TELEPORT_FORCE_POS` since
+   round `gr2q9j` -- not a substring of the other, so the grep fails on a
+   working system and the tester writes FAIL.  Struck through, corrected,
+   reason recorded in the entry.  Found while writing `GT-133` next to it.
+
+### pf-adversary: NOT APPROVED on the first draft, 8 defects, fixed before push
+
+The two that mattered most were both cases of this round failing at the thing
+it was congratulating itself for:
+
+* **D2 -- the new label and all three new event names had zero text pins.**
+  Renaming `SAY_ACTION_LABEL` to anything left all 3941 tests green (measured,
+  not argued): `SayLabelTests` pinned PROPERTIES (no TELEPORT, ASCII, not the
+  warp label) and never the string, and `EventNameContractTests.EXPECTED` --
+  a table that exists precisely because "compare the module against its own
+  constant" is a tautology -- was never grown.  That is `GT-128`'s bug
+  verbatim, shipped again in the same round that fixed `GT-128`.  Both labels
+  and all three events are now pinned as text, plus a completeness assertion
+  so the tables cannot silently fail to grow again.  Re-measured after the
+  fix: renaming the label is red.
+* **D3 -- the identity blocker above.**  The blocker table said two; there
+  were three, and `runtime.py` itself says the missing one must be answered
+  BEFORE an executor is wired onto that point.
+
+The rest: **D1** this gate is lane-local, not repo-wide -- `runtime.py:2130`'s
+channel-sweep scenario already composes and sends a real 0x9F2C frame carrying
+the very byte RE-132 asks about, and `GT-016` (already queued, named in
+`docs/HYPOTHESIS_LEDGER.json` and `docs/FUNCTIONAL_COVERAGE.json`) measures it
+from the higher client-observable rung; **D4** "shortest path to a screen" was
+a proposal wearing a measurement's clothes -- GMGlobal is not among the eight
+per-channel style names in CHAT-CHANNEL-001's downcast chain, so RE-132 now
+asks for that branch body too; **D5** the codec-mismatch event collided with
+the `..._say_refused_` prefix whose contract is "exception type names only",
+renamed; **D6** the TELEPORT rule is scenario-gated (`runtime.py:4518-4521`),
+not global as the comment claimed, and the test that pinned it stayed green
+with the call site deleted -- both fixed; **D7** "no durable row" -> "no DB
+row" (an ndjson audit row IS written, and GT-133 counts exactly those);
+**D8** `say_wire` caught only `ValueError` from a codec that raises
+`RuntimeError` on all five drift checks, breaking its own "every failure
+surfaces as `SayWireError`" promise.
+
+What adversary tried and could NOT break, stated because each is a place this
+round would have deserved a defect: eight mutations of `_say_action` (delete
+either gate, put TELEPORT in the label, compose bytes locally, read the warp
+constant instead) all go red; the two gates are genuinely independent; no
+hostile session or payload shape escapes as an exception on the listener
+thread; `CHANNEL_CODEC_VITAL_VERSION = 0` re-derives exactly as its comment
+claims; and no pinned evidence anywhere in the repo covers 0x9F2C's envelope
+byte -- both capture-derived cross-checks in `channel_message_hypothesis.py`
+return early for any channel that is not LocalTalk (`:573`, `:588`).
+**RE-132 is not theatre.**
+
+### What did NOT change
+
+No byte leaves the server.  Both gates are shut, for different reasons, and
+neither can be opened by this lane alone.  `warp`'s constant is under
+`COO-DECISION 20260828_2130` plus `tests/test_gm_force_pos_version_lock.py`;
+`say`'s waits on `RE-132`, and if RE-132 answers with a byte that is not
+`CHANNEL_CODEC_VITAL_VERSION`, the lane will NOT open the constant and will
+NOT write a second codec in its own zone (that round was tried and retracted
+on 2026-08-27) -- it will ask the owning lane for a version parameter.
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้ (round `w8hnu9`)
+
+เมื่อวาน คำสั่ง GM ทุกตัวรอสิ่งเดียวกันหมด และสิ่งนั้นคือกองที่ยาวที่สุด (ล็อกตำแหน่งของ COO
++ จุดเขียนของ chief + RE) ⇒ ผู้เทสไม่มีอะไรจะเรียงคิวเลยนอกจากรอทั้งกอง
+วันนี้ผู้เทสมีใบที่ **ข้ามกองนั้นทั้งกอง**: `GT-133` (`/say`) เหลือด่านสามข้อ (จุดเรียกของ chief ·
+หนึ่งไบต์จาก `RE-132` · คำถามตัวตนต่อ connection ที่ `runtime.py:4765-4774`)
+~~สองข้อ~~ (นับผิดในฉบับแรก pf-adversary จับได้) และไม่แตะเรื่องตำแหน่งเลยแม้แต่นิดเดียว
+⇒ ถ้า `RE-132` ตอบก่อน `GM-030` ลง main **คำสั่ง GM ใบแรกที่ตัดสินที่จอจะเป็น `/say` ไม่ใช่ `/warp`**
+และผู้เทสได้ช่องทางที่เซิร์ฟเวอร์ใช้ "พูดกลับ" หาคนที่นั่งอยู่หน้าจอ ซึ่งสายนี้ยังไม่มีเลย
+(`GM_RunGMCommandResultVital` ยังไม่รู้ layout) · และวันนี้ `GT-128` ก็ grep เจอ label ที่ถูกแล้ว
+
+### nonclaims (round `w8hnu9`)
+
+1. **[ไม่อ้าง]** ว่า `/say` ส่งไบต์ได้แล้ว -- ประตูปิดอยู่ และรอบนี้คือรอบที่**สร้างประตู**
+2. [ไม่อ้าง] ว่า `0x9F2C` ใช้ `vital_version = 0` -- นั่นคือสิ่งที่ `RE-132` ถูกเปิดมาเพื่อวัด
+   สิ่งที่พิสูจน์แล้วคือ **payload** ของห้า channel เหมือนกัน ไม่ใช่ไบต์ใน envelope
+3. [ไม่อ้าง] ว่า `/say` เป็น broadcast -- action ไปที่ socket เดียว (ของ GM เอง)
+4. [ไม่อ้าง] ว่ารอบนี้แตะ `runtime.py` -- ไม่แตะ · จุดเรียกยังเป็นของ chief (`CORE-REQUEST-GM-029`)
+5. [ไม่อ้าง] ว่าประตูนี้กัน 0x9F2C ได้ทั้ง repo -- มันกัน **คำสั่ง GM** เท่านั้น
+   `runtime.py:2130` (channel sweep scenario) ส่งเฟรม 0x9F2C ที่ถือไบต์เดียวกันนี้ออกสายได้อยู่แล้ว
+   และไม่ได้อ่านค่าคงที่ของสายนี้เลย
+6. [ไม่อ้าง] ว่า `/say` จะเห็นบนจอเมื่อ `RE-132` ตอบ -- GMGlobal **ไม่อยู่ใน**แปดชื่อ style
+   ที่ CHAT-CHANNEL-001 นับได้จาก downcast chain ของ client และรายงานนั้นเขียนเองว่าไม่ claim การเรนเดอร์
+7. [ไม่อ้าง] ว่าเทส allowlist ของสายนี้พิสูจน์เรื่องสิทธิ์ **ระดับเซิร์ฟเวอร์** -- เป็นข้อเท็จจริง
+   ระดับ**โมดูล** ตราบใดที่ทุก connection ใช้ `--token` ตัวเดียวกัน
+8. [ไม่อ้าง] ว่ารอบนี้ผ่าน pf-adversary ตั้งแต่ฉบับแรก -- **NOT APPROVED** 8 ข้อ แก้ครบก่อน push
+9. **GM nonclaim:** ทุกอย่างในสายนี้เป็นเครื่องมือเพื่อไปให้ถึงสภาพที่จะเทส
+   **ไม่ใช่**หลักฐานว่าฟีเจอร์ใดทำงาน หรือว่า milestone ใดผ่าน
