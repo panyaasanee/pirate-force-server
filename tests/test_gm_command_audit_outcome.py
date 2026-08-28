@@ -188,6 +188,13 @@ class TheTwoStatesAreDistinguishableTests(_Case):
             chat_command_action.OUTCOME_WARP_WITHHELD_NO_VERSION,
         )
         self.assertEqual(sent_outcome, commands.OUTCOME_COMPOSED)
+        # LITERALS, NOT JUST THE CONSTANTS.  pf-adversary mutated
+        # `OUTCOME_COMPOSED` to "queued" and then to "sent" and the whole
+        # 519-test GM suite stayed green, because every assertion compared the
+        # row against the constant that had just been changed.  The file is
+        # what GT-127 grades, so the file's own bytes are what gets pinned.
+        self.assertEqual(sent_outcome, "composed")
+        self.assertEqual(withheld_outcome, "withheld_force_pos_vital_version")
 
     def test_the_withheld_value_names_the_gate_that_is_shut(self):
         # An attended tester reading this file has to be able to go straight
@@ -250,6 +257,17 @@ class PairingTests(_Case):
         )
         self.assertIsNone(self.act(session, "/warp 2 100 200"))
         self.assertEqual(self.log_records(), [])
+
+    def test_neither_row_ever_says_it_executed_anything(self):
+        # `executed` was pinned on the issued row only, so a mutant setting
+        # the OUTCOME row's `executed` to True survived the whole suite --
+        # and GT-127 grades on `"executed": false`.  A reader would have
+        # found one false and one true per command with nothing red.
+        session = FakeSession(position=FakePosition(scene_id=2))
+        self.act(session, "/warp 2 100 200")
+        for row in self.log_records():
+            with self.subTest(record=row["record"]):
+                self.assertIs(row["executed"], False)
 
     def test_the_issued_row_keeps_every_field_it_already_had(self):
         # Additive, not a reshape: `GT-133`'s wire criterion and
@@ -407,6 +425,57 @@ class AuditFailureIsFailClosedTests(_Case):
         self.assertEqual(self.outcome_rows(), [])
 
 
+class HalfPairTests(_Case):
+    """The third file state, named because a file with two documented
+    meanings and three states is the hole this round set out to close.
+
+    An `issued` row with no `outcome` row after it is reachable four ways
+    (the outcome write failed, the module raised before the write point, no
+    `record_id` came back, the process died between the appends).  A reader
+    cannot tell which from the file -- but the one thing they must be able to
+    conclude is pinned here: NOTHING WAS SENT.
+    """
+
+    def test_every_half_pair_path_withholds_the_action(self):
+        cases = {
+            "outcome write failed": mock.patch.object(
+                chat_command_action,
+                "log_gm_command_outcome",
+                side_effect=OSError("disk full"),
+            ),
+            "raised before the write point": mock.patch.object(
+                chat_command_action,
+                "make_warp_force_pos_frame_with_target",
+                side_effect=BaseException("not even an Exception"),
+            ),
+        }
+        for name, patcher in cases.items():
+            with self.subTest(path=name):
+                self.setUp()
+                session = FakeSession(position=FakePosition(scene_id=2))
+                with self.open_the_warp_gate(), patcher:
+                    try:
+                        action = self.act(session, "/warp 2 100 200")
+                    except BaseException:  # noqa: BLE001 - see below
+                        # A BaseException escaping is itself "nothing was
+                        # sent": no action was returned to the caller.
+                        action = None
+                self.assertIsNone(action)
+                records = self.log_records()
+                self.assertTrue(records, "the issued row should still be there")
+                outcomes = [
+                    row for row in records
+                    if row["record"] == commands.AUDIT_RECORD_OUTCOME
+                ]
+                self.assertEqual(
+                    outcomes, [], "this path is supposed to be a half-pair"
+                )
+                self.assertIsNone(
+                    getattr(session, "gm_last_warp_target", None),
+                    "a half-pair must not leave a target parked either",
+                )
+
+
 class VocabularyTests(unittest.TestCase):
     def test_an_unknown_outcome_is_refused_at_the_writer(self):
         command = commands.parse_gm_command("warp 2")
@@ -506,11 +575,43 @@ class QueuedIsReservedTests(unittest.TestCase):
             "the lane_hooks half of the zone fell out of the scan",
         )
 
-    def test_the_word_is_still_in_the_vocabulary_for_the_day_it_lands(self):
+    def test_the_word_is_named_for_the_day_it_lands_and_refused_until_then(
+        self,
+    ):
         # Reserved, not deleted: chief's item 3 has a name to write, and this
         # is the pin that says which one.
         self.assertEqual(commands.OUTCOME_QUEUED, "queued")
-        self.assertTrue(commands.is_known_outcome(commands.OUTCOME_QUEUED))
+        # ...AND THE WRITER IS THE DOOR, NOT THE SOURCE SCAN.  pf-adversary
+        # passed `AUDIT_OUTCOMES[-1]` from a lane hook file straight into the
+        # writer and put `queued` in the ndjson with every test green: an AST
+        # scan matches names and literals, and a tuple index is neither.  A
+        # source-shaped scan cannot make an output-shaped guarantee.
+        self.assertFalse(commands.is_known_outcome(commands.OUTCOME_QUEUED))
+        self.assertNotIn(commands.OUTCOME_QUEUED, commands.AUDIT_OUTCOMES)
+
+    def test_the_writer_refuses_the_reserved_word_by_every_route_in(self):
+        command = commands.parse_gm_command("warp 2")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "log.ndjson"
+            # The constant, the bare literal, and the route the adversary
+            # actually used (a value read out of the exported tuple rather
+            # than spelled anywhere).  The last one is the reason the writer
+            # has to be the door: no source scan sees it.
+            for spelling in (
+                commands.OUTCOME_QUEUED,
+                "queued",
+                "".join(["que", "ued"]),
+            ):
+                with self.subTest(spelling=spelling):
+                    with self.assertRaises(ValueError):
+                        commands.log_gm_command_outcome(
+                            command,
+                            "GM_ONE",
+                            spelling,
+                            record_id="a" * 16,
+                            log_path=str(path),
+                        )
+            self.assertFalse(path.exists())
 
 
 class NoBytesWentOutTests(unittest.TestCase):

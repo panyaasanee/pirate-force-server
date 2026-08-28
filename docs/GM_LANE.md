@@ -2543,7 +2543,7 @@ is still open.
    reserved word, so the day item 3 lands, someone has to delete a test that
    says why they may not -- it cannot be drifted into.
 
-### Two defects this round nearly shipped, both caught before push
+### Defects this round nearly shipped: two caught in self-review, four by adversary
 
 1. **Fail-closed had to extend to the second row.**  `handle_local_talk_chat`
    already refuses to hand onward a command it could not record; a composed
@@ -2579,3 +2579,56 @@ true when he wrote it.  `GT-127`'s HOLD depends on that switch, so the entry now
 carries the measured status instead of "waiting on chief" forever, and the
 finding went to him as its own letter so he can recover it under ADDENDUM v2
 step A.  This lane touched neither his branch nor `runtime.py`.
+
+### What pf-adversary broke, run on a separate worktree
+
+Round `xk4wmz` recorded that the adversary had written probes into the round's
+own tree and edited `runtime.py` (chief's zone).  This round it ran on a
+`git worktree` copy carrying the round's patch, and the work tree was never
+touched.  It reported damaging that copy mid-run, restoring it from the patch,
+and discarding a polluted mutation batch to re-run the whole matrix -- which is
+why the numbers below are worth believing.
+
+Four findings that mattered, all fixed before merge:
+
+1. **`queued` was writable today.** It wrote a function into
+   `lane_hooks/lane_gm_chat_command.py` that passed `AUDIT_OUTCOMES[-1]`
+   straight into the writer, and the reserved word landed in the ndjson file
+   with all 519 GM tests green -- because an AST scan matches names and string
+   literals, and a tuple index is neither.  **A source-shaped scan cannot make
+   an output-shaped guarantee.**  Fixed where it belongs: `queued` is out of
+   `AUDIT_OUTCOMES`, `is_known_outcome` returns False for it, and the writer
+   raises with the reason.  The scan stays as the early warning; the writer is
+   the door.
+2. **Every assertion compared the row to the constant, never to the literal.**
+   Mutating `OUTCOME_COMPOSED` to `"queued"` and then to `"sent"` left the
+   whole suite green while the audit file said something false.  The file's own
+   bytes are now pinned.
+3. **`GT-127` had a SECOND pass-criteria block** -- the one literally headed
+   `### pass criteria` -- still demanding "exactly 2 records" and the dead
+   `gm_chat_command_*` event names.  A tester following it would have recorded
+   FAIL on a healthy build: the same scar as job 1331, in the same ticket the
+   previous round thought it had repaired.  Rewritten, with "if this disagrees
+   with P1, P1 wins", plus two more stale spots it turned up (`GT-127`'s
+   background block and `GT-133`'s row-count criterion, whose double-wire check
+   is now "count distinct `record_id`s").
+4. **The outcome row's `executed` field was unpinned** (a `True` mutant
+   survived), and the file has a **third** state nobody had named: an `issued`
+   row with no `outcome` row, reachable four ways.  Both closed --
+   `HalfPairTests` pins the one thing a reader must be able to conclude from a
+   half-pair, which is that **nothing was sent**.
+
+It also measured that `_append_audit_record`'s inherited O_APPEND comment is
+false -- O_APPEND makes each `write(2)` atomic, not a *sequence* of them, and
+its probe produced two unparseable lines including a real command's `issued`
+row.  The comment now says what the loop actually buys (detection, not
+atomicity) and that this round doubled the window by doubling the writes per
+command.
+
+What it could not break, which is the other half of the deliverable: no path
+returns an action without its outcome row (five mutants aimed at exactly that,
+all red), the new fail-closed path creates no wider outage than the one the
+issued row already had, and the file modes plus short-write handling that moved
+into the shared helper are still killed by their own tests.
+
+Suite after every fix: **4080 passed, 327 skipped** (cloud sanity).

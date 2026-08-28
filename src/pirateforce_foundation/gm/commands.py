@@ -77,6 +77,24 @@ MAX_SAY_MESSAGE_LENGTH = 480
 AUDIT_RECORD_ISSUED = "issued"
 AUDIT_RECORD_OUTCOME = "outcome"
 
+# !! THERE IS A THIRD FILE STATE AND A READER HAS TO BE TOLD ABOUT IT.
+# pf-adversary's closing question, and it is the right one: an `issued` row
+# with NO `outcome` row after it. Four ways to reach it, and they are not the
+# same event -- the outcome write failed (`gm_chat_action_outcome_log_failed_
+# <Type>`), the module raised before the write point
+# (`gm_chat_action_unexpected_<Type>`), the issued row handed back no id
+# (`gm_chat_action_outcome_no_record_id`), or the process died between the two
+# appends (no console line at all, because nothing was alive to print one).
+#
+# What a reader may conclude from a half-pair: NOTHING WAS SENT. Every path
+# above ends with the action withheld -- `_make_action` returns the action
+# only after the outcome row is on disk. What a reader may NOT conclude is
+# which of the four happened; that is on stderr, not in the file. Said here
+# because "two rows so the file stops having one meaning for two states" is
+# only honest if the third state is named too. The "nothing was sent" half is
+# pinned as behaviour, not as a constant nothing reads:
+# `tests/test_gm_command_audit_outcome.py::HalfPairTests`.
+
 AUDIT_OUTCOME_NOTE = (
     "CORE-REQUEST-GM-032: what this lane did with the command named by "
     "record_id; not a claim about what the runtime or the client did"
@@ -109,7 +127,16 @@ OUTCOME_QUEUED = "queued"
 OUTCOME_WITHHELD_PREFIX = "withheld_"
 OUTCOME_REFUSED_PREFIX = "refused_"
 
-AUDIT_OUTCOMES = (OUTCOME_COMPOSED, OUTCOME_QUEUED)
+# !! `OUTCOME_QUEUED` IS NOT IN THIS TUPLE, AND THAT IS THE ENFORCEMENT.
+# pf-adversary (this round) wrote a function into `lane_hooks/lane_gm_chat_
+# command.py` that passed `AUDIT_OUTCOMES[-1]` straight through to
+# `log_gm_command_outcome`, and the word `queued` landed in the ndjson file
+# with all 519 GM tests green: the source scan in
+# `tests/test_gm_command_audit_outcome.py` matches names and literals, so a
+# tuple index walks past it untouched. A source-shaped scan cannot make an
+# output-shaped guarantee. The writer itself now refuses the word -- the scan
+# stays as the early warning, this is the door.
+AUDIT_OUTCOMES = (OUTCOME_COMPOSED,)
 AUDIT_OUTCOME_PREFIXES = (OUTCOME_WITHHELD_PREFIX, OUTCOME_REFUSED_PREFIX)
 
 
@@ -382,7 +409,16 @@ def log_gm_command_outcome(
     log.  Two rows sharing one `record_id` say more than one mutated row
     anyway -- the pair carries the order of events.
 
-    `outcome` must be one of `AUDIT_OUTCOMES`.  What each value claims is
+    NOT SUBJECT TO `MAX_COMMAND_LOG_BYTES`, deliberately and boundedly: the
+    quota is read once, before the `issued` row, in `handle_local_talk_chat`.
+    A command that got an issued row therefore always gets its outcome row,
+    even if the cap fell between them -- because the alternative is an
+    `issued` row nothing ever closes, which is the one file state this round
+    exists to eliminate.  The overshoot is one line per command that already
+    passed the gate, not unbounded growth.
+
+    `outcome` must be one of `AUDIT_OUTCOMES`, or carry one of
+    `AUDIT_OUTCOME_PREFIXES` with something after it.  What each value claims is
     documented on those constants; the one thing NO value here claims today
     is that the frame reached a socket, which is not knowable from inside
     this lane (see `OUTCOME_QUEUED`).
@@ -399,6 +435,14 @@ def log_gm_command_outcome(
     # membership in a closed list.  An unrecognised outcome is a programming
     # error in this lane, not a client input, so it raises rather than
     # writing a row nobody can interpret.
+    if outcome == OUTCOME_QUEUED:
+        # Named separately from "unknown", because it is not unknown -- it is
+        # forbidden, and the caller who reaches this line is trying to write
+        # a claim this lane cannot observe (see OUTCOME_QUEUED's own comment).
+        raise ValueError(
+            "outcome 'queued' may not be written by this lane until "
+            "CORE-REQUEST-GM-032 item 3 lets it observe the append site"
+        )
     if not is_known_outcome(outcome):
         raise ValueError(f"unknown outcome: {outcome!r}")
     args = _require_args_tuple(command.args, min_length=0)
@@ -419,7 +463,15 @@ def log_gm_command_outcome(
 
 
 def is_known_outcome(outcome: str) -> bool:
-    """True for a value `log_gm_command_outcome` will write."""
+    """True for a value `log_gm_command_outcome` will write.
+
+    `queued` is False here, and by any spelling: a prefixed value cannot end
+    up equal to it either, since neither prefix is a prefix of the word.  The
+    day CORE-REQUEST-GM-032 item 3 lands, the change is one line HERE, next to
+    the reason, rather than in whichever caller happens to want it.
+    """
+    if outcome == OUTCOME_QUEUED:
+        return False
     if outcome in AUDIT_OUTCOMES:
         return True
     return any(
@@ -489,10 +541,21 @@ def _append_audit_record(record: dict, log_path: str | Path) -> Path:
         # unaudited ones" failure this function's callers claim to be
         # closed against.
         #
-        # O_APPEND makes the loop safe: every write lands at the current
+        # ~~O_APPEND makes the loop safe: every write lands at the current
         # end of file atomically, so a resumed write cannot interleave with
-        # another process's record. Zero bytes written with no exception
-        # means no forward progress is possible -- raise rather than spin.
+        # another process's record.~~ MEASURED FALSE by pf-adversary in the
+        # round that moved this comment into shared code (CORE-REQUEST-GM-032):
+        # O_APPEND makes each individual write(2) atomic against the append
+        # offset, NOT a SEQUENCE of them. With a short write, another writer's
+        # whole record can land in the gap, and the probe produced exactly
+        # that -- two unparseable lines, one of them a real GM command's
+        # `issued` row. What the loop actually buys is DETECTION: a short
+        # write is no longer reported as success (which is the failure it was
+        # written for). Recorded rather than papered over, and it is this
+        # lane's to own now precisely because this round DOUBLED the number of
+        # write(2) calls per command and therefore the window.
+        # Zero bytes written with no exception means no forward progress is
+        # possible -- raise rather than spin.
         payload = line.encode("utf-8")
         written = 0
         while written < len(payload):
