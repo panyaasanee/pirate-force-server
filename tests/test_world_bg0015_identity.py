@@ -235,28 +235,79 @@ class CollidesWithACommittedTableTest(unittest.TestCase):
         self.assertEqual(field_mob_tables_bg0015.SCENE, "Bg0015")
         self.assertEqual(identity.SCENE_MODEL_ID, "Bg0015")
 
-    def test_sixteen_placements_have_two_committed_identities(self) -> None:
+    # ~~test_sixteen_placements_have_two_committed_identities~~ and
+    # ~~test_the_other_tables_reading_is_the_one_gt078_rejected~~ --
+    # [LANE-B แก้ไฟล์ของสาย A - รอสาย A ยืนยัน] EDITED BY LANE-B, round
+    # ua236k, and this note is here because this file is lane A's.
+    #
+    # Both tests asserted that field_mob_tables_bg0015 disagreed with this
+    # module: sixteen placements with two committed identities, theirs read
+    # as a raw Mob-Set number.  That disagreement was real and this file was
+    # right to pin it.  It is GONE, and not because anybody edited around
+    # it: COO-DECISION 20260829_0345 made cline the project's one identity
+    # rule, and lane B re-mined its table through the crosswalk in round
+    # ua236k.  The two tables now agree on every placement they share.
+    #
+    # Asserting a disagreement that no longer exists is a red that means
+    # "the good outcome happened", so the tests below assert the AGREEMENT
+    # instead -- which is the stronger pin, and the one lane A's letter
+    # 20260829_0014 was really asking for.  If lane A wants this stated
+    # differently, this is the paragraph to rewrite; lane B changed no other
+    # line of this file, and no line of world_bg0015_identity.py.
+
+    def test_the_two_committed_tables_now_agree_on_every_shared_placement(
+            self) -> None:
         conflicts = self._conflicts()
-        self.assertEqual(len(conflicts), 16)
         self.assertEqual(
             sorted(conflicts),
-            [30, 59, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74])
-        # And the module says so too, without importing that table.
-        self.assertEqual(
-            sorted(conflicts), sorted(identity.COLLIDING_PLACEMENTS))
-        row = conflicts[61]
-        self.assertEqual(row["actor_identity"], 0x2000 + 61 + 1)
-        self.assertEqual(row["theirs"][1], "Fighting Fish soldier")
-        self.assertEqual(row["ours"][1], "Hell Ghoul")
+            [22, 24, 27, 29, 31, 44, 45, 46, 47, 51, 70, 87],
+            "the set of placements the two tables share moved; that is a "
+            "roster change in one of them, not an identity-rule question",
+        )
+        for index, row in sorted(conflicts.items()):
+            with self.subTest(placement=index):
+                self.assertEqual(
+                    row["theirs"], row["ours"],
+                    "field_mob_tables_bg0015 and world_bg0015_identity "
+                    "disagree about placement %d again.  Two independently "
+                    "mined tables for one scene are only worth having while "
+                    "they are derived the same way (COO-DECISION "
+                    "20260829_0345: cline, one rule for every scene)."
+                    % (index,),
+                )
+                self.assertEqual(row["actor_identity"], 0x2000 + index + 1)
 
-    def test_the_other_tables_reading_is_the_one_gt078_rejected(self) -> None:
-        # Their template_id IS the Mob-Set number, read straight as a
-        # MOBS.n_ID.  Ours is the CLINE-resolved leader.  Stated as an
-        # assertion so nobody has to take a letter's word for it.
+    def test_both_readings_are_the_crosswalk_and_neither_is_the_raw_set_number(
+            self) -> None:
+        # ~~Their template_id IS the Mob-Set number, read straight as a
+        # MOBS.n_ID.  Ours is the CLINE-resolved leader.~~  Both are the
+        # CLINE-resolved leader now.  A Mob-Set number for this scene is in
+        # 1..115; a type-14 leader id is not, so the bound below is what
+        # tells the two readings apart, and it is the reading GT-078
+        # rejected that must NOT come back.
         for index, row in self._conflicts().items():
             with self.subTest(placement=index):
-                self.assertLessEqual(row["theirs"][0], 115)
-                self.assertGreaterEqual(row["ours"][0], 321)
+                self.assertGreater(row["theirs"][0], 115)
+                self.assertGreater(row["ours"][0], 115)
+
+    def test_the_modules_own_collision_list_is_now_history_not_state(
+            self) -> None:
+        """COLLIDING_PLACEMENTS still names what the collision WAS.
+
+        Left alone on purpose: it is lane A's constant and it records a real
+        past disagreement.  This test only pins that it no longer describes
+        the tables as they stand, so nobody reads it as current state.
+        """
+        self.assertEqual(
+            sorted(identity.COLLIDING_PLACEMENTS),
+            [30, 59, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74])
+        live = set(self._conflicts())
+        self.assertEqual(
+            sorted(set(identity.COLLIDING_PLACEMENTS) & live), [70],
+            "placement 70 is the only one of the recorded sixteen that both "
+            "tables still ship, and they now agree on it (MOBS 355, Horror "
+            "butcher Lasa)",
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover

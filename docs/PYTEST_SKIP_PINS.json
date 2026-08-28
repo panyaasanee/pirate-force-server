@@ -340,13 +340,14 @@
     {
       "key": "bridge_gamedata",
       "module": "tests/test_field_mob_tables_bg0015.py",
-      "count": 3,
+      "count": 4,
       "tests": [
         "Bg0015RegenerateAndDiffTest::test_regenerating_reproduces_the_committed_module_byte_for_byte",
         "Bg0015RegenerateAndDiffTest::test_the_predicate_census_matches_the_recorded_finding",
-        "Bg0015RegenerateAndDiffTest::test_hostile_roster_count_is_seventeen_from_live_gamedata"
+        "Bg0015RegenerateAndDiffTest::test_hostile_roster_count_is_twelve_from_live_gamedata",
+        "Bg0015RegenerateAndDiffTest::test_this_scene_agrees_with_the_legacy_rule_on_nothing"
       ],
-      "note": "round 2vxlx2 (LANE-B): field_mob_tables_bg0015.py is GENERATED prep data for M3/BUILD-004 (COO-DECISION 2026-08-26 12:46: Bg0015 confirmed as the real M3 map, prepared but not wired in until lane A's second gate + geometry check passes). These three re-run tools/pf_mine_scene_mob_roster.py --scene Bg0015 against the bridge clone's gamedata so the committed module cannot drift unnoticed. Following the exact pattern test_pf_scan_field_scene_candidates.py already set (round ctflxc) so this pin exists in the same commit as the test, not after it."
+      "note": "round 2vxlx2 (LANE-B): field_mob_tables_bg0015.py is GENERATED prep data for M3/BUILD-004 (COO-DECISION 2026-08-26 12:46: Bg0015 confirmed as the real M3 map, prepared but not wired in until lane A's second gate + geometry check passes). These three re-run tools/pf_mine_scene_mob_roster.py --scene Bg0015 against the bridge clone's gamedata so the committed module cannot drift unnoticed. Following the exact pattern test_pf_scan_field_scene_candidates.py already set (round ctflxc) so this pin exists in the same commit as the test, not after it. ROUND ua236k: re-mined under cline per COO-DECISION 20260829_0345, so the roster is 12 not 17 and the third test is renamed accordingly; a fourth was added pinning that CLINE type 14 agrees with the set-number reading on 0 of 51 rows, which is why every identity in the table moved."
     },
     {
       "key": "original_schema_history",
@@ -831,6 +832,23 @@
         "MarkerReverificationOnTheBridgeTest::test_the_reverification_script_runs_against_the_bridge_tree"
       ],
       "note": "round vyi2ud (LANE-A): world_scene_marker.py pins 13 MARKER rows and the totals of the two client tables they come from, and this test runs the module's own re-derivation script against the bridge clone's gamedata so neither the rows nor the sha256 pins can drift unnoticed. A clone without pf_bridge beside it cannot answer. Pinned here because the first draft wrote a bare skipTest and the Windows gate's skip census closed pull request #231 for it - the same defect shape as rounds ctflxc, 2vxlx2 and y7koj9, which is why the note in each of those says 'pinned in the same commit as the test'."
+    },
+    {
+      "key": "bridge_gamedata",
+      "module": "tests/test_scene_identity_rule.py",
+      "count": 9,
+      "tests": [
+        "TheCommittedCopyIsTheRealTable::test_the_source_digest_matches_the_file_the_blocks_came_from",
+        "TheCommittedCopyIsTheRealTable::test_both_blocks_re_derive_exactly",
+        "TheCommittedCopyIsTheRealTable::test_the_two_readings_of_set_103_re_derive_from_mobs",
+        "TheCommittedCopyIsTheRealTable::test_the_display_names_re_derive_from_the_TIP_table_not_from_mobs",
+        "TheCommittedCopyIsTheRealTable::test_the_scene_cline_type_re_derives_from_scene_name",
+        "TheCommittedCopyIsTheRealTable::test_the_cline_type_column_is_not_the_id_column_in_general",
+        "TheCommittedCopyIsTheRealTable::test_the_rules_reach_is_nineteen_scenes_of_two_hundred_seventy_one",
+        "TheCommittedCopyIsTheRealTable::test_no_shipped_control_was_measured_on_the_scene_it_ships_under",
+        "TheCommittedCopyIsTheRealTable::test_cline_resolves_set_103_to_the_id_this_module_committed"
+      ],
+      "note": "round ua236k (LANE-B): COO-DECISION 20260829_0345 made cline the project's one identity rule and ordered the 35/35 equality pinned by a test. scene_identity_rule.py commits the CLINE blocks for the two scene types in play because CONSTDATA_TH__CLINE.tsv lives on the bridge clone, not here; these re-derive those blocks, both disputed readings of Mob-Set 103, SCENE_CLINE_TYPE itself (the crosswalk's entry point, which nothing re-derived before pf-adversary's review), the n_ID-vs-n_CLINE_TYPE control, the rule's 19/271 reach, and the gap that Bg0015 ships under controls measured on another scene type. Pinned in the same commit as the test, per the defect shape that closed PRs in rounds ctflxc, 2vxlx2, y7koj9 and vyi2ud."
     }
   ],
   "windows_gate_excluded_modules": {
