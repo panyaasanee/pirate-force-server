@@ -4888,9 +4888,17 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # point of GM-029 -- the hook route could never put a byte on
                 # the wire).  `self.events` gains one event per chat line for
                 # every ordinary player, now in the `gm_chat_action_*`
-                # namespace instead of `gm_chat_command_*`, and the console
-                # gains one LANE_GM_CHAT_ACTION line per chat line (stderr,
-                # so a tool's stdout artifact stays clean).
+                # namespace instead of `gm_chat_command_*`.
+                #
+                # THE CONSOLE IS QUIETER THAN GM-028's, NOT LOUDER, and the
+                # first version of this comment had it backwards.  [MEASURED,
+                # pf-adversary, round apk7ue] a non-GM chat line produces
+                # stdout='' AND stderr='': LANE_GM_CHAT_ACTION prints only
+                # after the allowlist passes (chat_command_action.py, above
+                # the version gate), where `fire()` printed LANE_HOOK_FIRED
+                # for every chat line of every account.  A grader who greps
+                # the console per ordinary chat line will see nothing and
+                # must not read that as dead wiring.
                 #
                 # WHY THE APPEND IS 800 LINES BELOW: `actions` does not exist
                 # yet here -- it is bound at `actions = super().dispatch(...)`

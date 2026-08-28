@@ -32,11 +32,16 @@ no flags at all -- the only shape a real client ever meets -- pushes one
 0xAC52 frame through ``dispatch()``, and checks the three things the wiring
 itself can get wrong:
 
-1. the hook fires for a GM and the command reaches the audit log,
-2. it fires for a non-GM too and refuses on identity, writing nothing,
-3. the frame's own behaviour is unchanged by the point existing -- the
-   actions ``dispatch()`` returns are byte-for-byte what the same frame
-   produced before, which is what "observe and fall through" has to mean.
+1. the route runs for a GM and the command reaches the audit log,
+2. it runs for a non-GM too and refuses on identity, writing nothing,
+3. the frame's own behaviour is unchanged apart from the composed action --
+   under GM-028 that meant the actions ``dispatch()`` returns were
+   byte-for-byte what the same frame produced before; under GM-029 it means
+   those same actions plus, at most, ONE appended action, pinned by
+   test_the_composed_action_is_appended_exactly_once_and_last.
+
+(Items 1 and 2 said "the hook fires" until round `apk7ue`; the hook is
+registered and never fired now, so the word would have been false.)
 
 Modelled on ``tests/test_gm_run_command_dispatch_wiring.py``, which does
 the same job for 0x51E9; the synthetic outer envelope is that file's,
@@ -324,6 +329,89 @@ class ChatCommandDispatchWiringTests(unittest.TestCase):
             ],
         )
         self.assertEqual(state.rx_frames, rx_before + 1)
+
+    def test_the_composed_action_is_appended_exactly_once_and_last(self):
+        """The line CORE-REQUEST-GM-029 exists to add, pinned.
+
+        pf-adversary (round `apk7ue`) measured that nothing in this
+        repository could see the append at all: through the real dispatcher
+        the route returns None for every input the suite drives -- the RE-129
+        version gate is shut, and even with it forced open this file's own
+        `/warp 2` is a cross-scene command the executor refuses.  Three
+        mutations of the append line (append twice, never append, prepend
+        instead of append) left the whole 3963-test suite green.  So did
+        deleting the guard's body.  Every other property of the branch was
+        pinned; the one line the request asked for was not.
+
+        `_actions_without_the_route` cannot close that hole: it patches the
+        route to return None, which is what the route already does, so both
+        sides of its comparison are identical by construction.  This test
+        patches the route to return a SENTINEL action instead, which is the
+        only way to make the append observable while the version gate is
+        shut -- and it stays meaningful after RE-129 lands.
+        """
+        sentinel = ("SENTINEL_GM_ACTION", b"", b"", 0.0)
+        path = self._config(["gm_runner"])
+        with mock.patch.dict(
+            gm_accounts.os.environ, {gm_accounts.ENV_OVERRIDE: str(path)},
+        ):
+            with mock.patch.object(
+                runtime_module.chat_command_action,
+                "make_gm_chat_command_action",
+                return_value=sentinel,
+            ):
+                state = self._login_and_start("gm_runner")
+                rx_before = state.rx_frames
+                actions = self._say(state, "hello everyone")
+        labels = self._labels(actions)
+        self.assertEqual(
+            labels.count("SENTINEL_GM_ACTION"), 1,
+            "the composed action must be appended exactly once: %s" % labels,
+        )
+        self.assertEqual(
+            labels[-1], "SENTINEL_GM_ACTION",
+            "the composed action must land after everything the inherited "
+            "dispatch produced, not before it: %s" % labels,
+        )
+        # The append must not disturb the rest of the frame either.
+        self.assertEqual(
+            labels[:-1],
+            [
+                "RUNTIME_RES_ACK_FIRST_REQ",
+                "V99_SHOW_MESSAGE_LOCAL_SERVER_ONLINE",
+                "V100_MUSIC_CONTROL_CURRENT_SCENE",
+            ],
+        )
+        self.assertEqual(state.rx_frames, rx_before + 1)
+
+    def test_no_action_is_appended_when_the_route_composes_nothing(self):
+        """The guard, pinned: a None return must add nothing.
+
+        Without this, `actions = actions + [gm_action]` written without its
+        `is not None` guard would put a bare None into the action list of
+        every ordinary frame -- and the serve loop unpacks four fields from
+        each action.
+        """
+        path = self._config(["gm_runner"])
+        with mock.patch.dict(
+            gm_accounts.os.environ, {gm_accounts.ENV_OVERRIDE: str(path)},
+        ):
+            with mock.patch.object(
+                runtime_module.chat_command_action,
+                "make_gm_chat_command_action",
+                return_value=None,
+            ):
+                state = self._login_and_start("gm_runner")
+                actions = self._say(state, "hello everyone")
+        self.assertNotIn(None, actions)
+        self.assertEqual(
+            self._labels(actions),
+            [
+                "RUNTIME_RES_ACK_FIRST_REQ",
+                "V99_SHOW_MESSAGE_LOCAL_SERVER_ONLINE",
+                "V100_MUSIC_CONTROL_CURRENT_SCENE",
+            ],
+        )
 
     def test_a_chat_frame_before_character_select_is_not_audited(self):
         """The readiness guard, which the first version of this wiring lacked.
