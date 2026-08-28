@@ -251,8 +251,15 @@ class ChatCommandDispatchWiringTests(unittest.TestCase):
             )
         self.assertIn("gm_chat_action_accepted_warp", state.events)
         records = self._audit_lines()
-        self.assertEqual(len(records), 1, f"audit log: {records}")
+        # Two rows since CORE-REQUEST-GM-032 (issued + outcome), one pair per
+        # command.  The count is asserted, not just the first row, because a
+        # THIRD row here would mean the double-wire this file exists to catch.
+        self.assertEqual(len(records), 2, f"audit log: {records}")
         self.assertEqual(records[0].get("account"), "gm_runner")
+        self.assertEqual(records[1].get("record"), "outcome")
+        self.assertEqual(
+            records[0].get("record_id"), records[1].get("record_id")
+        )
 
     def test_a_gms_ordinary_chat_line_is_refused_and_never_logged(self):
         path = self._config(["gm_runner"])

@@ -105,6 +105,32 @@ from ..gm.chat_command import handle_local_talk_chat
 # is. The always-on requirement (no production_allowed=false gate) is rule
 # 1 of this lane's founding order; the allowlist is what keeps it invisible
 # to ordinary players.
+#
+# !! WHAT THIS FLAG NOW MEANS FOR THE ROUTE THAT REPLACED THIS HOOK, ANSWERED
+# HERE BECAUSE chief ASKED LANE-GM FOR IT (PR #218's body, two pf-adversary
+# findings he could not fix because this file is not his to edit).
+#
+# His design reads THIS flag, through `lane_hooks.module_production_allowed`,
+# to gate the direct `0xAC52` call into `gm/chat_command_action.py` -- the
+# owner-approved kill switch (PANYA-ORDER 20260827_1230) that CORE-REQUEST-
+# GM-029 dropped when it replaced the hook route with a direct call.
+# COO-DECISION 20260829_0041 ordered it reconnected that way.
+#
+# LANE-GM's answer: THAT IS CORRECT AND THIS FILE NO LONGER SAYS OTHERWISE.
+# The two orders only look contradictory. Rule 1 forbids the lane needing a
+# flag turned ON to work -- nobody may have to set anything to get GM
+# behaviour, which is why this value is `True` in the shipped tree and why a
+# round that ships it as `False` is breaking rule 1. It does not forbid the
+# owner an OFF switch over her own server. So: default True, always-on, no
+# opt-in anywhere; and one line the owner can flip to shut the whole chat
+# route, hook and direct call alike.
+#
+# What LANE-GM will not accept, stated so the next round does not have to
+# re-derive it: this flag becoming a precondition for the lane in any other
+# sense -- a scenario file, an env var, a config key that has to be present,
+# or a default of False "for safety". Those all mean the lane is off until
+# someone remembers to turn it on, and the founding order says the lane is
+# on until the owner turns it off.
 production_allowed = True
 
 

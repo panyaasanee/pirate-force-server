@@ -2508,3 +2508,127 @@ round-trip mismatches and zero new refusals; the send gate (a mutant making
 byte passed to either new builder name; the target-as-float64 mutant; removing
 the character guard; and any cross-connection leak -- the module has no
 module-level mutable state at all.
+
+## Round `nz0qt2`: the audit log can finally tell a withheld command from a sent one
+
+`COO-DECISION 20260829_0041` item 2 measured the hole, and it is a bad one for
+a lane whose whole permission story is its audit trail: `handle_local_talk_chat`
+writes its ndjson row BEFORE any version gate is read, so `/warp 2 100 200`
+typed with the ForcePos gate shut (nothing on the wire) and the same line typed
+on the day the gate opens (a real frame handed to `runtime.py`) produced rows
+that differed only in their timestamp.  `GT-127` decides on that file.
+
+`CORE-REQUEST-GM-032` split the fix in two zones and this round did the half
+that is this lane's (items 1-2).  Item 3 -- the word `queued` -- is chief's and
+is still open.
+
+### What shipped
+
+1. **A second audit row.**  One GM command now writes `issued` (unchanged in
+   every field, so nothing that already reads the file breaks) and then
+   `outcome`, tied by one `record_id`.  Appended, never an amend: this house
+   does not rewrite history, and two rows carry the ORDER of events, which one
+   mutated row cannot.
+2. **One write point, on purpose.**  `_warp_action`/`_say_action` now return
+   `(action, outcome)` and `_make_action` writes the row.  An audit appended at
+   four different `return` statements grows a fifth `return` that forgets it.
+3. **The vocabulary, and the one word held back.**  `withheld_<gate>` names the
+   shut gate (so a reader goes straight to RE-129 or RE-132), `refused_<reason>`
+   carries an exception TYPE name only, and `composed` is the strongest honest
+   claim available here: the frame exists and was handed back.  Not `queued` --
+   `actions = actions + [gm_action]` happens in a zone this lane cannot read.
+   `tests/test_gm_command_audit_outcome.py::QueuedIsReservedTests` walks BOTH
+   halves of the lane's zone (`gm/*.py` and `lane_hooks/lane_gm_*.py`, the
+   probe-G lesson from round `xk4wmz`) and goes red if any file names the
+   reserved word, so the day item 3 lands, someone has to delete a test that
+   says why they may not -- it cannot be drifted into.
+
+### Defects this round nearly shipped: two caught in self-review, four by adversary
+
+1. **Fail-closed had to extend to the second row.**  `handle_local_talk_chat`
+   already refuses to hand onward a command it could not record; a composed
+   frame whose outcome row cannot be written is the same failure one row later,
+   so it is withheld (`gm_chat_action_outcome_not_audited_action_withheld`)
+   rather than sent with a trail that says only "a GM typed something".
+2. **The parked warp target had to go with it.**  `_warp_action` parks the
+   destination only AFTER the frame exists, precisely so "no bytes went out"
+   and "a target is parked" can never disagree.  Withholding a composed action
+   for an audit failure is a NEW route to exactly that disagreement, and a
+   target left behind would let chief's confirmation token (CORE-REQUEST-GM-031)
+   match the player's next ordinary step against a warp nobody sent -- the same
+   class of false green that has `GT-128` blocked.  Cleared, with a paired test
+   (cleared when withheld / not cleared when the warp really goes).
+
+### What this round did NOT do
+
+No gate was opened and no byte went out; `NoBytesWentOutTests` pins both
+constants as `None` on the shipped tree, so every `composed` row in the suite
+came from a patched gate.  `GT-016`'s 18-Aug evidence (the client really does
+draw a `[GM]` line from a GMGlobal frame, byte `0`) was consumed this round and
+deliberately did NOT open the say gate: chief's own letter says that boot ran
+under two opt-in scenario files and never touched condition (A), per-connection
+identity, which is the whole reason `COO-DECISION 20260829_0041` locked it.
+
+### The other finding of the round, which is not about code
+
+`pirate-force-server#218` -- chief's reconnection of the owner-approved
+`production_allowed` kill switch, ordered by COO with a 12:00 deadline -- is
+`state=closed merged=false`, and `module_production_allowed` greps 0 hit on
+main `b79bb87`.  His letter at 01:03 said "PR #218, waiting to merge", which was
+true when he wrote it.  `GT-127`'s HOLD depends on that switch, so the entry now
+carries the measured status instead of "waiting on chief" forever, and the
+finding went to him as its own letter so he can recover it under ADDENDUM v2
+step A.  This lane touched neither his branch nor `runtime.py`.
+
+### What pf-adversary broke, run on a separate worktree
+
+Round `xk4wmz` recorded that the adversary had written probes into the round's
+own tree and edited `runtime.py` (chief's zone).  This round it ran on a
+`git worktree` copy carrying the round's patch, and the work tree was never
+touched.  It reported damaging that copy mid-run, restoring it from the patch,
+and discarding a polluted mutation batch to re-run the whole matrix -- which is
+why the numbers below are worth believing.
+
+Four findings that mattered, all fixed before merge:
+
+1. **`queued` was writable today.** It wrote a function into
+   `lane_hooks/lane_gm_chat_command.py` that passed `AUDIT_OUTCOMES[-1]`
+   straight into the writer, and the reserved word landed in the ndjson file
+   with all 519 GM tests green -- because an AST scan matches names and string
+   literals, and a tuple index is neither.  **A source-shaped scan cannot make
+   an output-shaped guarantee.**  Fixed where it belongs: `queued` is out of
+   `AUDIT_OUTCOMES`, `is_known_outcome` returns False for it, and the writer
+   raises with the reason.  The scan stays as the early warning; the writer is
+   the door.
+2. **Every assertion compared the row to the constant, never to the literal.**
+   Mutating `OUTCOME_COMPOSED` to `"queued"` and then to `"sent"` left the
+   whole suite green while the audit file said something false.  The file's own
+   bytes are now pinned.
+3. **`GT-127` had a SECOND pass-criteria block** -- the one literally headed
+   `### pass criteria` -- still demanding "exactly 2 records" and the dead
+   `gm_chat_command_*` event names.  A tester following it would have recorded
+   FAIL on a healthy build: the same scar as job 1331, in the same ticket the
+   previous round thought it had repaired.  Rewritten, with "if this disagrees
+   with P1, P1 wins", plus two more stale spots it turned up (`GT-127`'s
+   background block and `GT-133`'s row-count criterion, whose double-wire check
+   is now "count distinct `record_id`s").
+4. **The outcome row's `executed` field was unpinned** (a `True` mutant
+   survived), and the file has a **third** state nobody had named: an `issued`
+   row with no `outcome` row, reachable four ways.  Both closed --
+   `HalfPairTests` pins the one thing a reader must be able to conclude from a
+   half-pair, which is that **nothing was sent**.
+
+It also measured that `_append_audit_record`'s inherited O_APPEND comment is
+false -- O_APPEND makes each `write(2)` atomic, not a *sequence* of them, and
+its probe produced two unparseable lines including a real command's `issued`
+row.  The comment now says what the loop actually buys (detection, not
+atomicity) and that this round doubled the window by doubling the writes per
+command.
+
+What it could not break, which is the other half of the deliverable: no path
+returns an action without its outcome row (five mutants aimed at exactly that,
+all red), the new fail-closed path creates no wider outage than the one the
+issued row already had, and the file modes plus short-write handling that moved
+into the shared helper are still killed by their own tests.
+
+Suite after every fix: **4080 passed, 327 skipped** (cloud sanity).

@@ -249,9 +249,19 @@ import sys
 
 from . import say_wire, teleport_wire
 from .chat_command import handle_local_talk_chat
+from .commands import (
+    OUTCOME_COMPOSED,
+    OUTCOME_REFUSED_PREFIX,
+    OUTCOME_WITHHELD_PREFIX,
+    log_gm_command_outcome,
+)
 from .say_wire import make_say_broadcast_frame
 from .warp_executor import make_warp_force_pos_frame_with_target
-from .warp_target_record import current_character_id, record_warp_target
+from .warp_target_record import (
+    clear_warp_target,
+    current_character_id,
+    record_warp_target,
+)
 
 # The action label the serve loop logs for a real GM warp.  ASCII, screaming
 # snake case, same convention as every other label in runtime.py's action
@@ -364,6 +374,39 @@ EVENT_SAY_WITHHELD_NO_VERSION = (
 # warp prefix; this one now has none either.
 EVENT_SAY_VERSION_CODEC_MISMATCH = "gm_chat_action_say_version_codec_mismatch"
 EVENT_SAY_REFUSED_PREFIX = "gm_chat_action_say_refused_"
+# The `outcome` audit row could not be appended (CORE-REQUEST-GM-032).  Two
+# names, because the two failures need different reading: the log write
+# failed for a reason the OS named, or the issued row handed back no id to
+# close.  The third name is what it COST -- a composed frame thrown away
+# rather than sent with a broken audit trail behind it.
+EVENT_OUTCOME_LOG_FAILED_PREFIX = "gm_chat_action_outcome_log_failed_"
+EVENT_OUTCOME_NO_RECORD_ID = "gm_chat_action_outcome_no_record_id"
+EVENT_OUTCOME_NOT_AUDITED_ACTION_WITHHELD = (
+    "gm_chat_action_outcome_not_audited_action_withheld"
+)
+# The withheld warp's parked destination could not be dropped (a session that
+# swallows the write).  Named because the alternative is chief's position
+# token comparing a later step against a warp nobody sent.
+EVENT_OUTCOME_STALE_TARGET_NOT_CLEARED = (
+    "gm_chat_action_outcome_stale_warp_target_not_cleared"
+)
+
+# Audit outcomes this route can write, spelled once here so the ndjson value
+# and the console event stay one decision.  The gate names are the ones the
+# RE tickets use, so a reader of the audit file can go straight to the open
+# question: `withheld_force_pos_vital_version` is RE-129,
+# `withheld_gm_global_message_vital_version` is RE-132.
+OUTCOME_WARP_WITHHELD_NO_VERSION = (
+    f"{OUTCOME_WITHHELD_PREFIX}force_pos_vital_version"
+)
+OUTCOME_SAY_WITHHELD_NO_VERSION = (
+    f"{OUTCOME_WITHHELD_PREFIX}gm_global_message_vital_version"
+)
+OUTCOME_WARP_NO_POSITION = f"{OUTCOME_REFUSED_PREFIX}warp_no_current_position"
+OUTCOME_SAY_VERSION_CODEC_MISMATCH = (
+    f"{OUTCOME_REFUSED_PREFIX}say_version_codec_mismatch"
+)
+OUTCOME_NO_WIRE_PATH = f"{OUTCOME_REFUSED_PREFIX}no_wire_path"
 
 
 def _note(session: object, event: str) -> None:
@@ -474,31 +517,114 @@ def _make_action(
     print(f"{CONSOLE_TOKEN} {command.name} route=action", file=sys.stderr)
 
     if command.name == "warp":
-        return _warp_action(session, command, legacy)
-    if command.name == "say":
-        return _say_action(session, command, legacy)
+        action, audit_outcome = _warp_action(session, command, legacy)
+    elif command.name == "say":
+        action, audit_outcome = _say_action(session, command, legacy)
+    else:
+        # Parsed and audited, but this lane has no proven server->client
+        # wire for it yet.  Named, not silent: "nothing happened" and "we
+        # never built that half" look identical on screen.
+        _note(session, f"{EVENT_NO_WIRE_PATH_PREFIX}{command.name}")
+        action, audit_outcome = None, OUTCOME_NO_WIRE_PATH
 
-    # Parsed and audited, but this lane has no proven server->client
-    # wire for it yet.  Named, not silent: "nothing happened" and "we
-    # never built that half" look identical on screen.
-    _note(session, f"{EVENT_NO_WIRE_PATH_PREFIX}{command.name}")
-    return None
+    # ONE write point for the `outcome` row, deliberately: CORE-REQUEST-GM-032
+    # item 1 exists because the audit could not tell a withheld command from a
+    # sent one, and an audit whose closing row is appended at four different
+    # `return` statements grows a fifth return that forgets it.  Every branch
+    # above therefore reports its verdict back here instead of writing.
+    if not _log_outcome(
+        session, token, command, outcome.record_id, audit_outcome, log_path
+    ):
+        # The issued row is on disk and its outcome is not, so this command's
+        # audit trail is broken -- and `handle_local_talk_chat` already
+        # refuses to hand onward a command it could not record at all, for
+        # the same reason.  Withhold the action rather than send bytes whose
+        # only record says "a GM typed something".  A withheld or refused
+        # command has nothing left to withhold; it just carries the note.
+        if action is not None:
+            # THE PARKED TARGET HAS TO GO WITH IT.  `_warp_action` parks the
+            # destination only after the frame exists, precisely so that "no
+            # bytes went out" and "no target is parked" never disagree --
+            # chief's confirmation token (CORE-REQUEST-GM-031) compares the
+            # next position report against whatever is parked, so a target
+            # left behind by a withheld warp would let it measure a real
+            # step the player took against a warp that never happened.
+            # Withholding here is a new way to reach that state, so it
+            # clears it the same way the refusal paths never create it.
+            #
+            # ONLY FOR THE COMMAND THAT PARKED IT.  A withheld `/say` must not
+            # clear the target an EARLIER `/warp` parked and really sent: that
+            # would delete a live comparison because an unrelated chat line
+            # could not be audited, which is a second bug wearing the first
+            # one's clothes.  `say` parks nothing, so it has nothing to undo.
+            if action[0] == WARP_ACTION_LABEL:
+                if not clear_warp_target(session):
+                    _note(session, EVENT_OUTCOME_STALE_TARGET_NOT_CLEARED)
+            _note(session, EVENT_OUTCOME_NOT_AUDITED_ACTION_WITHHELD)
+            return None
+    return action
+
+
+def _log_outcome(
+    session: object,
+    account_name: str,
+    command: object,
+    record_id: str | None,
+    audit_outcome: str,
+    log_path: str | None,
+) -> bool:
+    """Append the `outcome` row closing this command's `issued` row.
+
+    Returns True when the row is on disk, False when it is not and the
+    caller has to decide what that costs.  Never raises: this runs on the
+    listener thread, and an audit failure must be a named refusal, not a
+    traceback attributed to whatever frame arrived next.
+
+    `record_id` None means `handle_local_talk_chat` returned a command
+    without an id, which today is unreachable (it mints one on the only path
+    that produces a command).  Treated as a failure rather than papered over
+    with a fresh id: an outcome row whose id matches no issued row is worse
+    than a missing one, because it reads like a complete pair.
+    """
+    if not isinstance(record_id, str) or not record_id:
+        _note(session, EVENT_OUTCOME_NO_RECORD_ID)
+        return False
+    try:
+        if log_path is None:
+            log_gm_command_outcome(
+                command, account_name, audit_outcome, record_id=record_id
+            )
+        else:
+            log_gm_command_outcome(
+                command,
+                account_name,
+                audit_outcome,
+                record_id=record_id,
+                log_path=log_path,
+            )
+    except Exception as error:  # noqa: BLE001 - OSError and any encoder error
+        # Type name only, same reasoning as every other refusal in this
+        # module: an exception message can carry the GM's typed text.
+        _note(session, f"{EVENT_OUTCOME_LOG_FAILED_PREFIX}{type(error).__name__}")
+        return False
+    return True
 
 
 def _warp_action(
     session: object, command: object, legacy: object
-) -> tuple[str, bytes, bytes, float] | None:
+) -> tuple[tuple[str, bytes, bytes, float] | None, str]:
+    """`(action or None, audit outcome)` -- see `_make_action`'s write point."""
     version = teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED
     if version is None:
         # RE-129.  Refusing here is the whole safety property: GT-101
         # measured an unproven vital version killing the owner's session.
         _note(session, EVENT_WARP_WITHHELD_NO_VERSION)
-        return None
+        return None, OUTCOME_WARP_WITHHELD_NO_VERSION
 
     position = _current_position(session)
     if position is None:
         _note(session, EVENT_WARP_NO_POSITION)
-        return None
+        return None, OUTCOME_WARP_NO_POSITION
 
     try:
         pc, frame, target = make_warp_force_pos_frame_with_target(
@@ -510,7 +636,7 @@ def _warp_action(
         # warp_executor re-validates.  Type name only, same reasoning as
         # above -- a WarpExecutorError message embeds the typed arguments.
         _note(session, f"{EVENT_WARP_REFUSED_PREFIX}{type(error).__name__}")
-        return None
+        return None, f"{OUTCOME_REFUSED_PREFIX}warp_{type(error).__name__}"
 
     # Park the destination for the reader of the NEXT position report.  After
     # the frame was built, never before: a refusal above leaves no bytes on
@@ -531,12 +657,12 @@ def _warp_action(
         # the warp itself failing.
         _note(session, EVENT_WARP_TARGET_NOT_RECORDED)
 
-    return (WARP_ACTION_LABEL, pc, frame, 0.0)
+    return (WARP_ACTION_LABEL, pc, frame, 0.0), OUTCOME_COMPOSED
 
 
 def _say_action(
     session: object, command: object, legacy: object
-) -> tuple[str, bytes, bytes, float] | None:
+) -> tuple[tuple[str, bytes, bytes, float] | None, str]:
     """One authorized `say` -> a `Channel_GMGlobalMessageVital` action.
 
     !! WHAT THIS SENDS AND TO WHOM.  An action goes to ONE socket -- the
@@ -580,7 +706,7 @@ def _say_action(
         # what kills a real client's session, and 0x9F2C's byte has never
         # been measured -- only the shared PAYLOAD codec has.
         _note(session, EVENT_SAY_WITHHELD_NO_VERSION)
-        return None
+        return None, OUTCOME_SAY_WITHHELD_NO_VERSION
     if version != say_wire.CHANNEL_CODEC_VITAL_VERSION:
         # The confirmed byte exists but the imported codec hardcodes a
         # different one, so composing here would put a version on the wire
@@ -588,7 +714,7 @@ def _say_action(
         # note: the fix is a letter to the codec's owning lane, never a
         # second codec in this lane's zone.
         _note(session, EVENT_SAY_VERSION_CODEC_MISMATCH)
-        return None
+        return None, OUTCOME_SAY_VERSION_CODEC_MISMATCH
 
     try:
         pc, frame = make_say_broadcast_frame(legacy, command)
@@ -598,9 +724,9 @@ def _say_action(
         # SayWireError message embeds the GM's typed text, which is both a
         # console cp874 hazard and a needless echo of client-supplied bytes.
         _note(session, f"{EVENT_SAY_REFUSED_PREFIX}{type(error).__name__}")
-        return None
+        return None, f"{OUTCOME_REFUSED_PREFIX}say_{type(error).__name__}"
 
-    return (SAY_ACTION_LABEL, pc, frame, 0.0)
+    return (SAY_ACTION_LABEL, pc, frame, 0.0), OUTCOME_COMPOSED
 
 
 def _current_position(session: object) -> object | None:
