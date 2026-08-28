@@ -3,8 +3,10 @@
 WHAT THIS MODULE IS FOR.  M5 is "loot drops, you pick it up, it is in your bag
 after a relog".  This module is its FIRST half and says so in every claim it
 makes: a kill rolls the dead monster's OWN drop sets out of the real game
-tables, the roll becomes a ledger of what that kill produced, and each row
-becomes one frame of the exact list shape an attended run has already watched
+tables, the roll becomes a ledger of what that kill produced, and ~~each row
+becomes one frame~~ THE WHOLE LEDGER OF THAT KILL BECOMES ONE GENERATION
+(struck round ``zxnwtd``, see ``drop_frames`` and ``RE-130``)
+of the exact list shape an attended run has already watched
 the client turn into a floating item NAME at the coordinate we sent (a name,
 not an object -- see WHAT THE PLAYER SEES).  What it does NOT do is the second
 half: nothing
@@ -17,9 +19,11 @@ claiming both.
     roll      <- the dead mob's own DROPS_NORMAL / _EQUIPMENT / _SPECIALLY
     ledger    <- what that kill produced, where, and whose kill it was
     element   <- one RuntimeRes derived-bit-0x08 list element per object
-    frame     <- one single-element frame each (~~the V43 one-record
-                 lesson~~ STRUCK round ``kfs01z`` -- see drop_frames: it is
-                 the only shape measured, not a client-imposed limit)
+    frame     <- ONE generation carrying every element of that kill
+                 (~~one single-element frame each~~ STRUCK round ``zxnwtd``:
+                 ``RE-130`` measured the consumer erasing every key a
+                 nonempty generation omits, so the old shape left only the
+                 LAST drop of a multi-drop kill in the client's tree)
 
 NO FLAG, AND THAT IS THE POINT.  ``production_allowed`` is True.  There is no
 scenario id, no dispatch kwarg, no unlock object and no allowlisted profile in
@@ -97,7 +101,17 @@ PROVENANCE OF EVERY CLAIM THE CODE MAKES
   position and the payload dword -- which is the ONE combination that has
   been on a real client's wire.
 * [STATIC] The envelope is the proven RuntimeRes v4 envelope, with the derived
-  change-mask byte 0x08 selecting the list, and ONE element per frame.
+  change-mask byte 0x08 selecting the list, and ~~ONE element per frame~~ ONE
+  GENERATION PER KILL, carrying every element of that kill (STRUCK and
+  replaced round ``zxnwtd`` on ``RE-130``, DONE/PASS: the consumer's codec
+  loop takes ``count > 1`` and every nonempty generation ERASES the keys it
+  omits, so the old shape could leave only the last drop of a multi-drop kill
+  in the client's keyed tree.  A ONE-drop kill still composes the same 44
+  bytes GT-045 measured, and since ``drop_frames`` routes that case through
+  ``drop_pc``, the 44-byte and envelope pins are asserted on every emission,
+  in the server, not only in a test.  A WIDER generation has NEVER been
+  in front of a client -- see NONCLAIM 22, which says so and names the
+  rollback.)
   ~~"a combined multi-record derived-mask collection is the one shape a real
   client has already rejected with ErrorData=28317"~~ IS STRUCK (round
   ``kfs01z``): 28317 = 0x6E9D = GSCN_RunTimeProtocolRes, the class id the
@@ -107,8 +121,9 @@ PROVENANCE OF EVERY CLAIM THE CODE MAKES
   that on 2026-08-18, and every live reproduction listed there is a
   RuntimeRes stream-tail/misalignment fault.  V43 (six actors, same number)
   therefore gives an INTERVAL, not a cause, and it was measured on the
-  mask-0x02 actor list, not on this 0x08 list at all.  One element per frame
-  is what this lane SHIPS and what has been on a real wire.  ~~"it is not a
+  mask-0x02 actor list, not on this 0x08 list at all.  ~~One element per frame
+  is what this lane SHIPS~~ -- no longer true of what it SHIPS (see above);
+  still true of what has been on a real wire, and that gap is GT-131.  ~~"it is not a
   restriction the client has been shown to impose"~~ IS ITSELF STRUCK in the
   same round that wrote it (pf-adversary, D14): a real client DID refuse the
   one combined multi-record stream ever sent to it (V43).  What is not shown
@@ -214,7 +229,10 @@ MOB_LOOT_WIRING = (
     "already looted and you must NOT retry it in a loop.\n"
     "  3. send every frame of mob_loot.drop_frames(legacy, drops) AFTER "
     "death_step.dead_frame -- i.e. after the whole death schedule including "
-    "hold_ms -- one frame each, in the order returned.  NOT between the dying "
+    "hold_ms -- in the order returned (~~'one frame each'~~ IS STRUCK, round "
+    "zxnwtd: a kill's drops now travel as ONE generation, so the tuple has "
+    "one pair in it.  Iterating it is still the contract).  NOT between the "
+    "dying "
     "and dead frames: nothing measured says a derived-mask-0x08 RuntimeRes "
     "may be interleaved into another lane's typed lethal sequence for the "
     "same actor, and the label lives 0.2-0.4 s, so loot sent inside the hold "
@@ -223,7 +241,24 @@ MOB_LOOT_WIRING = (
     "expires a row and the label is off screen in under half a second; a "
     "caller that never prunes grows the ledger without bound.  Pruning beside "
     "the cell, on a value you kept, loses whatever a kill wrote in between.\n"
-    "  5. nothing else, and ONE ANNOUNCEMENT PER DROP.  The COO REFUSED this "
+    "  4b. AND SINCE RE-130 THE PRUNE HAS A COST THIS CONTRACT OWES THE "
+    "CALLER, round zxnwtd.  The consumer erases every key a nonempty "
+    "generation omits, so a generation built from ONE kill's rows removes "
+    "the previous kill's drops from the client's list.  Pruning each row "
+    "right after its own kill's frame is what makes the next generation "
+    "narrow.  THE ALTERNATIVE, and it is the caller's call because the call "
+    "site is not this lane's file: keep the rows and send "
+    "cell.frames(legacy) -- the WHOLE live ledger as one generation -- once "
+    "per kill.  That is a shape change, not a cadence change, so the COO's "
+    "2026-08-26 refusal in step 5 does not cover it; what it does need is an "
+    "expiry or a pickup, because without one the ledger and the generation "
+    "both grow without bound.  This lane states the option here rather than "
+    "only in a letter, and does not take it unilaterally.\n"
+    "  5. nothing else, and ONE ANNOUNCEMENT PER DROP -- each drop announced "
+    "ONCE and never re-announced.  It is a CADENCE rule, not a frame-count "
+    "rule, and round zxnwtd did not touch it: after that round the one "
+    "announcement of a kill's drops is one shared generation instead of one "
+    "frame each.  The COO REFUSED this "
     "lane's assumption 4 on 2026-08-26 (07:45 +07:00): DROP_REFRESH_MS may "
     "not be wired into a production path, because 12.5 frames a second per "
     "row is too much to spend on a mechanism nobody has measured.  "
@@ -269,6 +304,29 @@ DROP_ENVELOPE_PIN = bytes((
     0x12, 0x01, 0x00,              # u16 tag 0x12, ONE element
 ))
 DROP_ENVELOPE_SIZE = len(DROP_ENVELOPE_PIN)
+# The count is the ONLY field of that envelope that varies with the number of
+# drops, so the pin is split rather than duplicated: bytes 0..13 are constant
+# for every generation this lane will ever send, and bytes 14..16 are the u16
+# count record whose value is the element count.  A one-element generation
+# still has to compose to DROP_ENVELOPE_PIN byte for byte -- that is asserted
+# below and in tests -- so nothing about the shape measured by GT-045 moves.
+DROP_ENVELOPE_CONSTANT_PIN = DROP_ENVELOPE_PIN[:14]
+DROP_ENVELOPE_CONSTANT_SIZE = len(DROP_ENVELOPE_CONSTANT_PIN)
+DROP_ELEMENT_SIZE = DROP_PC_SIZE - DROP_ENVELOPE_SIZE   # 27, one element
+# Coordinate spans of ONE element, relative to that element's first byte.
+# Derived from the pc-relative spans above rather than typed again, so a round
+# that moves the pc pin moves this with it instead of past it.
+DROP_ELEMENT_COORD_SPANS = tuple(
+    (start - DROP_ENVELOPE_SIZE, end - DROP_ENVELOPE_SIZE)
+    for start, end in DROP_COORD_SPANS
+)
+# An emitter ceiling, and it is OURS, not a client fact.  Two reasons, both
+# ours: the count record is a u16, and ``snappy_raw_literal`` splits anything
+# over 65536 bytes into several literal runs, which is a framing shape this
+# lane has never composed and does not re-derive.  Refusing above it is how
+# this lane avoids emitting a frame shape it cannot check.  RE-130 found no
+# upper bound in the consumer and this constant must never be cited as one.
+DROP_MAX_ELEMENTS_PER_FRAME = (0x10000 - DROP_ENVELOPE_SIZE) // DROP_ELEMENT_SIZE
 # And the ten bytes in front of the PC, for the same reason and because the
 # first adversarial repair stopped at the pc: the client's dispatcher reads
 # these FIRST.  For a fixed 44-byte pc they are entirely constant -- the V141
@@ -281,6 +339,10 @@ DROP_FRAME_HEADER_PIN = bytes((
     0x2C, 0xAC,                    # snappy raw literal header for 44 bytes
 ))
 DROP_FRAME_HEADER_SIZE = len(DROP_FRAME_HEADER_PIN)
+# The four magic bytes are the only part of that header that does not move
+# with the body length, so a generation of any width can still be checked
+# against them at run time.
+DROP_FRAME_MAGIC_PIN = DROP_FRAME_HEADER_PIN[:4]
 
 # The list codec's element field order, re-derived from the same span
 # [0x005F85B0,0x005F8869) sha256 ce0a58f7.. that GT-040/GT-042 pinned.
@@ -317,7 +379,10 @@ DROP_SCATTER_STEP = 30.0
 # this lane's assumption 4 is REFUSED.  DROP_REFRESH_MS MAY NOT BE WIRED INTO
 # A PRODUCTION PATH -- 12.5 frames a second per row is too much to spend on a
 # mechanism nobody has measured.  refresh_frames() stays as an EXPERIMENT
-# TOOL and the production behaviour is ONE ANNOUNCEMENT PER DROP, until
+# TOOL and the production behaviour is ONE ANNOUNCEMENT PER DROP -- once per
+# drop, never re-announced, which is a CADENCE rule and not a frame-count one
+# (round zxnwtd made that one announcement a shared generation and did not
+# touch the cadence) -- until
 # somebody measures the label's lifetime from real play.  The constant is kept
 # (deleting it would delete the arithmetic that argues against it) and the
 # wiring line no longer offers it.
@@ -447,16 +512,20 @@ MOB_LOOT_NONCLAIMS = (
     "s of wire-to-screen), not a tested value, and at 80 ms it costs 12.5 "
     "frames a second per live row.  A cadence that is affordable is "
     "arithmetically guaranteed to blink.",
-    "13. DELTA OR REPLACEMENT IS UNPROVEN, and it matters for every kill that "
-    "drops more than one object.  This lane sends one element per frame "
-    "because that is the only shape of this list ever measured on a real "
-    "wire (~~'because a multi-record derived-mask collection is the shape a "
-    "real client rejected'~~ IS STRUCK, round kfs01z: ErrorData=28317 is a "
-    "parse-failure class-id echo, not a count report, and V43 measured it on "
-    "the mask-0x02 actor list, not on this one); if the client treats each "
-    "such frame as the WHOLE ground list rather than as a change to it, the "
-    "second row of a kill removes the first and a player sees one name "
-    "instead of three.  RE-130 is the open ticket that decides it.",
+    "13. ~~DELTA OR REPLACEMENT IS UNPROVEN~~ IS ANSWERED, round zxnwtd, and "
+    "the answer was the bad one: RE-130 (DONE/PASS 2026-08-28T20:18+07:00) "
+    "found the consumer REPLACES BY OMISSION -- a nonempty generation erases "
+    "every key it does not carry (0x005E0D40 at 0x006AFF84 / 0x006B0368).  "
+    "The prediction written here ('the second row of a kill removes the "
+    "first and a player sees one name instead of three') is what the client "
+    "does.  So this lane no longer sends one element per frame: a kill's "
+    "drops go out as ONE generation carrying every key.  What is still "
+    "unproven, and is now GT-131's question rather than this nonclaim's, is "
+    "whether the client DRAWS the labels it accepts.  (~~'because a "
+    "multi-record derived-mask collection is the shape a real client "
+    "rejected'~~ IS STRUCK, round kfs01z: ErrorData=28317 is a parse-failure "
+    "class-id echo, not a count report, and V43 measured it on the mask-0x02 "
+    "actor list, not on this one.)",
     "14. THE SCATTER IS OURS AND IT MULTIPLIES.  30.0 units on X is the only "
     "offset ever put on the wire; row N of a kill uses N times that, so row "
     "12 is 330 units from the corpse and may be somewhere the player never "
@@ -501,6 +570,42 @@ MOB_LOOT_NONCLAIMS = (
     "'what makes the model appear' sends monster drops down FightingDrop* "
     "instead, the composer goes and the ledger's shape is the part most "
     "likely to change.  [ASSUMPTION OF LANE B - awaiting COO confirmation]",
+    "20. COALESCING FIXES ONE KILL, NOT TWO -- AN OPEN DEFECT, AND HALF OF "
+    "IT IS THIS LANE'S.  Round zxnwtd made a kill's drops one generation, "
+    "which is what RE-130 asked for WITHIN a kill.  ACROSS kills the same "
+    "finding says the next nonempty generation erases the previous kill's "
+    "keys by omission, so a second monster killed while the first one's "
+    "labels are still up takes them down.  ~~'This lane cannot fix that "
+    "from here'~~ IS STRUCK IN THE ROUND THAT WROTE IT (pf-adversary D4): "
+    "the prune the defect rests on is commanded by WIRING step 4, which is "
+    "THIS LANE'S OWN TEXT, and the shape that fixes it (the whole live "
+    "ledger as one generation, cell.frames/refresh_frames) is composed in "
+    "THIS FILE.  What this lane genuinely cannot do is edit the call site "
+    "(runtime.py:4298-4312, chief's file).  So the option is now written "
+    "into WIRING step 4b where a caller reads it, not only into a letter, "
+    "and it needs an expiry or a pickup before anyone takes it.  Nobody may "
+    "read 'coalesced' as 'solved'.",
+    "21. THE FRAME RE-DERIVATION IS A TRANSCRIPTION, NOT A SECOND OPINION.  "
+    "~~'_snappy_raw_literal_via_struct is written from the format "
+    "description'~~ IS STRUCK IN THE ROUND THAT WROTE IT (pf-adversary D7): "
+    "expression for expression it is the legacy snappy_raw_literal, "
+    "idiosyncratic (59 + width) << 2 rendering and all.  It catches a moved "
+    "magic, a changed length field or a swapped compressor -- because those "
+    "stop reproducing this text's output -- and it CANNOT catch an error "
+    "the two share, because they are one text.  Only the ONE-element frame "
+    "is pinned to literal bytes a real client took (GT-045); every wider "
+    "frame is checked for self-consistency, which is weaker, and is said so "
+    "here.",
+    "22. NO CLIENT HAS EVER RECEIVED A WIDE GENERATION FROM THIS LANE, AND "
+    "IT SHIPS UNFLAGGED.  Round zxnwtd's 2-drop kill puts an 82-byte frame "
+    "on a production path (44/54 remains the ONE-drop shape and is the only "
+    "one GT-045 measured).  The evidence for the change is ONE static "
+    "letter, RE-130; the client-observable layer is GT-131 and it has not "
+    "run.  The old shape is not a safe alternative -- RE-130 proves it "
+    "loses k-1 drops -- so both shapes carry a cost and this lane took the "
+    "one whose cost is measured.  [ASSUMPTION OF LANE B - awaiting COO "
+    "confirmation]  Rollback if the call is wrong: drop_frames returning "
+    "one pair per drop again, one function, no call-site change.",
 )
 
 # ---------------------------------------------------------------------------
@@ -533,6 +638,10 @@ REFUSE_MONEY_HAS_NO_ELEMENT = "money_has_no_element"
 REFUSE_COMPOSED_BYTES_OFF_PIN = "composed_bytes_off_pin"
 REFUSE_ELEMENT_ENCODER_DISAGREES = "element_encoder_disagrees"
 REFUSE_POSITION_OFF_THE_F32_GRID = "position_off_the_f32_grid"
+REFUSE_GENERATION_IS_EMPTY = "generation_is_empty"
+REFUSE_GENERATION_TOO_WIDE_TO_FRAME = "generation_too_wide_to_frame"
+REFUSE_DUPLICATE_KEY_IN_GENERATION = "duplicate_key_in_generation"
+REFUSE_FRAME_ENCODER_DISAGREES = "frame_encoder_disagrees"
 
 MOB_LOOT_REFUSAL_REASONS = (
     REFUSE_TYPE_NOT_TYPED_RECORD,
@@ -560,6 +669,10 @@ MOB_LOOT_REFUSAL_REASONS = (
     REFUSE_COMPOSED_BYTES_OFF_PIN,
     REFUSE_ELEMENT_ENCODER_DISAGREES,
     REFUSE_POSITION_OFF_THE_F32_GRID,
+    REFUSE_GENERATION_IS_EMPTY,
+    REFUSE_GENERATION_TOO_WIDE_TO_FRAME,
+    REFUSE_DUPLICATE_KEY_IN_GENERATION,
+    REFUSE_FRAME_ENCODER_DISAGREES,
 )
 
 
@@ -1460,18 +1573,139 @@ def drop_element(legacy: Any, drop: Any) -> bytes:
     return via_tags
 
 
-def drop_pc(legacy: Any, drop: Any) -> bytes:
-    """The single-element RuntimeRes pc that carries one ground drop."""
-    element = drop_element(legacy, drop)
+def drop_collection_pc(legacy: Any, drops: Any) -> bytes:
+    """ONE RuntimeRes generation carrying every drop THE CALLER PASSES.
+
+    READ THE SCOPE BEFORE THE REASON.  ~~"carrying EVERY drop that must
+    coexist"~~ IS STRUCK IN THE ROUND THAT WROTE IT (pf-adversary D8): that
+    is ``RE-130``'s wording, and this function only carries what the caller
+    hands it.  The shipped caller hands it ONE KILL's rows, so two kills a
+    few hundred milliseconds apart still take each other's keys down.  The
+    letter's second bullet is satisfied WITHIN a kill and still violated
+    ACROSS kills -- see NONCLAIM 20, which is the honest version of this
+    line and is not a promise this function keeps.
+
+    THE SHAPE CHANGED IN ROUND ``zxnwtd`` AND ``RE-130`` IS WHY.  ~~"one
+    element per frame ... this lane does not change the shape"~~ IS STRUCK,
+    not deleted: it was the honest position while the question was open, and
+    ``RE-130 GROUND-ITEM-LABEL-LIFETIME-VS-LIST-MEMBERSHIP-001`` closed it
+    DONE/PASS on 2026-08-28T20:18+07:00 with a BUILD_IMPACT written for this
+    lane by name:
+
+      * the consumer's ``count`` is read from the list object at ``+0x2C``
+        and its codec loop takes more than one (span ``[0x006AF970,
+        0x006B03E3)``, sha e5eb9e15..., re-confirming RE-082);
+      * every NONEMPTY generation updates the keys it carries and then
+        ERASES every key it omits (``0x005E0D40`` called at ``0x006AFF84``
+        and ``0x006B0368``) -- replacement by omission, not accumulation;
+      * so N nonempty single-element generations do NOT put N drops on the
+        ground.  Each one erases the one before it, and takes the previous
+        element's owned ``NameBoard_ITEM`` (``runtime+0x80``) down the
+        destructor path with it.
+
+    That last line is what makes the old shape a DEFECT rather than a
+    conservative choice: a kill that rolled three objects announced three
+    generations of one element each, and only the LAST of them could still
+    be in the client's keyed tree when the dust settled.
+
+    WHAT THIS IS NOT.  RE-130's own nonclaims travel with the change and
+    this lane repeats them rather than rounding them off:
+
+      * NOT that a label now lives longer.  The measured 0.2-0.4 s of
+        GT-045 is untouched; RE-130 says in terms that fixing the
+        membership confound "does not guarantee visible label lifetime".
+      * NOT that the client DRAWS N labels at once.  The codec accepting
+        ``count > 1`` is a static fact about the deserialiser.  What a
+        player sees is client-observable and is what ``GT-131`` is for.
+      * NOT that ``count = 0`` clears anything: RE-130 found that branch
+        goes straight to the epilogue in this consumer.  This lane never
+        emits an empty generation and refuses to compose one.
+    """
+    rows = tuple(drops)
+    if not rows:
+        raise MobLootContractError(
+            REFUSE_GENERATION_IS_EMPTY,
+            "an empty generation is a no-op in this consumer (RE-130 T3), "
+            "not a clear; this lane refuses to compose one")
+    if len(rows) > DROP_MAX_ELEMENTS_PER_FRAME:
+        raise MobLootContractError(
+            REFUSE_GENERATION_TOO_WIDE_TO_FRAME,
+            "%d elements is wider than this lane can frame without a "
+            "multi-run literal it has never composed (ceiling %d, and it is "
+            "OURS, not a client limit)"
+            % (len(rows), DROP_MAX_ELEMENTS_PER_FRAME))
+    elements = [drop_element(legacy, drop) for drop in rows]
+    keys = [drop.drop_key for drop in rows]
+    if len(set(keys)) != len(keys):
+        raise MobLootContractError(
+            REFUSE_DUPLICATE_KEY_IN_GENERATION,
+            "two drops in one generation carry the same key; the consumer "
+            "keys its tree on that dword (RE-130 T3) and the second would "
+            "silently replace the first")
+    payload = b"".join(elements)
     pc = bytearray()
     pc += legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_RES)
     pc += legacy.u32tag(0x14, 0)
     pc += legacy.u8tag(0x08, ENVELOPE_VERSION)
     pc += legacy.u8tag(0x0B, 0)                                # inherited none
     pc += legacy.u8tag(0x0B, RUNTIME_DERIVED_BIT_GROUND_LIST)  # derived 0x08
-    pc += legacy.u16tag(ELEMENT_LIST_COUNT_TAG, 1)             # ONE element
-    pc += element
+    pc += legacy.u16tag(ELEMENT_LIST_COUNT_TAG, len(rows))
+    pc += payload
     pc = bytes(pc)
+    expected_size = DROP_ENVELOPE_SIZE + DROP_ELEMENT_SIZE * len(rows)
+    if len(pc) != expected_size:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "a %d-element ground pc is %d bytes, composed %d"
+            % (len(rows), expected_size, len(pc)))
+    if pc[:DROP_ENVELOPE_CONSTANT_SIZE] != DROP_ENVELOPE_CONSTANT_PIN:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the composed envelope is not the pinned envelope; the legacy "
+            "serializer moved under this lane and it refuses to emit")
+    if pc[DROP_ENVELOPE_CONSTANT_SIZE] != ELEMENT_LIST_COUNT_TAG:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the count record does not start with the pinned 0x12 tag")
+    declared = struct.unpack(
+        "<H", pc[DROP_ENVELOPE_CONSTANT_SIZE + 1:DROP_ENVELOPE_SIZE])[0]
+    if declared != len(rows):
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the generation declares %d elements and carries %d"
+            % (declared, len(rows)))
+    if pc[DROP_ENVELOPE_SIZE:] != payload:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the composed pc does not end in the elements it was built from")
+    if len(rows) == 1 and pc[:DROP_ENVELOPE_SIZE] != DROP_ENVELOPE_PIN:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "a one-element generation no longer composes to the envelope "
+            "GT-045 measured, byte for byte")
+    for index, drop in enumerate(rows):
+        base = DROP_ENVELOPE_SIZE + index * DROP_ELEMENT_SIZE
+        coordinates = b"".join(
+            pc[base + start:base + end]
+            for start, end in DROP_ELEMENT_COORD_SPANS
+        )
+        if coordinates != struct.pack("<fff", drop.x, drop.y, drop.z):
+            raise MobLootContractError(
+                REFUSE_COMPOSED_BYTES_OFF_PIN,
+                "element %d's composed coordinates are not that drop's "
+                "coordinates" % index)
+    return pc
+
+
+def drop_pc(legacy: Any, drop: Any) -> bytes:
+    """The single-element RuntimeRes pc that carries one ground drop.
+
+    Kept, and kept pinned to 44 bytes, because that is the pc GT-045 put in
+    front of a real client.  A one-drop kill still composes exactly these
+    bytes after the round-``zxnwtd`` change, and this function is where that
+    is asserted rather than assumed.
+    """
+    pc = drop_collection_pc(legacy, (drop,))
     if len(pc) != DROP_PC_SIZE:
         raise MobLootContractError(
             REFUSE_COMPOSED_BYTES_OFF_PIN,
@@ -1482,39 +1716,95 @@ def drop_pc(legacy: Any, drop: Any) -> bytes:
             REFUSE_COMPOSED_BYTES_OFF_PIN,
             "the composed envelope is not the pinned envelope; the legacy "
             "serializer moved under this lane and it refuses to emit")
-    if pc[DROP_ENVELOPE_SIZE:] != element:
-        raise MobLootContractError(
-            REFUSE_COMPOSED_BYTES_OFF_PIN,
-            "the composed pc does not end in the element it was built from")
-    coordinates = b"".join(pc[start:end] for start, end in DROP_COORD_SPANS)
-    if coordinates != struct.pack("<fff", drop.x, drop.y, drop.z):
-        raise MobLootContractError(
-            REFUSE_COMPOSED_BYTES_OFF_PIN,
-            "the composed coordinates are not the drop's coordinates")
     return pc
 
 
-def drop_frames(legacy: Any, drops: Any) -> tuple:
-    """One framed single-element message per drop, in ledger order.
+def _snappy_raw_literal_via_struct(data: bytes) -> bytes:
+    """The snappy raw-literal body for ``data``, recomposed here.
 
-    ONE element per frame on purpose -- but not for the reason this docstring
-    used to give.  ~~"a combined multi-record derived-mask collection is the
-    one shape a real client has already rejected with ErrorData=28317 (the V43
-    lesson the probe lane also obeys)"~~ IS STRUCK (round ``kfs01z``): 28317 is
-    the class id of the envelope that failed to deserialize echoed back, i.e. a
-    parse-failure echo, not a count report (``world_population.py:104-113``,
-    decoded 2026-08-18).  V43 also measured it on the mask-0x02 ACTOR list, not
-    on this 0x08 ground list.  What remains true and is the actual reason: one
-    element per frame is the only shape of this list that has ever been on a
-    real client's wire, and ``RE-130`` (open) is what decides whether a
-    multi-element frame is even reachable here.  Until it closes this lane does
-    not change the shape -- because it is unmeasured, not because it is
-    forbidden.
+    ~~"NOT a second reading of the legacy module: written from the snappy
+    format's own description"~~ IS STRUCK IN THE ROUND THAT WROTE IT
+    (``zxnwtd``, pf-adversary D7).  Whatever it was written from, WHAT IT
+    IS is a transcription of ``pf_login_game_server_v141.snappy_raw_literal``
+    -- expression for expression, including that encoder's idiosyncratic
+    ``(59 + width) << 2`` rendering of the extended literal tag and its
+    ``length <= 60`` form of the boundary.  Calling it an independent
+    derivation was a claim about the artifact, and the artifact says
+    otherwise.
+
+    So what it is actually for, and this is the whole of it: the composed
+    frame stops matching the moment a shim swaps the compressor, moves the
+    length field, or reframes the message -- because then the legacy path
+    stops producing THIS text's output.  It cannot catch an error this text
+    and the legacy encoder share, because they are the same text.  Only the
+    ONE-element frame is checked against literal bytes a real client took
+    (``DROP_FRAME_HEADER_PIN``, GT-045).
     """
-    out = []
-    for drop in drops:
-        pc = drop_pc(legacy, drop)
-        frame = legacy.frame_pc(pc)
+    length = len(data)
+    out = bytearray()
+    value = length
+    while value >= 0x80:
+        out.append((value & 0x7F) | 0x80)
+        value >>= 7
+    out.append(value)
+    minus_one = length - 1
+    if length <= 60:
+        out.append(minus_one << 2)
+    else:
+        width = max(1, (minus_one.bit_length() + 7) // 8)
+        out.append((59 + width) << 2)
+        out += minus_one.to_bytes(width, "little")
+    out += data
+    return bytes(out)
+
+
+def _frame_via_struct(pc: bytes) -> bytes:
+    """The framed message, re-composed from the pinned magic and the format."""
+    body = _snappy_raw_literal_via_struct(pc)
+    return DROP_FRAME_MAGIC_PIN + struct.pack("<I", len(body)) + body
+
+
+def drop_frames(legacy: Any, drops: Any) -> tuple:
+    """ONE framed generation carrying every drop of that kill, in ledger order.
+
+    ~~"One framed single-element message per drop"~~ IS STRUCK (round
+    ``zxnwtd``, ``RE-130`` DONE/PASS): N nonempty single-element generations
+    do not leave N drops on the ground -- each one erases the keys the next
+    one omits.  See :func:`drop_collection_pc` for the spans and for the
+    three things this change does NOT claim.
+
+    The return type is unchanged on purpose -- a tuple of ``(pc, frame)``
+    pairs -- so the call site in ``runtime.py:4292``, which is chief's file
+    and not this lane's to edit, keeps working unread: it iterates, and now
+    it iterates once.
+    """
+    rows = tuple(drops)
+    if not rows:
+        return ()
+    # THE ONE-DROP CASE GOES THROUGH ``drop_pc``, ON THE EMISSION PATH.
+    # pf-adversary D2: the first version of this function called
+    # ``drop_collection_pc`` for every width, which left ``drop_pc``
+    # reachable only from ``pin_document`` and the tests -- while three
+    # shipped artifacts said "drop_pc asserts it on every emission".  That
+    # sentence is now true because the code was changed to match it, not
+    # because the sentence was softened.
+    if len(rows) == 1:
+        pc = drop_pc(legacy, rows[0])
+    else:
+        pc = drop_collection_pc(legacy, rows)
+    frame = legacy.frame_pc(pc)
+    # THE PINS FIRST, THE RE-DERIVATION LAST, AND THAT ORDER IS DELIBERATE.
+    # Every one of these refusals has to stay reachable (this module's own
+    # rule: a refusal that cannot happen is a lie to whoever counts them).
+    # pf-adversary D2 measured what the first version of this order cost:
+    # ``_frame_via_struct`` FORCES length 54 and the pinned ten-byte header
+    # for any 44-byte pc, so comparing against it first made all three
+    # GT-045 frame pins tautologies -- deleting them left the suite green.
+    # They are now in front of it, where they can still fail.
+    header_size = len(frame) - len(pc)
+    if len(rows) == 1:
+        # The GT-045 pins, load-bearing for the shape a real client has
+        # actually taken.  A one-drop kill must still be these exact bytes.
         if len(frame) != DROP_FRAME_SIZE:
             raise MobLootContractError(
                 REFUSE_COMPOSED_BYTES_OFF_PIN,
@@ -1525,20 +1815,42 @@ def drop_frames(legacy: Any, drops: Any) -> tuple:
                 REFUSE_COMPOSED_BYTES_OFF_PIN,
                 "the frame header is not the pinned header; the framing layer "
                 "moved under this lane and it refuses to emit")
-        if frame[DROP_FRAME_HEADER_SIZE:] != pc:
+        if header_size != DROP_FRAME_COORD_SHIFT:
             raise MobLootContractError(
                 REFUSE_COMPOSED_BYTES_OFF_PIN,
-                "the framed body is not the pc that was composed")
+                "the one-element frame header is %d bytes, not the pinned %d"
+                % (header_size, DROP_FRAME_COORD_SHIFT))
+    if frame[:len(DROP_FRAME_MAGIC_PIN)] != DROP_FRAME_MAGIC_PIN:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the frame magic is not the pinned magic; the framing layer "
+            "moved under this lane and it refuses to emit")
+    if len(frame) < 8 or struct.unpack("<I", frame[4:8])[0] != len(frame) - 8:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the frame's own length field does not describe the frame")
+    if frame[header_size:] != pc:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the framed body is not the pc that was composed")
+    recomposed = _frame_via_struct(pc)
+    if frame != recomposed:
+        raise MobLootContractError(
+            REFUSE_FRAME_ENCODER_DISAGREES,
+            "the legacy framing layer and the pinned frame format disagree; "
+            "this lane refuses to emit a frame shape no client has accepted")
+    for index, drop in enumerate(rows):
+        base = header_size + DROP_ENVELOPE_SIZE + index * DROP_ELEMENT_SIZE
         shifted = b"".join(
-            frame[start + DROP_FRAME_COORD_SHIFT:end + DROP_FRAME_COORD_SHIFT]
-            for start, end in DROP_COORD_SPANS
+            frame[base + start:base + end]
+            for start, end in DROP_ELEMENT_COORD_SPANS
         )
         if shifted != struct.pack("<fff", drop.x, drop.y, drop.z):
             raise MobLootContractError(
                 REFUSE_COMPOSED_BYTES_OFF_PIN,
-                "the framed coordinates are not the drop's coordinates")
-        out.append((pc, frame))
-    return tuple(out)
+                "element %d's framed coordinates are not that drop's "
+                "coordinates" % index)
+    return ((pc, frame),)
 
 
 def refresh_frames(legacy: Any, ledger: Any) -> tuple:
@@ -1553,11 +1865,19 @@ def refresh_frames(legacy: Any, ledger: Any) -> tuple:
     arithmetic from the measured numbers, not a tuned or tested value, and the
     arithmetic says the honest cadence is expensive.
 
+    AFTER ``RE-130`` THIS IS ALSO THE ONLY FUNCTION HERE THAT COMPOSES THE
+    CROSS-KILL-CORRECT GENERATION: the whole live ledger in one collection is
+    exactly the shape that does not erase an earlier kill's keys (NONCLAIM
+    20).  That does not make it a behaviour -- the refusal below still
+    stands, and the reason it stands is the cadence, not the shape.
+
     AND THE COO HAS SINCE REFUSED IT FOR PRODUCTION (2026-08-26 07:45 +07:00).
     This function may be called by hand, by a test, or by an attended
     experiment.  It may NOT be put on a timer in ``runtime.py``: the shipped
-    behaviour is one announcement per drop until the label's lifetime is
-    measured from real play.
+    behaviour is one announcement per drop -- once each, never re-announced,
+    a cadence rule -- until the label's lifetime is measured from real play.
+    ON A TIMER is the refused part.  Once per kill, carrying the live
+    ledger, is a different proposal and is written up as WIRING step 4b.
     """
     if type(ledger) is not DropLedger:
         raise MobLootContractError(
@@ -1592,6 +1912,25 @@ def pin_document(legacy: Any) -> dict:
     masked = bytearray(pc)
     for start, end in DROP_COORD_SPANS:
         masked[start:end] = b"\x00" * (end - start)
+    # A SECOND SAMPLE, because the shipped pin now has to describe the shape
+    # a MULTI-drop kill emits as well as the one GT-045 measured.  Composed
+    # through the real path, not typed: if the wide generation ever stops
+    # composing, this document stops being generatable and the shipped file
+    # goes stale loudly instead of quietly.
+    sample_pair = (
+        sample,
+        GroundDrop(
+            DROP_KEY_BASE + 1, 2400047, 1,
+            as_wire_float(1.0 + DROP_SCATTER_STEP),
+            as_wire_float(2.0), as_wire_float(3.0), 0x201F, 0x0101,
+        ),
+    )
+    (pair_pc, pair_frame), = drop_frames(legacy, sample_pair)
+    masked_pair = bytearray(pair_pc)
+    for index in range(len(sample_pair)):
+        base = DROP_ENVELOPE_SIZE + index * DROP_ELEMENT_SIZE
+        for start, end in DROP_ELEMENT_COORD_SPANS:
+            masked_pair[base + start:base + end] = b"\x00" * (end - start)
     return {
         "schema": 1,
         "id": PIN_ID,
@@ -1607,11 +1946,18 @@ def pin_document(legacy: Any) -> dict:
             "runtime_derived_bit": RUNTIME_DERIVED_BIT_GROUND_LIST,
             "element_mask": ELEMENT_MASK_POSITION_AND_DWORD,
             "element_field_order": list(ELEMENT_FIELD_ORDER),
-            "elements_per_frame": 1,
+            "elements_per_generation": "every drop of that kill (RE-130)",
+            "generations_per_kill": 1,
+            "element_size": DROP_ELEMENT_SIZE,
+            "max_elements_per_frame": DROP_MAX_ELEMENTS_PER_FRAME,
             "pc_size": DROP_PC_SIZE,
             "frame_size": DROP_FRAME_SIZE,
             "masked_pc_sha256": hashlib.sha256(bytes(masked)).hexdigest().upper(),
             "sample_frame_size": len(frame),
+            "two_element_pc_size": len(pair_pc),
+            "two_element_frame_size": len(pair_frame),
+            "two_element_masked_pc_sha256": (
+                hashlib.sha256(bytes(masked_pair)).hexdigest().upper()),
         },
         "lane_constants": {
             "drop_key_base": DROP_KEY_BASE,
@@ -1736,10 +2082,20 @@ def drops_console_line(mob: Any, drops: Any) -> str:
         "%d:x%d@0x%X" % (drop.item_id, drop.quantity, drop.drop_key)
         for drop in drops
     )
+    # generations= AND pc_bytes= EXIST FOR AN ATTENDED TESTER, round zxnwtd.
+    # GT-131 has to tell a build that coalesces from one that does not, from
+    # a console with NO flags on it, and its first draft told the tester to
+    # grep a token that is never printed (pf-adversary D3).  These two are
+    # printed, they are the emitter's own arithmetic (the same numbers
+    # drop_collection_pc refuses to differ from), and an older build prints
+    # neither -- so their ABSENCE is the build check.
     return (
         "MOB_LOOT_DROPS_CENSUS mob=%s template=%d identity=0x%X drops=%d "
-        "items=%s" % (
+        "generations=%d pc_bytes=%d items=%s" % (
             ascii(mob.display_name), mob.template_id, mob.actor_identity,
-            len(drops), items if items else "none",
+            len(drops), 1 if drops else 0,
+            DROP_ENVELOPE_SIZE + DROP_ELEMENT_SIZE * len(drops) if drops
+            else 0,
+            items if items else "none",
         )
     )

@@ -40,6 +40,7 @@ from pirateforce_foundation.legacy_bridge import load_legacy
 from pirateforce_foundation.mob_death import DeathRecord
 from pirateforce_foundation.mob_loot import (
     DROP_COORD_SPANS,
+    DROP_ELEMENT_SIZE,
     DROP_ENVELOPE_PIN,
     DROP_ENVELOPE_SIZE,
     DROP_FRAME_COORD_SHIFT,
@@ -621,17 +622,291 @@ class MobLootTests(unittest.TestCase):
             DROP_FRAME_COORD_SHIFT,
             ground_loot_hypothesis.GROUND_LOOT_FRAME_COORD_SHIFT)
 
-    def test_one_frame_carries_one_element_at_the_pinned_sizes(self):
+    def test_a_one_drop_kill_is_still_the_pinned_44_and_54_bytes(self):
+        """~~one frame per drop~~ -- but a ONE-drop kill must not move.
+
+        Struck and rewritten in round ``zxnwtd`` on ``RE-130``.  The old
+        assertion (``len(frames) == len(drops)``) is now false by design and
+        the shape it described is the defect RE-130 named.  What must NOT
+        move is the single-drop case: those 44 pc bytes and 54 frame bytes
+        are the ones GT-045 put in front of a real client, and they are the
+        only bytes of this lane a client has ever accepted.
+        """
         _roll, _record, drops = self._one_kill()
+        frames = drop_frames(self.legacy, drops[:1])
+        self.assertEqual(len(frames), 1)
+        (pc, frame), = frames
+        self.assertEqual(len(pc), DROP_PC_SIZE)
+        self.assertEqual(len(frame), DROP_FRAME_SIZE)
+        coordinates = b"".join(
+            pc[start:end] for start, end in DROP_COORD_SPANS)
+        self.assertEqual(
+            coordinates, struct.pack("<fff", drops[0].x, drops[0].y,
+                                     drops[0].z))
+
+    def test_a_multi_drop_kill_is_one_generation_carrying_every_key(self):
+        """RE-130's BUILD_IMPACT, asserted on composed bytes.
+
+        Not on the count field alone: an accumulating emitter that declared
+        the right count in front of a one-element payload would pass that,
+        and this lane has been bitten by exactly that class of test before.
+        So the PAYLOAD WIDTH and every element's presence are asserted too.
+        """
+        _roll, _record, drops = self._one_kill()
+        self.assertGreaterEqual(
+            len(drops), 2,
+            "this test needs a multi-drop kill; _one_kill no longer gives "
+            "one and the assertions below would be vacuous")
         frames = drop_frames(self.legacy, drops)
-        self.assertEqual(len(frames), len(drops))
-        for (pc, frame), drop in zip(frames, drops):
-            self.assertEqual(len(pc), DROP_PC_SIZE)
-            self.assertEqual(len(frame), DROP_FRAME_SIZE)
-            coordinates = b"".join(
-                pc[start:end] for start, end in DROP_COORD_SPANS)
+        self.assertEqual(
+            len(frames), 1,
+            "a kill's drops must travel as ONE generation (RE-130): a "
+            "second nonempty generation erases the first one's keys")
+        pc, frame = frames[0]
+        self.assertEqual(
+            struct.unpack("<H", pc[15:17])[0], len(drops),
+            "the generation does not declare the number of drops it carries")
+        self.assertEqual(
+            len(pc), DROP_ENVELOPE_SIZE + DROP_ELEMENT_SIZE * len(drops),
+            "the payload is not exactly %d elements wide, so the declared "
+            "count is a lie" % len(drops))
+        elements = [drop_element(self.legacy, drop) for drop in drops]
+        self.assertEqual(
+            len(set(elements)), len(elements),
+            "the drops composed to identical element bytes; the containment "
+            "assertions below would pass for the wrong reason")
+        self.assertEqual(pc[DROP_ENVELOPE_SIZE:], b"".join(elements))
+        for element in elements:
+            self.assertIn(element, frame)
+        # And the keys the consumer will build its tree from are all there
+        # and all different (RE-130 T3: wire tag 0x14 -> element +0x10).
+        keys = [
+            struct.unpack(
+                "<I",
+                pc[DROP_ENVELOPE_SIZE + index * DROP_ELEMENT_SIZE + 1:
+                   DROP_ENVELOPE_SIZE + index * DROP_ELEMENT_SIZE + 5])[0]
+            for index in range(len(drops))
+        ]
+        self.assertEqual(keys, [drop.drop_key for drop in drops])
+        self.assertEqual(len(set(keys)), len(keys))
+
+    def test_the_wide_frame_still_decompresses_back_to_the_pc(self):
+        """The one check that does not trust either composer.
+
+        Both the legacy framing layer and this lane's re-derivation build
+        the frame going FORWARDS.  This runs the legacy DECOMPRESSOR over
+        the composed frame and compares what comes out with the pc that
+        went in, which is the only assertion here that would survive both
+        encoders being wrong in the same way.
+        """
+        _roll, _record, drops = self._one_kill()
+        for width in (1, 2, len(drops)):
+            if width > len(drops):
+                continue
+            (pc, frame), = drop_frames(self.legacy, drops[:width])
             self.assertEqual(
-                coordinates, struct.pack("<fff", drop.x, drop.y, drop.z))
+                self.legacy.snappy_raw_decompress(frame[8:]), pc,
+                "the %d-element frame does not decompress to its own pc"
+                % width)
+
+    def _wide_drops(self, count):
+        """``count`` synthetic drops, scattered the way place_drops does.
+
+        The rolled kills in this file top out at two objects, which is why
+        pf-adversary D6 found the framing arithmetic above two elements had
+        never executed.  These are built by hand so the widths that change
+        the SNAPPY HEADER can be reached at all: the varint goes to two
+        bytes at pc >= 128 (N >= 5) and the literal tag gains a length byte
+        at pc >= 257 (N >= 9).
+        """
+        item = next(
+            item_id for item_id, row in sorted(field_drop_tables.ITEMS.items())
+            if str(row[2]).strip())
+        return tuple(
+            mob_loot.GroundDrop(
+                DROP_KEY_BASE + index, item, 1,
+                mob_loot.as_wire_float(1.0 + DROP_SCATTER_STEP * index),
+                mob_loot.as_wire_float(2.0), mob_loot.as_wire_float(3.0),
+                0x201F, 0x0101,
+            )
+            for index in range(count)
+        )
+
+    def test_the_wide_generations_that_change_the_snappy_header_compose(self):
+        """Every width up to a full kill, checked against the decompressor.
+
+        MAX_DROPS_PER_KILL is 16, so 16 is a REACHABLE generation and its
+        header (a two-byte varint and an extended literal tag) had no test
+        at all.  Each width is decompressed back with the legacy decoder --
+        the one assertion here that does not trust either composer.
+        """
+        self.assertGreaterEqual(mob_loot.MAX_DROPS_PER_KILL, 16)
+        for count in (1, 2, 4, 5, 8, 9, 16, mob_loot.MAX_DROPS_PER_KILL):
+            drops = self._wide_drops(count)
+            (pc, frame), = drop_frames(self.legacy, drops)
+            self.assertEqual(
+                len(pc), DROP_ENVELOPE_SIZE + DROP_ELEMENT_SIZE * count)
+            self.assertEqual(
+                struct.unpack("<H", pc[15:17])[0], count)
+            self.assertEqual(
+                self.legacy.snappy_raw_decompress(frame[8:]), pc,
+                "the %d-element frame does not decompress to its own pc"
+                % count)
+            self.assertEqual(
+                struct.unpack("<I", frame[4:8])[0], len(frame) - 8)
+
+    def test_the_ceiling_refusal_is_reachable_and_the_ceiling_is_ours(self):
+        """``generation_too_wide_to_frame`` had no test until D5 said so.
+
+        This module's rule is that an unreachable refusal is a lie to
+        whoever counts them, and the precedent (round ``vvkff9``) is that
+        such a token gets deleted.  It is kept because it IS reachable --
+        here -- and because the shape above it is one this lane genuinely
+        does not re-derive.  It is NOT reachable from a real kill:
+        MAX_DROPS_PER_KILL is 16 and the ceiling is 2426.
+        """
+        ceiling = mob_loot.DROP_MAX_ELEMENTS_PER_FRAME
+        self.assertGreater(ceiling, mob_loot.MAX_DROPS_PER_KILL)
+        self.assertEqual(
+            ceiling,
+            (0x10000 - DROP_ENVELOPE_SIZE) // DROP_ELEMENT_SIZE,
+            "the ceiling is no longer the single-literal-run arithmetic it "
+            "claims to be")
+        # And the widest ALLOWED generation still fits in one literal run,
+        # which is the whole reason the ceiling has that value.
+        widest = self._wide_drops(ceiling)
+        pc = mob_loot.drop_collection_pc(self.legacy, widest)
+        self.assertLess(len(pc), 0x10000)
+        with self.assertRaises(MobLootContractError) as caught:
+            mob_loot.drop_collection_pc(self.legacy, self._wide_drops(
+                ceiling + 1))
+        self.assertEqual(
+            caught.exception.args[0], "generation_too_wide_to_frame")
+
+    def test_the_declared_count_is_cross_checked_against_the_payload(self):
+        """A legacy shim that lies in the count record must not ship.
+
+        Without this the cross-check is dead code: nothing else in the
+        suite makes ``u16tag`` disagree with the number of elements.
+        """
+        class _LyingCount:
+            def __init__(self, real):
+                self._real = real
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+            def u16tag(self, tag, value):
+                if tag == mob_loot.ELEMENT_LIST_COUNT_TAG:
+                    return self._real.u16tag(tag, value + 1)
+                return self._real.u16tag(tag, value)
+
+        drops = self._wide_drops(3)
+        with self.assertRaises(MobLootContractError) as caught:
+            mob_loot.drop_collection_pc(_LyingCount(self.legacy), drops)
+        self.assertEqual(caught.exception.args[0], "composed_bytes_off_pin")
+
+    def test_the_element_width_is_derived_from_the_pinned_pc_not_typed(self):
+        """The comment on DROP_ELEMENT_SIZE says derived; this checks it."""
+        self.assertEqual(
+            DROP_ELEMENT_SIZE, DROP_PC_SIZE - DROP_ENVELOPE_SIZE)
+        self.assertEqual(
+            mob_loot.DROP_ELEMENT_COORD_SPANS,
+            tuple((start - DROP_ENVELOPE_SIZE, end - DROP_ENVELOPE_SIZE)
+                  for start, end in DROP_COORD_SPANS))
+        self.assertEqual(
+            mob_loot.DROP_ENVELOPE_CONSTANT_PIN,
+            DROP_ENVELOPE_PIN[:mob_loot.DROP_ENVELOPE_CONSTANT_SIZE])
+
+    def test_the_one_drop_emission_really_goes_through_drop_pc(self):
+        """Three shipped artifacts say so; pf-adversary D2 said it was false.
+
+        It is true now because the code routes the one-drop case through
+        ``drop_pc``.  A shim that breaks only ``drop_pc``'s own pin must
+        therefore stop a real one-drop emission.
+        """
+        calls = []
+        real = mob_loot.drop_pc
+
+        def _counting(legacy, drop):
+            calls.append(drop.drop_key)
+            return real(legacy, drop)
+
+        mob_loot.drop_pc = _counting
+        try:
+            drop_frames(self.legacy, self._wide_drops(1))
+            self.assertEqual(len(calls), 1)
+            calls.clear()
+            drop_frames(self.legacy, self._wide_drops(3))
+            self.assertEqual(
+                calls, [],
+                "the wide path must not go through the one-drop pin")
+        finally:
+            mob_loot.drop_pc = real
+
+    def test_the_console_line_reports_the_shape_that_is_actually_composed(
+            self):
+        """GT-131's build check reads these two numbers off the console.
+
+        They are useless if they are the module's arithmetic and not the
+        emitter's, so both are compared against a REALLY COMPOSED frame.
+        """
+        _roll, _record, drops = self._one_kill()
+        for count in (1, 2, len(drops), 5):
+            rows = self._wide_drops(count)
+            line = mob_loot.drops_console_line(self.mob, rows)
+            (pc, _frame), = drop_frames(self.legacy, rows)
+            self.assertIn("generations=1 ", line)
+            self.assertIn("pc_bytes=%d " % len(pc), line)
+            self.assertIn("drops=%d " % count, line)
+        empty = mob_loot.drops_console_line(self.mob, ())
+        self.assertIn("generations=0 ", empty)
+        self.assertEqual(drop_frames(self.legacy, ()), ())
+
+    def test_the_generation_refuses_a_repeated_key(self):
+        """Two elements with one key is a silent replacement, not a drop."""
+        _roll, _record, drops = self._one_kill()
+        twinned = (drops[0], drops[0])
+        with self.assertRaises(MobLootContractError) as caught:
+            mob_loot.drop_collection_pc(self.legacy, twinned)
+        self.assertEqual(
+            caught.exception.args[0], "duplicate_key_in_generation")
+
+    def test_the_generation_refuses_to_be_empty(self):
+        """count=0 is a no-op in this consumer, not a clear (RE-130 T3)."""
+        with self.assertRaises(MobLootContractError) as caught:
+            mob_loot.drop_collection_pc(self.legacy, ())
+        self.assertEqual(caught.exception.args[0], "generation_is_empty")
+        self.assertEqual(drop_frames(self.legacy, ()), ())
+
+    def test_the_frame_re_derivation_catches_a_drifted_compressor(self):
+        """``frame_encoder_disagrees`` is reachable, and this is how.
+
+        The magic and the length field are checked against the pins BEFORE
+        the re-derivation, so a shim has to keep both and still get the
+        body wrong to reach this refusal -- which is exactly what a
+        compressor swap looks like.
+        """
+        class _DriftedCompressor:
+            def __init__(self, real):
+                self._real = real
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+            def frame_pc(self, pc):
+                # A legal-looking varint that is two bytes where one would
+                # do.  Magic intact, length field honest, body off-format.
+                body = (bytes([(len(pc) & 0x7F) | 0x80, len(pc) >> 7])
+                        + bytes([(len(pc) - 1) << 2 & 0xFF]) + pc)
+                return struct.pack(
+                    "<II", self._real.MAGIC, len(body)) + body
+
+        _roll, _record, drops = self._one_kill()
+        with self.assertRaises(MobLootContractError) as caught:
+            drop_frames(_DriftedCompressor(self.legacy), drops)
+        self.assertEqual(
+            caught.exception.args[0], "frame_encoder_disagrees")
 
     def test_the_composer_refuses_when_the_two_derivations_disagree(self):
         class _BrokenLegacy:
@@ -845,7 +1120,19 @@ class MobLootTests(unittest.TestCase):
         self.assertEqual(document["nonclaims"], list(MOB_LOOT_NONCLAIMS))
         self.assertEqual(
             document["wire"]["element_mask"], ELEMENT_MASK_POSITION_AND_DWORD)
-        self.assertEqual(document["wire"]["elements_per_frame"], 1)
+        self.assertEqual(document["wire"]["generations_per_kill"], 1)
+        self.assertEqual(document["wire"]["element_size"], DROP_ELEMENT_SIZE)
+        # The shipped pin has to describe the WIDE shape too, composed
+        # through the real path -- a document that only ever reports the
+        # 44-byte case would still look right after a regression back to
+        # one-frame-per-drop.
+        self.assertEqual(
+            document["wire"]["two_element_pc_size"],
+            DROP_ENVELOPE_SIZE + 2 * DROP_ELEMENT_SIZE)
+        self.assertGreater(
+            document["wire"]["two_element_frame_size"],
+            document["wire"]["sample_frame_size"])
+        self.assertNotIn("elements_per_frame", document["wire"])
 
     def test_the_shipped_pin_file_is_what_the_code_computes(self):
         import json
@@ -949,9 +1236,15 @@ class MobLootTests(unittest.TestCase):
         with self.assertRaises(MobLootContractError) as caught:
             drop_frames(_DriftedFraming(self.legacy), drops)
         self.assertEqual(caught.exception.args[0], "composed_bytes_off_pin")
+        # The FULL ten-byte header is pinned for the one-element frame only:
+        # after round ``zxnwtd`` the length field and the literal tag move
+        # with the number of drops (RE-130), so the wider frames are pinned
+        # on the four magic bytes, which do not.
+        (_pc, one_frame), = drop_frames(self.legacy, drops[:1])
+        self.assertEqual(
+            one_frame[:DROP_FRAME_HEADER_SIZE], DROP_FRAME_HEADER_PIN)
         for _pc, frame in drop_frames(self.legacy, drops):
-            self.assertEqual(
-                frame[:DROP_FRAME_HEADER_SIZE], DROP_FRAME_HEADER_PIN)
+            self.assertEqual(frame[:4], DROP_FRAME_HEADER_PIN[:4])
 
     def test_the_lane_states_what_gt045_actually_measured(self):
         """The correction an adversarial pass forced, pinned so it cannot rot.
