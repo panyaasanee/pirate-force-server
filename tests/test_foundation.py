@@ -84,6 +84,12 @@ class FoundationTests(unittest.TestCase):
         self.assertTrue(start_frame)
 
     def test_character_lifecycle_golden_hashes(self):
+        # start_pc_sha256/start_frame_sha256 were intentionally bumped by the
+        # PANYA-DECISION 20260828_0125 name-placement fix (player_wire.py's
+        # real-login composer now puts the character name in BasicAttr
+        # +0x28 instead of the ActorAttr guild-name field at +0x164); the
+        # other three hashes are untouched because they come from the
+        # frozen V141 template path, not this composer.
         golden = json.loads((ROOT/'tests/golden/foundation_v1.json').read_text())
         s = FoundationSession(self.lifecycle, self.projector, "golden")
         c, (create_pc, _) = s.create("test01", self.preset())

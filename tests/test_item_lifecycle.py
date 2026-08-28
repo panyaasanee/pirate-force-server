@@ -160,6 +160,9 @@ class ItemLifecycleTests(unittest.TestCase):
         return self.legacy.parse_outer(pc)
 
     def test_initial_seed_projection_and_golden_are_byte_exact(self):
+        # initial_start_pc/frame_sha256 were intentionally bumped by the
+        # PANYA-DECISION 20260828_0125 name-placement fix -- see
+        # test_foundation.py's golden test for the same note.
         state, character, start_pc, start_frame = self.ready_state("golden")
         self.assertEqual(state.foundation.backpack, INITIAL_BACKPACK)
         initial_wire = make_backpack_attr(self.legacy, INITIAL_BACKPACK)
@@ -183,6 +186,9 @@ class ItemLifecycleTests(unittest.TestCase):
         )
 
     def test_exact_merge_commits_before_reply_and_survives_reconnect(self):
+        # merged_start_pc/frame_sha256 were intentionally bumped by the same
+        # PANYA-DECISION 20260828_0125 fix noted above; merge_response_*
+        # hashes are untouched (different composer, not this one).
         state, character, _, _ = self.ready_state("persist")
         order = []
         original_builder = self.legacy.make_item_operate_stack_merge_success

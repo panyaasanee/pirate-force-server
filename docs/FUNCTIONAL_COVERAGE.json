@@ -621,7 +621,7 @@
           "test_refs": [
             "tests/test_player_name.py"
           ],
-          "notes": "The exact UTF-16LE name field inside ActorAttr rendered above the local player. This closes the local-player name projection only, not remote-player nameboards or name change."
+          "notes": "The exact UTF-16LE name field inside ActorAttr rendered above the local player. This closes the local-player name projection only, not remote-player nameboards or name change. CORRECTION (CORE-REQUEST-027, chief round 03d46t, 2026-08-28): believed WRONG -- ActorAttr +0x164/0x01000000 is the guild-name field (PANYA-DECISION 20260828_0125 single-field live probe, agreeing with reports/PF_CHUNK2_Q1_ACTORATTR_MASK_FINDINGS_20260819.md), not the player's own name; the real field is BasicAttr +0x28/0x0001, now wired for the player login path. The evidence_refs below were what was measured at the time and are not deleted; do not treat this entry's status/notes as current without reading docs/COMMAND_HANDOFF.md's matching correction."
         },
         {
           "id": "character_creation",

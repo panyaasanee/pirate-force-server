@@ -117,7 +117,7 @@ class ProbeBase1LoginAttrTests(_LegacyCase):
 
     def _expected(self, faction_wire: bytes = b"") -> bytes:
         legacy = self.legacy
-        basic_mask = 0x0002 | 0x000C | 0x0040 | 0x0100 | 0x0200
+        basic_mask = 0x0001 | 0x0002 | 0x000C | 0x0040 | 0x0100 | 0x0200
         if faction_wire:
             basic_mask |= 0x0400
         identity = bytes([0x32]) + struct.pack("<II", IDENTITY_LO, IDENTITY_HI)
@@ -125,6 +125,7 @@ class ProbeBase1LoginAttrTests(_LegacyCase):
             legacy.u8tag(0x0B, 1)
             + identity
             + legacy.u16tag(0x12, basic_mask)
+            + legacy.wstr_tag(NAME)
             + legacy.u16tag(0x12, PLAYER_LOGIN_LEVEL)
             + legacy.u32tag(0x14, 100)
             + legacy.u32tag(0x14, 100)
@@ -132,11 +133,10 @@ class ProbeBase1LoginAttrTests(_LegacyCase):
             + legacy.u16tag(0x12, SCENE_ID)
             + bytes([0x32]) + struct.pack("<Q", SCENE_SEQ)
             + faction_wire
-            + bytes([0x32]) + struct.pack("<II", 0x01000801, 0)
+            + bytes([0x32]) + struct.pack("<II", 0x00000801, 0)
             + legacy.u8tag(0x05, 1)
             + legacy.u32tag(0x19, PLAYER_LOGIN_CLASS_ID)
             + bytes([0x32]) + struct.pack("<Q", legacy.V116_INITIAL_CASH)
-            + legacy.wstr_tag(NAME)
         )
 
     def test_class_and_level_variant_matches_the_full_hand_derived_layout(self):
@@ -159,7 +159,7 @@ class ProbeBase1LoginAttrTests(_LegacyCase):
         # byte 11 is the tag (0x12), bytes 12-13 the little-endian u16 mask.
         self.assertEqual(actor[11], 0x12)
         basic_mask = int.from_bytes(actor[12:14], "little")
-        self.assertEqual(basic_mask, 0x0002 | 0x000C | 0x0040 | 0x0100 | 0x0200)
+        self.assertEqual(basic_mask, 0x0001 | 0x0002 | 0x000C | 0x0040 | 0x0100 | 0x0200)
         bits = [1 << i for i in range(16) if basic_mask & (1 << i)]
         self.assertEqual(bits, sorted(bits))
 
@@ -181,12 +181,14 @@ class ProbeBase1LoginAttrTests(_LegacyCase):
         )
         basic_mask = int.from_bytes(actor[12:14], "little")
         self.assertEqual(basic_mask & 0x0030, 0)  # MP current/max bits unset
-        actor_mask_at = 2 + 9 + 3 + 3 + 5 + 5 + 5 + 3 + 9
+        name_wire_len = len(self.legacy.wstr_tag(NAME))
+        actor_mask_at = 2 + 9 + 3 + name_wire_len + 3 + 5 + 5 + 5 + 3 + 9
         self.assertEqual(actor[actor_mask_at], 0x32)
         low, high = struct.unpack("<II", actor[actor_mask_at + 1:actor_mask_at + 9])
         self.assertEqual(high, 0)
         self.assertEqual(low & 0x000003E0, 0)  # STR/CON/DEX/INT/PER bits unset
-        self.assertEqual(low, 0x01000801)
+        self.assertEqual(low & 0x01000000, 0)  # guild-name bit unset (PANYA-DECISION 0125: not the char name)
+        self.assertEqual(low, 0x00000801)
 
     def test_wire_positions_for_the_not_yet_wired_fields_match_the_committed_field_table(self):
         """Cross-check: the report-derived field table this repo already
