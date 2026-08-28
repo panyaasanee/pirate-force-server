@@ -122,9 +122,18 @@ class _Case(unittest.TestCase):
             json.dumps({"gm_accounts": [self.GM_ACCOUNT]}), encoding="utf-8"
         )
         self.log_path = self.tmp / "capture" / "gm_command_log.ndjson"
+        # Round `gejldf`: the cross-scene half of `/warp` WRITES a config
+        # file.  Every case in this file therefore has to name a throwaway
+        # one -- the first run of the new routing created a real
+        # `config/gm_login_scene.json` under the repo checkout, which is a
+        # test writing into the tree it is testing.
+        self.login_scene_config_path = self.tmp / "config" / "gm_login_scene.json"
         self.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
 
     def act(self, session, text, **kwargs):
+        kwargs.setdefault(
+            "login_scene_config_path", str(self.login_scene_config_path)
+        )
         return chat_command_action.make_gm_chat_command_action(
             session,
             make_chat_payload(text),
@@ -133,6 +142,13 @@ class _Case(unittest.TestCase):
             log_path=str(self.log_path),
             **kwargs,
         )
+
+    def staged_login_scenes(self):
+        if not self.login_scene_config_path.exists():
+            return {}
+        return json.loads(
+            self.login_scene_config_path.read_text(encoding="utf-8")
+        ).get("gm_login_scene", {})
 
     def log_records(self):
         if not self.log_path.exists():
@@ -226,33 +242,38 @@ class WarpActionTests(_Case):
         )
         self.assertEqual(bytes(frame), bytes(expected))
 
-    def test_a_cross_scene_warp_is_refused_not_silently_hopped_in_place(self):
+    def test_a_cross_scene_warp_puts_no_frame_on_the_wire_and_stages_instead(self):
         # ForcePos carries no scene id (RE-090).  Sending an in-scene hop for
         # "go to scene 3" would look like a working warp that went nowhere.
+        # ~~So it was refused outright~~ -- round `gejldf` replaced the
+        # refusal with the ONLY cross-scene mechanism this project has that
+        # is already wired and proven: the next-login scene override.  The
+        # invariant this test guards is unchanged and is the important half:
+        # NO ACTION, no frame, nothing on the wire, even with the version
+        # gate patched open.
         session = FakeSession(position=FakePosition(scene_id=2))
         with self.open_the_version_gate():
             action = self.act(session, "/warp 3 100 200")
         self.assertIsNone(action)
-        self.assertTrue(
-            any(
-                event.startswith(chat_command_action.EVENT_WARP_REFUSED_PREFIX)
-                for event in session.events
-            ),
-            session.events,
+        self.assertIn(
+            f"{chat_command_action.EVENT_WARP_STAGED_PREFIX}3", session.events
         )
+        self.assertEqual({self.GM_ACCOUNT: 3}, self.staged_login_scenes())
 
-    def test_scene_only_warp_with_no_coordinates_is_refused(self):
+    def test_scene_only_warp_with_no_coordinates_stages_and_sends_nothing(self):
+        # ~~Refused~~ (round `gejldf`): the bare form carries no coordinates
+        # for ForcePos to put in a frame, which is exactly the case the
+        # next-login override can serve -- the login path spawns at the
+        # scene's own registry entry point and needs no x/y.  What has not
+        # changed: no action, no frame, gate patched open or not.
         session = FakeSession(position=FakePosition(scene_id=2))
         with self.open_the_version_gate():
             action = self.act(session, "/warp 2")
         self.assertIsNone(action)
-        self.assertTrue(
-            any(
-                event.startswith(chat_command_action.EVENT_WARP_REFUSED_PREFIX)
-                for event in session.events
-            ),
-            session.events,
+        self.assertIn(
+            f"{chat_command_action.EVENT_WARP_STAGED_PREFIX}2", session.events
         )
+        self.assertEqual({self.GM_ACCOUNT: 2}, self.staged_login_scenes())
 
     def test_a_gm_with_no_selected_character_gets_no_action(self):
         session = FakeSession(position=None)
@@ -726,6 +747,12 @@ class EventNameContractTests(_Case):
         "EVENT_OUTCOME_STALE_TARGET_NOT_CLEARED": (
             "gm_chat_action_outcome_stale_warp_target_not_cleared"
         ),
+        # Round `gejldf`, the cross-scene half of `/warp`.
+        "EVENT_WARP_STAGED_PREFIX": "gm_chat_action_warp_staged_login_scene_",
+        "EVENT_WARP_STAGE_REFUSED_PREFIX": "gm_chat_action_warp_stage_refused_",
+        "EVENT_OUTCOME_STAGE_NOT_REVERTED": (
+            "gm_chat_action_outcome_stage_not_reverted"
+        ),
     }
 
     # Action labels are the same kind of interface as the event names, and a
@@ -1018,6 +1045,26 @@ class ProductionCallShapeTests(_Case):
         previous_cwd = os.getcwd()
         os.chdir(self.tmp)
         self.addCleanup(os.chdir, previous_cwd)
+
+    def test_the_default_argument_call_stages_where_gt141_says_it_does(self):
+        # The staging half has the same exposure the audit half had: every
+        # other case in this file names a throwaway config, so the path an
+        # attended tester actually reads -- `config/gm_login_scene.json`
+        # under the server's own working directory, which is what GT-141's
+        # cleanup step tells them to delete -- would otherwise run zero
+        # times.  A default that resolved somewhere else would look like it
+        # worked and change nothing the login path reads.
+        session = FakeSession(position=FakePosition(scene_id=1))
+        action = chat_command_action.make_gm_chat_command_action(
+            session, make_chat_payload("/warp 3"), self.legacy
+        )
+        self.assertIsNone(action)
+        landed = self.tmp / "config" / "gm_login_scene.json"
+        self.assertTrue(landed.is_file(), sorted(p.name for p in self.tmp.iterdir()))
+        self.assertEqual(
+            {"gm_login_scene": {self.GM_ACCOUNT: 3}},
+            json.loads(landed.read_text(encoding="utf-8")),
+        )
 
     def test_the_default_argument_call_authorizes_and_audits(self):
         session = FakeSession(position=FakePosition(scene_id=2))

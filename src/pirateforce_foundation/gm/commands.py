@@ -89,7 +89,18 @@ AUDIT_RECORD_OUTCOME = "outcome"
 # What a reader may conclude from a half-pair: NOTHING WAS SENT. Every path
 # above ends with the action withheld -- `_make_action` returns the action
 # only after the outcome row is on disk. What a reader may NOT conclude is
-# which of the four happened; that is on stderr, not in the file. Said here
+# which of the four happened; that is on stderr, not in the file.
+#
+# !! ONE THING A HALF-PAIR NO LONGER RULES OUT, as of the cross-scene `/warp`
+# (round `gejldf`): that nothing at all HAPPENED. "Nothing was sent" is still
+# exact -- no byte leaves this lane either way -- but a `/warp` to another
+# scene writes `config/gm_login_scene.json` BEFORE the outcome row, and only
+# three of the four half-pair paths take it back off (`_make_action` runs the
+# undo when the write fails; a process that dies between the two appends runs
+# nothing at all, and an undo can itself fail, which is what
+# `gm_chat_action_outcome_stage_not_reverted` on stderr says).  A reader who
+# finds an `issued` row for a `warp` with no `outcome` row has to CHECK THAT
+# CONFIG FILE before concluding the command left no trace. Said here
 # because "two rows so the file stops having one meaning for two states" is
 # only honest if the third state is named too. The "nothing was sent" half is
 # pinned as behaviour, not as a constant nothing reads:
@@ -136,7 +147,29 @@ OUTCOME_REFUSED_PREFIX = "refused_"
 # tuple index walks past it untouched. A source-shaped scan cannot make an
 # output-shaped guarantee. The writer itself now refuses the word -- the scan
 # stays as the early warning, this is the door.
-AUDIT_OUTCOMES = (OUTCOME_COMPOSED,)
+# A cross-scene `/warp` (and the bare `warp <scene_id>` form, which carries no
+# position for ForcePos either) writes the account's next-login scene into
+# `config/gm_login_scene.json` -- `gm/login_scene_stage.py`.  It is the only
+# outcome in this vocabulary that names a REAL, DURABLE effect, and it is
+# still not a claim that anything moved: no frame was composed, no byte was
+# put on the wire, and nothing at all happens until that GM logs out and back
+# in.  The word says exactly that and no more.  `executed` stays False in the
+# row for the same reason -- the gameplay command did not execute, a config
+# entry was written.
+#
+# The `_coords_ignored` variant exists because `/warp 126 100 200` cannot do
+# what it says: the login path spawns at the scene's own registry entry point
+# (lane A's `world_scene_travel`), so the two numbers the GM typed are
+# dropped.  One word that covered both cases would let a tester read the file
+# and believe their coordinates were honoured somewhere.
+OUTCOME_STAGED_LOGIN_SCENE = "staged_login_scene"
+OUTCOME_STAGED_LOGIN_SCENE_COORDS_IGNORED = "staged_login_scene_coords_ignored"
+
+AUDIT_OUTCOMES = (
+    OUTCOME_COMPOSED,
+    OUTCOME_STAGED_LOGIN_SCENE,
+    OUTCOME_STAGED_LOGIN_SCENE_COORDS_IGNORED,
+)
 AUDIT_OUTCOME_PREFIXES = (OUTCOME_WITHHELD_PREFIX, OUTCOME_REFUSED_PREFIX)
 
 

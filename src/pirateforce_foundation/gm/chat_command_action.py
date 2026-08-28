@@ -89,6 +89,13 @@ WHAT IT DOES NOT DO
   `gm/warp_executor.py` refuses a cross-scene `warp` rather than send an
   in-scene hop that misrepresents what happened.  Cross-scene warp needs
   `TeleportVital`, whose target/aux fields RE-090 leaves unproven.
+  STILL TRUE OF THE WIRE, and now only of the wire (round `gejldf`): a
+  cross-scene `/warp` no longer dead-ends in a refusal, it STAGES the
+  account's next login scene through `gm/login_scene_stage.py` -- a config
+  write, not a frame.  Nothing crosses a scene while the GM is logged in;
+  the GM has to log out and back in, and every report that uses it has to
+  say so.  See `_warp_action`'s routing rule for which half a given command
+  takes.
 * It does not send anything for `npc`/`item`/`lv`/`spawn`.  Those
   parse and audit exactly as before and return no action -- naming them here
   as "not wired yet" by event is the difference between a lane that is
@@ -247,16 +254,24 @@ from __future__ import annotations
 
 import sys
 
-from . import say_wire, teleport_wire
+from dataclasses import dataclass
+
+from . import login_scene_stage, say_wire, teleport_wire
 from .chat_command import handle_local_talk_chat
 from .commands import (
     OUTCOME_COMPOSED,
     OUTCOME_REFUSED_PREFIX,
+    OUTCOME_STAGED_LOGIN_SCENE,
+    OUTCOME_STAGED_LOGIN_SCENE_COORDS_IGNORED,
     OUTCOME_WITHHELD_PREFIX,
     log_gm_command_outcome,
 )
 from .say_wire import make_say_broadcast_frame
-from .warp_executor import make_warp_force_pos_frame_with_target
+from .warp_executor import (
+    make_warp_force_pos_frame_with_target,
+    warp_command_has_coordinates,
+    warp_command_scene_id,
+)
 from .warp_target_record import (
     clear_warp_target,
     current_character_id,
@@ -356,6 +371,19 @@ EVENT_WARP_NO_POSITION = "gm_chat_action_warp_no_current_position"
 # "nothing was sent".
 EVENT_WARP_TARGET_NOT_RECORDED = "gm_chat_action_warp_target_not_recorded"
 EVENT_WARP_REFUSED_PREFIX = "gm_chat_action_warp_refused_"
+# The cross-scene half of `/warp` (gm/login_scene_stage.py).  The suffix is
+# the scene_id that was staged, so an attended run can grep one line and read
+# both that it happened and where to -- and so it cannot be confused with the
+# same-scene path, which never gets this far while the version gate is shut.
+# NOT under `EVENT_WARP_REFUSED_PREFIX` and not under the accepted prefix
+# either: a staged scene is neither "nothing happened" nor "a frame went
+# out", and this lane has been bitten before by folding a third state into
+# one of two existing names.
+EVENT_WARP_STAGED_PREFIX = "gm_chat_action_warp_staged_login_scene_"
+# The stage itself was refused; the suffix is `login_scene_stage`'s own
+# REASON_* value or an exception TYPE name.  Separate from
+# `EVENT_WARP_REFUSED_PREFIX`, whose contract is exception type names only.
+EVENT_WARP_STAGE_REFUSED_PREFIX = "gm_chat_action_warp_stage_refused_"
 EVENT_UNEXPECTED_PREFIX = "gm_chat_action_unexpected_"
 EVENT_SAY_WITHHELD_NO_VERSION = (
     "gm_chat_action_say_withheld_no_confirmed_gm_global_vital_version_re132_open"
@@ -387,6 +415,12 @@ EVENT_OUTCOME_NOT_AUDITED_ACTION_WITHHELD = (
 # The withheld warp's parked destination could not be dropped (a session that
 # swallows the write).  Named because the alternative is chief's position
 # token comparing a later step against a warp nobody sent.
+# The staged login-scene entry could not be taken back off disk after its
+# outcome row failed to append.  This is the one state where an effect
+# outlives the audit that should have described it, so it gets its own name
+# rather than sharing the target-not-cleared one: an operator who sees it has
+# a config entry to check by hand.
+EVENT_OUTCOME_STAGE_NOT_REVERTED = "gm_chat_action_outcome_stage_not_reverted"
 EVENT_OUTCOME_STALE_TARGET_NOT_CLEARED = (
     "gm_chat_action_outcome_stale_warp_target_not_cleared"
 )
@@ -407,6 +441,32 @@ OUTCOME_SAY_VERSION_CODEC_MISMATCH = (
     f"{OUTCOME_REFUSED_PREFIX}say_version_codec_mismatch"
 )
 OUTCOME_NO_WIRE_PATH = f"{OUTCOME_REFUSED_PREFIX}no_wire_path"
+# `refused_stage_<reason>`, where the reason is one of
+# `login_scene_stage`'s own REASON_* values (`not_gm_account`,
+# `unknown_scene`, `config_unreadable`, `write_failed`) or an exception TYPE
+# name.  Same shape as `refused_warp_<ExcType>`, so a reader of the audit
+# file does not have to learn a second grammar for the cross-scene half.
+OUTCOME_STAGE_REFUSED_PREFIX = f"{OUTCOME_REFUSED_PREFIX}stage_"
+
+
+@dataclass(frozen=True)
+class _Verdict:
+    """What one command handler decided, on its way to the ONE write point.
+
+    `action` is the outbound action tuple or None, `audit_outcome` is the
+    word the `outcome` row will carry, and `undo` -- new with the cross-scene
+    warp -- is a zero-argument callable returning True on success, present
+    only for a handler that already changed durable state by the time it
+    returns.  `_make_action` runs it if, and only if, the outcome row cannot
+    be written: this house does not keep an effect it could not record, and
+    for every other handler "do not keep it" costs nothing because nothing
+    was sent.  `login_scene_stage` writes a config file, so its undo has to
+    be a real one.
+    """
+
+    action: tuple[str, bytes, bytes, float] | None
+    audit_outcome: str
+    undo: object | None = None
 
 
 def _note(session: object, event: str) -> None:
@@ -430,6 +490,7 @@ def make_gm_chat_command_action(
     *,
     config_path: str | None = None,
     log_path: str | None = None,
+    login_scene_config_path: str | None = None,
 ) -> tuple[str, bytes, bytes, float] | None:
     """Authorize + audit one chat line; return one outbound action, or None.
 
@@ -455,7 +516,12 @@ def make_gm_chat_command_action(
     """
     try:
         return _make_action(
-            session, payload, legacy, config_path=config_path, log_path=log_path
+            session,
+            payload,
+            legacy,
+            config_path=config_path,
+            log_path=log_path,
+            login_scene_config_path=login_scene_config_path,
         )
     except Exception as error:  # noqa: BLE001 - fail-closed, see module docstring
         # Type name only: an exception MESSAGE can embed client-supplied
@@ -471,6 +537,7 @@ def _make_action(
     *,
     config_path: str | None,
     log_path: str | None,
+    login_scene_config_path: str | None = None,
 ) -> tuple[str, bytes, bytes, float] | None:
     token = getattr(session, "token", None)
     # `type(...) is not str`, not isinstance, and checked HERE rather than
@@ -517,24 +584,46 @@ def _make_action(
     print(f"{CONSOLE_TOKEN} {command.name} route=action", file=sys.stderr)
 
     if command.name == "warp":
-        action, audit_outcome = _warp_action(session, command, legacy)
+        verdict = _warp_action(
+            session,
+            command,
+            legacy,
+            token=token,
+            gm_accounts_config_path=config_path,
+            login_scene_config_path=login_scene_config_path,
+        )
     elif command.name == "say":
-        action, audit_outcome = _say_action(session, command, legacy)
+        verdict = _say_action(session, command, legacy)
     else:
         # Parsed and audited, but this lane has no proven server->client
         # wire for it yet.  Named, not silent: "nothing happened" and "we
         # never built that half" look identical on screen.
         _note(session, f"{EVENT_NO_WIRE_PATH_PREFIX}{command.name}")
-        action, audit_outcome = None, OUTCOME_NO_WIRE_PATH
+        verdict = _Verdict(None, OUTCOME_NO_WIRE_PATH)
 
+    action = verdict.action
     # ONE write point for the `outcome` row, deliberately: CORE-REQUEST-GM-032
     # item 1 exists because the audit could not tell a withheld command from a
     # sent one, and an audit whose closing row is appended at four different
     # `return` statements grows a fifth return that forgets it.  Every branch
     # above therefore reports its verdict back here instead of writing.
     if not _log_outcome(
-        session, token, command, outcome.record_id, audit_outcome, log_path
+        session, token, command, outcome.record_id, verdict.audit_outcome, log_path
     ):
+        # AN EFFECT THAT IS ALREADY ON DISK HAS TO COME BACK OFF IT.  Until
+        # the cross-scene warp, every branch above could be "withheld" for
+        # free, because withholding meant not returning bytes that had never
+        # left this function.  A staged login-scene entry is in
+        # `config/gm_login_scene.json` by the time we get here, so the same
+        # rule -- no effect this lane could not record -- costs a real undo.
+        if verdict.undo is not None:
+            try:
+                reverted = bool(verdict.undo())
+            except Exception:  # noqa: BLE001 - a failed undo must not mask the
+                # audit failure that caused it; both are reported as events.
+                reverted = False
+            if not reverted:
+                _note(session, EVENT_OUTCOME_STAGE_NOT_REVERTED)
         # The issued row is on disk and its outcome is not, so this command's
         # audit trail is broken -- and `handle_local_talk_chat` already
         # refuses to hand onward a command it could not record at all, for
@@ -611,20 +700,66 @@ def _log_outcome(
 
 
 def _warp_action(
-    session: object, command: object, legacy: object
-) -> tuple[tuple[str, bytes, bytes, float] | None, str]:
-    """`(action or None, audit outcome)` -- see `_make_action`'s write point."""
+    session: object,
+    command: object,
+    legacy: object,
+    *,
+    token: str,
+    gm_accounts_config_path: str | None,
+    login_scene_config_path: str | None,
+) -> _Verdict:
+    """`/warp`'s two halves -- see `_make_action`'s single write point.
+
+    THE ROUTING RULE, IN ONE SENTENCE: `warp <scene_id> x y` inside the scene
+    the connection is already in is the ForcePos half (frozen shut by
+    COO-DECISION 20260829_0041 until chief's confirmation token compares
+    against the commanded point); EVERYTHING ELSE -- a different scene, or
+    the bare `warp <scene_id>` form that carries no coordinates for ForcePos
+    to put in a frame -- stages the account's next login scene instead of
+    being refused outright.
+
+    THE ORDER CHANGED, AND IT MATTERS TO A READER OF THE AUDIT FILE.  The
+    version gate used to be the first thing this function read, so with the
+    gate shut EVERY warp wrote `withheld_force_pos_vital_version`.  It is now
+    read only on the branch it actually governs.  A cross-scene warp never
+    touches it and never claims to have been withheld by it -- the old word
+    named a gate that had nothing to do with why that command did nothing.
+    `GT-127`'s criteria were rewritten in the same round, per the owner's
+    stale-entry ruling (PANYA-RULING 20260829_0127).
+    """
+    position = _current_position(session)
+    if position is None:
+        # Read before the routing decision, not after: without a current
+        # scene this function cannot tell its two halves apart, so it must
+        # refuse rather than guess which one the GM meant.
+        _note(session, EVENT_WARP_NO_POSITION)
+        return _Verdict(None, OUTCOME_WARP_NO_POSITION)
+
+    try:
+        target_scene_id = warp_command_scene_id(command)
+        has_coordinates = warp_command_has_coordinates(command)
+    except Exception as error:  # noqa: BLE001 - includes WarpExecutorError
+        # A malformed `args` shape cannot be routed either way.  Type name
+        # only, same reasoning as every other refusal here.
+        _note(session, f"{EVENT_WARP_REFUSED_PREFIX}{type(error).__name__}")
+        return _Verdict(None, f"{OUTCOME_REFUSED_PREFIX}warp_{type(error).__name__}")
+
+    if target_scene_id != position.scene_id or not has_coordinates:
+        return _stage_action(
+            session,
+            target_scene_id,
+            has_coordinates,
+            token=token,
+            gm_accounts_config_path=gm_accounts_config_path,
+            login_scene_config_path=login_scene_config_path,
+        )
+
     version = teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED
     if version is None:
         # RE-129.  Refusing here is the whole safety property: GT-101
         # measured an unproven vital version killing the owner's session.
         _note(session, EVENT_WARP_WITHHELD_NO_VERSION)
-        return None, OUTCOME_WARP_WITHHELD_NO_VERSION
-
-    position = _current_position(session)
-    if position is None:
-        _note(session, EVENT_WARP_NO_POSITION)
-        return None, OUTCOME_WARP_NO_POSITION
+        return _Verdict(None, OUTCOME_WARP_WITHHELD_NO_VERSION)
 
     try:
         pc, frame, target = make_warp_force_pos_frame_with_target(
@@ -636,7 +771,9 @@ def _warp_action(
         # warp_executor re-validates.  Type name only, same reasoning as
         # above -- a WarpExecutorError message embeds the typed arguments.
         _note(session, f"{EVENT_WARP_REFUSED_PREFIX}{type(error).__name__}")
-        return None, f"{OUTCOME_REFUSED_PREFIX}warp_{type(error).__name__}"
+        return _Verdict(
+            None, f"{OUTCOME_REFUSED_PREFIX}warp_{type(error).__name__}"
+        )
 
     # Park the destination for the reader of the NEXT position report.  After
     # the frame was built, never before: a refusal above leaves no bytes on
@@ -657,12 +794,79 @@ def _warp_action(
         # the warp itself failing.
         _note(session, EVENT_WARP_TARGET_NOT_RECORDED)
 
-    return (WARP_ACTION_LABEL, pc, frame, 0.0), OUTCOME_COMPOSED
+    return _Verdict((WARP_ACTION_LABEL, pc, frame, 0.0), OUTCOME_COMPOSED)
 
 
-def _say_action(
-    session: object, command: object, legacy: object
-) -> tuple[tuple[str, bytes, bytes, float] | None, str]:
+def _stage_action(
+    session: object,
+    scene_id: int,
+    has_coordinates: bool,
+    *,
+    token: str,
+    gm_accounts_config_path: str | None,
+    login_scene_config_path: str | None,
+) -> _Verdict:
+    """The cross-scene half of `/warp`: write the next-login scene, send nothing.
+
+    THE ALLOWLIST PATH IS THE SAME ONE THAT AUTHORIZED THE COMMAND.
+    `gm_accounts_config_path` is `_make_action`'s own `config_path`, so the
+    account this stages for is the account `handle_local_talk_chat` already
+    checked, read from the same file.  Passing the default here instead would
+    let a listener booted with `PF_GM_ACCOUNTS_CONFIG` authorize against one
+    allowlist and stage against another -- and `stage_login_scene` re-checks
+    membership, so the mismatch would show up as a mystery refusal rather
+    than as a privilege bug.  It is still a re-check, not a second
+    authorization point: it can only ever refuse a command the first check
+    already accepted.
+
+    NO UNDO IS OFFERED FOR ANYTHING BUT THE AUDIT FAILURE.  The returned
+    `_Verdict` carries an undo that `_make_action` runs only when the outcome
+    row cannot be written.  A GM who staged the wrong scene fixes it by
+    typing another `/warp`, which is one more chat line; a general "undo the
+    last command" surface is a feature nobody asked for and one more thing
+    that can write to a config file.
+    """
+    try:
+        result = login_scene_stage.stage_login_scene(
+            token,
+            scene_id,
+            gm_accounts_config_path=gm_accounts_config_path,
+            config_path=login_scene_config_path,
+        )
+    except Exception as error:  # noqa: BLE001 - type name only, as everywhere
+        _note(session, f"{EVENT_WARP_STAGE_REFUSED_PREFIX}{type(error).__name__}")
+        return _Verdict(
+            None, f"{OUTCOME_STAGE_REFUSED_PREFIX}{type(error).__name__}"
+        )
+
+    if not result.staged:
+        _note(session, f"{EVENT_WARP_STAGE_REFUSED_PREFIX}{result.reason}")
+        return _Verdict(None, f"{OUTCOME_STAGE_REFUSED_PREFIX}{result.reason}")
+
+    _note(session, f"{EVENT_WARP_STAGED_PREFIX}{scene_id}")
+
+    previous_scene_id = result.previous_scene_id
+
+    def _undo() -> bool:
+        return login_scene_stage.restore_login_scene(
+            token,
+            previous_scene_id,
+            gm_accounts_config_path=gm_accounts_config_path,
+            config_path=login_scene_config_path,
+        )
+
+    return _Verdict(
+        None,
+        (
+            OUTCOME_STAGED_LOGIN_SCENE_COORDS_IGNORED
+            if has_coordinates
+            else OUTCOME_STAGED_LOGIN_SCENE
+        ),
+        _undo,
+    )
+
+
+def _say_action(session: object, command: object, legacy: object) -> _Verdict:
     """One authorized `say` -> a `Channel_GMGlobalMessageVital` action.
 
     !! WHAT THIS SENDS AND TO WHOM.  An action goes to ONE socket -- the
@@ -706,7 +910,7 @@ def _say_action(
         # what kills a real client's session, and 0x9F2C's byte has never
         # been measured -- only the shared PAYLOAD codec has.
         _note(session, EVENT_SAY_WITHHELD_NO_VERSION)
-        return None, OUTCOME_SAY_WITHHELD_NO_VERSION
+        return _Verdict(None, OUTCOME_SAY_WITHHELD_NO_VERSION)
     if version != say_wire.CHANNEL_CODEC_VITAL_VERSION:
         # The confirmed byte exists but the imported codec hardcodes a
         # different one, so composing here would put a version on the wire
@@ -714,7 +918,7 @@ def _say_action(
         # note: the fix is a letter to the codec's owning lane, never a
         # second codec in this lane's zone.
         _note(session, EVENT_SAY_VERSION_CODEC_MISMATCH)
-        return None, OUTCOME_SAY_VERSION_CODEC_MISMATCH
+        return _Verdict(None, OUTCOME_SAY_VERSION_CODEC_MISMATCH)
 
     try:
         pc, frame = make_say_broadcast_frame(legacy, command)
@@ -724,9 +928,11 @@ def _say_action(
         # SayWireError message embeds the GM's typed text, which is both a
         # console cp874 hazard and a needless echo of client-supplied bytes.
         _note(session, f"{EVENT_SAY_REFUSED_PREFIX}{type(error).__name__}")
-        return None, f"{OUTCOME_REFUSED_PREFIX}say_{type(error).__name__}"
+        return _Verdict(
+            None, f"{OUTCOME_REFUSED_PREFIX}say_{type(error).__name__}"
+        )
 
-    return (SAY_ACTION_LABEL, pc, frame, 0.0), OUTCOME_COMPOSED
+    return _Verdict((SAY_ACTION_LABEL, pc, frame, 0.0), OUTCOME_COMPOSED)
 
 
 def _current_position(session: object) -> object | None:

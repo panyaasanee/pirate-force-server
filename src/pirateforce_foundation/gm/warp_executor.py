@@ -176,26 +176,7 @@ def make_warp_force_pos_frame_with_target(
         raise WarpExecutorError(
             f"make_warp_force_pos_frame only applies to warp commands, got {command.name!r}"
         )
-    args = command.args
-    if type(args) is not tuple:
-        # GmCommand.args is typed tuple[str, ...] (gm/commands.py) -- every
-        # legitimate caller, parse_gm_command included, produces a plain
-        # tuple. A blacklist of individually-discovered wrong shapes (None,
-        # a set, a dict, a str/bytes scalar) is unbounded: pf-adversary
-        # defeated the str/bytes-scalar blacklist entry with an
-        # integer-keyed dict (len()/[i] both succeed normally for e.g.
-        # {0: 1, 1: 2, 2: 3}, so no exception was ever raised for it to
-        # catch). An isinstance(args, tuple) allowlist closed that but was
-        # itself defeated by a tuple *subclass* overriding
-        # __len__/__getitem__ to raise something other than
-        # WarpExecutorError -- exactly the "regardless of source,
-        # hand-built GmCommand" threat model this docstring already claims
-        # to defend against, since nothing in GmCommand (a plain frozen
-        # dataclass, gm/commands.py) stops a caller from constructing one.
-        # Requiring the exact type, not an isinstance match, rejects every
-        # subclass outright -- a real tuple can never raise on
-        # len()/indexing, so there is no dunder left to lie through.
-        raise WarpExecutorError(f"warp command args must be a tuple, got {args!r}")
+    args = _require_args_tuple(command)
     if len(args) != 3:
         raise WarpExecutorError(
             "warp <scene_id> with no x/y has no position for ForcePos to carry; "
@@ -217,6 +198,67 @@ def make_warp_force_pos_frame_with_target(
     # be the wire's own binary32 values, or every later comparison inherits an
     # encoding error that grows with the coordinate's magnitude.
     return pc, frame, WarpTarget(scene_id, body.x, body.y, body.z)
+
+
+def warp_command_scene_id(command: GmCommand) -> int:
+    """The scene_id a parsed `warp` command names, validated once, here.
+
+    `gm/chat_command_action.py` has to know WHICH scene a warp asks for
+    before it can decide between the two halves of `/warp`: the same-scene
+    half this module composes a ForcePos for, and the cross-scene half
+    `gm/login_scene_stage.py` stages for the next login.  It reads the
+    scene_id through this function rather than indexing `command.args`
+    itself, so the shape checks that protect the frame builder protect the
+    decision too -- a hand-built `GmCommand` whose `args[0].__int__` returns
+    a different number on each call cannot route one way and stage another.
+    """
+    if command.name != "warp":
+        raise WarpExecutorError(
+            f"warp_command_scene_id only applies to warp commands, got {command.name!r}"
+        )
+    args = _require_args_tuple(command)
+    if not args:
+        raise WarpExecutorError("warp <scene_id> needs a scene_id, got no arguments")
+    return _require_int(args[0], "scene_id")
+
+
+def warp_command_has_coordinates(command: GmCommand) -> bool:
+    """True for the `warp <scene_id> x y` form, False for bare `warp <scene_id>`.
+
+    The parser (`gm/commands.py`) only ever produces those two shapes; this
+    is the one place that reads which one arrived, so the two callers cannot
+    disagree about what "has coordinates" means.
+    """
+    if command.name != "warp":
+        raise WarpExecutorError(
+            f"warp_command_has_coordinates only applies to warp commands, "
+            f"got {command.name!r}"
+        )
+    return len(_require_args_tuple(command)) == 3
+
+
+def _require_args_tuple(command: GmCommand) -> tuple:
+    args = command.args
+    if type(args) is not tuple:
+        # GmCommand.args is typed tuple[str, ...] (gm/commands.py) -- every
+        # legitimate caller, parse_gm_command included, produces a plain
+        # tuple. A blacklist of individually-discovered wrong shapes (None,
+        # a set, a dict, a str/bytes scalar) is unbounded: pf-adversary
+        # defeated the str/bytes-scalar blacklist entry with an
+        # integer-keyed dict (len()/[i] both succeed normally for e.g.
+        # {0: 1, 1: 2, 2: 3}, so no exception was ever raised for it to
+        # catch). An isinstance(args, tuple) allowlist closed that but was
+        # itself defeated by a tuple *subclass* overriding
+        # __len__/__getitem__ to raise something other than
+        # WarpExecutorError -- exactly the "regardless of source,
+        # hand-built GmCommand" threat model this docstring already claims
+        # to defend against, since nothing in GmCommand (a plain frozen
+        # dataclass, gm/commands.py) stops a caller from constructing one.
+        # Requiring the exact type, not an isinstance match, rejects every
+        # subclass outright -- a real tuple can never raise on
+        # len()/indexing, so there is no dunder left to lie through.
+        raise WarpExecutorError(f"warp command args must be a tuple, got {args!r}")
+    return args
 
 
 def _require_int(value, label: str) -> int:
