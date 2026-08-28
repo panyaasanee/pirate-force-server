@@ -31,7 +31,12 @@ from .gm import chat_command_action
 from .gm.dispatch import GM_RUN_GM_COMMAND_VITAL_ID
 from .gm import state_wire
 from .gm.state_wire import make_gm_update_state_frame
-from .gm.login_scene_override import get_login_scene_override
+from .gm.login_scene_consume import (
+    CONSUMED,
+    CONSUME_FAILED,
+    STANDALONE_NOT_CONSUMED,
+    consume_login_scene_override,
+)
 
 from .model import Position
 from .inventory import (
@@ -5230,17 +5235,57 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     # composed above ALSO has to be redone when an override
                     # actually applies, not just this half.
                     login_row = self.foundation.selected.position
+                    # CORE-REQUEST-GM-033 v2 (LANE-GM, 2026-08-29T05:15
+                    # +07:00) with COO-DECISION 20260829_0441 item 2
+                    # (single use) and COO-DECISION 20260829_0542
+                    # (the standalone map is NOT consumed): the reader is
+                    # REPLACED by the consumer here, never called beside it.
+                    # Two calls would be two reads, and the second read of a
+                    # spent entry returns None -- a player sent to the
+                    # override's scene by the first read and to the stored
+                    # row's by the second is exactly the split-brain frame
+                    # the resync block below exists to prevent.
+                    # consume_login_scene_override() answers with an outcome
+                    # as well as a scene, and it is fail-closed in the way
+                    # this call site needs: CONSUME_FAILED carries scene_id
+                    # None, so an entry that could not be spent grants no
+                    # scene at all rather than one that would outlive the
+                    # login.  It swallows its own config faults (OSError,
+                    # ValueError) into that outcome; the except below stays
+                    # for the caller-side errors it does raise by contract
+                    # (an empty or non-str token).
                     try:
-                        login_scene_override = get_login_scene_override(
+                        override_result = consume_login_scene_override(
                             self.token
                         )
-                    except (ValueError, OSError) as error:
+                        login_scene_override = override_result.scene_id
+                        if override_result.outcome == CONSUMED:
+                            self.events.append(
+                                "gm_login_scene_override_consumed_"
+                                f"{override_result.scene_id}"
+                            )
+                        elif override_result.outcome == STANDALONE_NOT_CONSUMED:
+                            self.events.append(
+                                "gm_login_scene_override_standalone_kept_"
+                                f"{override_result.scene_id}"
+                            )
+                        elif override_result.outcome == CONSUME_FAILED:
+                            self.events.append(
+                                "gm_login_scene_override_consume_failed"
+                            )
+                    except (ValueError, OSError, TypeError) as error:
                         # Same refuse-by-name-not-by-crash shape as the
                         # is_gm_account() guard below (CORE-REQUEST-006):
-                        # a malformed override config is an error in that
-                        # config, not a reason to take down the listener
-                        # thread for every other login. No override is
-                        # applied; the character logs in at its own row.
+                        # nothing this call can raise is a reason to take
+                        # down the listener thread for every other login. No
+                        # override is applied; the character logs in at its
+                        # own row.  Since the consumer replaced the reader
+                        # (CORE-REQUEST-GM-033 v2) a malformed config no
+                        # longer arrives here -- it comes back as the
+                        # CONSUME_FAILED outcome above -- so what is left
+                        # for this handler is the caller-side contract
+                        # (a token that is empty or not a str) plus any
+                        # error a future version of that call may raise.
                         login_scene_override = None
                         self.events.append(
                             "gm_login_scene_override_lookup_failed_"
@@ -5345,6 +5390,49 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     print(world_scene_liveness.liveness_console_line(
                         liveness_verdict, scene_liveness_ledger,
                     ))
+                    # CHIEF-DECISION 20260829_0520 option A, answering
+                    # LANE-A's D1/D2/D3 finding and CORE-REQUEST-GM-033:
+                    # the in-memory character now names the scene it was
+                    # actually sent to.  Every later frame of this session
+                    # reads self.foundation.selected.position and NOT entry
+                    # (the teleport packet is a local of this handler): the
+                    # census dispatch decides bg0001/bg0002/away-from-home
+                    # from it, and _checkpoint_exact_target writes the row
+                    # it labels with it.  Left on the stored row, an
+                    # overridden login was measured asking for scene 1's
+                    # checkpoint and scene 1's census while the player stood
+                    # in another map -- a checkpoint that mislabels WHERE a
+                    # coordinate is, which is worse than no checkpoint.
+                    #
+                    # entry.position, not login_row: resolve_entry() is the
+                    # one authority on where this login actually landed
+                    # (a destination with no ground evidence lands on ITS
+                    # pinned spawn, home is never relocated), and it is the
+                    # same value the teleport and the resynced
+                    # ActorAttr/MovementAttr above were both built from.
+                    # Anything else here re-opens world_scene_entry.py's own
+                    # "biggest trap" from the other side.
+                    #
+                    # DELIBERATELY BELOW world_scene_liveness.decide() above,
+                    # whose comment states it reads the stored row exactly as
+                    # it was before resolve_entry ran: moving this line up
+                    # would silently change what every liveness report in
+                    # the ledger means.  In-memory only -- this is not a
+                    # checkpoint and writes no DB row (COO-DECISION
+                    # 20260828_2130: the server may not record a position it
+                    # did not observe; this one it did not merely observe, it
+                    # sent it).  Guarded on the override because a login
+                    # without one must come out of this handler with every
+                    # field of selected untouched.
+                    if login_scene_override is not None:
+                        self.foundation.selected = replace(
+                            self.foundation.selected,
+                            position=entry.position,
+                        )
+                        self.events.append(
+                            "gm_login_scene_override_selected_position_"
+                            f"resynced_{entry.position.scene_id}"
+                        )
                     # CORE-REQUEST-006 (LANE-GM / GM-001).  ALWAYS ON, no
                     # scenario flag: docs/GM_LANE.md's own wiring request is
                     # "call make_gm_update_state_frame after a successful
