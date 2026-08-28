@@ -1651,3 +1651,302 @@ nonclaim: ไม่มีคำสั่ง GM ใดมีผลในเกม
 ลง `gm_accounts.json` · **GM nonclaim:** ทุกอย่างในรอบนี้เป็นเครื่องมือเพื่อไปให้ถึงสภาพที่จะเทส ไม่ใช่
 หลักฐานว่าฟีเจอร์ใดทำงาน. Full detail:
 `pf_bridge/rounds/GM_20260828_1712_chat-command-door.md`.
+
+## Modules delivered (round `gr2q9j`, the half that can actually send bytes)
+
+`src/pirateforce_foundation/gm/chat_command_action.py` (new).  One function,
+`make_gm_chat_command_action(session, payload, legacy)`, returning a
+`(label, pc, frame, delay_before)` action or `None`.
+
+> **แก้ในรอบ `vvxkft` (ขีดฆ่า ไม่ลบ):** ประโยค "this round found that out
+> before chief acted on it" ~~ผิด~~ — chief ต่อสาย GM-028 ลง main แล้ว
+> (`runtime.py:4784`, PR #201 merge `d139f12`, จดหมาย
+> `20260828_1845_CHIEF-REPLY-CORE-REQUEST-GM-028-chat-point-wired.md`) ก่อนที่ PR
+> ของรอบ `gr2q9j` จะได้ merge — PR #200 ถูกปิดอัตโนมัติเพราะ gate แดง
+> (Actions run 33168539342: !! U+1F534 ห้าตัวในคอมเมนต์ ไม่ผ่าน cp874 tripwire)
+> จึงเป็น **เส้นทาง hook ที่ live ตอนนี้** และโมดูลใน section นี้ยัง dormant
+> ไม่มีอะไรเรียกมัน · GM-029 จึงไม่ใช่ "เพิ่มจุดเรียก" อีกต่อไป แต่เป็น
+> "**แทนที่** บรรทัด `fire()` ด้วยการเรียกที่คืน action ในคอมมิตเดียว"
+> รายละเอียดในหัวข้อรอบ `vvxkft` ท้ายไฟล์
+
+WHY IT EXISTS: `CORE-REQUEST-GM-028` (previous round) asked chief for a
+`lane_hooks.fire()` point at the `0xAC52` chat branch.  That request could
+never have moved a character on screen, and this round found that out before
+chief acted on it.  `fire()` is fire-and-forget by its own documented
+contract ("Never returns a value; hooks that need to hand something back to
+runtime.py are not what this point shape is for"), and the only path bytes
+take to a client in this server is the action list `dispatch()` RETURNS --
+verified this round against `connection.py` (socket plumbing, no action
+queue) and against `gm/dispatch.py`'s own docstring, which already said it:
+"this lane has no send path outside a CORE-REQUEST wiring point".  So GM-028
+would have unblocked `GT-127` (decided on the ndjson audit log, which is
+what that entry honestly claims to decide) and nothing else, forever.
+`CORE-REQUEST-GM-029` replaces it with one action-returning call site, the
+same shape `gm_state_action` (CORE-REQUEST-006) already uses at
+`runtime.py:5122`/`5331`.  !! Exactly one of the two may be wired: both at
+the same branch would authorize every GM chat line twice, write two ndjson
+rows for one typed line, and charge the rate limit twice.
+
+`teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED = None` (new constant).
+The vital version byte is NOT part of the RE-090 layout proof and cannot be
+inferred from it.  RE-105 pinned the mechanism and the mechanism is
+per-vital: the generic collection reader at `[0x005F3E20, 0x005F406D)` does
+an exact-equality compare against `message+0x10`, and each vital's own
+prototype constructor stores that byte by direct `mov`.  The two values this
+project knows disagree -- `0x5A19` is 0 (RE-105), `SELECT_ACTOR_VITAL` is 10
+(`pf_login_game_server_v141.py:2205, 2289`, proven by every successful login
+this project has ever done) -- so there is no default to fall back on, and
+GT-101 measured what a wrong guess does to a real client: modal error naming
+the vital by id, connection halted, socket closed by the client itself.
+`RE-129` asks for the one byte, by exactly RE-105's method.  Until it
+answers, a valid `/warp` from a real GM is refused by name
+(`gm_chat_warp_withheld_no_confirmed_force_pos_vital_version_re129_open`),
+the same shape `runtime.py:5168`/`5173` already gates the login GM-state
+frame with (line pins re-derived at HEAD in round `vvxkft`; chief's merged
+hook block shifted everything after `runtime.py:4729` by ~60 lines).
+
+ANSWERED THIS ROUND, from source, closing GM-028's own open blocker (b): a
+GM's `/warp 2` cannot leak to other players as ordinary chat.  ~~Every
+`CHAT_INPUT_VITAL_ID` branch in `runtime.py` (14 of them, lines 4591-4720) is
+gated on `<name>_hypothesis_scenario is not None`, so on a flagless boot the
+frame falls through to `super().dispatch(parsed)`~~
+
+> **แก้รอบ `vvxkft` (pf-adversary จับได้ — ขีดฆ่า ไม่ลบ):** ประโยคที่ขีดฆ่าไว้ **ผิดสองข้อ**
+> ที่ HEAD ปัจจุบัน (re-derive แล้ว): (1) สาขา `nested_id == CHAT_INPUT_VITAL_ID` มี **16**
+> ไม่ใช่ 14 (2) และข้อที่สำคัญกว่า — **ไม่ใช่ทุกสาขาที่ gate ด้วย scenario** อีกต่อไป
+> สาขาที่ chief เพิ่งเพิ่มตาม GM-028 (`runtime.py:4729-4732`) มีเงื่อนไขแค่
+> `nested_id == CHAT_INPUT_VITAL_ID and self.foundation.selected is not None`
+> พร้อมคอมเมนต์ `# CORE-REQUEST-GM-028 (LANE-GM). No scenario flag` ⇒ **บนบูตไร้แฟล็ก
+> ที่เลือกตัวละครแล้ว เฟรมแชท "ไม่ได้" falls through อีกต่อไป** มันถึง `lane_hooks.fire`
+> และเพิ่ม refusal event หนึ่งบรรทัดต่อหนึ่งบรรทัดแชทของผู้เล่นทุกคน (ตั้งใจ ไม่ใช่บั๊ก —
+> เป็นเส้นทางที่ GM-028 ขอเอง และ event ไม่พก sentence ที่ผู้เล่นพิมพ์)
+> ข้อสรุป "warp ของ GM ไม่รั่วไปหาผู้เล่นอื่น" **ยังจริงอยู่** แต่ยืนบนสองชั้นที่เหลือ
+> (hook ไม่คืนค่าและไม่ส่งไบต์ · เซิร์ฟเวอร์ไม่มี broadcast machinery เลย) **ไม่ใช่**
+> บนวิธีพิสูจน์ที่เขียนไว้ข้างบน ซึ่งซอร์สวันนี้บอกตรงข้าม
+
+ส่วนที่เหลือของข้อพิสูจน์เดิมยัง re-derive ได้ตามเดิม: และ the legacy dispatcher
+has no `0xAC52` branch at all (`grep -n "0xAC52\|44114\|CHAT_INPUT\|LocalTalk\|broadcast"`
+on `current/pf_login_game_server_v141.py` = 0 rows; it is an if/elif chain
+keyed by `nested_id`, so an unknown id produces no outbound bytes).  Second
+layer: this server has no broadcast machinery at all -- `grep -rn "broadcast"`
+across `src/pirateforce_foundation/*.py` returns three scenario/constant
+names, one of them literally
+`no_second_connection_no_broadcast_no_send_lock_no_population_py_change`,
+consistent with `FINDINGS_R18_SERVER_IS_STRICTLY_SERIAL.md`.  GM-028's
+blocker (a) (keyword names) falls away entirely: GM-029 is a plain positional
+call, not a `fire()` dispatch.
+
+RECORDED, NOT FIXED (known debt, deliberately not this round's work):
+`accounts.is_gm_account` opens and parses the allowlist JSON on every call,
+so once GM-029 is wired the server reads that file once per chat line per
+player.  This is not a regression this module introduces -- the landed
+`0x51E9` site does the same, and GM-028 would have cost exactly as much --
+and this server is strictly serial on one connection (FINDINGS_R18), so it is
+not a problem today.  Caching it changes the meaning of "when does editing
+the config take effect", which deserves its own decision rather than a
+silent change here.
+
+`tests/test_gm_chat_command_action.py`: 24 tests, 5 subtests.  Four groups:
+the version gate is real (the shipped constant is asserted still `None`, and
+a valid GM warp produces no action while it is); the path works once the byte
+is known (patched-version tests assert the emitted bytes equal the pinned
+composer's bytes, and that `z` comes from the connection rather than a
+default -- an invented elevation drops the character through the floor);
+permission (a non-GM typing the working command gets no action, no ndjson
+row, nothing decoded, and a payload naming a GM account cannot promote the
+sender); fail-closed (8 hostile session shapes -- no token, a `str` subclass
+lying through `__eq__`, an `events.append` that raises, no `events` at all, a
+composer that explodes, `handle_local_talk_chat` raising `MemoryError`, a
+`GmCommand.args` tuple subclass lying through `__len__` -- every one must
+return `None`, never raise, because the call site runs on the game-listener
+thread shared by every player; plus one test that no exception MESSAGE and no
+player-typed text ever reaches the event trail, which is both a leak and a
+cp874 console hazard).
+`pytest -k "gm or lane_hook"`: 365 passed, 4 skipped, 32 subtests.
+Repo-wide `pytest tests/`: 3844 passed, 327 skipped, 5067 subtests, no new
+failures.  เขียว (cloud sanity, this session -- not an Actions run, and not
+the bridge full gate).
+
+## ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้ (round `gr2q9j`)
+
+**ยังไม่ได้ -- ตอบตรง ๆ เป็นรอบที่สองติดกัน** จอของเจ้าของยังไม่มีอะไรใหม่
+สิ่งที่เปลี่ยนคือ **สิ่งที่ต้องรอ ถูกทำให้เล็กลงและชัดขึ้น**: เมื่อวานรอ "สามบรรทัดของ chief" ที่วันนี้รู้แล้วว่า
+จะไม่ทำให้อะไรขยับได้เลย · วันนี้รอ **หนึ่งจุดเรียกของ chief (`CORE-REQUEST-GM-029`) + หนึ่งไบต์ของ RE
+(`RE-129`)** ทั้งคู่มีวิธีทำที่พิสูจน์แล้ว และปลายทางคือ `GT-128` ซึ่งเป็นใบแรกของสายนี้ที่ตัดสินที่จอ
+ไม่ใช่ที่ log
+
+nonclaim: ไม่มีไบต์ `ForcePos` ออกสู่สายได้วันนี้ (ค่าคงที่เป็น `None` โมดูลปฏิเสธตัวเอง) · เส้นทาง
+แชท→warp **ยังไม่เคยทดสอบกับ client จริง** · warp ข้ามฉากทำไม่ได้ (`ForcePos` ไม่มีช่อง scene id) ·
+`/npc /item /lv /spawn /say` ยังไม่มี wire ทั้งห้าตัว · ไม่อ้างอะไรเกี่ยวกับ `BT_GM`/`GMUI_BASIC`/`0x51E9`
+· ไม่แตะ `runtime.py`/`app.py` · ไม่เพิ่มบัญชีใดลง `gm_accounts.json` · **GM nonclaim:** ถ้า `GT-128`
+PASS สิ่งที่พิสูจน์คือ "เราย้ายตัวละครไปจุดที่อยากเทสได้" ไม่ใช่ว่าการเดินทางในเกมทำงาน. Full detail:
+`pf_bridge/rounds/GM_20260828_1831_chat-warp-send-half-plus-re129-force-pos-version.md`.
+
+### pf-adversary, round `gr2q9j` -- NOT APPROVED on the first pass, 16 defects
+
+Recorded in full rather than summarised as "reviewed", because four of them
+were real and two were false greens in tests this lane wrote in the same
+round.  Fixed before commit:
+
+1. **The action label was a silent correctness bug.**  `runtime.py:3653-3660`
+   (`_move_authority_note_server_moves`) reopens the move-authority grace
+   window by testing `"TELEPORT" in action[0]` -- a cross-module contract
+   expressed as a substring.  `LANE_GM_CHAT_WARP_FORCE_POS` did not contain
+   it, so a 4243-unit GM warp would have been read as an impossible client
+   jump, refused as over budget, and -- because the baseline only advances on
+   admitted readings -- would have frozen the durable row for the rest of the
+   session, persisting the pre-warp point at logout.  Renamed to
+   `LANE_GM_CHAT_WARP_TELEPORT_FORCE_POS`, with two tests pinning both halves
+   of the contract (the label carries it; `runtime.py` still keys on it).
+2. **A double-wire would have been invisible.**  Measured: wiring both the
+   `fire()` route and this one at the same branch produced TWO byte-identical
+   ndjson rows for one typed line (same second-granularity timestamp, so
+   indistinguishable from a GM typing twice), two rate-limit charges, and --
+   because both routes used the same event strings -- two identical event
+   lines.  `lane_gm_chat_command.py`'s events are now
+   `gm_chat_hook_command_*`, distinct from this route's `gm_chat_command_*`,
+   with a test asserting the two sets stay disjoint.  That cannot prevent a
+   double-wire; it makes one legible instead of looking like normal traffic.
+3. **False green: the `type(token) is not str` check was deletable** with all
+   24 tests still passing -- the subclass test used a non-GM name, so
+   `handle_local_talk_chat`'s own check raised, the outer catch swallowed it,
+   and "returns None" stayed true either way.  Now asserts the specific
+   `EVENT_BAD_SESSION_PREFIX` event; verified the mutation fails.
+4. **False green: every event assertion was tautological** -- each compared
+   the module's output against the module's own constant, so renaming any
+   constant to `"zzz_"` kept the suite green.  Event names are an interface
+   (GT graders, console greps), so they are now pinned as literals in
+   `EventNameContractTests`, with an ASCII assertion on the event strings
+   themselves (the label had one; the events did not).
+5. Three `_current_position` guards had never executed under any test
+   (`DeadGuardTests` now covers them); the production call shape chief will
+   actually write -- three positional args, both paths resolved from CWD --
+   ran zero times (`ProductionCallShapeTests` now covers it, and pins where
+   the ndjson GT-127 is graded on actually lands); a wrong-typed `payload`
+   landed in the `..._unexpected_TypeError` bucket that reads as "this module
+   has a bug" rather than a named refusal (now `EVENT_BAD_PAYLOAD_PREFIX`).
+6. Docstring overclaim corrected: "bytes reach the client on exactly one
+   path" was false as stated -- the legacy file has four `sendall` sites --
+   the true claim is that a LANE can only queue via the returned action list.
+
+Recorded and deliberately NOT fixed this round, each with its reason written
+into the module docstring: no coordinate range check (the fix is to reuse
+lane A's `ground_extent` refusal by import, never to copy it here); the
+uncached allowlist read per chat line per player (caching changes what "when
+does a config edit take effect" means); `ForcePosBody`'s axis names, which
+`PF_SERIALIZER_FIELDS.tsv` does not prove and this round makes load-bearing
+(now RE-129's second question); and the one the reviewer was right to end on
+-- **after a ForcePos leaves, who owns the character's position?**  The
+module does not checkpoint, so the durable row keeps the pre-warp point, and
+nothing reconciles it until a `TargetPos` that may never come.  That is now
+`GT-128`'s third blocker and an ASK-COO letter: it must be answered BEFORE
+RE-129 lets the constant change, not after.
+
+Counts after the fixes, superseding the ones pinned in the `hs9m2r` section
+above: ~~`tests/test_gm_chat_command_action.py` 34 tests / 25 subtests ·
+`pytest -k "gm or lane_hook"` 375 passed, 4 skipped, 52 subtests~~ ·
+**re-derived at HEAD ในรอบ `vvxkft` (pf-adversary ชี้ว่าตัวเลขชุดนี้ไม่ re-derive):**
+`tests/test_gm_chat_command_action.py` = **43 passed, 25 subtests** ·
+`pytest -k "gm or lane_hook"` = **395 passed, 4 skipped, 86 subtests** ·
+repo-wide `pytest tests/` see the round file.  Mutation-checked, not merely
+run: the version gate, the label substring, the identity check, the event
+literals, the position guards and the exception-text leak each fail the suite
+when removed.
+
+## Modules delivered (round `vvxkft`, recovery of the gate-RED round + cp874 tripwire)
+
+รอบนี้ไม่มีของใหม่ที่ผู้เล่นเห็น — เป็นรอบกู้ของ เพราะ PR ของรอบ `gr2q9j`
+(`pirate-force-server#200`) **ไม่ได้ merge**: `.github/workflows/merge-claude-pr.yml`
+ปิดให้อัตโนมัติเพราะ job `gate` แดง (Actions run 33168539342, commit `b262be7`)
+branch `claude/sleepy-sagan-gr2q9j` ยังอยู่ครบตามที่ workflow บอก
+
+**เหตุที่แดง มีสองข้อ ไม่ใช่ข้อเดียว** — ข้อแรกคือข้อที่ workflow รายงาน
+ข้อที่สองรอบนี้เจอเองก่อน push:
+
+1. **cp874 static tripwire (เหตุที่ทำให้ปิด PR จริง).** `U+1F534` (!!) ห้าตัว
+   ในคอมเมนต์ — สี่ตัวใน `gm/chat_command_action.py` สามตัว/บรรทัด 36 56 66 131
+   และหนึ่งตัวใน `lane_hooks/lane_gm_chat_command.py` บรรทัด 50 ตัวอักษรนี้
+   **ไม่มี mapping ใน cp874** จึงไม่กลาย `?` แต่ยก `UnicodeEncodeError`
+   กลางคำสั่ง `print()` บนคอนโซลสะพาน กติกา "โค้ดเป็น ASCII อังกฤษ" ของสายนี้ (อยู่ในใบตั้งสายบนสะพาน ไม่ได้อยู่ในรีโปนี้ —
+   pf-adversary ชี้ว่าประโยคเดิมอ้างว่า "มีมาตั้งแต่ใบตั้งสาย" โดยไม่มีอะไรให้ผู้อ่านเปิดดูได้)
+   มีอยู่แล้วตั้งแต่ใบตั้งสาย — รอบ `gr2q9j` ละเมิดเอง แล้วเสียทั้งรอบไปกับมัน
+   แก้: เปลี่ยนเป็นมาร์กเกอร์ ASCII `!!`
+2. **การเปลี่ยนชื่อ event ของเส้นทางที่ live อยู่ (ยังไม่เคยแดง เพราะ gate ตาย
+   ที่ข้อ 1 ก่อน).** รอบ `gr2q9j` เปลี่ยนชื่อ event ของ hook จาก
+   `gm_chat_command_*` เป็น `gm_chat_hook_command_*` เพื่อกันชนกับโมดูลใหม่
+   แต่ระหว่างนั้น chief merge PR #201 ซึ่ง **หมุดชื่อเดิมไว้เป็น literal** ใน
+   `tests/test_gm_chat_command_dispatch_wiring.py` บน main และด่าน headless ของ
+   GT-127 grep ชื่อเดิม ⇒ cherry-pick ตรง ๆ จะแดงซ้ำที่เทสของ chief
+   แก้: **เปลี่ยนชื่อฝั่ง dormant แทน** เส้นทางที่ live ไม่ถูกแตะแม้แต่ไบต์เดียว
+   (`gm_chat_action_*` สำหรับโมดูลนี้ · `LANE_GM_CHAT_ACTION` เป็น console token)
+   หลักคิดที่เขียนไว้ในโค้ดด้วย: เส้นทางที่ยังไม่มีใครเรียก เปลี่ยนชื่อฟรี
+   เส้นทางที่ live ไม่ฟรี
+
+`tests/test_gm_source_is_cp874_safe.py` (ใหม่) — ด่านที่ทำให้ข้อ 1 เกิดซ้ำไม่ได้
+tripwire ตัวจริงรันเฉพาะบน Windows ใน Actions **หลัง** PR เปิดแล้ว ซึ่งตอนนั้น
+ตัวปิด PR อัตโนมัติทำงานไปแล้ว ใบนี้ทำการทดสอบเดียวกัน (`str.encode("cp874")`
+บนไฟล์ชุดเดียวกัน) ในชุดเทสที่สายนี้รันได้ **ก่อน** push
+ขอบเขต = เขตเขียนของสายนี้เท่านั้น (`gm/**` + `lane_hooks/lane_gm_*.py`)
+ไม่ใช่ทั้ง repo เพราะไฟล์ของสายอื่นแดงที่นี่ = ความล้มเหลวที่สายนี้แก้ไม่ได้
+และจะสอนให้ทุกคนมองข้ามใบนี้ · ไม่ได้ทดสอบว่า "เป็น ASCII" — คอมเมนต์ไทย
+encode cp874 ผ่านและได้รับอนุญาตตามกติกาบ้าน สิ่งที่ทดสอบคือสิ่งที่คอนโซลทำจริง
+มีเทสกันลิสต์ไฟล์ว่างด้วย (ลูปบนศูนย์ไฟล์ = เขียวปลอม)
+
+**สถานะเส้นทางแชท หลังรอบนี้:** เส้นทาง `fire()` (GM-028) live บน main แล้ว
+อ่านคำสั่ง GM จากกล่องแชทได้จริงและเขียน ndjson audit ได้ — แต่ **ส่งไบต์ไม่ได้**
+ตามสัญญาของ `fire()` เอง · โมดูล `chat_command_action.py` (GM-029) recover แล้ว
+แต่ dormant · `FORCE_POS_VITAL_VERSION_CONFIRMED` ยังเป็น `None` (RE-129 เปิดอยู่)
+⇒ ต่อให้ chief wire GM-029 พรุ่งนี้ ก็ยังไม่มีไบต์ ForcePos ออกจนกว่า RE-129 ตอบ
+
+nonclaim ของรอบ: **[ไม่อ้าง]** ว่ารอบนี้ทำให้ผู้เทสทำอะไรได้เพิ่ม — เป็นรอบกู้ของ
+ล้วน ๆ · **[ไม่อ้าง]** ว่าเส้นทางแชท→warp ใช้กับ client จริงได้ (GT-127/GT-128)
+· **GM nonclaim:** ทุกอย่างในสายนี้เป็นเครื่องมือไปให้ถึงสภาพที่จะเทส ไม่ใช่
+หลักฐานว่าฟีเจอร์ใดทำงาน
+
+### pf-adversary รอบ `vvxkft`: NOT APPROVED รอบแรก — 10 ข้อ, ห้าข้อเป็น blocking, แก้ทั้งหมดในใบนี้
+
+ใบนี้เกือบเสียรอบเป็นครั้งที่สาม สิ่งที่ adversary จับได้และแก้แล้ว:
+
+1. **[blocking] ตัว tripwire เองยังไม่ถูก `git add` และคอมมิตของ branch (`ac711e1` = cherry-pick ดิบ)
+   ยังมี `U+1F534` ครบห้าตัว** — การแก้ทั้งหมดอยู่ใน worktree ที่ยังไม่ commit
+   `git diff origin/main` เทียบ **worktree** จึงมองไม่เห็นเลย ⇒ push ตอนนั้น = โดนปิด PR
+   ด้วยคอมเมนต์เดียวกับ #200 ไฟล์เดียวกัน บรรทัดเดียวกัน
+2. **[blocking] tripwire อ่าน worktree ไม่ใช่สิ่งที่จะถูก push** — `rglob` บนดิสก์เขียวได้ทั้งที่ HEAD แดง
+   ซึ่งเป็นคำถามที่ใบนี้มีไว้ตอบพอดี **แก้:** ตรวจ **ทั้งสองชั้น** — worktree (สิ่งที่ CI checkout)
+   และเนื้อไฟล์ที่ `HEAD` ผ่าน `git show` (สิ่งที่จะถูก push) แดงถ้าชั้นใดชั้นหนึ่งแดง ·
+   ชุดไฟล์มาจาก `git ls-files` ให้ตรงกับ gate (ไฟล์ scratch ที่ไม่ได้ track จึงไม่ทำให้แดงลวง)
+   · พิสูจน์แล้วว่ามันแดงจริงบน `ac711e1` และเขียวหลังคอมมิตแก้
+3. **[blocking] `CONSOLE_TOKEN` ไม่มีเทสแตะเลย** — ลบ `print` ทิ้งทั้งบรรทัด หรือเปลี่ยนชื่อ token
+   เป็น `zzz_LANE_HOOK_FIRED` ก็ยังเขียว ทั้งที่มันคือหลักฐาน WIRED-v2 ของเส้นทางนี้
+   (ใบเดียวกันนี้เขียนไว้เองว่ามีไว้ฆ่า tautology แบบนี้ แล้วหมุด 9 ค่า ลืมค่าที่ 10 พอดี)
+   **แก้:** `ConsoleTokenTests` 6 เทส — literal, ASCII, ต่างจาก `LANE_HOOK_FIRED`, ยิงจริง,
+   สตรีม, และผู้เล่นธรรมดาไม่ทำให้คอนโซลมีบรรทัด · mutation ทั้งสามแบบแดงแล้ว
+4. **[blocking] `print()` ลง stdout ซ้ำบั๊กที่ `lane_hooks` จ่ายค่าไปแล้ว** —
+   `lane_hooks/__init__.py:117-123` บันทึกไว้ว่า token ที่ลง stdout ทำให้
+   `tools/pf_runtimeres_death_headless_replay.py --json` มีบรรทัดแปลกปนใน JSON artifact
+   เพราะ control ของมัน dispatch เฟรมแชท และ fix คือ `file=sys.stderr` ·
+   โมดูลนี้อยู่บนสาขา `0xAC52` เดียวกัน ⇒ รับ exposure เดียวกันทันทีที่ GM-029 ถูก wire
+   **แก้:** `file=sys.stderr` + เทสที่หมุดสตรีม (mutation `stderr`->`stdout` แดง)
+5. **[blocking] `test_the_live_hook_route_still_emits_...` ไม่ได้ทดสอบการ emit** —
+   มันอ่าน `inspect.getsource()` แล้ว `assertIn` บน **ข้อความในไฟล์** ⇒ เปลี่ยนชื่อ event จริง
+   แล้วทิ้งคอมเมนต์ `# was gm_chat_command_accepted_` ไว้ ก็ยังเขียวตลอดกาล (adversary ทำให้ดูแล้ว)
+   **แก้:** ขับ hook จริงแล้วอ่าน `session.events` · mutation เดิมแดงแล้ว
+6. **หมุดเลขบรรทัดของ `runtime.py` ค้างที่ค่าก่อน merge ของ chief ทุกตัว** (บล็อก hook ที่
+   `4729-4787` ดันทุกอย่างหลังจากนั้นไป ~60 บรรทัด) — รอบนี้ re-derive `4784` ถูก แต่ลืมที่เหลือ
+   แก้ครบ: `3654`/`3668` · `5181` · `5396` · `5168`/`5173` (`5595` เปลี่ยนเป็นอ้างโดยไม่ระบุเลข)
+7. **ข้อสรุปความปลอดภัยที่วิธีพิสูจน์กลายเป็นเท็จ** — ดูบล็อกขีดฆ่าในหัวข้อรอบ `gr2q9j` ข้างบน
+   (16 สาขาไม่ใช่ 14 · สาขาที่ chief เพิ่งเพิ่มไม่มี scenario gate) ข้อสรุปยังจริง วิธีพิสูจน์ไม่จริง
+8. **ตัวเลขเทสใน section ก่อนหน้าไม่ re-derive** — แก้แล้ว (43 / 395 ข้างบน)
+9. **คำพูดของ `gm/dispatch.py` ถูกตัดคำสุดท้าย "regardless" ทิ้ง** แล้วเอา caveat ที่พูดถึง vital
+   ตัวเดียวมาใช้เป็นข้อเท็จจริงเชิงสถาปัตยกรรมของทั้งเลน — คืนคำและระบุขอบเขตแล้ว
+10. `U+1F534` สามตัวใหม่ที่รอบนี้เพิ่งใส่ลง `GM_LANE.md` เอง หนึ่งในนั้นอยู่ในย่อหน้าที่กำลังเล่าว่า
+    เอา `U+1F534` ออก (ไม่ทำให้ gate แดง เพราะ tripwire สแกนเฉพาะ `.py` — แต่เป็นอาการเดียวกัน)
+    เอาออกหมดแล้วทั้งไฟล์
+
+**คำถามที่ adversary ถามแล้วรอบนี้ตอบด้วยของ ไม่ใช่ด้วยประโยค:** อะไรบังคับกฎ "wire ได้จุดเดียว"?
+เดิมคือ *ไม่มีอะไรเลย* — สอง namespace, เทส disjoint, console token ทั้งหมดทำให้ double-wire
+**อ่านออก** และแต่ละอันเขียนไว้เองว่า "กันไม่ได้" กฎถูกถือไว้ด้วยประโยคในจดหมายขอ
+และครั้งล่าสุดที่สายนี้ฝากกฎไว้กับการที่ chief อ่านจดหมาย chief ก็ส่งอีกครึ่งมาก่อน แล้วรอบนี้
+ก็หมดไปกับการกู้ของ · **แก้: `OneOfTwoWiringTests`** อ่าน `runtime.py` จริงแล้วปฏิเสธสถานะที่มี
+ทั้งสองจุดพร้อมกัน (และปฏิเสธสถานะที่ไม่มีเลยด้วย) — พิสูจน์ด้วย mutation ทั้งสองทิศ
+เป็นสิ่งเดียวในรอบนี้ที่ **ทำ** แทนที่จะ **รายงาน**
