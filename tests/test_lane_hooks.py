@@ -9,6 +9,7 @@ unchanged by this PR.
 from __future__ import annotations
 
 import sys
+import types
 import unittest
 from pathlib import Path
 
@@ -70,6 +71,140 @@ class LaneHooksDiscoveryTests(unittest.TestCase):
     def setUp(self):
         lane_hooks._HOOKS.pop(self.POINT, None)
         self.addCleanup(lane_hooks._HOOKS.pop, self.POINT, None)
+
+
+class ModuleProductionAllowedTests(unittest.TestCase):
+    """The gate as a DIRECT call site sees it (COO-DECISION 20260829_0041).
+
+    Withdrawal is only half a gate: it can silence a module's hooks, and
+    that is all it can do.  The 0xAC52 chat route reaches LANE-GM's code
+    without registering anything, so runtime.py has to read the flag for
+    itself before it calls -- these tests pin the answers it gets.
+    """
+
+    ALLOWED = "lane_gm_chat_command"
+
+    def test_the_gated_chat_module_reports_allowed_by_its_bare_name(self):
+        self.assertIs(lane_hooks.module_production_allowed(self.ALLOWED), True)
+
+    def test_the_qualified_name_answers_the_same_as_the_bare_one(self):
+        self.assertIs(
+            lane_hooks.module_production_allowed(
+                f"pirateforce_foundation.lane_hooks.{self.ALLOWED}"
+            ),
+            True,
+        )
+
+    def test_a_module_that_never_imported_is_closed_not_open(self):
+        # The name of a file that does not exist, which is also the shape a
+        # typo at a call site takes: closed, never "unknown so probably
+        # fine".
+        self.assertIs(
+            lane_hooks.module_production_allowed("lane_no_such_module"),
+            False,
+        )
+
+    def test_flipping_the_flag_to_false_closes_the_module(self):
+        # The switch itself, exercised the way the owner would use it: with
+        # production_allowed = False on disk, discovery records False and
+        # every direct call site reading this function stands down.
+        qualified = f"pirateforce_foundation.lane_hooks.{self.ALLOWED}"
+        previous = lane_hooks._PRODUCTION_ALLOWED[qualified]
+        lane_hooks._PRODUCTION_ALLOWED[qualified] = False
+        self.addCleanup(
+            lane_hooks._PRODUCTION_ALLOWED.__setitem__, qualified, previous
+        )
+        self.assertIs(lane_hooks.module_production_allowed(self.ALLOWED), False)
+
+    def test_discovery_records_an_answer_for_every_lane_file_on_disk(self):
+        # Re-derived from the directory, not from _HOOKS: the whole point of
+        # this function is call sites reached WITHOUT a hook, so a module
+        # that registers nothing must still be recorded. Deriving the
+        # expectation from _HOOKS (the first version of this test) would
+        # have gone blind the day the dead `vital_inbound_chat_local_talk`
+        # registration is cleaned up -- which this package's own docstring
+        # invites -- and stayed green while covering nothing.
+        # [pf-adversary, round wi1m62]
+        package_dir = Path(lane_hooks.__file__).parent
+        on_disk = {
+            f"pirateforce_foundation.lane_hooks.{path.stem}"
+            for path in package_dir.glob("lane_*.py")
+        }
+        self.assertIn(
+            "pirateforce_foundation.lane_hooks.lane_gm_chat_command", on_disk
+        )
+        self.assertEqual(
+            on_disk - set(lane_hooks._PRODUCTION_ALLOWED),
+            set(),
+            "a lane file on disk that discovery recorded no answer for is a "
+            "door that closes silently: module_production_allowed() reports "
+            "False for it and nothing says why",
+        )
+
+
+class GateModuleTests(unittest.TestCase):
+    """The arrow that had no test: flag on the module -> recorded -> answer.
+
+    pf-adversary (round wi1m62) measured the hole this class fills. With the
+    flag read written inline in `_discover()`, replacing it with a constant
+    `True` -- which disables the hook withdrawal AND the record, i.e. the
+    entire kill switch PANYA-ORDER 20260827_1230 approved -- left all 4,000
+    tests green. Every gate test wrote `_PRODUCTION_ALLOWED` by hand, and
+    the only lane module on disk sets the flag to `True`, so the False path
+    of the read had never executed in a test at all.
+
+    `_gate_module` is that read, on its own, callable with a module object
+    whose flag says whatever a test needs it to say.
+
+    WHAT IS STILL NOT TESTED, NAMED RATHER THAN PAPERED OVER: the step from
+    a `production_allowed = False` line in a FILE ON DISK to that module
+    object. `_discover()` runs once per process, at import, before any test
+    exists, and this suite must not write files into the package directory
+    to re-run it. The seam is `getattr(module, "production_allowed", False)`
+    on a real imported module, which the tests below drive directly.
+    """
+
+    NAME = "pirateforce_foundation.lane_hooks._test_only_gate_module"
+
+    def setUp(self):
+        self.addCleanup(lane_hooks._PRODUCTION_ALLOWED.pop, self.NAME, None)
+
+    def _module(self, **attrs):
+        return types.SimpleNamespace(**attrs)
+
+    def test_a_true_flag_is_recorded_and_returned(self):
+        allowed = lane_hooks._gate_module(self.NAME, self._module(production_allowed=True))
+        self.assertIs(allowed, True)
+        self.assertIs(lane_hooks._PRODUCTION_ALLOWED[self.NAME], True)
+
+    def test_a_false_flag_is_recorded_as_false_not_dropped(self):
+        # Dropped instead of recorded would still answer False today (the
+        # .get default), but it would erase the difference between "the
+        # lane said no" and "no such file", which is the difference the
+        # console tokens are supposed to explain.
+        allowed = lane_hooks._gate_module(self.NAME, self._module(production_allowed=False))
+        self.assertIs(allowed, False)
+        self.assertIn(self.NAME, lane_hooks._PRODUCTION_ALLOWED)
+        self.assertIs(lane_hooks._PRODUCTION_ALLOWED[self.NAME], False)
+
+    def test_a_module_with_no_flag_at_all_is_closed(self):
+        allowed = lane_hooks._gate_module(self.NAME, self._module())
+        self.assertIs(allowed, False)
+
+    def test_the_recorded_value_is_a_real_bool_not_whatever_the_module_set(self):
+        # `production_allowed = 1` opens the gate (documented), but what is
+        # recorded and returned must still be a bool, or a caller that
+        # compares with `is True` gets a wrong answer from a right flag.
+        allowed = lane_hooks._gate_module(self.NAME, self._module(production_allowed=1))
+        self.assertIs(allowed, True)
+        self.assertIs(lane_hooks._PRODUCTION_ALLOWED[self.NAME], True)
+
+    def test_the_gate_answer_is_what_module_production_allowed_reports(self):
+        # The arrow's last hop, end to end through the public function.
+        lane_hooks._gate_module(self.NAME, self._module(production_allowed=False))
+        self.assertIs(lane_hooks.module_production_allowed(self.NAME), False)
+        lane_hooks._gate_module(self.NAME, self._module(production_allowed=True))
+        self.assertIs(lane_hooks.module_production_allowed(self.NAME), True)
 
 
 class LaneHooksFireTests(unittest.TestCase):
