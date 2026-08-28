@@ -1341,7 +1341,7 @@ class MobPickupTests(unittest.TestCase):
         # record, then the trailing identity-only index) -- see
         # inventory.make_backpack_attr's two item loops.
         self.assertEqual(wire.count(self.legacy.qwordtag(0x32, item.identity)), 2)
-        # The two golden snapshots still byte-pin exactly as before -- gate 3
+        # INITIAL_BACKPACK still byte-pins exactly as before -- gate 3
         # widening must not be allowed to drift the frozen encoding.
         self.assertEqual(
             inventory.make_backpack_attr(self.legacy, INITIAL_BACKPACK),
@@ -1350,6 +1350,28 @@ class MobPickupTests(unittest.TestCase):
         self.assertEqual(item.identity, 5)
         # And the shape itself is fine -- it is Gate 2 that still governs.
         require_bag_shape(bag)
+
+    def test_make_backpack_attr_still_rejects_a_structurally_invalid_bag(self):
+        """Widening gate 3's CONTENT gate did not touch its SHAPE gate.
+
+        ``make_backpack_attr`` delegates to ``require_backpack_shape``, which
+        is well covered on its own (``tests/test_item_lifecycle.py``'s
+        ``RequireBackpackShapeTests``) -- but nothing called the public entry
+        point that actually changed this round, ``make_backpack_attr``
+        itself, with a structurally malformed state.  This closes that gap
+        directly: a duplicate-slot bag must still raise through the encoder,
+        exactly as it did before the gate widening.
+        """
+        duplicate_slot = BackpackState(
+            INITIAL_BACKPACK.base_mask,
+            INITIAL_BACKPACK.base_identity,
+            INITIAL_BACKPACK.range_mask,
+            INITIAL_BACKPACK.items + (
+                ItemAttrState(5, 2600001, 1, 0),  # slot 0 already taken
+            ),
+        )
+        with self.assertRaises(ValueError):
+            inventory.make_backpack_attr(self.legacy, duplicate_slot)
 
     def test_gate_3_widening_does_not_touch_the_content_aware_operations(self):
         """COO-DECISION 20260828_0844 widened ONE function, not the family.
