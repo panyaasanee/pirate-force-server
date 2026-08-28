@@ -11,8 +11,13 @@ else.  If that test starts passing for a body that is not the frozen body,
 the lane is guessing.
 
 ``test_the_derived_columns_re_derive_two_frozen_constants`` pins the HP
-derivation and the mined name against ``v141``'s own constants, which were
-frozen from a live run rather than from a table join.  ``test_the_roster_is_a_
+derivation and the mined name against ``v141``'s own constants.  ~~which were
+frozen from a live run rather than from a table join~~ -- WITHDRAWN, round
+szdkgs (pf-adversary D11): that live run was a run of a server making the SAME
+set-number read, so the two directions were never independent and this pin
+could not have caught the reading being wrong.  It still holds, and is still
+worth running, as a pin on the LEGACY reading that nine of these rows deliber-
+ately still ship; it is one of the assertions the migration round has to move.  ``test_the_roster_is_a_
 subset_of_the_census`` pins the integration hazard: these monsters ARE census
 members, so anything that sends both collections duplicates identities.
 """
@@ -209,10 +214,19 @@ class FieldMobTests(unittest.TestCase):
                 # ~~self.assertEqual(mob.speed_walk, 100)~~ -- 100 was every
                 # row's speed only while every row was a Prison Exile monster
                 # read through the wrong column.  Round szdkgs's town target
-                # (n_ID 916) carries 150 in the same MOBS column, so the check
-                # that means what this test's name says is the per-row one:
-                # the parsed value IS the mined value, whatever the table says.
+                # (n_ID 916) carries 150 in the same MOBS column.
+                # pf-adversary D10: comparing the parse against the same list
+                # it parsed asserts that the parser is the identity function,
+                # which is not what this test is for.  So BOTH: the parse is
+                # faithful, AND the value is the LITERAL the MOBS table
+                # carries for that actor -- 150 for the practice dummy, 100
+                # for every row still read as a Prison Exile monster.
                 self.assertEqual(mob.speed_walk, mined[mob.placement_index])
+                self.assertEqual(
+                    mob.speed_walk,
+                    150 if mob.template_id == field_mobs.TOWN_TARGET_N_ID
+                    else 100,
+                )
                 self.assertNotEqual(
                     mob.speed_walk, 400,
                     "this must be the mined MOBS speed, never the owner's "
@@ -893,6 +907,82 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
         self.assertEqual(
             zero_lines, ("FIELD_MOB_CROSS_SCENE_IDENTITY_COLLISIONS count=0",))
         self.assertNotEqual(lines[0], zero_lines[0])
+
+
+
+
+class Bg0001RegenerateAndDiffTest(unittest.TestCase):
+    """The control bg0002 and bg0015 have had all along and bg0001 did not.
+
+    pf-adversary (round szdkgs, D6): the one scene this round REWROTE was the
+    one scene with no re-derivation test, so every new table in it -- the
+    per-placement rule labels, the Mob-Set numbers, the withdrawn rows, the
+    unresolved rows -- rested on the author having run the tool by hand.  It
+    reproduces byte-for-byte; now something says so on every run.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        if not (ROOT.parent / "pf_bridge" / "gamedata").is_dir():
+            raise unittest.SkipTest("the bridge clone's gamedata is not here")
+
+    def test_regenerating_reproduces_the_committed_bg0001_module(self) -> None:
+        import importlib.util
+
+        gamedata = ROOT.parent / "pf_bridge" / "gamedata"
+        spec = importlib.util.spec_from_file_location(
+            "pf_mine_scene_mob_roster",
+            ROOT / "tools" / "pf_mine_scene_mob_roster.py",
+        )
+        tool = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tool)
+
+        rule = tool.IDENTITY_RULE_CLINE
+        sources = tool.Sources(gamedata, "bg0001")
+        controls = tool.check_crosswalk_controls(sources)
+        roster = tool.hostile_roster(sources, rule)
+        town = tool.town_target_roster(sources, rule)
+        withdrawn = tool.withdrawn_under_rule(sources, rule)
+        kept = {item["placement_index"] for item in withdrawn}
+        pending = [
+            row for row in tool.hostile_roster(sources, tool.IDENTITY_RULE_SETNUM)
+            if row["placement_index"] in kept
+        ]
+        regenerated = tool.render_module(
+            "bg0001", roster, sources.digests(),
+            tool.predicate_census(sources, rule),
+            rule=rule, cline_type=sources.cline_type, town=town,
+            withdrawn=withdrawn, controls=controls, pending=pending,
+            rank_zero_combat=[
+                tool._roster_row(sources, item)
+                for item in tool.unambiguous_placements(sources, rule)
+                if tool._nonzero(item[6], "n_AI_COMBAT")
+                and not tool._nonzero(item[6], "n_RANK")
+            ],
+            unresolved=tool.unresolved_placements(sources, rule),
+        )
+        committed = (
+            ROOT / "src/pirateforce_foundation/field_mob_tables.py"
+        ).read_text(encoding="ascii")
+        self.assertEqual(
+            regenerated, committed,
+            "field_mob_tables.py is stale - regenerate it with "
+            "tools/pf_mine_scene_mob_roster.py --identity-rule cline "
+            "--keep-withdrawn-rows",
+        )
+
+    def test_the_scene_is_fully_accounted_for(self) -> None:
+        # pf-adversary D8: "zero hostiles" is a claim about the placements the
+        # rule resolves, so the denominator has to be visible.  140 read + 9
+        # unreadable = the scene's whole 149.
+        self.assertEqual(
+            field_mob_tables.PREDICATE_CENSUS["unambiguous"]
+            + len(field_mob_tables.UNRESOLVED_PLACEMENTS),
+            149,
+        )
+        for _index, _set_number, reason in (
+                field_mob_tables.UNRESOLVED_PLACEMENTS):
+            self.assertTrue(reason, "an unreadable placement with no reason")
 
 
 if __name__ == "__main__":

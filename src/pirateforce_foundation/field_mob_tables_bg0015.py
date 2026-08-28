@@ -119,7 +119,7 @@ HOSTILE_PLACEMENTS = [
 TOWN_TARGET_PLACEMENTS = [
 ]
 
-# !! STILL THE OLD READING, ON PURPOSE, FOR ONE MORE ROUND.  Rows the previous
+# Rows the previous
 # identity rule selected here that this rule withdraws (they are townspeople,
 # see WITHDRAWN_UNDER_THIS_RULE for who each one really is).  They are kept in
 # what this lane ships because dropping them in the same round that corrects
@@ -169,9 +169,9 @@ SHIPPED_PLACEMENTS = sorted(
 WITHDRAWN_UNDER_THIS_RULE = [
     (22, 343, 'Glaucoma', 23, 'Seven'),
     (24, 345, 'Phosphor Fascinator', 25, 'Odyssey'),
-    (27, 348, 'Crimson Sharp Teeth', 0, ''),
-    (29, 350, 'Arbiter Bells', 0, ''),
-    (31, 353, 'Lava shakers', 0, ''),
+    (27, 348, 'Crimson Sharp Teeth', 28, 'Drunk wolf pirates [not carried: n_id_28_avatar_is_a_variant_list]'),
+    (29, 350, 'Arbiter Bells', 30, 'Desert Eagle [not carried: n_id_30_avatar_is_a_variant_list]'),
+    (31, 353, 'Lava shakers', 33, 'Sediment Wolf [not carried: n_id_33_avatar_is_a_variant_list]'),
     (44, 343, 'Glaucoma', 23, 'Seven'),
     (45, 343, 'Glaucoma', 23, 'Seven'),
     (46, 343, 'Glaucoma', 23, 'Seven'),
@@ -188,12 +188,27 @@ WITHDRAWN_UNDER_THIS_RULE = [
 COMBAT_AI_AT_RANK_ZERO = [
 ]
 
-# ~~The two constants this table used to be checked against.~~  Kept as the
-# record of the reading RE-128 replaced: under ``setnum`` this scene's
-# placement 30 read as MOBS 31 "Tornado Eagle", level 27, HP 3857 -- the
-# values ``v141`` froze as V119_P30_TARGET_NAME / V117_P30_EXACT_HP.  Under
-# ``cline`` that placement is Mob-Set 31 -> n_ID 248 "Da Vinci".
-LEGACY_SETNUM_READING_OF_PLACEMENT_30 = {
-    'template_id': 31, 'display_name': 'Tornado Eagle', 'level': 27,
-    'max_hp': 3857,
-}
+# (placement_index, set_number, reason) - placements this scene HAS that this
+# identity rule could not read at all.  Carried because "no placement in this
+# scene is hostile" is a claim about the rows the rule resolves, and a reader
+# is entitled to see the denominator and the skipped rows by name instead of
+# a count.  PREDICATE_CENSUS['unambiguous'] plus len(this list) is the scene's
+# whole placement count.
+UNRESOLVED_PLACEMENTS = [
+    (2, 3, 'n_id_3_avatar_is_a_variant_list'),
+    (26, 27, 'n_id_27_avatar_is_a_variant_list'),
+    (27, 28, 'n_id_28_avatar_is_a_variant_list'),
+    (28, 29, 'n_id_29_avatar_is_a_variant_list'),
+    (29, 30, 'n_id_30_avatar_is_a_variant_list'),
+    (31, 33, 'n_id_33_avatar_is_a_variant_list'),
+    (32, 32, 'n_id_32_avatar_is_a_variant_list'),
+    (33, 32, 'n_id_32_avatar_is_a_variant_list'),
+    (56, 27, 'n_id_27_avatar_is_a_variant_list'),
+    (57, 27, 'n_id_27_avatar_is_a_variant_list'),
+    (58, 29, 'n_id_29_avatar_is_a_variant_list'),
+    (60, 32, 'n_id_32_avatar_is_a_variant_list'),
+    (76, 101, 'n_id_101_avatar_is_a_variant_list'),
+    (77, 102, 'n_id_102_avatar_is_a_variant_list'),
+    (79, 104, 'n_id_104_has_no_MOBS_row'),
+]
+

@@ -69,9 +69,9 @@ GAMEDATA = ROOT.parent / "pf_bridge" / "gamedata"
 # migration).  The old digest is kept, not deleted, so the change is auditable
 # from either side.
 BG0001_UNTOUCHED_SHA256 = (
-    "c25f0d15e93db6d6700a22f6ebb142885d3c000d592caa47d745a45129115a61"
+    "b9c142ba8e1b4702cfad2b9cbbe5bd40a910be56120fffb5ace28681c9910fee"
 )
-BG0001_UNTOUCHED_SIZE = 9636
+BG0001_UNTOUCHED_SIZE = 10570
 
 EXPECTED_SCENE = "Bg0002"
 EXPECTED_HOSTILE_COUNT = 17
@@ -226,6 +226,8 @@ class Bg0002RegenerateAndDiffTest(unittest.TestCase):
             rule=tool.IDENTITY_RULE_SETNUM, cline_type=sources.cline_type,
             controls={"legacy_setnum_controls": "re-derived"},
             withdrawn=tool.withdrawn_under_rule(
+                sources, tool.IDENTITY_RULE_SETNUM),
+            unresolved=tool.unresolved_placements(
                 sources, tool.IDENTITY_RULE_SETNUM),
             rank_zero_combat=[
                 tool._roster_row(sources, item)

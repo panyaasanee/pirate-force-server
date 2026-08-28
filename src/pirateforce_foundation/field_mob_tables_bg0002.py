@@ -119,7 +119,7 @@ HOSTILE_PLACEMENTS = [
 TOWN_TARGET_PLACEMENTS = [
 ]
 
-# !! STILL THE OLD READING, ON PURPOSE, FOR ONE MORE ROUND.  Rows the previous
+# Rows the previous
 # identity rule selected here that this rule withdraws (they are townspeople,
 # see WITHDRAWN_UNDER_THIS_RULE for who each one really is).  They are kept in
 # what this lane ships because dropping them in the same round that corrects
@@ -177,12 +177,69 @@ WITHDRAWN_UNDER_THIS_RULE = [
 COMBAT_AI_AT_RANK_ZERO = [
 ]
 
-# ~~The two constants this table used to be checked against.~~  Kept as the
-# record of the reading RE-128 replaced: under ``setnum`` this scene's
-# placement 30 read as MOBS 31 "Tornado Eagle", level 27, HP 3857 -- the
-# values ``v141`` froze as V119_P30_TARGET_NAME / V117_P30_EXACT_HP.  Under
-# ``cline`` that placement is Mob-Set 31 -> n_ID 248 "Da Vinci".
-LEGACY_SETNUM_READING_OF_PLACEMENT_30 = {
-    'template_id': 31, 'display_name': 'Tornado Eagle', 'level': 27,
-    'max_hp': 3857,
-}
+# (placement_index, set_number, reason) - placements this scene HAS that this
+# identity rule could not read at all.  Carried because "no placement in this
+# scene is hostile" is a claim about the rows the rule resolves, and a reader
+# is entitled to see the denominator and the skipped rows by name instead of
+# a count.  PREDICATE_CENSUS['unambiguous'] plus len(this list) is the scene's
+# whole placement count.
+UNRESOLVED_PLACEMENTS = [
+    (2, 3, 'n_id_3_avatar_is_a_variant_list'),
+    (3, 3, 'n_id_3_avatar_is_a_variant_list'),
+    (4, 3, 'n_id_3_avatar_is_a_variant_list'),
+    (5, 3, 'n_id_3_avatar_is_a_variant_list'),
+    (31, 28, 'n_id_28_avatar_is_a_variant_list'),
+    (32, 28, 'n_id_28_avatar_is_a_variant_list'),
+    (33, 28, 'n_id_28_avatar_is_a_variant_list'),
+    (34, 28, 'n_id_28_avatar_is_a_variant_list'),
+    (35, 28, 'n_id_28_avatar_is_a_variant_list'),
+    (36, 27, 'n_id_27_avatar_is_a_variant_list'),
+    (37, 27, 'n_id_27_avatar_is_a_variant_list'),
+    (38, 27, 'n_id_27_avatar_is_a_variant_list'),
+    (39, 27, 'n_id_27_avatar_is_a_variant_list'),
+    (40, 29, 'n_id_29_avatar_is_a_variant_list'),
+    (41, 29, 'n_id_29_avatar_is_a_variant_list'),
+    (42, 29, 'n_id_29_avatar_is_a_variant_list'),
+    (43, 30, 'n_id_30_avatar_is_a_variant_list'),
+    (44, 33, 'n_id_33_avatar_is_a_variant_list'),
+    (45, 33, 'n_id_33_avatar_is_a_variant_list'),
+    (46, 30, 'n_id_30_avatar_is_a_variant_list'),
+    (47, 30, 'n_id_30_avatar_is_a_variant_list'),
+    (48, 30, 'n_id_30_avatar_is_a_variant_list'),
+    (49, 30, 'n_id_30_avatar_is_a_variant_list'),
+    (51, 33, 'n_id_33_avatar_is_a_variant_list'),
+    (52, 33, 'n_id_33_avatar_is_a_variant_list'),
+    (53, 32, 'n_id_32_avatar_is_a_variant_list'),
+    (54, 33, 'n_id_33_avatar_is_a_variant_list'),
+    (55, 30, 'n_id_30_avatar_is_a_variant_list'),
+    (56, 30, 'n_id_30_avatar_is_a_variant_list'),
+    (57, 30, 'n_id_30_avatar_is_a_variant_list'),
+    (62, 32, 'n_id_32_avatar_is_a_variant_list'),
+    (65, 37, 'n_id_37_has_no_MOBS_row'),
+    (66, 3, 'n_id_3_avatar_is_a_variant_list'),
+    (69, 33, 'n_id_33_avatar_is_a_variant_list'),
+    (70, 29, 'n_id_29_avatar_is_a_variant_list'),
+    (71, 29, 'n_id_29_avatar_is_a_variant_list'),
+    (72, 30, 'n_id_30_avatar_is_a_variant_list'),
+    (73, 30, 'n_id_30_avatar_is_a_variant_list'),
+    (74, 30, 'n_id_30_avatar_is_a_variant_list'),
+    (75, 33, 'n_id_33_avatar_is_a_variant_list'),
+    (76, 33, 'n_id_33_avatar_is_a_variant_list'),
+    (81, 29, 'n_id_29_avatar_is_a_variant_list'),
+    (82, 33, 'n_id_33_avatar_is_a_variant_list'),
+    (83, 28, 'n_id_28_avatar_is_a_variant_list'),
+    (84, 29, 'n_id_29_avatar_is_a_variant_list'),
+    (85, 32, 'n_id_32_avatar_is_a_variant_list'),
+    (89, 102, 'n_id_102_avatar_is_a_variant_list'),
+    (90, 101, 'n_id_101_avatar_is_a_variant_list'),
+    (97, 104, 'n_id_104_has_no_MOBS_row'),
+    (98, 3, 'n_id_3_avatar_is_a_variant_list'),
+    (99, 3, 'n_id_3_avatar_is_a_variant_list'),
+    (100, 3, 'n_id_3_avatar_is_a_variant_list'),
+    (101, 3, 'n_id_3_avatar_is_a_variant_list'),
+    (102, 3, 'n_id_3_avatar_is_a_variant_list'),
+    (103, 3, 'n_id_3_avatar_is_a_variant_list'),
+    (104, 3, 'n_id_3_avatar_is_a_variant_list'),
+    (105, 3, 'n_id_3_avatar_is_a_variant_list'),
+]
+

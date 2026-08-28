@@ -18,7 +18,8 @@ zero radius alone still admits a player standing exactly on the monster.
 ``test_the_profile_of_every_roster_row_is_buildable`` is what stops the
 promotion from being decorative.  Before this round the profile contract
 refused a zero aggro radius and required the attack range inside it, and BOTH
-rules refuse ten of the thirteen real monsters.  A contract written against an
+rules refuse ten of the thirteen real rows on the offensive flag, and six of
+them on a zero radius (round szdkgs).  A contract written against an
 imagined roster is not a contract.
 
 ``test_two_players_hitting_two_monsters_in_one_tick_do_not_erase_each_other``
@@ -205,7 +206,9 @@ class ProfileJoinTests(unittest.TestCase):
     def test_the_profile_of_every_roster_row_is_buildable(self):
         # Before this round the profile refused a zero aggro radius AND
         # required attack_range <= aggro_radius.  Either rule alone refuses
-        # every passive monster in the roster, which is ten of thirteen.
+        # every passive row in the roster, which is ten of thirteen (four
+        # of those ten are the practice dummies, passive because they have
+        # no combat AI rather than because their wander row says so).
         for mob in self.roster:
             with self.subTest(placement=mob.placement_index):
                 built = profile_of(mob)

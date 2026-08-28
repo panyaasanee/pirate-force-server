@@ -104,7 +104,8 @@ TOWN_TARGET_PLACEMENTS = [
     (109, 916, 11789.4384765625, 9318.8798828125, 2200.461181640625, 'M016_000_000_N', 'Training Iron Man', 100, 0, 21, 0, 150, 198125, 0, 0, 0),
 ]
 
-# !! STILL THE OLD READING, ON PURPOSE, FOR ONE MORE ROUND.  Rows the previous
+# !! STILL THE OLD READING, ON PURPOSE, FOR ONE MORE ROUND.
+# Rows the previous
 # identity rule selected here that this rule withdraws (they are townspeople,
 # see WITHDRAWN_UNDER_THIS_RULE for who each one really is).  They are kept in
 # what this lane ships because dropping them in the same round that corrects
@@ -164,8 +165,8 @@ WITHDRAWN_UNDER_THIS_RULE = [
     (59, 61, 'Toxic Vine', 796, 'Sase'),
     (60, 62, 'Ancient Civilization Alert Weapon', 797, 'Jonathan'),
     (63, 65, 'Ward Apes', 800, 'Remad'),
-    (95, 94, 'An Gebo Little Firebird', 0, ''),
-    (132, 103, 'Orc Chief', 917, ''),
+    (95, 94, 'An Gebo Little Firebird', 910, 'Saben [not carried: n_id_910_avatar_is_a_variant_list]'),
+    (132, 103, 'Orc Chief', 917, '(no MOBS_TIP name)'),
 ]
 
 # (placement_index, template_id, display_name, ai_combat) - placements whose
@@ -184,6 +185,25 @@ COMBAT_AI_AT_RANK_ZERO = [
     (137, 634, 'Navy Private', 12),
     (138, 634, 'Navy Private', 12),
 ]
+
+# (placement_index, set_number, reason) - placements this scene HAS that this
+# identity rule could not read at all.  Carried because "no placement in this
+# scene is hostile" is a claim about the rows the rule resolves, and a reader
+# is entitled to see the denominator and the skipped rows by name instead of
+# a count.  PREDICATE_CENSUS['unambiguous'] plus len(this list) is the scene's
+# whole placement count.
+UNRESOLVED_PLACEMENTS = [
+    (0, 1, 'n_id_155_has_no_MOBS_row'),
+    (75, 76, 'n_id_819_has_no_MOBS_row'),
+    (83, 101, 'n_id_10002_has_no_avatar_template'),
+    (86, 86, 'cline_leader_is_zero_or_absent'),
+    (87, 87, 'cline_leader_is_zero_or_absent'),
+    (95, 94, 'n_id_910_avatar_is_a_variant_list'),
+    (145, 110, 'n_id_9107_has_no_MOBS_row'),
+    (147, 112, 'n_id_937_has_no_MOBS_row'),
+    (148, 113, 'n_id_942_has_no_MOBS_row'),
+]
+
 
 # ~~The two constants this table used to be checked against.~~  Kept as the
 # record of the reading RE-128 replaced: under ``setnum`` this scene's

@@ -59,7 +59,9 @@ but only for ``--identity-rule setnum``, and they are written into the
 generated module as the legacy reading.  The controls that gate a crosswalk
 write are in ``check_crosswalk_controls`` and none of them comes from the
 crosswalk: the owner's two hand-confirmed placements, the Prison Exile block
-the owner confirmed by seven anchors, and the shipped town target's own row.
+the owner confirmed by SIGHT (not by the seven anchors an earlier draft of
+this file claimed - see the withdrawal note below), and the shipped town
+target's own row.
 
 ASCII ONLY, ON PURPOSE.  Every string written into the generated module is
 escaped so the file is pure ASCII.  ``CONSTDATA_TH__MOBS.s_NAME`` is CJK in this
@@ -112,10 +114,22 @@ CONTROL_UNAMBIGUOUS_COUNT = 115
 #           the rule this tool defaults to.
 # The two are not rivals: measured on the delivered tables, CLINE type 2 maps
 # Mob-Set 1..35 to n_ID 1..35 IDENTICALLY (35/35), which is exactly the
-# "MOBSET_NN = n_ID" rule the owner confirmed for Prison Exile by anchor on
-# 2026-08-27 20:10.  So the crosswalk REPRODUCES the owner's confirmed scene
-# and CORRECTS the one the owner rejected.  That agreement is checked, not
-# asserted: see ``check_controls``.
+# "MOBSET_NN = n_ID" rule PANYA-DECISION 2026-08-27T20:10 proposed for Prison
+# Exile.  So the crosswalk REPRODUCES the reading that scene ships and
+# CORRECTS the one the owner rejected on sight.  That agreement is checked,
+# not asserted: see ``check_crosswalk_controls``.
+# ~~"confirmed by seven anchors"~~ -- WITHDRAWN (pf-adversary, round szdkgs,
+# D4): the seven-anchor bar was the owner's own condition and lane A's record
+# never got past 2 of 7 (rounds/A_20260827_2145_*, notes_to_chief/
+# 20260827_2128_LANE-A-STATUS-*).  What actually confirmed scene 2 is a HIGHER
+# layer, not a bigger anchor count: COO-DECISION 20260828_2250 ("who promotes
+# a scene to confirmed") withdrew the seven-anchor bar and confirmed it on the
+# client-observable layer, the owner's own eyes (20260828_0150_M1P-RESULT-
+# PASS).  This control is worth exactly what it is: an implementation-layer
+# agreement with a scene the owner has separately confirmed by sight.
+# The same COO letter also records that setnum == n_ID holding for scene 2 is
+# a property of a block that happens to start at 1, which is why THIS tool
+# does not read that agreement as evidence that setnum is right anywhere else.
 IDENTITY_RULE_SETNUM = "setnum"
 IDENTITY_RULE_CLINE = "cline"
 IDENTITY_RULES = (IDENTITY_RULE_CLINE, IDENTITY_RULE_SETNUM)
@@ -342,6 +356,55 @@ def unambiguous_placements(
     return kept
 
 
+def unresolved_reason(sources: Sources, set_number: int, rule: str) -> str:
+    """WHY a placement was not carried, named rather than counted.
+
+    pf-adversary (round szdkgs, D8): "zero hostiles in this town" is a claim
+    about the placements the rule RESOLVES, and a bare ``continue`` for the
+    rest turns 9 unread rows into an implied zero.  Lane A's
+    ``world_port_royal_identity`` names its unresolvables with reasons; this
+    does the same for the roster side.
+    """
+    n_id = sources.resolve(set_number, rule)
+    if n_id is None:
+        return "cline_leader_is_zero_or_absent"
+    mob = sources.mobs.get(str(n_id))
+    if mob is None:
+        return "n_id_%d_has_no_MOBS_row" % n_id
+    outfit = (mob.get("s_OUTFIT") or "").strip()
+    if not outfit:
+        return "n_id_%d_has_no_avatar_template" % n_id
+    if ";" in outfit:
+        return "n_id_%d_avatar_is_a_variant_list" % n_id
+    return ""
+
+
+def unresolved_placements(sources: Sources, rule: str) -> list[dict]:
+    """Every placement this rule could NOT read, with its reason."""
+    out: list[dict] = []
+    for row in sources.placements:
+        template_ids = [
+            item.strip() for item in (row.get("template_ids") or "").split(",")
+            if item.strip()
+        ]
+        if len(template_ids) != 1:
+            out.append({
+                "placement_index": _int(row, "index", "placement"),
+                "set_number": 0,
+                "reason": "placement_names_%d_templates" % len(template_ids),
+            })
+            continue
+        set_number = int(template_ids[0])
+        reason = unresolved_reason(sources, set_number, rule)
+        if reason:
+            out.append({
+                "placement_index": _int(row, "index", "placement"),
+                "set_number": set_number,
+                "reason": reason,
+            })
+    return out
+
+
 def _roster_row(sources: Sources, item: tuple) -> dict:
     index, n_id, x, y, z, outfit, mob, set_number = item
     where = "MOBS row %d" % n_id
@@ -418,12 +481,30 @@ def withdrawn_under_rule(sources: Sources, rule: str) -> list[dict]:
             if item[0] == index:
                 resolved = _roster_row(sources, item)
                 break
+        set_number = was.get("set_number", was["template_id"])
+        if resolved is not None:
+            now_id = resolved["template_id"]
+            now_name = resolved["display_name"] or "(no MOBS_TIP name)"
+        else:
+            # pf-adversary D7: a row this rule cannot CARRY is not a row this
+            # rule cannot RESOLVE.  Mob-Set 94 resolves to 910 "Saben" and was
+            # dropped only for a variant-list avatar; printing 0 and an empty
+            # name there published an "unknown" the crosswalk can answer.
+            leader = sources.resolve(set_number, rule)
+            now_id = leader or 0
+            now_name = (
+                sources.display_name(leader) or "(no MOBS_TIP name)"
+                if leader else ""
+            )
+            now_name = "%s [not carried: %s]" % (
+                now_name, unresolved_reason(sources, set_number, rule),
+            )
         dropped.append({
             "placement_index": index,
             "was_template_id": was["template_id"],
             "was_display_name": was["display_name"],
-            "now_template_id": resolved["template_id"] if resolved else 0,
-            "now_display_name": resolved["display_name"] if resolved else "",
+            "now_template_id": now_id,
+            "now_display_name": now_name,
         })
     return dropped
 
@@ -459,9 +540,20 @@ def check_crosswalk_controls(sources: Sources) -> dict[str, str]:
        Columbus, Mob-Set 67 -> 802 Loie) must come back out of the CLINE
        block.  These are client-observable, the top of the evidence order.
     2. CLINE block 2 must map Mob-Set 1..35 to n_ID 1..35 identically - the
-       rule the owner confirmed for Prison Exile by seven anchors on
-       2026-08-27.  If the crosswalk and the owner's own scene disagreed,
-       this tool would be shipping a rule that contradicts a confirmed one.
+       reading Prison Exile ships, on a scene the owner confirmed by SIGHT
+       (COO-DECISION 20260828_2250; the seven-anchor bar it withdrew was
+       never met - lane A's record stopped at 2 of 7).  If the crosswalk and
+       that scene disagreed, this tool would be shipping a rule that
+       contradicts a confirmed one.  Measured over every CLINE block: type 2
+       is the ONLY block with any identity mapping at all, so this is not a
+       property of low-numbered rows.
+       The block is 1..35 and NOT 1..41 on purpose: PANYA-DECISION 2026-08-27
+       item 3 reads the island's block as 1-41, and CLINE disagrees there
+       (36->360, 37->230, 38->231, 39->742, 40->743, 41->914).  That
+       disagreement is reported in this round's letters rather than absorbed:
+       36 resolves to "Columbus / Marine Transport Station" on the same avatar
+       as 156, which is the harbour NPC the owner described, so the crosswalk
+       corrects the number while agreeing with the observation.
     3. The town target this lane ships must still BE what it is named as:
        n_ID 916, MOBS_TIP "Training Iron Man", level 100 with a
        STANDARD_MOB row.
@@ -646,7 +738,7 @@ HOSTILE_PLACEMENTS = [
 TOWN_TARGET_PLACEMENTS = [
 %(town_rows)s]
 
-# !! STILL THE OLD READING, ON PURPOSE, FOR ONE MORE ROUND.  Rows the previous
+%(pending_preamble)s# Rows the previous
 # identity rule selected here that this rule withdraws (they are townspeople,
 # see WITHDRAWN_UNDER_THIS_RULE for who each one really is).  They are kept in
 # what this lane ships because dropping them in the same round that corrects
@@ -686,16 +778,16 @@ WITHDRAWN_UNDER_THIS_RULE = [
 COMBAT_AI_AT_RANK_ZERO = [
 %(rank_zero_rows)s]
 
-# ~~The two constants this table used to be checked against.~~  Kept as the
-# record of the reading RE-128 replaced: under ``setnum`` this scene's
-# placement 30 read as MOBS 31 "Tornado Eagle", level 27, HP 3857 -- the
-# values ``v141`` froze as V119_P30_TARGET_NAME / V117_P30_EXACT_HP.  Under
-# ``cline`` that placement is Mob-Set 31 -> n_ID 248 "Da Vinci".
-LEGACY_SETNUM_READING_OF_PLACEMENT_30 = {
-    'template_id': 31, 'display_name': 'Tornado Eagle', 'level': 27,
-    'max_hp': 3857,
-}
-'''
+# (placement_index, set_number, reason) - placements this scene HAS that this
+# identity rule could not read at all.  Carried because "no placement in this
+# scene is hostile" is a claim about the rows the rule resolves, and a reader
+# is entitled to see the denominator and the skipped rows by name instead of
+# a count.  PREDICATE_CENSUS['unambiguous'] plus len(this list) is the scene's
+# whole placement count.
+UNRESOLVED_PLACEMENTS = [
+%(unresolved_rows)s]
+
+%(legacy_note)s'''
 
 
 def render_module(scene: str, roster: list[dict], digests: dict[str, str],
@@ -705,7 +797,8 @@ def render_module(scene: str, roster: list[dict], digests: dict[str, str],
                   withdrawn: list[dict] | None = None,
                   controls: dict[str, str] | None = None,
                   rank_zero_combat: list[dict] | None = None,
-                  pending: list[dict] | None = None) -> str:
+                  pending: list[dict] | None = None,
+                  unresolved: list[dict] | None = None) -> str:
     def _rows(items: list[dict]) -> str:
         out = []
         for item in items:
@@ -740,6 +833,35 @@ def render_module(scene: str, roster: list[dict], digests: dict[str, str],
            ascii(item["now_display_name"]))
         for item in withdrawn
     )
+    pending_preamble = ""
+    if pending:
+        pending_preamble = (
+            "# !! STILL THE OLD READING, ON PURPOSE, FOR ONE MORE ROUND.\n"
+        )
+    legacy_note = ""
+    if scene.strip().lower() == CONTROL_SCENE and pending:
+        legacy_note = (
+            "\n# ~~The two constants this table used to be checked "
+            "against.~~  Kept as the\n"
+            "# record of the reading RE-128 replaced: under ``setnum`` this "
+            "scene's\n"
+            "# placement 30 read as MOBS 31 \"Tornado Eagle\", level 27, HP "
+            "3857 -- the\n"
+            "# values ``v141`` froze as V119_P30_TARGET_NAME / "
+            "V117_P30_EXACT_HP.  Under\n"
+            "# ``cline`` that placement is Mob-Set 31 -> n_ID 248 "
+            "\"Da Vinci\".\n"
+            "LEGACY_SETNUM_READING_OF_PLACEMENT_30 = {\n"
+            "    'template_id': 31, 'display_name': 'Tornado Eagle', "
+            "'level': 27,\n"
+            "    'max_hp': 3857,\n"
+            "}\n"
+        )
+    unresolved_rows = "".join(
+        "    (%d, %d, %s),\n"
+        % (item["placement_index"], item["set_number"], ascii(item["reason"]))
+        for item in (unresolved or [])
+    )
     rank_zero_rows = "".join(
         "    (%d, %d, %s, %d),\n"
         % (item["placement_index"], item["template_id"],
@@ -771,6 +893,9 @@ def render_module(scene: str, roster: list[dict], digests: dict[str, str],
         "town_rows": _rows(town),
         "withdrawn_rows": withdrawn_rows,
         "rank_zero_rows": rank_zero_rows,
+        "unresolved_rows": unresolved_rows,
+        "pending_preamble": pending_preamble,
+        "legacy_note": legacy_note,
         "pending_rows": _rows(pending),
         "rule_per_placement": rule_per_placement,
     }
@@ -857,6 +982,7 @@ def main(argv: list[str]) -> int:
             rule=rule, cline_type=sources.cline_type, town=town,
             withdrawn=withdrawn, controls=controls,
             rank_zero_combat=rank_zero_combat, pending=pending,
+            unresolved=unresolved_placements(sources, rule),
         )
     except MineError as exc:
         print("REFUSED: %s" % exc, file=sys.stderr)

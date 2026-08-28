@@ -24,6 +24,145 @@
     "town_target": 4,
     "unambiguous": 140
   },
+  "identity_rule": "cline",
+  "identity_rule_per_placement": {
+    "12": "setnum",
+    "30": "setnum",
+    "33": "setnum",
+    "58": "setnum",
+    "59": "setnum",
+    "60": "setnum",
+    "63": "setnum",
+    "95": "setnum",
+    "103": "cline",
+    "105": "cline",
+    "107": "cline",
+    "109": "cline",
+    "132": "setnum"
+  },
+  "legacy_setnum_pending_migration": [
+    12,
+    30,
+    33,
+    58,
+    59,
+    60,
+    63,
+    95,
+    132
+  ],
+  "withdrawn_under_this_rule": [
+    {
+      "placement_index": 12,
+      "was_template_id": 35,
+      "was_display_name": "Fighting Fish Sergeant",
+      "now_template_id": 359,
+      "now_display_name": "Deserter Navy"
+    },
+    {
+      "placement_index": 30,
+      "was_template_id": 31,
+      "was_display_name": "Tornado Eagle",
+      "now_template_id": 248,
+      "now_display_name": "Da Vinci"
+    },
+    {
+      "placement_index": 33,
+      "was_template_id": 34,
+      "was_display_name": "Fighting Fish soldier",
+      "now_template_id": 358,
+      "now_display_name": "Babu"
+    },
+    {
+      "placement_index": 58,
+      "was_template_id": 60,
+      "was_display_name": "Jungle Big Tiger",
+      "now_template_id": 741,
+      "now_display_name": "Juliet"
+    },
+    {
+      "placement_index": 59,
+      "was_template_id": 61,
+      "was_display_name": "Toxic Vine",
+      "now_template_id": 796,
+      "now_display_name": "Sase"
+    },
+    {
+      "placement_index": 60,
+      "was_template_id": 62,
+      "was_display_name": "Ancient Civilization Alert Weapon",
+      "now_template_id": 797,
+      "now_display_name": "Jonathan"
+    },
+    {
+      "placement_index": 63,
+      "was_template_id": 65,
+      "was_display_name": "Ward Apes",
+      "now_template_id": 800,
+      "now_display_name": "Remad"
+    },
+    {
+      "placement_index": 95,
+      "was_template_id": 94,
+      "was_display_name": "An Gebo Little Firebird",
+      "now_template_id": 910,
+      "now_display_name": "Saben [not carried: n_id_910_avatar_is_a_variant_list]"
+    },
+    {
+      "placement_index": 132,
+      "was_template_id": 103,
+      "was_display_name": "Orc Chief",
+      "now_template_id": 917,
+      "now_display_name": "(no MOBS_TIP name)"
+    }
+  ],
+  "unresolved_placements": [
+    {
+      "placement_index": 0,
+      "set_number": 1,
+      "reason": "n_id_155_has_no_MOBS_row"
+    },
+    {
+      "placement_index": 75,
+      "set_number": 76,
+      "reason": "n_id_819_has_no_MOBS_row"
+    },
+    {
+      "placement_index": 83,
+      "set_number": 101,
+      "reason": "n_id_10002_has_no_avatar_template"
+    },
+    {
+      "placement_index": 86,
+      "set_number": 86,
+      "reason": "cline_leader_is_zero_or_absent"
+    },
+    {
+      "placement_index": 87,
+      "set_number": 87,
+      "reason": "cline_leader_is_zero_or_absent"
+    },
+    {
+      "placement_index": 95,
+      "set_number": 94,
+      "reason": "n_id_910_avatar_is_a_variant_list"
+    },
+    {
+      "placement_index": 145,
+      "set_number": 110,
+      "reason": "n_id_9107_has_no_MOBS_row"
+    },
+    {
+      "placement_index": 147,
+      "set_number": 112,
+      "reason": "n_id_937_has_no_MOBS_row"
+    },
+    {
+      "placement_index": 148,
+      "set_number": 113,
+      "reason": "n_id_942_has_no_MOBS_row"
+    }
+  ],
   "hostility": {
     "basic_attr_mask_bit": 1024,
     "wire_tag": 20,
@@ -296,7 +435,8 @@
     "named AND hostile in one body has never been on the wire: the named half is V119/V117, the hostile half is GT-032, the combination is new",
     "no claim about NAME COLOUR - what decides it is RE-067, open, lane C. [STALE as of pf_bridge/CLIENT_RE_QUEUE.md chief R163/R165, 2026-08-25, round dvxb6f] [MEASURED]: RE-067 is CLOSED (PASS/MIXED, actor half BOUNDED NEGATIVE) - still no claim about name colour, but the static-layer search is finished, not open; GT-084/RIDER-084-A carries the client-observable question now",
     "no aggro, no attack, no death, no drop: this lane builds the monster, not the fight",
-    "max_hp is DERIVED from STANDARD_MOB by level; the two frozen controls it re-derives are placement 30 only",
+    "max_hp is DERIVED from STANDARD_MOB by level.  ~~the two frozen controls it re-derives are placement 30 only~~ - round szdkgs: those two v141 constants came out of a run of the same set-number reading they were checking, so they are no longer the control on identity; they are held as a pin on the LEGACY reading nine of these rows still ship, and the derived column is checked against a hand-written level/HP literal for the four crosswalk rows",
+    "nine of the thirteen rows below still carry the set-number reading this round's own finding calls false: they are Port Royal townspeople shipped with monster names and the field-mob faction, listed per row under withdrawn_under_this_rule, and migrating them is this lane's next round, not a claim of this one",
     "nothing imports this module, so on its own it changes nothing the player sees",
     "RE-098 (2026-08-27, DONE / BOUNDED-NEGATIVE) closed off using the raw definition payload's b5/b15/u32@11 as level/rank/spawn-rate shortcuts - none of the three matched on the measured crosswalk. This module never read those bytes; level/rank/max_hp come from MOBS/STANDARD_MOB proper",
     "HEADINGS (the four spawn-facing values below) is OUR synthetic cosmetic round-robin, not recovered per-placement data - RE-116 (2026-08-28, DONE / BOUNDED-NEGATIVE) confirmed the wire mechanism (MovementAttr+0x34, mask bit 0x02, exactly what hostile_actor_entry already sends) but found no crosswalk from either the raw .npc placement bytes or CONSTDATA_TH__MARKER.n_DIRTECTION to an authentic per-mob heading value"
