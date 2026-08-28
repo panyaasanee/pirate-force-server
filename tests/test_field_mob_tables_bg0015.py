@@ -75,9 +75,28 @@ BG0001_UNTOUCHED_SHA256 = (
 BG0001_UNTOUCHED_SIZE = 9708
 
 EXPECTED_SCENE = "Bg0015"
-EXPECTED_HOSTILE_COUNT = 17
-EXPECTED_TEMPLATE_COUNT = 4
-EXPECTED_UNAMBIGUOUS = 76
+# ROUND ua236k: this scene is now mined under ``cline``, by
+# COO-DECISION 20260829_0345 ("cline เป็นกฎอ่านตัวตนของทุกฉาก ตั้งแต่วันนี้").
+# The previous numbers are kept, not deleted, so the size of the change is
+# auditable from either side: ~~17 hostiles, 4 templates, 76 unambiguous~~
+# under the set-number reading.
+#
+# WHAT MOVED AND WHY IT IS NOT A REGRESSION.  CLINE type 14 -- this scene's
+# own type -- agrees with the set-number reading on ZERO of its 51 rows
+# (pinned in tests/test_scene_identity_rule.py), so every identity in this
+# table changed.  The set-number reading had Hell Volcanic Island populated
+# by Port Royal's level-25 Fighting Fish soldiers and Tornado Eagles; the
+# crosswalk gives level-105 Glaucoma, Lava shakers and Horror butcher Lasa.
+# That is the GT-078 failure mode -- a whole map wearing another map's names
+# -- caught before anything was wired to it rather than after.
+EXPECTED_HOSTILE_COUNT = 12
+EXPECTED_TEMPLATE_COUNT = 7
+EXPECTED_UNAMBIGUOUS = 36
+# NOT equal to EXPECTED_HOSTILE_COUNT any more, and the inequality is the
+# finding rather than a rounding error: placement 87 resolves to MOBS 924
+# (Carlos, level 115), which has rank and combat AI but n_DROP_NORMAL 0.  The
+# old test asserted one constant for both and would have hidden this.
+EXPECTED_DROPS_NORMAL = 11
 
 
 def _load_tool():
@@ -218,28 +237,26 @@ class Bg0015RegenerateAndDiffTest(unittest.TestCase):
     def test_regenerating_reproduces_the_committed_module_byte_for_byte(self) -> None:
         tool = _load_tool()
         sources = tool.Sources(GAMEDATA, EXPECTED_SCENE)
-        tool.check_controls(sources)
-        census = tool.predicate_census(sources)
-        roster = tool.hostile_roster(sources)
-        # Round szdkgs: the generator grew an identity rule and this scene is
-        # still mined under the legacy set-number one, on purpose -- see
-        # LEGACY_SETNUM_PLACEMENTS_PENDING_MIGRATION in bg0001's module and
-        # this lane's round note.  The call below names that rule explicitly
-        # rather than inheriting the tool's new default, so a future round
-        # that re-mines this scene through the crosswalk has to come here and
-        # say so.
+        rule = tool.IDENTITY_RULE_CLINE
+        controls = tool.check_crosswalk_controls(sources)
+        census = tool.predicate_census(sources, rule)
+        roster = tool.hostile_roster(sources, rule)
+        # ~~Round szdkgs: the generator grew an identity rule and this scene
+        # is still mined under the legacy set-number one, on purpose.~~
+        # ROUND ua236k: re-mined through the crosswalk, which is what that
+        # comment said a future round would have to come here and say.  The
+        # rule is still named explicitly rather than inherited from the
+        # tool's default, for the same reason: a change of default must not
+        # silently change what this scene ships.
         regenerated = tool.render_module(
             EXPECTED_SCENE, roster, sources.digests(), census,
-            rule=tool.IDENTITY_RULE_SETNUM, cline_type=sources.cline_type,
-            controls={"legacy_setnum_controls": "re-derived"},
-            withdrawn=tool.withdrawn_under_rule(
-                sources, tool.IDENTITY_RULE_SETNUM),
-            unresolved=tool.unresolved_placements(
-                sources, tool.IDENTITY_RULE_SETNUM),
+            rule=rule, cline_type=sources.cline_type,
+            controls=controls,
+            withdrawn=tool.withdrawn_under_rule(sources, rule),
+            unresolved=tool.unresolved_placements(sources, rule),
             rank_zero_combat=[
                 tool._roster_row(sources, item)
-                for item in tool.unambiguous_placements(
-                    sources, tool.IDENTITY_RULE_SETNUM)
+                for item in tool.unambiguous_placements(sources, rule)
                 if tool._nonzero(item[6], "n_AI_COMBAT")
                 and not tool._nonzero(item[6], "n_RANK")
             ],
@@ -255,22 +272,46 @@ class Bg0015RegenerateAndDiffTest(unittest.TestCase):
     def test_the_predicate_census_matches_the_recorded_finding(self) -> None:
         tool = _load_tool()
         sources = tool.Sources(GAMEDATA, EXPECTED_SCENE)
-        census = tool.predicate_census(sources)
+        census = tool.predicate_census(sources, tool.IDENTITY_RULE_CLINE)
         self.assertEqual(census["unambiguous"], EXPECTED_UNAMBIGUOUS)
         self.assertEqual(census["ai_combat"], EXPECTED_HOSTILE_COUNT)
-        self.assertEqual(census["drops_normal"], EXPECTED_HOSTILE_COUNT)
         self.assertEqual(census["rank"], EXPECTED_HOSTILE_COUNT)
         self.assertEqual(census["rank_and_ai_combat"], EXPECTED_HOSTILE_COUNT)
+        self.assertEqual(
+            census["drops_normal"], EXPECTED_DROPS_NORMAL,
+            "one hostile here has no normal drop table (MOBS 924, Carlos).  "
+            "If this equals the hostile count again, either the roster or "
+            "the drop tables moved -- find out which before re-pinning."
+        )
 
-    def test_hostile_roster_count_is_seventeen_from_live_gamedata(self) -> None:
+    def test_hostile_roster_count_is_twelve_from_live_gamedata(self) -> None:
+        """~~seventeen~~ twelve, under the crosswalk (round ua236k).
+
+        Renamed rather than left saying "seventeen" with a 12 inside it; the
+        pin in docs/PYTEST_SKIP_PINS.json moves in this same commit.
+        """
         tool = _load_tool()
         sources = tool.Sources(GAMEDATA, EXPECTED_SCENE)
-        tool.check_controls(sources)
-        roster = tool.hostile_roster(sources)
+        roster = tool.hostile_roster(sources, tool.IDENTITY_RULE_CLINE)
         self.assertEqual(len(roster), EXPECTED_HOSTILE_COUNT)
         self.assertEqual(
             len({row["template_id"] for row in roster}), EXPECTED_TEMPLATE_COUNT
         )
+
+    def test_this_scene_agrees_with_the_legacy_rule_on_nothing(self) -> None:
+        """The reason the whole table changed, as a number rather than prose.
+
+        If this ever returns a non-zero agreement, the two readings have
+        started to overlap for this scene and the "every identity changed"
+        sentence in this file's constants block is no longer true.
+        """
+        sys.path.insert(0, str(SRC))
+        from pirateforce_foundation import scene_identity_rule as sir
+
+        cline_type = _load_generated_module().SCENE_CLINE_TYPE
+        self.assertEqual(cline_type, sir.SCENE_CLINE_TYPE[EXPECTED_SCENE])
+        agreeing, total = sir.agreement(cline_type)
+        self.assertEqual((agreeing, total), (0, 51))
 
 
 if __name__ == "__main__":

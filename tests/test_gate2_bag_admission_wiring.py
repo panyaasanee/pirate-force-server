@@ -339,6 +339,13 @@ class OnlyTheCharacterSelectPathAsksThisPredicate(unittest.TestCase):
             "src/pirateforce_foundation/runtime.py",
             "tests/test_bag_admission.py",
             "tests/test_gate2_bag_admission_wiring.py",
+            # Added by LANE-B, round ua236k.  COO-DECISION 20260829_0441
+            # item 2 ordered the interim rule's expiry written into the
+            # module; this file is the test that makes that expiry fail a
+            # run instead of reading the same forever.  It is a test OF
+            # bag_admission, which is what this allowlist is for -- not a
+            # caller reaching for the predicate from outside the package.
+            "tests/test_bag_admission_expiry.py",
             "docs/FUNCTIONAL_COVERAGE.json",
         }
         elsewhere = sorted(
