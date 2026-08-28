@@ -267,7 +267,6 @@ class GmCommandCaptureTests(unittest.TestCase):
         else:
             self.assertTrue(nested_root.is_dir())
 
-    @unittest.skipUnless(os.name == "posix", "POSIX mode bits only")
     def test_capture_directory_mode_is_retightened_on_a_preexisting_loose_directory(self):
         # pf-adversary (verification pass, same round): `mkdir(...,
         # exist_ok=True)` is a silent no-op when the directory already
@@ -282,17 +281,28 @@ class GmCommandCaptureTests(unittest.TestCase):
         # function under test (standing in for "some earlier call, or the
         # other function, created it under a permissive umask"), then call
         # with a strict umask and assert the mode is retightened anyway.
+        #
+        # No POSIX mode bits to check on Windows (same caveat as the
+        # sibling first-creation test above) -- this test's own precondition
+        # (a directory already sitting at a loose mode) cannot be
+        # constructed there either, so it only runs its assertions on
+        # POSIX; the call under test still runs and must still succeed on
+        # every OS.
         nested_root = Path(self.root) / "preexisting"
         nested_root.mkdir(mode=0o777, parents=True)
-        os.chmod(nested_root, 0o777)
-        self.assertEqual(stat.S_IMODE(nested_root.stat().st_mode), 0o777)
+        if os.name == "posix":
+            os.chmod(nested_root, 0o777)
+            self.assertEqual(stat.S_IMODE(nested_root.stat().st_mode), 0o777)
         old_umask = os.umask(0o022)
         try:
             capture_raw_gm_command(b"x", "panya", capture_root=nested_root, now_ts=0)
         finally:
             os.umask(old_umask)
-        mode = stat.S_IMODE(nested_root.stat().st_mode)
-        self.assertEqual(mode, 0o700, oct(mode))
+        if os.name == "posix":
+            mode = stat.S_IMODE(nested_root.stat().st_mode)
+            self.assertEqual(mode, 0o700, oct(mode))
+        else:
+            self.assertTrue(nested_root.is_dir())
 
     def test_collision_loop_bound_does_not_affect_a_realistic_capture_count(self):
         # The real-world guard this bound exists next to (gm/dispatch.py's
