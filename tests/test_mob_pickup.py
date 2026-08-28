@@ -24,11 +24,14 @@ it compares ONE governed row, and a shim that moved a constant OUTSIDE the
 seven ItemAttr fields sailed through it.
 
 ``test_the_governed_allowlist_is_the_wall_this_lane_stops_at`` pins the
-BLOCKER as a test.  BUILD-006 asks for "relog and it is still there"; the
-world-entry wire build (and the HYP-PF-008 opt-in gate) are still
-content-governed by a lane this one does not own -- COO-DECISION 20260826_0950
-(a) moved the character-SELECT load itself off that gate, but not those two --
-and a round that only wrote that in prose would be a round whose prose rots.
+BLOCKER as a test.  BUILD-006 asks for "relog and it is still there";
+COO-DECISION 20260826_0950 (a) moved the character-SELECT LOAD off the
+content gate, and COO-DECISION 20260828_0844 moved the WORLD-ENTRY WIRE
+BUILD off it too (a narrow scope grant to this lane, since no separate item
+lane exists to do it) -- but the HYP-PF-008 opt-in gate
+(``is_unmoved_baseline``) is unchanged and deliberately out of that grant, so
+the wall still stands there.  And a round that only wrote that in prose would
+be a round whose prose rots.
 """
 
 import ast
@@ -1042,8 +1045,9 @@ class MobPickupTests(unittest.TestCase):
         def poisoned_connect(*args, **kwargs):
             raise AssertionError(
                 "dispatch_pickup_request must never open a database "
-                "connection -- persistence is refused until the item lane "
-                "widens inventory.require_known_backpack")
+                "connection -- gate 2 (is_unmoved_baseline) still refuses "
+                "a relog with a picked-up item, so persistence stays a log, "
+                "not an INSERT")
 
         bag_cell = BagCell(INITIAL_BACKPACK, CHARACTER)
         ground = a_cell(a_drop())
@@ -1295,40 +1299,74 @@ class MobPickupTests(unittest.TestCase):
     def test_the_governed_allowlist_is_the_wall_this_lane_stops_at(self):
         """BUILD-006's relog row, pinned as the blocker it actually is.
 
-        COO-DECISION 20260826_0950 (a) tore down exactly one third of this:
+        COO-DECISION 20260826_0950 (a) tore down the first third of this:
         the character-SELECT load (``store._load_backpack``) is now
         ``inventory.require_backpack_shape``, which only checks structure, so
-        this ONE layer no longer rejects a bag holding a picked-up item.
-        That is necessary but not sufficient for a relog: Gate 2
+        that ONE layer no longer rejects a bag holding a picked-up item.
+        COO-DECISION 20260828_0844 tore down the third third: the world-entry
+        wire build (``inventory.make_backpack_attr``) now also calls
+        ``require_backpack_shape`` instead of ``require_known_backpack``, so
+        it can serialize the same bag too -- a narrow grant to this lane,
+        since no separate item lane exists to have done it instead.  Gate 2
         (``session.select_and_start``'s ``is_unmoved_baseline`` opt-in check)
-        and Gate 3 (``make_backpack_attr``'s wire encoder, which only knows
-        how to serialize the two golden snapshots) were deliberately NOT
-        touched -- an attempt to narrow Gate 2 too was tried and reverted the
-        same round, because it turned out to be the exact gate
+        is the one gate deliberately left standing: an earlier attempt to
+        narrow it too was tried and reverted in the same round it was tried,
+        because it turned out to be the exact gate
         ``tests/test_item_move_generalized.py::test_moved_state_reconnect_is_opt_in_and_baseline_fails_closed``
         needs at full strength to keep a HYP-PF-010/017/018 mutated state
-        from reconnecting without its own opt-in flag -- so both still
-        refuse this exact bag, and BUILD-006's blocker is still real: a
-        picked-up item still cannot survive a relog end to end. The day any
-        of the three gates is widened, THIS test goes red and this lane's
-        prose must be rewritten in the same round.
+        from reconnecting without its own opt-in flag.  So Gate 2 alone still
+        refuses this exact bag, and BUILD-006's blocker is still real: a
+        picked-up item still cannot survive a relog end to end, even though
+        two of the three gates that used to stop it no longer do.  The day
+        Gate 2 is also widened, THIS test goes red and this lane's prose must
+        be rewritten in the same round.
         """
         bag, item = place_in_bag(INITIAL_BACKPACK, a_drop())
-        # Gate 1: store._load_backpack -- shape only now, this bag is
+        # Gate 1: store._load_backpack -- shape only, this bag is
         # structurally fine (unique identities, unique slots, in-range
         # fields), so it loads.
         inventory.require_backpack_shape(bag)
         with self.assertRaises(ValueError):
             inventory.require_known_backpack(bag)
         # Gate 2: session.select_and_start, which answers with no reply.
+        # This is the gate that actually still stops a relog.
         self.assertFalse(inventory.is_unmoved_baseline(bag))
-        # Gate 3: the world-entry attr build.
-        with self.assertRaises(ValueError):
-            inventory.make_backpack_attr(self.legacy, bag)
+        # Gate 3: the world-entry attr build -- WIDENED this round
+        # (COO-DECISION 20260828_0844).  It no longer raises for this bag;
+        # it serializes it, structurally identical to the four-item golden's
+        # own encoding, just with a fifth ItemAttr appended.
+        wire = inventory.make_backpack_attr(self.legacy, bag)
+        self.assertIsInstance(wire, bytes)
+        # The encoder writes each identity twice by design (the full ItemAttr
+        # record, then the trailing identity-only index) -- see
+        # inventory.make_backpack_attr's two item loops.
+        self.assertEqual(wire.count(self.legacy.qwordtag(0x32, item.identity)), 2)
+        # The two golden snapshots still byte-pin exactly as before -- gate 3
+        # widening must not be allowed to drift the frozen encoding.
+        self.assertEqual(
+            inventory.make_backpack_attr(self.legacy, INITIAL_BACKPACK),
+            self.legacy.make_backpack_attr_four_items())
         self.assertTrue(mob_pickup.GOVERNED_BAG_ALLOWLIST_BLOCKS_PERSISTENCE)
         self.assertEqual(item.identity, 5)
-        # And the shape itself is fine -- it is the CONTENTS that are governed.
+        # And the shape itself is fine -- it is Gate 2 that still governs.
         require_bag_shape(bag)
+
+    def test_gate_3_widening_does_not_touch_the_content_aware_operations(self):
+        """COO-DECISION 20260828_0844 widened ONE function, not the family.
+
+        ``make_backpack_attr`` now accepts any structurally valid bag, but
+        ``move_known_item_to_free_slot`` / ``swap_known_item_with_occupied_slot``
+        / ``merge_known_item_into_occupied_slot`` all still call
+        ``require_known_backpack`` on entry and must still refuse the exact
+        same drifted bag -- the decision's scope was the encoder only.
+        """
+        bag, _item = place_in_bag(INITIAL_BACKPACK, a_drop())
+        with self.assertRaises(ValueError):
+            inventory.move_known_item_to_free_slot(bag, 1, 10)
+        with self.assertRaises(ValueError):
+            inventory.swap_known_item_with_occupied_slot(bag, 1, 1)
+        with self.assertRaises(ValueError):
+            inventory.merge_known_item_into_occupied_slot(bag, 1, 1)
 
     def test_the_lane_never_says_a_pickup_survives_a_relog(self):
         outcome = BagCell(INITIAL_BACKPACK, CHARACTER).commit_pickup(

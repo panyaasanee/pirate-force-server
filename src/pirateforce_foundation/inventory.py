@@ -141,12 +141,16 @@ def require_known_backpack(value: Any) -> BackpackState:
     """Accept exact known contents with unique slots in the visible 40-slot bag.
 
     Still the gate for every item-content-aware operation (moving, merging,
-    swapping a known item; serializing the wire ActorAttr in
-    ``make_backpack_attr``) -- HYP-PF-010/017 and the wire encoder are all
-    scoped to the two exact snapshots below and stay that way until a real
-    item model lands (``M5``).  It is no longer the gate the character-select
-    path (``store._load_backpack``) runs; that one is ``require_backpack_shape``
-    above.
+    swapping a known item) -- HYP-PF-010/017/018 stay scoped to the two exact
+    snapshots below until a real item model lands (``M5``).  It is no longer
+    the gate the character-select LOAD path (``store._load_backpack``) runs
+    (that is ``require_backpack_shape`` above), and, per COO-DECISION
+    20260828_0844 (mob-pickup gate-3 scope grant to lane B), it is no longer
+    the gate ``make_backpack_attr``'s wire encoder runs either -- that
+    function now calls ``require_backpack_shape`` directly so it can
+    serialize a structurally valid bag holding a picked-up item.  This
+    function's own two-golden restriction is unchanged for the move/swap/
+    merge family; widening it further is still out of scope.
     """
     value = require_backpack_shape(value)
     content = tuple(_item_content_signature(item) for item in value.items)
@@ -453,8 +457,25 @@ def make_item_merge_delta_response(
 
 
 def make_backpack_attr(legacy: Any, state: BackpackState) -> bytes:
-    """Serialize one governed state using frozen tagged primitives."""
-    state = require_known_backpack(state)
+    """Serialize any structurally valid Backpack using frozen tagged primitives.
+
+    COO-DECISION 20260828_0844 widened this encoder's gate from
+    ``require_known_backpack`` (the two exact V111 golden snapshots only) to
+    ``require_backpack_shape`` (structure only, same gate ``store.
+    _load_backpack`` already runs) -- the narrow scope that decision granted:
+    generalize the WIRE ENCODER past the two goldens, nothing more.  The two
+    golden snapshots still byte-pin below, so a drift in either one is still
+    caught here exactly as before.  This does NOT by itself make a
+    picked-up item survive a relog: ``session.select_and_start``'s
+    ``is_unmoved_baseline`` gate (Gate 2, mob_pickup.py's THE WALL) still
+    refuses any non-baseline bag before this encoder would ever run for one,
+    and that gate is unchanged and out of this decision's scope.  Persisting
+    a claimed item (an actual ``character_backpack_items`` INSERT) is a
+    separate decision this round does not make either -- ``mob_pickup.
+    dispatch_pickup_request`` keeps logging ``MOB_PICKUP_ROW_WOULD_INSERT``
+    rather than writing one.
+    """
+    state = require_backpack_shape(state)
     required = {
         "BACKPACK_ATTR": 0x1F81,
         "V103_ITEM_SEQUENCE": 1,

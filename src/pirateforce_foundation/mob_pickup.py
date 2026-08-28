@@ -18,11 +18,13 @@ cursor, no clock and no socket, and ``runtime.py`` / ``store.py`` are the
 chief's files.  It produces the row and the bytes; the chief wires them.  And
 there is a REAL WALL past that, which this module refuses to hide (see THE
 WALL below): the persisted bag is content-governed, so a bag holding an item
-this lane created is REFUSED at the next character SELECT by
-``inventory.require_known_backpack``.  Until that allowlist is widened by the
-lane that owns it, "relog and it is still there" CANNOT be true, and no test,
-report or PR from this lane may say it is.  ``tests/test_mob_pickup.py`` pins
-that wall as a test rather than a sentence, so it turns red the day it moves.
+this lane created was REFUSED at the next character SELECT by THREE gates,
+one of which (the wire encoder) COO-DECISION 20260828_0844 has now widened --
+the other two still refuse, so "relog and it is still there" STILL CANNOT be
+true, and no test, report or PR from this lane may say it is.
+``tests/test_mob_pickup.py`` pins the wall as a test rather than a sentence,
+so it turns red the day any gate moves -- Gate 3 moved this round and that
+test was updated in the SAME round.
 
 NO FLAG, AND THAT IS THE POINT.  ``production_allowed`` is True.  There is no
 scenario id, no dispatch kwarg, no unlock object and no allowlisted profile in
@@ -163,36 +165,58 @@ from passing a HYP-PF-010/017/018-mutated state back into a plain reconnect
 without that hypothesis's own opt-in flag.  ``is_unmoved_baseline`` guards
 EVERY governed mutation's post-state, not only the one HYP-PF-008 names, and
 narrowing it to "just the slot-2 case" silently let every other mutated
-state back in unguarded.  So gate 2 is unchanged, and this round only moved:
+state back in unguarded.  So gate 2 was left unchanged that round, and it
+only moved:
 
     1. store._load_backpack now calls require_backpack_shape -- structure
        only, no content restriction.  A drifted row LOADS from the DB.
     2. session.select_and_start -> is_unmoved_baseline -> PermissionError
        is UNCHANGED.  A drifted row that reaches here (real gameplay drift,
        not a governed mutation) is STILL refused here, exactly as before --
-       this round did not find a way to tell "real item event" apart from
+       that round did not find a way to tell "real item event" apart from
        "governed hypothesis mutation" that doesn't also break the latter's
        own reconnect guard, so it did not try.
     3. legacy_bridge.start_game -> make_backpack_attr -> require_known_backpack
-       is unchanged too, and would still refuse a drifted bag even if gate 2
-       let one through -- there is no wire encoder for content outside the
-       two goldens (M5, a real item model, is out of scope here).
+       was unchanged too then, and would still refuse a drifted bag even if
+       gate 2 let one through -- there was no wire encoder for content
+       outside the two goldens.
 
-So the character-select ValueError-hang bug IS fixed: gate 1's ValueError is
-no longer possible (shape now loads unconditionally), and runtime.py's
-broadened ``except (ValueError, RuntimeError)`` (this round, prints
-``BACKPACK_LOAD_REFUSED``) is a real defense-in-depth improvement for
-whatever DOES still raise past gate 1 -- including gate 2's own
-PermissionError, which that handler already caught before this round too.
-But a bag that has genuinely drifted (a real item event, once one exists)
-still cannot select/enter today: it is refused at gate 2, cleanly, same as
-before this round.  Full relog with a drifted bag needs gate 2 redesigned to
+COO-DECISION 20260828_0844 (mob-pickup gate-3 scope grant, answering this
+lane's own ``20260828_0740_LANE-B-ASK-COO-...`` escalation) then widened
+gate 3 ONLY, narrowly: no separate "item lane" exists, no other lane holds
+``inventory.py``/``legacy_bridge.py``, and the wire fields were already fully
+proven (HYP-PF-010/017), so the remaining work was reusing an already-proven
+encoder, not new reverse engineering.  ``inventory.make_backpack_attr`` now
+calls ``require_backpack_shape`` (structure only) instead of
+``require_known_backpack`` (content-restricted) -- it can serialize any
+structurally valid bag, including one holding a picked-up item, while the
+two golden snapshots still byte-pin exactly as before (a drift in either one
+is still caught).  Gate 2 is explicitly OUT of that grant and stays
+unchanged: ``is_unmoved_baseline`` still refuses any non-baseline bag at
+``session.select_and_start``, before gate 3 would ever run for one.  So the
+gates now read:
+
+    1. store._load_backpack -> require_backpack_shape -- structure only,
+       UNCHANGED since COO-DECISION 20260826_0950 (a).
+    2. session.select_and_start -> is_unmoved_baseline -> PermissionError --
+       STILL UNCHANGED.  This is the gate that actually stops a relog today.
+    3. legacy_bridge.start_game -> make_backpack_attr -> require_backpack_shape
+       -- WIDENED this round.  No longer the blocker; gate 2 is.
+
+So the character-select ValueError-hang bug IS fixed (gate 1, prior round),
+and the wire encoder can now serialize a bag holding a picked-up item (gate
+3, this round) -- but a bag that has genuinely drifted still cannot
+select/enter today: it is refused at gate 2, cleanly, exactly as before both
+rounds.  Full relog with a drifted bag needs gate 2 redesigned to
 distinguish real gameplay drift from a governed hypothesis's own post-state
--- that needs a way to tell them apart that does not exist yet, and is not
-this round's work.  None of those three files belongs to this lane, so this
-module does not touch them. What it does instead is produce ``BagRowWrite``,
-which names the exact INSERT, and refuse to pretend
-the round after it is free.
+-- that redesign is deferred (COO-DECISION 20260827_1350, targeted for the
+first week of M5) and is not this round's work either.  ``inventory.py`` and
+``legacy_bridge.py`` remain outside this lane's ordinary write zone; this
+round's two edits there are the exact narrow scope COO-DECISION 20260828_0844
+granted, nothing wider.  ``MOB_PICKUP_ROW_WOULD_INSERT`` (see
+``dispatch_pickup_request`` below) stays a LOG, not an INSERT, because
+persistence was never part of this grant and gate 2 still blocks the relog
+that would prove it safe.
 """
 
 from __future__ import annotations
@@ -280,9 +304,11 @@ MOB_PICKUP_WIRING = (
     "in resolve_claim.\n"
     "  3. STOP: PERSISTING outcome.row_write WITH AN INSERT INTO "
     "character_backpack_items IS NOT SAFE YET.  See THE WALL in the module "
-    "docstring: the character-select path refuses a bag holding it.  The "
-    "item lane must widen inventory.require_known_backpack FIRST.  When it "
-    "does, the column order is BagRowWrite.COLUMNS and the values are "
+    "docstring: the character-select path still refuses a bag holding it, at "
+    "gate 2 (is_unmoved_baseline) -- COO-DECISION 20260828_0844 widened gate "
+    "3's wire encoder, but gate 2 is unchanged and deliberately out of that "
+    "grant.  When gate 2 is redesigned, the column order is "
+    "BagRowWrite.COLUMNS and the values are "
     "outcome.row_write.values().  Until then, dispatch_pickup_request "
     "already logs the row it would have written (token "
     "MOB_PICKUP_ROW_WOULD_INSERT, via bag_row_write_console_line) and calls "
@@ -385,9 +411,13 @@ PIN_ID = "port_royal_field_mob_pickup_001"
 PIN_BUILD_ORDER = MOB_PICKUP_BUILD_ORDER
 PIN_LANE = MOB_PICKUP_LANE
 
-# The one thing on the far side of this lane that is NOT this lane's to move.
+# Gate 3 (the wire encoder) was widened by COO-DECISION 20260828_0844; Gate 2
+# is what actually still blocks persistence, and it is deliberately NOT this
+# lane's to move (deferred redesign, COO-DECISION 20260827_1350).
 GOVERNED_BAG_ALLOWLIST_BLOCKS_PERSISTENCE = True
-GOVERNED_BAG_ALLOWLIST_OWNER = "inventory.require_known_backpack (item lane)"
+GOVERNED_BAG_ALLOWLIST_OWNER = (
+    "session.select_and_start.is_unmoved_baseline (gate 2, deferred redesign)"
+)
 
 MOB_PICKUP_NONCLAIMS = (
     "1. Nothing dispatches this module.  MOB_PICKUP_WIRING is a request to "
@@ -436,11 +466,14 @@ MOB_PICKUP_NONCLAIMS = (
     "every other drop survives, and only this player's item is gone.  A "
     "put-back is not possible either: mob_loot never reuses a key, so a taken "
     "row cannot be returned to the ground under the key the client was shown.",
-    "9. STOP: RELOG IS NOT CLOSED BY THIS ROUND.  The persisted bag is content-"
-    "governed by inventory.require_known_backpack, which belongs to the "
-    "item lane.  Persisting a picked-up item BEFORE that judgement is widened "
-    "does not merely fail to persist: it makes the character unable to enter "
-    "the world at all.",
+    "9. STOP: RELOG IS STILL NOT CLOSED, EVEN NOW THAT COO-DECISION "
+    "20260828_0844 HAS WIDENED GATE 3.  inventory.make_backpack_attr no "
+    "longer refuses a drifted bag's CONTENT (it calls require_backpack_shape, "
+    "not require_known_backpack) -- but session.select_and_start's "
+    "is_unmoved_baseline (gate 2) is unchanged and still refuses any "
+    "non-baseline bag before gate 3 would ever run for one.  Persisting a "
+    "picked-up item BEFORE gate 2 is redesigned does not merely fail to "
+    "persist: it makes the character unable to enter the world at all.",
     "10. Nothing here writes a database row, opens a socket, reads a clock or "
     "reads a file.  It is a pure transaction over values plus one take "
     "through mob_loot's cell.  dispatch_pickup_request is the one exception "
@@ -1314,9 +1347,11 @@ def dispatch_pickup_request(
     caller reading that reason see something this lane never produced.
 
     ON SUCCESS, STEP 3 IS A LOG, NOT AN INSERT.  See THE WALL in the module
-    docstring: persisting ``outcome.row_write`` is refused at the very next
-    character select until the item lane widens
-    ``inventory.require_known_backpack``.  This function never calls
+    docstring: persisting ``outcome.row_write`` is still refused at the very
+    next character select by Gate 2 (``session.select_and_start``'s
+    ``is_unmoved_baseline``), even now that COO-DECISION 20260828_0844 has
+    widened Gate 3's encoder (``inventory.make_backpack_attr``) past the two
+    golden snapshots.  This function never calls
     anything DB-shaped -- no cursor, no connection, no store function -- it
     prints ``bag_row_write_console_line(outcome.row_write)`` (token
     ``MOB_PICKUP_ROW_WOULD_INSERT``) and returns ``outcome`` UNCHANGED, so
@@ -1726,10 +1761,12 @@ def pin_document(legacy: Any) -> dict:
             "relog_persistence": GOVERNED_BAG_ALLOWLIST_BLOCKS_PERSISTENCE,
             "blocked_by": GOVERNED_BAG_ALLOWLIST_OWNER,
             "what_happens_if_wired_anyway": (
-                "the character cannot enter the world: the character-SELECT "
-                "path reads that judgement three times and the first read, "
-                "store._load_backpack, raises a ValueError runtime.py does "
-                "not catch"
+                "the character cannot enter the world: store._load_backpack "
+                "(gate 1) and inventory.make_backpack_attr (gate 3) now load "
+                "and encode a drifted bag fine, but session.select_and_start's "
+                "is_unmoved_baseline (gate 2) still raises a PermissionError "
+                "runtime.py catches only to refuse the select, not to let it "
+                "through"
             ),
             "open_question_for_the_item_lane": (
                 "which lane owns a persisted item-identity high-water mark; "
