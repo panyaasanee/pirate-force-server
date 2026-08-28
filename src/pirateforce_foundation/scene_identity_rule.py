@@ -51,6 +51,49 @@ predicate drops them and the scene ships TWELVE hostiles instead of
 seventeen.  That is not a rename; it is five monsters leaving the map, and it
 is why this is a question for the owner rather than a regeneration.
 
+TWO CORRECTIONS TO THE PARAGRAPH ABOVE, BOTH FROM pf-adversary.
+
+FIRST, THERE IS A THIRD DOOR AND THIS LANE HAS USED IT BEFORE.  "Five
+monsters leave the map" is a consequence of a FLAG, not of the rule.
+``tools/pf_mine_scene_mob_roster.py --keep-withdrawn-rows`` ships the rows
+the previous rule selected and the new one withdraws, labelled per row as
+the legacy reading pending migration -- that is what
+``LEGACY_SETNUM_PLACEMENTS_PENDING_MIGRATION`` is, and bg0001 shipped under
+it until round ``8ftmbx``.  So the owner's choice is three-way, not
+two-way, and the letter says so.  This module still does not recommend the
+third door: it keeps a row alive under a rule the project has retired, which
+is the state the last two rounds spent their time getting out of.
+
+SECOND, "FIVE ROWS" IS THE HOSTILE COUNT, NOT THE DIFF.  Regenerating
+``Bg0002`` under ``cline`` changes 77 lines: five hostiles leave,
+``PREDICATE_CENSUS['unambiguous']`` goes 49 -> 51, and the
+``UNRESOLVED_PLACEMENTS`` and ``WITHDRAWN_UNDER_THIS_RULE`` lists change
+with them.  The five are what a player would notice; they are not the whole
+change, and a reader comparing files should expect the larger number.
+
+WHAT NO CONTROL IN THIS ROUND COVERS, SAID PLAINLY.
+``check_crosswalk_controls`` in the generator measures three things: the
+owner's two hand-confirmed bg0001 placements (skipped for any other scene),
+CLINE type 2's 35/35, and MOBS 916's HP.  ``Bg0015`` is CLINE type 14.
+NONE of the three touches type 14, yet the generated module records the
+type-2 and bg0001 findings under a heading that reads "what the crosswalk
+controls found at mining time".  This module is the round's own proof that
+the type-2 finding does not transfer -- 0 of 51 -- so it must not be read
+as validating anything about ``Bg0015``.  The gap is pinned by
+``test_no_shipped_control_was_measured_on_the_scene_it_ships_under`` rather
+than left for a reader to notice, and closing it (a control measured on the
+scene being mined) is a generator change queued for the next round.
+
+AND ONE ROW WORTH A SECOND LOOK BEFORE ANYONE WIRES Bg0015.  Placement 87
+resolves to ``MOBS 924`` "Carlos", whose ``s_OUTFIT`` is
+``P_MALE_033_000_CARLOS`` -- a player male model -- with a MOBS_TIP title
+and NPC chat lines.  It has a rank and a combat AI, so the predicate selects
+it, and this lane ships it as an attackable level-115 hostile.  That is the
+GT-078 shape (a named character read as a monster) arriving under the NEW
+rule rather than the old one.  It may well be a real boss; nobody has
+looked.  ``Bg0015`` is dormant, so nothing is at stake today, and this
+sentence is here so the day it is wired is not the day someone discovers it.
+
 WHAT THIS DOES NOT CLAIM.  It does not say ``setnum`` is right for those five
 rows.  ``cline`` is the client's own crosswalk and it is the rule this
 project chose; MOBS 917 being INVISIBLE is exactly the sort of thing a real
@@ -100,16 +143,54 @@ LEGACY_IDENTITY_RULE = "setnum"
 SOURCE_DIGESTS = {
     "cline": "aa4a55b8db882eb965d0b7e186cd7bc7b5a81da8f057fee24586a27c94b2dc40",
     "mobs": "3c0d33d68f832eefda56c845495008338dcef56f4277584b9ca479b7e1b3916b",
+    "mobs_tip": "e25ac667c9029e07752fbfd5d13b548d2e62ea439936884f30187c0c553ce38f",
     "scene_name": "e38114a802576266ce37b2abcf8ebce3f105d7d5abaf4bc5ca066e7848c5d60b",
 }
 
 #: ``SCENE_NAME[s_MODLE_ID].n_CLINE_TYPE`` for the scenes this lane ships a
 #: roster for.  Not a full table: the two scenes in play, so a reader can see
 #: which block each roster resolves through.
+#:
+#: THE LOOKUP IS CASE-SENSITIVE AND THE TABLE IS NOT CONSISTENT.  Measured:
+#: ``s_MODLE_ID`` is spelled ``BG0001``..``BG0005`` in upper case and
+#: ``Bg0015`` in mixed case, so ``SCENE_NAME["Bg0002"]`` is a KeyError while
+#: ``SCENE_NAME["Bg0015"]`` is not.  The keys here are the SCENE names this
+#: lane's roster modules use; ``SCENE_MODEL_ID`` below carries the exact
+#: spelling the table uses, and the test matches case-insensitively on
+#: purpose, with both facts asserted so neither can drift.
+#:
+#: AND THIS CONSTANT CANNOT VALIDATE ITSELF.  For all three scenes mined so
+#: far, ``n_ID == n_CLINE_TYPE`` (1/1, 2/2, 14/14) -- 12 of the 271 rows are
+#: like that.  So a reader who wrote ``n_ID`` here instead of
+#: ``n_CLINE_TYPE`` would get identical values and no test over these two
+#: entries could tell.  That matters because reading the wrong column is
+#: exactly what GT-078 cost.  The control is
+#: ``test_the_cline_type_column_is_not_the_id_column_in_general``, which
+#: measures it over the whole table rather than over these two rows.
 SCENE_CLINE_TYPE = {
     "Bg0002": 2,
     "Bg0015": 14,
 }
+
+#: The exact ``s_MODLE_ID`` spelling for each key above, because the table
+#: is inconsistent about case and a future scene added by copying the
+#: pattern would fail the lookup silently.
+SCENE_MODEL_ID = {
+    "Bg0002": "BG0002",
+    "Bg0015": "Bg0015",
+}
+
+#: (scenes whose n_CLINE_TYPE names a real CLINE block, scenes delivered).
+#: The size of what "one identity rule for every scene" can actually be
+#: applied to today: 252 of 271 rows carry n_CLINE_TYPE 4294967295, which is
+#: a sentinel and not a CLINE type.  Not re-measured here -- lane A already
+#: measured it and the number lives at
+#: ``world_m2_sea_destination.py``'s "271 rows, 252 no-cast, 19 direct".
+#: Recorded so the ruling's scope is a number beside the ruling instead of
+#: something each lane rediscovers.  It is NOT an argument against the
+#: ruling: 19 is every scene that HAS a crosswalk, and a rule cannot be
+#: faulted for not applying where its table has no row.
+SCENES_THE_RULE_CAN_READ = (19, 271)
 
 #: ``CLINE[(n_CLINE_TYPE, n_CREATURE_TYPE)].n_LEADER_BK1`` -- the whole block
 #: for each type in play, not just the keys some scene happens to use.  The
@@ -150,9 +231,18 @@ BG0002_PLACEMENTS_OUTSIDE_THE_AGREEING_BLOCK = (
     (92, 103), (93, 103), (94, 103), (95, 103), (96, 103),
 )
 
-#: What ``CONSTDATA_TH__MOBS`` says about the two readings of Mob-Set 103,
-#: so the cost of the rule change is a row a reader can check and not an
-#: adjective.  (n_ID, n_RANK, n_AI_COMBAT, s_OUTFIT, n_LEVEL_MIN, name)
+#: The two readings of Mob-Set 103 as rows a reader can check, rather than
+#: as an adjective.  (n_ID, n_RANK, n_AI_COMBAT, s_OUTFIT, n_LEVEL_MIN, name)
+#:
+#: TWO SOURCES, NOT ONE, AND THE LABEL USED TO SAY OTHERWISE.  Fields 0-4
+#: come from ``CONSTDATA_TH__MOBS``.  ~~The name does too.~~  It does NOT:
+#: ``MOBS.s_NAME`` for 103 is the original-language string, and the English
+#: "Orc Chief" is ``TEXTDATA_TH__MOBS_TIP.s_NAME`` (with a trailing space,
+#: which is why the value here is stripped).  917 has no MOBS_TIP row at
+#: all -- that is what "(no MOBS_TIP name)" means, and it is a fact about
+#: the tip table, not about MOBS.  pf-adversary caught the single-source
+#: label; both digests are pinned below and the test re-derives all six
+#: fields from the table each one actually comes from.
 DISPUTED_SET_103_READINGS = {
     LEGACY_IDENTITY_RULE: (103, 1, 332, "M023_000_001_SP3", 58, "Orc Chief"),
     PROJECT_IDENTITY_RULE: (917, 0, 0, "INVISIBLE", 100, "(no MOBS_TIP name)"),
@@ -249,4 +339,14 @@ SCENE_IDENTITY_NONCLAIMS = (
     "trusted, not verified.",
     "5. Only the two scene types in play are carried.  resolve() raises for "
     "any other rather than falling back to the identity function.",
+    "6. No control in this round was measured on CLINE type 14, the type "
+    "Bg0015 actually uses.  The generator's crosswalk controls are a type-2 "
+    "fact and a bg0001 fact, and this module proves the type-2 one does not "
+    "transfer.",
+    "7. 'Five monsters leave Prison Exile' is what the DEFAULT flag does. "
+    "--keep-withdrawn-rows would ship them under the retired rule instead, "
+    "so the owner's choice is three-way.",
+    "8. Bg0015 placement 87 ships MOBS 924 'Carlos', a player-model NPC with "
+    "chat lines, as an attackable hostile.  Selected by rank+AI like any "
+    "other row; nobody has looked at it.",
 )

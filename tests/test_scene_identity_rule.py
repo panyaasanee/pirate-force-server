@@ -50,6 +50,8 @@ from pirateforce_foundation import field_mob_tables_bg0002 as bg0002
 BRIDGE_TABLES = ROOT.parent / "pf_bridge" / "gamedata" / "tables"
 CLINE_TSV = BRIDGE_TABLES / "CONSTDATA_TH__CLINE.tsv"
 MOBS_TSV = BRIDGE_TABLES / "CONSTDATA_TH__MOBS.tsv"
+MOBS_TIP_TSV = BRIDGE_TABLES / "TEXTDATA_TH__MOBS_TIP.tsv"
+SCENE_NAME_TSV = BRIDGE_TABLES / "CONSTDATA_TH__SCENE_NAME.tsv"
 
 
 def _rows(path: Path) -> list[dict]:
@@ -190,10 +192,10 @@ class TheThirtyFiveDoesNotGeneralise(unittest.TestCase):
 class TheCommittedCopyIsTheRealTable(unittest.TestCase):
     """Re-mine the bridge clone where it exists; skip loudly where it does not.
 
-    Four tests, and the pin in ``docs/PYTEST_SKIP_PINS.json`` says four.  On a
-    machine without the bridge clone the CLINE blocks in
-    ``scene_identity_rule`` are TRUSTED, not verified, and the skip census is
-    where that shows up.
+    Nine tests, and the pin in ``docs/PYTEST_SKIP_PINS.json`` says nine.
+    On a machine without the bridge clone every number in
+    ``scene_identity_rule`` is TRUSTED, not verified, and the skip census
+    is where that shows up.
     """
 
     def test_the_source_digest_matches_the_file_the_blocks_came_from(self):
@@ -228,6 +230,102 @@ class TheCommittedCopyIsTheRealTable(unittest.TestCase):
                 self.assertEqual(int(row["n_AI_COMBAT"]), expected[2])
                 self.assertEqual(row["s_OUTFIT"], expected[3])
                 self.assertEqual(int(row["n_LEVEL_MIN"]), expected[4])
+
+    def test_the_display_names_re_derive_from_the_TIP_table_not_from_mobs(self):
+        """The sixth field, which the first version of this file never checked.
+
+        pf-adversary's finding: the constant was labelled "straight from
+        CONSTDATA_TH__MOBS" and its last element is not from that table.
+        MOBS.s_NAME for 103 is the original-language string; the English
+        name is MOBS_TIP.s_NAME, and 917 has no MOBS_TIP row at all.  Both
+        halves are asserted here so the label and the value stay honest
+        together.
+        """
+        self.assertEqual(_digest(MOBS_TIP_TSV), sir.SOURCE_DIGESTS["mobs_tip"])
+        tips = {int(row["n_ID"]): row["s_NAME"] for row in _rows(MOBS_TIP_TSV)}
+        legacy = sir.DISPUTED_SET_103_READINGS[sir.LEGACY_IDENTITY_RULE]
+        chosen = sir.DISPUTED_SET_103_READINGS[sir.PROJECT_IDENTITY_RULE]
+        self.assertEqual(tips[legacy[0]].strip(), legacy[5])
+        self.assertNotIn(
+            chosen[0], tips,
+            "MOBS 917 has a MOBS_TIP name now, so '(no MOBS_TIP name)' is "
+            "wrong and the disputed reading needs restating",
+        )
+        mobs = {int(row["n_ID"]): row for row in _rows(MOBS_TSV)}
+        self.assertNotEqual(
+            mobs[legacy[0]]["s_NAME"], legacy[5],
+            "MOBS.s_NAME now equals the English name, so the two-source note "
+            "on DISPUTED_SET_103_READINGS is no longer the reason it says "
+            "what it says",
+        )
+
+    def test_the_scene_cline_type_re_derives_from_scene_name(self):
+        """The crosswalk's entry point, which nothing checked before.
+
+        Case-insensitively on s_MODLE_ID, because the table spells BG0002 in
+        upper case and Bg0015 in mixed case -- and SCENE_MODEL_ID's exact
+        spellings are asserted here too, so the inconsistency is pinned
+        rather than worked around silently.
+        """
+        self.assertEqual(_digest(SCENE_NAME_TSV),
+                         sir.SOURCE_DIGESTS["scene_name"])
+        rows = {row["s_MODLE_ID"].strip().lower(): row
+                for row in _rows(SCENE_NAME_TSV)}
+        for scene, cline_type in sorted(sir.SCENE_CLINE_TYPE.items()):
+            with self.subTest(scene=scene):
+                row = rows[scene.lower()]
+                self.assertEqual(int(row["n_CLINE_TYPE"]), cline_type)
+                self.assertEqual(row["s_MODLE_ID"].strip(),
+                                 sir.SCENE_MODEL_ID[scene])
+
+    def test_the_cline_type_column_is_not_the_id_column_in_general(self):
+        """Why SCENE_CLINE_TYPE cannot validate itself, as a measurement.
+
+        Both entries sit among the rows where n_ID == n_CLINE_TYPE, so a
+        module that read the wrong column would look identical over them.
+        Over the whole table the two columns disagree on almost every row,
+        and that is the fact a future scene depends on.
+        """
+        rows = _rows(SCENE_NAME_TSV)
+        same = [r for r in rows
+                if int(r["n_ID"]) == int(r["n_CLINE_TYPE"])]
+        self.assertEqual((len(same), len(rows)), (12, 271))
+        for scene in sir.SCENE_CLINE_TYPE:
+            with self.subTest(scene=scene):
+                self.assertIn(sir.SCENE_MODEL_ID[scene],
+                              [r["s_MODLE_ID"].strip() for r in same])
+
+    def test_the_rules_reach_is_nineteen_scenes_of_two_hundred_seventy_one(self):
+        """The scope of "one rule for every scene", measured not assumed."""
+        blocks = {int(row["n_CLINE_TYPE"]) for row in _rows(CLINE_TSV)}
+        rows = _rows(SCENE_NAME_TSV)
+        readable = [r for r in rows if int(r["n_CLINE_TYPE"]) in blocks]
+        self.assertEqual(
+            (len(readable), len(rows)), sir.SCENES_THE_RULE_CAN_READ)
+
+    def test_no_shipped_control_was_measured_on_the_scene_it_ships_under(self):
+        """Bg0015's module records controls that are about other scene types.
+
+        Not a failure of the table -- a gap in the generator, stated here so
+        it cannot be mistaken for validation.  This test asserts the gap
+        EXISTS; the round that closes it (a control measured on the scene
+        being mined) deletes this test and says so.
+        """
+        from pirateforce_foundation import field_mob_tables_bg0015 as bg0015
+
+        self.assertEqual(bg0015.SCENE_CLINE_TYPE, 14)
+        self.assertEqual(
+            sorted(bg0015.CONTROL_FINDINGS),
+            ["prison_exile_identity", "town_target_916_hp"],
+            "the controls this module ships changed; if one of them is now "
+            "measured on CLINE type 14, this test has done its job and "
+            "should be replaced by an assertion that it passed",
+        )
+        # prison_exile_identity is CLINE type 2.  This module is type 14, and
+        # the two agree on nothing -- which is exactly why the control
+        # carries no information here.
+        self.assertEqual(sir.agreement(2)[0], 35)
+        self.assertEqual(sir.agreement(14)[0], 0)
 
     def test_cline_resolves_set_103_to_the_id_this_module_committed(self):
         self.assertEqual(sir.resolve(2, 103, sir.PROJECT_IDENTITY_RULE), 917)

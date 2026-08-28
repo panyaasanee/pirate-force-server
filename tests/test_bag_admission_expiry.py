@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -85,48 +86,152 @@ def test_the_expiry_condition_is_two_named_facts_not_a_date() -> None:
     )
 
 
-def test_the_expiry_condition_is_still_unmet_so_the_shape_rule_is_entitled() -> None:
-    """Half one: the pickup path still only LOGS the row it would write.
+def _executed_sql(module_name: str):
+    """(enclosing function, sql text) for every string handed to a DB call.
 
-    ``mob_pickup``'s token is ``MOB_PICKUP_ROW_WOULD_INSERT`` -- WOULD, and
-    that word is the whole content of this assertion.  The day it becomes a
-    real INSERT this test fails, and the failure is the reminder, not a bug.
+    Two failures shaped this helper, both found by pf-adversary.
+
+    A LINE SCANNER IS NOT ENOUGH.  ``store.py`` writes SQL split across
+    adjacent string literals and, elsewhere in this codebase, hoisted into a
+    module constant.  Both look like nothing to a per-line grep.  ``ast``
+    folds implicit concatenation into one Constant, and module-level
+    constants are resolved by name below, so both shapes are seen.
+
+    PROSE IS NOT A STATEMENT.  Matching SQL text anywhere in a file finds
+    ``mob_pickup``'s docstrings, which discuss at length the exact INSERT
+    ``store.py`` must one day make, and its console token
+    ``MOB_PICKUP_ROW_WOULD_INSERT table=character_backpack_items``.  A
+    module that DESCRIBES a write is the opposite of a module that performs
+    one -- that description is the whole reason the expiry is not met yet.
+    So only strings that reach ``execute``/``executemany``/``executescript``
+    count.
     """
-    pickup = _source("mob_pickup")
-    assert "MOB_PICKUP_ROW_WOULD_INSERT" in pickup, (
-        "the token this expiry is keyed to has been renamed; re-derive the "
-        "expiry rather than deleting this test"
-    )
-    assert "MOB_PICKUP_ROW_DID_INSERT" not in pickup, (
-        "the pickup path appears to INSERT for real now.  Half one of "
-        "bag_admission's nonclaim 8 expiry is MET: the superseding round "
-        "must delete _classify_against, not keep it as a fallback."
-    )
+    tree = ast.parse(_source(module_name))
+    constants = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant):
+            if isinstance(node.value.value, str):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        constants[target.id] = node.value.value
+    owner = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for child in ast.walk(node):
+                owner[id(child)] = node.name
+    out = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not node.args:
+            continue
+        name = getattr(node.func, "attr", None) or getattr(node.func, "id", None)
+        if name not in ("execute", "executemany", "executescript"):
+            continue
+        first = node.args[0]
+        if isinstance(first, ast.Constant) and isinstance(first.value, str):
+            text = first.value
+        elif isinstance(first, ast.Name) and first.id in constants:
+            text = constants[first.id]
+        else:
+            continue
+        out.append((owner.get(id(node), "<module>"), " ".join(text.split())))
+    return out
 
 
-def test_nothing_advances_the_identity_counter_yet() -> None:
-    """Half two: no write path moves ``next_item_identity``.
+def _writes_naming(module_name: str, column: str):
+    """Executed statements that both name ``column`` and are a write.
 
-    Measured over ``store.py``'s source rather than its behaviour because
-    the honest question is "does any statement mention this column in a
-    write?", and a behavioural test could only prove that the paths it
-    happened to call do not.  A mention in a SELECT or in prose does not
-    count as advancing it, so the check is for the column beside an UPDATE
-    or an INSERT in the same statement text.
+    ``\bUPDATE\b`` and not ``"UPDATE" in text``: every write in
+    ``store.py`` also sets ``updated_at``, and a substring test counts a
+    pure SELECT of that column as a write.  The first version of this check
+    did exactly that -- red on a read, green on the write it exists to
+    catch.
     """
-    store = _source("store")
-    writes = [
-        line for line in store.splitlines()
-        if "next_item_identity" in line
-        and ("UPDATE" in line.upper() or "INSERT" in line.upper())
-    ]
+    hits = []
+    for func, text in _executed_sql(module_name):
+        if column not in text:
+            continue
+        upper = text.upper()
+        if re.search(r"\bUPDATE\b", upper) or re.search(r"\bINSERT\b", upper):
+            hits.append((func, text))
+    return hits
+
+
+def test_nothing_writes_the_identity_counter_yet() -> None:
+    """Half two of the expiry: no statement advances ``next_item_identity``.
+
+    Goes red the day chief's STORE-INSERT-001 lands, however that statement
+    is formatted, because the check is over parsed string constants rather
+    than over source lines.
+    """
+    writes = _writes_naming("store", "next_item_identity")
     assert not writes, (
         "store.py now writes character_backpacks.next_item_identity:\n  "
-        + "\n  ".join(writes)
+        + "\n  ".join("%s(): %s" % hit for hit in writes)
         + "\nHalf two of bag_admission's nonclaim 8 expiry is MET.  The "
           "counter can be the admission criterion now, and COO-DECISION "
           "20260829_0441 item 2 requires _classify_against to be DELETED "
           "rather than kept beside it."
+    )
+
+
+def test_the_only_backpack_row_insert_is_the_one_that_makes_a_character() -> None:
+    """Half one: nothing INSERTs a bag row that a pickup produced.
+
+    ~~Asserted by the absence of a token nobody writes
+    (``MOB_PICKUP_ROW_DID_INSERT``).~~  pf-adversary showed that was a
+    strawman: appending a real ``persist_pickup_row`` with a genuine INSERT,
+    and leaving ``mob_pickup``'s WOULD token in place as stale prose, kept
+    it green.  The honest question is not "is a token absent" but "which
+    functions can put a row in the bag table", so that is what is asserted.
+
+    ``_insert_initial_backpack`` is character creation.  Any second name in
+    this set is a pickup path, and the expiry's first half is met.
+    """
+    statement = re.compile(r"INSERT\s+INTO\s+character_backpack_items",
+                           re.IGNORECASE)
+    inserters = {
+        func for module in ("store", "mob_pickup")
+        for func, text in _executed_sql(module)
+        if statement.search(text)
+    }
+    assert inserters == {"_insert_initial_backpack"}, (
+        "the set of functions that INSERT a backpack row is %s, not just "
+        "character creation.  Half one of bag_admission's nonclaim 8 expiry "
+        "is MET: a real pickup row can reach the database, so the "
+        "superseding round must delete _classify_against rather than keep "
+        "it as a fallback." % (sorted(inserters),)
+    )
+
+
+def test_the_pickup_path_still_only_logs_the_row_it_would_write() -> None:
+    """The token, kept as a SECOND signal rather than the only one.
+
+    Weaker than the test above and labelled as such: it catches a rename,
+    not a behaviour change.  It stays because the token is what a person
+    greps the console for, and a silent rename would strand that habit.
+    """
+    assert "MOB_PICKUP_ROW_WOULD_INSERT" in _source("mob_pickup"), (
+        "the console token this expiry is written around has been renamed; "
+        "re-derive the expiry rather than deleting this test"
+    )
+
+
+def test_the_wire_this_nonclaim_describes_is_actually_there() -> None:
+    """Nonclaim 3 says gate 2 calls this module.  Check it, do not report it.
+
+    pf-adversary's finding: nonclaim 3 first said the wire was "in flight"
+    when it had already merged, then told the reader to go and verify at
+    their own head.  Both are reports.  This is the check, and it fails in
+    both directions -- if the wire is reverted, nonclaim 3 becomes false
+    and this goes red.
+    """
+    session = _source("session")
+    assert "bag_admission.may_enter_world(" in session, (
+        "session.select_and_start no longer calls "
+        "bag_admission.may_enter_world.  Gate 2 is byte-identical again and "
+        "nonclaim 3 in bag_admission.py -- which states the opposite in "
+        "capitals -- must be struck through in the same commit as the "
+        "revert."
     )
 
 

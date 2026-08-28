@@ -827,14 +827,19 @@
     {
       "key": "bridge_gamedata",
       "module": "tests/test_scene_identity_rule.py",
-      "count": 4,
+      "count": 9,
       "tests": [
         "TheCommittedCopyIsTheRealTable::test_the_source_digest_matches_the_file_the_blocks_came_from",
         "TheCommittedCopyIsTheRealTable::test_both_blocks_re_derive_exactly",
         "TheCommittedCopyIsTheRealTable::test_the_two_readings_of_set_103_re_derive_from_mobs",
+        "TheCommittedCopyIsTheRealTable::test_the_display_names_re_derive_from_the_TIP_table_not_from_mobs",
+        "TheCommittedCopyIsTheRealTable::test_the_scene_cline_type_re_derives_from_scene_name",
+        "TheCommittedCopyIsTheRealTable::test_the_cline_type_column_is_not_the_id_column_in_general",
+        "TheCommittedCopyIsTheRealTable::test_the_rules_reach_is_nineteen_scenes_of_two_hundred_seventy_one",
+        "TheCommittedCopyIsTheRealTable::test_no_shipped_control_was_measured_on_the_scene_it_ships_under",
         "TheCommittedCopyIsTheRealTable::test_cline_resolves_set_103_to_the_id_this_module_committed"
       ],
-      "note": "round ua236k (LANE-B): COO-DECISION 20260829_0345 made cline the project's one identity rule and ordered the 35/35 equality pinned by a test. scene_identity_rule.py commits the CLINE blocks for the two scene types in play because CONSTDATA_TH__CLINE.tsv lives on the bridge clone, not here; these four re-derive those blocks and the two readings of Mob-Set 103 from that clone so the committed copy cannot drift. Pinned in the same commit as the test, per the defect shape pf-adversary caught in rounds ctflxc, 2vxlx2 and y7koj9."
+      "note": "round ua236k (LANE-B): COO-DECISION 20260829_0345 made cline the project's one identity rule and ordered the 35/35 equality pinned by a test. scene_identity_rule.py commits the CLINE blocks for the two scene types in play because CONSTDATA_TH__CLINE.tsv lives on the bridge clone, not here; these four re-derive those blocks and the two readings of Mob-Set 103 from that clone so the committed copy cannot drift. Pinned in the same commit as the test, per the defect shape pf-adversary caught in rounds ctflxc, 2vxlx2 and y7koj9. Grew from four to 9 after pf-adversary's review: the scene_name and mobs_tip digests, SCENE_CLINE_TYPE itself (the crosswalk's entry point, which nothing re-derived), the n_ID-vs-n_CLINE_TYPE control, the rule's 19/271 reach, and the pin that Bg0015 ships under controls measured on another scene type."
     }
   ],
   "windows_gate_excluded_modules": {

@@ -142,16 +142,26 @@ NONCLAIMS -- read these before quoting this module as a safety argument.
     byte-identical after this round.  The relog still fails today, exactly
     as it failed before this round, and any report that says otherwise is
     reading this module as wired when it is not.~~  TRUE OF THE ROUND THAT
-    WROTE IT, AND BEING RETIRED.  COO-DECISION 20260829_0441 item 1 tasks
-    chief with the one-line wire in ``session.select_and_start`` per
-    ``BAG_ADMISSION_WIRING``, and that work is in flight as
-    ``pirate-force-server`` PR #233.  Read this nonclaim against the head
-    you are on, not against this sentence: if
-    ``session.select_and_start`` calls ``may_enter_world``, gate 2 is NOT
-    byte-identical any more and this module is load-bearing on the
-    character-select path.  Lane B does not own that wire and did not make
-    it; lane B owns nonclaim 8 below, which is the condition COO attached
-    to letting it happen at all.
+    WROTE IT.  RETIRED, PAST TENSE.  COO-DECISION 20260829_0441 item 1
+    tasked chief with the one-line wire in ``session.select_and_start``
+    per ``BAG_ADMISSION_WIRING``; it landed as ``pirate-force-server``
+    PR #233, merge ``e15bcac`` on main, and ``session.select_and_start``
+    calls ``may_enter_world`` today.  THIS MODULE IS LOAD-BEARING ON THE
+    CHARACTER-SELECT PATH, and anyone reading it as inert is reading a
+    sentence that stopped being true.
+    ~~"that work is in flight as PR #233"~~ and ~~"read this nonclaim
+    against the head you are on"~~ -- both struck by pf-adversary, and
+    both for the same reason: the first was already stale when it was
+    written (one command would have said #233 had merged), and the second
+    told the reader to go and check instead of checking.  The check is
+    executable now --
+    ``tests/test_bag_admission_expiry.py``'s
+    ``test_the_wire_this_nonclaim_describes_is_actually_there`` reads
+    ``session.py`` and goes red if the call is reverted, so this paragraph
+    cannot drift out of true in either direction.
+    Lane B does not own that wire and did not make it; lane B owns
+    nonclaim 8 below, which is the condition COO attached to letting it
+    happen at all.
  4. THE THREE NEW-ROW CONSTANTS ARE DUPLICATED, ON PURPOSE.  Importing
     ``mob_pickup`` here would pull ``field_drop_tables`` and ``mob_loot``
     onto the character-select path to read three integers.  They are
