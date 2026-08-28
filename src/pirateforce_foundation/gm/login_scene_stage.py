@@ -61,6 +61,15 @@ validates the WHOLE file through `load_login_scene_overrides` before writing
 and again after, and restores the original bytes if the read-back disagrees.
 An operator's hand-written config is never "repaired", never partially
 rewritten, and never left in a state the login path would refuse to load.
+
+TWO WAYS IT USED TO WALK OVER AN OPERATOR ANYWAY, both found by probing this
+module rather than by reading it, both closed in the round that added it:
+a SYMLINKED config path was replaced rather than written through (the link
+became a regular file, the target kept the old content, and the login path
+quietly started reading a different file), and a config file the operator had
+`chmod 400`-ed was overwritten regardless, because `os.replace` needs the
+DIRECTORY's write bit and not the file's.  See `REASON_CONFIG_NOT_WRITABLE`
+and the `os.path.realpath` call for what each one costs now.
 """
 from __future__ import annotations
 
@@ -100,6 +109,12 @@ REASON_NOT_GM_ACCOUNT = "not_gm_account"
 REASON_UNKNOWN_SCENE = "unknown_scene"
 REASON_CONFIG_UNREADABLE = "config_unreadable"
 REASON_WRITE_FAILED = "write_failed"
+# The file exists and the operator has taken the write bit off it.  Measured
+# rather than assumed: `os.replace` needs write permission on the DIRECTORY,
+# not on the file, so a `chmod 400 gm_login_scene.json` -- an operator saying
+# "do not touch this" in the only way a file can say it -- was silently
+# overwritten, and came back 0o600.  Refusing costs one `os.access` call.
+REASON_CONFIG_NOT_WRITABLE = "config_not_writable"
 
 
 @dataclass(frozen=True)
@@ -218,6 +233,21 @@ def _write_entry_locked(
     account_name: str, scene_id: int | None, config_path
 ) -> StageResult:
     path = resolve_gm_login_scene_config_path(config_path)
+    # RESOLVE THE SYMLINK, and write through it rather than over it.  Measured:
+    # an operator who symlinks `config/gm_login_scene.json` at a file kept
+    # elsewhere got the LINK replaced by a regular file -- the target kept the
+    # old content, the login path started reading the new file, and the two
+    # disagreed silently from then on.  `os.replace` renames onto the path it
+    # is given, and the path it is given is the link itself.  Resolving first
+    # also keeps the temp file in the TARGET's directory, which is what makes
+    # the rename atomic (a rename across filesystems is not).
+    #
+    # Following the link is safe here in a way it would not be for an
+    # attacker-supplied path: this one comes from an operator's own config or
+    # env var, never from anything a client sends.
+    path = Path(os.path.realpath(path))
+    if path.exists() and not os.access(path, os.W_OK):
+        return StageResult(False, REASON_CONFIG_NOT_WRITABLE, scene_id, None)
 
     try:
         original_bytes = path.read_bytes() if path.is_file() else None

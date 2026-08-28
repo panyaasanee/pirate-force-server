@@ -2741,3 +2741,41 @@ rather than silent.
 Two test files also gained a throwaway config path in `setUp`: the first run
 of the new routing created a real `config/gm_login_scene.json` under the
 repo checkout, which is a test writing into the tree it is testing.
+
+### The adversarial pass, run by hand after the subagent stalled
+
+`pf-adversary` was launched on a separate `git worktree` carrying this
+round's patch, the way round `nz0qt2` recorded it must be.  It produced 110
+bytes of transcript and then stopped writing for four minutes with nothing
+in the copy to show for it, so the round ran the pass itself rather than
+either waiting or claiming a review that had not happened.  What that
+means, stated rather than glossed: what follows is a self-review with the
+same tools, not an independent one, and the next round should treat this
+module as still owing an outside pass.
+
+**Mutation matrix, 12 mutants, all DEAD** (run on the worktree copy, GM
+test files only): the two new audit words mutated to `composed`, to
+`queued`, and into each other; the routing predicate with its bare-form
+clause dropped and then forced always-true; the undo call disabled; the
+allowlist check, the catalog check, the bool-scene_id check and the
+str-subclass check each removed; the JSON key switched to the standalone
+one; and the restore-after-a-bad-read-back deleted.  Every one of them
+turned at least one test red.
+
+**Three probes, two of which found real defects** -- both fixed in this
+round, both about walking over an operator rather than about a client:
+
+1. **A symlinked config was replaced, not written through.**  `os.replace`
+   renames onto the path it is given, and that path was the link: the link
+   became a regular file, the file the operator actually maintains kept the
+   old content, and the login path read the new one from then on.  Two
+   configs, no error, nothing to notice.  Fixed by resolving the path
+   first, which also keeps the temp file on the target's own filesystem --
+   the thing that makes the rename atomic at all.
+2. **A `chmod 400` config was overwritten and came back `0o600`.**
+   `os.replace` needs the DIRECTORY's write bit, not the file's, so an
+   operator saying "do not touch this" in the only way a file can say it
+   was ignored.  Now `REASON_CONFIG_NOT_WRITABLE`, one `os.access` call.
+3. **A failed rename leaves no temp file behind** -- probed because a
+   stray `.gm_login_scene.XXXX` in `config/` is one more file an operator
+   has to reason about.  Clean, and now pinned by a test.

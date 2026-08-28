@@ -40,7 +40,7 @@ from pirateforce_foundation.gm import (  # noqa: E402
 PORT_ROYAL = 1
 PRISON_EXILE = 2
 SPICE_PARADISE = 3
-# Not in the 331-scene table.  If this ever becomes a real scene, this file
+# Not in the 330-scene table.  If this ever becomes a real scene, this file
 # fails and the number gets changed -- which is the correct amount of noise.
 UNKNOWN_SCENE = 999999
 
@@ -348,6 +348,65 @@ class RefusalLeavesTheFileAloneTests(_Case):
             result = self.stage(self.GM_ACCOUNT, SPICE_PARADISE)
         self.assertFalse(result.staged)
         self.assertFalse(self.config_path.exists())
+
+
+class TheOperatorsOwnFileTests(_Case):
+    """Two ways this writer used to walk over an operator's intent, both found
+    by probing rather than by reading, and both fixed in the same round."""
+
+    @unittest.skipIf(os.name == "nt", "POSIX symlinks")
+    def test_a_symlinked_config_is_written_THROUGH_not_replaced(self):
+        # MEASURED, before the fix: `os.replace` renames onto the path it is
+        # given, and the path it is given was the LINK.  The link became a
+        # regular file, the target kept the old content, and the login path
+        # silently started reading a different file from the one the operator
+        # maintains.  Two configs, no error, no way to notice.
+        real = self.tmp / "elsewhere" / "kept_here.json"
+        real.parent.mkdir(parents=True)
+        real.write_text(
+            json.dumps({"gm_login_scene": {self.OTHER_GM: PRISON_EXILE}}),
+            encoding="utf-8",
+        )
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        os.symlink(real, self.config_path)
+
+        self.assertTrue(self.stage(self.GM_ACCOUNT, SPICE_PARADISE).staged)
+        self.assertTrue(self.config_path.is_symlink())
+        self.assertEqual(
+            {"gm_login_scene": {"GM_TWO": 2, "GM_ONE": 3}},
+            json.loads(real.read_text(encoding="utf-8")),
+        )
+
+    @unittest.skipIf(os.name == "nt", "POSIX mode bits")
+    @unittest.skipIf(os.geteuid() == 0, "root ignores the write bit")
+    def test_a_config_the_operator_made_read_only_is_refused(self):
+        # `os.replace` needs the DIRECTORY's write bit, not the file's, so
+        # `chmod 400` -- an operator saying "do not touch this" in the only
+        # way a file can say it -- was silently overwritten and came back
+        # 0o600.  Measured before the fix; refusing costs one os.access call.
+        original = json.dumps({"gm_login_scene": {}})
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        self.config_path.write_text(original, encoding="utf-8")
+        self.config_path.chmod(0o400)
+        self.addCleanup(self.config_path.chmod, 0o600)
+
+        result = self.stage(self.GM_ACCOUNT, PRISON_EXILE)
+        self.assertFalse(result.staged)
+        self.assertEqual(
+            login_scene_stage.REASON_CONFIG_NOT_WRITABLE, result.reason
+        )
+        self.assertEqual(original, self.config_path.read_text(encoding="utf-8"))
+        self.assertEqual(0o400, self.config_path.stat().st_mode & 0o777)
+
+    def test_a_failed_rename_leaves_no_temp_file_behind(self):
+        # The refusal is not the interesting half: a `.gm_login_scene.XXXX`
+        # left in `config/` would be one more file an operator has to reason
+        # about, next to the one they actually maintain.
+        with mock.patch("os.replace", side_effect=OSError("boom")):
+            result = self.stage(self.GM_ACCOUNT, PRISON_EXILE)
+        self.assertFalse(result.staged)
+        self.assertEqual(login_scene_stage.REASON_WRITE_FAILED, result.reason)
+        self.assertEqual([], list(self.config_path.parent.iterdir()))
 
 
 class HostileArgumentTests(_Case):
