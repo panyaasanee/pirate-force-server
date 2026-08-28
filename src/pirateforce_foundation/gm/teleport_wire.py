@@ -78,6 +78,37 @@ FORCE_POS_VITAL_ID = 0x0E80
 CWARP_RESULT_VITAL_ID = 0x1BA4
 TELEPORT_VITAL_ID = 0x25A2
 
+# The vital VERSION byte, which is NOT part of the payload layout above and
+# is NOT implied by it.  Layout being byte-proven (RE-090) says nothing about
+# which version byte the client's reader will accept for this vital id.
+#
+# Why this is a named None and not a guess: RE-105 (STATIC-ON-BRIDGE,
+# DONE/PASS, pf_bridge/notes_to_chief/20260827_1613_RE-105-RESULT-VITAL-
+# VERSION-ZERO-GENERIC-MISMATCH-PATH.md) pinned the MECHANISM, and the
+# mechanism is per-vital, not global: the generic VitalData collection reader
+# at [0x005F3E20, 0x005F406D) does an EXACT-EQUALITY compare against
+# message+0x10, and each vital's own prototype constructor stores that byte
+# by direct `mov`.  For 0x5A19 that byte is 0 (gm/state_wire.py).  For
+# SELECT_ACTOR_VITAL the value the working server has always sent is 10
+# (pf_login_game_server_v141.py:2205, 2289) -- proven by every successful
+# login this project has ever done.  Two known vitals, two different values:
+# there is no project-wide default to fall back on.
+#
+# What a wrong guess costs, measured, not theorised: GT-101 (attended,
+# OBSERVER_CONFIRMED 2026-08-27T14:39+07:00) sent 0x5A19 with an unproven
+# version=1 and the real client raised a modal error naming the vital by id,
+# HALTED the whole connection and closed the socket.  Not sending a frame is
+# always safe; sending one with the wrong version kills the owner's session.
+#
+# So: None until RE-129 reads the byte the 0x0E80 prototype constructor
+# stores, by exactly the method RE-105 already succeeded with.  Every caller
+# that would put ForcePos bytes on a real wire MUST gate on this being
+# not-None, the same way runtime.py:5107 gates the 0x5A19 login frame on
+# state_wire.GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED.  Unit tests and
+# decoders pass their own explicit version and are unaffected -- this
+# constant gates SENDING, not composing.
+FORCE_POS_VITAL_VERSION_CONFIRMED = None
+
 FORCE_POS_SPAN_SHA256 = (
     "7c6f6cb751692845d2eb5973fc9499a10dce4eda7caff5f80f82f968bc860e0d"
 )
