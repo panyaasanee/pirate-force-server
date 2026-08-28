@@ -26,17 +26,39 @@ contrast is the point, and it is what makes the open question worth asking:
   collections, each declaring a count of ONE;
 * the census list (derived bit 0x02), through the SAME
   ``GSCN_RunTimeProtocolRes`` envelope, puts N actors in ONE collection
-  with a count of N -- and that is the shipped production path that has
-  carried 115 actors to real clients (GT-078 wire layer 115/115, GT-121
-  97/97).
+  with a count of N.
+
+THE ONLY CLIENT-OBSERVABLE NUMBER THIS FILE MAY CITE IS 97.  GT-121 is a
+PASS with OBSERVER_CONFIRMED 2026-08-28T09:2x: a 97-element single
+collection (``WORLD_CENSUS assembled=97/97``) reached a real client and the
+owner reported every NPC standing there on arrival.  ~~"115 actors, to real
+clients, accepted"~~ IS STRUCK AND MUST NOT BE WRITTEN: GT-078's 115/115 is
+a WIRE-layer count on a ticket the owner REJECTED on the identity layer
+(the ticket forbids closing it as PASS), and GT-076 -- the ticket whose
+entire question is how many actors a client takes in ONE collection -- is
+BLOCKED and has never run.  Its 115 row is a pre-declared outcome table,
+not a result.  An earlier draft of this docstring cited 115 as accepted;
+that is the same wire-number-wearing-a-client-verb move this file was
+rewritten to remove.
 
 So "a combined multi-record derived-mask collection is the one shape a real
 client has already rejected" (``drop_frames``'s own justification, from the
-V43 ErrorData=28317 measurement) is NOT a property of this envelope in
-general.  Its sibling does exactly that, at 115 elements, in production,
-accepted.  Whether the 0x08 CONSUMER can take the same treatment is
-RE-129's question, and this file exists to state the contrast precisely
-enough that the question can be answered instead of guessed at.
+V43 ErrorData=28317 note) is NOT a property of this envelope in general.
+Its sibling ships a 97-element collection that a client demonstrably drew.
+Whether the 0x08 CONSUMER can take the same treatment is RE-129's question,
+and this file exists to state the contrast precisely enough that the
+question can be answered instead of guessed at.
+
+AND THE V43 NUMBER DOES NOT MEAN WHAT drop_frames SAYS IT MEANS.  This is
+not this file's finding -- ``world_population.py:105-115`` settled it on
+2026-08-18 and this file only cites it: 28317 = 0x6E9D =
+GSCN_RunTimeProtocolRes, the client echoing the CLASS ID of whichever
+envelope failed to deserialize.  "It is a parse-failure echo, not a count
+report", and V43's six actors were on the 0x02 REMOTE-ACTOR list -- the
+very list offered above as the counter-example.  So the V43 note is an
+interval, not a ceiling, and several modules still describe it as a
+rejection of multi-record collections.  Correcting that prose is lane work,
+not an RE question; it is named in RE-129 as such.
 
 WHAT IS NOT CLAIMED.  Read before quoting anything here.
 
@@ -52,9 +74,15 @@ WHAT IS NOT CLAIMED.  Read before quoting anything here.
   draw a target panel is not a controlled observer for "did a label
   render".
 * NOT CLAIMED: that the 0x08 list is replace-by-omission.  RE-092 settled
-  that for the 0x02 list ONLY.  Indeed GT-045's own evidence leans the
-  OTHER way: its two elements went out 42 ms apart and a label was still
-  seen, which strict replace-by-omission would have to explain.
+  that for the 0x02 list ONLY.  ~~"GT-045's own evidence leans the other
+  way -- two elements 42 ms apart and a label was still seen"~~ IS
+  DOWNGRADED to a conditional: that reading needs BOTH that the label seen
+  was the FIRST element (contested in-repo -- mob_loot.py:57 says it was
+  NEAR, ground_loot_nameprop_hypothesis.py:103 says the observer could not
+  tell which element it belonged to) AND that a label's life is bound to
+  its element's membership in the list at all (nobody knows; it is
+  RE-129's first objective).  If labels are one-shot and self-expiring,
+  seeing one is evidence about omission in neither direction.
 * NOT CLAIMED: that a count of one MEANS "the list is exactly this".  That
   reading is the question, not a finding.  What is measured is the count
   field's value and the payload's length -- both bytes.
@@ -70,6 +98,21 @@ WHAT IS NOT CLAIMED.  Read before quoting anything here.
   (mob_loot.py:1455 pc size, :1461 envelope pin, :1488 frame size, :1493
   frame header).  A planted accumulating emitter is caught by the SIZE
   guards, not by the header pin an earlier draft of this note credited.
+* NOT CLAIMED: that EVERY census emission carries count=N.  It does not.
+  ``runtime.py:4017`` degrades to a ONE-entry 0x02 frame by design when the
+  population anchor is missing or mismatched (event
+  ``mob_combat_bar_census_compose_skipped_no_population_anchor``), which a
+  client swinging before its first position report can reach.  So "the
+  census puts N in one collection" is true of the normal path and false of
+  a named, reachable branch, and this file -- which imports neither
+  ``runtime`` nor ``world_population`` -- cannot see that branch move.  If
+  a later round makes the degrade path the default, every test here stays
+  green while the contrast the file draws dies.
+* NOT CLAIMED: that ``_census_pc`` composes what GT-121 sent.  It builds a
+  DEATH census (``mob_death.death_actor_entry``); GT-121's was the
+  world/arrival census, a different entry payload.  Same envelope, same
+  count field -- which is the whole of what is asserted -- but the
+  entry bytes are not that run's.
 * NOT CLAIMED: that this file reproduces GT-084-R2.  It does not.
   ``load_roster()`` defaults to bg0001, so the mob driven here is
   "Fighting Fish Sergeant" (0x200D); Tornado Eagle (0x201F) lives in
@@ -162,6 +205,23 @@ class MultiDropEmissionShapeTests(unittest.TestCase):
             for mob in mobs
         ]
         pc, _frame = self.legacy.make_runtime_remote_actors(entries)
+        # ANCHOR THE OFFSETS BEFORE ANY CALLER READS THEM.  The two offsets
+        # this file indexes with are pinned to a literal for the GROUND pc
+        # (test 5), but nothing pinned them on the CENSUS side, and
+        # pf-adversary showed what that costs: shorten the census envelope
+        # by one tag-pair and byte 13 becomes the count's low byte, so a
+        # count=2 collection reads 0x02 there and "the census bit is 0x02"
+        # passes for entirely the wrong reason.  Checking that both 0x0B
+        # tags are where this file thinks they are makes the index mean
+        # what its name says.
+        self.assertEqual(
+            pc[10], 0x0B,
+            "the census inherited-mask tag moved; every offset this file "
+            "indexes the census pc with is now pointing at something else")
+        self.assertEqual(
+            pc[12], 0x0B,
+            "the census derived-mask tag moved; byte 13 is no longer the "
+            "derived mask and this file's reads are meaningless")
         return pc
 
     # -- the measurement ---------------------------------------------------
@@ -244,12 +304,14 @@ class MultiDropEmissionShapeTests(unittest.TestCase):
         """The sibling list does what the ground list refuses to do.
 
         ``drop_frames`` justifies one-element-per-frame with the V43
-        ErrorData=28317 measurement on "a combined multi-record derived-mask
+        ErrorData=28317 note about "a combined multi-record derived-mask
         collection".  This test measures that the SAME envelope, one derived
-        bit over, ships N elements in ONE collection -- and that path is the
-        production census that has carried 115 actors to real clients.  So
-        the V43 lesson is not a property of the envelope; whether it is a
-        property of the 0x08 CONSUMER is RE-129.
+        bit over, ships N elements in ONE collection.  The client-observable
+        number that licenses the contrast is 97 (GT-121, PASS) -- NOT 115,
+        see the module docstring.  And per world_population.py:105-115 the
+        V43 number is a parse-failure echo, not a count report, measured on
+        the 0x02 list itself.  Whether multi-element works for the 0x08
+        CONSUMER is RE-129.
         """
         for count in (2, 5):
             census_pc = self._census_pc(count)
