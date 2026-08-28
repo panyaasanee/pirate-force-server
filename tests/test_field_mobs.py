@@ -947,7 +947,7 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
             (field_mob_tables, field_mob_tables_bg0015))
         self.assertEqual(collisions, ())
 
-    def test_all_three_known_tables_together_find_three_pairwise_collisions(
+    def test_all_three_known_tables_together_find_one_pairwise_collision(
             self) -> None:
         # The full picture across every scene table this project has mined
         # so far (bg0001 live, Bg0002 about to be wired per this round's
@@ -962,9 +962,31 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
         # them Bg0002 x Bg0015.  The seven that went were every pair with a
         # bg0001 side, and they went because bg0001's colliding rows were
         # withdrawn, not because anything about the identity rule changed.
+        # ROUND ua236k: ~~three~~ -> ONE, and this time it IS the identity
+        # rule.  Bg0015 was re-mined through the crosswalk
+        # (COO-DECISION 20260829_0345), so its templates are no longer Port
+        # Royal's; two of the three collisions were two scenes agreeing on a
+        # template only because the set-number reading gave both the same
+        # wrong answer.  This is the report doing the job lane A's letter
+        # 20260829_0014 asked it to do, measured rather than asserted.
+        #
+        # WHAT THE SURVIVOR IS, AND WHY IT MUST NOT BE "FIXED" HERE.
+        # Placement index 87 exists in BOTH scenes, and the wire identity is
+        # 0x2000 + index + 1, so the two rows collide on 0x2058 no matter
+        # who stands there: Bg0002 template 34 (Fighting Fish soldier) vs
+        # Bg0015 template 924 (Carlos).  That is a placement-index collision,
+        # not an identity-rule one -- it is the per-scene identity space lane
+        # A proposed as option 3 and COO declined for this lane (it touches
+        # world_population).  Re-mining cannot remove it and this test must
+        # keep reporting it until someone widens the identity space.
         self.assertEqual(sorted(by_pair), [("Bg0002", "Bg0015")])
-        self.assertEqual(len(by_pair[("Bg0002", "Bg0015")]), 3)
-        self.assertEqual(len(collisions), 3)
+        self.assertEqual(len(by_pair[("Bg0002", "Bg0015")]), 1)
+        self.assertEqual(len(collisions), 1)
+        survivor = collisions[0]
+        self.assertEqual(survivor["placement_index"], 87)
+        self.assertEqual(survivor["actor_identity"], 0x2000 + 87 + 1)
+        self.assertEqual(
+            (survivor["template_a"], survivor["template_b"]), (34, 924))
 
     def test_two_disjoint_scenes_report_zero_collisions(self) -> None:
         # bg0002 vs a hand-built single-mob table sharing no placement index

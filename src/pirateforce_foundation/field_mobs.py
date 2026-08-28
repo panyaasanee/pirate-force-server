@@ -391,8 +391,12 @@ def assert_single_scene_tables(table_modules: Any) -> None:
     argument and can load ``field_mob_tables_bg0002`` as well as the
     original ``field_mob_tables`` (bg0001) -- and Bg0002's own mined roster
     is exactly the four-template collision this docstring warned about (31,
-    34, 35, 103, the same set bg0015's already-committed, still-unwired
-    table shares).  This function's OWN logic did not need to change to
+    34, 35, 103, ~~the same set bg0015's already-committed, still-unwired
+    table shares~~ -- NO LONGER TRUE since round ua236k: that table was
+    re-mined through the crosswalk per COO-DECISION 20260829_0345 and its
+    templates are now 343/345/348/350/353/355/924, which overlap Bg0002's
+    set on nothing.  Bg0002 itself still ships under the older reading, so
+    its own four templates are unchanged).  This function's OWN logic did not need to change to
     support that: it was already written generically over "the modules in
     this one tuple", never hardcoded to bg0001, so calling it with a single
     ``(field_mob_tables_bg0002,)`` tuple was already covered.  What changed
@@ -792,7 +796,13 @@ def same_scene_identity_collisions(
     identity table for the third scene -- the still-COO-gated-dormant one
     this file may not name literally, see
     ``_KNOWN_SCENE_TABLE_MODULES_FOR_REPORTING`` -- that disagrees with this
-    lane's committed table for the SAME scene on 16 of 17 placements: one
+    lane's committed table for the SAME scene ~~on 16 of 17 placements~~ --
+    it DID, and this function is why that was measurable; since round ua236k
+    the two tables agree on all 12 placements they share, because this lane
+    re-mined its table the same way lane A mined theirs.  The report is kept
+    and still runs: agreement today is not a guarantee, and the function
+    existing is what makes the next divergence visible on the day it lands.
+    The disagreement it was built for was: one
     scene, one ``0x2000 + placement_index + 1`` identity, two different
     monsters.  The report that exists to find exactly that kind of clash
     returned nothing.  Fixing it was named as this lane's, so here it is.
