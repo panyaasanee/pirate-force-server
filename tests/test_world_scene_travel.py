@@ -90,10 +90,18 @@ class SceneRegistryTests(unittest.TestCase):
         neither a runtime historical choice, nor a borrowed monster placement,
         nor an owner decree: SCENE_NAME[14].n_MARKER -> MARKER[14] is the
         arrival point the map's own developers authored
-        (world_scene_marker.py).  It enters login_entry_allowed=true (nothing
-        can reach it but a GM login-scene override) and
-        persist_position_allowed=false (first eyes; see the registry's own
-        nonclaims for the revert).
+        (world_scene_marker.py).  It is pinned with login_entry_allowed
+        FALSE, and that is the round's own correction rather than caution:
+        the first draft opened the door, and pf-adversary drove a login
+        through it and measured three defects - the bg0001 census shipped
+        into scene 14, a (scene 1, volcano XYZ) row written into
+        character_positions, and the faction-1 byte silently dropped - all
+        three because runtime.py reads the STORED scene id, which the
+        login-scene override never rewrites.  So this row is DATA (the
+        marker spawn, the table row, the native digest) and the entry stays
+        refused until the runtime asks about the scene a character is
+        actually in.  See the registry's own nonclaims, which name what has
+        to change before the key flips.
         """
         self.assertEqual(
             self.registry.ids, (1, 2, 14, 17, TEST_STAGE_SCENE_ID, 997))
@@ -190,12 +198,14 @@ class SceneRegistryTests(unittest.TestCase):
         """The optional field's absence must mean True, not merely 'False
         for the one row that sets it' - a mutation that flipped the default
         would silently lock every other destination out of login."""
-        for n_id in (1, 2, TEST_STAGE_SCENE_ID, 997):
+        # DERIVED, not hand-listed - same reason as the persist-default test
+        # below (pf-adversary, round vyi2ud, D12).
+        rows = {row["n_id"]: row for row in _raw()["destinations"]}
+        defaulted = [n_id for n_id, row in rows.items()
+                     if "login_entry_allowed" not in row]
+        self.assertTrue(defaulted, "no destination defaults this key any more")
+        for n_id in defaulted:
             with self.subTest(n_id=n_id):
-                raw = [
-                    row for row in _raw()["destinations"] if row["n_id"] == n_id
-                ][0]
-                self.assertNotIn("login_entry_allowed", raw)
                 self.assertTrue(destination(n_id, self.registry).login_entry_allowed)
 
     def test_scene_17_is_pinned_not_allowed_to_persist_position(self):
@@ -222,12 +232,19 @@ class SceneRegistryTests(unittest.TestCase):
         the one row that sets it' - a mutation that flipped the default
         would silently stop persisting positions for scenes that have never
         shown the GT-106 bug at all."""
-        for n_id in (1, 2, TEST_STAGE_SCENE_ID, 997):
+        # DERIVED, not hand-listed (pf-adversary, round vyi2ud, D12): the
+        # literal tuple this loop used to carry had to be edited by hand
+        # every time a destination was added, in the same file as the
+        # tripwire that exists to catch an unexplained addition.  "Every
+        # other destination" now means what it says: every row that does not
+        # set the key.
+        rows = {row["n_id"]: row for row in _raw()["destinations"]}
+        defaulted = [n_id for n_id, row in rows.items()
+                     if "persist_position_allowed" not in row]
+        self.assertTrue(defaulted, "no destination defaults this key any more")
+        for n_id in defaulted:
             with self.subTest(n_id=n_id):
-                raw = [
-                    row for row in _raw()["destinations"] if row["n_id"] == n_id
-                ][0]
-                self.assertNotIn("persist_position_allowed", raw)
+                raw = rows[n_id]
                 self.assertTrue(
                     destination(n_id, self.registry).persist_position_allowed)
                 self.assertTrue(is_position_persist_allowed(n_id, self.registry))

@@ -1,14 +1,34 @@
 """Where a scene's own developer said a character arrives - LANE-A, M2.
 
 WHAT THIS MODULE IS FOR, IN ONE SENTENCE.  Every destination this project has
-ever pinned needed an arrival point, and until now each one was argued from
-scratch - scene 1 took the runtime's historical spawn, scene 2 took a point a
-live client had been stood on, scene 278 took a monster placement because it
-was the only authored coordinate in the file, and scene 17 took an owner
-decree because it had nothing at all.  Four scenes, four different rules.  The
-client's own tables carry a fifth answer that none of those rounds read: a
-``MARKER`` row per scene, with an XYZ and a facing, authored by the people who
-built the map.
+ever pinned needed an arrival point, and each one was argued from scratch -
+scene 1 took the runtime's historical spawn, scene 2 took a point a live
+client had been stood on, scene 278 took a monster placement because it was
+the only authored coordinate in the file, and scene 17 took an owner decree
+because it had nothing at all.  Four scenes, four different rules; this module
+is the fifth answer written down once, as a table lookup, so the sixth scene
+is not a fresh argument: a ``MARKER`` row per scene, with an XYZ and a facing,
+authored by the people who built the map.
+
+    THIS MODULE IS NOT THE PROJECT'S FIRST CONTACT WITH THAT TABLE, AND THE
+    FIRST DRAFT OF THIS DOCSTRING CLAIMED IT WAS.  "The client's own tables
+    carry a fifth answer that none of those rounds read" was written here and
+    refuted by pf-adversary (round vyi2ud, D4) out of artifacts already in
+    this repository.  What was already here, before this file existed:
+    ``scenarios/scene2_load_only.json`` is named ``scene2_load_only_marker2``
+    and carries ``coordinate_provenance: scene2_marker2`` (and declines the
+    facing: ``direction8_unmapped_constructor_zero``);
+    ``docs/EXPERIMENT_LEDGER.md`` records that run as a runtime pass; and
+    ``reports/PF_RE_V137_MARKER1_TeleportVital_Transport_Pass_20260815.md``
+    -- two weeks before this round -- transported a VISIBLE CLIENT to
+    ``MARKER[1]`` with one TeleportVital, watched its coordinate UI read
+    ``X:-10322 Y:-755``, and is the evidence behind
+    ``docs/FUNCTIONAL_COVERAGE.json``'s ``teleport_transport`` =
+    ``runtime_pass``.  So the honest framing is the opposite of the one this
+    file opened with: the table is not unread, it is UNCOLLECTED - three
+    rounds used single rows of it and nobody wrote the crosswalk down.  That
+    is what this module adds, and it is a smaller claim than the one it
+    replaces.
 
 THE CROSSWALK, AND IT IS NOT "THE MARKER ID IS THE SCENE ID".
 ``SCENE_NAME[n_ID].n_MARKER`` -> ``MARKER[n_ID]`` -> ``(n_SCENE, n_X, n_Y,
@@ -29,34 +49,51 @@ sea scenes for an arrival datum and closed bounded-negative, and this is the
 same negative arriving from the table that WOULD have carried it.  The owner's
 provisional decree for scene 17 stays the only source for that scene.
 
-THE ONE CORROBORATION THIS HAS, AND THE ONE IT DOES NOT.
+WHAT THE CLIENT HAS ACTUALLY DONE WITH A MARKER POINT - AND THE CIRCULARITY
+THIS PARAGRAPH USED TO BE.  The first draft argued that ``MARKER[2]`` being
+byte-for-byte the scene-2 spawn in ``world_scene_registry_001.json`` was an
+independent measurement agreeing with the table.  It is not: that spawn CAME
+from marker 2 (``scenarios/scene2_load_only.json``'s own
+``coordinate_provenance``), so the table was agreeing with itself and the
+agreement was being re-presented one layer up as client-observable proof
+(pf-adversary, round vyi2ud, D5).  The weaker claim that survives is still the
+useful one:
 
-* **Scene 2 matches exactly.**  ``MARKER`` row 2 is ``(26905, 21185, 1680)``,
-  which is byte-for-byte the spawn ``scenarios/world_scene_registry_001.json``
-  already carries for Prison Exile Island - a point this project obtained
-  independently, by standing a live client on it in ``SCENE-001`` and watching
-  it work.  The table and a client-observable run agree on the one scene where
-  both exist.  That is what makes this a crosswalk worth using rather than a
-  column that merely looks right.
-* **Scene 1 does NOT match, and the difference is stated rather than
-  smoothed.**  ``MARKER`` row 1 is ``(-10322, -755, 671)``; the spawn this
-  runtime actually stands a fresh character on is V135's
-  ``(-9239.96, -2830.05, 223.29)``, about 2200 units away.  Both are real:
-  the marker is the client table's authored point, V135's is this server's own
-  historical choice, and NOTHING here proposes changing home.  A reader who
-  wants "the marker is always where the game puts you" cannot have it from
-  this project's own evidence - one scene agrees, one differs, and no attended
-  run has ever compared them.
+* **The client has ACCEPTED marker points twice.**  V137 teleported a visible
+  client to ``MARKER[1]`` and the client's own coordinate UI reported the
+  marker's X and Y (``reports/PF_RE_V137_MARKER1_TeleportVital_Transport_
+  Pass_20260815.md``, ``FUNCTIONAL_COVERAGE.json`` ``teleport_transport`` =
+  ``runtime_pass``), and ``SCENE-001`` stood a client on ``MARKER[2]``.  "The
+  client accepts a marker coordinate" is measured.  "A marker is where the
+  original game puts an arriving player" is NOT, and nothing here may be
+  quoted for it.
+* **Home does not match, and the difference is stated rather than smoothed.**
+  ``MARKER[1]`` is ``(-10322, -755, 671)``; the spawn this runtime actually
+  stands a fresh character on is V135's ``(-9239.96, -2830.05, 223.29)``,
+  **2340.22 units away in XY and 2382.66 in three dimensions** (per axis
+  1082.04 / 2075.05 / 447.71 - the same gap ``runtime.py:3717`` already
+  describes as "about 2340 units away horizontally and 448 vertically"; this
+  file first said "about 2200", which matched neither, D10).  Both points are
+  real: the marker is the client table's authored point, V135's is this
+  server's own historical choice, and NOTHING here proposes changing home.
 
 [LANE-A ASSUMPTION - AWAITING COO CONFIRMATION]  That a scene's MARKER row is
 the right place to stand an arriving character is this lane's reading, not a
 ruling: the letter asking for it is
 ``pf_bridge/notes_to_chief/20260829_0447_LANE-A-ASK-COO-marker-table-as-
 default-spawn.md``, and it names what to revert if the answer is no (one row
-out of the scene registry; nothing in this file has to be deleted, because
-nothing outside the registry and its tests calls it).  The first scene to use
-it, 14, is reachable only through the per-account login-scene override, so a
-wrong answer costs a GM a strange landing and nothing else.
+out of the scene registry).
+
+NOTHING IN PRODUCTION IMPORTS THIS FILE, AND SAYING SO IS NOT A FORMALITY
+(pf-adversary, round vyi2ud, D7).  ``grep -rn world_scene_marker --include=*.py``
+finds this module and its test file, and nothing else: the scene-14 spawn in
+``scenarios/world_scene_registry_001.json`` is a hand-typed JSON literal that
+a test cross-checks against the row below, not a value read from here at boot.
+So ``_self_check`` guards THIS module's own consistency and never runs during
+a real login, and the sentence an earlier draft carried - "a raise here is a
+boot that stops with a reason" - was false.  What this file is, exactly: the
+crosswalk written down once, with its sources pinned, so the next scene is a
+lookup and a test rather than an argument.
 
 WHAT A MARKER IS NOT.  It is not ground: it says a coordinate was authored,
 not that the mesh under it can be stood on, and this module makes no claim
@@ -174,12 +211,14 @@ _BY_SCENE: dict[int, MarkerArrival] = {
 def _self_check() -> None:
     """Refuse to import a table that contradicts what this module claims.
 
-    Import-time rather than call-time on purpose: a wrong row here becomes a
-    coordinate a character is stood on, and the cheapest place to stop that is
-    before the process is serving anyone.  ``lane_hooks`` catches import
-    failures for hook modules; this one is imported by the scene lane
-    directly, so a raise here is a boot that stops with a reason instead of a
-    boot that quietly arrives somewhere wrong.
+    Import-time rather than call-time so a bad edit fails the first test that
+    touches the module rather than the tenth.  It is NOT a boot guard: nothing
+    in production imports this file today (see the docstring above), and an
+    earlier draft of this comment claimed otherwise.  What it can catch is a
+    hand-edited row - the back-pointer column and the duplicate-marker check
+    below both go red under mutation, which is why they are written as
+    relations between two transcribed columns rather than as restatements of
+    one.
     """
     if len(_BY_SCENE) != len(_ROWS):
         raise SceneMarkerError("a scene is pinned twice in the marker table")
@@ -232,6 +271,14 @@ def arrival_point(scene_n_id: Any) -> MarkerArrival | None:
         raise SceneMarkerError(
             f"scene id must be an int, not {type(scene_n_id).__name__}"
         )
+    # The range every sibling in this lane checks, added after pf-adversary
+    # noted its absence: without it ``arrival_point(-1)`` answers None, which
+    # would report a garbage id as "this scene has no marker" - two different
+    # facts sharing one answer.
+    if not 1 <= scene_n_id <= 0xFFFF:
+        raise SceneMarkerError(
+            f"scene id {scene_n_id} is outside the client's scene id range"
+        )
     return _BY_SCENE.get(scene_n_id)
 
 
@@ -255,32 +302,85 @@ def console_line(arrival: MarkerArrival) -> str:
     )
 
 
-def reverify_on_the_bridge() -> str:
-    """The exact re-derivation a bridge-side round runs against the sources."""
+def reverification_script() -> str:
+    """A self-contained script that RE-DERIVES these rows and asserts them.
+
+    Returned as the text of a ``.py`` file, deliberately not as a shell
+    command: the earlier version of this function returned a POSIX heredoc
+    (``python - <<'EOF'``), and the bridge is a Windows host that drives
+    everything through ``py -3`` and PowerShell, which has no ``<<`` - so the
+    one place it was written for could not run it (pf-adversary, round
+    vyi2ud, D9).
+
+    It ASSERTS rather than prints, for the same round's other finding: the old
+    version ended in ``# expect exactly 13 lines``, a comment, so a 14th scene
+    gaining a marker still exited 0 and the three measured totals below were
+    read by nothing at all.  Every number this module states about the source
+    tables is checked here: both file hashes, the 271 scene rows, the 390
+    marker rows, the 19 rows whose id equals their scene, the 13 scenes with a
+    marker, and the exact contents of all 13 pinned rows.
+
+    ``tests/test_world_scene_marker.py`` runs this against the bridge tree
+    when it is present beside this repository, and skips when it is not, so
+    the assertions are exercised rather than merely offered.
+    """
+    expected = ",\n    ".join(repr(row) for row in _ROWS)
     return (
-        "python - <<'EOF'\n"
-        "import csv, hashlib\n"
-        "def s32(v):\n"
-        "    v = int(v)\n"
-        "    return v - (1 << 32) if v >= (1 << 31) else v\n"
-        f"scene_tsv = '{SCENE_NAME_TSV.split('/', 1)[1]}'\n"
-        f"marker_tsv = '{MARKER_TSV.split('/', 1)[1]}'\n"
-        "for path, pinned in ((scene_tsv, '"
-        f"{SCENE_NAME_TSV_SHA256}'), (marker_tsv, '{MARKER_TSV_SHA256}')):\n"
-        "    assert hashlib.sha256(open(path, 'rb').read()).hexdigest() == "
-        "pinned, path\n"
-        "rows = {int(r['n_ID']): r for r in csv.DictReader("
-        "open(marker_tsv, newline='', encoding='utf-8'), delimiter='\\t')}\n"
-        "for r in csv.DictReader(open(scene_tsv, newline='', encoding='utf-8'), "
-        "delimiter='\\t'):\n"
-        "    m = int(r['n_MARKER'])\n"
-        "    if not m:\n"
+        '"""Re-derive world_scene_marker.py from the client tables.  py -3 this file'
+        "\n\nRun it from the pf_bridge working tree (the directory holding gamedata/).\n"
+        "Exit 0 = every pinned number still matches the sources.  Any assertion\n"
+        "failure is drift: report the failing line, do not edit the pin to match.\n"
+        '"""\n'
+        "import csv\n"
+        "import hashlib\n"
+        "import sys\n"
+        "\n"
+        f"SCENE_TSV = {SCENE_NAME_TSV.split('/', 1)[1]!r}\n"
+        f"MARKER_TSV = {MARKER_TSV.split('/', 1)[1]!r}\n"
+        f"SCENE_SHA = {SCENE_NAME_TSV_SHA256!r}\n"
+        f"MARKER_SHA = {MARKER_TSV_SHA256!r}\n"
+        f"SCENE_ROWS = {SCENE_ROW_COUNT}\n"
+        f"MARKER_ROWS = {MARKER_ROW_COUNT}\n"
+        f"ID_EQUALS_SCENE = {MARKER_ROWS_WHOSE_ID_EQUALS_THEIR_SCENE}\n"
+        f"EXPECTED = (\n    {expected},\n)\n"
+        "\n"
+        "\n"
+        "def s32(value):\n"
+        "    value = int(value)\n"
+        "    return value - (1 << 32) if value >= (1 << 31) else value\n"
+        "\n"
+        "\n"
+        "def read(path):\n"
+        "    with open(path, newline='', encoding='utf-8') as handle:\n"
+        "        return list(csv.DictReader(handle, delimiter='\\t'))\n"
+        "\n"
+        "\n"
+        "for path, pinned in ((SCENE_TSV, SCENE_SHA), (MARKER_TSV, MARKER_SHA)):\n"
+        "    with open(path, 'rb') as handle:\n"
+        "        actual = hashlib.sha256(handle.read()).hexdigest()\n"
+        "    assert actual == pinned, 'sha256 drift in %s: %s' % (path, actual)\n"
+        "\n"
+        "scenes = read(SCENE_TSV)\n"
+        "markers = read(MARKER_TSV)\n"
+        "assert len(scenes) == SCENE_ROWS, len(scenes)\n"
+        "assert len(markers) == MARKER_ROWS, len(markers)\n"
+        "by_id = {int(row['n_ID']): row for row in markers}\n"
+        "same = sum(1 for row in markers if int(row['n_ID']) == int(row['n_SCENE']))\n"
+        "assert same == ID_EQUALS_SCENE, same\n"
+        "\n"
+        "derived = []\n"
+        "for scene in scenes:\n"
+        "    marker_id = int(scene['n_MARKER'])\n"
+        "    if not marker_id:\n"
         "        continue\n"
-        "    row = rows[m]\n"
-        "    assert int(row['n_SCENE']) == int(r['n_ID'])\n"
-        "    print(r['n_ID'], m, s32(row['n_X']), s32(row['n_Y']), "
-        "s32(row['n_Z']), row['n_DIRTECTION'])\n"
-        "EOF\n"
-        f"# expect exactly {SCENES_WITH_A_MARKER} lines, "
-        f"{_READING}"
+        "    row = by_id[marker_id]\n"
+        "    derived.append((\n"
+        "        int(scene['n_ID']), marker_id, int(row['n_SCENE']),\n"
+        "        s32(row['n_X']), s32(row['n_Y']), s32(row['n_Z']),\n"
+        "        int(row['n_DIRTECTION']),\n"
+        "    ))\n"
+        "\n"
+        "assert tuple(derived) == EXPECTED, tuple(derived)\n"
+        "sys.stdout.write('world_scene_marker: %d rows re-derived, all pinned "
+        "values match\\n' % len(derived))\n"
     )
