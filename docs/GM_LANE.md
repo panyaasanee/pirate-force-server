@@ -1843,8 +1843,11 @@ nothing reconciles it until a `TargetPos` that may never come.  That is now
 RE-129 lets the constant change, not after.
 
 Counts after the fixes, superseding the ones pinned in the `hs9m2r` section
-above: `tests/test_gm_chat_command_action.py` 34 tests / 25 subtests ·
-`pytest -k "gm or lane_hook"` 375 passed, 4 skipped, 52 subtests ·
+above: ~~`tests/test_gm_chat_command_action.py` 34 tests / 25 subtests ·
+`pytest -k "gm or lane_hook"` 375 passed, 4 skipped, 52 subtests~~ ·
+**re-derived at HEAD ในรอบ `vvxkft` (pf-adversary ชี้ว่าตัวเลขชุดนี้ไม่ re-derive):**
+`tests/test_gm_chat_command_action.py` = **43 passed, 25 subtests** ·
+`pytest -k "gm or lane_hook"` = **395 passed, 4 skipped, 86 subtests** ·
 repo-wide `pytest tests/` see the round file.  Mutation-checked, not merely
 run: the version gate, the label substring, the identity check, the event
 literals, the position guards and the exception-text leak each fail the suite
@@ -1899,3 +1902,51 @@ nonclaim ของรอบ: **[ไม่อ้าง]** ว่ารอบน�
 ล้วน ๆ · **[ไม่อ้าง]** ว่าเส้นทางแชท→warp ใช้กับ client จริงได้ (GT-127/GT-128)
 · **GM nonclaim:** ทุกอย่างในสายนี้เป็นเครื่องมือไปให้ถึงสภาพที่จะเทส ไม่ใช่
 หลักฐานว่าฟีเจอร์ใดทำงาน
+
+### pf-adversary รอบ `vvxkft`: NOT APPROVED รอบแรก — 10 ข้อ, ห้าข้อเป็น blocking, แก้ทั้งหมดในใบนี้
+
+ใบนี้เกือบเสียรอบเป็นครั้งที่สาม สิ่งที่ adversary จับได้และแก้แล้ว:
+
+1. **[blocking] ตัว tripwire เองยังไม่ถูก `git add` และคอมมิตของ branch (`ac711e1` = cherry-pick ดิบ)
+   ยังมี `U+1F534` ครบห้าตัว** — การแก้ทั้งหมดอยู่ใน worktree ที่ยังไม่ commit
+   `git diff origin/main` เทียบ **worktree** จึงมองไม่เห็นเลย ⇒ push ตอนนั้น = โดนปิด PR
+   ด้วยคอมเมนต์เดียวกับ #200 ไฟล์เดียวกัน บรรทัดเดียวกัน
+2. **[blocking] tripwire อ่าน worktree ไม่ใช่สิ่งที่จะถูก push** — `rglob` บนดิสก์เขียวได้ทั้งที่ HEAD แดง
+   ซึ่งเป็นคำถามที่ใบนี้มีไว้ตอบพอดี **แก้:** ตรวจ **ทั้งสองชั้น** — worktree (สิ่งที่ CI checkout)
+   และเนื้อไฟล์ที่ `HEAD` ผ่าน `git show` (สิ่งที่จะถูก push) แดงถ้าชั้นใดชั้นหนึ่งแดง ·
+   ชุดไฟล์มาจาก `git ls-files` ให้ตรงกับ gate (ไฟล์ scratch ที่ไม่ได้ track จึงไม่ทำให้แดงลวง)
+   · พิสูจน์แล้วว่ามันแดงจริงบน `ac711e1` และเขียวหลังคอมมิตแก้
+3. **[blocking] `CONSOLE_TOKEN` ไม่มีเทสแตะเลย** — ลบ `print` ทิ้งทั้งบรรทัด หรือเปลี่ยนชื่อ token
+   เป็น `zzz_LANE_HOOK_FIRED` ก็ยังเขียว ทั้งที่มันคือหลักฐาน WIRED-v2 ของเส้นทางนี้
+   (ใบเดียวกันนี้เขียนไว้เองว่ามีไว้ฆ่า tautology แบบนี้ แล้วหมุด 9 ค่า ลืมค่าที่ 10 พอดี)
+   **แก้:** `ConsoleTokenTests` 6 เทส — literal, ASCII, ต่างจาก `LANE_HOOK_FIRED`, ยิงจริง,
+   สตรีม, และผู้เล่นธรรมดาไม่ทำให้คอนโซลมีบรรทัด · mutation ทั้งสามแบบแดงแล้ว
+4. **[blocking] `print()` ลง stdout ซ้ำบั๊กที่ `lane_hooks` จ่ายค่าไปแล้ว** —
+   `lane_hooks/__init__.py:117-123` บันทึกไว้ว่า token ที่ลง stdout ทำให้
+   `tools/pf_runtimeres_death_headless_replay.py --json` มีบรรทัดแปลกปนใน JSON artifact
+   เพราะ control ของมัน dispatch เฟรมแชท และ fix คือ `file=sys.stderr` ·
+   โมดูลนี้อยู่บนสาขา `0xAC52` เดียวกัน ⇒ รับ exposure เดียวกันทันทีที่ GM-029 ถูก wire
+   **แก้:** `file=sys.stderr` + เทสที่หมุดสตรีม (mutation `stderr`->`stdout` แดง)
+5. **[blocking] `test_the_live_hook_route_still_emits_...` ไม่ได้ทดสอบการ emit** —
+   มันอ่าน `inspect.getsource()` แล้ว `assertIn` บน **ข้อความในไฟล์** ⇒ เปลี่ยนชื่อ event จริง
+   แล้วทิ้งคอมเมนต์ `# was gm_chat_command_accepted_` ไว้ ก็ยังเขียวตลอดกาล (adversary ทำให้ดูแล้ว)
+   **แก้:** ขับ hook จริงแล้วอ่าน `session.events` · mutation เดิมแดงแล้ว
+6. **หมุดเลขบรรทัดของ `runtime.py` ค้างที่ค่าก่อน merge ของ chief ทุกตัว** (บล็อก hook ที่
+   `4729-4787` ดันทุกอย่างหลังจากนั้นไป ~60 บรรทัด) — รอบนี้ re-derive `4784` ถูก แต่ลืมที่เหลือ
+   แก้ครบ: `3654`/`3668` · `5181` · `5396` · `5168`/`5173` (`5595` เปลี่ยนเป็นอ้างโดยไม่ระบุเลข)
+7. **ข้อสรุปความปลอดภัยที่วิธีพิสูจน์กลายเป็นเท็จ** — ดูบล็อกขีดฆ่าในหัวข้อรอบ `gr2q9j` ข้างบน
+   (16 สาขาไม่ใช่ 14 · สาขาที่ chief เพิ่งเพิ่มไม่มี scenario gate) ข้อสรุปยังจริง วิธีพิสูจน์ไม่จริง
+8. **ตัวเลขเทสใน section ก่อนหน้าไม่ re-derive** — แก้แล้ว (43 / 395 ข้างบน)
+9. **คำพูดของ `gm/dispatch.py` ถูกตัดคำสุดท้าย "regardless" ทิ้ง** แล้วเอา caveat ที่พูดถึง vital
+   ตัวเดียวมาใช้เป็นข้อเท็จจริงเชิงสถาปัตยกรรมของทั้งเลน — คืนคำและระบุขอบเขตแล้ว
+10. `U+1F534` สามตัวใหม่ที่รอบนี้เพิ่งใส่ลง `GM_LANE.md` เอง หนึ่งในนั้นอยู่ในย่อหน้าที่กำลังเล่าว่า
+    เอา `U+1F534` ออก (ไม่ทำให้ gate แดง เพราะ tripwire สแกนเฉพาะ `.py` — แต่เป็นอาการเดียวกัน)
+    เอาออกหมดแล้วทั้งไฟล์
+
+**คำถามที่ adversary ถามแล้วรอบนี้ตอบด้วยของ ไม่ใช่ด้วยประโยค:** อะไรบังคับกฎ "wire ได้จุดเดียว"?
+เดิมคือ *ไม่มีอะไรเลย* — สอง namespace, เทส disjoint, console token ทั้งหมดทำให้ double-wire
+**อ่านออก** และแต่ละอันเขียนไว้เองว่า "กันไม่ได้" กฎถูกถือไว้ด้วยประโยคในจดหมายขอ
+และครั้งล่าสุดที่สายนี้ฝากกฎไว้กับการที่ chief อ่านจดหมาย chief ก็ส่งอีกครึ่งมาก่อน แล้วรอบนี้
+ก็หมดไปกับการกู้ของ · **แก้: `OneOfTwoWiringTests`** อ่าน `runtime.py` จริงแล้วปฏิเสธสถานะที่มี
+ทั้งสองจุดพร้อมกัน (และปฏิเสธสถานะที่ไม่มีเลยด้วย) — พิสูจน์ด้วย mutation ทั้งสองทิศ
+เป็นสิ่งเดียวในรอบนี้ที่ **ทำ** แทนที่จะ **รายงาน**
