@@ -7,12 +7,25 @@ actor identity, and neither of them can currently justify doing so:
 * ``bg0001`` (Port Royal) ships 115 actors with ``n_ID = <set number>``.
   ``GT-078`` booted that path, and the owner rejected it on sight: every
   placement right, every NPC wrong.
-* ``Bg0002`` (prison island) ships 97 on the same rule.  That one is a
+* ~~``Bg0002`` (prison island) ships 97 on the same rule.  That one is a
   ``strong_hypothesis_not_yet_confirmed`` - see ``NAMING_SCHEME_STATUS`` and
   the docstring in ``scene2_prison_exile_tables``, which is the source of truth
   for how strong the ``NN = n_ID`` hypothesis is: 2 of 7 anchors numerically
   confirmed, and the owner's written instruction is not to state it as fact
-  until all 7 clear.
+  until all 7 clear.~~  STRUCK 2026-08-28T23:5x+07:00, LANE-A round w0pu2i,
+  on ``COO-DECISION 2026-08-28T22:50+07:00`` "who promotes a scene to
+  confirmed": the promoter is the OWNER'S EYES ON THE REAL SCENE, at the top
+  of this house's evidence order, and the seven-numeric-anchor rule is the way
+  IN when there are no owner eyes - not an extra gate on top of them.  The
+  owner walked Prison Exile Island and confirmed its cast on
+  2026-08-28T00:3x+07:00 (``notes_to_chief/20260828_0150_M1P-RESULT-PASS-
+  owner-confirms-Prison-Exile-identities-*.md``: her words, two screenshots,
+  a full-circuit video).  So Bg0002 is CONFIRMED and sits in
+  ``OWNER_CONFIRMED_SCENES`` below.  The struck text is kept, not deleted,
+  because it was the honest state of this module for a day and a half.
+  SCOPE, AND IT IS NARROW: scene 2 ONLY.  That same COO letter says in red
+  that this must not spread to one other scene, and this module still refuses
+  every other scene including bg0001.
 
 WHY ``bg0001`` CANNOT BE RIGHT, at the client-observable layer.  This is the
 part that is settled, and it was settled by the owner on 2026-08-27, not here.
@@ -86,9 +99,25 @@ REFUSAL_REASONS = {
         "port_royal_roster_is_n_ID_156-913_per_owner_video2_20260827;"
         "set_numbers_stop_at_113;owner_rejected_GT-078"
     ),
+    # SUPERSEDED for Bg0002 by OWNER_CONFIRMED_SCENES below (COO-DECISION
+    # 2026-08-28T22:50).  Kept rather than deleted: identity_block_reason
+    # never reaches it now, because identity_is_provable("Bg0002") answers
+    # first, so this is history, not a live refusal.  If the promotion is
+    # ever reverted this is the reason that comes back.
     "Bg0002": (
-        "NN=n_ID_is_strong_hypothesis_not_yet_confirmed;"
+        "SUPERSEDED_owner_confirmed_on_screen_20260828T00:3x;"
+        "was:NN=n_ID_is_strong_hypothesis_not_yet_confirmed;"
         "2_of_7_anchors;owner_forbids_stating_as_fact_until_7"
+    ),
+    # Bg0015 does not ship a set number as an identity at all -- its census
+    # ships the CLINE-resolved MOBS.n_ID (world_bg0015_identity) -- so the
+    # failure this guard was built for cannot happen there.  It is listed
+    # anyway, refused, for the OTHER half of what this guard is for: nobody
+    # has stood in that scene and read a name, so its identities are table
+    # inference and must not be stated as fact until GT-132 comes back.
+    "Bg0015": (
+        "identities_are_CLINE_resolved_not_set_numbers;"
+        "no_owner_eyes_on_this_scene_yet;GT-132_open"
     ),
 }
 
@@ -97,13 +126,30 @@ REFUSAL_REASONS = {
 SCENE_ID_TO_SCENE_FILE = {
     1: "bg0001",
     2: "Bg0002",
+    # Added round w0pu2i with the Bg0015 census.  A census going out for a
+    # scene this module cannot name is the case most worth seeing in a log
+    # (see numbering_console_suffix), and that was about to be scene 14.
+    14: "Bg0015",
 }
 
-# Deliberately empty, and deliberately present.  When anchors clear for a
-# scene, the change is one entry here plus the evidence in the owning module -
-# which makes the moment a scene becomes assertable a reviewable diff instead
-# of a silent consequence of some other edit.
-OWNER_CONFIRMED_SCENES: tuple[str, ...] = ()
+# One entry, and the diff that put it there is the whole point of this
+# constant existing: a scene becomes assertable in a reviewable line, never as
+# a silent consequence of some other edit.
+#
+# ~~Deliberately empty~~ (struck 2026-08-28, round w0pu2i).  Bg0002 is here
+# because the OWNER confirmed its cast on the real scene on
+# 2026-08-28T00:3x+07:00 and COO-DECISION 2026-08-28T22:50 ruled that owner
+# eyes on the real scene are what promotes a scene -- the seven-anchor rule
+# applies to scenes she has NOT looked at.  Numerically Bg0002 still stands at
+# 2 of 7 anchors and scene2_prison_exile_tables still says so; that is not a
+# contradiction, it is this house's evidence order (client-observable >
+# wire/DB > table) doing exactly what it is for.
+#
+# WHAT WOULD TAKE IT BACK OUT, so this is falsifiable and not a one-way door:
+# the owner saying, on the real scene, that a Prison Exile name is wrong.  COO
+# condition (c) of the same letter says to withdraw it in that round without
+# asking.
+OWNER_CONFIRMED_SCENES: tuple[str, ...] = ("Bg0002",)
 
 
 def scene_file_for_scene_id(scene_id: int) -> Optional[str]:

@@ -35,9 +35,17 @@ from pirateforce_foundation import world_scene_numbering as wsn
 
 class RefusalIsUnconditionalTest(unittest.TestCase):
 
-    def test_no_scene_is_provable_today(self):
-        self.assertEqual(wsn.OWNER_CONFIRMED_SCENES, ())
-        for scene in ("bg0001", "Bg0002", "bg0003", "Bg9999", "", "1"):
+    def test_only_the_scene_the_owner_walked_is_provable(self):
+        # CHANGED round w0pu2i on COO-DECISION 2026-08-28T22:50 ("who
+        # promotes a scene to confirmed"): owner eyes on the real scene are
+        # the promoter, and she walked Prison Exile Island on 2026-08-28.
+        # Was: OWNER_CONFIRMED_SCENES == () and Bg0002 in the refused list.
+        self.assertEqual(wsn.OWNER_CONFIRMED_SCENES, ("Bg0002",))
+        self.assertTrue(wsn.identity_is_provable("Bg0002"))
+        self.assertIsNone(wsn.identity_block_reason("Bg0002"))
+        wsn.assert_identity_claim("Bg0002")
+        # RED LINE from the same letter: scene 2 only, it must not spread.
+        for scene in ("bg0001", "bg0003", "Bg0015", "Bg9999", "", "1"):
             self.assertFalse(
                 wsn.identity_is_provable(scene),
                 f"{scene!r} must not be assertable",
@@ -46,13 +54,17 @@ class RefusalIsUnconditionalTest(unittest.TestCase):
             with self.assertRaises(ValueError, msg=f"{scene!r} must refuse"):
                 wsn.assert_identity_claim(scene)
 
-    def test_the_two_shipping_scenes_have_recorded_reasons(self):
+    def test_the_shipping_scenes_have_recorded_reasons(self):
         """A refusal with a generic reason is a refusal nobody can audit, and
-        these are the two scenes that actually put identities on the wire."""
-        for scene in ("bg0001", "Bg0002"):
+        these are the scenes that actually put identities on the wire.
+        Bg0002's recorded reason is kept as history but no longer reached -
+        it is confirmed now, so identity_block_reason answers None first."""
+        for scene in ("bg0001", "Bg0015"):
             self.assertIn(scene, wsn.REFUSAL_REASONS)
             self.assertEqual(
                 wsn.identity_block_reason(scene), wsn.REFUSAL_REASONS[scene])
+        self.assertIn("Bg0002", wsn.REFUSAL_REASONS)
+        self.assertIn("SUPERSEDED", wsn.REFUSAL_REASONS["Bg0002"])
 
     def test_port_royal_reason_cites_the_client_observable_evidence(self):
         """bg0001's refusal rests on the owner's 2026-08-27 map-window
@@ -80,13 +92,14 @@ class ConsistentWithTheHypothesisOwnerTest(unittest.TestCase):
         from pirateforce_foundation import scene2_prison_exile_tables as s2
 
         status = s2.NAMING_SCHEME_STATUS
-        assertable = "confirmed" in status and "not_yet_confirmed" not in status
-        self.assertFalse(
-            assertable,
-            "scene2 now claims NN=n_ID is confirmed; the guard's Bg0002 entry "
-            "and OWNER_CONFIRMED_SCENES must be revisited deliberately",
-        )
-        self.assertFalse(wsn.identity_is_provable("Bg0002"))
+        # The two now disagree ON PURPOSE and this test says why rather than
+        # hiding it: scene2_prison_exile_tables reports the NUMERIC state (2
+        # of 7 anchors, unchanged), and the guard reports the EVIDENCE state
+        # (the owner walked the scene).  COO-DECISION 2026-08-28T22:50 ruled
+        # the second outranks the first.  If the numeric side ever reaches 7
+        # this test still passes and nothing needs revisiting.
+        self.assertIn("not_yet_confirmed", status)
+        self.assertTrue(wsn.identity_is_provable("Bg0002"))
 
 
 class SceneIdMappingTest(unittest.TestCase):
@@ -112,14 +125,23 @@ class ConsoleTest(unittest.TestCase):
         line.encode("ascii")
         self.assertNotIn("\n", line)
 
-    def test_line_reports_refusal_for_both_shipping_scenes(self):
-        for scene in ("bg0001", "Bg0002"):
+    def test_line_reports_refusal_for_every_unconfirmed_shipping_scene(self):
+        for scene in ("bg0001", "Bg0015"):
             line = wsn.numbering_console_line(scene)
             self._assert_ascii(line)
             self.assertTrue(line.startswith("WORLD_IDENTITY_GUARD "))
             self.assertIn(f"scene={scene}", line)
             self.assertIn("verdict=refused", line)
             self.assertIn("identity_provable=0", line)
+
+    def test_the_confirmed_scene_says_so_on_the_console(self):
+        # Round w0pu2i.  The console is where a grader reads the verdict, so
+        # the promotion has to be visible there too, not only in the API.
+        line = wsn.numbering_console_line("Bg0002")
+        self._assert_ascii(line)
+        self.assertIn("scene=Bg0002", line)
+        self.assertIn("verdict=allowed", line)
+        self.assertIn("identity_provable=1", line)
 
     def test_suffix_resolves_scene_ids_and_never_fails_open(self):
         self.assertEqual(
@@ -133,12 +155,16 @@ class ConsoleTest(unittest.TestCase):
         self.assertIn("identity_provable=0", unmapped)
         self.assertIn("scene_id_278_not_mapped", unmapped)
 
-    def test_no_console_path_can_print_provable_1_today(self):
+    def test_only_bg0002_can_print_provable_1(self):
+        # Was "no console path can print provable=1 today".  Exactly one can
+        # now, and this test is the fence around that one.
         lines = [wsn.numbering_console_line(s)
-                 for s in ("bg0001", "Bg0002", "Bg9999")]
-        lines += [wsn.numbering_console_suffix(i) for i in (1, 2, 278)]
+                 for s in ("bg0001", "Bg0015", "Bg9999")]
+        lines += [wsn.numbering_console_suffix(i) for i in (1, 14, 278)]
         for line in lines:
             self.assertIn("identity_provable=0", line)
+        self.assertIn(
+            "identity_provable=1", wsn.numbering_console_suffix(2))
 
 
 class CensusLineIntegrationTest(unittest.TestCase):

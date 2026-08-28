@@ -904,15 +904,23 @@ guard("make_remote_actor_entry" in _v141,
 #                 world_population_bg0002.py send one each.
 #   modules       12 -> 14: the same two names, and no other module gained or
 #                 lost its first entry.
-guard(SRC_ACTOR_ENTRY_SITES == 15,
-      "src/ builds actor entries at exactly 15 call sites (4 spawns + the "
+#
+# Moved again on 2026-08-28 (LANE-A round w0pu2i, M3): world_population_
+# bg0015.py, the Bg0015 (Hell Volcano Island) census, builds one entry and
+# sends one carrier, exactly as world_population_bg0002.py did before it.
+#   entry sites   15 -> 16 · carrier sites 23 -> 24 · modules 14 -> 15.
+# Recounted from src/ by tests/test_static_verifier_pins_cloud.py in the same
+# round, which is what these three numbers exist to be checked against.
+guard(SRC_ACTOR_ENTRY_SITES == 16,
+      "src/ builds actor entries at exactly 16 call sites (4 spawns + the "
       "round-86 death re-send + the round-96 remote-player probe + the "
       "round-99 hostile spawn + the round-111 NPC HP ladder + the "
       "HYP-PF-038 hostile HP link + the lane-B production modules + the "
-      "GT-114 multi-object diagnostic + the lane-A bg0002 census)")
-guard(SRC_ACTOR_STREAM_SITES == 23,
-      "src/ sends the actor-entry carrier at exactly 23 call sites")
-guard(SRC_MODULES_WITH_ACTOR_ENTRY == 14
+      "GT-114 multi-object diagnostic + the lane-A bg0002 and bg0015 "
+      "censuses)")
+guard(SRC_ACTOR_STREAM_SITES == 24,
+      "src/ sends the actor-entry carrier at exactly 24 call sites")
+guard(SRC_MODULES_WITH_ACTOR_ENTRY == 15
       and SRC_MODULES_WITH_ACTOR_ENTRY_NAMES == (
           "field_mobs.py",
           "hostile_hp_link_hypothesis.py",
@@ -922,8 +930,9 @@ guard(SRC_MODULES_WITH_ACTOR_ENTRY == 14
           "population.py", "remote_player_hypothesis.py",
           "runtimeres_death_hypothesis.py", "scenario.py",
           "scene_object.py", "world_population.py",
-          "world_population_bg0002.py"),
-      "14 named src/ modules build actor entries %s"
+          "world_population_bg0002.py",
+          "world_population_bg0015.py"),
+      "15 named src/ modules build actor entries %s"
       % (SRC_MODULES_WITH_ACTOR_ENTRY_NAMES,))
 # Round 97 re-pin, 4 -> 5.  DAMAGE-HP-LINK-001 added the fifth mention:
 # damage_hp_link_hypothesis.py names bit 0x0080 because its two lethal frames
