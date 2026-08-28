@@ -32,27 +32,52 @@ judged on the ndjson audit log -- which is what that entry honestly says it
 decides.  It does not and cannot decide "did the character move".  This
 module is the missing half: a single function chief can call from the same
 0xAC52 branch that RETURNS an action, in exactly the shape
-`gm_state_action` (CORE-REQUEST-006) already uses at `runtime.py:5181` and
-appends at `runtime.py:5396`.  `CORE-REQUEST-GM-029` asks for that one
-call site and SUPERSEDES GM-028's fire-only shape.
+`gm_state_action` (CORE-REQUEST-006) already uses -- assigned at the
+`GM_UPDATE_STATE_AFTER_LOGIN` tuple and appended under `if gm_state_action
+is not None:` about 200 lines further down, both in `runtime.py`.
 
-!! WIRE EXACTLY ONE OF THE TWO -- AND THE OTHER ONE IS ALREADY WIRED.
-Chief answered GM-028 before this module's own pull request could land (it
-was closed gate-RED for an unrelated reason, see below), so as of
-`runtime.py:4784` on main the `fire()` point EXISTS and the hook route is the
-live one.  This module is therefore DORMANT: nothing calls it, and
-`CORE-REQUEST-GM-029` no longer asks chief to ADD a call site.  It asks him
-to REPLACE the `fire()` line with a call to this function, in one commit, so
-that the two never coexist.  If both were wired, every GM chat line would be
-authorized twice, audited twice (two ndjson rows for one typed line) and
-charged twice against `chat_command`'s own rate limit -- the second charge
-being the one that silently starts refusing real commands.
+!! NO LINE NUMBERS FOR FILES THIS LANE DOES NOT OWN.  ~~`runtime.py:5181`
+(assign) / `runtime.py:5396` (append) / `runtime.py:4784` (fire point)~~ --
+all three were wrong, and the round that fixed them (`xk4wmz`) found they
+had drifted AGAIN between chief's letter naming the corrected values
+(`5303-5305` / `5518`, letter `20260829_0015`) and the commit that read
+them (`5334` / `5549`).  Two corrections in one day is the argument:
+`runtime.py` is chief's file, this lane cannot stop it moving, and a pin
+into it rots silently -- it never fails, it just quietly points at damage
+dispatch instead of the thing it names.  Cite ANCHOR TEXT that greps, and
+let the numbers go.  (`say_wire.py` and `tests/test_gm_say_action.py` took
+the same medicine for the `IDENTITY, STATED HONESTLY` citation.)
+
+!! WIRE EXACTLY ONE OF THE TWO -- ~~AND THE OTHER ONE IS ALREADY WIRED~~.
+That sentence described GM-028's shape, where chief had landed the
+`fire()` point first and this module was DORMANT.  RESOLVED, and the
+direction is now REVERSED: chief did what `CORE-REQUEST-GM-029` asked in
+round `apk7ue` (R217, `pirate-force-server#214`, letter
+`notes_to_chief/20260829_0015_CHIEF-REPLY-CORE-REQUEST-GM-029-route-
+replaced-on-main.md`) -- one commit, the `fire()` line DELETED and a direct
+call to `make_gm_chat_command_action` put in its place.  So THIS module is
+the live route, and `lane_hooks/lane_gm_chat_command.py` is the one that is
+now registered-and-never-fired (its own docstring records why this lane
+kept it anyway).
+
+The one-of-two rule itself is unchanged and is the reason the replacement
+had to be one commit: if both were wired, every GM chat line would be
+authorized twice, written to the ndjson audit log twice for one typed line,
+and charged twice against `chat_command`'s own rate limit -- the second
+charge being the one that silently starts refusing real commands.  It is no
+longer held by a sentence in a letter: `tests/test_gm_chat_command_action.py
+::OneOfTwoWiringTests` reads the real `runtime.py` and refuses both states
+(both wired, and neither wired).
 
 That is also why this module's event names were renamed away from the hook
-route's, and not the other way round: the hook route is live, chief pinned
-its names as literals in `tests/test_gm_chat_command_dispatch_wiring.py` on
-main, and GT-127's headless drill greps for them.  A dormant route renames
-for free; a live one does not.  See `EVENT_ACCEPTED_PREFIX` below.
+route's, and not the other way round: at the time the hook route was the
+live one, chief had pinned its names as literals in
+`tests/test_gm_chat_command_dispatch_wiring.py` on main, and GT-127's
+headless drill greped for them.  A dormant route renames for free; a live
+one does not.  The renaming outlived the reason -- the `gm_chat_action_*`
+namespace this module emits is now the live one, and GT-127's gate-2 greps
+were rewritten against it in round `xk4wmz` after the attended tester's
+job 1331 aborted on the stale ones.  See `EVENT_ACCEPTED_PREFIX` below.
 
 WHAT IT DOES NOT DO
 -------------------
@@ -74,11 +99,19 @@ WHAT IT DOES NOT DO
   is gated on `teleport_wire`'s.  Both gates are shut today, but they are
   shut on DIFFERENT things and that difference is the point of the round:
   `warp` waits on chief's confirmed-position write point plus a COO unlock
-  (CORE-REQUEST-GM-030), while `say` waits on one measurable byte (RE-132)
-  and on nothing about position at all -- it moves nobody and writes no DB
-  row.  `say` is therefore the SHORTEST REMAINING PATH from a typed chat line
-  to something a tester can see -- [สมมติของสาย GM - รอ RE], and the label is
-  not decoration.  What is measured: the payload codec (CHAT-CHANNEL-001) and
+  (CORE-REQUEST-GM-030), while `say` waits on ~~one measurable byte
+  (RE-132)~~ and on nothing about position at all -- it moves nobody and
+  writes no DB row.  THE BYTE IS NO LONGER WHAT `say` WAITS ON: RE-132
+  answered `0` (result letter `20260829_0010`, consumed round `z6gu2n`), and
+  it is the byte the imported codec already emits.  What `say` waits on now
+  is an OFFICIAL LOCK -- COO-DECISION 2026-08-29T00:41+07:00
+  (`notes_to_chief/20260829_0041_COO-DECISION-say-gate-lock-is-official-and-
+  gt016-goes-first.md`): condition (A), per-connection identity, plus (B),
+  the client-observable screen, liftable only by a NEW COO-DECISION and
+  explicitly not by a round of this lane.  `tests/test_gm_say_gate_lock.py`
+  holds it.  `say` is therefore still the SHORTEST REMAINING PATH from a
+  typed chat line to something a tester can see -- [สมมติของสาย GM - รอ RE],
+  and the label is not decoration.  What is measured: the payload codec (CHAT-CHANNEL-001) and
   the blocker count.  What is NOT: that the client draws it.
   `reports/PF_CHAT_CHANNEL001_*_20260818.md` enumerates eight per-channel
   style names off the client's ordered downcast chain at `0x659870`
@@ -105,8 +138,15 @@ WHAT IT DOES NOT DO
   values, two layers, still no default) and GT-101 measured what an unproven
   version does to a real client -- modal error, connection halted, socket
   closed.  This module gates on the constant being not-None for the same
-  reason `runtime.py:5168`/`5173` gates the login GM-state frame on
-  `state_wire.GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED`, and refuses by name
+  reason `runtime.py` gates the login GM-state frame on
+  `state_wire.GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED` -- grep that constant
+  for TWO adjacent hits, the `and ...` test and the value handed to the frame
+  builder, with the withheld branch just below spelling
+  `gm_update_state_frame_withheld_no_confirmed_` (grep THAT fragment, not the
+  full event name: the name is split across two source lines by the line
+  wrap, so the whole string matches nothing -- checked, and it is the same
+  rot as a line number, caught in this round's own edit) -- and refuses by
+  name
   instead.  ~~When RE-129 answers, that one constant is the whole change.~~
   It answered, and it is not: the change is chief's write point on main, then
   COO lifting the lock, then the constant, then the second test file above.
@@ -219,8 +259,9 @@ from .warp_target_record import current_character_id, record_warp_target
 # run can grep the console for it the same way.
 #
 # !! THE SUBSTRING `TELEPORT` IS LOAD-BEARING, NOT DECORATION.
-# `runtime.py:3654` (`_move_authority_note_server_moves`, the label test at
-# 3668 -- re-derived at this commit, not carried over) identifies a
+# `runtime.py`'s `_move_authority_note_server_moves` (grep the def; the label
+# test is the `if action and "TELEPORT" in action[0]` line inside it)
+# identifies a
 # server-initiated move by exactly one thing -- "the action it queued carries
 # TELEPORT in its label" -- and reopens the move-authority grace window on it.
 # pf-adversary (this round) measured what a label without it costs, and it is
@@ -238,14 +279,15 @@ WARP_ACTION_LABEL = "LANE_GM_CHAT_WARP_TELEPORT_FORCE_POS"
 # The action label for a GM `say`.
 #
 # !! THIS ONE MUST *NOT* CONTAIN `TELEPORT`, FOR THE SAME REASON THE WARP
-# LABEL MUST.  The rule at `runtime.py:3654-3675` is a substring test on the
+# LABEL MUST.  The rule inside `runtime.py`'s
+# `_move_authority_note_server_moves` is a substring test on the
 # label of a queued action -- `if action and "TELEPORT" in action[0]` -- and
 # it reopens the move-authority grace window, which admits position readings
 # far from the last one the gate accepted.
 # PRECISION, after pf-adversary (this round) re-derived the call site rather
 # than trusting the earlier wording here: it is NOT "every queued action" on
-# every boot.  `runtime.py:4518-4521` calls
-# `_move_authority_note_server_moves(actions)` only when
+# every boot.  `runtime.py`'s sole call of
+# `_move_authority_note_server_moves(actions)` runs only when
 # `move_authority_hypothesis_scenario is not None`, so on a default boot the
 # substring is inert -- in BOTH directions, which also means the warp label's
 # TELEPORT is inert there.  The label still must not carry it: the scenario
