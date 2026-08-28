@@ -568,9 +568,26 @@ class TheOtherClientDoorTests(_Case):
     """
 
     def _fire_the_inbound_vital(self, token, payloads):
+        """Fire the real hook, and REACH THE AUTHORIZED HALF.
+
+        THE FIRST VERSION OF THIS METHOD WAS VACUOUS, and it was caught the
+        same way D5 was.  The hook calls the dispatcher with no config path,
+        so the allowlist resolved to the checkout's non-existent
+        `config/gm_accounts.json` -- which means NOBODY is a GM and every
+        payload, `GM_ONE` included, came back
+        `gm_run_command_refused_not_gm_account`.  A write planted on the
+        AUTHORIZED half of that door (past the allowlist check, which is
+        where a real GM feature would live) was never reached, and the class
+        added to close D2 passed while covering only the refusal branch.
+
+        The allowlist is therefore pinned through `accounts.ENV_OVERRIDE` --
+        the same knob an operator uses -- rather than by patching, so the
+        hook's own default resolution is what finds it.
+        """
         import functools
 
         from pirateforce_foundation import lane_hooks
+        from pirateforce_foundation.gm import accounts as gm_accounts
         from pirateforce_foundation.gm import dispatch as gm_dispatch
         from pirateforce_foundation.lane_hooks import lane_gm_run_command
 
@@ -580,11 +597,11 @@ class TheOtherClientDoorTests(_Case):
             capture_root=str(capture_root),
         )
         session = FakeSession(token, FakePosition())
-        with mock.patch.object(
-            lane_gm_run_command, "handle_gm_run_command_vital", pinned
+        with mock.patch.dict(
+            os.environ, {gm_accounts.ENV_OVERRIDE: str(self.accounts_path)}
         ):
             with mock.patch.object(
-                gm_dispatch, "GM_ACCOUNTS_CONFIG_PATH_FOR_TESTS", None, create=True
+                lane_gm_run_command, "handle_gm_run_command_vital", pinned
             ):
                 with WriteWatch() as watch:
                     for payload in payloads:
@@ -624,9 +641,23 @@ class TheOtherClientDoorTests(_Case):
         self.assert_standalone_map_untouched(
             watch, "an inbound 0x51E9 vital from a GM"
         )
+        # THE AUTHORIZED HALF WAS REALLY REACHED, not just the door.  Without
+        # this the class passes while every payload is refused as not-GM,
+        # which is exactly how the first version of it proved nothing -- and
+        # a real GM feature would live PAST this line, not before it.
+        self.assertNotIn(
+            "gm_run_command_refused_not_gm_account",
+            session.events,
+            "the listed GM was refused as a non-GM, so the authorized half "
+            f"was never walked; events were {session.events}",
+        )
         self.assertTrue(
-            any(e.startswith("gm_run_command_") for e in session.events),
-            f"the hook never fired; events were {session.events}",
+            any(
+                event == "gm_run_command_authorized_capture"
+                for event in session.events
+            ),
+            "no payload reached the capture writer, so this run covered only "
+            f"refusals; events were {session.events}",
         )
 
     def test_the_hook_this_class_drives_is_the_one_runtime_actually_fires(self):

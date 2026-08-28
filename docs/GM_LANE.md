@@ -3099,3 +3099,29 @@ them.
 **บรรทัดที่ต้องแม่น** (ฉบับก่อนของบรรทัดนี้อ้างเกินจริงและ pf-adversary หักล้างแล้ว):
 ถ้าใครเพิ่มทางเขียนไฟล์นั้น **ผ่านเส้นทางที่เทสนี้ขับ และในคอลที่มันเฝ้า** ชุดเทสแดงก่อนถึงมือผู้เทส
 ทางที่เลื่อนการเขียนออกไปหลังเทสจบ ยังเป็นช่องที่เขียนกำกับไว้ ไม่ใช่ช่องที่ปิดแล้ว
+
+### Follow-up in the same round: the fix for D2 was itself vacuous
+
+`pf-adversary`'s second pass planted a write on the **authorized** half of
+the `0x51E9` door (past the allowlist check, which is where a real GM feature
+would live). `TheOtherClientDoorTests` -- the class added to close D2 --
+stayed **green**.
+
+Cause, measured rather than reasoned: `lane_gm_run_command` calls the
+dispatcher with no config path, so the allowlist resolved to the checkout's
+non-existent `config/gm_accounts.json`. Nobody is a GM there, so every
+payload -- `GM_ONE` included -- came back
+`gm_run_command_refused_not_gm_account`. The class's liveness check only
+asked whether *some* `gm_run_command_*` event appeared, and a refusal
+satisfies that. It covered the refusal branch and nothing else.
+
+Fixed by pinning the allowlist through `accounts.ENV_OVERRIDE` -- the same
+knob an operator uses, so the hook's own default resolution finds it -- and
+by asserting that the authorized half was really walked
+(`gm_run_command_authorized_capture` present, `..._refused_not_gm_account`
+absent). The same plant now turns the class **RED**.
+
+This is the D5 shape appearing inside the fix for D2, one round later: a
+liveness check that accepts any event rather than the event that means the
+code under test ran. Recorded because it will be tempting to write the loose
+version again.
