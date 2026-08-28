@@ -168,7 +168,16 @@ class GmLoginSceneOverrideWiringTests(unittest.TestCase):
             "FOUNDATION_SELECTED_START_GAME"
         ]
 
-        stored_row = state.foundation.selected.position
+        # READ FROM THE STORE, not from foundation.selected: since
+        # CHIEF-DECISION 20260829_0520 option A an overridden login resyncs
+        # the in-memory character to the scene it was actually sent to, so
+        # `selected.position` is no longer the un-overridden row this test
+        # needs as its contrast case.  The DB row still is -- this login
+        # never checkpoints -- and it is what "the character's real stored
+        # row" meant here all along.
+        stored_row = self.store.get_character(
+            state.foundation.selected.id
+        ).position
         self.assertEqual(stored_row.scene_id, 1, "fresh character starts home")
         overridden_row = Position(
             KNOWN_SCENE_ID, stored_row.scene_seq, stored_row.x, stored_row.y,
@@ -282,8 +291,22 @@ class GmLoginSceneOverrideWiringTests(unittest.TestCase):
         state, out, _actions = self._login_and_start(
             "gm_runner", accounts_path, overrides_path
         )
+        # The name changed with CORE-REQUEST-GM-033 v2 (the call site now
+        # CONSUMES rather than reads): `consume_login_scene_override`
+        # swallows its own config faults into the CONSUME_FAILED outcome
+        # instead of raising, and grants no scene for it.  What this test
+        # actually guards is unchanged and still holds -- a malformed
+        # gm_login_scene.json is refused BY NAME, the login proceeds at
+        # home, and no listener thread unwinds.
+        #
+        # KNOWN COARSENING, stated rather than hidden: CONSUME_FAILED is
+        # also what an entry that could not be REMOVED reports, so this one
+        # event no longer tells a bad config apart from a failed delete.
+        # Both are "no override was granted", which is what this call site
+        # acts on; anything finer belongs in login_scene_consume.py, not in
+        # a second read here.
         self.assertIn(
-            "gm_login_scene_override_lookup_failed_ValueError", state.events
+            "gm_login_scene_override_consume_failed", state.events
         )
         self.assertFalse(
             any(
