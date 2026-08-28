@@ -101,13 +101,11 @@
   "tables": {
     "equipment_sets": [
       5400001,
-      5400002,
       5400003
     ],
-    "item_ids": 62,
+    "item_ids": 43,
     "normal_sets": [
       2701001,
-      2701002,
       2701003
     ],
     "scene": "bg0001",
@@ -126,11 +124,7 @@
       "TEXTDATA_TH__ITEM_QUEST_TIP": "2818474f4e9c3ce983d74edcb9dc8f7207e1a351c04bb7146de5aacdc098b346"
     },
     "specially_sets": [
-      2802208,
-      2802215,
-      2802219,
       2802234,
-      2802253,
       2802264
     ]
   },

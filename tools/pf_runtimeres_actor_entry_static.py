@@ -913,16 +913,16 @@ guard("make_remote_actor_entry" in _v141,
 # is what turned the cp874 tripwire RED and cost round w0pu2i its whole PR.
 # Recounted from src/ by tests/test_static_verifier_pins_cloud.py in the same
 # round, which is what these three numbers exist to be checked against.
-guard(SRC_ACTOR_ENTRY_SITES == 16,
-      "src/ builds actor entries at exactly 16 call sites (4 spawns + the "
+guard(SRC_ACTOR_ENTRY_SITES == 17,
+      "src/ builds actor entries at exactly 17 call sites (4 spawns + the "
       "round-86 death re-send + the round-96 remote-player probe + the "
       "round-99 hostile spawn + the round-111 NPC HP ladder + the "
       "HYP-PF-038 hostile HP link + the lane-B production modules + the "
       "GT-114 multi-object diagnostic + the lane-A bg0002 and bg0015 "
       "censuses)")
-guard(SRC_ACTOR_STREAM_SITES == 24,
-      "src/ sends the actor-entry carrier at exactly 24 call sites")
-guard(SRC_MODULES_WITH_ACTOR_ENTRY == 15
+guard(SRC_ACTOR_STREAM_SITES == 25,
+      "src/ sends the actor-entry carrier at exactly 25 call sites")
+guard(SRC_MODULES_WITH_ACTOR_ENTRY == 16
       and SRC_MODULES_WITH_ACTOR_ENTRY_NAMES == (
           "field_mobs.py",
           "hostile_hp_link_hypothesis.py",
@@ -931,10 +931,11 @@ guard(SRC_MODULES_WITH_ACTOR_ENTRY == 15
           "npc_hostile_hypothesis.py", "npc_hp_link_hypothesis.py",
           "population.py", "remote_player_hypothesis.py",
           "runtimeres_death_hypothesis.py", "scenario.py",
-          "scene_object.py", "world_population.py",
+          "scene_object.py", "world_face_frame.py",
+          "world_population.py",
           "world_population_bg0002.py",
           "world_population_bg0015.py"),
-      "15 named src/ modules build actor entries %s"
+      "16 named src/ modules build actor entries %s"
       % (SRC_MODULES_WITH_ACTOR_ENTRY_NAMES,))
 # Round 97 re-pin, 4 -> 5.  DAMAGE-HP-LINK-001 added the fifth mention:
 # damage_hp_link_hypothesis.py names bit 0x0080 because its two lethal frames

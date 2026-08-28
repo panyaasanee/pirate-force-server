@@ -17,6 +17,7 @@ from . import mob_loot
 from . import mob_pickup
 from . import trace_path
 from . import world_density
+from . import world_face_frame
 from . import world_population
 from . import world_population_bg0002
 from . import world_scene_entry
@@ -1080,6 +1081,15 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.world_census_indices = None
                 self.world_census_sent = False
                 self.world_census_refused = False
+                # Whether the census that is currently in force resolved its
+                # identities through ``world_port_royal_identity``.  NOT the
+                # same question as ``world_census_sent``: the frozen P0/P30/P91
+                # fallback and every lane boot also set that flag, while
+                # shipping Mob-Set numbers as identities.  ``world_face_frame``
+                # may only correct a click frame when this is True - see the
+                # AMENDMENT comment at its call site for what goes wrong
+                # otherwise (pf-adversary, round c5nwjc, D2).
+                self.world_census_identity_resolved = False
                 # CORE-REQUEST (MOB-COMBAT-001 / MOB-DEATH-001).  UNCONDITIONAL,
                 # like WORLD-CENSUS-001 above: no scenario flag gates this
                 # state, held per session for the reason the ledger and the
@@ -1281,6 +1291,11 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 )
                 return []
             self.world_census_sent = True
+            # The frozen P0/P30/P91 rows ship Mob-Set numbers as identities.
+            # The click frame must keep agreeing with THEM, wrong as they are,
+            # rather than be corrected into disagreeing with what this login
+            # already put on the client's screen.
+            self.world_census_identity_resolved = False
             self.npc_idle_action_sent = False
             self.population_indices = tuple(row[0] for row in local_rows)
             self.population_refresh_anchor = anchor
@@ -5823,6 +5838,35 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 ]
 
             actions = super().dispatch(parsed)
+            # CORE-REQUEST from LANE-A (2026-08-29T01:46+07:00), answered
+            # here rather than in the frozen builder that carries the defect:
+            # `current/pf_login_game_server_v141.py` is pinned immutable by
+            # six independent checks (see world_face_frame's docstring), so
+            # the click frame is corrected on the way out instead.  Without
+            # this, every NPC click re-tags the actor under the frozen row's
+            # Mob-Set number and the client draws a different PERSON than the
+            # login census named - measured on the owner's screen at
+            # 2026-08-29T00:17+07:00, Columbus answering as Sebastian.
+            # Total and additive: a dispatch with no face frame in it gets
+            # back exactly what it passed in.
+            #
+            # GATED ON THE CENSUS THAT IS ACTUALLY IN FORCE, not applied
+            # unconditionally (pf-adversary, this round, D2 - MEASURED).  An
+            # earlier version of this call had no gate, and on every lane boot
+            # and on the frozen P0/P30/P91 fallback it made things WORSE, not
+            # better: those paths ship the frozen rows' Mob-Set numbers at
+            # login, so correcting the click frame made the two frames
+            # disagree in the opposite direction, and dropped actor 0x2001
+            # from a frame after login had announced it.  The rule is not "the
+            # resolved identity is always right", it is "the click frame must
+            # say what THIS login said".  Only the census built by
+            # `world_population` resolves identities, and only it sets the
+            # flag below.
+            if self.world_census_identity_resolved:
+                actions = world_face_frame.rebuild_face_actions(
+                    legacy, actions, self.population_indices,
+                    self.last_target_pos, self.events,
+                )
             if gm_action is not None:
                 # CORE-REQUEST-GM-029 (LANE-GM).  The action composed at the
                 # 0xAC52 branch far above, appended here because this is the
@@ -6165,6 +6209,10 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             mob_death_override, generation.actor_identities,
                         )[0])
                         self.world_census_sent = True
+                        # This census resolved every identity it shipped
+                        # (census_order drops what it cannot resolve), so the
+                        # click frame may be corrected to agree with it.
+                        self.world_census_identity_resolved = True
                         self.npc_idle_action_sent = False
                         self.population_indices = generation.indices
                         self.population_refresh_anchor = generation.anchor

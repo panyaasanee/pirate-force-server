@@ -466,18 +466,14 @@ class PopulationAdapterTests(unittest.TestCase):
         for index in plain_rung3.indices:
             resolved = identity.resolve(placements[index].template_id)
             self.assertIsNotNone(resolved)
-            if index == 30:
-                # Replaced wholesale by the roster splice; its identity is
-                # LANE-B's mined roster row, not this crosswalk.
-                self.assertIn(
-                    field_mobs.hostile_actor_entry(
-                        self.legacy,
-                        [mob for mob in field_mobs.load_roster()
-                         if mob.placement_index == 30][0],
-                    ),
-                    bytes(actions[0][1]),
-                )
-                continue
+            # ~~if index == 30: replaced wholesale by the roster splice; its
+            # identity is LANE-B's mined roster row, not this crosswalk.~~
+            # ROUND 8ftmbx: the exception is gone.  Placement 30 was one of
+            # the nine rows COO-DECISION 2026-08-29T00:41+07:00 withdrew, so
+            # nothing splices over it any more and it goes out through the
+            # same general branch as every other member -- carrying the
+            # crosswalk's own resolved id and MOBS_TIP name, which for this
+            # placement is n_ID 248 "Da Vinci".
             self.assertIn(
                 npc_mask + self.legacy.u16tag(0x12, resolved.mobs_n_id),
                 bytes(actions[0][1]),

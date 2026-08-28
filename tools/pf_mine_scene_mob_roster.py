@@ -151,8 +151,19 @@ PRISON_EXILE_IDENTITY_BLOCK = range(1, 36)
 # they were sure stands in the town (relayed 2026-08-27 09:4x).  A dummy that
 # does not fight back is what "you can hit it" needs first, so this lane ships
 # those four as its town targets.
-# [LANE-B ASSUMPTION - AWAITING COO CONFIRMATION] that shipping a dummy as an
-# attackable actor is wanted at all; withdrawing it is deleting one tuple.
+# ~~[LANE-B ASSUMPTION - AWAITING COO CONFIRMATION] that shipping a dummy as an
+# attackable actor is wanted at all; withdrawing it is deleting one tuple.~~
+# CONFIRMED, not an assumption any more: COO-DECISION 2026-08-29T00:41+07:00
+# (`pf_bridge` letter 20260829_0041_COO-DECISION-training-dummy-approved-and-
+# nine-rows-get-one-round-only.md) takes option (b) -- ship the four dummies as
+# attackable targets, and an enemy-coloured NAME on them is accepted, because
+# the faction 6 splice is the only route `full_roster_override` has and one line
+# reverses it.  Withdrawing it is still deleting one tuple.
+# !! THE CONDITION THAT CAME WITH IT: 916 IS A PRACTICE DUMMY, NOT A MONSTER.
+# The same ruling forbids anyone counting it as a monster of Port Royal.  The
+# generated module repeats that sentence over TOWN_TARGET_PLACEMENTS so a reader
+# of the table alone cannot miss it, and HOSTILE_PLACEMENTS -- the list that
+# means "monster" here -- stays empty for this scene.
 TOWN_TARGET_N_IDS = (916,)
 TOWN_TARGET_NAME = "Training Iron Man"
 TOWN_TARGET_LEVEL = 100
@@ -735,20 +746,10 @@ HOSTILE_PLACEMENTS = [
 # NOT select: the named town-target allowlist (a practice dummy is rank 0 and
 # has no combat AI, so no predicate over MOBS can pick it out).  Same tuple
 # shape as HOSTILE_PLACEMENTS.
-TOWN_TARGET_PLACEMENTS = [
+%(town_note)sTOWN_TARGET_PLACEMENTS = [
 %(town_rows)s]
 
-%(pending_preamble)s# Rows the previous
-# identity rule selected here that this rule withdraws (they are townspeople,
-# see WITHDRAWN_UNDER_THIS_RULE for who each one really is).  They are kept in
-# what this lane ships because dropping them in the same round that corrects
-# the four town targets would take ~840 pinned assertions with it, and a
-# migration that big lands red or lands half-done.  So the round that could
-# only do one did the one with a standing COO ruling behind it, and named the
-# rest instead of quietly shipping it as if it were resolved.
-# NOTHING HERE IS A CLAIM THAT THESE NAMES ARE RIGHT - the module says the
-# opposite, per row, in WITHDRAWN_UNDER_THIS_RULE.
-LEGACY_SETNUM_PLACEMENTS_PENDING_MIGRATION = [
+%(pending_preamble)sLEGACY_SETNUM_PLACEMENTS_PENDING_MIGRATION = [
 %(pending_rows)s]
 
 # Which rule produced each shipped row, so no reader has to infer it.
@@ -798,6 +799,7 @@ def render_module(scene: str, roster: list[dict], digests: dict[str, str],
                   controls: dict[str, str] | None = None,
                   rank_zero_combat: list[dict] | None = None,
                   pending: list[dict] | None = None,
+                  legacy_control_row: dict | None = None,
                   unresolved: list[dict] | None = None) -> str:
     def _rows(items: list[dict]) -> str:
         out = []
@@ -833,13 +835,82 @@ def render_module(scene: str, roster: list[dict], digests: dict[str, str],
            ascii(item["now_display_name"]))
         for item in withdrawn
     )
-    pending_preamble = ""
+    # THE TWO NOTES BELOW ARE ABOUT ONE SCENE, so they are emitted into one
+    # scene's module.  pf-adversary (round 8ftmbx, D7) caught the first draft
+    # writing bg0001's whole story -- "a row here is a practice dummy", "they
+    # were shipped for exactly one more round under COO-DECISION
+    # 2026-08-29T00:41+07:00" -- verbatim into Bg0002's and Bg0015's generated
+    # files, where HOSTILE_PLACEMENTS has 17 real monsters and no row was ever
+    # shipped under that ruling.  A generated module that asserts another
+    # scene's history is worse than one that says nothing.
+    control_scene = scene.strip().lower() == CONTROL_SCENE
+    town_note = ""
+    if control_scene and town:
+        town_note = (
+            "# !! A ROW HERE IS A PRACTICE DUMMY, NOT A MONSTER OF THIS "
+            "SCENE.  Required by\n"
+            "# COO-DECISION 2026-08-29T00:41+07:00, which approved shipping "
+            "n_ID 916 as an\n"
+            "# attackable target on the condition that nobody counts it as a "
+            "monster of\n"
+            "# Port Royal.  The list that means \"monster\" in this module "
+            "is\n"
+            "# HOSTILE_PLACEMENTS (rank AND combat AI), and for this scene it "
+            "is empty.\n"
+        )
     if pending:
         pending_preamble = (
             "# !! STILL THE OLD READING, ON PURPOSE, FOR ONE MORE ROUND.\n"
+            "# Rows the previous\n"
+            "# identity rule selected here that this rule withdraws (they are "
+            "townspeople,\n"
+            "# see WITHDRAWN_UNDER_THIS_RULE for who each one really is).  "
+            "They are kept in\n"
+            "# what this lane ships because dropping them in the same round "
+            "that corrects\n"
+            "# the four town targets would take ~840 pinned assertions with "
+            "it, and a\n"
+            "# migration that big lands red or lands half-done.  So the round "
+            "that could\n"
+            "# only do one did the one with a standing COO ruling behind it, "
+            "and named the\n"
+            "# rest instead of quietly shipping it as if it were resolved.\n"
+            "# NOTHING HERE IS A CLAIM THAT THESE NAMES ARE RIGHT - the "
+            "module says the\n"
+            "# opposite, per row, in WITHDRAWN_UNDER_THIS_RULE.\n"
+        )
+    elif not control_scene:
+        # Another scene's module: this list was never anything but empty
+        # there, and the ruling that emptied bg0001's says nothing about it.
+        pending_preamble = (
+            "# EMPTY.  This scene never shipped rows under the older "
+            "set-number reading\n"
+            "# pending a migration; the list exists so every generated module "
+            "has the same\n"
+            "# shape.  See bg0001's own module for the scene that did.\n"
+        )
+    else:
+        # The migrated state.  The comment above this list is not decoration:
+        # while the list had rows in it, it said they were WRONG AND KEPT
+        # ANYWAY.  Leaving that text over an empty list would be a false
+        # sentence about the shipped table, so the empty case says what is
+        # actually true and points at where the withdrawn rows went.
+        pending_preamble = (
+            "# EMPTY, AND THAT IS THE MIGRATED STATE.  This list held the rows "
+            "the older\n"
+            "# set-number reading selected that the crosswalk withdraws.  They "
+            "were shipped\n"
+            "# for exactly one more round under COO-DECISION "
+            "2026-08-29T00:41+07:00 ('nine\n"
+            "# rows get one round only'), and that round is over: every one of "
+            "them is now\n"
+            "# in WITHDRAWN_UNDER_THIS_RULE with the identity it really has, "
+            "and none of\n"
+            "# them is shipped.  A row reappearing here is a regression, not a "
+            "restoration.\n"
         )
     legacy_note = ""
-    if scene.strip().lower() == CONTROL_SCENE and pending:
+    if control_scene and rule == IDENTITY_RULE_CLINE:
         legacy_note = (
             "\n# ~~The two constants this table used to be checked "
             "against.~~  Kept as the\n"
@@ -857,6 +928,27 @@ def render_module(scene: str, roster: list[dict], digests: dict[str, str],
             "    'max_hp': 3857,\n"
             "}\n"
         )
+        if legacy_control_row is not None:
+            legacy_note += (
+                "\n# THE WHOLE ROW, not just the four values above, and it is "
+                "carried for one\n"
+                "# reason: GT-035 is the only client-observable damage "
+                "evidence this project\n"
+                "# has, and two observers watched that ladder land on THIS "
+                "actor -- placement\n"
+                "# 30 as the set-number reading rendered it.  The row is NOT "
+                "shipped (it is\n"
+                "# not in SHIPPED_PLACEMENTS and never reaches a census); it "
+                "exists so a pin\n"
+                "# that cross-checks the damage driver against what was "
+                "actually seen can\n"
+                "# still build that actor after the row was withdrawn from "
+                "the roster.  Same\n"
+                "# tuple shape as HOSTILE_PLACEMENTS.\n"
+                "GT035_OBSERVED_SETNUM_ROW = "
+                + _rows([legacy_control_row]).strip().rstrip(",")
+                + "\n"
+            )
     unresolved_rows = "".join(
         "    (%d, %d, %s),\n"
         % (item["placement_index"], item["set_number"], ascii(item["reason"]))
@@ -895,6 +987,7 @@ def render_module(scene: str, roster: list[dict], digests: dict[str, str],
         "rank_zero_rows": rank_zero_rows,
         "unresolved_rows": unresolved_rows,
         "pending_preamble": pending_preamble,
+        "town_note": town_note,
         "legacy_note": legacy_note,
         "pending_rows": _rows(pending),
         "rule_per_placement": rule_per_placement,
@@ -977,11 +1070,31 @@ def main(argv: list[str]) -> int:
             for item in unambiguous_placements(sources, rule)
             if _nonzero(item[6], "n_AI_COMBAT") and not _nonzero(item[6], "n_RANK")
         ]
+        # The row GT-035 was actually watched on: placement 30 as the
+        # set-number reading rendered it.  Mined the same way every other row
+        # here is -- from the delivered tables through the OTHER rule -- so
+        # the record of what two observers saw survives that row leaving the
+        # shipped roster.  Never added to anything this module ships.
+        legacy_control_row = None
+        if (args.scene.strip().lower() == CONTROL_SCENE
+                and rule == IDENTITY_RULE_CLINE):
+            legacy_control_row = next(
+                (row for row in hostile_roster(sources, IDENTITY_RULE_SETNUM)
+                 if row["placement_index"] == LEGACY_CONTROL_PLACEMENT_INDEX),
+                None,
+            )
+            if legacy_control_row is None:
+                raise MineError(
+                    "the set-number reading no longer produces placement %d "
+                    "of %s, so GT-035's observed actor cannot be recorded"
+                    % (LEGACY_CONTROL_PLACEMENT_INDEX, CONTROL_SCENE)
+                )
         module = render_module(
             args.scene, roster, sources.digests(), census,
             rule=rule, cline_type=sources.cline_type, town=town,
             withdrawn=withdrawn, controls=controls,
             rank_zero_combat=rank_zero_combat, pending=pending,
+            legacy_control_row=legacy_control_row,
             unresolved=unresolved_placements(sources, rule),
         )
     except MineError as exc:

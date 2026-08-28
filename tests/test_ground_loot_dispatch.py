@@ -332,10 +332,28 @@ class GroundLootDispatchTests(unittest.TestCase):
             if roster_override else plain_rung3
         )
         # Kept as a measurement rather than deleted: it is the size of the
-        # hostile splice the dispatch applies over the census, and it must be
-        # positive or nothing was spliced at all.
+        # hostile splice the dispatch applies over the census.
+        # ~~and it must be positive or nothing was spliced at all.~~
+        # ROUND 8ftmbx: on RUNG 3 it is now zero, and that is correct rather
+        # than broken.  Rung 3 is (30, 91, ...) and every one of those is a
+        # townsman; the roster COO-DECISION 2026-08-29T00:41+07:00 left this
+        # lane is placements 103/105/107/109, none of which is in the three
+        # nearest actors.  So the assertion moves to where the splice
+        # actually happens -- a full census -- and rung 3 is pinned at zero,
+        # which is the stronger pair: it says the override touches exactly
+        # the rows it should and nothing else.
         roster_splice_bytes = len(overridden_rung3.pc) - len(plain_rung3.pc)
-        self.assertGreater(roster_splice_bytes, 0)
+        self.assertEqual(roster_splice_bytes, 0)
+        plain_full = world_population.build_world_population(
+            self.legacy, ungated.population_refresh_anchor, scene_id=1,
+        )
+        overridden_full = _apply_mob_death_census_override(
+            self.legacy, plain_full, roster_override,
+        )
+        self.assertGreater(
+            len(overridden_full.pc) - len(plain_full.pc), 0,
+            "the roster override splices nothing into a full census either: "
+            "no roster member is on the wire at all")
         population_gated_labels = {
             "V134_P0_P30_P91_ISOLATED_INITIAL_READY",
             "V134_P0_P30_P91_ISOLATED_REAPPLY_READY",

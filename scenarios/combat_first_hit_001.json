@@ -8,6 +8,9 @@
   "not_a_scenario": true,
   "target_identity": 8223,
   "target_name": "'Tornado Eagle'",
+  "target_is_in_the_shipped_roster": false,
+  "target_is_the_gt035_observed_actor": true,
+  "target_withdrawn_note": "bg0001 placement 30 as the SET-NUMBER reading rendered it.  COO-DECISION 2026-08-29T00:41+07:00 withdrew that row: under the RE-128 crosswalk this placement is n_ID 248 'Da Vinci', a townsman, and that is what the census sends today.  This pin keeps the withdrawn actor ON PURPOSE -- GT-035's damage ladder was watched on it, and comparing today's arithmetic against a different actor's numbers would prove nothing.  DO NOT target this identity in an attended session; the roster's own control row is placement 103.",
   "target_position": [
     1747.5244140625,
     -7837.69775390625,

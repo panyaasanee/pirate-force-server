@@ -47,7 +47,14 @@ from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
 
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
-SANCTIONED_TARGET = mob_death.SANCTIONED_FIRST_TARGET_IDENTITY  # 0x201F, P30
+# ~~CONTROL_TARGET = mob_death.SANCTIONED_FIRST_TARGET_IDENTITY  # 0x201F,
+# P30~~  ROUND 8ftmbx: bg0001 placement 30 is a townsman under the RE-128
+# crosswalk and COO-DECISION 2026-08-29T00:41+07:00 withdrew it from what this
+# lane ships, so the identity this end-to-end test drives is the roster's own
+# control row -- the practice dummy the same ruling approved as the thing a
+# player can hit.  The scope lock itself is untouched: runtime.py's kill site
+# passes COO-RULING-20260827-1350, which covers this template.
+CONTROL_TARGET = 0x2000 + field_mobs.CONTROL_PLACEMENT_INDEX + 1
 
 
 def _legacy():
@@ -74,8 +81,8 @@ class MobAiControlDispatchTests(unittest.TestCase):
             self.legacy.extract_avatar_attr_wire_from_actor,
         )
         self.roster = field_mobs.load_roster()
-        self.p30 = next(
-            m for m in self.roster if m.actor_identity == SANCTIONED_TARGET
+        self.control_mob = next(
+            m for m in self.roster if m.actor_identity == CONTROL_TARGET
         )
 
     def tearDown(self):
@@ -169,12 +176,12 @@ class MobAiControlDispatchTests(unittest.TestCase):
         self,
     ):
         state = self._state("ai_hit")
-        self._attack(state, SANCTIONED_TARGET)
+        self._attack(state, CONTROL_TARGET)
         self.assertNotIn(
             "mob_ai_control_damage_target_not_tracked_skipped", state.events,
         )
         self.assertGreater(state.mob_ai_register.generation, 0)
-        after = state.mob_ai_register.state_of(SANCTIONED_TARGET)
+        after = state.mob_ai_register.state_of(CONTROL_TARGET)
         self.assertNotEqual(after.phase, mob_aggro.PHASE_DEAD)
         performer = self._performer(state)
         self.assertTrue(
@@ -185,10 +192,10 @@ class MobAiControlDispatchTests(unittest.TestCase):
 
     def test_a_killing_blow_retires_the_ai_row_after_death_commits(self):
         state = self._state("ai_kill")
-        self._set_balance(state, SANCTIONED_TARGET, 500)
-        self._attack(state, SANCTIONED_TARGET)
-        self.assertTrue(state.mob_death_register.is_dead(SANCTIONED_TARGET))
-        row = state.mob_ai_register.state_of(SANCTIONED_TARGET)
+        self._set_balance(state, CONTROL_TARGET, 500)
+        self._attack(state, CONTROL_TARGET)
+        self.assertTrue(state.mob_death_register.is_dead(CONTROL_TARGET))
+        row = state.mob_ai_register.state_of(CONTROL_TARGET)
         self.assertEqual(row.phase, mob_aggro.PHASE_DEAD)
         self.assertEqual(row.threat, ())
         self.assertIsNone(row.target_identity)
@@ -222,7 +229,7 @@ class MobAiControlDispatchTests(unittest.TestCase):
 
         mob_ai_control.commit_step = flaky_commit_step
         try:
-            self._attack(state, SANCTIONED_TARGET)
+            self._attack(state, CONTROL_TARGET)
         finally:
             mob_ai_control.commit_step = real_commit_step
         self.assertEqual(calls["n"], 2)

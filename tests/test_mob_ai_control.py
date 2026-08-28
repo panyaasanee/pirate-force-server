@@ -67,7 +67,13 @@ AI_WANDER_PASSIVE_ROW = 16
 # Round szdkgs: the practice dummy's wander row, mined for the first time.
 AI_WANDER_DUMMY_ROW = 21
 MINED_AGGRO_RADIUS = 1200
-OFFENSIVE_PLACEMENTS = (58, 63, 132)
+# ROUND 8ftmbx: ~~(58, 63, 132)~~ -> ().  All three were bg0001 rows
+# COO-DECISION 2026-08-29T00:41+07:00 withdrew, and what the town still ships
+# is four practice dummies -- nothing in Port Royal initiates.  Bg0002 is
+# where a row that does still lives, so the tests that need one use that
+# scene's roster instead of a stand-in.
+OFFENSIVE_PLACEMENTS = ()
+BG0002_OFFENSIVE_PLACEMENTS = (92, 93, 94, 95, 96)
 
 
 def outcome(target, damage, hp_before, max_hp, attacker=PLAYER,
@@ -118,9 +124,17 @@ class MinedRowTests(unittest.TestCase):
                     self.assertIsNone(mob_ai_control.ai_rows_of(mob)[1])
 
     def test_the_links_table_agrees_with_the_roster(self):
+        # ROUND 8ftmbx: ~~bg0001's roster alone~~.  The AI rows are mined
+        # over every scene this lane loads now -- bg0001 ships four dummies
+        # with no combat AI after COO-DECISION 2026-08-29T00:41+07:00, so a
+        # bg0001-only mining left every Bg0002 monster unresolvable.  The
+        # links table is the union, and this test derives the same union
+        # rather than trusting the count.
         derived = sorted(
             (mob.placement_index, mob.ai_wander, mob.ai_combat)
-            for mob in self.roster
+            for scene in (None, field_mobs.BG0002_SCENE)
+            for mob in (field_mobs.load_roster() if scene is None
+                        else field_mobs.load_roster(scene=scene))
         )
         self.assertEqual(sorted(field_mob_ai_tables.PLACEMENT_AI_LINKS),
                          derived)
@@ -202,6 +216,13 @@ class ProfileJoinTests(unittest.TestCase):
     def setUp(self):
         self.roster = field_mobs.load_roster()
         self.by_placement = {m.placement_index: m for m in self.roster}
+        # ROUND 8ftmbx: bg0001 ships only passive dummies now, so a test that
+        # needs a monster that INITIATES reads the other loadable scene's
+        # real roster rather than inventing one.
+        self.bg0002 = {
+            m.placement_index: m
+            for m in field_mobs.load_roster(scene=field_mobs.BG0002_SCENE)
+        }
 
     def test_the_profile_of_every_roster_row_is_buildable(self):
         # Before this round the profile refused a zero aggro radius AND
@@ -214,7 +235,7 @@ class ProfileJoinTests(unittest.TestCase):
                 built = profile_of(mob)
                 self.assertIsInstance(built, mob_aggro.MobAiProfile)
 
-    def test_ten_of_thirteen_bg0001_monsters_never_INITIATE(self):
+    def test_no_bg0001_row_INITIATES_and_bg0002_still_has_five_that_do(self):
         # Named for what the flag actually says.  The earlier name said "never
         # charge anybody", which overstates it: all ten passive placements
         # point at AI_COMBAT rows whose s_ACTION column is nothing but CHASE
@@ -224,20 +245,48 @@ class ProfileJoinTests(unittest.TestCase):
             if profile_of(mob).offensive
         ]
         self.assertEqual(tuple(offensive), OFFENSIVE_PLACEMENTS)
-        self.assertEqual(len(self.roster) - len(offensive), 10)
-        identities = mob_ai_control.offensive_identities(self.roster)
+        self.assertEqual(len(self.roster) - len(offensive), len(self.roster))
+        self.assertEqual(mob_ai_control.offensive_identities(self.roster), ())
+        # And the reading is not vacuous: run the same predicate over the
+        # other scene's real roster and it still finds the rows that do.
+        bg0002_roster = tuple(
+            self.bg0002[p] for p in sorted(self.bg0002))
+        bg0002_offensive = tuple(
+            mob.placement_index for mob in bg0002_roster
+            if profile_of(mob).offensive)
+        self.assertEqual(bg0002_offensive, BG0002_OFFENSIVE_PLACEMENTS)
         self.assertEqual(
-            identities,
-            tuple(self.by_placement[p].actor_identity
-                  for p in OFFENSIVE_PLACEMENTS))
+            mob_ai_control.offensive_identities(bg0002_roster),
+            tuple(self.bg0002[p].actor_identity
+                  for p in BG0002_OFFENSIVE_PLACEMENTS))
 
     def test_the_two_mined_values_come_from_the_monsters_own_row(self):
-        charging = profile_of(self.by_placement[58])
-        passive = profile_of(self.by_placement[30])
+        # ROUND 8ftmbx: ~~by_placement[58] / by_placement[30]~~ -- both were
+        # withdrawn bg0001 rows.  The charging subject is Bg0002's own, the
+        # passive one is the dummy bg0001 still ships.
+        # ROUND 8ftmbx: ~~by_placement[58] / by_placement[30]~~ -- both were
+        # withdrawn bg0001 rows.  Both subjects are Bg0002's own now, because
+        # what this test is about is the JOIN reading two values off a
+        # monster's own AI row, and bg0001 no longer has a row with a mined
+        # aggro radius of either shape: its four dummies have no combat AI at
+        # all, so profile_of forces them passive regardless of what their
+        # wander row says (which is the third assertion below, kept separate
+        # because it is a DIFFERENT statement).
+        charging = profile_of(self.bg0002[92])
+        passive = profile_of(self.bg0002[50])
         self.assertEqual(charging.aggro_radius, float(MINED_AGGRO_RADIUS))
         self.assertIs(charging.offensive, True)
         self.assertEqual(passive.aggro_radius, 0.0)
         self.assertIs(passive.offensive, False)
+        # The dummy: its wander row DOES carry a radius (3000) and n_OFFESIVE
+        # 1, and it is still forced passive because its MOBS row has no combat
+        # script.  COO-DECISION 2026-08-29T00:41+07:00 item 3 confirmed that
+        # reading; the mined radius is carried through unchanged so nothing is
+        # hidden from a caller that wants to read it.
+        dummy = profile_of(
+            self.by_placement[field_mobs.CONTROL_PLACEMENT_INDEX])
+        self.assertIs(dummy.offensive, False)
+        self.assertGreater(dummy.aggro_radius, 0.0)
 
     def test_the_home_radius_is_the_monsters_own_walk_speed(self):
         for mob in self.roster:
@@ -278,7 +327,7 @@ class ProfileJoinTests(unittest.TestCase):
                          " ".join(mob_ai_control.LANE_B_ASSUMPTIONS))
 
     def test_a_monster_whose_ai_row_is_missing_is_refused_by_name(self):
-        mob = self.by_placement[30]
+        mob = self.by_placement[field_mobs.CONTROL_PLACEMENT_INDEX]
         stranger = field_mobs.FieldMob(
             *(mob.placement_index, mob.template_id, mob.x, mob.y, mob.z,
               mob.visual_preset, mob.display_name, mob.level, mob.rank,
@@ -646,10 +695,21 @@ class ReconcileAgainstARealDeathRegisterTests(unittest.TestCase):
     def setUpClass(cls):
         cls.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
         cls.roster = field_mobs.load_roster()
+        # ROUND 8ftmbx: ~~the sanctioned first target 0x201F~~ -- that is
+        # bg0001 placement 30, withdrawn from the shipped roster by
+        # COO-DECISION 2026-08-29T00:41+07:00, so this fixture now takes the
+        # roster's own control row and passes the ruling that authorises
+        # killing it (COO-DECISION 20260827_0955, the 916 order the same
+        # letter's item 4 tells this lane to use directly).
         cls.mob = [
             m for m in cls.roster
-            if m.actor_identity == mob_death.SANCTIONED_FIRST_TARGET_IDENTITY
+            if m.placement_index == field_mobs.CONTROL_PLACEMENT_INDEX
         ][0]
+        cls.widened = (
+            "COO-DECISION widen-death-scope-916-training-iron-man "
+            "2026-08-27T09:55+07:00 (ref PANYA-DECISION 2026-08-27T09:50+07:00 "
+            "section 3, supersedes COO 0954)"
+        )
 
     def setUp(self):
         self.ai_register = open_register(self.roster)
@@ -663,7 +723,8 @@ class ReconcileAgainstARealDeathRegisterTests(unittest.TestCase):
         self.assertTrue(combat_step.outcome.death_due)
         death_register = mob_death.DeathRegister()
         death_step_result = mob_death.kill(
-            self.legacy, self.mob, combat_step.outcome, death_register)
+            self.legacy, self.mob, combat_step.outcome, death_register,
+            widened=self.widened)
         return mob_death.commit_death(death_register, death_step_result)
 
     def test_reconcile_retires_the_row_a_real_death_register_calls_dead(self):
@@ -723,7 +784,15 @@ class TickTests(unittest.TestCase):
     def setUp(self):
         self.roster = field_mobs.load_roster()
         self.by_placement = {m.placement_index: m for m in self.roster}
+        # ROUND 8ftmbx: same reason as ProfileJoinTests -- bg0001 ships only
+        # passive dummies, so a monster that charges is read from Bg0002.
+        bg0002_roster = field_mobs.load_roster(scene=field_mobs.BG0002_SCENE)
+        self.bg0002 = {m.placement_index: m for m in bg0002_roster}
         self.register = open_register(self.roster)
+        # A register tracks the roster it was opened on, and the two scenes
+        # are never merged into one (assert_single_scene_tables), so a Bg0002
+        # subject needs Bg0002's own register.
+        self.bg0002_register = open_register(bg0002_roster)
 
     def observe(self, mob, players, hp=None):
         return mob_aggro.MobObservation(
@@ -740,7 +809,7 @@ class TickTests(unittest.TestCase):
         )
 
     def test_a_passive_monster_does_not_acquire_a_player_standing_on_it(self):
-        mob = self.by_placement[30]
+        mob = self.by_placement[field_mobs.CONTROL_PLACEMENT_INDEX]
         step = tick_step(self.register, mob.actor_identity,
                          self.observe(mob, [self.player_at(mob, 0.0)]))
         self.assertEqual(step.after.phase, mob_aggro.PHASE_IDLE)
@@ -748,13 +817,13 @@ class TickTests(unittest.TestCase):
         self.assertEqual(step.intent.kind, mob_aggro.INTENT_NONE)
 
     def test_a_charging_monster_acquires_inside_its_mined_radius(self):
-        mob = self.by_placement[58]
-        inside = tick_step(self.register, mob.actor_identity,
+        mob = self.bg0002[92]
+        inside = tick_step(self.bg0002_register, mob.actor_identity,
                            self.observe(mob, [self.player_at(
                                mob, float(MINED_AGGRO_RADIUS))]))
         self.assertEqual(inside.after.phase, mob_aggro.PHASE_AGGRO)
         self.assertEqual(inside.after.target_identity, PLAYER)
-        outside = tick_step(self.register, mob.actor_identity,
+        outside = tick_step(self.bg0002_register, mob.actor_identity,
                             self.observe(mob, [self.player_at(
                                 mob, float(MINED_AGGRO_RADIUS) + 1.0)]))
         self.assertEqual(outside.after.phase, mob_aggro.PHASE_IDLE)
@@ -763,7 +832,7 @@ class TickTests(unittest.TestCase):
     def test_a_passive_monster_that_is_hit_answers(self):
         # The whole point of separating the flag from the radius: a monster
         # that acquires nobody by proximity still fights back.
-        mob = self.by_placement[30]
+        mob = self.by_placement[field_mobs.CONTROL_PLACEMENT_INDEX]
         pulled = commit_step(
             self.register,
             damage_step(self.register,
@@ -789,18 +858,19 @@ class TickTests(unittest.TestCase):
         self.assertEqual(names, ["register", "actor_identity", "observation"])
         with self.assertRaises(MobAiControlError) as caught:
             tick_step(self.register, 0x7FFF,
-                      self.observe(self.by_placement[30], []))
+                      self.observe(self.by_placement[
+                          field_mobs.CONTROL_PLACEMENT_INDEX], []))
         self.assertEqual(caught.exception.reason,
                          mob_ai_control.REFUSE_NOT_TRACKED)
 
     def test_a_tick_is_deterministic_and_mutates_nothing(self):
-        mob = self.by_placement[58]
+        mob = self.bg0002[92]
         observation = self.observe(mob, [self.player_at(mob, 500.0)])
-        first = tick_step(self.register, mob.actor_identity, observation)
-        second = tick_step(self.register, mob.actor_identity, observation)
+        first = tick_step(self.bg0002_register, mob.actor_identity, observation)
+        second = tick_step(self.bg0002_register, mob.actor_identity, observation)
         self.assertEqual(first.after, second.after)
         self.assertEqual(first.intent, second.intent)
-        self.assertEqual(self.register.generation, 0)
+        self.assertEqual(self.bg0002_register.generation, 0)
 
 
 class DescribeAndPinTests(unittest.TestCase):
