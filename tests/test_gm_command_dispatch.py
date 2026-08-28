@@ -11,6 +11,7 @@ config, before it ever authorizes a real capture.
 from __future__ import annotations
 
 import json
+import struct
 import sys
 import tempfile
 import unittest
@@ -219,9 +220,10 @@ class GmCommandDispatchTests(unittest.TestCase):
 
     def test_capture_quota_refuses_once_the_estimated_total_exceeds_the_cap(self):
         config = self._config(["gm_listed"])
-        payload = bytes(1000)  # estimate = 1000*5 + 1024 = 6024 bytes/call
+        payload = bytes(1000)
+        per_call_estimate = gm_dispatch._estimate_capture_file_bytes(1000)
         with mock.patch.object(
-            gm_dispatch, "MAX_CAPTURED_BYTES_PER_ACCOUNT", 6024 * 2,
+            gm_dispatch, "MAX_CAPTURED_BYTES_PER_ACCOUNT", per_call_estimate * 2,
         ), mock.patch.object(
             gm_dispatch, "RATE_LIMIT_MAX_CALLS_PER_WINDOW", 100,
         ):
@@ -258,7 +260,8 @@ class GmCommandDispatchTests(unittest.TestCase):
         config = self._config(["gm_one", "gm_two"])
         payload = bytes(1000)
         with mock.patch.object(
-            gm_dispatch, "MAX_CAPTURED_BYTES_PER_ACCOUNT", 6024,
+            gm_dispatch, "MAX_CAPTURED_BYTES_PER_ACCOUNT",
+            gm_dispatch._estimate_capture_file_bytes(1000),
         ):
             first = gm_dispatch.handle_gm_run_command_vital(
                 "gm_one", payload,
@@ -279,7 +282,8 @@ class GmCommandDispatchTests(unittest.TestCase):
         config = self._config(["gm_listed"])
         payload = bytes(1000)
         with mock.patch.object(
-            gm_dispatch, "MAX_CAPTURED_BYTES_PER_ACCOUNT", 6024,
+            gm_dispatch, "MAX_CAPTURED_BYTES_PER_ACCOUNT",
+            gm_dispatch._estimate_capture_file_bytes(1000),
         ):
             for _ in range(5):
                 outcome = gm_dispatch.handle_gm_run_command_vital(
@@ -297,7 +301,8 @@ class GmCommandDispatchTests(unittest.TestCase):
         config = self._config(["gm_listed"])
         payload = bytes(1000)
         with mock.patch.object(
-            gm_dispatch, "MAX_CAPTURED_BYTES_PER_ACCOUNT", 6024,
+            gm_dispatch, "MAX_CAPTURED_BYTES_PER_ACCOUNT",
+            gm_dispatch._estimate_capture_file_bytes(1000),
         ):
             capped = gm_dispatch.handle_gm_run_command_vital(
                 "gm_listed", payload, config_path=config,
@@ -325,6 +330,65 @@ class GmCommandDispatchTests(unittest.TestCase):
             self.assertIsNotNone(
                 outcome.captured_path, f"call {i} was unexpectedly refused"
             )
+
+    # ----- pf-adversary (round `whoaop`): decode-section re-print was not --
+    # ----- charged against the capture-quota estimate at all -------------
+
+    @staticmethod
+    def _nested_body_payload(str1: str, str2: str) -> bytes:
+        # A structurally valid GM_RunGMCommandVital nested body (RE-088
+        # pin): presence(u8 tag, nonzero) + field_0x10(u32 tag) +
+        # field_0x14(u32 tag) + field_0x18(u8 tag) + two untagged,
+        # length-prefixed UTF-16LE strings. Content of the scalar fields
+        # does not matter for this test, only that command_capture.py's
+        # decode section succeeds and re-prints str1/str2.
+        def wstr(s: str) -> bytes:
+            raw = s.encode("utf-16-le")
+            return struct.pack("<I", len(raw)) + raw
+
+        body = bytes([0x0B, 0x01])
+        body += bytes([0x14]) + struct.pack("<I", 0)
+        body += bytes([0x14]) + struct.pack("<I", 0)
+        body += bytes([0x0B, 0x00])
+        body += wstr(str1)
+        body += wstr(str2)
+        return body
+
+    def test_capture_quota_estimate_covers_non_ascii_decode_section_reprint(self):
+        # Regression for the exact defect pf-adversary reproduced: the old
+        # `raw_payload_length * 5 + 1024` formula only charged for
+        # command_capture._hex_dump's ~4.75x expansion and ignored that
+        # _decode_section re-prints string_0x1c/string_0x38 a SECOND time
+        # via unicode_escape (up to 3x more per raw byte for any BMP
+        # non-Latin1 codepoint, Thai included) once the payload decodes as
+        # a nonzero-presence nested body. A Thai-heavy payload at the size
+        # cap used to charge 328,694 bytes against an actual write of
+        # 508,235 -- a 1.546x overrun of the guard's own stated invariant.
+        thai_char = "ก"  # ก -- BMP, non-ASCII, non-Latin1
+        fixed_header = 2 + 5 + 5 + 2 + 4 + 4  # tags/scalars + 2 length prefixes
+        budget_chars = (gm_dispatch.MAX_RAW_PAYLOAD_LENGTH - fixed_header) // 2
+        str1 = thai_char * (budget_chars // 2)
+        str2 = thai_char * (budget_chars - len(str1))
+        payload = self._nested_body_payload(str1, str2)
+        self.assertLessEqual(len(payload), gm_dispatch.MAX_RAW_PAYLOAD_LENGTH)
+
+        estimate = gm_dispatch._estimate_capture_file_bytes(len(payload))
+
+        config = self._config(["gm_listed"])
+        outcome = gm_dispatch.handle_gm_run_command_vital(
+            "gm_listed", payload,
+            config_path=config, capture_root=self.capture_root,
+            now_ts=1000.0,
+        )
+        self.assertIsNotNone(outcome.captured_path)
+        actual_bytes_written = outcome.captured_path.stat().st_size
+
+        self.assertGreaterEqual(
+            estimate, actual_bytes_written,
+            "capture-quota estimate undercounts a real write -- the "
+            "MAX_CAPTURED_BYTES_PER_ACCOUNT guard no longer bounds what "
+            "actually lands on disk",
+        )
 
     # ----- env-var override path still works (same as accounts.py) -------
 

@@ -186,15 +186,42 @@ MAX_CAPTURED_BYTES_PER_ACCOUNT = 50 * 1024 * 1024  # 50 MiB
 # command_capture._hex_dump renders 16 raw bytes as one line: an 8-hex-digit
 # offset + 2 spaces (10), up to 47 columns of hex pairs, 2 spaces, up to 16
 # ASCII columns, and a newline -- 76 output bytes per 16 input bytes in the
-# worst case, a ~4.75x expansion. The multiplier below is deliberately
-# rounder and larger (5x) plus a flat 1 KiB for the header lines
-# (account/timestamp/length/decode-section text), so this estimate always
-# meets or exceeds what capture_raw_gm_command actually writes -- charging
-# the quota too much fails closed slightly earlier than the real disk
-# usage would; charging it too little would let real usage exceed the
-# stated cap, which this guard exists to prevent.
+# worst case, a ~4.75x expansion.
+#
+# pf-adversary (round `whoaop`): that alone is NOT the whole file.
+# command_capture._decode_section re-prints the same bytes a SECOND time
+# whenever the payload decodes as a nonzero-presence nested body (RE-088
+# pin): string_0x1c/string_0x38 go through _escape_for_header, i.e.
+# ``text.encode("unicode_escape").decode("ascii")``. Per UTF-16LE code unit
+# (2 raw bytes) that string is built from, unicode_escape emits at most 6
+# ASCII bytes (``\uXXXX``, any BMP codepoint outside ASCII/Latin-1, which is
+# any non-Latin1 text a real GM account could type, Thai included) -- a 3x
+# expansion on top of the SAME bytes' ~4.75x cost in the hex dump below it
+# (an astral codepoint costs 4 raw bytes for at most 10 escaped bytes, a
+# smaller 2.5x, so 3x from a BMP codepoint is still the governing bound).
+# The old 5x-only multiplier missed this second, independent cost entirely:
+# reproduced with a 65534-byte payload built as a valid nested body with
+# Thai-character wide strings, charged estimate 328,694 bytes vs. actual
+# file size 508,235 bytes written -- a 1.546x overrun, letting an already-
+# authorized GM account exceed MAX_CAPTURED_BYTES_PER_ACCOUNT by more than
+# half again before REFUSAL_CAPTURE_QUOTA_EXCEEDED ever fires. See
+# docs/GM_LANE.md "Modules delivered (round `whoaop`, capture-quota
+# estimate fix)" for the byte-level derivation.
+#
+# Combined bound: hex dump (4.75x, applies to every raw byte) + decode-
+# section worst case (3x, applies only to the two strings' bytes, a subset
+# of raw_payload_length, so charging it against the full length is
+# conservative) = 7.75x. The multiplier below is deliberately rounder and
+# larger (8x) plus a flat 2 KiB (was 1 KiB) for the header lines that are
+# NOT part of raw_payload_length (account/timestamp/length line, RE-088
+# comment lines, docs pointer line, and the decode-section's fixed non-
+# string text: presence/field_0x10/field_0x14/field_0x18 labels), so this
+# estimate always meets or exceeds what capture_raw_gm_command actually
+# writes -- charging the quota too much fails closed slightly earlier than
+# the real disk usage would; charging it too little would let real usage
+# exceed the stated cap, which this guard exists to prevent.
 def _estimate_capture_file_bytes(raw_payload_length: int) -> int:
-    return raw_payload_length * 5 + 1024
+    return raw_payload_length * 8 + 2048
 
 
 _capture_quota_lock = threading.Lock()
