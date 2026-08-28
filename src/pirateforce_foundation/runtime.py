@@ -5435,12 +5435,16 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     # bag_admission.may_enter_world, which admits a golden
                     # bag that ACQUIRED a pickup-shaped row and refuses the
                     # governed move/swap/merge family exactly as before.
-                    # NOTHING ON THIS PATH STILL WALLS CONTENT: gate 3's
+                    # Gate 2 still walls CONTENT (a moved, missing or altered
+                    # golden row, a drifted header, an acquired row that is
+                    # not pickup-shaped); what no gate on this path walls any
+                    # more is a PICKUP-SHAPED bag -- gate 3's
                     # make_backpack_attr was widened to shape-only by
                     # COO-DECISION 20260828_0844, so mob_pickup.py's "THE
-                    # WALL" section describes a wall that no longer stands --
-                    # what still stops M5 is that store.py cannot write an
-                    # acquired row at all) -- reused here, not a second DB
+                    # WALL" section describes a wall that no longer stands
+                    # for this lane's own content.  What still stops M5 is
+                    # that store.py cannot write an acquired row at all)
+                    # -- reused here, not a second DB
                     # read.  Only the "ON AN INBOUND PICKUP REQUEST" half of
                     # MOB_PICKUP_WIRING stays unwired: there is no known
                     # vital id for a client-originated pickup request on

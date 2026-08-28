@@ -87,10 +87,12 @@ class FoundationSession:
         #
         # LEDGER PIN, DO NOT REFLOW AWAY: docs/HYPOTHESIS_LEDGER.json requires
         # the literal string "is_unmoved_baseline" to appear in this file
-        # (HYP-PF-010, source_refs), and after this rewiring the only
-        # occurrence is the sentence above.  If that pin should now name
-        # may_enter_world instead, amend the ledger entry -- never delete the
-        # marker to make tools/verify_hypothesis_ledger.py go green.
+        # (HYP-PF-010, source_refs), and after this rewiring NO CODE carries
+        # it -- only this comment block does (twice: the sentence above and
+        # this note), which means the ledger check now passes on prose.  If
+        # that pin should now name may_enter_world instead, amend the ledger
+        # entry -- never delete the marker to make
+        # tools/verify_hypothesis_ledger.py go green.
         if not bag_admission.may_enter_world(
             backpack,
             allow_hypothesized_item_move=self.allow_hypothesized_item_move,
@@ -103,15 +105,19 @@ class FoundationSession:
             # misattributed to a hypothesis that had nothing to do with it.
             #
             # A DIAGNOSTIC MAY NEVER ALTER DISPATCH (runtime.make_stdout_event
-            # _exporter's rule, applied here).  pf-adversary measured all three
-            # ways the bare print changed what the caller sees: a closed
-            # stderr turned this refusal into a ValueError that runtime.py
-            # reports as BACKPACK_LOAD_REFUSED -- the exact misattribution
-            # this line exists to prevent; stderr=None sent the token to
-            # stdout; a BrokenPipeError escaped both of runtime.py's handlers
-            # and unwound the listener thread in silence.  So the write is
-            # swallowed whole and the PermissionError below is what leaves
-            # this method, always.
+            # _exporter's rule, applied here).  pf-adversary measured TWO
+            # stream states where the bare print changed what the caller
+            # sees: a closed stderr turned this refusal into a ValueError
+            # that runtime.py reports as BACKPACK_LOAD_REFUSED -- the exact
+            # misattribution this line exists to prevent -- and a
+            # BrokenPipeError escaped both of runtime.py's handlers and
+            # unwound the listener thread in silence.  Both are swallowed
+            # here, so the PermissionError below is what leaves this method,
+            # always.  A THIRD state is NOT fixed and is not a dispatch bug:
+            # with sys.stderr None (pythonw, no console) print() writes to
+            # stdout, so the token lands in the run's .out.txt.  The durable
+            # cure for that one is an event beside the print, which this
+            # round did not add -- see the round letter.
             try:
                 print(
                     bag_admission.console_line(

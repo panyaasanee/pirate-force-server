@@ -26,6 +26,7 @@ quoted as evidence for M5.
 from pathlib import Path
 import ast
 import io
+import subprocess
 import sys
 import unittest
 from contextlib import redirect_stderr
@@ -220,12 +221,20 @@ class TheConsoleLineIsAsciiOnly(unittest.TestCase):
 class TheDiagnosticNeverAltersDispatch(unittest.TestCase):
     """A refusal must leave this method as a PermissionError, always.
 
-    pf-adversary measured three stderr states that turned the bare print into
-    something else: a closed stream raised ValueError (which runtime.py then
-    reports as BACKPACK_LOAD_REFUSED -- the misattribution the line exists to
-    prevent), stderr=None sent the token to stdout, and a stream whose write
-    raises BrokenPipeError escaped both of runtime.py's handlers and unwound
-    the listener thread in silence.
+    pf-adversary measured three degraded stderr states.  TWO of them changed
+    what leaves this method, and the wrapper closes both: a closed stream
+    raised ValueError (which runtime.py then reports as
+    BACKPACK_LOAD_REFUSED -- the misattribution the line exists to prevent),
+    and a stream whose write raises BrokenPipeError escaped both of
+    runtime.py's handlers and unwound the listener thread in silence.
+
+    The third, ``sys.stderr is None`` (pythonw, no console), never raised:
+    ``print(file=None)`` writes to stdout instead.  So the test below cannot
+    kill a mutant that removes the wrapper, and it is kept only as the
+    statement that this state still raises PermissionError.  The token
+    landing in the run's .out.txt rather than .err.txt on such a boot is a
+    KNOWN, UNFIXED misroute -- the durable fix is an event beside the print,
+    which this round did not do.
     """
 
     def _refuse_with_stderr(self, stream):
@@ -284,20 +293,58 @@ class OnlyTheCharacterSelectPathAsksThisPredicate(unittest.TestCase):
             and "__pycache__" not in path.parts
         )
         self.assertGreater(len(package), 90, len(package))
-        # The AST, not a grep.  A plain text search counts the comment in
-        # runtime.py that merely SAYS which predicate gate 2 asks, and a gate
-        # whose check cannot tell a comment from a call is the trap
-        # EVIDENCE_GATES.md section 3 exists for.
-        callers = sorted(
+        # BOTH ROUTES, and the substring scan is the load-bearing one.  The
+        # first draft of this test kept only the AST/import check, and
+        # pf-adversary defeated it twice in minutes -- once with
+        # importlib.import_module inside inventory.make_backpack_attr, once by
+        # hopping through session's own module attribute -- both green.  That
+        # is the same trade tests/test_loot_roll.py::
+        # test_the_lane_is_not_reachable_from_production_dispatch already made
+        # and already undid: the scan comes back, with named and counted
+        # exemptions for the files whose PROSE mentions the module, and the
+        # AST check stays as a second route to the same fact.
+        mentions_allowed = {"runtime.py"}  # a comment naming the gate, no call
+        importers = sorted(
             str(path.relative_to(root)) for path in package
             if _imports_bag_admission(path)
         )
+        mentioners = sorted(
+            str(path.relative_to(root)) for path in package
+            if "bag_admission" in path.read_text(encoding="utf-8")
+        )
         self.assertEqual(
-            callers, ["session.py"],
-            "the set of modules that ask bag_admission changed.  Gate 2 is "
+            importers, ["session.py"],
+            "the set of modules that import bag_admission changed.  Gate 2 is "
             "the only gate this predicate was reviewed for; adding it to "
             "another gate needs its own review and its own round.",
         )
+        self.assertEqual(
+            sorted(set(mentioners) - mentions_allowed), ["session.py"],
+            "a module names bag_admission without importing it -- either a "
+            "runtime lookup that dodges the import check (importlib, an "
+            "attribute hop through another module), or new prose that needs "
+            "a named exemption on the line above.",
+        )
+        self.assertEqual(len(mentions_allowed), 1)
+
+    def test_nothing_outside_the_package_calls_it_either(self):
+        """The repo-wide half of the deleted guard: tools/, current/, entrypoints."""
+        tracked = subprocess.run(
+            ["git", "grep", "-l", "bag_admission", "--", "."],
+            cwd=ROOT, capture_output=True, text=True,
+        )
+        allowed = {
+            "src/pirateforce_foundation/bag_admission.py",
+            "src/pirateforce_foundation/session.py",
+            "src/pirateforce_foundation/runtime.py",
+            "tests/test_bag_admission.py",
+            "tests/test_gate2_bag_admission_wiring.py",
+            "docs/FUNCTIONAL_COVERAGE.json",
+        }
+        elsewhere = sorted(
+            set(line for line in tracked.stdout.split("\n") if line) - allowed
+        )
+        self.assertEqual(elsewhere, [], elsewhere)
 
 
 if __name__ == "__main__":
