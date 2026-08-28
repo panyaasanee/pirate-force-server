@@ -41,7 +41,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 import random
-import subprocess
 import sys
 import unittest
 
@@ -709,47 +708,6 @@ class ContractTests(unittest.TestCase):
             len(bag_admission.GOLDEN_NAMES),
             len(bag_admission.GOLDEN_BACKPACKS),
         )
-
-    def test_nothing_on_the_production_path_calls_this_module_yet(self):
-        """NONCLAIM 3, asserted rather than promised.
-
-        The round that adds this module must not also wire it.  When the
-        grant arrives and ``session.py`` starts calling ``may_enter_world``,
-        this test is the one to delete, in the same commit as the wiring --
-        not before it.
-        """
-        root = Path(mob_pickup.__file__).parent
-        # rglob, not glob.  The first draft used the non-recursive form and
-        # so never opened gm/ (16 modules) or lane_hooks/ (3) -- the two
-        # directories a lane registration would most plausibly live in.  It
-        # scanned 82 of 101 modules and reported on all of them.
-        package = sorted(
-            path for path in root.rglob("*.py")
-            if path.name != "bag_admission.py"
-            and "__pycache__" not in path.parts
-        )
-        self.assertGreater(len(package), 90, len(package))
-        callers = sorted(
-            str(path.relative_to(root)) for path in package
-            if "bag_admission" in path.read_text(encoding="utf-8")
-        )
-        self.assertEqual(callers, [], callers)
-
-        # And outside the package: tools/, current/, the entrypoints.  A
-        # claim about the whole tree needs to be made against the whole tree.
-        repo = ROOT
-        tracked = subprocess.run(
-            ["git", "grep", "-l", "bag_admission", "--", "."],
-            cwd=repo, capture_output=True, text=True,
-        )
-        elsewhere = sorted(
-            line for line in tracked.stdout.split("\n")
-            if line and not line.endswith(
-                ("src/pirateforce_foundation/bag_admission.py",
-                 "tests/test_bag_admission.py"),
-            )
-        )
-        self.assertEqual(elsewhere, [], elsewhere)
 
     def test_the_console_line_is_one_greppable_token(self):
         line = bag_admission.console_line(

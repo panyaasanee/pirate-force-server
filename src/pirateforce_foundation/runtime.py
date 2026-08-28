@@ -5429,12 +5429,22 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     # same way scene_entry_registry is).
                     # self.foundation.backpack is already the BackpackState
                     # select_and_start loaded above (store.get_backpack is
-                    # shape-gated only since COO-DECISION 20260826_0950, but
-                    # session.select_and_start's own is_unmoved_baseline
-                    # check right behind it, and make_backpack_attr's wire
-                    # encoder, are UNCHANGED and still wall this lane's own
-                    # content -- see mob_pickup.py's module docstring, "THE
-                    # WALL") -- reused here, not a second DB
+                    # shape-gated only since COO-DECISION 20260826_0950, and
+                    # gate 2 behind it is no longer is_unmoved_baseline: as
+                    # of COO-DECISION 20260829_0441 select_and_start asks
+                    # bag_admission.may_enter_world, which admits a golden
+                    # bag that ACQUIRED a pickup-shaped row and refuses the
+                    # governed move/swap/merge family exactly as before.
+                    # Gate 2 still walls CONTENT (a moved, missing or altered
+                    # golden row, a drifted header, an acquired row that is
+                    # not pickup-shaped); what no gate on this path walls any
+                    # more is a PICKUP-SHAPED bag -- gate 3's
+                    # make_backpack_attr was widened to shape-only by
+                    # COO-DECISION 20260828_0844, so mob_pickup.py's "THE
+                    # WALL" section describes a wall that no longer stands
+                    # for this lane's own content.  What still stops M5 is
+                    # that store.py cannot write an acquired row at all)
+                    # -- reused here, not a second DB
                     # read.  Only the "ON AN INBOUND PICKUP REQUEST" half of
                     # MOB_PICKUP_WIRING stays unwired: there is no known
                     # vital id for a client-originated pickup request on
