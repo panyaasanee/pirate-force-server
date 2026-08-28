@@ -1,1 +1,1 @@
-{"sha":"51fc109f72ca5652c39f84923c6095b7160c1ccb","conclusion":"failure","event":"push","ref":"refs/heads/claude/funny-volta-sn42vo","run_id":"33211994098","utc":"2026-08-28T21:19:17Z"}
+{"sha":"51fc109f72ca5652c39f84923c6095b7160c1ccb","conclusion":"failure","event":"pull_request","ref":"refs/pull/228/merge","run_id":"33211997664","utc":"2026-08-28T21:19:28Z"}
