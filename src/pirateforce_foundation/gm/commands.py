@@ -40,6 +40,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import math
+import os
 import time
 from pathlib import Path
 
@@ -279,7 +280,29 @@ def log_gm_command(
     # contract for a failure mode one step past the shape check.
     line = json.dumps(record, ensure_ascii=False) + "\n"
     path = Path(log_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(line)
+    # mode=0o700 on the leaf directory only (Path.mkdir(parents=True) creates
+    # any missing *parents* at the platform default mode, ignoring `mode` --
+    # see gm/command_capture.py's identical caveat for capture_raw_gm_command's
+    # own directory). 0o700 has no group/other bits, so no umask can add any
+    # back regardless of this project's own default (0o022) or a permissive
+    # one (0o000).
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # Explicit mode=0o600, same fix and same rationale as
+    # capture_raw_gm_command's os.open() call in gm/command_capture.py: the
+    # builtin open("a") this line used to call creates a new file at the
+    # platform default (0o666 masked by umask, no execute bit but still
+    # world-readable, and world-writable under a permissive umask) with no
+    # way to pass an explicit mode. This file is an ndjson audit log of every
+    # GM command issued -- including full `say <message>` bodies and other
+    # free-text a GM typed -- the same class of sensitive, client/GM-typed
+    # content the capture-file fix (round vb3ktn) was written to protect, in
+    # a sibling file that fix did not touch. Regardless-of-umask reasoning is
+    # identical: 0o600 has no group/other bits to be added back by any umask.
+    # Same Windows caveat as command_capture.py applies (NTFS ignores this
+    # bit split; this write zone has no ACL API to close that gap from here).
+    fd = os.open(path, os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
+    try:
+        os.write(fd, line.encode("utf-8"))
+    finally:
+        os.close(fd)
     return path
