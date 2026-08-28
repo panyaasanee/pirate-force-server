@@ -34,6 +34,44 @@ from pirateforce_foundation.gm import (  # noqa: E402
     login_scene_stage,
 )
 
+# TWO DIFFERENT QUESTIONS.  Routing every platform branch through one of
+# them is how this file shipped a test that asserted nothing on the only
+# machine that decides anything -- found by pf-adversary in round ank2vl,
+# after the first attempt at this repair conflated them:
+#
+#   RECORDED -- does this filesystem STORE the owner/group/other split?
+#               NTFS: no.  root on POSIX: YES.  `stat()` under root returns
+#               exactly what `chmod` wrote.
+#   OBEYED   -- will a mode bit DENY this process?
+#               NTFS: n/a.  root on POSIX: no, root ignores it.
+#
+# An assertion about what the writer WROTE needs RECORDED.  A test that
+# needs the OS to refuse needs OBEYED.  The first version of this file used
+# OBEYED for both, so a mutation making the GM login-scene config
+# world-writable (0o600 -> 0o666) stayed green on the Windows gate AND as
+# root, while the sibling files in this lane still caught it.
+MODE_BITS_RECORDED = os.name == "posix"
+
+
+def _mode_bits_are_obeyed():
+    """True when a chmod in this process actually denies this process.
+
+    MEASURED (PR #224, Actions run 33210364835): the guard here used to be
+    `os.geteuid() == 0` written straight into a `skipIf` argument.  A
+    decorator's argument runs when the class body runs -- at IMPORT, before
+    any skip can take effect -- and Windows has no `os.geteuid`, so the
+    Windows gate did not skip the test, it failed to COLLECT the file:
+    `AttributeError: module 'os' has no attribute 'geteuid'`.  One line took
+    the whole round's work off main.  Hence `getattr`, not a direct call.
+    """
+    if not MODE_BITS_RECORDED:
+        return False
+    euid = getattr(os, "geteuid", None)
+    return euid is not None and euid() != 0
+
+
+MODE_BITS_OBEYED = _mode_bits_are_obeyed()
+
 # Three scene_ids the committed catalog knows (GM-004), pinned as literals
 # rather than read out of the catalog: a catalog that lost Port Royal should
 # fail this file loudly, not quietly agree with itself.
@@ -238,10 +276,18 @@ class WritesWhatTheReaderReadsTests(_Case):
             login_scene_override.load_login_scene_overrides(str(self.config_path)),
         )
 
-    @unittest.skipIf(os.name == "nt", "POSIX mode bits; NTFS ignores this split")
     def test_the_config_file_is_not_world_readable(self):
+        # RECORDED, not OBEYED: this asks what the writer WROTE, and root
+        # records mode bits faithfully even though it ignores them.  Same
+        # shape as tests/test_gm_commands.py:317 and
+        # tests/test_gm_command_capture.py:241, which measured 0o666 on
+        # windows-latest (run 33132956815) and kept the POSIX half.
         self.stage(self.GM_ACCOUNT, PRISON_EXILE)
-        self.assertEqual(0o600, self.config_path.stat().st_mode & 0o777)
+        if MODE_BITS_RECORDED:
+            mode = self.config_path.stat().st_mode & 0o777
+            self.assertEqual(0o600, mode, oct(mode))
+        else:
+            self.assertTrue(self.config_path.is_file())
 
     def test_no_temp_file_is_left_behind(self):
         self.stage(self.GM_ACCOUNT, PRISON_EXILE)
@@ -291,15 +337,29 @@ class RefusalLeavesTheFileAloneTests(_Case):
         )
         self.assertEqual(original, self.config_path.read_bytes())
 
-    @unittest.skipIf(os.name == "nt", "POSIX directory permissions")
-    @unittest.skipIf(os.geteuid() == 0, "root ignores directory write bits")
     def test_an_unwritable_directory_is_refused_and_the_old_file_survives(self):
         original = self._write_raw(
             json.dumps({"gm_login_scene": {self.OTHER_GM: PRISON_EXILE}})
         )
         directory = self.config_path.parent
-        directory.chmod(0o500)
-        self.addCleanup(directory.chmod, 0o700)
+        if MODE_BITS_OBEYED:
+            directory.chmod(0o500)
+            self.addCleanup(directory.chmod, 0o700)
+        else:
+            # Where a mode bit does not deny this process (Windows, or
+            # root), take the write away at the SAME place the real chmod
+            # takes it away: a read-only directory makes `tempfile.mkstemp`
+            # fail, BEFORE any temp file exists.  (The first attempt patched
+            # `os.replace` instead, which fails after a fully written temp
+            # file -- a different code path under the same test name, and it
+            # also broke the restore path this test's second half checks.)
+            patcher = mock.patch.object(
+                login_scene_stage.tempfile,
+                "mkstemp",
+                side_effect=PermissionError(13, "Permission denied"),
+            )
+            patcher.start()
+            self.addCleanup(patcher.stop)
         result = self.stage(self.GM_ACCOUNT, SPICE_PARADISE)
         self.assertFalse(result.staged)
         self.assertEqual(login_scene_stage.REASON_WRITE_FAILED, result.reason)
@@ -354,7 +414,6 @@ class TheOperatorsOwnFileTests(_Case):
     """Two ways this writer used to walk over an operator's intent, both found
     by probing rather than by reading, and both fixed in the same round."""
 
-    @unittest.skipIf(os.name == "nt", "POSIX symlinks")
     def test_a_symlinked_config_is_written_THROUGH_not_replaced(self):
         # MEASURED, before the fix: `os.replace` renames onto the path it is
         # given, and the path it is given was the LINK.  The link became a
@@ -368,7 +427,36 @@ class TheOperatorsOwnFileTests(_Case):
             encoding="utf-8",
         )
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
-        os.symlink(real, self.config_path)
+        try:
+            os.symlink(real, self.config_path)
+        except (OSError, NotImplementedError) as exc:
+            # Windows makes symlinks only for a process holding
+            # SeCreateSymbolicLinkPrivilege.  Rather than skip -- an
+            # unpinned skip turns the whole gate red -- prove the SAME
+            # property without one, and behaviourally: whatever
+            # `os.path.realpath` says the path really is, that is the file
+            # the writer must write.  (An earlier attempt grepped the
+            # module's source for the literal `os.path.realpath(path)`,
+            # which would have gone red on Windows for a rename of a local
+            # variable that changed no behaviour at all.)
+            self.assertNotEqual("posix", os.name, exc)
+            link, target = str(self.config_path), str(real)
+            with mock.patch.object(
+                login_scene_stage.os.path,
+                "realpath",
+                side_effect=lambda p, *a, **k: (
+                    target if str(p) == link else os.path.abspath(p)
+                ),
+            ):
+                self.assertTrue(
+                    self.stage(self.GM_ACCOUNT, SPICE_PARADISE).staged
+                )
+            self.assertEqual(
+                {"gm_login_scene": {"GM_TWO": 2, "GM_ONE": 3}},
+                json.loads(real.read_text(encoding="utf-8")),
+            )
+            self.assertFalse(self.config_path.exists())
+            return
 
         self.assertTrue(self.stage(self.GM_ACCOUNT, SPICE_PARADISE).staged)
         self.assertTrue(self.config_path.is_symlink())
@@ -377,8 +465,6 @@ class TheOperatorsOwnFileTests(_Case):
             json.loads(real.read_text(encoding="utf-8")),
         )
 
-    @unittest.skipIf(os.name == "nt", "POSIX mode bits")
-    @unittest.skipIf(os.geteuid() == 0, "root ignores the write bit")
     def test_a_config_the_operator_made_read_only_is_refused(self):
         # `os.replace` needs the DIRECTORY's write bit, not the file's, so
         # `chmod 400` -- an operator saying "do not touch this" in the only
@@ -390,13 +476,30 @@ class TheOperatorsOwnFileTests(_Case):
         self.config_path.chmod(0o400)
         self.addCleanup(self.config_path.chmod, 0o600)
 
+        if not MODE_BITS_OBEYED:
+            # NTFS ignores the bit, and root ignores it too.  The refusal
+            # under test is `os.access(path, os.W_OK)` saying no, so say no
+            # through `os.access` itself -- the same decision, reached
+            # without a mode bit this machine was never going to honour.
+            patcher = mock.patch(
+                "os.access",
+                side_effect=lambda path, mode, *a, **k: not (
+                    mode == os.W_OK
+                    and os.path.realpath(path)
+                    == os.path.realpath(self.config_path)
+                ),
+            )
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
         result = self.stage(self.GM_ACCOUNT, PRISON_EXILE)
         self.assertFalse(result.staged)
         self.assertEqual(
             login_scene_stage.REASON_CONFIG_NOT_WRITABLE, result.reason
         )
         self.assertEqual(original, self.config_path.read_text(encoding="utf-8"))
-        self.assertEqual(0o400, self.config_path.stat().st_mode & 0o777)
+        if MODE_BITS_RECORDED:
+            self.assertEqual(0o400, self.config_path.stat().st_mode & 0o777)
 
     def test_a_failed_rename_leaves_no_temp_file_behind(self):
         # The refusal is not the interesting half: a `.gm_login_scene.XXXX`
