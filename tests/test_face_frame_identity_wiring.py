@@ -208,15 +208,30 @@ class FaceFrameIdentityWiringTests(unittest.TestCase):
         a burst can return more than one face frame.  Rebuilding only the
         first would leave the others naming the wrong person."""
         state = self._real_state("tok-face-burst")
+        # NOT "the next index that is not Columbus" - pf-adversary (D5)
+        # measured that census_order puts the pinned control set first, so
+        # that expression always chose placement 30, the one v141 explicitly
+        # REFUSES to answer (`v112_choose_p30_usage1_no_npc_response`).  The
+        # test then saw one face frame, passed, and never exercised the
+        # multi-frame branch it is named for.  Exclude the two placements the
+        # frozen branch treats specially and assert the count exactly.
+        refused = {
+            self.legacy.V112_MONSTER_INDEX,
+            self.legacy.V112_SHOP_TRIGGER_INDEX,
+            COLUMBUS_PLACEMENT_INDEX,
+        }
         second_index = next(
-            idx for idx in state.population_indices
-            if idx != COLUMBUS_PLACEMENT_INDEX
+            idx for idx in state.population_indices if idx not in refused
         )
         actions = state.dispatch(self.legacy.parse_outer(_choose_npc_pc(
             self.legacy, COLUMBUS_ACTOR_IDENTITY, 0x2000 + second_index + 1,
         )))
         faces = self._face_actions(actions)
-        self.assertGreaterEqual(len(faces), 1)
+        self.assertEqual(
+            len(faces), 2,
+            "a two-actor ChooseNPC returned "
+            f"{[a[0] for a in faces]} - the multi-frame branch is untested",
+        )
         by_idx = {
             row[0]: row
             for row in self.legacy.PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS
@@ -240,26 +255,118 @@ class FaceFrameIdentityWiringTests(unittest.TestCase):
             _choose_npc_pc(self.legacy, COLUMBUS_ACTOR_IDENTITY)
         ))
         frame = self._face_actions(actions)[0][2]
-        by_idx = {
-            row[0]: row
-            for row in self.legacy.PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS
-        }
-        for idx in by_idx:
-            if idx in state.population_indices:
-                continue
-            aid = 0x2000 + idx + 1
-            identity = world_port_royal_identity.resolve(by_idx[idx][1])
-            if identity is None:
-                continue
-            self.assertNotIn(
-                self.legacy.make_npc_attr(
-                    identity.mobs_n_id, aid, 1, 0, identity.outfit,
-                    basic_name=identity.name,
-                ),
-                frame,
-                f"placement {idx} is not in the armed census but appears in "
-                "the face frame",
-            )
+        # pf-adversary (D4) proved the first version of this test executed
+        # ZERO assertions, by construction and permanently: the placements
+        # outside the census ARE the unresolvable ones - that is what
+        # census_order does - so a `continue` on `identity is None` skipped
+        # every one of them.  Assert the roster by COUNT instead, which
+        # cannot be skipped: one actor entry per armed placement, no more.
+        entries = frame.count(
+            self.legacy.u16tag(0x12, self.legacy.NPC_ATTR)
+        )
+        self.assertEqual(
+            entries, len(state.population_indices),
+            "the face frame carries a different number of actors than the "
+            "census armed",
+        )
+        self.assertEqual(
+            world_face_frame.omitted_indices(
+                self.legacy, state.population_indices,
+            ),
+            (),
+            "the gated path armed an unresolvable placement, so the count "
+            "check above is not the roster check it claims to be",
+        )
+
+
+class CensusAuthorityGateTests(unittest.TestCase):
+    """The rebuild follows the census that is in force - it does not overrule it.
+
+    WHY THIS CLASS EXISTS.  pf-adversary measured (round c5nwjc, D2) that an
+    UNGATED rebuild made things worse on every lane boot and on the frozen
+    P0/P30/P91 fallback.  Those paths ship the frozen rows' Mob-Set numbers as
+    identities at login, so "correcting" the click frame made the two frames
+    disagree in the opposite direction, and dropped actor 0x2001 from a frame
+    after login had already announced it to the client.
+
+    The rule this pins is therefore NOT "the resolved identity is always
+    right".  It is "the click frame must say whatever THIS login said".
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.store = SQLiteStore(
+            Path(self.tmp.name) / "state.sqlite3", ROOT / "migrations",
+        )
+        self.store.migrate()
+        self.legacy = _legacy()
+        self.projector = LegacyProjector(self.legacy)
+        self.lifecycle = CharacterLifecycle(
+            self.store,
+            Position(
+                1, 0, self.legacy.V135_PLAYER_X,
+                self.legacy.V135_PLAYER_Y, self.legacy.V135_PLAYER_Z,
+            ),
+            self.legacy.extract_avatar_attr_wire_from_actor,
+        )
+
+    def _state(self, token):
+        state_type = make_state_class(
+            self.legacy, self.lifecycle, self.projector,
+        )
+        state = state_type(token)
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_client_login_pc(token)
+        ))
+        state.dispatch(self.legacy.parse_outer(self.legacy._V25_REAL_CREATE_PC))
+        character = self.store.list_characters(state.foundation.account_id)[-1]
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_start_game_pc(character.selector)
+        ))
+        state.dispatch(self.legacy.parse_outer(_target_pos_pc(self.legacy)))
+        return state
+
+    def test_the_flag_starts_false_so_an_unarmed_session_rebuilds_nothing(self):
+        state_type = make_state_class(
+            self.legacy, self.lifecycle, self.projector,
+        )
+        self.assertFalse(state_type("tok-unarmed").world_census_identity_resolved)
+
+    def test_the_resolved_census_sets_the_flag(self):
+        self.assertTrue(self._state("tok-gate-on").world_census_identity_resolved)
+
+    def test_a_census_that_did_not_resolve_identities_is_left_alone(self):
+        """The frozen fallback's frame must survive untouched.
+
+        Asserted on the BYTES: the Mob-Set-numbered NPCAttr the frozen census
+        announced at login must still be the one the click frame carries, and
+        no face-frame event may be recorded at all.
+        """
+        state = self._state("tok-gate-off")
+        # Exactly what _world_census_frozen_fallback leaves behind.
+        state.world_census_identity_resolved = False
+        before = len(state.events)
+        actions = state.dispatch(self.legacy.parse_outer(
+            _choose_npc_pc(self.legacy, COLUMBUS_ACTOR_IDENTITY)
+        ))
+        faces = [a for a in actions if world_face_frame.is_face_label(a[0])]
+        self.assertEqual(len(faces), 1)
+        row = {
+            r[0]: r for r in self.legacy.PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS
+        }[COLUMBUS_PLACEMENT_INDEX]
+        self.assertIn(
+            self.legacy.make_npc_attr(
+                row[1], COLUMBUS_ACTOR_IDENTITY, 1, 0, row[5],
+            ),
+            faces[0][2],
+            "an ungated rebuild corrected a frame whose login census had not "
+            "been corrected - the two frames now disagree the other way",
+        )
+        self.assertFalse(
+            [e for e in state.events[before:] if e.startswith("face_frame_")],
+            "the rebuild ran on a census it does not have authority over",
+        )
 
 
 if __name__ == "__main__":
