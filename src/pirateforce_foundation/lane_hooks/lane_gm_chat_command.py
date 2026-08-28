@@ -1,20 +1,22 @@
 """LANE-GM hook: GM commands typed into the ordinary chat box (0xAC52).
 
-Second LANE-GM hook, and the first one registered for a point runtime.py
-does NOT fire yet.  That is deliberate and is the whole reason this file
-exists in this PR: `lane_hooks`' contract is that a point name is agreed
-out of band between the call site and the hook module (see the `hook`
-decorator's docstring), so the lane can land, test and review its half
-before chief's three-line half exists.  Registering onto a point nothing
-fires is inert -- `_HOOKS` gains an entry, `fire()` is never called for it,
-and `LANE_HOOK_REGISTERED` prints at import exactly as for the live hook
-next to it.
+Second LANE-GM hook.  It landed one round BEFORE the point it registers
+for existed, which is the whole reason this file could ship on its own:
+`lane_hooks`' contract is that a point name is agreed out of band between
+the call site and the hook module (see the `hook` decorator's docstring),
+so the lane can land, test and review its half first.  For that one round
+the registration was inert -- `_HOOKS` gained an entry, `fire()` was never
+called for it, and `LANE_HOOK_REGISTERED` printed at import exactly as for
+the live hook next to it.
 
-CORE-REQUEST-GM-002 (pf_bridge/notes_to_chief) asks chief for the missing
-half: a `lane_hooks.fire("vital_inbound_chat_local_talk", ...)` at the
-0xAC52 branch of the nested-vital router, shaped exactly like the 0x51E9
-one already at runtime.py:4824.  Until that lands this module changes
-nothing about how the server behaves for anybody, GM or not.
+CORE-REQUEST-GM-028 (pf_bridge/notes_to_chief) asked chief for the other
+half and chief wired it in round `lo7e03` (R214): a
+`lane_hooks.fire("vital_inbound_chat_local_talk", session=..., payload=...)`
+at the 0xAC52 branch of the nested-vital router, shaped like the 0x51E9 one
+in the same method, but with no `return` and no `rx_frames` bump so the
+frame's own path stays byte-identical.  This hook now runs on every chat
+line of every flagless boot; what it DOES for a player who is not on the
+gm_accounts allowlist is still nothing at all.
 
 WHY CHAT AND NOT THE GM BUTTON: see `gm/chat_command.py`'s module
 docstring.  Short version: GT-101-R3 and GT-103 both measured `BT_GM`

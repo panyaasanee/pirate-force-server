@@ -151,19 +151,28 @@ class LaneHooksFireTests(unittest.TestCase):
         # Must not raise UnicodeEncodeError or anything else.
         lane_hooks.fire(self.POINT, value=1)
 
-    def test_a_real_fire_prints_the_fired_token_to_stdout(self):
+    def test_a_real_fire_prints_the_fired_token_to_stderr_not_stdout(self):
+        """stderr since round lo7e03 -- see the `hook` decorator's comment.
+
+        A tool's --json contract is "pure JSON on stdout"; the 0xAC52 point
+        fires on a vital every client sends, so this token on stdout landed
+        inside one replay tool's JSON artifact.  The token still reaches
+        the console, which is what the WIRED v2 grader greps.
+        """
         import io
-        from contextlib import redirect_stdout
+        from contextlib import redirect_stderr, redirect_stdout
 
         @lane_hooks.hook(self.POINT)
         def _noop(value):
             pass
 
         out = io.StringIO()
-        with redirect_stdout(out):
+        err = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
             lane_hooks.fire(self.POINT, value=1)
-        self.assertIn("LANE_HOOK_FIRED", out.getvalue())
-        self.assertIn(self.POINT, out.getvalue())
+        self.assertIn("LANE_HOOK_FIRED", err.getvalue())
+        self.assertIn(self.POINT, err.getvalue())
+        self.assertEqual(out.getvalue(), "")
 
 
 if __name__ == "__main__":

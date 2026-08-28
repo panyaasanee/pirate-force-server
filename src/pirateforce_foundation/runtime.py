@@ -4727,6 +4727,65 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # these branches cannot matter.
                 return self._dispatch_hostile_hp_link_hypothesis(parsed)
             if (
+                nested_id == CHAT_INPUT_VITAL_ID
+                and self.foundation.selected is not None
+            ):
+                # CORE-REQUEST-GM-028 (LANE-GM).  No scenario flag -- the
+                # second lane_hooks point in this file, shaped like the
+                # 0x51E9 one below.
+                #
+                # PLACEMENT: after every chat-keyed scenario lane above,
+                # each of which returns.  So a chat-keyed scenario boot
+                # never reaches this line and keeps its behaviour to the
+                # byte -- and, the other way round, the GM door is silently
+                # absent under those lanes: on a --chat-input-hypothesis
+                # boot the echo lane claims the frame and this hook never
+                # sees it.  A scenario boot that keys some OTHER vital does
+                # reach this line and does fire the hook; that is measured,
+                # not assumed (pf-adversary, round lo7e03).
+                #
+                # WHAT IS AND IS NOT UNCHANGED.  No `return` and no
+                # `rx_frames` bump, so the actions dispatch() returns and
+                # the frame counter are identical to the tree without this
+                # branch -- pinned by tests/test_gm_chat_command_dispatch_
+                # wiring.py.  Two surfaces DO change and callers who grade
+                # on them should know: `self.events` gains one refusal
+                # event per chat line for every ordinary player, and the
+                # console gains one LANE_HOOK_FIRED line per chat line
+                # (stderr, so a tool's stdout artifact stays clean).
+                #
+                # READINESS GUARD: only after a character is selected.  The
+                # neighbouring lanes guard the same way, and without it the
+                # very first frame on a connection -- before any login
+                # verify -- would be audited as a GM command.  Harmless
+                # while nothing executes; not harmless the day an executor
+                # is attached to this hook.
+                #
+                # IDENTITY, STATED HONESTLY: the hook hands
+                # gm/chat_command.py `self.token`, which on this server is
+                # the process-wide --token CLI value, NOT a per-connection
+                # authenticated login (reports/PF_MULTIPLAYER_READINESS_
+                # AUDIT001_*.md rows I01-I04: the account name a client puts
+                # on the wire is never read).  A client therefore cannot
+                # name itself and a non-GM cannot talk its way in -- but
+                # every connection this listener accepts shares one identity,
+                # so the allowlist cannot yet tell two humans apart.  That
+                # question has to be answered before any executor is wired
+                # onto this point, not after.
+                #
+                # PARSER CAVEAT: v141's parse_outer decodes the FIRST nested
+                # vital only and hands back everything after it as
+                # nested_payload, so on a frame carrying more than one vital
+                # these bytes are not just the chat body.  gm/chat_command.py
+                # refuses anything that is not the measured 10 + 2N shape, so
+                # that is a refusal event and not a crash; all three captured
+                # chat frames (GT-006/GT-009) carry exactly one vital.
+                lane_hooks.fire(
+                    "vital_inbound_chat_local_talk",
+                    session=self,
+                    payload=bytes(parsed.nested_payload),
+                )
+            if (
                 learn_skill_request_hypothesis_scenario is not None
                 and nested_id == LEARN_SKILL_REQUEST_VITAL_ID
             ):

@@ -75,12 +75,15 @@ WHAT IS NOT CLAIMED
    gameplay effect.  This module authorizes, decodes, parses and audits;
    execution is still `gm/warp_executor.py`'s and its callers' business,
    and `log_gm_command` still writes `executed: False`.
-4. [no claim] that this path is live.  Nothing calls this module on the
-   production path yet: runtime.py has exactly one `lane_hooks.fire()` site
-   (the 0x51E9 one) and no insertion point at the 0xAC52 branch.
-   `lane_hooks/lane_gm_chat_command.py` registers for the point this needs;
-   CORE-REQUEST-GM-002 asks chief for the three lines that fire it.  Until
-   that lands, this module is reachable from tests only.
+4. [no claim] about what a real client does.  The production path now
+   reaches this module: CORE-REQUEST-GM-028 landed the second
+   `lane_hooks.fire()` site in runtime.py, at the 0xAC52 branch, and
+   `lane_hooks/lane_gm_chat_command.py` is registered on it -- proven
+   headless on a flagless boot by
+   `tests/test_gm_chat_command_dispatch_wiring.py`.  What is still unproven
+   is the layer no test here can reach: that a GM typing into the real
+   client's chat box produces the payload shape this module decodes.
+   `GT-127` asks the bridge for exactly that.
 
 SAFETY ORDER (deliberate, and the reason the checks are in this sequence)
 ------------------------------------------------------------------------
