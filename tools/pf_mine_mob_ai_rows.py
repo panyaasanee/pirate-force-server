@@ -167,17 +167,32 @@ def _require_columns(rows: list[dict], columns: tuple[str, ...],
 
 def load_roster_module(repo_root: Path):
     """Import the generated roster without importing the whole package."""
+    return load_roster_modules(repo_root)[0]
+
+
+def load_roster_modules(repo_root: Path) -> tuple:
+    """Every scene roster this lane ships, without importing the package.
+
+    ROUND 8ftmbx: ~~bg0001 alone~~.  bg0001 now ships four practice dummies
+    and nothing else (COO-DECISION 2026-08-29T00:41+07:00 withdrew the nine
+    set-number rows), so a bg0001-only mining resolves ONE wander row and no
+    combat row at all -- and every Bg0002 monster, a scene this lane already
+    loads, then fails ``profile_of`` with "ai_row_missing".  The AI rows are
+    keyed by global n_ID like the drop sets are, so the union is a superset
+    and never a merge of disagreeing rows.
+    """
     sys.path.insert(0, str(repo_root / "src"))
     try:
         from pirateforce_foundation import field_mob_tables
+        from pirateforce_foundation import field_mob_tables_bg0002
     finally:
         sys.path.pop(0)
-    return field_mob_tables
+    return (field_mob_tables, field_mob_tables_bg0002)
 
 
 def mine(gamedata: Path, repo_root: Path,
          accept_new_digests: bool = False) -> tuple[dict, dict, dict, dict]:
-    roster_module = load_roster_module(repo_root)
+    roster_modules = load_roster_modules(repo_root)
     # Every row the roster module SHIPS, not only the ones its hostility
     # predicate selected: from round szdkgs a scene can ship a named town
     # target (rank 0, no combat AI) whose n_AI_WANDER row is still a foreign
@@ -185,11 +200,16 @@ def mine(gamedata: Path, repo_root: Path,
     # what made a boot refuse with "ai_row_missing: placement 103 points at
     # AI_WANDER 21".  Older modules that carry no SHIPPED_PLACEMENTS are read
     # exactly as before.
-    placements = getattr(roster_module, "SHIPPED_PLACEMENTS", None)
-    if placements is None:
-        placements = getattr(roster_module, "HOSTILE_PLACEMENTS", None)
-    if type(placements) is not list or not placements:
-        raise MineError("the generated roster is missing or empty")
+    placements = []
+    for roster_module in roster_modules:
+        rows = getattr(roster_module, "SHIPPED_PLACEMENTS", None)
+        if rows is None:
+            rows = getattr(roster_module, "HOSTILE_PLACEMENTS", None)
+        if type(rows) is not list or not rows:
+            raise MineError(
+                "the generated roster for scene %r is missing or empty"
+                % (getattr(roster_module, "SCENE", roster_module),))
+        placements.extend(rows)
 
     wander_path = gamedata / "tables" / "CONSTDATA_TH__AI_WANDER.tsv"
     combat_path = gamedata / "tables" / "CONSTDATA_TH__AI_COMBAT.tsv"
@@ -209,13 +229,22 @@ def mine(gamedata: Path, repo_root: Path,
     }
 
     # CONTROL 2 -- the roster and these rows must describe the same MOBS table.
-    recorded = getattr(roster_module, "SOURCE_DIGESTS", {}).get(
-        CONTROL_MOBS_DIGEST_KEY)
-    if recorded != digests[CONTROL_MOBS_DIGEST_KEY]:
-        raise MineError(
-            "MOBS digest drift: the roster was mined from %s and this tool "
-            "reads %s -- regenerate the roster first"
-            % (recorded, digests[CONTROL_MOBS_DIGEST_KEY]))
+    # ~~read off ``roster_module``~~ -- pf-adversary (round 8ftmbx, D1) proved
+    # by execution that once this tool mined more than one scene, that name was
+    # the LEAKED LOOP VARIABLE from the roster loop above, so the control only
+    # ever checked the LAST module and bg0001 -- the scene this tool is named
+    # for -- could go stale with no refusal.  Corrupting bg0001's recorded
+    # digest mined normally; corrupting Bg0002's refused.  Every module is
+    # checked now, and the refusal says WHICH scene drifted.
+    for module in roster_modules:
+        recorded = getattr(module, "SOURCE_DIGESTS", {}).get(
+            CONTROL_MOBS_DIGEST_KEY)
+        if recorded != digests[CONTROL_MOBS_DIGEST_KEY]:
+            raise MineError(
+                "MOBS digest drift: scene %r's roster was mined from %s and "
+                "this tool reads %s -- regenerate that roster first"
+                % (getattr(module, "SCENE", module), recorded,
+                   digests[CONTROL_MOBS_DIGEST_KEY]))
 
     # CONTROL 4 -- the AI tables are the ones this tool was written against.
     if not accept_new_digests:

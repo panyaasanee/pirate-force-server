@@ -172,7 +172,8 @@ here where it cannot:
   understate it.  While every profile had a positive radius and charged, a
   forgotten attacker still inside the radius was re-acquired by the proximity
   floor on the very next tick, so a dropout cost one tick.  For a profile with
-  ``offensive = False`` -- ~~ten~~ TEN of the thirteen bg0001 rows are
+  ``offensive = False`` -- ~~ten~~ ~~TEN of the thirteen bg0001 rows~~ ALL FOUR
+  rows bg0001 still ships (round 8ftmbx) are
   non-offensive and SIX carry a zero radius (round szdkgs) -- the floor
   never runs, so the ONLY route back into the table is another hit: in a
   tick-only loop the dropout is PERMANENT, and in the damage loop it is repaired
@@ -258,7 +259,8 @@ REFUSE_PROFILE_LEASH_SMALLER_THAN_AGGRO = "profile_leash_smaller_than_aggro"
 REFUSE_PROFILE_HOME_OUTSIDE_LEASH = "profile_home_outside_leash"
 # RETIRED 2026-08-26, kept rather than deleted so a reader who greps the name
 # in an older round note finds why it went: the bound it named was the aggro
-# radius, and the mined AI rows made that bound refuse ten of thirteen real
+# radius, and the mined AI rows made that bound refuse ~~ten of thirteen~~ every
+# real
 # monsters (~~ten~~ SIX as of round szdkgs: the four practice dummies point at
 # AI_WANDER 21, whose n_AGGRO is 3000, so only six shipped rows carry a zero
 # radius now.  The count moved; the reason the bound was retired did not).  Nothing raises it any more; REFUSE_PROFILE_ATTACK_RANGE_OUTSIDE_
@@ -358,7 +360,8 @@ class MobAiProfile:
     still ours and still carry no defaults here.
 
     ``aggro_radius``: a live player inside it gains the proximity threat floor.
-    MAY BE ZERO, and ~~ten~~ SIX of the thirteen rows of ``bg0001`` have
+    MAY BE ZERO, and ~~ten~~ ~~SIX of the thirteen rows~~ -- round 8ftmbx: the
+    four rows ``bg0001`` still ships all
     exactly that: their AI row is ``n_AGGRO = 0``.  (Round szdkgs: the four
     practice dummies added AI_WANDER 21 with ``n_AGGRO = 3000`` to this
     roster.  They cannot initiate -- ``mob_ai_control.profile_of`` forces

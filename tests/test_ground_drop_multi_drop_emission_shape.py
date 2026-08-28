@@ -148,7 +148,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from pirateforce_foundation import mob_death, mob_loot
+from pirateforce_foundation import field_mobs, mob_death, mob_loot
 from pirateforce_foundation.field_mobs import load_roster
 from pirateforce_foundation.legacy_bridge import load_legacy
 from pirateforce_foundation.mob_death import DeathRecord
@@ -186,7 +186,20 @@ class MultiDropEmissionShapeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
-        cls.roster = load_roster()
+        # ROUND 8ftmbx: ~~load_roster()~~ (bg0001).  COO-DECISION
+        # 2026-08-29T00:41+07:00 withdrew bg0001's nine set-number rows, and
+        # the four practice dummies it still ships have n_DROPS_NORMAL 0 --
+        # nothing in Port Royal drops anything, which makes it a useless
+        # subject for a DROP emitter.  Bg0002's roster is the one this lane
+        # loads whose monsters carry real drop sets, so the mob driven here
+        # is one of those.  ~~bg0001's roster is still loaded, because the
+        # census composed below has to be a real one from a real scene.~~ --
+        # pf-adversary (round 8ftmbx, D16): that was never true.  The census
+        # composed below is built from THIS roster's rows, so the second load
+        # was dead weight and its comment was wrong about what it was for.
+        # What the round note should say instead, and now does: this whole
+        # file measures the emitter on Bg0002's rows.
+        cls.roster = load_roster(scene=field_mobs.BG0002_SCENE)
         cls.mob = cls.roster[0]
 
     def _multi_drop_kill(self, seed=3, minimum=2, attempts=500):
@@ -217,8 +230,7 @@ class MultiDropEmissionShapeTests(unittest.TestCase):
         mobs = self.roster[:count]
         self.assertEqual(
             len(mobs), count,
-            "the bg0001 roster is too small to compose a %d-entry census"
-            % count)
+            "the roster is too small to compose a %d-entry census" % count)
         entries = [
             mob_death.death_actor_entry(self.legacy, mob, death_timer=20.0)
             for mob in mobs

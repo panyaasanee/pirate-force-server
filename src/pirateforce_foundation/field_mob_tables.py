@@ -71,19 +71,10 @@ CONTROL_FINDINGS = {
 # The scene file's own Mob-Set number per placement, so a reader can redo the
 # resolution by hand: SET_NUMBER_FOR_PLACEMENT[i] -> CLINE -> template_id.
 SET_NUMBER_FOR_PLACEMENT = {
-    12: 35,
-    30: 31,
-    33: 34,
-    58: 60,
-    59: 61,
-    60: 62,
-    63: 65,
-    95: 94,
     103: 97,
     105: 97,
     107: 97,
     109: 97,
-    132: 103,
 }
 
 # (placement_index, template_id, x, y, z, visual_preset, display_name, level,
@@ -97,6 +88,11 @@ HOSTILE_PLACEMENTS = [
 # NOT select: the named town-target allowlist (a practice dummy is rank 0 and
 # has no combat AI, so no predicate over MOBS can pick it out).  Same tuple
 # shape as HOSTILE_PLACEMENTS.
+# !! A ROW HERE IS A PRACTICE DUMMY, NOT A MONSTER OF THIS SCENE.  Required by
+# COO-DECISION 2026-08-29T00:41+07:00, which approved shipping n_ID 916 as an
+# attackable target on the condition that nobody counts it as a monster of
+# Port Royal.  The list that means "monster" in this module is
+# HOSTILE_PLACEMENTS (rank AND combat AI), and for this scene it is empty.
 TOWN_TARGET_PLACEMENTS = [
     (103, 916, 14455.2685546875, 9356.755859375, 2200.45849609375, 'M016_000_000_N', 'Training Iron Man', 100, 0, 21, 0, 150, 198125, 0, 0, 0),
     (105, 916, 13236.265625, 9364.3427734375, 2200.4599609375, 'M016_000_000_N', 'Training Iron Man', 100, 0, 21, 0, 150, 198125, 0, 0, 0),
@@ -104,27 +100,13 @@ TOWN_TARGET_PLACEMENTS = [
     (109, 916, 11789.4384765625, 9318.8798828125, 2200.461181640625, 'M016_000_000_N', 'Training Iron Man', 100, 0, 21, 0, 150, 198125, 0, 0, 0),
 ]
 
-# !! STILL THE OLD READING, ON PURPOSE, FOR ONE MORE ROUND.
-# Rows the previous
-# identity rule selected here that this rule withdraws (they are townspeople,
-# see WITHDRAWN_UNDER_THIS_RULE for who each one really is).  They are kept in
-# what this lane ships because dropping them in the same round that corrects
-# the four town targets would take ~840 pinned assertions with it, and a
-# migration that big lands red or lands half-done.  So the round that could
-# only do one did the one with a standing COO ruling behind it, and named the
-# rest instead of quietly shipping it as if it were resolved.
-# NOTHING HERE IS A CLAIM THAT THESE NAMES ARE RIGHT - the module says the
-# opposite, per row, in WITHDRAWN_UNDER_THIS_RULE.
+# EMPTY, AND THAT IS THE MIGRATED STATE.  This list held the rows the older
+# set-number reading selected that the crosswalk withdraws.  They were shipped
+# for exactly one more round under COO-DECISION 2026-08-29T00:41+07:00 ('nine
+# rows get one round only'), and that round is over: every one of them is now
+# in WITHDRAWN_UNDER_THIS_RULE with the identity it really has, and none of
+# them is shipped.  A row reappearing here is a regression, not a restoration.
 LEGACY_SETNUM_PLACEMENTS_PENDING_MIGRATION = [
-    (12, 35, 17961.1796875, 25208.271484375, 452.3008117675781, 'M025_001_000_BOSS', 'Fighting Fish Sergeant', 27, 1, 16, 352, 100, 3857, 2701001, 5400001, 2802264),
-    (30, 31, 1747.5244140625, -7837.69775390625, 931.0413208007812, 'M011_000_000_SP3', 'Tornado Eagle', 27, 1, 16, 214, 100, 3857, 2701001, 5400001, 2802234),
-    (33, 34, -216.15969848632812, 11168.337890625, 575.0142822265625, 'M025_001_000_N', 'Fighting Fish soldier', 25, 1, 16, 350, 100, 3138, 2701001, 5400001, 2802264),
-    (58, 60, -5893.7265625, 15161.7578125, 314.1536865234375, 'M002_000_002_SP3', 'Jungle Big Tiger', 37, 1, 11, 123, 100, 9382, 2701002, 5400002, 2802208),
-    (59, 61, 10755.4521484375, 7250.541015625, 2200.4453125, 'M004_000_002_SP1', 'Toxic Vine', 38, 1, 16, 140, 100, 10149, 2701002, 5400002, 2802219),
-    (60, 62, 7663.41748046875, 1862.685546875, 2037.39404296875, 'M014_000_000_N', 'Ancient Civilization Alert Weapon', 39, 1, 16, 240, 100, 10962, 2701002, 5400002, 0),
-    (63, 65, 9647.2890625, -4765.767578125, 1985.731201171875, 'M003_001_000_SP3', 'Ward Apes', 43, 1, 11, 133, 100, 14910, 2701002, 5400002, 2802215),
-    (95, 94, -4945.591796875, 14081.251953125, 314.1182861328125, 'M020_001_000_SP1', 'An Gebo Little Firebird', 47, 1, 16, 300, 100, 19710, 2701003, 5400002, 2802253),
-    (132, 103, 3722.39990234375, 21294.939453125, 84.98320007324219, 'M023_000_001_SP3', 'Orc Chief', 58, 1, 11, 332, 100, 38728, 2701003, 5400003, 0),
 ]
 
 # Which rule produced each shipped row, so no reader has to infer it.
@@ -133,15 +115,6 @@ IDENTITY_RULE_PER_PLACEMENT = {
     105: 'cline',
     107: 'cline',
     109: 'cline',
-    12: 'setnum',
-    30: 'setnum',
-    33: 'setnum',
-    58: 'setnum',
-    59: 'setnum',
-    60: 'setnum',
-    63: 'setnum',
-    95: 'setnum',
-    132: 'setnum',
 }
 
 # What this lane ships for this scene.  This is the list the roster loader
@@ -214,3 +187,13 @@ LEGACY_SETNUM_READING_OF_PLACEMENT_30 = {
     'template_id': 31, 'display_name': 'Tornado Eagle', 'level': 27,
     'max_hp': 3857,
 }
+
+# THE WHOLE ROW, not just the four values above, and it is carried for one
+# reason: GT-035 is the only client-observable damage evidence this project
+# has, and two observers watched that ladder land on THIS actor -- placement
+# 30 as the set-number reading rendered it.  The row is NOT shipped (it is
+# not in SHIPPED_PLACEMENTS and never reaches a census); it exists so a pin
+# that cross-checks the damage driver against what was actually seen can
+# still build that actor after the row was withdrawn from the roster.  Same
+# tuple shape as HOSTILE_PLACEMENTS.
+GT035_OBSERVED_SETNUM_ROW = (30, 31, 1747.5244140625, -7837.69775390625, 931.0413208007812, 'M011_000_000_SP3', 'Tornado Eagle', 27, 1, 16, 214, 100, 3857, 2701001, 5400001, 2802234)

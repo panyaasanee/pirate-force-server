@@ -119,16 +119,9 @@ HOSTILE_PLACEMENTS = [
 TOWN_TARGET_PLACEMENTS = [
 ]
 
-# Rows the previous
-# identity rule selected here that this rule withdraws (they are townspeople,
-# see WITHDRAWN_UNDER_THIS_RULE for who each one really is).  They are kept in
-# what this lane ships because dropping them in the same round that corrects
-# the four town targets would take ~840 pinned assertions with it, and a
-# migration that big lands red or lands half-done.  So the round that could
-# only do one did the one with a standing COO ruling behind it, and named the
-# rest instead of quietly shipping it as if it were resolved.
-# NOTHING HERE IS A CLAIM THAT THESE NAMES ARE RIGHT - the module says the
-# opposite, per row, in WITHDRAWN_UNDER_THIS_RULE.
+# EMPTY.  This scene never shipped rows under the older set-number reading
+# pending a migration; the list exists so every generated module has the same
+# shape.  See bg0001's own module for the scene that did.
 LEGACY_SETNUM_PLACEMENTS_PENDING_MIGRATION = [
 ]
 

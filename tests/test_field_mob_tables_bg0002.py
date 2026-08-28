@@ -68,10 +68,19 @@ GAMEDATA = ROOT.parent / "pf_bridge" / "gamedata"
 # the other nine are labelled as the legacy set-number reading pending
 # migration).  The old digest is kept, not deleted, so the change is auditable
 # from either side.
+# ROUND 8ftmbx: moved again, and again by bg0001's OWN lane, not by this
+# round -- COO-DECISION 2026-08-29T00:41+07:00 withdrew the nine set-number
+# rows.  The previous digest is kept, not deleted:
+# ~~b9c142ba8e1b4702cfad2b9cbbe5bd40a910be56120fffb5ace28681c9910fee~~
 BG0001_UNTOUCHED_SHA256 = (
-    "b9c142ba8e1b4702cfad2b9cbbe5bd40a910be56120fffb5ace28681c9910fee"
+    "574fdca1391eb0aa4bc4a5a2b46b50c090839a86baf94426573312afff2866a5"
 )
-BG0001_UNTOUCHED_SIZE = 10570
+# ROUND 8ftmbx: ~~10570~~ -> 9704.  bg0001's own module shrank when
+# COO-DECISION 2026-08-29T00:41+07:00 withdrew its nine set-number rows;
+# this constant exists to prove THIS round did not touch that file, so it
+# tracks that file's size and is re-pinned whenever bg0001's own lane
+# changes it on purpose.
+BG0001_UNTOUCHED_SIZE = 9708
 
 EXPECTED_SCENE = "Bg0002"
 EXPECTED_HOSTILE_COUNT = 17

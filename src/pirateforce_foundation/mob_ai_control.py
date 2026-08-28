@@ -71,7 +71,8 @@ the client ships, and this round read it:
   monster's ``ai_wander`` column names.  1200 placement units for the three
   bg0001 monsters whose row is 11; ZERO for the ten whose row is 16.
 * ``offensive``   <- ``CONSTDATA_TH__AI_WANDER.n_OFFESIVE`` of the same row.
-  1 for row 11, 0 for row 16.  Ten of the thirteen bg0001 monsters do not
+  1 for row 11, 0 for row 16.  ~~Ten of the thirteen bg0001 monsters~~ -- round
+  8ftmbx: ALL FOUR rows bg0001 still ships -- do not
   charge anybody; they answer damage and nothing else.
 
 The other three, and the cadence, are NOT in any committed table, and this
@@ -154,11 +155,11 @@ MOB_AI_CONTROL_BUILD_ORDER = "M4, the promotion COO ordered"
 MOB_AI_CONTROL_LANE = "B_COMBAT"
 MOB_AI_CONTROL_PROMOTION_RULING = "COO-DECISION 2026-08-26T04:02+07:00 s1.3, s3"
 
-# THE PIN IS DOWNSTREAM STORAGE OF EVERY INVENTED NUMBER, thirteen times over,
+# THE PIN IS DOWNSTREAM STORAGE OF EVERY INVENTED NUMBER, once per shipped row,
 # and an earlier draft of the COO letter claimed rolling one back was "one
 # constant and one test line".  It is not: scenarios/combat_aggro_001.json
 # holds leash_radius, home_radius, attack_range and the cadence for all
-# thirteen monsters.  It is GENERATED, by this command, and the test that
+# every row this lane ships.  It is GENERATED, by this command, and the test that
 # compares it can only catch a stale file - never a wrong number.
 PIN_REGENERATION_COMMAND = (
     "python3 tools/pf_write_mob_ai_pin.py --out scenarios/combat_aggro_001.json"
@@ -429,8 +430,12 @@ def profile_of(mob: FieldMob) -> mob_aggro.MobAiProfile:
         # start a fight the data cannot describe: offensive is forced False
         # and the mined radius is carried through unchanged so nothing is
         # hidden from a caller that wants to read it.
-        # [LANE-B READING - AWAITING COO CONFIRMATION] if the owner wants
-        # dummies to aggro, this is the one branch to change.
+        # ~~[LANE-B READING - AWAITING COO CONFIRMATION] if the owner wants
+        # dummies to aggro, this is the one branch to change.~~  CONFIRMED:
+        # COO-DECISION 2026-08-29T00:41+07:00 item 3 -- "not inventing a script
+        # the data does not have is the rule of this house".  It is a ruling
+        # now, not this lane's reading.  Changing it back needs a new ruling,
+        # not a round; and it is still the one branch to change.
         offensive = 0
     return mob_aggro.MobAiProfile(
         aggro_radius=float(aggro_radius),
@@ -447,7 +452,9 @@ def offensive_identities(mobs: tuple[FieldMob, ...]) -> tuple[int, ...]:
 
     Printed by the round note and pinned by a test because it is the one
     sentence of this round a reader can check against the shipped table by eye:
-    three of thirteen, and the other ten answer damage only.
+    ~~three of thirteen, and the other ten answer damage only~~ -- round 8ftmbx:
+    NONE of the four rows bg0001 still ships initiates; they all answer damage
+    only, because a practice dummy has no combat script for the server to run.
     """
     return tuple(
         mob.actor_identity for mob in mobs if profile_of(mob).offensive

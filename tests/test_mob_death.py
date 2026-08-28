@@ -112,6 +112,17 @@ WIDENED_916_RULING = (
 # a hardcoded line number here (see the matching note on WIDENING_RULINGS
 # in mob_death.py).
 WIDENED_BG0001_RULING = "COO-RULING-20260827-1350 widen-death-scope-bg0001"
+# THE CONTROL MOB'S OWN RULING, and why one is needed at all now.  Until round
+# 8ftmbx the subject of these tests was bg0001 placement 30, whose identity
+# 0x201F IS mob_death.SANCTIONED_FIRST_TARGET_IDENTITY -- so it died with
+# nothing passed.  That placement is a townsman under the RE-128 crosswalk and
+# COO-DECISION 2026-08-29T00:41+07:00 withdrew it from what this lane ships, so
+# the sanctioned first target is no longer a member of the shipped roster and
+# EVERY roster kill now travels through a named widening ruling.  The subject
+# here is n_ID 916, whose kill COO-DECISION 20260827_0955 authorises outright.
+# The scope lock is untouched by any of this: it still refuses an identity no
+# ruling names, which is the whole thing it was put there to do.
+CONTROL_WIDENING = WIDENED_916_RULING
 # PANYA-DECISION 2026-08-27T20:10+07:00 ("M1-P" item 3) + its ADDENDUM
 # 20:18, this round: widens death scope to Bg0002's own mined hostile
 # roster (field_mob_tables_bg0002.HOSTILE_PLACEMENTS' distinct templates,
@@ -138,7 +149,17 @@ class MobDeathTests(unittest.TestCase):
     def setUpClass(cls):
         cls.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
         cls.roster = field_mobs.load_roster()
-        cls.mob = [m for m in cls.roster if m.placement_index == 30][0]
+        # NOT a literal.  Round 8ftmbx migrated bg0001's roster off the
+        # set-number reading (COO-DECISION 2026-08-29T00:41+07:00), and this
+        # line used to say `placement_index == 30` -- a placement that reading
+        # called "Tornado Eagle" and the crosswalk calls Da Vinci, a townsman.
+        # It is not shipped any more, and the subject of every test below is
+        # now whatever this lane declares its control row to be.  A future
+        # rule change moves one constant in field_mobs, not 800 assertions.
+        cls.mob = [
+            m for m in cls.roster
+            if m.placement_index == field_mobs.CONTROL_PLACEMENT_INDEX
+        ][0]
         # This round (PANYA-DECISION 2026-08-27T20:10+07:00): the second
         # scene's own mined roster, loaded through the SAME function with a
         # different scene= argument -- never merged with cls.roster.
@@ -491,12 +512,13 @@ class MobDeathTests(unittest.TestCase):
             self.legacy, None, open_ledger(), None, self.mob, PERFORMER, weak)
         self.assertFalse(step.outcome.death_due)
         with self.assertRaises(MobDeathContractError) as caught:
-            kill(self.legacy, self.mob, step.outcome, DeathRegister())
+            kill(self.legacy, self.mob, step.outcome, DeathRegister(),
+            widened=CONTROL_WIDENING)
         self.assertEqual(
             caught.exception.reason, mob_death.REFUSE_OUTCOME_IS_NOT_A_KILL)
 
     def test_a_kill_refuses_an_outcome_about_another_monster(self):
-        other = [m for m in self.roster if m.placement_index != 30][0]
+        other = [m for m in self.roster if m.placement_index != field_mobs.CONTROL_PLACEMENT_INDEX][0]
         step = self.killing_outcome()
         with self.assertRaises(MobDeathContractError) as caught:
             kill(self.legacy, other, step.outcome, DeathRegister())
@@ -519,9 +541,11 @@ class MobDeathTests(unittest.TestCase):
 
     def test_a_second_kill_on_the_same_corpse_is_refused(self):
         step = self.killing_outcome()
-        first = kill(self.legacy, self.mob, step.outcome, DeathRegister())
+        first = kill(self.legacy, self.mob, step.outcome, DeathRegister(),
+            widened=CONTROL_WIDENING)
         with self.assertRaises(MobDeathContractError) as caught:
-            kill(self.legacy, self.mob, step.outcome, first.register)
+            kill(self.legacy, self.mob, step.outcome, first.register,
+             widened=CONTROL_WIDENING)
         self.assertEqual(caught.exception.reason, mob_death.REFUSE_ALREADY_DEAD)
 
     def test_the_killing_blow_hands_over_instead_of_repainting_a_bar(self):
@@ -530,7 +554,8 @@ class MobDeathTests(unittest.TestCase):
         self.assertTrue(step.death_due)
         self.assertEqual(step.frames, (step.announce_frame,))
         self.assertEqual(step.bar_frame, b"")
-        death = kill(self.legacy, self.mob, step.outcome, DeathRegister())
+        death = kill(self.legacy, self.mob, step.outcome, DeathRegister(),
+            widened=CONTROL_WIDENING)
         self.assertEqual(death.frames, (death.dying_frame, death.dead_frame))
         self.assertEqual(
             death.schedule,
@@ -563,7 +588,8 @@ class MobDeathTests(unittest.TestCase):
         self.assertTrue(again.outcome.death_due)   # the trap
         self.assertFalse(again.death_due)          # the property that is safe
         with self.assertRaises(MobDeathContractError) as caught:
-            kill(self.legacy, self.mob, again.outcome, DeathRegister())
+            kill(self.legacy, self.mob, again.outcome, DeathRegister(),
+            widened=CONTROL_WIDENING)
         self.assertEqual(
             caught.exception.reason, mob_death.REFUSE_OUTCOME_IS_NOT_A_KILL)
         self.assertIn("already dead", caught.exception.detail)
@@ -577,7 +603,8 @@ class MobDeathTests(unittest.TestCase):
             PERFORMER, self.mob.actor_identity, 0, 0, mob_combat.FLAGS_MISS,
             0, 0, self.mob.max_hp, 0, True, True, False)
         with self.assertRaises(MobDeathContractError) as caught:
-            kill(self.legacy, self.mob, untouched, DeathRegister())
+            kill(self.legacy, self.mob, untouched, DeathRegister(),
+            widened=CONTROL_WIDENING)
         self.assertEqual(
             caught.exception.reason, mob_death.REFUSE_OUTCOME_IS_NOT_A_KILL)
         self.assertIn("moved nothing", caught.exception.detail)
@@ -597,14 +624,16 @@ class MobDeathTests(unittest.TestCase):
                 mob_death.REFUSE_TIMER_WRONG_SIDE_OF_THE_GATE)
             with self.assertRaises(MobDeathContractError):
                 kill(self.legacy, self.mob, self.killing_outcome().outcome,
-                     DeathRegister(), dying_timer=underflow)
+                     DeathRegister(), dying_timer=underflow,
+            widened=CONTROL_WIDENING)
         # and the smallest value that DOES survive the round trip is allowed
         self.assertGreater(mob_death.as_wire_float(1e-44), 0.0)
         dying_frames(self.legacy, self.mob, death_timer=1e-44)
 
     def test_a_step_whose_frames_are_identical_is_refused(self):
         step = self.killing_outcome()
-        death = kill(self.legacy, self.mob, step.outcome, DeathRegister())
+        death = kill(self.legacy, self.mob, step.outcome, DeathRegister(),
+            widened=CONTROL_WIDENING)
         with self.assertRaises(MobDeathContractError) as caught:
             DeathStep(
                 death.record, death.dead_pc, death.dead_frame,
@@ -620,11 +649,12 @@ class MobDeathTests(unittest.TestCase):
         # returned a register of one, and whichever was stored second erased
         # the other kill - silently, and the erased monster stands back up at
         # full HP on the next rebuild.
-        other = [m for m in self.roster if m.placement_index != 30][0]
+        other = [m for m in self.roster if m.placement_index != field_mobs.CONTROL_PLACEMENT_INDEX][0]
         first = self.killing_outcome()
         second = self.killing_outcome(other)
         stored = DeathRegister()
-        a = kill(self.legacy, self.mob, first.outcome, stored)
+        a = kill(self.legacy, self.mob, first.outcome, stored,
+             widened=CONTROL_WIDENING)
         # widened= because this test is about the compare-and-swap, not about
         # the owner's target scope; the scope gate has its own test below.
         # A registered ruling because kill() now fails closed on anything
@@ -653,7 +683,8 @@ class MobDeathTests(unittest.TestCase):
         # not a second collection - and the census that actually ships
         # (world_population) rebuilds every placement at full HP.
         step = self.killing_outcome()
-        death = kill(self.legacy, self.mob, step.outcome, DeathRegister())
+        death = kill(self.legacy, self.mob, step.outcome, DeathRegister(),
+            widened=CONTROL_WIDENING)
         override = mob_death.corpse_override(
             self.legacy, self.roster, death.register)
         self.assertEqual(list(override), [self.mob.actor_identity])
@@ -665,7 +696,7 @@ class MobDeathTests(unittest.TestCase):
         weak = Combatant(level=7, ability_str=132, ability_con=0)
         hurt = strike(
             self.legacy, None, step.ledger, None,
-            [m for m in self.roster if m.placement_index != 30][0],
+            [m for m in self.roster if m.placement_index != field_mobs.CONTROL_PLACEMENT_INDEX][0],
             PERFORMER, weak)
         wider = mob_death.corpse_override(
             self.legacy, self.roster, death.register, ledger=hurt.ledger)
@@ -694,7 +725,8 @@ class MobDeathTests(unittest.TestCase):
         # call and change nothing else: for every identity corpse_override
         # DOES name, the two functions must return byte-identical entries.
         step = self.killing_outcome()
-        death = kill(self.legacy, self.mob, step.outcome, DeathRegister())
+        death = kill(self.legacy, self.mob, step.outcome, DeathRegister(),
+            widened=CONTROL_WIDENING)
         narrow = mob_death.corpse_override(
             self.legacy, self.roster, death.register)
         wide = full_roster_override(self.legacy, self.roster, death.register)
@@ -716,7 +748,7 @@ class MobDeathTests(unittest.TestCase):
         # same ledger balance corpse_override already reads, not silently
         # fall back to max_hp for a damaged survivor.
         weak = Combatant(level=7, ability_str=132, ability_con=0)
-        other = [m for m in self.roster if m.placement_index != 30][0]
+        other = [m for m in self.roster if m.placement_index != field_mobs.CONTROL_PLACEMENT_INDEX][0]
         hurt = strike(
             self.legacy, None, open_ledger(), None, other, PERFORMER, weak)
         override = full_roster_override(
@@ -839,7 +871,24 @@ class MobDeathTests(unittest.TestCase):
     REAL_CENSUS_ANCHOR = (10.0, 20.0, 30.0)
 
     def _real_generation_offsets(self, generation):
-        """identity -> (start, length) inside generation.pc, header-relative."""
+        """identity -> (start, length) inside generation.pc, header-relative.
+
+        THE GENERATION PASSED IN HAS TO BE THE ONE BEING SLICED.  Round
+        8ftmbx: two tests here passed the PLAIN census and sliced the
+        COMPOSED one, which is only correct while the override leaves every
+        entry the same length -- and it does not.  A roster body is 200 bytes
+        where the plain census entry for the same identity is 187, so every
+        identity that sits after an overridden one in census order is 13
+        bytes further along than the plain offsets say.  It survived until
+        now by luck of ORDER: the census is not sorted by identity, and the
+        old control row (0x201F) happened to come before every other
+        overridden entry, so nothing had shifted by the time its offset was
+        read.  The new control row (0x2068) has two overridden entries ahead
+        of it, the slice landed 26 bytes into the middle of its body, and the
+        comparison failed -- which is the good outcome; the same helper used
+        on any later identity would have compared the wrong bytes and said
+        nothing.
+        """
         offsets = {}
         offset = world_population.WIRE_HEADER_BYTES
         for identity, length in zip(
@@ -847,6 +896,21 @@ class MobDeathTests(unittest.TestCase):
             offsets[identity] = (offset, length)
             offset += length
         return offsets
+
+    def _composed_generation(self, register, ledger):
+        """The census hostile_census_frames composes, via public functions.
+
+        Built so a test can ask for OFFSETS INTO THE COMPOSED BYTES rather
+        than into the plain ones -- see _real_generation_offsets on why the
+        two are not interchangeable.
+        """
+        return world_population.apply_identity_override(
+            self.legacy,
+            world_population.build_world_population(
+                self.legacy, self.REAL_CENSUS_ANCHOR, 115, scene_id=1),
+            full_roster_override(
+                self.legacy, self.roster, register, ledger=ledger),
+        )
 
     def test_hostile_census_frames_matches_independent_recomposition(self):
         # This recomposes the same inputs through the SAME public functions a
@@ -956,7 +1020,8 @@ class MobDeathTests(unittest.TestCase):
         # census must be the SAME bytes death_frames would have sent alone --
         # this is "reuse the encoder over a wider input", not a second one.
         step = self.killing_outcome()
-        death = kill(self.legacy, self.mob, step.outcome, DeathRegister())
+        death = kill(self.legacy, self.mob, step.outcome, DeathRegister(),
+            widened=CONTROL_WIDENING)
         register = death.register
         # death.dead_pc IS mob_death.death_frames' one-entry output for this
         # corpse (dead_frames -> death_frames; see mob_death.kill).
@@ -965,9 +1030,8 @@ class MobDeathTests(unittest.TestCase):
             self.legacy, self.REAL_CENSUS_ANCHOR, 115, self.roster, register,
             ledger=step.ledger)
         self.assertEqual(composed_frame, self.legacy.frame_pc(composed_pc))
-        base_generation = world_population.build_world_population(
-            self.legacy, self.REAL_CENSUS_ANCHOR, 115, scene_id=1)
-        offsets = self._real_generation_offsets(base_generation)
+        offsets = self._real_generation_offsets(
+            self._composed_generation(register, step.ledger))
         start, _length = offsets[self.mob.actor_identity]
         composed_entry = composed_pc[start:start + len(solo_entry)]
         self.assertEqual(composed_entry, solo_entry)
@@ -975,7 +1039,8 @@ class MobDeathTests(unittest.TestCase):
     def test_hostile_census_frames_refuses_the_same_way_full_roster_override_does(
             self):
         step = self.killing_outcome()
-        death = kill(self.legacy, self.mob, step.outcome, DeathRegister())
+        death = kill(self.legacy, self.mob, step.outcome, DeathRegister(),
+            widened=CONTROL_WIDENING)
         living = live_roster(self.roster, death.register)
         with self.assertRaises(MobDeathContractError) as caught:
             hostile_census_frames(
@@ -1025,9 +1090,8 @@ class MobDeathTests(unittest.TestCase):
             self.legacy, self.mob, current_hp=damaged_hp)
         ceiling_entry = field_mobs.hostile_actor_entry(
             self.legacy, self.mob, current_hp=self.mob.max_hp)
-        plain_generation = world_population.build_world_population(
-            self.legacy, self.REAL_CENSUS_ANCHOR, 115, scene_id=1)
-        offsets = self._real_generation_offsets(plain_generation)
+        offsets = self._real_generation_offsets(
+            self._composed_generation(DeathRegister(), step.ledger))
         start, _length = offsets[self.mob.actor_identity]
         composed_entry = pc[start:start + len(expected_damaged_entry)]
         self.assertEqual(composed_entry, expected_damaged_entry)
@@ -1037,7 +1101,8 @@ class MobDeathTests(unittest.TestCase):
         # It is a thin wrapper over repopulation_entries and must not swallow
         # or soften that function's own refusals.
         step = self.killing_outcome()
-        death = kill(self.legacy, self.mob, step.outcome, DeathRegister())
+        death = kill(self.legacy, self.mob, step.outcome, DeathRegister(),
+            widened=CONTROL_WIDENING)
         living = live_roster(self.roster, death.register)
         with self.assertRaises(MobDeathContractError) as caught:
             full_roster_override(self.legacy, living, death.register)
@@ -1081,7 +1146,7 @@ class MobDeathTests(unittest.TestCase):
         step = self.killing_outcome()
         death = kill(
             self.legacy, self.mob, step.outcome, DeathRegister(),
-            dying_timer=3.5, dead_timer=-1.0)
+            dying_timer=3.5, dead_timer=-1.0, widened=CONTROL_WIDENING)
         joined = "\n".join(describe_death(death))
         self.assertIn("3.5", joined)
         self.assertIn("-1.0", joined)
@@ -1092,7 +1157,7 @@ class MobDeathTests(unittest.TestCase):
         # Reporting is not a gate: the owner's ruling sequences the work
         # (0x201F first, then real table mobs, not both in one round), so the
         # module holds that scope where a wiring line cannot walk past it.
-        other = [m for m in self.roster if m.placement_index != 30][0]
+        other = [m for m in self.roster if m.placement_index != field_mobs.CONTROL_PLACEMENT_INDEX][0]
         outcome = self.killing_outcome(other).outcome
         with self.assertRaises(MobDeathContractError) as caught:
             kill(self.legacy, other, outcome, DeathRegister())
@@ -1100,11 +1165,24 @@ class MobDeathTests(unittest.TestCase):
             caught.exception.reason,
             mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
         self.assertIn(mob_death.SANCTIONING_RULING, caught.exception.detail)
-        # the sanctioned target needs nothing passed at all
-        sanctioned = self.killing_outcome()
-        self.assertEqual(
+        # ~~the sanctioned target needs nothing passed at all~~
+        # ROUND 8ftmbx: it still does -- the gate is untouched -- but there is
+        # no longer a shipped mob to demonstrate it on.  0x201F was bg0001
+        # placement 30, and COO-DECISION 2026-08-29T00:41+07:00 withdrew that
+        # row as a townsman misread through the set-number column.  So the two
+        # halves are asserted apart now: the shipped control mob is NOT the
+        # sanctioned identity and needs its own ruling (below), and no row of
+        # the roster is the sanctioned identity at all.
+        self.assertNotEqual(
             self.mob.actor_identity, mob_death.SANCTIONED_FIRST_TARGET_IDENTITY)
-        kill(self.legacy, self.mob, sanctioned.outcome, DeathRegister())
+        self.assertNotIn(
+            mob_death.SANCTIONED_FIRST_TARGET_IDENTITY,
+            {m.actor_identity for m in self.roster},
+            "0x201F is back in the shipped roster: the tests above that read "
+            "'needs a ruling' have quietly become 'needs nothing'")
+        sanctioned = self.killing_outcome()
+        kill(self.legacy, self.mob, sanctioned.outcome, DeathRegister(),
+            widened=CONTROL_WIDENING)
         # and a caller holding a REGISTERED later ruling that names this
         # mob's template gets a kill
         with self.registered_widening(WIDENED, {other.template_id}):
@@ -1131,14 +1209,20 @@ class MobDeathTests(unittest.TestCase):
         # living" - and doing that used to return an EMPTY override, standing
         # every corpse back up with no refusal anywhere.
         step = self.killing_outcome()
-        death = kill(self.legacy, self.mob, step.outcome, DeathRegister())
+        death = kill(self.legacy, self.mob, step.outcome, DeathRegister(),
+            widened=CONTROL_WIDENING)
         living = live_roster(self.roster, death.register)
         with self.assertRaises(MobDeathContractError) as caught:
             repopulation_entries(self.legacy, living, death.register)
         self.assertEqual(
             caught.exception.reason,
             mob_death.REFUSE_REGISTER_ROW_DISAGREES_WITH_ROSTER)
-        self.assertIn("0x201F", caught.exception.detail)
+        # ROUND 8ftmbx: ~~"0x201F"~~ -- the subject of these tests moved to
+        # the control row when placement 30 was withdrawn, so the identity
+        # this detail names is the control mob's, read off the mob rather
+        # than typed again.
+        self.assertIn(
+            "0x%X" % self.mob.actor_identity, caught.exception.detail)
         with self.assertRaises(MobDeathContractError):
             mob_death.corpse_override(self.legacy, living, death.register)
 
@@ -1147,9 +1231,10 @@ class MobDeathTests(unittest.TestCase):
         # API, so two registers holding the same NUMBER of dead monsters carry
         # the same generation while holding different monsters.  The counter
         # says "nothing happened since"; it cannot say "nothing was lost".
-        other = [m for m in self.roster if m.placement_index != 30][0]
+        other = [m for m in self.roster if m.placement_index != field_mobs.CONTROL_PLACEMENT_INDEX][0]
         third = [m for m in self.roster if m.placement_index not in
-                 (30, other.placement_index)][0]
+                 (field_mobs.CONTROL_PLACEMENT_INDEX,
+                  other.placement_index)][0]
         # A registered ruling because kill() now fails closed on anything
         # else (pf-adversary, round 67jejl); this test is about the
         # commit-death lineage, not the scope gate.
@@ -1166,7 +1251,8 @@ class MobDeathTests(unittest.TestCase):
         self.assertEqual(lineage_a.generation, lineage_b.generation)
         self.assertNotEqual(lineage_a.identities(), lineage_b.identities())
         stranger = kill(
-            self.legacy, self.mob, self.killing_outcome().outcome, lineage_b)
+            self.legacy, self.mob, self.killing_outcome().outcome, lineage_b,
+            widened=CONTROL_WIDENING)
         with self.assertRaises(MobDeathContractError) as caught:
             mob_death.commit_death(lineage_a, stranger)
         self.assertEqual(
@@ -1214,7 +1300,8 @@ class MobDeathTests(unittest.TestCase):
 
     def test_a_hand_built_step_gets_the_same_polarity_gate(self):
         step = self.killing_outcome()
-        death = kill(self.legacy, self.mob, step.outcome, DeathRegister())
+        death = kill(self.legacy, self.mob, step.outcome, DeathRegister(),
+            widened=CONTROL_WIDENING)
         for dying, dead in ((0.0, 0.0), (-1.0, 0.0), (20.0, 1.0)):
             with self.assertRaises(MobDeathContractError) as caught:
                 DeathStep(
@@ -1240,7 +1327,8 @@ class MobDeathTests(unittest.TestCase):
                             (3.5, -1.0)):
             death = kill(
                 self.legacy, self.mob, step.outcome, DeathRegister(),
-                dying_timer=dying, dead_timer=dead)
+                dying_timer=dying, dead_timer=dead,
+                widened=CONTROL_WIDENING)
             for timer, frame in ((death.dying_timer, death.dying_frame),
                                  (death.dead_timer, death.dead_frame)):
                 body = corpse_npc_attr(
@@ -1267,7 +1355,8 @@ class MobDeathTests(unittest.TestCase):
 
     def test_the_step_cannot_carry_a_register_that_forgot_the_kill(self):
         step = self.killing_outcome()
-        death = kill(self.legacy, self.mob, step.outcome, DeathRegister())
+        death = kill(self.legacy, self.mob, step.outcome, DeathRegister(),
+            widened=CONTROL_WIDENING)
         with self.assertRaises(MobDeathContractError) as caught:
             DeathStep(
                 death.record, death.dying_pc, death.dying_frame,
@@ -1345,23 +1434,34 @@ class MobDeathTests(unittest.TestCase):
 
     def test_two_real_colliding_mobs_in_different_scenes_die_independently(
             self):
-        # REAL MEASURED DATA, not invented: field_mobs.cross_scene_identity_
+        # ~~REAL MEASURED DATA, not invented: field_mobs.cross_scene_identity_
         # collisions() finds 4 real bg0001 x Bg0002 pairs today; placement 58
-        # is one of them (0x203B in both), and both sides happen to be
-        # authorised by an already-landed widening ruling (bg0001's Jungle
-        # Big Tiger is template 60, covered by WIDENED_BG0001_RULING; Bg0002's
-        # Fighting Fish soldier is template 34, covered by
-        # WIDENED_BG0002_RULING), so this test drives the collision all the
-        # way through kill() rather than only through the register's own API.
-        collisions = field_mobs.cross_scene_identity_collisions()
-        pair = [c for c in collisions if c["placement_index"] == 58][0]
-        bg0001_mob = [m for m in self.roster if m.placement_index == 58][0]
-        bg0002_mob = [
-            m for m in self.bg0002_roster if m.placement_index == 58][0]
-        self.assertEqual(bg0001_mob.actor_identity, pair["actor_identity"])
+        # is one of them (0x203B in both).~~
+        # ROUND 8ftmbx: THERE ARE NONE LEFT, and this test now says so first.
+        # COO-DECISION 2026-08-29T00:41+07:00 withdrew bg0001's nine
+        # set-number rows, and the four placements the scene still ships
+        # (103/105/107/109) collide with nothing Bg0002 ships (50..96).  The
+        # scene-keyed grave still has to work -- the day either roster grows
+        # is the day it matters again -- so the pair below is CONSTRUCTED and
+        # labelled as such: bg0001's real control mob, and a Bg0002 stand-in
+        # placed at the same placement index so the two compute the identical
+        # wire identity in two different scenes.  Both sides are still
+        # authorised by an already-landed ruling (916 by
+        # WIDENED_BG0001_RULING, template 34 by WIDENED_BG0002_RULING), so
+        # this still drives the collision all the way through kill() rather
+        # than only through the register's own API.
+        self.assertEqual(
+            field_mobs.cross_scene_identity_collisions(), (),
+            "a real cross-scene collision exists again: build this test on "
+            "that pair instead of on a stand-in")
+        bg0001_mob = self.mob
+        bg0002_real = [m for m in self.bg0002_roster if m.template_id == 34][0]
+        bg0002_mob = field_mobs.FieldMob(
+            **{**bg0002_real.__dict__,
+               "placement_index": bg0001_mob.placement_index})
         self.assertEqual(bg0001_mob.actor_identity, bg0002_mob.actor_identity)
         self.assertNotEqual(bg0001_mob.scene, bg0002_mob.scene)
-        self.assertEqual(bg0001_mob.template_id, 60)
+        self.assertEqual(bg0001_mob.template_id, 916)
         self.assertEqual(bg0002_mob.template_id, 34)
 
         step_a = self.killing_outcome_solo(bg0001_mob)
@@ -1408,14 +1508,19 @@ class MobDeathTests(unittest.TestCase):
         self.assertNotIn(
             bg0001_mob.actor_identity,
             [m.actor_identity for m in live_roster(self.roster, death_b.register)])
+        # The Bg0002 side of the pair is the stand-in, so the roster it is
+        # asked about has to be one that contains it.
+        bg0002_roster_with_stand_in = tuple(self.bg0002_roster) + (bg0002_mob,)
         self.assertIn(
             bg0002_mob.actor_identity,
             [m.actor_identity
-             for m in live_roster(self.bg0002_roster, death_a.register)])
+             for m in live_roster(
+                 bg0002_roster_with_stand_in, death_a.register)])
 
     def test_a_reapply_does_not_resurrect_the_dead(self):
         step = self.killing_outcome()
-        death = kill(self.legacy, self.mob, step.outcome, DeathRegister())
+        death = kill(self.legacy, self.mob, step.outcome, DeathRegister(),
+            widened=CONTROL_WIDENING)
         entries = repopulation_entries(self.legacy, self.roster, death.register)
         self.assertEqual(len(entries), len(self.roster))
         live_entry = field_mobs.hostile_actor_entry(self.legacy, self.mob)
@@ -1483,7 +1588,8 @@ class MobDeathTests(unittest.TestCase):
             caught.exception.reason,
             mob_death.REFUSE_LEDGER_DISAGREES_WITH_REGISTER)
         # and with the kill committed it composes the corpse instead
-        death = kill(self.legacy, self.mob, step.outcome, DeathRegister())
+        death = kill(self.legacy, self.mob, step.outcome, DeathRegister(),
+            widened=CONTROL_WIDENING)
         entries = repopulation_entries(
             self.legacy, self.roster, death.register, ledger=step.ledger)
         index = [m.actor_identity for m in self.roster].index(
@@ -1497,7 +1603,8 @@ class MobDeathTests(unittest.TestCase):
         # The mirror of the case above: dead in the register, alive in the
         # arithmetic.  Both directions of the same desync are named.
         step = self.killing_outcome()
-        death = kill(self.legacy, self.mob, step.outcome, DeathRegister())
+        death = kill(self.legacy, self.mob, step.outcome, DeathRegister(),
+            widened=CONTROL_WIDENING)
         with self.assertRaises(MobDeathContractError) as caught:
             repopulation_entries(
                 self.legacy, self.roster, death.register, ledger=open_ledger())
@@ -1652,7 +1759,8 @@ class MobDeathTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("[COO-CONFIRMED PROVISIONAL", source)
         step = self.killing_outcome()
-        death = kill(self.legacy, self.mob, step.outcome, DeathRegister())
+        death = kill(self.legacy, self.mob, step.outcome, DeathRegister(),
+            widened=CONTROL_WIDENING)
         self.assertTrue(
             any("unmeasured" in line for line in describe_death(death)))
 
@@ -1681,12 +1789,16 @@ class MobDeathTests(unittest.TestCase):
 
     def test_the_console_lines_name_the_chain(self):
         step = self.killing_outcome()
-        death = kill(self.legacy, self.mob, step.outcome, DeathRegister())
+        death = kill(self.legacy, self.mob, step.outcome, DeathRegister(),
+            widened=CONTROL_WIDENING)
         lines = describe_death(death)
         joined = "\n".join(lines)
         self.assertIn("0x443990", joined)
         self.assertIn("CActorTask_Dead", joined)
-        self.assertIn("0x201F", joined)
+        # ROUND 8ftmbx: ~~"0x201F"~~ -- placement 30 is withdrawn, so the
+        # identity this line prints is the control mob's.  Read off the mob,
+        # not typed, so the next subject change does not need this edit again.
+        self.assertIn("0x%X" % self.mob.actor_identity, joined)
 
     def test_simultaneous_death_of_0x201f_and_916_training_iron_man(self):
         # notes_to_chief/20260827_0955_COO-DECISION-widen-death-scope-...:
@@ -1723,12 +1835,31 @@ class MobDeathTests(unittest.TestCase):
         #     real number: kill() / commit_death() / DeathRegister do not
         #     collide when the widened target's template_id is 916 and it
         #     dies in the same tick as the sanctioned target.
+        # ROUND 8ftmbx, and pf-adversary (D13) is why this is spelled out:
+        # after the migration `self.mob` is ALSO template 916 and
+        # CONTROL_WIDENING is the same string as WIDENED_916_RULING, so the
+        # "two targets, two rulings, one tick" this test is named for had
+        # quietly become one target twice under one ruling.  COO-DECISION
+        # 0955 asked for exactly one thing and it has to keep asking it.  So
+        # the two subjects are made to differ where it matters -- the
+        # sanctioned identity is driven on the row that really carries it
+        # (preserved, not shipped) under NO ruling at all, and the 916
+        # stand-in under the 916 ruling -- and the difference is asserted
+        # rather than assumed.
         training_iron_man = self.training_iron_man_stand_in()
         self.assertNotIn(
             training_iron_man.actor_identity,
             [m.actor_identity for m in self.roster])
         widened_ruling = WIDENED_916_RULING
-        sanctioned_outcome = self.killing_outcome().outcome
+        sanctioned_mob = field_mobs.gt035_observed_subject()
+        self.assertEqual(
+            sanctioned_mob.actor_identity,
+            mob_death.SANCTIONED_FIRST_TARGET_IDENTITY)
+        self.assertNotEqual(
+            sanctioned_mob.template_id, training_iron_man.template_id)
+        self.assertNotEqual(
+            sanctioned_mob.actor_identity, training_iron_man.actor_identity)
+        sanctioned_outcome = self.killing_outcome_solo(sanctioned_mob).outcome
         tim_ledger = open_ledger(roster=(training_iron_man,))
         tim_step = strike(
             self.legacy, None, tim_ledger, None, training_iron_man,
@@ -1740,7 +1871,11 @@ class MobDeathTests(unittest.TestCase):
         # "the same tick": both kills computed from the SAME generation-0
         # register, exactly the shape test_two_kills_in_one_tick pins.
         stored = DeathRegister()
-        a = kill(self.legacy, self.mob, sanctioned_outcome, stored)
+        # NO widened= at all on this one: it IS the sanctioned first target,
+        # which is the half of the pair COO-DECISION 0955 named, and driving
+        # it under a ruling would have made both arms of this test the same
+        # arm again.
+        a = kill(self.legacy, sanctioned_mob, sanctioned_outcome, stored)
         b = kill(
             self.legacy, training_iron_man, widened_outcome, stored,
             widened=widened_ruling)
@@ -1759,7 +1894,8 @@ class MobDeathTests(unittest.TestCase):
         self.assertEqual(
             stored.identities(),
             tuple(sorted((
-                self.mob.actor_identity, training_iron_man.actor_identity))))
+                sanctioned_mob.actor_identity,
+                training_iron_man.actor_identity))))
         self.assertEqual(stored.generation, 2)
 
         # NO DEAD_TIMER COLLISION: each step's frames are keyed to its own
@@ -1772,7 +1908,7 @@ class MobDeathTests(unittest.TestCase):
             self.assertEqual(step.dying_timer, DYING_TIMER_SECONDS)
             self.assertEqual(step.dead_timer, DEAD_TIMER_SECONDS)
             self.assertEqual(step.hold_ms, mob_death.DEATH_TASK_HOLD_MS)
-        self.assertTrue(stored.is_dead(self.mob.actor_identity))
+        self.assertTrue(stored.is_dead(sanctioned_mob.actor_identity))
         self.assertTrue(stored.is_dead(training_iron_man.actor_identity))
         self.assertEqual(
             stored.record_of(training_iron_man.actor_identity).max_hp, 100)
@@ -1793,12 +1929,38 @@ class MobDeathTests(unittest.TestCase):
         # Exile data.  This is the guard mob_death.WIDENING_RULINGS closes:
         # the real, correctly-quoted 916 ruling string must still be refused
         # for a mob whose template_id is not 916.
-        other = [
-            m for m in self.roster
-            if m.actor_identity != mob_death.SANCTIONED_FIRST_TARGET_IDENTITY
-        ][0]
+        # ROUND 8ftmbx: ~~a real roster mob whose template is not 916~~.
+        # There is no longer one -- COO-DECISION 2026-08-29T00:41+07:00
+        # withdrew the nine set-number rows and bg0001 now ships nothing but
+        # the four 916 dummies.  The guard still has to hold, so the subject
+        # is a stand-in built on this scene, carrying a template genuinely
+        # absent from every roster this tree ships, and the test ASSERTS that
+        # absence rather than assuming it -- the same shape
+        # test_the_bg0001_ruling_still_refuses_a_template_outside_the_roster
+        # already uses.  If bg0001 ever ships a non-916 monster again, the
+        # first assertion below is what says so.
+        self.assertEqual(
+            {m.template_id for m in self.roster}, {916},
+            "bg0001 ships a non-916 template again: use it as the subject "
+            "here instead of a stand-in")
+        tim = self.training_iron_man_stand_in()
+        other = field_mobs.FieldMob(
+            placement_index=9003,
+            template_id=4242,
+            x=tim.x, y=tim.y, z=tim.z,
+            visual_preset=tim.visual_preset,
+            display_name="NOT-916 STAND-IN",
+            level=tim.level, rank=tim.rank, ai_wander=tim.ai_wander,
+            ai_combat=tim.ai_combat, speed_walk=tim.speed_walk,
+            max_hp=tim.max_hp, drops_normal=0, drops_equipment=0,
+            drops_specially=0, scene=tim.scene,
+        )
         self.assertNotEqual(other.template_id, 916)
-        outcome = self.killing_outcome(other).outcome
+        self.assertNotEqual(
+            other.actor_identity, mob_death.SANCTIONED_FIRST_TARGET_IDENTITY)
+        # A stand-in is not in the default bg0001 ledger, so it needs the
+        # one-mob ledger the other off-roster subjects in this file use.
+        outcome = self.killing_outcome_solo(other).outcome
         with self.assertRaises(MobDeathContractError) as caught:
             kill(self.legacy, other, outcome, DeathRegister(),
                  widened=WIDENED_916_RULING)
@@ -1855,7 +2017,14 @@ class MobDeathTests(unittest.TestCase):
         # 09:55 ruling instead, which is exactly what the "not over-widened"
         # half of this test's own comment asks for, so the loop below splits
         # by which ruling names the row rather than widening either one.
-        self.assertEqual(len(self.roster), 13)
+        # ROUND 8ftmbx: ~~13~~ -> 4.  COO-DECISION 2026-08-29T00:41+07:00
+        # withdrew the nine set-number rows, so the roster the 13:50 ruling
+        # names is now the four practice dummies and the split the paragraph
+        # above describes has collapsed into one arm -- both loops below now
+        # walk the same four rows under two different rulings, which is the
+        # point: the server passes one string, the other exists, and both
+        # have to kill what the roster actually contains.
+        self.assertEqual(len(self.roster), 4)
         for mob in self.roster:
             outcome = self.killing_outcome(mob).outcome
             step = kill(
@@ -1979,25 +2148,54 @@ class MobDeathTests(unittest.TestCase):
 
     def test_the_bg0001_and_bg0002_rulings_covered_templates_really_overlap(
             self):
-        # Pins the concrete collision both rulings' own comments describe,
+        # ~~Pins the concrete collision both rulings' own comments describe,
         # rather than trusting the comment: if this ever stops being true,
-        # the scene-check tests below stop testing anything real.
+        # the scene-check tests below stop testing anything real.~~
+        # ROUND 8ftmbx: IT STOPPED BEING TRUE, and this test is what says so
+        # instead of the scene-check tests below quietly passing on nothing.
+        # bg0001's ruling now covers {916} -- the roster it names is the four
+        # practice dummies after COO-DECISION 2026-08-29T00:41+07:00 withdrew
+        # the nine set-number rows -- and Bg0002's still covers
+        # {31, 34, 35, 103}.  The two sets no longer meet, so no REAL mob can
+        # be the shared-template subject any more and the two hazard tests
+        # below say in their own bodies that they moved to stand-ins.
+        # The pin is kept, inverted: the day the two rosters share a template
+        # again this fails, and the real-data versions of those two tests are
+        # what should come back.
         overlap = (
             mob_death.WIDENING_RULINGS[WIDENED_BG0001_RULING]
             & mob_death.WIDENING_RULINGS[WIDENED_BG0002_RULING])
-        self.assertEqual(overlap, frozenset({31, 34, 35, 103}))
+        self.assertEqual(overlap, frozenset())
 
     def test_a_bg0002_mob_is_refused_the_bg0001_ruling_despite_a_shared_template(
             self):
-        # THE HAZARD, forward direction. cls.mob (placement 30, template 31,
-        # Tornado Eagle) is a REAL bg0001 roster member, so template_id 31
-        # alone would pass WIDENED_BG0002_RULING's covered-template check --
-        # but its scene is Bg0002's, not bg0001's, so this must FAIL.
-        bg0002_tornado_eagle = [
-            m for m in self.bg0002_roster if m.template_id == 31][0]
+        # THE HAZARD, forward direction: a mob whose template PASSES a
+        # ruling's covered-template check and whose SCENE does not.
+        # ~~cls.mob (placement 30, template 31, Tornado Eagle) is a REAL
+        # bg0001 roster member, so template_id 31 alone would pass
+        # WIDENED_BG0002_RULING's covered-template check.~~
+        # ROUND 8ftmbx: bg0001's ruling covers {916} now (see
+        # test_the_bg0001_and_bg0002_rulings_covered_templates_really_overlap
+        # for why), and no mob of Bg0002's roster carries 916 -- so a real
+        # Bg0002 mob passed the bg0001 ruling would be refused on its
+        # TEMPLATE and never reach the scene check this test is about.  The
+        # subject is therefore a stand-in that is deliberately hard for the
+        # gate: template 916, which the bg0001 ruling does cover, wearing
+        # Bg0002's scene.  Only the scene check can refuse it.
+        self.assertNotIn(
+            916, {m.template_id for m in self.bg0002_roster},
+            "Bg0002 ships 916 now: use that real mob here instead of a "
+            "stand-in")
+        tim = self.training_iron_man_stand_in()
+        bg0002_tornado_eagle = field_mobs.FieldMob(
+            **{**tim.__dict__, "placement_index": 9004,
+               "scene": self.bg0002_roster[0].scene})
         self.assertIn(
             bg0002_tornado_eagle.template_id,
             mob_death.WIDENING_RULINGS[WIDENED_BG0001_RULING])
+        self.assertNotEqual(
+            bg0002_tornado_eagle.scene,
+            mob_death.WIDENING_RULING_SCENES[WIDENED_BG0001_RULING])
         step = self.killing_outcome_solo(bg0002_tornado_eagle)
         with self.assertRaises(MobDeathContractError) as caught:
             kill(self.legacy, bg0002_tornado_eagle, step.outcome,
@@ -2009,24 +2207,38 @@ class MobDeathTests(unittest.TestCase):
 
     def test_a_bg0001_mob_is_refused_the_bg0002_ruling_despite_a_shared_template(
             self):
-        # THE HAZARD, reverse direction. Deliberately NOT self.mob/cls.mob
-        # (placement 30, identity SANCTIONED_FIRST_TARGET_IDENTITY 0x201F):
-        # that identity skips kill()'s whole widened= gate unconditionally,
-        # by design, regardless of which ruling string is passed, so it
-        # cannot exercise this check at all. Placement 12 (Fighting Fish
-        # Sergeant, template 35) is a real bg0001 roster member that is NOT
-        # the sanctioned identity, and template 35 is in BOTH rulings'
-        # covered sets -- the actual hazard shape.
-        fighting_fish_sergeant = [
-            m for m in self.roster if m.placement_index == 12][0]
+        # THE HAZARD, reverse direction.
+        # ~~Placement 12 (Fighting Fish Sergeant, template 35) is a real
+        # bg0001 roster member that is NOT the sanctioned identity, and
+        # template 35 is in BOTH rulings' covered sets -- the actual hazard
+        # shape.~~  ROUND 8ftmbx: placement 12 is withdrawn (it is Deserter
+        # Navy, a townsman, under the crosswalk), and bg0001 ships no
+        # template Bg0002's ruling covers, so the real-data version of this
+        # test has no subject left.  Same construction as its forward twin: a
+        # stand-in whose TEMPLATE the Bg0002 ruling covers, wearing bg0001's
+        # scene, so the scene check is the only thing that can refuse it.
+        # Deliberately not self.mob either -- if the control row were ever
+        # SANCTIONED_FIRST_TARGET_IDENTITY it would skip the widened= gate
+        # entirely and exercise nothing.
+        self.assertNotIn(
+            35, {m.template_id for m in self.roster},
+            "bg0001 ships template 35 again: use that real mob here instead "
+            "of a stand-in")
+        tim = self.training_iron_man_stand_in()
+        fighting_fish_sergeant = field_mobs.FieldMob(
+            **{**tim.__dict__, "placement_index": 9005, "template_id": 35,
+               "display_name": "FIGHTING FISH SERGEANT STAND-IN"})
         self.assertEqual(fighting_fish_sergeant.template_id, 35)
+        self.assertEqual(
+            fighting_fish_sergeant.scene,
+            mob_death.WIDENING_RULING_SCENES[WIDENED_BG0001_RULING])
         self.assertNotEqual(
             fighting_fish_sergeant.actor_identity,
             mob_death.SANCTIONED_FIRST_TARGET_IDENTITY)
         self.assertIn(
             fighting_fish_sergeant.template_id,
             mob_death.WIDENING_RULINGS[WIDENED_BG0002_RULING])
-        outcome = self.killing_outcome(fighting_fish_sergeant).outcome
+        outcome = self.killing_outcome_solo(fighting_fish_sergeant).outcome
         with self.assertRaises(MobDeathContractError) as caught:
             kill(self.legacy, fighting_fish_sergeant, outcome,
                  DeathRegister(), widened=WIDENED_BG0002_RULING)
@@ -2097,13 +2309,98 @@ class MobDeathTests(unittest.TestCase):
             caught.exception.reason,
             mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
 
-    def test_a_ruling_with_no_scene_entry_is_unaffected_by_this_round(self):
-        # The 916 (Training Iron Man) ruling names no real scene at all;
-        # WIDENING_RULING_SCENES must have no entry for it, and the
-        # existing 916 tests above (which pass a default-scene stand-in)
-        # must keep passing unchanged -- this just pins the absence
-        # directly rather than relying on those tests alone to notice.
-        self.assertNotIn(WIDENED_916_RULING, mob_death.WIDENING_RULING_SCENES)
+    def test_the_sanctioned_bypass_still_works_and_only_for_its_own_scene(
+            self):
+        """The branch that lets 0x201F die with NOTHING passed.
+
+        pf-adversary (round 8ftmbx, D3) mutated that branch away entirely --
+        `if mob.actor_identity != SANCTIONED_FIRST_TARGET_IDENTITY:` to
+        `if True:` -- and the whole suite stayed green: after this round's
+        migration nothing kills 0x201F any more, so the module's own
+        load-bearing sentence ("the sanctioned target works with nothing
+        passed, on a build booted with no arguments") was claimed by prose and
+        exercised by nobody.  This kills it with nothing passed, on the
+        preserved row, so the mutation fails.
+
+        And the second half, which is the reason the scene tie was added: the
+        SAME identity in a DIFFERENT scene must NOT get the bypass.  0x201F is
+        `0x2000 + 30 + 1`, every scene has a placement 30, and the adversary
+        drove a Bg0015 mob straight through the gate on that coincidence.
+        """
+        subject = field_mobs.gt035_observed_subject()
+        self.assertEqual(
+            subject.actor_identity, mob_death.SANCTIONED_FIRST_TARGET_IDENTITY)
+        self.assertEqual(
+            subject.scene, mob_death.SANCTIONED_FIRST_TARGET_SCENE)
+        step = self.killing_outcome_solo(subject)
+        death = kill(self.legacy, subject, step.outcome, DeathRegister())
+        self.assertTrue(death.register.is_dead(subject.actor_identity))
+
+        # Same identity, same index, another scene: refused, and the refusal
+        # names the ruling rather than pretending the target is unknown.
+        impostor = field_mobs.FieldMob(
+            **{**subject.__dict__, "scene": field_mobs.BG0002_SCENE})
+        self.assertEqual(
+            impostor.actor_identity, mob_death.SANCTIONED_FIRST_TARGET_IDENTITY)
+        with self.assertRaises(MobDeathContractError) as caught:
+            kill(self.legacy, impostor,
+                 self.killing_outcome_solo(impostor).outcome, DeathRegister())
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
+        self.assertIn(mob_death.SANCTIONING_RULING, caught.exception.detail)
+
+    def test_the_sanctioned_identity_names_no_shipped_actor_any_more(self):
+        # Stated once, plainly, because several tests above now read
+        # "needs a ruling" and would silently become "needs nothing" if this
+        # ever stopped being true.
+        self.assertNotIn(
+            mob_death.SANCTIONED_FIRST_TARGET_IDENTITY,
+            {mob.actor_identity for mob in self.roster})
+        self.assertNotIn(
+            mob_death.SANCTIONED_FIRST_TARGET_IDENTITY,
+            {mob.actor_identity for mob in self.bg0002_roster})
+
+    def test_the_916_ruling_is_tied_to_its_scene_now(self):
+        """~~test_a_ruling_with_no_scene_entry_is_unaffected_by_this_round~~
+
+        ~~The 916 (Training Iron Man) ruling names no real scene at all;
+        WIDENING_RULING_SCENES must have no entry for it.~~  ROUND 8ftmbx:
+        that stopped being true in round szdkgs (916 got four real bg0001
+        placements) and mob_death's own comment named THIS round -- the one
+        that migrates the rest of the roster -- as when to close it.
+        pf-adversary proved by execution why it matters: a hand-built mob
+        carrying template 916 and Bg0002's scene was killed under a ruling
+        that names bg0001, and this round newly routes the shipped death pin
+        through that exact ruling.
+        """
+        self.assertEqual(
+            mob_death.WIDENING_RULING_SCENES[WIDENED_916_RULING],
+            field_mobs.field_mob_tables.SCENE)
+        # It really refuses, rather than merely being written down: same
+        # template, wrong scene.
+        tim = self.training_iron_man_stand_in()
+        elsewhere = field_mobs.FieldMob(
+            **{**tim.__dict__, "placement_index": 9006,
+               "scene": field_mobs.BG0002_SCENE})
+        self.assertIn(
+            elsewhere.template_id,
+            mob_death.WIDENING_RULINGS[WIDENED_916_RULING])
+        with self.assertRaises(MobDeathContractError) as caught:
+            kill(self.legacy, elsewhere,
+                 self.killing_outcome_solo(elsewhere).outcome,
+                 DeathRegister(), widened=WIDENED_916_RULING)
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
+        self.assertIn("scene", caught.exception.detail)
+        # And the shipped roster is still killable under it, which is the
+        # thing this tie must not break.
+        for mob in self.roster:
+            step = kill(
+                self.legacy, mob, self.killing_outcome(mob).outcome,
+                DeathRegister(), widened=WIDENED_916_RULING)
+            self.assertTrue(step.register.is_dead(mob.actor_identity))
 
 
 if __name__ == "__main__":

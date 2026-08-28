@@ -71,7 +71,11 @@ from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
 
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
-SANCTIONED_TARGET = mob_death.SANCTIONED_FIRST_TARGET_IDENTITY  # 0x201F, P30
+# ~~CONTROL_TARGET = mob_death.SANCTIONED_FIRST_TARGET_IDENTITY  # 0x201F,
+# P30~~  ROUND 8ftmbx: that placement is withdrawn from what this lane ships
+# (COO-DECISION 2026-08-29T00:41+07:00, RE-128 crosswalk: it is a townsman).
+# The identity these wiring tests drive is the roster's own control row.
+CONTROL_TARGET = 0x2000 + field_mobs.CONTROL_PLACEMENT_INDEX + 1
 CENSUS_ANCHOR = (10.0, 20.0, 30.0)
 
 
@@ -99,8 +103,8 @@ class MobCombatCensusWiringTests(unittest.TestCase):
             self.legacy.extract_avatar_attr_wire_from_actor,
         )
         self.roster = field_mobs.load_roster()
-        self.p30 = next(
-            m for m in self.roster if m.actor_identity == SANCTIONED_TARGET
+        self.control_mob = next(
+            m for m in self.roster if m.actor_identity == CONTROL_TARGET
         )
 
     def tearDown(self):
@@ -201,7 +205,7 @@ class MobCombatCensusWiringTests(unittest.TestCase):
     ):
         state = self._state("cw_bar")
         self._drive_arrival_census(state)
-        actions = self._attack(state, SANCTIONED_TARGET)
+        actions = self._attack(state, CONTROL_TARGET)
         self.assertEqual(
             [label for label, _pc, _f, _d in actions],
             ["MOB_COMBAT_ANNOUNCE", "MOB_COMBAT_BAR"],
@@ -229,7 +233,7 @@ class MobCombatCensusWiringTests(unittest.TestCase):
         # is still present on the wire -- the world-wipe RE-092 flagged would
         # have dropped it.
         other = next(
-            m for m in self.roster if m.actor_identity != SANCTIONED_TARGET
+            m for m in self.roster if m.actor_identity != CONTROL_TARGET
         )
         other_entry = field_mobs.hostile_actor_entry(
             self.legacy, other, current_hp=other.max_hp,
@@ -241,8 +245,8 @@ class MobCombatCensusWiringTests(unittest.TestCase):
     def test_death_frames_after_arrival_census_are_the_full_recompose(self):
         state = self._state("cw_death")
         self._drive_arrival_census(state)
-        self._set_balance(state, SANCTIONED_TARGET, 500)
-        actions = self._attack(state, SANCTIONED_TARGET)
+        self._set_balance(state, CONTROL_TARGET, 500)
+        actions = self._attack(state, CONTROL_TARGET)
         labels = [label for label, _pc, _f, _d in actions]
         self.assertEqual(
             labels[:3],
@@ -275,7 +279,7 @@ class MobCombatCensusWiringTests(unittest.TestCase):
         # wire in both frames -- the world-wipe risk RE-092 flagged would
         # have removed it.
         other = next(
-            m for m in self.roster if m.actor_identity != SANCTIONED_TARGET
+            m for m in self.roster if m.actor_identity != CONTROL_TARGET
         )
         other_entry = field_mobs.hostile_actor_entry(
             self.legacy, other, current_hp=other.max_hp,
@@ -295,7 +299,7 @@ class MobCombatCensusWiringTests(unittest.TestCase):
         """
         state = self._state("cw_bar_fallback")
         self.assertIsNone(getattr(state, "population_refresh_anchor", None))
-        actions = self._attack(state, SANCTIONED_TARGET)
+        actions = self._attack(state, CONTROL_TARGET)
         self.assertEqual(
             [label for label, _pc, _f, _d in actions],
             ["MOB_COMBAT_ANNOUNCE", "MOB_COMBAT_BAR"],
@@ -310,8 +314,8 @@ class MobCombatCensusWiringTests(unittest.TestCase):
     ):
         state = self._state("cw_death_fallback")
         self.assertIsNone(getattr(state, "population_refresh_anchor", None))
-        self._set_balance(state, SANCTIONED_TARGET, 500)
-        actions = self._attack(state, SANCTIONED_TARGET)
+        self._set_balance(state, CONTROL_TARGET, 500)
+        actions = self._attack(state, CONTROL_TARGET)
         labels = [label for label, _pc, _f, _d in actions]
         self.assertEqual(
             labels[:3],
@@ -339,7 +343,7 @@ class MobCombatCensusWiringTests(unittest.TestCase):
             mob_death, "hostile_census_frames",
             side_effect=ValueError("test-induced compose failure"),
         ):
-            actions = self._attack(state, SANCTIONED_TARGET)
+            actions = self._attack(state, CONTROL_TARGET)
         self.assertEqual(
             [label for label, _pc, _f, _d in actions],
             ["MOB_COMBAT_ANNOUNCE", "MOB_COMBAT_BAR"],
@@ -354,12 +358,12 @@ class MobCombatCensusWiringTests(unittest.TestCase):
     def test_death_frames_compose_failure_falls_back_and_is_named(self):
         state = self._state("cw_death_refused")
         self._drive_arrival_census(state)
-        self._set_balance(state, SANCTIONED_TARGET, 500)
+        self._set_balance(state, CONTROL_TARGET, 500)
         with mock.patch.object(
             mob_death, "hostile_census_frames",
             side_effect=ValueError("test-induced compose failure"),
         ):
-            actions = self._attack(state, SANCTIONED_TARGET)
+            actions = self._attack(state, CONTROL_TARGET)
         labels = [label for label, _pc, _f, _d in actions]
         self.assertEqual(
             labels[:3],
@@ -390,7 +394,7 @@ class MobCombatCensusWiringTests(unittest.TestCase):
                 state.foundation.selected.position, scene_id=999,
             ),
         )
-        actions = self._attack(state, SANCTIONED_TARGET)
+        actions = self._attack(state, CONTROL_TARGET)
         self.assertEqual(
             [label for label, _pc, _f, _d in actions],
             ["MOB_COMBAT_ANNOUNCE", "MOB_COMBAT_BAR"],

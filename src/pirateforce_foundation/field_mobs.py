@@ -91,13 +91,15 @@ densest spot in the whole scene - the Mutant Green Eagle line near
 So this module delivers "the monsters this scene's own data defines exist and
 are hostile"~~ -- ROUND szdkgs, and the correction is bigger than the numbers:
 bg0001 is a town in the strong sense.  Resolved through the RE-128 crosswalk,
-ZERO of its placements have both a rank and a combat AI; the thirteen rows
+ZERO of its placements have both a rank and a combat AI; the ~~thirteen~~ four
+rows
 this module ships are four real practice dummies (n_ID 916 "Training Iron
 Man", the line near (14455, 9357, 2200) that the struck-through paragraph
 called Mutant Green Eagle) plus nine placements still carrying the legacy
 set-number reading, which are Port Royal's own townspeople and are labelled as
 such per row in the generated table.  The distances above still describe those
-same thirteen placements, because no placement moved.  What this module
+same placements, because no placement moved (~~thirteen~~ four of them ship
+since round 8ftmbx).  What this module
 delivers today is "the actors this scene's data defines exist, four of them
 under their real identity", and it does NOT deliver "a field full of red names
 in one view", nor -- until the remaining nine are migrated -- "every actor
@@ -118,7 +120,8 @@ convention marker and no code branches on it.
     These monsters ARE members of the bg0001 census.  Their actor identities
     are ``0x2000 + placement_index + 1``, the same rule
     :mod:`world_population` uses, so sending this collection AND the lane-A
-    census in the same generation would put thirteen identities on the wire
+    census in the same generation would put every roster identity on the wire
+    (~~thirteen~~ four since round 8ftmbx)
     twice with different bodies.  The correct wiring is the override, not the
     second collection: build the census and swap the hostile body in for the
     members :func:`hostile_placement_indices` names.  :func:`overlapping_
@@ -212,8 +215,13 @@ CONTROL_TEMPLATE_ID = 916
 
 # The town-target decision, in code rather than in a comment: which n_ID this
 # lane ships as attackable in a town, and the name it must still carry.  See
-# tools/pf_mine_scene_mob_roster.py's TOWN_TARGET_N_IDS for the reasoning and
-# the [LANE-B ASSUMPTION - AWAITING COO CONFIRMATION] label on it.
+# tools/pf_mine_scene_mob_roster.py's TOWN_TARGET_N_IDS for the reasoning.
+# ~~and the [LANE-B ASSUMPTION - AWAITING COO CONFIRMATION] label on it.~~
+# The label is gone because the answer came: COO-DECISION 2026-08-29T00:41+07:00
+# approved shipping these four, enemy-coloured name included, ON THE CONDITION
+# that 916 is never counted as a monster of Port Royal.  It is a practice dummy:
+# rank 0, no combat AI, no drop table, and it is in TOWN_TARGET_PLACEMENTS, not
+# in HOSTILE_PLACEMENTS -- which is empty for bg0001 and stays empty.
 TOWN_TARGET_N_ID = 916
 TOWN_TARGET_NAME = "Training Iron Man"
 # STANDARD_MOB[100].n_HPMAX, the derived column's value for this actor.
@@ -224,10 +232,18 @@ TOWN_TARGET_MAX_HP = 198125
 # here so the generated table cannot certify its own labelling: relabelling a
 # row in field_mob_tables.py now contradicts this file instead of escaping the
 # check (pf-adversary, round szdkgs).  Both sets move only in a round that
-# means to move them, and the second one shrinks to empty when the remaining
-# nine rows are migrated.
+# means to move them.
+# ~~EXPECTED_LEGACY_PLACEMENTS = frozenset({12, 30, 33, 58, 59, 60, 63, 95,
+# 132})~~  MIGRATED, round 8ftmbx (2026-08-29): the nine rows the set-number
+# reading selected are withdrawn from what this lane ships, on the one-round
+# ceiling COO-DECISION 2026-08-29T00:41+07:00 put on them.  The set is empty
+# rather than deleted so the gate keeps its teeth in the other direction: a
+# row that reappears labelled 'setnum' now fails the shape gate instead of
+# being silently accepted, which is what deleting the branch would have done.
+# Who each of those nine placements really is stays readable per row in the
+# generated module's WITHDRAWN_UNDER_THIS_RULE.
 EXPECTED_CROSSWALK_PLACEMENTS = frozenset({103, 105, 107, 109})
-EXPECTED_LEGACY_PLACEMENTS = frozenset({12, 30, 33, 58, 59, 60, 63, 95, 132})
+EXPECTED_LEGACY_PLACEMENTS: frozenset[int] = frozenset()
 
 # The proven schedule: the identical collection is queued once immediately and
 # once after model readiness.  Carried, not re-derived, from world_population.
@@ -362,9 +378,11 @@ def assert_single_scene_tables(table_modules: Any) -> None:
     trust every future caller to remember why merging scenes is unsafe. The
     danger is concrete, not theoretical -- bg0001's and a second scene's
     already-committed field-mob table (kept unwired by its own guard test,
-    see that module's docstring) share four template ids: 31, 34, 35, 103.
-    So a mob from the wrong scene could pass a ruling that only ever named
-    the other one -- the same "an unnamed value passes a named check" shape
+    see that module's docstring) ~~share four template ids: 31, 34, 35, 103~~
+    -- round 8ftmbx: bg0001 ships only n_ID 916 now, so today they share none.
+    The guard stays because the danger is structural, not a property of one
+    roster: a mob from the wrong scene could pass a ruling that only ever
+    named the other one -- the same "an unnamed value passes a named check" shape
     pf-adversary caught in round ``67jejl`` for ``widened=`` strings, just at
     the scene boundary instead of the ruling-name boundary.
 
@@ -468,13 +486,17 @@ def load_roster(scene: str = field_mob_tables.SCENE) -> tuple[FieldMob, ...]:
     which table it actually came from.
 
     DISCOVERED, NOT FIXED, THIS ROUND: ``actor_identity`` is
-    ``0x2000 + placement_index + 1`` with no scene component, so bg0001's
-    and Bg0002's own small, independently-assigned placement indices
-    collide on four identities (placements 58, 59, 60 and 95 -- eight
-    different monsters, four shared wire identities two-by-two; see
-    ``tests/test_field_mobs.py``'s
-    ``test_bg0001_and_bg0002_actor_identities_are_NOT_disjoint_a_real_
-    collision`` for the exact pairs).  This is harmless today because no
+    ``0x2000 + placement_index + 1`` with no scene component, so two scenes'
+    own small, independently-assigned placement indices can land on the same
+    wire identity.  ~~bg0001's and Bg0002's collide on four identities
+    (placements 58, 59, 60 and 95).~~  ROUND 8ftmbx: ZERO today -- all four
+    bg0001 sides were among the nine rows COO-DECISION 2026-08-29T00:41+07:00
+    withdrew, and what the town still ships (103/105/107/109) meets nothing
+    Bg0002 ships.  THE HAZARD IS NOT FIXED, only unrealised: the identity rule
+    is unchanged, so the next roster either scene grows can bring it straight
+    back.  ``tests/test_field_mobs.py``'s
+    ``test_bg0001_and_bg0002_actor_identities_no_longer_collide`` pins the
+    empty set so that day is noticed.  This is harmless today because no
     caller sends both scenes' collections in one generation and this
     function itself refuses to merge their rows into one roster (see
     :func:`assert_single_scene_tables`); it would stop being harmless the
@@ -592,6 +614,64 @@ def _parse_hostile_placements(module: Any) -> tuple[FieldMob, ...]:
     return tuple(mobs)
 
 
+def gt035_observed_subject() -> FieldMob:
+    """The actor GT-035's damage ladder was watched on.  NOT a shipped row.
+
+    WHY THIS EXISTS.  ``GT-035`` is the only client-observable damage evidence
+    this project has: two observers watched a ladder of numbers land on a real
+    screen, on bg0001 placement 30 as the SET-NUMBER reading rendered it --
+    "Tornado Eagle", level 27, 3857 HP.  Round 8ftmbx withdrew that row from
+    the shipped roster (it is Da Vinci, a townsman, under the RE-128
+    crosswalk; COO-DECISION 2026-08-29T00:41+07:00), and the pins that
+    cross-check this lane's damage driver against what was SEEN would
+    otherwise have had to either move to a different actor -- comparing
+    today's arithmetic against numbers nobody watched on it -- or be deleted.
+    Neither is acceptable, so the actor is rebuilt here from the row the
+    generated table preserves for exactly this purpose.
+
+    WHAT THIS IS NOT.  It is not a roster member and must never be added to
+    one: it does not appear in :func:`load_roster` and it is not in any
+    census.  ~~and nothing in a runtime path may call this~~ -- FALSE, and
+    pf-adversary (round 8ftmbx, D14) was right to call it: :func:`
+    assert_frozen_controls` calls this, and that is called by
+    :func:`build_field_mob_population`, :func:`pin_document` and
+    :func:`roster_report`, so every census composition depends on it.  What
+    that dependency IS and IS NOT: the returned mob is only ever COMPARED
+    here -- no caller puts it in a collection, an override or a frame (traced
+    caller by caller, same round) -- but deleting
+    ``GT035_OBSERVED_SETNUM_ROW`` from the generated table would make
+    ``assert_frozen_controls`` refuse every boot.  That is the honest shape:
+    a boot-time dependency on a preserved constant describing a row this lane
+    deliberately does not ship.  Whether the client would
+    render such an actor with that name is settled and settled NEGATIVE --
+    it would not, which is why the row was withdrawn.  What this preserves is
+    narrower and still true: the numbers the damage driver produces for a
+    level 27 / 3857 HP defender are the numbers two people watched.
+    """
+    row = getattr(field_mob_tables, "GT035_OBSERVED_SETNUM_ROW", None)
+    if type(row) is not tuple:
+        raise FieldMobContractError(
+            "the generated table carries no GT035_OBSERVED_SETNUM_ROW: "
+            "regenerate it with tools/pf_mine_scene_mob_roster.py "
+            "--identity-rule cline"
+        )
+
+    class _Holder:
+        SCENE = field_mob_tables.SCENE
+        HOSTILE_PLACEMENTS = [row]
+
+    subject = _parse_hostile_placements(_Holder)[0]
+    if subject.placement_index in {
+            mob.placement_index for mob in load_roster()}:
+        raise FieldMobContractError(
+            "placement %d is in the shipped roster again: this function "
+            "exists only for a row that is NOT shipped, and returning a live "
+            "roster member from it would let a pin quietly change subject"
+            % subject.placement_index
+        )
+    return subject
+
+
 def hostile_placement_indices() -> tuple[int, ...]:
     """The census members whose body must be replaced, for an override wiring."""
     return tuple(mob.placement_index for mob in load_roster())
@@ -649,8 +729,9 @@ def cross_scene_identity_collisions(
     all (COO-DECISION 2026-08-27T14:41+07:00 deferred adding one; round
     `y7koj9`'s own ``load_roster`` docstring and
     ``tests/test_field_mobs.py``'s
-    ``test_bg0001_and_bg0002_actor_identities_are_NOT_disjoint_a_real_collision``
-    already name the four bg0001/Bg0002 pairs this finds).  Two scenes'
+    ``test_bg0001_and_bg0002_actor_identities_no_longer_collide``
+    carry the count this finds -- ~~four bg0001/Bg0002 pairs~~ zero since
+    round 8ftmbx, for the reason that docstring gives).  Two scenes'
     placement indices are small numbers assigned independently by their own
     ``.npc`` files, so nothing stops two different scenes from mining a
     placement at the same index -- and when they do, both scenes' monsters
@@ -691,30 +772,91 @@ def cross_scene_identity_collisions(
     if len(modules) < 2:
         raise FieldMobContractError(
             "need at least two scene table modules to compare")
-    rosters: dict[str, tuple[FieldMob, ...]] = {}
-    order: list[str] = []
+    return tuple(
+        collision for collision in _identity_collisions(modules)
+        if not collision["same_scene"]
+    )
+
+
+def same_scene_identity_collisions(
+        table_modules: Any = None) -> tuple[dict, ...]:
+    """Every placement two tables of the SAME scene both use, measured.
+
+    THE GAP THIS CLOSES, and it is not hypothetical.  Lane A's letter
+    ``pf_bridge/notes_to_chief/20260829_0014_LANE-A-STATUS-bg0015-collides-
+    with-lane-B-committed-table.md`` (ADDRESSEE: LANE-B) reported that
+    :func:`cross_scene_identity_collisions` could not see two tables of ONE
+    scene disagreeing, by construction: it keyed its rosters by ``SCENE`` and
+    ``continue``d on a repeat, so a second table for a scene it had already
+    read was dropped without a word.  Lane A had just committed a second
+    identity table for the third scene -- the still-COO-gated-dormant one
+    this file may not name literally, see
+    ``_KNOWN_SCENE_TABLE_MODULES_FOR_REPORTING`` -- that disagrees with this
+    lane's committed table for the SAME scene on 16 of 17 placements: one
+    scene, one ``0x2000 + placement_index + 1`` identity, two different
+    monsters.  The report that exists to find exactly that kind of clash
+    returned nothing.  Fixing it was named as this lane's, so here it is.
+
+    WHY IT MATTERS ON THE WIRE.  Same-scene is the WORSE half of the two.
+    Cross-scene collisions share an identity in two places a player cannot be
+    at once; a same-scene pair puts two different monsters on one identity in
+    ONE census, and by ``RE-092`` (replace by omission) the collection that
+    arrives second deletes the first with nothing in any log to say so.
+
+    Same contract as its cross-scene sibling in every other respect: a REPORT,
+    never a guard -- it does not raise on a finding, and nothing in this tree
+    calls it from a runtime path.  ``scene_a`` and ``scene_b`` are equal in
+    every row it returns.
+    """
+    modules = (
+        _KNOWN_SCENE_TABLE_MODULES_FOR_REPORTING
+        if table_modules is None else tuple(table_modules)
+    )
+    if len(modules) < 2:
+        raise FieldMobContractError(
+            "need at least two scene table modules to compare")
+    return tuple(
+        collision for collision in _identity_collisions(modules)
+        if collision["same_scene"]
+    )
+
+
+def _identity_collisions(modules: tuple) -> tuple[dict, ...]:
+    """Every placement any two of these tables both use, same scene or not.
+
+    Keyed by MODULE, not by scene name.  Keying by scene is what made the
+    same-scene case invisible, and a report whose subject can be removed by
+    the data it reports on is not a report.
+    """
+    rosters: list[tuple[str, tuple[FieldMob, ...]]] = []
+    seen: list = []
     for module in modules:
         scene = getattr(module, "SCENE", None)
         if type(scene) is not str or not scene:
             raise FieldMobContractError(
                 "field-mob table module %r has no SCENE constant" % (module,)
             )
-        if scene in rosters:
+        # The SAME module passed twice is not two tables; comparing it with
+        # itself would report every one of its own rows as a collision.  Two
+        # DIFFERENT modules naming the same scene is the case this exists for.
+        if any(module is other for other in seen):
             continue
-        rosters[scene] = _parse_hostile_placements(module)
-        order.append(scene)
+        seen.append(module)
+        rosters.append((scene, _parse_hostile_placements(module)))
     collisions: list[dict] = []
-    for i in range(len(order)):
-        for j in range(i + 1, len(order)):
-            scene_a, scene_b = order[i], order[j]
-            by_index_a = {mob.placement_index: mob for mob in rosters[scene_a]}
-            by_index_b = {mob.placement_index: mob for mob in rosters[scene_b]}
+    for i in range(len(rosters)):
+        for j in range(i + 1, len(rosters)):
+            scene_a, roster_a = rosters[i]
+            scene_b, roster_b = rosters[j]
+            by_index_a = {mob.placement_index: mob for mob in roster_a}
+            by_index_b = {mob.placement_index: mob for mob in roster_b}
             for placement_index in sorted(set(by_index_a) & set(by_index_b)):
                 mob_a = by_index_a[placement_index]
                 mob_b = by_index_b[placement_index]
                 collisions.append({
                     "scene_a": scene_a,
                     "scene_b": scene_b,
+                    "same_scene": scene_a == scene_b,
                     "placement_index": placement_index,
                     "actor_identity": mob_a.actor_identity,
                     "template_a": mob_a.template_id,
@@ -752,6 +894,34 @@ def describe_cross_scene_identity_collisions(
                 collision["actor_identity"], collision["placement_index"],
                 collision["scene_a"], collision["template_a"], collision["name_a"],
                 collision["scene_b"], collision["template_b"], collision["name_b"],
+            )
+        )
+    return tuple(lines)
+
+
+def describe_same_scene_identity_collisions(
+        table_modules: Any = None) -> tuple[str, ...]:
+    """Console lines for :func:`same_scene_identity_collisions`, ASCII-only.
+
+    A separate function rather than extra lines inside
+    :func:`describe_cross_scene_identity_collisions`, because that one's
+    header line and per-row shape are already pinned by tests and by whatever
+    reads the bridge console: two different findings, two different reports.
+    The row names the ONE scene once instead of twice -- printing
+    ``bg0015 vs bg0015`` would read as a typo rather than as the finding.
+    """
+    collisions = same_scene_identity_collisions(table_modules)
+    lines = [
+        "FIELD_MOB_SAME_SCENE_IDENTITY_COLLISIONS count=%d" % len(collisions)
+    ]
+    for collision in collisions:
+        lines.append(
+            "  identity=0x%X placement=%d in %s: template=%d name=%s vs "
+            "template=%d name=%s" % (
+                collision["actor_identity"], collision["placement_index"],
+                collision["scene_a"], collision["template_a"],
+                collision["name_a"], collision["template_b"],
+                collision["name_b"],
             )
         )
     return tuple(lines)
@@ -836,14 +1006,18 @@ def assert_frozen_controls(legacy: Any) -> None:
                 "cannot be re-resolved" % mob.placement_index
             )
         if per_placement.get(mob.placement_index) != "cline":
-            # A row the table itself labels as the legacy set-number reading,
-            # kept for one more round with its migration named (see the
-            # generated module's LEGACY_SETNUM_PLACEMENTS_PENDING_MIGRATION).
-            # It is held to the ONE thing that reading claims -- that the
-            # shipped template id IS the scene file's Mob-Set number -- so a
-            # row cannot drift into being neither reading.  It is deliberately
-            # NOT held to the crosswalk: it is known not to match, and that
-            # mismatch is written down per row rather than asserted away.
+            # ~~A row the table itself labels as the legacy set-number
+            # reading, kept for one more round with its migration named.~~
+            # ROUND 8ftmbx: UNREACHABLE, and said so rather than left looking
+            # like a live check (pf-adversary, D12).  With
+            # EXPECTED_LEGACY_PLACEMENTS empty, the shape gate above only
+            # lets control past here when actual["setnum"] is empty too, so
+            # every surviving row is labelled "cline" and this branch cannot
+            # execute.  It is KEPT, not deleted, because it is the correct
+            # handling the day a ruling ships set-number rows again -- and
+            # because deleting it would make that day's reviewer write it
+            # from scratch.  The gate that actually refuses a returning
+            # set-number row is the expected/actual comparison above.
             if mob.template_id != set_number:
                 raise FieldMobContractError(
                     "placement %d is labelled the legacy set-number reading "
@@ -917,15 +1091,28 @@ def assert_frozen_controls(legacy: Any) -> None:
         raise FieldMobContractError(
             "frozen monster index drift: %r" % (legacy_index,)
         )
-    control = {mob.placement_index: mob for mob in roster}.get(
-        LEGACY_SETNUM_CONTROL_PLACEMENT_INDEX
-    )
-    if control is None:
+    # ~~a lookup in the shipped roster~~ -- ROUND 8ftmbx: the nine set-number
+    # rows are withdrawn (COO-DECISION 2026-08-29T00:41+07:00), so the roster
+    # no longer contains placement 30 and this check would refuse every boot.
+    # The check itself is NOT dropped: what it holds is a statement about the
+    # LEGACY READING, and that reading is preserved in the generated module
+    # precisely so the statement stays checkable.  So the subject is the
+    # preserved row, and the check keeps doing the job pf-adversary's D2 gave
+    # it -- reading real values off ``legacy`` and refusing a drift.
+    control = gt035_observed_subject()
+    if control.placement_index != LEGACY_SETNUM_CONTROL_PLACEMENT_INDEX:
         raise FieldMobContractError(
-            "placement %d is not in the roster, so the legacy reading this "
-            "table still ships has no control at all"
-            % LEGACY_SETNUM_CONTROL_PLACEMENT_INDEX
+            "the preserved legacy row is placement %d, not the %d v141 froze"
+            % (control.placement_index, LEGACY_SETNUM_CONTROL_PLACEMENT_INDEX)
         )
+    # ~~a second check here that the withdrawn row is not back in the
+    # roster~~ -- REMOVED, round 8ftmbx, because pf-adversary's D11 mutation
+    # showed it can never execute: ``gt035_observed_subject()`` on the line
+    # above makes exactly that check and raises first, so this branch was an
+    # unreachable copy that LOOKED like a second line of defence.  One
+    # reachable guard, tripped by
+    # tests/test_field_mobs.py::test_both_withdrawn_row_guards_actually_raise,
+    # is worth more than two where only one runs.
     if (control.template_id, control.display_name, control.max_hp) != (
             LEGACY_SETNUM_CONTROL_TEMPLATE_ID, legacy_name, legacy_hp):
         raise FieldMobContractError(
@@ -1200,7 +1387,7 @@ def build_field_mob_population(
     (faction :data:`PLAYER_PAIR_FACTION` on StartGame) without which these
     monsters are present but neutral.
 
-    Sending this collection alongside the lane-A census duplicates thirteen
+    Sending this collection alongside the lane-A census duplicates every roster
     actor identities - see :func:`overlapping_identities`.
     """
     assert_frozen_controls(legacy)
@@ -1275,7 +1462,7 @@ def pin_document(legacy: Any) -> dict:
         "predicate_census": dict(field_mob_tables.PREDICATE_CENSUS),
         # pf-adversary (round szdkgs, D3): the round labelled the split in the
         # generated module and left the SHIPPED artifact presenting all
-        # thirteen rows identically.  The pin is what a report quotes, so the
+        # every shipped row identically.  The pin is what a report quotes, so the
         # split travels with it: which rule produced each row, who the legacy
         # rows really are, and the placements no rule could read at all.
         "identity_rule": field_mob_tables.IDENTITY_RULE,
@@ -1373,16 +1560,28 @@ def pin_document(legacy: Any) -> dict:
             "frozen controls it re-derives are placement 30 only~~ - round "
             "szdkgs: those two v141 constants came out of a run of the same "
             "set-number reading they were checking, so they are no longer "
-            "the control on identity; they are held as a pin on the LEGACY "
-            "reading nine of these rows still ship, and the derived column "
-            "is checked against a hand-written level/HP literal for the four "
-            "crosswalk rows",
-            "nine of the thirteen rows below still carry the set-number "
-            "reading this round's own finding calls false: they are Port "
-            "Royal townspeople shipped with monster names and the field-mob "
-            "faction, listed per row under withdrawn_under_this_rule, and "
-            "migrating them is this lane's next round, not a claim of this "
-            "one",
+            "the control on identity.  ~~they are held as a pin on the "
+            "LEGACY reading nine of these rows still ship~~ - round 8ftmbx: "
+            "no row ships that reading any more, so the two constants are "
+            "held against the row the generated table PRESERVES for it "
+            "(gt035_observed_subject), which is not in this roster; the "
+            "derived column is checked against a hand-written level/HP "
+            "literal for the four crosswalk rows",
+            "~~nine of the thirteen rows below still carry the set-number "
+            "reading this round's own finding calls false~~ - WITHDRAWN, "
+            "round 8ftmbx, on the one-round ceiling COO-DECISION "
+            "2026-08-29T00:41+07:00 put on them: this scene ships FOUR rows, "
+            "all of them n_ID 916 practice dummies, and the nine townspeople "
+            "are listed per row under withdrawn_under_this_rule as what they "
+            "really are.  This nonclaim is kept rather than deleted because "
+            "it is the record of what a reader of an older pin was told",
+            "a row this module ships is not a monster: bg0001's "
+            "hostile_placements is EMPTY (nothing in this town has both a "
+            "rank and a combat AI), and the four rows it does ship are "
+            "practice dummies - rank 0, no combat AI, no drop table - "
+            "approved as attackable targets by COO-DECISION "
+            "2026-08-29T00:41+07:00 on the express condition that nobody "
+            "counts them as monsters of Port Royal",
             "nothing imports this module, so on its own it changes nothing "
             "the player sees",
             "RE-098 (2026-08-27, DONE / BOUNDED-NEGATIVE) closed off using "

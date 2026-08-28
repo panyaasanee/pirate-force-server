@@ -34,7 +34,8 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from pf_preconditions import BRIDGE_GAMEDATA
-from pirateforce_foundation import field_drop_tables, ground_loot_hypothesis, loot_roll, mob_loot
+from pirateforce_foundation import (
+    field_drop_tables, field_mobs, ground_loot_hypothesis, loot_roll, mob_loot)
 from pirateforce_foundation.field_mobs import load_roster
 from pirateforce_foundation.legacy_bridge import load_legacy
 from pirateforce_foundation.mob_death import DeathRecord
@@ -131,11 +132,49 @@ class MobLootTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
-        cls.roster = load_roster()
+        # ROUND 8ftmbx: ~~load_roster()~~ (bg0001).  COO-DECISION
+        # 2026-08-29T00:41+07:00 withdrew bg0001's nine set-number rows, and
+        # what the town still ships is four practice dummies with
+        # n_DROPS_NORMAL 0 -- nothing in Port Royal drops anything, which is
+        # the correct answer for a town and a useless subject for a loot
+        # fixture.  The subject moves to Bg0002, the scene the owner has
+        # confirmed by sight and the only one this lane loads whose monsters
+        # carry real drop sets.  Nothing about the roller changed; only which
+        # real roster it is exercised on.
+        cls.roster = load_roster(scene=field_mobs.BG0002_SCENE)
         cls.mob = cls.roster[0]
+        # bg0001's roster is loaded to be ASSERTED ON, not as scenery: the
+        # reason this fixture moved scenes is that the town drops nothing,
+        # and that is a fact worth failing on rather than a comment.
+        cls.bg0001_roster = load_roster()
         cls.source = MODULE_PATH.read_text(encoding="utf-8")
 
     # -- what kind of lane this is -----------------------------------------
+    def test_port_royal_drops_nothing_which_is_why_this_lane_reads_bg0002(
+            self):
+        """The reason this fixture is not on bg0001, asserted rather than
+        written in a comment.
+
+        COO-DECISION 2026-08-29T00:41+07:00 withdrew the town's nine
+        set-number rows; what it still ships is four n_ID 916 practice
+        dummies whose n_DROPS_NORMAL, n_DROPS_EQUIPMENT and
+        n_DROPS_SPECIALLY are all zero in the game's own tables.  A loot
+        fixture on that roster would roll nothing forever and every test
+        below would pass vacuously.  If the town ever ships a monster with a
+        drop set again, this fails and the fixture should move back.
+        """
+        for mob in self.bg0001_roster:
+            with self.subTest(placement=mob.placement_index):
+                self.assertEqual(
+                    (mob.drops_normal, mob.drops_equipment,
+                     mob.drops_specially), (0, 0, 0))
+        self.assertNotEqual(self.roster[0].scene, self.bg0001_roster[0].scene)
+        # And the scene this lane DID move to has real drop sets, so the
+        # tests below are exercising the roller rather than its refusals.
+        self.assertTrue(
+            any(mob.drops_normal for mob in self.roster),
+            "the loot fixture's own scene has no drop set either")
+
     def test_the_lane_is_production_and_has_no_flag(self):
         """No flag machinery in the CODE.  Prose may name one; code may not.
 

@@ -244,6 +244,13 @@ MOB_DEATH_WIRING = (
 # arguments.  It is a lock on the SCOPE the owner set, held where a wiring
 # line cannot walk past it by accident.
 SANCTIONED_FIRST_TARGET_IDENTITY = 0x201F
+# ADDED round 8ftmbx.  The identity above is a wire number with no scene in
+# it, and after COO-DECISION 2026-08-29T00:41+07:00 withdrew bg0001 placement
+# 30 there is no shipped actor behind it at all -- so on its own it names an
+# INDEX that every scene has, not a monster.  PANYA-RULINGS-FOUR named a
+# bg0001 actor; this records the half of that sentence the wire format cannot
+# carry, so the bypass cannot be inherited by the next scene wired.
+SANCTIONED_FIRST_TARGET_SCENE = field_mob_tables.SCENE
 SANCTIONING_RULING = "PANYA-RULINGS-FOUR 2026-08-25 18:15 +07:00 section 3"
 
 # A ruling that widens the scope past SANCTIONED_FIRST_TARGET_IDENTITY names
@@ -328,8 +335,21 @@ WIDENING_RULINGS: dict[str, frozenset[int]] = {
     # question: kill() takes ONE widened= string and a roster can now need
     # two, so a lane whose roster stops fitting through one string has to ask
     # chief for its file.  Named, not hidden.
+    # ROUND 8ftmbx: ~~{31, 34, 35, 60, 61, 62, 65, 94, 103, 916}~~ -> {916}.
+    # The set has always been "the distinct template ids of bg0001's own
+    # roster", re-derived from the roster in tests rather than hand-copied,
+    # and COO-RULING-20260827-1350 names THE ROSTER ("all 13 real MOBS-table
+    # field mobs in bg0001").  COO-DECISION 2026-08-29T00:41+07:00 withdrew
+    # the nine set-number rows, so that roster is now the four Training Iron
+    # Man placements and nothing else.  The nine templates dropped here were
+    # already unreachable through this key -- WIDENING_RULING_SCENES ties it
+    # to scene bg0001, and no bg0001 mob carries them any more -- so this
+    # narrows dead authorisation, not live behaviour.
+    # NOT the szdkgs mistake in reverse: that draft removed the ONLY template
+    # the live roster still had (97) and made four shipped dummies unkillable.
+    # 916 is what the live roster has, and 916 is what stays.
     "COO-RULING-20260827-1350 widen-death-scope-bg0001": frozenset(
-        {31, 34, 35, 60, 61, 62, 65, 94, 103, 916}
+        {916}
     ),
     # PANYA-DECISION 2026-08-27T20:10+07:00 ("M1-P" item 3, notes_to_chief/
     # 20260827_2010_PANYA-DECISION-pause-M2-M1-identity-first-Prison-Exile-
@@ -421,6 +441,21 @@ WIDENING_RULINGS: dict[str, frozenset[int]] = {
 # per this project's own rule against silently erasing what a round actually
 # reasoned through.
 WIDENING_RULING_SCENES: dict[str, str] = {
+    # ROUND 8ftmbx: the 916 ruling gets its scene tie, and this is the round
+    # the paragraph above named for it ("a hole worth closing in the round
+    # that migrates the rest of the roster").  pf-adversary (D4) proved by
+    # execution that without it a hand-built FieldMob carrying template 916
+    # and scene "Bg0002" was killed under a ruling that names bg0001 -- and
+    # this round newly routes the shipped death pin through that same ruling
+    # (PIN_WIDENING_RULING), so leaving it untied would have been shipping a
+    # document produced under an authorisation nobody scoped.  916 is a
+    # generic training target; any future scene that mines one would have
+    # inherited an unconditional kill from a bg0001 letter.
+    # This TIGHTENS: it can only refuse kills that used to be allowed, and
+    # every kill the shipped roster performs is a bg0001 one.
+    "COO-DECISION widen-death-scope-916-training-iron-man "
+    "2026-08-27T09:55+07:00 (ref PANYA-DECISION 2026-08-27T09:50+07:00 "
+    "section 3, supersedes COO 0954)": field_mob_tables.SCENE,
     "COO-RULING-20260827-1350 widen-death-scope-bg0001": field_mob_tables.SCENE,
     "PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18) "
     "widen-death-scope-bg0002": field_mob_tables_bg0002.SCENE,
@@ -1487,7 +1522,25 @@ def kill(
                 outcome.damage, outcome.hp_before, outcome.hp_after,
                 HP_WHEN_DEAD),
         )
-    if mob.actor_identity != SANCTIONED_FIRST_TARGET_IDENTITY:
+    # THE SANCTIONED BYPASS, AND WHY IT NOW CARRIES A SCENE (round 8ftmbx).
+    # ``actor_identity`` is ``0x2000 + placement_index + 1`` with NO scene
+    # term, and every scene has a placement 30 -- so 0x201F is not the name of
+    # an actor, it is the name of an INDEX.  pf-adversary (D3) proved by
+    # execution that a Bg0015 mob sitting at placement 30 walked through this
+    # bypass, the template check AND WIDENING_RULING_SCENES with nothing
+    # passed at all, purely for landing on that index.  That was survivable
+    # only while 0x201F was a real bg0001 roster row; COO-DECISION
+    # 2026-08-29T00:41+07:00 withdrew that row, so the bypass now points at no
+    # shipped actor and would hand a free kill to whichever scene is wired
+    # next.  PANYA-RULINGS-FOUR named a bg0001 actor, so the bypass is held to
+    # bg0001, which is what the ruling always meant and never had to say while
+    # only one scene existed.  This TIGHTENS: nothing that could be killed
+    # through a named ruling loses that route.
+    sanctioned = (
+        mob.actor_identity == SANCTIONED_FIRST_TARGET_IDENTITY
+        and getattr(mob, "scene", None) == SANCTIONED_FIRST_TARGET_SCENE
+    )
+    if not sanctioned:
         # The owner's sequencing, held as a gate.  A caller that has a ruling
         # widening this names it; a caller that does not gets a refusal that
         # says which ruling it is standing on and what it was allowed.
@@ -1843,9 +1896,10 @@ def corpse_override(
 
     THIS IS THE FUNCTION THE REAL CARRIER NEEDS, and the first draft of this
     module did not have it.  :func:`repopulation_entries` builds a collection
-    of THIS lane's thirteen monsters, but ``field_mobs`` says in its own
+    of THIS lane's roster (~~thirteen~~ four since round 8ftmbx), but
+    ``field_mobs`` says in its own
     docstring that sending that collection alongside the scene census puts
-    thirteen identities on the wire twice, and that "the correct wiring is the
+    those identities on the wire twice, and that "the correct wiring is the
     OVERRIDE, not the second collection".  The census the server actually
     ships (``world_population``) rebuilds every placement at full HP, reads
     neither the ledger nor this register, and takes no hook - so a wiring line
@@ -1965,7 +2019,8 @@ def full_roster_override(
     the ones out of date, not this function.
 
     WHAT THIS DOES NOT SETTLE: whether the client actually renders any of
-    these thirteen identities as hostile/red once this ships.  GT-032's
+    these identities as hostile/red once this ships (~~thirteen~~ four since
+    round 8ftmbx).  GT-032's
     passing red-name/red-border result was measured on ``0x2001``
     ("Navy Transfer"), which is NOT a member of this roster - nobody has
     reproduced that result for ``0x201F`` or any of the other twelve.
@@ -2277,7 +2332,27 @@ PIN_LANE = MOB_DEATH_LANE
 # (as the legacy set-number reading, pending migration), so the pin is
 # unchanged this round; when that row is migrated, this pin moves WITH a
 # ruling, not with a table.
-PIN_PLACEMENT_INDEX = field_mobs.LEGACY_SETNUM_CONTROL_PLACEMENT_INDEX
+# ~~PIN_PLACEMENT_INDEX = field_mobs.LEGACY_SETNUM_CONTROL_PLACEMENT_INDEX~~
+# ROUND 8ftmbx: that row IS migrated now, and the condition the paragraph
+# above set is met -- the pin moves on a RULING, and here is the ruling.
+# COO-DECISION 2026-08-29T00:41+07:00 item 4 says M4 is proven on n_ID 916
+# through this module's own kill path ("use mob_death.kill(...) directly,
+# under the existing 916 order"), and forbids inventing a target's HP to suit
+# a test.  So the pinned subject is the actor that ruling names, which is this
+# lane's control row -- and, unlike placement 30, an actor the shipped roster
+# still contains.  What placement 30's kill pinned is not deleted: the
+# document keeps `sanctioned_first_target_identity` and
+# `pin_target_is_the_sanctioned_one`, and the second one is now False and says
+# so out loud rather than the pin quietly changing subject.
+PIN_PLACEMENT_INDEX = field_mobs.CONTROL_PLACEMENT_INDEX
+# The ruling the pinned kill travels under, now that its subject is no longer
+# SANCTIONED_FIRST_TARGET_IDENTITY.  Named here rather than passed by a caller
+# so the pin cannot be produced under a ruling nobody wrote down.
+PIN_WIDENING_RULING = (
+    "COO-DECISION widen-death-scope-916-training-iron-man "
+    "2026-08-27T09:55+07:00 (ref PANYA-DECISION 2026-08-27T09:50+07:00 "
+    "section 3, supersedes COO 0954)"
+)
 
 
 def pin_document(legacy: Any, mob: FieldMob, killer_identity: int = 0x750059) -> dict:
@@ -2295,7 +2370,11 @@ def pin_document(legacy: Any, mob: FieldMob, killer_identity: int = 0x750059) ->
         level=1000, ability_str=100000, ability_con=0)
     step = mob_combat.strike(
         legacy, None, ledger, None, mob, killer_identity, attacker)
-    death = kill(legacy, mob, step.outcome, DeathRegister())
+    widened = (
+        None if mob.actor_identity == SANCTIONED_FIRST_TARGET_IDENTITY
+        else PIN_WIDENING_RULING
+    )
+    death = kill(legacy, mob, step.outcome, DeathRegister(), widened=widened)
     live_body = field_mobs.hostile_npc_attr(
         legacy, mob, current_hp=mob.max_hp)
     corpse_body = corpse_npc_attr(legacy, mob, death_timer=DEAD_TIMER_SECONDS)

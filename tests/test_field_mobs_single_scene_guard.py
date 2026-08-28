@@ -51,8 +51,11 @@ from pirateforce_foundation import field_mob_tables, field_mobs  # noqa: E402
 from pirateforce_foundation import field_mob_tables_bg0015  # noqa: E402
 from pirateforce_foundation import field_mob_tables_bg0002  # noqa: E402
 
-EXPECTED_MOB_COUNT = 13
-EXPECTED_DISTINCT_TEMPLATES = 10
+# ROUND 8ftmbx: ~~13~~ -> 4 (COO-DECISION 2026-08-29T00:41+07:00 withdrew
+# bg0001's nine set-number rows; the town ships four practice dummies).
+EXPECTED_MOB_COUNT = 4
+# Same round: ~~10~~ -> 1.  All four shipped rows are n_ID 916.
+EXPECTED_DISTINCT_TEMPLATES = 1
 
 
 class SingleSceneGuardTests(unittest.TestCase):

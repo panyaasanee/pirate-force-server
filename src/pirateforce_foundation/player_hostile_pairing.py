@@ -11,7 +11,8 @@ also proves the pairing is provably incomplete without that other half, and
 ``notes_to_chief/20260827_0920_*``) measured it directly: on the flagless
 boot the player is never sent with ``basic_faction`` set at all, so the
 client renders a proven-neutral pair -- (0, 6) -- even on a boot whose
-census composes all thirteen field-mob bodies hostile-shaped and byte-exact
+census composes every shipped field-mob body hostile-shaped and byte-exact
+(~~thirteen~~ four since round 8ftmbx)
 (``mob_death.full_roster_override``, wired since commit ``3036b03``,
 console-checkable since commit ``dd5c785``).  This module is this lane's
 half of closing that gap: the SAME pure logic pattern this project already
