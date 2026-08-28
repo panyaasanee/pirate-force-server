@@ -56,6 +56,33 @@ other module in this project is already held to, applied here rather than
 invented fresh (PANYA-ORDER 20260827_1230, COO-DECISION 20260827_1241 both
 name it explicitly as a required property of this package, not optional).
 
+WHAT THAT GATE DOES AND DOES NOT REACH, STATED EXACTLY (round wi1m62,
+COO-DECISION 20260829_0041 option (b)). Withdrawal covers a lane module's
+code on ONE route: the hooks it registered, which then never fire. It
+cannot reach a runtime.py branch that calls a lane's code DIRECTLY, because
+no registration is involved for _withdraw() to undo -- and one such branch
+exists on purpose: CORE-REQUEST-GM-029's 0xAC52 chat route, which had to
+leave the hook shape behind because ``fire()`` cannot hand an action back
+(see ``fire()``'s docstring). For one round, round apk7ue, that branch ran
+with no production_allowed gate over it at all, which quietly dropped a
+switch the owner had approved. The fix is not a property of hooks: the
+call site asks ``module_production_allowed("lane_gm_chat_command")`` before
+it composes anything, and stands down when the answer is False.
+
+Stated without the flattery a shorter sentence would invite (pf-adversary,
+round wi1m62): this is ONE flag read by TWO mechanisms for two different
+reasons -- the hook route because the registration is withdrawn, the
+direct route because the call site reads the flag. For
+``lane_gm_chat_command`` specifically only the second is live, since its
+hook is registered and never fired (see the accuracy note below); and the
+flag it declares gates code the direct route runs in
+``gm/chat_command_action.py``, which has no flag of its own. That is
+coupling held by two files agreeing on a string, not a property this
+package can enforce: any future direct call site owes the same read, and
+nothing here can make it. A PR reviewer has to. The pairing for the one
+call site that exists is pinned by
+tests/test_gm_chat_command_dispatch_wiring.py and tests/test_lane_hooks.py.
+
 Every hook prints a token twice: once at registration (import time, via the
 ``hook`` decorator below, on STDERR -- see the decorator's own comment for
 why not stdout) and once at each real firing on the production path
@@ -90,6 +117,11 @@ from pathlib import Path
 from typing import Callable
 
 _HOOKS: dict[str, list[tuple[str, Callable[..., None]]]] = {}
+# Qualified module name -> the module's own ``production_allowed`` flag, as
+# read once at discovery.  Only modules that IMPORTED get an entry, so a
+# module whose file is missing or raised on import is absent here and
+# ``module_production_allowed()`` reports it closed.  See that function.
+_PRODUCTION_ALLOWED: dict[str, bool] = {}
 _DISCOVERED = False
 
 
@@ -184,6 +216,47 @@ def registered_points() -> dict[str, int]:
     return {point: len(fns) for point, fns in _HOOKS.items()}
 
 
+def module_production_allowed(module_name: str) -> bool:
+    """Is this lane module cleared to run on the production path?
+
+    Not a diagnostic: this is the ``production_allowed`` gate itself, read
+    by a call site that reaches a lane module by a route other than
+    ``fire()``.  ``_discover()`` can only withdraw HOOKS; a runtime.py
+    branch that calls a lane's code directly -- which
+    CORE-REQUEST-GM-029's 0xAC52 branch does, because the hook route
+    cannot return an action -- is invisible to that withdrawal and has to
+    ask here first (COO-DECISION 20260829_0041 option (b): the call site
+    reads the flag BEFORE it calls, and chief pays the cost of naming a
+    lane's module in runtime.py).
+
+    ``module_name`` may be the bare file stem (``"lane_gm_chat_command"``)
+    or the fully qualified name; both resolve to the same entry.
+
+    Fail-closed in every direction that is not a truthy
+    ``production_allowed`` on a module ``_discover()`` actually imported:
+    a module that failed to import, a file that was deleted, a name with a
+    typo in it, a name asked for before discovery reached it, and a flag
+    set to ``False`` all return ``False``.  A caller that reads this as
+    "closed" must not run the lane's code -- and note the shape that
+    follows from that: the closed answer is indistinguishable from the
+    typo, on purpose, since guessing on behalf of a switch the owner
+    approved is the failure this function exists to prevent.  (The flag is
+    read with ``bool()``, so ``production_allowed = 1`` opens the gate the
+    same as ``True``; the convention every lane module follows is the
+    literal ``True``.)
+
+    NOT LIVE: the answer is the snapshot ``_discover()`` took at import.
+    Editing a lane file's flag while a server is running changes nothing
+    until the process restarts -- said again at the call site, since that
+    is where an operator looking for the switch will read it.
+    """
+    if module_name.startswith(f"{__name__}."):
+        qualified_name = module_name
+    else:
+        qualified_name = f"{__name__}.{module_name}"
+    return _PRODUCTION_ALLOWED.get(qualified_name, False)
+
+
 def _withdraw(module_name: str) -> None:
     """Remove every hook a module registered.  Used when the module turns
     out not to be production_allowed (see module docstring)."""
@@ -209,6 +282,30 @@ def _import_module_safely(qualified_name: str) -> object | None:
         return None
 
 
+def _gate_module(qualified_name: str, module: object) -> bool:
+    """Read one imported module's ``production_allowed`` flag, record it,
+    and return it.  The whole gate, in one testable place.
+
+    Factored out of ``_discover()`` on a pf-adversary finding (round
+    wi1m62) that measured the real hazard: with the flag read inline in
+    the discovery loop, a mutation that replaced it with ``True`` --
+    disabling BOTH the hook withdrawal and this record, i.e. the entire
+    owner-approved kill switch -- left all 4,000 tests green, because the
+    only tests that exercised the gate wrote ``_PRODUCTION_ALLOWED``
+    directly and the only module on disk sets the flag to ``True``.  This
+    function is what tests/test_lane_hooks.py can call with a module whose
+    flag is False, which is the arrow (flag on the module -> recorded
+    value -> what a call site is told) that had no test at any point.
+
+    Recorded even when False: ``module_production_allowed()`` answers for
+    direct call sites, which need the negative answer just as much as the
+    positive one.
+    """
+    allowed = bool(getattr(module, "production_allowed", False))
+    _PRODUCTION_ALLOWED[qualified_name] = allowed
+    return allowed
+
+
 def _discover() -> None:
     global _DISCOVERED
     if _DISCOVERED:
@@ -222,7 +319,7 @@ def _discover() -> None:
         module = _import_module_safely(qualified_name)
         if module is None:
             continue
-        if not getattr(module, "production_allowed", False):
+        if not _gate_module(qualified_name, module):
             _withdraw(qualified_name)
             print(
                 f"LANE_HOOK_DISCOVERY {qualified_name} SKIPPED_NOT_PRODUCTION_ALLOWED",
