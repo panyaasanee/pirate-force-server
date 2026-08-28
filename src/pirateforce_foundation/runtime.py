@@ -4848,33 +4848,56 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # refuses the flags together, which is why the ordering of
                 # these branches cannot matter.
                 return self._dispatch_hostile_hp_link_hypothesis(parsed)
+            # CORE-REQUEST-GM-029.  Bound before the branch, the way
+            # gm_state_action is: the append site below runs for every frame
+            # that gets there, and an unbound local would raise
+            # UnboundLocalError on every non-chat frame.
+            gm_action = None
             if (
                 nested_id == CHAT_INPUT_VITAL_ID
                 and self.foundation.selected is not None
             ):
-                # CORE-REQUEST-GM-028 (LANE-GM).  No scenario flag -- the
-                # second lane_hooks point in this file, shaped like the
-                # 0x51E9 one below.
+                # CORE-REQUEST-GM-029 (LANE-GM), replacing CORE-REQUEST-GM-028
+                # at this same branch.  No scenario flag.  GM-028's
+                # `lane_hooks.fire(...)` at the chat-local-talk point was
+                # REMOVED in the same commit that added this call, on the
+                # lane's own "wire one point only" rule: two call sites would
+                # authorize one chat line twice, write two byte-identical
+                # ndjson audit rows, and spend the rate limit twice.
+                # tests/test_gm_chat_command_action.py OneOfTwoWiringTests
+                # reads this file as text and fails if both -- or neither --
+                # are present, so the pair cannot drift apart.
                 #
                 # PLACEMENT: after every chat-keyed scenario lane above,
                 # each of which returns.  So a chat-keyed scenario boot
                 # never reaches this line and keeps its behaviour to the
                 # byte -- and, the other way round, the GM door is silently
                 # absent under those lanes: on a --chat-input-hypothesis
-                # boot the echo lane claims the frame and this hook never
+                # boot the echo lane claims the frame and this line never
                 # sees it.  A scenario boot that keys some OTHER vital does
-                # reach this line and does fire the hook; that is measured,
-                # not assumed (pf-adversary, round lo7e03).
+                # reach this line; that is measured, not assumed
+                # (pf-adversary, round lo7e03).
                 #
-                # WHAT IS AND IS NOT UNCHANGED.  No `return` and no
-                # `rx_frames` bump, so the actions dispatch() returns and
-                # the frame counter are identical to the tree without this
-                # branch -- pinned by tests/test_gm_chat_command_dispatch_
-                # wiring.py.  Two surfaces DO change and callers who grade
-                # on them should know: `self.events` gains one refusal
-                # event per chat line for every ordinary player, and the
-                # console gains one LANE_HOOK_FIRED line per chat line
-                # (stderr, so a tool's stdout artifact stays clean).
+                # WHAT IS AND IS NOT UNCHANGED.  Still no `return` and no
+                # `rx_frames` bump, so the frame flows on exactly as before
+                # and the counter is untouched -- pinned by
+                # tests/test_gm_chat_command_dispatch_wiring.py.  What DOES
+                # change, and callers who grade on it should know: on a chat
+                # line the module accepts, dispatch() now returns ONE MORE
+                # action than the tree without this branch (that is the whole
+                # point of GM-029 -- the hook route could never put a byte on
+                # the wire).  `self.events` gains one event per chat line for
+                # every ordinary player, now in the `gm_chat_action_*`
+                # namespace instead of `gm_chat_command_*`, and the console
+                # gains one LANE_GM_CHAT_ACTION line per chat line (stderr,
+                # so a tool's stdout artifact stays clean).
+                #
+                # WHY THE APPEND IS 800 LINES BELOW: `actions` does not exist
+                # yet here -- it is bound at `actions = super().dispatch(...)`
+                # further down, which is the only binding a chat frame ever
+                # reaches (measured by line trace, round apk7ue).  So this
+                # branch only composes; the append happens right after that
+                # binding, guarded by `gm_action is not None`.
                 #
                 # READINESS GUARD: only after a character is selected.  The
                 # neighbouring lanes guard the same way, and without it the
@@ -4902,10 +4925,10 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # refuses anything that is not the measured 10 + 2N shape, so
                 # that is a refusal event and not a crash; all three captured
                 # chat frames (GT-006/GT-009) carry exactly one vital.
-                lane_hooks.fire(
-                    "vital_inbound_chat_local_talk",
+                gm_action = chat_command_action.make_gm_chat_command_action(
                     session=self,
                     payload=bytes(parsed.nested_payload),
+                    legacy=legacy,
                 )
             if (
                 learn_skill_request_hypothesis_scenario is not None
@@ -5724,6 +5747,12 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 ]
 
             actions = super().dispatch(parsed)
+            if gm_action is not None:
+                # CORE-REQUEST-GM-029 (LANE-GM).  The action composed at the
+                # 0xAC52 branch far above, appended here because this is the
+                # first line at which `actions` exists on a chat frame's path.
+                # Shape is gm_state_action's: (label, pc, frame, delay_before).
+                actions = actions + [gm_action]
             if (
                 second_password_mode == "bypass"
                 and not self.second_password_bypass_sent

@@ -1,4 +1,24 @@
-"""CORE-REQUEST-GM-028 -- the 0xAC52 chat point, on the REAL dispatcher.
+"""CORE-REQUEST-GM-029 -- the 0xAC52 chat route, on the REAL dispatcher.
+
+ROUTE CHANGE, round `apk7ue` (chief, LANE-E).  This file was written for
+CORE-REQUEST-GM-028, whose route was ``lane_hooks.fire()`` at the 0xAC52
+branch.  CORE-REQUEST-GM-029 (LANE-GM, letter 20260828_1930) replaced that
+call with ``chat_command_action.make_gm_chat_command_action(...)``, whose
+return value is appended to the actions ``dispatch()`` returns -- the hook
+route could never put a byte on the wire, which is why the lane asked for the
+replacement.  ``tests/test_gm_chat_command_action.py::OneOfTwoWiringTests``
+enforces that exactly one of the two exists in ``runtime.py``.
+
+Three things in here moved with the route and are named where they are used:
+the event namespace (``gm_chat_command_*`` -> ``gm_chat_action_*``), the
+console token (``LANE_HOOK_FIRED`` -> ``LANE_GM_CHAT_ACTION``), and the
+control helper, which used to work by emptying the hook registry and would
+now be inert.  The audit log did NOT move: both routes call the same
+``handle_local_talk_chat``.
+
+The original header follows, still true of the branch's placement.
+
+CORE-REQUEST-GM-028 -- the 0xAC52 chat point, on the REAL dispatcher.
 
 ``tests/test_gm_chat_command.py`` proves ``handle_local_talk_chat`` and the
 lane hook offline: the captured payload shapes, the allowlist-first order,
@@ -42,6 +62,7 @@ from pirateforce_foundation.chat_input_hypothesis import (  # noqa: E402
 )
 from pirateforce_foundation.gm import accounts as gm_accounts  # noqa: E402
 from pirateforce_foundation.gm import chat_command  # noqa: E402
+from pirateforce_foundation.gm import chat_command_action  # noqa: E402
 from pirateforce_foundation.gm.dispatch import (  # noqa: E402
     reset_rate_limit_state_for_tests,
 )
@@ -50,6 +71,7 @@ from pirateforce_foundation.legacy_bridge import (  # noqa: E402
 )
 from pirateforce_foundation.lifecycle import CharacterLifecycle  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
+from pirateforce_foundation import runtime as runtime_module  # noqa: E402
 from pirateforce_foundation.runtime import make_state_class  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
@@ -164,25 +186,32 @@ class ChatCommandDispatchWiringTests(unittest.TestCase):
     def _labels(self, actions):
         return [action[0] for action in actions]
 
-    def _actions_without_the_hook(self, token, message):
-        """Same frame on a tree where the point is registered but inert.
+    def _actions_without_the_route(self, token, message):
+        """Same frame on a tree where the route composes nothing.
 
-        Emptying the registry is NOT a control for "does the branch change
-        the frame" -- both sides still run the same runtime.py, so a
-        `return []` added at the call site would move both sides together.
-        pf-adversary measured exactly that: mutations M1 (`return []`) and
-        M2 (`rx_frames += 1`) survived an earlier version of this file.
-        The pins in test_the_point_does_not_change_what_the_frame_itself_
-        does are the real control; this helper only proves the HOOK's own
-        work adds no action, which is a different (smaller) claim.
+        GM-029 note: the old version of this helper emptied
+        `lane_hooks._HOOKS`, which is inert against the action route --
+        removing hooks no longer changes what the branch does.  The
+        equivalent control is a module that returns None for every line,
+        which is exactly what the route does today for `/warp` anyway while
+        RE-129 keeps the version gate shut.
+
+        This is NOT a control for "does the branch change the frame" -- both
+        sides still run the same runtime.py, so a `return []` added at the
+        call site would move both sides together.  pf-adversary measured
+        exactly that: mutations M1 (`return []`) and M2 (`rx_frames += 1`)
+        survived an earlier version of this file.  The pins in
+        test_the_point_does_not_change_what_the_frame_itself_does are the
+        real control; this helper only proves the ROUTE's own work adds no
+        action, which is a different (smaller) claim.
         """
-        saved = lane_hooks._HOOKS.get(HOOK_POINT, [])
-        lane_hooks._HOOKS[HOOK_POINT] = []
-        try:
+        with mock.patch.object(
+            runtime_module.chat_command_action,
+            "make_gm_chat_command_action",
+            return_value=None,
+        ):
             state = self._login_and_start(token)
             return self._say(state, message)
-        finally:
-            lane_hooks._HOOKS[HOOK_POINT] = saved
 
     def _audit_lines(self):
         log = Path("capture/gm_command_log.ndjson")
@@ -213,9 +242,9 @@ class ChatCommandDispatchWiringTests(unittest.TestCase):
             actions = self._say(state, "/warp 2")
             # Observe-only: the point adds no reply of its own.
             self.assertEqual(
-                actions, self._actions_without_the_hook("gm_runner", "/warp 2")
+                actions, self._actions_without_the_route("gm_runner", "/warp 2")
             )
-        self.assertIn("gm_chat_command_accepted_warp", state.events)
+        self.assertIn("gm_chat_action_accepted_warp", state.events)
         records = self._audit_lines()
         self.assertEqual(len(records), 1, f"audit log: {records}")
         self.assertEqual(records[0].get("account"), "gm_runner")
@@ -229,10 +258,10 @@ class ChatCommandDispatchWiringTests(unittest.TestCase):
             actions = self._say(state, "hello everyone")
             self.assertEqual(
                 actions,
-                self._actions_without_the_hook("gm_runner", "hello everyone"),
+                self._actions_without_the_route("gm_runner", "hello everyone"),
             )
         self.assertIn(
-            f"gm_chat_command_refused_{chat_command.REFUSAL_NOT_A_COMMAND}",
+            f"gm_chat_action_refused_{chat_command.REFUSAL_NOT_A_COMMAND}",
             state.events,
         )
         self.assertEqual(self._audit_lines(), [])
@@ -247,16 +276,16 @@ class ChatCommandDispatchWiringTests(unittest.TestCase):
             state = self._login_and_start("not_a_gm")
             actions = self._say(state, "/warp 2")
             self.assertEqual(
-                actions, self._actions_without_the_hook("not_a_gm", "/warp 2")
+                actions, self._actions_without_the_route("not_a_gm", "/warp 2")
             )
         self.assertTrue(
             any(
-                event.startswith("gm_chat_command_refused_")
+                event.startswith("gm_chat_action_refused_")
                 for event in state.events
             ),
             state.events,
         )
-        self.assertNotIn("gm_chat_command_accepted_warp", state.events)
+        self.assertNotIn("gm_chat_action_accepted_warp", state.events)
         self.assertEqual(self._audit_lines(), [])
 
     # ----- the frame's own behaviour is untouched ------------------------
@@ -313,7 +342,7 @@ class ChatCommandDispatchWiringTests(unittest.TestCase):
             )
             state = state_type("gm_runner")
             self._say(state, "/warp 17")
-        self.assertNotIn("gm_chat_command_accepted_warp", state.events)
+        self.assertNotIn("gm_chat_action_accepted_warp", state.events)
         self.assertEqual(self._audit_lines(), [])
 
     def test_the_fired_token_goes_to_stderr_so_tool_stdout_stays_clean(self):
@@ -335,33 +364,49 @@ class ChatCommandDispatchWiringTests(unittest.TestCase):
             out, err = io.StringIO(), io.StringIO()
             with redirect_stdout(out), redirect_stderr(err):
                 self._say(state, "/warp 2")
-        self.assertIn("LANE_HOOK_FIRED", err.getvalue())
-        self.assertNotIn("LANE_HOOK_FIRED", out.getvalue())
+        token_text = chat_command_action.CONSOLE_TOKEN
+        self.assertIn(token_text, err.getvalue())
+        self.assertNotIn(token_text, out.getvalue())
 
-    def test_a_hook_that_raises_does_not_break_the_connection(self):
-        """fail-closed at the call site, not only in lane_hooks' unit tests."""
+    def test_a_route_that_raises_does_not_break_the_connection(self):
+        """fail-closed at the call site, not only in the module's unit tests.
+
+        GM-029 note: this test used to inject a raising HOOK into
+        `lane_hooks._HOOKS`.  With the hook route gone that injection is
+        inert -- the test would have passed while proving nothing.  The
+        equivalent for the action route is the module's own internals
+        raising, which its top-level `except Exception` is written to
+        swallow into an event; what is checked here is the half that
+        exception handler cannot check for itself: that the CONNECTION
+        survives it and keeps serving later frames.
+        """
         path = self._config(["gm_runner"])
-        saved = lane_hooks._HOOKS.get(HOOK_POINT, [])
 
-        def _boom(**_kwargs):
-            raise RuntimeError("hook is broken")
+        def _boom(*_args, **_kwargs):
+            raise RuntimeError("route is broken")
 
         with mock.patch.dict(
             gm_accounts.os.environ, {gm_accounts.ENV_OVERRIDE: str(path)},
         ):
-            lane_hooks._HOOKS[HOOK_POINT] = [("test_broken_hook", _boom)]
-            try:
+            with mock.patch.object(
+                chat_command_action, "_make_action", _boom,
+            ):
                 state = self._login_and_start("gm_runner")
                 actions = self._say(state, "/warp 2")
                 # The connection survives and keeps serving later frames.
                 later = state.dispatch(self.legacy.parse_outer(
                     self.legacy._synthetic_client_login_pc("gm_runner")
                 ))
-            finally:
-                lane_hooks._HOOKS[HOOK_POINT] = saved
             self.assertEqual(
-                actions, self._actions_without_the_hook("gm_runner", "/warp 2")
+                actions, self._actions_without_the_route("gm_runner", "/warp 2")
             )
+        self.assertTrue(
+            any(
+                event.startswith("gm_chat_action_unexpected_")
+                for event in state.events
+            ),
+            state.events,
+        )
         self.assertIsInstance(later, list)
 
 
