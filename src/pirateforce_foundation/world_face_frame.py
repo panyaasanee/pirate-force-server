@@ -33,13 +33,48 @@ were all measured going red on the attempt (round c5nwjc):
     tests/test_second_password_bypass.py  test_v141_is_immutable
     tests/test_server_shutdown.py       ..._and_v141_is_preserved
 
-and a seventh rule, ``tests/test_runtime_console.py``, forbids that module
-printing to the console outside its own self-test.  Editing the file is
-therefore a change to something proven, which policy 14.3 reserves for the
-owner - not a chief-level judgement call.  The letter
-``notes_to_chief/20260829_0303_CHIEF-ASK-COO-v141-immutable-by-enforcement-not-convention.md`` puts that question where it
-belongs; this module fixes the wire WITHOUT touching the frozen file, so the
-player stops seeing the wrong person while that question is answered.
+and a seventh, of a different kind: ``app.py`` calls
+``legacy.run_self_test()`` UNCONDITIONALLY on every boot, and that self-test
+asserts this very face frame's bytes and its actor count.  A changed builder
+does not fail a hash there - it stops the server from starting.
+``tests/test_runtime_console.py`` runs that same self-test as a subprocess,
+which is why it went red too.
+
+CORRECTION (pf-adversary, this round, D6): an earlier version of this
+docstring said the seventh rule was that ``test_runtime_console.py`` "forbids
+that module printing to the console outside its own self-test".  That was
+FALSE and was quoted onward into a letter and a pull request before it was
+caught.  That file names neither v141 nor printing; v141 has 160 ``print(``
+calls, 93 of them on the production listener path.  The measured red was real
+- the cause written next to it was not.
+
+Editing the file is therefore a change to something proven, which policy 14.3
+reserves for the owner - not a chief-level judgement call.  The letter
+``notes_to_chief/20260829_0303_CHIEF-ASK-COO-v141-immutable-by-enforcement-not-convention.md``
+puts that question where it belongs; this module fixes the wire WITHOUT
+touching the frozen file, so the player stops seeing the wrong person while
+that question is answered.
+
+HOW NARROW THIS IS - READ BEFORE QUOTING IT (pf-adversary, this round, D3).
+This module corrects the TWO ChooseNPC face labels, and only on the boot whose
+census resolved its identities.  It is NOT true that "every frame the server
+sends now reads one table".  Frames that carry a Port Royal NPCAttr and are
+NOT corrected here, each still shipping the frozen row's Mob-Set number:
+
+    V140_P86_HARNESS_SAFE_FULL20_FACE_ONCE   (v141 make_v140_p86_face_state,
+                                              20 actors - a face frame by
+                                              every definition, missed by the
+                                              label filter)
+    V139_* equivalent (make_v139_p86_face_state)
+    V134_P0_P30_P91_ISOLATED_*
+    V141_LOCAL_REFRESH_ENTER[..]_LEAVE[..]
+    V140_MARKER1_READY_NEAREST20_*
+    V137_ISOLATED_COMPOSITIONAL_MARKER1_*
+
+The open design question, recorded rather than hidden: when the login census
+and a click frame are built by two different code paths, ONE identity resolver
+should be required of both by something enforcing it, not by a label list that
+has to be kept in sync by hand.  Until then this is a fix for one path.
 
 HOW IT WORKS.  ``runtime`` calls ``rebuild_face_actions`` on the action list
 that comes back from the inherited ChooseNPC handler.  Any face-frame action
@@ -53,10 +88,14 @@ shape is filled with changes.  Every other action passes through untouched.
 TWO UNRESOLVABLE CASES, HANDLED THE WAY THE CENSUS ALREADY HANDLES THEM:
 
 * A non-selected placement with no shippable identity is OMITTED, because
-  ``world_population.census_order`` omits exactly the same placements at
-  login (seven of the 115, P0 among them).  Shipping it here would re-add an
-  actor the client was never told about, which is the opposite of making the
-  two frames agree.
+  the census this module is gated on - ``world_population.census_order`` -
+  omits exactly the same placements at login (seven of the 115, P0 among
+  them).  Shipping it here would re-add an actor the client was never told
+  about, which is the opposite of making the two frames agree.  On that
+  gated path this branch is therefore DEAD, and a test asserts it stays dead;
+  it is kept as a refusal, not relied on as behaviour.  (The paths where it
+  would have fired - lane boots and the frozen fallback - are exactly the
+  paths the gate now excludes: pf-adversary D2.)
 * If the SELECTED placement has no shippable identity there is no honest
   frame to send, so the action is DROPPED and the event log says so.  A
   click that opens nothing is a bug report; a click that opens the wrong
@@ -86,7 +125,12 @@ def _selected_index(label: str) -> int | None:
     for prefix in FACE_LABEL_PREFIXES:
         if label.startswith(prefix):
             suffix = label[len(prefix):]
-            if suffix.isdigit():
+            # str.isdigit() is True for superscripts and other numerics that
+            # int() then refuses, and this runs OUTSIDE the caller's try
+            # (pf-adversary, this round, D7).  Unreachable today - every label
+            # is a server-side f-string over an int - so the guard is cheap
+            # and the reachable-today claim is not what keeps it safe.
+            if suffix and all("0" <= ch <= "9" for ch in suffix):
                 return int(suffix)
             return None
     return None
@@ -95,6 +139,14 @@ def _selected_index(label: str) -> int | None:
 def is_face_label(label: str) -> bool:
     """Whether this action label is one of the two face-frame labels."""
     return _selected_index(label) is not None
+
+
+# NOTE FOR ANYONE ASSERTING ON THESE BYTES.  The tests read the ``frame``
+# (the snappy carrier) rather than the ``pc``, which is sound only because
+# ``frame_pc`` emits a literal-only single chunk (``snappy_raw_literal``).  If
+# that encoder ever gains real back-references, every ``assertNotIn`` over a
+# frame silently becomes a false green.  Named here because the dependency is
+# invisible at the assertion (pf-adversary, this round, D7).
 
 
 def build_face_state(
@@ -122,6 +174,14 @@ def build_face_state(
 
     entries = []
     for idx in population_indices:
+        if idx not in by_idx:
+            # ``omitted_indices`` guards this and this function did not, which
+            # is the asymmetry pf-adversary named (D7): the caller catches
+            # ValueError, so a KeyError from here would escape dispatch into a
+            # listener with no except clause and drop the player's socket.
+            raise ValueError(
+                f"placement {idx} is not in the frozen placement table"
+            )
         _, template_id, px, py, pz, _preset, _name = by_idx[idx]
         identity = world_port_royal_identity.resolve(template_id)
         if identity is None:
@@ -207,9 +267,18 @@ def rebuild_face_actions(
             # No honest frame exists for this click.  Drop it rather than
             # let the frozen builder's version through: passing it on is
             # what put Sebastian's window on the owner's screen.
+            #
+            # The reason is spelled out rather than folded into one
+            # "unresolvable" token (pf-adversary, D7): "no shippable
+            # identity" and "not in this population" are different bugs, and
+            # this token is the one line a tester reads to tell them apart.
+            reason = (
+                "unresolvable" if "no shippable identity" in str(error)
+                else "not_in_population" if "not in current population" in str(error)
+                else "not_in_table"
+            )
             events.append(
-                f"face_frame_dropped_unresolvable_p{selected_idx}_"
-                f"{type(error).__name__}"
+                f"face_frame_dropped_{reason}_p{selected_idx}"
             )
             continue
         events.append(f"face_frame_identity_resolved_p{selected_idx}")

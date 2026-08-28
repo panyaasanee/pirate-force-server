@@ -237,6 +237,36 @@ class RebuiltFaceFrameTests(unittest.TestCase):
                 100.0, 200.0,
             )
 
+    def test_a_placement_outside_the_frozen_table_is_refused_as_valueerror(self):
+        """Not as a KeyError.  The caller catches ValueError only, and the
+        listener above it has no except clause at all, so a KeyError here
+        would drop the player's socket (pf-adversary, this round, D7)."""
+        with self.assertRaises(ValueError):
+            world_face_frame.build_face_state(
+                self.legacy, (999_999,), 999_999, 100.0, 200.0,
+            )
+
+    def test_the_three_drop_reasons_do_not_share_one_token(self):
+        """A tester reads this token to tell three different bugs apart."""
+        events = []
+        world_face_frame.rebuild_face_actions(
+            self.legacy,
+            [(f"V98_NPC_FACE_PLAYER_POSITION_HEADING_P"
+              f"{UNRESOLVABLE_PLACEMENT_INDEX}", b"", b"", 0.0)],
+            self.indices, (100.0, 200.0, 0.0, 0.0), events,
+        )
+        self.assertIn(
+            f"face_frame_dropped_unresolvable_p{UNRESOLVABLE_PLACEMENT_INDEX}",
+            events,
+        )
+        events = []
+        world_face_frame.rebuild_face_actions(
+            self.legacy,
+            [("V98_NPC_FACE_PLAYER_POSITION_HEADING_P7", b"", b"", 0.0)],
+            self.indices, (100.0, 200.0, 0.0, 0.0), events,
+        )
+        self.assertIn("face_frame_dropped_not_in_population_p7", events)
+
     def test_the_selected_actor_still_gets_its_movement_attr(self):
         """The rebuild must not lose what V98 exists to send.
 
