@@ -800,17 +800,102 @@ guard(bool(SRC_TEXT), "src/ opened read-only for the cross-check")
 
 _ID_TOKENS = ("0x1AD4", "0x1ad4", "6868", "0x3DD6", "0x3dd6", "15830",
               "0x8B12", "0x8b12", "35602")
-_id_hits = sum(_ALL_SERVER.count(t) for t in _ID_TOKENS)
-guard(_id_hits == 0,
-      "NEGATIVE: none of the 3 death/revive wire ids appears in v141 or src/ (%d hits)"
-      % _id_hits)
-
 _VERB_TOKENS = ("Relive", "relive", "RELIVE", "Revive", "revive",
                 "Respawn", "respawn")
-_verb_hits = sum(_ALL_SERVER.count(t) for t in _VERB_TOKENS)
-guard(_verb_hits == 0,
-      "NEGATIVE: no Relive/Revive/Respawn encoder or dispatch in v141 or src/ (%d hits)"
-      % _verb_hits)
+
+# Round swlc56 repair.  Both negatives below were raw substring searches over
+# v141 + src/, and the 2026-08-28 bridge full-pytest run found both red for
+# reasons that say nothing about a revive path existing:
+#
+#   * the id search matched ONE "6868" -- the decimal spelling of ReliveVital's
+#     0x1AD4 -- inside a SHA-256 literal in skill_attr_hypothesis.py
+#     (...060605C96868C882...);
+#   * the verb search matched NINE times and every one is English prose in a
+#     comment or a guard message: "a respawned monster killed again is a NEW
+#     death" (mob_loot.py x3), "no persisted column for a player-chosen
+#     respawn scene" (columbus_quest_dispatch.py x3), "revived mobs in place
+#     or respawned fresh placements is [UNKNOWN]" (mob_aggro.py x2) and one
+#     docs/FUNCTIONAL_COVERAGE.json path (mob_death.py).
+#
+# A negative that any comment or hash literal can turn red stops being read,
+# and this pair took the whole test file down with it.  Same failure mode
+# round 96 fixed one file over: "mentions 0x0080" is not "sets 0x0080".  The
+# claim here is about an ENCODER or a DISPATCH, so the failing half is now
+# counted over CODE TOKENS by tools/pf_code_token_scan.py -- which lives in its
+# own file precisely so a test that runs without the client image can exercise
+# it, because this module cannot.
+#
+# What moved which way, said plainly rather than as "strictly wider":
+#   WIDER   a wire id written 6_868 or 0o15324, or as a dispatch-key string
+#           "0x1AD4", now counts; the old rule only knew nine spellings.
+#   NARROWER a verb or an id inside a comment, a docstring, or any string
+#           literal with a SPACE in it no longer counts.
+#
+# That narrowing is the whole repair, so the thing it stops seeing is pinned
+# rather than dropped: each guard below asserts BOTH halves -- zero code hits
+# AND the exact prose count, with the modules that carry the prose named.  A
+# tenth respawn sentence, or a wire-map docstring for a revive lane somebody is
+# about to build, still turns this file red and still has to be re-pinned by
+# name.  Nothing here is allowed to go quiet; the discriminator only decides
+# WHICH of the two numbers a reader has to act on.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import pf_code_token_scan                                        # noqa: E402
+
+_VERB_STEMS = ("relive", "revive", "respawn")
+_WIRE_ID_VALUES = (0x1AD4, 0x3DD6, 0x8B12)
+
+_id_hits = _verb_hits = 0
+_untokenizable = []
+for _name, _text in [(SERVER_SRC, SERVER_TEXT)] + sorted(SRC_TEXT.items()):
+    if not _text:
+        continue
+    _hits = pf_code_token_scan.scan(_text, stems=_VERB_STEMS,
+                                    values=_WIRE_ID_VALUES)
+    if _hits is None:
+        # Fail-closed: a file that will not parse is counted the crude way, so
+        # a syntax error can never buy silence.
+        _untokenizable.append(os.path.basename(_name))
+        _id_hits += sum(_text.count(t) for t in _ID_TOKENS)
+        _verb_hits += sum(_text.count(t) for t in _VERB_TOKENS)
+        continue
+    _id_hits += _hits[0]
+    _verb_hits += _hits[1]
+
+
+def _prose_modules(tokens):
+    names = []
+    for _name, _text in [(SERVER_SRC, SERVER_TEXT)] + sorted(SRC_TEXT.items()):
+        if _text and any(t in _text for t in tokens):
+            names.append(os.path.basename(_name))
+    return tuple(sorted(names))
+
+
+_id_prose_hits = sum(_ALL_SERVER.count(t) for t in _ID_TOKENS)
+_verb_prose_hits = sum(_ALL_SERVER.count(t) for t in _VERB_TOKENS)
+_id_prose_modules = _prose_modules(_ID_TOKENS)
+_verb_prose_modules = _prose_modules(_VERB_TOKENS)
+
+guard(_id_hits == 0
+      and _id_prose_hits == 1
+      and _id_prose_modules == ("skill_attr_hypothesis.py",),
+      "NEGATIVE: none of the 3 death/revive wire ids is used as a value in "
+      "v141 or src/ (%d code hits) and the ONE raw substring match is still "
+      "the SHA-256 literal in skill_attr_hypothesis.py (%d raw, modules %s); "
+      "%d file(s) fell back to substrings: %s"
+      % (_id_hits, _id_prose_hits, _id_prose_modules, len(_untokenizable),
+         ", ".join(_untokenizable) or "none"))
+
+guard(_verb_hits == 0
+      and _verb_prose_hits == 9
+      and _verb_prose_modules == ("columbus_quest_dispatch.py",
+                                  "mob_aggro.py", "mob_death.py",
+                                  "mob_loot.py"),
+      "NEGATIVE: no Relive/Revive/Respawn encoder or dispatch in v141 or src/ "
+      "(%d code hits) and the raw substring matches are still the 9 prose "
+      "sentences in 4 named modules (%d raw, modules %s); %d file(s) fell "
+      "back to substrings: %s"
+      % (_verb_hits, _verb_prose_hits, _verb_prose_modules,
+         len(_untokenizable), ", ".join(_untokenizable) or "none"))
 
 # the HP pair IS emitted; the death timer bit is NOT
 _hp_sites = len(re.findall(r"u32tag\(0x14,\s*current_hp\)", _ALL_SERVER))

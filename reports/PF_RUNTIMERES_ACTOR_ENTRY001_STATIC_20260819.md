@@ -259,14 +259,15 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
   "or_0x40_on_offset_0x70_sites": 3,
   "runtimeres_literal_occurrences_in_image": 0,
   "server_call_sites_emitting_zero_current_hp": 0,
-  "src_actor_entry_call_sites": 13,
-  "src_actor_stream_call_sites": 16,
-  "src_modules_building_actor_entries": 12,
+  "src_actor_entry_call_sites": 15,
+  "src_actor_stream_call_sites": 23,
+  "src_modules_building_actor_entries": 14,
   "src_modules_building_actor_entries_names": [
     "field_mobs.py",
     "hostile_hp_link_hypothesis.py",
     "mob_combat.py",
     "mob_death.py",
+    "mob_diag_multi_object.py",
     "npc_hostile_hypothesis.py",
     "npc_hp_link_hypothesis.py",
     "population.py",
@@ -274,7 +275,8 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
     "runtimeres_death_hypothesis.py",
     "scenario.py",
     "scene_object.py",
-    "world_population.py"
+    "world_population.py",
+    "world_population_bg0002.py"
   ],
   "src_modules_doing_both": 4,
   "src_modules_doing_both_names": [
@@ -296,7 +298,7 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
     "npc_hp_link_hypothesis.py",
     "runtimeres_death_hypothesis.py"
   ],
-  "src_vital_stream_call_sites": 21,
+  "src_vital_stream_call_sites": 25,
   "vt20_dispatch_shapes_image_wide": 387,
   "vt20_dispatch_shapes_in_updateattrvital_handler": 0,
   "vt20_dispatch_shapes_with_vtable_load": 230

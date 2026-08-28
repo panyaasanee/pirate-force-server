@@ -286,9 +286,17 @@ class TestTheAnswer(unittest.TestCase):
         # over-reports.  A reader who needs "emits a timer today" must read
         # the composer, not this number.  The clean repair, when someone owns
         # that module, is to rename the constant with a FORBIDDEN marker.
-        self.assertEqual(counts["src_modules_doing_both"], 3)
+        # Round swlc56: 3 -> 4.  mob_death.py (lane B, M4 second half) is the
+        # fourth module that both builds an actor entry and SETS bit 0x0080 --
+        # it is a production death lane, not a probe, so this census moving is
+        # the lane working.  The tool's own guard was already re-pinned to 4
+        # and to these four names; this file still said 3, and nothing noticed
+        # because the whole module is excluded from the gate's client-free
+        # subset and only runs on the bridge.
+        self.assertEqual(counts["src_modules_doing_both"], 4)
         self.assertEqual(counts["src_modules_doing_both_names"],
                          ["hostile_hp_link_hypothesis.py",
+                          "mob_death.py",
                           "npc_hp_link_hypothesis.py",
                           "runtimeres_death_hypothesis.py"])
         # Round 96: a second module (remote_player_hypothesis.py) now builds
@@ -329,9 +337,19 @@ class TestTheAnswer(unittest.TestCase):
         # TWO make_runtime_remote_actors sites and ZERO actor-entry sites --
         # it rides the carrier without building an entry, which is why the
         # module census moves by one while the stream count moves by three.
-        self.assertEqual(counts["src_actor_stream_call_sites"], 11)
-        self.assertEqual(counts["src_actor_entry_call_sites"], 9)
-        self.assertEqual(counts["src_modules_building_actor_entries"], 8)
+        # Round swlc56: 11 -> 23, 9 -> 15, 8 -> 14.  These three pins were the
+        # oldest in this file: eleven lanes landed against them while the
+        # module sat excluded from the gate's client-free subset, so the first
+        # thing that read them was the bridge full-pytest run of 2026-08-28,
+        # which took all 19 tests in this module down at once.  The numbers
+        # here are now the same four the tool guards, the report's
+        # RUNTIMERES_COUNTS block carries and
+        # tests/test_static_verifier_pins_cloud.py recomputes from src/ on
+        # any clone -- four copies that a single drift now reddens together
+        # instead of one that rots alone.
+        self.assertEqual(counts["src_actor_stream_call_sites"], 23)
+        self.assertEqual(counts["src_actor_entry_call_sites"], 15)
+        self.assertEqual(counts["src_modules_building_actor_entries"], 14)
         self.assertIn(
             "npc_hostile_hypothesis.py",
             counts["src_modules_building_actor_entries_names"],
@@ -346,8 +364,19 @@ class TestTheAnswer(unittest.TestCase):
         # stay green while its sentence stopped being true, so both halves are
         # asserted here: the old measure and the one that actually notices.
         self.assertEqual(counts["server_call_sites_emitting_zero_current_hp"], 0)
+        # Round swlc56: the named-constant census is six modules now, not one.
+        # The old measure above is STILL zero -- that is the half worth
+        # keeping -- and every one of the five new names passes its zero
+        # through a named constant exactly as the round-86 encoder does.  The
+        # tool's own guard and the report already carried all six; only this
+        # copy was stale.
         self.assertEqual(counts["src_modules_passing_zero_hp_by_named_constant"],
-                         ["runtimeres_death_hypothesis.py"])
+                         ["damage_hp_link_hypothesis.py",
+                          "hostile_hp_link_hypothesis.py",
+                          "mob_combat.py",
+                          "mob_death.py",
+                          "npc_hp_link_hypothesis.py",
+                          "runtimeres_death_hypothesis.py"])
 
     def test_the_erratum_is_present_and_does_not_rewrite_the_original(self):
         """The published prose keeps its wrong sentence; the erratum follows it.
