@@ -1249,3 +1249,63 @@ wire fact, no RE citation, and no `runtime.py` edit involved (the doc
 correction only updates which file this lane's own docs cite, not any
 code). This round sent no frame and ran no game test. Full detail:
 `pf_bridge/rounds/GM_20260828_0517_allowlist-exact-type-plus-capture-quota.md`.
+
+## Modules delivered (round `whoaop`, capture-quota estimate fix)
+
+Mailbox empty, no new RE ticket, `CORE-REQUEST-011`/`012` still blocked
+(unchanged since chief's 22:00 reply on Aug 27) -- this round's own
+`pf-adversary` re-sweep of the whole `gm/` package (rule F: no second
+consecutive empty round) found one real, reproduced defect in the round-
+`i76is0` capture-quota guard itself.
+
+- **Fixed, MODERATE -- `gm/dispatch.py` `_estimate_capture_file_bytes`**:
+  the round-`i76is0` formula (`raw_payload_length * 5 + 1024`) was derived
+  only from `command_capture._hex_dump`'s ~4.75x expansion. It ignored that
+  `command_capture._decode_section` (present since RE-088 closed) re-prints
+  the SAME bytes a second time whenever the payload decodes as a nonzero-
+  presence nested body: `string_0x1c`/`string_0x38` go through
+  `_escape_for_header`, i.e. `text.encode("unicode_escape").decode
+  ("ascii")`, which costs up to 6 ASCII bytes per UTF-16LE code unit (2 raw
+  bytes) for any BMP codepoint outside ASCII/Latin-1 -- a 3x expansion on
+  top of the same bytes' ~4.75x hex-dump cost, for any real non-Latin1 text
+  a GM account could type (Thai included). Reproduced: a 65,534-byte
+  payload built as a valid nested body with Thai-character wide strings
+  charged an estimate of 328,694 bytes against an actual file write of
+  508,235 bytes -- a 1.546x overrun, letting an already-authorized GM
+  account exceed `MAX_CAPTURED_BYTES_PER_ACCOUNT` (50 MiB) by roughly 27.5
+  MiB before `REFUSAL_CAPTURE_QUOTA_EXCEEDED` ever fired. The estimate's
+  own comment claimed an invariant ("always meets or exceeds what
+  `capture_raw_gm_command` actually writes") that was false for this input
+  shape. New formula: `raw_payload_length * 8 + 2048` (hex dump 4.75x +
+  decode-section worst case 3x = 7.75x, rounded up; flat term doubled to
+  cover the header lines outside `raw_payload_length`) -- verified against
+  the same worst-case reproduction (empirically, not just by the 7.75x
+  derivation) before landing.
+- Why the round-`i76is0` test suite never caught this: every quota test
+  used `bytes(1000)` (all zero bytes, `presence=0`), which
+  `_decode_section` renders as one fixed, content-independent line -- the
+  code path that actually breaks the estimate (a decoded nested body with
+  non-ASCII wide-string content) had no test at all. `grep` confirmed no
+  existing test referenced `_estimate_capture_file_bytes`, `unicode_escape`,
+  or non-ASCII payload content before this round.
+- `tests/test_gm_command_dispatch.py`: one new test,
+  `test_capture_quota_estimate_covers_non_ascii_decode_section_reprint`,
+  builds the same worst-case Thai-heavy nested-body payload at
+  `MAX_RAW_PAYLOAD_LENGTH`, runs it through the real
+  `handle_gm_run_command_vital` -> `capture_raw_gm_command` path, and
+  asserts the estimate is `>=` the actual file size written on disk (fails
+  under the old formula, passes under the new one). The four existing
+  quota tests that hardcoded the old formula's derived constant (`6024` for
+  a 1000-byte payload) now compute it via
+  `gm_dispatch._estimate_capture_file_bytes(1000)` instead, so they no
+  longer silently drift out of sync with whatever the real formula is.
+
+`tests/test_gm_*.py`: 260/260 (up from 259 -- 1 new test, 4 existing tests
+updated to stop hardcoding the old formula's derived constant, no test
+behavior narrowed).
+
+nonclaim: pure accounting-correctness fix inside this lane's own write
+zone -- no command behavior changed for any payload under the (now
+correctly enforced) 50 MiB/account cap; no wire fact, no RE citation, and
+no `runtime.py` edit involved. This round sent no frame and ran no game
+test. Full detail: `pf_bridge/rounds/GM_20260828_0727_capture-quota-estimate-fix.md`.
