@@ -15,6 +15,54 @@ import struct
 PLAYER_LOGIN_CLASS_ID = 1
 PLAYER_LOGIN_LEVEL = 1
 
+# CORE-REQUEST-023 "probe base 1" widening (PANYA-DECISION 20260828_0125),
+# round x6a85q (R208): movement speed only.  MP current/max and STR/CON/DEX/
+# INT/PER wire POSITIONS are equally [MEASURED] (same citations as speed,
+# below) but are deliberately NOT wired here -- this repo has no committed
+# source for what VALUE a level-1 Gladiator's MP or five ability scores
+# actually are:
+#   - PF_JOB001 (CHARCREATE_CLASS static boundary) enumerates that table's 37
+#     named columns -- icons, appearance, equipment, s_SKILL_* strings -- and
+#     none of them is a stat score; no "s_SCORE" column exists in that table
+#     or anywhere else in this repository (grepped, zero hits).
+#   - PF_STATS_PROG001 s8.4 says so explicitly: "the actual per-level
+#     curves... remain unknown and would require decoding [external] data
+#     files, which this milestone did not do." STANDARD_STATUS (n_HPMAX,
+#     n_STAMINAMAX) and POTENTIAL (n_STRENGH, n_CONSTITUTION, n_AGILITY,
+#     n_INTELLECT, n_PERCEPTION) are named but their column values were
+#     never decoded.
+# Shipping five flat, invented ability scores (or a guessed MP number) would
+# look "complete" without being correct -- exactly the failure mode
+# PANYA-DECISION 20260828_0125's own probe was reacting to (a character that
+# LOOKS fine but silently blocks features/reads wrong later).  RE-117's own
+# nonclaim #3 draws the identical line for mob MP ("do not invent a value,
+# do not borrow the PC formula") -- the player side is held to the same
+# rule.  See CLIENT_RE_QUEUE.md's new RE ticket (mined by RE runner,
+# following RE-117's own static method) for the real numbers; wiring them in
+# is then a one-line change to the constants below, not a new RE-position
+# hunt, since the offsets/tags/masks are already proven:
+#   MP:      BasicAttr +0x4C/+0x50, u32 tag 0x14, mask 0x0010/0x0020
+#            (PF_STATS_PROG001 s4 gates 0x465772/0x465786; independently
+#            confirmed by RE-117, notes_to_chief/20260828_0414_RE-117-
+#            RESULT-NPCATTR-INHERITS-LEVEL-MP-BITS.md, disassembling
+#            ``BasicAttr::Serialize`` 0x004656F0 directly).
+#   STR/CON/DEX/INT/PER: ActorAttr +0x82/0x84/0x86/0x88/0x8A, u16 tag 0x12,
+#            mask 0x20/0x40/0x80/0x100/0x200 (PF_STATS_PROG001 s5 gates
+#            0x46631F..0x46638A).
+#
+# Speed IS wired: BasicAttr +0x54, f32 tag 0x2A, mask 0x0040 (PF_STATS_PROG001
+# s4 gate 0x46579A; same bit/tag/offset mob_death.py's BASIC_BIT_MOVEMENT_
+# SPEED already wires for field mobs).  [PROPOSED, not measured] the VALUE
+# 400.0 -- unlike the MP/stat gap above, this is the owner's own single,
+# deliberately-chosen client-observable value from her probe session (same
+# status as PLAYER_LOGIN_CLASS_ID/PLAYER_LOGIN_LEVEL: one named constant an
+# owner picked, not an invented placeholder standing in for unknown
+# per-class data).
+PLAYER_LOGIN_MOVEMENT_SPEED = 400.0
+
+# BasicAttr mask bit added by this widening.
+_BASIC_BIT_MOVEMENT_SPEED = 0x0040
+
 
 def _encode_character_name(legacy, character_name: str) -> bytes:
     """Encode the persisted name with the exact ActorAttr+0x164 wstring codec."""
@@ -82,21 +130,25 @@ def _make_actor_attr_with_name_and_class(
     character_name: str, class_id: int, level: int, *,
     basic_faction: int | None,
 ) -> bytes:
-    """Project name+class+level and an optional frozen faction field.
+    """Project name+class+level+speed and an optional frozen faction.
 
-    CORE-REQUEST-022 (PANYA-DECISION 20260828_0125 / COO-DECISION 0146):
-    every booted character must carry at least ``probe base 1`` -- a class
-    id (or the skill window never opens, per GT learn-skill) and a level.
-    Adds exactly two fields to the proven ``_make_actor_attr_with_name``
-    projection, in the same ascending-mask-bit emission order the rest of
-    this codebase's field tables use (level 0x0002 before hp_current/hp_max
-    0x0004/0x0008; class_id 0x00000001 before cash 0x00000800) -- so this is
-    additive, not a rewrite of the proven frame.  The optional faction field
-    is spliced in at the exact same relative position
-    ``_make_actor_attr_with_name`` uses for it.
+    CORE-REQUEST-023 (PANYA-DECISION 20260828_0125 / COO-DECISION 0146):
+    every booted character must carry at least class id (or the skill window
+    never opens, per GT learn-skill), a level, and movement speed. MP
+    current/max and the five primary attributes are NOT added here -- see
+    the module docstring above the constants for why (no committed value
+    source; wiring them in later is a one-line change, the wire positions
+    are already proven). Adds level+speed to the proven
+    ``_make_actor_attr_with_name`` projection, in the same ascending-mask-bit
+    emission order the rest of this codebase's field tables use: BasicAttr
+    level 0x0002, hp_current/hp_max 0x0004/0x0008, movement speed 0x0040,
+    scene id/seq 0x0100/0x0200; ActorAttr class_id 0x00000001, cash
+    0x00000800, name 0x01000000 -- so this stays additive, not a rewrite of
+    the proven frame. The optional faction field is spliced in at the exact
+    same relative position ``_make_actor_attr_with_name`` uses for it.
     """
     name_wire = _encode_character_name(legacy, character_name)
-    basic_mask = 0x0002 | 0x000C | 0x0100 | 0x0200
+    basic_mask = 0x0002 | 0x000C | _BASIC_BIT_MOVEMENT_SPEED | 0x0100 | 0x0200
     faction_wire = b""
     if basic_faction is not None:
         basic_mask |= 0x0400
@@ -109,6 +161,7 @@ def _make_actor_attr_with_name_and_class(
         + legacy.u16tag(0x12, level)
         + legacy.u32tag(0x14, 100)
         + legacy.u32tag(0x14, 100)
+        + legacy.f32tag(PLAYER_LOGIN_MOVEMENT_SPEED)
         + legacy.u16tag(0x12, scene_id)
         + bytes([0x32]) + struct.pack("<Q", scene_seq)
         + faction_wire
@@ -125,7 +178,7 @@ def make_actor_attr_with_name_and_class(
     character_name: str,
     class_id: int = PLAYER_LOGIN_CLASS_ID, level: int = PLAYER_LOGIN_LEVEL,
 ) -> bytes:
-    """Build the real login ActorAttr: the proven baseline plus class+level."""
+    """Build the real login ActorAttr: proven baseline plus class+level+speed."""
     return _make_actor_attr_with_name_and_class(
         legacy, identity_lo, identity_hi, scene_id, scene_seq, character_name,
         class_id, level, basic_faction=None,
@@ -137,7 +190,7 @@ def make_actor_attr_with_name_class_and_faction(
     character_name: str, basic_faction: int,
     class_id: int = PLAYER_LOGIN_CLASS_ID, level: int = PLAYER_LOGIN_LEVEL,
 ) -> bytes:
-    """The class+level baseline above, plus the frozen faction-1 probe field.
+    """The class+level+speed baseline above, plus the frozen faction-1 probe field.
 
     Same identity/scene/faction guard as ``make_actor_attr_with_basic_
     faction``.  CORE-REQUEST-022 needs this because runtime.py recomposes
