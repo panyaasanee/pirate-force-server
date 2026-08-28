@@ -128,6 +128,48 @@
       "ground": null
     },
     {
+      "n_id": 14,
+      "model_id": "Bg0015",
+      "scene_name_source_utf8_hex": "e59cb0e78d84e781abe5b1b1e5b3b6",
+      "scene_name_ascii": "Hell Volcano Island",
+      "image_name": "Bg0015_air",
+      "native_placement_count": 91,
+      "native_definition_count": 51,
+      "native_sha256": "5d98e830888c95688537fdae98bfa74f422ca21da42baa921003585d013499b1",
+      "role": "first_field_scene_with_a_composed_cast",
+      "status": "reachable_only_by_a_GM_staged_login_scene_never_by_a_normal_boot",
+      "table_row": {
+        "n_SCENE_WEATHER": 5,
+        "n_SCENE_DAYANDNIGHT": 8,
+        "n_SCENE_TYPE": 2,
+        "n_SCENE_SUBTYPE": 2,
+        "n_CLINE_TYPE": 14,
+        "n_CANGLIDE": 1,
+        "n_CANRIDE": 1,
+        "n_LIMIT_HEIGHT": 30000,
+        "n_SAVE": 1,
+        "n_MARKER": 14,
+        "n_CAMERA_TYPE": 1,
+        "n_COLLECT_MAP": 212,
+        "n_SCENE_LV": 100,
+        "n_VIDEO_NAME": 0
+      },
+      "table_row_differences": {
+        "reading": "this row is the shape of a scene characters live in, not the shape of a stage: n_SAVE 1, n_MARKER 14, n_CANGLIDE/n_CANRIDE 1, n_LIMIT_HEIGHT 30000 - the same four values scenes 1 and 2 carry, and the opposite of scene 278's 0/0/0/0/0. n_SCENE_LV 100 is this scene's own: no other scene pinned here carries a level at all, and world_bg0015_identity's roster (level 105 Hell Ghouls and up) is what that number is describing.",
+        "n_CLINE_TYPE": "14 - a real cline type, which is what makes this scene's 91 Mob-Set placements resolvable at all. Scene 17, the sea, carries 4294967295 (-1) and therefore has no population rule of its own; that is measured, and it is why the sea is empty by the client's own table rather than by an omission of ours.",
+        "not_a_prediction": "none of these columns has a measured consequence in this project. They are pinned so that the attended round has a list to look at when something goes wrong."
+      },
+      "spawn": {
+        "x": -17513.0,
+        "y": 18989.0,
+        "z": 1894.0,
+        "provenance": "CLIENT_MARKER_TABLE: SCENE_NAME[14].n_MARKER = 14 -> MARKER[14] = (n_SCENE 14, n_X, n_Y, n_Z, n_DIRTECTION 6), read as two's-complement int32 (src/pirateforce_foundation/world_scene_marker.py, which pins both source TSV hashes and carries the re-derivation command). This is an AUTHORED point - the people who built the map put it there - and it is the first spawn in this registry that is neither a runtime historical choice (scene 1), nor a monster placement borrowed for want of anything better (scene 278), nor an owner decree (scene 17). Corroboration and its limit, both stated: MARKER[2] is byte-for-byte the scene-2 spawn this project obtained independently by standing a live client on it, while MARKER[1] is about 2200 units from the V135 spawn this runtime actually uses at home, so one scene agrees exactly and one differs. Nobody has yet stood a client on marker 14. [LANE-A ASSUMPTION - AWAITING COO CONFIRMATION] that a MARKER row is the right place to stand an arriving character is this lane's reading, not a ruling: pf_bridge/notes_to_chief/20260829_0447_LANE-A-ASK-COO-marker-table-as-default-spawn.md asks for it and names the revert (this row, and only this row)."
+      },
+      "ground": null,
+      "login_entry_allowed": true,
+      "persist_position_allowed": false
+    },
+    {
       "n_id": 17,
       "model_id": "Bg1001",
       "scene_name_source_utf8_hex": "e6b5b7e4b88ae4b880e88998e888b9",
@@ -339,6 +381,9 @@
     "no claim about travel, walking between scenes, portals, or the client-side trigger that would start one",
     "no claim that scene_seq must be 0 in a scene other than 1 - 0 is what was measured, at scene 1 and at scene 2",
     "no claim that a character written into scene 278 can get back out by any in-game means; the only return path this lane provides is a server-side rewrite of the position row",
-    "~~no claim that this file changes anything a player sees; no runtime path reads it yet~~ WRONG AT HEAD, struck round uajlve (Lane A, pf-adversary finding): runtime.py and lifecycle.py both read this file today. What REPLACES the struck line, and is still a real nonclaim: no destination pinned here has ever been sent to a client by this project except scenes 1 and 2, and pinning a row here does not make its scene reachable - a row with a null spawn is refused by spawn_position, and login_entry_allowed / persist_position_allowed only ever SUBTRACT reachability."
+    "~~no claim that this file changes anything a player sees; no runtime path reads it yet~~ WRONG AT HEAD, struck round uajlve (Lane A, pf-adversary finding): runtime.py and lifecycle.py both read this file today. What REPLACES the struck line, and is still a real nonclaim: no destination pinned here has ever been sent to a client by this project except scenes 1 and 2, and pinning a row here does not make its scene reachable - a row with a null spawn is refused by spawn_position, and login_entry_allowed / persist_position_allowed only ever SUBTRACT reachability.",
+    "scene 14 ground is null ON PURPOSE, and the number that decides it is measured: Bg0015's 91 placements span 40312 x 46416 units, so a ground block derived from them the way scenes 1 and 278 derive theirs would be a box wide enough to swallow almost any stored row. world_scene_entry._within_ground keeps a stored XY when it is within extent_x/extent_y OF THE SPAWN, so a Port Royal row (-9239, -2830) sits 8274 x 21819 units from marker 14 and would have been KEPT - a character arriving on the volcano island standing at Port Royal's coordinates, silently, with no relocation line. With ground null the entry path takes RELOCATED_NO_GROUND_EVIDENCE instead and every arrival lands on the marker and says so. A later round that measures real terrain for this scene may add ground; a later round that adds the placement bounding box as ground is undoing this on purpose and should read this line first.",
+    "scene 14 persist_position_allowed is false for the FIRST EYES round only, and this is a lane A decision, not a table reading: the client's own row says n_SAVE 1, which is the shape of a scene a character may be saved in. It is false here because nothing has ever written a character_positions row naming this scene, and GT-134 is an eye check, not a persistence test - with it false the tester lands on the marker on every login and their Port Royal row is never touched, so removing the GM login-scene override puts them back exactly where they were. Flipping this one key is the whole of the change once GT-134 passes.",
+    "scene 17 has n_MARKER = 0, so the MARKER crosswalk that gave scene 14 an authored arrival point gives the sea nothing. That is the same bounded negative RE-103 closed on, arriving from the table that would have carried the answer: the PROVISIONAL-OWNER-DECREE spawn stays the only source for scene 17, and this is one more reason not to read its expiry as 'a table lookup nobody has done yet'."
   ]
 }

@@ -76,10 +76,27 @@ class SceneRegistryTests(unittest.TestCase):
         a green screen with fog and environment still on.  Round 4fhdxv
         pointed the travel gate at it and then pointed it back at 278 after
         the adversary pass; 997 stays pinned with the reasons on both sides,
-        because the COO's ruling stands.  A sixth id appearing here without a
+        because the COO's ruling stands.  An id appearing here without a
         decision behind it is what this test is for.
+
+        SIX SINCE ROUND vyi2ud (2026-08-29, LANE-A), AND THE DECISION BEHIND
+        THE SIXTH.  14 is Hell Volcano Island (Bg0015), whose 81-actor roster
+        has been in this repository since round 02k3w5 with no way for anyone
+        to reach the scene: GT-134's blocker B2 read "the registry has no
+        pinned destination, and pinning one needs the native .npc digest,
+        which the cloud clone does not have".  That premise was false - the
+        digest is a column of pf_bridge/gamedata/PF_GAMEDATA_SCENE_INDEX.tsv
+        and has been all along.  This one is also the first spawn here that is
+        neither a runtime historical choice, nor a borrowed monster placement,
+        nor an owner decree: SCENE_NAME[14].n_MARKER -> MARKER[14] is the
+        arrival point the map's own developers authored
+        (world_scene_marker.py).  It enters login_entry_allowed=true (nothing
+        can reach it but a GM login-scene override) and
+        persist_position_allowed=false (first eyes; see the registry's own
+        nonclaims for the revert).
         """
-        self.assertEqual(self.registry.ids, (1, 2, 17, TEST_STAGE_SCENE_ID, 997))
+        self.assertEqual(
+            self.registry.ids, (1, 2, 14, 17, TEST_STAGE_SCENE_ID, 997))
 
     def test_the_default_destination_is_still_home(self):
         # Nothing in this module may move where a player lands by existing.

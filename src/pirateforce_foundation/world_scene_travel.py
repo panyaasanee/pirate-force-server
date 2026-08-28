@@ -107,6 +107,7 @@ REGISTRY_PATH = (
 HOME_SCENE_ID = SCENE_ID
 TEST_STAGE_SCENE_ID = 278
 PRISON_EXILE_SCENE_ID = 2
+HELL_VOLCANO_SCENE_ID = 14
 MEASURED_SCENE_IDS = (1, 2)
 CENSUS_SCENE_ID = SCENE_ID
 CENSUS_SOURCE = "bg0001_census"
@@ -120,9 +121,22 @@ CENSUS_SOURCE = "bg0001_census"
 # see that module for the builder this string refers to, and its own
 # docstring for what "roster" vs bg0001's "census" is meant to signal (every
 # Bg0002 entry is already named; there is no named/nameless split to describe).
+# WIDENED 2026-08-29 (round vyi2ud, LANE-A) with the third composer this lane
+# has shipped: "bg0015_roster" is ``world_population_bg0015.py``'s own name for
+# itself, on main since round 02k3w5, refusing every scene but 14 exactly the
+# way the other two refuse everything but theirs.  What this line changes is a
+# REPORT, not a dispatch: with scene 14 absent, the scene-entry console line
+# printed ``population=none`` for a scene that has had a composed 81-actor
+# roster in this repository for two rounds, and ``world_population_handoff``
+# named its reason ``scene_14_has_no_population_table`` - both false at HEAD.
+# Neither reads this table to decide what to SEND (the handoff still takes its
+# CLEAR branch for every source but bg0001's, unchanged), so nothing here
+# wires the roster to an arrival; that is the one line this lane cannot write
+# for itself and the round's letter to chief asks for it by name.
 CENSUS_SOURCES = {
     CENSUS_SCENE_ID: CENSUS_SOURCE,
     PRISON_EXILE_SCENE_ID: "bg0002_roster",
+    HELL_VOLCANO_SCENE_ID: "bg0015_roster",
 }
 CLIENT_REGISTERED_SCENE_COUNT = 271
 
