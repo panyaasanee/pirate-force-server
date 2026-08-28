@@ -52,6 +52,7 @@ from typing import Any
 
 from . import scene2_prison_exile_tables as tables
 from . import world_population
+from . import world_scene_numbering
 from .population import (
     FULL_MOVEMENT_MASK,
     MOVEMENT_ATTR_ID,
@@ -100,6 +101,13 @@ class Bg0002PopulationGeneration:
     frame: bytes
     entry_bytes: tuple[int, ...] = ()
     count_source: str = COUNT_SOURCE_CALLER
+    # The scene this collection was actually built for, carried on the
+    # generation rather than read from the module constant at print time.  The
+    # bg0001 module learned this the hard way in round o8cy9q: a token that
+    # names a module-level scene reports that scene even when the census in
+    # hand belongs to another one, which is exactly the class of wrong the
+    # guard exists to catch.
+    scene_id: int = SCENE2_N_ID
 
     @property
     def pc_bytes(self) -> int:
@@ -247,6 +255,7 @@ def build_bg0002_population(
         frame,
         tuple(len(entry) for entry in entries),
         count_source,
+        scene_id,
     )
 
 
@@ -305,12 +314,20 @@ def census_console_line(generation: Bg0002PopulationGeneration) -> str:
     """The ``WORLD_CENSUS`` line PANYA-DECISION 2026-08-27 20:10's headless
     gate requires: ``assembled=N/N``, plus the same wire/body cross-check
     ``world_population.census_console_line`` prints for bg0001.  ASCII only.
+
+    It also carries the identity-guard verdict for the scene this generation
+    was built for.  Scene 2 is the scene actually shipping a roster on the
+    "NN = MOBS.n_ID" hypothesis, so until round 9mtqfv it was the one scene
+    sending identities on an unconfirmed premise with no warning in its own
+    boot - bg0001 got that line in round o8cy9q and this one did not.  The
+    token is appended, never spliced in, so every reader matching on the
+    ``WORLD_CENSUS `` prefix keeps working unchanged.
     """
     report = dispatch_report(generation)
     return (
         "WORLD_CENSUS assembled={0}/{1} wire={2} bodies={3} pc={4}B frame={5}B "
         "anchor=({6:.3f},{7:.3f},{8:.3f}) reapply_ms={9} source={10} "
-        "shortfall={11} unresolved={12}".format(
+        "shortfall={11} unresolved={12} | {13}".format(
             report["assembled_count"], report["roster_count"],
             report["wire_actor_count"] if report["counts_agree"]
             else "MISMATCH:%d" % report["wire_actor_count"],
@@ -320,6 +337,8 @@ def census_console_line(generation: Bg0002PopulationGeneration) -> str:
             report["initial_reapply_ms"], report["count_source"],
             report["shortfall_reason"] or "none",
             report["unresolved_count"],
+            world_scene_numbering.numbering_console_suffix(
+                generation.scene_id),
         )
     )
 
