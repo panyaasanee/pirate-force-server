@@ -671,22 +671,22 @@ class HookBehaviourTests(_AllowlistCase):
         # the authenticated identity and the payload is client-supplied
         # text. Swapping them, or misspelling the attribute, must be red.
         session = self.fire(self.GM_ACCOUNT, "/warp 2")
-        self.assertEqual(session.events, ["gm_chat_command_accepted_warp"])
+        self.assertEqual(session.events, ["gm_chat_hook_command_accepted_warp"])
 
     def test_the_hook_names_the_command_it_accepted(self):
         session = self.fire(self.GM_ACCOUNT, "/lv 30")
-        self.assertEqual(session.events, ["gm_chat_command_accepted_lv"])
+        self.assertEqual(session.events, ["gm_chat_hook_command_accepted_lv"])
 
     def test_the_hook_refuses_a_non_gm_account(self):
         session = self.fire(self.PLAYER_ACCOUNT, "/warp 2")
         self.assertEqual(
-            session.events, ["gm_chat_command_refused_not_gm_account"]
+            session.events, ["gm_chat_hook_command_refused_not_gm_account"]
         )
 
     def test_the_hook_marks_ordinary_chat_as_not_a_command(self):
         session = self.fire(self.GM_ACCOUNT, "hello there")
         self.assertEqual(
-            session.events, ["gm_chat_command_refused_not_a_command"]
+            session.events, ["gm_chat_hook_command_refused_not_a_command"]
         )
 
     def test_no_event_the_hook_emits_ever_carries_the_typed_text(self):
@@ -707,7 +707,7 @@ class HookBehaviourTests(_AllowlistCase):
         self.hook_fn()(session, b"\x00\x01\x02")
         self.assertEqual(len(session.events), 1)
         self.assertTrue(session.events[0].startswith(
-            "gm_chat_command_refused_"
+            "gm_chat_hook_command_refused_"
         ))
 
     def test_the_hook_works_when_driven_through_lane_hooks_fire(self):
@@ -730,7 +730,7 @@ class HookBehaviourTests(_AllowlistCase):
         )
         self.assertEqual(
             session.events,
-            ["gm_chat_command_accepted_warp"],
+            ["gm_chat_hook_command_accepted_warp"],
             msg="fire() swallowed an exception from the hook -- check the "
                 "keyword names against the hook's parameters",
         )
@@ -743,7 +743,7 @@ class HookBehaviourTests(_AllowlistCase):
             session = _FakeSession(self.GM_ACCOUNT)
             self.hook_fn()(session, make_chat_payload("/warp 2"))
         self.assertEqual(
-            session.events, ["gm_chat_command_refused_not_gm_account"]
+            session.events, ["gm_chat_hook_command_refused_not_gm_account"]
         )
 
 

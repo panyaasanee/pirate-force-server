@@ -47,6 +47,23 @@ from ..gm.chat_command import handle_local_talk_chat
 # to ordinary players.
 production_allowed = True
 
+# 🔴 THESE PREFIXES MUST DIFFER FROM `gm/chat_command_action.py`'s.
+# CORE-REQUEST-GM-029 supersedes GM-028: chief is asked to wire the
+# action-returning function INSTEAD of a `fire()` point here, and exactly one
+# of the two may exist at the 0xAC52 branch.  pf-adversary (round gr2q9j)
+# measured what wiring both costs and, worse, how invisible it is: one typed
+# `/warp 2 100 200` produced TWO byte-identical ndjson rows (same
+# second-granularity timestamp, so indistinguishable from a GM typing the
+# same command twice), consumed two rate-limit slots -- silently halving the
+# GM's real command budget, with the second charge being the one that starts
+# refusing commands -- and, because both routes used the SAME event strings,
+# produced two identical event lines rather than a collision anyone could
+# grep for.  Distinct prefixes are the cheap half of the fix: they cannot
+# prevent a double-wire, but they make one legible the moment anyone looks at
+# the event trail, instead of looking exactly like normal operation.
+HOOK_EVENT_ACCEPTED_PREFIX = "gm_chat_hook_command_accepted_"
+HOOK_EVENT_REFUSED_PREFIX = "gm_chat_hook_command_refused_"
+
 
 @hook("vital_inbound_chat_local_talk")
 def _on_chat_local_talk(session: object, payload: bytes) -> None:
@@ -58,7 +75,7 @@ def _on_chat_local_talk(session: object, payload: bytes) -> None:
     outcome = handle_local_talk_chat(session.token, payload)  # type: ignore[attr-defined]
     if outcome.command is not None:
         session.events.append(  # type: ignore[attr-defined]
-            f"gm_chat_command_accepted_{outcome.command.name}"
+            f"{HOOK_EVENT_ACCEPTED_PREFIX}{outcome.command.name}"
         )
         return
     # Every other path is a refusal, including the ordinary-chat one. The
@@ -67,5 +84,5 @@ def _on_chat_local_talk(session: object, payload: bytes) -> None:
     # chat line), and the refusal reasons never carry the typed text, so a
     # console full of these leaks nothing about what players said.
     session.events.append(  # type: ignore[attr-defined]
-        f"gm_chat_command_refused_{outcome.refusal_reason}"
+        f"{HOOK_EVENT_REFUSED_PREFIX}{outcome.refusal_reason}"
     )
