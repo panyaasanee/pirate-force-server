@@ -59,8 +59,9 @@ name it explicitly as a required property of this package, not optional).
 Every hook prints a token twice: once at registration (import time, via the
 ``hook`` decorator below, on STDERR -- see the decorator's own comment for
 why not stdout) and once at each real firing on the production path
-(inside ``fire()``, on stdout, same channel every other wire-emission token
-in this project already uses). These tokens are DESIGNED to be grepped by a
+(inside ``fire()``, also on STDERR since round lo7e03, for the same reason:
+the 0xAC52 point fires on a vital every client sends, and the token landed
+inside a replay tool's --json stdout artifact). These tokens are DESIGNED to be grepped by a
 WIRED v2-style check and by a headless smoke test the same way this
 project's other console tokens already are (notes_to_chief 20260827 "WIRED
 v2" -- import alone does not count, emission on the production path does)
@@ -108,10 +109,19 @@ def hook(point: str) -> Callable[[Callable[..., None]], Callable[..., None]]:
         # test_ground_loot_nameprop_hypothesis's own json-mode test the
         # first time this package existed, neither of which touches this
         # hook's point at all -- they just happened to import runtime.py.
-        # fire() below stays on stdout: it only ever runs on the actual
-        # dispatch path for a specific vital, so it cannot leak into an
-        # unrelated tool's output the way an unconditional import-time
-        # print can.
+        # fire() below is on stderr for the same reason, since round
+        # lo7e03 (CORE-REQUEST-GM-028).  It used to be on stdout, with the
+        # argument that it "only ever runs on the actual dispatch path for
+        # a specific vital, so it cannot leak into an unrelated tool's
+        # output".  That argument was written when the only fire point was
+        # 0x51E9, a vital GT-103 measured at zero frames per boot.  The
+        # second point is 0xAC52, which every client sends freely, and it
+        # leaked immediately: measured, tools/pf_runtimeres_death_headless_
+        # replay.py --json gained one LANE_HOOK_FIRED line in its stdout
+        # artifact, because its scenario-off control dispatches a chat
+        # frame.  A grader that greps the console still sees the token --
+        # stderr is the console too -- and a tool that redirects stdout to
+        # a file gets its JSON back.
         print(f"LANE_HOOK_REGISTERED {module_name} {point}", file=sys.stderr)
         return fn
 
@@ -148,11 +158,14 @@ def fire(point: str, **kwargs: object) -> None:
     return-value contract).
     """
     for module_name, fn in _HOOKS.get(point, ()):
-        print(f"LANE_HOOK_FIRED {module_name} {point}")
+        print(f"LANE_HOOK_FIRED {module_name} {point}", file=sys.stderr)
         try:
             fn(**kwargs)
         except Exception as exc:  # noqa: BLE001 - fail-closed by design, see docstring
-            print(_console_safe(f"LANE_HOOK {module_name} {point} ERR {exc!r}"))
+            print(
+                _console_safe(f"LANE_HOOK {module_name} {point} ERR {exc!r}"),
+                file=sys.stderr,
+            )
 
 
 def registered_points() -> dict[str, int]:

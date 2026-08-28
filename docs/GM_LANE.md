@@ -1544,11 +1544,35 @@ is GM actions per account, not frames per door, and two counters would
 quietly double the ceiling this lane advertises.
 
 `lane_hooks/lane_gm_chat_command.py` registers for point
-`vital_inbound_chat_local_talk`. That point does not exist yet: `runtime.py`
-has exactly one `lane_hooks.fire()` site (the 0x51E9 one) and none at the
-`0xAC52` branch, so the hook is inert and this round changes nothing about
-how the server behaves for anybody. `CORE-REQUEST-GM-028` asks chief for the
-three lines; `GT-127` is `[BLOCKED-ON-WIRING]` until they land.
+`vital_inbound_chat_local_talk`. That point was inert for one round and is
+now live: chief wired it in round `lo7e03` (R214, `CORE-REQUEST-GM-028`) as
+the second `lane_hooks.fire()` site in `runtime.py`, at the `0xAC52` branch,
+after every chat-keyed scenario lane, with no `return`, no `rx_frames` bump
+and a `foundation.selected is not None` readiness guard.
+`tests/test_gm_chat_command_dispatch_wiring.py` drives it headless on a
+**flagless** boot and pins the three actions and the frame count a chat
+frame produced before the branch existed, so the frame's own behaviour is
+measured-unchanged rather than asserted.
+
+Three things that file does NOT prove, measured by `pf-adversary` in the
+same round and stated here so nobody repeats them as fact:
+
+- **Scenario boots are not all untouched.** The 14 chat-keyed lanes return
+  before this line, so those are byte-identical; a scenario boot keyed on
+  some *other* vital reaches this line and does fire the hook.
+- **Two surfaces change on any boot**: `self.events` gains one refusal per
+  chat line for every ordinary player, and the console gains one
+  `LANE_HOOK_FIRED` line per chat line. `fire()` was moved to stderr in
+  the same PR so a tool's stdout artifact stays clean.
+- **The GM door is silently absent under a chat-keyed scenario boot** (e.g.
+  `--chat-input-hypothesis-scenario`): that lane claims the frame first and
+  the hook never sees it. Indistinguishable, from the outside, from "not a
+  GM".
+
+`GT-127` is no longer blocked on wiring. It is still blocked on a tester at
+the client **and** on the `GM_UpdateGMStateVital` (0x5A19) question recorded
+above: putting the tester's account on the allowlist is what makes the
+server send that frame on login, and `GT-107-R3` is still `[PENDING]`.
 
 A hook-file mutation was found mid-round and is worth recording because of
 what it exposed: line 53 appeared as `handle_local_talk_chat(payload,
