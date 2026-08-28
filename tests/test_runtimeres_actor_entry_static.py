@@ -347,9 +347,12 @@ class TestTheAnswer(unittest.TestCase):
         # tests/test_static_verifier_pins_cloud.py recomputes from src/ on
         # any clone -- four copies that a single drift now reddens together
         # instead of one that rots alone.
-        self.assertEqual(counts["src_actor_stream_call_sites"], 23)
-        self.assertEqual(counts["src_actor_entry_call_sites"], 15)
-        self.assertEqual(counts["src_modules_building_actor_entries"], 14)
+        # 23 -> 24, 15 -> 16, 14 -> 15 on 2026-08-28 (LANE-A round w0pu2i):
+        # world_population_bg0015.py, the Bg0015 census, builds one entry and
+        # sends one carrier -- the same single-module move bg0002 made.
+        self.assertEqual(counts["src_actor_stream_call_sites"], 24)
+        self.assertEqual(counts["src_actor_entry_call_sites"], 16)
+        self.assertEqual(counts["src_modules_building_actor_entries"], 15)
         self.assertIn(
             "npc_hostile_hypothesis.py",
             counts["src_modules_building_actor_entries_names"],
