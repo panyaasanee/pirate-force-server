@@ -16,7 +16,7 @@
     "candidate_reading_status": "CANDIDATE, NOT ESTABLISHED - two observations are consistent with it and with three rival readings that agree at exactly those two rows",
     "identity_evidence": [
       "table row n_ID=1 is model BG0001, and bg0001 is the map every boot in this project has ever rendered with scene_id=1",
-      "table row n_ID=2 is model BG0002, Prison Exile Island, and docs/EXPERIMENT_LEDGER.md:31 records SCENE-001 as a RUNTIME PASS in which the client loaded and rendered Prison Exile Island when this server sent scene_id=2"
+      "table row n_ID=2 is model BG0002, Prison Exile Island, and docs/EXPERIMENT_LEDGER.md:32 records SCENE-001 as a RUNTIME PASS in which the client loaded and rendered Prison Exile Island when this server sent scene_id=2"
     ],
     "rival_readings_not_excluded": [
       "n_MARKER: equals n_ID on only 12 of 271 rows, and rows 1 and 2 are both inside those 12. Under this reading Bg1177 has NO addressable value at all, because its n_MARKER is 0.",
@@ -25,6 +25,15 @@
     ],
     "what_would_settle_it": "static: find what consumes the ActorAttr scene field (+0x5C per v141:2307) and which table it indexes on a hit. That is RE-077 job T2, extended by the LANE-A rider of round jjxgz3 to cover the HIT path and not only the MISS path. Attended: GT-078 answers it empirically for this one row.",
     "known_trap": "notes_to_chief/20260824_0038_GT053-RESULT-* refused a MAP_SCENE_LIST.n_ID join for exactly this reason - a numeric coincidence at a low row is not an identity."
+  },
+  "arrival_point_rule": {
+    "ruling": "COO-DECISION 20260829_0542 (pf_bridge/notes_to_chief/20260829_0542_COO-DECISION-marker-table-is-the-default-spawn-source-with-an-evidence-label.md), answering LANE-A's 20260829_0447 ask. Accepted as a STANDING rule of the project, so a scene with a marker no longer needs a per-scene decision to get an arrival point.",
+    "rule_1_default_source": "A scene whose SCENE_NAME[n].n_MARKER != 0 takes MARKER[n_MARKER] as its arrival point, with no per-scene ruling asked for. A scene whose n_MARKER == 0 keeps every older rule unchanged - client evidence, an owner decree, or refusal - and inventing a coordinate remains forbidden. 13 of the client's 271 scenes carry a non-zero n_MARKER.",
+    "rule_2_indirect_read_only": "MANDATORY INDIRECTION, AND IT IS A PROHIBITION RATHER THAN A PREFERENCE: resolve through SCENE_NAME[n].n_MARKER, never by indexing MARKER with a scene id. Measured reason, and it is why the prohibition is needed rather than obvious - the shortcut AGREES with the crosswalk on 12 of the 13 marker scenes, so it will look correct to whoever introduces it: it hands scene 130 another map's row (scene 130 names marker 1000), and 19-12=7 MARKER rows carry n_ID == n_SCENE while not being the row their own scene named, so for seven scene ids the shortcut returns a row that passes a naive back-pointer check and is still not that scene's arrival point. The count 7 is exact (each of the 12 necessarily has n_ID == n_SCENE, since its row names its scene back); what those seven ARE is deliberately not claimed - scene 130 names marker 1000, so a MARKER[130] row carrying n_SCENE 130 would be one of the seven and would belong to a scene that has a marker rather than to one with none. Settling that needs the full 390-row table, which is in the bridge repo. src/pirateforce_foundation/world_scene_marker.py:forbidden_direct_index_scenes() is this rule as arithmetic.",
+    "rule_3_evidence_tier": "A marker-sourced point is evidence tier 'authored' - the map's developers wrote that coordinate down - UNLESS an attended or runtime pass has actually stood a client on that exact point, which is the only thing that raises it. Scene 2 is the one row in this file that has cleared that bar (MARKER[2] was the coordinate, and SCENE-001 then loaded and rendered Prison Exile Island with a client standing on it, docs/EXPERIMENT_LEDGER.md:32), so it reads 'client-observed' while still being from_marker true. Every other marker-sourced row is 'authored' and MUST NOT be promoted to confirmed until an attended round stands a client on it and a human looks (COO-DECISION 20260828_2250 still governs promotion, unchanged by this ruling). CORRECTED after pf-adversary (round 8ubiku, D6): the first version of this sentence read 'It is NOT client-observed' flatly, which was false of scene 2 one hundred lines below it in this same file, and the test that was supposed to enforce the ceiling hard-coded scene 2 out of its own loop rather than the rule stating its exception. Every row carries coordinate_provenance naming the marker it came from, or saying explicitly that it came from something else, plus deviates_from_rule_1 for the one case (scene 1) that has a marker and declines it. ENFORCEMENT, because the first version of this rule was a self-report: world_scene_travel's loader now decides whether rule 1 reaches a scene from table_row.n_MARKER - the client's own column - not from the row's from_marker flag, and a row claiming a marker must name the marker its table row names AND stand on that marker's pinned coordinate. A row can no longer vote itself out of the rule, which is exactly what it could do before (pf-adversary D2/D3).",
+    "what_this_ruling_did_not_do": "It did not open any door. Scene 14's login_entry_allowed stays false (set by LANE-A round vyi2ud after pf-adversary measured three defects, re-confirmed by chief letter 20260829_0520). Giving a scene an address is not wiring a scene. The COO also ordered that the rule may not be applied to a sixth scene until this text is on main, so the rule and its first use cannot land in one unreviewed step.",
+    "how_this_rule_falls": "GT-134 is its first proof. The COO's own words: if the tester surfaces in rock, in lava, or under the floor, this rule falls immediately and LANE-A reverts under item 4 of its own 0447 letter without asking again.",
+    "carve_out_scene_1_home_is_not_retro_moved": "[LANE-A ASSUMPTION - AWAITING COO CONFIRMATION] Scene 1 HAS n_MARKER = 1, so rule 1 read literally would replace the spawn this runtime has stood every new character on since V135 with MARKER[1] - a point 2340.22 units away in XY and 2382.66 in three dimensions. LANE-A reads rule 1 as a DEFAULT FOR A SCENE THAT DOES NOT ALREADY HAVE AN ARRIVAL POINT IN USE, not as a retro-correction of one that does, because the COO's own reasoning calls the rule 'a default, not a truth' and states in the same letter that MARKER[1] being 2200-odd units from the live spawn is why. So scene 1's spawn is UNCHANGED by this round. If the COO meant the stronger reading, the revert is one row of this file and it moves every new character's home; the ask is notes_to_chief/20260829_0739_LANE-A-ASK-COO-does-rule-1-retro-move-scene-1-home.md."
   },
   "provenance": {
     "scene_name_table": "pf_bridge/gamedata/tables/CONSTDATA_TH__SCENE_NAME.tsv",
@@ -90,6 +99,14 @@
         "z": 223.29209899902344,
         "provenance": "V135 new-character spawn, the position this runtime stands a fresh character on in every default boot"
       },
+      "coordinate_provenance": {
+        "source": "client_observed_runtime_spawn",
+        "from_marker": false,
+        "marker_n_id": null,
+        "evidence_tier": "client-observed",
+        "note": "V135's new-character spawn, the point this runtime stands a fresh character on in every default boot, so it is observed on every boot rather than authored in a table. Scene 1 DOES have a marker (n_MARKER = 1) and this row deliberately does not use it: MARKER[1] is (-10322, -755, 671), 2340.22 units away in XY and 2382.66 in three dimensions. See carve_out_scene_1_home_is_not_retro_moved above - this is the one row where rule 1 and the running server disagree, and the disagreement is recorded rather than resolved by silently moving home. DEVIATION FROM RULE 1, DECLARED: this scene HAS marker 1, and rule 1 says a scene with a marker takes it. This row declines, and the loader now REQUIRES that refusal to be declared here rather than expressed as a false from_marker flag - see carve_out_scene_1_home_is_not_retro_moved. Exactly one row in this file may look like this, and a test pins that it is this one.",
+        "deviates_from_rule_1": true
+      },
       "ground": null
     },
     {
@@ -124,6 +141,14 @@
         "y": 21185.0,
         "z": 1680.0,
         "provenance": "scene2_marker2, the position scenarios/scene2_load_only.json stood a live client on in SCENE-001"
+      },
+      "coordinate_provenance": {
+        "source": "client_marker_table",
+        "from_marker": true,
+        "marker_n_id": 2,
+        "evidence_tier": "client-observed",
+        "note": "The one row that is BOTH marker-sourced and client-observed, and the distinction is worth keeping: the coordinate came from MARKER[2] (scenarios/scene2_load_only.json, named scene2_load_only_marker2, coordinate_provenance scene2_marker2), and SCENE-001 then stood a live client on it (docs/EXPERIMENT_LEDGER.md:32, a runtime pass). That is the strongest evidence any marker point has. It is still NOT proof of rule 1's real claim: the client was placed there by this server behind a scenario flag, not by the original game's own arrival path.",
+        "deviates_from_rule_1": false
       },
       "ground": null
     },
@@ -164,6 +189,14 @@
         "y": 18989.0,
         "z": 1894.0,
         "provenance": "CLIENT_MARKER_TABLE: SCENE_NAME[14].n_MARKER = 14 -> MARKER[14] = (n_SCENE 14, n_X, n_Y, n_Z, n_DIRTECTION 6), read as two's-complement int32 (src/pirateforce_foundation/world_scene_marker.py, which pins both source TSV hashes and carries the re-derivation command). This is an AUTHORED point - the people who built the map put it there - and it is the first spawn in this registry that is neither a runtime historical choice (scene 1), nor a monster placement borrowed for want of anything better (scene 278), nor an owner decree (scene 17). WHAT THE CLIENT HAS ACTUALLY DONE WITH MARKER POINTS, which is a weaker claim than this round first wrote and the only one the repository supports: it has ACCEPTED them twice. reports/PF_RE_V137_MARKER1_TeleportVital_Transport_Pass_20260815.md (V137, 2026-08-15, FUNCTIONAL_COVERAGE.json teleport_transport = runtime_pass) transported a visible client to MARKER[1] and its coordinate UI read X:-10322 Y:-755; scenarios/scene2_load_only.json stood a client on MARKER[2] in SCENE-001. NOT a corroboration by an independent measurement: the scene-2 spawn in this very file came FROM marker 2 (that scenario's own coordinate_provenance is 'scene2_marker2'), so the table agreeing with it is the table agreeing with itself - pf-adversary, round vyi2ud, D5. [LANE-A ASSUMPTION - AWAITING COO CONFIRMATION] that a MARKER row is the right place to stand an arriving character: pf_bridge/notes_to_chief/20260829_0447_LANE-A-ASK-COO-marker-table-as-default-spawn.md asks for it and names the revert (this row, and only this row)."
+      },
+      "coordinate_provenance": {
+        "source": "client_marker_table",
+        "from_marker": true,
+        "marker_n_id": 14,
+        "evidence_tier": "authored",
+        "note": "SCENE_NAME[14].n_MARKER = 14 -> MARKER[14], whose own n_SCENE points back at 14, read as two's-complement int32. Pinned with both source hashes in src/pirateforce_foundation/world_scene_marker.py. Authored and no more than authored: no client has ever been stood on this point, and the door into this scene is shut. GT-134 is the attended proof that would raise it.",
+        "deviates_from_rule_1": false
       },
       "ground": null,
       "login_entry_allowed": false,
@@ -213,6 +246,14 @@
         "y": 0.0,
         "z": 0.0,
         "provenance": "PROVISIONAL-OWNER-DECREE-20260827-1445 (owner decree, pf_bridge/notes_to_chief/20260827_1445_PANYA-DECISION-scene17-provisional-arrival-xyz-0-0-0-owner-decree-ka1-B.md) -- NOT measured, NOT modeled; this is the owner exercising a one-time exception to the no-invented-coordinate rule below, for this exact scene and this exact value only. Expires the day RE-103 T3 client-observable or wire evidence lands (GT-106 tracks it, not GT-104 - that number is a different, unrelated ticket); until then every arrival here must print the SCENE_ENTRY ... source=PROVISIONAL-OWNER-DECREE-20260827-1445 token (world_scene_entry.py resolve_entry) so a decreed landing is never mistaken for a measured one."
+      },
+      "coordinate_provenance": {
+        "source": "owner_decree",
+        "from_marker": false,
+        "marker_n_id": null,
+        "evidence_tier": "decreed_provisional",
+        "note": "n_MARKER = 0, so the crosswalk gives this scene nothing and rule 1 does not reach it - the same bounded negative RE-103 closed on, arriving from the table that would have carried it. PROVISIONAL-OWNER-DECREE-20260827-1445 remains the only source, under its own expiry.",
+        "deviates_from_rule_1": false
       },
       "ground": {
         "derived_from": "the eight native placements of this scene",
@@ -290,6 +331,14 @@
         "z": -2492.7685546875,
         "provenance": "native placement index 4, 'Mob_set_02 04' - an authored position the scene's own developer placed something on, chosen over a synthetic point because it is the only kind of position in this scene with any evidence under it"
       },
+      "coordinate_provenance": {
+        "source": "native_placement",
+        "from_marker": false,
+        "marker_n_id": null,
+        "evidence_tier": "authored",
+        "note": "n_MARKER = 0. Native placement index 4, 'Mob_set_02 04' - an authored position this scene's own developer placed something on. Authored like a marker is authored, but from the scene file rather than the marker table, and chosen because it was the only evidence-backed coordinate in the scene.",
+        "deviates_from_rule_1": false
+      },
       "superseded_spawn": {
         "x": -12571.7366536458,
         "y": 22893.2862413194,
@@ -363,6 +412,14 @@
         "y": 1000.0,
         "z": 0.0,
         "provenance": "COO-DECISION 20260826_0246 section 1.2 named this point as the M2 stage arrival. It is a CHOSEN point, not a measured one: this scene's shipped .npc is 6 bytes and carries zero placements, so there is no authored position anywhere in it to prefer over any other. Scene 278's spawn, by contrast, sits on an authored placement. That difference is the price of this stage and it is stated rather than hidden."
+      },
+      "coordinate_provenance": {
+        "source": "chosen_point",
+        "from_marker": false,
+        "marker_n_id": null,
+        "evidence_tier": "chosen_no_evidence",
+        "note": "n_MARKER = 0, and this scene's shipped .npc is 6 bytes with zero placements, so there is no authored position anywhere in it to prefer. COO-DECISION 20260826_0246 section 1.2 named the point. The weakest tier in this file, and the one row here that rule 1's 'never invent a coordinate' clause would forbid if it were being decided today.",
+        "deviates_from_rule_1": false
       },
       "ground": null
     }

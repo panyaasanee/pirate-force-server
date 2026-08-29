@@ -404,6 +404,107 @@ class SceneRegistryRefusalTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             load_scene_registry(_write(self.tmp, data))
 
+    def test_a_destination_without_coordinate_provenance_is_refused(self):
+        # COO-DECISION 20260829_0542 rule 3 as a load-time guard rather than
+        # a convention: a row whose coordinate has no stated origin does not
+        # load at all.  Without this the rule is a docstring, and the next
+        # scene arrives with an unattributed point.
+        data = _raw()
+        del data["destinations"][0]["coordinate_provenance"]
+        with self.assertRaises(ValueError):
+            load_scene_registry(_write(self.tmp, data))
+
+    def test_a_half_written_coordinate_provenance_is_refused(self):
+        for missing in ("source", "from_marker", "marker_n_id",
+                        "evidence_tier", "note"):
+            with self.subTest(missing=missing):
+                data = _raw()
+                del data["destinations"][0]["coordinate_provenance"][missing]
+                with self.assertRaises(ValueError):
+                    load_scene_registry(_write(self.tmp, data))
+
+    def test_a_row_that_claims_a_marker_without_naming_one_is_refused(self):
+        # And its mirror: a row that disclaims a marker but carries an id.
+        # Either way the field would record a decision nobody made.
+        data = _raw()
+        for row in data["destinations"]:
+            if row["n_id"] == 14:
+                row["coordinate_provenance"]["marker_n_id"] = None
+        with self.assertRaises(ValueError):
+            load_scene_registry(_write(self.tmp, data))
+
+        data = _raw()
+        for row in data["destinations"]:
+            if row["n_id"] == 17:
+                row["coordinate_provenance"]["marker_n_id"] = 17
+        with self.assertRaises(ValueError):
+            load_scene_registry(_write(self.tmp, data))
+
+    def test_a_marker_scene_cannot_flip_its_own_flag_out_of_the_rule(self):
+        # THE EXACT ATTACK pf-adversary ran (round 8ubiku, D2): set scene
+        # 14's from_marker to false and its tier to client-observed, leaving
+        # the spawn byte-identical to MARKER[14].  Under the first version
+        # of this round the whole suite stayed green and an authored point
+        # had been promoted with no attended round.  The authority is now
+        # table_row.n_MARKER, which the row does not get a vote on.
+        data = _raw()
+        for row in data["destinations"]:
+            if row["n_id"] == 14:
+                row["coordinate_provenance"].update(
+                    from_marker=False, marker_n_id=None,
+                    evidence_tier="client-observed",
+                )
+        with self.assertRaises(ValueError):
+            load_scene_registry(_write(self.tmp, data))
+
+    def test_a_row_that_names_a_marker_its_table_row_does_not_is_refused(self):
+        data = _raw()
+        for row in data["destinations"]:
+            if row["n_id"] == 14:
+                row["coordinate_provenance"]["marker_n_id"] = 2
+        with self.assertRaises(ValueError):
+            load_scene_registry(_write(self.tmp, data))
+
+    def test_a_marker_provenance_whose_spawn_is_not_the_marker_is_refused(self):
+        # The check that stops the provenance field being edited in the same
+        # commit as the coordinate it describes: the pinned crosswalk is a
+        # second opinion sourced from the client's table, not from this file.
+        data = _raw()
+        for row in data["destinations"]:
+            if row["n_id"] == 14:
+                row["spawn"]["x"] = row["spawn"]["x"] + 1.0
+        with self.assertRaises(ValueError):
+            load_scene_registry(_write(self.tmp, data))
+
+    def test_an_undeclared_deviation_from_rule_1_is_refused(self):
+        # Scene 1 has marker 1 and declines to use it.  That stays possible,
+        # but only as a labelled deviation a reader can grep for.
+        data = _raw()
+        for row in data["destinations"]:
+            if row["n_id"] == 1:
+                row["coordinate_provenance"]["deviates_from_rule_1"] = False
+        with self.assertRaises(ValueError):
+            load_scene_registry(_write(self.tmp, data))
+
+    def test_a_deviation_declared_by_a_scene_with_no_marker_is_refused(self):
+        data = _raw()
+        for row in data["destinations"]:
+            if row["n_id"] == 17:
+                row["coordinate_provenance"]["deviates_from_rule_1"] = True
+        with self.assertRaises(ValueError):
+            load_scene_registry(_write(self.tmp, data))
+
+    def test_an_invented_evidence_tier_is_refused(self):
+        # An open string field would let a round write "verified" and mean
+        # nothing by it.
+        for bad in ("confirmed", "verified", "authored-ish", "", None):
+            with self.subTest(bad=bad):
+                data = _raw()
+                data["destinations"][0]["coordinate_provenance"][
+                    "evidence_tier"] = bad
+                with self.assertRaises(ValueError):
+                    load_scene_registry(_write(self.tmp, data))
+
     def test_a_duplicated_scene_is_refused(self):
         data = _raw()
         data["destinations"].append(dict(data["destinations"][0]))

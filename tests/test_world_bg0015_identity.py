@@ -228,6 +228,10 @@ class CollidesWithACommittedTableTest(unittest.TestCase):
                 "actor_identity": placement.actor_identity,
                 "theirs": (template_id, row[6]),
                 "ours": (placement.n_id, placement.display_name),
+                # Added by LANE-A round 8ubiku when confirming lane B's
+                # rewrite: rows 2..4 of their tuple are the placement XYZ.
+                "theirs_xyz": (row[2], row[3], row[4]),
+                "ours_xyz": (placement.x, placement.y, placement.z),
             }
         return out
 
@@ -237,8 +241,18 @@ class CollidesWithACommittedTableTest(unittest.TestCase):
 
     # ~~test_sixteen_placements_have_two_committed_identities~~ and
     # ~~test_the_other_tables_reading_is_the_one_gt078_rejected~~ --
-    # [LANE-B แก้ไฟล์ของสาย A - รอสาย A ยืนยัน] EDITED BY LANE-B, round
+    # ~~[LANE-B แก้ไฟล์ของสาย A - รอสาย A ยืนยัน]~~ **CONFIRMED BY LANE-A,
+    # round 8ubiku (2026-08-29T07:4x+07:00)** -- EDITED BY LANE-B, round
     # ua236k, and this note is here because this file is lane A's.
+    #
+    # Lane A re-measured the claim at HEAD before accepting it, rather than
+    # accepting a letter that said this lane's problem was solved: the two
+    # tables share 12 placements, agree on n_ID, name AND XYZ at all 12, and
+    # exactly one member of COLLIDING_PLACEMENTS (70) is still in lane B's
+    # table.  The rewrite is kept as lane B wrote it, with one addition
+    # below (the XYZ leg), because lane B pinned the identity agreement and
+    # not the position agreement - and two tables that name the same monster
+    # at two different points would still be a collision.
     #
     # Both tests asserted that field_mob_tables_bg0015 disagreed with this
     # module: sixteen placements with two committed identities, theirs read
@@ -276,6 +290,16 @@ class CollidesWithACommittedTableTest(unittest.TestCase):
                     % (index,),
                 )
                 self.assertEqual(row["actor_identity"], 0x2000 + index + 1)
+                # LANE-A round 8ubiku.  Agreeing on WHO is at a placement is
+                # not agreeing on WHERE it stands: two tables naming one
+                # monster at two points would still put two actors on the
+                # wire at one identity, which is the collision this class
+                # exists for.  Measured equal to the float at all 12 today.
+                self.assertEqual(
+                    row["theirs_xyz"], row["ours_xyz"],
+                    "the two tables agree on the identity of placement %d "
+                    "but not on its position" % (index,),
+                )
 
     def test_both_readings_are_the_crosswalk_and_neither_is_the_raw_set_number(
             self) -> None:
@@ -289,6 +313,44 @@ class CollidesWithACommittedTableTest(unittest.TestCase):
             with self.subTest(placement=index):
                 self.assertGreater(row["theirs"][0], 115)
                 self.assertGreater(row["ours"][0], 115)
+
+    def test_the_overlap_is_held_back_by_a_withdrawal_not_by_agreement(
+            self) -> None:
+        """LANE-A round 8ubiku, after pf-adversary D4.
+
+        The round's first correction said the collision was GONE.  It is
+        not: all sixteen recorded placements are still in lane B's module,
+        fifteen of them parked in WITHDRAWN/UNRESOLVED with the reason
+        ``not carried: ..._avatar_is_a_variant_list``.  The overlap is held
+        back by lane B declining to ship them, and the identity question for
+        those fifteen was never answered.  This test fails the day that
+        withdrawal is lifted - which is the day the collision returns and
+        the day someone needs to read this class again.
+        """
+        shipped = {row[0] for row in field_mob_tables_bg0015.HOSTILE_PLACEMENTS}
+        withdrawn = {
+            row[0] for row in field_mob_tables_bg0015.WITHDRAWN_UNDER_THIS_RULE
+        }
+        unresolved = {
+            row[0] for row in field_mob_tables_bg0015.UNRESOLVED_PLACEMENTS
+        }
+        recorded = set(identity.COLLIDING_PLACEMENTS)
+
+        # Still all present, somewhere in lane B's module.
+        self.assertEqual(recorded - (shipped | withdrawn | unresolved), set())
+        # Only one of them is a live overlap today.
+        self.assertEqual(recorded & shipped, {70})
+        # The other fifteen are withheld, and for the same stated reason.
+        for index in sorted(recorded - shipped):
+            with self.subTest(placement=index):
+                self.assertIn(index, withdrawn | unresolved)
+        reasons = [
+            row[-1] for row in field_mob_tables_bg0015.WITHDRAWN_UNDER_THIS_RULE
+            if row[0] in recorded
+        ]
+        self.assertTrue(reasons)
+        for reason in reasons:
+            self.assertIn("variant_list", reason)
 
     def test_the_modules_own_collision_list_is_now_history_not_state(
             self) -> None:

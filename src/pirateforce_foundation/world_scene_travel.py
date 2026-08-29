@@ -15,7 +15,7 @@ client's own ``CONSTDATA_TH__SCENE_NAME`` table:
 * ``n_ID`` 1 is model ``BG0001``, and bg0001 is the map every boot in this
   project has rendered under ``scene_id = 1``.
 * ``n_ID`` 2 is model ``BG0002``, Prison Exile Island, and
-  ``docs/EXPERIMENT_LEDGER.md:31`` records SCENE-001 as a runtime PASS in
+  ``docs/EXPERIMENT_LEDGER.md:32`` records SCENE-001 as a runtime PASS in
   which the client loaded and rendered Prison Exile Island after this server
   sent ``scene_id = 2``.
 
@@ -89,6 +89,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from . import world_scene_marker
 from .model import Position
 from .population import SCENE_ID, SCENE_SEQUENCE
 
@@ -144,6 +145,13 @@ _DESTINATION_FIELDS = {
     "n_id", "model_id", "scene_name_source_utf8_hex", "scene_name_ascii",
     "image_name", "native_placement_count", "native_definition_count",
     "native_sha256", "role", "status", "table_row", "spawn", "ground",
+    # REQUIRED, not optional, and that is rule 3 of COO-DECISION
+    # 20260829_0542 being enforced rather than trusted: every destination
+    # states which MARKER row its coordinate came from, or states that it
+    # came from something else.  A row added without it refuses to load,
+    # which is the same fail-closed shape the rest of this loader uses -
+    # the alternative is a coordinate whose evidence tier nobody can name.
+    "coordinate_provenance",
 }
 # Optional per-destination blocks.  ``superseded_spawn`` is history kept in
 # place rather than deleted; ``table_row_differences`` is commentary on the
@@ -177,6 +185,36 @@ _ROOT_FIELDS = {
     "schema", "id", "lane", "build_order", "test_only", "production_allowed",
     "selection", "not_a_scenario", "wire_field", "provenance",
     "table_columns_pinned", "destinations", "capabilities", "nonclaims",
+    # The arrival-point rule the COO made standing on 2026-08-29 (0542):
+    # which scenes may take a MARKER point, that the read must go through
+    # SCENE_NAME[n].n_MARKER and never index MARKER by scene id, and that
+    # the resulting evidence tier is "authored" until an attended round
+    # says otherwise.  Text rather than switches - what enforces it is
+    # world_scene_marker.py plus the required field below.
+    "arrival_point_rule",
+}
+# The shape of that per-row provenance.  Validated like every other block
+# here so a row cannot carry half of it.
+#
+# ``deviates_from_rule_1`` was added after pf-adversary (round 8ubiku, D2)
+# showed the first version was a self-report: it decided whether rule 3
+# applied to a row by reading a boolean THAT ROW set about itself, so
+# flipping ``from_marker`` to false moved a marker-sourced coordinate out of
+# the rule entirely, with its spawn still byte-identical to MARKER[14] and
+# every test green.  A row cannot vote itself out of the rule any more - the
+# authority is ``table_row.n_MARKER``, which comes from the client's table
+# and is already sitting in the same row.
+_COORDINATE_PROVENANCE_FIELDS = {
+    "source", "from_marker", "marker_n_id", "evidence_tier", "note",
+    "deviates_from_rule_1",
+}
+# The tiers this project recognises.  An open string field would let a round
+# invent "verified" or "confirmed-ish" and mean nothing by it.
+_EVIDENCE_TIERS = {
+    "client-observed",      # a client was stood on this point and seen
+    "authored",             # the map's developers wrote the coordinate down
+    "decreed_provisional",  # the owner named it, under an expiry
+    "chosen_no_evidence",   # picked because the scene offered nothing
 }
 
 
@@ -444,6 +482,35 @@ def load_scene_registry(path: str | Path = REGISTRY_PATH) -> SceneRegistry:
         ):
             raise ValueError(
                 f"scene {n_id} ground is incomplete or has unknown fields")
+        provenance_block = row["coordinate_provenance"]
+        if (
+            type(provenance_block) is not dict
+            or set(provenance_block) != _COORDINATE_PROVENANCE_FIELDS
+        ):
+            raise ValueError(
+                f"scene {n_id} coordinate_provenance is incomplete or has "
+                "unknown fields")
+        from_marker = _require_bool(
+            provenance_block["from_marker"], f"scene {n_id} from_marker")
+        deviates = _require_bool(
+            provenance_block["deviates_from_rule_1"],
+            f"scene {n_id} deviates_from_rule_1")
+        marker_n_id = provenance_block["marker_n_id"]
+        if provenance_block["evidence_tier"] not in _EVIDENCE_TIERS:
+            raise ValueError(
+                f"scene {n_id} evidence tier "
+                f"{provenance_block['evidence_tier']!r} is not one this "
+                "project recognises")
+        # The two halves have to agree, or the field records a decision
+        # nobody made: a row that claims a marker must name which one, and a
+        # row that claims none must not carry an id that a later reader
+        # would treat as one.
+        if from_marker:
+            _require_int(marker_n_id, f"scene {n_id} marker n_ID", 1, 0xFFFF)
+        elif marker_n_id is not None:
+            raise ValueError(
+                f"scene {n_id} says its coordinate is not from a marker but "
+                "names one anyway")
         table_row = row["table_row"]
         if type(table_row) is not dict or set(table_row) != _TABLE_ROW_FIELDS:
             raise ValueError(
@@ -451,6 +518,53 @@ def load_scene_registry(path: str | Path = REGISTRY_PATH) -> SceneRegistry:
         for column, value in table_row.items():
             _require_int(value, f"scene {n_id} {column}", 0, 0xFFFFFFFF)
         spawn, spawn_provenance = _spawn(row["spawn"], ground, n_id)
+        # THE AUTHORITY IS THE CLIENT'S TABLE, NOT THE ROW'S OPINION OF
+        # ITSELF.  n_MARKER came from CONSTDATA_TH__SCENE_NAME and is already
+        # validated above, so it - not from_marker - decides whether rule 1
+        # reaches this scene (COO-DECISION 20260829_0542; the self-report
+        # hole is pf-adversary round 8ubiku D2/D3).
+        entry_marker = table_row["n_MARKER"]
+        if from_marker:
+            if entry_marker == 0:
+                raise ValueError(
+                    f"scene {n_id} claims a marker coordinate, but its own "
+                    "table row carries n_MARKER 0")
+            if marker_n_id != entry_marker:
+                raise ValueError(
+                    f"scene {n_id} names marker {marker_n_id} but its table "
+                    f"row names {entry_marker}")
+            # And the coordinate itself has to BE that marker's point.  This
+            # is the check that stops a provenance field from being edited in
+            # the same commit as the coordinate it describes: the pinned
+            # marker rows are the second opinion, and they came from the
+            # client's table rather than from this file.
+            pinned = world_scene_marker.arrival_point(n_id)
+            if pinned is None or pinned.marker_n_id != marker_n_id:
+                raise ValueError(
+                    f"scene {n_id} claims marker {marker_n_id}, which the "
+                    "pinned marker crosswalk does not confirm")
+            if spawn != pinned.xyz:
+                raise ValueError(
+                    f"scene {n_id} says its spawn came from marker "
+                    f"{marker_n_id} but does not stand on that marker's "
+                    "point")
+            if deviates:
+                raise ValueError(
+                    f"scene {n_id} both takes its marker and claims to "
+                    "deviate from the rule that says to")
+        elif entry_marker != 0 and not deviates:
+            # A scene that HAS an authored arrival point and declines to use
+            # it is exactly what rule 1 forbids by default.  It stays
+            # possible - scene 1's home spawn is the live example - but only
+            # as a LABELLED deviation that a reader can grep for, never as a
+            # quiet false flag.
+            raise ValueError(
+                f"scene {n_id} has marker {entry_marker} but does not use it "
+                "and does not declare a deviation from rule 1")
+        elif entry_marker == 0 and deviates:
+            raise ValueError(
+                f"scene {n_id} declares a deviation from rule 1, which does "
+                "not reach a scene whose n_MARKER is 0")
         login_entry_allowed = (
             _require_bool(
                 row["login_entry_allowed"], f"scene {n_id} login_entry_allowed")
