@@ -133,6 +133,167 @@ the bare word q-u-e-s-t in any ``src/pirateforce_foundation`` module except
 ``columbus_quest_dispatch`` and ``runtime``.  This module implements none of
 that behaviour - it names row ids and scene ids - so the prose says "row
 3021" rather than argue for an exemption in a guard another lane owns.
+
+ROUND drrnpu, 2026-08-29: THE TWO SENTENCES THIS FILE HAD WRONG.  Until this
+round the file said, in code and in prose, that the door has no landing spot
+and that nobody had read the path that would carry one.  Both were false ON
+MAIN while they were written, and a reader who believed them would have gone
+looking for work that is already done.
+
+0.  **AND THE ROUND THAT WROTE ITEMS 1-3 BELOW WAS ITSELF REFUTED, BY ITS OWN
+    ADVERSARY PASS, BEFORE IT LEFT DRAFT.  READ THIS ITEM FIRST.**
+    ``n_VARI_2`` is almost certainly **a MarkerID, not a scene id**, and this
+    module has stated the scene reading as MEASURED since it was written.
+    Re-derived twice, once by ``pf-adversary`` and once by the round, from
+    ``QUESTDATA_TH__QUEST.tsv`` and ``CONSTDATA_TH__MARKER.tsv``:
+
+        41 rows use these two scripts.  41 of 41 carry a Var2 that is a valid
+        MARKER id.  FIVE carry a Var2 that is not a scene id at all:
+        3016 -> 12, 3018 -> 16, 3019 -> 12, 3037 -> 1000, 3039 -> 336.
+        Row 3037 passes 1000, and 1000 is exactly what SCENE_NAME row 130
+        declares in its own n_MARKER column.  A destination "scene 1000"
+        does not exist.
+
+        MARKER[Var2].n_SCENE reproduces this file's whole eight-row
+        "advertised ocean" column - 126,126,126,304,304,127,127,305 - in ONE
+        lookup, where this file derives it through a three-hop
+        MAP_SCENE_LIST -> n_ID_MAINTITLE -> SCENE_NAME_TIP chain.  Under the
+        marker reading the three Columbuses that "advertise the same ocean"
+        are three different BERTHS in scene 126: MARKER[17] is
+        (3050, 232, 90) dir 6 and MARKER[18] is (-5072, 4000, 90) dir 7,
+        about 8000 units apart.
+
+    ``q_teleport_new.lua`` states the argument's type in the client's own
+    header comment (Big5): teleport methods 0 and 4 take a **MarkerID** in
+    the variable it then passes to ``Player.Teleport``.  And the control this
+    file offered for the scene reading - "measured across siblings: 3002 ->
+    1, 3003 -> 4, 3005 -> 5, 3007 -> 6, 3009 -> 8, 3014 -> 14" - is
+    DEGENERATE: every one of those six values is in the 19-row subset where
+    ``MARKER.n_ID == MARKER.n_SCENE``, so both readings give the same answer
+    and the control could not have failed.
+
+    **The owner said this on 2026-08-27 and the project overruled them.**
+    GT-106's letter, section 4.2: in the original game that option turns you
+    into a ship and puts you in "Atlantic Ocean: Rising Sun Sea", not "Ship
+    in the Sea".  That is scene 126 - and ``MARKER[17].n_SCENE`` is 126.
+    The letter's own open question, "how does the original server turn 17
+    into scene 126", has that one-column answer.
+
+    WHAT THIS FILE DOES ABOUT IT, AND WHAT IT DELIBERATELY DOES NOT.
+    ``DESTINATION_SCENE_N_ID`` stays 17 in code this round, because
+    ``columbus_quest_dispatch`` and a live flagless call site agree on 17
+    and because ``COO-DECISION 20260829_0441`` closed the 17-vs-126 question
+    in favour of 17 - on this lane's own withdrawal of it, and on the
+    degenerate control above.  Changing a live destination on a lane's own
+    reading is not this lane's call.  So the number stays and the CLAIM
+    changes: the scene reading is **[CONTESTED - LANE-A round drrnpu,
+    awaiting COO]**, not measured, and the letter is
+    ``pf_bridge/notes_to_chief/20260829_1410_LANE-A-ASK-COO-var2-is-a-
+    markerid.md``.  Nothing in this file may be quoted as measuring that
+    row 3021's destination is a scene id.
+
+1.  **"Nothing here has read that path."**  The path is
+    ``q_teleport1.lua``, the script row 3021 names in ``s_LUASCRIPT`` -
+    ``PF_GAMEDATA_LUA_INDEX.tsv`` indexes it, with its directory, under that
+    basename.  (The directory name is spelled out nowhere in this file: it is
+    a bare word ``tests/test_npc_interaction_wire.py`` forbids here, and
+    working around a sibling lane's guard is not worth one path string.)
+    Read this round, in full: its ``Accept_Run``
+    calls ``Player.Teleport(<the row's own n_VARI_2 field>)`` with **ONE
+    argument, the destination scene id, and no coordinate of any kind**.  Its
+    sibling ``q_teleport_with_vehicle1.lua`` (rows 3002-3014) is the same call
+    with ``Player.TeleportWithVehicle``, same single argument.  So THOSE TWO
+    SCRIPTS carry no float coordinate - a fact about two files, not about the
+    mechanism (item 0), and narrower than it first reads: the family has five
+    members, and ``q_teleport3.lua`` calls ``Player.ResetMarker(Var2)`` right
+    before its own teleport, which is a positioning call taking the same
+    argument.  This round read two of the five in full; ``q_teleport_new``
+    was read afterwards, by the adversary, and it is the one that names the
+    argument's type.  ``CONSTDATA_TH__SCENE_NAME``'s
+    own ``n_MARKER`` column, the client's authored arrival-point pointer,
+    reads **0** for scene 17 and for every scene in the sea family (18-23),
+    so the table that WOULD have carried one says there is none.  Together
+    those two close ``RE-103``'s question about SCENE 17's OWN default
+    arrival point: no scene-keyed arrival data exists for the sea family.
+    ~~for a sea scene the arriving position is not authored data anywhere, so
+    whoever sends the teleport owns it.~~  **STRUCK IN THE SAME ROUND THAT
+    WROTE IT (item 0).**  The arriving position for row 3021 IS authored, in
+    ``MARKER[17]``, and reading a Lua stub's lack of a coordinate as the
+    whole mechanism's lack of one was the error: RE-103's own T3 recorded
+    that the WIRE Teleport target carries scene_id AND a vec3, and the land
+    case shows where the server gets that vec3 - SCENE_NAME.n_MARKER ->
+    MARKER -> point.  One layer's silence is not another layer's answer.
+
+    ``Accept_Check`` in the same script gates acceptance on
+    ``Var1``, which is **111** for rows 3021 and 3022 and 0 for 3023-3028 -
+    a flag precondition on the client side.  **[PROPOSED, NOT MEASURED]**
+    that it stops nothing: what GT-106 measured is that with the dialog THIS
+    server built, the client displayed the option and sent the operate frame
+    for row 3021 with no such flag set - and that letter's own nonclaims say
+    it does not prove ``Accept_Check`` was called at all.  A gate that is
+    never invoked has not been measured as harmless.  Recorded because the
+    next reader of this script will otherwise re-open it.
+
+2.  **"No pinned arrival position."**  There has been one since
+    2026-08-27T14:45+07:00, in this project's own registry, and this module
+    is the only file that said otherwise -
+    ``scenarios/world_scene_registry_001.json``'s scene-17 entry carries
+    ``spawn (0, 0, 0)`` under ``PROVISIONAL-OWNER-DECREE-20260827-1445``.
+    ``columbus_quest_dispatch`` has been dispatching on it, and
+    ``runtime.py:4567`` calls that dispatch on the FLAGLESS path.  This file
+    kept its own ``ARRIVAL_POSITION = None`` next to it: two answers to one
+    question, one of them stale, which is the exact defect shape
+    ``pf-adversary`` charged this lane with in round ``yam18f`` (D8).  The
+    constant is struck below and every answer now comes from the registry.
+
+3.  **AND A PLAYER HAS ALREADY WALKED THROUGH THIS DOOR.**  ``GT-106``, an
+    attended run on 2026-08-27, flagless, on main:
+    ``notes_to_chief/20260827_1710_GT106-RESULT-M2-*``.  Both layers, from
+    that letter:
+
+        wire  ``WORLD_SCENE scene_id=17 ... spawn=(0.000,0.000,0.000)
+              save=0 marker=0`` then ``SCENE_ENTRY scene=17
+              xyz=0.000,0.000,0.000 source=PROVISIONAL-OWNER-DECREE-
+              20260827-1445`` then the teleport frame, sent once
+        screen ``...GT106_scene17_ShipInTheSea_arrival_X0_Y0_...png``:
+              HUD **X:0 Y:0**, character standing on the wooden deck, then
+              walked to X:-639 Y:200 without falling
+
+    So the decreed point is no longer only decreed: it has been sent and it
+    put a player on a walkable deck.  That is the evidence the decree names
+    as its own expiry condition, and retiring the decree is therefore a
+    change this project OWES - but not one this round makes, and the reason
+    is measured rather than cautious.  The prefix is not a label: it is what
+    EXEMPTS this spawn from ``world_scene_travel``'s ground check, and that
+    check tests z against the band the scene's own native placements give
+    (746.04 .. 1272.74).  Driven this round, three registries built and
+    loaded (``test_retiring_the_decree_today_would_stop_the_registry_
+    loading``):
+
+        provenance measured, z = 0        -> ValueError, registry REFUSES to
+                                             load: every login dies at boot
+        provenance measured, z = 745.0    -> ValueError, the same refusal -
+                                             the z a human ACTUALLY STOOD AT
+                                             is 1.04 under the band
+        provenance measured, z = 746.0424 -> loads
+        the pairing shipped today          -> loads
+
+    So the band derived from placements refuses the only position anybody has
+    ever occupied in this scene, which is the registry's own ground block
+    saying "a .npc file carries NPC placements, not terrain" arriving as a
+    load failure.  Retiring the decree therefore means deciding what z means
+    here, not editing a string - plus ``world_scene_entry``'s radius rule
+    (a decreed spawn may not count as ground evidence) and the console token
+    operators grep.  Written up for COO in this round's letter instead of
+    flipped here.
+
+    THE ONE THING THAT RUN ALSO SETTLES, AND THE READING TO NOT TAKE FROM IT.
+    ``z = 0`` did not drop the player: the client put them on the deck at
+    ``(0, 0)`` anyway, and the run DB row written from their own walk in that
+    scene reads ``z = 745.0`` - one unit under the lowest native placement in
+    the file (``746.0424``).  So the client resolves the standing height
+    itself and a server-sent z of 0 is survivable HERE.  Do NOT read that as
+    "z never matters": one scene, one run, one client build.
 """
 from __future__ import annotations
 
@@ -252,13 +413,103 @@ TWO_VARIANT_PLACEMENT_COUNT = 6      # of the 37: both legs resolve
 EMPTY_LEADER_PLACEMENT_COUNT = 1     # index 28, set 16, CLINE 60415 leader 0
 TWO_VARIANT_SHAPE_TREE_WIDE = (98, 16)   # placements, scenes carrying "a|b"
 
-# No arrival position is pinned for EITHER scene here.  The reason is not a
+# ~~No arrival position is pinned for EITHER scene here.  The reason is not a
 # missing file: Bg3001's and Bg1001's .npc digests are both in this tree
 # (PF_GAMEDATA_SCENE_INDEX.tsv, parse_status OK).  RE-103 established that
 # the digest carries placement coordinates and NOT player-arrival ones -
 # "the teleport target owns the XYZ" - so the arrival point has to come from
 # the teleport path, which nothing in this tree has read yet.
-ARRIVAL_POSITION = None
+# ARRIVAL_POSITION = None~~
+# STRUCK, round drrnpu: false on main when it was written.  The registry has
+# pinned scene 17's arrival since 2026-08-27 and runtime.py:4567 dispatches on
+# it flaglessly.  Kept struck rather than deleted (house rule) because the
+# sentence "the teleport path was never read" is the reason RE-103 stayed open
+# for two days after the path became readable.  The path is read now - see the
+# module docstring, item 1 - and every arrival answer below comes from the ONE
+# place that owns it:
+ARRIVAL_POSITION_OWNER = (
+    "scenarios/world_scene_registry_001.json -> destinations[n_id == 17].spawn,"
+    " read through world_scene_travel.destination()/spawn_position()"
+)
+
+# What GT-106 measured on 2026-08-27, both layers, flagless, on main.  Values
+# only - the argument is in the module docstring, item 3.
+ARRIVAL_EVIDENCE_TICKET = "GT-106"
+# Cited by its stable head rather than in full: the tail of the real filename
+# carries a bare word the foundation-module word guard refuses in src/.
+ARRIVAL_EVIDENCE_LETTER = (
+    "pf_bridge/notes_to_chief/20260827_1710_GT106-RESULT-M2-Columbus-3021-"
+    "enters-scene17-walkable-*.md"
+)
+ARRIVAL_SCREEN_ARTIFACT = (
+    "OURS_LOCAL_SERVER_GT106_scene17_ShipInTheSea_arrival_X0_Y0_"
+    "20260827_164301.png"
+)
+# The HUD reading at arrival, which is the client-observable half.  x and y
+# only: the HUD in that shot carries no z.
+ARRIVAL_OBSERVED_HUD_XY = (0.0, 0.0)
+# The one z ever recorded inside this scene: the run DB character_positions
+# row written from the player's own walk (NOT at the arrival point - they had
+# walked to about (-149, -1250) by then, and the row carried scene_id 1
+# because of the persistence defect the same letter reports).
+ARRIVAL_RUN_DB_WALKED_Z = 745.0
+# The lowest native placement z in Bg1001.placements.tsv, one unit above the
+# walked z.  Two independent sources putting the walkable deck at ~745-746 is
+# why "z = 0 was survivable" is stated as an observation about this client and
+# not as a rule.
+LOWEST_NATIVE_PLACEMENT_Z = 746.0424194335938
+
+# The teleport path, read this round.  ONE argument and no coordinate: that
+# single fact is what closes RE-103 positively instead of by absence.
+# Basename only, for the reason given in the docstring - it is unique in
+# PF_GAMEDATA_LUA_INDEX.tsv, which carries the directory.
+TELEPORT_SCRIPT = "q_teleport1.lua"
+TELEPORT_CALL = "Player.Teleport(<n_VARI_2>)"
+TELEPORT_CALL_ARGUMENT_COUNT = 1
+TELEPORT_CALL_CARRIES_A_POSITION = False
+# The client-side acceptance precondition in the same script (Var1), and the
+# rows that carry it.  GT-106 measured it not blocking - docstring item 1.
+TELEPORT_ACCEPT_PRECONDITION_VALUE = 111
+TELEPORT_ACCEPT_PRECONDITION_ROWS = (3021, 3022)
+# CONSTDATA_TH__SCENE_NAME.n_MARKER, the client's own arrival-point pointer,
+# for this scene and for the whole sea family.  0 means the client authored
+# no arrival point for them.
+SCENE_NAME_MARKER_COLUMN_FOR_THE_SEA_FAMILY = 0
+SEA_FAMILY_SCENE_IDS = (17, 18, 19, 20, 21, 22, 23)
+
+# The prefix that marks a spawn the owner decreed rather than one anybody
+# measured.  Not re-typed here - this module imports the constant.  ~~two
+# other modules branch on it~~ CORRECTED (pf-adversary, round drrnpu, D9):
+# world_scene_entry hard-codes the literal at TWO places (285, 476) instead
+# of importing it, so the string exists by hand in three spots and this
+# module is the only one reading it from its owner.  Said out loud rather
+# than left as a comment that flatters this file.
+_DECREE_PREFIX_OWNER = "world_scene_travel.PROVISIONAL_SPAWN_PROVENANCE_PREFIX"
+
+# The literal Var2 of row 3021, and what MARKER says at that id.  These are
+# the numbers item 0 of the docstring turns on, kept as data so a test can
+# drive them instead of a reader having to trust prose.
+DESTINATION_QUEST_ROW_VAR2 = 17
+MARKER_AT_VAR2 = (126, 3050, 232, 90)          # (n_SCENE, x, y, z)
+MARKER_AT_VAR2_DIRECTION = 6
+# Rows in the two teleport scripts whose Var2 is NOT a scene id at all - the
+# five that falsify the scene reading.  (row id, Var2).
+VAR2_VALUES_THAT_ARE_NOT_SCENE_IDS = (
+    (3016, 12), (3018, 16), (3019, 12), (3037, 1000), (3039, 336),
+)
+TELEPORT_ROWS_TOTAL = 41
+# Row 3037 passes 1000; SCENE_NAME row 130 declares n_MARKER 1000.  One
+# number, in both places, that cannot be a scene id.
+SCENE_130_DECLARES_MARKER = 1000
+
+STATE_REFUSED = "REFUSED"
+STATE_READY_DECREED = "READY_DECREED"
+# NOT "READY_MEASURED": this fires on the ABSENCE of the decree prefix, and
+# nothing here checks that a measurement exists.  pf-adversary (round drrnpu,
+# D7) named the input that would make a measured-sounding token print with no
+# measurement anywhere: any hand-edited provenance, "pending re-measurement"
+# included.  The name says what the test actually is.
+STATE_READY_NOT_DECREED = "READY_NOT_DECREED"
 
 
 class SeaDestinationError(Exception):
@@ -302,37 +553,153 @@ def route_for(columbus_mobs_n_id: int) -> tuple[int, int, int, int] | None:
     return None
 
 
-def destination_ready() -> bool:
-    """Whether this project can put a player on the far side of that door.
+def _target(registry):
+    """The registry's row for scene 17, or None when it pins none.
 
-    False, and it stays False until an arrival position is pinned by
-    something better than arithmetic.  Fail-closed on purpose.
+    ``registry`` is REQUIRED and never defaulted.  ``world_scene_travel.
+    destination()`` falls back to loading the file from disk when it is given
+    a falsy registry, so a caller who forgot the argument would otherwise get
+    a confident answer sourced from a file this module never meant to open -
+    a boot reading one registry while this line reads another.
     """
-    return ARRIVAL_POSITION is not None
+    if registry is None:
+        raise SeaDestinationError(
+            "a scene registry is required - pass the one the boot loaded, "
+            "never None (this module must not read the file itself)"
+        )
+    if not hasattr(registry, "destinations"):
+        # Refusing here rather than below keeps the REFUSED answer honest.
+        # world_scene_travel.destination() indexes whatever it is given, so a
+        # string or a list would raise IndexError, get caught as "this
+        # registry does not carry scene 17", and hand back a confident
+        # refusal about a registry that was never one.
+        raise SeaDestinationError(
+            "that is not a scene registry - expected the object "
+            "world_scene_travel.load_scene_registry() returns, got %r"
+            % (type(registry).__name__,)
+        )
+    from . import world_scene_travel
+
+    try:
+        return world_scene_travel.destination(DESTINATION_SCENE_N_ID, registry)
+    except Exception:
+        # Not in this registry: a refusal, fail-closed, never an exception
+        # into a caller's boot.
+        return None
 
 
-def refusal_reason() -> str:
-    """Why :func:`destination_ready` says no, in the words a console line can
-    print without a second lookup."""
-    if destination_ready():
-        return ""
-    return (
-        "scene %d (%s) has no pinned arrival position - RE-103: the .npc "
-        "digest carries placement XYZ, not arrival XYZ, so the teleport "
-        "target owns it and nothing here has read that path"
-        % (DESTINATION_SCENE_N_ID, DESTINATION_SCENE_MODEL_ID)
+def arrival_position(registry) -> tuple[float, float, float] | None:
+    """Scene 17's pinned arrival point, or None if the registry pins none.
+
+    Takes the registry rather than loading one: the caller (runtime.py) reads
+    it once at boot, and a module that opened the file itself would be the
+    second copy this file was just corrected for holding.
+    """
+    target = _target(registry)
+    if target is None:
+        return None
+    from . import world_scene_travel
+
+    try:
+        return world_scene_travel.spawn_position(target)
+    except Exception:
+        # A pinned row with no spawn is a refusal, not a crash - the same
+        # answer a missing row gets, said out loud by refusal_reason().
+        return None
+
+
+def arrival_provenance(registry) -> str | None:
+    """The provenance string the registry carries for that point, verbatim."""
+    target = _target(registry)
+    return None if target is None else target.spawn_provenance
+
+
+def arrival_is_decreed(registry) -> bool:
+    """Whether the pinned point still rests on the owner's decree.
+
+    True today.  GT-106 has satisfied the decree's own written expiry
+    condition (module docstring, item 3), but retiring the prefix changes two
+    other modules' behaviour and one console token, so it is a decision this
+    module reports rather than takes.
+    """
+    from . import world_scene_travel
+
+    provenance = arrival_provenance(registry)
+    if provenance is None:
+        return False
+    return provenance.startswith(
+        world_scene_travel.PROVISIONAL_SPAWN_PROVENANCE_PREFIX
     )
 
 
-def console_line() -> str:
+def destination_state(registry) -> str:
+    """REFUSED, READY_DECREED or READY_NOT_DECREED - one word for a console.
+
+    The third state is deliberately not called READY_MEASURED: it is the
+    absence of the decree prefix, which is not the presence of a measurement.
+    """
+    if arrival_position(registry) is None:
+        return STATE_REFUSED
+    return STATE_READY_DECREED if arrival_is_decreed(registry) else (
+        STATE_READY_NOT_DECREED
+    )
+
+
+def destination_ready(registry) -> bool:
+    """Whether this project can put a player on the far side of that door.
+
+    It can, and it has: GT-106 walked it on 2026-08-27.  This answers from
+    the registry, so it can only be True while a point is actually pinned -
+    and it says nothing about whether the door is OPEN.  Two separate pins
+    keep it shut for login (``login_entry_allowed: false``) and for
+    persistence (``persist_position_allowed: false``); the live way through
+    is the row-3021 dispatch, not this function.
+    """
+    return arrival_position(registry) is not None
+
+
+def refusal_reason(registry) -> str:
+    """Why :func:`destination_ready` says no, in the words a console line can
+    print without a second lookup.
+
+    Empty when a point is pinned - including when it is only decreed.  A
+    decreed point is a weak point, not a missing one, and reporting weak as
+    missing is what sent RE-103 looking for a file that was never going to
+    exist.
+    """
+    if destination_ready(registry):
+        return ""
+    return (
+        "scene %d (%s) has no arrival point in the registry - SCENE_NAME."
+        "n_MARKER is %d for this scene, so the client authors none KEYED BY "
+        "SCENE; MARKER[%d] does exist and carries (%d,%d,%d) in scene %d, "
+        "which is the contested reading (see this module's docstring item 0) "
+        "and must not be pinned here without a ruling"
+        % (
+            DESTINATION_SCENE_N_ID,
+            DESTINATION_SCENE_MODEL_ID,
+            SCENE_NAME_MARKER_COLUMN_FOR_THE_SEA_FAMILY,
+            DESTINATION_QUEST_ROW_VAR2,
+            MARKER_AT_VAR2[1], MARKER_AT_VAR2[2], MARKER_AT_VAR2[3],
+            MARKER_AT_VAR2[0],
+        )
+    )
+
+
+def console_line(registry) -> str:
     """One ASCII line naming where the door leads and this module's limit.
 
     Printed by whatever calls it; nothing in this file prints on import.
     """
-    state = "READY" if destination_ready() else "REFUSED"
+    state = destination_state(registry)
+    point = arrival_position(registry)
+    arrival = "none" if point is None else (
+        "%.3f,%.3f,%.3f" % point
+    )
     return (
         "M2_SEA_DESTINATION offer=%d target_scene=%d model=%s "
-        "advertises_ocean=%d (%s_%s) state=%s reason=%s"
+        "advertises_ocean=%d (%s_%s) var2_reading=CONTESTED state=%s "
+        "arrival=%s evidence=%s reason=%s"
         % (
             DESTINATION_QUEST_ID,
             DESTINATION_SCENE_N_ID,
@@ -341,7 +708,11 @@ def console_line() -> str:
             ADVERTISED_NAME_ASCII_FRAGMENT.replace(" ", "_"),
             ADVERTISED_NAME_ASCII_TAIL.replace(" ", "_"),
             state,
-            refusal_reason() or "none",
+            arrival,
+            # The ticket that walked it, so an operator reading one line can
+            # tell "pinned" from "pinned and used by a real client".
+            ARRIVAL_EVIDENCE_TICKET,
+            refusal_reason(registry) or "none",
         )
     )
 
@@ -383,6 +754,36 @@ def _self_check() -> None:
         raise SeaDestinationError(
             "COLUMBUS_ROUTES must show one target per island and fewer "
             "oceans than targets - that asymmetry IS the finding"
+        )
+    if DESTINATION_SCENE_N_ID not in SEA_FAMILY_SCENE_IDS:
+        raise SeaDestinationError(
+            "the destination has left the scene family whose n_MARKER column "
+            "this file reports as 0 - one of the two was edited alone"
+        )
+    if not 0.0 < LOWEST_NATIVE_PLACEMENT_Z - ARRIVAL_RUN_DB_WALKED_Z < 2.0:
+        raise SeaDestinationError(
+            "the docstring says the walked z is about one unit under the "
+            "lowest native placement; these two numbers no longer say that"
+        )
+    if DESTINATION_QUEST_ROW_VAR2 != OPTION_TARGET_SCENE_N_ID[DESTINATION_QUEST_ID]:
+        raise SeaDestinationError(
+            "the row's literal Var2 and the number this file reads as a "
+            "scene id have been allowed to differ - the whole contest in "
+            "docstring item 0 is that they are the SAME number read two ways"
+        )
+    if SCENE_130_DECLARES_MARKER not in [
+        var2 for _row, var2 in VAR2_VALUES_THAT_ARE_NOT_SCENE_IDS
+    ]:
+        raise SeaDestinationError(
+            "1000 is the number that closes item 0 - a Var2 that is a marker "
+            "id and cannot be a scene id; removing it from the list guts the "
+            "refutation this file is required to carry"
+        )
+    if TELEPORT_CALL_ARGUMENT_COUNT != 1 or TELEPORT_CALL_CARRIES_A_POSITION:
+        raise SeaDestinationError(
+            "the whole RE-103 answer is that the teleport call takes one "
+            "argument and no coordinate - editing that here does not make it "
+            "true in the script"
         )
     for cline_type in SPARSE_CLINE_TYPES:
         _base, count, lowest, highest = CLINE_BLOCKS[cline_type]

@@ -102,13 +102,18 @@ ago.  So the copy keeps:
   measured that the claim was the one line of the totals block still resting
   on nothing a gate could check.
 
-[LANE-A READING OF AN APPROVED RULING -- AWAITING COO CONFIRMATION]  Keeping
-two columns of every row is this lane's reading of "the rows actually used",
-on the ground that a total IS a use of a row.  A narrower reading (15 rows and
-nothing else) is a one-line change to ``curate()`` and would drop the six
-totals back to bridge-only checking; the letter asking is
-``pf_bridge/notes_to_chief/20260829_1038_LANE-A-ASK-COO-what-a-curated-copy-
-should-keep.md`` and it names what to revert.
+~~[LANE-A READING OF AN APPROVED RULING -- AWAITING COO CONFIRMATION]~~
+**CONFIRMED BY COO 2026-08-29T12:41+07:00**, consumed by LANE-A round
+``drrnpu``: ``pf_bridge/notes_to_chief/20260829_1241_COO-DECISION-curated-
+copy-keeps-the-used-columns.md`` approves option 2 - the copy keeps the 15
+full rows AND the used columns of every row - and says explicitly that
+nothing is to be reverted.  Keeping two columns of every row is this lane's
+reading of "the rows actually used", on the ground that a total IS a use of a
+row.  The narrower reading (15 rows and nothing else) was the alternative the
+letter offered; it is now refused rather than pending, so a later round that
+finds this paragraph must not "tidy" ``curate()`` down to it.  The letter
+asking was ``pf_bridge/notes_to_chief/20260829_1038_LANE-A-ASK-COO-what-a-
+curated-copy-should-keep.md``.
 
 WHAT THIS MODULE IS NOT.  It is not on the boot path and it must not become
 so: ``build_foundation_release.py`` collects ``src/**/*.py`` and nothing else,
