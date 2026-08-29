@@ -147,6 +147,27 @@ REASON_NO_LOGIN_ENTRY = "scene_has_no_login_entry"
 # would have kept the misdiagnosis on the one surface a tester actually
 # sees, which is the wrong half to fix.
 REASON_EXISTING_ENTRY_NOT_ADMISSIBLE = "existing_entry_not_admissible"
+# The same refusal as `REASON_NO_LOGIN_ENTRY` on the wire and in the config
+# file -- nothing is written either way -- split out because the REMEDY is
+# different and only this half has one a person can chase.
+#
+# A scene lands here when a chief letter has sanctioned it as a GM warp
+# destination (`login_scene_admission.SANCTIONED_BARRED_SCENES`) while the
+# route to it is still incomplete.  Today that is scene 126, sanctioned by
+# CHIEF-DECISION 20260829_1603 item 2, whose other half (lane A's registry
+# row) had not landed when this was written and whose login-path half
+# (`via_login=False` at runtime.py's GM-gated override branch) is
+# CORE-REQUEST-GM-038, still open.
+#
+# WHY THIS IS NOT JUST ADMITTING 126.  The letter asks this lane to "add 126
+# to the set /warp accepts".  Measured on main, admitting it would write a
+# config entry the very next login refuses at
+# `world_scene_entry.py:390` -- a tester spends a relog and reaches nothing,
+# with only a console line to say why.  `login_scene_admission`'s header
+# carries the measurement.  So the sanction is honoured as far as this lane
+# can honour it honestly: the scene is NAMED, the missing half is measured
+# live, and the set stays exactly what lane A's pins say it is.
+REASON_SANCTIONED_NOT_YET_REACHABLE = "scene_sanctioned_but_route_incomplete"
 
 # WHICH REFUSALS A DIFFERENT DESTINATION WOULD FIX, owned HERE because the
 # reasons are owned here.  pf-adversary's D3, measured: the answer used to be
@@ -165,6 +186,11 @@ REASON_EXISTING_ENTRY_NOT_ADMISSIBLE = "existing_entry_not_admissible"
 DESTINATION_SHAPED_REASONS = (
     REASON_UNKNOWN_SCENE,
     REASON_NO_LOGIN_ENTRY,
+    # Destination-shaped for the one reason that matters here: another
+    # destination WOULD work right now, so the tester is not stuck.  It is
+    # also the reason whose way-out line carries the most, because the
+    # console can name which half of the route is missing.
+    REASON_SANCTIONED_NOT_YET_REACHABLE,
 )
 
 # The refusals no retyping can fix: three server-side faults, plus the
@@ -280,6 +306,16 @@ def stage_login_scene(
     # widen it.  See this function's docstring, "A SNAPSHOT MAY NOT WIDEN
     # A WRITE", for the file-wide poisoning that measured version caused.
     if not login_entry_is_pinned(scene_id):
+        # SAME REFUSAL, DIFFERENT REMEDY.  Both branches write nothing; the
+        # split exists so a sanctioned destination's refusal can name the
+        # half of its route that is missing instead of looking identical to
+        # "lane A never pinned this scene at all".  The admission module is
+        # asked with no snapshot on purpose: the refusal being explained is
+        # the DISK one, three lines up.
+        if login_scene_admission.is_sanctioned_barred_scene(scene_id):
+            return StageResult(
+                False, REASON_SANCTIONED_NOT_YET_REACHABLE, None, None
+            )
         return StageResult(False, REASON_NO_LOGIN_ENTRY, None, None)
     if scene_registry is not None and not login_entry_is_pinned(
         scene_id, scene_registry=scene_registry
