@@ -5304,6 +5304,31 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     # which is the only case that can put it back if the
                     # destination is then refused (see the refusal handler).
                     override_consumed_scene = None
+
+                    def _put_back_consumed_override(scene_id):
+                        """Give a spent staged entry back.  Best effort.
+
+                        TWO sites decide this login is not going to the
+                        staged destination after all -- the registry probe
+                        below (CORE-REQUEST-GM-034) and the refusal handler
+                        further down -- and both owe the operator the same
+                        thing.  Written once so the two cannot drift into
+                        restoring under different conditions, which is the
+                        shape of bug that put a phantom entry in the
+                        chat-writable GM map (see
+                        test_gm_login_scene_override_standalone_at_login).
+
+                        A failure here is not a reason to fail the login:
+                        the entry is then genuinely gone, and the event the
+                        caller appends is the only record there will be.
+                        """
+                        try:
+                            return login_scene_stage.restore_login_scene(
+                                self.token, scene_id,
+                            )
+                        except (ValueError, OSError, TypeError):
+                            return False
+
                     try:
                         override_result = consume_login_scene_override(
                             self.token
@@ -5343,12 +5368,114 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             f"{type(error).__name__}"
                         )
                     if login_scene_override is not None:
-                        login_row = replace(
+                        # CORE-REQUEST-GM-034.  The destination is checked
+                        # against THE REGISTRY THIS PROCESS HOLDS before the
+                        # override is applied, because that snapshot -- not
+                        # the file on disk -- is what places the character a
+                        # few lines below.  Lane GM's admission check reads
+                        # the file fresh on every login, so the two readings
+                        # are the AGE OF THE PROCESS apart, not the "few
+                        # microseconds" that lane's own test used to say.
+                        #
+                        # Only one direction is dangerous, and it is this
+                        # one: a registry edited WIDER after boot
+                        # (login_entry_allowed false->true, a spawn added, a
+                        # new destination) yields an override the disk
+                        # approves and the snapshot then refuses.  Refused
+                        # below, the login returns NO FRAMES, and because a
+                        # standalone grant is never consumed the client's
+                        # retry meets the same wall forever -- the permanent
+                        # lockout lane GM's pf-adversary measured in round
+                        # qq0i9u, arriving through a door their disk-side
+                        # fix cannot see.  Narrowing (true->false) was
+                        # already safe: the snapshot is then the stricter
+                        # of the two, which is fail-closed.
+                        #
+                        # WHY resolve_entry ITSELF AND NOT A PREDICATE HERE.
+                        # A private copy of "may this row enter at login"
+                        # would be a THIRD reader of the registry, free to
+                        # disagree with the two that already do -- which is
+                        # the very defect this guard exists to close.  The
+                        # probe is silenced (emit) so GT-079 still gets
+                        # exactly ONE destination line on the console, the
+                        # one for the destination actually used, printed by
+                        # the real call below.  resolve_entry is pure apart
+                        # from that emit, so the double call costs nothing
+                        # but is otherwise unobservable.
+                        candidate_row = replace(
                             login_row, scene_id=login_scene_override
                         )
-                        self.events.append(
-                            f"gm_login_scene_override_applied_{login_scene_override}"
-                        )
+                        try:
+                            world_scene_entry.resolve_entry(
+                                candidate_row,
+                                registry=scene_entry_registry,
+                                emit=lambda _line: None,
+                            )
+                        except world_scene_entry.SceneEntryRefused as exc:
+                            # Refuse the OVERRIDE, not the login.  The
+                            # character keeps its own stored row and gets
+                            # into the game; the console names the entry so
+                            # the operator is not sent hunting for a silent
+                            # door.
+                            # THE REASON ALONE IS A LIE ON DISK, so it is
+                            # not printed alone (pf-adversary, this round).
+                            # resolve_entry's message says the destination
+                            # "is pinned but not allowed as a login
+                            # destination" -- and in the one situation this
+                            # branch exists for, the registry FILE says
+                            # login_entry_allowed true. An operator who
+                            # greps the file after reading that line finds
+                            # it contradicted and stops trusting the line
+                            # rather than the process. So the line names
+                            # the snapshot, and names the only thing that
+                            # replaces a snapshot.
+                            #
+                            # Guarded like lane GM guards its equivalent
+                            # (gm/login_scene_override.py:204-216): they
+                            # measured an unencodable account name raising
+                            # out of exactly this shape of print in round
+                            # qq0i9u. Nothing here interpolates a name
+                            # today, but this print is the ONLY statement
+                            # between the refusal and the restore below --
+                            # if it raises, the operator's staged entry is
+                            # destroyed by a diagnostic.
+                            try:
+                                print(
+                                    "GM_LOGIN_SCENE_OVERRIDE_REFUSED "
+                                    f"{exc} "
+                                    "source=boot_snapshot "
+                                    "note=the_registry_FILE_may_disagree; "
+                                    "this process read it once at boot, so "
+                                    "an edit made since then is not in "
+                                    "effect until the server is restarted"
+                                )
+                            except Exception:
+                                pass
+                            self.events.append(
+                                "gm_login_scene_override_refused_by_"
+                                f"registry_{login_scene_override}"
+                            )
+                            if override_consumed_scene is not None:
+                                restored = _put_back_consumed_override(
+                                    override_consumed_scene
+                                )
+                                self.events.append(
+                                    "gm_login_scene_override_restored_after_"
+                                    f"refusal_{override_consumed_scene}"
+                                    if restored else
+                                    "gm_login_scene_override_lost_to_"
+                                    f"refusal_{override_consumed_scene}"
+                                )
+                                # Given back already: the handler below must
+                                # not put it back a second time if the
+                                # character's OWN row is refused too.
+                                override_consumed_scene = None
+                            login_scene_override = None
+                        else:
+                            login_row = candidate_row
+                            self.events.append(
+                                f"gm_login_scene_override_applied_{login_scene_override}"
+                            )
                     try:
                         entry = world_scene_entry.resolve_entry(
                             login_row,
@@ -5368,40 +5495,28 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         self.events.append(
                             "world_scene_entry_refused_no_reply"
                         )
-                        if override_consumed_scene is not None:
-                            # PUT THE OPERATOR'S ENTRY BACK (chief, round
-                            # ngwnnj/R223, from pf-adversary).  The consumer
-                            # spends the entry BEFORE resolve_entry can
-                            # refuse the destination, so without this the
-                            # staged warp is destroyed by a login that never
-                            # reached it -- and the client's own automatic
-                            # retry, which the guard above deliberately
-                            # allows, then succeeds silently at home.  The
-                            # operator sees a `consumed` audit row for a
-                            # scene nobody ever entered.  A destination can
-                            # become unreachable between staging and login
-                            # (a registry edit flipping login_entry_allowed
-                            # is this week's real example), so this is not a
-                            # contrived path.
-                            #
-                            # Restoring is best effort and says so: if it
-                            # fails, the entry is genuinely gone and the
-                            # event is the only record there will be.
-                            try:
-                                restored = (
-                                    login_scene_stage.restore_login_scene(
-                                        self.token, override_consumed_scene,
-                                    )
-                                )
-                            except (ValueError, OSError, TypeError):
-                                restored = False
-                            self.events.append(
-                                "gm_login_scene_override_restored_after_"
-                                f"refusal_{override_consumed_scene}"
-                                if restored else
-                                "gm_login_scene_override_lost_to_refusal_"
-                                f"{override_consumed_scene}"
-                            )
+                        # NO RESTORE HERE ANY MORE, AND THAT IS A DELETION,
+                        # NOT AN OVERSIGHT (CORE-REQUEST-GM-034).  Round
+                        # ngwnnj/R223 put the operator's spent entry back at
+                        # this spot because the consumer spends it BEFORE
+                        # resolve_entry can refuse the destination.  The
+                        # probe above now refuses the OVERRIDE before it is
+                        # ever applied, and gives the entry back there, so
+                        # reaching this line with a spent entry in hand
+                        # would need resolve_entry to accept a row at the
+                        # probe and refuse THE SAME row -- same object, same
+                        # registry, same via_login -- a few statements
+                        # later.  It is a pure function of those three; it
+                        # cannot.  A restore kept here would be a second
+                        # write of an entry this login already gave back,
+                        # reachable only by mocking resolve_entry, which is
+                        # how the old test for it reached this branch.
+                        #
+                        # What still arrives here is the case that was
+                        # always the real one: THE CHARACTER'S OWN STORED
+                        # ROW names a destination this tree will not open.
+                        # No override, nothing to give back, and the login
+                        # is refused by name rather than latched shut.
                         return []
                     # CORE-REQUEST-017 point 1, continued: resync pc/frame.
                     # pc/frame were already composed above by
