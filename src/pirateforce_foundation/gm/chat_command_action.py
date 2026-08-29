@@ -255,6 +255,7 @@ from __future__ import annotations
 import sys
 
 from dataclasses import dataclass
+from types import MappingProxyType
 
 from . import login_scene_stage, say_wire, teleport_wire
 from .chat_command import (
@@ -265,6 +266,7 @@ from . import login_scene_admission
 from .login_scene_admission import stageable_scene_ids
 from .login_scene_override import console_safe
 from .commands import (
+    COMMAND_NAMES,
     OUTCOME_COMPOSED,
     OUTCOME_REFUSED_PREFIX,
     OUTCOME_STAGED_LOGIN_SCENE,
@@ -360,6 +362,57 @@ WARP_REFUSED_CONSOLE_TOKEN = "GM_CHAT_WARP_REFUSED"
 # this one means "that is not a command this lane knows how to read" and
 # answers with a usage line.  An operator greps for one question at a time.
 COMMAND_REFUSED_CONSOLE_TOKEN = "GM_CHAT_COMMAND_REFUSED"
+
+# Printed to stderr, once, when a command this lane ACCEPTED put no bytes on
+# the wire and no other line said so.
+#
+# THE HOLE THIS CLOSES, MEASURED THROUGH THE REAL DISPATCHER THIS ROUND (the
+# five inputs are in `rounds/GM_20260829_2112_*.md`):
+#
+#   /warp 2 100 200 -> events say `..._warp_withheld_no_confirmed_force_pos_
+#                      vital_version_re129_open`; the CONSOLE said exactly
+#                      `LANE_GM_CHAT_ACTION warp route=action` and nothing else
+#   /say hello      -> same shape, `..._say_withheld_...`
+#   /lv 10, /item, /npc, /spawn -> `..._no_wire_path_<name>`, console silent
+#
+# `route=action` is printed BEFORE any handler runs -- it means "this route
+# was reached", which is the only thing it ever claimed -- so on the four
+# commands that can never send today, and on the two whose version gates are
+# shut, the last word the console said about the command was a line that
+# reads like success.  A refused command was better served than an accepted
+# one: `/warp 9999` gets a scene list, `/warp island` gets a usage line, and
+# `/warp 2 100 200` -- the ONE command that can move a character on screen,
+# and the whole subject of `GT-128` -- got a line that looks like it worked.
+#
+# WHO PAYS FOR IT, in the order the queue would have found out: an attended
+# tester types the warp, nothing moves, and the console cannot separate "the
+# version gate withheld the frame", "the client ignored a frame we did send"
+# and "the route is dead".  Two of those three are PASS-shaped for the
+# wiring and one is not, and the entry is graded from that console.
+#
+# A FOURTH TOKEN, not a reuse of the three above, for the reason they are
+# each separate: this one means "we read you, and deliberately sent nothing".
+WITHHELD_CONSOLE_TOKEN = "GM_CHAT_NO_BYTES_SENT"
+
+# What each no-bytes outcome is waiting on, as fixed sentences this lane
+# wrote -- never a string built from anything a client typed.  Keyed on the
+# audit outcome so the ndjson word and the console line cannot drift apart:
+# one decision, spelled once, read twice.
+#
+# NOT EXHAUSTIVE, ON PURPOSE.  `refused_warp_<ExcType>` and
+# `refused_stage_<ExcType>` name a type, not a blocker, and inventing a
+# sentence for a family whose members do not exist yet is how a console line
+# starts lying.  Those print `NO_BLOCKER_RECORDED` instead -- the operator
+# still learns the two facts this token exists for: nothing was sent, and
+# which outcome the audit file will carry.
+NO_BLOCKER_RECORDED = "no blocker recorded"
+
+# Why nothing went out when the command itself was fine and the AUDIT was
+# not.  Not an audit outcome -- that row is precisely what could not be
+# written -- so it is spelled here and never passed to `log_gm_command_
+# outcome`.  `_make_action`'s own comment explains the withholding; this is
+# the console's half of it.
+WHY_AUDIT_ROW_NOT_WRITTEN = "audit_row_not_written"
 
 # Width bound for the usage half of that line, held at the PRINTER.  The one
 # supplier in this tree returns one of seven fixed sentences (the longest is
@@ -496,6 +549,39 @@ OUTCOME_NO_WIRE_PATH = f"{OUTCOME_REFUSED_PREFIX}no_wire_path"
 # file does not have to learn a second grammar for the cross-scene half.
 OUTCOME_STAGE_REFUSED_PREFIX = f"{OUTCOME_REFUSED_PREFIX}stage_"
 
+# The blocker sentence for each no-bytes outcome.  Read by the console line
+# only; nothing here reaches the audit file or a client.  A `MappingProxyType`
+# for the same reason `login_scene_admission` uses one: it stops a later
+# module from editing this in place by accident, and it is NOT a safety
+# boundary (the module attribute can still be rebound).
+NO_BYTES_BLOCKERS = MappingProxyType(
+    {
+        OUTCOME_WARP_WITHHELD_NO_VERSION: (
+            "RE-129 open: no confirmed ForcePos vital_version, so"
+            " gm/teleport_wire.py cannot compose the frame"
+        ),
+        OUTCOME_SAY_WITHHELD_NO_VERSION: (
+            "gm/say_wire.py gate shut: RE-132 answered the byte, the"
+            " per-connection identity fix and a COO decision are what is left"
+        ),
+        OUTCOME_NO_WIRE_PATH: (
+            "this lane has no proven server->client wire for that command;"
+            " a CORE-REQUEST-GM opens one"
+        ),
+        OUTCOME_WARP_NO_POSITION: (
+            "this connection has no current position to warp from"
+        ),
+        OUTCOME_SAY_VERSION_CODEC_MISMATCH: (
+            "the confirmed vital_version is not the codec's; composing"
+            " would build a frame the client cannot read"
+        ),
+        WHY_AUDIT_ROW_NOT_WRITTEN: (
+            "the frame was built and then dropped: its outcome row could not"
+            " be appended, and this house keeps no effect it cannot record"
+        ),
+    }
+)
+
 
 @dataclass(frozen=True)
 class _Verdict:
@@ -515,6 +601,16 @@ class _Verdict:
     action: tuple[str, bytes, bytes, float] | None
     audit_outcome: str
     undo: object | None = None
+    # True when this handler ALREADY wrote a console line explaining itself.
+    # `_make_action`'s no-bytes line is the backstop for handlers that did
+    # not, and a backstop that cannot tell whether the specific line was
+    # written prints a second one next to it -- which is how `/warp 9999`
+    # would come to answer the same question twice, in two different
+    # vocabularies, on the console an attended run greps.  Reported by the
+    # handler rather than inferred from the outcome word, because the
+    # printer has early returns (`DESTINATION_SHAPED_REASONS`, a `None`
+    # stderr, a stream that raises) that the outcome word cannot see.
+    line_printed: bool = False
 
 
 def _note(session: object, event: str) -> None:
@@ -704,6 +800,29 @@ def _make_action(
         verdict = _Verdict(None, OUTCOME_NO_WIRE_PATH)
 
     action = verdict.action
+    # THE BACKSTOP LINE, before the audit write and not after it: this says
+    # "no bytes went to the client", which is already true and does not
+    # depend on a file append succeeding.  Running it after would make the
+    # console silent again on exactly the boot where the capture directory
+    # is unwritable -- an attended shape this lane has already shipped a fix
+    # for once (round `vb3ktn`).
+    #
+    # The staged cross-scene warp is excluded by outcome, not by command
+    # name: `/warp` reaches here both ways, and the half that wrote a config
+    # entry is not a command that "sent nothing" in any sense worth
+    # greping.  See `_print_no_bytes_way_out`.
+    if (
+        action is None
+        and not verdict.line_printed
+        and verdict.audit_outcome
+        not in (
+            OUTCOME_STAGED_LOGIN_SCENE,
+            OUTCOME_STAGED_LOGIN_SCENE_COORDS_IGNORED,
+        )
+    ):
+        _print_no_bytes_way_out(
+            session, token, getattr(command, "name", None), verdict.audit_outcome
+        )
     # ONE write point for the `outcome` row, deliberately: CORE-REQUEST-GM-032
     # item 1 exists because the audit could not tell a withheld command from a
     # sent one, and an audit whose closing row is appended at four different
@@ -756,6 +875,19 @@ def _make_action(
                 if not clear_warp_target(session):
                     _note(session, EVENT_OUTCOME_STALE_TARGET_NOT_CLEARED)
             _note(session, EVENT_OUTCOME_NOT_AUDITED_ACTION_WITHHELD)
+            # The one no-bytes path that gets here with a frame in hand.
+            # It is the WORST one to leave silent: every other withhold is a
+            # gate this lane knows is shut, while this one means the console
+            # already printed `route=action`, the command was good, and the
+            # frame was dropped for a reason that lives on disk.  Its `why`
+            # is not an audit outcome on purpose -- that row is the thing
+            # that could not be written.
+            _print_no_bytes_way_out(
+                session,
+                token,
+                getattr(command, "name", None),
+                WHY_AUDIT_ROW_NOT_WRITTEN,
+            )
             return None
     return action
 
@@ -1020,7 +1152,7 @@ def _print_warp_way_out(
     scene_id: int,
     reason: str,
     scene_registry=None,
-) -> None:
+) -> bool:
     """Name the destinations a refused chat `/warp` could have used instead.
 
     WHO IS STANDING WHERE WHEN THIS IS READ -- stated first, because the
@@ -1075,9 +1207,18 @@ def _print_warp_way_out(
     this token exists to avoid (D1); and the failure is NAMED rather than
     swallowed in silence (D5), because "the console is broken" and "the route
     was never wired" must not look identical to an attended `GT-127` run.
+
+    RETURNS whether the line actually reached the stream, for
+    `WITHHELD_CONSOLE_TOKEN`'s backstop.  `False` on every early return
+    above, so a refusal this printer declined to explain still gets the
+    shorter no-bytes line rather than nothing -- and a refusal it DID
+    explain does not get both.  It is deliberately not "did I intend to
+    print": a `None` or exploding stderr means the operator has no line,
+    whatever this function meant to do, and the backstop's own guard will
+    fail the same way and name it once more rather than claim a line exists.
     """
     if reason not in login_scene_stage.DESTINATION_SHAPED_REASONS:
-        return
+        return False
     stream = sys.stderr
     if stream is None:
         # `print(file=None)` writes to STDOUT.  On `pythonw.exe` or a service
@@ -1085,7 +1226,7 @@ def _print_warp_way_out(
         # module names two paragraphs up -- that is how a GM token lands in
         # another tool's `--json` artifact.  MEASURED by pf-adversary (D1).
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
-        return
+        return False
     try:
         # EVERYTHING THAT COULD RAISE STAYS INSIDE THE GUARD (D2 again): the
         # blocker call reads lane A's registry from disk and can raise for
@@ -1120,6 +1261,82 @@ def _print_warp_way_out(
             "stageable="
             f"{stageable_scene_ids(scene_registry=scene_registry)}"
             f"{suffix}",
+            file=stream,
+        )
+    except Exception as error:  # noqa: BLE001 - see the last paragraph above
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
+        return False
+    return True
+
+
+def _print_no_bytes_way_out(
+    session: object,
+    token: str,
+    command_name: object,
+    why: str,
+) -> None:
+    """Say that an ACCEPTED GM command put nothing on the wire, and why.
+
+    THE BACKSTOP, not a fourth way out.  `WITHHELD_CONSOLE_TOKEN`'s own
+    comment carries the measurement that made it necessary; what belongs
+    here is the shape:
+
+    * it runs only for a command that PARSED -- an ordinary sentence a GM
+      typed is refused upstream with `refused_not_a_command` and returns
+      long before this, which is the founding rule that a non-GM's chat and
+      a GM's conversation are never written anywhere;
+    * it runs only when the verdict carried NO action and no handler printed
+      its own line (`_Verdict.line_printed`), so the scene list `/warp 9999`
+      gets is never doubled by a shorter line saying the same thing worse;
+    * it does NOT run for a staged cross-scene warp.  That command had a
+      real effect -- a config entry that decides the next login -- and a
+      token whose name says NO_BYTES_SENT is true of it only in the most
+      useless sense.  Whether the console should announce a stage is a
+      separate question with a separate answer (`GT-141` tells the tester in
+      prose today); borrowing this token for it would make "nothing
+      happened" and "something happened elsewhere" grep the same.
+
+    IT NEVER PRINTS WHAT WAS TYPED -- the same property
+    `_print_command_refusal_way_out` spends its docstring on, and for the
+    same measured reason (`session.token` is the process-wide `--token`, so
+    on the wired server any player's sentence would be printed under the
+    operator's own GM account).  Two fields, both lane-authored: the command
+    NAME, which is rendered only if it is one of `commands.COMMAND_NAMES`,
+    and the blocker sentence, which is looked up in `NO_BYTES_BLOCKERS` and
+    never built from the command's arguments.  A `GmCommand` is accepted
+    "regardless of source" everywhere in this lane, so the name is checked
+    here rather than trusted from the parser.
+
+    A DIAGNOSTIC MAY NEVER ALTER DISPATCH -- held exactly as the two
+    printers above hold it: everything that can raise is inside the guard,
+    the guard catches `Exception` (a closed stream raises `ValueError`, an
+    unmappable one `UnicodeEncodeError`), a `None` stderr returns rather
+    than letting `print` fall back to STDOUT, and a console that cannot be
+    written is NAMED on the event trail instead of swallowed.
+    """
+    stream = sys.stderr
+    if stream is None:
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
+        return
+    try:
+        # Membership, not truthiness: a name outside the vocabulary is a
+        # `GmCommand` this lane did not parse, and rendering it would put
+        # caller-chosen text on the operator's console through the one field
+        # that looks trustworthy.  `unnamed` is not a failure -- the outcome
+        # word beside it is the answer either way.
+        name = command_name if command_name in COMMAND_NAMES else "unnamed"
+        blocker = NO_BYTES_BLOCKERS.get(why, NO_BLOCKER_RECORDED)
+        # Capped at the printer for the reason the other cap is: this
+        # function reads its blocker out of a mapping a later round edits,
+        # and a bound that lives with the supplier is the supplier's
+        # property, not this line's.
+        if len(blocker) > MAX_CONSOLE_HINT_LENGTH:
+            blocker = blocker[:MAX_CONSOLE_HINT_LENGTH] + "..."
+        print(
+            f"{WITHHELD_CONSOLE_TOKEN} "
+            f"account='{console_safe(_one_line(token), stream)}' "
+            f"command={name} why={console_safe(_one_line(str(why)), stream)} "
+            f"blocked_on='{console_safe(_one_line(blocker), stream)}'",
             file=stream,
         )
     except Exception as error:  # noqa: BLE001 - see the last paragraph above
@@ -1172,10 +1389,14 @@ def _stage_action(
 
     if not result.staged:
         _note(session, f"{EVENT_WARP_STAGE_REFUSED_PREFIX}{result.reason}")
-        _print_warp_way_out(
+        printed = _print_warp_way_out(
             session, token, scene_id, result.reason, scene_registry
         )
-        return _Verdict(None, f"{OUTCOME_STAGE_REFUSED_PREFIX}{result.reason}")
+        return _Verdict(
+            None,
+            f"{OUTCOME_STAGE_REFUSED_PREFIX}{result.reason}",
+            line_printed=printed,
+        )
 
     _note(session, f"{EVENT_WARP_STAGED_PREFIX}{scene_id}")
 

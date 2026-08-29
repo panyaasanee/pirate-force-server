@@ -4123,3 +4123,89 @@ this class's raises moved inside chief's existing net (D7).
 **grep ไม่ได้บนบูตปกติ** (ต้อง `--export-events`) ⇒ ของที่ operator มีจริงคือบรรทัดคอนโซลบรรทัดเดียว
 
 🔴 **ผู้เทสหน้าจอเกม: ไม่ได้อะไรใหม่รอบนี้** และรอบนี้จะไม่แกล้งบอกว่าได้
+
+## Round `tvbiqc` -- an ACCEPTED command that sent nothing now says so
+
+### The hole, measured through the real dispatcher before anything was written
+
+| typed | events | what the CONSOLE said |
+|---|---|---|
+| `/warp 2 100 200` | `..._warp_withheld_no_confirmed_force_pos_vital_version_re129_open` | `LANE_GM_CHAT_ACTION warp route=action` and nothing else |
+| `/say hello` | `..._say_withheld_...` | `LANE_GM_CHAT_ACTION say route=action` and nothing else |
+| `/lv 10` `/item 1001 5` `/npc on 5` `/spawn 7` | `..._no_wire_path_<name>` | `LANE_GM_CHAT_ACTION <name> route=action` and nothing else |
+| `/warp 9999` | `..._stage_refused_unknown_scene` | the admissible scene list (round `c48x1n`) |
+| `/warp island` | `..._refused_command_parse_error_...` | the usage line (round `9wy444`) |
+
+`route=action` is printed BEFORE any handler runs; it has always meant "this
+route was reached" and nothing more.  So the six commands that put no byte on
+the wire ended with a line that reads like success, while the two REFUSED
+ones were fully explained.  A refused command was better served than an
+accepted one -- and the worst-served of the six is `/warp <current scene> x
+y`, the only command that can move a character on screen and the subject of
+`GT-128`.
+
+WHO PAYS: an attended tester types the warp, nothing moves, and the console
+cannot separate "the version gate withheld the frame" (wiring fine, RE open)
+from "the client ignored a frame we did send" (wiring fine, client's answer)
+from "the route is dead" (wiring broken).  Two of those three are PASS-shaped
+for the wiring and one is not, and the entry is graded from that console.
+
+### What shipped
+
+| file | change |
+|---|---|
+| `gm/chat_command_action.py` | fourth console token `GM_CHAT_NO_BYTES_SENT`, printed once per accepted command that produced no action: the command name, the `outcome` word the ndjson row carries, and `blocked_on='<what would unblock it>'` from the fixed `NO_BYTES_BLOCKERS` table.  `_Verdict` gained `line_printed`, and `_print_warp_way_out` now reports whether its line actually reached the stream, so a refusal that already explained itself is never explained twice |
+| `tests/test_gm_chat_no_bytes_line.py` | new: the six silent commands each get exactly one line and the right blocker; the line never prints what was typed; no second line for `/warp 9999`, `/warp 126` or `/warp island`; a STAGED cross-scene warp stays silent; the audit-failure drop says so; a `None` or exploding stderr is named and costs no command |
+
+No `runtime.py` change and no CORE-REQUEST: the whole fix is inside this
+lane's own module, and chief's call site is untouched.
+
+### Why a fourth token instead of reusing one
+
+`LANE_GM_CHAT_ACTION` = the route was reached.  `GM_CHAT_WARP_REFUSED` = the
+scene you named is not one login can enter (+ the list).
+`GM_CHAT_COMMAND_REFUSED` = that is not a command this lane can read (+ the
+usage).  `GM_CHAT_NO_BYTES_SENT` = we read you, we accepted it, and we
+deliberately sent nothing (+ the blocker).  An operator greps one question at
+a time.
+
+### What the line never carries, and why that is the property to guard
+
+`session.token` on the wired server is the process-wide `--token`, not a
+per-connection login, so a line that echoed what was typed would put any
+player's sentence on the operator's console under the owner's own GM account
+-- against this lane's founding rule.  Both fields are lane-authored: the
+command NAME renders only if it is in `commands.COMMAND_NAMES` (`unnamed`
+otherwise, which also stops a hand-built `GmCommand` from forging a second
+line carrying another route's grep token), and the blocker sentence comes
+from a fixed table, never from the command's arguments.
+
+### Evidence
+
+* green(local pytest, whole suite): 5131 passed, 327 skipped, 8928 subtests
+  (~102s, `__pycache__` cleared first).
+* seven mutants measured killed, each run clean: dropping the `line_printed`
+  hand-back (2 red -- doubled lines); the way-out printer returning `True`
+  unconditionally (1 red -- a refusal it declines goes silent again);
+  hardcoding one blocker sentence (2 red); rendering the command name
+  unchecked (1 red); letting the staged outcomes into the gate (2 red -- a
+  `/warp 278` that wrote a config entry called "sent nothing"); dropping
+  `_one_line` from the account field (1 red -- newline forgery); removing the
+  backstop call (11 red).
+
+### What is NOT claimed
+
+No byte reached a client because of this round, and no command that could not
+be sent yesterday can be sent today.  The line goes to the SERVER HOST'S
+stderr -- the operator rung `COO-DECISION 20260829_1344` path (a) named, not
+a reply to the tester at the client, which is still blocked behind the same
+identity and version locks as `/say`.  Nobody was given GM status, no scene
+set changed, and no milestone is claimed from anything a GM shortcut reached.
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้ (round `tvbiqc`)
+
+**คนเฝ้าคอนโซล (รวมผู้เทสที่นั่งข้างเครื่องเซิร์ฟเวอร์ตอนรัน `GT-127`/`GT-128`/`GT-133`):**
+เมื่อวาน พิมพ์ `/warp 2 100 200` แล้วตัวไม่ขยับ คอนโซลพูดคำสุดท้ายว่า `warp route=action`
+ซึ่งอ่านเหมือน "ส่งแล้ว" ⇒ ต้องเดาเองระหว่างเกตปิด / ไคลเอนต์ไม่สน / สายตาย
+วันนี้ บรรทัดถัดมาบอกว่า **ไม่มีไบต์ออกไปเลย** พร้อมชื่อเกตและสิ่งที่จะปลดมัน
+🔴 **ผู้เทสหน้าจอเกม: ไม่ได้อะไรใหม่รอบนี้** และรอบนี้จะไม่แกล้งบอกว่าได้
