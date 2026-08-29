@@ -17,6 +17,7 @@ from . import mob_combat
 from . import mob_death
 from . import mob_loot
 from . import mob_pickup
+from . import mob_scene_recompose
 from . import trace_path
 from . import world_density
 from . import world_face_frame
@@ -274,6 +275,30 @@ MOB_COMBAT_DEFAULT_ATTACKER = mob_combat.pin_attacker()
 # server-wide ledger, concurrent dispatch on one connection), the failure
 # mode is a loud, named refusal instead of a silent infinite loop / DoS.
 MOB_COMBAT_STALE_RETRY_LIMIT = 8
+
+
+def _recompose_event_suffix(record):
+    """The event suffix for a recompose that did NOT compose.
+
+    KEEPS ONE OF THE TWO PREFIXES THIS TREE ALREADY GREPS FOR.  Before the
+    scene-dispatched recompose there were exactly two shapes:
+    ``..._refused_<ExceptionName>`` (the compose raised) and
+    ``..._skipped_no_population_anchor`` (there was nothing to compose
+    against).  ``mob_scene_recompose`` returns four states, two of which
+    (``no_composer_for_scene``, ``refused_objects_outside_scene_1``) are
+    neither -- and pf-adversary (round k882hm, D6) measured what that costs:
+    ``tests/test_mob_combat_dispatch.py`` asserts that NO event starts with
+    ``..._skipped_`` or ``..._refused_``, so a state outside both prefixes
+    passes that assertion while the one-entry world-wipe frame goes out.
+
+    So a ``refused_*`` state keeps its exact old spelling and every other
+    non-composed state is named as the skip it is.  A caller must not pass a
+    composed record: there is no event for success.
+    """
+    state = record.state
+    if state.startswith(mob_scene_recompose.STATE_REFUSED_PREFIX):
+        return state
+    return "skipped_" + state
 
 
 def _apply_mob_death_census_override(legacy, generation, override):
@@ -1095,6 +1120,13 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # is the number that actually went onto the wire this session,
                 # not the number that was asked for.
                 self.world_census_actor_count = None
+                # CORE-REQUEST (LANE-B 20260829_2055): the recompose path's
+                # own anchor, stamped with the scene it was measured in.
+                # Initialized HERE beside its siblings rather than left to
+                # the ``getattr(..., None)`` at the two read sites, so a
+                # session that never composed a census carries the same
+                # None both lanes' guards already read.
+                self.census_anchor_record = None
                 self.world_census_indices = None
                 self.world_census_sent = False
                 self.world_census_refused = False
@@ -4166,48 +4198,98 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     # bar frame over the FULL arrival census instead, same
                     # encoder, same anchor/count the arrival wiring already
                     # keeps in session state.
-                    anchor = getattr(self, "population_refresh_anchor", None)
-                    count = getattr(self, "world_census_actor_count", None)
-                    # pf-adversary (round keen-pasteur-ahn7zb) finding 2:
-                    # anchor/count alone do not say WHICH scene they
-                    # describe -- the arena harness (``--scenario``) can
-                    # overwrite population_refresh_anchor with arena
-                    # coordinates and nothing ever clears either attribute
-                    # on scene departure. Reuse the exact same scene guard
-                    # the arrival census composition already applies
-                    # (runtime.py's own census-dispatch site, a few hundred
-                    # lines below) rather than trusting the pair blind.
+                    # CORE-REQUEST (LANE-B 20260829_2055): the recompose is
+                    # SCENE-DISPATCHED through mob_scene_recompose, which
+                    # delegates scene 1 byte-identically to the
+                    # ``hostile_census_frames`` call that used to sit here
+                    # (pinned in tests/test_mob_scene_recompose.py) and adds
+                    # scene 2.  pf-adversary finding 2 (anchor/count do not
+                    # say which scene they describe) is now closed in the
+                    # DATA: ``census_anchor_record`` carries the scene it
+                    # was measured in, and recompose_frames refuses a bare
+                    # pair outright.  The current-scene comparison is KEPT
+                    # -- generalized from ``== world_population.SCENE_ID``
+                    # to ``== record.scene_id`` -- because the stamp says
+                    # where the anchor was measured, not where the player
+                    # stands now: a hit after a crossing whose arrival
+                    # census refused must degrade to the one-entry frame,
+                    # not recompose the previous map into this one.
+                    anchor_record = getattr(
+                        self, "census_anchor_record", None,
+                    )
+                    count = (
+                        anchor_record.actor_count
+                        if anchor_record is not None else None
+                    )
                     census_scene_id = (
                         self.foundation.selected.position.scene_id
                         if self.foundation.selected is not None else None
                     )
                     if (
-                        anchor is not None and count is not None
-                        and census_scene_id == world_population.SCENE_ID
+                        anchor_record is not None
+                        and census_scene_id == anchor_record.scene_id
                     ):
-                        try:
-                            bar_pc, bar_frame = (
-                                diag_multi_object_wiring.hostile_census_frames(
-                                    legacy, anchor, count, roster,
-                                    self.mob_death_register,
-                                    ledger=self.mob_combat_ledger,
-                                    objects=self.diag_multi_objects,
-                                )
+                        # The five diagnostic objects are bg0001 placements
+                        # (the module refuses them for any other scene by
+                        # name); passing them conditionally keeps a
+                        # scene-2 recompose composable in a session that
+                        # committed them at a scene-1 arrival earlier.
+                        recompose_record = (
+                            mob_scene_recompose.recompose_frames(
+                                legacy, anchor_record,
+                                self.mob_death_register,
+                                ledger=self.mob_combat_ledger,
+                                roster=roster,
+                                objects=(
+                                    self.diag_multi_objects
+                                    if anchor_record.scene_id
+                                    == world_population.SCENE_ID else ()
+                                ),
                             )
-                        except Exception as error:
-                            # pf-adversary finding 1: unlike the arrival
-                            # census's own build_world_population call (see
-                            # the fail-closed catch-all a few hundred lines
-                            # below, with the same "an escape from here
-                            # kills the listener thread" reasoning), this
-                            # call was originally left unguarded -- on
-                            # every hit and kill, not once per session.
-                            # Fail closed to the one-entry frame instead of
-                            # letting the connection die.
+                        )
+                        # The lane's wiring ask, point (3): the module's
+                        # own line prints in every state a RECOMPOSE can
+                        # return, composed or refused.
+                        # HONEST LIMIT (pf-adversary, round k882hm, D4):
+                        # this is inside the anchor guard, so the arm
+                        # below -- no stamp, or a stamp from another
+                        # scene -- still ships a one-entry frame with NO
+                        # MOB_SCENE_RECOMPOSE line.  It is not silent
+                        # (MOB_COMBAT_BAR_CENSUS_RECOMPOSE prints
+                        # wire_actors=1 for it, outside every if), but the
+                        # module's own line is absent from exactly the
+                        # state the lane demanded it for.  Closing that
+                        # needs a record for "no anchor", which is the
+                        # lane's type to define, not this file's to
+                        # invent; asked for in the round letter.
+                        for line in mob_scene_recompose.describe_recompose(
+                            recompose_record,
+                        ):
+                            print(line)
+                        if recompose_record.composed:
+                            bar_pc, bar_frame = (
+                                recompose_record.pc, recompose_record.frame,
+                            )
+                        else:
+                            # Every non-composed state degrades to the
+                            # one-entry frame, exactly as the old except
+                            # arm did.  THE EVENT NAME KEEPS ONE OF THE TWO
+                            # OLD PREFIXES, always: pf-adversary (round
+                            # k882hm, D6) measured that
+                            # tests/test_mob_combat_dispatch.py:602 asserts
+                            # no event starts with ``..._skipped_`` or
+                            # ``..._refused_``, so a bare ``state`` of
+                            # ``no_composer_for_scene`` would pass that
+                            # assertion while the one-entry world-wipe
+                            # frame is on the wire.  ``refused_*`` states
+                            # keep their exact old spelling
+                            # (``refused_<Exception>``); every other
+                            # non-composed state is a skip and is named
+                            # like one.
                             bar_pc, bar_frame = step.bar_pc, step.bar_frame
                             self.events.append(
-                                "mob_combat_bar_census_compose_refused_"
-                                f"{type(error).__name__}"
+                                "mob_combat_bar_census_compose_"
+                                + _recompose_event_suffix(recompose_record)
                             )
                     else:
                         # Reached in ordinary play, not merely in theory:
@@ -4218,12 +4300,11 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         # teleport_sent/runtime_ack_sent/last_target_pos
                         # gate the arrival census waits on. A real client
                         # that swings before its first position report, or
-                        # one that is away from the home scene (census
-                        # composition skips non-home scenes outright, see
-                        # world_census_skipped_scene_ below), both land
-                        # here. Degrade to the one-entry frame RE-092
-                        # flagged rather than raise on a missing/mismatched
-                        # anchor.
+                        # one standing in a scene whose arrival census
+                        # never committed a stamp, both land here. Degrade
+                        # to the one-entry frame RE-092 flagged rather
+                        # than recompose against a missing or
+                        # wrong-scene anchor.
                         bar_pc, bar_frame = step.bar_pc, step.bar_frame
                         self.events.append(
                             "mob_combat_bar_census_compose_skipped_"
@@ -4426,60 +4507,103 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     # POST-commit register (mob_death.commit_death ran
                     # above), matching CORE-REQUEST-008 point (2)/(3)'s
                     # "register after commit" requirement.
-                    anchor = getattr(self, "population_refresh_anchor", None)
-                    count = getattr(self, "world_census_actor_count", None)
-                    # Same scene guard as MOB_COMBAT_BAR above (pf-adversary
-                    # finding 2): anchor/count alone do not say which scene
-                    # they describe.
+                    # CORE-REQUEST (LANE-B 20260829_2055): scene-dispatched
+                    # recompose, same shape and same reasoning as
+                    # MOB_COMBAT_BAR above -- scene 1 delegates
+                    # byte-identically to the calls that used to sit here,
+                    # scene 2 stops falling to the one-entry frames.
+                    anchor_record = getattr(
+                        self, "census_anchor_record", None,
+                    )
+                    count = (
+                        anchor_record.actor_count
+                        if anchor_record is not None else None
+                    )
                     census_scene_id = (
                         self.foundation.selected.position.scene_id
                         if self.foundation.selected is not None else None
                     )
                     if (
-                        anchor is not None and count is not None
-                        and census_scene_id == world_population.SCENE_ID
+                        anchor_record is not None
+                        and census_scene_id == anchor_record.scene_id
                     ):
-                        try:
-                            dying_pc, dying_frame = (
-                                diag_multi_object_wiring.hostile_census_frames(
-                                    legacy, anchor, count, roster,
-                                    self.mob_death_register,
-                                    ledger=self.mob_combat_ledger,
-                                    dead_timer=mob_death.DYING_TIMER_SECONDS,
-                                    objects=self.diag_multi_objects,
+                        death_objects = (
+                            self.diag_multi_objects
+                            if anchor_record.scene_id
+                            == world_population.SCENE_ID else ()
+                        )
+                        recompose_dying = (
+                            mob_scene_recompose.recompose_frames(
+                                legacy, anchor_record,
+                                self.mob_death_register,
+                                ledger=self.mob_combat_ledger,
+                                roster=roster,
+                                dead_timer=mob_death.DYING_TIMER_SECONDS,
+                                objects=death_objects,
+                            )
+                        )
+                        recompose_dead = (
+                            mob_scene_recompose.recompose_frames(
+                                legacy, anchor_record,
+                                self.mob_death_register,
+                                ledger=self.mob_combat_ledger,
+                                roster=roster,
+                                objects=death_objects,
+                            )
+                        )
+                        # Point (3) of the wiring ask: the module's line
+                        # prints in every state.  Both records are
+                        # described because the two composes are separate
+                        # calls (same reasoning as the two RECOMPOSE
+                        # console lines below).
+                        for recompose_record in (
+                            recompose_dying, recompose_dead,
+                        ):
+                            for line in (
+                                mob_scene_recompose.describe_recompose(
+                                    recompose_record,
                                 )
+                            ):
+                                print(line)
+                        if (
+                            recompose_dying.composed
+                            and recompose_dead.composed
+                        ):
+                            dying_pc, dying_frame = (
+                                recompose_dying.pc, recompose_dying.frame,
                             )
                             dead_pc, dead_frame = (
-                                diag_multi_object_wiring.hostile_census_frames(
-                                    legacy, anchor, count, roster,
-                                    self.mob_death_register,
-                                    ledger=self.mob_combat_ledger,
-                                    objects=self.diag_multi_objects,
-                                )
+                                recompose_dead.pc, recompose_dead.frame,
                             )
-                        except Exception as error:
-                            # Same fail-closed reasoning as MOB_COMBAT_BAR
-                            # above (pf-adversary finding 1): degrade to the
-                            # one-entry frames instead of letting the
-                            # exception kill the listener thread.
+                        else:
+                            # Either compose refusing degrades BOTH pairs,
+                            # exactly as the old shared except arm did: a
+                            # dying frame from one collection and a dead
+                            # frame from another must never interleave.
                             dying_pc, dying_frame = (
                                 death_step.dying_pc, death_step.dying_frame,
                             )
                             dead_pc, dead_frame = (
                                 death_step.dead_pc, death_step.dead_frame,
                             )
+                            failed = (
+                                recompose_dying
+                                if not recompose_dying.composed
+                                else recompose_dead
+                            )
                             self.events.append(
-                                "mob_death_frames_census_compose_refused_"
-                                f"{type(error).__name__}"
+                                "mob_death_frames_census_compose_"
+                                + _recompose_event_suffix(failed)
                             )
                     else:
                         # Reached in ordinary play, not merely in theory --
                         # same reasoning as MOB_COMBAT_BAR above
                         # (pf-adversary finding 3): a kill before the
-                        # first TargetPos report, or one outside the home
-                        # scene, both land here. Degrade to the one-entry
-                        # frames instead of raising on a missing/mismatched
-                        # anchor.
+                        # first TargetPos report, or one in a scene whose
+                        # arrival census never committed a stamp, both
+                        # land here. Degrade to the one-entry frames
+                        # rather than recompose against a missing or
+                        # wrong-scene anchor.
                         dying_pc, dying_frame = (
                             death_step.dying_pc, death_step.dying_frame,
                         )
@@ -5634,28 +5758,56 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             self.events.append(
                                 "gm_login_scene_override_consume_failed"
                             )
-                    except (ValueError, OSError, TypeError) as error:
+                    except (
+                        ValueError, OSError, TypeError, AttributeError,
+                    ) as error:
                         # Same refuse-by-name-not-by-crash shape as the
-                        # is_gm_account() guard below (CORE-REQUEST-006):
-                        # nothing this call can raise is a reason to take
-                        # down the listener thread for every other login --
-                        # with ONE deliberate exception since
-                        # CORE-REQUEST-GM-037: a ConsumeResult that lost its
-                        # `cause` field raises AttributeError above, which
-                        # this net does NOT catch, BY THE GM LETTER'S OWN
-                        # DEMAND (no getattr fallback, a missing field must
-                        # be loud).  pf-adversary (round nbulzb) measured
-                        # where that loudness lands: the escape unwinds the
-                        # game listener thread (v141:7440 has no except),
-                        # leaving the login port alive over a dead game
-                        # port.  That cost is accepted because the path is
-                        # unreachable at HEAD (ConsumeResult makes `cause`
-                        # mandatory on CONSUME_FAILED, __slots__ makes it
-                        # unlosable) and the wiring test pins the
-                        # propagation, so only an in-repo regression -- red
-                        # in CI before any boot -- can reach it.  No
-                        # override is applied; the character logs in at its
-                        # own row.  Since the consumer replaced the reader
+                        # is_gm_account() guard a few hundred lines below
+                        # (CORE-REQUEST-006): nothing this call can raise
+                        # is a reason to take down the listener thread for
+                        # every other login.
+                        # CORE-REQUEST-GM-039 added AttributeError to this
+                        # net, REVERSING the GM-037-era carve-out that let
+                        # a lost `cause` field escape: pf-adversary (D7,
+                        # round npo898) measured that the lane's
+                        # ConsumeResultMisuse only narrowed the hole to one
+                        # class -- any OTHER AttributeError raised inside
+                        # THIS try (the consume call itself, the override
+                        # loader it drives, or a line written tomorrow)
+                        # still unwound the game listener thread
+                        # (v141:7440 has no except), leaving the login
+                        # port alive over a dead game port for the rest of
+                        # the process's life.
+                        # WHAT THIS NET DOES NOT COVER, said plainly
+                        # because the first draft of this comment claimed
+                        # otherwise (pf-adversary, round k882hm, D1): the
+                        # is_gm_account() call is NOT in this try.  It has
+                        # its own, narrower net further down this method
+                        # (`except (ValueError, OSError)`), so an
+                        # AttributeError from the accounts loader still
+                        # escapes there.  That is a separate hole and it
+                        # is filed, not silently widened here.
+                        # The priced cost, from the lane's own letter: a
+                        # typo'd field name in this block now degrades to
+                        # a refusal instead of a traceback -- accepted
+                        # because CI catches exactly that typo before any
+                        # boot (measured this round: `casue` reddens 11
+                        # tests across 7 files), while the listener death
+                        # had no test that could see it.
+                        # The loud-failure contract is REDUCED, not moved
+                        # (pf-adversary, round k882hm, D2): `state.events`
+                        # is never printed on a default boot (app.py builds
+                        # an exporter under --export-events only), so the
+                        # events row below is not an operator-visible
+                        # artifact.  The console line printed here is --
+                        # it is what a default boot has instead of the
+                        # traceback, and it is the reason this arm is not
+                        # silent.  The wiring test pins both halves: a
+                        # result which lost its `cause` lands HERE, named
+                        # `..._lookup_failed_AttributeError`, with the
+                        # character at its own row, AND the line below on
+                        # the console.  No override is applied.
+                        # Since the consumer replaced the reader
                         # (CORE-REQUEST-GM-033 v2) a malformed config no
                         # longer arrives here -- it comes back as the
                         # CONSUME_FAILED outcome above -- so what is left
@@ -5663,6 +5815,20 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         # (a token that is empty or not a str) plus any
                         # error a future version of that call may raise.
                         login_scene_override = None
+                        # Guarded exactly like the CONSUME_FAILED print
+                        # above: a diagnostic must never cost the login.
+                        # ASCII only, exception class name only -- never
+                        # str(error), whose text this file does not own
+                        # and which could carry bytes outside cp874 onto
+                        # the bridge's console.
+                        try:
+                            print(
+                                "GM_LOGIN_SCENE_OVERRIDE_LOOKUP_FAILED "
+                                "effect=login_at_own_row "
+                                f"error={type(error).__name__}"
+                            )
+                        except Exception:
+                            pass
                         self.events.append(
                             "gm_login_scene_override_lookup_failed_"
                             f"{type(error).__name__}"
@@ -6814,6 +6980,32 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             f"{generation.pc_bytes}_frame_"
                             f"{generation.frame_bytes}"
                         )
+                        # CORE-REQUEST (LANE-B 20260829_2055) chief's half,
+                        # the bg0002 side: same stamped record as the bg0001
+                        # commit, so a hit or a kill in this scene stops
+                        # falling into the one-entry
+                        # ``..._skipped_no_population_anchor`` arm RE-092
+                        # proved is replace-by-omission.  ``anchor`` is this
+                        # branch's own census anchor (durable target or
+                        # pinned spawn), ``scene_id`` is the bg0002 id the
+                        # disjunct above admitted.  This runs in the
+                        # ``else`` clause, PAST the builder's fail-closed
+                        # net, so a shape refusal is caught here by hand:
+                        # losing the recompose stamp must degrade to the
+                        # one-entry fallback the guard already has, never
+                        # unwind the listener thread over a census that
+                        # already shipped.
+                        try:
+                            self.census_anchor_record = (
+                                mob_scene_recompose.census_anchor(
+                                    scene_id, anchor,
+                                    generation.actor_count,
+                                )
+                            )
+                        except mob_scene_recompose.SceneRecomposeError:
+                            self.events.append(
+                                "world_census_bg0002_anchor_stamp_refused"
+                            )
                         # Deliberately NOT set here: population_indices,
                         # population_refresh_anchor, world_census_indices,
                         # npc_idle_action_sent.  Those are read elsewhere by
@@ -6971,6 +7163,32 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 f"{len(lane_pc)}_frame_"
                                 f"{len(lane_frame)}"
                             )
+                            # CORE-REQUEST (LANE-B 20260829_2055), THE
+                            # THIRD ARRIVAL COMMIT.  pf-adversary (round
+                            # k882hm, D3) measured that the round's own
+                            # claim of "both arrival census commits" was
+                            # short by one: this lane-composer commit
+                            # ships a full census and set no stamp, so the
+                            # first swing in a lane scene would send the
+                            # one-entry frame RE-092 proved erases the
+                            # map.  Latent today (no lane claims a scene
+                            # a player can stand in and fight in), armed
+                            # the day one does.  ``mob_scene_recompose``
+                            # has no composer for a lane scene yet, so the
+                            # stamp buys the NAMED refusal
+                            # (``..._skipped_no_composer_for_scene`` plus
+                            # the module's console line) instead of the
+                            # silent anchor-less skip.
+                            try:
+                                self.census_anchor_record = (
+                                    mob_scene_recompose.census_anchor(
+                                        scene_id, anchor, lane_actor_count,
+                                    )
+                                )
+                            except mob_scene_recompose.SceneRecomposeError:
+                                self.events.append(
+                                    "world_census_lane_anchor_stamp_refused"
+                                )
                             census_actions = [
                                 (
                                     f"WORLD_CENSUS_LANE_SCENE{scene_id}"
@@ -7129,6 +7347,34 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         self.population_indices = generation.indices
                         self.population_refresh_anchor = generation.anchor
                         self.world_census_actor_count = generation.actor_count
+                        # CORE-REQUEST (LANE-B 20260829_2055) chief's half:
+                        # the anchor and count travel WITH the scene they
+                        # were measured in, so the recompose sites below can
+                        # never be handed another scene's pair without the
+                        # composer refusing by name.  The two bare
+                        # attributes above are kept for their other readers
+                        # (arena harness, frozen fallback, click dispatch);
+                        # the recompose path reads only this record.  This
+                        # branch is home-scene only (see the not-home skip
+                        # above), so the stamp is the bg0001 scene id.
+                        # Guarded by hand for the same reason the density
+                        # console line below is: this runs PAST the
+                        # builder's net, after world_census_sent is
+                        # latched, and losing the recompose stamp must
+                        # cost the recompose (its guard degrades to the
+                        # one-entry frame), never the listener thread.
+                        try:
+                            self.census_anchor_record = (
+                                mob_scene_recompose.census_anchor(
+                                    world_population.SCENE_ID,
+                                    generation.anchor,
+                                    generation.actor_count,
+                                )
+                            )
+                        except mob_scene_recompose.SceneRecomposeError:
+                            self.events.append(
+                                "world_census_anchor_stamp_refused"
+                            )
                         self.world_census_indices = generation.indices
                         self.events.append(
                             "world_census_committed_actors_"
