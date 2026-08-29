@@ -469,10 +469,19 @@ ORIGINAL_SERVER_PICKUP_TERMINATED_SECONDS = 0.633
 # So the number below is this lane's own, and it is tagged as such.  It answers
 # one question -- how long after a kill may a player still successfully click
 # the object -- and it is sized for a player who has to walk there.
-# [ASSUMPTION OF LANE B - AWAITING COO] The MECHANISM is ruled and is not an
-# assumption; only this figure is.  Changing it is a one-line change with no
-# call-site consequence, which is why the lane took a number rather than
-# waiting for one.
+# ~~[ASSUMPTION OF LANE B - AWAITING COO]~~
+# [INTERIM - COO 20260829_1444 - AWAITING MEASUREMENT] The MECHANISM is ruled
+# and is not an assumption; only this figure is.  Changing it is a one-line
+# change with no call-site consequence, which is why the lane took a number
+# rather than waiting for one.
+# COO-DECISION 2026-08-29T14:44+07:00 item 1 accepted 120.0 as an INTERIM
+# default: it no longer waits on anyone, but it is still not a MEASURED
+# number.  Item 2 of the same ruling opened GT-149 DROP-LIFETIME-MEASURE-001
+# (kill a monster, deliberately do NOT pick the drop up, read the seconds off
+# the video's own frame timestamps) -- that ticket, not this comment, is what
+# replaces this figure with a measured one.  Item 3 confirmed the shape this
+# lane chose: the label belongs on the FIGURE alone and must not spread to
+# the mechanism.
 DROP_LIFETIME_SECONDS = 120.0
 #: A lifetime must be shorter than this.  Not a policy, a tripwire: a cell
 #: built with a lifetime measured in days is a cell with no ceiling at all,

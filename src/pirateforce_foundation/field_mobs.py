@@ -503,6 +503,64 @@ def live_scenes() -> tuple[str, ...]:
     return tuple(sorted(_SCENE_TABLE_MODULES))
 
 
+# (scene folder) -> placement indices the OWNER ruled out by hand, with the
+# source table's own reason string beside them.  ROUND wmomy7.
+#
+# WHY THIS LIVES HERE AND NOT IN THE GENERATED TABLE.  ``field_mob_tables_
+# bg0002.py`` says "GENERATED - do not hand-edit ... Regenerate rather than
+# patch", and the generator reads game data that exists only on the bridge
+# clone, so it cannot be re-run here.  A hand-edit of the generated rows
+# would be silently undone by the next real regeneration.  The generated
+# module is DATA (which placements resolve, under this lane's identity
+# rule); an owner's ruling about which resolved rows this lane may ship is
+# POLICY, and policy belongs at the loader, which is this lane's own code
+# and survives regeneration.
+#
+# WHAT THE OWNER ACTUALLY RULED.  ``scene2_prison_exile_tables
+# .UNRESOLVED_PLACEMENTS`` carries placements 92-96 with the reason
+# ``n_id_101_104_block_meaning_unknown_owner_says_do_not_place``.  Lane A's
+# census reads that table and therefore never sends those five bodies (97
+# actors, ids 0x2001..0x206A, with 0x205D-0x2061 absent -- MEASURED, round
+# wmomy7).  This lane's generated table resolves them anyway under the
+# ``setnum`` rule, as five "Orc Chief" rows, because the two rules disagree
+# about the 101-104 n_id block -- and the owner settled that disagreement.
+#
+# The literal is kept here rather than joined against the scene table at
+# load time on purpose: this is the hot roster path, and a cross-lane import
+# join is exactly the shape that fails silently.  The agreement between this
+# literal and the source table is checked instead by
+# ``mob_census_hostility.assert_owner_refusals_match_scene_source()``, which
+# the suite runs, so drift goes red in a test rather than on a player's
+# screen.
+# THE WHOLE RULING, NOT THE PART THAT BITES TODAY.  The owner's ruling on
+# the n_id 101-104 block covers EIGHT placements (89, 90, 92-97); this
+# lane's generated table happens to ship only five of them (92-96) under
+# the current mining rule.  The literal carries all eight on purpose: a
+# regeneration that starts resolving placement 89 or 97 must be refused
+# without anyone having to notice, and the drift guard compares against the
+# ruling, not against today's intersection with it.
+# (Placement 65 is in the same source list under a DIFFERENT reason --
+# "no_mobs_row_for_this_n_id_no_body_data" -- which is a mining limit, not
+# an owner ruling, and is deliberately NOT carried here.)
+OWNER_REFUSED_PLACEMENTS: dict[str, tuple[int, ...]] = {
+    'Bg0002': (89, 90, 92, 93, 94, 95, 96, 97),
+}
+OWNER_REFUSAL_REASON: dict[str, str] = {
+    'Bg0002': 'n_id_101_104_block_meaning_unknown_owner_says_do_not_place',
+}
+
+
+def owner_refused_placements(scene: str) -> tuple[int, ...]:
+    """Placement indices this lane refuses to ship for ``scene``, ascending.
+
+    An empty tuple for a scene with no owner ruling is the normal answer,
+    not a missing entry: bg0001 has no refused block and returns ``()``.
+    """
+    if type(scene) is not str or not scene:
+        raise FieldMobContractError("scene must be non-empty text")
+    return tuple(sorted(OWNER_REFUSED_PLACEMENTS.get(scene, ())))
+
+
 def load_roster(scene: str = field_mob_tables.SCENE) -> tuple[FieldMob, ...]:
     """Type and check ONE scene's generated roster.  No file read at import time.
 
@@ -551,7 +609,30 @@ def load_roster(scene: str = field_mob_tables.SCENE) -> tuple[FieldMob, ...]:
             "%s)" % (scene, sorted(_SCENE_TABLE_MODULES))
         )
     assert_single_scene_tables((module,))
-    return _parse_hostile_placements(module)
+    parsed = _parse_hostile_placements(module)
+    # ROUND wmomy7.  The owner-refusal filter is applied HERE, at the one
+    # point every downstream consumer already goes through, so the combat
+    # ledger, the AI register and the census hostile override all shrink
+    # together.  Filtering in only one of them is what produces the defect
+    # this round found: a ledger row for a body no client was ever sent, so
+    # a strike resolves server-side against a monster that is on nobody's
+    # screen.
+    #
+    # ``_parse_hostile_placements`` still validates the FULL generated table
+    # first (above), so a refused row that is malformed is still refused by
+    # name -- the filter narrows what this lane SHIPS, it does not weaken
+    # what this lane CHECKS.
+    refused = set(owner_refused_placements(scene))
+    if not refused:
+        return parsed
+    kept = tuple(mob for mob in parsed if mob.placement_index not in refused)
+    if not kept:
+        raise FieldMobContractError(
+            "the owner-refusal list for scene %r removes every row this "
+            "lane ships; an empty roster must come from an empty table, "
+            "not from a filter" % (scene,)
+        )
+    return kept
 
 
 def scene_for_scene_id(scene_id: int) -> str | None:

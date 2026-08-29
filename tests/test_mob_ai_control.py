@@ -43,8 +43,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import (  # noqa: E402
-    field_mob_ai_tables, field_mob_tables, field_mobs, mob_aggro,
-    mob_ai_control, mob_death,
+    field_mob_ai_tables, field_mob_tables, field_mob_tables_bg0002,
+    field_mobs, mob_aggro, mob_ai_control, mob_death,
 )
 from pirateforce_foundation.mob_ai_control import (  # noqa: E402
     MobAiControlError, MobAiRegister, MobAiRow, MobAiStep, commit_step,
@@ -136,8 +136,19 @@ class MinedRowTests(unittest.TestCase):
             for mob in (field_mobs.load_roster() if scene is None
                         else field_mobs.load_roster(scene=scene))
         )
-        self.assertEqual(sorted(field_mob_ai_tables.PLACEMENT_AI_LINKS),
-                         derived)
+        # ROUND wmomy7: ~~equal~~ a superset by exactly the owner-refused
+        # placements.  The links table is mined over every placement the
+        # scene HAS; the roster is what this lane SHIPS, and the owner's
+        # ``owner_says_do_not_place`` ruling on the n_id 101-104 block now
+        # keeps placements 92-96 out of the second set.  The difference is
+        # asserted by name rather than the equality being dropped, so an
+        # unexplained divergence still fails this test.
+        table = sorted(field_mob_ai_tables.PLACEMENT_AI_LINKS)
+        self.assertEqual(
+            sorted(set(table) - set(derived)),
+            sorted((index, 11, 332) for index in (92, 93, 94, 95, 96)),
+        )
+        self.assertEqual(sorted(set(derived) - set(table)), [])
 
     def test_the_two_wander_rows_are_the_ones_this_round_read(self):
         rows = field_mob_ai_tables.AI_WANDER_ROWS
@@ -219,9 +230,22 @@ class ProfileJoinTests(unittest.TestCase):
         # ROUND 8ftmbx: bg0001 ships only passive dummies now, so a test that
         # needs a monster that INITIATES reads the other loadable scene's
         # real roster rather than inventing one.
+        # ROUND wmomy7: read from the GENERATED TABLE, not from
+        # ``load_roster``.  What these tests exercise is the AI join --
+        # whether a profile reads its two values off a monster's own mined
+        # row -- which is a statement about the mechanism, not about what
+        # this lane ships.  As of this round the only Bg0002 placements that
+        # INITIATE (ai_wander 11) are 92-96, and those are exactly the rows
+        # the owner's ``owner_says_do_not_place`` ruling keeps out of the
+        # shipped roster, so a mechanism test reading ``load_roster`` would
+        # now have no initiating subject in any scene and would quietly stop
+        # testing the join.  The shipped-roster consequence is a separate
+        # statement and has its own test:
+        # ``test_no_monster_this_lane_ships_initiates_in_either_scene``.
         self.bg0002 = {
             m.placement_index: m
-            for m in field_mobs.load_roster(scene=field_mobs.BG0002_SCENE)
+            for m in field_mobs._parse_hostile_placements(
+                field_mob_tables_bg0002)
         }
 
     def test_the_profile_of_every_roster_row_is_buildable(self):
@@ -259,6 +283,21 @@ class ProfileJoinTests(unittest.TestCase):
             mob_ai_control.offensive_identities(bg0002_roster),
             tuple(self.bg0002[p].actor_identity
                   for p in BG0002_OFFENSIVE_PLACEMENTS))
+
+    def test_no_monster_this_lane_ships_initiates_in_either_scene(self):
+        # ROUND wmomy7, and this is a CONSEQUENCE worth reading, not a
+        # bookkeeping pin.  Every Bg0002 placement with an initiating AI
+        # (ai_wander 11) is inside the owner's ``owner_says_do_not_place``
+        # block, and bg0001 ships only passive dummies -- so after this lane
+        # started obeying that ruling, NOTHING this lane ships in ANY scene
+        # walks up to a player and starts a fight.  Combat in Bg0002 is
+        # therefore player-initiated only, which is what BUILD-005 needs
+        # ("hit it, it bleeds, it dies") but NOT what an aggro milestone
+        # would need.  Pinned so the day that changes is a noticed day.
+        for scene in (None, field_mobs.BG0002_SCENE):
+            roster = (field_mobs.load_roster() if scene is None
+                      else field_mobs.load_roster(scene=scene))
+            self.assertEqual(mob_ai_control.offensive_identities(roster), ())
 
     def test_the_two_mined_values_come_from_the_monsters_own_row(self):
         # ROUND 8ftmbx: ~~by_placement[58] / by_placement[30]~~ -- both were
@@ -786,7 +825,11 @@ class TickTests(unittest.TestCase):
         self.by_placement = {m.placement_index: m for m in self.roster}
         # ROUND 8ftmbx: same reason as ProfileJoinTests -- bg0001 ships only
         # passive dummies, so a monster that charges is read from Bg0002.
-        bg0002_roster = field_mobs.load_roster(scene=field_mobs.BG0002_SCENE)
+        # ROUND wmomy7: the generated table, for the reason ProfileJoinTests
+        # .setUp gives -- the only initiating placements are the ones the
+        # owner refused, and this test needs one that charges.
+        bg0002_roster = field_mobs._parse_hostile_placements(
+            field_mob_tables_bg0002)
         self.bg0002 = {m.placement_index: m for m in bg0002_roster}
         self.register = open_register(self.roster)
         # A register tracks the roster it was opened on, and the two scenes

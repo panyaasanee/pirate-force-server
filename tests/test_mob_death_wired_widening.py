@@ -109,7 +109,16 @@ class RulingForTests(unittest.TestCase):
         # of them (pf-adversary, this round: three tests here stayed green
         # with every owner letter revoked, because their loops ran zero
         # times).  A floor, not a pin: rosters are allowed to grow.
-        self.assertGreaterEqual(len(rows), 21, "the shipped rosters shrank")
+        # ~~21~~ 16 from round wmomy7.  The floor is LOWERED deliberately and
+        # exactly once, for a known cause: the owner's
+        # ``n_id_101_104_block ... owner_says_do_not_place`` ruling now keeps
+        # Bg0002's placements 92-96 out of the shipped roster
+        # (``field_mobs.OWNER_REFUSED_PLACEMENTS``), so 21 became 16.  The
+        # floor still does the job pf-adversary added it for -- it fails if
+        # the loops go vacuous -- and lowering it to the new real number
+        # keeps it a floor rather than turning it into a pin that has to be
+        # edited every time a roster grows.
+        self.assertGreaterEqual(len(rows), 16, "the shipped rosters shrank")
         self.assertGreaterEqual(len(field_mobs.live_scenes()), 2)
         self.assertGreaterEqual(len(mob_death.WIDENING_RULINGS), 4)
         return rows
@@ -160,8 +169,14 @@ class RulingForTests(unittest.TestCase):
                     mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
         # Floors with a reason rather than bare numbers, so a roster edit does
         # not fail this test for something it is not about.
+        # ~~17~~ 12 from round wmomy7: Bg0002's whole SHIPPED roster is 12
+        # rows now (placements 92-96 are inside the owner's
+        # ``owner_says_do_not_place`` ruling).  The sentence the floor
+        # encodes is unchanged -- the hardcoded literal is the wrong letter
+        # for every monster of the scene it does not name -- only the size
+        # of that scene's roster moved.
         self.assertGreaterEqual(
-            refused, 17,
+            refused, 12,
             "the hardcoded literal is supposed to be the wrong letter for at "
             "least Bg0002's whole roster")
         self.assertGreaterEqual(
@@ -504,7 +519,9 @@ class RulingForTests(unittest.TestCase):
                     else:
                         gate_says_yes = True
                     self.assertEqual(gate_says_yes, name in covering)
-        self.assertGreaterEqual(checked, 21 * 4)
+        # ~~21~~ 16 from round wmomy7 (owner-refused placements 92-96 left
+        # the shipped rosters); still a non-vacuity floor, not a pin.
+        self.assertGreaterEqual(checked, 16 * 4)
 
     def test_live_scenes_is_the_list_load_roster_actually_obeys(self):
         # SET EQUALITY against the registry itself, not "everything it returns
@@ -619,7 +636,10 @@ class RulingForTests(unittest.TestCase):
             mob_death.WIDENING_RULINGS.clear()
             mob_death.WIDENING_RULINGS.update(previous)
         named = [ln for ln in broken if "UNKILLABLE" in ln]
-        self.assertGreaterEqual(len(named), 21)
+        # ~~21~~ 16 from round wmomy7, same cause as the floor in
+        # ``shipped()``: the owner's do-not-place ruling on the n_id
+        # 101-104 block.
+        self.assertGreaterEqual(len(named), 16)
         for line in broken:
             line.encode("cp874")
 
