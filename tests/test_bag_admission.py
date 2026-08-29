@@ -609,6 +609,112 @@ class ForgedAndDegenerateBagsTests(unittest.TestCase):
             admission.reason, bag_admission.REASON_ITEM_ORDER_DIFFERS,
         )
 
+    def test_a_reordered_bag_that_also_picked_something_up_is_refused(self):
+        """The hole chief's R222 letter measured, item 4, closed here.
+
+        The order question used to be asked only inside ``if not acquired:``,
+        so a bag whose golden rows were reordered AND which carried one
+        acquired row skipped it entirely and came back
+        GOLDEN_PLUS_ACQUIRED -- and since PR #233 wired gate 2 to
+        ``may_enter_world``, that verdict is a character entering the world.
+        The bag here is not hand-made: it is exactly what
+        ``place_in_bag`` mints, with two of the GOLDEN rows swapped, so the
+        only variable against the passing case above it is the order.
+
+        This test goes red if the order check is moved back inside the
+        no-acquired branch -- which is the mutation that produced the
+        defect.
+        """
+        bag, item = mob_pickup.place_in_bag(INITIAL_BACKPACK, a_drop())
+        self.assertTrue(bag_admission.classify(bag).admissible)
+        rows = list(bag.items)
+        self.assertLess(rows[0].identity, rows[1].identity)
+        reordered = BackpackState(
+            bag.base_mask, bag.base_identity, bag.range_mask,
+            tuple([rows[1], rows[0]] + rows[2:]),
+        )
+        # Same rows, same header, same acquired item -- only the order moved.
+        self.assertEqual(
+            sorted(r.identity for r in reordered.items),
+            sorted(r.identity for r in bag.items),
+        )
+        self.assertIn(item.identity, [r.identity for r in reordered.items])
+        admission = bag_admission.classify(reordered)
+        self.assertFalse(admission.admissible)
+        self.assertEqual(
+            admission.reason, bag_admission.REASON_ITEM_ORDER_DIFFERS,
+        )
+        # And the gate itself, not only the classifier: this is the call
+        # session.select_and_start makes.
+        self.assertFalse(bag_admission.may_enter_world(
+            reordered, allow_hypothesized_item_move=False,
+        ))
+        self.assertTrue(bag_admission.may_enter_world(
+            bag, allow_hypothesized_item_move=False,
+        ))
+        # THE SCOPE OF THE FIX, PINNED RATHER THAN LEFT TO BE DISCOVERED.
+        # With the HYP-PF-008 opt-in on, may_enter_world short-circuits
+        # before any verdict is read, so this bag still enters.  That is
+        # pre-existing and gated behind --item-move-hypothesis-scenario, and
+        # narrowing it would narrow the governed family's own reconnect
+        # guard, which is the mistake this module was written to avoid.  It
+        # is asserted so "a reordered bag cannot enter the world" is never
+        # read as unconditional.
+        self.assertTrue(bag_admission.may_enter_world(
+            reordered, allow_hypothesized_item_move=True,
+        ))
+
+    def test_the_no_acquired_branch_is_unreachable_and_that_is_measured(self):
+        """Why the ``if not acquired:`` branch was removed, not kept.
+
+        Past the order check, a bag with no acquired rows is byte-equal to
+        the golden -- ``require_backpack_shape`` refuses duplicate
+        identities, so ascending order is unique.  Rather than assert that
+        in prose, build every bag that could reach it: each permutation of a
+        golden's own rows.  Every one is either the golden itself (returned
+        at the top of ``_classify_against``) or refused for order.  Nothing
+        lands in between, which is what "unreachable" has to mean.
+        """
+        import itertools
+        # THE SECOND PREMISE, ASSERTED RATHER THAN ASSUMED.  Uniqueness of
+        # ascending order is not enough on its own: the argument also needs
+        # each golden's own tuple to BE ascending, or an unsorted golden
+        # sends a sorted bag through the removed branch as
+        # GOLDEN_PLUS_ACQUIRED with nothing acquired (pf-adversary built
+        # exactly that).  The invariant lives in inventory.py, outside this
+        # lane's write zone, so this is where it is pinned.
+        for index, golden in enumerate(bag_admission.GOLDEN_BACKPACKS):
+            identities = [row.identity for row in golden.items]
+            self.assertEqual(
+                identities, sorted(identities),
+                f"golden {index} is not in ascending identity order, which "
+                "the removed no-acquired branch's unreachability rests on",
+            )
+        checked = 0
+        for golden in bag_admission.GOLDEN_BACKPACKS:
+            for permutation in itertools.permutations(golden.items):
+                candidate = BackpackState(
+                    golden.base_mask, golden.base_identity,
+                    golden.range_mask, tuple(permutation),
+                )
+                admission = bag_admission.classify(candidate)
+                checked += 1
+                with self.subTest(order=[r.identity for r in permutation]):
+                    if candidate == golden:
+                        self.assertEqual(
+                            admission.verdict, bag_admission.VERDICT_GOLDEN,
+                        )
+                    else:
+                        self.assertEqual(
+                            admission.reason,
+                            bag_admission.REASON_ITEM_ORDER_DIFFERS,
+                        )
+        # THE COUNT IS PINNED, for the reason this file already learned once
+        # (see test_the_enumeration_counts_are_pinned_including_the_one_that
+        # _is_zero): a loop that stops iterating is green, and a green
+        # zero-iteration loop reads exactly like proof.  4! + 3! = 30.
+        self.assertEqual(checked, 30)
+
     def test_malformed_input_is_refused_and_never_raises(self):
         """Fail-closed: gate 1 raises on these, this module must not."""
         for label, value in (

@@ -303,7 +303,86 @@ class OnlyTheCharacterSelectPathAsksThisPredicate(unittest.TestCase):
         # and already undid: the scan comes back, with named and counted
         # exemptions for the files whose PROSE mentions the module, and the
         # AST check stays as a second route to the same fact.
-        mentions_allowed = {"runtime.py"}  # a comment naming the gate, no call
+        mentions_allowed = {
+            "runtime.py",  # a comment naming the gate, no call
+            # Added by LANE-B, round 149wbp, on chief's R222 letter item 3.
+            # mob_pickup.py's THE WALL section and its
+            # GOVERNED_BAG_ALLOWLIST_* constants named gate 2 as
+            # is_unmoved_baseline and shipped that as report DATA; the
+            # correction has to name the predicate that replaced it or it
+            # is not a correction.  Prose and a constant string only --
+            # mob_pickup.py imports nothing from bag_admission and calls
+            # nothing in it, which the importers assertion above still
+            # proves independently.
+            "mob_pickup.py",
+        }
+        # AN EXEMPTION IS FOR PROSE, AND HERE THAT IS ENFORCED, NOT TRUSTED.
+        # Naming a file in ``mentions_allowed`` used to switch the substring
+        # scan off for it entirely -- so a caller could hide in an exempted
+        # file exactly the way pf-adversary got in before, and this round's
+        # own adversary pass did: a ``_sneaky_gate`` in mob_pickup.py doing
+        # ``importlib.import_module("...bag_admission").may_enter_world(bag)``
+        # is invisible to the import AST check by construction, and the
+        # exemption made it invisible to the scan too.  So an exempted file's
+        # mentions must all be INERT: the token may appear in a docstring, a
+        # comment or a string constant, never as code -- no Name, no
+        # attribute base, and no dynamic-import machinery anywhere in it.
+        # THE FIRST DRAFT OF THIS LOOP WAS DEFEATED, AND THE ATTACK IS THE
+        # REASON IT IS SHAPED THIS WAY.  It rejected ``bag_admission`` as a
+        # bare Name, as an Attribute BASE, and import_module/__import__
+        # calls.  pf-adversary walked through all three with
+        # ``session.bag_admission.may_enter_world(bag, ...)`` -- a real new
+        # production caller of the gate-2 predicate, full suite green -- and
+        # ``sys.modules[...]`` and ``getattr(session, "bag_admission")``
+        # walk through the same gap.  So the test is now: the token may not
+        # appear ANYWHERE in an exempted file's AST, at any depth, in any
+        # form.  Prose, comments and string constants are what an exemption
+        # is for; they are not in the AST as identifiers.
+        for name in sorted(mentions_allowed):
+            path = root / name
+            # NO SILENT SKIP.  The first draft continued past a missing
+            # file, so renaming an exempted module would have evaporated its
+            # enforcement with nothing going red.
+            self.assertTrue(
+                path.exists(),
+                f"{name} is exempted from the mention scan but does not "
+                "exist -- remove the exemption or fix the name",
+            )
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                identifiers = {
+                    getattr(node, "id", None),
+                    getattr(node, "attr", None),
+                    getattr(node, "arg", None),
+                    getattr(node, "name", None),
+                }
+                self.assertNotIn(
+                    "bag_admission", identifiers,
+                    f"{name} names bag_admission as CODE, not prose -- an "
+                    "exemption from the mention scan is for text, and this "
+                    "is the attribute-hop route the scan exists to catch",
+                )
+                # THE STRING ROUTE.  An identifier check alone still leaves
+                # ``import_module("...bag_admission")``,
+                # ``getattr(session, "bag_admission")`` and
+                # ``sys.modules["...bag_admission"]``, where the token is a
+                # string constant, not a name.  Banning those CALLS by name
+                # was the first attempt and it was too wide -- mob_pickup.py
+                # uses ``getattr`` for ordinary work -- so what is banned is
+                # the token reaching a call or a subscript, whoever the
+                # callee is.  A docstring or a comment, which is what an
+                # exemption is for, reaches neither.
+                if isinstance(node, (ast.Call, ast.Subscript)):
+                    for child in ast.walk(node):
+                        if isinstance(child, ast.Constant) and isinstance(
+                            child.value, str
+                        ):
+                            self.assertNotIn(
+                                "bag_admission", child.value,
+                                f"{name} passes the module's name into a "
+                                "call or a subscript -- a dynamic lookup "
+                                "that would reach the gate unseen",
+                            )
         importers = sorted(
             str(path.relative_to(root)) for path in package
             if _imports_bag_admission(path)
@@ -325,7 +404,7 @@ class OnlyTheCharacterSelectPathAsksThisPredicate(unittest.TestCase):
             "attribute hop through another module), or new prose that needs "
             "a named exemption on the line above.",
         )
-        self.assertEqual(len(mentions_allowed), 1)
+        self.assertEqual(len(mentions_allowed), 2)
 
     def test_nothing_outside_the_package_calls_it_either(self):
         """The repo-wide half of the deleted guard: tools/, current/, entrypoints."""
@@ -346,6 +425,27 @@ class OnlyTheCharacterSelectPathAsksThisPredicate(unittest.TestCase):
             # bag_admission, which is what this allowlist is for -- not a
             # caller reaching for the predicate from outside the package.
             "tests/test_bag_admission_expiry.py",
+            # Added by LANE-B, round 149wbp (chief's R222 letter item 3).
+            # mob_pickup.py names the predicate that replaced
+            # is_unmoved_baseline in its corrected THE WALL prose and in
+            # GOVERNED_BAG_ALLOWLIST_OWNER; test_mob_pickup.py asserts the
+            # gate itself rather than a module constant that was True by
+            # assignment.  ~~"Neither is a new caller from outside the
+            # package"~~ IS STRUCK AS FALSE OF ONE OF THE TWO (pf-adversary):
+            # tests/test_mob_pickup.py DOES import bag_admission and DOES
+            # call may_enter_world, deliberately -- that is the one
+            # assertion in its wall test that can actually fire.  It is a
+            # TEST calling the predicate, which is what this allowlist is
+            # for; it is not production reaching the gate from a second
+            # place.  mob_pickup.py itself has no import of it at all, and
+            # the inert-mention loop above now proves that at AST level
+            # rather than asserting it here.
+            "src/pirateforce_foundation/mob_pickup.py",
+            "tests/test_mob_pickup.py",
+            # The pin document mob_pickup.pin_document GENERATES; it carries
+            # nonclaim 9's text verbatim, so it names the predicate for the
+            # same reason the module does.  Regenerated, never hand-edited.
+            "scenarios/combat_pickup_001.json",
             "docs/FUNCTIONAL_COVERAGE.json",
         }
         elsewhere = sorted(
