@@ -248,13 +248,50 @@ class Bg0015Census(unittest.TestCase):
                     importers.append(path.name)
                     break
         self.assertEqual(sorted(importers), ["world_population_handoff.py"])
-        # The half that is still the handback: the seam has no caller on the
-        # frame path, so this roster still reaches no player.  When THAT
-        # changes, this line is the one that has to be argued with.
-        self.assertNotIn("runtime.py", importers)
-        runtime_source = (ROOT / "src" / "pirateforce_foundation"
-                          / "runtime.py").read_text(encoding="utf-8")
-        self.assertNotIn("world_population_handoff", runtime_source)
+
+        # ~~self.assertNotIn("runtime.py", importers)~~
+        # ~~self.assertNotIn("world_population_handoff", runtime_source)~~
+        #
+        # BOTH STRUCK LINES WERE DEFEATED, MEASURED (pf-adversary, round
+        # 80x5ba, D1).  They guarded the one route lane A cannot take - a
+        # direct edit to runtime.py, which is chief's file - and left open the
+        # route lane A CAN take alone: runtime.py:10 already imports
+        # columbus_quest_dispatch, which already imports the seam at module
+        # scope, and runtime.py already CALLS into that module on the M2
+        # crossing.  The adversary appended two lines to
+        # columbus_quest_dispatch that composed and printed a scene-14 handoff
+        # on the live path, and the entire suite stayed green: neither struck
+        # assertion fired, because runtime.py's own text never changed.  The
+        # first was also dead on its own terms - it cannot fail if the exact
+        # importer set above passed.
+        #
+        # The property the handback actually claims is about CALLS, not
+        # imports, so that is what is asserted now: nothing under src/ calls
+        # either entry point of the seam.  This one fails against the
+        # adversary's own wiring.
+        entry_points = {"handoff_for_arrival", "handoff_on_crossing"}
+        call_sites = []
+        for path in (ROOT / "src").rglob("*.py"):
+            # The seam's own file is excluded: handoff_on_crossing calls
+            # handoff_for_arrival, which is the module wrapping itself in its
+            # fail-closed contract, not a caller reaching the roster.
+            if path.name == "world_population_handoff.py":
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                name = (func.attr if isinstance(func, ast.Attribute)
+                        else func.id if isinstance(func, ast.Name) else None)
+                if name in entry_points:
+                    call_sites.append("%s:%d" % (path.name, node.lineno))
+        self.assertEqual(
+            call_sites, [],
+            "the arrival seam has gained a caller under src/ -- this roster "
+            "now reaches players, which is a claim this round's handback "
+            "makes in the other direction: %r" % (call_sites,),
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover
