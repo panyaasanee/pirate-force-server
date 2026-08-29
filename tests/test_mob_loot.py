@@ -26,6 +26,7 @@ import random
 import struct
 import sys
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1271,12 +1272,24 @@ class MobLootTests(unittest.TestCase):
         self.assertEqual(cell.prune_issued_before(min(
             row.drop_key for row in drops)), ())
         self.assertEqual(cell.ledger.drops, before)
-        # ...and a cut point above everything clears it, which is the
-        # runtime-today behaviour expressed in one call rather than a loop
-        self.assertEqual(
-            len(cell.prune_issued_before(
-                max(row.drop_key for row in drops) + 1)), len(before))
-        self.assertEqual(cell.ledger.drops, ())
+        # ...and a cut point ABOVE the newest kill is refused by name rather
+        # than clearing the ledger.  pf-adversary, this round: the first draft
+        # asserted the opposite here, five lines under a comment saying "a
+        # caller that passes the wrong end of the ledger must not silently
+        # clear it" -- the property was enforced on one end only, and
+        # `prune_issued_before(cell.ledger.next_key)` is the most natural line
+        # a caller would type.
+        for cut in (max(row.drop_key for row in drops) + 1,
+                    cell.ledger.next_key,
+                    0xFFFFFFFF):
+            with self.subTest(cut=hex(cut)):
+                with self.assertRaises(MobLootContractError) as caught:
+                    cell.prune_issued_before(cut)
+                self.assertEqual(
+                    caught.exception.args[0],
+                    mob_loot.REFUSE_PRUNE_WOULD_TAKE_THE_NEWEST_KILL)
+                self.assertEqual(cell.ledger.drops, before,
+                                 "a refusal moved the cell")
 
     def test_the_prune_key_is_validated_as_a_key(self):
         cell = DropLedgerCell()
@@ -1284,6 +1297,100 @@ class MobLootTests(unittest.TestCase):
             with self.subTest(value=bad):
                 with self.assertRaises(MobLootContractError):
                     cell.prune_issued_before(bad)
+
+    def test_a_refused_prune_leaves_the_cell_exactly_as_it_was(self):
+        """The contract ``loot_a_kill`` states, held for this method too.
+
+        pf-adversary, this round: the validation test ran on an EMPTY cell, so
+        moving the range check to after the loop -- a refusal that mutates
+        first -- stayed green, and so did committing each row inside the loop
+        instead of at the end.  Both are pinned here on a populated cell.
+        """
+        cell = DropLedgerCell()
+        record = DeathRecord(self.mob.actor_identity, KILLER, self.mob.max_hp)
+        cell.loot_a_kill(
+            self.mob, record, roll_drops(self.mob, random.Random(3)),
+            kill_token=1)
+        second = cell.loot_a_kill(
+            self.mob, record, roll_drops(self.mob, random.Random(4)),
+            kill_token=2)
+        self.assertTrue(second)
+        before = cell.ledger
+        # (1) a badly typed cut point refuses BEFORE anything moves
+        with self.assertRaises(MobLootContractError):
+            cell.prune_issued_before("not a key")
+        self.assertIs(cell.ledger, before)
+        # (2) a failure part way through the loop leaves NOTHING removed:
+        #     the rebuild is local until the last row is done
+        real_take = mob_loot.take_drop
+        calls = []
+
+        def fails_on_the_second_row(ledger_now, drop_key):
+            calls.append(drop_key)
+            if len(calls) > 1:
+                raise MobLootContractError(
+                    mob_loot.REFUSE_DROP_NOT_IN_LEDGER, "injected")
+            return real_take(ledger_now, drop_key)
+
+        if len(before.drops) - len(second) >= 2:
+            with mock.patch.object(
+                    mob_loot, "take_drop", fails_on_the_second_row):
+                with self.assertRaises(MobLootContractError):
+                    cell.prune_issued_before(second[0].drop_key)
+            self.assertIs(cell.ledger, before, "a partial prune was committed")
+
+    def test_prune_previous_kills_needs_no_cut_point_and_keeps_the_newest(self):
+        """The call the wiring note names, and the reason it takes nothing.
+
+        pf-adversary asked where a caller gets a cut point it cannot get
+        wrong.  It does not: the cell knows the newest kill's first key, so
+        this derives it.  A kill that dropped nothing does not move the mark.
+        """
+        cell = DropLedgerCell()
+        record = DeathRecord(self.mob.actor_identity, KILLER, self.mob.max_hp)
+        self.assertEqual(
+            cell.prune_previous_kills(), (),
+            "with no kill yet there is nothing older than the newest one")
+        first = cell.loot_a_kill(
+            self.mob, record, roll_drops(self.mob, random.Random(3)),
+            kill_token=1)
+        self.assertTrue(first)
+        self.assertEqual(
+            cell.prune_previous_kills(), (),
+            "the only kill on the ground is the newest one")
+        self.assertEqual(len(cell.ledger.drops), len(first))
+        second = cell.loot_a_kill(
+            self.mob, record, roll_drops(self.mob, random.Random(4)),
+            kill_token=2)
+        self.assertTrue(second)
+        removed = cell.prune_previous_kills()
+        self.assertEqual(
+            [row.drop_key for row in removed],
+            [row.drop_key for row in first])
+        self.assertEqual(
+            [row.drop_key for row in cell.ledger.drops],
+            [row.drop_key for row in second])
+        # the surviving rows are takeable -- the property the runtime loop
+        # destroys today
+        for row in second:
+            self.assertIsNotNone(cell.take(row.drop_key))
+
+    def test_the_wiring_note_stopped_telling_the_caller_to_take_every_key(self):
+        """P1 of this round's adversarial pass, held by a test.
+
+        The fix went into a method docstring while ``MOB_LOOT_WIRING`` -- the
+        contract the caller actually reads, and the one this module's header
+        says is written in code "because letters get lost" -- still said
+        ``cell.take(key)`` per drop.  A chief following it would have
+        reproduced chief's own measured 100%-refusal.
+        """
+        note = mob_loot.MOB_LOOT_WIRING
+        self.assertIn("cell.prune_previous_kills()", note)
+        self.assertIn("drop_already_taken", note)
+        self.assertNotIn("PRUNE THROUGH THE CELL (cell.take(key))", note)
+        # and the assumption is labelled where the caller reads it, not only
+        # in a letter: the COO has not ruled on what replaces the ceiling
+        self.assertIn("[ASSUMPTION OF LANE B - AWAITING COO]", note)
 
     def test_a_respawned_monster_killed_again_still_drops(self):
         """The register used to brick the scene after 13 kills.

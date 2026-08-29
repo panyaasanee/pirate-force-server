@@ -1841,66 +1841,133 @@ class MobPickupTests(unittest.TestCase):
     def test_this_lane_accepts_every_actor_identity_mob_loot_accepts(self):
         """chief's ni2wh2 measurement, turned into a test rather than a note.
 
-        ``runtime.py`` composes a performer identity as ``(hi << 32) | lo``
-        and hands the SAME number to both lanes.  ``mob_loot`` accepted it;
-        this lane capped identities at ``0xFFFFFFFF``, so a character with a
-        non-zero ``identity_hi`` could kill a monster, have the drop recorded
-        under its identity, and then be refused when it reached for it -- with
+        ``runtime.py`` composes a performer identity as
+        ``((hi & 0xFFFFFFFF) << 32) | (lo & 0xFFFFFFFF)`` and hands the SAME
+        number to both lanes.  ``mob_loot`` accepted it; this lane capped
+        identities at ``0xFFFFFFFF``, so a character with a non-zero
+        ``identity_hi`` could kill a monster, have the drop recorded under its
+        identity, and then be refused when it reached for it -- with
         ``value_out_of_range``, a message nobody could act on.  Only
         ``lifecycle.py``'s ``hi = 0`` kept that off the live path.
-        """
-        wide = (1 << 32) | 0x750059          # identity_hi == 1, chief's case
-        # mob_loot takes it, as the killer of a real drop...
-        drop = a_drop(killer=wide)
-        self.assertEqual(drop.killer_identity, wide)
-        # ...and now so does this lane, on both records that carry an actor id
-        claim = PickupClaim(wide, 10.0, 20.0, 30.0, KEY, 0)
-        self.assertEqual(claim.claimant_identity, wide)
-        row = mob_pickup.BagRowWrite(wide, CHARACTER, 5, ITEM, 1, 4)
-        self.assertEqual(row.claimant_identity, wide)
-        # and the whole pickup goes through under it, rather than merely
-        # validating: the killer-only rule compares these two values
-        cell = BagCell(INITIAL_BACKPACK, CHARACTER)
-        outcome = cell.commit_pickup(a_cell(drop), claim, self.legacy)
-        self.assertEqual(outcome.row_write.claimant_identity, wide)
 
-    def test_the_two_lanes_bounds_are_one_value_not_two_that_look_alike(self):
-        # The defect was two files disagreeing about one quantity's width, so
-        # the fix is pinned as an EQUALITY between the two lanes rather than
-        # as a literal in this lane.  A widening on either side that forgets
-        # the other goes red here.
+        The values below walk the composition, not a round number: chief's own
+        case, the top of the space, and the ceiling itself.
+        """
+        for label, wide in (
+            ("chief's case, hi=1", (1 << 32) | 0x750059),
+            ("hi with the top bit set", (0x80000000 << 32) | 0x750059),
+            ("the ceiling itself", mob_pickup.MAX_ACTOR_IDENTITY),
+        ):
+            with self.subTest(identity=label):
+                # mob_loot takes it, as the killer of a real drop...
+                drop = a_drop(killer=wide)
+                self.assertEqual(drop.killer_identity, wide)
+                # ...and so does this lane, on both records that carry one
+                claim = PickupClaim(wide, 10.0, 20.0, 30.0, KEY, 0)
+                self.assertEqual(claim.claimant_identity, wide)
+                row = mob_pickup.BagRowWrite(wide, CHARACTER, 5, ITEM, 1, 4)
+                self.assertEqual(row.claimant_identity, wide)
+                # and the whole pickup goes through under it, rather than
+                # merely validating: the killer-only rule compares these two
+                cell = BagCell(INITIAL_BACKPACK, CHARACTER)
+                outcome = cell.commit_pickup(a_cell(drop), claim, self.legacy)
+                self.assertEqual(outcome.row_write.claimant_identity, wide)
+
+    def test_the_identity_ceiling_is_the_composition_runtime_actually_builds(self):
+        """The number itself, pinned -- nothing else in the tree pins it.
+
+        pf-adversary, this round: narrowing ``mob_loot.MAX_IDENTITY`` to
+        2 ** 33 left the ENTIRE suite green, and the round's own headline
+        sentence ("the bound this function has always applied") was the one
+        claim with no test behind it.  Worse after the two lanes were bound
+        together: one edit now narrows both, silently.
+
+        It is pinned as the u64 ``runtime.py`` composes rather than as a
+        literal somebody chose -- so the day that composition changes, this
+        goes red and says which side moved.
+        """
+        composed_ceiling = ((0xFFFFFFFF & 0xFFFFFFFF) << 32) | 0xFFFFFFFF
+        self.assertEqual(mob_loot.MAX_IDENTITY, composed_ceiling)
+        self.assertEqual(mob_pickup.MAX_ACTOR_IDENTITY, composed_ceiling)
+        # the ceiling is ACCEPTED, one past it is refused: an off-by-one in
+        # either direction is a different bound than the one pinned above
         self.assertEqual(
-            mob_pickup.MAX_ACTOR_IDENTITY, mob_loot.MAX_IDENTITY_MAGNITUDE)
-        for over in (mob_pickup.MAX_ACTOR_IDENTITY + 1,):
-            with self.subTest(value=over):
-                self.assertEqual(
-                    self._refusal(
-                        PickupClaim, over, 10.0, 20.0, 30.0, KEY, 0),
-                    mob_pickup.REFUSE_VALUE_OUT_OF_RANGE)
-                with self.assertRaises(mob_loot.MobLootContractError):
-                    a_drop(killer=over)
+            PickupClaim(composed_ceiling, 1.0, 2.0, 3.0, KEY, 0)
+            .claimant_identity, composed_ceiling)
+        self.assertEqual(
+            self._refusal(
+                PickupClaim, composed_ceiling + 1, 1.0, 2.0, 3.0, KEY, 0),
+            mob_pickup.REFUSE_VALUE_OUT_OF_RANGE)
+
+    def test_the_two_lanes_share_one_constant_rather_than_two_literals(self):
+        """Not ``assertEqual(x, x)``, which is what the first draft was.
+
+        pf-adversary, this round: the equality assertion could not fail while
+        the binding held, and it stayed green when the binding was replaced by
+        a second literal of the same value -- the exact "longer fuse" the
+        module docstring names.  So the SOURCE is read: this module's
+        assignment must be an attribute of ``mob_loot``, not a number.
+        """
+        import ast
+
+        self.assertIs(
+            mob_pickup.MAX_ACTOR_IDENTITY, mob_loot.MAX_IDENTITY)
+        tree = ast.parse(MODULE_PATH.read_text(encoding="utf-8"))
+        assignments = [
+            node for node in tree.body
+            if isinstance(node, ast.Assign)
+            and any(getattr(t, "id", "") == "MAX_ACTOR_IDENTITY"
+                    for t in node.targets)
+        ]
+        self.assertEqual(len(assignments), 1)
+        value = assignments[0].value
+        self.assertIsInstance(
+            value, ast.Attribute,
+            "MAX_ACTOR_IDENTITY became a literal again; two numbers that must "
+            "be kept equal is the defect this round removed")
+        self.assertEqual(getattr(value.value, "id", ""), "mob_loot")
 
     def test_the_quantities_that_are_not_actor_identities_keep_their_bounds(self):
-        # The widening is for ACTOR identities only.  A drop key is a u32 on
-        # the wire and an item identity is a database column: different
-        # quantities that share a validator's name in prose and must not share
-        # its bound.  Measured in BOTH directions, so this cannot pass by the
-        # bounds happening to coincide.
+        """Three different quantities, three different ceilings, measured.
+
+        A drop key is a u32 on the wire; an item identity is a SQLite INTEGER
+        column; an actor identity is what runtime composes.  They share a
+        validator's name in prose and must not share a bound.
+        """
         wide = mob_pickup.MAX_ACTOR_IDENTITY
-        # (1) the u32 wire field refuses what an actor identity now allows
+        # (1) the u32 wire field refuses what an actor identity allows
         self.assertEqual(
             self._refusal(PickupClaim, KILLER, 10.0, 20.0, 30.0, wide, 0),
             mob_pickup.REFUSE_VALUE_OUT_OF_RANGE)
-        # (2) the database column ALLOWS more than an actor identity does --
-        #     it is a different quantity, not a narrower one
-        self.assertGreater(mob_pickup.MAX_ITEM_IDENTITY, wide)
-        row = mob_pickup.BagRowWrite(KILLER, CHARACTER, wide + 1, ITEM, 1, 4)
-        self.assertEqual(row.item_identity, wide + 1)
+        # (2) so does the database column -- it is NARROWER than an actor
+        #     identity, which is the direction that matters for the write
+        self.assertLess(mob_pickup.MAX_ITEM_IDENTITY, wide)
         self.assertEqual(
             self._refusal(
-                mob_pickup.BagRowWrite, KILLER, CHARACTER,
-                mob_pickup.MAX_ITEM_IDENTITY + 1, ITEM, 1, 4),
+                mob_pickup.BagRowWrite, KILLER, CHARACTER, wide, ITEM, 1, 4),
             mob_pickup.REFUSE_VALUE_OUT_OF_RANGE)
+
+    def test_the_item_identity_ceiling_is_the_one_sqlite_will_take(self):
+        """Pinned against SQLite itself, not against a neighbouring constant.
+
+        pf-adversary, this round: raising ``MAX_ITEM_IDENTITY`` to 2 ** 63
+        left the whole suite green, and 2 ** 63 is exactly where SQLite stops
+        -- ``store.commit_acquired_backpack_item`` would raise OverflowError
+        from inside the transaction, after the drop had left the ground.  The
+        constant sits ON the column's ceiling, so the column is what it is
+        measured against.
+        """
+        with sqlite3.connect(":memory:") as db:
+            db.execute("CREATE TABLE t(v INTEGER)")
+            db.execute("INSERT INTO t VALUES (?)",
+                       (mob_pickup.MAX_ITEM_IDENTITY,))
+            self.assertEqual(
+                db.execute("SELECT v FROM t").fetchone()[0],
+                mob_pickup.MAX_ITEM_IDENTITY)
+            with self.assertRaises(OverflowError):
+                db.execute("INSERT INTO t VALUES (?)",
+                           (mob_pickup.MAX_ITEM_IDENTITY + 1,))
+        db.close()
 
 
 if __name__ == "__main__":

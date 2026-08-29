@@ -712,12 +712,20 @@ def _require_int(value: Any, label: str, minimum: int, maximum: int) -> int:
     return value
 
 
-#: The widest actor identity this lane accepts, ROUND uq2lxw2.  IT IS
-#: MOB_LOOT'S CONSTANT, not a copy of its number: two files that hand each
-#: other the same value and disagree about its width is the defect this
+#: The widest actor identity this lane accepts, ROUND uq2lxw2.  IT IS BOUND
+#: TO MOB_LOOT'S CONSTANT, not to a copy of its number: two files that hand
+#: each other the same value and disagree about its width is the defect this
 #: round fixes, and two literals that must be kept equal is the same defect
 #: with a longer fuse.
-MAX_ACTOR_IDENTITY = mob_loot.MAX_IDENTITY_MAGNITUDE
+#:
+#: WHAT THAT BINDING IS AND IS NOT (pf-adversary, round uq2lxw2): it is
+#: resolved ONCE, at import.  Rebinding ``mob_loot.MAX_IDENTITY`` at run time
+#: splits the two lanes again, and nothing here would notice.  What the
+#: construct actually buys is that the two bounds cannot be edited apart IN
+#: THE SOURCE, which is where the defect happened; it is not a live alias,
+#: and ``tests/test_mob_pickup.py`` reads this module's own AST to hold it to
+#: being a reference rather than a literal.
+MAX_ACTOR_IDENTITY = mob_loot.MAX_IDENTITY
 
 
 def _require_identity(value: Any, label: str) -> int:
@@ -725,8 +733,10 @@ def _require_identity(value: Any, label: str) -> int:
 
     ROUND uq2lxw2.  ~~``_require_int(value, label, 0, 0xFFFFFFFF)``~~ IS
     WIDENED, on a measurement chief made in round ni2wh2 and handed to this
-    lane (``notes_to_chief/20260829_1221_CHIEF-ASK-COO-gt124-opcode-
-    forbidden-and-drops-pruned.md`` section 3):
+    lane (the pf_bridge repo's ``notes_to_chief/20260829_1221_CHIEF-ASK-COO-
+    gt124-opcode-forbidden-and-drops-pruned.md``, section 3 -- THAT FILE IS
+    NOT IN THIS REPOSITORY and a reader here cannot open it, which is why
+    the measurement itself is quoted below rather than cited):
 
         identity_hi==0  -> PickupClaim ACCEPTED
         identity_hi==1  -> PickupClaim REFUSED 'value_out_of_range'
@@ -739,6 +749,13 @@ def _require_identity(value: Any, label: str) -> int:
     ``lifecycle.py`` sets ``hi = 0`` for every character this server creates.
     The day an identity arrives from anywhere else, picking things up starts
     refusing with a range error nobody can explain from the message.
+
+    WIDENED TO THE WHOLE u64 AND NOT TO 2 ** 62, which is what the first
+    draft of this round did on both sides: ``runtime.py`` composes
+    ``((hi & 0xFFFFFFFF) << 32) | (lo & 0xFFFFFFFF)``, so 2 ** 62 leaves
+    three quarters of the composition refused -- by BOTH lanes once they
+    agree, which is a tidier failure and not a fixed one (pf-adversary,
+    measured).
 
     WHAT IS NOT WIDENED, and the distinction is the whole reason this is a
     separate function.  ``object_ref_u32`` (a drop key that travels on the

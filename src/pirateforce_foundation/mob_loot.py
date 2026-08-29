@@ -237,10 +237,27 @@ MOB_LOOT_WIRING = (
     "may be interleaved into another lane's typed lethal sequence for the "
     "same actor, and the label lives 0.2-0.4 s, so loot sent inside the hold "
     "is gone before the corpse frame is.\n"
-    "  4. PRUNE THROUGH THE CELL (cell.take(key)).  Nothing in this module "
-    "expires a row and the label is off screen in under half a second; a "
-    "caller that never prunes grows the ledger without bound.  Pruning beside "
-    "the cell, on a value you kept, loses whatever a kill wrote in between.\n"
+    "  4. PRUNE THROUGH THE CELL.  Nothing in this module expires a row "
+    "and the label is off screen in under half a second; a caller that "
+    "never prunes grows the ledger without bound.  Pruning beside the "
+    "cell, on a value you kept, loses whatever a kill wrote in between.\n"
+    "  4-ROUND-uq2lxw2, AND READ THIS BEFORE WRITING cell.take(key) IN A "
+    "LOOP: taking every key of the kill you just sent -- which is what "
+    "runtime.py does today, and what the sentence above was read as "
+    "asking for -- makes a pickup call site refuse drop_already_taken "
+    "100% of the time.  MEASURED by chief in round ni2wh2 with a "
+    "control (pf_bridge notes_to_chief/20260829_1221_CHIEF-ASK-COO-"
+    "gt124-opcode-forbidden-and-drops-pruned.md, section 2): prune as "
+    "runtime does -> 0 live rows, refused; do not prune -> 2 live rows, "
+    "accepted.  CALL cell.prune_previous_kills() INSTEAD, once, after "
+    "step 3: it derives its own cut point from the cell (the newest "
+    "kill's first key), takes no argument to get wrong, leaves the "
+    "newest kill's rows on the ground for the player who is reaching "
+    "for them, and still bounds the ledger.  [ASSUMPTION OF LANE B - "
+    "AWAITING COO] chief asked the COO what replaces the ledger ceiling "
+    "(a timer, a per-drop expiry); this lane shipped the option that "
+    "needs no clock and no ruling, and the ruling may still name a "
+    "different one.\n"
     "  4b. AND SINCE RE-130 THE PRUNE HAS A COST THIS CONTRACT OWES THE "
     "CALLER, round zxnwtd.  The consumer erases every key a nonempty "
     "generation omits, so a generation built from ONE kill's rows removes "
@@ -642,6 +659,10 @@ REFUSE_GENERATION_IS_EMPTY = "generation_is_empty"
 REFUSE_GENERATION_TOO_WIDE_TO_FRAME = "generation_too_wide_to_frame"
 REFUSE_DUPLICATE_KEY_IN_GENERATION = "duplicate_key_in_generation"
 REFUSE_FRAME_ENCODER_DISAGREES = "frame_encoder_disagrees"
+#: ROUND uq2lxw2.  A prune cut point above the newest kill's first key would
+#: remove the rows a player can still be reaching for -- the one mistake the
+#: prune primitive is shaped to make loud rather than silent.
+REFUSE_PRUNE_WOULD_TAKE_THE_NEWEST_KILL = "prune_would_take_the_newest_kill"
 
 MOB_LOOT_REFUSAL_REASONS = (
     REFUSE_TYPE_NOT_TYPED_RECORD,
@@ -673,6 +694,7 @@ MOB_LOOT_REFUSAL_REASONS = (
     REFUSE_GENERATION_TOO_WIDE_TO_FRAME,
     REFUSE_DUPLICATE_KEY_IN_GENERATION,
     REFUSE_FRAME_ENCODER_DISAGREES,
+    REFUSE_PRUNE_WOULD_TAKE_THE_NEWEST_KILL,
 )
 
 
@@ -691,15 +713,33 @@ def _require_int(value: Any, label: str, minimum: int, maximum: int) -> int:
     return value
 
 
-#: The magnitude an actor identity may reach in this lane, named in round
-#: uq2lxw2 so the sibling lane can BE this value rather than repeat it.  The
-#: number is unchanged: it is the bound this function has always applied.
-MAX_IDENTITY_MAGNITUDE = 2 ** 62
+#: The widest actor identity either lane accepts, named in round uq2lxw2 so
+#: the sibling lane can BE this value rather than repeat it.
+#:
+#: ~~2 ** 62~~, WHICH IS WHAT THIS LANE HAD APPLIED SINCE IT WAS WRITTEN, AND
+#: WHICH DOES NOT COVER WHAT THE SERVER COMPOSES.  ``runtime.py`` builds a
+#: performer identity as ``((hi & 0xFFFFFFFF) << 32) | (lo & 0xFFFFFFFF)`` --
+#: a full u64 -- so three quarters of the space it can produce was refused by
+#: BOTH lanes, not just by the pickup one (pf-adversary, round uq2lxw2,
+#: measured: hi=0x80000000 is refused here as well).  The first draft of this
+#: round adopted 2 ** 62 for both lanes and its docstring claimed the width
+#: "follows the server's composition"; that was false by two bits, and an
+#: identity with either top bit set would raise out of ``loot_a_kill`` inside
+#: ``runtime.py``'s dispatch, which handles three named ledger refusals and
+#: re-raises everything else.
+#:
+#: An actor identity is a u64 that is compared and printed, never packed by
+#: either lane, so the bound is the composition's own.
+MAX_IDENTITY = 0xFFFFFFFFFFFFFFFF
+#: ~~MAX_IDENTITY_MAGNITUDE~~, the symmetric name the first draft used, is
+#: kept pointing at the new value rather than deleted: the word "magnitude"
+#: said the floor and the ceiling were one number, and they never were -- a
+#: negative identity is refused by name below, not by range.
+MAX_IDENTITY_MAGNITUDE = MAX_IDENTITY
 
 
 def _require_identity(value: Any, label: str) -> int:
-    identity = _require_int(
-        value, label, -MAX_IDENTITY_MAGNITUDE, MAX_IDENTITY_MAGNITUDE)
+    identity = _require_int(value, label, 0, MAX_IDENTITY)
     if identity <= 0:
         raise MobLootContractError(
             REFUSE_IDENTITY_NOT_POSITIVE, "%s must be positive" % label)
@@ -1494,6 +1534,11 @@ class DropLedgerCell:
                 REFUSE_TYPE_NOT_TYPED_RECORD,
                 "a cell holds a typed DropLedger")
         self._ledger = ledger
+        # Where the newest kill's key block starts, or None until a kill with
+        # drops lands.  Round uq2lxw2: this is what lets prune_previous_kills
+        # take NO argument -- see its docstring for why an argument was the
+        # defect rather than the feature.
+        self._newest_kill_first_key = None
         self._lock = threading.Lock()
 
     @property
@@ -1524,6 +1569,12 @@ class DropLedgerCell:
                 current, drops, base_generation=current.generation,
                 kill_token=kill_token,
                 mob_identity=getattr(record, "actor_identity", None))
+            if drops:
+                # A kill that dropped nothing does not move the mark: the
+                # newest kill WITH ROWS is the one a player can be reaching
+                # for, and roughly a third of kills drop nothing.
+                self._newest_kill_first_key = min(
+                    drop.drop_key for drop in drops)
             return drops
 
     def take(self, drop_key: int) -> Any:
@@ -1531,6 +1582,31 @@ class DropLedgerCell:
         with self._lock:
             self._ledger, taken = take_drop(self._ledger, drop_key)
             return taken
+
+    def prune_previous_kills(self) -> tuple:
+        """Remove every row older than the newest kill's block.  NO ARGUMENT.
+
+        ROUND uq2lxw2, and the missing argument is the whole design.
+        :meth:`prune_issued_before` takes a cut point, and pf-adversary asked
+        the question that shape could not answer: where does the caller get a
+        cut point it cannot get wrong?  The only correct value is the newest
+        kill's first key -- which the caller would have to carry from a
+        previous ``loot_a_kill`` return, does not exist for the roughly one
+        kill in three that drops nothing, and sits one keystroke away from
+        ``cell.ledger.next_key``, which reads more naturally and CLEARS THE
+        WHOLE LEDGER.  The cell knows the right value; asking the caller for
+        it was the defect.
+
+        Returns the removed rows.  Empty when no kill has dropped anything
+        yet, and empty when the newest kill is the only one -- both are
+        no-ops rather than "prune everything", which is the direction that
+        costs a player their drop.
+        """
+        with self._lock:
+            mark = self._newest_kill_first_key
+        if mark is None:
+            return ()
+        return self.prune_issued_before(mark)
 
     def prune_issued_before(self, drop_key: Any) -> tuple:
         """Remove every live row whose key is BELOW ``drop_key``.  Returns them.
@@ -1543,13 +1619,29 @@ class DropLedgerCell:
         control run: prune-as-runtime-does -> 0 live rows, refused; no prune ->
         2 live rows, accepted.
 
+        MOST CALLERS WANT :meth:`prune_previous_kills`, which computes the one
+        cut point that is correct and takes nothing to get wrong.  This is the
+        primitive under it, for a caller that genuinely has its own cut point.
+
+        A CUT ABOVE THE NEWEST KILL IS REFUSED BY NAME, and that refusal is
+        this method's whole safety story (pf-adversary, round uq2lxw2):
+        ``prune_issued_before(cell.ledger.next_key)`` is the single most
+        natural line a caller would type, and without the refusal it removes
+        every live row -- reproducing, in one plausible line, exactly the
+        runtime-today behaviour this method exists to replace.  Clearing the
+        ledger outright is still possible through :meth:`take` per row; it is
+        just no longer something a caller can do by accident while meaning
+        the opposite.
+
         WHY STEP 4 SAYS PRUNE AT ALL, kept in view rather than argued away:
         nothing in this module expires a row, so a caller that never prunes
         grows the ledger without bound.  That ceiling is real and this method
-        does not remove it -- it moves WHERE the ceiling is cut.  Pruning the
-        PREVIOUS kill's rows when the next kill lands leaves the newest kill's
-        rows on the ground (the only ones a player could be reaching for)
-        while still bounding the ledger by one kill's worth of rows per scene.
+        does not remove it -- it moves WHERE the cut is made.  Pruning the
+        PREVIOUS kills when the next kill lands leaves the newest kill's rows
+        on the ground (the only ones a player could be reaching for) while
+        still bounding the LIVE ROWS a cell holds.  It does not bound the KEY
+        BLOCK, which is spent by issuance and not returned by pruning; that
+        ceiling refuses by name in ``commit_drops`` when it is reached.
 
         NO CLOCK, and that is why the cut is by key rather than by age.  Keys
         are a monotonic high-water mark this cell hands out and never reuses
@@ -1558,20 +1650,29 @@ class DropLedgerCell:
         need a clock, which this lane does not have and will not grow for
         this.
 
-        THIS IS A PRIMITIVE, NOT A POLICY, and the difference is the whole
-        reason it is shaped this way: it does not decide when to prune, how
-        many kills to keep, or what the client is told afterwards.  Those are
-        the call site's, and the call site is the chief's file.  What this
-        removes is the excuse that the alternative to "prune everything now"
-        has to be designed before it can be tried.
+        [ASSUMPTION OF LANE B - AWAITING COO] chief's letter put the ledger
+        ceiling to the COO as an open question (a timer, or a per-drop
+        expiry).  This lane shipped the answer that needs no clock and no
+        ruling so option 3 does not wait on a design round; a ruling may name
+        a different one, and this is a primitive rather than a policy so that
+        it can.
 
         Returns the removed rows, newest last, so a caller can log or re-send
         what it dropped rather than discovering it later.
         """
-        # The same bound every other drop key in this module carries; a
-        # cut point is a key, so it is validated as one.
+        # The same bound every other drop key in this module carries; a cut
+        # point is a key, so it is validated as one.
         drop_key = _require_int(drop_key, "prune key", 0, 0xFFFFFFFF)
         with self._lock:
+            newest = self._newest_kill_first_key
+            if newest is not None and drop_key > newest:
+                raise MobLootContractError(
+                    REFUSE_PRUNE_WOULD_TAKE_THE_NEWEST_KILL,
+                    "cut point 0x%X is above the newest kill's first key "
+                    "0x%X, so this would take the rows a player can still be "
+                    "reaching for - prune_previous_kills() is the call that "
+                    "cannot get this wrong, and take(key) is how you remove "
+                    "a row deliberately" % (drop_key, newest))
             ledger = self._ledger
             removed = []
             for drop in ledger.drops:
