@@ -189,8 +189,14 @@ class Bg0002CensusWiringTests(unittest.TestCase):
             self.legacy, anchor, scene_id=SCENE2_N_ID,
             count_source=world_population_bg0002.COUNT_SOURCE_FULL_ROSTER,
         )
+        # ROUND y9s0xo (lane B): ``ledger=`` lost its default -- see
+        # mob_census_hostility.hostile_override_for_scene_id.  This
+        # call composes the ARRIVAL census with no combat yet, which
+        # is what ``None`` has always meant here; it is now said
+        # rather than assumed.
         override = mob_census_hostility.hostile_override_for_scene_id(
             self.legacy, SCENE2_N_ID, state.mob_death_register,
+            ledger=None,
         )
         return _apply_mob_death_census_override(
             self.legacy, independent, override,
@@ -501,8 +507,14 @@ class Bg0002CensusWiringTests(unittest.TestCase):
             self.legacy, PIN_ANCHOR, scene_id=SCENE2_N_ID,
             count_source=world_population_bg0002.COUNT_SOURCE_FULL_ROSTER,
         )
+        # ROUND y9s0xo (lane B): ``ledger=`` lost its default -- see
+        # mob_census_hostility.hostile_override_for_scene_id.  This
+        # call composes the ARRIVAL census with no combat yet, which
+        # is what ``None`` has always meant here; it is now said
+        # rather than assumed.
         override = mob_census_hostility.hostile_override_for_scene_id(
             self.legacy, SCENE2_N_ID, state.mob_death_register,
+            ledger=None,
         )
         # The scene's roster is non-empty, so the override must be too --
         # an empty override would make this whole test vacuous.

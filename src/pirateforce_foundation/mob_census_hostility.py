@@ -102,7 +102,7 @@ def hostile_override_for_scene_id(
     scene_id: int,
     register: Any,
     *,
-    ledger: Any = None,
+    ledger: Any,
 ) -> dict[int, bytes]:
     """Identity -> hostile body bytes for the monsters standing in ``scene_id``.
 
@@ -122,6 +122,23 @@ def hostile_override_for_scene_id(
     ``ledger`` is passed straight through and matters: without it a census
     rebuild heals every wounded monster back to its ceiling, which is the
     exact failure MOB-DEATH-001's wiring note called out.
+
+    ~~``ledger: Any = None``~~ THE DEFAULT IS GONE, ROUND y9s0xo.  It is item
+    (1) of the chief's division (``pf_bridge/notes_to_chief/20260829_1924_
+    CHIEF-TO-LANE-B-recompose-bg0002-three-measurements-and-the-division.md``),
+    which carries COO-DECISION 2026-08-29T18:42 item 3: on a census that can
+    be recomposed, a missing ledger must be refused loudly rather than
+    defaulted.  A DEFAULT cannot be refused loudly -- it is the silence.  The
+    keyword is required now, so a call site that forgets it gets a
+    ``TypeError`` on its first boot instead of a census that heals every
+    wounded monster with nothing failing and nothing logged.
+    ``ledger=None`` PASSED EXPLICITLY still works and still means "compose
+    without consulting HP": that is a real answer for a scene arriving before
+    any combat, and :func:`describe_census_hostility` prints ``ledger=absent``
+    for it.  What is refused is not saying.  MEASURED before landing: the one
+    call site in this tree (``runtime.py``'s bg0002 arrival branch) already
+    passes ``ledger=self.mob_combat_ledger`` explicitly, so this breaks
+    nothing that exists.
 
     ~~And passing one that belongs to another scene is safe.~~ THAT WAS
     NEVER WRITTEN HERE AND IS WRITTEN HERE NOW BECAUSE A CALL SITE COULD

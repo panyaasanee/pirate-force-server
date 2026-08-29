@@ -356,7 +356,13 @@ class TestTheAnswer(unittest.TestCase):
         # shipped placement and sends one carrier.  It reuses the frozen
         # serializers rather than reimplementing them, which is exactly
         # why it shows up in this census.
-        self.assertEqual(counts["src_actor_stream_call_sites"], 25)
+        # 25 -> 26 on 2026-08-29 (LANE-B round y9s0xo):
+        # mob_scene_recompose.py re-encodes the collection when it splices a
+        # roster override into a mid-session recompose.  ONLY the carrier
+        # count moves -- the entry-builder counts below are unchanged,
+        # because that module composes bodies other modules built and
+        # invents none of its own.
+        self.assertEqual(counts["src_actor_stream_call_sites"], 26)
         self.assertEqual(counts["src_actor_entry_call_sites"], 17)
         self.assertEqual(counts["src_modules_building_actor_entries"], 16)
         self.assertIn(

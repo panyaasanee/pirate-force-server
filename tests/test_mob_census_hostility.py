@@ -311,6 +311,7 @@ class CensusHostilityTests(unittest.TestCase):
         self.assertIn("override=0", empty[0])
         real = mch.hostile_override_for_scene_id(
             self.legacy, BG0002_SCENE_ID, mob_death.DeathRegister(),
+            ledger=None,
         )
         carried = mch.describe_census_hostility(
             BG0002_SCENE_ID, identities, override=real,
@@ -356,8 +357,11 @@ class CensusHostilityTests(unittest.TestCase):
 
     def test_an_unaddressed_scene_overrides_nothing_and_does_not_fall_back(self):
         register = mob_death.DeathRegister()
+        # ROUND y9s0xo: the keyword is required now (the ban on the
+        # DEFAULT, not on the meaning) -- ``None`` still composes at
+        # ceiling HP, which is what an unaddressed scene needs.
         override = mch.hostile_override_for_scene_id(
-            self.legacy, 999, register,
+            self.legacy, 999, register, ledger=None,
         )
         self.assertEqual(override, {})
         # The point of the pin: {} must not be bg0001's roster.
