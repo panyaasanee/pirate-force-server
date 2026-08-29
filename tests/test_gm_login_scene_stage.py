@@ -492,11 +492,11 @@ class RefusalLeavesTheFileAloneTests(_Case):
         real_loader = login_scene_override.load_login_scene_overrides
         calls = []
 
-        def flaky(path=None):
+        def flaky(path=None, *, scene_registry=None):
             calls.append(path)
             if len(calls) > 1:
                 return {}
-            return real_loader(path)
+            return real_loader(path, scene_registry=scene_registry)
 
         with mock.patch.object(
             login_scene_stage, "load_login_scene_overrides", flaky
@@ -513,11 +513,11 @@ class RefusalLeavesTheFileAloneTests(_Case):
         real_loader = login_scene_override.load_login_scene_overrides
         calls = []
 
-        def flaky(path=None):
+        def flaky(path=None, *, scene_registry=None):
             calls.append(path)
             if len(calls) > 1:
                 return {}
-            return real_loader(path)
+            return real_loader(path, scene_registry=scene_registry)
 
         with mock.patch.object(
             login_scene_stage, "load_login_scene_overrides", flaky
