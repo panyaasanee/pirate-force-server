@@ -1963,7 +1963,7 @@ class DropLedgerCell:
                     # key this cell would later "expire" and remember as
                     # expired, so a pickup call site would be told a row the
                     # PRUNE removed had timed out.
-                    pass
+                    self._deadlines.pop(drop.drop_key, None)
             self._ledger = ledger
             return tuple(removed)
 

@@ -204,6 +204,54 @@ class LedgerExpiryTests(unittest.TestCase):
                 caught.exception.args[0], REFUSE_DROP_NOT_IN_LEDGER,
                 "a pruned row must not be reported as expired")
 
+    def test_a_deadline_never_outlives_the_row_it_belongs_to(self):
+        """THE INVARIANT, and the reason this test exists is a real defect.
+
+        Round 0n9inw's own adversarial pass mutated the deadline cleanup out of
+        BOTH ``take`` and ``prune_issued_before``, and every test in the first
+        draft of this file still passed -- so the mutant in
+        ``prune_issued_before`` was committed and pushed before anyone noticed.
+        The two per-method tests below pin the CONSEQUENCE a caller can see (a
+        pruned row is not later called expired), and that consequence survives
+        the mutation, because ``_sweep_locked`` only remembers a key as expired
+        when it actually removed a row.
+
+        What does not survive is the invariant itself: the cell's deadline map
+        must hold exactly the keys that are on the ground.  Every way a row can
+        leave -- pickup, prune, expiry -- is checked here in one place, so the
+        cleanup cannot be deleted from any of them silently.
+        """
+        cell = self._cell(lifetime=60.0)
+
+        def deadlines_match_the_ground(where):
+            live = {row.drop_key for row in cell._ledger.drops}
+            held = set(cell._deadlines)
+            self.assertEqual(
+                held, live,
+                "after %s the cell holds deadlines %r for rows on the ground "
+                "%r" % (where, sorted(held), sorted(live)))
+
+        first = self._kill(cell, token=1, seed=3)
+        deadlines_match_the_ground("a kill")
+        # The prune must have something of the FIRST kill left to remove, so
+        # this row is deliberately NOT picked up.  The first draft of this test
+        # took it here, which left the prune with nothing to do -- and a prune
+        # that removes no row never reaches the cleanup being pinned, so the
+        # mutant walked through this test too.
+        second = self._kill(cell, token=2, seed=4)
+        deadlines_match_the_ground("a second kill")
+        removed = cell.prune_previous_kills()
+        self.assertTrue(
+            removed, "this test is only meaningful if the prune removed a row")
+        self.assertIn(first[0].drop_key, [row.drop_key for row in removed])
+        deadlines_match_the_ground("a prune")
+        cell.take(second[0].drop_key)
+        deadlines_match_the_ground("a pickup")
+        self.clock.advance(120.0)
+        cell.sweep_expired()
+        deadlines_match_the_ground("an expiry")
+        self.assertEqual(cell._deadlines, {}, "everything left the ground")
+
     def test_the_expired_memory_is_bounded(self):
         """The structure that explains a refusal must not become the leak.
 
@@ -229,6 +277,36 @@ class LedgerExpiryTests(unittest.TestCase):
         self.assertEqual(
             caught.exception.args[0], REFUSE_DROP_NOT_IN_LEDGER,
             "beyond the bound the honest answer is the less useful one")
+
+    def test_the_memory_is_deep_enough_to_be_worth_having(self):
+        """A bound of one would satisfy "bounded" and be useless.
+
+        The adversarial pass set EXPIRED_KEY_MEMORY to 1 and every test still
+        passed, because they all measured the memory against ITSELF.  The
+        memory exists so a player whose object timed out a few kills ago is
+        told that, rather than "no such object" -- so what has to be pinned is
+        that several recent expiries are still nameable, not merely that the
+        deque has a maxlen.
+        """
+        self.assertGreaterEqual(EXPIRED_KEY_MEMORY, 16)
+        cell = self._cell(lifetime=1.0)
+        keys = []
+        for token in range(1, 9):
+            drops = cell.loot_a_kill(
+                self.mob, self.record,
+                roll_drops(self.mob, random.Random(token)), kill_token=token)
+            keys.extend(row.drop_key for row in drops)
+            self.clock.advance(2.0)
+        cell.ledger
+        self.assertGreaterEqual(
+            len(keys), 4, "this test needs several kills that dropped rows")
+        for key in keys:
+            with self.assertRaises(MobLootContractError) as caught:
+                cell.take(key)
+            self.assertEqual(
+                caught.exception.args[0], REFUSE_DROP_EXPIRED,
+                "a click on key 0x%X, expired a few kills ago, must still be "
+                "told it expired" % key)
 
     def test_rows_handed_in_at_construction_get_a_deadline(self):
         """A row that entered before the cell existed must not live forever."""
@@ -317,11 +395,45 @@ class LedgerExpiryTests(unittest.TestCase):
         is drawn.  A default taken from the label would delete every drop
         before a player could walk to it -- and it would look like a loot bug,
         not like a number somebody chose.
+
+        THE BOUNDS BELOW ARE ABSOLUTE, and the first draft's were not: it
+        asserted only ``> max(label) * 100``, which its own adversarial pass
+        walked straight through with 41.0 s.  A relation to a number that
+        small is not a floor -- it just looks like one.  These say what the
+        figure has to be for the reason it exists: long enough that a player
+        who has to WALK to the object still finds it (30 s is already tight),
+        short enough that a cell is genuinely bounded (10 min).
+
+        WHAT THIS TEST DELIBERATELY DOES NOT DO is pin 120.0 itself.  The
+        figure is labelled [ASSUMPTION OF LANE B - AWAITING COO] and the letter
+        asking for it promises the rollback is one line with no call-site
+        change; a test that pinned the exact number would make that false.  So
+        a mutation to any other defensible figure -- 41.0, say -- passes here
+        ON PURPOSE.  That is the difference between pinning a decision and
+        pinning a reason, and only the reason is this lane's to keep.
         """
+        self.assertGreaterEqual(DROP_LIFETIME_SECONDS, 30.0)
+        self.assertLessEqual(DROP_LIFETIME_SECONDS, 600.0)
         self.assertGreater(
             DROP_LIFETIME_SECONDS,
             max(mob_loot.GROUND_LABEL_OBSERVED_LIFETIME_SECONDS) * 100)
-        self.assertLessEqual(DROP_LIFETIME_SECONDS, MAX_DROP_LIFETIME_SECONDS)
+        self.assertLess(DROP_LIFETIME_SECONDS, MAX_DROP_LIFETIME_SECONDS)
+
+    def test_the_lifetime_tripwire_is_a_real_ceiling_not_a_formality(self):
+        """An absolute bound, because a relative one pins nothing.
+
+        The adversarial pass set this tripwire to 1e12 and every test still
+        passed, since they all compared the lifetime against the tripwire
+        rather than against reality.  A tripwire of 1e12 s admits a lifetime of
+        thirty thousand years, which is the same as having no ceiling at all --
+        precisely the defect the expiry was ruled in to close.
+        """
+        self.assertGreater(
+            MAX_DROP_LIFETIME_SECONDS, DROP_LIFETIME_SECONDS,
+            "the tripwire must admit the default")
+        self.assertLessEqual(
+            MAX_DROP_LIFETIME_SECONDS, 24 * 3600.0,
+            "a lifetime measured in days is not a ceiling")
 
     def test_the_assumption_tag_is_on_the_number_and_not_on_the_mechanism(self):
         """The mechanism is ruled; only the figure is this lane's guess.
