@@ -263,6 +263,20 @@ class OnlyTheReasonsADifferentDestinationWouldFixTests(_Case):
         )
         action, console = self.act(session, f"/warp {target}")
         self.assertIsNone(action, "a cross-scene warp stages, it does not send")
+        # THE NAME HAS TO BE EARNED.  pf-adversary D10: both assertions below
+        # are equally true of a `config_unreadable` REFUSAL -- nothing staged,
+        # no way-out line -- so this test was green for a warp that failed,
+        # under a name saying it succeeded.  Pin the success itself first.
+        self.assertIn(
+            f"{chat_command_action.EVENT_WARP_STAGED_PREFIX}{target}",
+            session.events,
+        )
+        self.assertEqual(
+            {self.GM_ACCOUNT: target},
+            json.loads(
+                self.login_scene_config_path.read_text(encoding="utf-8")
+            )["gm_login_scene"],
+        )
         self.assertEqual([], self.way_out_lines(console))
 
 
@@ -274,20 +288,51 @@ class TheLineNeverAltersDispatchTests(_Case):
     measured it.  The refusal is the product; the line is the courtesy.
     """
 
+    def _hostile_streams(self):
+        """The three ways a real console fails, not just the one.
+
+        pf-adversary D4: pinning only `OSError` let `except Exception` be
+        narrowed to `except OSError` with the whole suite green -- and under
+        that narrowing a genuinely CLOSED stream (`ValueError: I/O operation
+        on closed file`, which is what a closed Python file object raises,
+        not `OSError`) brought back this round's headline defect verbatim.
+        """
+
+        class Raises:
+            def __init__(self, error, encoding="ascii"):
+                self.encoding = encoding
+                self._error = error
+
+            def write(self, _text):
+                raise self._error
+
+            def flush(self):
+                raise self._error
+
+        closed = io.StringIO()
+        closed.close()
+        return {
+            # A broken pipe: the classic detached console.
+            "OSError": Raises(OSError("stderr is closed")),
+            # A real closed file object, not a stand-in for one.
+            "ValueError_closed": closed,
+            # A code page that cannot carry what the fold produced.
+            "UnicodeEncodeError": Raises(
+                UnicodeEncodeError("ascii", "x", 0, 1, "nope")
+            ),
+        }
+
     def test_a_console_that_refuses_the_write_costs_the_line_not_the_refusal(self):
+        for label, stream in self._hostile_streams().items():
+            with self.subTest(failure=label):
+                gm_dispatch.reset_rate_limit_state_for_tests()
+                self._run_one_hostile_case(stream)
+
+    def _run_one_hostile_case(self, stream):
         session = FakeSession(position=FakePosition(scene_id=1))
         scene_id = self.an_unreachable_scene_id()
 
-        class HostileStream:
-            encoding = "ascii"
-
-            def write(self, _text):
-                raise OSError("stderr is closed")
-
-            def flush(self):
-                raise OSError("stderr is closed")
-
-        with mock.patch.object(sys, "stderr", HostileStream()):
+        with mock.patch.object(sys, "stderr", stream):
             action = chat_command_action.make_gm_chat_command_action(
                 session,
                 make_chat_payload(f"/warp {scene_id}"),
@@ -298,6 +343,17 @@ class TheLineNeverAltersDispatchTests(_Case):
             )
 
         self.assertIsNone(action)
+        # The console failure is NAMED, not swallowed (D5).
+        self.assertTrue(
+            [
+                event
+                for event in session.events
+                if event.startswith(
+                    chat_command_action.EVENT_CONSOLE_WRITE_FAILED_PREFIX
+                )
+            ],
+            f"a broken console must say so: {session.events}",
+        )
         # The refusal reached the event trail even though the console did not.
         self.assertIn(
             f"{chat_command_action.EVENT_WARP_STAGE_REFUSED_PREFIX}"
@@ -324,6 +380,192 @@ class TheLineNeverAltersDispatchTests(_Case):
         )
         # And nothing was staged for an account whose console blew up.
         self.assertFalse(self.login_scene_config_path.exists())
+
+
+class TheReasonClassificationIsExhaustiveTests(_Case):
+    """pf-adversary D3: the way-out list must not be a hand-copied literal.
+
+    MEASURED before this test existed: adding one reachable,
+    destination-shaped reason to `login_scene_stage` left the entire
+    4527-test suite green while the tester it was added for got a bare
+    refusal and no way out.  `login_scene_admission`'s own design note exists
+    to stop that one layer down ("both sides now enforce one implementation
+    instead of two that agree today"); this pins the same property one layer
+    up.
+    """
+
+    def _all_reason_constants(self):
+        return {
+            name: value
+            for name, value in vars(login_scene_stage).items()
+            if name.startswith("REASON_") and name != "REASON_OK"
+        }
+
+    def test_every_refusal_reason_is_classified_exactly_once(self):
+        destination = set(login_scene_stage.DESTINATION_SHAPED_REASONS)
+        other = set(login_scene_stage.NOT_DESTINATION_SHAPED_REASONS)
+        self.assertEqual(
+            set(),
+            destination & other,
+            "a reason cannot be both",
+        )
+        self.assertEqual(
+            set(self._all_reason_constants().values()),
+            destination | other,
+            "a new REASON_* must be classified as destination-shaped (the "
+            "tester retypes and it goes away) or not.  Being forgotten "
+            "defaults it to silence, which is the defect this pins.",
+        )
+
+    def test_the_module_reads_the_shared_list_rather_than_its_own_copy(self):
+        """Mutating the shared list must move the behaviour."""
+        session = FakeSession(position=FakePosition(scene_id=1))
+        with mock.patch.object(
+            login_scene_stage, "DESTINATION_SHAPED_REASONS", ()
+        ), mock.patch.object(
+            login_scene_stage,
+            "stage_login_scene",
+            return_value=login_scene_stage.StageResult(
+                False, login_scene_stage.REASON_NO_LOGIN_ENTRY, 278, None
+            ),
+        ):
+            _, console = self.act(session, "/warp 278")
+        self.assertEqual([], self.way_out_lines(console))
+
+
+class NothingRaisesBeforeTheGuardedBlockTests(_Case):
+    """pf-adversary D2: claim 3 was TRUE but UNPINNED, and a hoist survived.
+
+    The round's own delivery commit shipped `stageable_scene_ids()` hoisted
+    out of the `try` -- taken off the working tree mid-adversary-pass -- and
+    re-running that mutation against the reverted code still passed the whole
+    suite, because `stageable_scene_ids` internally swallows everything and
+    returns `()`.  The safety was a promise borrowed from another module.
+    These make it structural: if either call is evaluated outside the guard,
+    a raising version escapes and the blanket handler names it.
+    """
+
+    def _assert_costs_the_line_not_the_command(self, session, console):
+        self.assertEqual(
+            [],
+            [
+                event
+                for event in session.events
+                if event.startswith(chat_command_action.EVENT_UNEXPECTED_PREFIX)
+            ],
+            f"the call escaped the guarded block: {session.events}",
+        )
+        self.assertIn(
+            f"{chat_command_action.EVENT_WARP_STAGE_REFUSED_PREFIX}"
+            f"{login_scene_stage.REASON_NO_LOGIN_ENTRY}",
+            session.events,
+        )
+        self.assertEqual([], self.way_out_lines(console))
+
+    def test_a_raising_admissible_set_costs_the_line_not_the_command(self):
+        session = FakeSession(position=FakePosition(scene_id=1))
+        scene_id = self.an_unreachable_scene_id()
+        with mock.patch.object(
+            chat_command_action,
+            "stageable_scene_ids",
+            side_effect=RuntimeError("registry exploded"),
+        ):
+            _, console = self.act(session, f"/warp {scene_id}")
+        self._assert_costs_the_line_not_the_command(session, console)
+
+    def test_a_raising_fold_costs_the_line_not_the_command(self):
+        session = FakeSession(position=FakePosition(scene_id=1))
+        scene_id = self.an_unreachable_scene_id()
+        with mock.patch.object(
+            chat_command_action,
+            "console_safe",
+            side_effect=RuntimeError("fold exploded"),
+        ):
+            _, console = self.act(session, f"/warp {scene_id}")
+        self._assert_costs_the_line_not_the_command(session, console)
+
+
+class AConsoleThatIsNotThereTests(_Case):
+    """pf-adversary D1: `print(file=None)` writes to STDOUT.
+
+    `sys.stderr` is `None` under `pythonw.exe` and under a service started
+    with stdio detached -- the "detached service console" this feature's own
+    comment names.  Not a hostile object: absent.  The stderr test could not
+    see it because it substitutes a real buffer.  Landing there is verbatim
+    the `lane_hooks` incident (a GM token inside another tool's `--json`
+    artifact) that this token's stderr rule exists to prevent.
+    """
+
+    def test_a_none_stderr_puts_nothing_on_stdout(self):
+        session = FakeSession(position=FakePosition(scene_id=1))
+        scene_id = self.an_unreachable_scene_id()
+        out = io.StringIO()
+        with mock.patch.object(sys, "stderr", None), contextlib.redirect_stdout(
+            out
+        ):
+            action = chat_command_action.make_gm_chat_command_action(
+                session,
+                make_chat_payload(f"/warp {scene_id}"),
+                self.legacy,
+                config_path=str(self.config_path),
+                log_path=str(self.log_path),
+                login_scene_config_path=str(self.login_scene_config_path),
+            )
+        self.assertIsNone(action)
+        self.assertEqual("", out.getvalue(), "nothing may reach stdout")
+        # Both prints report themselves as unwritten, and the command survived.
+        self.assertIn(
+            f"{chat_command_action.EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr",
+            session.events,
+        )
+        self.assertEqual(
+            [],
+            [
+                event
+                for event in session.events
+                if event.startswith(chat_command_action.EVENT_UNEXPECTED_PREFIX)
+            ],
+        )
+
+
+class TheAccountFieldCannotForgeALineTests(_Case):
+    """pf-adversary D9: `console_safe` folds encoding, not structure.
+
+    A newline in the account name spelled a whole second console line --
+    including `GM_LOGIN_SCENE_CONFIG_REFUSED`, the config loader's token,
+    with chosen fields after it.  That breaks the exact property
+    `test_its_token_is_not_the_config_loaders_token` claims.  Operator-side
+    input, so not client-reachable; pinned because the claim is this lane's
+    own.
+    """
+
+    FORGERY = (
+        "GM_ONE\n"
+        f"{login_scene_override.CONFIG_REFUSED_CONSOLE_TOKEN} "
+        "path='C:\\config\\gm_login_scene.json' account='victim'"
+    )
+
+    def test_a_newline_in_the_account_name_cannot_spell_a_second_line(self):
+        self.config_path.write_text(
+            json.dumps({"gm_accounts": [self.FORGERY]}), encoding="utf-8"
+        )
+        session = FakeSession(
+            token=self.FORGERY, position=FakePosition(scene_id=1)
+        )
+        scene_id = self.an_unreachable_scene_id()
+        _, console = self.act(session, f"/warp {scene_id}")
+
+        lines = self.way_out_lines(console)
+        self.assertEqual(1, len(lines), f"console: {console!r}")
+        # The forged token never begins a line of its own.
+        for line in console.splitlines():
+            self.assertFalse(
+                line.startswith(
+                    login_scene_override.CONFIG_REFUSED_CONSOLE_TOKEN
+                ),
+                f"the account field forged a config-loader line: {line!r}",
+            )
+        self.assertIn("\\n", lines[0], "the newline is shown, not obeyed")
 
 
 class TheAccountNameSurvivesTheConsoleTests(_Case):

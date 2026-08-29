@@ -348,6 +348,17 @@ CONSOLE_TOKEN = "LANE_GM_CHAT_ACTION"
 # of the same grep.  Spelled once so a test can match it exactly.
 WARP_REFUSED_CONSOLE_TOKEN = "GM_CHAT_WARP_REFUSED"
 
+# A console line this module MEANT to write and could not.  Named rather than
+# swallowed (pf-adversary D5): `CONSOLE_TOKEN`'s own comment says the token
+# exists because a wired call site and a call site chief never wrote produce
+# identical console output -- and after this round a BROKEN CONSOLE produced
+# identical output too, with nothing in the event trail to separate the
+# three.  An attended `GT-127` run greps for `LANE_GM_CHAT_ACTION`, finds
+# nothing and concludes the route is dead: a false negative manufactured by
+# the fix.  `_note` cannot raise, so naming this costs nothing the swallow
+# was protecting.
+EVENT_CONSOLE_WRITE_FAILED_PREFIX = "gm_chat_action_console_write_failed_"
+
 # Every event this route emits is namespaced `gm_chat_action_`, and the live
 # hook route keeps the `gm_chat_command_` names it has always had.  The
 # direction of that rename is the whole point and is not a style choice:
@@ -600,20 +611,34 @@ def _make_action(
     # pf-adversary in round `vvxkft` before that wiring exists, not after.
     #
     # !! AND WRAPPED, FOR THE SAME REASON THE REFUSAL LINE BELOW IS.
-    # MEASURED this round by `test_a_console_that_refuses_the_write_costs_the
-    # _line_not_the_refusal`: with a stderr whose `write` raises `OSError`
-    # (a closed pipe, a detached service console), this bare `print` sent the
-    # OSError up through `make_gm_chat_command_action`, and the caller's
-    # blanket handler recorded `gm_chat_action_unexpected_OSError`.  Every GM
-    # command failed, on the console's fault, with an event that blames this
-    # module for something that never touched the command.  That is exactly
-    # the rule this file quotes elsewhere -- A DIAGNOSTIC MAY NEVER ALTER
-    # DISPATCH -- broken by the diagnostic that announces the dispatch.
-    # The evidence token is the courtesy; the command is the product.
-    try:
-        print(f"{CONSOLE_TOKEN} {command.name} route=action", file=sys.stderr)
-    except Exception:  # noqa: BLE001 - see the paragraph above
-        pass
+    # MEASURED this round by the hostile-console case in
+    # `tests/test_gm_chat_warp_way_out.py` (class
+    # `TheLineNeverAltersDispatchTests`; the method name is not spelled here
+    # because it does not survive a line wrap, which is the citation rot this
+    # module's own docstring warns about at 152-155).  With a stderr whose
+    # `write` raises, this bare `print` sent the error up through
+    # `make_gm_chat_command_action` and the caller's blanket handler recorded
+    # `gm_chat_action_unexpected_OSError`: every GM command failing on the
+    # console's fault, named after this module.  That is the rule this file
+    # quotes elsewhere -- A DIAGNOSTIC MAY NEVER ALTER DISPATCH -- broken by
+    # the diagnostic that announces the dispatch.  The evidence token is the
+    # courtesy; the command is the product.
+    #
+    # `None` is checked separately because it is not an error: `print` would
+    # quietly write the token to STDOUT (pf-adversary D1), which is the
+    # `lane_hooks` JSON-artifact incident above, arriving through the fix for
+    # a different one.  And the failure is NAMED, never silent (D5) -- a
+    # missing token must not read as "the route was never wired".
+    if sys.stderr is None:
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
+    else:
+        try:
+            print(f"{CONSOLE_TOKEN} {command.name} route=action", file=sys.stderr)
+        except Exception as error:  # noqa: BLE001 - see the paragraph above
+            _note(
+                session,
+                f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}",
+            )
 
     if command.name == "warp":
         verdict = _warp_action(
@@ -833,54 +858,104 @@ def _warp_action(
     return _Verdict((WARP_ACTION_LABEL, pc, frame, 0.0), OUTCOME_COMPOSED)
 
 
-def _print_warp_way_out(token: str, scene_id: int, reason: str) -> None:
+def _one_line(text: str) -> str:
+    """Keep an operator-controlled field from forging console LINES.
+
+    `console_safe` folds ENCODING, not structure, so a newline in an account
+    name passed straight through and the field could spell a whole second
+    line -- including `GM_LOGIN_SCENE_CONFIG_REFUSED`, the OTHER lane's grep
+    token, with attacker-chosen fields after it (pf-adversary D9, measured
+    through the real dispatch).  That is precisely the property
+    `test_its_token_is_not_the_config_loaders_token` claims: an operator
+    hunting a malformed config must not have to sift this route's lines out
+    of the same search.
+
+    Operator-side input, so this is not a client-reachable attack -- it needs
+    a newline in `gm_accounts.json` or in `--token`.  Fixed anyway because
+    the claim is the lane's own, and a fold that stops at encoding is the
+    same half-measure this file has now been burned by twice.
+    """
+    return text.replace("\r", "\\r").replace("\n", "\\n")
+
+
+def _print_warp_way_out(
+    session: object, token: str, scene_id: int, reason: str
+) -> None:
     """Name the destinations a refused chat `/warp` could have used instead.
 
-    THE ASYMMETRY THIS CLOSES, which is a testing-throughput defect and not a
-    cosmetic one.  Round `qq0i9u` gave the CONFIG path a way out: an operator
-    whose hand-edited `gm_login_scene.json` names an unreachable scene gets a
-    console line naming the file, the account, the scene AND
-    `stageable=<ids>` (`login_scene_override.py`, `CONFIG_REFUSED_CONSOLE_TOKEN`).
-    The CHAT path -- the one a tester actually uses, in game, every time --
-    got `gm_chat_action_warp_stage_refused_scene_has_no_login_entry` and
-    nothing else.  So the person with a shell and a text editor was told what
-    to type next, and the person at a game client, who has neither (the
-    config lives in `.gitignore`), was told only that they were wrong.  That
-    is backwards: `/warp` exists so a tester can reach a scene without a
-    shell, and a refusal with no way out sends them back to the shell.
+    WHO IS STANDING WHERE WHEN THIS IS READ -- stated first, because the
+    first version of this docstring got it wrong and pf-adversary (D7) was
+    right to call the error the load-bearing one.
 
-    ONLY THE REASONS A DIFFERENT DESTINATION WOULD FIX.  `stageable=` answers
-    "which scene should I have typed", so it is printed for the two refusals
-    that question fits and no others.  Printing it for `not_gm_account`
-    would answer a question nobody asked and hand the admissible-scene list
-    to a caller the allowlist just refused; printing it for `write_failed`
-    or `config_unreadable` would blame the tester's typing for a server-side
-    fault they cannot fix by typing anything.
+    The CONFIG path has had a way out since round `qq0i9u`: a malformed
+    `gm_login_scene.json` prints the file, the account, the scene and the
+    admissible ids (`login_scene_override.CONFIG_REFUSED_CONSOLE_TOKEN`).
+    The CHAT path printed nothing.  What this closes is the CONSOLE-WATCHER's
+    half of that gap: whoever is already reading the server's stderr now gets
+    the current admissible set at the moment of refusal, instead of stopping
+    to open `GAME_TEST_QUEUE.md` or read a gitignored config.
 
-    A DIAGNOSTIC MAY NEVER ALTER DISPATCH.  The refusal above is the product
-    and it has already been decided by the time this runs; this line is the
-    courtesy.  Hence stderr (`CONSOLE_TOKEN`'s comment records the
-    `lane_hooks` incident where a stdout token corrupted a `--json`
-    artifact), the same `console_safe` stream-asked fold the loader uses for
-    the one operator-controlled field here, and a bare `except` that costs
-    the LINE and never the refusal.
+    !! IT DOES NOT REACH THE TESTER AT THE GAME CLIENT, and the earlier
+    claim that it did was self-defeating: this writes to the server host's
+    stderr, and anyone who can read that is ON the server host and therefore
+    has the shell the argument said they lacked.  A way out that arrives at
+    the client needs a server->client reply, which is blocked behind the same
+    identity and vital-version locks as `/say` (see `_say_action`).  Until
+    that exists, this is a convenience for the operator, not a fix for the
+    tester -- and `GT-141` still tells the tester the set in prose.
+
+    ONLY THE REASONS A DIFFERENT DESTINATION WOULD FIX, and the list is not
+    kept here.  `login_scene_stage.DESTINATION_SHAPED_REASONS` owns it,
+    beside the constants themselves, so a new refusal reason added upstream
+    cannot silently inherit "no way out" (pf-adversary D3 measured exactly
+    that happening).  The excluded reasons are three server-side faults --
+    where naming a scene would blame the tester's typing for something no
+    typing can fix -- and the allowlist re-check.
+
+    !! THE ALLOWLIST EXCLUSION IS NOT A DISCLOSURE CONTROL, which is what
+    this docstring used to call it (pf-adversary D6).  This line goes to the
+    server's own stderr; no client can read it, so withholding it from a
+    refused caller protects nothing.  And the case is unreachable as it was
+    described: `handle_local_talk_chat` has already refused an unlisted
+    account before `_stage_action` runs, so the only routes to
+    `REASON_NOT_GM_ACCOUNT` here are the allowlist file changing mid-command
+    and the standalone-config door.  The exclusion stays because a way out
+    answers a question neither of those asked, which is a tidiness reason
+    honestly labelled, not a safety one.
+
+    A DIAGNOSTIC MAY NEVER ALTER DISPATCH.  The refusal is the product and is
+    already decided by the time this runs; the line is the courtesy.  So:
+    everything that could raise is evaluated INSIDE the guarded block (D2 --
+    a hoist of either call out of it was a mutation that survived the whole
+    suite, because the safety rested on `stageable_scene_ids` choosing to
+    swallow rather than on structure); the guard catches `Exception`, not
+    `OSError`, because a closed stream raises `ValueError` and an unmappable
+    one `UnicodeEncodeError` (D4); a `None` stderr returns rather than
+    letting `print` fall back to STDOUT and repeat the `lane_hooks` incident
+    this token exists to avoid (D1); and the failure is NAMED rather than
+    swallowed in silence (D5), because "the console is broken" and "the route
+    was never wired" must not look identical to an attended `GT-127` run.
     """
-    if reason not in (
-        login_scene_stage.REASON_NO_LOGIN_ENTRY,
-        login_scene_stage.REASON_UNKNOWN_SCENE,
-    ):
+    if reason not in login_scene_stage.DESTINATION_SHAPED_REASONS:
         return
     stream = sys.stderr
+    if stream is None:
+        # `print(file=None)` writes to STDOUT.  On `pythonw.exe` or a service
+        # started with stdio detached -- the "detached service console" this
+        # module names two paragraphs up -- that is how a GM token lands in
+        # another tool's `--json` artifact.  MEASURED by pf-adversary (D1).
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
+        return
     try:
         print(
             f"{WARP_REFUSED_CONSOLE_TOKEN} "
-            f"account='{console_safe(token, stream)}' "
+            f"account='{console_safe(_one_line(token), stream)}' "
             f"scene_id={scene_id} reason={reason} "
             f"stageable={stageable_scene_ids()}",
             file=stream,
         )
-    except Exception:  # noqa: BLE001 - see the last paragraph of the docstring
-        pass
+    except Exception as error:  # noqa: BLE001 - see the last paragraph above
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
 
 
 def _stage_action(
@@ -927,7 +1002,7 @@ def _stage_action(
 
     if not result.staged:
         _note(session, f"{EVENT_WARP_STAGE_REFUSED_PREFIX}{result.reason}")
-        _print_warp_way_out(token, scene_id, result.reason)
+        _print_warp_way_out(session, token, scene_id, result.reason)
         return _Verdict(None, f"{OUTCOME_STAGE_REFUSED_PREFIX}{result.reason}")
 
     _note(session, f"{EVENT_WARP_STAGED_PREFIX}{scene_id}")

@@ -131,6 +131,34 @@ REASON_CONFIG_NOT_WRITABLE = "config_not_writable"
 # through lane A's own loader rather than a copy of its data.
 REASON_NO_LOGIN_ENTRY = "scene_has_no_login_entry"
 
+# WHICH REFUSALS A DIFFERENT DESTINATION WOULD FIX, owned HERE because the
+# reasons are owned here.  pf-adversary's D3, measured: the answer used to be
+# a hand-copied pair of literals in `chat_command_action._print_warp_way_out`
+# and a hand-copied set of six in its test.  Adding one reachable
+# destination-shaped reason upstream (`REASON_SCENE_INSTANCE_FULL`) left the
+# whole 4527-test suite green while the tester it was added for got a bare
+# refusal and no way out -- the exact gap `login_scene_admission`'s own design
+# note exists to close one layer down, reintroduced one layer up.
+#
+# So the classification lives beside the constants, and
+# `test_gm_chat_warp_way_out.py` asserts the two sets partition every
+# non-`OK` `REASON_*` in this module.  A seventh reason added tomorrow makes
+# that test RED until someone says which half it belongs to; it can no longer
+# be silently dropped into "no way out" by being forgotten.
+DESTINATION_SHAPED_REASONS = (
+    REASON_UNKNOWN_SCENE,
+    REASON_NO_LOGIN_ENTRY,
+)
+
+# The refusals no retyping can fix: three server-side faults, plus the
+# allowlist re-check.  Silent on purpose -- see `_print_warp_way_out`.
+NOT_DESTINATION_SHAPED_REASONS = (
+    REASON_NOT_GM_ACCOUNT,
+    REASON_CONFIG_UNREADABLE,
+    REASON_CONFIG_NOT_WRITABLE,
+    REASON_WRITE_FAILED,
+)
+
 
 @dataclass(frozen=True)
 class StageResult:
