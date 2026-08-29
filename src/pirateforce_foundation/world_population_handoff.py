@@ -199,6 +199,16 @@ LABEL_UNAVAILABLE = "WORLD_POP_HANDOFF_UNAVAILABLE"
 # changed with that evidence attached rather than pre-emptively.
 CLEAR_REAPPLY_MS: int | None = None
 
+# THE BAND A CROSSING IS JUDGED IN.  2000 units is not chosen here: it is the
+# band ``world_density`` already reports the login view in ("census members
+# within 2000 units of the login anchor ... 2"), and reusing it means the
+# number this module prints for a crossing can be compared with the number
+# that module prints for a login without a conversion nobody wrote down.  It
+# is a REPORTING band and nothing else - no frame, no cull, no render radius
+# is derived from it, and this project has never measured what the client's
+# render distance actually is.
+STOWAWAY_REPORT_RADIUS = 2000.0
+
 _ASCII_PRINTABLE = frozenset(range(0x20, 0x7F))
 
 
@@ -648,3 +658,321 @@ def handoff_console_line(handoff: Any) -> str:
         ),
         400,
     )
+
+
+# --------------------------------------------------------------------------
+# WHO IS STILL ON THE CLIENT WHEN THE PLAYER LANDS SOMEWHERE ELSE
+# --------------------------------------------------------------------------
+#
+# ROUND 2pdf6j (LANE-A, M2).  Everything above composes the frame that ENDS
+# the state this section MEASURES.  Until that frame has a caller, the
+# client keeps the collection it was sent at login, and nothing reported who
+# that leaves standing next to a player who crossed - BY NAME.
+#
+#     THE FIRST DRAFT OF THAT SENTENCE SAID "this project has never once
+#     written down who", AND IT WAS TOO WIDE (pf-adversary, round 2pdf6j,
+#     D11).  ``world_density.m1_console_line(legacy, (0, 0, 0))`` already
+#     prints ``census_within_500u=0 1000u=0 2000u=4 5000u=11`` at HEAD - the
+#     same bands, the same table.  What is new here is WHICH ACTORS (names,
+#     identities, per-member distances) and, more load-bearing, that the
+#     answer is filtered through the membership the client was ACTUALLY
+#     SENT rather than the whole frozen table.  That difference is not
+#     cosmetic: see the count note below.
+#
+# THE COUNT NOTE, AND IT CORRECTS THIS SECTION'S OWN FIRST DRAFT.  The frozen
+# table carries 115 placements; ``build_world_population`` ships 108 of them
+# (7 rows - 0 "Navy Transfer", 75, 86, 87, 145 "Filet", 147, 148 - never
+# reach the client).  Distances are identical either way inside 2000u of the
+# decreed sea anchor, but at 5000u the table says 11 and the census says 10:
+# placement 145 at 2530.1u is a table row the client was never sent.  A
+# reader who takes 115, or takes ``world_density``'s 11, as "actors the
+# player can see" is reading the data-table layer as the wire layer
+# (pf-adversary, round 2pdf6j, D2).  This is why ``held_indices`` is
+# required and why passing the whole table is a caller error, not a default.
+#
+# AND THE ANCHOR THE HEADLINE NUMBER BELONGS TO.  4-within-2000 is a fact
+# about the point the server sends today, ``(0, 0, 0)``, which is an OWNER
+# DECREE and not a measured spawn - the registry's own scene-17 entry
+# records that the decreed z sits OUTSIDE the ground band its placements
+# measure ([746.04, 1272.74]).  Move the landing anywhere inside that band
+# and the answer is 5, not 4 (Kaim joins at ~819u), and the vertical
+# separation between player and crowd collapses from ~930 units to 0-200
+# (pf-adversary, round 2pdf6j, D1).  So: [MEASURED from the frozen table, AT
+# A DECREED ANCHOR].  Both halves of that label are load-bearing.
+#
+# THE PREMISE, AND IT IS THE SAME [INFERENCE] THE MODULE DOCSTRING ALREADY
+# CARRIES, NOT A NEW ONE: that the client KEEPS remote actors across a
+# TeleportVital.  Nothing in this project has measured it.  If the client
+# clears them itself, every number these functions produce is an upper
+# bound of zero and the module docstring's whole premise retires with it -
+# which is why the attended ticket this round opens (GT-147) is written to
+# be informative BOTH ways rather than to confirm this one.
+#
+# WHAT IS NOT INFERRED: the placements, their names, their coordinates, and
+# the distance arithmetic.  Those come from the same frozen table the census
+# ships over, through the same loader, with the same hash guard.
+
+
+@dataclass(frozen=True)
+class StowawayMember:
+    """One census actor, and how far it is from where the player lands."""
+
+    placement_index: int
+    actor_identity: int
+    source_name: str
+    distance: float
+    x: float
+    y: float
+    z: float
+
+
+@dataclass(frozen=True)
+class StowawayView:
+    """What the client is still holding, measured against an arrival point.
+
+    ``reason`` is ``None`` on a computed view and carries a named refusal on
+    one that could not be computed.  ``held`` is the membership that was
+    ACTUALLY sent - never a default, never the whole table assumed - which is
+    why a caller with no record of it gets a refusal instead of a number.
+    """
+
+    anchor: tuple[float, float, float]
+    radius: float
+    held: int
+    within_radius: tuple[StowawayMember, ...]
+    nearest: StowawayMember | None
+    reason: str | None = None
+
+    @property
+    def computed(self) -> bool:
+        return self.reason is None
+
+
+def _require_held_indices(held_indices: Any) -> tuple[int, ...]:
+    """The membership the client was sent, or a raise naming what came in.
+
+    Deliberately strict about ``None``: "the caller does not know what it
+    sent" and "the caller sent nothing" are different facts, and a default
+    of the whole census here would turn the first into the second silently -
+    the exact shape of error this lane's own modules have been caught in
+    twice (see the module docstring's [INFERENCE] paragraph).
+    """
+    if held_indices is None:
+        raise ValueError("no recorded census membership to measure")
+    if type(held_indices) not in (tuple, list):
+        # The message names both accepted shapes, because the check does.
+        # (pf-adversary, round 2pdf6j, D11: the first draft said "must be a
+        # tuple, not list" while accepting lists - a refusal message that
+        # contradicts its own check teaches the next reader the wrong rule.)
+        raise ValueError(
+            "census membership must be a tuple or list, not "
+            f"{type(held_indices).__name__}"
+        )
+    out = []
+    for value in held_indices:
+        # ``type(value) is not int`` already rejects ``True``/``False``,
+        # since ``type(True) is bool``.  An ``isinstance(value, bool)``
+        # conjunct here would be a line that can never run (pf-adversary,
+        # round 2pdf6j, D6 - it was in the first draft and is deliberately
+        # not here now).
+        if type(value) is not int:
+            raise ValueError("census membership must be placement indices")
+        out.append(value)
+    # A repeated index is drift, not a bigger crowd: it would report
+    # ``held=3`` and print one actor's name three times.  Refused by name
+    # rather than silently de-duplicated, so the caller learns its
+    # membership is wrong instead of getting a tidied answer (pf-adversary,
+    # round 2pdf6j, D6).
+    if len(set(out)) != len(out):
+        raise ValueError("census membership repeats a placement index")
+    return tuple(out)
+
+
+def _require_report_radius(radius: Any) -> float:
+    """The report band, as a float that is safe to format and compare.
+
+    ``float()`` is where this has to happen and it has to happen ONCE:
+    ``10 ** 400`` is an ``int``, is non-negative, and equals itself, so a
+    shape check alone passes it straight through to an ``OverflowError``
+    deeper in - including inside the fail-closed handler that exists to
+    catch it, which is how the first draft of this section broke its own
+    "does not raise, ever" contract (pf-adversary, round 2pdf6j, D4).
+    """
+    if type(radius) not in (int, float):
+        raise ValueError(
+            f"the report radius must be a finite distance, not {radius!r}"
+        )
+    try:
+        value = float(radius)
+    except (OverflowError, ValueError) as error:
+        raise ValueError(
+            "the report radius is outside the range of a float"
+        ) from error
+    if value != value or value in (float("inf"), float("-inf")) or value < 0:
+        raise ValueError(
+            f"the report radius must be a finite distance, not {radius!r}"
+        )
+    return value
+
+
+def stowaways_near(
+    legacy: Any,
+    held_indices: Any,
+    arrival_anchor: Any,
+    *,
+    radius: float = STOWAWAY_REPORT_RADIUS,
+) -> StowawayView:
+    """STRICT.  Which of the actors the client holds are near ``arrival_anchor``.
+
+    ``held_indices`` is the census membership the client was actually sent
+    (``runtime.py`` keeps it as ``world_census_indices``); a placement index
+    in it that the frozen table does not carry is a refusal, not a skip,
+    because a membership and a table that disagree is drift and this is the
+    only place that would see it.
+
+    Distance is the plain 3-space distance between the placement's own
+    coordinate and the arrival point.  BOTH ARE READ IN THE CLIENT'S ONE
+    COORDINATE SPACE, WHICH IS THE ASSUMPTION WORTH NAMING: the scene
+    changes, the numbers on the wire do not get remapped by anything this
+    project has found, so an actor at bg0001's (-507, -616, 931) is 1,227
+    units from a player standing at the sea scene's (0, 0, 0) unless the
+    client re-bases coordinates per scene - which nobody has measured
+    either way.
+
+    Not for the frame path.  See :func:`stowaways_on_crossing`.
+    """
+    anchor = _require_anchor(arrival_anchor)
+    band = _require_report_radius(radius)
+    membership = _require_held_indices(held_indices)
+    from .population import load_port_royal_placements
+
+    by_index = {
+        placement.placement_index: placement
+        for placement in load_port_royal_placements(legacy)
+    }
+    members = []
+    for index in membership:
+        placement = by_index.get(index)
+        if placement is None:
+            raise ValueError(
+                f"census membership names placement {index}, which the frozen "
+                "table does not carry"
+            )
+        distance = (
+            (placement.x - anchor[0]) ** 2
+            + (placement.y - anchor[1]) ** 2
+            + (placement.z - anchor[2]) ** 2
+        ) ** 0.5
+        members.append(StowawayMember(
+            placement_index=placement.placement_index,
+            actor_identity=placement.actor_identity,
+            source_name=str(placement.source_name),
+            distance=distance,
+            x=placement.x,
+            y=placement.y,
+            z=placement.z,
+        ))
+    members.sort(key=lambda member: (member.distance, member.placement_index))
+    near = tuple(member for member in members if member.distance <= band)
+    return StowawayView(
+        anchor=anchor,
+        radius=band,
+        held=len(members),
+        within_radius=near,
+        nearest=members[0] if members else None,
+    )
+
+
+def stowaways_on_crossing(
+    legacy: Any,
+    held_indices: Any,
+    arrival_anchor: Any,
+    *,
+    radius: float = STOWAWAY_REPORT_RADIUS,
+) -> StowawayView:
+    """The frame-path entry point.  It raises nothing a composition can produce.
+
+    Same contract, and for the same reason, as :func:`handoff_on_crossing`:
+    the block a crossing is reported from has no ``except`` of its own, and a
+    REPORT that kills frame handling would be a worse bug than the state it
+    was reporting on.  A view that could not be computed comes back with
+    ``reason`` set and no members.
+
+    THE TWO IT STILL LETS THROUGH, deliberately and identically to
+    ``handoff_on_crossing``: ``KeyboardInterrupt`` and ``SystemExit``.  The
+    first draft of this docstring said "does not raise, ever", which was
+    false twice over (pf-adversary, round 2pdf6j, D4): those two, and -
+    genuinely a defect, now fixed - an ``OverflowError`` from ``float()``
+    on a huge int radius, raised INSIDE this handler while building the
+    refusal.  Every field this handler touches is now built defensively.
+    """
+    try:
+        return stowaways_near(
+            legacy, held_indices, arrival_anchor, radius=radius
+        )
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException as failure:  # noqa: BLE001 - the contract is absolute
+        try:
+            anchor = _require_anchor(arrival_anchor)
+        except BaseException:  # noqa: BLE001 - the anchor is what failed
+            anchor = (0.0, 0.0, 0.0)
+        try:
+            band = _require_report_radius(radius)
+        except BaseException:  # noqa: BLE001 - the radius is what failed
+            band = 0.0
+        return StowawayView(
+            anchor=anchor,
+            radius=band,
+            held=0,
+            within_radius=(),
+            nearest=None,
+            reason="stowaways_not_measured:{0}:{1}".format(
+                _ascii_safe(type(failure).__name__, 40), _ascii_safe(failure)
+            ),
+        )
+
+
+def stowaway_console_line(view: Any) -> str:
+    """One ASCII line naming who is near the landing point, or why nobody knows.
+
+    The names are placement source names from the frozen table, so they are
+    what a tester reads off a nameplate; they go through ``_ascii_safe`` and
+    have their spaces replaced, because a console line a grep cannot field-
+    split is a line the WIRED-v2 style checks in this project cannot use.
+    """
+    try:
+        if not isinstance(view, StowawayView):
+            raise TypeError(f"not a StowawayView: {type(view).__name__}")
+        if view.reason is not None:
+            return _ascii_safe(
+                "WORLD_POP_STOWAWAYS unmeasured reason=" + view.reason, 400
+            )
+        listed = ",".join(
+            "{0}@{1:.1f}".format(
+                _ascii_safe(member.source_name, 40).replace(" ", "_") or "unnamed",
+                member.distance,
+            )
+            for member in view.within_radius[:4]
+        )
+        return _ascii_safe(
+            "WORLD_POP_STOWAWAYS anchor=({0:.3f},{1:.3f},{2:.3f}) held={3} "
+            "radius={4:.1f} within={5} nearest={6} names={7}".format(
+                view.anchor[0], view.anchor[1], view.anchor[2],
+                view.held, view.radius, len(view.within_radius),
+                "none" if view.nearest is None
+                else "{0}@{1:.1f}".format(
+                    _ascii_safe(view.nearest.source_name, 40).replace(" ", "_"),
+                    view.nearest.distance,
+                ),
+                listed or "none",
+            ),
+            400,
+        )
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException as failure:  # noqa: BLE001 - see the docstring
+        return (
+            "WORLD_POP_STOWAWAYS unreportable reason="
+            + _ascii_safe(type(failure).__name__, 40)
+        )

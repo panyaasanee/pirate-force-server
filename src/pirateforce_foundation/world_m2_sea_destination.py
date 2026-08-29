@@ -300,6 +300,17 @@ from __future__ import annotations
 # Where row 3021 actually sends the player: QUESTDATA_TH__QUEST.tsv row
 # 3021, n_VARI_2.  Agrees with columbus_quest_dispatch.COLUMBUS_DEST_SCENE_ID
 # rather than contradicting it; a test below fails if the two ever drift.
+#
+# ID SPACE (COO-DECISION 2026-08-29 14:44, item 4 - a destination module
+# must name the space its number lives in): read here as
+# ``CONSTDATA_TH__SCENE_NAME.n_ID``.  [CONTESTED] The rival reading is
+# ``MARKER.n_ID``, under which 17 resolves to ``MARKER[17].n_SCENE = 126``
+# at (3050, 232, 90) heading 6 - re-derived from the committed MARKER table
+# in round 2pdf6j, same numbers the ruling names.  The value is legal in
+# BOTH spaces and no control in any table separates them, so neither
+# reading may be labelled measured; the COO sent it to an attended test.
+# Until that result lands, this stays 17 and the [CONTESTED] tag below
+# stays with it.
 DESTINATION_SCENE_N_ID = 17
 DESTINATION_SCENE_MODEL_ID = "Bg1001"
 

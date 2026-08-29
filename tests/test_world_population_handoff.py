@@ -22,6 +22,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
+from pirateforce_foundation.population import (  # noqa: E402
+    load_port_royal_placements,
+)
+from pirateforce_foundation.world_scene_travel import (  # noqa: E402
+    destination,
+    load_scene_registry,
+    spawn_position,
+)
 from pirateforce_foundation.world_population import (  # noqa: E402
     CENSUS_COUNT,
     INITIAL_REAPPLY_MS,
@@ -29,7 +37,12 @@ from pirateforce_foundation.world_population import (  # noqa: E402
     WIRE_HEADER_BYTES,
     build_world_population,
 )
+from pirateforce_foundation import world_density  # noqa: E402
 from pirateforce_foundation.world_population_handoff import (  # noqa: E402
+    STOWAWAY_REPORT_RADIUS,
+    stowaway_console_line,
+    stowaways_near,
+    stowaways_on_crossing,
     KIND_CENSUS,
     KIND_CLEAR,
     KIND_UNAVAILABLE,
@@ -667,6 +680,219 @@ class MembershipResetTests(unittest.TestCase):
         reset = MembershipReset(None, None)
         with self.assertRaises(Exception):
             reset.population_indices = (1,)
+
+
+class ArrivalStowawayTests(unittest.TestCase):
+    """Who the client is still holding when a crossing lands (round 2pdf6j).
+
+    The numbers here are the round's finding, so they are asserted as
+    numbers rather than as "some": a later round that changes the frozen
+    table, the sea scene's decreed spawn, or the report band has to come
+    back through this file and say so.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.legacy = load_legacy(LEGACY_PATH)
+        # THE MEMBERSHIP THE CLIENT IS ACTUALLY SENT, not the frozen table.
+        # The first draft of this class used the table (115 rows) and pinned
+        # ``held=115`` - a number no live dispatch can ever print, because
+        # ``build_world_population`` ships 108 of those rows (pf-adversary,
+        # round 2pdf6j, D2/D3).  Built here the same way the login path
+        # builds it, so the pin below moves the day the census does.
+        cls.membership = tuple(
+            build_world_population(
+                cls.legacy, (0.0, 0.0, 0.0), scene_id=1,
+            ).indices
+        )
+        cls.table = tuple(
+            placement.placement_index
+            for placement in load_port_royal_placements(cls.legacy)
+        )
+        # The sea scene's arrival point, and it is READ FROM THE REGISTRY
+        # rather than typed as (0, 0, 0): a test that hardcodes the decreed
+        # value keeps passing on the day the decree is retired, which is
+        # exactly the day this measurement changes.
+        registry = load_scene_registry()
+        cls.sea_anchor = spawn_position(destination(17, registry))
+
+    def test_the_sea_arrival_point_is_the_one_the_registry_pins(self):
+        self.assertEqual(self.sea_anchor, (0.0, 0.0, 0.0))
+
+    def test_four_town_actors_stand_within_the_report_band_of_the_sea(self):
+        view = stowaways_near(self.legacy, self.membership, self.sea_anchor)
+        self.assertTrue(view.computed)
+        self.assertEqual(view.held, SHIPPED_CENSUS_COUNT)
+        self.assertEqual(len(self.table), 115)
+        self.assertEqual(len(view.within_radius), 4)
+        self.assertEqual(
+            [member.source_name for member in view.within_radius],
+            ["Legend Jack", "Plato", "Qina", "Betula"],
+        )
+        self.assertAlmostEqual(view.nearest.distance, 1226.6, places=1)
+        # The half the console line does not print and a reader would
+        # otherwise assume: they are not on the deck, they are ~930 units
+        # above the point the player lands on.
+        # ...at the DECREED anchor, and only there.  z=0 is the owner's
+        # placeholder and the registry records it as outside this scene's
+        # own ground band, so this separation is a fact about the decree,
+        # not about the sea.  The band test below is the other half.
+        for member in view.within_radius:
+            self.assertGreater(member.z, 900.0)
+
+    def test_the_headline_number_belongs_to_the_decreed_anchor_not_the_scene(self):
+        """Land inside the scene's own ground band and the answer is 5.
+
+        pf-adversary (round 2pdf6j, D1) drove this: the count 4 and the
+        ~930-unit separation are properties of ``z=0``, which
+        ``world_scene_registry_001.json`` itself records as OUTSIDE the
+        ground band ([746.04, 1272.74]) measured from Bg1001's placements.
+        Pinned as a number so a later round that retires the decree finds
+        the day this measurement changes, instead of reading a refuted 4.
+        """
+        for z in (746.04, 1009.39, 1272.74):
+            view = stowaways_near(self.legacy, self.membership, (0.0, 0.0, z))
+            self.assertEqual(len(view.within_radius), 5, z)
+            self.assertIn(
+                "Kaim", [member.source_name for member in view.within_radius])
+            # and the crowd is no longer overhead.  Measured: at a real
+            # ground z the largest vertical separation is 341, against ~930
+            # for every one of them at the decreed z=0.
+            for member in view.within_radius:
+                self.assertLess(abs(member.z - z), 400.0)
+        decreed = stowaways_near(self.legacy, self.membership, self.sea_anchor)
+        self.assertTrue(
+            all(member.z > 900.0 for member in decreed.within_radius))
+
+    def test_the_census_and_the_table_disagree_at_five_thousand(self):
+        """115 rows exist; 108 are sent.  The gap has a name and a distance.
+
+        pf-adversary (round 2pdf6j, D2): reporting the table's 11 as
+        "actors around the player" reads the data-table layer as the wire
+        layer.  ``world_density``'s console line does exactly that today.
+        """
+        census = stowaways_near(
+            self.legacy, self.membership, self.sea_anchor, radius=5000.0)
+        table = stowaways_near(
+            self.legacy, self.table, self.sea_anchor, radius=5000.0)
+        self.assertEqual(len(census.within_radius), 10)
+        self.assertEqual(len(table.within_radius), 11)
+        extra = set(m.source_name for m in table.within_radius) - set(
+            m.source_name for m in census.within_radius)
+        self.assertEqual(extra, {"Filet"})
+
+    def test_the_band_is_the_one_world_density_already_reports_in(self):
+        """The docstring says "not chosen here" - this is what makes it true."""
+        self.assertEqual(STOWAWAY_REPORT_RADIUS, world_density.M1_VIEW_RADIUS)
+        self.assertEqual(STOWAWAY_REPORT_RADIUS, 2000.0)
+
+    def test_the_band_is_a_report_setting_and_widening_it_finds_more(self):
+        wide = stowaways_near(
+            self.legacy, self.membership, self.sea_anchor, radius=5000.0)
+        self.assertEqual(len(wide.within_radius), 10)
+        none_at_all = stowaways_near(
+            self.legacy, self.membership, self.sea_anchor, radius=0.0)
+        self.assertEqual(len(none_at_all.within_radius), 0)
+        # ...and the held count does not move with the band, which is the
+        # distinction the console line's two fields exist to keep apart.
+        self.assertEqual(none_at_all.held, wide.held)
+
+    def test_moving_the_arrival_point_moves_the_answer(self):
+        """The negative control this lane was caught without in round drrnpu.
+
+        Without it, a function that ignored its anchor entirely would pass
+        every assertion above.
+        """
+        view = stowaways_near(
+            self.legacy, self.membership, (-507.0, -616.4, 931.4))
+        self.assertEqual(view.nearest.source_name, "Legend Jack")
+        self.assertLess(view.nearest.distance, 1.0)
+        sea = stowaways_near(self.legacy, self.membership, self.sea_anchor)
+        self.assertNotEqual(
+            [member.source_name for member in view.within_radius],
+            [member.source_name for member in sea.within_radius],
+        )
+        # AND THE NUMBER GOES DOWN, WHICH IS WORTH PINNING BECAUSE IT IS
+        # COUNTER-INTUITIVE: standing ON a census member puts THREE inside
+        # the band, one fewer than the empty sea point does.  The table is
+        # thin everywhere (``world_density``: the densest placement in it
+        # has 8 neighbours within 1000u), so "nearer the town" does not mean
+        # "more actors around you".
+        self.assertEqual(len(view.within_radius), 3)
+
+    def test_the_frame_path_variant_carries_the_radius_it_was_given(self):
+        """The passthrough, pinned: a mutant that drops it survived before."""
+        narrow = stowaways_on_crossing(
+            self.legacy, self.membership, self.sea_anchor, radius=1500.0)
+        self.assertTrue(narrow.computed)
+        self.assertEqual(narrow.radius, 1500.0)
+        self.assertEqual(len(narrow.within_radius), 1)
+
+    def test_a_radius_that_is_not_a_finite_distance_is_refused(self):
+        for bad in (-1.0, float("nan"), float("inf"), "2000", None, 10 ** 400):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                stowaways_near(
+                    self.legacy, self.membership, self.sea_anchor, radius=bad)
+            # and the frame-path variant answers the same input with a
+            # refusal instead of an exception - including 10**400, which
+            # used to overflow inside the handler itself.
+            view = stowaways_on_crossing(
+                self.legacy, self.membership, self.sea_anchor, radius=bad)
+            self.assertFalse(view.computed, repr(bad))
+            self.assertEqual(view.radius, 0.0)
+
+    def test_a_membership_that_repeats_an_index_is_refused(self):
+        with self.assertRaises(ValueError) as caught:
+            stowaways_near(self.legacy, (5, 5, 5), self.sea_anchor)
+        self.assertIn("repeats a placement index", str(caught.exception))
+
+    def test_an_unknown_membership_is_refused_by_name(self):
+        with self.assertRaises(ValueError) as caught:
+            stowaways_near(self.legacy, None, self.sea_anchor)
+        self.assertIn("no recorded census membership", str(caught.exception))
+
+    def test_a_membership_the_frozen_table_does_not_carry_is_refused(self):
+        with self.assertRaises(ValueError) as caught:
+            stowaways_near(self.legacy, (2,), self.sea_anchor)
+        self.assertIn("frozen table does not carry", str(caught.exception))
+
+    def test_the_frame_path_variant_never_raises_and_names_the_reason(self):
+        for bad in (None, (2,), "115", (1.5,)):
+            view = stowaways_on_crossing(self.legacy, bad, self.sea_anchor)
+            self.assertFalse(view.computed)
+            self.assertEqual(view.within_radius, ())
+            self.assertIsNone(view.nearest)
+            self.assertTrue(view.reason.startswith("stowaways_not_measured:"))
+        broken = stowaways_on_crossing(self.legacy, self.membership, "here")
+        self.assertFalse(broken.computed)
+        self.assertEqual(broken.anchor, (0.0, 0.0, 0.0))
+
+    def test_the_console_line_is_printable_on_the_bridge_console(self):
+        for view in (
+            stowaways_near(self.legacy, self.membership, self.sea_anchor),
+            stowaways_on_crossing(self.legacy, None, self.sea_anchor),
+        ):
+            line = stowaway_console_line(view)
+            line.encode("ascii")
+            line.encode("cp874")
+        measured = stowaway_console_line(
+            stowaways_near(self.legacy, self.membership, self.sea_anchor))
+        self.assertIn(f"held={SHIPPED_CENSUS_COUNT}", measured)
+        self.assertIn("within=4", measured)
+        # the band belongs in the line: without it "within=4" is a number
+        # with no unit, and a mutant that dropped the field survived.
+        self.assertIn("radius=2000.0", measured)
+        self.assertIn("Legend_Jack@1226.6", measured)
+        self.assertNotIn("Legend Jack", measured)
+
+    def test_the_console_line_refuses_anything_that_is_not_a_view(self):
+        for junk in (None, "a line", 4, object()):
+            self.assertIn("unreportable", stowaway_console_line(junk))
+
+    def test_the_view_is_frozen(self):
+        view = stowaways_near(self.legacy, self.membership, self.sea_anchor)
+        with self.assertRaises(Exception):
+            view.held = 0
 
 
 if __name__ == "__main__":
