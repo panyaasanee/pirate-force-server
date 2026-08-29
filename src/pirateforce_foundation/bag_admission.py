@@ -649,8 +649,10 @@ BAG_ADMISSION_WIRING = (
 
 BAG_ADMISSION_NONCLAIMS = (
     "1. Shape, not provenance: a hand-edited additive row is admitted.  The "
-    "provenance column DOES exist (migration 005) but nothing advances it "
-    "yet, so this module cannot use it.",
+    "provenance column exists (migration 005) and IS advanced now "
+    "(store.commit_acquired_backpack_item, STORE-INSERT-001); this module "
+    "still does not use it -- see nonclaim 9 for why that is a pending "
+    "decision rather than an oversight.",
     "2. Shrinkage is refused.  Not because nothing can consume an item -- a "
     "merge can -- but because the only shrinkage reachable today lands on a "
     "golden.",
@@ -671,6 +673,19 @@ BAG_ADMISSION_NONCLAIMS = (
     "_classify_against rather than keeping it as a fallback.  chief owns "
     "the trigger ticket.  Until then nonclaim 1's hole is an accepted cost, "
     "on record, not an oversight.",
+    "9. THE EXPIRY IN NONCLAIM 8 IS NOW MET, AND ITS LITERAL INSTRUCTION IS "
+    "REFUTED BY MEASUREMENT.  STORE-INSERT-001 landed the INSERT and the "
+    "counter advance, so both halves of BAG_ADMISSION_EXPIRY_CONDITION are "
+    "true.  Deleting _classify_against and admitting on the counter alone "
+    "was measured to ADMIT the HYPOTHESIZED_V111_SLOT2 (HYP-PF-008) and "
+    "free-slot-move (HYP-PF-010) bags, which this gate refuses today and "
+    "which every family test requires it to keep refusing: those bags move "
+    "a golden row without minting any identity, so a rule that only asks "
+    "'was this identity issued' cannot see them.  The counter is a TIGHTER "
+    "test for ACQUIRED rows, not a replacement for comparing the golden "
+    "ones.  The shape rule therefore stays until COO rules on "
+    "CHIEF-ASK-COO 20260829 (delete-vs-tighten); no round may read this "
+    "nonclaim as permission to keep it indefinitely.",
 )
 
 #: The expiry of nonclaim 8, as something a later round can evaluate instead

@@ -741,7 +741,14 @@ class ContractTests(unittest.TestCase):
         # went in as nonclaim 8.  The count is pinned rather than open-ended
         # so a nonclaim cannot be dropped quietly; raising it is a deliberate
         # edit here, which is the point.
-        self.assertEqual(len(bag_admission.BAG_ADMISSION_NONCLAIMS), 8)
+        # ~~8~~ -> 9 in round 4gqnwm: STORE-INSERT-001 met nonclaim 8's
+        # expiry, and the deletion it prescribes was measured to admit the
+        # HYP-PF-008/010 bags this gate refuses.  Nonclaim 9 records that
+        # the condition is met, that the literal replacement is refuted, and
+        # that the rule stands only until COO rules -- deliberately raised
+        # here rather than rewritten in place, so the expiry's own wording
+        # (which the expiry test pins) survives unedited.
+        self.assertEqual(len(bag_admission.BAG_ADMISSION_NONCLAIMS), 9)
 
 
 if __name__ == "__main__":
