@@ -8,8 +8,11 @@ is open when nothing behind it is pinned.
 """
 from __future__ import annotations
 
+import json
 import sys
+import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +21,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from pirateforce_foundation import columbus_quest_dispatch
 from pirateforce_foundation import world_bg0015_identity
 from pirateforce_foundation import world_m2_sea_destination as sea
+from pirateforce_foundation import world_scene_travel
 
 
 class DestinationTests(unittest.TestCase):
@@ -68,24 +72,173 @@ class DestinationTests(unittest.TestCase):
     def test_an_unknown_columbus_is_refused_not_guessed(self):
         self.assertIsNone(sea.route_for(999999))
 
-    def test_the_door_is_shut_and_the_reason_is_the_measured_one(self):
-        self.assertFalse(sea.destination_ready())
-        reason = sea.refusal_reason()
-        self.assertIn("no pinned arrival position", reason)
-        self.assertIn("RE-103", reason)
-        self.assertNotIn(
-            "not in the cloud clone", reason,
-            "the .npc digest IS in this tree; that was the wrong reason and "
-            "it would send a later round to ask for a file it already has",
-        )
-
     def test_the_console_line_is_ascii_and_names_both_scenes(self):
-        line = sea.console_line()
+        line = sea.console_line(world_scene_travel.load_scene_registry())
         line.encode("ascii")   # raises if a non-ASCII character creeps in
         line.encode("cp874")   # the bridge console's own encoding
         self.assertIn("target_scene=17", line)
         self.assertIn("advertises_ocean=126", line)
-        self.assertIn("state=REFUSED", line)
+        self.assertIn("state=READY_DECREED", line)
+        self.assertIn("arrival=0.000,0.000,0.000", line)
+        self.assertIn("evidence=GT-106", line)
+
+
+class ArrivalPointTests(unittest.TestCase):
+    """The half of this module that was stale on main until round drrnpu.
+
+    It answered "no arrival point, and nobody has read the path that would
+    carry one" while the registry had carried one for two days and
+    ``runtime.py`` was dispatching on it with no flag.  These tests exist so
+    that pair can never disagree silently again.
+    """
+
+    def setUp(self):
+        self.registry = world_scene_travel.load_scene_registry()
+
+    def test_the_arrival_point_is_the_registrys_and_not_a_second_copy(self):
+        # The D8 shape: a module holding its own answer next to the owner's.
+        target = world_scene_travel.destination(
+            sea.DESTINATION_SCENE_N_ID, self.registry,
+        )
+        self.assertEqual(
+            sea.arrival_position(self.registry),
+            world_scene_travel.spawn_position(target),
+        )
+        self.assertEqual(
+            sea.arrival_provenance(self.registry), target.spawn_provenance,
+        )
+        self.assertFalse(
+            hasattr(sea, "ARRIVAL_POSITION"),
+            "the struck constant must stay struck - a module-level copy of "
+            "this point is the defect this class was written for",
+        )
+        self.assertIn("world_scene_registry_001.json", sea.ARRIVAL_POSITION_OWNER)
+
+    def test_the_door_has_a_landing_spot_and_the_state_says_who_authored_it(self):
+        self.assertTrue(sea.destination_ready(self.registry))
+        self.assertEqual(sea.refusal_reason(self.registry), "")
+        # Pinned, but still on the owner's decree: "ready" must never be
+        # allowed to read as "measured" while that prefix is what holds it.
+        self.assertTrue(sea.arrival_is_decreed(self.registry))
+        self.assertEqual(
+            sea.destination_state(self.registry), sea.STATE_READY_DECREED,
+        )
+
+    def test_a_registry_without_this_scene_refuses_instead_of_raising(self):
+        class NoSuchScene:
+            destinations = {}
+
+        empty = NoSuchScene()
+        self.assertIsNone(sea.arrival_position(empty))
+        self.assertFalse(sea.destination_ready(empty))
+        self.assertEqual(sea.destination_state(empty), sea.STATE_REFUSED)
+        self.assertFalse(sea.arrival_is_decreed(empty))
+        with self.assertRaises(sea.SeaDestinationError):
+            sea.arrival_position(None)   # never silently reads the file
+        for not_a_registry in ("world_scene_registry_001.json", [1, 2], 17):
+            # A wrong argument must not come back as a confident REFUSED
+            # about a registry that was never one.
+            with self.assertRaises(sea.SeaDestinationError):
+                sea.arrival_position(not_a_registry)
+        reason = sea.refusal_reason(empty)
+        self.assertIn("n_MARKER = 0", reason)
+        self.assertNotIn(
+            "nothing here has read that path", reason,
+            "that path IS read - q_teleport1.lua, one argument, no "
+            "coordinate; saying otherwise is what kept RE-103 open",
+        )
+
+    def test_the_state_follows_the_provenance_rather_than_a_literal(self):
+        # Negative control: hand it a registry whose scene 17 spawn is NOT
+        # decreed and the state has to move on its own.
+        loaded = world_scene_travel.load_scene_registry()
+        measured = replace(
+            loaded[sea.DESTINATION_SCENE_N_ID],
+            spawn_provenance="GT-106 attended arrival, 2026-08-27",
+        )
+        registry = replace(loaded, destinations=tuple(
+            measured if row.n_id == sea.DESTINATION_SCENE_N_ID else row
+            for row in loaded.destinations
+        ))
+        self.assertFalse(sea.arrival_is_decreed(registry))
+        self.assertEqual(
+            sea.destination_state(registry), sea.STATE_READY_MEASURED,
+        )
+        self.assertIn("state=READY_MEASURED", sea.console_line(registry))
+
+    def _registry_with(self, provenance, z):
+        """A copy of the real registry file with scene 17's spawn edited."""
+        data = json.loads(
+            (ROOT / "scenarios/world_scene_registry_001.json").read_text()
+        )
+        for row in data["destinations"]:
+            if row["n_id"] == sea.DESTINATION_SCENE_N_ID:
+                row["spawn"]["provenance"] = provenance
+                row["spawn"]["z"] = z
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "registry.json"
+            path.write_text(json.dumps(data))
+            return world_scene_travel.load_scene_registry(path)
+
+    def test_retiring_the_decree_today_would_stop_the_registry_loading(self):
+        """Why this round reported the decree instead of retiring it.
+
+        The PROVISIONAL-OWNER-DECREE prefix is what exempts scene 17's spawn
+        from the ground check, and that check tests z: the pinned band comes
+        from the scene's native placements (746.04 .. 1272.74), so with the
+        prefix gone the registry REFUSES TO LOAD and every login dies at
+        boot.  Driven here rather than argued, because the ASK-COO letter
+        this round sends is only worth reading if these three lines are real.
+        """
+        measured = "GT-106 attended arrival 2026-08-27, client-observed"
+        for z in (0.0, sea.ARRIVAL_RUN_DB_WALKED_Z):
+            with self.assertRaises(ValueError) as caught:
+                self._registry_with(measured, z)
+            self.assertIn("spawn z is outside", str(caught.exception))
+        # Even the z a human actually stood at is refused, one unit under the
+        # lowest placement - the band is not a floor measurement, which is
+        # what the registry's own ground block says about it.
+        loads = self._registry_with(measured, sea.LOWEST_NATIVE_PLACEMENT_Z)
+        self.assertEqual(
+            world_scene_travel.spawn_position(
+                loads[sea.DESTINATION_SCENE_N_ID],
+            )[2],
+            sea.LOWEST_NATIVE_PLACEMENT_Z,
+        )
+        # And the shipped pairing loads, which is the state on main today.
+        today = self._registry_with(
+            "PROVISIONAL-OWNER-DECREE-20260827-1445 (owner decree)", 0.0,
+        )
+        self.assertEqual(
+            world_scene_travel.spawn_position(
+                today[sea.DESTINATION_SCENE_N_ID],
+            ),
+            (0.0, 0.0, 0.0),
+        )
+
+    def test_the_teleport_path_reading_is_the_one_that_closes_re_103(self):
+        # Not prose: the two values the answer rests on, plus the file to
+        # re-read if anybody doubts them.
+        self.assertEqual(sea.TELEPORT_CALL_ARGUMENT_COUNT, 1)
+        self.assertFalse(sea.TELEPORT_CALL_CARRIES_A_POSITION)
+        self.assertTrue(sea.TELEPORT_SCRIPT.endswith("q_teleport1.lua"))
+        self.assertEqual(sea.SCENE_NAME_MARKER_COLUMN_FOR_THE_SEA_FAMILY, 0)
+        self.assertIn(sea.DESTINATION_SCENE_N_ID, sea.SEA_FAMILY_SCENE_IDS)
+        self.assertIn(
+            sea.DESTINATION_QUEST_ID, sea.TELEPORT_ACCEPT_PRECONDITION_ROWS,
+        )
+
+    def test_the_two_z_numbers_are_kept_apart_and_neither_is_the_spawn(self):
+        # The reading NOT to take from GT-106: that 745 is an arrival z.  It
+        # is a walked position in the same scene, and the spawn is still 0.
+        self.assertAlmostEqual(
+            sea.LOWEST_NATIVE_PLACEMENT_Z - sea.ARRIVAL_RUN_DB_WALKED_Z,
+            1.0424194335938, places=6,
+        )
+        _x, _y, z = sea.arrival_position(self.registry)
+        self.assertEqual(z, 0.0)
+        self.assertNotEqual(z, sea.ARRIVAL_RUN_DB_WALKED_Z)
+        self.assertEqual(sea.ARRIVAL_OBSERVED_HUD_XY, (0.0, 0.0))
 
 
 class CrosswalkKeyRuleTests(unittest.TestCase):
