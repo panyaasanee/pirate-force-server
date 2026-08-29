@@ -104,7 +104,14 @@ SCENES_WITHOUT_A_COMPOSER = (278, 997)
 # Scenes that arrive POPULATED from this lane's own finished per-scene
 # composers.  Both rosters are on main and tested in their own files; what is
 # tested here is only that the seam hands each arrival ITS OWN roster.
-COMPOSED_AWAY_SCENES = (2, 14)
+# ~~COMPOSED_AWAY_SCENES = (2, 14)~~ -- SCENE 2 REMOVED, round ucaybn, by
+# COO-DECISION 2026-08-29T22:45+07:00 (pf_bridge/notes_to_chief/20260829_2245_
+# COO-DECISION-scene2-login-owns-composer-removed-from-crossing.md), answering
+# this lane's ASK-COO 20260829_2110.  The login path owns scene 2: its
+# populator carries lane B's faction splice and a combat-ledger sync that a
+# crossing frame would silently replace.  Scene 2's new expected behaviour is
+# pinned by test_a_login_owned_source_is_refused_by_name_not_by_omission.
+COMPOSED_AWAY_SCENES = (14,)
 
 # Home is still its own branch and its own builder, not a registry entry.
 NON_HOME_SCENES = SCENES_WITHOUT_A_COMPOSER
@@ -276,8 +283,11 @@ class HandoffTests(unittest.TestCase):
         produces, and must differ from the dock census.
         """
         home = handoff_for_arrival(self.legacy, 1, self.anchor)
+        # ~~(2, world_population_bg0002.build_bg0002_population),~~ removed
+        # round ucaybn with the scene 2 registry entry (COO-DECISION
+        # 20260829_2245).  Scene 2's own byte-level pins live in its own
+        # file; here it is covered by the login-owned refusal test instead.
         for scene, build in (
-            (2, world_population_bg0002.build_bg0002_population),
             (14, world_population_bg0015.build_bg0015_population),
         ):
             with self.subTest(scene=scene):
@@ -288,9 +298,7 @@ class HandoffTests(unittest.TestCase):
                 direct = build(
                     self.legacy, self.anchor, scene_id=scene,
                     count_source=(
-                        world_population_bg0002.COUNT_SOURCE_FULL_ROSTER
-                        if scene == 2
-                        else world_population_bg0015.COUNT_SOURCE_FULL_ROSTER
+                        world_population_bg0015.COUNT_SOURCE_FULL_ROSTER
                     ),
                 )
                 self.assertEqual(handoff.pc, direct.pc)
@@ -350,7 +358,10 @@ class HandoffTests(unittest.TestCase):
         Before this round the same call returned an empty map, which is
         strictly safer.  A ceiling is a min.
         """
-        for scene, roster_count in ((2, 97), (14, 81)):
+        # ~~((2, 97), (14, 81))~~ -- scene 2 removed with its registry entry,
+        # round ucaybn (COO-DECISION 20260829_2245).  The cap rule itself is
+        # unchanged and is what this test is about.
+        for scene, roster_count in ((14, 81),):
             with self.subTest(scene=scene):
                 handoff = handoff_for_arrival(
                     self.legacy, scene, self.anchor, actor_count=CENSUS_COUNT)
@@ -415,7 +426,7 @@ class HandoffTests(unittest.TestCase):
             with self.subTest(bad=bad):
                 with self.assertRaises(ValueError) as caught:
                     handoff_for_arrival(
-                        self.legacy, 2, self.anchor, actor_count=bad)
+                        self.legacy, 14, self.anchor, actor_count=bad)
                 self.assertIn("actor count must be an int", str(caught.exception))
 
     def test_a_roster_frame_is_checked_against_its_own_pc(self):
@@ -430,20 +441,20 @@ class HandoffTests(unittest.TestCase):
         import pirateforce_foundation.world_population_handoff as handoff_mod
         from dataclasses import replace
         original = dict(handoff_mod.ROSTER_COMPOSERS)
-        honest = original["bg0002_roster"]
+        honest = original["bg0015_roster"]
 
         def build_with_a_foreign_frame(*args, **kwargs):
             generation = honest.build(*args, **kwargs)
             return replace(generation, frame=generation.frame + b"\x00")
 
         try:
-            handoff_mod.ROSTER_COMPOSERS["bg0002_roster"] = replace(
+            handoff_mod.ROSTER_COMPOSERS["bg0015_roster"] = replace(
                 honest, build=build_with_a_foreign_frame)
             with self.assertRaises(ValueError) as caught:
-                handoff_for_arrival(self.legacy, 2, self.anchor)
+                handoff_for_arrival(self.legacy, 14, self.anchor)
             self.assertIn("does not match its own pc", str(caught.exception))
             self.assertEqual(
-                handoff_on_crossing(self.legacy, 2, self.anchor).kind,
+                handoff_on_crossing(self.legacy, 14, self.anchor).kind,
                 KIND_UNAVAILABLE,
             )
         finally:
@@ -461,9 +472,12 @@ class HandoffTests(unittest.TestCase):
         catch-all, so it surfaces as the same "unreportable" this round
         already fixed once from another cause.
         """
+        # ~~(2, "bg0002_roster", "roster_count"),~~ -- removed round ucaybn
+        # with the scene 2 registry entry (COO-DECISION 20260829_2245).  Scene
+        # 2 is now asserted on the CLEARED side below, which is the whole
+        # point of the ruling: this seam reports no census for it at all.
         expectations = (
             (1, CENSUS_SOURCE, "census_count"),
-            (2, "bg0002_roster", "roster_count"),
             (14, "bg0015_roster", "roster_count"),
         )
         for scene, source, key in expectations:
@@ -472,10 +486,12 @@ class HandoffTests(unittest.TestCase):
                     handoff_for_arrival(self.legacy, scene, self.anchor))
                 self.assertEqual(report["census_source"], source)
                 self.assertIn(key, report["census"])
-        cleared = handoff_report(
-            handoff_for_arrival(self.legacy, 278, self.anchor))
-        self.assertIsNone(cleared["census_source"])
-        self.assertIsNone(cleared["census"])
+        for cleared_scene in (2, 278):
+            with self.subTest(scene=cleared_scene):
+                cleared = handoff_report(
+                    handoff_for_arrival(self.legacy, cleared_scene, self.anchor))
+                self.assertIsNone(cleared["census_source"])
+                self.assertIsNone(cleared["census"])
 
     def test_a_census_handoff_cannot_disagree_with_its_own_generation(self):
         """D6: the two fields that had to be kept in step by hand.
@@ -485,11 +501,11 @@ class HandoffTests(unittest.TestCase):
         client" while shipping 97 actors, which is the state where one
         ChooseNPC recomposes the old town inside the new map.
         """
-        roster = handoff_for_arrival(self.legacy, 2, self.anchor)
+        roster = handoff_for_arrival(self.legacy, 14, self.anchor)
         with self.assertRaises(ValueError) as caught:
             SceneHandoff(
-                scene_id=2, kind=KIND_CENSUS, reason="hand_built_for_this_test",
-                label=LABEL_CENSUS.format(2), actor_count=97,
+                scene_id=14, kind=KIND_CENSUS, reason="hand_built_for_this_test",
+                label=LABEL_CENSUS.format(14), actor_count=81,
                 pc=roster.pc, frame=roster.frame, reapply_ms=None,
                 dispatch_slot=SLOT_AFTER_TELEPORT,
                 generation=roster.generation,
@@ -520,18 +536,36 @@ class HandoffTests(unittest.TestCase):
         from pirateforce_foundation.world_scene_travel import CENSUS_SOURCES
         named = set(CENSUS_SOURCES.values()) - {CENSUS_SOURCE}
         composed = set(handoff_mod.ROSTER_COMPOSERS)
+        ruled_out = set(handoff_mod.LOGIN_OWNED_SOURCES)
+        # WIDENED round ucaybn.  ~~named - composed == set()~~ became false by
+        # RULING, not by drift, when scene 2's entry was removed
+        # (COO-DECISION 20260829_2245).  The property that still has to hold
+        # is the one D7 was really about: a named source is either BUILT here
+        # or RULED OUT here, never merely absent - because "absent" reads the
+        # same as "nobody got round to it" and is what would put the scene 2
+        # entry straight back.
         self.assertEqual(
-            named - composed, set(),
-            "a scene names a composer that ROSTER_COMPOSERS does not have, so "
-            "it silently arrives empty",
+            named - composed - ruled_out, set(),
+            "a scene names a composer that is neither in ROSTER_COMPOSERS nor "
+            "ruled out in LOGIN_OWNED_SOURCES, so it silently arrives empty",
         )
         self.assertEqual(
             composed - named, set(),
             "a composer is registered that no scene routes to, so it is dead",
         )
+        self.assertEqual(
+            ruled_out - named, set(),
+            "a source is ruled out that no scene names, so the ruling guards "
+            "nothing",
+        )
+        self.assertEqual(
+            composed & ruled_out, set(),
+            "a source is both built and ruled out - the ruling would be "
+            "silently overridden by the composer",
+        )
         # And every registered composer answers for the scene that names it.
         for scene, source in CENSUS_SOURCES.items():
-            if source == CENSUS_SOURCE:
+            if source == CENSUS_SOURCE or source in ruled_out:
                 continue
             with self.subTest(scene=scene):
                 composer = handoff_mod.ROSTER_COMPOSERS[source]
@@ -539,6 +573,35 @@ class HandoffTests(unittest.TestCase):
                 built = handoff_for_arrival(self.legacy, scene, self.anchor)
                 self.assertIs(
                     type(built.generation), composer.generation_type)
+
+    def test_a_login_owned_source_is_refused_by_name_not_by_omission(self):
+        """COO-DECISION 20260829_2245, carried out in round ucaybn.
+
+        Scene 2 arrives CLEAR from this seam again, as it did before round
+        80x5ba - but the reason string is the ruling, not the to-do.  That
+        difference is the whole test: a reader who greps
+        ``has_no_crossing_handoff_yet`` for scene 2 would conclude the entry
+        is missing and add it back, and adding it back without lane B's
+        ledger+faction half is the regression the ruling exists to prevent.
+        """
+        import pirateforce_foundation.world_population_handoff as handoff_mod
+        from pirateforce_foundation.world_scene_travel import CENSUS_SOURCES
+        for source, ruling in handoff_mod.LOGIN_OWNED_SOURCES.items():
+            scenes = [s for s, name in CENSUS_SOURCES.items() if name == source]
+            self.assertTrue(scenes, "a ruling that names no scene")
+            for scene in scenes:
+                with self.subTest(scene=scene, source=source):
+                    handoff = handoff_for_arrival(
+                        self.legacy, scene, self.anchor
+                    )
+                    self.assertEqual(handoff.kind, KIND_CLEAR)
+                    self.assertIsNone(handoff.generation)
+                    self.assertEqual(handoff.actor_count, 0)
+                    self.assertIn("login_path_owns_this_source", handoff.reason)
+                    self.assertIn(ruling, handoff.reason)
+                    self.assertNotIn(
+                        "has_no_crossing_handoff_yet", handoff.reason
+                    )
 
     def test_a_scene_left_empty_on_purpose_says_so_by_name(self):
         """D8c: "by decision, not by omission" was a claim the code denied.
@@ -659,20 +722,23 @@ class HandoffTests(unittest.TestCase):
         """
         import pirateforce_foundation.world_population_handoff as handoff_mod
         original = dict(handoff_mod.ROSTER_COMPOSERS)
-        honest = original["bg0002_roster"]
+        # ~~honest = original["bg0002_roster"]~~ -- driven on scene 14 since
+        # round ucaybn: scene 2's entry was removed by COO-DECISION
+        # 20260829_2245.  The property is the composer's, not the scene's.
+        honest = original["bg0015_roster"]
         try:
             from dataclasses import replace
-            handoff_mod.ROSTER_COMPOSERS["bg0002_roster"] = replace(
+            handoff_mod.ROSTER_COMPOSERS["bg0015_roster"] = replace(
                 honest,
                 membership_of=lambda generation: tuple(
                     generation.placement_indices)[:-1],
             )
             with self.assertRaises(ValueError) as caught:
-                handoff_for_arrival(self.legacy, 2, self.anchor)
+                handoff_for_arrival(self.legacy, 14, self.anchor)
             self.assertIn("encoder or reader drift", str(caught.exception))
             # And it is the strict path that raises: the frame path still
             # refuses instead of killing the connection.
-            refused = handoff_on_crossing(self.legacy, 2, self.anchor)
+            refused = handoff_on_crossing(self.legacy, 14, self.anchor)
             self.assertEqual(refused.kind, KIND_UNAVAILABLE)
             self.assertFalse(refused.sends_a_frame)
         finally:
@@ -689,10 +755,19 @@ class HandoffTests(unittest.TestCase):
         rather than deliver Prison Exile's NPCs into the volcano.
         """
         import pirateforce_foundation.world_population_handoff as handoff_mod
+        from dataclasses import replace
         original = dict(handoff_mod.ROSTER_COMPOSERS)
         try:
-            handoff_mod.ROSTER_COMPOSERS["bg0015_roster"] = (
-                original["bg0002_roster"])
+            # ~~= original["bg0002_roster"]~~ -- that entry was removed round
+            # ucaybn (COO-DECISION 20260829_2245), so the wrong builder is
+            # spliced in directly rather than borrowed from a sibling entry.
+            # The simulated edit is the same one: scene 14's row now reaches
+            # Prison Exile's builder, and the builder's own scene guard is
+            # what has to refuse.
+            handoff_mod.ROSTER_COMPOSERS["bg0015_roster"] = replace(
+                original["bg0015_roster"],
+                build=world_population_bg0002.build_bg0002_population,
+            )
             with self.assertRaises(Exception) as caught:
                 handoff_for_arrival(self.legacy, 14, self.anchor)
             self.assertIn("scene", str(caught.exception).lower())

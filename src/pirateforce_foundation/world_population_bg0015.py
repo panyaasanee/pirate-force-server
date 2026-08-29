@@ -99,8 +99,20 @@ WHAT IS DIFFERENT FROM THE OTHER TWO, NAMED RATHER THAN LEFT IMPLICIT.
   names which ten and why.  The 91 target is never quietly rewritten
   (CHARTER-02).
 
-THE HANDBACK, STATED PLAINLY BECAUSE IT IS THIS ROUND'S REAL LIMIT.  Nothing
-in this repository calls this module yet.  ``runtime.py``'s census dispatch is
+~~THE HANDBACK, STATED PLAINLY BECAUSE IT IS THIS ROUND'S REAL LIMIT.
+Nothing in this repository calls this module yet.~~  STRUCK ROUND ucaybn: it
+HAS a caller - ``lane_hooks/lane_a_scene_census.py`` (round ga91m5-r2),
+reaching this builder through ``world_population_handoff``.  The paragraph
+below is kept because it is the exact shape of the wall, and because what
+came down was its SECOND sentence, not its first: chief did not add a
+scene-14 ``elif``.  chief added ONE table-driven point in round ``73fhoc``
+and the lane registered on it.  "``fire()`` cannot contribute the actions a
+census dispatch returns" was right, which is why the point that landed hands
+a value back instead.  What is still true: no human has stood in scene 14,
+its door is pinned shut (``login_entry_allowed: false``), and ``GT-134`` is
+the ticket that opens the eye.  The original text follows.
+
+~~Nothing in this repository calls this module yet.~~  ``runtime.py``'s census dispatch is
 an if/elif over scene id -- bg0002, then "any other scene: send NOTHING", then
 bg0001 -- and adding scene 14 to it is a ``runtime.py`` edit, which is the
 chief's file, not this lane's.  ``lane_hooks`` cannot stand in for it either:
