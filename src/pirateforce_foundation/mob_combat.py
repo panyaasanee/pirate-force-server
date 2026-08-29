@@ -880,7 +880,7 @@ def open_ledger(
                 "roster must be a tuple of FieldMob")
         rows.append(MobBalance(mob.actor_identity, mob.max_hp, mob.max_hp))
         scenes.add(mob.scene)
-    derived = min(scenes) if scenes else None
+    derived = scenes.pop() if len(scenes) == 1 else None
     if scene is not None and derived is not None and scene != derived:
         raise MobCombatContractError(
             REFUSE_LEDGER_SCENE_DISAGREES_WITH_ROSTER,
