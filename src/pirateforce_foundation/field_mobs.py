@@ -159,6 +159,11 @@ from typing import Any
 
 from . import field_mob_tables
 from . import field_mob_tables_bg0002
+# Lane A's scene-id registry, read-only: the ONE public reader from a scene
+# id to that scene's own folder name (COO-DECISION 2026-08-29T08:48+07:00
+# item 3).  Imported for :func:`scene_for_scene_id`; nothing here writes to
+# it, and this module ships no second copy of that mapping.
+from . import world_scene_folder
 from .population import (
     FULL_MOVEMENT_MASK,
     MOVEMENT_ATTR_ID,
@@ -547,6 +552,163 @@ def load_roster(scene: str = field_mob_tables.SCENE) -> tuple[FieldMob, ...]:
         )
     assert_single_scene_tables((module,))
     return _parse_hostile_placements(module)
+
+
+def scene_for_scene_id(scene_id: int) -> str | None:
+    """The LIVE field-mob scene a player standing in ``scene_id`` is inside.
+
+    ROUND k3qe9q.  THE HALF THIS LANE OWED.  Round ``j0u64p`` measured that a
+    player standing in Bg0002 cannot land a hit on anything there, because
+    ``runtime.py`` composes the roster and the combat ledger from
+    ``load_roster()`` with no argument -- bg0001's rows, always, whatever
+    scene the session is actually in -- and ``mob_combat.strike`` then
+    refuses every Bg0002 monster with ``target_not_in_ledger``.  That round
+    asked chief for two lines and could only name one owner, because
+    "the scene id the session holds" had no reader into a scene NAME then.
+    It has one now: lane A landed ``world_scene_folder`` (COO-DECISION
+    2026-08-29T08:48+07:00 item 3, "THE ONE PUBLIC READER"), so the missing
+    half is this function, and it belongs to whoever owns the rosters.
+
+    Returns ``None`` for every scene this lane ships no monsters for, which
+    is the overwhelming majority of them.  ``None`` means SHIP NO ROSTER --
+    never "ship the default one".  That is lane A's own stated contract for
+    an unaddressed id, and it is also the only safe reading here: falling
+    back to bg0001 is exactly today's defect, one layer down.
+
+    Three ways this returns ``None``, all deliberate, none an error:
+
+    * lane A's registry does not address that scene id at all (255 of the
+      client's 271 scene rows today) -- nothing vetted, so nothing shipped;
+    * it addresses it, but this lane ships no table for that folder (a town,
+      or Bg0015, which is mined-but-dormant: it is in
+      ``_KNOWN_SCENE_TABLE_MODULES_FOR_REPORTING`` and deliberately NOT in
+      ``_SCENE_TABLE_MODULES``, so a scene id resolving to it must stay
+      empty until someone makes it live on purpose);
+    * ``scene_id`` is not an id this process could have got off the wire.
+
+    ONE SPELLING, NOT TWO.  The match against ``_SCENE_TABLE_MODULES`` is
+    exact and case-sensitive on purpose.  The client's own folder names are
+    NOT consistently cased -- scene 1 is ``bg0001`` and scene 2 is
+    ``Bg0002``, and this project's table modules carry those two spellings
+    verbatim -- so a case-folding match here would be a second, looser
+    spelling rule living next to lane A's, and the first table module whose
+    ``SCENE`` string drifted from the client's folder would be papered over
+    by it instead of being caught.  The drift that rule would hide is worth
+    more than the drift it would absorb: a live scene that lane A's registry
+    cannot address, or spells differently, means that scene's monsters
+    vanish with nothing raising -- so
+    :func:`assert_live_scenes_are_addressable` exists to make that case fail
+    in the test suite rather than in a player's client, and
+    ``tests/test_field_mobs_scene_binding.py`` runs it.
+    """
+    if type(scene_id) is not int or type(scene_id) is bool:
+        raise FieldMobContractError("scene id must be an integer")
+    folder = world_scene_folder.scene_folder_for_scene_id(scene_id)
+    if folder is None:
+        return None
+    return folder if folder in _SCENE_TABLE_MODULES else None
+
+
+def roster_for_scene_id(scene_id: int) -> tuple[FieldMob, ...]:
+    """The rows that actually stand in ``scene_id``, or no rows at all.
+
+    ROUND k3qe9q.  This is the shape a ``runtime.py`` call site wants: it
+    holds a scene id, not a scene name, and it needs a roster it can hand
+    straight to :func:`mob_combat.open_ledger` and to
+    :func:`build_field_mob_population`.
+
+    An empty tuple is a real, safe answer and not a failure: a ledger opened
+    on it holds nothing, so every strike in that scene refuses by name
+    (``target_not_in_ledger``) instead of accepting a hit against a monster
+    standing in a different scene -- which is what happens today.  Callers
+    must not read ``()`` as "fall back to the default roster".
+    """
+    scene = scene_for_scene_id(scene_id)
+    if scene is None:
+        return ()
+    return load_roster(scene)
+
+
+def assert_live_scenes_are_addressable() -> None:
+    """Refuse if any LIVE scene's monsters are unreachable through a scene id.
+
+    ROUND k3qe9q.  :func:`scene_for_scene_id` is a join between two tables
+    owned by two different lanes: this lane's ``_SCENE_TABLE_MODULES`` keys
+    and lane A's scene-id registry.  A join like that fails silently in the
+    direction that matters most -- a live roster nothing can reach returns
+    ``()`` for every scene id, so the scene simply has no monsters and
+    nothing anywhere raises or prints.  This function is the guard that
+    turns that into a loud failure in the suite.
+
+    Measured today: bg0001 is addressed by scene id 1 and by no other, and
+    Bg0002 by scene id 2 and by no other.  Neither appears in lane A's
+    ``scene_ids_sharing_a_folder`` list of 45 folders that two scene ids
+    both name, so neither has a second id that could reach it -- but a live
+    scene that DID have one would need lane A to address both ids, and this
+    guard is where that would be noticed.
+    """
+    unreachable = []
+    for scene in live_scenes():
+        if not scene_ids_addressing(scene):
+            unreachable.append(scene)
+    if unreachable:
+        raise FieldMobContractError(
+            "live field-mob scenes no scene id can reach: %s -- their "
+            "monsters would be absent from every scene with nothing "
+            "raising (live scenes today: %s)"
+            % (sorted(unreachable), sorted(live_scenes()))
+        )
+
+
+def scene_ids_addressing(scene: str) -> tuple[int, ...]:
+    """Every scene id lane A's registry resolves to ``scene``, ascending.
+
+    ROUND k3qe9q.  The candidate ids are the CLIENT's own scene rows, read
+    out of lane A's curated copy (``scene_folder_index``, 271 rows, public),
+    and each one is then put through lane A's public per-id reader -- so
+    this stays a caller of the ONE public reader COO-DECISION
+    2026-08-29T08:48+07:00 item 3 named, and never inverts that lane's
+    private map.  Asking the client's full row set rather than only the ids
+    lane A already addresses is the point: an id the client ships and that
+    registry has not vetted answers ``None`` and is correctly absent here,
+    which is what makes the count this returns worth asserting on.
+    """
+    if type(scene) is not str or not scene:
+        raise FieldMobContractError("scene must be non-empty text")
+    rows = world_scene_folder.load_copy()["scene_folder_index"]
+    found = []
+    for row in rows:
+        scene_id = int(row[0])
+        if world_scene_folder.scene_folder_for_scene_id(scene_id) == scene:
+            found.append(scene_id)
+    return tuple(sorted(found))
+
+
+def describe_scene_roster_binding(scene_id: int) -> str:
+    """One ASCII console line naming what a scene id resolved to.  G-OBS.
+
+    ROUND k3qe9q.  The bridge console is cp874, so this stays inside 7-bit
+    ASCII, the same rule ``world_population.census_console_line()`` and
+    ``world_scene_folder.folder_console_suffix()`` already follow.
+
+    RETURNS A LINE; DOES NOT PRINT IT.  The printer would be ``runtime.py``,
+    which is not this lane's file -- the wiring ask is one line in the PR
+    body, exactly as ``mob_death.describe_widening_coverage()`` was asked
+    for in round ``j0u64p``.  Stated plainly so nobody greps for this token
+    in a boot log and concludes the binding is unwired because it is
+    missing: nothing prints it yet.
+    """
+    scene = scene_for_scene_id(scene_id)
+    folder = world_scene_folder.scene_folder_for_scene_id(scene_id)
+    return (
+        "MOB_SCENE_ROSTER scene_id=%d folder=%s live=%d mobs=%d"
+        % (
+            scene_id,
+            folder if folder is not None else "?",
+            1 if scene is not None else 0,
+            len(roster_for_scene_id(scene_id)),
+        )
+    )
 
 
 def _parse_hostile_placements(module: Any) -> tuple[FieldMob, ...]:

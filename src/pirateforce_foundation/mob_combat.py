@@ -792,6 +792,35 @@ def open_ledger(
     return CombatLedger(tuple(rows))
 
 
+def open_ledger_for_scene_id(scene_id: int) -> CombatLedger:
+    """The ledger for the monsters that actually stand in ``scene_id``.
+
+    ROUND k3qe9q.  ``runtime.py`` holds a scene id, not a scene name, and
+    today opens the ledger with :func:`open_ledger` and no argument -- which
+    means bg0001's four identities, in every scene, forever.  Round
+    ``j0u64p`` measured what that costs: a player standing in Bg0002 cannot
+    land a hit on anything there, because ``strike`` refuses every monster
+    in front of them with ``target_not_in_ledger``.
+
+    This is the shape that fixes it in one call site line.  It is a thin
+    join of two things that already existed -- ``open_ledger(roster=...)``,
+    which has taken a roster since it was written, and
+    ``field_mobs.roster_for_scene_id``, added this round -- and it holds no
+    scene knowledge of its own, so a third scene going live needs nothing
+    here.
+
+    A SCENE WITH NO MONSTERS OPENS AN EMPTY LEDGER, NOT THE DEFAULT ONE.
+    ``field_mobs.roster_for_scene_id`` answers ``()`` for every scene this
+    project ships no roster for, and ``()`` is not ``None``, so it reaches
+    :func:`open_ledger` as a real empty roster rather than as "use the
+    default".  An empty ledger refuses every strike by name.  That is the
+    intended behaviour and the intended DIFFERENCE from today: a town is a
+    place where there is nothing to hit, not a place where bg0001's
+    monsters can be hit through the floor.
+    """
+    return open_ledger(field_mobs.roster_for_scene_id(scene_id))
+
+
 def apply_hit(
     ledger: CombatLedger,
     attacker_identity: int,
