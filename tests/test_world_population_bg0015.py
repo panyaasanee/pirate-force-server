@@ -206,10 +206,26 @@ class Bg0015Census(unittest.TestCase):
                 count_source=census.COUNT_SOURCE_FULL_ROSTER)
         self.assertEqual(self._build().actor_count, census.ROSTER_COUNT)
 
-    def test_nothing_under_src_imports_this_module_yet(self) -> None:
-        # The handback, kept honest: the day runtime.py gains the scene-14
-        # branch this test is the one that has to be updated, deliberately,
-        # in the same round -- so "wired" can never happen silently.
+    def test_only_the_population_seam_imports_this_module(self) -> None:
+        # ~~test_nothing_under_src_imports_this_module_yet~~ -- renamed and
+        # widened in round 80x5ba (LANE-A), deliberately and in the same round
+        # as the change that made it fail, which is exactly the protocol the
+        # original comment demanded:
+        #
+        #     "the day runtime.py gains the scene-14 branch this test is the
+        #      one that has to be updated, deliberately, in the same round --
+        #      so 'wired' can never happen silently."
+        #
+        # WHAT CHANGED, AND WHAT DID NOT.  ``world_population_handoff`` now
+        # imports this module, because the arrival seam composes THIS roster
+        # for a scene-14 arrival instead of sending an empty collection to a
+        # map this lane had already populated.  What has NOT changed is the
+        # handback this test exists for: ``runtime.py`` still does not import
+        # the seam, so no player reaches this roster yet.  The assertion is
+        # therefore an EXACT SET, not a "contains" - a third importer, or the
+        # seam being swapped for a direct runtime.py import, both fail here
+        # and have to be argued for in a round of their own.
+        #
         # An AST walk, not a text search: this module's NAME appears in
         # sibling docstrings on purpose (world_bg0015_identity points at it),
         # and a grep would call that wiring.
@@ -231,7 +247,51 @@ class Bg0015Census(unittest.TestCase):
                 if any("world_population_bg0015" in name for name in names):
                     importers.append(path.name)
                     break
-        self.assertEqual(importers, [])
+        self.assertEqual(sorted(importers), ["world_population_handoff.py"])
+
+        # ~~self.assertNotIn("runtime.py", importers)~~
+        # ~~self.assertNotIn("world_population_handoff", runtime_source)~~
+        #
+        # BOTH STRUCK LINES WERE DEFEATED, MEASURED (pf-adversary, round
+        # 80x5ba, D1).  They guarded the one route lane A cannot take - a
+        # direct edit to runtime.py, which is chief's file - and left open the
+        # route lane A CAN take alone: runtime.py:10 already imports
+        # columbus_quest_dispatch, which already imports the seam at module
+        # scope, and runtime.py already CALLS into that module on the M2
+        # crossing.  The adversary appended two lines to
+        # columbus_quest_dispatch that composed and printed a scene-14 handoff
+        # on the live path, and the entire suite stayed green: neither struck
+        # assertion fired, because runtime.py's own text never changed.  The
+        # first was also dead on its own terms - it cannot fail if the exact
+        # importer set above passed.
+        #
+        # The property the handback actually claims is about CALLS, not
+        # imports, so that is what is asserted now: nothing under src/ calls
+        # either entry point of the seam.  This one fails against the
+        # adversary's own wiring.
+        entry_points = {"handoff_for_arrival", "handoff_on_crossing"}
+        call_sites = []
+        for path in (ROOT / "src").rglob("*.py"):
+            # The seam's own file is excluded: handoff_on_crossing calls
+            # handoff_for_arrival, which is the module wrapping itself in its
+            # fail-closed contract, not a caller reaching the roster.
+            if path.name == "world_population_handoff.py":
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                name = (func.attr if isinstance(func, ast.Attribute)
+                        else func.id if isinstance(func, ast.Name) else None)
+                if name in entry_points:
+                    call_sites.append("%s:%d" % (path.name, node.lineno))
+        self.assertEqual(
+            call_sites, [],
+            "the arrival seam has gained a caller under src/ -- this roster "
+            "now reaches players, which is a claim this round's handback "
+            "makes in the other direction: %r" % (call_sites,),
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover
