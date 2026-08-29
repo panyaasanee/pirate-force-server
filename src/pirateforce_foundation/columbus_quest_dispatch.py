@@ -207,6 +207,7 @@ exact one-line hook needed.
 from __future__ import annotations
 
 from . import population
+from . import world_m2_return_leg
 from . import world_population_handoff
 from . import world_scene_entry
 from .model import Position
@@ -511,7 +512,7 @@ def _emit_arrival_stowaways(entry, *, legacy, held_indices, emit):
 
 
 def dispatch_columbus_quest3021(*, registry=None, emit=print, legacy=None,
-                                held_indices=None):
+                                held_indices=None, departed_from=None):
     """The compound action CORE-REQUEST-014 asked for was bind-vehicle-then-
     teleport; what M2 actually ships today, by owner decree, is teleport
     alone.
@@ -574,6 +575,14 @@ def dispatch_columbus_quest3021(*, registry=None, emit=print, legacy=None,
     )
     _emit_arrival_stowaways(entry, legacy=legacy, held_indices=held_indices,
                             emit=emit)
+    # The way back, named at the moment the way out is taken (LANE-A round
+    # mcxexp).  Report only, never raises, and it changes nothing that is
+    # sent: see world_m2_return_leg's docstring for the three things it does
+    # not claim.  ``departed_from`` is the row this character was standing on
+    # in Port Royal; the call site does not pass it yet, and the line says so
+    # in the same field shape as the measured one rather than going quiet.
+    emit(world_m2_return_leg.return_leg_console_line(
+        entry, departed=departed_from, registry=registry))
     return entry
 
 
