@@ -49,7 +49,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from pirateforce_foundation import inventory, mob_loot, mob_pickup
+from pirateforce_foundation import bag_admission, inventory, mob_loot, mob_pickup
 from pirateforce_foundation.inventory import (
     BACKPACK_BASE_IDENTITY,
     BACKPACK_BASE_MASK,
@@ -98,6 +98,55 @@ from pirateforce_foundation.mob_pickup import (
 MODULE_PATH = ROOT / "src" / "pirateforce_foundation" / "mob_pickup.py"
 PIN_PATH = ROOT / "scenarios" / "combat_pickup_001.json"
 MIGRATION_PATH = ROOT / "migrations" / "003_character_inventory.sql"
+
+
+def _executed_sql(module_name):
+    """(enclosing function, sql) for every string handed to a DB call.
+
+    Imported in spirit from ``tests/test_bag_admission_expiry.py``, which
+    wrote it after pf-adversary defeated two weaker versions.  The two
+    lessons it carries, both of which apply here: SQL split across adjacent
+    literals or hoisted to a module constant is invisible to a line scanner,
+    and a module that DESCRIBES an INSERT in prose (this lane does, at
+    length) is the opposite of one that performs it, so only strings that
+    actually reach ``execute``/``executemany`` count.
+
+    It lives in both files rather than being shared because a test that
+    imports its own oracle from the file it is cross-checking would fail
+    together with it.
+    """
+    source = (
+        ROOT / "src" / "pirateforce_foundation" / f"{module_name}.py"
+    ).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    constants = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant):
+            if isinstance(node.value.value, str):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        constants[target.id] = node.value.value
+    owner = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for child in ast.walk(node):
+                owner[id(child)] = node.name
+    out = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not node.args:
+            continue
+        name = getattr(node.func, "attr", None) or getattr(node.func, "id", None)
+        if name not in ("execute", "executemany", "executescript"):
+            continue
+        first = node.args[0]
+        if isinstance(first, ast.Constant) and isinstance(first.value, str):
+            text = first.value
+        elif isinstance(first, ast.Name) and first.id in constants:
+            text = constants[first.id]
+        else:
+            continue
+        out.append((owner.get(id(node), "<module>"), " ".join(text.split())))
+    return out
 
 # The identities the sibling lanes' tests use, so one kill reads the same in
 # three files: a roster monster, and a session-shaped player identity.
@@ -1313,13 +1362,27 @@ class MobPickupTests(unittest.TestCase):
         narrow it too was tried and reverted in the same round it was tried,
         because it turned out to be the exact gate
         ``tests/test_item_move_generalized.py::test_moved_state_reconnect_is_opt_in_and_baseline_fails_closed``
-        needs at full strength to keep a HYP-PF-010/017/018 mutated state
-        from reconnecting without its own opt-in flag.  So Gate 2 alone still
-        refuses this exact bag, and BUILD-006's blocker is still real: a
-        picked-up item still cannot survive a relog end to end, even though
-        two of the three gates that used to stop it no longer do.  The day
-        Gate 2 is also widened, THIS test goes red and this lane's prose must
-        be rewritten in the same round.
+        needed at full strength to keep a HYP-PF-010/017/018 mutated state
+        from reconnecting without its own opt-in flag.
+
+        THAT DAY CAME, AND THIS TEST DID NOT GO RED -- WHICH IS WHY IT IS
+        REWRITTEN.  ~~"Gate 2 alone still refuses this exact bag ... the day
+        Gate 2 is also widened, THIS test goes red"~~ IS STRUCK: chief wired
+        gate 2 to ``bag_admission.may_enter_world`` in PR #233 and this test
+        stayed green, because the only thing it asserted about the wall was
+        ``GOVERNED_BAG_ALLOWLIST_BLOCKS_PERSISTENCE``, a module constant that
+        was ``True`` by assignment (chief's R222 letter, item 3).  A tripwire
+        wired to a constant is not a tripwire.
+
+        What it pins now is the wall where the wall actually is: all three
+        gates admit this bag, and the relog is unclosed because ``store.py``
+        never writes the row.  The INSERT itself is pinned by
+        ``tests/test_bag_admission_expiry.py`` (an ast walk over the SQL
+        ``store.py`` really executes, not over prose about it), so this test
+        asserts the gates and the constants, and that file asserts the write.
+        Together they go red the day ``STORE-INSERT-001`` lands -- and the
+        round that lands it has to rewrite this lane's prose, which is what
+        the original sentence was reaching for.
         """
         bag, item = place_in_bag(INITIAL_BACKPACK, a_drop())
         # Gate 1: store._load_backpack -- shape only, this bag is
@@ -1337,6 +1400,14 @@ class MobPickupTests(unittest.TestCase):
         # own encoding, just with a fifth ItemAttr appended.
         wire = inventory.make_backpack_attr(self.legacy, bag)
         self.assertIsInstance(wire, bytes)
+        # GATE 2 AS SESSION.PY ACTUALLY CALLS IT.  ``is_unmoved_baseline``
+        # above is no longer the gate -- chief wired
+        # ``bag_admission.may_enter_world`` in PR #233 -- so asserting only
+        # the old predicate would keep this test green through the exact
+        # change it exists to catch.
+        self.assertTrue(bag_admission.may_enter_world(
+            bag, allow_hypothesized_item_move=False,
+        ))
         # The encoder writes each identity twice by design (the full ItemAttr
         # record, then the trailing identity-only index) -- see
         # inventory.make_backpack_attr's two item loops.
@@ -1346,7 +1417,56 @@ class MobPickupTests(unittest.TestCase):
         self.assertEqual(
             inventory.make_backpack_attr(self.legacy, INITIAL_BACKPACK),
             self.legacy.make_backpack_attr_four_items())
-        self.assertTrue(mob_pickup.GOVERNED_BAG_ALLOWLIST_BLOCKS_PERSISTENCE)
+        # THE CONSTANT IS RE-DERIVED FROM store.py, NOT READ BACK.  Asserting
+        # ``assertFalse`` on a constant assigned ``False`` is the same
+        # tautology as the ``assertTrue`` it replaced, with the polarity
+        # flipped -- pf-adversary measured that: it simulated
+        # STORE-INSERT-001 landing (a real INSERT INTO
+        # character_backpack_items plus an UPDATE of next_item_identity) and
+        # this file stayed green while test_bag_admission_expiry.py went red.
+        # So the flag is checked against what store.py's EXECUTED SQL says,
+        # by the same ast walk that file uses, and this test goes red on the
+        # day the wall moves.
+        pickup_inserts = [
+            function for function, sql in _executed_sql("store")
+            if "INSERT INTO character_backpack_items" in sql
+            and function != "_insert_initial_backpack"
+        ]
+        advances = [
+            function for function, sql in _executed_sql("store")
+            if "next_item_identity" in sql and "UPDATE" in sql
+        ]
+        blocked = not pickup_inserts and not advances
+        self.assertTrue(
+            blocked,
+            "store.py now writes a pickup row and/or advances the counter; "
+            "the relog is no longer blocked and this lane's prose, its two "
+            "GOVERNED_BAG_ALLOWLIST_* constants and "
+            "scenarios/combat_pickup_001.json must be rewritten in the same "
+            "round",
+        )
+        self.assertEqual(
+            mob_pickup.GOVERNED_BAG_ALLOWLIST_BLOCKS_PERSISTENCE, not blocked,
+        )
+        # And the OWNER string must name the write that actually exists.
+        # The first draft of this correction said "store.py has no backpack
+        # INSERT", which is false -- character creation has one.
+        creation_inserts = [
+            function for function, sql in _executed_sql("store")
+            if "INSERT INTO character_backpack_items" in sql
+        ]
+        self.assertEqual(creation_inserts, ["_insert_initial_backpack"])
+        self.assertIn(
+            "_insert_initial_backpack",
+            mob_pickup.GOVERNED_BAG_ALLOWLIST_OWNER,
+        )
+        self.assertIn(
+            "STORE-INSERT-001", mob_pickup.GOVERNED_BAG_ALLOWLIST_OWNER,
+        )
+        self.assertNotIn(
+            "has no backpack INSERT",
+            mob_pickup.GOVERNED_BAG_ALLOWLIST_OWNER,
+        )
         self.assertEqual(item.identity, 5)
         # And the shape itself is fine -- it is Gate 2 that still governs.
         require_bag_shape(bag)
@@ -1603,7 +1723,14 @@ class MobPickupTests(unittest.TestCase):
         self.assertFalse(document["test_only"])
         self.assertIsNone(document["scenario"])
         self.assertFalse(document["wire"]["ever_observed_for_a_new_item"])
-        self.assertTrue(document["blocked"]["relog_persistence"])
+        # ~~assertTrue~~ IS STRUCK, and the flip is the point: this document
+        # reported "relog_persistence: True, blocked_by: gate 2" for the
+        # whole day after PR #233 opened gate 2, because the value was a
+        # module constant assigned True rather than anything observed.  What
+        # blocks the relog is that store.py writes no row at all.
+        self.assertFalse(document["blocked"]["relog_persistence"])
+        self.assertIn("store.py", document["blocked"]["blocked_by"])
+        self.assertIn("STORE-INSERT-001", document["blocked"]["blocked_by"])
         observed = document["transaction_observed"]
         self.assertFalse(observed["stacks"])
         self.assertTrue(observed["killer_only"])
