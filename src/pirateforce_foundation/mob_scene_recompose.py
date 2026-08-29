@@ -82,8 +82,42 @@ STATE_NO_COMPOSER = "no_composer_for_scene"
 # The composition itself refused.  The exception class name is appended, the
 # same shape ``runtime.py``'s own fail-closed arms already log.
 STATE_REFUSED_PREFIX = "refused_"
+# COMPOSED, AND EVERY WOUNDED MONSTER IN THE FRAME IS AT ITS CEILING.  ROUND
+# le2dox, MEASURED: this is what the scene-2 composer has done since it
+# shipped, for every ledger the admission DECLINES -- another scene's ledger,
+# an incomplete one, one whose rows disagree with the roster or the register.
+# ``_compose`` passes ``admitted`` (which is ``None`` for all of those) into
+# ``mob_death.full_roster_override``, and a roster override with no ledger
+# composes at ceiling HP by design.  The frame that came back was reported as
+# :data:`STATE_COMPOSED` and was BYTE-IDENTICAL to a census composed from an
+# untouched ledger: a wounded monster's HP bar snapped back to full on the
+# client and no line said so.
+#
+# That is COO-DECISION 2026-08-29T18:42 item 3's defect ("a recompose with no
+# ledger heals every wounded monster") happening on the reachable input while
+# :data:`STATE_NO_LEDGER` refuses it loudly on one that cannot occur --
+# ``runtime.py:1134`` opens ``self.mob_combat_ledger`` at session
+# construction and every path reassigns it, so ``ledger=None`` never reaches
+# a bar frame.  The loud refusal guarded the impossible case.
+#
+# THE BYTES DO NOT CHANGE, and that is deliberate.  This lane already
+# ratified the tradeoff in ``mob_ledger_admission
+# .require_ledger_for_recompose``'s own words -- "Giving up 'one monster
+# shows full HP' to get 'the world is empty' costs more than the defect
+# does" -- and the call site's fallback for a non-composing state is the
+# one-entry frame RE-092 proved erases every other actor.  So the frame is
+# still sent (see :data:`COMPOSING_STATES` and ``SceneRecompose.composed``);
+# what changes is that the record stops calling it a clean compose, names
+# which identities it heals, and ``describe_recompose`` prints a FATAL line
+# for it.
+STATE_COMPOSED_HEALING = "composed_ledger_declined_at_ceiling"
 
-COMPOSING_STATES = (STATE_COMPOSED,)
+# STATES WHOSE BYTES A CALL SITE MAY SEND.  ``SceneRecompose.composed`` reads
+# THIS TUPLE rather than comparing against one state, so adding a composing
+# state cannot silently turn a frame the call site used to send into the
+# world-wipe fallback.  Until round le2dox this tuple had one member and no
+# reader at all.
+COMPOSING_STATES = (STATE_COMPOSED, STATE_COMPOSED_HEALING)
 
 
 class SceneRecomposeError(ValueError):
@@ -119,6 +153,77 @@ _COMPOSERS = {
         world_population_bg0002.SCENE2_N_ID, "Bg0002", COMPOSER_BG0002,
     ),
 }
+
+
+# -------------------------------------------------------------------------
+# SCENES THAT HAVE AN ARRIVAL CENSUS AND NO RECOMPOSE COMPOSER.
+# -------------------------------------------------------------------------
+# ROUND le2dox, answering ``pf_bridge/notes_to_chief/20260829_2340_CHIEF-TO-
+# LANE-B-scene-14-has-a-census-but-no-recompose-composer.md`` item 1: name
+# the scene, or declare that this lane will not compose it, and do it in the
+# same PR rather than the next one.
+#
+# The entry is an ACKNOWLEDGEMENT, not a declination.  This lane WILL compose
+# scene 14; what it cannot do is compose a map with no monsters in it.  The
+# distinction matters because a declination would be a promise never to look
+# again, and the tripwire below is built on the opposite promise.
+#
+# WHAT MAKES IT NOT A HOLE TODAY, MEASURED ROUND le2dox rather than quoted:
+# ``field_mobs.scene_for_scene_id(14)`` returns ``None`` -- scene 14 is in
+# NEITHER of field_mobs' two tables, so ``roster_for_scene_id(14)`` is not
+# "zero rows for a known scene", it is "a scene this module cannot name".
+# Every strike there is refused before a frame is composed.  (The chief's
+# letter says "roster_for_scene_id(14) returns 0 rows", which is true and one
+# layer above where the refusal actually happens.)
+#
+# WHAT OPENS IT: the first roster row in scene 14.  That is the day
+# ``test_no_scene_with_roster_rows_lacks_a_composer`` goes red, which is item
+# 2 of the same letter -- CI remembers this, nobody has to.
+ACKNOWLEDGED_WITHOUT_COMPOSER = {
+    14: (
+        "Bg0015 -- lane A's arrival census composes it (lane_hooks/"
+        "lane_a_scene_census.py); field_mobs names no scene 14 at all, so it "
+        "has no combat roster and no strike can reach a recompose.  This "
+        "lane composes it in the same round its first roster row lands."
+    ),
+}
+
+
+def declared_without_composer() -> tuple[int, ...]:
+    """Scene ids this lane has looked at and knowingly left uncomposed."""
+    return tuple(sorted(ACKNOWLEDGED_WITHOUT_COMPOSER))
+
+
+def scene_is_accounted_for(scene_id: Any) -> bool:
+    """Whether THIS LANE HAS AN ANSWER for ``scene_id``: a composer, or a
+    written acknowledgement that it knowingly has none yet.
+
+    ~~``scenes_with_rows_and_no_composer()``, which walked every id
+    addressing a live scene and reported the ones with roster rows and no
+    composer.~~  WITHDRAWN IN THE ROUND THAT WROTE IT, le2dox: that tripwire
+    ALREADY EXISTS as ``tests/test_mob_scene_recompose.py``'s
+    ``test_every_scene_this_lane_ships_monsters_for_can_be_recomposed``,
+    shipped in round y9s0xo, and a second spelling of a guard is a second
+    thing to drift.  The lane's own standing order is to read what is there
+    before writing anything, and this function was written without doing it.
+
+    WHAT WAS ACTUALLY MISSING is the OTHER half, and it is the half the
+    chief's letter (``20260829_2340``) is about: the existing pin fires on a
+    scene with ROSTER ROWS.  Scene 14 has none -- it has an ARRIVAL CENSUS,
+    composed by another lane's ``lane_hooks`` module, and nothing in this
+    lane looks at that table at all.  That is how scene 14 arrived without
+    this lane noticing, and no test could have caught it.
+    ``tests/test_mob_scene_recompose.py`` crosswalks the lane_hooks census
+    registry against this function, so the next scene another lane opens is
+    red here on the commit that opens it.
+
+    Never raises: an unusable scene id is simply not accounted for.
+    """
+    if type(scene_id) is not int or type(scene_id) is bool:
+        return False
+    return (
+        scene_id in _COMPOSERS or scene_id in ACKNOWLEDGED_WITHOUT_COMPOSER
+    )
 
 
 @dataclass(frozen=True)
@@ -223,12 +328,36 @@ class SceneRecompose:
     ledger_covered: int = 0
     ledger_roster: int = 0
     fatal: bool = False
+    # WHETHER THE BYTES IN THIS RECORD RESEND A WOUNDED MONSTER AT ITS
+    # CEILING.  See :data:`STATE_COMPOSED_HEALING`.  It is a field rather
+    # than a state comparison because a reader asking "is this frame safe for
+    # HP bars" is asking one question, and the day a second healing state
+    # exists that reader must not have to learn its name.
+    heals: bool = False
+    # WHICH identities this frame heals, or ``None`` for NOT MEASURED -- the
+    # distinction ``mob_ledger_admission`` keeps for ``missing_measured`` and
+    # ``conflicts``, for the same reason: an empty tuple here means "looked,
+    # found none wounded", and a declined ledger this module cannot read row
+    # by row (another scene's, or one that will not answer ``balance_of``)
+    # can produce neither answer honestly.  ``()`` with ``heals=True`` is a
+    # real combination: the frame is composed at ceiling for a ledger that
+    # happened to hold nothing wounded, which is harmless TODAY and is still
+    # the declined-ledger path.
+    healed_identities: tuple[int, ...] | None = None
     dead_timer: float | None = None
     detail: str = ""
 
     @property
     def composed(self) -> bool:
-        return self.state == STATE_COMPOSED
+        """Whether a call site may put ``pc``/``frame`` on the wire.
+
+        NOT ``state == STATE_COMPOSED``.  ``STATE_COMPOSED_HEALING`` carries
+        real bytes for the whole scene, and the fallback a call site keeps
+        for a non-composing record is the one-entry frame -- so reading this
+        as an equality test would have answered a defect that heals one HP
+        bar by erasing every actor in the map.
+        """
+        return self.state in COMPOSING_STATES
 
 
 def composer_scene_ids() -> tuple[int, ...]:
@@ -339,6 +468,37 @@ def _wire_actor_count(pc: bytes) -> int | None:
     return int.from_bytes(pc[tag_offset + 1:tag_offset + 3], "little")
 
 
+def _healed_identities(ledger: Any, roster: Any, admission: Any) -> Any:
+    """Roster identities the DECLINED ``ledger`` holds below their ceiling.
+
+    ``None`` means NOT MEASURED and is returned for two different reasons,
+    both of which are "could not look" rather than "found none":
+
+    * the ledger names a scene other than this roster's
+      (:data:`mob_ledger_admission.STATE_OTHER_SCENE`) or could not be read
+      at all -- its rows are a different map's monsters that happen to share
+      identity numbers, so "identity 0x2033 is at 40%" is a fact about
+      somebody else and reporting it here would put another scene's HP in
+      this scene's console line;
+    * any single ``balance_of`` raises, which on an incomplete ledger is the
+      ordinary case for the identities it does not hold.
+
+    Never raises.  This decorates a console line and sets a boolean the call
+    site reads; a count that cannot be taken must not cost the frame.
+    """
+    if admission == mob_ledger_admission.STATE_OTHER_SCENE:
+        return None
+    try:
+        wounded = []
+        for mob in roster:
+            balance = ledger.balance_of(mob.actor_identity)
+            if balance.current_hp < balance.max_hp:
+                wounded.append(int(mob.actor_identity))
+        return tuple(sorted(wounded))
+    except Exception:  # noqa: BLE001 - a console field never kills a boot
+        return None
+
+
 def recompose_frames(
     legacy: Any,
     anchor: CensusAnchor,
@@ -376,6 +536,22 @@ def recompose_frames(
     the one-entry frame, which is a WORSE outcome than either -- that
     tradeoff is written into this lane's wiring ask rather than settled here
     by a module that cannot see the dispatch.
+
+    THE PARAGRAPH ABOVE GUARDED A STATE THAT CANNOT HAPPEN, AND THE STATE
+    THAT CAN HAPPEN WENT OUT UNANNOUNCED.  [ROUND le2dox, MEASURED.]
+    ``runtime.py:1134`` opens ``self.mob_combat_ledger`` at session
+    construction and every later path reassigns it, so ``ledger=None`` never
+    reaches a bar or death frame -- :data:`STATE_NO_LEDGER` is a loud refusal
+    of the unreachable input.  Meanwhile a ledger the admission DECLINES
+    (another scene's after a scene round trip, an incomplete one, one whose
+    rows disagree with the roster or the register) was reported as
+    :data:`STATE_COMPOSED`, and its scene-2 frame measured BYTE-IDENTICAL to
+    a census composed from an untouched ledger: the wounded monster healed on
+    the client, the record said "composed", no line anywhere.  That is the
+    same COO-DECISION 2026-08-29T18:42 item 3 defect this function's own
+    docstring says it will not ship, arriving through the door the docstring
+    did not check.  It is now :data:`STATE_COMPOSED_HEALING` -- same bytes,
+    named state, measured ``healed_identities``, FATAL console line.
 
     ``roster`` defaults to the scene's own rows (``field_mobs
     .roster_for_scene_id``).  A caller that has already widened its roster --
@@ -440,8 +616,29 @@ def recompose_frames(
     # them -- the rule mob_census_hostility states for its own inputs, for
     # the same reason: a check computed from a different copy of the thing it
     # checks can agree with itself while the composition raises.
+    # ``register=`` IS PASSED, AND IT WAS NOT UNTIL ROUND le2dox.  The
+    # argument exists on this function already; the admission call left it
+    # out, so ``register_checked`` came back False on every recompose this
+    # module has ever done -- while ``admit_ledger``'s own docstring names
+    # this path as the one that must check: "A caller composing entries HAS
+    # a register -- mob_death.repopulation_entries requires one -- so the
+    # path that can actually raise is the path that can always check."
+    #
+    # WHAT PASSING IT CHANGES, MEASURED, NOT ASSUMED.  A ledger that
+    # contradicts the register used to be ADMITTED here (D1 never ran), get
+    # handed to ``full_roster_override``, and raise ``MobDeathContractError``
+    # from inside the composer -- caught below as ``refused_...``, no bytes,
+    # and the call site's one-entry world wipe.  It is now DECLINED by the
+    # admission instead, which on the scene-2 path composes at ceiling and
+    # comes back as :data:`STATE_COMPOSED_HEALING`: the whole map, one or
+    # more HP bars wrong, a FATAL console line, and a frame the client can
+    # actually draw.  That is the same tradeoff this lane's admission module
+    # already took for the ledger it cannot get, applied to the ledger it
+    # can get and cannot trust.  [LANE-B assumption - awaiting COO
+    # confirmation; the letter carrying it is 20260830_LANE-B-ASK-COO-a-
+    # declined-ledger-heals-what-a-refusal-erases.]
     admission = mob_ledger_admission.require_ledger_for_recompose(
-        scene_id, ledger, roster=roster,
+        scene_id, ledger, roster=roster, register=register,
     )
     covered = int(admission.get("covered_count") or 0)
     roster_rows = int(admission.get("roster_count") or len(roster))
@@ -470,11 +667,26 @@ def recompose_frames(
             dead_timer=float(dead_timer),
             detail=str(error)[:200],
         )
+    # HEALING IS A PROPERTY OF THE COMPOSER, NOT OF THE ADMISSION.  Only the
+    # scene-2 composer derives its HP from ``admitted``; the delegated
+    # scene-1 path is handed the RAW ledger and keeps every wounded row it
+    # holds even when the admission declines (measured round le2dox: a
+    # declined scene-1 recompose does not reach this line at all -- the live
+    # composer raises and comes back as ``refused_MobDeathContractError``
+    # above).  Flagging on the admission alone would print a healing warning
+    # over a scene-1 frame whose HP is correct.
+    heals = composer.kind == COMPOSER_BG0002 and admission["ledger"] is None
     return SceneRecompose(
-        scene_id, scene, STATE_COMPOSED, pc, frame, composed_count,
+        scene_id, scene, STATE_COMPOSED_HEALING if heals else STATE_COMPOSED,
+        pc, frame, composed_count,
         _wire_actor_count(pc), anchor.actor_count, count_source,
         ledger_state=admission["state"], ledger_covered=covered,
         ledger_roster=roster_rows, dead_timer=float(dead_timer),
+        heals=heals,
+        healed_identities=(
+            _healed_identities(ledger, roster, admission["state"])
+            if heals else None
+        ),
     )
 
 
@@ -577,7 +789,7 @@ def describe_recompose(record: Any) -> tuple[str, ...]:
     lines = (
         "%s scene_id=%d scene=%s state=%s requested=%s actors=%s wire=%s "
         "source=%s pc=%sB frame=%sB "
-        "ledger=%s covered=%d/%d dead_timer=%s fatal=%s" % (
+        "ledger=%s covered=%d/%d dead_timer=%s fatal=%s heals=%s" % (
             CONSOLE_TOKEN,
             record.scene_id,
             record.scene or "?",
@@ -601,6 +813,16 @@ def describe_recompose(record: Any) -> tuple[str, ...]:
             record.ledger_roster,
             "none" if record.dead_timer is None else record.dead_timer,
             "yes" if record.fatal else "no",
+            # THREE ANSWERS, NOT TWO.  ``no`` is "these bytes carry the HP
+            # the ledger holds".  ``N`` is "N wounded rows went out at their
+            # ceiling and here is how many".  ``unmeasured`` is "this frame
+            # heals and this module could not count what" -- the state a
+            # foreign or unreadable ledger produces, which must not print as
+            # ``0``: a zero a reader trusts is worse than a word that makes
+            # them look.
+            "no" if not record.heals else (
+                "unmeasured" if record.healed_identities is None
+                else len(record.healed_identities)),
         ),
     )
     if record.detail:
@@ -613,6 +835,24 @@ def describe_recompose(record: Any) -> tuple[str, ...]:
             "%s scene_id=%d reason=no_ledger_passed_to_recompose "
             "effect=no_full_census_frame_composed" % (
                 mob_ledger_admission.FATAL_TOKEN, record.scene_id),
+        )
+    if record.heals:
+        # THE SAME TOKEN AS THE NO-LEDGER LINE, ON PURPOSE.  A tester
+        # grepping ``MOB_LEDGER_ADMISSION_FATAL`` is asking "did a census go
+        # out that lies about HP" -- one expression, both ways it can
+        # happen.  The ``reason=`` field is what separates them, and it
+        # carries the admission's own state name rather than a paraphrase,
+        # so the recompose line and the admission line can be read as one
+        # sentence.
+        lines = lines + (
+            "%s scene_id=%d reason=ledger_declined_%s "
+            "effect=wounded_rows_resent_at_ceiling identities=%s" % (
+                mob_ledger_admission.FATAL_TOKEN, record.scene_id,
+                record.ledger_state,
+                "unmeasured" if record.healed_identities is None else (
+                    "none" if not record.healed_identities else ",".join(
+                        "0x%04X" % i for i in record.healed_identities)),
+            ),
         )
     return lines
 

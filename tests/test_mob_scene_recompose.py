@@ -338,9 +338,17 @@ class SceneRecomposeTests(unittest.TestCase):
     # -- 5. every refusal is a record, never an escape ---------------------
 
     def test_a_foreign_ledger_composes_at_ceiling_and_says_so(self):
+        """~~``self.assertEqual(record.state, recompose.STATE_COMPOSED)``~~
+        CORRECTED ROUND le2dox.  This test was written in round y9s0xo with
+        the right title and the wrong pin: it asserted the state a clean
+        compose reports, so the only thing "saying so" was ``ledger_state``
+        on a console field a reader had to know to correlate.  The bytes it
+        pins below are unchanged and still right -- the state is what was
+        lying.  See ``DeclinedLedgerHealsTests``."""
         record = recompose.recompose_frames(
             self.legacy, self.anchor2, self.register, ledger=self.ledger1)
-        self.assertEqual(record.state, recompose.STATE_COMPOSED)
+        self.assertEqual(record.state, recompose.STATE_COMPOSED_HEALING)
+        self.assertIs(record.heals, True)
         self.assertEqual(
             record.ledger_state, mob_ledger_admission.STATE_OTHER_SCENE)
         clean = recompose.recompose_frames(
@@ -496,6 +504,248 @@ class SceneRecomposeTests(unittest.TestCase):
     def test_the_module_is_not_flag_gated(self):
         self.assertIs(recompose.production_allowed, True)
         self.assertIs(recompose.test_only, False)
+
+
+class DeclinedLedgerHealsTests(unittest.TestCase):
+    """ROUND le2dox.  A ledger the admission DECLINES composed the scene-2
+    census at ceiling HP, reported ``composed``, and said nothing.
+
+    The pins here are all BYTE pins against the two frames that bracket the
+    question -- the census composed from the ledger as it really is, and the
+    census composed from an untouched one.  "Heals" is not an adjective in
+    this file: it is ``frame == the ceiling frame``.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.legacy = load_legacy(LEGACY_PATH)
+        cls.roster = field_mobs.roster_for_scene_id(SCENE2)
+        cls.anchor = recompose.census_anchor(
+            SCENE2, ANCHOR, world_population_bg0002.DEFAULT_ACTOR_COUNT)
+
+    def setUp(self):
+        self.register = mob_death.DeathRegister()
+        self.ceiling_ledger = mob_combat.open_ledger_for_scene_id(SCENE2)
+        self.first = self.roster[0]
+        balance = self.ceiling_ledger.balance_of(self.first.actor_identity)
+        self.max_hp = balance.max_hp
+        self.wounded_ledger = self.ceiling_ledger.with_balance(
+            mob_combat.MobBalance(
+                self.first.actor_identity, self.max_hp, self.max_hp // 3))
+
+    def _recompose(self, ledger, register=None):
+        return recompose.recompose_frames(
+            self.legacy, self.anchor, register or self.register,
+            ledger=ledger, roster=self.roster)
+
+    def _ceiling_frame(self):
+        return self._recompose(self.ceiling_ledger).frame
+
+    def _declined_incomplete(self):
+        """A same-scene ledger missing one roster row, wounded on another.
+
+        This is the shape the defect actually reaches production in: the
+        admission declines for containment, and the row it CAN read is the
+        one whose HP the client is looking at.
+        """
+        short = mob_combat.open_ledger(self.roster[:-1])
+        return short.with_balance(mob_combat.MobBalance(
+            self.first.actor_identity, self.max_hp, self.max_hp // 3))
+
+    # -- what the defect was --------------------------------------------
+
+    def test_a_wounded_admitted_ledger_does_not_send_the_ceiling_frame(self):
+        """The control.  Without this the healing pins below would pass on a
+        composer that ignores the ledger entirely."""
+        self.assertNotEqual(
+            self._recompose(self.wounded_ledger).frame, self._ceiling_frame())
+
+    def test_a_declined_ledger_still_sends_the_ceiling_frame(self):
+        """MEASURED, and the bytes are deliberately NOT changed by this
+        round: the fallback for a non-composing record is the one-entry
+        world-wipe frame, so refusing here would trade one wrong HP bar for
+        every actor in the map."""
+        for tag, ledger in (
+            ("other scene", mob_combat.open_ledger_for_scene_id(SCENE1)),
+            ("incomplete", self._declined_incomplete()),
+        ):
+            with self.subTest(tag):
+                self.assertEqual(
+                    self._recompose(ledger).frame, self._ceiling_frame())
+
+    def test_a_declined_ledger_no_longer_reports_itself_as_composed(self):
+        record = self._recompose(self._declined_incomplete())
+        self.assertEqual(record.state, recompose.STATE_COMPOSED_HEALING)
+        self.assertIs(record.heals, True)
+
+    def test_the_healing_record_is_still_sendable(self):
+        """The mutant this kills is the obvious fix: give the healing state
+        its own name and let ``composed`` stay an equality test.  The call
+        site's ``if record.composed`` would then take the fallback arm, and
+        the round that set out to stop one HP bar healing would have started
+        erasing the whole map instead."""
+        record = self._recompose(self._declined_incomplete())
+        self.assertIs(record.composed, True)
+        self.assertIsNotNone(record.frame)
+        self.assertIn(record.state, recompose.COMPOSING_STATES)
+
+    def test_an_admitted_ledger_never_claims_to_heal(self):
+        record = self._recompose(self.wounded_ledger)
+        self.assertEqual(record.state, recompose.STATE_COMPOSED)
+        self.assertIs(record.heals, False)
+        self.assertIsNone(record.healed_identities)
+
+    # -- what it counts, and what it refuses to count --------------------
+
+    def test_the_healed_identities_are_measured_when_the_ledger_is_readable(
+            self):
+        """A same-scene ledger that covers the roster but contradicts the
+        death register: declined by D1, every row still readable."""
+        lying = self.ceiling_ledger.with_balance(mob_combat.MobBalance(
+            self.first.actor_identity, self.max_hp, 0))
+        record = self._recompose(lying)
+        self.assertIs(record.heals, True)
+        self.assertEqual(
+            record.healed_identities, (self.first.actor_identity,))
+
+    def test_a_foreign_ledger_reports_unmeasured_and_never_zero(self):
+        """Another scene's rows carry another scene's HP under identity
+        numbers that collide with these.  ``0`` here would be a number a
+        reader trusts; ``None`` makes them look."""
+        record = self._recompose(mob_combat.open_ledger_for_scene_id(SCENE1))
+        self.assertIs(record.heals, True)
+        self.assertIsNone(record.healed_identities)
+
+    def test_the_console_line_says_which_identities_and_says_unmeasured(self):
+        readable = self._recompose(self.ceiling_ledger.with_balance(
+            mob_combat.MobBalance(self.first.actor_identity, self.max_hp, 0)))
+        lines = recompose.describe_recompose(readable)
+        self.assertTrue(any(
+            line.startswith(mob_ledger_admission.FATAL_TOKEN)
+            and "effect=wounded_rows_resent_at_ceiling" in line
+            and "0x%04X" % self.first.actor_identity in line
+            for line in lines), lines)
+        self.assertTrue(any("heals=1" in line for line in lines), lines)
+
+        foreign = self._recompose(mob_combat.open_ledger_for_scene_id(SCENE1))
+        lines = recompose.describe_recompose(foreign)
+        self.assertTrue(any(
+            "identities=unmeasured" in line for line in lines), lines)
+        self.assertTrue(
+            any("heals=unmeasured" in line for line in lines), lines)
+
+    def test_a_healthy_recompose_prints_no_fatal_line(self):
+        """The alarm must not fire on the normal case, or a tester learns to
+        ignore it -- the lesson this module already recorded once about
+        ``wire=MISMATCH``."""
+        lines = recompose.describe_recompose(
+            self._recompose(self.wounded_ledger))
+        self.assertFalse([
+            line for line in lines
+            if line.startswith(mob_ledger_admission.FATAL_TOKEN)], lines)
+        self.assertTrue(any("heals=no" in line for line in lines), lines)
+
+    # -- the register argument that was never passed ---------------------
+
+    def test_the_recompose_path_measures_the_death_register(self):
+        """``admit_ledger``'s own docstring names this path as the one that
+        must check D1 -- "the path that can actually raise is the path that
+        can always check" -- and this function held the register and passed
+        it to the composer without ever passing it to the admission.  The
+        mutant that removes the keyword again puts the record back to
+        ``refused_MobDeathContractError`` with no bytes at all."""
+        lying = self.ceiling_ledger.with_balance(mob_combat.MobBalance(
+            self.first.actor_identity, self.max_hp, 0))
+        with_register = mob_ledger_admission.require_ledger_for_recompose(
+            SCENE2, lying, roster=self.roster, register=self.register)
+        self.assertIs(with_register["register_checked"], True)
+        self.assertEqual(
+            with_register["state"],
+            mob_ledger_admission.STATE_LEDGER_DISAGREES_WITH_REGISTER)
+        record = self._recompose(lying)
+        self.assertIs(record.composed, True)
+        self.assertEqual(
+            record.ledger_state,
+            mob_ledger_admission.STATE_LEDGER_DISAGREES_WITH_REGISTER)
+
+    def test_scene_1_is_never_flagged_as_healing(self):
+        """Healing is a property of the composer, not of the admission: the
+        delegated scene-1 path is handed the RAW ledger and keeps the HP it
+        holds.  A mutant that flags on ``admission['ledger'] is None`` alone
+        prints a healing warning over a frame whose HP is correct."""
+        roster1 = field_mobs.roster_for_scene_id(SCENE1)
+        anchor1 = recompose.census_anchor(
+            SCENE1, ANCHOR, world_population.CENSUS_COUNT)
+        record = recompose.recompose_frames(
+            self.legacy, anchor1, self.register,
+            ledger=mob_combat.open_ledger_for_scene_id(SCENE1),
+            roster=roster1)
+        self.assertIs(record.heals, False)
+        declined = recompose.recompose_frames(
+            self.legacy, anchor1, self.register,
+            ledger=mob_combat.open_ledger(roster1[:-1]), roster=roster1)
+        self.assertIs(declined.heals, False)
+        self.assertIs(declined.composed, False)
+
+
+class SceneAccountedForTests(unittest.TestCase):
+    """ROUND le2dox, answering the chief's letter ``20260829_2340``.
+
+    The pin that already existed (``test_every_scene_this_lane_ships_
+    monsters_for_can_be_recomposed``) fires on a scene with ROSTER ROWS.
+    Scene 14 has none: it has an ARRIVAL CENSUS composed by another lane,
+    and no test in this lane looked at that table -- which is exactly how it
+    arrived without this lane noticing.
+    """
+
+    def test_every_scene_a_lane_composes_a_census_for_is_accounted_for(self):
+        """RED the day another lane opens a scene this lane has neither a
+        composer nor a written acknowledgement for.  A scene a player can
+        stand in is a scene a player will eventually swing in, and the
+        recompose for a scene with no composer is the one-entry world wipe."""
+        from pirateforce_foundation import lane_hooks
+
+        # The registry is private and there is no public reader for its KEYS
+        # (``scene_census_composer`` answers per id).  Reaching the private
+        # name is the smaller cost than adding a public function to
+        # ``lane_hooks/__init__.py``, which is the chief's file and outside
+        # this lane's write zone -- named here rather than hidden, the same
+        # way ``field_mobs.scene_ids_addressing`` names its own reach.
+        # Discovery already ran at import (``_discover()`` at module scope).
+        registered = set(lane_hooks._SCENE_CENSUS_COMPOSERS)
+        # Scenes 1 and 2 keep their dedicated runtime.py branches and are
+        # never consulted in that table; they are composed here regardless.
+        unaccounted = {
+            scene_id for scene_id in registered
+            if not recompose.scene_is_accounted_for(scene_id)
+        }
+        self.assertEqual(
+            unaccounted, set(),
+            "another lane composes an arrival census for these scenes and "
+            "this lane has neither a recompose composer nor an entry in "
+            "ACKNOWLEDGED_WITHOUT_COMPOSER for them",
+        )
+
+    def test_scene_14_is_acknowledged_rather_than_silently_absent(self):
+        self.assertIn(14, recompose.ACKNOWLEDGED_WITHOUT_COMPOSER)
+        self.assertIs(recompose.scene_is_accounted_for(14), True)
+        self.assertIsNone(recompose.composer_for_scene_id(14))
+
+    def test_an_acknowledgement_is_not_a_composer(self):
+        """The mutant this kills folds the acknowledgement table into
+        ``composer_for_scene_id``, which would make a recompose in scene 14
+        claim a composer it does not have."""
+        for scene_id in recompose.declared_without_composer():
+            with self.subTest(scene_id):
+                self.assertIsNone(recompose.composer_for_scene_id(scene_id))
+                self.assertNotIn(scene_id, recompose.composer_scene_ids())
+
+    def test_a_new_unacknowledged_scene_is_red(self):
+        """The tripwire's own control: it has to FAIL on the condition it
+        exists to catch, measured here rather than assumed."""
+        self.assertIs(recompose.scene_is_accounted_for(997), False)
+        self.assertIs(recompose.scene_is_accounted_for("14"), False)
+        self.assertIs(recompose.scene_is_accounted_for(True), False)
 
 
 if __name__ == "__main__":
