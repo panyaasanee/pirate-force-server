@@ -519,6 +519,36 @@ class WireLayerTests(unittest.TestCase):
         self.assertEqual(wounded.scene, BG0001_SCENE)
         self.assertEqual(self._override(wounded), self._override(None))
 
+    def test_the_ledger_the_chiefs_scene_sync_builds_is_admitted(self):
+        # THE INTERACTION THIS ROUND COULD MOST EASILY HAVE BROKEN.  The
+        # chief's ``_sync_combat_scene_state`` (runtime.py, landed mid-round
+        # as bb094f0) re-opens the session ledger on the new scene's roster
+        # with ``mob_combat.open_ledger(roster)`` and then passes it to the
+        # census composer.  If this round's admission declined THAT ledger,
+        # this round would have silently reverted the chief's landing and
+        # every wounded scene-2 monster would be healed again -- with the
+        # whole suite green, because nothing else joins the two.
+        #
+        # Built here the way that method builds it (load_roster(folder),
+        # no explicit scene), not by calling the method, because the method
+        # needs a selected character and a session.
+        folder = "Bg0002"
+        synced = mob_combat.open_ledger(field_mobs.load_roster(folder))
+        self.assertEqual(synced.scene, folder)
+        record = admission.admit_ledger(BG0002_SCENE_ID, synced)
+        self.assertEqual(record["state"], admission.STATE_SAME_SCENE)
+        self.assertTrue(record["admitted"])
+
+        subject = synced.balances[0]
+        wounded = synced.with_balance(mob_combat.MobBalance(
+            subject.actor_identity, subject.max_hp, subject.max_hp // 3))
+        self.assertNotEqual(
+            self._override(wounded)[subject.actor_identity],
+            self._override(None)[subject.actor_identity],
+            "the chief's scene-synced ledger is no longer reaching the "
+            "wire: this round has reverted bb094f0 without saying so",
+        )
+
     def test_the_admission_is_asked_about_the_rows_being_composed(self):
         # A check computed from a second copy of the thing it checks can
         # agree with itself while the composition raises.  The composer
