@@ -234,7 +234,17 @@ class OnlyScenesTheLoginPathCanEnterTests(_Case):
         # 20260829_0915_LANE-A-ASK-COO-ten-doors-shut-and-the-gate-that-
         # would-open-them.md.  If this tuple ever grows, that is lane A
         # deciding to open a door and it should arrive with the gate.
-        self.assertEqual((1, 2, 278, 997), login_scene_stage.stageable_scene_ids())
+        # IT GREW, ONCE, AND THE SENTENCE ABOVE IS WHY THIS LINE READS AS IT
+        # DOES NOW.  LANE-A round vvy6q7 opened scene 14 on COO-DECISION
+        # 20260829_2342.  "It should arrive with the gate" was the condition
+        # and the gate arrived in the same commit: src/pirateforce_
+        # foundation/world_faction_admission.py (the D3 faction wire, bounded
+        # to scenes the registry declares open AND n_SAVE 1) and the census
+        # admission check lane_a_scene_census already carried.  The other ten
+        # marker doors are still shut and this tuple still says so.
+        self.assertEqual(
+            (1, 2, 14, 278, 997), login_scene_stage.stageable_scene_ids()
+        )
         for scene_id in login_scene_stage.stageable_scene_ids():
             with self.subTest(scene_id=scene_id):
                 self.assertTrue(login_scene_stage.login_entry_is_pinned(scene_id))

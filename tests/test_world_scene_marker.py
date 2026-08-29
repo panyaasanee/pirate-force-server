@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from pf_preconditions import BRIDGE_GAMEDATA  # noqa: E402
 
+from pirateforce_foundation import world_faction_admission
 from pirateforce_foundation import world_scene_entry
 from pirateforce_foundation import world_scene_marker
 from pirateforce_foundation import world_scene_travel
@@ -497,34 +498,86 @@ class Scene14RegistryTests(unittest.TestCase):
         # registry nonclaim.  None is what makes the relocation below fire.
         self.assertIsNone(self.target.ground_extent)
 
-    def test_the_door_is_closed_and_this_is_the_load_bearing_test(self):
-        """Round vyi2ud opened this door and pf-adversary closed it again.
+    def test_the_door_is_open_and_all_three_defects_have_a_closure(self):
+        """~~test_the_door_is_closed_and_this_is_the_load_bearing_test~~
 
-        Measured, driven end to end, with login_entry_allowed true: a
-        login into scene 14 through the per-account login-scene override
-        (1) shipped 108 bg0001 actors anchored on the volcano, because
-        runtime.py's census dispatch reads the STORED row, which the
-        override never rewrites and which still says 1; (2) wrote (scene
-        1, volcano XYZ) into character_positions, because
-        _checkpoint_exact_target reads the same stored id and the persist
-        gate is therefore never asked about scene 14 at all - the GT-106
-        incident reproduced by the change that cites GT-106; and (3)
-        emitted no PLAYER_FACTION line, because the faction-1 compose
-        refuses every scene but 2 and Port Royal.
+        THE DOOR IS OPEN AS OF LANE-A ROUND vvy6q7, ON COO-DECISION
+        20260829_2342.  The old test's own closing sentence set the terms:
+        "a round that flips this to True WITHOUT THAT FIX is re-opening all
+        three".  So this test did not become an assertion that the door is
+        open -- that would be a snapshot of a boolean.  It asserts the
+        CONDITION the old test attached to the flip: each of the three
+        defects it named has a closure that is itself checkable here.
 
-        The pin is kept as DATA - the marker spawn, the table row, the
-        native digest - and the entry stays refused until the runtime asks
-        about the scene a character is actually in.  A round that flips
-        this to True without that fix is re-opening all three.
+        The three, verbatim from the test this replaces, with what closed
+        them:
+
+        (1) 108 bg0001 actors anchored on the volcano, because the census
+            dispatch read the STORED row.  Closed ON THE FLAGLESS PRODUCTION
+            PATH, twice: CHIEF-DECISION 20260829_0520 option A resyncs the
+            selected position to the RESOLVED scene, and scene 14 now has a
+            census OF ITS OWN (lane_hooks/lane_a_scene_census.py, 81 actors
+            from world_population_bg0015).  Driven end to end in
+            tests/test_lane_a_scene_census.py on the real registry.
+            !! NARROWED AFTER pf-adversary (D1), BECAUSE THE UNQUALIFIED
+            WORD "CLOSED" WAS FALSE.  That closure holds only while
+            runtime.py's world_census_enabled is True.  On an OPT-IN boot
+            (--*-scenario, or --second-password-mode bypass) the lane census
+            never fires, the inherited v141:4292 dispatcher stays armed, and
+            three bg0001 Port Royal placements ship into this scene with no
+            scene test -- defect (1) in reduced form.  Yesterday's shut door
+            refused that login outright; today it succeeds, so opening the
+            door made that path REACHABLE.  It is an open hazard, guarded
+            today only by GT-134's hard precondition, and it is pinned by
+            tests/test_world_faction_admission.py::TheOptInBootHazardTests
+            rather than left to this docstring.
+        (2) (scene 1, volcano XYZ) written into character_positions.
+            Closed by runtime.py's login_scene_override_visit branch
+            withholding the durable write -- and belt-and-braces, THIS ROW
+            STILL PINS persist_position_allowed FALSE, asserted below.  This
+            round flipped one boolean, not two.
+        (3) no PLAYER_FACTION line, because the faction-1 compose refused
+            every scene but 2 and Port Royal.  Closed by this same commit:
+            world_faction_admission admits scene 14 now, asserted below
+            against the module rather than quoted from this docstring.
         """
-        self.assertFalse(self.target.login_entry_allowed)
+        self.assertTrue(self.target.login_entry_allowed)
+        # (2): the second boolean did NOT move, and a round that moves it is
+        # a different round with a different ruling behind it.
         self.assertFalse(self.target.persist_position_allowed)
-        with self.assertRaises(world_scene_entry.SceneEntryRefused):
-            world_scene_entry.resolve_entry(
-                Position(VOLCANO_SCENE_ID, 0, *V135_HOME_SPAWN, 0.0),
-                registry=self.registry,
-                emit=lambda line: None,
-            )
+        # (3): the defect that was open when the old test was written.
+        self.assertTrue(
+            world_faction_admission.admits(VOLCANO_SCENE_ID, self.registry))
+        # ...and it is admitted for the two REASONS the COO wrote down,
+        # not because the module holds a literal 14 somewhere.
+        self.assertEqual(self.target.save_flag, 1)
+        self.assertIn(
+            "open_at_login_and_n_save_1",
+            world_faction_admission.refusal_reason(
+                VOLCANO_SCENE_ID, self.registry),
+        )
+        # The login the old test asserted was refused now resolves.
+        entry = world_scene_entry.resolve_entry(
+            Position(VOLCANO_SCENE_ID, 0, *V135_HOME_SPAWN, 0.0),
+            registry=self.registry,
+            emit=lambda line: None,
+        )
+        self.assertEqual(entry.position.scene_id, VOLCANO_SCENE_ID)
+
+    def test_the_other_ten_marker_doors_did_not_open_with_it(self):
+        """The blast radius of round vvy6q7, asserted rather than promised.
+
+        Ten marker scenes were addressed in round ga91m5 and every one of
+        them stayed shut.  Opening scene 14 was one ruling about one scene;
+        if this ever goes red, a door opened without one.
+        """
+        for scene_id in (3, 4, 5, 6, 7, 8, 9, 10, 11, 130):
+            with self.subTest(scene_id=scene_id):
+                target = world_scene_travel.destination(
+                    scene_id, self.registry)
+                self.assertFalse(target.login_entry_allowed)
+                self.assertFalse(
+                    world_faction_admission.admits(scene_id, self.registry))
 
     def test_a_non_login_caller_still_lands_on_the_marker_and_says_so(self):
         # The door being shut to logins does not make the pin untestable:

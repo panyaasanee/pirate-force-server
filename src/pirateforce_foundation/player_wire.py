@@ -1,6 +1,12 @@
 """Typed player ActorAttr projections outside the immutable V141 source."""
 import struct
 
+# LANE-A round vvy6q7 (defect D3): the scene condition on the faction-1 field
+# this file emits is a POLICY read off the scene registry, not a literal here.
+# See make_actor_attr_with_name_class_and_faction and that module's docstring.
+from . import world_faction_admission
+from .world_faction_admission import PROVEN_BASIC_FACTION
+
 # CORE-REQUEST-022: class was never emitted (ActorAttr +0x8C, mask bit
 # 0x00000001), which left every login client-side class-default at 0 and
 # blocked the skill window (GT learn-skill measured this directly).  Level
@@ -237,11 +243,49 @@ def make_actor_attr_with_name_class_and_faction(
     lengths would no longer agree (see ``runtime.py``'s
     ``NPC_HOSTILE_PLAYER_FACTION_WIRE_DELTA`` check).  This keeps that delta
     exactly 5 bytes (one ``u32tag`` faction field), same as before.
+
+    THE SCENE CONDITION IS NO LONGER A LITERAL HERE -- LANE-A round vvy6q7,
+    closing defect ``D3`` under the blast radius the COO wrote out in
+    ``pf_bridge/notes_to_chief/20260829_2342_COO-DECISION-open-scene14-door-
+    gt134-d3-stays-open.md``.  It used to read ``scene_id not in (1, 2)``,
+    which was right while 1 and 2 were the only scenes this project had ever
+    sent anybody into, and became wrong on the day a third scene got a
+    composed cast: a scene-14 login shipped the plain ActorAttr and no
+    ``PLAYER_FACTION`` line, and ``HYP-PF-027`` measured that hostility
+    renders from a faction PAIR, so 81 composed monsters could not read as
+    hostile.  ``world_faction_admission.admits`` now answers the WHERE
+    question from the scene registry (open at login AND ``n_SAVE`` 1) and is
+    fail-closed, with scenes 1 and 2 as a floor it cannot fall below.  WHAT is
+    unchanged: ``basic_faction`` must still be exactly 1 and ``scene_seq``
+    still 0, both still checked here.
+
+    The frozen, class-less ``make_actor_attr_with_basic_faction`` below keeps
+    its literal ``(1, 2)`` ON PURPOSE.  ``GT-032`` proved that function
+    byte-for-byte and the offline tests compare against it; widening a frozen
+    reference is how a reference stops being one.
     """
-    if basic_faction != 1 or scene_seq != 0 or scene_id not in (1, 2):
-        raise ValueError(
-            "only the exact Scene2 or SCENE-007 Port Royal faction-1 probe is allowed"
-        )
+    if (
+        basic_faction != PROVEN_BASIC_FACTION
+        or scene_seq != 0
+        or not world_faction_admission.admits(scene_id)
+    ):
+        # NAME THE CONDITION THAT ACTUALLY REFUSED.  Three things can refuse
+        # here and only one of them is the scene, so quoting the scene reason
+        # unconditionally produces the sentence "faction-1 is refused:
+        # faction_admitted_scene_14..." on a bad ``basic_faction`` -- a
+        # message that contradicts itself and sends the reader to the
+        # registry to debug a value that was never about the registry.
+        # Measured: that exact string came out of a mutation run this round.
+        if world_faction_admission.admits(scene_id):
+            reason = (
+                f"basic_faction={basic_faction!r} scene_seq={scene_seq!r} -"
+                f" only basic_faction {PROVEN_BASIC_FACTION} at scene_seq"
+                f" {world_faction_admission.PROVEN_SCENE_SEQUENCE} is admitted"
+                f" (scene {scene_id} itself is admitted)"
+            )
+        else:
+            reason = world_faction_admission.refusal_reason(scene_id)
+        raise ValueError("faction-1 is refused: " + reason)
     return _make_actor_attr_with_name_and_class(
         legacy, identity_lo, identity_hi, scene_id, scene_seq, character_name,
         class_id, level, basic_faction=basic_faction,

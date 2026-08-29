@@ -54,7 +54,12 @@ from pirateforce_foundation.model import Position  # noqa: E402
 # Pinned as a literal for the reason every other file in this lane pins it:
 # this file has to go RED when the set moves, not agree with whatever the
 # registry says on the day it runs.
-ADMISSIBLE_TODAY = (1, 2, 278, 997)
+# Scene 14 joined it in LANE-A round vvy6q7 (COO-DECISION 20260829_2342
+# opened Hell Volcano Island at login).  It arrived through the REGISTRY,
+# which is this file's whole point: the sanctioned scene 126 still grants
+# nothing, and 14 is here because a pinned row says open, not because a
+# letter said so.
+ADMISSIBLE_TODAY = (1, 2, 14, 278, 997)
 # The one scene a chief letter sanctions today.
 SANCTIONED = 126
 # Pinned, named, and barred at login -- the shape scene 126 will have once
