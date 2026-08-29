@@ -327,12 +327,13 @@ MOB_PICKUP_WIRING = (
     "of instructions and the row is normally gone before resolve runs.  "
     "NEITHER refusal is evidence about RE-082 -- see the note on that split "
     "in resolve_claim.\n"
-    "  ROUND uq2lxw SUPERSEDES THE TWO STEPS BELOW WITH ONE CALL, AND THE "
-    "OLD RECIPE IS KEPT ONLY AS THE RECORD OF WHY: use "
+    "  ROUND uq2lxw SUPERSEDES THE DISPATCH CALL ABOVE AND STEP 3 BELOW "
+    "WITH ONE CALL, AND THE OLD RECIPE IS KEPT ONLY AS THE RECORD OF WHY. "
+    "DO NOT follow those two as written; use "
     + "mob_pickup_persist.pickup_and_persist(store, sid, character_id, "
     "bag_cell, drop_ledger_cell, legacy, identity, x, y, z, "
     "object_ref_u32, opaque_u8)" +
-    " instead of the dispatch call above followed by step 3.  It runs the "
+    " for the whole of it.  It runs the "
     "SAME dispatch, and adds the one thing this note cannot: it asks the "
     "store everything the store would refuse BEFORE the take, so a doomed "
     "write refuses the pickup instead of eating the drop.  Following the "
@@ -1309,8 +1310,11 @@ class BagCell:
 
         WHAT THE LOCK HERE DOES AND DOES NOT DO, stated exactly because the
         first draft of this property claimed more (pf-adversary, round
-        uq2lxw).  It makes THIS read atomic against a ``commit_pickup`` that
-        is mid-update, nothing more.  ~~"an unlocked read of it beside a
+        uq2lxw, twice).  Honestly: under CPython a bare read of an
+        ``int | None`` attribute is already atomic, so this lock buys
+        nothing a reader can name today.  It is kept because it costs one
+        uncontended acquire and makes this property behave like
+        :attr:`bag` beside it, not because it repairs a race.  ~~"an unlocked read of it beside a
         locked read of the bag could pair a mark with a bag it never went
         with"~~ IS STRUCK: two SEPARATE locked reads pair no better than one
         locked and one unlocked, and a caller that wants the mark and the bag

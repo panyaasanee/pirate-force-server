@@ -768,7 +768,11 @@ GRADE_SUBSET_SHA256 = (
     # being true when chief's STORE-INSERT-001 landed; this round adds the
     # only caller of that write in src/, so a machine reading the structured
     # refs would otherwise see a row whose evidence stops at the log.
-    #   g627j0 / parent 034304EA80D0C8119BC208A8EB1AA5F934F3D8C34AB473223492B7E629E3ABB3
+    # Parent digest, kept greppable, and labelled with the round that
+    # RECORDED it rather than the one replacing it (pf-adversary read the
+    # two older lines the other way round, so this one says which is which):
+    #   parent 034304EA80D0C8119BC208A8EB1AA5F934F3D8C34AB473223492B7E629E3ABB3, recorded by round g627j0
+    #   this pin, recorded by round uq2lxw:
     "DB3F2D0DC76426B0EF93DBF33809E3E0A87AA99FDD1F9D4559371C846238064B"
 )
 

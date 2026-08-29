@@ -63,8 +63,10 @@ KILLER = 0x750059
 # (pf-adversary, this round): with (10, 20, 30), permuting x and y anywhere in
 # the chain left the distance at ~14 against a radius of 450, so the test that
 # exists to catch a swapped argument in the published wiring line could not
-# catch one.  With these, a swap is ~1386 away and refused.
-DROP_AT = (1000.0, 20.0, 30.0)
+# catch one.  The second draft moved only x, which left y<->z granted at 10
+# apart; ALL THREE are far apart now, and the swap test drives all three
+# permutations rather than the one it happened to write down.
+DROP_AT = (1000.0, 20.0, 3000.0)
 
 
 def _build_wire(selector):
@@ -443,6 +445,123 @@ class PickupPersistTests(unittest.TestCase):
             mob_pickup_persist.REFUSE_CELL_DISAGREES_WITH_THE_DATABASE)
         self.assertEqual(len(second.ledger.drops), 1)
 
+    def test_a_write_that_committed_then_failed_is_not_reported_as_a_loss(self):
+        """The aftermath is READ BACK, not inferred from the exception.
+
+        pf-adversary, second pass: a store that commits and then raises on
+        the way out (``db.close()`` in a ``finally`` is enough) made this
+        module print ``MOB_PICKUP_ROW_LOST`` for a row that was in the
+        database -- and that line invites an operator to put it back by hand,
+        i.e. to insert a duplicate.
+        """
+        ground = a_ground_cell(a_drop())
+        cell = self._claim_cell()
+        real = self.store.commit_acquired_backpack_item
+
+        def commit_then_fail(sid, character_id, item):
+            real(sid, character_id, item)
+            raise sqlite3.OperationalError("disk I/O error while closing")
+
+        buffer = io.StringIO()
+        with mock.patch.object(
+                self.store, "commit_acquired_backpack_item", commit_then_fail):
+            with redirect_stdout(buffer):
+                with self.assertRaises(MobPickupPersistError) as caught:
+                    self._pickup(cell, ground)
+        self.assertEqual(
+            caught.exception.reason,
+            mob_pickup_persist.REFUSE_WRITE_FAILED_AFTER_THE_TAKE)
+        printed = buffer.getvalue()
+        self.assertIn(mob_pickup_persist.AFTERMATH_ROW_PRESENT, printed)
+        self.assertNotIn(mob_pickup_persist.AFTERMATH_ROW_ABSENT, printed)
+        self.assertIn("do NOT insert it by hand", printed)
+        # and the row really is there, which is what the line now says
+        self.assertEqual(len(self._rows()), len(INITIAL_BACKPACK.items) + 1)
+
+    def test_when_the_read_back_also_fails_the_fate_is_named_unknown(self):
+        """Three answers, never two: "I do not know" is one of them.
+
+        The database is unreachable for the write AND for the read after it,
+        which is what a locked or dying database actually looks like.  The
+        precheck's own read still has to succeed -- otherwise the pickup is
+        refused before the take and there is nothing to be unsure about -- so
+        the store fails from the SECOND read onwards.
+        """
+        ground = a_ground_cell(a_drop())
+        cell = self._claim_cell()
+        real_get = self.store.get_backpack
+        calls = []
+
+        def fails_after_the_precheck(sid, character_id):
+            calls.append(1)
+            if len(calls) > 1:
+                raise sqlite3.OperationalError("still locked")
+            return real_get(sid, character_id)
+
+        buffer = io.StringIO()
+        with mock.patch.object(
+                self.store, "commit_acquired_backpack_item",
+                side_effect=sqlite3.OperationalError("database is locked")):
+            with mock.patch.object(
+                    self.store, "get_backpack", fails_after_the_precheck):
+                with redirect_stdout(buffer):
+                    with self.assertRaises(MobPickupPersistError):
+                        self._pickup(cell, ground)
+        self.assertIn(
+            mob_pickup_persist.AFTERMATH_UNKNOWN, buffer.getvalue())
+        self.assertIn("UNKNOWN - check before changing anything",
+                      buffer.getvalue())
+
+    def test_the_loss_report_is_printed_even_with_echo_off(self):
+        # echo is a console preference for the ordinary path; a possibly
+        # destroyed item is not a preference (pf-adversary, second pass: the
+        # first draft's docstring promised this unconditionally and the code
+        # had it inside `if echo:`).
+        ground = a_ground_cell(a_drop())
+        cell = self._claim_cell()
+        buffer = io.StringIO()
+        with mock.patch.object(
+                self.store, "commit_acquired_backpack_item",
+                side_effect=sqlite3.OperationalError("database is locked")):
+            with redirect_stdout(buffer):
+                with self.assertRaises(MobPickupPersistError):
+                    self._pickup(cell, ground, echo=False)
+        self.assertIn(
+            mob_pickup_persist.AFTERMATH_ROW_ABSENT, buffer.getvalue())
+
+    def test_the_loss_line_that_is_really_printed_survives_cp874(self):
+        """The cp874 fix, driven through the print that actually happens.
+
+        pf-adversary, second pass: removing ``console_safe`` from the loss
+        path left the suite green, because the ASCII test composed a line
+        itself instead of driving the path where a foreign string reaches a
+        real ``print()``.  A sqlite error naming a Windows path is the
+        hazard, so that is what is injected.
+        """
+        ground = a_ground_cell(a_drop())
+        cell = self._claim_cell()
+        buffer = io.StringIO()
+        with mock.patch.object(
+                self.store, "commit_acquired_backpack_item",
+                side_effect=sqlite3.OperationalError(
+                    "unable to open 'C:\\Panya\\\u4e2d\\state.sqlite3'")):
+            with redirect_stdout(buffer):
+                with self.assertRaises(MobPickupPersistError) as caught:
+                    self._pickup(cell, ground)
+        buffer.getvalue().encode("cp874")
+        caught.exception.detail.encode("cp874")
+
+    def test_the_loss_line_refuses_a_value_that_is_not_the_typed_row(self):
+        # Same guard as the sibling composer, and it matters more here: this
+        # one runs inside persist_pickup's except block, where an
+        # AttributeError would replace the named refusal (pf-adversary).
+        with self.assertRaises(MobPickupPersistError) as caught:
+            mob_pickup_persist.row_lost_console_line(
+                {"item_identity": 5}, ValueError("boom"))
+        self.assertEqual(
+            caught.exception.reason,
+            mob_pickup_persist.REFUSE_TYPE_NOT_TYPED_RECORD)
+
     def test_persist_pickup_refuses_an_outcome_from_another_characters_cell(self):
         """The guard on the PUBLIC entry point, exercised through it.
 
@@ -501,6 +620,75 @@ class PickupPersistTests(unittest.TestCase):
         self.assertEqual(
             caught.exception.args[0],
             mob_pickup.REFUSE_IDENTITY_HIGH_WATER_BELOW_THE_BAG)
+
+    def test_the_bag_is_read_before_the_mark_and_that_is_the_argument(self):
+        """An ordering the code depends on, pinned where a tidy-up would break it.
+
+        ``precheck_persistable`` calls ``next_item_identity`` on a bag and a
+        mark read from the cell in SEPARATE lock acquisitions.  The reason a
+        lagging mark cannot arrive there is the ORDER: bag first, so a
+        concurrent ``commit_pickup`` can only pair an older bag with a newer
+        mark.  Swapping the two adjacent lines inverts that argument and left
+        the whole suite green (pf-adversary, second pass).  This reads the
+        function's own source, because the property is textual.
+        """
+        import ast
+
+        tree = ast.parse(
+            (ROOT / "src/pirateforce_foundation/mob_pickup_persist.py")
+            .read_text(encoding="utf-8"))
+        function = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "precheck_persistable")
+        reads = [
+            node.value.attr
+            for node in function.body
+            if isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.Attribute)
+            and getattr(node.value.value, "id", "") == "bag_cell"
+        ]
+        self.assertEqual(
+            reads[:2], ["bag", "issued_through"],
+            "the bag must be read before the mark; see the comment above the "
+            "next_item_identity call for what the order buys")
+
+    def test_a_mark_at_the_identity_ceiling_is_a_persistence_refusal(self):
+        """The second raise site the first draft's argument did not count.
+
+        ``next_item_identity`` also refuses when the mark is at the column
+        ceiling, and that one IS reachable from a validly constructed cell:
+        seed at MAX-1, take one pickup, and the next precheck hits it.  It
+        needs 2^63 identities to happen for real -- but it must not arrive as
+        a ``MobPickupContractError``, which a caller reads as "you cannot
+        pick that up" (pf-adversary, second pass, who fired it).
+        """
+        cell = self._claim_cell()
+        ceiling = mob_pickup.MobPickupContractError(
+            mob_pickup.REFUSE_IDENTITY_BLOCK_SPENT,
+            "item identity %d is at the column ceiling"
+            % mob_pickup.MAX_ITEM_IDENTITY)
+        # INJECTED, and the reason it has to be injected is itself the point.
+        # Reaching this for real needs a cell whose mark is AT the ceiling,
+        # and such a cell can only come from a commit_pickup -- which also
+        # moves the bag, so the bag-equality check above refuses first.  That
+        # is a shield made of two checks' ORDER, and an argument of exactly
+        # that shape is what this round already got wrong once (the first
+        # draft removed this guard as "a branch that cannot fire" after
+        # counting one of next_item_identity's two raise sites).  So the
+        # CONVERSION is held by a test even though the path is shielded: what
+        # must never happen is this reaching a caller as the sibling class.
+        with mock.patch.object(
+                mob_pickup, "next_item_identity", side_effect=ceiling):
+            with self.assertRaises(MobPickupPersistError) as caught:
+                precheck_persistable(
+                    self.store, self.sid, self.character.id, cell)
+        self.assertEqual(
+            caught.exception.reason,
+            mob_pickup_persist.REFUSE_IDENTITY_WOULD_NOT_BE_THE_COLUMNS)
+        self.assertNotIsInstance(
+            caught.exception, mob_pickup.MobPickupContractError)
+        self.assertIs(caught.exception.__cause__, ceiling)
 
     def test_a_bag_value_is_not_a_cell_and_says_so(self):
         with self.assertRaises(MobPickupPersistError) as caught:
@@ -614,9 +802,26 @@ class PickupPersistTests(unittest.TestCase):
         was the old one.  This keeps them from drifting apart again.
         """
         note = mob_pickup.MOB_PICKUP_WIRING
-        self.assertIn("mob_pickup_persist.pickup_and_persist", note)
         self.assertIn(mob_pickup_persist.MOB_PICKUP_PERSIST_HEADLINE_CALL, note)
         self.assertIn("test_without_the_precheck", note)
+        # NOT JUST "the name appears".  pf-adversary rewrote the paragraph's
+        # opening to "CONSIDERED AND REJECTED THE FOLLOWING; DO NOT use
+        # mob_pickup_persist.pickup_and_persist(...)" and every assertIn above
+        # still held -- a note telling the chief to do the opposite, with CI
+        # approving.  The DIRECTION is what has to be pinned, so the
+        # instruction is quoted here in full and the negation is excluded.
+        self.assertIn(
+            "SUPERSEDES THE DISPATCH CALL ABOVE AND STEP 3 BELOW WITH ONE "
+            "CALL", note)
+        self.assertIn("DO NOT follow those two as written; use ", note)
+        self.assertNotIn("DO NOT use mob_pickup_persist", note)
+        self.assertNotIn("REJECTED", note)
+        # and the instruction and the call are one sentence, not two
+        # paragraphs that a later edit could separate
+        directive = note[note.index("DO NOT follow those two as written"):]
+        self.assertLess(
+            directive.index(
+                mob_pickup_persist.MOB_PICKUP_PERSIST_HEADLINE_CALL), 200)
 
     def test_a_disagreement_is_reported_and_not_raised_after_the_write(self):
         """The one thing this module cannot refuse its way out of.
@@ -691,32 +896,45 @@ class PickupPersistTests(unittest.TestCase):
         requires the pickup to be REFUSED; if this ever passes, the test
         above is decoration again.
         """
-        ground = a_ground_cell(a_drop())
-        swapped = mob_pickup_persist.MOB_PICKUP_PERSIST_HEADLINE_CALL.replace(
-            "identity, x, y, z", "identity, y, x, z")
-        self.assertNotEqual(
-            swapped, mob_pickup_persist.MOB_PICKUP_PERSIST_HEADLINE_CALL,
-            "the published line no longer has the argument names this test "
-            "transposes; re-derive the mutation")
-        scope = {
-            "mob_pickup_persist": mob_pickup_persist,
-            "store": self.store,
-            "sid": self.sid,
-            "character_id": self.character.id,
-            "bag_cell": self._claim_cell(),
-            "drop_ledger_cell": ground,
-            "legacy": self.legacy,
-            "identity": KILLER,
-            "x": DROP_AT[0], "y": DROP_AT[1], "z": DROP_AT[2],
-            "object_ref_u32": mob_loot.DROP_KEY_BASE,
-            "opaque_u8": 0,
+        transpositions = {
+            "x<->y": "identity, y, x, z",
+            "x<->z": "identity, z, y, x",
+            "y<->z": "identity, x, z, y",
         }
-        with self.assertRaises(mob_pickup.MobPickupContractError) as caught:
-            eval(swapped, scope)  # noqa: S307 - the mutated line is the subject
-        self.assertEqual(
-            caught.exception.args[0], mob_pickup.REFUSE_CLAIMANT_OUT_OF_RANGE)
-        self.assertEqual(len(ground.ledger.drops), 1)
-        self.assertEqual(len(self._rows()), len(INITIAL_BACKPACK.items))
+        for label, mutated_args in transpositions.items():
+            with self.subTest(swap=label):
+                ground = a_ground_cell(a_drop())
+                swapped = (
+                    mob_pickup_persist.MOB_PICKUP_PERSIST_HEADLINE_CALL
+                    .replace("identity, x, y, z", mutated_args))
+                self.assertNotEqual(
+                    swapped,
+                    mob_pickup_persist.MOB_PICKUP_PERSIST_HEADLINE_CALL,
+                    "the published line no longer has the argument names "
+                    "this test transposes; re-derive the mutation")
+                scope = {
+                    "mob_pickup_persist": mob_pickup_persist,
+                    "store": self.store,
+                    "sid": self.sid,
+                    "character_id": self.character.id,
+                    "bag_cell": self._claim_cell(),
+                    "drop_ledger_cell": ground,
+                    "legacy": self.legacy,
+                    "identity": KILLER,
+                    "x": DROP_AT[0], "y": DROP_AT[1], "z": DROP_AT[2],
+                    "object_ref_u32": mob_loot.DROP_KEY_BASE,
+                    "opaque_u8": 0,
+                }
+                with self.assertRaises(
+                        mob_pickup.MobPickupContractError) as caught:
+                    eval(swapped, scope)  # noqa: S307 - the line is the subject
+                self.assertEqual(
+                    caught.exception.args[0],
+                    mob_pickup.REFUSE_CLAIMANT_OUT_OF_RANGE)
+                self.assertEqual(len(ground.ledger.drops), 1)
+                self.assertEqual(
+                    len(self._rows()), len(INITIAL_BACKPACK.items))
+                self.registry.release(self.character.id)
 
     def test_the_module_ships_with_no_flag_and_no_clock(self):
         import ast

@@ -50,12 +50,22 @@ module cannot prevent that.  What it does instead, since round uq2lxw:
   * the failure is re-raised as :exc:`MobPickupPersistError` with the named
     reason ``write_failed_after_the_take``, never as the store's own
     exception class, so a caller has one vocabulary to catch;
-  * the console gets ``MOB_PICKUP_ROW_LOST`` FIRST, naming the row that is
-    gone from the ground and absent from the database -- the one event in
-    this lane that costs a player an item, printed rather than inferred;
-  * every later pickup in that session refuses before the take
-    (``cell_disagrees_with_the_database``), so one lost drop does not become
-    a session of silently diverging bags.
+  * the database is READ BACK and the console gets one of three lines --
+    ``MOB_PICKUP_ROW_LOST`` (read back, not there),
+    ``MOB_PICKUP_ROW_WROTE_THEN_FAILED`` (read back, it IS there) or
+    ``MOB_PICKUP_ROW_FATE_UNKNOWN`` (the read failed too).  Printed whatever
+    ``echo`` says, because an item that may have been destroyed is not a
+    console preference.  An earlier draft printed "LOST" on the strength of
+    an exception having arrived and pf-adversary measured it lying: with a
+    store that commits and then raises, the row was in the database and the
+    console told an operator to put it back by hand;
+  * when the row really is absent, every later pickup in that session
+    refuses before its take (``cell_disagrees_with_the_database``), so one
+    lost drop does not become a session of silently diverging bags.  When it
+    is PRESENT, the cell and the database agree again and the session simply
+    continues -- with the caller having been told the pickup failed.  That
+    case is named here rather than smoothed over; the resync below is what
+    would answer it.
 
 THE QUESTION THAT IS STILL OPEN, and it is the chief's to answer at the call
 site rather than this module's: what the PLAYER is told when that happens.
@@ -124,6 +134,19 @@ MOB_PICKUP_PERSIST_REFUSAL_REASONS = (
     REFUSE_STORE_CANNOT_BE_ASKED,
     REFUSE_WRITE_FAILED_AFTER_THE_TAKE,
 )
+
+
+#: The store's own wording for "this session does not have this character
+#: selected" (``store._require_selected_session``), matched on the two words
+#: that carry the meaning rather than on the whole sentence, so a rewording
+#: there degrades to the catch-all instead of to a wrong assertion.  COUPLING
+#: HELD BY A STRING, and named as such: ``tests/test_mob_pickup_persist.py``
+#: drives the real store to produce the real exception, so the day store.py
+#: rewords it, that test goes red rather than the log going quietly wrong.
+def _reads_as_an_ownership_refusal(exc: Any) -> bool:
+    text = str(exc).lower()
+    return "session" in text and (
+        "non-owning" in text or "stale" in text or "selected" in text)
 
 
 def console_safe(text: str) -> str:
@@ -206,24 +229,83 @@ def row_inserted_console_line(row_write: Any) -> str:
     )
 
 
-def row_lost_console_line(row_write: Any, exc: Any) -> str:
-    """The line for the one event in this lane that costs a player an item.
+#: What a read-back after a failed write found.  Three answers, never two:
+#: an exception arriving is not evidence about what is in the database.
+AFTERMATH_ROW_ABSENT = "MOB_PICKUP_ROW_LOST"
+AFTERMATH_ROW_PRESENT = "MOB_PICKUP_ROW_WROTE_THEN_FAILED"
+AFTERMATH_UNKNOWN = "MOB_PICKUP_ROW_FATE_UNKNOWN"
 
-    LOST, not REFUSED: everything else this module says no to leaves the drop
-    on the ground.  This line means the drop is off the ground and the row is
-    not in the database, and it names the row so an operator can put it back
-    by hand if the owner ever asks.  Its token is deliberately unlike the
-    other two -- a grep for ``MOB_PICKUP_ROW_`` finds all three, and a grep
-    for ``MOB_PICKUP_ROW_LOST`` finds only the losses.
+
+def aftermath_of_a_failed_write(store: Any, sid: Any, character_id: Any,
+                                row_write: Any) -> str:
+    """Which of the three the database actually says, by READING it.
+
+    ROUND uq2lxw, pf-adversary's second pass.  The first version of this path
+    printed ``MOB_PICKUP_ROW_LOST`` on the strength of "an exception reached
+    me", and that is an inference about the internals of a ``store`` this
+    module only knows as ``Any``.  Measured with a store that commits and
+    then raises on the way out (``db.close()`` in a ``finally`` is enough):
+    the console said the row was LOST while the row was in the database, and
+    an operator following that line's own advice would have inserted a
+    duplicate.
+
+    So the failure path asks.  One read, and a third answer for the case
+    where the read fails too -- naming "I do not know" rather than picking
+    the more comfortable of the other two.
     """
+    try:
+        bag = store.get_backpack(sid, character_id)
+    except Exception:   # noqa: BLE001 - a read that fails is its own answer
+        return AFTERMATH_UNKNOWN
+    items = getattr(bag, "items", None)
+    try:
+        present = any(
+            row.identity == row_write.item_identity for row in items)
+    except TypeError:
+        return AFTERMATH_UNKNOWN
+    return AFTERMATH_ROW_PRESENT if present else AFTERMATH_ROW_ABSENT
+
+
+def row_lost_console_line(row_write: Any, exc: Any,
+                          token: str = AFTERMATH_ROW_ABSENT) -> str:
+    """The line for the one event in this lane that can cost a player an item.
+
+    ``token`` is one of the three :func:`aftermath_of_a_failed_write` names,
+    and the sentence after the row is written for the token that carries it.
+    ``MOB_PICKUP_ROW_LOST`` means READ BACK AND NOT THERE -- it is the one an
+    operator may act on, so it is the one that had to stop being a guess.
+    A grep for ``MOB_PICKUP_ROW_`` finds every outcome this lane prints; a
+    grep for ``MOB_PICKUP_ROW_LOST`` finds only the confirmed losses.
+    """
+    if type(row_write) is not mob_pickup.BagRowWrite:
+        # Same guard the sibling composer has, and it matters MORE here: this
+        # one runs inside persist_pickup's own except block, where an
+        # AttributeError would replace the named refusal and bury the store's
+        # exception in __context__ (pf-adversary, second pass).
+        raise MobPickupPersistError(
+            REFUSE_TYPE_NOT_TYPED_RECORD,
+            "a console line needs the typed mob_pickup.BagRowWrite the "
+            "outcome carries")
+    tail = {
+        AFTERMATH_ROW_ABSENT:
+            "the drop left the ground and the row is NOT in the database "
+            "(read back after the failure)",
+        AFTERMATH_ROW_PRESENT:
+            "the drop left the ground and the row IS in the database "
+            "(read back after the failure) - do NOT insert it by hand; the "
+            "caller was told the pickup failed and the client may disagree",
+        AFTERMATH_UNKNOWN:
+            "the drop left the ground and the database could not be read "
+            "back, so whether the row is there is UNKNOWN - check before "
+            "changing anything",
+    }.get(token, "the drop left the ground and the write failed")
     return (
-        "MOB_PICKUP_ROW_LOST table=character_backpack_items "
+        "%s table=character_backpack_items "
         "claimant=0x%X character_id=%d item_identity=%d template_id=%d "
-        "quantity=%d slot=%d - the drop left the ground and the write "
-        "failed: %r" % (
-            row_write.claimant_identity, row_write.character_id,
+        "quantity=%d slot=%d - %s: %r" % (
+            token, row_write.claimant_identity, row_write.character_id,
             row_write.item_identity, row_write.template_id,
-            row_write.quantity, row_write.slot, exc)
+            row_write.quantity, row_write.slot, tail, exc)
     )
 
 
@@ -328,10 +410,28 @@ def precheck_persistable(
         db_bag = store.get_backpack(sid, character_id)
     except PermissionError as exc:
         # The store's OWN way of saying "this session does not have this
-        # character selected" (store._require_selected_session).  Reported
-        # under its own name because it is the one answer here that may mean
-        # a client asked for somebody else's character, rather than a machine
-        # having a bad day.
+        # character selected" (store._require_selected_session raises
+        # PermissionError("stale or non-owning character session")).
+        #
+        # THE CLASS IS NOT ENOUGH TO TELL THEM APART, and keying on it alone
+        # was this module's second draft (pf-adversary, second pass):
+        # PermissionError is an OSError subclass, and WinError 32 -- "the
+        # process cannot access the file because it is being used by another
+        # process", the antivirus/backup case this project's own test helper
+        # cites BY NAME for this very sqlite file -- arrives as one too.
+        # Reporting that as "the session does not own this character" asserts
+        # a specific, security-shaped, wrong cause.  So the store's own words
+        # have to be in it; anything else is the catch-all below, which
+        # asserts nothing.
+        if not _reads_as_an_ownership_refusal(exc):
+            raise MobPickupPersistError(
+                REFUSE_STORE_CANNOT_BE_ASKED,
+                console_safe(
+                    "the store raised PermissionError for character %r on "
+                    "session %r, and it does not read as an ownership "
+                    "refusal (a file held by another process reaches here "
+                    "the same way): %r"
+                    % (character_id, sid, exc))) from exc
         raise MobPickupPersistError(
             REFUSE_SESSION_DOES_NOT_OWN_THIS_CHARACTER,
             console_safe(
@@ -360,20 +460,37 @@ def precheck_persistable(
     # Both values are derived, neither is typed in: the left one is what the
     # cell will mint (from the cell's own bag and mark), the right one is what
     # the column will demand.
-    # NOT WRAPPED IN A try, AND THE REASON IS THE READ ORDER ABOVE.
-    # ``next_item_identity`` raises this lane's SIBLING exception
-    # (identity_high_water_below_the_bag) when a mark lags its own bag, and
-    # letting that reach a caller would report a persistence problem as "you
-    # cannot pick that up" -- which MobPickupPersistError's docstring
-    # forbids.  It cannot happen here: ``BagCell`` validates the mark against
-    # the bag at construction and only ever moves it FORWARD under its own
-    # lock, and the bag is read BEFORE the mark above, so the only
-    # interleaving a concurrent ``commit_pickup`` can produce is an older bag
-    # with a newer mark -- never the reverse.  A try/except here would be a
-    # branch that cannot fire, which is the same defect as a gate that does
-    # nothing.  ``test_a_cell_whose_mark_lags_its_own_bag_is_refused_at
-    # _seeding`` pins where that refusal really lives.
-    minted = mob_pickup.next_item_identity(cell_bag, cell_mark)
+    # WRAPPED, AND THE ROUND CHANGED ITS MIND ABOUT THIS TWICE -- the record
+    # of why is worth more than the line.  ``next_item_identity`` has TWO
+    # raise sites, both this lane's SIBLING exception, and letting either
+    # reach a caller reports a persistence problem as "you cannot pick that
+    # up", which MobPickupPersistError's docstring forbids.
+    #   - identity_high_water_below_the_bag: a mark that lags its own bag.
+    #     THIS one really cannot arrive here -- BagCell validates the mark
+    #     against the bag at construction, only moves it forward under its
+    #     own lock, and the bag is read BEFORE the mark above, so the worst
+    #     interleaving is an older bag with a newer mark.  That argument is
+    #     load-bearing and unprotected by anything but itself, so a test
+    #     reads this function's source and pins the two lines in that order
+    #     (test_the_bag_is_read_before_the_mark_and_that_is_the_argument).
+    #   - identity_block_spent: the mark is at the column ceiling.  The first
+    #     draft of this comment said "a branch that cannot fire" after
+    #     checking only the first raise site; pf-adversary fired this one
+    #     from a constructed cell.  Today it is shielded here as well -- a
+    #     mark AT the ceiling can only come from a commit_pickup, which also
+    #     moves the bag, so the bag-equality check above refuses first -- but
+    #     that shield is made of two checks' ORDER, which is the same shape
+    #     of argument this round already got wrong once.  Caught rather than
+    #     argued away, and the conversion is held by a test that injects the
+    #     raise (test_a_mark_at_the_identity_ceiling_is_a_persistence_refusal).
+    try:
+        minted = mob_pickup.next_item_identity(cell_bag, cell_mark)
+    except mob_pickup.MobPickupContractError as exc:
+        raise MobPickupPersistError(
+            REFUSE_IDENTITY_WOULD_NOT_BE_THE_COLUMNS,
+            "this cell cannot mint an identity to write under (%s); it "
+            "cannot be re-seeded past this either - the identity space "
+            "itself is what has run out" % exc.args[0]) from exc
     column = issued_through + 1
     if minted != column:
         raise MobPickupPersistError(
@@ -404,6 +521,11 @@ def persist_pickup(
     less or checks less -- so it cannot become the opt-in gate this lane is
     forbidden to ship.  The lines are returned either way, so a caller that
     wants them somewhere other than stdout does not have to capture stdout.
+    IT DOES NOT REACH THE FAILURE PATH: the aftermath line for a write that
+    failed after the take is printed with ``echo`` off as well, and
+    ``test_the_loss_report_is_printed_even_with_echo_off`` says so.  A caller
+    quieting its console must not be quietly deciding that a possibly
+    destroyed item goes unrecorded.
     """
     if type(outcome) is not mob_pickup.PickupOutcome:
         raise MobPickupPersistError(
@@ -429,15 +551,20 @@ def persist_pickup(
         bag_after_db = store.commit_acquired_backpack_item(
             sid, character_id, outcome.item)
     except Exception as exc:   # noqa: BLE001 - the drop is already gone
-        # THE ONE PATH IN THIS LANE THAT COSTS A PLAYER AN ITEM.  The take
-        # happened inside dispatch_pickup_request; this write did not.  The
-        # store's transaction means nothing was half-written, so the loss is
-        # exactly one item and not a corrupt bag -- but it IS a loss, and it
-        # is printed before it is raised, because an operator reading the
-        # console afterwards has no other way to know which row went missing.
-        lost = console_safe(row_lost_console_line(row_write, exc))
-        if echo:
-            print(lost)
+        # THE ONE PATH IN THIS LANE THAT CAN COST A PLAYER AN ITEM.  The take
+        # happened inside dispatch_pickup_request; this write raised.  What
+        # the database actually holds is READ BACK rather than inferred -- see
+        # aftermath_of_a_failed_write for the measurement that made that
+        # necessary -- and the line names which of the three answers it got.
+        #
+        # PRINTED WHATEVER ``echo`` SAYS.  ``echo`` is a console preference
+        # for the ordinary path; an item that may have been destroyed is not
+        # a preference, and a caller quieting its logs must not be quietly
+        # deciding that this goes unrecorded too.
+        lost = console_safe(row_lost_console_line(
+            row_write, exc,
+            aftermath_of_a_failed_write(store, sid, character_id, row_write)))
+        print(lost)
         raise MobPickupPersistError(
             REFUSE_WRITE_FAILED_AFTER_THE_TAKE, lost) from exc
     lines = [row_inserted_console_line(row_write)]

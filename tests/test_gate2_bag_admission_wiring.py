@@ -465,6 +465,23 @@ class OnlyTheCharacterSelectPathAsksThisPredicate(unittest.TestCase):
             # same reason the module does.  Regenerated, never hand-edited.
             "scenarios/combat_pickup_001.json",
             "docs/FUNCTIONAL_COVERAGE.json",
+            # Added by LANE-B, round uq2lxw.  mob_pickup_persist joins the
+            # pickup path to the store's write, and the one thing that write
+            # has to be true for is the same one STORE-INSERT-001's file
+            # names above: the bag it produces GETS THROUGH GATE 2 after a
+            # relog.  So the test reads the verdict from this predicate
+            # instead of asserting its own idea of admissibility.  A test OF
+            # bag_admission's outcome; the production module
+            # (mob_pickup_persist.py) does not import it and is not listed.
+            #
+            # AND THIS ENTRY IS THE SCAR ABOVE, REPEATED IN THE ROUND THAT
+            # WAS WARNED BY IT.  The paragraph two entries up says `git grep`
+            # searches the INDEX, so an untracked new test file is invisible
+            # here and the suite runs green until `git add`.  That is exactly
+            # what happened: round uq2lxw measured 4483 green with this file
+            # untracked, committed it, and HEAD was red.  Staged first, then
+            # measured, from now on.
+            "tests/test_mob_pickup_persist.py",
         }
         elsewhere = sorted(
             set(line for line in tracked.stdout.split("\n") if line) - allowed
