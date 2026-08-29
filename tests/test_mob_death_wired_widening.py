@@ -237,9 +237,10 @@ class RulingForTests(unittest.TestCase):
 
     def test_the_narrower_letter_wins_and_it_is_the_one_the_pin_uses(self):
         # bg0001's dummies are covered by TWO letters.  A kill travels under
-        # exactly one, and the rule (smallest covered set, ties by sorted
-        # name) has to reproduce the answer the tree already gave in
-        # PIN_WIDENING_RULING rather than invent a second one.
+        # exactly one, and the rule (smallest covered set, ties to the letter
+        # registered first -- COO-DECISION 2026-08-29T08:48+07:00 item 1) has
+        # to reproduce the answer the tree already gave in PIN_WIDENING_RULING
+        # rather than invent a second one.
         bg0001 = field_mobs.load_roster()
         self.assertTrue(bg0001)
         for mob in bg0001:
@@ -250,35 +251,169 @@ class RulingForTests(unittest.TestCase):
                 self.assertEqual(ruling_for(mob), mob_death.PIN_WIDENING_RULING)
 
     def test_the_tie_break_is_the_rule_it_claims_to_be(self):
-        # pf-adversary, this round: "the narrower letter wins" was decorative.
-        # bg0001's two letters BOTH carry frozenset({916}) at HEAD, so the len
-        # term separated nothing, and two mutants survived -- dropping len
-        # entirely, and reversing it so the WIDER letter wins.  The rule is
-        # therefore exercised on registered stand-in letters, where the two
-        # terms can be told apart, and both terms are pinned separately.
+        # pf-adversary, round j0u64p: "the narrower letter wins" was
+        # decorative.  bg0001's two letters BOTH carry frozenset({916}) at
+        # HEAD, so the len term separated nothing, and two mutants survived --
+        # dropping len entirely, and reversing it so the WIDER letter wins.
+        # The rule is therefore exercised on registered stand-in letters,
+        # where the terms can be told apart, and each is pinned separately.
+        #
+        # ROUND uq2lxw, COO-DECISION 2026-08-29T08:48+07:00 item 1: term (b)
+        # is no longer the sorted NAME but the letter's REGISTRATION TIME, so
+        # every stand-in letter here now carries a timestamp the way a real
+        # one does.
         bg0001 = field_mobs.load_roster()[0]
+        older = "AAA test-only older letter 2026-08-26T00:00+07:00"
         previous = dict(mob_death.WIDENING_RULINGS)
         try:
-            # (1) a WIDER letter, whose name sorts FIRST, must still lose --
+            # (1) a WIDER letter, older AND sorting first, must still lose --
             #     this fails under sorted(covering)[0] and under a reversed
             #     len term alike.
-            mob_death.WIDENING_RULINGS["AAA test-only wide letter"] = (
-                frozenset({916, 31, 34, 35}))
+            mob_death.WIDENING_RULINGS[older] = frozenset({916, 31, 34, 35})
             self.assertEqual(
                 ruling_for(bg0001), mob_death.PIN_WIDENING_RULING,
                 "a wider letter sorting first took the kill: the len term is "
                 "not deciding")
-            # (2) an EQUALLY narrow letter whose name sorts first must win --
-            #     that is the tie-break, and it is the term that actually
-            #     decides at HEAD.
-            mob_death.WIDENING_RULINGS["AAA test-only narrow letter"] = (
-                frozenset({916}))
-            self.assertEqual(
-                ruling_for(bg0001), "AAA test-only narrow letter")
+            del mob_death.WIDENING_RULINGS[older]
+            # (2) an EQUALLY narrow letter that is OLDER wins -- that is the
+            #     tie-break, and it is the term that actually decides at HEAD.
+            mob_death.WIDENING_RULINGS[older] = frozenset({916})
+            self.assertEqual(ruling_for(bg0001), older)
         finally:
             mob_death.WIDENING_RULINGS.clear()
             mob_death.WIDENING_RULINGS.update(previous)
         self.assertEqual(ruling_for(bg0001), mob_death.PIN_WIDENING_RULING)
+
+    def test_a_newer_letter_does_not_move_an_older_kills_provenance(self):
+        """COO-DECISION 2026-08-29T08:48+07:00 item 1(b), the whole point.
+
+        This is the test that used to say the opposite.  Under the name sort
+        this lane had assumed, a letter registered TOMORROW whose name sorted
+        first took the pin -- every bg0001 kill would have been recorded under
+        a letter written after the kills happened.  COO refused that rule for
+        exactly this property, so the same stand-in letter is registered here
+        and required NOT to win.
+        """
+        bg0001 = field_mobs.load_roster()[0]
+        # Sorts before every real ruling name, and is registered after all of
+        # them: under the old rule this took the kill.
+        newer = "AAA test-only newer letter 2026-08-29T09:33+07:00"
+        previous = dict(mob_death.WIDENING_RULINGS)
+        try:
+            mob_death.WIDENING_RULINGS[newer] = frozenset({916})
+            self.assertEqual(
+                ruling_for(bg0001), mob_death.PIN_WIDENING_RULING,
+                "a letter written after the kills moved their provenance")
+            # ...and the older-letter direction still works, so this is a
+            # tie-break and not a "the incumbent always wins" special case.
+            older = "AAA test-only older letter 2026-08-26T00:00+07:00"
+            mob_death.WIDENING_RULINGS[older] = frozenset({916})
+            self.assertEqual(ruling_for(bg0001), older)
+        finally:
+            mob_death.WIDENING_RULINGS.clear()
+            mob_death.WIDENING_RULINGS.update(previous)
+
+    def test_every_shipped_answer_is_unchanged_by_the_new_tie_break(self):
+        """The COO change moves no shipped row, and this measures it.
+
+        The old key was ``(len(templates), name)``.  Every shipped row is
+        killed today under the letter that key named, and a provenance rule
+        that quietly re-recorded live rows would be a worse defect than the
+        one it fixes.  So the OLD key is recomputed here, over the same
+        covering sets, and required to agree on every row of every live scene.
+        """
+        for scene, mob in self.shipped():
+            with self.subTest(scene=scene, identity=hex(mob.actor_identity)):
+                covering = rulings_covering(mob)
+                if not covering:
+                    continue   # the sanctioned target: no letter, by design
+                old = sorted(
+                    covering,
+                    key=lambda name: (
+                        len(mob_death.WIDENING_RULINGS[name]), name),
+                )[0]
+                self.assertEqual(ruling_for(mob), old)
+
+    def test_every_registered_letter_can_be_ordered_and_names_its_own_clock(self):
+        """The convention ``ruling_registered_at`` depends on, pinned.
+
+        It reads the FIRST timestamp in the name.  The 916 ruling's name
+        carries two -- its own 09:55 and the 09:50 letter it cites -- so a
+        ruling registered with the citation first would be ordered by somebody
+        else's clock, silently.  Nothing in a regex can tell those apart; this
+        test is the guard, and it runs over every registered letter.
+        """
+        expected = {
+            "COO-DECISION widen-death-scope-916-training-iron-man "
+            "2026-08-27T09:55+07:00 (ref PANYA-DECISION 2026-08-27T09:50+07:00 "
+            "section 3, supersedes COO 0954)": "202608270955",
+            "COO-RULING-20260827-1350 widen-death-scope-bg0001": "202608271350",
+            "PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18) "
+            "widen-death-scope-bg0002": "202608272010",
+            "PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18) "
+            "diag-mountain-deer-template-27": "202608272010",
+        }
+        self.assertEqual(
+            set(expected), set(mob_death.WIDENING_RULINGS),
+            "a ruling was registered or removed without its registration time "
+            "being pinned here")
+        for name, stamp in expected.items():
+            with self.subTest(ruling=name[:40]):
+                self.assertEqual(mob_death.ruling_registered_at(name), stamp)
+
+    def test_the_position_rule_and_the_earliest_time_rule_are_not_the_same(self):
+        """The half of ``ruling_registered_at`` no shipped name exercises.
+
+        pf-adversary, this round: two mutants survived here.  Swapping "the
+        match that starts earliest in the name" for "whichever pattern is
+        listed first", and for "the earliest TIME in the name", both left the
+        whole suite green -- because no registered ruling name matches BOTH
+        patterns, so within one pattern ``re.search``'s own leftmost rule was
+        doing all the work and the loop's comparison never decided anything.
+        These are the names where the three rules disagree.
+        """
+        # Its own ISO stamp first, an OLDER compact letter id cited after it.
+        # position -> its own 09:55 (correct).  earliest TIME -> the citation.
+        cites_an_older_letter = (
+            "COO-DECISION 2026-08-27T09:55+07:00 (ref COO-RULING-20260826-0900)")
+        self.assertEqual(
+            mob_death.ruling_registered_at(cites_an_older_letter), "202608270955")
+        # A compact letter id first, an ISO stamp cited after it.  position ->
+        # the compact one (correct).  first PATTERN -> the ISO one, because
+        # the ISO pattern is listed first in _RULING_TIMESTAMP_PATTERNS.
+        compact_first = (
+            "COO-RULING-20260826-0900 supersedes 2026-08-27T09:55+07:00")
+        self.assertEqual(
+            mob_death.ruling_registered_at(compact_first), "202608260900")
+
+    def test_a_letter_with_no_timestamp_is_refused_not_sorted_last(self):
+        # Fail-closed.  A missing sort key silently becomes "first" or "last"
+        # depending on the comparison; either way the letter a kill is
+        # recorded under would be decided by an accident.
+        bg0001 = field_mobs.load_roster()[0]
+        previous = dict(mob_death.WIDENING_RULINGS)
+        try:
+            mob_death.WIDENING_RULINGS["a letter with no clock in its name"] = (
+                frozenset({916}))
+            with self.assertRaises(MobDeathContractError) as caught:
+                ruling_for(bg0001)
+            self.assertEqual(
+                caught.exception.reason,
+                mob_death.REFUSE_RULING_NAME_HAS_NO_TIMESTAMP)
+        finally:
+            mob_death.WIDENING_RULINGS.clear()
+            mob_death.WIDENING_RULINGS.update(previous)
+        self.assertEqual(ruling_for(bg0001), mob_death.PIN_WIDENING_RULING)
+
+    def test_a_name_carrying_an_impossible_date_is_refused(self):
+        # A regex match is not a date: "2026-13-45T99:99" matches the shape and
+        # names no moment, and sorting by it would order letters by a string
+        # nobody can read as a time.
+        with self.assertRaises(MobDeathContractError) as caught:
+            mob_death.ruling_registered_at("COO-DECISION 2026-13-45T99:99+07:00")
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_RULING_NAME_HAS_NO_TIMESTAMP)
 
     def test_a_monster_no_letter_covers_is_refused_not_given_some_letter(self):
         # Fail-closed.  The tempting bug is to return the first registered
