@@ -565,7 +565,12 @@ class CombatLedger:
 
     Sorted-tuple rather than a dict so two ledgers built from the same hits
     compare equal and hash the same in any process, and so no caller can mutate
-    a balance behind the driver's back.
+    a balance behind the driver's back.  [AMENDED, ROUND jop8ph-2,
+    pf-adversary D9: "the same hits" now includes the same ``scene`` tag.
+    ``open_ledger(roster) != CombatLedger(open_ledger(roster).balances)``,
+    because the first is tagged and the second is not -- an inequality this
+    lane's own tests rely on.  No caller in this tree compares two ledgers,
+    which is why nothing broke; the sentence was still wrong as it stood.]
 
     ``scene`` IS THE FIELD ROUND jop8ph ADDED, AND IT EXISTS FOR A CALLER THAT
     MUST NOT BE ALLOWED TO ASK ITS QUESTION THE OTHER WAY.  A census composer
@@ -844,7 +849,14 @@ def open_ledger(
 
     ``scene=`` overrides the derivation and is checked against it, because a
     caller who names a scene and hands rows from another one has two answers
-    and this function will not silently keep the wrong one.
+    and this function will not silently keep the wrong one.  [ROUND jop8ph-2,
+    pf-adversary M4/M5: no caller in src or tests passes a ``scene=`` that
+    DISAGREES with the derivation, so both the override branch and the
+    disagreement refusal were unexercised -- ignoring the argument entirely,
+    and dropping the ``derived is not None`` guard, both survived the whole
+    suite.  Driven now, in both directions, by
+    ``test_naming_one_scene_while_handing_over_another_is_refused`` and
+    ``test_naming_the_scene_of_an_empty_roster_is_accepted_not_refused``.]
 
     A ROSTER WHOSE ROWS DISAGREE STAYS UNSCOPED, and is not refused.  Nothing
     in this tree builds a mixed-scene roster today, but the diagnostic
@@ -916,13 +928,28 @@ def open_ledger_for_scene_id(scene_id: int) -> CombatLedger:
     place where there is nothing to hit, not a place where bg0001's
     monsters can be hit through the floor.
 
-    ROUND jop8ph: the scene name is passed EXPLICITLY here rather than left to
-    :func:`open_ledger`'s derivation, and the difference is the empty-roster
-    case.  A scene this lane ships no monsters for derives nothing from zero
-    rows, so it would open an UNSCOPED empty ledger -- and an unscoped empty
-    ledger is admitted by containment into any scene at all (it is missing
-    nothing, because nothing was asked of it).  Named here, it is a ledger
-    that says which town it belongs to and refuses the next one by name.
+    ~~ROUND jop8ph: the scene name is passed EXPLICITLY here rather than left
+    to :func:`open_ledger`'s derivation ... Named here, it is a ledger that
+    says which town it belongs to and refuses the next one by name.~~
+
+    [WITHDRAWN AS WRITTEN, ROUND jop8ph-2, pf-adversary D1 on the jop8ph
+    diff, MEASURED.]  The keyword below is a PROVABLE NO-OP in this tree, and
+    the paragraph above described an effect it cannot have.
+    :func:`field_mobs.scene_for_scene_id` returns ``None`` for exactly the
+    scenes :func:`field_mobs.roster_for_scene_id` returns ``()`` for -- both
+    go through the same ``_SCENE_TABLE_MODULES`` membership test -- so the
+    argument is ``None`` precisely in the empty-roster case it was added for.
+    Measured over every addressed scene id: ``open_ledger_for_scene_id(sid)``
+    equals ``open_ledger(roster_for_scene_id(sid))`` for all of them, and
+    deleting the keyword survives the whole suite.
+
+    It is KEPT rather than deleted, and that is a decision with a reason: the
+    two functions are separate today only by coincidence of implementation,
+    and the day a scene is addressed with a folder but no mined table this
+    call is already correct.  What is NOT kept is the claim that it does
+    something today.  ``test_the_explicit_scene_here_is_measured_equivalent_
+    today`` pins the equivalence, so the day it stops holding is a noticed
+    day rather than a silent one.
     """
     return open_ledger(
         field_mobs.roster_for_scene_id(scene_id),

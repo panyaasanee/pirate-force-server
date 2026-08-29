@@ -1055,11 +1055,19 @@ guard(SRC_ZERO_HP_SITES == 0 and V141_ZERO_HP_SITES == 0
           "hostile_hp_link_hypothesis.py",
           "mob_combat.py",
           "mob_death.py",
+          # Round jop8ph-2: the seventh.  mob_ledger_admission spells
+          # HP_WHEN_DEAD = 0 rather than importing mob_death's, to keep its
+          # one-sibling import on the census path; the copy is joined against
+          # mob_death.HP_WHEN_DEAD by a test, the same literal-plus-guard
+          # split field_mobs.OWNER_REFUSED_PLACEMENTS uses.  It BINDS a floor
+          # and emits nothing, so it is one of the over-reported kind this
+          # census names on purpose.
+          "mob_ledger_admission.py",
           "npc_hp_link_hypothesis.py",
           "runtimeres_death_hypothesis.py"),
       "GAP 2 CLOSED in round 86 and re-derived in round 7ptoku: the literal "
       "`current_hp = 0` still appears nowhere in src/ or v141, and the src/ "
-      "modules that pass zero through a NAMED constant are exactly these six "
+      "modules that pass zero through a NAMED constant are exactly these seven "
       "%s -- of which mob_combat.py and mob_death.py are the first that are "
       "production_allowed with no flag"
       % (SRC_ZERO_HP_CONST_MODULES,))

@@ -174,8 +174,15 @@ def hostile_override_for_scene_id(
     # re-derivation of them.  Same rule ``census_backing_report`` states for
     # its own inputs: a check computed from a different copy of the thing it
     # is checking can agree with itself while the composition raises.
+    # THE REGISTER GOES WITH IT, ROUND jop8ph-2 (pf-adversary D1).  This
+    # function already holds the register the composer is about to use, and
+    # two of the four refusals ``repopulation_entries`` can raise compare the
+    # ledger against exactly that register.  Passing it is what makes "safe
+    # to hand any ledger" true rather than merely claimed: without it this
+    # call forwarded a ledger that was about to raise, having just printed
+    # ``admitted=yes covered=12/12``.
     admitted = mob_ledger_admission.ledger_for_scene(
-        scene_id, ledger, roster=roster,
+        scene_id, ledger, roster=roster, register=register,
     )
     return mob_death.full_roster_override(
         legacy, roster, register, ledger=admitted,

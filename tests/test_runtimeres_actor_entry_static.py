@@ -374,6 +374,7 @@ class TestTheAnswer(unittest.TestCase):
         # asserted here: the old measure and the one that actually notices.
         self.assertEqual(counts["server_call_sites_emitting_zero_current_hp"], 0)
         # Round swlc56: the named-constant census is six modules now, not one.
+        # Round jop8ph-2: seven.
         # The old measure above is STILL zero -- that is the half worth
         # keeping -- and every one of the five new names passes its zero
         # through a named constant exactly as the round-86 encoder does.  The
@@ -384,6 +385,11 @@ class TestTheAnswer(unittest.TestCase):
                           "hostile_hp_link_hypothesis.py",
                           "mob_combat.py",
                           "mob_death.py",
+                          # Round jop8ph-2: the seventh.  See the tool's own
+                          # comment beside this tuple -- a census that
+                          # quietly widens stops being a census, so it is
+                          # re-pinned rather than loosened.
+                          "mob_ledger_admission.py",
                           "npc_hp_link_hypothesis.py",
                           "runtimeres_death_hypothesis.py"])
 
