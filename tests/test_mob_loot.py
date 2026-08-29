@@ -1612,8 +1612,26 @@ class MobLootTests(unittest.TestCase):
             | set(field_drop_tables.DROPS_EQUIPMENT)
             | set(field_drop_tables.DROPS_SPECIALLY)
         )
-        self.assertEqual(carried, wanted)
-        self.assertEqual(set(field_drop_tables.REFERENCED_BY), wanted)
+        # ROUND wmomy7: ~~equal~~ a superset by exactly the Orc Chief's two
+        # drop sets.  The drop tables are mined over every placement the
+        # scene HAS; ``self.roster`` is what this lane SHIPS, and the
+        # owner's ``owner_says_do_not_place`` ruling on the n_id 101-104
+        # block keeps placements 92-96 (template 103, "Orc Chief") out of
+        # the second set.  Its drop sets stay carried -- they are mined
+        # data, not a claim that something drops them today.  The difference
+        # is asserted by name so an UNEXPLAINED extra set still fails.
+        orc_chief_sets = {2701003, 5400003}
+        self.assertEqual(carried - wanted, orc_chief_sets)
+        self.assertEqual(wanted - carried, set())
+        # BOTH directions.  pf-adversary killed the first draft of this
+        # assertion by deleting the row ``2802234: (31,)`` from
+        # REFERENCED_BY: that set is one the roster DOES name, so checking
+        # only "no unexplained extras" stayed green while a real reference
+        # went missing.  The extras direction is the one the owner-refusal
+        # loosened; the coverage direction must stay exact.
+        self.assertEqual(set(field_drop_tables.REFERENCED_BY) - wanted,
+                         orc_chief_sets)
+        self.assertEqual(wanted - set(field_drop_tables.REFERENCED_BY), set())
 
     def test_no_roster_row_can_roll_past_the_lane_ceiling(self):
         """The ceiling must never be reachable by a LEGITIMATE roll.

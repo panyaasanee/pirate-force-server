@@ -81,7 +81,8 @@ class SingleSceneGuardTests(unittest.TestCase):
         # the CROSS-scene tuple just above is refused.
         field_mobs.assert_single_scene_tables((field_mob_tables_bg0002,))
         bg0002_roster = field_mobs.load_roster(scene=field_mobs.BG0002_SCENE)
-        self.assertEqual(len(bg0002_roster), 17)
+        # ROUND wmomy7: ~~17~~ -> 12 (owner-refused placements 92-96).
+        self.assertEqual(len(bg0002_roster), 12)
         for mob in bg0002_roster:
             self.assertEqual(mob.scene, "Bg0002")
 

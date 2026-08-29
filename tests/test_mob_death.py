@@ -2149,7 +2149,12 @@ class MobDeathTests(unittest.TestCase):
         # default ledger self.killing_outcome() opens only carries bg0001's
         # own 13 identities, and Bg0002's roster is a disjoint set of
         # identities the default ledger was never opened with.
-        self.assertEqual(len(self.bg0002_roster), 17)
+        # ~~17~~ 12 from round wmomy7: placements 92-96 are inside the
+        # owner's ``n_id_101_104_block ... owner_says_do_not_place`` ruling,
+        # so ``field_mobs.OWNER_REFUSED_PLACEMENTS`` stops this lane
+        # shipping them.  The generated table still carries all 17 rows --
+        # what changed is what this lane ships, not what was mined.
+        self.assertEqual(len(self.bg0002_roster), 12)
         for mob in self.bg0002_roster:
             self.assertEqual(mob.scene, field_mobs.BG0002_SCENE)
             outcome = self.killing_outcome_solo(mob).outcome
@@ -2167,16 +2172,25 @@ class MobDeathTests(unittest.TestCase):
             self):
         # Re-derivable from the real mined roster, not a hand-copied
         # literal -- same shape as the bg0001 version of this test.
-        self.assertEqual(
-            mob_death.WIDENING_RULINGS[WIDENED_BG0002_RULING],
-            frozenset(m.template_id for m in self.bg0002_roster))
+        # ~~equal to~~ a SUPERSET of the shipped roster's templates, from
+        # round wmomy7.  The two are different kinds of statement and the
+        # owner made both: the death-scope ruling says which templates may
+        # be killed, and the placement ruling
+        # (``n_id_101_104_block ... owner_says_do_not_place``) says which
+        # placements may stand in the scene at all.  Template 103 ("Orc
+        # Chief") is authorised to die and has no shipped placement to die
+        # at -- consistent, not contradictory.  Asserted as coverage plus a
+        # named difference, so an UNEXPLAINED divergence still fails.
+        shipped = frozenset(m.template_id for m in self.bg0002_roster)
+        ruling = mob_death.WIDENING_RULINGS[WIDENED_BG0002_RULING]
+        self.assertTrue(shipped <= ruling)
+        self.assertEqual(ruling - shipped, frozenset({103}))
         # And it is the SUBSET of the 27-35 census block that actually
         # survives the mining tool's outfit-unambiguous rule, not the
         # whole range -- 27, 28, 29, 30, 32, 33 all fail it and must NOT
         # be members here.
-        self.assertEqual(
-            mob_death.WIDENING_RULINGS[WIDENED_BG0002_RULING],
-            frozenset({31, 34, 35, 103}))
+        self.assertEqual(ruling, frozenset({31, 34, 35, 103}))
+        self.assertEqual(shipped, frozenset({31, 34, 35}))
 
     def test_the_bg0001_and_bg0002_rulings_covered_templates_really_overlap(
             self):

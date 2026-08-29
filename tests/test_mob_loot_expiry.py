@@ -447,7 +447,16 @@ class LedgerExpiryTests(unittest.TestCase):
             ROOT / "src/pirateforce_foundation/mob_loot.py"
         ).read_text(encoding="utf-8")
         head, _, tail = source.partition("DROP_LIFETIME_SECONDS = ")
-        self.assertIn("[ASSUMPTION OF LANE B - AWAITING COO]", head[-2000:])
+        # ROUND wmomy7, COO-DECISION 20260829_1444 item 1: the label moved
+        # from an OPEN assumption to an INTERIM value with a measurement
+        # ticket behind it.  The pin moves with it rather than being dropped,
+        # so removing the label outright still fails this test -- what is
+        # required is that the figure carries an honest status, not that it
+        # carries one particular word.
+        self.assertIn(
+            "[INTERIM - COO 20260829_1444 - AWAITING MEASUREMENT]",
+            head[-2000:])
+        self.assertIn("GT-149", head[-2000:])
         self.assertIn("only this figure is", head[-2000:])
         wiring = mob_loot.MOB_LOOT_WIRING
         self.assertIn("COO-DECISION 2026-08-29T12:41+07:00", wiring)

@@ -63,6 +63,9 @@ LANE_B_MODULES = (
     "loot_roll.py",
     "mob_aggro.py",
     "mob_ai_control.py",
+    # ROUND wmomy7: the scene-scoped hostile census override, and the
+    # census-backing check that found five roster rows with no body.
+    "mob_census_hostility.py",
     "mob_combat.py",
     "mob_death.py",
     "mob_diag_multi_object.py",

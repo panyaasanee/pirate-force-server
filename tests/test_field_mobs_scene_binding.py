@@ -356,12 +356,25 @@ class Bg0002CensusAndRosterOverlapTest(unittest.TestCase):
         # fixed" from being said.
         self.assertEqual(len(self.census - self.bound), 85)
 
-    def test_five_ledger_rows_name_bodies_the_census_never_sends(self):
-        # The other direction, equally worth seeing: the roster carries five
-        # placements the Bg0002 census does not put on any client.
-        self.assertEqual(
-            sorted(self.bound - self.census),
-            [0x205D, 0x205E, 0x205F, 0x2060, 0x2061])
+    def test_no_ledger_row_names_a_body_the_census_never_sends(self):
+        # ~~The other direction, equally worth seeing: the roster carries
+        # five placements the Bg0002 census does not put on any client.
+        # self.assertEqual(sorted(self.bound - self.census),
+        #                  [0x205D, 0x205E, 0x205F, 0x2060, 0x2061])~~
+        # STRUCK, round wmomy7 -- FIXED, not merely re-measured.  Those five
+        # were placements 92-96, which ``scene2_prison_exile_tables`` marks
+        # ``n_id_101_104_block_meaning_unknown_owner_says_do_not_place``:
+        # the owner had ruled they must not be placed, lane A's census
+        # obeyed, and this lane's generated table shipped them anyway.  The
+        # cost was not cosmetic -- the ledger opened on 0x205D at 38,728 HP,
+        # so the server accepted strikes against a monster no client had
+        # ever been sent a body for.
+        #
+        # ``field_mobs.OWNER_REFUSED_PLACEMENTS`` now filters them at
+        # ``load_roster``, the one point the ledger, the AI register and the
+        # census override all pass through, so the set is empty from every
+        # direction rather than in one of them.
+        self.assertEqual(sorted(self.bound - self.census), [])
 
 
 class EmptyRosterReachesEveryCallSiteTest(unittest.TestCase):

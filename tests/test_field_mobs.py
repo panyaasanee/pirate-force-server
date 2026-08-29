@@ -456,7 +456,10 @@ class FieldMobTests(unittest.TestCase):
             # ROUND 8ftmbx: ~~13~~ -> 4 for bg0001 (COO-DECISION
             # 2026-08-29T00:41+07:00); Bg0002 is untouched by that ruling.
             (field_mob_tables.SCENE, 4),
-            (field_mobs.BG0002_SCENE, 17),
+            # ROUND wmomy7: ~~17~~ -> 12; the owner's
+            # ``owner_says_do_not_place`` ruling on the n_id 101-104 block
+            # keeps placements 92-96 out of what this lane ships.
+            (field_mobs.BG0002_SCENE, 12),
         ):
             roster = load_roster(scene=scene)
             self.assertEqual(len(roster), expected_count)
@@ -483,11 +486,22 @@ class FieldMobTests(unittest.TestCase):
         from pirateforce_foundation import field_mob_tables_bg0002
         bg0002_roster = load_roster(scene=field_mobs.BG0002_SCENE)
         self.assertEqual(field_mobs.BG0002_SCENE, "Bg0002")
-        self.assertEqual(len(bg0002_roster), 17)
+        # ROUND wmomy7: ~~17 rows, 4 templates {31, 34, 35, 103}~~ -> 12
+        # rows, 3 templates.  Template 103 ("Orc Chief") had all five of its
+        # placements (92-96) inside the owner's
+        # ``n_id_101_104_block ... owner_says_do_not_place`` ruling, so the
+        # whole template leaves the shipped roster with them.  The generated
+        # table still carries all 17 rows and all 4 templates.
+        self.assertEqual(len(bg0002_roster), 12)
         self.assertEqual(
-            len({mob.template_id for mob in bg0002_roster}), 4)
+            len({mob.template_id for mob in bg0002_roster}), 3)
         self.assertEqual(
-            {mob.template_id for mob in bg0002_roster}, {31, 34, 35, 103})
+            {mob.template_id for mob in bg0002_roster}, {31, 34, 35})
+        table_rows = field_mobs._parse_hostile_placements(
+            field_mob_tables_bg0002)
+        self.assertEqual(len(table_rows), 17)
+        self.assertEqual(
+            {mob.template_id for mob in table_rows}, {31, 34, 35, 103})
         for mob in bg0002_roster:
             self.assertEqual(mob.scene, field_mob_tables_bg0002.SCENE)
             self.assertEqual(mob.scene, "Bg0002")
@@ -803,7 +817,13 @@ class FieldMobTests(unittest.TestCase):
         # line is written.
         self.assertEqual(
             importers,
+            # ROUND wmomy7 adds mob_census_hostility.py: it reads
+            # ``roster_for_scene_id``/``scene_for_scene_id`` and the
+            # ``OWNER_REFUSED_PLACEMENTS`` literal.  It dispatches nothing
+            # -- runtime.py does not call it yet; that is this round's
+            # one-line wiring ask, not a landed call site.
             ["diag_multi_object_wiring.py", "mob_ai_control.py",
+             "mob_census_hostility.py",
              "mob_combat.py", "mob_death.py",
              "mob_diag_multi_object.py", "mob_loot.py",
              "player_hostile_pairing.py", "runtime.py"],
