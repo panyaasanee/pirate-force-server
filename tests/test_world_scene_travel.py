@@ -505,6 +505,38 @@ class SceneRegistryRefusalTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     load_scene_registry(_write(self.tmp, data))
 
+    def test_a_table_row_cannot_walk_a_scene_out_of_the_rule(self):
+        # pf-adversary, round 8ubiku2, E3, escape 1.  Round 8ubiku declared
+        # table_row.n_MARKER "the client's table" and compared it to nothing,
+        # so zeroing it moved scene 14 out of rule 1 with its spawn still on
+        # MARKER[14] and the full suite showing one red - a NEGATIVE test
+        # that stopped raising.  The pinned crosswalk now gets a vote.
+        data = _raw()
+        for row in data["destinations"]:
+            if row["n_id"] == 14:
+                row["table_row"]["n_MARKER"] = 0
+                row["coordinate_provenance"].update(
+                    from_marker=False, marker_n_id=None,
+                    evidence_tier="client-observed",
+                )
+        with self.assertRaises(ValueError):
+            load_scene_registry(_write(self.tmp, data))
+
+    def test_a_declared_deviation_must_actually_deviate(self):
+        # E3, escape 2: n_MARKER left at 14, from_marker false, deviation
+        # declared, spawn still exactly on the marker.  A label, not a
+        # deviation, and it used to load.
+        data = _raw()
+        for row in data["destinations"]:
+            if row["n_id"] == 14:
+                row["coordinate_provenance"].update(
+                    from_marker=False, marker_n_id=None,
+                    deviates_from_rule_1=True,
+                    evidence_tier="client-observed",
+                )
+        with self.assertRaises(ValueError):
+            load_scene_registry(_write(self.tmp, data))
+
     def test_a_duplicated_scene_is_refused(self):
         data = _raw()
         data["destinations"].append(dict(data["destinations"][0]))

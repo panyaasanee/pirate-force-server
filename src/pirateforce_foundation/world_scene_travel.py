@@ -552,7 +552,27 @@ def load_scene_registry(path: str | Path = REGISTRY_PATH) -> SceneRegistry:
                 raise ValueError(
                     f"scene {n_id} both takes its marker and claims to "
                     "deviate from the rule that says to")
-        elif entry_marker != 0 and not deviates:
+        # THE TABLE ROW IS ALSO HAND-TYPED, AND ROUND 8ubiku CALLED IT "the
+        # client's table" AS THOUGH IT WERE NOT (pf-adversary, round 8ubiku2,
+        # E3).  n_MARKER is validated for shape and compared to nothing, so
+        # the previous version moved the self-report rather than removing it:
+        # setting scene 14's table_row.n_MARKER to 0 walked it straight out
+        # of rule 1 with the spawn still sitting on MARKER[14].  The pinned
+        # crosswalk is the one copy of this fact that a bridge round
+        # re-derives, so it gets a vote here.
+        pinned_for_scene = world_scene_marker.arrival_point(n_id)
+        if pinned_for_scene is not None and entry_marker != pinned_for_scene.marker_n_id:
+            raise ValueError(
+                f"scene {n_id} table row says n_MARKER {entry_marker}, but "
+                f"the pinned crosswalk says this scene names marker "
+                f"{pinned_for_scene.marker_n_id}")
+        if deviates and pinned_for_scene is not None and spawn == pinned_for_scene.xyz:
+            # A declared deviation that stands exactly on the marker it says
+            # it is deviating from is a label, not a deviation.
+            raise ValueError(
+                f"scene {n_id} declares a deviation from rule 1 but stands on "
+                "the marker point it claims to deviate from")
+        if not from_marker and entry_marker != 0 and not deviates:
             # A scene that HAS an authored arrival point and declines to use
             # it is exactly what rule 1 forbids by default.  It stays
             # possible - scene 1's home spawn is the live example - but only

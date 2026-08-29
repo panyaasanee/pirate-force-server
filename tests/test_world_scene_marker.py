@@ -267,14 +267,13 @@ class TheRulingIsPinnedNotJustWrittenTest(unittest.TestCase):
         ]
         self.assertEqual(len(agreeing), 12)
         self.assertEqual(len(scenes_with_an_arrival_point()), 13)
-        self.assertGreater(
-            world_scene_marker.SCENES_THE_SHORTCUT_WOULD_INVENT_A_POINT_FOR,
-            20 * len(agreeing),
-            "the shortcut's damage must stay an order of magnitude larger "
-            "than the agreement that makes it tempting; if these ever "
-            "converge, rule 2's justification has changed and the text "
-            "above it needs rewriting rather than this number relaxing",
-        )
+        # ~~assertGreater(SCENES_..._FOR, 20 * len(agreeing))~~ REMOVED
+        # (pf-adversary, round 8ubiku2, E12): both operands are pinned to
+        # exact values by the two assertions above and by a sibling test, so
+        # no input could reach this line with it false.  It was not a
+        # tautology any more, it was unreachable - and this repo deletes
+        # guards that cannot fail rather than shipping them for the comfort
+        # of the sentence attached.
 
     def test_no_public_api_takes_a_marker_id(self):
         # ~~Grepped public callables for the substrings "marker_id" and
@@ -345,22 +344,41 @@ class TheRulingIsPinnedNotJustWrittenTest(unittest.TestCase):
         raised = []
         for destination in registry["destinations"]:
             provenance = destination["coordinate_provenance"]
-            if not provenance["from_marker"]:
-                continue
+            # ~~if not provenance["from_marker"]: continue~~ REMOVED
+            # (pf-adversary, round 8ubiku2, E2): the ceiling covered only
+            # marker-sourced rows, so scene 17 - an invented (0,0,0) owner
+            # decree on the scene RE-103 closed bounded-negative - could be
+            # relabelled "client-observed" with the suite green.  The tier
+            # claim is about whether a client stood on the point; that
+            # question does not care where the coordinate came from.
+            tier = provenance["evidence_tier"]
             with self.subTest(scene=destination["n_id"]):
+                # No row, marker-sourced or not, may call itself confirmed:
+                # only an attended round grants that (COO 20260828_2250).
                 self.assertNotIn("confirmed", destination["status"])
-                if provenance["evidence_tier"] == "authored":
+                if tier != "client-observed":
+                    # "authored", "decreed_provisional" and
+                    # "chosen_no_evidence" are all AT OR BELOW the ceiling,
+                    # so they need no justification here.
                     continue
-                # Anything above "authored" must cite the pass that earned
-                # it, in the row itself.
-                self.assertEqual(
-                    provenance["evidence_tier"], "client-observed")
-                self.assertIn("EXPERIMENT_LEDGER", provenance["note"])
+                # Above "authored" the row must say, in itself, what stood a
+                # client on that exact point.
+                self.assertTrue(
+                    provenance["note"].strip(),
+                    "a client-observed tier with no stated observation",
+                )
+                self.assertRegex(
+                    provenance["note"],
+                    r"EXPERIMENT_LEDGER|SCENE-001|every default boot|V135",
+                    "scene %d claims client-observed without naming the run "
+                    "that observed it" % (destination["n_id"],),
+                )
                 raised.append(destination["n_id"])
-        # Exactly one row has cleared that bar so far, and it is scene 2.
-        # A second one appearing without an attended round is the thing this
-        # is here to notice.
-        self.assertEqual(raised, [2])
+        # Two rows have cleared that bar: scene 1 (the spawn every boot
+        # stands a character on) and scene 2 (MARKER[2], stood on in
+        # SCENE-001).  A third appearing without an attended round is what
+        # this is here to notice.
+        self.assertEqual(raised, [1, 2])
 
     def test_the_rule_text_does_not_contradict_the_rows_beneath_it(self):
         # The specific failure D6 named: prose at the top of the file that a
