@@ -397,6 +397,15 @@ class SceneScopedCombatWiringTests(unittest.TestCase):
         )
         self.assertEqual(state.mob_combat_scene_folder, folder)
         self.assertEqual(state.mob_combat_ledger.identities(), ())
+        # LANE-B CORE-REQUEST 20260829_1955 item (3), COO 20:41: an empty
+        # roster has no rows for open_ledger to derive the scene tag from,
+        # so before scene= was declared at the call site this ledger said
+        # scene=None while mob_combat_scene_folder said the folder -- two
+        # fields answering the same question differently the moment a
+        # player walked into a tableless scene.  scene= is a checked
+        # declaration (open_ledger joins it against the rows), not a
+        # forced label.
+        self.assertEqual(state.mob_combat_ledger.scene, folder)
 
     # ----- scene change re-opens at the new scene -------------------------
 

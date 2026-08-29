@@ -543,23 +543,32 @@ class Bg0002CensusWiringTests(unittest.TestCase):
         roster_count = report["roster_count"]
         # ROUND z096sw: two fields added after pf-adversary read this line
         # (D11 ``refused=``, D2 ``override=``).  ``override=not_reported``
-        # is what a call site that does not hand the override dict over
-        # prints -- a NAMED gap rather than a reassuring number, and this
-        # pin holds it to that until the one-kwarg wiring ask lands.
-        # ROUND jop8ph: ``ledger=`` joins them, for the same reason and with
-        # the same default.  This call site passes neither keyword yet, so
-        # the line it prints today reports BOTH gaps by name -- which is the
-        # honest state of the Bg0002 branch and is exactly what the wiring
-        # ask in this round's PR body asks the chief to close.
+        # was what this call site printed until the one-kwarg wiring ask
+        # landed (LANE-B CORE-REQUEST 20260829_1955 item (2), COO 20:41).
+        # Both keywords are wired now, so the pin demands the REPORTED
+        # values: the override entry count, and the admission state of the
+        # ledger the call site actually handed over -- computed here through
+        # the same public functions, so reverting either kwarg in runtime.py
+        # flips this back to not_reported and fails by word.
+        from pirateforce_foundation import mob_ledger_admission
+        override = mob_census_hostility.hostile_override_for_scene_id(
+            self.legacy, SCENE2_N_ID, state.mob_death_register,
+            ledger=state.mob_combat_ledger,
+        )
+        ledger_state = mob_ledger_admission.admit_ledger(
+            SCENE2_N_ID, state.mob_combat_ledger,
+        )["state"]
         self.assertEqual(
             lines[0],
             "MOB_CENSUS_HOSTILITY scene_id=%d scene=Bg0002 roster=%d "
-            "backed=%d unbacked=none refused=%d override=not_reported "
-            "ledger=not_reported" % (
+            "backed=%d unbacked=none refused=%d override=%d "
+            "ledger=%s" % (
                 SCENE2_N_ID, roster_count, roster_count,
-                report["refused_count"],
+                report["refused_count"], len(override), ledger_state,
             ),
         )
+        self.assertNotIn("override=not_reported", lines[0])
+        self.assertNotIn("ledger=not_reported", lines[0])
 
     def test_the_hostility_line_still_prints_when_the_override_is_empty(
         self,
