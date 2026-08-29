@@ -27,6 +27,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
 
@@ -80,9 +81,35 @@ class StoreAcquiredItemInsertTests(unittest.TestCase):
 
     # ----- harness -----------------------------------------------------
 
+    @contextmanager
+    def _raw(self):
+        """A connection this helper CLOSES.
+
+        ``with sqlite3.connect(...)`` commits and does NOT close -- and an
+        open handle is a locked file on Windows, where TemporaryDirectory
+        cleanup then dies with WinError 32.  The gate caught exactly that on
+        the first push of this file: five tests red on windows-latest under
+        Python 3.14, all green on the cloud, because CPython on Linux frees
+        the connection and unlinks an open file happily.  Every raw read in
+        this file goes through here.
+
+        A cleanup-time assertion that "no connection outlived the test" was
+        written to catch this on Linux too, measured, and REMOVED: the leaked
+        object is collected before any such check can see it, so it passed
+        against a deliberately leaking helper.  A guard that cannot fail is
+        not a guard -- the closing is the fix, and the gate remains the only
+        place the leak is observable.
+        """
+        db = sqlite3.connect(self.path)
+        try:
+            yield db
+            db.commit()
+        finally:
+            db.close()
+
     def _column(self):
         """The raw counter, read outside the store's own accessors."""
-        with sqlite3.connect(self.path) as db:
+        with self._raw() as db:
             return int(db.execute(
                 "SELECT next_item_identity FROM character_backpacks "
                 "WHERE character_id=?",
@@ -90,7 +117,7 @@ class StoreAcquiredItemInsertTests(unittest.TestCase):
             ).fetchone()[0])
 
     def _set_column(self, value):
-        with sqlite3.connect(self.path) as db:
+        with self._raw() as db:
             db.execute(
                 "UPDATE character_backpacks SET next_item_identity=? "
                 "WHERE character_id=?",
@@ -98,7 +125,7 @@ class StoreAcquiredItemInsertTests(unittest.TestCase):
             )
 
     def _rows(self):
-        with sqlite3.connect(self.path) as db:
+        with self._raw() as db:
             return [
                 tuple(row) for row in db.execute(
                     "SELECT item_identity,template_id,quantity,slot "
@@ -154,7 +181,7 @@ class StoreAcquiredItemInsertTests(unittest.TestCase):
                 self.account_id, "StoreInsertFive", "storeinsertfive",
                 "fingerprint-store-insert-001-five", _build_wire, self.home,
             )
-        with sqlite3.connect(self.path) as db:
+        with self._raw() as db:
             seeded = int(db.execute(
                 "SELECT next_item_identity FROM character_backpacks "
                 "WHERE character_id=?",
