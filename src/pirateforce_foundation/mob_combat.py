@@ -797,17 +797,29 @@ def open_ledger_for_scene_id(scene_id: int) -> CombatLedger:
 
     ROUND k3qe9q.  ``runtime.py`` holds a scene id, not a scene name, and
     today opens the ledger with :func:`open_ledger` and no argument -- which
-    means bg0001's four identities, in every scene, forever.  Round
-    ``j0u64p`` measured what that costs: a player standing in Bg0002 cannot
-    land a hit on anything there, because ``strike`` refuses every monster
-    in front of them with ``target_not_in_ledger``.
+    means bg0001's four identities, in every scene, forever.  A player
+    standing in Bg0002 is refused with ``target_not_in_ledger`` on 95 of the
+    97 bodies their client was sent, and lands a hit on a PORT ROYAL monster
+    on the other two (identities ``0x2068``/``0x206a`` belong to both
+    scenes; see :func:`field_mobs.scene_for_scene_id`).
 
-    This is the shape that fixes it in one call site line.  It is a thin
-    join of two things that already existed -- ``open_ledger(roster=...)``,
+    This is the shape a call site composes the right ledger with.  It is a
+    thin join of two things that already existed -- ``open_ledger(roster=...)``,
     which has taken a roster since it was written, and
     ``field_mobs.roster_for_scene_id``, added this round -- and it holds no
     scene knowledge of its own, so a third scene going live needs nothing
     here.
+
+    WHAT IT IS NOT.  It is not a lifetime.  ``runtime.py`` builds its ledger
+    ONCE, in ``PersistentGameSessionState.__init__``, where the session has
+    no scene yet (``foundation.selected`` is still ``None``) -- so this
+    cannot simply replace that call, and a ledger composed for the scene a
+    player logged in from is stale the moment they cross a travel gate.
+    Nothing in this module rebuilds it, and ``runtime.py`` has no rebuild
+    path today.  pf-adversary defects 2, 3 and 4 are all that same gap, and
+    the letter to chief this round asks for a rebuild point rather than a
+    one-line swap.  Read this function as "compose the ledger for a scene",
+    never as "keep the ledger correct as the scene changes".
 
     A SCENE WITH NO MONSTERS OPENS AN EMPTY LEDGER, NOT THE DEFAULT ONE.
     ``field_mobs.roster_for_scene_id`` answers ``()`` for every scene this

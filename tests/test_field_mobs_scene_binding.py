@@ -1,15 +1,26 @@
 """LANE-B / ROUND k3qe9q: the scene a player stands in decides the roster.
 
-WHAT THIS FILE IS DEFENDING.  Round ``j0u64p`` measured that a player standing
-in Bg0002 cannot land a hit on any monster there: ``runtime.py`` composes the
-combat ledger from ``field_mobs.load_roster()`` with no argument, which is
-bg0001's rows always, so ``mob_combat.strike`` refuses every Bg0002 monster
-with ``target_not_in_ledger`` before the death half is asked anything at all.
-That round could name only one owner for the two lines it needed, because
-nothing turned a scene id into a scene name.  Lane A landed that reader
+WHAT THIS FILE IS DEFENDING.  ``runtime.py`` composes the combat ledger from
+``field_mobs.load_roster()`` with no argument -- bg0001's four identities, in
+every scene -- so almost every monster the Bg0002 census puts in front of a
+player is refused with ``target_not_in_ledger``.  This file pins the reader
+that lets a call site compose the ledger from the scene the session is in.
+
+~~a player standing in Bg0002 cannot land a hit on any monster there~~
+STRUCK, pf-adversary defect 1, re-derived by this lane before accepting it:
+the Bg0002 census composes 97 actors with identities ``0x2001..0x206a``, and
+``0x2068``/``0x206a`` are ALSO bg0001 roster rows.  Two of them are therefore
+hittable today -- as Port Royal monsters, debiting a Port Royal monster's HP,
+which is worse than a refusal and was not what the earlier sentence said.
+The honest count is 2 of 97 hittable today and 12 of 97 after the binding, so
+this reader is a step, not a fix.  See ``mob_combat_scene_ledger`` in the
+round record and the letter this round opened about the collision itself.
+
+That measurement is the reason the numbers below are stated as counts rather
+than as "cannot".  Lane A landed the scene-id reader
 (``world_scene_folder``, COO-DECISION 2026-08-29T08:48+07:00 item 3), so this
-round ships the join, and this file pins the four properties that make the
-join safe to wire from one call site line.
+round ships the join, and this file pins the properties that make the join
+safe for a call site to use.
 
 1. ``test_the_two_live_scenes_bind_to_their_own_tables`` -- the mapping is
    right, and it is checked through each returned row's own ``scene`` tag
@@ -43,10 +54,12 @@ sys.path.insert(0, str(ROOT / "src"))
 from pirateforce_foundation import (  # noqa: E402
     field_mob_tables,
     field_mob_tables_bg0002,
+    field_mob_tables_bg0015,
     field_mobs,
     mob_ai_control,
     mob_combat,
     mob_death,
+    world_population_bg0002,
     world_scene_folder,
 )
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
@@ -92,9 +105,7 @@ class SceneBindingTest(unittest.TestCase):
     def test_the_spelling_is_matched_exactly_not_case_folded(self):
         # The client's own folder names are inconsistently cased -- scene 1 is
         # 'bg0001' and scene 2 is 'Bg0002' -- and this project's table modules
-        # carry those two spellings verbatim.  Pinned here so that a future
-        # table module whose SCENE string drifts in case fails this file
-        # instead of being absorbed by a case-folding match.
+        # carry those two spellings verbatim.
         self.assertEqual(field_mob_tables.SCENE, "bg0001")
         self.assertEqual(field_mob_tables_bg0002.SCENE, "Bg0002")
         self.assertEqual(
@@ -103,6 +114,24 @@ class SceneBindingTest(unittest.TestCase):
         self.assertEqual(
             world_scene_folder.scene_folder_for_scene_id(BG0002_SCENE_ID),
             field_mob_tables_bg0002.SCENE)
+        # pf-adversary defect 8 / mutant M1: the four assertions above pin two
+        # module constants and two of LANE A's lookups and NEVER CALL the
+        # function whose 14-line docstring paragraph claims the exact-match
+        # rule.  A case-folding implementation survived all of them.  This is
+        # the half that calls it: register a live table under a spelling that
+        # differs from the client's folder ONLY in case, and require that the
+        # scene id resolving to that folder still refuses to find it.  An
+        # implementation that case-folds returns "BG0015" here.
+        table = field_mobs._SCENE_TABLE_MODULES
+        self.assertNotIn("BG0015", table)
+        table["BG0015"] = field_mob_tables_bg0015
+        try:
+            self.assertIsNone(
+                field_mobs.scene_for_scene_id(BG0015_SCENE_ID_DORMANT))
+            self.assertEqual(
+                field_mobs.roster_for_scene_id(BG0015_SCENE_ID_DORMANT), ())
+        finally:
+            del table["BG0015"]
 
     def test_a_scene_with_no_shipped_roster_opens_an_empty_ledger(self):
         for scene_id in (
@@ -114,6 +143,18 @@ class SceneBindingTest(unittest.TestCase):
             self.assertEqual(field_mobs.roster_for_scene_id(scene_id), ())
             ledger = mob_combat.open_ledger_for_scene_id(scene_id)
             self.assertEqual(ledger.balances, ())
+
+    def test_the_three_empty_cases_are_three_different_cases(self):
+        # pf-adversary defect 10: the three constants above are commented as
+        # three DIFFERENT reasons for an empty roster, and only one of them
+        # had its reason asserted.  All three could have silently become the
+        # same case and the file's stated distinction would have evaporated
+        # green.  Addressed-ness is what separates them, so it is pinned.
+        self.assertEqual(
+            world_scene_folder.scene_folder_for_scene_id(
+                BG1001_SCENE_ID_UNSHIPPED), "Bg1001")
+        self.assertIsNone(
+            world_scene_folder.scene_folder_for_scene_id(UNADDRESSED_SCENE_ID))
 
     def test_the_dormant_scene_is_addressed_and_still_ships_nothing(self):
         # The distinction this pins: lane A DOES address scene 14, and this
@@ -171,6 +212,54 @@ class SceneBindingTest(unittest.TestCase):
         self.assertEqual(field_mobs.scene_ids_addressing("bg0001"), (1,))
         self.assertEqual(field_mobs.scene_ids_addressing("Bg0002"), (2,))
         field_mobs.assert_live_scenes_are_addressable()
+        # pf-adversary defect 6: THIS assertion, not the guard, is what would
+        # notice a second scene id -- the guard is a truthiness test and one
+        # id and two ids both satisfy it.  Driven here so that is a measured
+        # statement and not a claim: with a second id addressing bg0001, the
+        # guard still passes and scene 186 quietly serves Port Royal's
+        # monsters, while the tuple above is what changes.  This also kills a
+        # mutant that returned the ids unsorted (defect 8 / M12).
+        registry = world_scene_folder._FOLDER_BY_SCENE_ID
+        world_scene_folder._FOLDER_BY_SCENE_ID = ((186, "bg0001"),) + registry
+        try:
+            self.assertEqual(
+                field_mobs.scene_ids_addressing("bg0001"), (1, 186))
+            field_mobs.assert_live_scenes_are_addressable()
+            self.assertEqual(len(field_mobs.roster_for_scene_id(186)), 4)
+        finally:
+            world_scene_folder._FOLDER_BY_SCENE_ID = registry
+        self.assertEqual(field_mobs.scene_ids_addressing("bg0001"), (1,))
+
+    def test_a_scene_name_that_is_not_text_is_refused_by_name(self):
+        # pf-adversary defect 8 / mutant M13: the non-empty-string guard on
+        # scene_ids_addressing was unpinned.
+        for bad in ("", None, 1, ()):
+            with self.assertRaises(FieldMobContractError):
+                field_mobs.scene_ids_addressing(bad)
+
+    def test_the_guard_runs_without_the_curated_copy_on_disk(self):
+        # pf-adversary defect 5: the first version of scene_ids_addressing
+        # read world_scene_folder.load_copy(), whose JSON file is NOT in the
+        # release archive tools/build_foundation_release.py builds (it
+        # collects *.py only).  Measured out of a built archive, the guard
+        # raised SceneFolderCopyError -- another lane's RuntimeError
+        # subclass, so not even catchable as FieldMobContractError -- and
+        # would have taken boot down had chief asserted it at start-up as the
+        # docstring invited.  This makes any return of that read fail here.
+        def refuse():
+            raise RuntimeError("the curated copy is not in the release archive")
+
+        copy_reader = world_scene_folder.load_copy
+        world_scene_folder.load_copy = refuse
+        try:
+            field_mobs.assert_live_scenes_are_addressable()
+            self.assertEqual(field_mobs.scene_ids_addressing("Bg0002"), (2,))
+            self.assertEqual(
+                field_mobs.describe_scene_roster_binding(BG0002_SCENE_ID),
+                "MOB_SCENE_ROSTER scene_id=2 folder=Bg0002 live=1 mobs=%d"
+                % len(field_mobs.roster_for_scene_id(BG0002_SCENE_ID)))
+        finally:
+            world_scene_folder.load_copy = copy_reader
 
     def test_the_addressability_guard_fails_when_a_live_scene_is_unreachable(
             self):
@@ -207,6 +296,72 @@ class SceneBindingTest(unittest.TestCase):
         self.assertIn(
             "folder=? live=0 mobs=0",
             field_mobs.describe_scene_roster_binding(UNADDRESSED_SCENE_ID))
+        # pf-adversary defect 8 / mutant M6: `live=` is the ONE field that
+        # carries the addressed-vs-live distinction, and it was asserted only
+        # for scene 2 (live) and for an id nothing addresses.  The case it
+        # exists to describe -- ADDRESSED but NOT live -- was checked for its
+        # prefix and its ASCII only, so a mutant reporting `live=1` for the
+        # dormant scene survived the whole suite.  Pinned as a whole line.
+        self.assertEqual(
+            field_mobs.describe_scene_roster_binding(BG0015_SCENE_ID_DORMANT),
+            "MOB_SCENE_ROSTER scene_id=14 folder=Bg0015 live=0 mobs=0")
+        self.assertEqual(
+            field_mobs.describe_scene_roster_binding(BG0001_SCENE_ID),
+            "MOB_SCENE_ROSTER scene_id=1 folder=bg0001 live=1 mobs=%d"
+            % len(field_mobs.load_roster()))
+
+
+class Bg0002CensusAndRosterOverlapTest(unittest.TestCase):
+    """What this reader is and is not worth, in counts, on the wire layer.
+
+    pf-adversary defect 1.  The round's first draft said a player in Bg0002
+    "cannot land a hit on anything there".  Re-derived here rather than
+    taken on trust, and it is false in the direction that matters: the
+    Bg0002 census hands out identities ``0x2001..0x206a``, ``actor_identity``
+    is ``0x2000 + placement index + 1`` with no scene component, and two of
+    those identities are ALSO bg0001 roster rows.  So today two bodies in
+    Bg0002 are hittable -- as Port Royal monsters.
+
+    These counts are asserted, not printed, because every one of them is a
+    number a later change can move silently: a row added to either scene's
+    table, or a change to the census actor count, walks straight into a
+    cross-scene HP debit that nothing else in this repository would notice.
+    ``field_mobs.load_roster``'s own docstring calls this hazard "not fixed,
+    only unrealised" between the two ROSTERS; between a roster and the other
+    scene's CENSUS it is realised today.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+        cls.census = set(world_population_bg0002.build_bg0002_population(
+            legacy, (0.0, 0.0, 0.0), scene_id=2).actor_identities)
+        cls.today = {row.actor_identity
+                     for row in mob_combat.open_ledger().balances}
+        cls.bound = {row.actor_identity for row
+                     in mob_combat.open_ledger_for_scene_id(2).balances}
+
+    def test_two_bg0002_bodies_are_hittable_today_as_port_royal_monsters(self):
+        self.assertEqual(len(self.census), 97)
+        self.assertEqual(
+            sorted(self.today & self.census), [0x2068, 0x206A])
+
+    def test_the_binding_removes_those_two_and_adds_twelve(self):
+        self.assertEqual(self.bound & self.today & self.census, set())
+        self.assertEqual(len(self.bound & self.census), 12)
+
+    def test_the_binding_leaves_most_of_the_scene_unhittable(self):
+        # Not a defect of this reader -- this lane ships no roster row for
+        # those 85 bodies -- but it is the number that stops "the scene is
+        # fixed" from being said.
+        self.assertEqual(len(self.census - self.bound), 85)
+
+    def test_five_ledger_rows_name_bodies_the_census_never_sends(self):
+        # The other direction, equally worth seeing: the roster carries five
+        # placements the Bg0002 census does not put on any client.
+        self.assertEqual(
+            sorted(self.bound - self.census),
+            [0x205D, 0x205E, 0x205F, 0x2060, 0x2061])
 
 
 class EmptyRosterReachesEveryCallSiteTest(unittest.TestCase):

@@ -557,17 +557,30 @@ def load_roster(scene: str = field_mob_tables.SCENE) -> tuple[FieldMob, ...]:
 def scene_for_scene_id(scene_id: int) -> str | None:
     """The LIVE field-mob scene a player standing in ``scene_id`` is inside.
 
-    ROUND k3qe9q.  THE HALF THIS LANE OWED.  Round ``j0u64p`` measured that a
-    player standing in Bg0002 cannot land a hit on anything there, because
-    ``runtime.py`` composes the roster and the combat ledger from
-    ``load_roster()`` with no argument -- bg0001's rows, always, whatever
-    scene the session is actually in -- and ``mob_combat.strike`` then
-    refuses every Bg0002 monster with ``target_not_in_ledger``.  That round
-    asked chief for two lines and could only name one owner, because
-    "the scene id the session holds" had no reader into a scene NAME then.
-    It has one now: lane A landed ``world_scene_folder`` (COO-DECISION
-    2026-08-29T08:48+07:00 item 3, "THE ONE PUBLIC READER"), so the missing
-    half is this function, and it belongs to whoever owns the rosters.
+    ROUND k3qe9q.  THE HALF THIS LANE OWED.  ``runtime.py`` composes the
+    roster and the combat ledger from ``load_roster()`` with no argument --
+    bg0001's rows, always, whatever scene the session is actually in -- so
+    ``mob_combat.strike`` refuses almost every monster a player in Bg0002 is
+    standing in front of.  Round ``j0u64p`` asked chief for two lines and
+    could only name one owner, because "the scene id the session holds" had
+    no reader into a scene NAME then.  It has one now: lane A landed
+    ``world_scene_folder`` (COO-DECISION 2026-08-29T08:48+07:00 item 3, "THE
+    ONE PUBLIC READER"), so the missing half is this function, and it
+    belongs to whoever owns the rosters.
+
+    ~~cannot land a hit on anything there~~ -- STRUCK THE SAME ROUND,
+    pf-adversary defect 1, re-derived here before it was accepted.  The
+    Bg0002 census (``world_population_bg0002.build_bg0002_population``, 97
+    actors) hands out identities ``0x2001..0x206a``, and identity is
+    ``0x2000 + placement index + 1`` with NO SCENE COMPONENT -- the hazard
+    :func:`load_roster` already names as "not fixed, only unrealised".  It
+    is realised here: ``0x2068`` and ``0x206a`` are bg0001 roster rows AND
+    Bg0002 census actors, so a player in Bg0002 who clicks one of those two
+    bodies today lands a hit that debits a PORT ROYAL monster.  That is
+    worse than a refusal, and this function does not fix it -- it takes
+    those two wrong hits away and adds twelve right ones, leaving 85 of the
+    97 census actors unhittable because this lane ships no roster row for
+    them.  A step, stated as a step.
 
     Returns ``None`` for every scene this lane ships no monsters for, which
     is the overwhelming majority of them.  ``None`` means SHIP NO ROSTER --
@@ -601,7 +614,14 @@ def scene_for_scene_id(scene_id: int) -> str | None:
     in the test suite rather than in a player's client, and
     ``tests/test_field_mobs_scene_binding.py`` runs it.
     """
-    if type(scene_id) is not int or type(scene_id) is bool:
+    # ``type(x) is not int`` already refuses ``True``/``False``, because
+    # ``type(True)`` is ``bool`` and not ``int`` -- the extra ``is bool``
+    # clause this line used to carry was dead code, and pf-adversary killed
+    # a mutant that deleted it to prove so.  Booleans are still refused;
+    # ``test_a_scene_id_that_is_not_an_integer_is_refused_by_name`` passes
+    # them explicitly, so the behaviour is pinned by a test rather than by
+    # a clause that never runs.
+    if type(scene_id) is not int:
         raise FieldMobContractError("scene id must be an integer")
     folder = world_scene_folder.scene_folder_for_scene_id(scene_id)
     if folder is None:
@@ -614,8 +634,15 @@ def roster_for_scene_id(scene_id: int) -> tuple[FieldMob, ...]:
 
     ROUND k3qe9q.  This is the shape a ``runtime.py`` call site wants: it
     holds a scene id, not a scene name, and it needs a roster it can hand
-    straight to :func:`mob_combat.open_ledger` and to
-    :func:`build_field_mob_population`.
+    straight to :func:`mob_combat.open_ledger`.
+
+    ~~and to :func:`build_field_mob_population`~~ -- STRUCK THE SAME ROUND,
+    pf-adversary defect 7: that function takes no roster parameter at all
+    (``legacy, player_xyz, mob_count=None, *, faction, with_name``), builds
+    its own with ``nearest_first()``, and stamps the generation with
+    ``field_mob_tables.SCENE`` unconditionally.  Nothing can be handed to
+    it.  The sentence read as a measured statement about an existing API and
+    was not one.
 
     An empty tuple is a real, safe answer and not a failure: a ledger opened
     on it holds nothing, so every strike in that scene refuses by name
@@ -643,9 +670,21 @@ def assert_live_scenes_are_addressable() -> None:
     Measured today: bg0001 is addressed by scene id 1 and by no other, and
     Bg0002 by scene id 2 and by no other.  Neither appears in lane A's
     ``scene_ids_sharing_a_folder`` list of 45 folders that two scene ids
-    both name, so neither has a second id that could reach it -- but a live
-    scene that DID have one would need lane A to address both ids, and this
-    guard is where that would be noticed.
+    both name, so neither has a second id that could reach it.
+
+    ~~a live scene that DID have [a second scene id] would need lane A to
+    address both ids, and this guard is where that would be noticed.~~
+    STRUCK THE SAME ROUND, pf-adversary defect 6, which broke it by driving
+    it: with ``(186, "bg0001")`` added to lane A's registry this guard still
+    PASSED and scene 186 quietly served Port Royal's four monsters, because
+    the test below is ``if not scene_ids_addressing(scene)`` -- a truthiness
+    test, which one id and two ids both satisfy.  WHAT ACTUALLY NOTICES a
+    second id is the tuple pin in
+    ``tests/test_field_mobs_scene_binding.py``
+    (``test_each_live_scene_is_addressed_by_exactly_one_scene_id``), and
+    that pin is the thing to keep looking at.  This guard catches ZERO ids
+    and nothing else; the sentence that claimed more has been struck rather
+    than deleted so the difference stays readable.
     """
     unreachable = []
     for scene in live_scenes():
@@ -663,22 +702,42 @@ def assert_live_scenes_are_addressable() -> None:
 def scene_ids_addressing(scene: str) -> tuple[int, ...]:
     """Every scene id lane A's registry resolves to ``scene``, ascending.
 
-    ROUND k3qe9q.  The candidate ids are the CLIENT's own scene rows, read
-    out of lane A's curated copy (``scene_folder_index``, 271 rows, public),
-    and each one is then put through lane A's public per-id reader -- so
-    this stays a caller of the ONE public reader COO-DECISION
-    2026-08-29T08:48+07:00 item 3 named, and never inverts that lane's
-    private map.  Asking the client's full row set rather than only the ids
-    lane A already addresses is the point: an id the client ships and that
-    registry has not vetted answers ``None`` and is correctly absent here,
-    which is what makes the count this returns worth asserting on.
+    ROUND k3qe9q.  The mapping still comes from lane A's public per-id
+    reader, so this stays a caller of the ONE public reader COO-DECISION
+    2026-08-29T08:48+07:00 item 3 named.
+
+    ~~The candidate ids are the CLIENT's own scene rows, read out of lane A's
+    curated copy (``scene_folder_index``, 271 rows, public) ... asking the
+    client's full row set rather than only the ids lane A already addresses
+    is the point.~~  WITHDRAWN THE SAME ROUND, pf-adversary defect 5, and it
+    was a defect in two ways at once:
+
+    * ``world_scene_folder.load_copy()`` reads
+      ``world_data/world_scene_folder_crosswalk.json``, and
+      ``tools/build_foundation_release.py`` collects ``*.py`` ONLY -- so that
+      file is NOT in the release archive the server actually runs from.
+      Measured out of a built archive, the whole guard raised
+      ``SceneFolderCopyError`` (another lane's ``RuntimeError`` subclass, so
+      not even catchable as ``FieldMobContractError``).  A guard that cannot
+      run where the server runs is not a guard, and this one would have taken
+      boot down with it the moment chief asserted it at start-up as the
+      docstring invited.
+    * it bought nothing anyway: every candidate is filtered through
+      ``scene_folder_for_scene_id``, whose whole domain IS
+      ``_FOLDER_BY_SCENE_ID``, so the wider candidate set could not have
+      changed one answer.  A mutant that replaced the copy read with a plain
+      integer range survived the entire suite, which is the measurement that
+      says the read was decoration.
+
+    The candidate ids are therefore the registry's own, which is a
+    module-level literal in lane A's file: always importable, no file read,
+    no release-archive dependency.  Reaching one private name to fix that is
+    the smaller cost, and it is named here rather than hidden.
     """
     if type(scene) is not str or not scene:
         raise FieldMobContractError("scene must be non-empty text")
-    rows = world_scene_folder.load_copy()["scene_folder_index"]
     found = []
-    for row in rows:
-        scene_id = int(row[0])
+    for scene_id, _folder in world_scene_folder._FOLDER_BY_SCENE_ID:
         if world_scene_folder.scene_folder_for_scene_id(scene_id) == scene:
             found.append(scene_id)
     return tuple(sorted(found))
