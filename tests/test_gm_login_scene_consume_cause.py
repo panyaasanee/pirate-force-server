@@ -2,7 +2,7 @@
 
 Asked for by chief in `CHIEF-REPLY` 2026-08-29T15:16+07:00 item 5.  Their
 console line had to print `cause=not_carried_by_the_outcome` because
-`CONSUME_FAILED` is one word covering seven different faults, and the
+`CONSUME_FAILED` is one word covering ~~seven~~ every fault below, and the
 remedies those faults need are not the same remedy: "fix a line in a config
 file" and "restart the server so it re-reads the registry" send an operator
 to opposite ends of the machine.  Chief could not name the cause because

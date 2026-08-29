@@ -26,6 +26,15 @@ mutation kills, measured on this round's tree:
   round) -- the lost-cause test red: the AttributeError must escape
   ``dispatch``, not drown in ``except Exception: pass``.
 
+Round ``npo898`` added the "and then what" half, after chief's 19:24 reply
+carried back where that escape LANDS (a dead game listener thread under a
+live login port).  Measured kills for the test added there:
+
+* ``ConsumeResultMisuse`` reduced to a plain ``AttributeError`` -- red,
+  the error leaves ``dispatch`` again;
+* the attribute read inlined into the print guard -- red, the events row
+  stops naming the class.
+
 Not claimed: anything client-observable.  Wire/console only -- no byte of
 the cause reaches a client, and no test here says otherwise.
 """
@@ -257,6 +266,69 @@ class ConsumeCauseWiringTests(unittest.TestCase):
         # Loud means loud: no placeholder line, no half-printed line.
         self.assertEqual(
             [], self._the_consume_failed_lines(console.getvalue()),
+        )
+
+    def test_a_real_result_that_lost_its_cause_costs_the_override_only(self):
+        """The SAME contract, on the object chief's call site really gets.
+
+        Round `npo898`, consuming chief's reply of 19:24 item 1.  The stub
+        above is a foreign class and answers "does the read happen outside
+        the print guard".  It cannot answer "and then what", because at
+        that point the process is already unwinding a thread this test
+        never sees.
+
+        This one passes a REAL ``ConsumeResult`` whose ``cause`` slot was
+        never filled -- the in-repo regression shape a future return path
+        could write -- and grades the three things an operator gets:
+
+        * ``dispatch`` RETURNS (the game listener thread is not unwound);
+        * nothing is printed for a lost field (no placeholder word, which
+          is the contract the stub test above pins);
+        * the events row NAMES the fault:
+          ``gm_login_scene_override_lookup_failed_ConsumeResultMisuse``.
+
+        Mutation kills measured this round: make ``ConsumeResultMisuse`` a
+        plain ``AttributeError`` and this test raises out of ``dispatch``;
+        inline the attribute read into the print guard and the events row
+        reads ``..._consume_failed`` instead of naming the class.
+        """
+        lost = login_scene_consume.ConsumeResult.__new__(
+            login_scene_consume.ConsumeResult
+        )
+        object.__setattr__(lost, "scene_id", None)
+        object.__setattr__(
+            lost, "outcome", login_scene_consume.CONSUME_FAILED,
+        )
+
+        self.overrides_path.write_text(
+            json.dumps({"gm_login_scene": {}}), encoding="ascii",
+        )
+        state = self._boot("wire_tester")
+        from pirateforce_foundation import runtime as runtime_module
+        with mock.patch.object(
+            runtime_module, "consume_login_scene_override",
+            return_value=lost,
+        ):
+            console = self._login_and_start_capturing_console(
+                state, "wire_tester",
+            )
+        self.assertEqual([], self._the_consume_failed_lines(console))
+        self.assertIn(
+            "gm_login_scene_override_lookup_failed_ConsumeResultMisuse",
+            state.events,
+        )
+        # And the person watching the console gets a line of their own --
+        # named, not a placeholder cause.  Without this the round would
+        # have traded a thread-killing traceback for total silence.
+        self.assertIn(
+            "GM_CONSUME_RESULT_LOST_FIELD field=cause "
+            "effect=override_refused_login_at_own_row",
+            console,
+        )
+        # The override is what was lost, not the login: the character is
+        # standing at its own row's scene, same as every other failure.
+        self.assertEqual(
+            HOME_SCENE_ID, state.foundation.selected.position.scene_id,
         )
 
     # ----- cause 2: the disk admits, the running snapshot does not --------

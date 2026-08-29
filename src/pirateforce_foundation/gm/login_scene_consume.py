@@ -208,6 +208,39 @@ CONSUME_FAILED_CAUSES = frozenset(
 )
 
 
+class ConsumeResultMisuse(AttributeError, TypeError):
+    """A `ConsumeResult` field is missing, or something tried to write one.
+
+    TWO BASES, AND THE SECOND ONE IS THE WHOLE POINT.  Chief's reply of
+    2026-08-29T19:24+07:00 (answering `CORE-REQUEST-GM-037`) carried back a
+    measurement from pf-adversary about where this lane's own "loud" lands:
+    `runtime.py` reads `override_result.cause` INSIDE
+    `except (ValueError, OSError, TypeError)` but OUTSIDE the print guard,
+    so a plain `AttributeError` from that read is caught by neither.  It
+    unwinds the game listener thread (`pf_login_game_server_v141.py:7440`
+    has no `except`), and the process then holds the login port open over a
+    dead game port -- alive to a supervisor, useless to a tester, and
+    silent to the person watching the console.
+
+    This lane asked for the loudness and this lane owes the answer to "loud
+    to WHOM".  The answer that ships: the consumer is the events row
+    `gm_login_scene_override_lookup_failed_ConsumeResultMisuse` plus a red
+    CI -- NOT a dead port.  Inheriting `TypeError` as well puts the failure
+    inside the net `runtime.py` already has, so a result that lost a field
+    costs the OVERRIDE and never the listener thread; inheriting
+    `AttributeError` keeps every `hasattr` / `getattr(x, n, default)` in
+    the standard library behaving as it did (`copy.deepcopy` looks up
+    `__deepcopy__` ON THE INSTANCE and relies on that swallow).
+
+    NOT A WIDENING OF THE PRINT GUARD, which is the trade this refuses to
+    make: the read stays outside `try: print(...) except Exception: pass`,
+    no `getattr` default appears at the call site, and nothing is printed
+    for a lost field.  The contract "a result that lost its `cause` must
+    not become a placeholder word on a live console" is unchanged.  Only
+    the blast radius of enforcing it changed.
+    """
+
+
 class ConsumeResult:
     """What the login should do, and what happened to the entry on disk."""
 
@@ -218,8 +251,12 @@ class ConsumeResult:
     ) -> None:
         # REFUSED BY NAME, not filtered.  `cause` is not free text and this
         # is the only place that could let it become free text, so the check
-        # lives here rather than at seven call sites that would each have to
-        # remember it.
+        # lives here rather than at ~~seven~~ every `CONSUME_FAILED` return
+        # site in this module, each of which would have to remember it.
+        # (The number came out of the first draft and was already stale --
+        # chief's reply of 19:24 caught the same stale seven in the docs.
+        # No new number replaces it: a count in prose goes false in the
+        # round that adds a branch, which is D6 from round `6vhfgh`.)
         #
         # SAFE TO RAISE, measured rather than assumed: the consume call in
         # `runtime.py` sits inside `except (ValueError, OSError, TypeError)`,
@@ -274,13 +311,64 @@ class ConsumeResult:
     # them drove the constructor.  The module comment above claims "there is
     # no path that builds a cause"; assignment was that path.  Now the only
     # way a `ConsumeResult` gets a cause is through the check above.
+    #
+    # `ConsumeResultMisuse` RATHER THAN A BARE `AttributeError` since round
+    # `npo898`: the raise is still an `AttributeError` to everything that
+    # catches one, and is now ALSO inside `runtime.py`'s net, so the day a
+    # one-line change like the one above is written it costs the override
+    # and a named events row instead of the game listener thread.
     def __setattr__(self, name: str, value: object) -> None:
-        raise AttributeError(
+        raise ConsumeResultMisuse(
             "ConsumeResult is immutable; construct a new one instead"
         )
 
     def __delattr__(self, name: str) -> None:
-        raise AttributeError("ConsumeResult is immutable")
+        raise ConsumeResultMisuse("ConsumeResult is immutable")
+
+    # THE FIELD THAT IS NOT THERE, which is the half `__setattr__` never
+    # covered.  `__slots__` makes `cause` unlosable through the
+    # constructor, but not through `ConsumeResult.__new__(ConsumeResult)`
+    # or a subclass that fills two slots and forgets the third -- and an
+    # unset slot raises a bare `AttributeError` from the interpreter's own
+    # attribute machinery, which is exactly the escape chief measured.
+    # `__getattr__` runs ONLY when normal lookup has already failed, so a
+    # well-formed result never reaches this line: nothing is intercepted,
+    # nothing is defaulted, and the raise stays a raise.
+    #
+    # `name` IS SAFE TO INTERPOLATE, checked rather than assumed: it is an
+    # attribute name, so every producer of it in this tree is a literal in
+    # the source.  No path passes a client's bytes to `getattr`, and this
+    # message deliberately carries no VALUE from the result.
+    #
+    # AND IT PRINTS, because otherwise this round would have made the
+    # failure QUIETER than the bug it fixes.  The old escape at least put a
+    # traceback on stderr through the thread excepthook on its way to
+    # killing the listener; an events row alone is read by a GT harness and
+    # by nobody at 3am.  So the line goes out first, then the raise:
+    #
+    #   * only for a name in `__slots__` -- `copy`/`pickle` probe
+    #     `__deepcopy__`, `__getstate__`, `__setstate__` and friends with a
+    #     default on EVERY copy, and a lane token printed on an ordinary
+    #     deepcopy is console spam that trains an operator to ignore the
+    #     token;
+    #   * fields only, never values: the name is a source literal (see
+    #     above), and nothing from disk or from a client is on this line;
+    #   * guarded, like every other diagnostic in this lane: a print that
+    #     fails must not change WHICH error the call site receives.
+    def __getattr__(self, name: str):
+        if name in ConsumeResult.__slots__:
+            try:
+                print(
+                    "GM_CONSUME_RESULT_LOST_FIELD "
+                    f"field={name} "
+                    "effect=override_refused_login_at_own_row"
+                )
+            except Exception:
+                pass
+        raise ConsumeResultMisuse(
+            f"ConsumeResult has no {name!r}: a result that lost a field "
+            "must not reach a console"
+        )
 
     # COPY AND PICKLE HAVE TO KEEP WORKING, and the first version of the
     # immutability fix broke both.  pf-adversary measured the regression:

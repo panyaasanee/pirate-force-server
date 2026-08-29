@@ -3611,11 +3611,21 @@ No gate at the call site can reach the second one: by the time the call site
 sees anything, the load has already raised.  It has to be decided at the
 load, which is where this parameter goes.
 
-### `ConsumeResult.cause` — the seven words, and the axis they are cut on
+### `ConsumeResult.cause` — ~~the seven words~~ the closed vocabulary, and the axis they are cut on
 
 Added round `1fq5yf` for `CORE-REQUEST-GM-037`; printed by `runtime.py`
 since chief round `nbulzb` — see the PRINTED note above, and its tripwire
 test.
+
+🔴 **The heading said "seven" and the table below it has eight rows.** Chief
+caught it in their reply of 2026-08-29T19:24+07:00 (item 2) and left it for
+this lane; corrected in round `npo898` by **striking the number rather than
+updating it**. Eight would be false in the round that adds a ninth, which is
+D6 from round `6vhfgh` — this document stops carrying counts. The set that is
+true today is `CONSUME_FAILED_CAUSES`, and the test that refuses a branch
+outside it reads the *source*, not a number written here. The two "seven"s in
+the paragraph below are about the discarded FIRST draft, which really did have
+seven tokens; they stay.
 
 The axis is **the remedy an operator would apply**, not which read failed.
 The first draft cut it the other way and pf-adversary measured the result:
@@ -3957,3 +3967,76 @@ says why this lane does not recommend it.
 🔴 **ผู้เทสหน้าจอเกม: ไม่ได้อะไรใหม่ และรอบนี้จะไม่แกล้งบอกว่าได้** ยังไปฉาก 126 ไม่ได้ และรอบนี้
 **เลือกที่จะไม่ให้ไป** แทนที่จะให้ `/warp 126` ตอบว่าสำเร็จแล้วเผารอบรีล็อกของเขาทิ้ง
 บรรทัด `blocker=` อยู่บน stderr ของเครื่องเซิร์ฟเวอร์ ตาม `COO-DECISION 20260829_1344` ข้อ (ก)
+
+## Round `npo898` -- "loud" had a consumer nobody had named, and it was a dead port
+
+Consumes chief's reply of 2026-08-29T19:24+07:00 to `CORE-REQUEST-GM-037`
+(`notes_to_chief/20260829_1924_CHIEF-REPLY-GM-037-wired-merged-plus-two-findings-back.md`),
+both items.
+
+### Item 1 -- where this lane's own "loud" was landing
+
+The letter that asked chief to print `cause` also forbade a `getattr` default: a
+`ConsumeResult` that lost the field must **raise**, not print a placeholder word.
+Chief wired it exactly that way. pf-adversary then measured the other end of the
+raise, and chief handed the measurement back for this lane to decide on:
+
+| measured | where |
+|---|---|
+| the read is inside `except (ValueError, OSError, TypeError)` | `runtime.py`, the `CONSUME_FAILED` arm |
+| a bare `AttributeError` is in neither that net nor the print guard | same block |
+| an escape unwinds the **game listener thread** | `current/pf_login_game_server_v141.py`, `game_listener` — **re-measured in this round, not taken on trust**: the only `except Exception` inside it wraps decompress/parse (`:7456`), the `state.dispatch(parsed)` call (`:7558`) is inside no `except` but the socket ones, so the raise leaves `game_listener` and the (daemon) thread ends |
+| the process keeps the **login** port | so a supervisor sees a healthy process and does not restart |
+
+So the failure mode this lane had asked for was: client connects, never enters,
+console says nothing, supervisor says fine. That is the **quietest** failure the
+lane can produce, wearing the word "loud".
+
+**The answer this round ships, and it needed no change in chief's file.**
+`ConsumeResultMisuse` inherits **both** `AttributeError` and `TypeError`:
+
+- `TypeError` puts it inside the net `runtime.py` **already** has, so the fault
+  costs the **override** and never the thread. The events row then names it:
+  `gm_login_scene_override_lookup_failed_ConsumeResultMisuse`.
+- `AttributeError` keeps every `hasattr` / `getattr(x, n, default)` behaving as
+  before -- `copy.deepcopy` probes `__deepcopy__` **on the instance** and relies
+  on that swallow, which is the D8-R regression re-opened if the base is dropped.
+- `__getattr__` covers the field that is not there (an unset `__slots__` slot --
+  `__new__`, or a subclass filling two of three), which `__setattr__` never could.
+- **And it prints**, or the round would have traded a thread-killing traceback for
+  total silence: `GM_CONSUME_RESULT_LOST_FIELD field=<name> effect=override_refused_login_at_own_row`,
+  guarded, field names only (source literals), and **only** for a name in
+  `__slots__` so an ordinary `deepcopy` does not print a lane token.
+
+What did **not** change, because it is the contract, not the blast radius: the
+attribute read stays outside the print guard, there is no `getattr` default at
+the call site, and nothing is printed for a lost field except the line above --
+never a placeholder `cause=`.
+
+Who consumes it, finally answered in one line: **a console line and an events row
+for the operator, a red suite for CI, and the game port stays up.**
+
+### Item 2 -- the heading said seven, the table has eight
+
+Corrected by striking the number rather than updating it (see the note under that
+heading). A count in prose goes false in the round that adds a branch -- D6 from
+round `6vhfgh`. The same stale seven in `login_scene_consume.py`'s constructor
+comment ("at seven call sites") is struck the same way; the two "seven"s that
+describe the discarded FIRST draft are accurate and stay.
+
+### What is NOT claimed
+
+Nothing here is client-observable. No byte of any of this reaches a client and no
+test says otherwise; the drills are in-repo regressions -- at HEAD a real
+`ConsumeResult` cannot exist without a cause. This round did not touch the GM
+account gate, did not widen any scene set, and gave GM status to nobody.
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้ (round `npo898`)
+
+**คนเฝ้าคอนโซล/ผู้ดูแลเซิร์ฟเวอร์:** ถ้าวันหนึ่งมีรีเกรสชันที่ทำให้ผลลัพธ์ของ consume เสียฟิลด์ไป
+เมื่อวาน = พอร์ตเกมตายถาวรเงียบ ๆ ใต้โปรเซสที่ดูมีชีวิต (login ยังรับอยู่) ต้องเดาเอาเองว่าทำไม
+ลูกค้าเข้าเกมไม่ได้ · วันนี้ = ล็อกอินนั้นเสียแค่ปลายทาง GM ที่วางไว้ ตัวละครยืนที่แถวของตัวเอง
+เซิร์ฟเวอร์ยังรับคนอื่นต่อ และบนคอนโซลมีบรรทัดชื่อจริง `GM_CONSUME_RESULT_LOST_FIELD field=cause`
+คู่กับแถวเหตุการณ์ `gm_login_scene_override_lookup_failed_ConsumeResultMisuse` ที่ grep ได้
+
+🔴 **ผู้เทสหน้าจอเกม: ไม่ได้อะไรใหม่รอบนี้** และรอบนี้จะไม่แกล้งบอกว่าได้
