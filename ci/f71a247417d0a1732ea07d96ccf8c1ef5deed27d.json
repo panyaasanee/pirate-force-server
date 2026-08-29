@@ -1,1 +1,1 @@
-{"sha":"f71a247417d0a1732ea07d96ccf8c1ef5deed27d","conclusion":"failure","event":"push","ref":"refs/heads/claude/sleepy-sagan-tp8mq6","run_id":"33221846574","utc":"2026-08-28T23:57:53Z"}
+{"sha":"f71a247417d0a1732ea07d96ccf8c1ef5deed27d","conclusion":"failure","event":"pull_request","ref":"refs/pull/237/merge","run_id":"33221864723","utc":"2026-08-29T00:01:31Z"}
