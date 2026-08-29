@@ -33,12 +33,17 @@ SHIPPED_CENSUS_COUNT = 108
 class CeilingClassificationTests(unittest.TestCase):
     """``ceiling_class_for_leader`` - the three named reasons and the fourth."""
 
+    #: (Mob-Set number, CLINE leader) for each of RE-149's five, as the
+    #: frozen table records them.
+    ADJUDICATED_ROWS = ((1, 155), (76, 819), (112, 937), (113, 942),
+                        (110, 9107))
+
     def test_the_five_re149_adjudicated_are_the_no_avatar_source_class(
         self,
     ) -> None:
-        for leader in (155, 819, 937, 942, 9107):
+        for template_id, leader in self.ADJUDICATED_ROWS:
             self.assertEqual(
-                identity_table.ceiling_class_for_leader(leader),
+                identity_table.ceiling_class_for_placement(template_id, leader),
                 identity_table.CEILING_CLASS_NO_AVATAR_SOURCE,
                 "leader %d is one of RE-149's five" % leader,
             )
@@ -50,16 +55,17 @@ class CeilingClassificationTests(unittest.TestCase):
         is empty.  If this ever answered ``no_avatar_source`` the console
         would credit RE-149 with two rows outside its scope.
         """
-        self.assertEqual(
-            identity_table.ceiling_class_for_leader(0),
-            identity_table.CEILING_CLASS_NO_CREATURE,
-        )
+        for template_id in (86, 87):
+            self.assertEqual(
+                identity_table.ceiling_class_for_placement(template_id, 0),
+                identity_table.CEILING_CLASS_NO_CREATURE,
+            )
 
     def test_leader_with_a_mobs_row_but_no_outfit_is_its_own_class(
         self,
     ) -> None:
         self.assertEqual(
-            identity_table.ceiling_class_for_leader(10002),
+            identity_table.ceiling_class_for_placement(101, 10002),
             identity_table.CEILING_CLASS_NO_OUTFIT_COLUMN,
         )
 
@@ -75,10 +81,46 @@ class CeilingClassificationTests(unittest.TestCase):
         """
         for leader in (1, 156, 8529, 855, 99999):
             self.assertEqual(
-                identity_table.ceiling_class_for_leader(leader),
+                identity_table.ceiling_class_for_placement(999, leader),
                 identity_table.CEILING_CLASS_UNADJUDICATED,
                 "leader %d was never adjudicated by any ticket" % leader,
             )
+
+    def test_the_verdict_does_not_outlive_the_fact_it_measured(self) -> None:
+        """RE-149 measured a STATE - "no CONSTDATA MOBS row at all".
+
+        Give leader 155 a MOBS row whose ``s_OUTFIT`` is empty - a different,
+        already-named state - and the citation has to stop, even though the
+        id has not moved.  Keying on the id alone let the verdict outlive the
+        fact underneath it with nothing on the line to show the drift
+        (pf-adversary, F4).
+        """
+        original = identity_table.UNRESOLVED[1]
+        identity_table.UNRESOLVED[1] = (
+            155, "MOBS row 155 has no s_OUTFIT avatar template")
+        try:
+            self.assertEqual(
+                identity_table.ceiling_class_for_placement(1, 155),
+                identity_table.CEILING_CLASS_NO_OUTFIT_COLUMN,
+            )
+        finally:
+            identity_table.UNRESOLVED[1] = original
+        self.assertEqual(
+            identity_table.ceiling_class_for_placement(1, 155),
+            identity_table.CEILING_CLASS_NO_AVATAR_SOURCE,
+        )
+
+    def test_a_number_collision_from_another_id_space_is_not_adjudicated(
+        self,
+    ) -> None:
+        """``CHANGE_MODEL`` row 155 is a FIREARM, which RE-149 names as the
+        number-collision temptation.  Asked about a Mob-Set number that is
+        not a refused placement, the answer must not be RE-149's verdict just
+        because the integer 155 appears in the pin."""
+        self.assertEqual(
+            identity_table.ceiling_class_for_placement(4242, 155),
+            identity_table.CEILING_CLASS_UNADJUDICATED,
+        )
 
     def test_the_two_name_collisions_re149_refused_are_not_adjudicated(
         self,
@@ -95,7 +137,9 @@ class CeilingClassificationTests(unittest.TestCase):
     ) -> None:
         for bad in ("155", 155.0, None, True):
             with self.assertRaises(ValueError):
-                identity_table.ceiling_class_for_leader(bad)
+                identity_table.ceiling_class_for_placement(1, bad)
+            with self.assertRaises(ValueError):
+                identity_table.ceiling_class_for_placement(bad, 155)
 
     def test_every_leader_re149_adjudicated_is_still_a_refused_leader(
         self,
@@ -157,8 +201,18 @@ class CeilingConsoleTokenTests(unittest.TestCase):
         )
 
     def _full(self):
+        """The census the way a BOOT asks for it, not the way a test would.
+
+        ``census_count_for_dispatch()`` asks for ``CENSUS_COUNT`` (115) and
+        lets the identity filter decide what comes back; this used to request
+        the literal 108 instead.  The difference is not cosmetic
+        (pf-adversary, F10): with a partially broken identity filter leaving
+        110 available, the production path assembles 110 and the field goes
+        to ``not_applicable``, while a test requesting 108 assembles exactly
+        108 and prints a clean verdict - green suite, dark console.
+        """
         return build_world_population(
-            self.legacy, self.anchor, SHIPPED_CENSUS_COUNT, scene_id=1)
+            self.legacy, self.anchor, CENSUS_COUNT, scene_id=1)
 
     def test_the_whole_census_names_the_ticket_the_verdict_and_the_classes(
         self,
@@ -318,11 +372,117 @@ class CeilingConsoleTokenTests(unittest.TestCase):
 
         generation = self._full()
         rows = list(generation.undressable)
-        rows[0] = (0, 1, 4242, "Somebody New")
+        rows[0] = (0, 999, 4242, "Somebody New")
         mutated = dataclasses.replace(generation, undressable=tuple(rows))
         token = ceiling_console_token(mutated)
         self.assertIn("unadjudicated=1", token)
         self.assertIn("no_avatar_source=4", token)
+        # AND THE SENTENCE A READER ACTUALLY READS (pf-adversary, F1).  The
+        # first version of this test asserted only the tail counts and let
+        # the headline claim through: the citation and its verdict still sat
+        # at the head of the field, where an eye and a
+        # ``grep 'ceiling=.*BOUNDED-NEGATIVE'`` both land.  An honest count
+        # behind a false claim is worse than either alone.
+        self.assertNotIn("client_data_bounded", token)
+        self.assertNotIn("BOUNDED-NEGATIVE", token)
+        self.assertIn("UNADJUDICATED=1", token)
+        self.assertIn("verdict_withheld", token)
+
+    def test_a_census_with_nothing_adjudicated_cites_nobody(self) -> None:
+        """The pathological end of F1, driven rather than argued.
+
+        Seven rows refused for reasons no ticket looked at: zero rows
+        adjudicated by anybody, and the old field still printed
+        ``RE-149:BOUNDED-NEGATIVE`` at the head.
+        """
+        import dataclasses
+
+        generation = self._full()
+        rows = tuple(
+            (index, 999, 4242, "Somebody New")
+            for index, _set, _lead, _name in generation.undressable
+        )
+        token = ceiling_console_token(
+            dataclasses.replace(generation, undressable=rows))
+        self.assertIn("UNADJUDICATED=7", token)
+        self.assertIn("unadjudicated=7", token)
+        self.assertNotIn("RE-149", token)
+        self.assertNotIn("client_data_bounded", token)
+
+    def test_a_whole_census_that_lost_a_row_does_not_read_as_a_small_rung(
+        self,
+    ) -> None:
+        """F3: the two facts that used to print the same word.
+
+        A placement dropped for a reason recorded NOWHERE - neither resolved
+        nor refused - vanishes from both the census and the undressable
+        roster, and this arithmetic is the only check in the tree that would
+        notice.  A whole census that does not add up must say so, not borrow
+        the word a three-actor diagnostic rung uses.
+        """
+        import dataclasses
+
+        generation = self._full()
+        short = dataclasses.replace(
+            generation,
+            undressable=generation.undressable[:-1],
+            count_source=world_population.COUNT_SOURCE_IDENTITY_RESOLVED,
+        )
+        token = ceiling_console_token(short)
+        self.assertTrue(token.startswith("ceiling=unaccounted:"), token)
+        self.assertNotIn("not_applicable", token)
+        # ...while a rung that really was asked for keeps the quiet word.
+        rung = build_world_population(self.legacy, self.anchor, 3, scene_id=1)
+        self.assertEqual(
+            rung.count_source, world_population.COUNT_SOURCE_CALLER)
+        self.assertEqual(ceiling_console_token(rung), "ceiling=not_applicable")
+
+    def test_a_stale_pin_actually_reaches_the_console(self) -> None:
+        """F2: the mitigation that replaced the boot-killing raise.
+
+        Deleting the whole ``ticket_stale=`` suffix left the suite green -
+        the branch had never executed in any test - so the field could have
+        gone dark on precisely the boot it exists for.  This drives it.
+        """
+        generation = self._full()
+        original = identity_table.CEILING_TICKET_STALE_LEADERS
+        identity_table.CEILING_TICKET_STALE_LEADERS = (155, 819)
+        try:
+            token = ceiling_console_token(generation)
+        finally:
+            identity_table.CEILING_TICKET_STALE_LEADERS = original
+        self.assertIn(" ticket_stale=155,819", token)
+        self.assertTrue(token.isascii())
+        token.encode("cp874")
+        # and it is absent, not empty, when the pin is current
+        self.assertNotIn("ticket_stale", ceiling_console_token(generation))
+
+    def test_the_class_fields_are_ordered_not_incidentally_sorted(
+        self,
+    ) -> None:
+        """F9: an exact-string assertion pins ordering only by luck.
+
+        Today insertion order happens to equal sorted order, so dropping
+        ``sorted()`` changed nothing.  Driven with rows whose insertion order
+        is deliberately the reverse.
+        """
+        import dataclasses
+
+        generation = self._full()
+        rows = (
+            (86, 86, 0, ""),
+            (0, 1, 155, "Port transportation"),
+        ) + generation.undressable[2:]
+        token = ceiling_console_token(
+            dataclasses.replace(
+                generation,
+                undressable=rows,
+                count_source=world_population.COUNT_SOURCE_IDENTITY_RESOLVED,
+            )
+        )
+        classes = token.rsplit(" ", 1)[1]
+        keys = [part.split("=")[0] for part in classes.split(",")]
+        self.assertEqual(keys, sorted(keys))
 
     def test_every_state_of_this_field_survives_the_bridge_console(
         self,

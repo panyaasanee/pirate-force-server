@@ -466,7 +466,7 @@ def ceiling_console_token(
     THE LAST FIELD BUILD-001'S OWN RULE ASKS FOR.  The owner's order is 115 in
     one shot and its red rule is that a census which does not go out whole
     reports the real number AND the reason.  ``assembled=108/115`` has carried
-    the number since round 2pdf6j and ``undressable=`` has named the seven
+    the number since round pqx4fj and ``undressable=`` has named the seven
     since round mcxexp.  Neither says whether somebody could still go and FIX
     the seven, and that is the difference between a bug and a boundary.  This
     token carries the verdict, so a boot log answers the question that was
@@ -511,18 +511,46 @@ def ceiling_console_token(
         # ``assembled=`` would bury it instead of showing it.
         assembled = len(generation.indices)
         if assembled + len(dropped) != CENSUS_COUNT:
-            # A rung, not the census: the two numbers only add up to the whole
-            # frozen table on the full build.  Checked rather than assumed,
-            # because ``undressable`` is recorded at build time and a rung
-            # carries the same measurement the full census does.
+            # TWO DIFFERENT FACTS, AND THEY USED TO PRINT THE SAME WORD
+            # (pf-adversary, this round, F3).  A short rung is short because
+            # somebody asked for a short rung.  But a WHOLE census whose
+            # numbers do not add up has lost a placement to a reason that is
+            # recorded nowhere - ``resolve()`` returns None for a template id
+            # in neither table, so ``census_order`` drops it and
+            # ``unshippable_placements`` never counts it - and this
+            # arithmetic is the only check in the tree that would notice.
+            # Printing the rung word over it is the silent-skip shape this
+            # module refuses everywhere else (``not_recorded`` vs ``0``,
+            # ``NO_CREATURE`` vs ``NO_NAME`` vs ``NON_ASCII``).
+            if generation.count_source == COUNT_SOURCE_IDENTITY_RESOLVED:
+                return "ceiling=unaccounted:%d+%d/%d" % (
+                    assembled, len(dropped), CENSUS_COUNT)
             return "ceiling=not_applicable"
         counted: dict[str, int] = {}
-        for _index, _template_id, leader, _name in dropped:
-            key = world_port_royal_identity.ceiling_class_for_leader(leader)
+        for _index, template_id, leader, _name in dropped:
+            key = world_port_royal_identity.ceiling_class_for_placement(
+                template_id, leader)
             counted[key] = counted.get(key, 0) + 1
         classes = ",".join(
             "%s=%d" % (key, counted[key]) for key in sorted(counted)
         )
+        # THE VERDICT IS CONDITIONAL, AND THE FIRST DRAFT'S WAS NOT
+        # (pf-adversary, this round, F1).  ``client_data_bounded
+        # RE-149:BOUNDED-NEGATIVE`` used to be emitted whenever the
+        # arithmetic added up, whatever the classes said - so a census with
+        # SEVEN unadjudicated rows still printed the ticket and its verdict
+        # at the HEAD of the field, where both a human eye and a
+        # ``grep 'ceiling=.*BOUNDED-NEGATIVE'`` land.  The count in the tail
+        # was honest and the claim in front of it was not, which is worse
+        # than either alone: this docstring promised unadjudicated rows
+        # "must not be able to hide inside a citation", and they were hiding
+        # inside exactly one.  When anything is unadjudicated the citation is
+        # WITHHELD and the loud word goes first.
+        unadjudicated = counted.get(
+            world_port_royal_identity.CEILING_CLASS_UNADJUDICATED, 0)
+        if unadjudicated:
+            return "ceiling={0}/{1} UNADJUDICATED={2} verdict_withheld {3}".format(
+                assembled, CENSUS_COUNT, unadjudicated, classes)
         # A pinned ticket that has gone stale says so ON THE LINE rather than
         # at import: see CEILING_TICKET_STALE_LEADERS' own comment for why
         # this must not be a raise.  Empty on every boot today; the day it is

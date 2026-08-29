@@ -376,7 +376,7 @@ if set(UNRESOLVED_CLIENT_NAMES) != set(UNRESOLVED):
 # BUILD-001's order from the owner is 115 placements in one shot, and its one
 # red rule is that a census which does not go out whole reports the REAL
 # number and the REASON - never a target quietly rewritten to whatever came
-# out.  Since round 2pdf6j the real number has been on the console (108/115)
+# out.  Since round pqx4fj the real number has been on the console (108/115)
 # and since round mcxexp the seven missing placements have been named there.
 # What was still missing is the last step of that rule: whether 7 of 115 is a
 # SERVER shortfall somebody can still go and fix, or a ceiling the client's
@@ -399,9 +399,24 @@ if set(UNRESOLVED_CLIENT_NAMES) != set(UNRESOLVED):
 # explicitly does NOT claim that some other build or locale lacks these five,
 # and it does NOT claim from a screen that the five cannot be drawn.  What it
 # does establish is the only thing this module needs: there is no material in
-# what we ship to build them from, so a round that "fixed" the shortfall would
-# have to invent a row - which is the one thing CHARTER-02 forbids outright.
-# The ticket names the two temptations by name and refuses both: MOBS 8529
+# WHAT WE SHIP TODAY to build them from.
+#
+# THAT IS NOT "UNFIXABLE", AND AN EARLIER DRAFT OF THIS COMMENT SAID IT WAS
+# (pf-adversary, this round, F5).  It read: "a round that fixed the shortfall
+# would have to invent a row - which is the one thing CHARTER-02 forbids
+# outright", which collapses three options into one.  The ticket's own
+# BUILD_IMPACT names TWO legitimate repairs and neither is invention:
+#   (1) open a job to find a new data pack / source, or
+#   (2) define a new actor by OWNER decision.
+# Only a third route - dressing these five from a number collision or a
+# shared display name - is forbidden, and the ticket refuses that one by
+# name.  The distinction matters because this comment is what a later round
+# reads instead of the ticket: the collapsed version tells that round the
+# shortfall is unfixable by rule and to close BUILD-001, when what the ticket
+# actually asked for was to OPEN work.  See RE-151 (this lane, round tz2eri)
+# for the successor that carries route (1) for placement 0, the harbour.
+#
+# The two temptations, refused by name: MOBS 8529
 # ("Tuna") and MOBS 855 ("Jack") share a DISPLAY NAME with two of the five and
 # are not crosswalked to them, and CHANGE_MODEL row 155 is a FIREARM in a
 # different id space that merely collides on the number.
@@ -476,29 +491,51 @@ CEILING_CLASS_NO_OUTFIT_COLUMN = "no_outfit_column"
 CEILING_CLASS_UNADJUDICATED = "unadjudicated"
 
 
-def ceiling_class_for_leader(leader: int) -> str:
-    """Which of the three named reasons applies to one refused CLINE leader.
+# The substring of a refusal reason that means what RE-149 actually measured:
+# the leader has NO ``CONSTDATA MOBS`` row at all.  The ticket's finding is
+# about that state, not about the id.
+CEILING_ADJUDICATED_REASON_MARK = "has no CONSTDATA MOBS row"
+# And the older, different finding: a leader that HAS a MOBS row whose
+# ``s_OUTFIT`` is empty.  Measured long before RE-149 and not part of it.
+CEILING_NO_OUTFIT_REASON_MARK = "no s_OUTFIT avatar template"
 
-    Returns ``CEILING_CLASS_UNADJUDICATED`` for anything the project has not
-    actually adjudicated, INCLUDING an id that a future regeneration adds to
-    ``UNRESOLVED``.  That is the point: this function must never answer
-    "RE-149 covers it" for an id RE-149 never looked at.
 
-    Leader 10002 (Mob-Set 101) is the third class rather than a fourth
-    unknown: it HAS a MOBS row and that row has no ``s_OUTFIT`` avatar
-    template, which is a different fact from having no row at all, and it was
-    measured long before RE-149.  No placement in the frozen table uses
-    Mob-Set 101, so it never reaches the console today; it is classified here
-    anyway so that the day one does, the line does not read "unadjudicated"
-    for something this module already knows the reason for.
+def ceiling_class_for_placement(template_id: int, leader: int) -> str:
+    """Which named reason applies to one refused placement.
+
+    KEYED ON THE RECORDED REASON, NOT ON THE ID ALONE (pf-adversary, this
+    round, F4).  The first draft matched ``leader in
+    CEILING_ADJUDICATED_LEADERS`` and stopped, which meant RE-149's verdict
+    outlived the fact it measured: give leader 155 a MOBS row with an empty
+    ``s_OUTFIT`` - a different, already-named state - and the console went on
+    citing "no shipped avatar source" for a row nobody had re-measured, with
+    nothing on the line to show the drift.  A ticket's finding is about a
+    STATE; when the state changes the citation has to stop, even though the
+    id has not moved.
+
+    The same finding closed a latent trap: taking a bare ``leader`` int, this
+    answered ``no_avatar_source`` just as readily for ``CHANGE_MODEL`` row
+    155 - the FIREARM in a different id space that RE-149 names as the
+    number-collision temptation - as for the CLINE leader.  Taking the
+    Mob-Set number too means the answer is anchored to a row in the table
+    this module owns.
+
+    ``CEILING_CLASS_UNADJUDICATED`` for anything the project has not actually
+    adjudicated, INCLUDING an id a future regeneration adds to ``UNRESOLVED``
+    and an id whose reason has changed out from under the ticket.
     """
-    if type(leader) is not int:
-        raise ValueError("leader must be an integer")
+    if type(template_id) is not int or type(leader) is not int:
+        raise ValueError("template id and leader must be integers")
     if leader == 0:
         return CEILING_CLASS_NO_CREATURE
-    if leader in CEILING_ADJUDICATED_LEADERS:
+    entry = UNRESOLVED.get(template_id)
+    reason = "" if entry is None else entry[1]
+    if (
+        leader in CEILING_ADJUDICATED_LEADERS
+        and CEILING_ADJUDICATED_REASON_MARK in reason
+    ):
         return CEILING_CLASS_NO_AVATAR_SOURCE
-    if leader == 10002:
+    if CEILING_NO_OUTFIT_REASON_MARK in reason:
         return CEILING_CLASS_NO_OUTFIT_COLUMN
     return CEILING_CLASS_UNADJUDICATED
 
