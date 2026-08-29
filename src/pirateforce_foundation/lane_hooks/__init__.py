@@ -114,9 +114,15 @@ import importlib
 import pkgutil
 import sys
 from pathlib import Path
-from typing import Callable
+from typing import Callable, NamedTuple
 
 _HOOKS: dict[str, list[tuple[str, Callable[..., None]]]] = {}
+# Scene n_id -> the ONE composer registered for that scene.  Unlike _HOOKS
+# (a list per point -- reporting hooks stack), census composition hands a
+# value back to runtime.py, and two composers for one scene would mean two
+# authors for one frame: first registration wins, a duplicate is refused
+# loudly at import time.  See ``census_composer`` below.
+_SCENE_CENSUS_COMPOSERS: dict[int, "SceneCensusComposer"] = {}
 # Qualified module name -> the module's own ``production_allowed`` flag, as
 # read once at discovery.  Only modules that IMPORTED get an entry, so a
 # module whose file is missing or raised on import is absent here and
@@ -211,6 +217,174 @@ def fire(point: str, **kwargs: object) -> None:
             )
 
 
+class SceneCensusComposer(NamedTuple):
+    """One lane's claim on one scene's census: who owns it, and the callable
+    that composes it.  ``module`` is the qualified module name, which is
+    exactly what a call site passes to ``module_production_allowed()``
+    before it calls ``compose`` (COO-DECISION 20260829_0041 option (b):
+    the call site reads the flag, then calls directly)."""
+
+    module: str
+    compose: Callable[..., "SceneCensusResult | None"]
+
+
+class SceneCensusResult(NamedTuple):
+    """What a scene census composer hands back to runtime.py's one lane
+    call site (CORE-REQUEST LANE-A 20260829_1845).  This is the whole
+    contract: runtime.py consumes exactly these fields and nothing else,
+    so a lane module can be reviewed against this tuple instead of against
+    runtime.py's internals.
+
+    ``console_lines`` are printed by the call site in order, BEFORE the
+    frame is queued -- console-proof-before-frame is the same order the
+    bg0001/bg0002 branches already keep, and the lines are the lane's own
+    (scene entry line, census line, actor lines -- whatever the lane's
+    evidence discipline needs greppable).  ``pc``/``frame`` are the exact
+    bytes to queue; ``initial_reapply_ms`` schedules the one reapply the
+    sibling branches also send.
+
+    Deliberately NO ``pc_bytes``/``frame_bytes`` fields: the call site
+    derives both with ``len()`` from the actual queued bytes, so the
+    greppable evidence can never disagree with the wire (pf-adversary,
+    round 73fhoc: a redundant lane-asserted length field is an evidence
+    channel that can openly contradict the payload it describes).
+
+    The call site treats every field as UNTRUSTED lane input: it coerces
+    (``bytes()``, ``int()``, ``float()``, ``str()``) inside its
+    fail-closed net, so a malformed-but-typed result -- a str where an int
+    should be, a dict instead of this tuple -- refuses the census instead
+    of unwinding the listener thread (pf-adversary, round 73fhoc,
+    measured both shapes escaping an earlier draft).
+    """
+
+    actor_count: int
+    pc: bytes
+    frame: bytes
+    console_lines: tuple[str, ...]
+    initial_reapply_ms: int
+
+
+def census_composer(scene_id: int) -> Callable[
+    [Callable[..., "SceneCensusResult | None"]],
+    Callable[..., "SceneCensusResult | None"],
+]:
+    """Decorator: register ``fn`` as THE census composer for ``scene_id``.
+
+    The registry ``fire()`` points deliberately cannot serve this job:
+    ``fire()`` never returns a value, and composing a census means handing
+    actors back (stated in fire()'s own docstring; re-stated by the lane's
+    letter that asked for this point).  So this is the OTHER house shape,
+    COO-DECISION 20260829_0041 option (b): the runtime.py call site looks
+    the composer up, reads ``module_production_allowed()`` for the owning
+    module, and only then calls ``compose`` directly.
+
+    ``compose`` is called with keyword arguments only -- today ``legacy``,
+    ``anchor`` (a resolved (x, y, z)), ``scene_id``, and
+    ``scene_entry_registry``; a composer should accept ``**kwargs`` for the
+    ones it ignores so the call site can grow arguments without breaking
+    every lane at once.  It returns a ``SceneCensusResult``, or ``None`` to
+    decline: the call site then latches the census as sent-nothing for the
+    session, with a named event -- decline is a permanent answer for the
+    process, not a retry (the registry data a composer reads is loaded once
+    at boot, same reasoning as the bg0002 anchor latch in runtime.py).
+
+    First registration wins.  Discovery imports lane files in
+    filename-sort order (``_discover()``'s only ordering guarantee), so
+    which file wins a collision is deterministic -- but a collision is
+    always a bug between two lanes, so the loser is refused with a
+    ``LANE_HOOK_DUPLICATE`` line on stderr rather than silently shadowed
+    or silently stacked.
+
+    Scenes 1 and 2 keep their dedicated runtime.py branches no matter what
+    is registered here: the call site consults this table only for scenes
+    those branches do not already claim (the no-regression-path property
+    the lane's letter asked for by name).
+    """
+
+    def decorator(
+        fn: Callable[..., "SceneCensusResult | None"],
+    ) -> Callable[..., "SceneCensusResult | None"]:
+        module_name = fn.__module__
+        if not module_name.startswith(f"{__name__}."):
+            # A composer whose owning module lives OUTSIDE this package can
+            # register but can never pass the gate: ``_gate_module`` only
+            # ever records lane_hooks modules, so
+            # ``module_production_allowed`` answers False forever and the
+            # scene silently degrades to the not-home skip with a green
+            # REGISTERED token at boot (pf-adversary, round 73fhoc,
+            # measured with a gm/ helper module).  Refused loudly instead:
+            # the lane file itself must carry the decorated function (it
+            # may still import and delegate to a helper inside it).
+            print(
+                _console_safe(
+                    f"LANE_HOOK_REJECTED {module_name} "
+                    f"scene_census_composer:{scene_id} "
+                    f"NOT_A_LANE_HOOKS_MODULE"
+                ),
+                file=sys.stderr,
+            )
+            return fn
+        existing = _SCENE_CENSUS_COMPOSERS.get(scene_id)
+        if existing is not None:
+            print(
+                _console_safe(
+                    f"LANE_HOOK_DUPLICATE {module_name} "
+                    f"scene_census_composer:{scene_id} "
+                    f"KEPT {existing.module}"
+                ),
+                file=sys.stderr,
+            )
+            return fn
+        # stderr for the same reason as the ``hook`` decorator above:
+        # registration runs at import time, inside every --json tool run.
+        # Print BEFORE inserting: if this print somehow raises, the raise
+        # propagates out of the module's import, _import_module_safely
+        # reports IMPORT_FAILED, and no entry was left behind for the
+        # failure report to contradict (pf-adversary, round 73fhoc).
+        print(
+            _console_safe(
+                f"LANE_HOOK_REGISTERED {module_name} "
+                f"scene_census_composer:{scene_id}"
+            ),
+            file=sys.stderr,
+        )
+        _SCENE_CENSUS_COMPOSERS[scene_id] = SceneCensusComposer(
+            module_name, fn,
+        )
+        return fn
+
+    return decorator
+
+
+def scene_census_composer(scene_id: int) -> SceneCensusComposer | None:
+    """The composer registered for ``scene_id``, or ``None`` if no lane has
+    claimed it.  ``None`` is the everyday answer, not an error: it means
+    the call site walks its existing branches untouched."""
+    return _SCENE_CENSUS_COMPOSERS.get(scene_id)
+
+
+def console_safe(text: str) -> str:
+    """Public spelling of ``_console_safe`` for call sites OUTSIDE this
+    package that print lane-supplied text -- e.g. runtime.py printing a
+    census composer's ``console_lines``.  A lane's line is exactly as
+    client-adjacent as a lane hook's exception text, and the cp874 scar
+    (rounds 86, 142) does not care which package did the printing."""
+    return _console_safe(text)
+
+
+def announce_direct_fire(module_name: str, point: str) -> None:
+    """Print the same ``LANE_HOOK_FIRED`` token ``fire()`` prints, for a
+    call site that reaches a lane's code directly because it needs the
+    return value.  Exists so the WIRED-v2 grep contract ("emission on the
+    production path, combined 2>&1") holds for direct-call routes too,
+    with the token format owned here rather than re-spelled at each call
+    site.  stderr, same reason as ``fire()``."""
+    print(
+        _console_safe(f"LANE_HOOK_FIRED {module_name} {point}"),
+        file=sys.stderr,
+    )
+
+
 def registered_points() -> dict[str, int]:
     """Point name -> number of hooks registered.  For tests/diagnostics only."""
     return {point: len(fns) for point, fns in _HOOKS.items()}
@@ -258,10 +432,20 @@ def module_production_allowed(module_name: str) -> bool:
 
 
 def _withdraw(module_name: str) -> None:
-    """Remove every hook a module registered.  Used when the module turns
-    out not to be production_allowed (see module docstring)."""
+    """Remove every hook AND every scene census composer a module
+    registered.  Used when the module turns out not to be
+    production_allowed (see module docstring).  For census composers this
+    is belt-and-braces on purpose: the call site reads
+    ``module_production_allowed()`` before calling anyway (option (b)),
+    but a withdrawn entry also frees the scene slot: ``_discover()`` gates
+    each module right after importing it, so a closed lane's claim is gone
+    before the next file in filename-sort order even imports, and cannot
+    block another lane from registering the same scene."""
     for point, entries in list(_HOOKS.items()):
         _HOOKS[point] = [(m, fn) for (m, fn) in entries if m != module_name]
+    for scene_id, entry in list(_SCENE_CENSUS_COMPOSERS.items()):
+        if entry.module == module_name:
+            del _SCENE_CENSUS_COMPOSERS[scene_id]
 
 
 def _import_module_safely(qualified_name: str) -> object | None:
@@ -318,6 +502,14 @@ def _discover() -> None:
         qualified_name = f"{__name__}.{info.name}"
         module = _import_module_safely(qualified_name)
         if module is None:
+            # A module can register hooks/composers at its top level and
+            # THEN raise later in the same import.  Without this withdraw,
+            # those partial registrations survive as zombie claims: the
+            # scene slot stays occupied by a corpse, a later healthy lane
+            # is refused as a DUPLICATE whose KEPT names the corpse, and
+            # runtime falls to the not-home skip forever (pf-adversary,
+            # round 73fhoc, measured on-disk with two lane files).
+            _withdraw(qualified_name)
             continue
         if not _gate_module(qualified_name, module):
             _withdraw(qualified_name)
