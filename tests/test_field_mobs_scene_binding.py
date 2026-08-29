@@ -44,9 +44,12 @@ from pirateforce_foundation import (  # noqa: E402
     field_mob_tables,
     field_mob_tables_bg0002,
     field_mobs,
+    mob_ai_control,
     mob_combat,
+    mob_death,
     world_scene_folder,
 )
+from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 from pirateforce_foundation.field_mobs import FieldMobContractError  # noqa: E402
 from pirateforce_foundation.mob_combat import MobCombatContractError  # noqa: E402
 
@@ -204,6 +207,42 @@ class SceneBindingTest(unittest.TestCase):
         self.assertIn(
             "folder=? live=0 mobs=0",
             field_mobs.describe_scene_roster_binding(UNADDRESSED_SCENE_ID))
+
+
+class EmptyRosterReachesEveryCallSiteTest(unittest.TestCase):
+    """The four ``runtime.py`` sites that read a roster, measured with ``()``.
+
+    This is here because of what the wiring ask actually is.  ``runtime.py``
+    reads a roster in FOUR places -- the ledger (1119), the AI register
+    (1174), the combat dispatch (3911) and the death-frame census override
+    (6486) -- and the request to chief is "change all four together or none
+    of them", because a half-wired set makes the census and the ledger
+    disagree in any scene that is not scene 1, which is the shape GT-084
+    measured as a world wipe.  A reviewer weighing that ask needs to know
+    that the empty roster a town produces does not RAISE anywhere
+    downstream, so these are measured rather than asserted in a letter.
+    """
+
+    def test_the_ai_register_opens_empty_rather_than_refusing(self):
+        register = mob_ai_control.open_register((), epoch=0)
+        self.assertEqual(register.rows, ())
+
+    def test_the_death_census_override_is_falsy_so_the_census_stands(self):
+        legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+        override = mob_death.full_roster_override(
+            legacy, (), mob_death.DeathRegister(),
+            ledger=mob_combat.open_ledger(()))
+        # Falsy, so runtime.py's `if mob_death_override:` skips the override
+        # and world_population's own census stands -- which is exactly what
+        # happens today in a scene with no monsters.
+        self.assertFalse(override)
+        populated = mob_death.full_roster_override(
+            legacy, field_mobs.roster_for_scene_id(BG0002_SCENE_ID),
+            mob_death.DeathRegister(),
+            ledger=mob_combat.open_ledger_for_scene_id(BG0002_SCENE_ID))
+        self.assertEqual(
+            len(populated),
+            len(field_mobs.roster_for_scene_id(BG0002_SCENE_ID)))
 
 
 if __name__ == "__main__":
