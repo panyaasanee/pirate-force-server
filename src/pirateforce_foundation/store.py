@@ -435,6 +435,28 @@ class SQLiteStore:
         """
         if type(item) is not ItemAttrState:
             raise TypeError("acquired item must be an exact ItemAttrState")
+        # WHAT THIS METHOD ACCEPTS MUST BE A SUBSET OF WHAT GATE 2 ADMITS,
+        # and these two bounds are the difference.  ``require_backpack_shape``
+        # below allows quantity 0 and template 0; gate 2 -- the
+        # character-select admission predicate, named here by its role
+        # because that gate's test file pins which modules may name it, and
+        # a persistence method is not one of them -- refuses an
+        # acquired row with either.  A row this method committed and that gate
+        # refuses is UNREMOVABLE -- there is no delete-item path -- so the
+        # character could never enter the world again without the
+        # HYP-PF-008 opt-in.  Refused here, before the transaction, rather
+        # than left unreachable-by-luck because ``place_in_bag`` happens to
+        # bound them today.
+        if item.quantity < 1:
+            raise ValueError(
+                "quantity %d is not a pickup quantity; gate 2 would refuse "
+                "this row forever" % item.quantity
+            )
+        if item.template_id < 1:
+            raise ValueError(
+                "template id 0 is not a pickup template; gate 2 would refuse "
+                "this row forever"
+            )
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             self._require_selected_session(db, sid, character_id)

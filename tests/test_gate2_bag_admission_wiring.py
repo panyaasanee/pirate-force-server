@@ -16,12 +16,15 @@ constant.  A test that hand-built the bag it then admits would prove that the
 predicate agrees with this file's idea of a pickup, not that a pickup gets in.
 
 WHAT THIS DOES NOT PROVE.  The bag reaches ``select_and_start`` through a
-lifecycle stub, because nothing writes an acquired row to the database yet --
-``store.py`` has no INSERT and does not advance ``next_item_identity`` (that
-is this round's open ticket, ``STORE-INSERT-001``).  So this file pins the
-gate, not the round trip: "pick an item up, relog, it is still there" stays
-un-proven end to end until that INSERT exists, and no line here should be
-quoted as evidence for M5.
+lifecycle stub, so this file pins the GATE and not the round trip.
+~~because nothing writes an acquired row to the database yet -- ``store.py``
+has no INSERT and does not advance ``next_item_identity``~~ -- that ticket
+(``STORE-INSERT-001``) LANDED in round 4gqnwm, and the round trip through a
+real store now has its own file,
+``tests/test_store_acquired_item_insert.py``.  What is still missing for M5
+is the call site (``GT-124``): ``runtime.py`` does not call
+``mob_pickup.dispatch_pickup_request``, so no line here or there should be
+quoted as evidence that a PLAYER can pick anything up.
 """
 from pathlib import Path
 import ast
@@ -303,7 +306,13 @@ class OnlyTheCharacterSelectPathAsksThisPredicate(unittest.TestCase):
         # and already undid: the scan comes back, with named and counted
         # exemptions for the files whose PROSE mentions the module, and the
         # AST check stays as a second route to the same fact.
-        mentions_allowed = {"runtime.py"}  # a comment naming the gate, no call
+        # mob_pickup.py joined runtime.py in round 4gqnwm: its WIRING
+        # string used to instruct the chief that persistence was
+        # blocked at gate 2, which stopped being true when gate 2
+        # became this predicate.  Correcting that instruction means
+        # naming the predicate.  Prose and a constant only -- the
+        # import check above still holds mob_pickup to zero.
+        mentions_allowed = {"runtime.py", "mob_pickup.py"}
         importers = sorted(
             str(path.relative_to(root)) for path in package
             if _imports_bag_admission(path)
@@ -325,7 +334,12 @@ class OnlyTheCharacterSelectPathAsksThisPredicate(unittest.TestCase):
             "attribute hop through another module), or new prose that needs "
             "a named exemption on the line above.",
         )
-        self.assertEqual(len(mentions_allowed), 1)
+        # ~~1~~ -> 2 in round 4gqnwm.  The count is pinned so an exemption
+        # cannot be added quietly; raising it is meant to be a visible edit,
+        # and this one is: mob_pickup's WIRING string carried an instruction
+        # that gate 2 blocks persistence, which STORE-INSERT-001 made false,
+        # and correcting an instruction about a predicate means naming it.
+        self.assertEqual(len(mentions_allowed), 2)
 
     def test_nothing_outside_the_package_calls_it_either(self):
         """The repo-wide half of the deleted guard: tools/, current/, entrypoints."""
@@ -346,6 +360,29 @@ class OnlyTheCharacterSelectPathAsksThisPredicate(unittest.TestCase):
             # bag_admission, which is what this allowlist is for -- not a
             # caller reaching for the predicate from outside the package.
             "tests/test_bag_admission_expiry.py",
+            # Added by chief, round 4gqnwm (STORE-INSERT-001).  The store now
+            # writes a picked-up row, and the one thing that write has to be
+            # true for is that the bag it produces GETS THROUGH GATE 2 after a
+            # relog -- so that file reads the verdict from this predicate
+            # rather than asserting its own idea of admissibility.  A test OF
+            # bag_admission's outcome, like the two above it; not a caller
+            # reaching for the predicate from outside the package.
+            #
+            # THIS ENTRY WAS ADDED AFTER THE FACT, AND THAT IS THE LESSON.
+            # `git grep` searches the INDEX, so while the new file was
+            # untracked this check could not see it and the whole suite ran
+            # green; the failure appeared only at `git add`.  A new test file
+            # that imports bag_admission must be staged before its own suite
+            # run is worth anything.
+            "tests/test_store_acquired_item_insert.py",
+            # Added by chief, round 4gqnwm.  test_mob_pickup's "wall"
+            # test asserted a decommissioned predicate and stayed
+            # green through the gate-2 widening it promised to fail
+            # on; it now re-derives the wall against the gate IN
+            # FORCE, which means reading this predicate.  A test OF
+            # the gate's outcome, not a caller of it.
+            "tests/test_mob_pickup.py",
+            "src/pirateforce_foundation/mob_pickup.py",
             "docs/FUNCTIONAL_COVERAGE.json",
         }
         elsewhere = sorted(

@@ -298,6 +298,48 @@ class StoreAcquiredItemInsertTests(unittest.TestCase):
         self.assertIn("occupied", str(caught.exception))
         self.assertEqual(len(self._rows()), len(INITIAL_BACKPACK.items))
 
+    def test_a_row_gate_2_would_refuse_forever_is_refused_here(self):
+        """Containment: everything committed here must be admissible there.
+
+        Found by an adversarial pass, which measured the store committing a
+        quantity-0 row that ``bag_admission`` then refuses -- and there is no
+        delete-item path, so that character could never enter the world
+        again.  Not reachable through ``place_in_bag`` today (it bounds
+        quantity, and ``GroundDrop`` bounds the template), which is exactly
+        why the store must not rely on the caller for it.
+        """
+        for bad, label in (
+            (ItemAttrState(
+                self._column(), ITEM, 0, 4,
+                mob_pickup.NEW_ROW_RAW_U8_38,
+                mob_pickup.NEW_ROW_RAW_U8_39,
+                mob_pickup.NEW_ROW_DETAIL_PRESENT,
+            ), "quantity"),
+            (ItemAttrState(
+                self._column(), 0, 1, 4,
+                mob_pickup.NEW_ROW_RAW_U8_38,
+                mob_pickup.NEW_ROW_RAW_U8_39,
+                mob_pickup.NEW_ROW_DETAIL_PRESENT,
+            ), "template"),
+        ):
+            with self.subTest(field=label):
+                # the gate's own verdict on the bag this row would make
+                would_be = BackpackState(
+                    INITIAL_BACKPACK.base_mask,
+                    INITIAL_BACKPACK.base_identity,
+                    INITIAL_BACKPACK.range_mask,
+                    INITIAL_BACKPACK.items + (bad,),
+                )
+                self.assertFalse(bag_admission.may_enter_world(
+                    would_be, allow_hypothesized_item_move=False,
+                ))
+                with self.assertRaises(ValueError):
+                    self.store.commit_acquired_backpack_item(
+                        self.sid, self.character.id, bad,
+                    )
+                self.assertEqual(len(self._rows()), len(INITIAL_BACKPACK.items))
+                self.assertEqual(self._column(), bad.identity)
+
     def test_an_untyped_row_is_refused_before_the_transaction(self):
         with self.assertRaises(TypeError):
             self.store.commit_acquired_backpack_item(

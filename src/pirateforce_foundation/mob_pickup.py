@@ -305,18 +305,24 @@ MOB_PICKUP_WIRING = (
     "of instructions and the row is normally gone before resolve runs.  "
     "NEITHER refusal is evidence about RE-082 -- see the note on that split "
     "in resolve_claim.\n"
-    "  3. STOP: PERSISTING outcome.row_write WITH AN INSERT INTO "
-    "character_backpack_items IS NOT SAFE YET.  See THE WALL in the module "
-    "docstring: the character-select path still refuses a bag holding it, at "
-    "gate 2 (is_unmoved_baseline) -- COO-DECISION 20260828_0844 widened gate "
-    "3's wire encoder, but gate 2 is unchanged and deliberately out of that "
-    "grant.  When gate 2 is redesigned, the column order is "
-    "BagRowWrite.COLUMNS and the values are "
-    "outcome.row_write.values().  Until then, dispatch_pickup_request "
-    "already logs the row it would have written (token "
-    "MOB_PICKUP_ROW_WOULD_INSERT, via bag_row_write_console_line) and calls "
-    "nothing DB-shaped -- do not add an INSERT of your own around this "
-    "call.\n"
+    "  3. PERSIST via store.commit_acquired_backpack_item(sid, "
+    "character_id, outcome.item) -- and STILL do not write an INSERT of "
+    "your own.  ~~STOP: persisting is not safe yet, gate 2 "
+    "(is_unmoved_baseline) refuses a bag holding it~~ is SUPERSEDED TWICE: "
+    "gate 2 asks bag_admission.may_enter_world since round 1684ra, which "
+    "admits a bag place_in_bag produced, and STORE-INSERT-001 (round "
+    "4gqnwm) put the row and the identity counter in one transaction "
+    "behind that one store call.  The store validates the identity "
+    "against character_backpacks.next_item_identity, so seed this "
+    "session's BagCell from store.backpack_issued_through and never from "
+    "the column directly.  A refusal from that call means the row is NOT "
+    "in the bag while this process thinks it is -- the drop is already off "
+    "the ground by then, so the call site owes the player a resync, which "
+    "NOTHING PROVIDES YET (see NONCLAIM 16).  dispatch_pickup_request "
+    "still only logs (token MOB_PICKUP_ROW_WOULD_INSERT, via "
+    "bag_row_write_console_line); the write is the caller's one line, and "
+    "BagRowWrite.COLUMNS/outcome.row_write.values() remain the column "
+    "order if anyone needs it.\n"
     "  4. send outcome.delta to the claimant -- it is the (pc, frame) pair "
     "dispatch_pickup_request already composed and validated.  Do NOT call "
     "bag_delta_pc here.\n"
@@ -414,12 +420,16 @@ PIN_ID = "port_royal_field_mob_pickup_001"
 PIN_BUILD_ORDER = MOB_PICKUP_BUILD_ORDER
 PIN_LANE = MOB_PICKUP_LANE
 
-# Gate 3 (the wire encoder) was widened by COO-DECISION 20260828_0844; Gate 2
-# is what actually still blocks persistence, and it is deliberately NOT this
-# lane's to move (deferred redesign, COO-DECISION 20260827_1350).
-GOVERNED_BAG_ALLOWLIST_BLOCKS_PERSISTENCE = True
+# Gate 3 (the wire encoder) was widened by COO-DECISION 20260828_0844; gate 2
+# was widened in round 1684ra (PR #233) and now asks
+# bag_admission.may_enter_world, which admits a bag place_in_bag produced.
+# With STORE-INSERT-001 (round 4gqnwm) the persistence path exists, so NO
+# GATE BLOCKS A PICKUP ROW ANY MORE.  What blocks a PLAYER is the missing
+# call site (GT-124), which is not a gate and must not be recorded as one.
+GOVERNED_BAG_ALLOWLIST_BLOCKS_PERSISTENCE = False
 GOVERNED_BAG_ALLOWLIST_OWNER = (
-    "session.select_and_start.is_unmoved_baseline (gate 2, deferred redesign)"
+    "nobody: gate 2's admission predicate admits an acquired row since "
+    "round 1684ra; the remaining blocker is the absent call site (GT-124)"
 )
 
 MOB_PICKUP_NONCLAIMS = (
@@ -512,12 +522,16 @@ MOB_PICKUP_NONCLAIMS = (
     "'discarded one step past the door' rather than carried.",
     "14. THE ITEM IDENTITY IS DERIVED, NOT A HIGH-WATER MARK, and mob_loot "
     "wrote down why that shape is a bug: a bag that has ever SHRUNK hands the "
-    "next pickup an identity a client may still be holding.  There is nowhere "
-    "to persist a high-water mark today -- neither character_backpacks nor "
-    "migration 003 has a column for one -- so next_item_identity accepts one "
-    "from the caller and falls back to the derived form.  Which lane owns "
-    "that column is an open question and is in this round's letter to the "
-    "COO, not silently decided here.",
+    "next pickup an identity a client may still be holding.  ~~There is "
+    "nowhere to persist a high-water mark today -- neither "
+    "character_backpacks nor migration 003 has a column for one -- and which "
+    "lane owns that column is an open question.~~ ANSWERED AND BUILT (round "
+    "4gqnwm, COO-DECISION 20260829_0441 item 3): the mark is "
+    "character_backpacks.next_item_identity, owned by store.py, advanced by "
+    "store.commit_acquired_backpack_item in the same transaction as the row. "
+    "Seed a cell from store.backpack_issued_through (the column MINUS ONE, "
+    "which is this lane's INCLUSIVE convention); the derived fallback stays "
+    "for callers who have no store, and is still a fallback, not a policy.",
     "15. [OPEN RISK, NOT MEASURED - flagged, not fixed, this round "
     "(`37ts2b`)] NOTHING HERE BINDS bag_cell TO THE CLAIMANT IN THE REQUEST "
     "IT IS PASSED AGAINST.  dispatch_pickup_request (and BagCell.commit_pickup "
@@ -532,6 +546,19 @@ MOB_PICKUP_NONCLAIMS = (
     "claimed cell before calling in) or is an open design question for the "
     "COO is not decided here; this module provides no defense-in-depth "
     "against a mismatched pair.",
+    "16. [OPEN RISK, MEASURED BY READING BOTH CALL PATHS, NOT BY RUNNING "
+    "THEM - flagged this round (4gqnwm), not fixed] A BagCell AND THE "
+    "DATABASE COLUMN ARE TWO ALLOCATORS THAT AGREE ONLY WHILE EVERY COMMIT "
+    "SUCCEEDS.  BagCell.commit_pickup advances _issued_through in memory "
+    "after the drop leaves the ground; store.commit_acquired_backpack_item "
+    "is a separate later call that can refuse (lease taken over, database "
+    "locked, disk full).  After one such refusal the cell mints one above "
+    "the column forever, so EVERY later pickup in that session is refused "
+    "by identity - each one having already taken its drop off the ground. "
+    "There is no re-seed call and no compensating put-it-back.  The call "
+    "site (GT-124) must decide what the player gets; until it does, this "
+    "lane does not claim a pickup is atomic - only that the DATABASE write "
+    "is.",
 )
 
 
@@ -884,9 +911,15 @@ def next_item_identity(bag: Any, issued_through: Any = None) -> int:
     The parameter is named for what it is in the caller's world; what this
     lane needs is the LAST ISSUED value.
 
-    THERE IS NOWHERE TO PERSIST A HIGH-WATER MARK TODAY.  Neither
+    ~~THERE IS NOWHERE TO PERSIST A HIGH-WATER MARK TODAY.  Neither
     ``character_backpacks`` nor migration 003 has a column for one, and adding
-    one is the item lane's call, not this lane's.  So this function ACCEPTS a
+    one is the item lane's call, not this lane's.~~  THERE IS ONE NOW:
+    ``character_backpacks.next_item_identity`` (migration 005), advanced by
+    ``store.commit_acquired_backpack_item`` since round 4gqnwm.  Ask for it as
+    ``store.backpack_issued_through``, which is that column MINUS ONE and is
+    exactly the INCLUSIVE mark this parameter wants; the column itself is
+    EXCLUSIVE and passing it here skips an identity per issuance.  This
+    function still ACCEPTS a
     high-water mark from a caller who has one and falls back to the derived
     form when nobody does -- the fallback is named as a fallback rather than
     presented as a policy, and NONCLAIM 14 says so where a reader will see it.
@@ -1764,16 +1797,19 @@ def pin_document(legacy: Any) -> dict:
             "relog_persistence": GOVERNED_BAG_ALLOWLIST_BLOCKS_PERSISTENCE,
             "blocked_by": GOVERNED_BAG_ALLOWLIST_OWNER,
             "what_happens_if_wired_anyway": (
-                "the character cannot enter the world: store._load_backpack "
-                "(gate 1) and inventory.make_backpack_attr (gate 3) now load "
-                "and encode a drifted bag fine, but session.select_and_start's "
-                "is_unmoved_baseline (gate 2) still raises a PermissionError "
-                "runtime.py catches only to refuse the select, not to let it "
-                "through"
+                "the row persists and the character enters the world: all "
+                "three gates admit an acquired bag now (gate 2 asks its "
+                "admission predicate since round 1684ra), and "
+                "store.commit_acquired_backpack_item writes the row with "
+                "the identity counter.  What is absent is the call site "
+                "(GT-124), not a gate"
             ),
             "open_question_for_the_item_lane": (
-                "which lane owns a persisted item-identity high-water mark; "
-                "there is no column for one today -- see NONCLAIM 14"
+                "answered: character_backpacks.next_item_identity "
+                "(migration 005) is the persisted high-water mark, owned by "
+                "store.py -- read it as store.backpack_issued_through, "
+                "which is the column MINUS ONE.  Open instead: who resyncs "
+                "a BagCell whose commit was refused -- see NONCLAIM 15"
             ),
         },
         "nonclaims": list(MOB_PICKUP_NONCLAIMS),

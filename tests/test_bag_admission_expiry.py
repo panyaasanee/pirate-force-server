@@ -171,11 +171,26 @@ def test_exactly_one_named_write_advances_the_identity_counter() -> None:
     still worth failing on: a second writer is how a monotonic counter stops
     being monotonic.  So the tripwire becomes a pin.
 
+    WHAT THIS PIN CAN AND CANNOT SEE -- an adversarial pass BUILT the
+    evasions rather than imagining them, and three of them were green
+    against this test's first draft.  It reads statements handed to
+    execute/executemany in ``store`` and ``mob_pickup`` whose SQL is a
+    string CONSTANT (``_executed_sql`` documents that limit itself).  A
+    writer whose SQL is BUILT -- ``%``-formatted, f-string, joined -- is
+    invisible to it, and so is one added to a third module.  The scan was
+    widened to both modules after the pass found a counter writer added to
+    ``mob_pickup`` sailing past a store-only scan.  So: this catches the
+    copy-paste, not the determined author, and no round may quote it as
+    proof that a second writer cannot exist.
+
     THE REPLACEMENT THAT HALF TWO CALLED FOR IS NOT IN THIS ROUND, AND
     NOT SILENTLY.  COO-DECISION 20260829_0441 item 2 says the superseding
-    round deletes ``_classify_against`` rather than keeping it.  Measured on
-    this head before the deletion was attempted: with ``_classify_against``
-    gone and the counter as the sole criterion, ``HYPOTHESIZED_V111_SLOT2``
+    round deletes ``_classify_against`` rather than keeping it.  Derived by
+    running the counter-only rule over the shipped constants on this head,
+    before the deletion was attempted (the script and its output are in
+    ``pf_bridge/rounds/R224_4gqnwm_*``, and an adversarial pass re-derived
+    it independently): with ``_classify_against`` gone and the counter as
+    the sole criterion, ``HYPOTHESIZED_V111_SLOT2``
     (HYP-PF-008) and the free-slot move (HYP-PF-010) are ADMITTED -- both
     move a golden row without minting an identity, so a rule that only asks
     whether an identity was issued cannot see them, and every family test in
@@ -184,7 +199,15 @@ def test_exactly_one_named_write_advances_the_identity_counter() -> None:
     nonclaim 9 and in CHIEF-ASK-COO 20260829.  A round that gets COO's
     answer replaces nonclaim 9 and this docstring together.
     """
-    writes = _writes_naming("store", "next_item_identity")
+    # BOTH modules, matching the inserter test below.  Scanning only
+    # ``store`` left the sharpest evasion invisible: a second counter
+    # advancer added to ``mob_pickup`` -- the module the sibling test
+    # already reads -- passed this file while the docstring claimed in
+    # capitals that a second writer fails.
+    writes = [
+        hit for module in ("store", "mob_pickup")
+        for hit in _writes_naming(module, "next_item_identity")
+    ]
     # Seeding and advancing are different acts and are pinned apart.  The
     # seed writes the column once, at character create, as part of the row
     # that creates the bag; the advance is the pickup write.  A test that
@@ -221,9 +244,13 @@ def test_the_only_backpack_row_insert_is_the_one_that_makes_a_character() -> Non
 
     CONVERTED BY ROUND 4gqnwm, WHICH MET THIS HALF.  The second name is now
     here on purpose: ``commit_acquired_backpack_item`` is STORE-INSERT-001's
-    pickup write.  The set is still pinned exactly, so a THIRD way to put a
-    row in a player's bag still fails this test -- which is the property
-    worth keeping now that "no pickup path exists" has stopped being true.
+    pickup write.  The set is still pinned exactly, so a third
+    constant-SQL inserter in either scanned module fails this test -- which
+    is the property worth keeping now that "no pickup path exists" has
+    stopped being true.  Same scope limit as the test above, and it is not
+    theoretical here: ``reports/moveisol001_smoke/pf_move_isolation_probe.py``
+    is a tracked file that INSERTs bag rows and is not scanned at all
+    (SKIPPINS/probe cleanup ticket in pf_bridge names it).
     Why the replacement this half called for is not in that round, with the
     measurement that refuted its literal form, is in the docstring of
     ``test_exactly_one_named_write_advances_the_identity_counter`` above.

@@ -49,7 +49,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from pirateforce_foundation import inventory, mob_loot, mob_pickup
+from pirateforce_foundation import bag_admission, inventory, mob_loot, mob_pickup
 from pirateforce_foundation.inventory import (
     BACKPACK_BASE_IDENTITY,
     BACKPACK_BASE_MASK,
@@ -1314,12 +1314,29 @@ class MobPickupTests(unittest.TestCase):
         because it turned out to be the exact gate
         ``tests/test_item_move_generalized.py::test_moved_state_reconnect_is_opt_in_and_baseline_fails_closed``
         needs at full strength to keep a HYP-PF-010/017/018 mutated state
-        from reconnecting without its own opt-in flag.  So Gate 2 alone still
-        refuses this exact bag, and BUILD-006's blocker is still real: a
-        picked-up item still cannot survive a relog end to end, even though
-        two of the three gates that used to stop it no longer do.  The day
-        Gate 2 is also widened, THIS test goes red and this lane's prose must
-        be rewritten in the same round.
+        from reconnecting without its own opt-in flag.  ~~So Gate 2 alone
+        still refuses this exact bag, and BUILD-006's blocker is still real:
+        a picked-up item still cannot survive a relog end to end.~~
+
+        THAT DAY CAME, AND THIS TEST DID NOT NOTICE -- WHICH IS THE FINDING,
+        NOT THE FIX.  Gate 2 was widened in round 1684ra (PR #233):
+        ``session.select_and_start`` now asks
+        ``bag_admission.may_enter_world``, and ``is_unmoved_baseline`` is no
+        longer the gate.  This test kept asserting the DECOMMISSIONED
+        predicate plus a hardcoded module constant, so it stayed green
+        through exactly the event its own last line promised it would fail
+        on -- a pin that outlived the thing it pinned.  Found by an
+        adversarial pass in round 4gqnwm, the round that landed the
+        persistence half (STORE-INSERT-001).
+
+        So the wall is re-derived here against the gate IN FORCE: the same
+        bag is now ADMITTED by ``may_enter_world`` with the opt-in off, and
+        ``tests/test_store_acquired_item_insert.py`` proves it survives a
+        real relog through the store.  What still stops a player is no
+        longer a gate at all -- it is the missing call site (``GT-124``:
+        ``runtime.py`` does not call ``dispatch_pickup_request``).  The
+        governed-allowlist constants are corrected in the same commit rather
+        than left reading as a wall.
         """
         bag, item = place_in_bag(INITIAL_BACKPACK, a_drop())
         # Gate 1: store._load_backpack -- shape only, this bag is
@@ -1328,9 +1345,15 @@ class MobPickupTests(unittest.TestCase):
         inventory.require_backpack_shape(bag)
         with self.assertRaises(ValueError):
             inventory.require_known_backpack(bag)
-        # Gate 2: session.select_and_start, which answers with no reply.
-        # This is the gate that actually still stops a relog.
+        # Gate 2: session.select_and_start.  It asks bag_admission now, not
+        # is_unmoved_baseline, so BOTH are measured -- the old predicate to
+        # show it still says no (which is why this test used to be green),
+        # and the one in force to show the bag gets through it with the
+        # HYP-PF-008 opt-in OFF.
         self.assertFalse(inventory.is_unmoved_baseline(bag))
+        self.assertTrue(bag_admission.may_enter_world(
+            bag, allow_hypothesized_item_move=False,
+        ))
         # Gate 3: the world-entry attr build -- WIDENED this round
         # (COO-DECISION 20260828_0844).  It no longer raises for this bag;
         # it serializes it, structurally identical to the four-item golden's
@@ -1346,9 +1369,11 @@ class MobPickupTests(unittest.TestCase):
         self.assertEqual(
             inventory.make_backpack_attr(self.legacy, INITIAL_BACKPACK),
             self.legacy.make_backpack_attr_four_items())
-        self.assertTrue(mob_pickup.GOVERNED_BAG_ALLOWLIST_BLOCKS_PERSISTENCE)
+        # ~~assertTrue~~: the constant is False since STORE-INSERT-001, and
+        # it is asserted here (not merely updated) so that re-raising it
+        # without re-deriving the gate fails this test.
+        self.assertFalse(mob_pickup.GOVERNED_BAG_ALLOWLIST_BLOCKS_PERSISTENCE)
         self.assertEqual(item.identity, 5)
-        # And the shape itself is fine -- it is Gate 2 that still governs.
         require_bag_shape(bag)
 
     def test_make_backpack_attr_still_rejects_a_structurally_invalid_bag(self):
@@ -1603,7 +1628,12 @@ class MobPickupTests(unittest.TestCase):
         self.assertFalse(document["test_only"])
         self.assertIsNone(document["scenario"])
         self.assertFalse(document["wire"]["ever_observed_for_a_new_item"])
-        self.assertTrue(document["blocked"]["relog_persistence"])
+        # ~~assertTrue~~ in round 4gqnwm: relog persistence is no longer
+        # blocked.  Gate 2 admits an acquired bag (round 1684ra) and
+        # STORE-INSERT-001 wrote the row-and-counter transaction, so a report
+        # that still said "blocked: True" would send an operator hunting a
+        # gate instead of the missing call site (GT-124).
+        self.assertFalse(document["blocked"]["relog_persistence"])
         observed = document["transaction_observed"]
         self.assertFalse(observed["stacks"])
         self.assertTrue(observed["killer_only"])
