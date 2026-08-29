@@ -5417,7 +5417,40 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             # into the game; the console names the entry so
                             # the operator is not sent hunting for a silent
                             # door.
-                            print(f"GM_LOGIN_SCENE_OVERRIDE_REFUSED {exc}")
+                            # THE REASON ALONE IS A LIE ON DISK, so it is
+                            # not printed alone (pf-adversary, this round).
+                            # resolve_entry's message says the destination
+                            # "is pinned but not allowed as a login
+                            # destination" -- and in the one situation this
+                            # branch exists for, the registry FILE says
+                            # login_entry_allowed true. An operator who
+                            # greps the file after reading that line finds
+                            # it contradicted and stops trusting the line
+                            # rather than the process. So the line names
+                            # the snapshot, and names the only thing that
+                            # replaces a snapshot.
+                            #
+                            # Guarded like lane GM guards its equivalent
+                            # (gm/login_scene_override.py:204-216): they
+                            # measured an unencodable account name raising
+                            # out of exactly this shape of print in round
+                            # qq0i9u. Nothing here interpolates a name
+                            # today, but this print is the ONLY statement
+                            # between the refusal and the restore below --
+                            # if it raises, the operator's staged entry is
+                            # destroyed by a diagnostic.
+                            try:
+                                print(
+                                    "GM_LOGIN_SCENE_OVERRIDE_REFUSED "
+                                    f"{exc} "
+                                    "source=boot_snapshot "
+                                    "note=the_registry_FILE_may_disagree; "
+                                    "this process read it once at boot, so "
+                                    "an edit made since then is not in "
+                                    "effect until the server is restarted"
+                                )
+                            except Exception:
+                                pass
                             self.events.append(
                                 "gm_login_scene_override_refused_by_"
                                 f"registry_{login_scene_override}"

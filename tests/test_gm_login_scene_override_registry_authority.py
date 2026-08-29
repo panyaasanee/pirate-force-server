@@ -279,6 +279,17 @@ class LoginSceneRegistryAuthorityTests(unittest.TestCase):
         self.assertIn(
             world_scene_entry.REFUSED_NOT_ALLOWED_AT_LOGIN, stdout,
         )
+        # ...and it does NOT stop at that reason.  Read alone, the reason
+        # is contradicted by the registry file this very test asserts still
+        # says login_entry_allowed true, so the line has to name the
+        # snapshot and the restart, or it sends the operator to grep a file
+        # that disproves it (pf-adversary, this round).
+        refusal_line = next(
+            line for line in stdout.splitlines()
+            if line.startswith("GM_LOGIN_SCENE_OVERRIDE_REFUSED")
+        )
+        self.assertIn("source=boot_snapshot", refusal_line)
+        self.assertIn("restart", refusal_line)
 
     def test_the_retry_after_a_refused_override_is_the_same_as_the_first(self):
         """The lockout was the RETRY, so both logins are measured."""
@@ -359,6 +370,14 @@ class LoginSceneRegistryAuthorityTests(unittest.TestCase):
             )
 
         self.assertNotEqual(actions, [])
+        # THE ENTRY WAS REALLY CLAIMED FIRST.  Without this the file-equals
+        # assertion below is also true of a login that never took the entry
+        # off disk at all, and the whole test would rest on the single
+        # event line under it (pf-adversary, this round).
+        self.assertIn(
+            f"gm_login_scene_override_consumed_{CONTESTED_SCENE_ID}",
+            state.events,
+        )
         self.assertIn(
             "gm_login_scene_override_restored_after_refusal_"
             f"{CONTESTED_SCENE_ID}",
