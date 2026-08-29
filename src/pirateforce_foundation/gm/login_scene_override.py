@@ -48,10 +48,17 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 from .accounts import is_gm_account
+from .login_scene_admission import login_entry_is_pinned, stageable_scene_ids
 from .scene_catalog import is_known_scene_id
+
+# Printed to stderr, once per refused entry per load, when a config file
+# names a scene the login path would refuse.  Spelled once so a test (and a
+# tester grepping a console) can match it exactly.
+CONFIG_REFUSED_CONSOLE_TOKEN = "GM_LOGIN_SCENE_CONFIG_REFUSED"
 
 DEFAULT_CONFIG_PATH = "config/gm_login_scene.json"
 ENV_OVERRIDE = "PF_GM_LOGIN_SCENE_CONFIG"
@@ -59,6 +66,53 @@ ENV_OVERRIDE = "PF_GM_LOGIN_SCENE_CONFIG"
 STANDALONE_DEFAULT_CONFIG_PATH = "config/gm_login_scene_standalone.json"
 STANDALONE_ENV_OVERRIDE = "PF_GM_LOGIN_SCENE_STANDALONE_CONFIG"
 STANDALONE_JSON_KEY = "standalone_login_scene"
+
+
+def console_safe(text: str, stream=None) -> str:
+    """Fold one operator-controlled field to what ``stream`` can carry.
+
+    WHAT THIS IS AND IS NOT FOR, because round 7gplcy got this backwards
+    twice before pf-adversary measured it.  A field a console cannot encode
+    raises ``UnicodeEncodeError`` out of the ``print``; what stops that from
+    reaching the caller is the ``try/except`` around the print, NOT this
+    function.  ``session.py``'s rule (A DIAGNOSTIC MAY NEVER ALTER DISPATCH)
+    is held by the wrap.  This function holds the weaker, and separate,
+    promise: that the line still gets WRITTEN, and written in a form the
+    operator can read, paste and grep.
+
+    So the only correct fold is the one this stream actually needs, and the
+    two ways to get that wrong are symmetrical:
+
+    * fold too little and the line is lost (qq0i9u: a name the console could
+      not encode, and the refusal recorded nowhere);
+    * fold too much and the line is useless.  ``ascii()`` escaped every
+      BACKSLASH, so on Windows the line named the file `C:\\\\Users\\\\...`
+      and nobody could paste it -- that cost this lane a whole round.  Then
+      the fix for it, ``str.encode("ascii", ...)``, folded away THAI, on a
+      Thai-language project, on a console (`cp874`) that encodes Thai
+      natively: an operator named ``ทดสอบ`` would grep the console for their
+      own account and find nothing.  Same defect, one field to the left.
+
+    Hence: fold through the encoding of the stream being written to, and
+    nothing wider.  ``backslashreplace`` is what makes that lossless-looking
+    rather than silent -- an unmappable character becomes a visible escape,
+    never a ``?``.
+
+    The fallback when the stream will not say what it is (``None``, or a
+    ``StringIO``, which has no ``encoding`` at all) is ASCII: we do not know
+    what it can carry, so we assume the narrowest.  That is a real open
+    question and not a settled one -- ``runtime_console._Mirror`` ANNOUNCES
+    ``utf-8`` while the gate FORCES ``cp874:strict``, and nobody has measured
+    the stream on the owner's machine.  Asking the stream is what makes this
+    right in both worlds without anyone having to settle it first.
+    """
+    encoding = getattr(stream, "encoding", None) or "ascii"
+    try:
+        return text.encode(encoding, "backslashreplace").decode(encoding)
+    except (LookupError, UnicodeError):
+        # An encoding name Python does not have, or one that cannot survive
+        # the round trip.  Narrowest wins: a mangled line beats no line.
+        return text.encode("ascii", "backslashreplace").decode("ascii")
 
 
 def _resolve_path(
@@ -106,6 +160,67 @@ def _load_scene_id_map(
             raise ValueError(
                 f"{path}: '{json_key}'[{account_name!r}] = {scene_id} is not a "
                 "known scene_id in gm/scene_catalog.py's committed table"
+            )
+        if not login_entry_is_pinned(scene_id):
+            # ADMISSION, round qq0i9u.  Being in the client's NAME table is
+            # not the same as being a scene the login path will let a
+            # character into, and until this check existed the difference
+            # was paid for by the account: an entry naming a scene with no
+            # pinned login entry (or one pinned `login_entry_allowed:
+            # false`, scene 17 today) was accepted here, applied at login,
+            # and then refused by `resolve_entry` with no reply -- on that
+            # login and on every retry after it, because the standalone map
+            # is deliberately never consumed (`COO-DECISION 20260829_0542`).
+            # See `gm/login_scene_admission.py` for the measurement and for
+            # why this is admission rather than a reversal of that decision.
+            #
+            # LOUD, because the alternative is not quiet -- it is a tester
+            # who cannot log in and nothing anywhere saying why.  The token
+            # goes to stderr on every login that loads the bad file, which
+            # is once per login for as long as the typo stands; that is the
+            # noise of a config nobody has fixed yet, not of normal
+            # operation (a file with no bad entry prints nothing, ever).
+            #
+            # SWALLOWED AND FOLDED -- two mechanisms, two promises, and
+            # round 7gplcy attributed one to the other until pf-adversary
+            # measured it.  Keep them apart:
+            #
+            #   the WRAP holds dispatch.  An account name `cp874` has no
+            #   room for raised `UnicodeEncodeError` out of the print, and
+            #   `runtime_console._Mirror` writes the console BEFORE the
+            #   retained file, so the refusal was recorded nowhere at all
+            #   while the caller received the encoder's exception instead of
+            #   this function's (pf-adversary, round qq0i9u).  `session.py`
+            #   states the rule that broke: A DIAGNOSTIC MAY NEVER ALTER
+            #   DISPATCH.  A closed or hostile stderr costs the LINE, never
+            #   the refusal -- and that is true with no fold at all.
+            #
+            #   the FOLD holds the line's usefulness.  It is asked of the
+            #   STREAM, not assumed: fold what this console cannot carry and
+            #   nothing wider, so a Windows path keeps its separators and a
+            #   Thai account name survives on a Thai code page.  See
+            #   `console_safe`.
+            stream = sys.stderr
+            try:
+                print(
+                    f"{CONFIG_REFUSED_CONSOLE_TOKEN} "
+                    f"path='{console_safe(str(path), stream)}' "
+                    f"key={json_key} "
+                    f"account='{console_safe(account_name, stream)}' "
+                    f"scene_id={scene_id} reason=no_pinned_login_entry "
+                    f"stageable={stageable_scene_ids()}",
+                    file=stream,
+                )
+            except Exception:  # noqa: BLE001 - see the paragraph above; the
+                # refusal below is the product, the line is the courtesy.
+                pass
+            raise ValueError(
+                f"{path}: '{json_key}'[{account_name!r}] = {scene_id} names a "
+                "scene the login path will refuse (no pinned login entry in "
+                "lane A's world_scene_registry_001, or pinned "
+                "login_entry_allowed=false) -- an account pointed here could "
+                "not log in at all until this file was edited by hand; "
+                f"admissible scene_ids today: {stageable_scene_ids()}"
             )
         result[account_name] = scene_id
     return result

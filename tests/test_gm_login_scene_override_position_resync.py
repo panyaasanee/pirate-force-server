@@ -328,34 +328,107 @@ class GmLoginSceneOverridePositionResyncTests(unittest.TestCase):
             [],
         )
 
-    def test_a_refused_destination_gives_the_staged_entry_back(self):
-        """The entry is spent before the destination can refuse it.
+    def test_an_inadmissible_destination_never_reaches_the_login_at_all(self):
+        """Round qq0i9u: scene 17 is now refused when the config is READ.
 
-        Scene 17 is pinned `login_entry_allowed=False`, so `resolve_entry`
-        refuses it and the login sends no reply -- deliberately leaving the
-        client free to retry.  pf-adversary measured what that cost: the
-        staged entry was already off disk, so the retry logged in at home
-        with no event saying the operator's warp had been destroyed, and the
-        audit row read `consumed` for a scene nobody ever entered.
+        ~~The entry is spent before the destination can refuse it.~~  That
+        was the shape of this test until this round, and the login it
+        described -- config accepted, override applied, `resolve_entry`
+        refuses, entry handed back -- is no longer reachable from a config
+        file.  `gm/login_scene_admission.py` holds a hand-written entry to
+        the same rule `stage_login_scene` has enforced since round 0z3kjx,
+        so scene 17 is refused at the moment the map loads.
 
-        A destination can stop being enterable between staging and login (a
-        registry edit flipping `login_entry_allowed` is this week's real
-        example), so this is a live path, not a contrived one.
+        WHY THE OLD SHAPE HAD TO GO rather than being kept as well: the
+        refusal it pinned sends no reply, deliberately, so the client
+        retries -- and the STANDALONE map is never consumed
+        (`COO-DECISION 20260829_0542`), so the retry was refused the same
+        way, forever.  One typo in a hand-edited file locked an account out
+        of the game until somebody with shell access deleted the file.
+        Measured through this dispatcher in round 38c4tv and asked in
+        pf_bridge's ASK-COO letter of 2026-08-29T09:06+07:00; no answer
+        came, and that letter named this as the option the lane would walk.
+
+        What the tester gets instead, and what this test pins: the account
+        LOGS IN, at its own stored row, and the console says which entry was
+        refused and which scene ids are admissible.
         """
         refused_scene = 17
         self._write_configs(["gm_runner"], {"gm_runner": refused_scene})
-        state, _selector = self._login_and_start("gm_runner")
+        before = self.overrides_path.read_bytes()
+
+        with contextlib.redirect_stderr(io.StringIO()) as stderr:
+            state, _selector = self._login_and_start("gm_runner")
+
+        # It logs in, and at home -- not into a scene, and not nowhere.
+        self.assertNotIn("world_scene_entry_refused_no_reply", state.events)
+        self.assertEqual(state.foundation.selected.position.scene_id, 1)
+        self.assertEqual(
+            [event for event in state.events
+             if event.startswith("gm_login_scene_override_applied_")],
+            [],
+        )
+        self.assertIn("gm_login_scene_override_consume_failed", state.events)
+
+        # Loud, by the token a tester can grep, naming the way out.
+        console = stderr.getvalue()
+        self.assertIn(
+            login_scene_override.CONFIG_REFUSED_CONSOLE_TOKEN, console
+        )
+        self.assertIn("scene_id=17", console)
+        self.assertIn("stageable=(1, 2, 278, 997)", console)
+
+        # And the operator's file is untouched: refusing to ACT on an entry
+        # is not licence to edit it.
+        self.assertEqual(self.overrides_path.read_bytes(), before)
+
+    def test_a_refused_destination_still_gives_the_staged_entry_back(self):
+        """The restore-after-refusal branch, kept alive on purpose.
+
+        `runtime.py`'s handler puts a consumed entry back when the
+        destination refuses (chief, round ngwnnj/R223).  The test above
+        closed the CONFIG route into that handler, which would have left
+        chief's code with no test walking it at all -- so this one reaches
+        it at the seam that is still real: admission asks lane A's registry
+        at the moment the map loads, `resolve_entry` asks it again a few
+        microseconds later, and a registry that changes in between (or any
+        refusal reason admission does not model) lands here.  Narrow, and
+        that is exactly why the handler must keep working -- nobody will be
+        watching when it fires.
+
+        The staged scene is an ADMISSIBLE one, so the entry gets in, gets
+        consumed, and is then refused at the seam: the branch is walked with
+        its gate open (`COO-DECISION 20260829_0742`), not by disabling the
+        gate.
+        """
+        self._write_configs(["gm_runner"], {"gm_runner": KNOWN_SCENE_ID})
+        real_resolve = world_scene_entry.resolve_entry
+
+        def refuse_the_override_destination(stored, *args, **kwargs):
+            if stored.scene_id == KNOWN_SCENE_ID:
+                raise world_scene_entry.SceneEntryRefused(
+                    world_scene_entry.REFUSED_NOT_ALLOWED_AT_LOGIN,
+                    "refused by the test, standing in for a registry that "
+                    "changed under this login",
+                )
+            return real_resolve(stored, *args, **kwargs)
+
+        with mock.patch.object(
+            world_scene_entry, "resolve_entry",
+            side_effect=refuse_the_override_destination,
+        ):
+            state, _selector = self._login_and_start("gm_runner")
 
         self.assertIn("world_scene_entry_refused_no_reply", state.events)
         self.assertIn(
-            f"gm_login_scene_override_restored_after_refusal_{refused_scene}",
+            f"gm_login_scene_override_restored_after_refusal_{KNOWN_SCENE_ID}",
             state.events,
         )
         self.assertEqual(
             json.loads(self.overrides_path.read_text(encoding="utf-8"))[
                 "gm_login_scene"
             ],
-            {"gm_runner": refused_scene},
+            {"gm_runner": KNOWN_SCENE_ID},
             "the operator's instruction has to survive a login that never "
             "reached the scene it names",
         )
