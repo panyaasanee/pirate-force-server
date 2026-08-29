@@ -33,7 +33,11 @@
     "rule_3_evidence_tier": "A marker-sourced point is evidence tier 'authored' - the map's developers wrote that coordinate down - UNLESS an attended or runtime pass has actually stood a client on that exact point, which is the only thing that raises it. Scene 2 is the one row in this file that has cleared that bar (MARKER[2] was the coordinate, and SCENE-001 then loaded and rendered Prison Exile Island with a client standing on it, docs/EXPERIMENT_LEDGER.md:32), so it reads 'client-observed' while still being from_marker true. Every other marker-sourced row is 'authored' and MUST NOT be promoted to confirmed until an attended round stands a client on it and a human looks (COO-DECISION 20260828_2250 still governs promotion, unchanged by this ruling). CORRECTED after pf-adversary (round 8ubiku, D6): the first version of this sentence read 'It is NOT client-observed' flatly, which was false of scene 2 one hundred lines below it in this same file, and the test that was supposed to enforce the ceiling hard-coded scene 2 out of its own loop rather than the rule stating its exception. Every row carries coordinate_provenance naming the marker it came from, or saying explicitly that it came from something else, plus deviates_from_rule_1 for the one case (scene 1) that has a marker and declines it. ENFORCEMENT, and read the limit with it. The loader decides whether rule 1 reaches a scene from table_row.n_MARKER rather than from the row's from_marker flag, and a row claiming a marker must name the marker its table row names AND stand on that marker's pinned coordinate. ~~table_row.n_MARKER - the client's own column~~ and ~~A row can no longer vote itself out of the rule~~ are BOTH STRUCK (pf-adversary, round 8ubiku2, E3): n_MARKER in this file is as hand-typed as every other number here, and with it compared to nothing a row could still leave the rule by zeroing its own n_MARKER, or by declaring a deviation it did not actually make. Round 8ubiku moved the self-report to a different field and called that removing it. Both escapes are now closed by comparing n_MARKER against the pinned crosswalk and by requiring a declared deviation to actually stand somewhere other than the marker. WHAT IS STILL NOT ENFORCED ANYWHERE THE MERGE IS DECIDED: that any of these numbers match the client. See VERIFICATION_REACH in world_scene_marker.py - the only test tying the pinned rows to CONSTDATA_TH__MARKER.tsv is a declared skip on the gate, so a forged coordinate with a matching pin passes green there. Asked at notes_to_chief/20260829_0834_LANE-A-ASK-COO-the-gate-cannot-check-client-data.md.",
     "what_this_ruling_did_not_do": "It did not open any door. Scene 14's login_entry_allowed stays false (set by LANE-A round vyi2ud after pf-adversary measured three defects, re-confirmed by chief letter 20260829_0520). Giving a scene an address is not wiring a scene. The COO also ordered that the rule may not be applied to a sixth scene until this text is on main, so the rule and its first use cannot land in one unreviewed step.",
     "how_this_rule_falls": "GT-134 is its first proof. The COO's own words: if the tester surfaces in rock, in lava, or under the floor, this rule falls immediately and LANE-A reverts under item 4 of its own 0447 letter without asking again.",
-    "carve_out_scene_1_home_is_not_retro_moved": "[LANE-A ASSUMPTION - AWAITING COO CONFIRMATION] Scene 1 HAS n_MARKER = 1, so rule 1 read literally would replace the spawn this runtime has stood every new character on since V135 with MARKER[1] - a point 2340.22 units away in XY and 2382.66 in three dimensions. LANE-A reads rule 1 as a DEFAULT FOR A SCENE THAT DOES NOT ALREADY HAVE AN ARRIVAL POINT IN USE, not as a retro-correction of one that does, because the COO's own reasoning calls the rule 'a default, not a truth' and states in the same letter that MARKER[1] being 2200-odd units from the live spawn is why. So scene 1's spawn is UNCHANGED by this round. If the COO meant the stronger reading, the revert is one row of this file and it moves every new character's home; the ask is notes_to_chief/20260829_0739_LANE-A-ASK-COO-does-rule-1-retro-move-scene-1-home.md."
+    "carve_out_scene_1_home_is_not_retro_moved": "[LANE-A ASSUMPTION - AWAITING COO CONFIRMATION] Scene 1 HAS n_MARKER = 1, so rule 1 read literally would replace the spawn this runtime has stood every new character on since V135 with MARKER[1] - a point 2340.22 units away in XY and 2382.66 in three dimensions. LANE-A reads rule 1 as a DEFAULT FOR A SCENE THAT DOES NOT ALREADY HAVE AN ARRIVAL POINT IN USE, not as a retro-correction of one that does, because the COO's own reasoning calls the rule 'a default, not a truth' and states in the same letter that MARKER[1] being 2200-odd units from the live spawn is why. So scene 1's spawn is UNCHANGED by this round. If the COO meant the stronger reading, the revert is one row of this file and it moves every new character's home; the ask is notes_to_chief/20260829_0739_LANE-A-ASK-COO-does-rule-1-retro-move-scene-1-home.md.",
+    "first_application_round_ga91m5": "FIRST APPLICATION OF THIS RULE, round ga91m5, 2026-08-29T09:2x+07:00. COO-DECISION 20260829_0542 closed with a hold: 'do not apply this rule to any further scene before the rule text lands on main'. The rule text landed on main in pf_bridge#379 / pirate-force-server#242, so this round spent the rule. Ten scenes were added in one commit - 3, 4, 5, 6, 7, 8, 9, 10, 11 and 130 - which is every scene the client's table gives a non-zero n_MARKER that this registry did not already hold (13 marker scenes, minus 1, 2 and 14). No per-scene ruling was asked for and none was needed; that is what rule 1 is. All ten are n_SCENE_TYPE 2 with n_SAVE 1 and a non-zero n_MARKER, the shape scenes 2 and 14 carry. WHAT CHANGED FOR A PLAYER: NOTHING YET, AND THAT IS STATED HERE RATHER THAN DISCOVERED LATER. Each of the ten carries login_entry_allowed false, so gm/login_scene_stage.login_entry_is_pinned still refuses them and the GM /warp stageable set is unchanged at (1, 2, 278, 997). These ten rows are ADDRESSES, not doors: the coordinate, the table row and the native digest are pinned and re-derivable, and nothing can be sent anywhere new because of them. See why_the_ten_doors_are_shut for what has to exist before any of them opens. ~~AN EARLIER DRAFT OF THIS ROUND OPENED ALL TEN AND CLAIMED, UNDER THE WORD MEASURED, that 'before this commit a GM who staged /warp 3 and logged back in had the login refused and got nowhere'. That before-state could not happen: login_scene_stage refuses an unpinned scene AT THE STAGE (REASON_NO_LOGIN_ENTRY), writing nothing, so no login was ever attempted and there was no refused login to measure.~~ pf-adversary measured it false before it reached main (round ga91m5, D5), and the wrong reading is kept rather than deleted because the same sentence would be reached for again by anyone comparing this file's before and after.",
+    "why_the_ten_are_open_at_login": "~~WITHDRAWN IN THE ROUND THAT WROTE IT, 2026-08-29 ga91m5, BEFORE IT REACHED main. Kept struck rather than deleted, per this project's rule on history, because both of its claims are the kind a later round will reach for again. pf-adversary drove both and refuted both; the doors were shut instead and the ten now carry login_entry_allowed false. Read why_the_ten_doors_are_shut, which carries the two refutations and the one gate that would make this paragraph true. The withdrawn text follows.~~ WHY THESE TEN DOORS ARE OPEN AT LOGIN AND SCENE 14'S STAYS SHUT. None of the ten carries login_entry_allowed, so each defaults to allowed. That is a decision this lane made, tagged [LANE-A ASSUMPTION - AWAITING COO CONFIRMATION], asked in pf_bridge/notes_to_chief/20260829_0851_LANE-A-ASK-COO-ten-marker-scenes-open-at-login.md, and reverted by adding one login_entry_allowed key per row. It rests on the three defects pf-adversary measured behind scene 14's door in round vyi2ud, re-checked against main this round rather than quoted: D1, the bg0001 census shipped into another map - CLOSED, and closed twice over: CHIEF-DECISION 20260829_0520 option A now resyncs foundation.selected.position to the RESOLVED scene, so runtime.py's census dispatch takes its 'scene_id != world_population.SCENE_ID' branch and sends nothing (event world_census_skipped_scene_N_not_home), and none of these ten has a population module for that branch to reach anyway. D2, a character_positions row labelled scene 1 while carrying another scene's XYZ - CLOSED: runtime.py's login_scene_override_visit branch withholds the durable write for the whole session, so a staged warp lasts exactly one login and the next login is home again. D3, the faction-1 byte silently dropped - STILL OPEN, and it is why scene 14 stays shut while these ten open. player_wire's faction-1 serializer refuses any scene_id outside (1, 2) because the byte shape was only ever proven there, so a login into any new scene ships the plain ActorAttr and no PLAYER_FACTION line. HYP-PF-027 measured that hostility renders from a faction PAIR, so the symptom of D3 is a hostile NPC that does not read as hostile. Scene 14 has 81 composed actors for that to happen to; these ten have none, so D3 has nothing to damage in them today. THE DAY THAT STOPS BEING TRUE IS THE DAY THIS ARGUMENT EXPIRES, and it is pinned by a test rather than by this paragraph: tests/test_world_scene_registry_rule_1_scenes.py reads the population modules actually present in the tree and goes red if any of them names one of these ten while the serializer still refuses its scene. The reach is bounded by two mechanisms already on main, not by intent: only a gm/accounts.py-listed account can stage a login scene at all, and the visit branch above makes it single-use. A character's own stored row is written by this server, and this server writes scene 1.",
+    "why_the_ten_carry_no_ground_block": "WHY NONE OF THE TEN CARRIES A ground BLOCK. Each row's marker point was measured this round against that scene's own native placements, and the numbers are kept per row under table_row_differences.marker_geometry_measured_not_enforced. Six of the ten (3, 4, 5, 6, 10, 130) fall OUTSIDE their scene's placement extents; the four inside are 7, 8, 9 and 11. world_scene_travel._spawn bound-checks a spawn against ground when both are present, so for those SIX a ground block would refuse the row outright. FOR THE OTHER FOUR THE REASON IS DIFFERENT AND IS STATED SEPARATELY rather than folded into the same sentence (pf-adversary, round ga91m5, D6 - an earlier draft justified omitting ground on all ten with the six-of-ten measurement, which is not a property scenes 7, 8, 9 and 11 have): a .npc file carries NPC placements, not terrain, exactly as scene 278's and scene 17's ground blocks already say in their own limit field. An authored player-arrival point has no obligation to sit inside the box the monsters occupy, and bounding one by the other would be inventing a constraint the client's data does not assert. Scenes 1, 2 and 14 carry no ground block either. THE DISTANCES, WITH THE TWO SETS KEPT APART: the four inside run 8.8 (scene 8), 10.8 (7), 1107.8 (11) and 2198.8 (9) units from the nearest native placement; the six outside run 405.0 (3) to 5174.7 (10). ~~An earlier draft wrote the range as '8.8 to 5174.7' for the outside six, splicing the minimum from the inside four and making the worst outside case read as 8.8 units.~~",
+    "why_the_ten_doors_are_shut": "WHY ALL TEN CARRY login_entry_allowed FALSE, AND THE TWO MEASUREMENTS THAT PUT THEM THERE. This round intended to leave them open. It wrote a safety case resting on two claims, pf-adversary drove both and refuted both, and the doors were shut before the commit rather than after a tester found out. Both refutations are recorded because the claims are the kind a later round will make again. CLAIM 1, REFUTED: 'these ten have no composed actors, so defect D3 (player_wire's faction-1 serializer refusing every scene outside (1, 2)) has nothing to damage in them'. FALSE OUTSIDE THE EXACTLY-FLAGLESS BOOT. runtime.py's world_census_enabled is 'not active_lanes and second_password_mode == required', and the disarming of the INHERITED frozen dispatcher is conditional on that same flag. On any opt-in boot - a hypothesis scenario, or --second-password-mode bypass - the inherited branch (current/pf_login_game_server_v141.py:4292, V134_P0_P30_P91_ISOLATED) fires on the first TargetPos with NO SCENE TEST AT ALL and composes three bg0001 placements hardcoded scene_id 1 at Port Royal coordinates. Driven into scene 3 and scene 10, with player_faction1_compose_refused_production_start_game in the same events log: the ten are not empty on those boots, and D3 fires with actors present. CLAIM 2, REFUTED: 'the reach is bounded because only a gm/accounts.py listed account can stage a login scene, and the visit branch makes it single-use'. FALSE ON BOTH HALVES. gm/login_scene_consume.py's own docstring says the STANDALONE map grants a login scene with no gm_accounts.json membership at all and is NOT consumed; a non-GM account was driven into scene 3 three times running, with the config file unchanged after. And single-use comes from consume_login_scene_override, not from the visit branch, which only withholds the DURABLE WRITE - merging the two is what let the standalone path through the sentence. WHAT WOULD HAVE TO EXIST BEFORE ANY OF THE TEN OPENS, and it is one thing rather than ten: a single authoritative gate every actor-composing path must pass before a frame is sent into scene N - world_population, world_population_bg0002, world_population_bg0015, field_mobs.load_roster AND the inherited v141 branch. Today 'this scene has no population' is a fact about who happened to grep, not a property of the scene. Asked as a CORE-REQUEST in pf_bridge/notes_to_chief/20260829_0915_LANE-A-ASK-COO-ten-doors-shut-and-the-gate-that-would-open-them.md. D1 AND D2 ARE GENUINELY CLOSED ON THE FLAGLESS PRODUCTION PATH, and that is worth keeping separate from the above: CHIEF-DECISION 20260829_0520 option A resyncs foundation.selected.position to the RESOLVED scene, so the census dispatch takes its 'scene_id != world_population.SCENE_ID' branch (world_census_skipped_scene_N_not_home, driven), and the login_scene_override_visit branch withholds the durable position write (driven: the row stayed scene 1 at the V135 spawn). Neither of those reaches the inherited branch, which is the whole of claim 1's problem."
   },
   "provenance": {
     "scene_name_table": "pf_bridge/gamedata/tables/CONSTDATA_TH__SCENE_NAME.tsv",
@@ -151,6 +155,503 @@
         "deviates_from_rule_1": false
       },
       "ground": null
+    },
+    {
+      "n_id": 3,
+      "model_id": "BG0003",
+      "scene_name_source_utf8_hex": "e9a699e69699e5a4a9e5a082e5b3b6",
+      "scene_name_ascii": "Spice Paradise Island",
+      "image_name": "Bg0003_air",
+      "native_placement_count": 72,
+      "native_definition_count": 52,
+      "native_sha256": "8ebc9e4f7d07540f176d0f57090180c8223b1287d2310d213224050f57f2d090",
+      "role": "inhabited_scene_addressed_by_rule_1",
+      "status": "never_sent_to_any_client_by_this_project",
+      "table_row": {
+        "n_SCENE_WEATHER": 4,
+        "n_SCENE_DAYANDNIGHT": 15,
+        "n_SCENE_TYPE": 2,
+        "n_SCENE_SUBTYPE": 0,
+        "n_CLINE_TYPE": 3,
+        "n_CANGLIDE": 1,
+        "n_CANRIDE": 1,
+        "n_LIMIT_HEIGHT": 30000,
+        "n_SAVE": 1,
+        "n_MARKER": 3,
+        "n_CAMERA_TYPE": 1,
+        "n_COLLECT_MAP": 203,
+        "n_SCENE_LV": 25,
+        "n_VIDEO_NAME": 0
+      },
+      "table_row_differences": {
+        "marker_geometry_measured_not_enforced": {
+          "measured_from": "pf_bridge/gamedata/scene/Bg0003/, the extracted native placements of this scene",
+          "native_placements_read": 72,
+          "distance_to_nearest_native_placement": 405.017,
+          "marker_point_inside_placement_bounds": false,
+          "why_this_is_recorded_and_not_enforced": "a .npc file carries NPC placements, not terrain - the same limit scene 278's and scene 17's ground blocks already state. This row therefore carries NO ground block and this measurement is NOT a load-time bound: 6 of the 10 scenes added in round ga91m5 have a marker point outside their own placement extents, so bounding an AUTHORED arrival point by where the developers happened to put monsters would have refused the majority of the rows rule 1 exists to grant. Recorded so the attended round has a number to look at when a landing goes wrong, per the same reasoning table_row_differences.not_a_prediction gives for scene 14."
+        },
+        "reading": "READ FROM THIS ROW, NOT COPIED (pf-adversary round ga91m5, D4 - an earlier draft of this file gave all ten the same five-column reading and it was false of three of them on their own data, and of scene 1 on n_SCENE_TYPE). This scene: n_SCENE_TYPE 2, n_SAVE 1, n_MARKER 3, n_CANGLIDE 1, n_CANRIDE 1, n_LIMIT_HEIGHT 30000. What is true of ALL TEN and nothing more: n_SCENE_TYPE 2, n_SAVE 1 and a non-zero n_MARKER - the shape scenes 2 and 14 carry (scene 1 is n_SCENE_TYPE 1, so 'the shape 1, 2 and 14 carry' would have been wrong).",
+        "not_a_prediction": "none of these columns has a measured consequence in this project. They are pinned so an attended round has a list to look at when something goes wrong."
+      },
+      "spawn": {
+        "x": -21215.0,
+        "y": 16907.0,
+        "z": -830.0,
+        "provenance": "CLIENT_MARKER_TABLE: SCENE_NAME[3].n_MARKER = 3 -> MARKER[3], read as two's-complement int32, pinned and re-derivable in src/pirateforce_foundation/world_scene_marker.py (CONSTDATA_TH__SCENE_NAME.tsv sha256 e38114a802576266ce37b2abcf8ebce3f105d7d5abaf4bc5ca066e7848c5d60b, CONSTDATA_TH__MARKER.tsv sha256 723c713aeb604b9b594777517d69f333bbe1509d4931b40294fa720163bd67dc)."
+      },
+      "coordinate_provenance": {
+        "source": "client_marker_table",
+        "from_marker": true,
+        "marker_n_id": 3,
+        "evidence_tier": "authored",
+        "note": "RULE 1, APPLIED WITHOUT A PER-SCENE RULING, WHICH IS THE WHOLE POINT OF THE RULING THAT ALLOWS IT. SCENE_NAME[3].n_MARKER = 3 -> MARKER[3], resolved through the crosswalk and never by indexing MARKER with a scene id (COO-DECISION 20260829_0542 rule 2, a prohibition rather than a preference). The point is re-derived from the client tables by src/pirateforce_foundation/world_scene_marker.py, which pins both source hashes, and the registry loader refuses this row unless the coordinate written here IS that marker's point. AUTHORED AND NO MORE THAN AUTHORED (rule 3). The people who built this map wrote this coordinate down; no client has ever been stood on it by this project or seen to arrive on it in the original game. Promotion to client-observed needs an attended round per COO-DECISION 20260828_2250, and nothing in this row may be quoted for a stronger tier. GEOMETRY, MEASURED THIS ROUND AND NOT ENFORCED: the marker point sits 405.0 units from the nearest of this scene's 72 native placements and is OUTSIDE its placement extents. See table_row_differences.marker_geometry_measured_not_enforced on this row.",
+        "deviates_from_rule_1": false
+      },
+      "ground": null,
+      "login_entry_allowed": false
+    },
+    {
+      "n_id": 4,
+      "model_id": "BG0004",
+      "scene_name_source_utf8_hex": "e5a5b4e99ab8e5b882e5a0b4e5b3b6",
+      "scene_name_ascii": "Slave Market Island",
+      "image_name": "Bg0004_air",
+      "native_placement_count": 116,
+      "native_definition_count": 56,
+      "native_sha256": "dfeb9473581b79fffc6248a094296530033ff6802c7b3fd12cb0232507f58ad9",
+      "role": "inhabited_scene_addressed_by_rule_1",
+      "status": "never_sent_to_any_client_by_this_project",
+      "table_row": {
+        "n_SCENE_WEATHER": 4,
+        "n_SCENE_DAYANDNIGHT": 6,
+        "n_SCENE_TYPE": 2,
+        "n_SCENE_SUBTYPE": 2,
+        "n_CLINE_TYPE": 4,
+        "n_CANGLIDE": 1,
+        "n_CANRIDE": 1,
+        "n_LIMIT_HEIGHT": 30000,
+        "n_SAVE": 1,
+        "n_MARKER": 4,
+        "n_CAMERA_TYPE": 1,
+        "n_COLLECT_MAP": 204,
+        "n_SCENE_LV": 45,
+        "n_VIDEO_NAME": 0
+      },
+      "table_row_differences": {
+        "marker_geometry_measured_not_enforced": {
+          "measured_from": "pf_bridge/gamedata/scene/bg0004/, the extracted native placements of this scene",
+          "native_placements_read": 116,
+          "distance_to_nearest_native_placement": 777.469,
+          "marker_point_inside_placement_bounds": false,
+          "why_this_is_recorded_and_not_enforced": "a .npc file carries NPC placements, not terrain - the same limit scene 278's and scene 17's ground blocks already state. This row therefore carries NO ground block and this measurement is NOT a load-time bound: 6 of the 10 scenes added in round ga91m5 have a marker point outside their own placement extents, so bounding an AUTHORED arrival point by where the developers happened to put monsters would have refused the majority of the rows rule 1 exists to grant. Recorded so the attended round has a number to look at when a landing goes wrong, per the same reasoning table_row_differences.not_a_prediction gives for scene 14."
+        },
+        "reading": "READ FROM THIS ROW, NOT COPIED (pf-adversary round ga91m5, D4 - an earlier draft of this file gave all ten the same five-column reading and it was false of three of them on their own data, and of scene 1 on n_SCENE_TYPE). This scene: n_SCENE_TYPE 2, n_SAVE 1, n_MARKER 4, n_CANGLIDE 1, n_CANRIDE 1, n_LIMIT_HEIGHT 30000. What is true of ALL TEN and nothing more: n_SCENE_TYPE 2, n_SAVE 1 and a non-zero n_MARKER - the shape scenes 2 and 14 carry (scene 1 is n_SCENE_TYPE 1, so 'the shape 1, 2 and 14 carry' would have been wrong).",
+        "not_a_prediction": "none of these columns has a measured consequence in this project. They are pinned so an attended round has a list to look at when something goes wrong."
+      },
+      "spawn": {
+        "x": -19076.0,
+        "y": 17634.0,
+        "z": 1440.0,
+        "provenance": "CLIENT_MARKER_TABLE: SCENE_NAME[4].n_MARKER = 4 -> MARKER[4], read as two's-complement int32, pinned and re-derivable in src/pirateforce_foundation/world_scene_marker.py (CONSTDATA_TH__SCENE_NAME.tsv sha256 e38114a802576266ce37b2abcf8ebce3f105d7d5abaf4bc5ca066e7848c5d60b, CONSTDATA_TH__MARKER.tsv sha256 723c713aeb604b9b594777517d69f333bbe1509d4931b40294fa720163bd67dc)."
+      },
+      "coordinate_provenance": {
+        "source": "client_marker_table",
+        "from_marker": true,
+        "marker_n_id": 4,
+        "evidence_tier": "authored",
+        "note": "RULE 1, APPLIED WITHOUT A PER-SCENE RULING, WHICH IS THE WHOLE POINT OF THE RULING THAT ALLOWS IT. SCENE_NAME[4].n_MARKER = 4 -> MARKER[4], resolved through the crosswalk and never by indexing MARKER with a scene id (COO-DECISION 20260829_0542 rule 2, a prohibition rather than a preference). The point is re-derived from the client tables by src/pirateforce_foundation/world_scene_marker.py, which pins both source hashes, and the registry loader refuses this row unless the coordinate written here IS that marker's point. AUTHORED AND NO MORE THAN AUTHORED (rule 3). The people who built this map wrote this coordinate down; no client has ever been stood on it by this project or seen to arrive on it in the original game. Promotion to client-observed needs an attended round per COO-DECISION 20260828_2250, and nothing in this row may be quoted for a stronger tier. GEOMETRY, MEASURED THIS ROUND AND NOT ENFORCED: the marker point sits 777.5 units from the nearest of this scene's 116 native placements and is OUTSIDE its placement extents. See table_row_differences.marker_geometry_measured_not_enforced on this row.",
+        "deviates_from_rule_1": false
+      },
+      "ground": null,
+      "login_entry_allowed": false
+    },
+    {
+      "n_id": 5,
+      "model_id": "BG0005",
+      "scene_name_source_utf8_hex": "e890ace683a1e6b8af",
+      "scene_name_ascii": "Evil Port",
+      "image_name": "Bg0005_air",
+      "native_placement_count": 92,
+      "native_definition_count": 65,
+      "native_sha256": "cea69979d2c73a63310f222e1b32d63ddb0cdaa023827d67b11dacb86b50330c",
+      "role": "inhabited_scene_addressed_by_rule_1",
+      "status": "never_sent_to_any_client_by_this_project",
+      "table_row": {
+        "n_SCENE_WEATHER": 6,
+        "n_SCENE_DAYANDNIGHT": 15,
+        "n_SCENE_TYPE": 2,
+        "n_SCENE_SUBTYPE": 2,
+        "n_CLINE_TYPE": 5,
+        "n_CANGLIDE": 1,
+        "n_CANRIDE": 1,
+        "n_LIMIT_HEIGHT": 30000,
+        "n_SAVE": 1,
+        "n_MARKER": 5,
+        "n_CAMERA_TYPE": 1,
+        "n_COLLECT_MAP": 205,
+        "n_SCENE_LV": 60,
+        "n_VIDEO_NAME": 0
+      },
+      "table_row_differences": {
+        "marker_geometry_measured_not_enforced": {
+          "measured_from": "pf_bridge/gamedata/scene/bg0005/, the extracted native placements of this scene",
+          "native_placements_read": 92,
+          "distance_to_nearest_native_placement": 564.302,
+          "marker_point_inside_placement_bounds": false,
+          "why_this_is_recorded_and_not_enforced": "a .npc file carries NPC placements, not terrain - the same limit scene 278's and scene 17's ground blocks already state. This row therefore carries NO ground block and this measurement is NOT a load-time bound: 6 of the 10 scenes added in round ga91m5 have a marker point outside their own placement extents, so bounding an AUTHORED arrival point by where the developers happened to put monsters would have refused the majority of the rows rule 1 exists to grant. Recorded so the attended round has a number to look at when a landing goes wrong, per the same reasoning table_row_differences.not_a_prediction gives for scene 14."
+        },
+        "reading": "READ FROM THIS ROW, NOT COPIED (pf-adversary round ga91m5, D4 - an earlier draft of this file gave all ten the same five-column reading and it was false of three of them on their own data, and of scene 1 on n_SCENE_TYPE). This scene: n_SCENE_TYPE 2, n_SAVE 1, n_MARKER 5, n_CANGLIDE 1, n_CANRIDE 1, n_LIMIT_HEIGHT 30000. What is true of ALL TEN and nothing more: n_SCENE_TYPE 2, n_SAVE 1 and a non-zero n_MARKER - the shape scenes 2 and 14 carry (scene 1 is n_SCENE_TYPE 1, so 'the shape 1, 2 and 14 carry' would have been wrong).",
+        "not_a_prediction": "none of these columns has a measured consequence in this project. They are pinned so an attended round has a list to look at when something goes wrong."
+      },
+      "spawn": {
+        "x": 13025.0,
+        "y": 23379.0,
+        "z": -740.0,
+        "provenance": "CLIENT_MARKER_TABLE: SCENE_NAME[5].n_MARKER = 5 -> MARKER[5], read as two's-complement int32, pinned and re-derivable in src/pirateforce_foundation/world_scene_marker.py (CONSTDATA_TH__SCENE_NAME.tsv sha256 e38114a802576266ce37b2abcf8ebce3f105d7d5abaf4bc5ca066e7848c5d60b, CONSTDATA_TH__MARKER.tsv sha256 723c713aeb604b9b594777517d69f333bbe1509d4931b40294fa720163bd67dc)."
+      },
+      "coordinate_provenance": {
+        "source": "client_marker_table",
+        "from_marker": true,
+        "marker_n_id": 5,
+        "evidence_tier": "authored",
+        "note": "RULE 1, APPLIED WITHOUT A PER-SCENE RULING, WHICH IS THE WHOLE POINT OF THE RULING THAT ALLOWS IT. SCENE_NAME[5].n_MARKER = 5 -> MARKER[5], resolved through the crosswalk and never by indexing MARKER with a scene id (COO-DECISION 20260829_0542 rule 2, a prohibition rather than a preference). The point is re-derived from the client tables by src/pirateforce_foundation/world_scene_marker.py, which pins both source hashes, and the registry loader refuses this row unless the coordinate written here IS that marker's point. AUTHORED AND NO MORE THAN AUTHORED (rule 3). The people who built this map wrote this coordinate down; no client has ever been stood on it by this project or seen to arrive on it in the original game. Promotion to client-observed needs an attended round per COO-DECISION 20260828_2250, and nothing in this row may be quoted for a stronger tier. GEOMETRY, MEASURED THIS ROUND AND NOT ENFORCED: the marker point sits 564.3 units from the nearest of this scene's 92 native placements and is OUTSIDE its placement extents. See table_row_differences.marker_geometry_measured_not_enforced on this row.",
+        "deviates_from_rule_1": false
+      },
+      "ground": null,
+      "login_entry_allowed": false
+    },
+    {
+      "n_id": 6,
+      "model_id": "Bg0006",
+      "scene_name_source_utf8_hex": "e6b5b7e79a87e59f8ee5afa8",
+      "scene_name_ascii": "Ocean Walled City",
+      "image_name": "Bg0006_air",
+      "native_placement_count": 80,
+      "native_definition_count": 52,
+      "native_sha256": "1e06b88a559bfeefebbc33f33db916721a42f25552d38f29e747f061b0945276",
+      "role": "inhabited_scene_addressed_by_rule_1",
+      "status": "never_sent_to_any_client_by_this_project",
+      "table_row": {
+        "n_SCENE_WEATHER": 5,
+        "n_SCENE_DAYANDNIGHT": 8,
+        "n_SCENE_TYPE": 2,
+        "n_SCENE_SUBTYPE": 2,
+        "n_CLINE_TYPE": 6,
+        "n_CANGLIDE": 1,
+        "n_CANRIDE": 1,
+        "n_LIMIT_HEIGHT": 30000,
+        "n_SAVE": 1,
+        "n_MARKER": 6,
+        "n_CAMERA_TYPE": 1,
+        "n_COLLECT_MAP": 206,
+        "n_SCENE_LV": 70,
+        "n_VIDEO_NAME": 0
+      },
+      "table_row_differences": {
+        "marker_geometry_measured_not_enforced": {
+          "measured_from": "pf_bridge/gamedata/scene/bg0006/, the extracted native placements of this scene",
+          "native_placements_read": 80,
+          "distance_to_nearest_native_placement": 772.026,
+          "marker_point_inside_placement_bounds": false,
+          "why_this_is_recorded_and_not_enforced": "a .npc file carries NPC placements, not terrain - the same limit scene 278's and scene 17's ground blocks already state. This row therefore carries NO ground block and this measurement is NOT a load-time bound: 6 of the 10 scenes added in round ga91m5 have a marker point outside their own placement extents, so bounding an AUTHORED arrival point by where the developers happened to put monsters would have refused the majority of the rows rule 1 exists to grant. Recorded so the attended round has a number to look at when a landing goes wrong, per the same reasoning table_row_differences.not_a_prediction gives for scene 14."
+        },
+        "reading": "READ FROM THIS ROW, NOT COPIED (pf-adversary round ga91m5, D4 - an earlier draft of this file gave all ten the same five-column reading and it was false of three of them on their own data, and of scene 1 on n_SCENE_TYPE). This scene: n_SCENE_TYPE 2, n_SAVE 1, n_MARKER 6, n_CANGLIDE 1, n_CANRIDE 1, n_LIMIT_HEIGHT 30000. What is true of ALL TEN and nothing more: n_SCENE_TYPE 2, n_SAVE 1 and a non-zero n_MARKER - the shape scenes 2 and 14 carry (scene 1 is n_SCENE_TYPE 1, so 'the shape 1, 2 and 14 carry' would have been wrong).",
+        "not_a_prediction": "none of these columns has a measured consequence in this project. They are pinned so an attended round has a list to look at when something goes wrong."
+      },
+      "spawn": {
+        "x": -9848.0,
+        "y": 24151.0,
+        "z": 375.0,
+        "provenance": "CLIENT_MARKER_TABLE: SCENE_NAME[6].n_MARKER = 6 -> MARKER[6], read as two's-complement int32, pinned and re-derivable in src/pirateforce_foundation/world_scene_marker.py (CONSTDATA_TH__SCENE_NAME.tsv sha256 e38114a802576266ce37b2abcf8ebce3f105d7d5abaf4bc5ca066e7848c5d60b, CONSTDATA_TH__MARKER.tsv sha256 723c713aeb604b9b594777517d69f333bbe1509d4931b40294fa720163bd67dc)."
+      },
+      "coordinate_provenance": {
+        "source": "client_marker_table",
+        "from_marker": true,
+        "marker_n_id": 6,
+        "evidence_tier": "authored",
+        "note": "RULE 1, APPLIED WITHOUT A PER-SCENE RULING, WHICH IS THE WHOLE POINT OF THE RULING THAT ALLOWS IT. SCENE_NAME[6].n_MARKER = 6 -> MARKER[6], resolved through the crosswalk and never by indexing MARKER with a scene id (COO-DECISION 20260829_0542 rule 2, a prohibition rather than a preference). The point is re-derived from the client tables by src/pirateforce_foundation/world_scene_marker.py, which pins both source hashes, and the registry loader refuses this row unless the coordinate written here IS that marker's point. AUTHORED AND NO MORE THAN AUTHORED (rule 3). The people who built this map wrote this coordinate down; no client has ever been stood on it by this project or seen to arrive on it in the original game. Promotion to client-observed needs an attended round per COO-DECISION 20260828_2250, and nothing in this row may be quoted for a stronger tier. GEOMETRY, MEASURED THIS ROUND AND NOT ENFORCED: the marker point sits 772.0 units from the nearest of this scene's 80 native placements and is OUTSIDE its placement extents. See table_row_differences.marker_geometry_measured_not_enforced on this row.",
+        "deviates_from_rule_1": false
+      },
+      "ground": null,
+      "login_entry_allowed": false
+    },
+    {
+      "n_id": 7,
+      "model_id": "Bg0007",
+      "scene_name_source_utf8_hex": "e5b7abe6af92e5b3b6",
+      "scene_name_ascii": "Voodoo Island",
+      "image_name": "Bg0007_air",
+      "native_placement_count": 68,
+      "native_definition_count": 57,
+      "native_sha256": "59c66f9619cc270b9a81be11acefc20529737d3868e411e3f77f71f565ab1213",
+      "role": "inhabited_scene_addressed_by_rule_1",
+      "status": "never_sent_to_any_client_by_this_project",
+      "table_row": {
+        "n_SCENE_WEATHER": 4,
+        "n_SCENE_DAYANDNIGHT": 15,
+        "n_SCENE_TYPE": 2,
+        "n_SCENE_SUBTYPE": 2,
+        "n_CLINE_TYPE": 7,
+        "n_CANGLIDE": 1,
+        "n_CANRIDE": 1,
+        "n_LIMIT_HEIGHT": 30000,
+        "n_SAVE": 1,
+        "n_MARKER": 7,
+        "n_CAMERA_TYPE": 1,
+        "n_COLLECT_MAP": 207,
+        "n_SCENE_LV": 81,
+        "n_VIDEO_NAME": 0
+      },
+      "table_row_differences": {
+        "marker_geometry_measured_not_enforced": {
+          "measured_from": "pf_bridge/gamedata/scene/Bg0007/, the extracted native placements of this scene",
+          "native_placements_read": 68,
+          "distance_to_nearest_native_placement": 10.793,
+          "marker_point_inside_placement_bounds": true,
+          "why_this_is_recorded_and_not_enforced": "a .npc file carries NPC placements, not terrain - the same limit scene 278's and scene 17's ground blocks already state. This row therefore carries NO ground block and this measurement is NOT a load-time bound: 6 of the 10 scenes added in round ga91m5 have a marker point outside their own placement extents, so bounding an AUTHORED arrival point by where the developers happened to put monsters would have refused the majority of the rows rule 1 exists to grant. Recorded so the attended round has a number to look at when a landing goes wrong, per the same reasoning table_row_differences.not_a_prediction gives for scene 14."
+        },
+        "reading": "READ FROM THIS ROW, NOT COPIED (pf-adversary round ga91m5, D4 - an earlier draft of this file gave all ten the same five-column reading and it was false of three of them on their own data, and of scene 1 on n_SCENE_TYPE). This scene: n_SCENE_TYPE 2, n_SAVE 1, n_MARKER 7, n_CANGLIDE 1, n_CANRIDE 1, n_LIMIT_HEIGHT 30000. What is true of ALL TEN and nothing more: n_SCENE_TYPE 2, n_SAVE 1 and a non-zero n_MARKER - the shape scenes 2 and 14 carry (scene 1 is n_SCENE_TYPE 1, so 'the shape 1, 2 and 14 carry' would have been wrong).",
+        "not_a_prediction": "none of these columns has a measured consequence in this project. They are pinned so an attended round has a list to look at when something goes wrong."
+      },
+      "spawn": {
+        "x": -23266.0,
+        "y": 7709.0,
+        "z": 5220.0,
+        "provenance": "CLIENT_MARKER_TABLE: SCENE_NAME[7].n_MARKER = 7 -> MARKER[7], read as two's-complement int32, pinned and re-derivable in src/pirateforce_foundation/world_scene_marker.py (CONSTDATA_TH__SCENE_NAME.tsv sha256 e38114a802576266ce37b2abcf8ebce3f105d7d5abaf4bc5ca066e7848c5d60b, CONSTDATA_TH__MARKER.tsv sha256 723c713aeb604b9b594777517d69f333bbe1509d4931b40294fa720163bd67dc)."
+      },
+      "coordinate_provenance": {
+        "source": "client_marker_table",
+        "from_marker": true,
+        "marker_n_id": 7,
+        "evidence_tier": "authored",
+        "note": "RULE 1, APPLIED WITHOUT A PER-SCENE RULING, WHICH IS THE WHOLE POINT OF THE RULING THAT ALLOWS IT. SCENE_NAME[7].n_MARKER = 7 -> MARKER[7], resolved through the crosswalk and never by indexing MARKER with a scene id (COO-DECISION 20260829_0542 rule 2, a prohibition rather than a preference). The point is re-derived from the client tables by src/pirateforce_foundation/world_scene_marker.py, which pins both source hashes, and the registry loader refuses this row unless the coordinate written here IS that marker's point. AUTHORED AND NO MORE THAN AUTHORED (rule 3). The people who built this map wrote this coordinate down; no client has ever been stood on it by this project or seen to arrive on it in the original game. Promotion to client-observed needs an attended round per COO-DECISION 20260828_2250, and nothing in this row may be quoted for a stronger tier. GEOMETRY, MEASURED THIS ROUND AND NOT ENFORCED: the marker point sits 10.8 units from the nearest of this scene's 68 native placements and is inside its placement extents. See table_row_differences.marker_geometry_measured_not_enforced on this row.",
+        "deviates_from_rule_1": false
+      },
+      "ground": null,
+      "login_entry_allowed": false
+    },
+    {
+      "n_id": 8,
+      "model_id": "Bg0008",
+      "scene_name_source_utf8_hex": "e799bde98a80e6b8af",
+      "scene_name_ascii": "Silver Harbour",
+      "image_name": "Bg0008_air",
+      "native_placement_count": 76,
+      "native_definition_count": 49,
+      "native_sha256": "95813ab5cc76d4bf845080b64f8c919f974d67f525de5355907d10a07018c299",
+      "role": "inhabited_scene_addressed_by_rule_1",
+      "status": "never_sent_to_any_client_by_this_project",
+      "table_row": {
+        "n_SCENE_WEATHER": 3,
+        "n_SCENE_DAYANDNIGHT": 8,
+        "n_SCENE_TYPE": 2,
+        "n_SCENE_SUBTYPE": 2,
+        "n_CLINE_TYPE": 8,
+        "n_CANGLIDE": 1,
+        "n_CANRIDE": 1,
+        "n_LIMIT_HEIGHT": 30000,
+        "n_SAVE": 1,
+        "n_MARKER": 8,
+        "n_CAMERA_TYPE": 1,
+        "n_COLLECT_MAP": 208,
+        "n_SCENE_LV": 86,
+        "n_VIDEO_NAME": 0
+      },
+      "table_row_differences": {
+        "marker_geometry_measured_not_enforced": {
+          "measured_from": "pf_bridge/gamedata/scene/Bg0008/, the extracted native placements of this scene",
+          "native_placements_read": 76,
+          "distance_to_nearest_native_placement": 8.818,
+          "marker_point_inside_placement_bounds": true,
+          "why_this_is_recorded_and_not_enforced": "a .npc file carries NPC placements, not terrain - the same limit scene 278's and scene 17's ground blocks already state. This row therefore carries NO ground block and this measurement is NOT a load-time bound: 6 of the 10 scenes added in round ga91m5 have a marker point outside their own placement extents, so bounding an AUTHORED arrival point by where the developers happened to put monsters would have refused the majority of the rows rule 1 exists to grant. Recorded so the attended round has a number to look at when a landing goes wrong, per the same reasoning table_row_differences.not_a_prediction gives for scene 14."
+        },
+        "reading": "READ FROM THIS ROW, NOT COPIED (pf-adversary round ga91m5, D4 - an earlier draft of this file gave all ten the same five-column reading and it was false of three of them on their own data, and of scene 1 on n_SCENE_TYPE). This scene: n_SCENE_TYPE 2, n_SAVE 1, n_MARKER 8, n_CANGLIDE 1, n_CANRIDE 1, n_LIMIT_HEIGHT 30000. What is true of ALL TEN and nothing more: n_SCENE_TYPE 2, n_SAVE 1 and a non-zero n_MARKER - the shape scenes 2 and 14 carry (scene 1 is n_SCENE_TYPE 1, so 'the shape 1, 2 and 14 carry' would have been wrong).",
+        "not_a_prediction": "none of these columns has a measured consequence in this project. They are pinned so an attended round has a list to look at when something goes wrong."
+      },
+      "spawn": {
+        "x": 19440.0,
+        "y": 23997.0,
+        "z": 560.0,
+        "provenance": "CLIENT_MARKER_TABLE: SCENE_NAME[8].n_MARKER = 8 -> MARKER[8], read as two's-complement int32, pinned and re-derivable in src/pirateforce_foundation/world_scene_marker.py (CONSTDATA_TH__SCENE_NAME.tsv sha256 e38114a802576266ce37b2abcf8ebce3f105d7d5abaf4bc5ca066e7848c5d60b, CONSTDATA_TH__MARKER.tsv sha256 723c713aeb604b9b594777517d69f333bbe1509d4931b40294fa720163bd67dc)."
+      },
+      "coordinate_provenance": {
+        "source": "client_marker_table",
+        "from_marker": true,
+        "marker_n_id": 8,
+        "evidence_tier": "authored",
+        "note": "RULE 1, APPLIED WITHOUT A PER-SCENE RULING, WHICH IS THE WHOLE POINT OF THE RULING THAT ALLOWS IT. SCENE_NAME[8].n_MARKER = 8 -> MARKER[8], resolved through the crosswalk and never by indexing MARKER with a scene id (COO-DECISION 20260829_0542 rule 2, a prohibition rather than a preference). The point is re-derived from the client tables by src/pirateforce_foundation/world_scene_marker.py, which pins both source hashes, and the registry loader refuses this row unless the coordinate written here IS that marker's point. AUTHORED AND NO MORE THAN AUTHORED (rule 3). The people who built this map wrote this coordinate down; no client has ever been stood on it by this project or seen to arrive on it in the original game. Promotion to client-observed needs an attended round per COO-DECISION 20260828_2250, and nothing in this row may be quoted for a stronger tier. GEOMETRY, MEASURED THIS ROUND AND NOT ENFORCED: the marker point sits 8.8 units from the nearest of this scene's 76 native placements and is inside its placement extents. See table_row_differences.marker_geometry_measured_not_enforced on this row.",
+        "deviates_from_rule_1": false
+      },
+      "ground": null,
+      "login_entry_allowed": false
+    },
+    {
+      "n_id": 9,
+      "model_id": "Bg0009",
+      "scene_name_source_utf8_hex": "e4baa1e983bde4b98be6b5b7",
+      "scene_name_ascii": "Death City Sea",
+      "image_name": "Bg0009_air",
+      "native_placement_count": 63,
+      "native_definition_count": 44,
+      "native_sha256": "ab96d96fffab464b71f3f379064645412ab33b487170a7b90a1cf6724c5a5251",
+      "role": "inhabited_scene_addressed_by_rule_1",
+      "status": "never_sent_to_any_client_by_this_project",
+      "table_row": {
+        "n_SCENE_WEATHER": 2,
+        "n_SCENE_DAYANDNIGHT": 8,
+        "n_SCENE_TYPE": 2,
+        "n_SCENE_SUBTYPE": 2,
+        "n_CLINE_TYPE": 9,
+        "n_CANGLIDE": 1,
+        "n_CANRIDE": 1,
+        "n_LIMIT_HEIGHT": 30000,
+        "n_SAVE": 1,
+        "n_MARKER": 9,
+        "n_CAMERA_TYPE": 1,
+        "n_COLLECT_MAP": 209,
+        "n_SCENE_LV": 92,
+        "n_VIDEO_NAME": 0
+      },
+      "table_row_differences": {
+        "marker_geometry_measured_not_enforced": {
+          "measured_from": "pf_bridge/gamedata/scene/Bg0009/, the extracted native placements of this scene",
+          "native_placements_read": 63,
+          "distance_to_nearest_native_placement": 2198.81,
+          "marker_point_inside_placement_bounds": true,
+          "why_this_is_recorded_and_not_enforced": "a .npc file carries NPC placements, not terrain - the same limit scene 278's and scene 17's ground blocks already state. This row therefore carries NO ground block and this measurement is NOT a load-time bound: 6 of the 10 scenes added in round ga91m5 have a marker point outside their own placement extents, so bounding an AUTHORED arrival point by where the developers happened to put monsters would have refused the majority of the rows rule 1 exists to grant. Recorded so the attended round has a number to look at when a landing goes wrong, per the same reasoning table_row_differences.not_a_prediction gives for scene 14."
+        },
+        "reading": "READ FROM THIS ROW, NOT COPIED (pf-adversary round ga91m5, D4 - an earlier draft of this file gave all ten the same five-column reading and it was false of three of them on their own data, and of scene 1 on n_SCENE_TYPE). This scene: n_SCENE_TYPE 2, n_SAVE 1, n_MARKER 9, n_CANGLIDE 1, n_CANRIDE 1, n_LIMIT_HEIGHT 30000. What is true of ALL TEN and nothing more: n_SCENE_TYPE 2, n_SAVE 1 and a non-zero n_MARKER - the shape scenes 2 and 14 carry (scene 1 is n_SCENE_TYPE 1, so 'the shape 1, 2 and 14 carry' would have been wrong).",
+        "not_a_prediction": "none of these columns has a measured consequence in this project. They are pinned so an attended round has a list to look at when something goes wrong."
+      },
+      "spawn": {
+        "x": 2129.0,
+        "y": 20907.0,
+        "z": 240.0,
+        "provenance": "CLIENT_MARKER_TABLE: SCENE_NAME[9].n_MARKER = 9 -> MARKER[9], read as two's-complement int32, pinned and re-derivable in src/pirateforce_foundation/world_scene_marker.py (CONSTDATA_TH__SCENE_NAME.tsv sha256 e38114a802576266ce37b2abcf8ebce3f105d7d5abaf4bc5ca066e7848c5d60b, CONSTDATA_TH__MARKER.tsv sha256 723c713aeb604b9b594777517d69f333bbe1509d4931b40294fa720163bd67dc)."
+      },
+      "coordinate_provenance": {
+        "source": "client_marker_table",
+        "from_marker": true,
+        "marker_n_id": 9,
+        "evidence_tier": "authored",
+        "note": "RULE 1, APPLIED WITHOUT A PER-SCENE RULING, WHICH IS THE WHOLE POINT OF THE RULING THAT ALLOWS IT. SCENE_NAME[9].n_MARKER = 9 -> MARKER[9], resolved through the crosswalk and never by indexing MARKER with a scene id (COO-DECISION 20260829_0542 rule 2, a prohibition rather than a preference). The point is re-derived from the client tables by src/pirateforce_foundation/world_scene_marker.py, which pins both source hashes, and the registry loader refuses this row unless the coordinate written here IS that marker's point. AUTHORED AND NO MORE THAN AUTHORED (rule 3). The people who built this map wrote this coordinate down; no client has ever been stood on it by this project or seen to arrive on it in the original game. Promotion to client-observed needs an attended round per COO-DECISION 20260828_2250, and nothing in this row may be quoted for a stronger tier. GEOMETRY, MEASURED THIS ROUND AND NOT ENFORCED: the marker point sits 2198.8 units from the nearest of this scene's 63 native placements and is inside its placement extents. See table_row_differences.marker_geometry_measured_not_enforced on this row.",
+        "deviates_from_rule_1": false
+      },
+      "ground": null,
+      "login_entry_allowed": false
+    },
+    {
+      "n_id": 10,
+      "model_id": "Bg0010",
+      "scene_name_source_utf8_hex": "e6b7b1e6b5b7e88196e6aebfe7acace4b880e5b1a4",
+      "scene_name_ascii": "Deep Sea Temple floor 1",
+      "image_name": "Bg0010_air",
+      "native_placement_count": 100,
+      "native_definition_count": 40,
+      "native_sha256": "563e75f1292dfdd9ce1923b519d2a3d4ee169bf217e809cabb60eda6f192c0c0",
+      "role": "inhabited_scene_addressed_by_rule_1",
+      "status": "never_sent_to_any_client_by_this_project",
+      "table_row": {
+        "n_SCENE_WEATHER": 5,
+        "n_SCENE_DAYANDNIGHT": 8,
+        "n_SCENE_TYPE": 2,
+        "n_SCENE_SUBTYPE": 2,
+        "n_CLINE_TYPE": 10,
+        "n_CANGLIDE": 0,
+        "n_CANRIDE": 1,
+        "n_LIMIT_HEIGHT": 0,
+        "n_SAVE": 1,
+        "n_MARKER": 10,
+        "n_CAMERA_TYPE": 1,
+        "n_COLLECT_MAP": 210,
+        "n_SCENE_LV": 92,
+        "n_VIDEO_NAME": 0
+      },
+      "table_row_differences": {
+        "marker_geometry_measured_not_enforced": {
+          "measured_from": "pf_bridge/gamedata/scene/Bg0010/, the extracted native placements of this scene",
+          "native_placements_read": 100,
+          "distance_to_nearest_native_placement": 5174.747,
+          "marker_point_inside_placement_bounds": false,
+          "why_this_is_recorded_and_not_enforced": "a .npc file carries NPC placements, not terrain - the same limit scene 278's and scene 17's ground blocks already state. This row therefore carries NO ground block and this measurement is NOT a load-time bound: 6 of the 10 scenes added in round ga91m5 have a marker point outside their own placement extents, so bounding an AUTHORED arrival point by where the developers happened to put monsters would have refused the majority of the rows rule 1 exists to grant. Recorded so the attended round has a number to look at when a landing goes wrong, per the same reasoning table_row_differences.not_a_prediction gives for scene 14."
+        },
+        "reading": "READ FROM THIS ROW, NOT COPIED (pf-adversary round ga91m5, D4 - an earlier draft of this file gave all ten the same five-column reading and it was false of three of them on their own data, and of scene 1 on n_SCENE_TYPE). This scene: n_SCENE_TYPE 2, n_SAVE 1, n_MARKER 10, n_CANGLIDE 0, n_CANRIDE 1, n_LIMIT_HEIGHT 0. What is true of ALL TEN and nothing more: n_SCENE_TYPE 2, n_SAVE 1 and a non-zero n_MARKER - the shape scenes 2 and 14 carry (scene 1 is n_SCENE_TYPE 1, so 'the shape 1, 2 and 14 carry' would have been wrong).",
+        "not_a_prediction": "none of these columns has a measured consequence in this project. They are pinned so an attended round has a list to look at when something goes wrong.",
+        "the_two_interiors": "SCENES 10 AND 11 ARE THE TWO ROWS AN ATTENDED ROUND SHOULD LOOK AT FIRST WHEN A LANDING GOES WRONG, and separating them from the other eight is pf-adversary's finding (round ga91m5, D4), not this lane's caution. They are the only two of the ten with n_CANGLIDE 0 AND n_LIMIT_HEIGHT 0 - a no-glide, no-height-limit interior rather than an open island - their marker points are 1107.8 (11) and 5174.7 (10) units from any native placement, and their placement z floors are -4592.9 and -4532.9 against marker z of 380 and 465. If anybody surfaces in rock or in mid-air, these are the two rows it will be. Contrast scene 7, whose marker point is 10.8 units from an authored placement."
+      },
+      "spawn": {
+        "x": 15740.0,
+        "y": 25461.0,
+        "z": 465.0,
+        "provenance": "CLIENT_MARKER_TABLE: SCENE_NAME[10].n_MARKER = 10 -> MARKER[10], read as two's-complement int32, pinned and re-derivable in src/pirateforce_foundation/world_scene_marker.py (CONSTDATA_TH__SCENE_NAME.tsv sha256 e38114a802576266ce37b2abcf8ebce3f105d7d5abaf4bc5ca066e7848c5d60b, CONSTDATA_TH__MARKER.tsv sha256 723c713aeb604b9b594777517d69f333bbe1509d4931b40294fa720163bd67dc)."
+      },
+      "coordinate_provenance": {
+        "source": "client_marker_table",
+        "from_marker": true,
+        "marker_n_id": 10,
+        "evidence_tier": "authored",
+        "note": "RULE 1, APPLIED WITHOUT A PER-SCENE RULING, WHICH IS THE WHOLE POINT OF THE RULING THAT ALLOWS IT. SCENE_NAME[10].n_MARKER = 10 -> MARKER[10], resolved through the crosswalk and never by indexing MARKER with a scene id (COO-DECISION 20260829_0542 rule 2, a prohibition rather than a preference). The point is re-derived from the client tables by src/pirateforce_foundation/world_scene_marker.py, which pins both source hashes, and the registry loader refuses this row unless the coordinate written here IS that marker's point. AUTHORED AND NO MORE THAN AUTHORED (rule 3). The people who built this map wrote this coordinate down; no client has ever been stood on it by this project or seen to arrive on it in the original game. Promotion to client-observed needs an attended round per COO-DECISION 20260828_2250, and nothing in this row may be quoted for a stronger tier. GEOMETRY, MEASURED THIS ROUND AND NOT ENFORCED: the marker point sits 5174.7 units from the nearest of this scene's 100 native placements and is OUTSIDE its placement extents. See table_row_differences.marker_geometry_measured_not_enforced on this row.",
+        "deviates_from_rule_1": false
+      },
+      "ground": null,
+      "login_entry_allowed": false
+    },
+    {
+      "n_id": 11,
+      "model_id": "Bg0011",
+      "scene_name_source_utf8_hex": "e6b7b1e6b5b7e88196e6aebfe7acace4ba8ce5b1a4",
+      "scene_name_ascii": "Deep Sea Temple floor 2",
+      "image_name": "Bg0011_air",
+      "native_placement_count": 56,
+      "native_definition_count": 31,
+      "native_sha256": "ee8b7f45e82aac192f9c0bce93a5c8d2c311bab9b264da71b1f6c5d639caf297",
+      "role": "inhabited_scene_addressed_by_rule_1",
+      "status": "never_sent_to_any_client_by_this_project",
+      "table_row": {
+        "n_SCENE_WEATHER": 5,
+        "n_SCENE_DAYANDNIGHT": 8,
+        "n_SCENE_TYPE": 2,
+        "n_SCENE_SUBTYPE": 2,
+        "n_CLINE_TYPE": 11,
+        "n_CANGLIDE": 0,
+        "n_CANRIDE": 1,
+        "n_LIMIT_HEIGHT": 0,
+        "n_SAVE": 1,
+        "n_MARKER": 11,
+        "n_CAMERA_TYPE": 1,
+        "n_COLLECT_MAP": 0,
+        "n_SCENE_LV": 95,
+        "n_VIDEO_NAME": 0
+      },
+      "table_row_differences": {
+        "marker_geometry_measured_not_enforced": {
+          "measured_from": "pf_bridge/gamedata/scene/Bg0011/, the extracted native placements of this scene",
+          "native_placements_read": 56,
+          "distance_to_nearest_native_placement": 1107.764,
+          "marker_point_inside_placement_bounds": true,
+          "why_this_is_recorded_and_not_enforced": "a .npc file carries NPC placements, not terrain - the same limit scene 278's and scene 17's ground blocks already state. This row therefore carries NO ground block and this measurement is NOT a load-time bound: 6 of the 10 scenes added in round ga91m5 have a marker point outside their own placement extents, so bounding an AUTHORED arrival point by where the developers happened to put monsters would have refused the majority of the rows rule 1 exists to grant. Recorded so the attended round has a number to look at when a landing goes wrong, per the same reasoning table_row_differences.not_a_prediction gives for scene 14."
+        },
+        "reading": "READ FROM THIS ROW, NOT COPIED (pf-adversary round ga91m5, D4 - an earlier draft of this file gave all ten the same five-column reading and it was false of three of them on their own data, and of scene 1 on n_SCENE_TYPE). This scene: n_SCENE_TYPE 2, n_SAVE 1, n_MARKER 11, n_CANGLIDE 0, n_CANRIDE 1, n_LIMIT_HEIGHT 0. What is true of ALL TEN and nothing more: n_SCENE_TYPE 2, n_SAVE 1 and a non-zero n_MARKER - the shape scenes 2 and 14 carry (scene 1 is n_SCENE_TYPE 1, so 'the shape 1, 2 and 14 carry' would have been wrong).",
+        "not_a_prediction": "none of these columns has a measured consequence in this project. They are pinned so an attended round has a list to look at when something goes wrong.",
+        "the_two_interiors": "SCENES 10 AND 11 ARE THE TWO ROWS AN ATTENDED ROUND SHOULD LOOK AT FIRST WHEN A LANDING GOES WRONG, and separating them from the other eight is pf-adversary's finding (round ga91m5, D4), not this lane's caution. They are the only two of the ten with n_CANGLIDE 0 AND n_LIMIT_HEIGHT 0 - a no-glide, no-height-limit interior rather than an open island - their marker points are 1107.8 (11) and 5174.7 (10) units from any native placement, and their placement z floors are -4592.9 and -4532.9 against marker z of 380 and 465. If anybody surfaces in rock or in mid-air, these are the two rows it will be. Contrast scene 7, whose marker point is 10.8 units from an authored placement."
+      },
+      "spawn": {
+        "x": 15179.0,
+        "y": 22807.0,
+        "z": 380.0,
+        "provenance": "CLIENT_MARKER_TABLE: SCENE_NAME[11].n_MARKER = 11 -> MARKER[11], read as two's-complement int32, pinned and re-derivable in src/pirateforce_foundation/world_scene_marker.py (CONSTDATA_TH__SCENE_NAME.tsv sha256 e38114a802576266ce37b2abcf8ebce3f105d7d5abaf4bc5ca066e7848c5d60b, CONSTDATA_TH__MARKER.tsv sha256 723c713aeb604b9b594777517d69f333bbe1509d4931b40294fa720163bd67dc)."
+      },
+      "coordinate_provenance": {
+        "source": "client_marker_table",
+        "from_marker": true,
+        "marker_n_id": 11,
+        "evidence_tier": "authored",
+        "note": "RULE 1, APPLIED WITHOUT A PER-SCENE RULING, WHICH IS THE WHOLE POINT OF THE RULING THAT ALLOWS IT. SCENE_NAME[11].n_MARKER = 11 -> MARKER[11], resolved through the crosswalk and never by indexing MARKER with a scene id (COO-DECISION 20260829_0542 rule 2, a prohibition rather than a preference). The point is re-derived from the client tables by src/pirateforce_foundation/world_scene_marker.py, which pins both source hashes, and the registry loader refuses this row unless the coordinate written here IS that marker's point. AUTHORED AND NO MORE THAN AUTHORED (rule 3). The people who built this map wrote this coordinate down; no client has ever been stood on it by this project or seen to arrive on it in the original game. Promotion to client-observed needs an attended round per COO-DECISION 20260828_2250, and nothing in this row may be quoted for a stronger tier. GEOMETRY, MEASURED THIS ROUND AND NOT ENFORCED: the marker point sits 1107.8 units from the nearest of this scene's 56 native placements and is inside its placement extents. See table_row_differences.marker_geometry_measured_not_enforced on this row.",
+        "deviates_from_rule_1": false
+      },
+      "ground": null,
+      "login_entry_allowed": false
     },
     {
       "n_id": 14,
@@ -276,6 +777,61 @@
         "reading": "eight placements spread over 1815.93 x 2395.25 units share one z only to within a 526.696-unit spread - nowhere near Bg1177's 0.002-unit-flat deck - consistent with the several deck levels on a ship this file's why_this_entry_exists / spawn_is_null_because siblings already describe, not one flat surface.",
         "limit": "a .npc file carries NPC placements, not terrain. This says where the developer put monsters, on however many decks this ship model has; it is not a walkable-floor measurement, does not answer where a teleporting player would stand (that is RE-103's closed-bounded-negative gap, see spawn_is_null_because above), and is not itself a spawn candidate."
       }
+    },
+    {
+      "n_id": 130,
+      "model_id": "Bg4001",
+      "scene_name_source_utf8_hex": "e784a1e5908de5b3b6",
+      "scene_name_ascii": "Navy Training Camp",
+      "image_name": "Bg4001_air",
+      "native_placement_count": 42,
+      "native_definition_count": 20,
+      "native_sha256": "78bf7847279d77baab40d6b9a289c769b042d816304e81ca5f136f8798132a82",
+      "role": "inhabited_scene_addressed_by_rule_1",
+      "status": "never_sent_to_any_client_by_this_project",
+      "table_row": {
+        "n_SCENE_WEATHER": 4,
+        "n_SCENE_DAYANDNIGHT": 2,
+        "n_SCENE_TYPE": 2,
+        "n_SCENE_SUBTYPE": 0,
+        "n_CLINE_TYPE": 4001,
+        "n_CANGLIDE": 1,
+        "n_CANRIDE": 1,
+        "n_LIMIT_HEIGHT": 0,
+        "n_SAVE": 1,
+        "n_MARKER": 1000,
+        "n_CAMERA_TYPE": 1,
+        "n_COLLECT_MAP": 0,
+        "n_SCENE_LV": 0,
+        "n_VIDEO_NAME": 0
+      },
+      "table_row_differences": {
+        "marker_geometry_measured_not_enforced": {
+          "measured_from": "pf_bridge/gamedata/scene/Bg4001/, the extracted native placements of this scene",
+          "native_placements_read": 42,
+          "distance_to_nearest_native_placement": 1018.201,
+          "marker_point_inside_placement_bounds": false,
+          "why_this_is_recorded_and_not_enforced": "a .npc file carries NPC placements, not terrain - the same limit scene 278's and scene 17's ground blocks already state. This row therefore carries NO ground block and this measurement is NOT a load-time bound: 6 of the 10 scenes added in round ga91m5 have a marker point outside their own placement extents, so bounding an AUTHORED arrival point by where the developers happened to put monsters would have refused the majority of the rows rule 1 exists to grant. Recorded so the attended round has a number to look at when a landing goes wrong, per the same reasoning table_row_differences.not_a_prediction gives for scene 14."
+        },
+        "reading": "READ FROM THIS ROW, NOT COPIED (pf-adversary round ga91m5, D4 - an earlier draft of this file gave all ten the same five-column reading and it was false of three of them on their own data, and of scene 1 on n_SCENE_TYPE). This scene: n_SCENE_TYPE 2, n_SAVE 1, n_MARKER 1000, n_CANGLIDE 1, n_CANRIDE 1, n_LIMIT_HEIGHT 0. What is true of ALL TEN and nothing more: n_SCENE_TYPE 2, n_SAVE 1 and a non-zero n_MARKER - the shape scenes 2 and 14 carry (scene 1 is n_SCENE_TYPE 1, so 'the shape 1, 2 and 14 carry' would have been wrong).",
+        "not_a_prediction": "none of these columns has a measured consequence in this project. They are pinned so an attended round has a list to look at when something goes wrong."
+      },
+      "spawn": {
+        "x": -24482.0,
+        "y": 13364.0,
+        "z": -990.0,
+        "provenance": "CLIENT_MARKER_TABLE: SCENE_NAME[130].n_MARKER = 1000 -> MARKER[1000], read as two's-complement int32, pinned and re-derivable in src/pirateforce_foundation/world_scene_marker.py (CONSTDATA_TH__SCENE_NAME.tsv sha256 e38114a802576266ce37b2abcf8ebce3f105d7d5abaf4bc5ca066e7848c5d60b, CONSTDATA_TH__MARKER.tsv sha256 723c713aeb604b9b594777517d69f333bbe1509d4931b40294fa720163bd67dc)."
+      },
+      "coordinate_provenance": {
+        "source": "client_marker_table",
+        "from_marker": true,
+        "marker_n_id": 1000,
+        "evidence_tier": "authored",
+        "note": "RULE 1, APPLIED WITHOUT A PER-SCENE RULING, WHICH IS THE WHOLE POINT OF THE RULING THAT ALLOWS IT. SCENE_NAME[130].n_MARKER = 1000 -> MARKER[1000], resolved through the crosswalk and never by indexing MARKER with a scene id (COO-DECISION 20260829_0542 rule 2, a prohibition rather than a preference). The point is re-derived from the client tables by src/pirateforce_foundation/world_scene_marker.py, which pins both source hashes, and the registry loader refuses this row unless the coordinate written here IS that marker's point. AUTHORED AND NO MORE THAN AUTHORED (rule 3). The people who built this map wrote this coordinate down; no client has ever been stood on it by this project or seen to arrive on it in the original game. Promotion to client-observed needs an attended round per COO-DECISION 20260828_2250, and nothing in this row may be quoted for a stronger tier. GEOMETRY, MEASURED THIS ROUND AND NOT ENFORCED: the marker point sits 1018.2 units from the nearest of this scene's 42 native placements and is OUTSIDE its placement extents. See table_row_differences.marker_geometry_measured_not_enforced on this row. THE ROW THAT PROVES RULE 2 IS NOT PEDANTRY. This scene names marker 1000, not marker 130. A reader who indexed MARKER by scene id would hand this scene another map's row - it is the single worst case COO-DECISION 20260829_0542 cites for the indirection, and it is pinned here so the prohibition has a live example in the registry rather than only in a letter. NAME DISAGREEMENT, RECORDED NOT RESOLVED: the CONSTDATA scene name reads 'nameless island' while the client's own TEXTDATA_TH__SCENE_NAME_TIP row for the same id reads 'Navy Training Camp'. scene_name_ascii carries the TIP value, like every other row added this round; the disagreement is this scene's own, not this round's.",
+        "deviates_from_rule_1": false
+      },
+      "ground": null,
+      "login_entry_allowed": false
     },
     {
       "n_id": 278,
@@ -440,9 +996,16 @@
     "no claim that a character written into scene 278 can get back out by any in-game means; the only return path this lane provides is a server-side rewrite of the position row",
     "~~no claim that this file changes anything a player sees; no runtime path reads it yet~~ WRONG AT HEAD, struck round uajlve (Lane A, pf-adversary finding): runtime.py and lifecycle.py both read this file today. What REPLACES the struck line, and is still a real nonclaim: no destination pinned here has ever been sent to a client by this project except scenes 1 and 2, and pinning a row here does not make its scene reachable - a row with a null spawn is refused by spawn_position, and login_entry_allowed / persist_position_allowed only ever SUBTRACT reachability.",
     "scene 17 has n_MARKER = 0, so the MARKER crosswalk that gave scene 14 an authored arrival point gives the sea nothing. That is the same bounded negative RE-103 closed on, arriving from the table that would have carried the answer: the PROVISIONAL-OWNER-DECREE spawn stays the only source for scene 17, and this is one more reason not to read its expiry as 'a table lookup nobody has done yet'.",
-    "scene 14 is pinned with login_entry_allowed FALSE, and the three measured reasons are the whole of why. Round vyi2ud first pinned it TRUE - a character could then log into Hell Volcano Island through the per-account login-scene override, and pf-adversary drove that login end to end before it left draft. (1) THE WRONG CENSUS SHIPS: runtime.py's census dispatch reads foundation.selected.position.scene_id, the STORED row, which the override never rewrites - it still says 1 - so the guard at runtime.py:6114 ('away from home the bg0001 census is not merely useless, it is wrong') never fires and 108 Port Royal dock NPCs, every one encoded scene_id=1, are sent anchored on the volcano. (2) THE CHARACTER ROW IS CORRUPTED, SILENTLY: _checkpoint_exact_target builds its candidate from the same stored scene id, so is_position_persist_allowed is asked about scene 1 (answer: yes) and never about scene 14 - a walk on the island writes (scene_id 1, volcano XYZ) into character_positions, which is byte-for-byte the GT-106 incident persist_position_allowed was created to prevent, and the next login prints no relocation line because scene 1 takes the home branch. persist_position_allowed=false for scene 14 is therefore DEAD CONFIG on the only path that reaches the scene. (3) THE FACTION BYTE IS DROPPED: the faction-1 compose refuses for any scene but 2 and Port Royal (runtime.py:5532), so a scene-14 login emits no PLAYER_FACTION line at all - and HYP-PF-027 proved hostility renders from the faction pair, on the one ticket whose question is whether living things appear.",
-    "THE QUESTION THAT HAS TO BE ANSWERED BEFORE ANY per-scene KEY IN THIS FILE MEANS ANYTHING (pf-adversary, round vyi2ud, closing finding): when a character's stored row and the scene the client is standing in disagree, which one is the character in? Every guard this project has built - the census branch, is_position_persist_allowed, the faction recompose, _checkpoint_exact_target, the GM warp confirm token - reads the STORED row. resolve_entry returns a different answer in entry.position and the override path deliberately never writes it back. Until one of the two is named the authority, login_entry_allowed and persist_position_allowed are keys on a door the runtime walks past. This is not scene 14's problem: the same three defects reproduce today, on main, for an override into scene 2 or scene 278, both of which are pinned here with login entry allowed by default.",
+    "scene 14 is pinned with login_entry_allowed FALSE, and the three measured reasons are the whole of why. Round vyi2ud first pinned it TRUE - a character could then log into Hell Volcano Island through the per-account login-scene override, and pf-adversary drove that login end to end before it left draft. (1) THE WRONG CENSUS SHIPS: runtime.py's census dispatch reads foundation.selected.position.scene_id, the STORED row, which the override never rewrites - it still says 1 - so the guard at runtime.py:6114 ('away from home the bg0001 census is not merely useless, it is wrong') never fires and 108 Port Royal dock NPCs, every one encoded scene_id=1, are sent anchored on the volcano. (2) THE CHARACTER ROW IS CORRUPTED, SILENTLY: _checkpoint_exact_target builds its candidate from the same stored scene id, so is_position_persist_allowed is asked about scene 1 (answer: yes) and never about scene 14 - a walk on the island writes (scene_id 1, volcano XYZ) into character_positions, which is byte-for-byte the GT-106 incident persist_position_allowed was created to prevent, and the next login prints no relocation line because scene 1 takes the home branch. persist_position_allowed=false for scene 14 is therefore DEAD CONFIG on the only path that reaches the scene. (3) THE FACTION BYTE IS DROPPED: the faction-1 compose refuses for any scene but 2 and Port Royal (runtime.py:5532), so a scene-14 login emits no PLAYER_FACTION line at all - and HYP-PF-027 proved hostility renders from the faction pair, on the one ticket whose question is whether living things appear. ~~PARTLY SUPERSEDED 2026-08-29, round ga91m5, and struck rather than rewritten because the incident above is the reason scene 14's door is shut and must stay legible.~~ (1) and (2) above are CLOSED on the flagless production path as of CHIEF-DECISION 20260829_0520 option A: runtime.py resyncs foundation.selected.position to the RESOLVED scene after resolve_entry, so the census guard DOES fire now (world_census_skipped_scene_N_not_home, driven round ga91m5), and the login_scene_override_visit branch withholds the durable position write for the whole session. The line number 'runtime.py:6114' is stale; that branch is at runtime.py:6308 today. (3), the faction byte, is STILL OPEN. And the closure does NOT reach the inherited v141 dispatcher, which on any opt-in boot composes three scene-1 actors into whatever scene the player is standing in with no scene test at all - see arrival_point_rule.why_the_ten_doors_are_shut.",
+    "THE QUESTION THAT HAS TO BE ANSWERED BEFORE ANY per-scene KEY IN THIS FILE MEANS ANYTHING (pf-adversary, round vyi2ud, closing finding): when a character's stored row and the scene the client is standing in disagree, which one is the character in? Every guard this project has built - the census branch, is_position_persist_allowed, the faction recompose, _checkpoint_exact_target, the GM warp confirm token - reads the STORED row. resolve_entry returns a different answer in entry.position and the override path deliberately never writes it back. Until one of the two is named the authority, login_entry_allowed and persist_position_allowed are keys on a door the runtime walks past. This is not scene 14's problem: the same three defects reproduce today, on main, for an override into scene 2 or scene 278, both of which are pinned here with login entry allowed by default. ~~ANSWERED 2026-08-29 by CHIEF-DECISION 20260829_0520 option A: the scene of record is the RESOLVED one, and runtime.py now writes it into foundation.selected.position in memory.~~ Kept because the closing sentence is still true of one path: the inherited v141 population branch reads no scene at all, so for THAT composer login_entry_allowed remains a key on a door the runtime walks past. Round ga91m5 shut the ten new doors rather than test that sentence with a player.",
     "scene 14 ground is null ON PURPOSE, and the number that decides it is measured: Bg0015's 91 placements span 40312.777 x 46416.541 units, so a ground block derived from them the way scenes 1 and 278 derive theirs would be a box wide enough to swallow almost any stored row. pf-adversary built exactly that block and drove it: a Port Royal row sits 8273 x 21819 units from marker 14, inside the box, and resolve_entry KEEPS it - the character stands at Port Royal's coordinates inside the volcano. CORRECTION to this round's first wording, which said that happens 'silently': it does not. _kept_row_line prints WORLD_SCENE_KEPT_ROW with both coordinates. The decision stands on the keep, not on silence, and the silence claim was withdrawn before this file left draft (pf-adversary D8). A later round that measures real terrain may add ground; a later round that adds the placement bounding box as ground is undoing this on purpose and should read this line first.",
-    "scene 14 persist_position_allowed is false, and its justification has been REWRITTEN after pf-adversary refuted the original. It was written as a safety property - 'the tester's Port Royal row is never touched, so removing the override puts them back exactly where they were'. Measured, that sentence is false: on the override path the gate is never asked about scene 14 at all (see the login_entry_allowed nonclaim above), and the row IS overwritten with volcano coordinates under scene id 1. The key is kept at false because it is the correct value the day the runtime asks about the scene a character is actually in - not because it protects anything today. The client's own row says n_SAVE 1, so the value to expect after that fix is true."
+    "scene 14 persist_position_allowed is false, and its justification has been REWRITTEN after pf-adversary refuted the original. It was written as a safety property - 'the tester's Port Royal row is never touched, so removing the override puts them back exactly where they were'. Measured, that sentence is false: on the override path the gate is never asked about scene 14 at all (see the login_entry_allowed nonclaim above), and the row IS overwritten with volcano coordinates under scene id 1. The key is kept at false because it is the correct value the day the runtime asks about the scene a character is actually in - not because it protects anything today. The client's own row says n_SAVE 1, so the value to expect after that fix is true. ~~SUPERSEDED in part 2026-08-29, round ga91m5:~~ the row is no longer overwritten with another scene's coordinates under scene id 1 - the override login is a VISIT and writes no durable row at all (runtime.py's login_scene_override_visit branch, driven this round: the stored row stayed scene 1 at the V135 spawn). The key is still correct at false.",
+    "no claim that any of the ten scenes added in round ga91m5 renders, loads, or is walkable - none of them has ever been sent to a client by this project, and their evidence tier is authored, which is the tier of a coordinate somebody wrote down and nobody has stood on",
+    "no claim that a marker point is where the ORIGINAL game put an arriving player; what this project has measured is that the client ACCEPTED a marker coordinate twice (MARKER[1] in V137, MARKER[2] in SCENE-001), which is what the authored tier is for and is not the same claim",
+    "no claim that the two marker points measured closest to a native placement (scene 8 at 8.8 units, scene 7 at 10.8) mean marker points sit on placements - the four points INSIDE their scene's placement extents run 8.8 to 2198.8 units from the nearest one, the six OUTSIDE run 405.0 to 5174.7, and neither reading has a mechanism behind it",
+    "no claim that any of the ten scenes added in round ga91m5 is empty of actors on every boot. No world_population module composes for any of them, which is the only thing that was checked - and pf-adversary showed (round ga91m5, D1/D3) that this is an inventory of composers rather than a gate: on any boot that is not exactly flagless, the inherited v141 branch composes three scene-1 actors into whatever scene the player stands in, with no scene test at all. That measurement is why all ten carry login_entry_allowed false",
+    "no claim that a character can travel BETWEEN any two of these scenes by an in-game means, and no claim about who can reach one at all: the ten are barred at login, and separately the bound this lane first wrote for the GM route was wrong - gm/login_scene_consume.py's STANDALONE map grants a login scene with no gm_accounts.json membership and is not consumed, so 'GM-only and single-use' was false of that path",
+    "no claim that return_ticket=not_needed on the WORLD_SCENE console line means a player could get back out of one of these scenes. That token is derived purely from n_MARKER being non-zero (world_scene_travel, has_authored_entry), and world_scene_entry's own docstring already says n_MARKER is an ARRIVAL marker that says nothing whatever about a way back. Round ga91m5 multiplied that operator-facing token from 2 scenes to 12 and it is flagged here rather than left for a tester reading the console during GT-144 (pf-adversary, round ga91m5, D8)",
+    "no claim that scene_name_ascii is a transliteration of scene_name_source_utf8_hex beside it - they come from two different client tables and can disagree. The hex is CONSTDATA_TH__SCENE_NAME.s_SCENE_NAME; scene_name_ascii for the ten rows added in round ga91m5 is TEXTDATA_TH__SCENE_NAME_TIP.s_SCENE_NAME (sha256 f9076cfc3c14433b376811437d68375d5dd1ce1ef2c7a50dbc1d4e4d241bfa3a), the client's own English label. Scene 130 is where they disagree most: CONSTDATA calls it 'nameless island', TIP calls it Navy Training Camp, and the console prints the TIP name. The older rows disagree too (278: 'beach football field (TEST)' here against TIP's 'Beach Soccer Field'). Named after pf-adversary found the two layers merged into one unlabelled field (round ga91m5, D9)"
   ]
 }
