@@ -487,34 +487,56 @@ class GmStandaloneLoginSceneAtLoginTests(unittest.TestCase):
         account is added to ``gm_accounts.json``.
 
         Scene 17 is the destination because it is in the committed catalog --
-        so the config loads -- and pinned ``login_entry_allowed=False``, so
-        the refusal is the real one and not a fixture trick.
+        so the config used to load -- and pinned ``login_entry_allowed=False``,
+        so the refusal is the real one and not a fixture trick.
 
-        NOT A CLAIM THAT THIS LOGIN IS FINE.  It is refused, it sends no
+        ~~NOT A CLAIM THAT THIS LOGIN IS FINE.  It is refused, it sends no
         actions at all, and because the standalone entry is never consumed
         the client's retry is refused again, every time, until someone
-        hand-edits the file.  That is a defect in ADMISSION rather than in
-        consumption, it is outside this lane's write zone, and it is asked in
-        pf_bridge's ASK-COO letter of 2026-08-29T09:06+07:00,
-        ``...LANE-GM-ASK-COO-standalone-map-admits-a-scene-no-login-can-enter``
-        (the lane walks on under option (a) if no answer arrives next round).
-        This test pins today's blast radius
-        -- which files the refusal may touch -- not today's outcome as
-        desirable.
+        hand-edits the file.~~  **CLOSED IN ROUND qq0i9u.**  That paragraph
+        described the outcome this file was pinning, and the ASK-COO letter
+        of 2026-08-29T09:06+07:00 it pointed at said the lane would walk
+        option (a) if no answer arrived by the next round.  None did, so
+        ``gm/login_scene_admission.py`` now refuses such an entry when the
+        map is READ: the account logs in at its own row instead of being
+        locked out of the game, and the console names the entry.
+
+        The blast-radius assertions this test was written for are kept
+        WORD FOR WORD -- refusing an entry still may not touch the GM-gated
+        file -- because the mutation they kill (setting
+        ``override_consumed_scene`` inside the standalone branch, which
+        makes the restore write a phantom entry into the file a chat
+        ``/warp`` can act on) is a mutation of the code, not of the config,
+        and would survive this change untouched.
         """
         refusal_scene = 17
         self._write_configs([], {}, {"plain_tester": refusal_scene})
         gm_map_before = self.overrides_path.read_bytes()
         standalone_before = self.standalone_path.read_bytes()
 
-        state, _selector, actions = self._login_and_start("plain_tester")
+        with contextlib.redirect_stderr(io.StringIO()) as stderr:
+            state, _selector, actions = self._login_and_start("plain_tester")
 
-        self.assertIn(
-            f"gm_login_scene_override_standalone_kept_{refusal_scene}",
-            state.events,
+        # NOT kept, NOT applied, NOT refused at the scene -- refused at the
+        # map, before any of that could happen.
+        self.assertEqual(
+            [event for event in state.events
+             if event.startswith("gm_login_scene_override_standalone_kept_")
+             or event.startswith("gm_login_scene_override_applied_")],
+            [],
         )
-        self.assertIn("world_scene_entry_refused_no_reply", state.events)
-        self.assertEqual(actions, [], "a refused entry sends nothing")
+        self.assertNotIn("world_scene_entry_refused_no_reply", state.events)
+        self.assertIn("gm_login_scene_override_consume_failed", state.events)
+        self.assertIn(
+            login_scene_override.CONFIG_REFUSED_CONSOLE_TOKEN,
+            stderr.getvalue(),
+        )
+
+        # The account is IN THE GAME, which is the whole point of the
+        # change: yesterday this login sent nothing at all, and so did
+        # every retry after it.
+        self.assertNotEqual(actions, [], "an admissible-config login replies")
+        self.assertEqual(state.foundation.selected.position.scene_id, 1)
 
         # The guard the GATE-WALK paragraph used to only assert in words.
         self.assertEqual(self.overrides_path.read_bytes(), gm_map_before)
@@ -529,6 +551,34 @@ class GmStandaloneLoginSceneAtLoginTests(unittest.TestCase):
              or event.startswith("gm_login_scene_override_lost_to_refusal_")],
             [],
         )
+
+    def test_the_second_login_after_a_refused_entry_is_the_same_as_the_first(
+        self,
+    ):
+        """The lockout, pinned as absent rather than described as fixed.
+
+        The defect was never one bad login -- it was that the standalone map
+        is not consumed, so the client's retry met the same wall, forever.
+        A fix that only made login #1 survive would leave a tester staring
+        at a door that opens once.  Both logins must come out the same, and
+        both must come out inside the game.
+        """
+        self._write_configs([], {}, {"plain_tester": 17})
+
+        with contextlib.redirect_stderr(io.StringIO()):
+            first, selector, first_actions = self._login_and_start(
+                "plain_tester"
+            )
+            second, _selector, second_actions = self._login_and_start(
+                "plain_tester", selector=selector
+            )
+
+        for state, actions in ((first, first_actions), (second, second_actions)):
+            self.assertNotEqual(actions, [])
+            self.assertEqual(state.foundation.selected.position.scene_id, 1)
+            self.assertIn(
+                "gm_login_scene_override_consume_failed", state.events
+            )
 
 
 if __name__ == "__main__":

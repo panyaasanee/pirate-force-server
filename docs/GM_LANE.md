@@ -3200,3 +3200,105 @@ question, not as something the round solved.
    logins until this round's PR merges (its head carries the reason).
 4. เขียว(cloud sanity): whole repo **4377 passed / 327 skipped / 0 failed**,
    lane GM **640 passed / 4 skipped**. Actions decides.
+
+## Modules delivered (round `qq0i9u`, config ADMISSION: the silent lockout)
+
+### The defect, measured before it was fixed
+
+Two config files in this lane point an account at a scene on login: the
+GM-gated `config/gm_login_scene.json` (which a chat `/warp` writes) and the
+standalone map (which only an operator writes). Until this round only the
+WRITER asked whether the login path would accept the destination --
+`stage_login_scene` has asked lane A's registry since round `0z3kjx`,
+because staging a named-but-unpinned scene bricked the account. The READER
+asked the client's 330-row scene NAME table and nothing else.
+
+An entry that arrived through a text editor therefore skipped the check
+entirely. Round `38c4tv` walked it through the real dispatcher with
+`{"plain_tester": 17}` -- scene 17 is in the name catalog, so it loaded, and
+is pinned `login_entry_allowed: false`, so `resolve_entry` refused it:
+
+```
+login #1: actions == []   events: standalone_kept_17, applied_17,
+                          world_scene_entry_refused_no_reply
+login #2: byte-for-byte identical
+```
+
+The refusal deliberately sends no reply so the client can retry -- and the
+standalone map is deliberately never consumed (`COO-DECISION 20260829_0542`)
+-- so the retry met the same wall. **Permanently, and silently**: no audit
+row, no expiry, no in-game fix (the in-game fix needs a chat line, which
+needs a login), and the file is in `.gitignore`, so only somebody with shell
+access on the server host could undo it.
+
+### What was built
+
+| module | what it does |
+|---|---|
+| `gm/login_scene_admission.py` (new) | owns `login_entry_is_pinned` / `stageable_scene_ids`. Imports neither the reader nor the writer, so BOTH can use it -- `login_scene_stage` already imports `login_scene_override`, so the arrow only goes one way and the reader could not have imported the writer's copy. |
+| `login_scene_override._load_scene_id_map` | refuses an inadmissible entry when the map is READ, for both files: prints `GM_LOGIN_SCENE_CONFIG_REFUSED` to stderr, then raises `ValueError`. |
+| `login_scene_stage` | keeps the two names bound to the new module rather than owning a second copy. One implementation, asserted with `assertIs` in the tests, not described in a comment. |
+
+**A second condition was added to the predicate.** `resolve_entry` -- the
+call the login actually makes -- has FOUR refusal reasons: not pinned, id out
+of range, `login_entry_allowed=False`, and pinned-with-no-spawn
+(`REFUSED_NO_PINNED_SPAWN`, home excepted because home arrives on the
+character's own row). The staging path modelled only the third. A spawnless
+pinned destination would have been admitted and then refused at login --
+the same lockout, one refusal reason along. No scene in the registry is
+spawnless today, so this half is a guard against lane A pinning one
+tomorrow, and the code says so rather than implying a fix.
+
+### Why the raise does not take a login down
+
+`consume_login_scene_override` already catches `(OSError, ValueError)` and
+answers `CONSUME_FAILED`, which grants no scene. So a refused entry means:
+the account logs in at its own stored row (scene 1), the console names the
+file, the account, the scene and the admissible ids, and the operator's file
+is not edited. **Fail-closed on the whole FILE, deliberately** -- a loader
+that dropped the bad line and honoured the rest would be the same silence
+this round is closing, one row down. Price, stated: one typo stops every
+override in that file until it is fixed. Nobody is locked out of the game.
+
+### The cross-check that makes this more than a second opinion
+
+`tests/test_gm_login_scene_admission.py` walks lane A's registry scene by
+scene and asks `resolve_entry` itself, in the shape `runtime.py`'s login
+calls it, **in both directions**: every admitted scene must be accepted, and
+every refused scene must be refused. A fifth refusal reason added upstream,
+or a spawn removed from a pinned scene, turns this red here instead of
+turning a tester's account into a locked door. The admissible set is also
+pinned as the literal `(1, 2, 278, 997)`, so lane A pinning a fifth scene is
+a decision somebody makes rather than a silent widening.
+
+### GATE-WALK (`COO-DECISION 20260829_0742`)
+
+`runtime.py`'s `world_scene_entry_refused_no_reply` branch and the
+restore-after-refusal handler inside it are **no longer reachable from a
+config file**. The test that walked them was not deleted: it now reaches
+them at the seam that is still real (admission reads lane A's registry at
+load, `resolve_entry` reads it again microseconds later; a registry that
+changes in between, or a refusal reason admission does not model, lands
+there), with an admissible scene so the gate is walked open rather than
+disabled. Chief's code keeps a test.
+
+### Cross-lane coupling, declared rather than discovered later
+
+Lane A's `scenarios/world_scene_registry_001.json` now decides what this
+lane's configs may contain. Letter to lane A and chief:
+`pf_bridge/notes_to_chief/20260829_0930_LANE-GM-STATUS-config-admission-follows-lane-A-registry.md`.
+
+### nonclaim
+
+1. Nothing here says a tester CAN reach any scene. It says the server will
+   not accept an instruction to send them somewhere the login would refuse.
+   Reaching a scene is `GT-141`'s to decide, on a screen.
+2. **Never measured against a real client.** Every line of this round was
+   measured through the dispatcher in the test suite.
+3. `[สมมติของสาย GM - รอ COO ยืนยัน]` -- this is option (a) of the lane's own
+   ASK-COO letter of 2026-08-29T09:06+07:00, which said the lane would walk
+   it if no answer arrived by the next round. None did. It does not reverse
+   `COO-DECISION 20260829_0542`: that ruled on whether an accepted entry is
+   spent, this rules on whether it is accepted. The revert is this module
+   plus two lines in the reader.
+4. The spawn condition fixes nothing that is broken today.
