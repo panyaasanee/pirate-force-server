@@ -12,13 +12,18 @@ tests that the RULE'S OWN SUNSET is still correctly described:
 
   1. the expiry condition is stated in the module, in both places a reader
      looks (the nonclaim tuple and a constant), and
-  2. the condition is still UNMET, which is the only thing that entitles the
-     shape rule to be on the production path at all.
+  2. ~~the condition is still UNMET~~ WHICH NAMED FUNCTIONS MAY MEET IT.
 
-If test 2 starts failing, nothing is broken -- it means ``store.py`` grew the
-real INSERT and the counter advance, and the round that did it now owes the
-replacement COO specified: delete ``_classify_against``, do not keep it as a
-fallback.  Read the failure message, not just the red.
+BOTH HALVES OF THE CONDITION WERE MET IN ROUND 4gqnwm by STORE-INSERT-001,
+and the two tests that said "not yet" were converted there rather than
+deleted: they now pin the exact writers -- one INSERT for character
+creation plus one for a pickup, one advance of the counter -- so a second
+pickup path or a second counter writer still fails.  The replacement COO
+specified (delete ``_classify_against``) was NOT performed in that round,
+because deleting it was measured to admit the HYP-PF-008/010 bags this gate
+refuses; the measurement, the deviation and the open ask are recorded in
+``bag_admission`` nonclaim 9 and in the docstring of
+``test_exactly_one_named_write_advances_the_identity_counter``.
 
 DELIBERATELY A SOURCE-TEXT TEST.  ``bag_admission`` must not import ``store``
 (it sits on the character-select path and pulling the store in to read a
@@ -156,21 +161,72 @@ def _writes_naming(module_name: str, column: str):
     return hits
 
 
-def test_nothing_writes_the_identity_counter_yet() -> None:
-    """Half two of the expiry: no statement advances ``next_item_identity``.
+def test_exactly_one_named_write_advances_the_identity_counter() -> None:
+    """Half two of the expiry, CONVERTED BY THE ROUND THAT MET IT (4gqnwm).
 
-    Goes red the day chief's STORE-INSERT-001 lands, however that statement
-    is formatted, because the check is over parsed string constants rather
-    than over source lines.
+    This test used to assert that nothing advanced the counter, and it went
+    red the moment STORE-INSERT-001 landed -- which is what it was for.  It
+    is not deleted, because "nobody writes this column" and "one named
+    function writes this column" are different claims and the second is
+    still worth failing on: a second writer is how a monotonic counter stops
+    being monotonic.  So the tripwire becomes a pin.
+
+    WHAT THIS PIN CAN AND CANNOT SEE -- an adversarial pass BUILT the
+    evasions rather than imagining them, and three of them were green
+    against this test's first draft.  It reads statements handed to
+    execute/executemany in ``store`` and ``mob_pickup`` whose SQL is a
+    string CONSTANT (``_executed_sql`` documents that limit itself).  A
+    writer whose SQL is BUILT -- ``%``-formatted, f-string, joined -- is
+    invisible to it, and so is one added to a third module.  The scan was
+    widened to both modules after the pass found a counter writer added to
+    ``mob_pickup`` sailing past a store-only scan.  So: this catches the
+    copy-paste, not the determined author, and no round may quote it as
+    proof that a second writer cannot exist.
+
+    THE REPLACEMENT THAT HALF TWO CALLED FOR IS NOT IN THIS ROUND, AND
+    NOT SILENTLY.  COO-DECISION 20260829_0441 item 2 says the superseding
+    round deletes ``_classify_against`` rather than keeping it.  Derived by
+    running the counter-only rule over the shipped constants on this head,
+    before the deletion was attempted (the script and its output are in
+    ``pf_bridge/rounds/R224_4gqnwm_*``, and an adversarial pass re-derived
+    it independently): with ``_classify_against`` gone and the counter as
+    the sole criterion, ``HYPOTHESIZED_V111_SLOT2``
+    (HYP-PF-008) and the free-slot move (HYP-PF-010) are ADMITTED -- both
+    move a golden row without minting an identity, so a rule that only asks
+    whether an identity was issued cannot see them, and every family test in
+    ``tests/test_bag_admission.py`` requires them refused.  The deviation,
+    the measurement and the proposed tightening are in ``bag_admission``
+    nonclaim 9 and in CHIEF-ASK-COO 20260829.  A round that gets COO's
+    answer replaces nonclaim 9 and this docstring together.
     """
-    writes = _writes_naming("store", "next_item_identity")
-    assert not writes, (
-        "store.py now writes character_backpacks.next_item_identity:\n  "
-        + "\n  ".join("%s(): %s" % hit for hit in writes)
-        + "\nHalf two of bag_admission's nonclaim 8 expiry is MET.  The "
-          "counter can be the admission criterion now, and COO-DECISION "
-          "20260829_0441 item 2 requires _classify_against to be DELETED "
-          "rather than kept beside it."
+    # BOTH modules, matching the inserter test below.  Scanning only
+    # ``store`` left the sharpest evasion invisible: a second counter
+    # advancer added to ``mob_pickup`` -- the module the sibling test
+    # already reads -- passed this file while the docstring claimed in
+    # capitals that a second writer fails.
+    writes = [
+        hit for module in ("store", "mob_pickup")
+        for hit in _writes_naming(module, "next_item_identity")
+    ]
+    # Seeding and advancing are different acts and are pinned apart.  The
+    # seed writes the column once, at character create, as part of the row
+    # that creates the bag; the advance is the pickup write.  A test that
+    # lumped them would go green on a seed that had quietly become a second
+    # allocator.
+    seeds = {func for func, text in writes if re.search(r"\bINSERT\b", text.upper())}
+    advances = {func for func, text in writes if re.search(r"\bUPDATE\b", text.upper())}
+    assert seeds == {"_insert_initial_backpack"}, (
+        "the set of functions that SEED character_backpacks."
+        "next_item_identity is %s, not character creation alone."
+        % (sorted(seeds) or "empty",)
+    )
+    assert advances == {"commit_acquired_backpack_item"}, (
+        "the set of functions that ADVANCE "
+        "character_backpacks.next_item_identity is %s, not the single "
+        "pickup write.  A counter with two writers is not a counter: the "
+        "column exists so an identity is never handed out twice." % (
+            sorted(advances) or "empty",
+        )
     )
 
 
@@ -184,8 +240,20 @@ def test_the_only_backpack_row_insert_is_the_one_that_makes_a_character() -> Non
     it green.  The honest question is not "is a token absent" but "which
     functions can put a row in the bag table", so that is what is asserted.
 
-    ``_insert_initial_backpack`` is character creation.  Any second name in
-    this set is a pickup path, and the expiry's first half is met.
+    ``_insert_initial_backpack`` is character creation.
+
+    CONVERTED BY ROUND 4gqnwm, WHICH MET THIS HALF.  The second name is now
+    here on purpose: ``commit_acquired_backpack_item`` is STORE-INSERT-001's
+    pickup write.  The set is still pinned exactly, so a third
+    constant-SQL inserter in either scanned module fails this test -- which
+    is the property worth keeping now that "no pickup path exists" has
+    stopped being true.  Same scope limit as the test above, and it is not
+    theoretical here: ``reports/moveisol001_smoke/pf_move_isolation_probe.py``
+    is a tracked file that INSERTs bag rows and is not scanned at all
+    (SKIPPINS/probe cleanup ticket in pf_bridge names it).
+    Why the replacement this half called for is not in that round, with the
+    measurement that refuted its literal form, is in the docstring of
+    ``test_exactly_one_named_write_advances_the_identity_counter`` above.
     """
     statement = re.compile(r"INSERT\s+INTO\s+character_backpack_items",
                            re.IGNORECASE)
@@ -194,12 +262,14 @@ def test_the_only_backpack_row_insert_is_the_one_that_makes_a_character() -> Non
         for func, text in _executed_sql(module)
         if statement.search(text)
     }
-    assert inserters == {"_insert_initial_backpack"}, (
-        "the set of functions that INSERT a backpack row is %s, not just "
-        "character creation.  Half one of bag_admission's nonclaim 8 expiry "
-        "is MET: a real pickup row can reach the database, so the "
-        "superseding round must delete _classify_against rather than keep "
-        "it as a fallback." % (sorted(inserters),)
+    assert inserters == {
+        "_insert_initial_backpack", "commit_acquired_backpack_item",
+    }, (
+        "the set of functions that INSERT a backpack row is %s, not "
+        "character creation plus the one pickup write.  Every row a player "
+        "owns has to come from a path that took an identity from the "
+        "counter; a third inserter is a way for one to arrive without "
+        "one." % (sorted(inserters),)
     )
 
 

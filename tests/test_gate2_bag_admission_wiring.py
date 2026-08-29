@@ -16,12 +16,15 @@ constant.  A test that hand-built the bag it then admits would prove that the
 predicate agrees with this file's idea of a pickup, not that a pickup gets in.
 
 WHAT THIS DOES NOT PROVE.  The bag reaches ``select_and_start`` through a
-lifecycle stub, because nothing writes an acquired row to the database yet --
-``store.py`` has no INSERT and does not advance ``next_item_identity`` (that
-is this round's open ticket, ``STORE-INSERT-001``).  So this file pins the
-gate, not the round trip: "pick an item up, relog, it is still there" stays
-un-proven end to end until that INSERT exists, and no line here should be
-quoted as evidence for M5.
+lifecycle stub, so this file pins the GATE and not the round trip.
+~~because nothing writes an acquired row to the database yet -- ``store.py``
+has no INSERT and does not advance ``next_item_identity``~~ -- that ticket
+(``STORE-INSERT-001``) LANDED in round 4gqnwm, and the round trip through a
+real store now has its own file,
+``tests/test_store_acquired_item_insert.py``.  What is still missing for M5
+is the call site (``GT-124``): ``runtime.py`` does not call
+``mob_pickup.dispatch_pickup_request``, so no line here or there should be
+quoted as evidence that a PLAYER can pick anything up.
 """
 from pathlib import Path
 import ast
@@ -425,6 +428,21 @@ class OnlyTheCharacterSelectPathAsksThisPredicate(unittest.TestCase):
             # bag_admission, which is what this allowlist is for -- not a
             # caller reaching for the predicate from outside the package.
             "tests/test_bag_admission_expiry.py",
+            # Added by chief, round 4gqnwm (STORE-INSERT-001).  The store now
+            # writes a picked-up row, and the one thing that write has to be
+            # true for is that the bag it produces GETS THROUGH GATE 2 after a
+            # relog -- so that file reads the verdict from this predicate
+            # rather than asserting its own idea of admissibility.  A test OF
+            # bag_admission's outcome; not a caller reaching for the predicate
+            # from outside the package.
+            #
+            # THIS ENTRY WAS ADDED AFTER THE FACT, AND THAT IS THE LESSON.
+            # `git grep` searches the INDEX, so while the new file was
+            # untracked this check could not see it and the whole suite ran
+            # green; the failure appeared only at `git add`.  A new test file
+            # that imports bag_admission must be staged before its own suite
+            # run is worth anything.
+            "tests/test_store_acquired_item_insert.py",
             # Added by LANE-B, round 149wbp (chief's R222 letter item 3).
             # mob_pickup.py names the predicate that replaced
             # is_unmoved_baseline in its corrected THE WALL prose and in

@@ -292,10 +292,22 @@ class SQLiteStore:
     @staticmethod
     def _insert_initial_backpack(db, character_id: int, stamp: str) -> None:
         state = INITIAL_BACKPACK
+        # The counter is seeded FROM THE ROWS THIS FUNCTION IS ABOUT TO WRITE,
+        # not left to the column's DEFAULT.  Migration 005's default of 5 is
+        # correct only while INITIAL_BACKPACK's highest identity is 4; the day
+        # someone adds a fifth starting row, a silent default would hand the
+        # first pickup an identity a live row already holds -- which is the
+        # exact bug the column exists to prevent, arriving through the one
+        # door the column does not watch.
         db.execute(
-            "INSERT INTO character_backpacks(character_id,base_mask,base_identity,range_mask,updated_at) "
-            "VALUES (?,?,?,?,?)",
-            (character_id, state.base_mask, state.base_identity, state.range_mask, stamp),
+            "INSERT INTO character_backpacks(character_id,base_mask,base_identity,range_mask,next_item_identity,updated_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (
+                character_id, state.base_mask, state.base_identity,
+                state.range_mask,
+                max((item.identity for item in state.items), default=0) + 1,
+                stamp,
+            ),
         )
         db.executemany(
             "INSERT INTO character_backpack_items("
@@ -359,6 +371,146 @@ class SQLiteStore:
         with self.connect() as db:
             self._require_selected_session(db, sid, character_id)
             return self._load_backpack(db, character_id)
+
+    @staticmethod
+    def _next_item_identity(db, character_id: int) -> int:
+        row = db.execute(
+            "SELECT next_item_identity FROM character_backpacks WHERE character_id=?",
+            (character_id,),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("character Backpack state is missing")
+        return int(row[0])
+
+    def backpack_issued_through(self, sid: str, character_id: int) -> int:
+        """The highest item identity this character has EVER been issued.
+
+        THE COLUMN AND THIS NUMBER ARE ONE APART, AND THE SUBTRACTION LIVES
+        HERE SO IT HAPPENS ONCE.  Migration 005 spends a paragraph on the
+        trap: ``character_backpacks.next_item_identity`` is EXCLUSIVE (the
+        next free identity to hand out), while the ``issued_through``
+        parameter of ``mob_pickup.next_item_identity`` -- and of
+        ``mob_pickup.BagCell`` -- is INCLUSIVE (the highest identity already
+        handed out, to which that lane adds one).  A call site that seeds a
+        cell with the column's own value skips one identity per session:
+        wasteful rather than unsafe, but wrong, and wrong in a way no test of
+        either module alone can see.  Callers seeding a bag cell at character
+        select ask for this and never read the column themselves.
+
+        Not derived from the rows in the bag.  A bag that once held identity 5
+        and has since spent it reports 5 here, which is the whole reason the
+        column exists.
+        """
+        with self.connect() as db:
+            self._require_selected_session(db, sid, character_id)
+            return self._next_item_identity(db, character_id) - 1
+
+    def commit_acquired_backpack_item(
+        self, sid: str, character_id: int, item: ItemAttrState,
+    ) -> BackpackState:
+        """Persist one picked-up row AND advance the identity counter, or neither.
+
+        This is the write half of a pickup.  ``mob_pickup`` owns what a picked
+        up row looks like (its slot, its identity, its new-row constants) and
+        composes it in memory; this method is the only thing in the codebase
+        that puts such a row in the database, and it does that in ONE
+        transaction with the counter advance.  A row at identity 5 with the
+        counter still reading 5 is the failure this shape exists to make
+        impossible: the next pickup would mint 5 again, and the client's
+        clear-by-identity/place-by-slot apply loop cannot tell two rows
+        wearing one identity apart.
+
+        THE IDENTITY IS CHECKED AGAINST THE COLUMN, NOT TAKEN FROM THE BAG.
+        The caller mints through ``mob_pickup.next_item_identity``, which is
+        seeded from :meth:`backpack_issued_through`; if the two ever disagree
+        this refuses by name rather than writing the caller's number.  It does
+        not silently OVERWRITE the caller's identity with the column's either:
+        the caller may already have composed the client's bag-delta bytes from
+        that item (``mob_pickup.bag_delta_pc`` does exactly that, before the
+        drop leaves the ground), so a store that quietly renumbered the row
+        would put a different identity on the wire than in the database.
+
+        Ownership is checked the way ``save_position`` checks it: a session
+        that does not have this character selected cannot write into its bag.
+        """
+        if type(item) is not ItemAttrState:
+            raise TypeError("acquired item must be an exact ItemAttrState")
+        # WHAT THIS METHOD ACCEPTS MUST BE A SUBSET OF WHAT GATE 2 ADMITS,
+        # and these two bounds are the difference.  ``require_backpack_shape``
+        # below allows quantity 0 and template 0; gate 2 -- the
+        # character-select admission predicate, named here by its role
+        # because that gate's test file pins which modules may name it, and
+        # a persistence method is not one of them -- refuses an
+        # acquired row with either.  A row this method committed and that gate
+        # refuses is UNREMOVABLE -- there is no delete-item path -- so the
+        # character could never enter the world again without the
+        # HYP-PF-008 opt-in.  Refused here, before the transaction, rather
+        # than left unreachable-by-luck because ``place_in_bag`` happens to
+        # bound them today.
+        if item.quantity < 1:
+            raise ValueError(
+                "quantity %d is not a pickup quantity; gate 2 would refuse "
+                "this row forever" % item.quantity
+            )
+        if item.template_id < 1:
+            raise ValueError(
+                "template id 0 is not a pickup template; gate 2 would refuse "
+                "this row forever"
+            )
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            self._require_selected_session(db, sid, character_id)
+            expected_identity = self._next_item_identity(db, character_id)
+            if item.identity != expected_identity:
+                raise ValueError(
+                    "acquired identity %d is not this character's next free "
+                    "identity %d" % (item.identity, expected_identity)
+                )
+            before = self._load_backpack(db, character_id)
+            if any(row.slot == item.slot for row in before.items):
+                raise ValueError(
+                    "slot %d is occupied; a pickup goes to a free slot"
+                    % item.slot
+                )
+            # Structure is validated on the value that is ABOUT to be written,
+            # before anything is written: a duplicate identity or a bag that
+            # would come back malformed refuses here rather than through an
+            # IntegrityError with the database's wording instead of ours.
+            expected = require_backpack_shape(BackpackState(
+                before.base_mask, before.base_identity, before.range_mask,
+                tuple(sorted(
+                    before.items + (item,), key=lambda row: row.identity,
+                )),
+            ))
+            inserted = db.execute(
+                "INSERT INTO character_backpack_items("
+                "character_id,item_identity,template_id,quantity,slot,raw_u8_38,raw_u8_39,detail_present"
+                ") VALUES (?,?,?,?,?,?,?,?)",
+                (
+                    character_id, item.identity, item.template_id,
+                    item.quantity, item.slot, item.raw_u8_38,
+                    item.raw_u8_39, item.detail_present,
+                ),
+            )
+            if inserted.rowcount != 1:
+                raise RuntimeError("acquired row was not inserted")
+            # The counter moves under its own read value: a second writer that
+            # advanced it between this transaction's read and this statement
+            # leaves rowcount 0, and the whole transaction rolls back rather
+            # than stamping a stale number over a newer one.
+            advanced = db.execute(
+                "UPDATE character_backpacks SET next_item_identity=?,updated_at=? "
+                "WHERE character_id=? AND next_item_identity=?",
+                (item.identity + 1, _now(), character_id, expected_identity),
+            )
+            if advanced.rowcount != 1:
+                raise RuntimeError(
+                    "identity counter changed during the pickup transaction"
+                )
+            after = self._load_backpack(db, character_id)
+            if after != expected:
+                raise RuntimeError("acquired-row post-state validation failed")
+            return after
 
     def apply_v111_stack_merge(
         self, sid: str, character_id: int,

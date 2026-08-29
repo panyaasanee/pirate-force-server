@@ -327,21 +327,26 @@ MOB_PICKUP_WIRING = (
     "of instructions and the row is normally gone before resolve runs.  "
     "NEITHER refusal is evidence about RE-082 -- see the note on that split "
     "in resolve_claim.\n"
-    "  3. THE INSERT IS store.py's TO WRITE, NOT THIS LANE'S -- and the "
-    "reason is no longer a gate.  ~~'PERSISTING outcome.row_write IS NOT "
-    "SAFE YET: the character-select path still refuses a bag holding it, at "
-    "gate 2 (is_unmoved_baseline)'~~ IS STRUCK: chief wired gate 2 to "
-    "bag_admission.may_enter_world in PR #233, so the select path ADMITS "
-    "such a bag.  What is missing is the write, which belongs to store.py "
-    "(chief's ticket STORE-INSERT-001) because the identity counter "
-    "character_backpacks.next_item_identity has to advance in the SAME "
-    "transaction.  The column order is "
-    "BagRowWrite.COLUMNS and the values are "
-    "outcome.row_write.values().  Until then, dispatch_pickup_request "
-    "already logs the row it would have written (token "
-    "MOB_PICKUP_ROW_WOULD_INSERT, via bag_row_write_console_line) and calls "
-    "nothing DB-shaped -- do not add an INSERT of your own around this "
-    "call.\n"
+    "  3. PERSIST via store.commit_acquired_backpack_item(sid, "
+    "character_id, outcome.item) -- and STILL do not write an INSERT of "
+    "your own.  ~~STOP: persisting is not safe yet, gate 2 "
+    "(is_unmoved_baseline) refuses a bag holding it~~ is SUPERSEDED TWICE "
+    "(LANE-B struck the same sentence in round 149wbp, from the gate side; "
+    "this is the same correction plus the write that now exists): "
+    "gate 2 asks bag_admission.may_enter_world since round 1684ra, which "
+    "admits a bag place_in_bag produced, and STORE-INSERT-001 (round "
+    "4gqnwm) put the row and the identity counter in one transaction "
+    "behind that one store call.  The store validates the identity "
+    "against character_backpacks.next_item_identity, so seed this "
+    "session's BagCell from store.backpack_issued_through and never from "
+    "the column directly.  A refusal from that call means the row is NOT "
+    "in the bag while this process thinks it is -- the drop is already off "
+    "the ground by then, so the call site owes the player a resync, which "
+    "NOTHING PROVIDES YET (see NONCLAIM 16).  dispatch_pickup_request "
+    "still only logs (token MOB_PICKUP_ROW_WOULD_INSERT, via "
+    "bag_row_write_console_line); the write is the caller's one line, and "
+    "BagRowWrite.COLUMNS/outcome.row_write.values() remain the column "
+    "order if anyone needs it.\n"
     "  4. send outcome.delta to the claimant -- it is the (pc, frame) pair "
     "dispatch_pickup_request already composed and validated.  Do NOT call "
     "bag_delta_pc here.\n"
@@ -446,9 +451,12 @@ PIN_LANE = MOB_PICKUP_LANE
 # COO-DECISION 20260829_0441 -- session.select_and_start calls
 # bag_admission.may_enter_world, which ADMITS a golden-plus-acquired bag.
 #
-# What blocks the relog now is upstream of every gate: no INSERT runs on a
-# PICKUP path, so a picked-up row never reaches the database and no bag
-# holding one is ever loaded back to be admitted or refused.
+# ~~What blocks the relog now is upstream of every gate: no INSERT runs on a
+# PICKUP path, so a picked-up row never reaches the database.~~  STRUCK IN
+# ROUND 4gqnwm, one round later: STORE-INSERT-001 landed
+# store.commit_acquired_backpack_item, which INSERTs the row and advances the
+# counter in one transaction.  What blocks a PLAYER is now the absent call
+# site (GT-124) -- which is not a gate, and must not be recorded as one.
 #
 # ~~"store.py has no backpack INSERT"~~ IS STRUCK AS FALSE, and it was the
 # first draft of this very correction (pf-adversary, round 149wbp):
@@ -462,9 +470,10 @@ PIN_LANE = MOB_PICKUP_LANE
 # literal, so the day STORE-INSERT-001 lands it goes red here too.
 GOVERNED_BAG_ALLOWLIST_BLOCKS_PERSISTENCE = False
 GOVERNED_BAG_ALLOWLIST_OWNER = (
-    "store.py INSERTs a backpack row only at character creation "
-    "(_insert_initial_backpack); no INSERT on any pickup path and nothing "
-    "advances next_item_identity (chief's ticket STORE-INSERT-001)"
+    "nobody: gate 2's admission predicate admits an acquired row since "
+    "round 1684ra, and store.commit_acquired_backpack_item writes the row "
+    "with the identity counter since round 4gqnwm; the remaining blocker "
+    "is the absent call site (GT-124)"
 )
 
 MOB_PICKUP_NONCLAIMS = (
@@ -567,12 +576,16 @@ MOB_PICKUP_NONCLAIMS = (
     "'discarded one step past the door' rather than carried.",
     "14. THE ITEM IDENTITY IS DERIVED, NOT A HIGH-WATER MARK, and mob_loot "
     "wrote down why that shape is a bug: a bag that has ever SHRUNK hands the "
-    "next pickup an identity a client may still be holding.  There is nowhere "
-    "to persist a high-water mark today -- neither character_backpacks nor "
-    "migration 003 has a column for one -- so next_item_identity accepts one "
-    "from the caller and falls back to the derived form.  Which lane owns "
-    "that column is an open question and is in this round's letter to the "
-    "COO, not silently decided here.",
+    "next pickup an identity a client may still be holding.  ~~There is "
+    "nowhere to persist a high-water mark today -- neither "
+    "character_backpacks nor migration 003 has a column for one -- and which "
+    "lane owns that column is an open question.~~ ANSWERED AND BUILT (round "
+    "4gqnwm, COO-DECISION 20260829_0441 item 3): the mark is "
+    "character_backpacks.next_item_identity, owned by store.py, advanced by "
+    "store.commit_acquired_backpack_item in the same transaction as the row. "
+    "Seed a cell from store.backpack_issued_through (the column MINUS ONE, "
+    "which is this lane's INCLUSIVE convention); the derived fallback stays "
+    "for callers who have no store, and is still a fallback, not a policy.",
     "15. [OPEN RISK, NOT MEASURED - flagged, not fixed, this round "
     "(`37ts2b`)] NOTHING HERE BINDS bag_cell TO THE CLAIMANT IN THE REQUEST "
     "IT IS PASSED AGAINST.  dispatch_pickup_request (and BagCell.commit_pickup "
@@ -587,6 +600,19 @@ MOB_PICKUP_NONCLAIMS = (
     "claimed cell before calling in) or is an open design question for the "
     "COO is not decided here; this module provides no defense-in-depth "
     "against a mismatched pair.",
+    "16. [OPEN RISK, MEASURED BY READING BOTH CALL PATHS, NOT BY RUNNING "
+    "THEM - flagged this round (4gqnwm), not fixed] A BagCell AND THE "
+    "DATABASE COLUMN ARE TWO ALLOCATORS THAT AGREE ONLY WHILE EVERY COMMIT "
+    "SUCCEEDS.  BagCell.commit_pickup advances _issued_through in memory "
+    "after the drop leaves the ground; store.commit_acquired_backpack_item "
+    "is a separate later call that can refuse (lease taken over, database "
+    "locked, disk full).  After one such refusal the cell mints one above "
+    "the column forever, so EVERY later pickup in that session is refused "
+    "by identity - each one having already taken its drop off the ground. "
+    "There is no re-seed call and no compensating put-it-back.  The call "
+    "site (GT-124) must decide what the player gets; until it does, this "
+    "lane does not claim a pickup is atomic - only that the DATABASE write "
+    "is.",
 )
 
 
@@ -939,9 +965,15 @@ def next_item_identity(bag: Any, issued_through: Any = None) -> int:
     The parameter is named for what it is in the caller's world; what this
     lane needs is the LAST ISSUED value.
 
-    THERE IS NOWHERE TO PERSIST A HIGH-WATER MARK TODAY.  Neither
+    ~~THERE IS NOWHERE TO PERSIST A HIGH-WATER MARK TODAY.  Neither
     ``character_backpacks`` nor migration 003 has a column for one, and adding
-    one is the item lane's call, not this lane's.  So this function ACCEPTS a
+    one is the item lane's call, not this lane's.~~  THERE IS ONE NOW:
+    ``character_backpacks.next_item_identity`` (migration 005), advanced by
+    ``store.commit_acquired_backpack_item`` since round 4gqnwm.  Ask for it as
+    ``store.backpack_issued_through``, which is that column MINUS ONE and is
+    exactly the INCLUSIVE mark this parameter wants; the column itself is
+    EXCLUSIVE and passing it here skips an identity per issuance.  This
+    function still ACCEPTS a
     high-water mark from a caller who has one and falls back to the derived
     form when nobody does -- the fallback is named as a fallback rather than
     presented as a policy, and NONCLAIM 14 says so where a reader will see it.
@@ -1821,18 +1853,23 @@ def pin_document(legacy: Any) -> dict:
             "relog_persistence": GOVERNED_BAG_ALLOWLIST_BLOCKS_PERSISTENCE,
             "blocked_by": GOVERNED_BAG_ALLOWLIST_OWNER,
             "what_happens_if_wired_anyway": (
-                "the character CAN enter the world carrying it: all three "
-                "gates admit a golden-plus-acquired bag since chief wired "
-                "gate 2 to bag_admission.may_enter_world (PR #233). "
-                "STRUCK, and it was the reverse of the truth: 'the character "
-                "cannot enter the world ... is_unmoved_baseline (gate 2) "
-                "still raises a PermissionError'.  What is missing is the "
-                "INSERT itself, which lives in store.py -- chief's file and "
-                "chief's ticket STORE-INSERT-001"
+                "the character CAN enter the world carrying it, and the row "
+                "persists: all three gates admit a golden-plus-acquired bag "
+                "(gate 2 since PR #233), and "
+                "store.commit_acquired_backpack_item writes the row with the "
+                "identity counter since STORE-INSERT-001.  Both of this "
+                "field's earlier answers are struck: 'the character cannot "
+                "enter the world ... gate 2 still raises' was the reverse of "
+                "the truth, and 'what is missing is the INSERT itself' was "
+                "true for exactly one round.  What is absent is the call "
+                "site (GT-124), which is not a gate"
             ),
             "open_question_for_the_item_lane": (
-                "which lane owns a persisted item-identity high-water mark; "
-                "there is no column for one today -- see NONCLAIM 14"
+                "answered: character_backpacks.next_item_identity "
+                "(migration 005) is the persisted high-water mark, owned by "
+                "store.py -- read it as store.backpack_issued_through, "
+                "which is the column MINUS ONE.  Open instead: who resyncs "
+                "a BagCell whose commit was refused -- see NONCLAIM 15"
             ),
         },
         "nonclaims": list(MOB_PICKUP_NONCLAIMS),

@@ -32,7 +32,7 @@ WHAT IS DIFFERENT FROM THE OTHER TWO, NAMED RATHER THAN LEFT IMPLICIT.
   ``STANDARD_MOB[MOBS.n_LEVEL_MIN].n_HPMAX``, the same derivation lane B's
   ``field_mob_tables`` uses.  Sent as current == max (alive), matching
   ``world_population``'s own "no half-dead spawn" convention.
-* THE COLLISION WITH LANE B'S MINED HOSTILE ROSTER FOR THIS SAME SCENE,
+* ~~THE COLLISION WITH LANE B'S MINED HOSTILE ROSTER FOR THIS SAME SCENE,
   which is already at HEAD and which this module's first draft did not open
   (pf-adversary, round
   w0pu2i - and it is the G1 failure by name: the repo's own artifact for
@@ -43,21 +43,53 @@ WHAT IS DIFFERENT FROM THE OTHER TWO, NAMED RATHER THAN LEFT IMPLICIT.
   + 1``, both for scene 14, and 16 of its 17 placement indices are indices
   this module also ships.  Placement 61 is "Fighting Fish soldier, lv25,
   hp3138" there and "Hell Ghoul, lv105, hp228055" here, at the same identity
-  and the same XYZ.  The cross-scene collision
-  reporter in that lane's own module cannot see it: it compares DIFFERENT
-  ``SCENE`` strings, and both of these say ``Bg0015``.  Nothing is wired today,
-  so nothing collides on a wire today - but the moment lane B's hostile
-  splice for this scene lands beside this census, the second collection
-  replaces the first by omission (RE-092) and one of the two identities
-  silently wins.  ``world_bg0015_identity.COLLIDING_PLACEMENTS`` names the sixteen
-  overlapping placements (computed and asserted in
-  ``tests/test_world_bg0015_identity.py``, which is allowed to import that
-  dormant table where ``src/`` is not -- which is also why neither of this
-  lane's two new src modules writes its name), and the letter
-  ``notes_to_chief/20260829_0014_LANE-A-STATUS-bg0015-collides-with-lane-B-
-  committed-table.md`` hands it to that module's owner.  This lane does not
-  edit lane B's file, and does not even name it under ``src/``: a guard test
-  forbids any mention of that name here, and it is right to.
+  and the same XYZ.~~  ~~``world_bg0015_identity.COLLIDING_PLACEMENTS`` names
+  the sixteen overlapping placements (computed and asserted in
+  ``tests/test_world_bg0015_identity.py`` ...)~~
+  **THE COLLISION IS DORMANT, NOT RESOLVED - AND THE FIRST REWRITE OF THIS
+  PARAGRAPH GOT THAT WRONG TOO.**  The struck text above was false at HEAD;
+  so was the correction that first replaced it, which said "THE COLLISION IS
+  GONE" and claimed placement 61 was "no longer in lane B's table in any
+  form" and that one of the sixteen was "still in lane B's table at all".
+  pf-adversary measured both false before either reached ``main`` (round
+  8ubiku, D4).  Both versions are kept, struck, because two wrong readings
+  of the same table in two consecutive rounds is the thing worth recording.
+
+  What is true at HEAD, re-derived by this lane rather than taken from lane
+  B's letter (``notes_to_chief/20260829_0605_LANE-B-STATUS-bg0015-collision-
+  is-gone-and-lane-A-test-moved.md``):
+
+    - The two tables share **12** placements (22, 24, 27, 29, 31, 44, 45,
+      46, 47, 51, 70, 87) and **agree on all 12** - same ``MOBS.n_ID``, same
+      name, and same XYZ to the float.  That part of lane B's letter holds
+      up, and this lane's own test now pins the XYZ leg lane B did not.
+    - **All sixteen** members of ``COLLIDING_PLACEMENTS`` are still in lane
+      B's module.  Exactly one (placement **70**) is still SHIPPED; the
+      other fifteen moved into ``WITHDRAWN_UNDER_THIS_RULE`` and
+      ``UNRESOLVED_PLACEMENTS``.  Placement 61 is one of them, verbatim.
+      "Still in the table" and "still shipped" are different claims and the
+      first rewrite widened one into the other.
+    - **AND THAT IS THE POINT.  The overlap did not disappear because the
+      two tables came to agree about those fifteen placements.  It
+      disappeared because lane B STOPPED SHIPPING them** - every withdrawn
+      row carries the reason ``[not carried: n_id_35x_avatar_is_a_variant_
+      list]``.  The identity question for those fifteen is not settled, it
+      is unasked.  **The day lane B can carry variant lists, fifteen
+      placements come back and the collision returns with them**, and
+      nothing in either module would announce that.
+
+  So the RE-092 replace-by-omission hazard survives, for a reason narrower
+  than the struck text gave: this module computes ``actor_identity = 0x2000
+  + placement_index + 1`` for scene 14, lane B's table is built for the same
+  scene on the same convention, and two collections still cannot both be
+  sent.  ~~both modules compute~~ - only this one computes it; lane B's
+  module names the formula in a comment about its downstream callers and is
+  imported by no non-test file in this repository at all (D5).  That makes
+  the hazard a future one rather than a present one, which is worth saying
+  precisely, because "there are two senders today" would be false.  This
+  lane does not edit lane B's file, and does not even name it under
+  ``src/``: a guard test forbids any mention of that name here, and it is
+  right to.
 * Ten of the 91 placements are dropped because their Mob-Set number has no
   shippable identity.  The console line prints ``assembled=81/91`` every
   boot and ``unresolved=10``; ``world_bg0015_identity.unshippable_placements``

@@ -142,13 +142,20 @@ NONCLAIMS -- read these before quoting this module as a safety argument.
     unavailable" but "this module does not ask for it": it reads the bag and
     nothing else, so a hand-edited row that ADDS a well-formed item with a
     high enough identity is admitted.  Today gate 2 admits neither that nor a
-    real pickup; wired, it would admit both.  Why the counter is not used
-    HERE, measured: nothing advances it yet --
-    ``MOB_PICKUP_ROW_WOULD_INSERT`` is a log, not an INSERT -- so for every
-    character alive today it still reads its backfilled value, and a real
-    pickup's identity would be refused by a counter check.  It becomes the
-    right question the day something advances it, and WHO advances it is the
-    open question this round hands to COO rather than answers.
+    real pickup; wired, it would admit both.  ~~Why the counter is not used
+    HERE, measured: nothing advances it yet -- ``MOB_PICKUP_ROW_WOULD_INSERT``
+    is a log, not an INSERT -- so for every character alive today it still
+    reads its backfilled value, and a real pickup's identity would be refused
+    by a counter check.  It becomes the right question the day something
+    advances it, and WHO advances it is the open question this round hands to
+    COO rather than answers.~~  SUPERSEDED IN ROUND 4gqnwm, AND THE STRUCK
+    TEXT IS LEFT VISIBLE BECAUSE IT IS WHAT A READER OF THIS FILE BELIEVED
+    UNTIL TODAY.  ``store.commit_acquired_backpack_item`` (STORE-INSERT-001)
+    now performs the INSERT and advances the counter in one transaction, and
+    COO-DECISION 20260829_0441 item 3 answered who owns it.  Why the counter
+    is STILL not used here is a different reason, and it is nonclaim 9: used
+    ALONE it admits the HYP-PF-008 and HYP-PF-010 bags, which move a golden
+    row without minting any identity.
  2. IT DOES NOT COVER SHRINKAGE, AND "nothing can consume an item" WOULD BE
     THE WRONG REASON.  ~~Nothing in this project can consume an item yet.~~
     It can: ``merge_known_item_into_occupied_slot`` takes a bag from four
@@ -234,12 +241,18 @@ NONCLAIMS -- read these before quoting this module as a safety argument.
 
       EXPIRY CONDITION.  This shape rule is superseded on the day
       ``store.py`` performs a real backpack INSERT for a pickup AND advances
-      ``character_backpacks.next_item_identity`` past it.  Until then the
+      ``character_backpacks.next_item_identity`` past it.  ~~Until then the
       counter cannot be the criterion -- ``MOB_PICKUP_ROW_WOULD_INSERT`` is
       a log, so every live character still reads migration 005's backfilled
       value and a real pickup's identity would be REFUSED by a counter
       check.  That is why COO took the shape rule today and not the counter:
-      taking the counter today fails M5 outright.
+      taking the counter today fails M5 outright.~~  THAT DAY WAS ROUND
+      4gqnwm: both halves are true now.  What the condition did not
+      anticipate is that the counter answers a NARROWER question than the
+      shape rule -- "was this identity issued" cannot see a golden row that
+      moved -- so meeting the expiry does not by itself authorise the
+      deletion it prescribed.  Nonclaim 9 carries the measurement and the
+      open ask.
 
       WHAT THE SUPERSEDING ROUND MUST DO.  Replace, not extend.
       ``_classify_against`` is DELETED and the admission term becomes the
@@ -712,8 +725,10 @@ BAG_ADMISSION_WIRING = (
 
 BAG_ADMISSION_NONCLAIMS = (
     "1. Shape, not provenance: a hand-edited additive row is admitted.  The "
-    "provenance column DOES exist (migration 005) but nothing advances it "
-    "yet, so this module cannot use it.",
+    "provenance column exists (migration 005) and IS advanced now "
+    "(store.commit_acquired_backpack_item, STORE-INSERT-001); this module "
+    "still does not use it -- see nonclaim 9 for why that is a pending "
+    "decision rather than an oversight.",
     "2. Shrinkage is refused.  Not because nothing can consume an item -- a "
     "merge can -- but because the only shrinkage reachable today lands on a "
     "golden.",
@@ -734,6 +749,19 @@ BAG_ADMISSION_NONCLAIMS = (
     "_classify_against rather than keeping it as a fallback.  chief owns "
     "the trigger ticket.  Until then nonclaim 1's hole is an accepted cost, "
     "on record, not an oversight.",
+    "9. THE EXPIRY IN NONCLAIM 8 IS NOW MET, AND ITS LITERAL INSTRUCTION IS "
+    "REFUTED BY MEASUREMENT.  STORE-INSERT-001 landed the INSERT and the "
+    "counter advance, so both halves of BAG_ADMISSION_EXPIRY_CONDITION are "
+    "true.  Deleting _classify_against and admitting on the counter alone "
+    "was measured to ADMIT the HYPOTHESIZED_V111_SLOT2 (HYP-PF-008) and "
+    "free-slot-move (HYP-PF-010) bags, which this gate refuses today and "
+    "which every family test requires it to keep refusing: those bags move "
+    "a golden row without minting any identity, so a rule that only asks "
+    "'was this identity issued' cannot see them.  The counter is a TIGHTER "
+    "test for ACQUIRED rows, not a replacement for comparing the golden "
+    "ones.  The shape rule therefore stays until COO rules on "
+    "CHIEF-ASK-COO 20260829 (delete-vs-tighten); no round may read this "
+    "nonclaim as permission to keep it indefinitely.",
 )
 
 #: The expiry of nonclaim 8, as something a later round can evaluate instead

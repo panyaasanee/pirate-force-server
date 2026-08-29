@@ -71,18 +71,54 @@ useful one:
   ``MARKER[1]`` is ``(-10322, -755, 671)``; the spawn this runtime actually
   stands a fresh character on is V135's ``(-9239.96, -2830.05, 223.29)``,
   **2340.22 units away in XY and 2382.66 in three dimensions** (per axis
-  1082.04 / 2075.05 / 447.71 - the same gap ``runtime.py:3717`` already
+  1082.04 / 2075.05 / 447.71 - the same gap ``runtime.py:3764`` already
   describes as "about 2340 units away horizontally and 448 vertically"; this
   file first said "about 2200", which matched neither, D10).  Both points are
   real: the marker is the client table's authored point, V135's is this
   server's own historical choice, and NOTHING here proposes changing home.
 
-[LANE-A ASSUMPTION - AWAITING COO CONFIRMATION]  That a scene's MARKER row is
-the right place to stand an arriving character is this lane's reading, not a
-ruling: the letter asking for it is
+~~[LANE-A ASSUMPTION - AWAITING COO CONFIRMATION]  That a scene's MARKER row
+is the right place to stand an arriving character is this lane's reading, not
+a ruling: the letter asking for it is
 ``pf_bridge/notes_to_chief/20260829_0447_LANE-A-ASK-COO-marker-table-as-
 default-spawn.md``, and it names what to revert if the answer is no (one row
-out of the scene registry).
+out of the scene registry).~~  ANSWERED, and the assumption label is struck
+rather than deleted so the reading can still be told from the ruling that
+followed it.
+
+THE RULE, AS RULED.  ``COO-DECISION 20260829_0542`` (mailbox
+``pf_bridge/notes_to_chief/20260829_0542_COO-DECISION-marker-table-is-the-
+default-spawn-source-with-an-evidence-label.md``) accepted option 1 as a
+STANDING rule of the project, in three parts, and this module is where two of
+them are executable:
+
+1. **A scene whose ``SCENE_NAME[n].n_MARKER != 0`` takes ``MARKER[n_MARKER]``
+   as its arrival point, with no per-scene ruling asked for.**  A scene with
+   ``n_MARKER == 0`` keeps every older rule exactly as it was - client
+   evidence, an owner decree, or refusal - and inventing a coordinate stays
+   forbidden.  What this changes is the cost of the sixth scene, not what is
+   true about any of them.
+2. **The indirect read is mandatory: ``SCENE_NAME[n].n_MARKER`` first, always.
+   Reading ``MARKER`` by scene id is a PROHIBITION, not a preference.**
+   ``forbidden_direct_index_scenes()`` below is that prohibition written as
+   arithmetic, and the reason it needs to be: the shortcut agrees with the
+   crosswalk on 12 of the 13 marker scenes, so a round that tries it will most
+   likely see it work.
+3. **The evidence tier of a marker-sourced point is ``authored``, never
+   ``client-observed``.**  ``EVIDENCE_TIER`` below carries that value and
+   ``console_line`` prints it.  No marker-sourced spawn may be promoted to
+   ``confirmed`` until an attended round stands a client on that point and a
+   human looks at it (``COO-DECISION 20260828_2250``, unchanged by this one).
+   ``GT-134`` is the first such proof; the COO's own words are that if the
+   tester surfaces in rock, in lava, or under the floor, **this rule falls
+   immediately** and the lane reverts without asking again.
+
+WHAT THE RULING DID NOT DO, WHICH IS THE PART EASIEST TO MISREAD.  It did not
+open scene 14's door: ``login_entry_allowed`` stays ``false``, as this lane set
+it and chief confirmed in letter ``0520``.  Giving a scene an address is not
+wiring a scene.  And the rule may not be applied to a sixth scene until this
+text is on ``main`` - the COO set that order explicitly, so the rule and its
+first use cannot land in one unreviewed step.
 
 NOTHING IN PRODUCTION IMPORTS THIS FILE, AND SAYING SO IS NOT A FORMALITY
 (pf-adversary, round vyi2ud, D7).  ``grep -rn world_scene_marker --include=*.py``
@@ -167,12 +203,123 @@ _ROWS: tuple[tuple[int, int, int, int, int, int, int], ...] = (
 # WHY THE INT32 READING IS NOT A GUESS.  The raw column is unsigned: scene 1's
 # n_X arrives as 4294956974.  Read that way the point is 4.29 billion units
 # from anything, and no scene in this game is 4.29 billion units wide.  Read as
-# int32 it is -10322, which lands about 2200 units from the position this
+# int32 it is -10322, which lands 2340.22 units in XY from the position this
 # runtime has stood every new character on since V135 - the same corner of the
 # same map.  Two independent scenes agree with the signed reading (scene 2's
 # signed-identical row matches a live-client point exactly) and none agrees
 # with the unsigned one.
 _READING = "u32 columns read as two's-complement int32"
+
+# COO-DECISION 20260829_0542, rule 3, as a value rather than as prose.  Every
+# point this module hands out carries this tier and nothing here may be quoted
+# for a stronger one.  "authored" means: the people who built the map put this
+# coordinate in the shipped table.  It does NOT mean any client has ever stood
+# on it, and the two marker points a client HAS accepted (MARKER[1] via V137,
+# MARKER[2] via SCENE-001) were accepted as teleport destinations, not as the
+# arrival the original game would have chosen.
+EVIDENCE_TIER = "authored"
+EVIDENCE_TIER_ABOVE_THIS = "client-observed, and only an attended round grants it"
+RULING = "COO-DECISION 20260829_0542 (option 1, standing rule, evidence tier authored)"
+
+
+def forbidden_direct_index_scenes() -> dict[int, str]:
+    """The scenes where reading ``MARKER`` by scene id gives a WRONG answer.
+
+    Rule 2 of the ruling is a prohibition, and a prohibition nobody can
+    measure is a comment.  This is the arithmetic behind it, derived from the
+    pinned rows and the pinned totals rather than asserted:
+
+    * **Scene 130 gets another map's point.**  It names marker **1000**, so
+      ``MARKER[130]`` is a different row entirely - the one case in the 13
+      where the shortcut returns a coordinate belonging to somewhere else.
+    * **257 scenes get a point invented for them.**  Of the client's 258
+      marker-less scenes - the ones the table says have NO authored arrival
+      point - ``257`` have a ``MARKER`` row sitting at their scene-id index.
+      The shortcut returns a coordinate for all 257.  Scene 17, the sea, is
+      one of them: it hands back ``MARKER[17]``, which carries
+      ``n_SCENE = 126`` and the point ``(3050, 232, 90)`` - another scene's
+      arrival point, offered for the exact scene ``RE-103`` closed
+      bounded-negative on, and for which an owner decree had to be issued
+      because nothing in the tables answered.
+
+    * **Three of those 257 even survive a back-pointer check.**  Scenes 126,
+      127 and 128 have ``n_MARKER = 0`` and a same-numbered ``MARKER`` row
+      whose ``n_SCENE`` points back at them, so the one relation this module
+      uses to reject a bad row does not reject theirs.  All three are the
+      degenerate ``(0, 0, z)`` origin.
+
+    ~~Seven rows look self-consistent and are nobody's declared arrival
+    point ... indexing by scene id returns one of those seven for seven
+    scene ids.~~  **STRUCK, MEASURED FALSE BY pf-adversary (round 8ubiku,
+    D1), BEFORE IT WAS COMMITTED.**  The subtraction survives - ``19 - 12 =
+    7`` rows do carry ``n_ID == n_SCENE`` without being the row their scene
+    named - but the sentence built on it did not.  Those seven row ids are
+    ``12, 15, 16, 126, 127, 128, 129``, and **four of them (12, 15, 16, 129)
+    are not scene ids at all**, so no caller can reach them by indexing with
+    a scene id.  Quoting "seven" as the size of rule 2's hazard understated
+    it by a factor of 36 while sounding measured, and it handed a bridge
+    round a ticket that would have come back "three, not seven" and looked
+    like pin drift.  The lesson recorded rather than smoothed: this docstring
+    also claimed the full table was unreadable from here and the question
+    could not be settled.  It was readable - ``MarkerReverificationOnTheBridge
+    Test`` executes against the bridge tree and does not skip - so the hedge
+    was not caution, it was an unmeasured claim wearing caution's clothes.
+
+    The count is what makes rule 2 worth enforcing rather than trusting: the
+    shortcut is RIGHT for 12 of the 13 scenes anyone is likely to try it on,
+    so it will look correct to the round that introduces it and be wrong for
+    the round that inherits it.
+
+    Returns scene id -> why the shortcut lies there.  The seven are counted
+    here, not named: identifying WHICH seven needs the full 390-row table,
+    which is pinned in the bridge repo and not readable from this one, and
+    ``reverification_script()`` is where that check belongs.
+    """
+    lying: dict[int, str] = {}
+    for arrival in _BY_SCENE.values():
+        if arrival.marker_n_id != arrival.scene_n_id:
+            lying[arrival.scene_n_id] = (
+                f"scene {arrival.scene_n_id} names marker "
+                f"{arrival.marker_n_id}, but MARKER[{arrival.scene_n_id}] "
+                f"carries n_SCENE {MARKER_ROW_AT_SCENE_130_BELONGS_TO}, so "
+                "the shortcut hands this scene another map's arrival point"
+            )
+    return lying
+
+
+# The measured size of rule 2's hazard, re-derived by reverification_script()
+# rather than asserted here.  257 of the 258 marker-less scenes have a MARKER
+# row at their own scene-id index, so the shortcut answers for almost every
+# scene that is supposed to have no answer.  The three below additionally
+# survive this module's back-pointer check, which is the only structural
+# defence it has; all three are the degenerate (0, 0, z) origin.
+SCENES_THE_SHORTCUT_WOULD_INVENT_A_POINT_FOR = 257
+MARKER_LESS_SCENES = 258
+SHORTCUT_SURVIVES_THE_BACK_POINTER_CHECK = (126, 127, 128)
+# What MARKER[130] actually carries.  Scene 130 names marker 1000, so the
+# shortcut does not merely miss - it returns Prison Exile Island's row.
+MARKER_ROW_AT_SCENE_130_BELONGS_TO = 2
+# What the shortcut returns for the sea, the scene RE-103 closed
+# bounded-negative and an owner decree had to answer: MARKER[17] is scene
+# 126's row.  Kept as a value because it is the single most persuasive
+# example of why rule 2 is a prohibition.
+SHORTCUT_AT_SCENE_17 = (126, 3050, 232, 90)
+
+
+def rows_that_look_self_consistent_and_name_nobody() -> int:
+    """The 19 - 12 = 7 subtraction, kept ONLY as row arithmetic.
+
+    Seven ``MARKER`` rows carry ``n_ID == n_SCENE`` without being the row
+    their own scene named.  That is true and it is all this returns.  It is
+    deliberately NOT the size of rule 2's hazard - four of the seven are not
+    scene ids at all, so no caller reaches them.  The hazard is
+    ``SCENES_THE_SHORTCUT_WOULD_INVENT_A_POINT_FOR`` (257), and conflating
+    the two is the defect pf-adversary caught in this round (D1).
+    """
+    scenes_naming_their_own_id = sum(
+        1 for a in _BY_SCENE.values() if a.marker_n_id == a.scene_n_id
+    )
+    return MARKER_ROWS_WHOSE_ID_EQUALS_THEIR_SCENE - scenes_naming_their_own_id
 
 
 class SceneMarkerError(LookupError):
@@ -298,7 +445,8 @@ def console_line(arrival: MarkerArrival) -> str:
     return (
         f"SCENE_MARKER scene={arrival.scene_n_id} marker={arrival.marker_n_id} "
         f"xyz=({arrival.x},{arrival.y},{arrival.z}) "
-        f"dir={arrival.direction} source=CLIENT_MARKER_TABLE"
+        f"dir={arrival.direction} source=CLIENT_MARKER_TABLE "
+        f"evidence={EVIDENCE_TIER}"
     )
 
 
@@ -342,6 +490,11 @@ def reverification_script() -> str:
         f"SCENE_ROWS = {SCENE_ROW_COUNT}\n"
         f"MARKER_ROWS = {MARKER_ROW_COUNT}\n"
         f"ID_EQUALS_SCENE = {MARKER_ROWS_WHOSE_ID_EQUALS_THEIR_SCENE}\n"
+        f"MARKER_LESS_SCENES = {MARKER_LESS_SCENES}\n"
+        f"SHORTCUT_INVENTS = {SCENES_THE_SHORTCUT_WOULD_INVENT_A_POINT_FOR}\n"
+        f"SHORTCUT_BACK_POINTER_OK = {SHORTCUT_SURVIVES_THE_BACK_POINTER_CHECK!r}\n"
+        f"MARKER_130_BELONGS_TO = {MARKER_ROW_AT_SCENE_130_BELONGS_TO}\n"
+        f"SHORTCUT_AT_17 = {SHORTCUT_AT_SCENE_17!r}\n"
         f"EXPECTED = (\n    {expected},\n)\n"
         "\n"
         "\n"
@@ -381,6 +534,23 @@ def reverification_script() -> str:
         "    ))\n"
         "\n"
         "assert tuple(derived) == EXPECTED, tuple(derived)\n"
+        "\n"
+        "# Rule 2's hazard, re-derived rather than asserted.  These are the\n"
+        "# numbers a docstring got wrong by a factor of 36 before a bridge\n"
+        "# round could check them (round 8ubiku, pf-adversary D1).\n"
+        "scene_ids = {int(row['n_ID']) for row in scenes}\n"
+        "marker_less = [int(r['n_ID']) for r in scenes if not int(r['n_MARKER'])]\n"
+        "assert len(marker_less) == MARKER_LESS_SCENES, len(marker_less)\n"
+        "invents = [i for i in marker_less if i in by_id]\n"
+        "assert len(invents) == SHORTCUT_INVENTS, len(invents)\n"
+        "survives = tuple(sorted(\n"
+        "    i for i in invents if int(by_id[i]['n_SCENE']) == i))\n"
+        "assert survives == SHORTCUT_BACK_POINTER_OK, survives\n"
+        "assert int(by_id[130]['n_SCENE']) == MARKER_130_BELONGS_TO\n"
+        "row17 = by_id[17]\n"
+        "assert (int(row17['n_SCENE']), s32(row17['n_X']), s32(row17['n_Y']),\n"
+        "        s32(row17['n_Z'])) == SHORTCUT_AT_17\n"
+        "\n"
         "sys.stdout.write('world_scene_marker: %d rows re-derived, all pinned "
         "values match\\n' % len(derived))\n"
     )
