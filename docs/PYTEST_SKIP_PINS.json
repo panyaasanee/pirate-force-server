@@ -836,6 +836,16 @@
     },
     {
       "key": "bridge_gamedata",
+      "module": "tests/test_world_scene_folder_on_the_bridge.py",
+      "count": 2,
+      "tests": [
+        "FolderCrosswalkReverificationOnTheBridgeTest::test_the_copy_is_what_the_client_files_produce",
+        "FolderCrosswalkReverificationOnTheBridgeTest::test_the_pinned_source_digests_match_the_files_on_the_bridge"
+      ],
+      "note": "round yam18f (LANE-A): COO-DECISION 20260829_0848 item 3 ordered the scene_id -> scene name reader; world_scene_folder.py pins 16 scene-id/folder rows and the totals of the two client files they come from, and these two are the bridge-only hops the gate cannot make - re-curating world_data/world_scene_folder_crosswalk.json from the client's own bytes, and comparing the two pinned source sha256 against the files themselves. A clone without pf_bridge beside it cannot answer. PINNED IN THE SAME COMMIT AS THE TEST, and the reason this file exists at all is that the round's first draft wrote the same check as a conditional 'if not exists: return' INSIDE tests/test_world_scene_folder.py, which pf-adversary showed reports 1 PASSED on a machine with no bridge - an uncounted, unnamed no-op invisible to this census, which is the precise failure the 'why' block above describes. The gate-side half of the same work is tests/test_world_scene_folder.py, which carries NO skip and therefore must never appear in this file - a test there asserts that too."
+    },
+    {
+      "key": "bridge_gamedata",
       "module": "tests/test_scene_identity_rule.py",
       "count": 9,
       "tests": [
