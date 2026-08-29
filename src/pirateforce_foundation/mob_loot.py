@@ -1809,6 +1809,45 @@ class DropLedgerCell:
                     "no drop with key 0x%X is on the ground" % drop_key)
             return self._deadlines[drop_key]
 
+    @property
+    def lifetime_seconds(self) -> float:
+        """How long a row this cell places is declared to live, in seconds.
+
+        Round m0vp7m, for MOB-DROP-PRESENCE-001: the presence console line has
+        to print the lifetime this build ACTUALLY declares, not the module
+        default ``DROP_LIFETIME_SECONDS`` -- a cell constructed with a
+        different ``lifetime_seconds`` would otherwise be described by a number
+        it does not use, which is the same class of defect as a lane-asserted
+        length field that can disagree with the payload.  Read-only: the
+        deadlines already handed out were computed from this value and would
+        not move if it did.
+        """
+        return self._lifetime
+
+    def time_left(self, drop_key: int) -> float:
+        """Seconds until one live row expires, from ONE reading of the clock.
+
+        :meth:`expires_at` plus "what time is it" is not this: those are two
+        lock acquisitions with a clock read in each, so the difference between
+        them can be negative for a row that expired in between, and a caller
+        would have to decide what a negative remainder means.  Here the
+        deadline and the now come out of the same locked read, so the value is
+        always the remainder of a row that was live when it was measured.
+
+        Refuses by name (:data:`REFUSE_DROP_NOT_IN_LEDGER`) for a key that is
+        not on the ground, exactly like :meth:`expires_at`, so it cannot be
+        used to ask whether a row exists and get a number that means "no".
+        """
+        drop_key = _require_int(drop_key, "drop key", 0, 0xFFFFFFFF)
+        with self._lock:
+            now = self._read_now_locked()
+            self._sweep_locked(now)
+            if drop_key not in self._deadlines:
+                raise MobLootContractError(
+                    REFUSE_DROP_NOT_IN_LEDGER,
+                    "no drop with key 0x%X is on the ground" % drop_key)
+            return self._deadlines[drop_key] - now
+
     def loot_a_kill(
         self,
         mob: Any,

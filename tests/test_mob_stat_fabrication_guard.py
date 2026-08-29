@@ -80,6 +80,12 @@ LANE_B_MODULES = (
     # module part of the sweep at all.
     "mob_ledger_admission.py",
     "mob_diag_multi_object.py",
+    # ROUND m0vp7m: MOB-DROP-PRESENCE-001, the whole-live-ledger generation
+    # that stops the next kill erasing the last kill's drops (RE-130) and
+    # stops the dispatch taking every key it just announced.  Listed in the
+    # same commit as the module -- three rounds have now recorded that this
+    # tuple is what makes a new module part of the sweep at all.
+    "mob_drop_presence.py",
     "mob_loot.py",
     "mob_pickup.py",
     # ROUND uq2lxw: the pickup path's write half, joined to store.py's

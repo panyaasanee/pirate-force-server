@@ -1,0 +1,438 @@
+"""LANE-B / MOB-DROP-PRESENCE-001: what a kill leaves on the ground STAYS there.
+
+WHY THIS MODULE EXISTS, IN THE OWNER'S OWN WORDS.  PANYA-ORDER 2026-08-29
+(pf_bridge notes_to_chief/20260829_2013_KA3A-GT146-RESULT-*, relayed to this
+lane as 20260829_2105_CHIEF-TO-LANE-B-persist-first-element-lifetime-before-
+any-capture.md):
+
+    "go make the thing stay for a long time FIRST, before you hand a tester
+     something that appears for a tenth of a second"
+
+THE FIRST THING THIS MODULE HAD TO DO WAS SPLIT THAT ORDER IN TWO, because
+"it does not stay" is two independent holes with two different owners, and
+the lever the order was handed with only touches one of them:
+
+  HOLE 1 -- THE SERVER'S ROW.  ``mob_loot.DropLedgerCell`` keeps a row for
+    ``DROP_LIFETIME_SECONDS`` (120.0 s today).  That is already tens of
+    seconds, so ``DROP_LIFETIME_SECONDS`` is NOT the lever that fixes what a
+    tester sees -- and this lane says so in the module rather than only in a
+    letter.  The row is nevertheless gone within microseconds today, and not
+    by expiry: the dispatch call site takes every key of the kill it just
+    announced (``runtime.py`` "for drop in drops: cell.take(...)"), measured
+    by chief in round ni2wh2 as ``drop_already_taken`` on 100% of pickups.
+    Fixing that is TWO LINES in a file this lane does not own -- see
+    :data:`DROP_PRESENCE_WIRING`.
+
+  HOLE 2 -- THE CLIENT'S LABEL.  GT-045 measured the floating red name at
+    0.2-0.4 s of screen life (frame-extracted, and the recorder duplicates
+    frames in threes, so the number may not be written more precisely than
+    that).  NO server-side lifetime value can change that number: the label
+    is drawn on receipt of a frame and the server sends nothing else.  The
+    only lever this lane has on it is RE-EMISSION, and whether re-emission
+    redraws the label at all is UNMEASURED -- see
+    :data:`REEMISSION_REDRAWS_THE_LABEL`, which is ``None`` and is read by
+    the console line rather than assumed by it.
+
+WHAT THIS MODULE SHIPS, AND WHY IT IS NOT A TIMER.  The COO refused
+``DROP_REFRESH_MS`` on any production path on 2026-08-26 (07:45 +07:00):
+12.5 frames a second per row is too much to spend on a mechanism nobody has
+measured.  ON A TIMER is the refused part, and this module does not have one:
+no thread, no interval, no clock of its own.  What it implements is the shape
+``mob_loot``'s own MOB_LOOT_WIRING step 4b already wrote down and left to the
+caller, and which that step says the refusal does not cover:
+
+    keep the rows, and send ``cell.frames(legacy)`` -- the WHOLE LIVE
+    LEDGER as one generation -- once per kill.  "That is a shape change,
+    not a cadence change ... what it does need is an expiry or a pickup,
+    because without one the ledger and the generation both grow without
+    bound."
+
+THE EXPIRY IT NEEDED NOW EXISTS (round 0n9inw, COO-DECISION 2026-08-29T12:41
++07:00, per-drop and lazy).  So the precondition step 4b named is satisfied
+and this is a shippable behaviour, not a proposal.
+
+[ASSUMPTION OF LANE B - AWAITING COO] Step 5 of the same header also says
+"ONE ANNOUNCEMENT PER DROP -- each drop announced ONCE and never
+re-announced", and this shape re-announces a live row on every later kill.
+This lane reads the two together the way step 4b itself does -- step 5 names
+itself a CADENCE rule, the COO's refusal names ON A TIMER as the refused
+part, and there is no timer here: the number of emissions equals the number
+of kills exactly, and one kill is still ONE frame however wide the ground is.
+The letter asking the COO to confirm or overturn that reading is
+pf_bridge/notes_to_chief/20260829_2248_LANE-B-ASK-COO-whole-live-ledger-per-
+kill-vs-announce-once.md.  IF IT IS OVERTURNED the rollback is one line at
+the call site (``step.frames`` -> ``mob_loot.drop_frames(legacy, drops)``);
+nothing else in the tree depends on this shape.
+
+WHAT CHANGES FOR THE PLAYER, STATED SO IT CAN BE FALSIFIED.  RE-130 measured
+the consumer erasing every key a nonempty generation OMITS.  Today each kill
+announces only its own rows, so the second kill's generation ERASES the first
+kill's drops out of the client's keyed tree -- a player who kills two monsters
+has one monster's loot on the ground, and the older one vanishes at the exact
+moment the newer one appears.  Under this module's shape every generation
+carries every live row, so:
+
+  * a drop stays in the client's keyed tree for its whole 120 s, instead of
+    being erased by the next kill;
+  * a live drop's label is REDRAWN on every later kill (event-driven, no
+    timer) -- which is the first thing an attended round can decide, because
+    "did the older label come back when the second monster died" is one boot
+    and one pair of eyes;
+  * the ground ACCUMULATES within the lifetime instead of being replaced.
+
+THE COST, AS ARITHMETIC RATHER THAN ADJECTIVES -- because "too expensive for
+a mechanism nobody has measured" is the exact sentence the COO refused
+``DROP_REFRESH_MS`` with, and this shape owes the same sum.  MEASURED on the
+real composer, not estimated: one live row is 54 bytes framed and each further
+row adds 27.3 (54, 82, 109, 136, ... at 1, 2, 3, 4 rows).  Emissions equal
+KILLS, not seconds, and one kill is always ONE frame however wide the ground
+is.  So a player killing something every three seconds for the whole 120 s
+lifetime, with every kill dropping the 16-row maximum, reaches ~640 live rows
+= ~17 KB in the last frame, and averages under 6 KB/s.  The refused timer, on
+the same ground, would have been 12.5 frames a second PER ROW: ~430 KB/s.
+Two orders of magnitude is the difference, and it is a difference in kind --
+one is bounded by how fast a player can kill, the other by a clock.
+
+WHAT IT DOES NOT CLAIM.  Nothing here picks anything up, writes a row, or
+makes a label live longer than 0.2-0.4 s on its own.  Between kills a live
+drop is UNDRAWN, and whether an undrawn key is still clickable is UNMEASURED
+-- it is the open half of GT-146 and this module reports it as ``unmeasured``
+on its own console line rather than implying either answer.
+
+FAIL-CLOSED, AND WHY IT MATTERS HERE SPECIFICALLY.  Every entry point returns
+a typed record; none raises at the caller.  The call site is the dispatch path
+inside the listener thread (the same reasoning ``mob_scene_recompose`` and
+``mob_ledger_admission`` wrote down): an exception escaping into it does not
+cost a drop, it costs the connection.
+"""
+
+from __future__ import annotations
+
+from typing import Any, NamedTuple
+
+from . import mob_loot
+
+
+production_allowed = True
+
+
+# ---------------------------------------------------------------------------
+# The two numbers that are MEASURED, kept apart from the ones that are chosen.
+# ---------------------------------------------------------------------------
+# GT-045 (chief R163, 2026-08-25; evidence letter 20260825_1615): the floating
+# red name label was present at t = 249.733 and gone by t = 250.067 at a 30 fps
+# capture whose own frames are duplicated in threes -- so the real sampling is
+# ~10 fps and the honest reading is a RANGE.  Writing 0.30, or "about a quarter
+# of a second", is forbidden by the measurement itself; hence two constants and
+# no midpoint.
+LABEL_LIFE_SECONDS_MIN = 0.2
+LABEL_LIFE_SECONDS_MAX = 0.4
+# GT-146 P3 (attended, Panya driving, 2026-08-29, OBSERVER_CONFIRMED): the
+# ground element "appears and is gone under 1 second", and every click in two
+# full sets produced no frame at all in a 394-frame RECV census.  That is the
+# observation this module exists to answer, and it is consistent with the
+# range above rather than a second, different measurement of it.
+LABEL_LIFE_OBSERVED_UNDER_SECONDS = 1.0
+
+# UNMEASURED, deliberately ``None`` rather than ``False``: nobody has watched a
+# re-emitted generation to see whether the label is redrawn, does nothing, or
+# only restarts the brown dust.  ``describe_presence`` reads this constant, so
+# the day it becomes ``True`` the console line stops saying ``unmeasured``
+# without anybody editing a string.
+REEMISSION_REDRAWS_THE_LABEL = None
+
+# MOB_LOOT_WIRING step 4b's shape, named so a reviewer can grep for it.
+PRESENCE_SHAPE = "whole_live_ledger_per_kill"
+
+CONSOLE_TOKEN = "MOB_DROP_PRESENCE"
+
+STATE_SUSTAINED = "sustained"
+STATE_NOTHING_ON_THE_GROUND = "nothing_on_the_ground"
+STATE_TRIMMED_TO_FIT = "trimmed_to_fit"
+STATE_SNAPSHOT = "snapshot"
+
+REFUSED_PREFIX = "refused_"
+REFUSE_NOT_A_CELL = REFUSED_PREFIX + "not_a_drop_ledger_cell"
+REFUSE_NO_LEGACY = REFUSED_PREFIX + "legacy_cannot_frame"
+REFUSE_CELL_RAISED = REFUSED_PREFIX + "cell_raised"
+REFUSE_COMPOSE_RAISED = REFUSED_PREFIX + "compose_raised"
+# The defect this module exists to make unrepresentable, kept as a NAME so a
+# refusal counter can see it: a generation built from one kill's rows while
+# other rows are live erases those other rows from the client (RE-130).
+REFUSE_PARTIAL_GENERATION = REFUSED_PREFIX + "partial_generation_would_erase"
+
+
+class PresenceRow(NamedTuple):
+    """One row that is on the ground right now, and for how much longer."""
+
+    drop_key: int
+    name: str
+    seconds_left: float
+    from_this_kill: bool
+
+
+class PresenceStep(NamedTuple):
+    """What the call site should send, and the evidence for why that is right.
+
+    ``frames`` is exactly what ``mob_loot.drop_frames`` returns -- a tuple of
+    ``(pc, frame)`` pairs -- so the call site's existing loop keeps working
+    unread.  It is EMPTY on every refusal and on an empty ground, and a call
+    site that iterates it is correct in all four cases without a branch.
+
+    Deliberately no ``frame_bytes`` field: the call site derives the length
+    from the bytes it actually queues, so the greppable evidence cannot
+    disagree with the wire (pf-adversary, round 73fhoc).
+    """
+
+    state: str
+    frames: tuple
+    rows: tuple
+    announced: int
+    carried: int
+    trimmed: int
+    lifetime_seconds: float
+    oldest_seconds_left: float | None
+    newest_seconds_left: float | None
+    detail: str
+
+    @property
+    def live(self) -> int:
+        return len(self.rows)
+
+    @property
+    def refused(self) -> bool:
+        return self.state.startswith(REFUSED_PREFIX)
+
+
+def _refusal(state: str, detail: str, lifetime: float = 0.0) -> PresenceStep:
+    return PresenceStep(
+        state=state, frames=(), rows=(), announced=0, carried=0, trimmed=0,
+        lifetime_seconds=lifetime, oldest_seconds_left=None,
+        newest_seconds_left=None, detail=detail,
+    )
+
+
+def _row(cell: Any, drop: Any, mine: frozenset) -> PresenceRow:
+    try:
+        name = str(drop.display_name)
+    except Exception as error:                     # pragma: no cover - typed
+        name = "<name %r>" % (error,)
+    return PresenceRow(
+        drop_key=int(drop.drop_key),
+        name=name,
+        seconds_left=float(cell.time_left(drop.drop_key)),
+        from_this_kill=int(drop.drop_key) in mine,
+    )
+
+
+def _keys(drops: Any) -> frozenset:
+    keys = set()
+    for drop in drops or ():
+        try:
+            keys.add(int(drop.drop_key))
+        except Exception:                          # pragma: no cover - typed
+            continue
+    return frozenset(keys)
+
+
+def sustain_a_kill(cell: Any, legacy: Any, drops: Any = ()) -> PresenceStep:
+    """The one call a kill's dispatch makes after the death schedule.
+
+    Replaces BOTH halves of what the call site does today: the per-kill
+    generation (``mob_loot.drop_frames(legacy, drops)``) and the prune loop
+    that takes every key it just announced.  It composes the WHOLE LIVE
+    LEDGER as one generation and it takes nothing.
+
+    ``drops`` is the tuple ``cell.loot_a_kill`` returned, and it is used for
+    ONE thing: telling the console which rows are this kill's and which were
+    already on the ground.  Passing ``()`` is legal and only costs that
+    distinction -- the generation is composed from the cell either way, which
+    is the property that makes a partial generation unrepresentable here.
+    """
+    if not isinstance(cell, mob_loot.DropLedgerCell):
+        return _refusal(
+            REFUSE_NOT_A_CELL,
+            "presence is composed from the cell, not from a value beside it; "
+            "got %s" % type(cell).__name__)
+    try:
+        lifetime = float(cell.lifetime_seconds)
+    except Exception as error:                     # pragma: no cover - typed
+        return _refusal(REFUSE_CELL_RAISED, repr(error))
+
+    # ONE snapshot, then everything is derived from it.  Reading ``cell.ledger``
+    # twice is not the same as reading it once: the property sweeps expired
+    # rows, so a second read can legally return fewer rows than the first --
+    # which would let this record describe a generation it did not compose.
+    try:
+        ledger = cell.ledger
+        live = tuple(ledger.drops)
+    except Exception as error:
+        return _refusal(REFUSE_CELL_RAISED, repr(error), lifetime)
+
+    mine = _keys(drops)
+    trimmed = 0
+    if len(live) > mob_loot.DROP_MAX_ELEMENTS_PER_FRAME:
+        # A generation that omits a live key erases that key on the client
+        # (RE-130).  So when the ground cannot fit in one frame, the rows that
+        # will not travel are removed from the CELL as well -- a client and a
+        # server that disagree about what is on the ground is a worse failure
+        # than a lost drop, and this way the loss has a name and a count.
+        # Unreachable on today's numbers (16 drops per kill, 120 s, a 2426
+        # element cap) and kept because "unreachable" is a property of the
+        # numbers, not of the code.
+        keep = mob_loot.DROP_MAX_ELEMENTS_PER_FRAME
+        cut = live[-keep].drop_key
+        try:
+            removed = cell.prune_issued_before(cut)
+            ledger = cell.ledger
+            live = tuple(ledger.drops)
+        except Exception as error:
+            return _refusal(REFUSE_CELL_RAISED, repr(error), lifetime)
+        trimmed = len(removed)
+
+    if not live:
+        return PresenceStep(
+            state=STATE_NOTHING_ON_THE_GROUND, frames=(), rows=(),
+            announced=0, carried=0, trimmed=trimmed,
+            lifetime_seconds=lifetime, oldest_seconds_left=None,
+            newest_seconds_left=None,
+            detail="no live rows; a kill that dropped nothing sends nothing")
+
+    try:
+        rows = tuple(_row(cell, drop, mine) for drop in live)
+    except Exception as error:
+        return _refusal(REFUSE_CELL_RAISED, repr(error), lifetime)
+
+    try:
+        frames = mob_loot.refresh_frames(legacy, ledger)
+    except mob_loot.MobLootContractError as error:
+        return _refusal(
+            REFUSE_COMPOSE_RAISED, "%s: %s" % (error.args[0], error), lifetime)
+    except Exception as error:
+        return _refusal(REFUSE_NO_LEGACY, repr(error), lifetime)
+
+    announced = sum(1 for row in rows if row.from_this_kill)
+    return PresenceStep(
+        state=STATE_TRIMMED_TO_FIT if trimmed else STATE_SUSTAINED,
+        frames=frames, rows=rows,
+        announced=announced, carried=len(rows) - announced, trimmed=trimmed,
+        lifetime_seconds=lifetime,
+        oldest_seconds_left=min(row.seconds_left for row in rows),
+        newest_seconds_left=max(row.seconds_left for row in rows),
+        detail=PRESENCE_SHAPE,
+    )
+
+
+def presence_snapshot(cell: Any) -> PresenceStep:
+    """What is on the ground right now.  Composes nothing and sends nothing.
+
+    For a console line at any moment a caller likes -- a boot, a tick, a
+    tester asking "is it still there".  ``frames`` is always empty: a
+    snapshot that could emit would be a second, quieter emission path, and
+    the cadence rule this module keeps has exactly one.
+    """
+    if not isinstance(cell, mob_loot.DropLedgerCell):
+        return _refusal(
+            REFUSE_NOT_A_CELL, "got %s" % type(cell).__name__)
+    try:
+        lifetime = float(cell.lifetime_seconds)
+        live = tuple(cell.ledger.drops)
+        rows = tuple(_row(cell, drop, frozenset()) for drop in live)
+    except Exception as error:
+        return _refusal(REFUSE_CELL_RAISED, repr(error))
+    if not rows:
+        return PresenceStep(
+            state=STATE_NOTHING_ON_THE_GROUND, frames=(), rows=(), announced=0,
+            carried=0, trimmed=0, lifetime_seconds=lifetime,
+            oldest_seconds_left=None, newest_seconds_left=None,
+            detail="nothing is on the ground")
+    return PresenceStep(
+        state=STATE_SNAPSHOT, frames=(), rows=rows, announced=0,
+        carried=len(rows), trimmed=0, lifetime_seconds=lifetime,
+        oldest_seconds_left=min(row.seconds_left for row in rows),
+        newest_seconds_left=max(row.seconds_left for row in rows),
+        detail=PRESENCE_SHAPE)
+
+
+def _seconds(value: Any) -> str:
+    if value is None:
+        return "-"
+    return "%.1f" % float(value)
+
+
+def describe_presence(step: Any) -> str:
+    """ONE console line, ASCII, greppable by :data:`CONSOLE_TOKEN`.
+
+    It reports the DECLARED lifetime (chief's letter 2105, point 2: "a console
+    line that says the element lifetime this build actually declares") next to
+    the measured label life, because the whole finding of this round is that
+    those two numbers are about different things and only the second one is
+    what a tester sees.  ``redraw=`` is read off
+    :data:`REEMISSION_REDRAWS_THE_LABEL` rather than written as a word, so the
+    line cannot claim more than the project has measured.
+    """
+    if not isinstance(step, PresenceStep):
+        return "%s state=%snot_a_presence_step got=%s" % (
+            CONSOLE_TOKEN, REFUSED_PREFIX, type(step).__name__)
+    redraw = {None: "unmeasured", True: "yes", False: "no"}.get(
+        REEMISSION_REDRAWS_THE_LABEL, "unmeasured")
+    frame_bytes = sum(len(frame) for _pc, frame in step.frames)
+    return (
+        "%s state=%s shape=%s live=%d announced=%d carried=%d trimmed=%d "
+        "frames=%d frame_bytes=%d declared_lifetime=%.1fs oldest_left=%ss "
+        "newest_left=%ss label_life=%.1f-%.1fs redraw=%s detail=%s"
+        % (
+            CONSOLE_TOKEN, step.state, PRESENCE_SHAPE, step.live,
+            step.announced, step.carried, step.trimmed, len(step.frames),
+            frame_bytes, step.lifetime_seconds,
+            _seconds(step.oldest_seconds_left),
+            _seconds(step.newest_seconds_left),
+            LABEL_LIFE_SECONDS_MIN, LABEL_LIFE_SECONDS_MAX, redraw,
+            step.detail.encode("ascii", "backslashreplace").decode("ascii"),
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
+# The wiring ask.  runtime.py is chief's file; this is the whole change.
+# ---------------------------------------------------------------------------
+DROP_PRESENCE_WIRING = """runtime.py, the MOB_LOOT block of _dispatch_mob_combat
+(today: 'if drops:' ... 'for loot_pc, loot_frame in mob_loot.drop_frames(' ...
+'for drop in drops: self.mob_loot_cell.take(drop.drop_key)').
+
+REPLACE THAT WHOLE 'if drops:' BODY WITH THREE LINES, AND DROP THE 'if drops:'
+GUARD ITSELF -- a kill that dropped nothing must still re-carry what is already
+on the ground, which is the entire point:
+
+  step = mob_drop_presence.sustain_a_kill(self.mob_loot_cell, legacy, drops)
+  print(mob_drop_presence.describe_presence(step))
+  for loot_pc, loot_frame in step.frames:
+      actions.append(("MOB_LOOT_DROP", loot_pc, loot_frame, 0.0))
+
+WHAT EACH LINE REPLACES, AND WHY IT IS NOT A CADENCE CHANGE:
+
+1. mob_loot.drop_frames(legacy, drops) -> step.frames.  Same return type, same
+   loop, same position (after the whole death schedule including hold_ms --
+   this is NOT moved into the dying/dead hold).  The generation is now the
+   whole live ledger instead of one kill's rows: MOB_LOOT_WIRING step 4b, the
+   shape it says the COO's 2026-08-26 timer refusal does not cover, whose one
+   precondition (an expiry) landed in round 0n9inw.
+
+2. 'for drop in drops: cell.take(drop.drop_key)' -> DELETED, replaced by
+   nothing.  This is the two-line half of the fix and it is the reason
+   chief measured drop_already_taken on 100% of pickups in round ni2wh2: the
+   dispatch takes every key of the kill it just announced, so a click can
+   never find a row.  Do NOT substitute cell.prune_previous_kills() here
+   either -- that was the right call under the per-kill generation and it is
+   the wrong one under this shape, because it removes rows that are still
+   inside their 120 s lifetime and still in the client's tree.  The bound is
+   now the per-drop expiry (COO-DECISION 2026-08-29T12:41+07:00) plus
+   sustain_a_kill's own trim, both of which need no call site.
+
+3. mob_loot.drops_console_line(mob, drops) stays if chief wants it -- it says
+   what this kill rolled.  describe_presence says what is on the ground, which
+   is a different question, and the round's evidence needs the second one.
+
+NOTHING ELSE MOVES.  No timer, no thread, no new dispatch branch, no scenario
+flag: production_allowed is True and this behaviour is on for every boot.
+"""
