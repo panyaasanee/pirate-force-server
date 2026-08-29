@@ -48,7 +48,30 @@ from pathlib import Path
 from . import npc_switch_catalog
 from . import scene_catalog
 
-COMMAND_NAMES = ("warp", "npc", "item", "lv", "spawn", "say")
+# The grammar, spelled ONCE.  Every usage sentence this lane shows a human
+# is a value here, and `parse_gm_command` raises those same values rather
+# than re-typing them -- so a grammar change cannot leave the parser saying
+# one thing and the way-out line saying another.
+#
+# ORDER IS OPERATOR-VISIBLE, and pinned by a test that says so.  It reaches
+# a human twice: `unknown GM command 'x'; expected one of (...)` and the
+# joined vocabulary `usage_hint_for` returns for an unknown verb.
+# pf-adversary (round `9wy444`, D9) reversed this dict and the WHOLE SUITE
+# stayed green -- `test_gm_standalone_map_is_not_chat_writable.py` compares
+# SETS, so it never saw the order at all.  An earlier version of this
+# comment claimed that file pinned the tuple; it does not.  The pin is
+# `test_gm_chat_command_parse_way_out.py::TheDescriberItselfTests::
+# test_the_vocabulary_order_is_pinned_because_a_human_reads_it`.
+COMMAND_USAGE = {
+    "warp": "warp <scene_id> [x y]",
+    "npc": "npc on|off <mob_id>",
+    "item": "item <id> <n>",
+    "lv": "lv <n>",
+    "spawn": "spawn <mob_id>",
+    "say": "say <message>",
+}
+
+COMMAND_NAMES = tuple(COMMAND_USAGE)
 
 DEFAULT_LOG_PATH = "capture/gm_command_log.ndjson"
 
@@ -57,6 +80,7 @@ DEFAULT_LOG_PATH = "capture/gm_command_log.ndjson"
 # growing without bound once execution is wired in, and keeps each logged
 # record to roughly one write() call worth of bytes.
 MAX_SAY_MESSAGE_LENGTH = 480
+
 
 # ---------------------------------------------------------------------------
 # AUDIT VOCABULARY (CORE-REQUEST-GM-032 items 1-2)
@@ -226,7 +250,7 @@ def parse_gm_command(text: str) -> GmCommand:
     if name == "warp":
         args = rest.split()
         if len(args) not in (1, 3):
-            raise GmCommandParseError("warp <scene_id> [x y]")
+            raise GmCommandParseError(COMMAND_USAGE["warp"])
         _require_int(args[0], "scene_id")
         if len(args) == 3:
             _require_number(args[1], "x")
@@ -236,14 +260,14 @@ def parse_gm_command(text: str) -> GmCommand:
     if name == "npc":
         args = rest.split()
         if len(args) != 2 or args[0] not in ("on", "off"):
-            raise GmCommandParseError("npc on|off <mob_id>")
+            raise GmCommandParseError(COMMAND_USAGE["npc"])
         _require_int(args[1], "mob_id")
         return GmCommand(name, tuple(args), stripped)
 
     if name == "item":
         args = rest.split()
         if len(args) != 2:
-            raise GmCommandParseError("item <id> <n>")
+            raise GmCommandParseError(COMMAND_USAGE["item"])
         _require_int(args[0], "id")
         _require_int(args[1], "n")
         return GmCommand(name, tuple(args), stripped)
@@ -251,20 +275,20 @@ def parse_gm_command(text: str) -> GmCommand:
     if name == "lv":
         args = rest.split()
         if len(args) != 1:
-            raise GmCommandParseError("lv <n>")
+            raise GmCommandParseError(COMMAND_USAGE["lv"])
         _require_int(args[0], "n")
         return GmCommand(name, tuple(args), stripped)
 
     if name == "spawn":
         args = rest.split()
         if len(args) != 1:
-            raise GmCommandParseError("spawn <mob_id>")
+            raise GmCommandParseError(COMMAND_USAGE["spawn"])
         _require_int(args[0], "mob_id")
         return GmCommand(name, tuple(args), stripped)
 
     if name == "say":
         if not rest:
-            raise GmCommandParseError("say <message>")
+            raise GmCommandParseError(COMMAND_USAGE["say"])
         if len(rest) > MAX_SAY_MESSAGE_LENGTH:
             raise GmCommandParseError(
                 f"say message exceeds {MAX_SAY_MESSAGE_LENGTH} characters"
@@ -274,6 +298,65 @@ def parse_gm_command(text: str) -> GmCommand:
     raise GmCommandParseError(
         f"unknown GM command {name!r}; expected one of {COMMAND_NAMES}"
     )
+
+
+def usage_hint_for(body: str) -> str:
+    """Name the grammar of the command that was typed, and NOTHING ELSE.
+
+    D8, ruled on by COO-DECISION 20260829_1344: a refused `/warp 9999` named
+    the scenes it would have accepted, but `/warp island` and a bare
+    `/warp` printed nothing at all, because the refusal happens at the parse
+    layer, upstream of every printer this lane owns.  This is the sentence
+    that silence was missing.
+
+    !! IT CONTAINS NO CLIENT BYTES, AND THAT IS THE WHOLE DESIGN.
+    The first version of this function returned `str(error)`, which quotes
+    what was typed (`scene_id must be an integer, got 'island'`).
+    pf-adversary (round `9wy444`, D1) measured what that means on the WIRED
+    server rather than in a test: `runtime.py:5140-5150` says it outright --
+    `session.token` is the process-wide `--token` CLI value, not a
+    per-connection authenticated login, so EVERY connection this listener
+    accepts shares one identity.  On the only configuration where this
+    feature ever fires (that one token listed in `gm_accounts.json`), any
+    player typing `/warp <anything>` in local chat would have had their
+    sentence printed to the operator's console, attributed to the operator's
+    own GM account -- and `decode_local_talk_payload` throws the wire's
+    `speaker` field away, so the line could not even have told the truth
+    about who typed it.  This lane's founding rule is that a non-GM's chat
+    is never decoded, pattern-matched, or written anywhere by it; until
+    identity is per-connection (chief's zone: `runtime.py`,
+    `pf_login_game_server_v141.py`), the only safe thing to print is text
+    this lane wrote itself.
+
+    So the return value is always one of exactly seven strings: one of the
+    six `COMMAND_USAGE` sentences, or all six joined.  Which of the seven is
+    the ONLY thing a typed line can influence here, and every one of them is
+    this lane's own words.  That also bounds the line's width by
+    construction rather than by a cap, and makes it encodable on any console
+    that can carry ASCII -- the two other ways pf-adversary broke the
+    echoing version (D2, D7).
+
+    WHAT THE OPERATOR LOSES, said plainly rather than glossed: they no
+    longer read the offending token back. What they keep is the half D8 was
+    filed about -- that a command was refused at all, and what its grammar
+    is. `got 'island'` was the nice-to-have; it was also the entire attack
+    surface.
+
+    `body` is the command WITHOUT the chat sigil -- the same string
+    `parse_gm_command` was handed, so the verb read here is the verb that
+    failed.  A caller holding a sigil-prefixed line uses
+    `chat_command.command_body` rather than slicing it itself.
+    """
+    stripped = body.strip() if isinstance(body, str) else ""
+    name = stripped.split(maxsplit=1)[0].lower() if stripped else ""
+    usage = COMMAND_USAGE.get(name)
+    if usage is None:
+        # An unknown verb (and an empty line) asks "what CAN I type", not
+        # "how do I spell what I just typed" -- so the answer is the whole
+        # vocabulary.  It is also the answer that reveals nothing at all
+        # about the line that prompted it.
+        return " | ".join(COMMAND_USAGE.values())
+    return usage
 
 
 def _require_int(value: str, label: str) -> None:

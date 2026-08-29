@@ -257,7 +257,10 @@ import sys
 from dataclasses import dataclass
 
 from . import login_scene_stage, say_wire, teleport_wire
-from .chat_command import handle_local_talk_chat
+from .chat_command import (
+    TYPED_COMMAND_REFUSAL_PREFIXES,
+    handle_local_talk_chat,
+)
 from .login_scene_admission import stageable_scene_ids
 from .login_scene_override import console_safe
 from .commands import (
@@ -347,6 +350,22 @@ CONSOLE_TOKEN = "LANE_GM_CHAT_ACTION"
 # operator hunting a bad config must not have to sift the tester's typos out
 # of the same grep.  Spelled once so a test can match it exactly.
 WARP_REFUSED_CONSOLE_TOKEN = "GM_CHAT_WARP_REFUSED"
+
+# Printed to stderr, once, when a GM typed a line that LOOKS like a command
+# and this lane refused it before the grammar produced anything to act on.
+# A third token rather than a reuse of the two above, for the same reason
+# they are separate from each other: `GM_CHAT_WARP_REFUSED` means "the scene
+# you named is not one login can enter" and answers with a scene list, while
+# this one means "that is not a command this lane knows how to read" and
+# answers with a usage line.  An operator greps for one question at a time.
+COMMAND_REFUSED_CONSOLE_TOKEN = "GM_CHAT_COMMAND_REFUSED"
+
+# Width bound for the usage half of that line, held at the PRINTER.  The one
+# supplier in this tree returns one of seven fixed sentences (the longest is
+# the six-command vocabulary, ~100 characters), so this never binds today --
+# which is exactly why it is here: the bound belongs to the line, not to
+# whichever function happened to build the string this time.
+MAX_CONSOLE_HINT_LENGTH = 240
 
 # A console line this module MEANT to write and could not.  Named rather than
 # swallowed (pf-adversary D5): `CONSOLE_TOKEN`'s own comment says the token
@@ -607,6 +626,7 @@ def _make_action(
     )
     if outcome.command is None:
         _note(session, f"{EVENT_REFUSED_PREFIX}{outcome.refusal_reason}")
+        _print_command_refusal_way_out(session, token, outcome)
         return None
 
     command = outcome.command
@@ -894,6 +914,95 @@ def _one_line(text: str) -> str:
     same half-measure this file has now been burned by twice.
     """
     return text.replace("\r", "\\r").replace("\n", "\\n")
+
+
+def _print_command_refusal_way_out(
+    session: object,
+    token: str,
+    outcome: object,
+) -> None:
+    """Name what a mistyped GM command should have been.
+
+    D8, ruled on by COO-DECISION 20260829_1344.  `/warp 9999` has had a way
+    out since round `c48x1n`; `/warp island`, a bare `/warp`, `/warp 3 100`
+    and `/nonsense` had none -- the refusal happens at the parse layer,
+    upstream of every printer this module owns, so the tester who does not
+    know `scene_id` is a number saw a chat line vanish and nothing else.
+
+    !! IT NEVER PRINTS WHAT WAS TYPED, and that is this line's single most
+    important property.  The first version printed the parse error's own
+    message, which quotes the offending token.  pf-adversary (round
+    `9wy444`, D1) measured what that means on the WIRED server:
+    `runtime.py:5140-5150` says `session.token` is the process-wide
+    `--token`, not a per-connection login, so every connection shares one
+    identity -- and any player's chat line would have been printed here
+    under the operator's own GM account, by a lane whose founding rule is
+    that a non-GM's chat is never written anywhere.  `refusal_hint` now
+    carries only text this lane wrote (see its contract in `chat_command`).
+
+    WHO THIS REACHES, stated next because the same claim was got wrong here
+    once already (pf-adversary D7, `_print_warp_way_out`'s docstring): the
+    SERVER HOST'S CONSOLE, and nobody else.  It is not a reply to the person
+    typing, and this lane cannot send one until the server->client channel
+    behind `/say` opens (COO-DECISION 20260829_1344 keeps that shut and
+    keeps `CORE-REQUEST-GM-036` shut with it).  What it buys is that an
+    operator watching stderr can tell a typo from a dead route, which before
+    this round they could not do at all.
+
+    WHICH REFUSALS, and the list is NOT kept here:
+    `chat_command.TYPED_COMMAND_REFUSAL_PREFIXES` owns it, beside the
+    refusal constants themselves, so a refusal added to that module cannot
+    inherit "no way out" by default.  In particular a non-GM's chat and a
+    GM's ordinary conversation are not in it and must never be: this lane
+    never decoded the first, and printing the second would put a console
+    line under every sentence a GM says.
+
+    A DIAGNOSTIC MAY NEVER ALTER DISPATCH -- the same rule, held the same
+    way as `_print_warp_way_out`: the refusal is already decided and this
+    function's caller returns None whatever happens in here; everything that
+    can raise is inside the guard; the guard catches `Exception` (a closed
+    stream raises `ValueError`, an unmappable one `UnicodeEncodeError`, not
+    `OSError`); a `None` stderr returns rather than letting `print` fall
+    back to STDOUT and drop a GM token into another tool's `--json`
+    artifact; and a console that cannot be written is NAMED, because "the
+    console is broken" and "the route was never wired" must not look alike
+    to an attended run.
+    """
+    reason = getattr(outcome, "refusal_reason", None)
+    if not isinstance(reason, str):
+        return
+    if not reason.startswith(TYPED_COMMAND_REFUSAL_PREFIXES):
+        return
+    stream = sys.stderr
+    if stream is None:
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
+        return
+    try:
+        hint = getattr(outcome, "refusal_hint", None)
+        # A refusal in the set with no hint is a bug in this lane, not a
+        # reason to print nothing: the operator still learns that a command
+        # was refused and which refusal it was, which is the half that was
+        # missing.  Named rather than blank so it cannot be read as "the GM
+        # typed an empty explanation".
+        described = hint if isinstance(hint, str) else "no usage recorded"
+        # CAPPED HERE, not only where the hint is built.  `usage_hint_for`
+        # returns one of seven fixed sentences, so today nothing can exceed
+        # this -- but this function reads its fields with `getattr` off an
+        # arbitrary object (that is its real call shape, see
+        # `ThePrinterFoldsWhatItIsHandedTests`), and a cap that lives only in
+        # one of several suppliers is a property of that supplier, not of
+        # this line.  pf-adversary D10.
+        if len(described) > MAX_CONSOLE_HINT_LENGTH:
+            described = described[:MAX_CONSOLE_HINT_LENGTH] + "..."
+        print(
+            f"{COMMAND_REFUSED_CONSOLE_TOKEN} "
+            f"account='{console_safe(_one_line(token), stream)}' "
+            f"reason={reason} "
+            f"usage='{console_safe(_one_line(described), stream)}'",
+            file=stream,
+        )
+    except Exception as error:  # noqa: BLE001 - see the last paragraph above
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
 
 
 def _print_warp_way_out(
