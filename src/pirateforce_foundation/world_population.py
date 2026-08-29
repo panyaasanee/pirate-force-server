@@ -499,7 +499,18 @@ def ceiling_console_token(
     if dropped is None:
         return "ceiling=not_recorded"
     try:
-        if generation.actor_count + len(dropped) != CENSUS_COUNT:
+        # ``len(indices)``, NOT ``actor_count``, and the difference is the
+        # difference between a line that agrees with itself and one that does
+        # not: ``assembled=`` a few fields to the left is
+        # ``dispatch_report``'s ``assembled_count``, which is
+        # ``len(generation.indices)`` - what was really composed - while
+        # ``actor_count`` is what was asked for.  They are equal on every
+        # generation this module builds today, so reading the wrong one costs
+        # nothing NOW; the day something makes them differ, that gap is a real
+        # defect, and this field printing a second, disagreeing number beside
+        # ``assembled=`` would bury it instead of showing it.
+        assembled = len(generation.indices)
+        if assembled + len(dropped) != CENSUS_COUNT:
             # A rung, not the census: the two numbers only add up to the whole
             # frozen table on the full build.  Checked rather than assumed,
             # because ``undressable`` is recorded at build time and a rung
@@ -519,7 +530,7 @@ def ceiling_console_token(
         # ticket has to be reopened.
         stale = world_port_royal_identity.CEILING_TICKET_STALE_LEADERS
         return "ceiling={0}/{1} client_data_bounded {2}:{3} {4}{5}".format(
-            generation.actor_count,
+            assembled,
             CENSUS_COUNT,
             world_port_royal_identity.CEILING_TICKET,
             world_port_royal_identity.CEILING_TICKET_VERDICT,

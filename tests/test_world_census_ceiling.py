@@ -200,6 +200,28 @@ class CeilingConsoleTokenTests(unittest.TestCase):
         line = census_console_line(self._full())
         self.assertTrue(line.startswith("WORLD_CENSUS assembled=108/115 wire=108"))
 
+    def test_the_line_cannot_print_two_disagreeing_counts_of_itself(
+        self,
+    ) -> None:
+        """``ceiling=N/115`` and ``assembled=N/115`` must be the same N.
+
+        Both describe what this census composed, so they read the same source
+        (``len(generation.indices)``, which is ``dispatch_report``'s
+        ``assembled_count``).  Driven with a generation whose ``actor_count``
+        has been forced out of step with its real membership - the shape a
+        future splice bug would have - because that is the only state where
+        reading the wrong field is visible at all.
+        """
+        import dataclasses
+
+        generation = self._full()
+        line = census_console_line(generation)
+        self.assertIn("assembled=108/115", line)
+        self.assertIn("ceiling=108/115", line)
+
+        skewed = dataclasses.replace(generation, actor_count=42)
+        self.assertIn("ceiling=108/115", ceiling_console_token(skewed))
+
     def test_a_diagnostic_rung_refuses_to_answer_a_question_nobody_asked(
         self,
     ) -> None:
