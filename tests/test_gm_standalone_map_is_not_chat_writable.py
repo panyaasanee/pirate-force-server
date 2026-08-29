@@ -62,6 +62,20 @@ like proof:
    halves and is named rather than papered over: a write DEFERRED past the
    `with` block (a thread, a timer, `atexit`) lands after the assertions
    run.  So the claim is "no route that ran", not "no route that exists".
+
+   AND "NO ROUTE THAT RAN" SHRINKS EVERY TIME THE LANE ADDS A GATE.  This
+   is the honest limit, and pf-adversary reached it three separate ways
+   before it was written down: a branch behind a shut version gate is not
+   run (so `/say`'s corridor needed its gate forced open here, exactly as
+   `/warp`'s did); a path only production resolves is not run (so one case
+   makes the bare `consume_login_scene_override(token)` call `runtime.py`
+   makes, with every path supplied by environment variable instead); and a
+   command with no handler yet is accepted without reaching anything.  The
+   equality check against `COMMAND_NAMES` can see command NAMES.  It cannot
+   see gates, handlers, or which arguments a caller omitted -- so each of
+   those has to be walked deliberately, by someone who noticed.  There is
+   no rule in this lane that forces that yet; `docs/GM_LANE.md` carries it
+   as the round's open question rather than as a solved problem.
 2. THE SCAN (early warning only).  A source scan over the lane's package for
    the standalone map's names.  pf-adversary has already defeated one scan of
    exactly this shape by splitting a string literal
@@ -103,6 +117,7 @@ from pirateforce_foundation.gm import commands  # noqa: E402
 from pirateforce_foundation.gm import dispatch as gm_dispatch  # noqa: E402
 from pirateforce_foundation.gm import login_scene_consume  # noqa: E402
 from pirateforce_foundation.gm import login_scene_override  # noqa: E402
+from pirateforce_foundation.gm import say_wire  # noqa: E402
 from pirateforce_foundation.gm import teleport_wire  # noqa: E402
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 
@@ -218,7 +233,14 @@ class WriteWatch:
             # openers below, which recorded the path it came from.
             return
         try:
-            self.paths.append(os.path.realpath(os.fspath(target)))
+            # `os.fsdecode`, not a bare `realpath`: MEASURED by pf-adversary,
+            # `os.path.realpath` returns BYTES for a bytes argument, and a
+            # bytes basename never equals the str one -- so `open(b"...")`
+            # went unrecorded by exactly the check that exists to catch a
+            # path resolved a third way.
+            self.paths.append(
+                os.fsdecode(os.path.realpath(os.fspath(target)))
+            )
         except TypeError:  # pragma: no cover - defensive, non-path argument
             pass
 
@@ -349,6 +371,14 @@ class _Case(unittest.TestCase):
         env.start()
         self.addCleanup(env.stop)
 
+        # Snapshot the production paths BEFORE anything runs, so the
+        # assertions can tell "this run wrote it" from "an operator (or an
+        # earlier test file) had it there all along".
+        self.production_default_state = {
+            path: self._read_or_none(path)
+            for path in self.production_default_paths()
+        }
+
         self.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
 
     def production_default_paths(self) -> list[Path]:
@@ -362,13 +392,33 @@ class _Case(unittest.TestCase):
         relative = Path(login_scene_override.STANDALONE_DEFAULT_CONFIG_PATH)
         return [Path.cwd() / relative, ROOT / relative]
 
-    def assert_every_command_was_accepted(self, session):
-        """Every command name in the table got past the allowlist and audit.
+    @staticmethod
+    def _read_or_none(path: Path) -> bytes | None:
+        try:
+            return path.read_bytes()
+        except OSError:
+            return None
 
-        `EVENT_ACCEPTED_PREFIX` is emitted only for a line that was
-        authorized, decoded and recorded -- i.e. one that really reached a
-        handler.  Without this, a refusal that empties the run leaves every
-        "the file was not written" assertion true and worthless.
+    def assert_every_command_was_accepted(self, session):
+        """Every command name got past the allowlist, the decode and the audit.
+
+        WHAT THIS DOES **NOT** PROVE, corrected after pf-adversary measured
+        the claim the first version of this docstring made.  It said the
+        event is emitted "only for a line that really reached a handler".
+        That is false: `EVENT_ACCEPTED_PREFIX` is emitted at
+        `chat_command_action.py:576`, BEFORE the routing `if`, and four of
+        the six names -- `npc`, `item`, `lv`, `spawn` -- have no handler at
+        all today and land on the `no_wire_path` stub.  A fifth, `say`,
+        stops at a shut version gate.
+
+        So this asserts the weaker thing it can actually assert: the line was
+        authorized and audited rather than refused at the door.  That is
+        still worth pinning -- a rate limiter that empties the run leaves
+        every "the file was not written" assertion true and worthless, which
+        is what it was added for -- but it is not reach, and "tomorrow's
+        command" can satisfy it by being accepted and doing nothing.  The
+        thing that would prove reach is a per-command outcome assertion, and
+        this lane does not have one; see `docs/GM_LANE.md`'s open question.
         """
         for name in COMMAND_EXERCISES:
             with self.subTest(name=name):
@@ -406,10 +456,22 @@ class _Case(unittest.TestCase):
         # falls back to this cwd-relative name whenever the env var is unset,
         # which is the normal deployment and was the hole a planted write
         # went through while all thirteen tests passed.
-        for default_path in self.production_default_paths():
-            self.assertFalse(
-                default_path.exists(),
-                f"{what} created the REAL standalone map at {default_path}",
+        #
+        # A SNAPSHOT, NOT AN `exists()` CHECK, and pf-adversary is the reason:
+        # an `exists()` check turns this whole file RED on a correctly
+        # configured deployment, where the operator's own
+        # `config/gm_login_scene_standalone.json` is present and is exactly
+        # the state the module docstring calls the map's only protection.
+        # A false accusation whose obvious fix is "delete the assertion"
+        # would reopen D1 permanently, so ask whether the file CHANGED.
+        for default_path, before in self.production_default_state.items():
+            after = self._read_or_none(default_path)
+            self.assertEqual(
+                before,
+                after,
+                f"{what} changed the REAL standalone map at {default_path}"
+                if before is not None
+                else f"{what} created the REAL standalone map at {default_path}",
             )
         self.assertTrue(self.standalone_path.exists(), f"{what} deleted the file")
         self.assertEqual(
@@ -514,6 +576,51 @@ class ChatCommandsCannotWriteTheStandaloneMapTests(_Case):
         self.assert_standalone_map_untouched(
             watch, "the GM command surface with ForcePos open"
         )
+
+    def test_the_same_is_true_with_the_say_gate_open(self):
+        """Every branch behind a shut gate is a branch this file cannot see.
+
+        MEASURED by pf-adversary: `_say_action` returns at
+        `if version is None:` (RE-132 open), so everything after it was
+        never executed here.  A write planted just past that return passed
+        21/21 -- and would fire on the day RE-132 closes, which is exactly
+        when nobody is looking at this file.  This file already opens the
+        ForcePos gate for that reason and its own docstring says why ("a
+        door that is only tested with the corridor behind it shut proves
+        little"); it simply did not do the same for `say`.
+
+        THIS DOES NOT TOUCH THE SAY LOCK.  `COO-DECISION 20260829_0041`
+        froze the SHIPPED constant, and `tests/test_gm_say_gate_lock.py`
+        enforces that on `src/`, not on `tests/`.  Patching it inside one
+        `mock.patch.object` block to walk the corridor is what
+        `test_gm_say_action.py` already does; no byte reaches a client here.
+        """
+        lines = [line for lines in COMMAND_EXERCISES.values() for line in lines]
+        with mock.patch.object(
+            say_wire,
+            "GM_GLOBAL_MESSAGE_VITAL_VERSION_CONFIRMED",
+            say_wire.CHANNEL_CODEC_VITAL_VERSION,
+        ):
+            with mock.patch.object(
+                teleport_wire,
+                "FORCE_POS_VITAL_VERSION_CONFIRMED",
+                UNPROVEN_TEST_VERSION,
+            ):
+                session, watch = self._drive(lines)
+        self.assert_standalone_map_untouched(
+            watch, "the GM command surface with both gates open"
+        )
+        # And the say corridor was really walked, not merely unlocked.
+        self.assertNotIn(
+            chat_command_action.EVENT_SAY_WITHHELD_NO_VERSION,
+            session.events,
+            f"the say gate stayed shut; events were {session.events}",
+        )
+
+    def test_the_shipped_say_gate_is_still_shut(self):
+        # The patch above must never be mistaken for the lock moving.
+        self.assertIsNone(say_wire.GM_GLOBAL_MESSAGE_VITAL_VERSION_CONFIRMED)
+        self.assertIsNone(teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED)
 
     def test_malformed_and_hostile_lines_do_not_reach_it_either(self):
         _, watch = self._drive(HOSTILE_LINES)
@@ -714,6 +821,68 @@ class TheLoginPathDoesNotWriteItEitherTests(_Case):
             watch, "a login that spent the GM-gated map"
         )
 
+    def test_the_call_runtime_ACTUALLY_MAKES_writes_nothing(self):
+        """No explicit paths -- because `runtime.py` passes none.
+
+        THE HOLE THIS CLOSES, measured by pf-adversary: `runtime.py` calls
+        `consume_login_scene_override(self.token)` with no config paths at
+        all, and every other test in this file hands over all three.  So a
+        write reachable ONLY on the default resolution -- the branch a real
+        deployment takes -- was invisible to the whole file.  A plant inside
+        `load_standalone_login_scene_overrides` guarded by
+        `if config_path is None:` passed 21/21 while granting an
+        unauthenticated login its own scene.
+
+        Every path is therefore supplied the way an operator supplies it, by
+        environment variable, and the call itself is made bare.
+        """
+        from pirateforce_foundation.gm import accounts as gm_accounts
+
+        with mock.patch.dict(
+            os.environ,
+            {
+                gm_accounts.ENV_OVERRIDE: str(self.accounts_path),
+                login_scene_override.ENV_OVERRIDE: str(
+                    self.login_scene_config_path
+                ),
+                login_scene_override.STANDALONE_ENV_OVERRIDE: str(
+                    self.standalone_path
+                ),
+            },
+        ):
+            with WriteWatch() as watch:
+                # The exact shape of runtime.py's call site.
+                result = login_scene_consume.consume_login_scene_override(
+                    self.PLAYER_ACCOUNT
+                )
+        self.assertEqual(PRISON_EXILE, result.scene_id)
+        self.assertEqual(
+            login_scene_consume.STANDALONE_NOT_CONSUMED, result.outcome
+        )
+        self.assert_standalone_map_untouched(
+            watch, "the bare call runtime.py makes"
+        )
+
+    def test_the_bare_call_is_the_one_runtime_really_makes(self):
+        # Otherwise the test above drills a shape nothing uses.  Read the
+        # call site rather than trusting the comment: it is chief's and can
+        # change under this lane without warning.
+        import re
+
+        runtime_source = (
+            ROOT / "src/pirateforce_foundation/runtime.py"
+        ).read_text(encoding="utf-8")
+        # Whitespace-insensitive: the call site is wrapped across lines today
+        # and a reformat must not silently turn this pin into a no-op.
+        collapsed = re.sub(r"\s+", "", runtime_source)
+        self.assertIn(
+            "consume_login_scene_override(self.token)",
+            collapsed,
+            "runtime.py no longer makes the bare call this file pins; if it "
+            "now passes config paths, the default-resolution hole may be "
+            "closed -- or moved",
+        )
+
     def test_the_reader_alone_writes_nothing(self):
         with WriteWatch() as watch:
             login_scene_override.get_login_scene_override(
@@ -742,7 +911,21 @@ class TheEarlyWarningScanTests(_Case):
     # technique `test_gm_login_scene_stage.py` uses) so an explanation cannot
     # fail its own rule while CODE naming the map still trips.
     ALLOWED = {"login_scene_override.py"}
-    NAMES = ("gm_login_scene_standalone", "standalone_login_scene")
+    # THE VOCABULARY WAS TWO LOWERCASE NAMES AND THAT WAS THE HOLE.  MEASURED
+    # by pf-adversary: an entirely idiomatic writer contains neither, because
+    # the reader EXPORTS the pieces as uppercase constants --
+    #     path = os.environ.get(STANDALONE_ENV_OVERRIDE) or STANDALONE_DEFAULT_CONFIG_PATH
+    #     json.dump({STANDALONE_JSON_KEY: {...}}, h)
+    # -- and that walked the scan with no split literal and no trick at all.
+    # The constants are read off the reader module rather than spelled, so a
+    # rename cannot quietly narrow this list.
+    NAMES = (
+        "gm_login_scene_standalone",
+        "standalone_login_scene",
+        "STANDALONE_DEFAULT_CONFIG_PATH",
+        "STANDALONE_ENV_OVERRIDE",
+        "STANDALONE_JSON_KEY",
+    )
 
     # The one pure READ any module may do, removed before the scan rather
     # than allowlisting the whole file: `login_scene_consume` has to ask that
@@ -750,6 +933,21 @@ class TheEarlyWarningScanTests(_Case):
     # the JSON key is a substring of the reader's NAME, so leaving the name in
     # would let a real write hide behind it.
     ALLOWED_READER = "load_standalone_login_scene_overrides"
+
+    @classmethod
+    def _strip_allowed_reader(cls, code: str) -> str:
+        """Remove the reader's NAME, never a quoted copy of its characters.
+
+        A bare `.replace()` here was a hole: the JSON key is a substring of
+        the reader's name, so a module could spell the key as a slice of a
+        string literal of that name and have the strip delete the evidence.
+        Quoted occurrences are therefore left in place for the scan to see.
+        """
+        import re
+
+        return re.sub(
+            rf"(?<![\"']){re.escape(cls.ALLOWED_READER)}(?![\"'])", "", code
+        )
 
     @staticmethod
     def _code_only(source: str) -> str:
@@ -806,7 +1004,7 @@ class TheEarlyWarningScanTests(_Case):
             if module.name in self.ALLOWED:
                 continue
             code = self._code_only(module.read_text(encoding="utf-8"))
-            code = code.replace(self.ALLOWED_READER, "")
+            code = self._strip_allowed_reader(code)
             for name in self.NAMES:
                 if name in code:
                     offenders.append(f"{module.name}: {name}")
@@ -848,17 +1046,39 @@ class TheEarlyWarningScanTests(_Case):
 
     def test_a_write_hidden_behind_the_allowed_reader_still_shows(self):
         planted = f'{self.ALLOWED_READER}(p)\nd["{self.NAMES[1]}"] = 2\n'
-        stripped = self._code_only(f'"""Doc."""\n{planted}').replace(
-            self.ALLOWED_READER, ""
+        stripped = self._strip_allowed_reader(
+            self._code_only(f'"""Doc."""\n{planted}')
         )
         self.assertIn(self.NAMES[1], stripped)
 
-    def test_the_scan_can_actually_see_a_planted_name(self):
-        # The scan's own tripwire: pf-adversary defeated the last one of these
-        # by splitting a literal, and a scan that cannot fail is worse than no
-        # scan because it reads like coverage.
-        planted = f"path = '{self.NAMES[0]}.json'"
-        self.assertIn(self.NAMES[0], self._code_only(f'"""Doc."""\n{planted}\n'))
+    def test_the_reader_strip_cannot_be_used_to_smuggle_the_key(self):
+        """The strip added this round was itself a hole.
+
+        MEASURED by pf-adversary: `standalone_login_scene` is a SUBSTRING of
+        `load_standalone_login_scene_overrides`, so a module could write
+        `_KEY = "load_standalone_login_scene_overrides"[5:27]` and the
+        `.replace()` meant to make the strip safe deleted the evidence along
+        with the reader's name.  A working `os.replace`-based write was built
+        on exactly that slice and passed both source guards.
+
+        The strip now skips QUOTED occurrences, so the reader's name as an
+        import or a call is removed and the same characters inside a string
+        literal are not.
+        """
+        smuggled = f'_KEY = "{self.ALLOWED_READER}"[5:27]\n'
+        self.assertIn(
+            self.NAMES[1],
+            self._strip_allowed_reader(smuggled),
+            "the reader strip swallowed a key spelled as a slice of its own "
+            "name",
+        )
+
+    def test_the_strip_still_removes_the_readers_ordinary_use(self):
+        # The other half: an import and a call must still be stripped, or
+        # `login_scene_consume` -- which legitimately reads that map -- would
+        # be permanently flagged.
+        ordinary = f"from .x import {self.ALLOWED_READER}\n{self.ALLOWED_READER}(p)\n"
+        self.assertNotIn(self.NAMES[1], self._strip_allowed_reader(ordinary))
 
 
 def login_scene_stage_key() -> str:

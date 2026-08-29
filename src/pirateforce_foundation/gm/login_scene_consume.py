@@ -94,6 +94,11 @@ from .login_scene_override import (
 CONSUMED = "consumed"
 NOTHING_STAGED = "nothing_staged"
 STANDALONE_NOT_CONSUMED = "standalone_not_consumed"
+# WIDER THAN ITS NAME, and said here because pf-adversary read the name and
+# checked: it covers "an entry was found but could not be removed" AND "a
+# config this process could not read, so which map answered is unknown".
+# Both mean the same thing to a login -- no scene is returned -- and neither
+# may be reported as a scene the caller can use.
 CONSUME_FAILED = "consume_failed"
 
 
@@ -132,12 +137,21 @@ def _ask_the_standalone_map(
     Reading it is also the only way this module can say `STANDALONE_NOT
     _CONSUMED` truthfully; the previous version could say it about a file
     that did not exist.
+
+    ONLY THE AMBIGUOUS CALLERS USE THIS.  A non-GM's scene can only have come
+    from the standalone map, so that path keeps the id it already has rather
+    than paying for a second read it cannot lose.  This function is for the
+    two branches where the GM map DID hold an entry a moment ago and no
+    longer does -- where "which map answered" is genuinely unknown.
     """
     try:
         standalone = load_standalone_login_scene_overrides(
             standalone_config_path
         )
     except (OSError, ValueError):
+        # A config this process cannot read is one it must not act on, and
+        # no scene is returned.  See `CONSUME_FAILED`'s own note on what the
+        # word covers -- it is wider than "a removal failed".
         return ConsumeResult(None, CONSUME_FAILED)
     scene_id = standalone.get(account_name)
     if scene_id is None:
@@ -209,7 +223,19 @@ def consume_login_scene_override(
     except (OSError, ValueError):
         return ConsumeResult(None, CONSUME_FAILED)
     if not answered_by_gm_map:
-        return _ask_the_standalone_map(account_name, standalone_config_path)
+        # NO RE-READ HERE, and that is deliberate rather than an omission.
+        # `get_login_scene_override` consults the GM map ONLY for a listed GM
+        # account, so for a non-GM the scene it returned can only have come
+        # from the standalone map -- there is nothing to disambiguate and the
+        # id in hand is already the right one.
+        #
+        # An earlier version of this round did re-read here, and pf-adversary
+        # measured the cost: a non-GM whose standalone file was mid-save
+        # inside the new window got `scene=None, consume_failed` where the
+        # old code returned their scene, and one whose file was removed got
+        # `nothing_staged`.  That is a regression bought for nothing -- the
+        # standalone map is not single-use, so there is no race to lose.
+        return ConsumeResult(scene_id, STANDALONE_NOT_CONSUMED)
 
     # WHICH MAP supplied the scene is decided BEFORE the claim, never
     # after: once the entry is gone there is no way to tell "the standalone
@@ -274,6 +300,15 @@ def consume_login_scene_override(
             return ConsumeResult(None, CONSUME_FAILED)
         if after.get(account_name) is not None:
             return ConsumeResult(None, CONSUME_FAILED)
-        return ConsumeResult(None, NOTHING_STAGED)
+        # THE OTHER LOSER BRANCH, and the D3 fix reached only one of them.
+        # MEASURED by pf-adversary: this branch returned `NOTHING_STAGED`
+        # without ever asking the standalone map, so an operator with a
+        # standing `gm_login_scene_standalone.json` entry ("always start me
+        # here") lost it on every login that lost the claim -- 420 of 420
+        # losers over 60 trials x 8 threads.  It is the MORE likely loser
+        # path under contention, not the rarer one, and it falsified this
+        # round's own deliverable sentence about `GT-110` being able to
+        # re-enter the same scene on every retry.
+        return _ask_the_standalone_map(account_name, standalone_config_path)
 
     return ConsumeResult(claimed, CONSUMED)
