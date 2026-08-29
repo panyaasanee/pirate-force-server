@@ -5159,6 +5159,14 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     session=self,
                     payload=bytes(parsed.nested_payload),
                     legacy=legacy,
+                    # CORE-REQUEST-GM-036: the registry THIS process booted
+                    # with decides what /warp may stage, not a fresh disk
+                    # read that can disagree with it.  Deliberately the bare
+                    # closure local, never getattr-with-None: if the name
+                    # ever stops being visible here this must be a loud
+                    # NameError, not a silent fall back to the wider
+                    # read-the-file path.
+                    scene_registry=scene_entry_registry,
                 )
             elif (
                 nested_id == CHAT_INPUT_VITAL_ID
@@ -5445,15 +5453,23 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         caller appends is the only record there will be.
                         """
                         try:
+                            # CORE-REQUEST-GM-036 item 3: the undo must
+                            # judge the file with the SAME registry that
+                            # admitted the entry, or a snapshot-approved
+                            # line makes the disk-read loader refuse the
+                            # whole file and the staged entry is lost to
+                            # gm_login_scene_override_lost_to_refusal_<n>.
                             return login_scene_stage.restore_login_scene(
                                 self.token, scene_id,
+                                scene_registry=scene_entry_registry,
                             )
                         except (ValueError, OSError, TypeError):
                             return False
 
                     try:
                         override_result = consume_login_scene_override(
-                            self.token
+                            self.token,
+                            scene_registry=scene_entry_registry,
                         )
                         login_scene_override = override_result.scene_id
                         if override_result.outcome == CONSUMED:
@@ -5468,6 +5484,45 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 f"{override_result.scene_id}"
                             )
                         elif override_result.outcome == CONSUME_FAILED:
+                            # CORE-REQUEST-GM-036 wired the boot snapshot
+                            # into the consume call above, which moved the
+                            # snapshot-refuses-the-staged-scene case from
+                            # the probe below (which printed
+                            # GM_LOGIN_SCENE_OVERRIDE_REFUSED) up to this
+                            # outcome -- so without a line here that whole
+                            # direction goes back to the silence
+                            # CORE-REQUEST-GM-034 was filed about.
+                            #
+                            # THE LINE NAMES NO CAUSE, on purpose
+                            # (pf-adversary, this round): ConsumeResult
+                            # carries no cause, and CONSUME_FAILED is wider
+                            # than its name -- a snapshot-refused entry, a
+                            # malformed overrides file, an unreadable
+                            # accounts file, or a removal that half
+                            # happened all arrive here as the same word.
+                            # An earlier draft printed
+                            # "judged_by=boot_snapshot"; measured against a
+                            # truncated JSON file, that sent the operator
+                            # to restart a server whose restart changes
+                            # nothing.  So the line offers BOTH remedies
+                            # and says which fact it does know: the login
+                            # proceeds at the character's own row.
+                            # Guarded like the probe's print: a diagnostic
+                            # must never cost the login.
+                            try:
+                                print(
+                                    "GM_LOGIN_SCENE_OVERRIDE_CONSUME_FAILED "
+                                    "effect=login_at_own_row "
+                                    "cause=not_carried_by_the_outcome -- "
+                                    "check the login-scene config files "
+                                    "for a malformed or refused line "
+                                    "first; if the scene registry file "
+                                    "was edited since boot, that edit is "
+                                    "not in effect until the server is "
+                                    "restarted"
+                                )
+                            except Exception:
+                                pass
                             self.events.append(
                                 "gm_login_scene_override_consume_failed"
                             )

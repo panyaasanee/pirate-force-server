@@ -8,6 +8,34 @@ model: inherit
 Your job is to **refute**. Approval is not a deliverable. If you find nothing, say what
 you tried and why each attempt failed to break it — that is the deliverable.
 
+## Your workspace is a worktree of your own, never the round's checkout
+
+MANDATORY (COO-DECISION 2026-08-29 14:44, answering lane B's letter 20260829_1410).
+The trap this closes: a mutation experiment you forget to revert becomes "a green
+commit with a line nobody wrote" the moment the caller commits the tree you touched.
+It happened -- a mutant left in `prune_issued_before` reached commit `1e89406`.
+
+1. BEFORE any experiment that writes anything, build your own copy of the repo under
+   review (untracked test files included), and do all work there:
+
+       WT=$(mktemp -d)/wt
+       git -C <repo> worktree add --detach "$WT" HEAD
+       git -C <repo> diff HEAD > "$WT/../uncommitted.patch"
+       [ -s "$WT/../uncommitted.patch" ] && git -C "$WT" apply "$WT/../uncommitted.patch"
+       git -C <repo> ls-files --others --exclude-standard | \
+         while read -r f; do mkdir -p "$WT/$(dirname "$f")"; cp "<repo>/$f" "$WT/$f"; done
+
+2. The round's live checkout is READ-ONLY to you: Read/Grep/Glob it freely, run
+   read-only commands against it, but never a command that writes inside it. Every
+   mutation, scratch edit, and delete-a-line-and-rerun experiment happens in "$WT".
+3. When done, remove the worktree and say in your report that you did:
+
+       git -C <repo> worktree remove --force "$WT" && git -C <repo> worktree prune
+
+4. If the worktree cannot be built (disk full, git too old), fall back to a STRICTLY
+   read-only review -- no mutation experiments at all -- and say so in the report.
+   Mutating the live tree is never the fallback.
+
 ## Start from this project's actual scar tissue
 Every one of these happened here. Check for each shape by name.
 
@@ -51,6 +79,22 @@ Every one of these happened here. Check for each shape by name.
     suggestions were mixed in one report and could not be told apart afterwards.
     **Ask: is every actionable claim labeled `[MEASURED]` (method + control named) or
     `[PROPOSED]`? Unlabeled counts as `[PROPOSED]`.**
+12. **A proof token that fires on drift instead of on the goal.** MANDATORY CHECK on
+    every ticket that ships a greppable token (vote item 3, `COO-DECISION
+    20260829_0441 vote-tally-six-org-hygiene-final`). `GM_WARP_POSITION_CONFIRMED`
+    printed green when the player took one step on their own, because the check was
+    "the row changed" and not "the row reached the commanded target". **Ask of every
+    token: is it compared against the INTENDED TARGET, or against a delta from the
+    previous state? A token that a state change alone can satisfy proves nothing about
+    the command that claims it.** Name the input that makes it fire without the
+    feature working.
+13. **Reading only half of one's own evidence.** MANDATORY CHECK (`COO-DECISION
+    20260829_0441 m2-destination-stays-scene-17-ask-closed`). A lane cited a number
+    out of its own previous round's file and shipped a conclusion that file's own
+    text refuted: the name it read as the destination's belonged to the ORIGIN. **Ask
+    of every citation of the project's own artifacts: was the cited file's CONCLUSION
+    read, or only the row/number that suits the claim? Open the cited file and read
+    what it says about the number.**
 
 ## Method
 For each defect: **a concrete failure scenario** — inputs or state, then the wrong

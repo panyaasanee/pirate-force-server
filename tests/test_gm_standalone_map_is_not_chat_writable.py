@@ -834,8 +834,13 @@ class TheLoginPathDoesNotWriteItEitherTests(_Case):
         unauthenticated login its own scene.
 
         Every path is therefore supplied the way an operator supplies it, by
-        environment variable, and the call itself is made bare.
+        environment variable, and the call itself passes no path.  Since
+        CORE-REQUEST-GM-036 the call site does pass ``scene_registry`` --
+        the boot snapshot, which is not a path and does not touch the
+        default resolution this test exists to exercise -- so the mimic
+        here passes one too, to stay the exact shape.
         """
+        from pirateforce_foundation import world_scene_travel
         from pirateforce_foundation.gm import accounts as gm_accounts
 
         with mock.patch.dict(
@@ -853,7 +858,8 @@ class TheLoginPathDoesNotWriteItEitherTests(_Case):
             with WriteWatch() as watch:
                 # The exact shape of runtime.py's call site.
                 result = login_scene_consume.consume_login_scene_override(
-                    self.PLAYER_ACCOUNT
+                    self.PLAYER_ACCOUNT,
+                    scene_registry=world_scene_travel.load_scene_registry(),
                 )
         self.assertEqual(PRISON_EXILE, result.scene_id)
         self.assertEqual(
@@ -876,10 +882,12 @@ class TheLoginPathDoesNotWriteItEitherTests(_Case):
         # and a reformat must not silently turn this pin into a no-op.
         collapsed = re.sub(r"\s+", "", runtime_source)
         self.assertIn(
-            "consume_login_scene_override(self.token)",
+            "consume_login_scene_override("
+            "self.token,scene_registry=scene_entry_registry,)",
             collapsed,
-            "runtime.py no longer makes the bare call this file pins; if it "
-            "now passes config paths, the default-resolution hole may be "
+            "runtime.py no longer makes the call this file pins (no config "
+            "paths, scene_registry only -- CORE-REQUEST-GM-036); if it now "
+            "passes config paths, the default-resolution hole may be "
             "closed -- or moved",
         )
 

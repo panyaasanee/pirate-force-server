@@ -247,6 +247,16 @@ class LoginSceneRegistryAuthorityTests(unittest.TestCase):
 
         Yesterday this login returned no actions at all, and because the
         standalone map is not consumed, so did every retry after it.
+
+        MECHANISM CHANGED BY CORE-REQUEST-GM-036, invariants unchanged.
+        With the boot snapshot wired into the consume call, lane GM's own
+        admission now judges the standalone map against the SNAPSHOT, so
+        the refusal happens inside the consume (the whole-file load
+        refuses, ``CONSUME_FAILED``) and the login never reaches the
+        runtime probe this file used to pin.  What must survive the change:
+        the player still gets in at their own row, no scene is applied,
+        and the console still says so by name -- silence here is the exact
+        complaint CORE-REQUEST-GM-034 was filed about.
         """
         self._write_configs([], {}, {"plain_tester": CONTESTED_SCENE_ID})
         snapshot = _registry_refusing(CONTESTED_SCENE_ID)
@@ -265,31 +275,26 @@ class LoginSceneRegistryAuthorityTests(unittest.TestCase):
         )
         self.assertNotIn("world_scene_entry_refused_no_reply", state.events)
         self.assertIn(
-            "gm_login_scene_override_refused_by_registry_"
-            f"{CONTESTED_SCENE_ID}",
-            state.events,
+            "gm_login_scene_override_consume_failed", state.events,
         )
         self.assertNotIn(
             f"gm_login_scene_override_applied_{CONTESTED_SCENE_ID}",
             state.events,
         )
-        # The operator is told, by name, on the console -- the complaint in
-        # CORE-REQUEST-GM-034 was that this path went silent.
-        self.assertIn("GM_LOGIN_SCENE_OVERRIDE_REFUSED", stdout)
-        self.assertIn(
-            world_scene_entry.REFUSED_NOT_ALLOWED_AT_LOGIN, stdout,
-        )
-        # ...and it does NOT stop at that reason.  Read alone, the reason
-        # is contradicted by the registry file this very test asserts still
-        # says login_entry_allowed true, so the line has to name the
-        # snapshot and the restart, or it sends the operator to grep a file
-        # that disproves it (pf-adversary, this round).
-        refusal_line = next(
+        # The operator is told on the console -- the complaint in
+        # CORE-REQUEST-GM-034 was that this path went silent.  The line
+        # names NO cause (ConsumeResult carries none, and a malformed
+        # config arrives here as the same word as this test's snapshot
+        # disagreement -- pf-adversary measured a "judged_by=boot_snapshot"
+        # draft lying about a truncated JSON file), so what is pinned is
+        # that it offers BOTH remedies rather than diagnosing.
+        failed_line = next(
             line for line in stdout.splitlines()
-            if line.startswith("GM_LOGIN_SCENE_OVERRIDE_REFUSED")
+            if line.startswith("GM_LOGIN_SCENE_OVERRIDE_CONSUME_FAILED")
         )
-        self.assertIn("source=boot_snapshot", refusal_line)
-        self.assertIn("restart", refusal_line)
+        self.assertIn("malformed", failed_line)
+        self.assertIn("restarted", failed_line)
+        self.assertNotIn("judged_by=boot_snapshot", failed_line)
 
     def test_the_retry_after_a_refused_override_is_the_same_as_the_first(self):
         """The lockout was the RETRY, so both logins are measured."""
@@ -352,12 +357,26 @@ class LoginSceneRegistryAuthorityTests(unittest.TestCase):
 
     # ----- what happens to a spent entry -----------------------------------
 
-    def test_a_consumed_entry_refused_by_the_snapshot_is_given_back(self):
-        """A GM-gated entry is spent BEFORE the probe can refuse it.
+    def test_an_entry_the_snapshot_refuses_is_never_taken_off_disk(self):
+        """A GM-gated entry the snapshot refuses survives the login intact.
 
-        Without the restore the operator's staged warp is destroyed by a
-        login that never reached it, and the audit row says ``consumed`` for
-        a scene nobody entered.
+        BEFORE CORE-REQUEST-GM-036 this test was named
+        ``test_a_consumed_entry_refused_by_the_snapshot_is_given_back``: the
+        disk-side admission (a fresh file read) admitted the entry, the
+        consume SPENT it, the runtime probe refused it, and the restore
+        handed it back.  With the boot snapshot wired into the consume, the
+        same disagreement is now caught before anything is spent: the
+        whole-file load judges by the snapshot, refuses, and the consume
+        answers ``CONSUME_FAILED`` with the file untouched.  Never-taken
+        replaces taken-and-given-back; what may not change is the end
+        state: the entry still on disk with the value it had, the operator
+        told on the console, and the login landing at the character's own
+        row.
+
+        (The restore branch itself did not die with this: it remains the
+        handler for the probe and the admission ever drifting apart, and
+        tests/test_gm_login_scene_registry_wiring_in_runtime.py walks it
+        with a targeted probe refusal.)
         """
         self._write_configs(
             ["gm_tester"], {"gm_tester": CONTESTED_SCENE_ID}, {},
@@ -365,36 +384,38 @@ class LoginSceneRegistryAuthorityTests(unittest.TestCase):
         snapshot = _registry_refusing(CONTESTED_SCENE_ID)
 
         with contextlib.redirect_stderr(io.StringIO()):
-            state, _selector, actions, _out = self._login_and_start(
+            state, _selector, actions, stdout = self._login_and_start(
                 "gm_tester", snapshot=snapshot,
             )
 
         self.assertNotEqual(actions, [])
-        # THE ENTRY WAS REALLY CLAIMED FIRST.  Without this the file-equals
-        # assertion below is also true of a login that never took the entry
-        # off disk at all, and the whole test would rest on the single
-        # event line under it (pf-adversary, this round).
-        self.assertIn(
+        # NEVER SPENT: no consume event, no restore event, no loss event.
+        # The file-equals assertion below cannot distinguish "never taken"
+        # from "taken and put back", so the events pin which one happened.
+        self.assertNotIn(
             f"gm_login_scene_override_consumed_{CONTESTED_SCENE_ID}",
             state.events,
         )
         self.assertIn(
-            "gm_login_scene_override_restored_after_refusal_"
-            f"{CONTESTED_SCENE_ID}",
-            state.events,
+            "gm_login_scene_override_consume_failed", state.events,
         )
-        # Back on disk, with the value it had, so the next login after the
-        # registry is fixed still finds it.
-        self.assertEqual(self._gm_map(), {"gm_tester": CONTESTED_SCENE_ID})
-        # And exactly once: a second restore from the handler further down
-        # would be a write of an entry this login already gave back.
         self.assertEqual(
-            len([
+            [
                 event for event in state.events
                 if event.startswith("gm_login_scene_override_restored_after_")
                 or event.startswith("gm_login_scene_override_lost_to_")
-            ]),
-            1,
+            ],
+            [],
+        )
+        # Still on disk, with the value it had, so the next login after the
+        # registry is fixed (a restart) still finds it.
+        self.assertEqual(self._gm_map(), {"gm_tester": CONTESTED_SCENE_ID})
+        # At its own row, and told why on the console.
+        self.assertEqual(
+            state.foundation.selected.position.scene_id, HOME_SCENE_ID,
+        )
+        self.assertIn(
+            "GM_LOGIN_SCENE_OVERRIDE_CONSUME_FAILED", stdout,
         )
 
     def test_a_refused_standalone_grant_writes_nothing_to_the_gm_map(self):
