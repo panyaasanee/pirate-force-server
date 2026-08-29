@@ -211,23 +211,30 @@ class ConsumeCauseWiringTests(unittest.TestCase):
 
     # ----- the loud-failure contract, enforced instead of commented -------
 
-    def test_a_result_that_lost_its_cause_raises_out_of_dispatch(self):
-        """A missing ``cause`` is an AttributeError PAST the print guard.
+    def test_a_result_that_lost_its_cause_lands_in_the_net_by_name(self):
+        """CORE-REQUEST-GM-039: a foreign lost-``cause`` stub is CAUGHT.
 
-        The GM letter forbids ``getattr(..., "cause", ...)``: a
-        ConsumeResult that lost the field must raise, not fall back to a
-        placeholder word.  pf-adversary (this round, D2) measured that the
-        property lived only in a comment -- inlining the attribute access
-        into the ``try: print(...) except Exception: pass`` guard kept
-        every test green while turning the contract into silence.  This
-        test is that missing mutation kill: the access must happen OUTSIDE
-        the guard, so the error propagates out of ``dispatch`` instead of
-        being swallowed (and instead of printing anything at all).
+        This test used to pin the opposite -- ``assertRaises
+        (AttributeError)`` out of ``dispatch`` -- which was the pin that
+        THE ESCAPE HATCH WAS STILL OPEN: pf-adversary (D7, round
+        ``npo898``) measured that ``ConsumeResultMisuse`` narrowed the
+        hole to one class while any other ``AttributeError`` raised in
+        the same ``try`` still unwound the game listener thread
+        (v141:7440 has no except), leaving the login port alive over a
+        dead game port.  GM-039 added ``AttributeError`` to the consume
+        block's net, so the test flips, per the letter's own words:
+        ``dispatch`` returns, the events row names the fault, and the
+        character stands at its own row.
 
-        The stub below is only reachable through the patch: at HEAD the
-        real ConsumeResult cannot exist without a cause (constructor
-        validation, ``__slots__``), so this is the in-repo-regression
-        drill, not a live scenario.
+        The attribute access still happens OUTSIDE the print guard and
+        there is still no ``getattr`` fallback -- a lost field never
+        becomes a placeholder word on the console (pinned below by "no
+        CONSUME_FAILED line at all").  What changed is where the raise
+        LANDS: in chief's net, named, instead of in the listener thread.
+
+        Mutation kill, measured for this round: remove ``AttributeError``
+        from that ``except`` tuple and this test raises straight out of
+        ``dispatch`` -- red, not silently green.
         """
         class _ResultThatLostItsCause:
             scene_id = None
@@ -239,33 +246,27 @@ class ConsumeCauseWiringTests(unittest.TestCase):
         )
         state = self._boot("wire_tester")
         from pirateforce_foundation import runtime as runtime_module
-        console = io.StringIO()
         with mock.patch.object(
             runtime_module, "consume_login_scene_override",
             return_value=_ResultThatLostItsCause(),
         ):
-            with self.assertRaises(AttributeError):
-                with contextlib.redirect_stdout(console):
-                    with contextlib.redirect_stderr(io.StringIO()):
-                        state.dispatch(self.legacy.parse_outer(
-                            self.legacy._synthetic_client_login_pc(
-                                "wire_tester",
-                            )
-                        ))
-                        state.dispatch(self.legacy.parse_outer(
-                            self.legacy._V25_REAL_CREATE_PC
-                        ))
-                        character = self.store.list_characters(
-                            state.foundation.account_id
-                        )[-1]
-                        state.dispatch(self.legacy.parse_outer(
-                            self.legacy._synthetic_start_game_pc(
-                                character.selector,
-                            )
-                        ))
-        # Loud means loud: no placeholder line, no half-printed line.
+            console = self._login_and_start_capturing_console(
+                state, "wire_tester",
+            )
+        # No placeholder line, no half-printed line: the loud-failure
+        # contract on the CONSOLE is unchanged.
         self.assertEqual(
-            [], self._the_consume_failed_lines(console.getvalue()),
+            [], self._the_consume_failed_lines(console),
+        )
+        # The fault is named in the events row, exception class and all.
+        self.assertIn(
+            "gm_login_scene_override_lookup_failed_AttributeError",
+            state.events,
+        )
+        # The override is what was lost, not the login: the character is
+        # standing at its own row's scene.
+        self.assertEqual(
+            HOME_SCENE_ID, state.foundation.selected.position.scene_id,
         )
 
     def test_a_real_result_that_lost_its_cause_costs_the_override_only(self):
