@@ -3035,7 +3035,7 @@ are kept because the shapes repeat.
   `lane_hooks/lane_gm_*.py`, and the magic floor replaced by naming the
   modules that must be in scope.
 
-### Measured, not asserted: every plant trips it now
+### Measured: every plant listed here trips it (not: every plant does)
 
 Each row was executed against the fixed file and then reverted.
 
@@ -3082,7 +3082,7 @@ them.
 6. **[correction to an earlier round's figure]** The round `dnh0ai` section
    above says "the lane suite is 567 passed / 0 skipped". That was true when
    written; it is stale, not wrong-at-the-time, and is struck rather than
-   edited. Today: lane GM **623 passed / 4 skipped**, whole repo **4310
+   edited. Today: lane GM **640 passed / 4 skipped**, whole repo **4377
    passed / 327 skipped / 0 failed**. Those 327 skips are not named, counted
    or capped anywhere this lane owns -- flagged, not claimed as handled.
 7. เขียว(cloud sanity) only. Actions decides.
@@ -3125,3 +3125,58 @@ This is the D5 shape appearing inside the fix for D2, one round later: a
 liveness check that accepts any event rather than the event that means the
 code under test ran. Recorded because it will be tempting to write the loose
 version again.
+
+### Second adversary pass: twelve more, two of them bugs in the D3 fix itself
+
+The reworked file went back to `pf-adversary`. It broke the tripwire three
+more ways and found the D3 fix half-applied. Every row was executed against
+the fix and reverted.
+
+**In the module:**
+
+| # | what | measured |
+|---|---|---|
+| F3 | the D3 fix reached **one loser branch, not both** | `claimed is None` -- the *more* likely loser under contention -- still returned `NOTHING_STAGED` without asking the standalone map, so an operator's standing entry was lost on every login that lost the claim: **420 of 420 losers** over 60 trials x 8 threads. This falsified this round's own Thai deliverable line about `GT-110` re-entering the same scene on every retry. |
+| F4 | the fix **regressed the non-GM path** | a non-GM's scene can only have come from the standalone map, so the extra read was unlosable upside-free: a file mid-save inside the new window became `consume_failed`, a removed file became `nothing_staged`, where the old code returned the scene. That call site keeps the id it already holds. `CONSUME_FAILED` is wider than its name and now says so. |
+
+**In the tripwire:**
+
+| # | what | measured |
+|---|---|---|
+| F1 | **it never made the call `runtime.py` makes** | production calls `consume_login_scene_override(self.token)` with NO config paths; every test passed all three. A plant inside the reader guarded by `if config_path is None:` passed **21/21** while granting an unauthenticated login its own scene. One case now makes the bare call, paths supplied by env var as an operator supplies them. |
+| F2 | **every branch behind a shut gate was unreachable**, and `/say` is one | a plant just past `_say_action`'s `if version is None:` return passed 21/21 -- and would fire the day RE-132 closes, which is when nobody is looking. The file already forced the ForcePos gate open for exactly this reason. |
+| F7 | the production-path check **turned the file RED on a correct deployment** | with a legitimate operator file present and no plant anywhere: `FAILED (failures=9)`, accusing an inbound vital of creating a file the operator typed. The obvious fix -- delete the assertion -- would reopen D1 permanently. Snapshots in `setUp` now. |
+| F6 | the scan's vocabulary was **two lowercase names** | the reader exports UPPERCASE constants, so an entirely idiomatic writer (`os.environ.get(STANDALONE_ENV_OVERRIDE) or STANDALONE_DEFAULT_CONFIG_PATH`) walked past with no split literal and no trick. |
+| F6b | the reader-strip added the previous commit **was itself a hole** | the JSON key is a substring of the reader's name, so `"load_standalone_login_scene_overrides"[5:27]` was deleted along with it; a working `os.replace` write passed both source guards. The strip skips quoted occurrences now. |
+| F8 | `WriteWatch` was **blind to bytes paths** | `realpath` returns bytes for a bytes argument and a bytes basename never equals a str one -- in the single check that exists to catch a third resolved path. `os.fsdecode`. |
+| F5 | `assert_every_command_was_accepted` **does not prove reach** | the event fires before routing, and four of six names (`npc`, `item`, `lv`, `spawn`) have no handler at all. The docstring claimed reach; it now states the weaker thing it can prove. |
+| F11 | a duplicated test method silently discarded one test | |
+
+### The limit this round could not close, stated as a question
+
+Every guard here asks *"did a write happen on a path a test drove?"* -- and
+F1, F2 and F5 are the same answer three times: **the routes that matter most
+are the ones no test can drive yet**, because they sit behind an unopened
+version gate, behind a default only production resolves, or behind a handler
+nobody has written. The equality check against `COMMAND_NAMES` sees command
+*names*. It cannot see gates, handlers, or which arguments a caller omitted.
+
+So "no route that RAN" shrinks every time this lane adds a gate, and the file
+will keep reporting green about a smaller world unless someone notices. **What
+rule decides, for each newly added GM branch, that it must be walked with its
+gate forced open and its production path resolution live -- and who enforces
+it?** This lane does not have that rule. It is carried here as an open
+question, not as something the round solved.
+
+### nonclaim (supersedes the list above where they disagree)
+
+1. **This file does not prove item 3 holds.** It proves no route that RAN
+   violated it. Three separate classes of unrun route were found in one
+   review; there is no reason to think that list is complete.
+2. **Three reviews, three times the guard was green about a smaller world
+   than this lane claimed.** Not wrong facts -- a shrinking scope described
+   as complete. Recorded because the correction is the finding.
+3. `GT-110` stays PARKED; `GT-141` must not be graded with two overlapping
+   logins until this round's PR merges (its head carries the reason).
+4. เขียว(cloud sanity): whole repo **4377 passed / 327 skipped / 0 failed**,
+   lane GM **640 passed / 4 skipped**. Actions decides.
