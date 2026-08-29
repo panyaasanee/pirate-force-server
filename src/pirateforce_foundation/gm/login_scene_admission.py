@@ -103,12 +103,33 @@ from .scene_catalog import is_known_scene_id
 # (``via_login=False``, columbus_quest_dispatch.py:464), and that call site is
 # in ``runtime.py`` = chief's file = ``CORE-REQUEST-GM-038``.
 #
-# Until that request lands, the ONLY thing this lane can honestly ship is a
-# refusal that says WHICH half is missing, measured live rather than quoted
-# from a doc that goes stale the hour lane A merges.  That is
-# ``sanctioned_barred_blocker`` below.  Nothing in this block admits a scene,
-# and ``TheSanctionSetGrantsNothingTests`` in
-# ``tests/test_gm_login_scene_sanctioned_barred.py`` is what keeps that true.
+# ~~Until that request lands, the ONLY thing this lane can honestly ship is a
+# refusal that says WHICH half is missing ... Nothing in this block admits a
+# scene~~ -- STRUCK, round ``znb56z``: ``CORE-REQUEST-GM-038`` LANDED
+# (``pirate-force-server`` #281).  ``single_use_entry_is_admissible`` below
+# does now admit a sanctioned scene, for the single-use map only, and
+# ``sanctioned_barred_blocker`` is one of the two questions it asks.  The
+# sentence above was accurate when written and stopped being accurate at that
+# merge; it is struck rather than deleted because the REASONING above it --
+# why this lane may not widen ``login_entry_is_pinned`` and may not route
+# around the login path's own guard -- is unchanged and is what makes the
+# widening lawful rather than a workaround.  What replaced the refusal is
+# THE WIDENING, further down this file, which is narrower than it sounds:
+# one blocker value, one map, one already-authorised operator.
+#
+# The blocker is still measured live rather than quoted from a doc that goes
+# stale the hour lane A merges -- that part was right and is now load-bearing
+# rather than merely diagnostic.
+#
+# ``TheSanctionSetGrantsNothingTests`` in
+# ``tests/test_gm_login_scene_sanctioned_barred.py`` still holds and is still
+# the guard, with its scope now said out loud: it pins that the sanction
+# grants nothing UNDER THE PLAIN RULE -- ``login_entry_is_pinned`` and
+# ``stageable_scene_ids``, which is exactly what the standalone map and the
+# login path's own guard are judged by.  The single-use rule is pinned
+# separately in ``tests/test_gm_login_scene_sanctioned_admission.py``, and the
+# two files together are the statement that the widening reached one map and
+# not the other.
 #
 # HOW AN ENTRY DIES, written the same round it was born, because pf-adversary
 # asked and the map had no answer: an entry is RETIRED (deleted, with the
