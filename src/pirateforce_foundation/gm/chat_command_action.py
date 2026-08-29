@@ -871,13 +871,12 @@ def _print_warp_way_out(token: str, scene_id: int, reason: str) -> None:
     ):
         return
     stream = sys.stderr
-    _IDS = stageable_scene_ids()
     try:
         print(
             f"{WARP_REFUSED_CONSOLE_TOKEN} "
             f"account='{console_safe(token, stream)}' "
             f"scene_id={scene_id} reason={reason} "
-            f"stageable={_IDS}",
+            f"stageable={stageable_scene_ids()}",
             file=stream,
         )
     except Exception:  # noqa: BLE001 - see the last paragraph of the docstring
