@@ -542,6 +542,97 @@ class SceneScopedCombatWiringTests(unittest.TestCase):
         for line in mob_death.describe_widening_coverage():
             self.assertIn(line, out)
 
+    # ----- the census override composes from ONE scene id -----------------
+
+    def test_census_override_recomposes_ledger_from_the_scene_it_composes_for(
+        self,
+    ):
+        """CORE-REQUEST (LANE-B 20260829_1445), the half R227 left open:
+        the home-census ``full_roster_override`` used to pair a fresh
+        ``field_mobs.load_roster()`` (always bg0001) with whatever ledger
+        the session happened to hold -- and the ledger is re-opened lazily
+        at ATTACK time, so after a scene round trip with no attack since
+        returning it still holds the other scene's rows.  That pairing
+        raises ``ledger_disagrees_with_register`` OUTSIDE the compose
+        catch-all and unwinds the listener thread (v141:7440 has no
+        except).
+
+        This drives the exact state through the real dispatcher: kill the
+        control mob at home (register holds the corpse), swap the per-scene
+        combat state with one real Bg0002 attack, return home WITHOUT
+        attacking, and recompose the arrival census.  ``world_census_sent``
+        is un-latched by hand -- today no login path re-runs the home
+        arrival census after travel, but BUILD-002's own comment in
+        runtime.py names the boot that will, and the invariant must hold
+        before that boot exists, not after it crashes.
+
+        The away-scene leg is a KILL, not a wound (pf-adversary, this
+        round, D1, measured): the death register is per-(identity, scene)
+        and survives the trip BY DESIGN, so a Bg0002 corpse rides along
+        into the home recompose -- and before this round's
+        mob_death.repopulation_entries scene filter, that one foreign-scene
+        record refused the whole compose
+        (``register_row_disagrees_with_roster``) on the same uncaught line,
+        with the ledger correctly synced.  A wound here would have dodged
+        exactly that defect.
+
+        MUTATION-PROOF: revert the runtime.py override site to
+        ``field_mobs.load_roster()`` + the un-synced ledger and this test
+        errors with MobDeathContractError out of dispatch; revert the
+        mob_death scene filter alone and it errors the same way on the
+        foreign-scene corpse; drop the rehydration instead and the
+        corpse-at-0 assertion fails.
+        """
+        state = self._state("ssc_census_override_sync")
+        self._arrive(state)
+        self._set_balance(state, CONTROL_TARGET, 1)
+        actions = state.dispatch(self.legacy.parse_outer(
+            self._action_vital_pc(CONTROL_TARGET)
+        ))
+        self.assertIn(
+            "MOB_DEATH_DEAD", [label for label, *_rest in actions],
+        )
+        self._move_to_scene(state, SCENE2_N_ID)
+        state.mob_combat_cadence = mob_combat.open_cadence_ledger()
+        away_target = self.bg0002_mob.actor_identity
+        self._attack(state, away_target)
+        self.assertEqual(state.mob_combat_scene_folder, "Bg0002")
+        self._set_balance(state, away_target, 1)
+        state.mob_combat_cadence = mob_combat.open_cadence_ledger()
+        away_actions = self._attack(state, away_target)
+        self.assertIn(
+            "MOB_DEATH_DEAD",
+            [label for label, *_rest in away_actions],
+        )
+        self.assertTrue(
+            state.mob_death_register.is_dead(away_target, "Bg0002"),
+        )
+        self._move_to_scene(state, 1)
+        state.world_census_sent = False
+        committed_before = sum(
+            1 for event in state.events
+            if event.startswith("world_census_committed_actors_")
+        )
+        self._arrive(state)
+        home_folder = world_scene_folder.scene_folder_for_scene_id(1)
+        self.assertEqual(state.mob_combat_scene_folder, home_folder)
+        self.assertTrue(state.world_census_sent)
+        self.assertEqual(
+            sum(
+                1 for event in state.events
+                if event.startswith("world_census_committed_actors_")
+            ),
+            committed_before + 1,
+            state.events,
+        )
+        self.assertFalse(any(
+            "census_compose_refused" in event for event in state.events
+        ))
+        self.assertEqual(
+            state.mob_combat_ledger.balance_of(CONTROL_TARGET).current_hp,
+            0,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

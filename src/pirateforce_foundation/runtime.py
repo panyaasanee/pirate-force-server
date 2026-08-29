@@ -4689,6 +4689,19 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         entry = columbus_quest_dispatch.dispatch_columbus_quest3021(
                             registry=scene_entry_registry,
                             emit=_emit,
+                            # CORE-REQUEST (LANE-A 20260829_1422): report-only
+                            # kwargs.  With these two, a successful crossing
+                            # prints WORLD_POP_STOWAWAYS with the names still
+                            # held within radius of the ARRIVAL anchor -- the
+                            # point the boat lands (entry.teleport_fields),
+                            # in the unmeasured shared-coordinate assumption
+                            # stowaways_near itself discloses -- NOT the
+                            # departure point (pf-adversary, round qb70g2);
+                            # without them the same line prints "unmeasured".
+                            # stowaways_on_crossing never raises (its own
+                            # contract) and no frame is composed from it.
+                            legacy=legacy,
+                            held_indices=self.world_census_indices,
                         )
                     except columbus_quest_dispatch.ColumbusDispatchRefused as error:
                         for reason in error.reasons:
@@ -6659,11 +6672,41 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         # parameter and is out of this round's scope to
                         # edit, so this rebuilds the SAME bytes with the SAME
                         # encoder over the wider input instead.
-                        mob_death_override = mob_death.full_roster_override(
-                            legacy, field_mobs.load_roster(),
-                            self.mob_death_register,
-                            ledger=self.mob_combat_ledger,
-                        )
+                        # CORE-REQUEST (LANE-B 20260829_1445, the half R227
+                        # left open): the ledger handed to this override MUST
+                        # belong to the scene this census composes for, or
+                        # full_roster_override raises
+                        # ledger_disagrees_with_register OUTSIDE the
+                        # fail-closed catch-all above and unwinds the
+                        # listener thread (v141:7440 has no except).  This
+                        # branch only composes for world_population.SCENE_ID,
+                        # but mob_combat_ledger is re-opened lazily at attack
+                        # time, so after a scene round trip with no attack
+                        # since returning it still holds the OTHER scene's
+                        # rows.  Re-sync ledger+roster from the same scene id
+                        # and describe the override from the rows the sync
+                        # returned, never from a second independent
+                        # load_roster() call.
+                        synced_roster = self._sync_combat_scene_state()
+                        if synced_roster is None:
+                            # Registry does not address the scene: no
+                            # roster, no override.  Ship the census as
+                            # built rather than pairing bg0001 rows with a
+                            # ledger of unknown scene -- the exact mismatch
+                            # measured above.  Unreachable while the
+                            # registry addresses SCENE_ID; latched loudly
+                            # in case that ever changes.
+                            mob_death_override = ()
+                            self.events.append(
+                                "mob_death_census_override_skipped_"
+                                "scene_unaddressed"
+                            )
+                        else:
+                            mob_death_override = mob_death.full_roster_override(
+                                legacy, synced_roster,
+                                self.mob_death_register,
+                                ledger=self.mob_combat_ledger,
+                            )
                         if mob_death_override:
                             generation = _apply_mob_death_census_override(
                                 legacy, generation, mob_death_override,

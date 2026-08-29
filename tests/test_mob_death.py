@@ -1226,6 +1226,38 @@ class MobDeathTests(unittest.TestCase):
         with self.assertRaises(MobDeathContractError):
             mob_death.corpse_override(self.legacy, living, death.register)
 
+    def test_a_foreign_scene_register_row_does_not_refuse_this_scene(self):
+        """pf-adversary (round qb70g2, D1, measured end to end): the death
+        register is per-(identity, scene) and survives scene changes BY
+        DESIGN, so after one authorized Bg0002 kill every later bg0001
+        recompose handed the session's full register refused with
+        register_row_disagrees_with_roster -- outside runtime.py's compose
+        catch-all, which unwinds the listener thread (v141:7440 has no
+        except).  A record from a scene this roster does not cover at all
+        belongs to a roster this call was never given (the check's own
+        COO-DECISION comment always said so): it is ignored here and
+        consumed when THAT scene composes.  A record in one of this
+        roster's OWN scenes with no roster row is still the real drift this
+        check exists for and still refuses -- the sibling test above pins
+        that half, and stays green precisely because the drifted record's
+        scene IS the roster's scene.
+        """
+        away = self.bg0002_roster[0]
+        step = self.killing_outcome_solo(away)
+        death = kill(
+            self.legacy, away, step.outcome, DeathRegister(),
+            widened=mob_death.ruling_for(away),
+        )
+        self.assertTrue(
+            death.register.is_dead(away.actor_identity, away.scene))
+        entries = repopulation_entries(
+            self.legacy, self.roster, death.register)
+        self.assertEqual(len(entries), len(self.roster))
+        override = mob_death.full_roster_override(
+            self.legacy, self.roster, death.register)
+        self.assertEqual(
+            set(override), {m.actor_identity for m in self.roster})
+
     def test_a_commit_cannot_drop_rows_from_a_same_length_lineage(self):
         # generation == len(records) for every register built through this
         # API, so two registers holding the same NUMBER of dead monsters carry

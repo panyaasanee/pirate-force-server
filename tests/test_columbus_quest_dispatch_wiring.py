@@ -515,6 +515,56 @@ class ColumbusQuest3021WiringTests(unittest.TestCase):
         )
         self.assertTrue(state.columbus_quest3205_dispatch_attempted)
 
+    def test_a_successful_crossing_reports_measured_stowaways(self):
+        """CORE-REQUEST (LANE-A 20260829_1422): with ``legacy=`` and
+        ``held_indices=`` passed at the runtime.py call site, a successful
+        3021 crossing prints a MEASURED ``WORLD_POP_STOWAWAYS`` line built
+        from this boot's own census indices -- names a GT tester can look
+        for in their own console, not in a letter written from another
+        boot's table.
+
+        MUTATION-PROOF: revert the two kwargs and the exact same crossing
+        still prints a WORLD_POP_STOWAWAYS line -- but the "unmeasured
+        reason=call_site_passed_no_legacy" one, which this test forbids by
+        word.  A mutation cannot go quiet either way: zero lines and two
+        lines both fail the count assertion.
+        """
+        import io
+        from contextlib import redirect_stdout
+
+        state = self._real_state("tok-columbus-stowaways")
+        # The harness's own TargetPos census armed this; the call site
+        # hands exactly this attribute to the dispatch.
+        self.assertIsNotNone(state.world_census_indices)
+        columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
+            self.legacy,
+        )
+        state.dispatch(self.legacy.parse_outer(
+            _choose_npc_pc(self.legacy, columbus_identity)
+        ))
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            state.dispatch(self.legacy.parse_outer(
+                self.legacy._synthetic_quest_operate_pc(
+                    columbus_quest_dispatch.COLUMBUS_QUEST_ID, 1, 0, 0, 0, 0,
+                )
+            ))
+        printed = buffer.getvalue()
+        stowaway_lines = [
+            line for line in printed.splitlines()
+            if line.startswith("WORLD_POP_STOWAWAYS")
+        ]
+        self.assertEqual(len(stowaway_lines), 1, printed)
+        line = stowaway_lines[0]
+        self.assertNotIn("unmeasured", line)
+        self.assertNotIn("unreportable", line)
+        self.assertIn(" held=", line)
+        self.assertIn(" radius=", line)
+        self.assertIn(" names=", line)
+        # The call site's _emit records AND prints (the e0daaa finding's
+        # convention): the same measured line must be in state.events too.
+        self.assertIn(line, state.events)
+
 
 if __name__ == "__main__":
     unittest.main()

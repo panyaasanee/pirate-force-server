@@ -2100,10 +2100,25 @@ def repopulation_entries(
     # scene's dead mob sharing this wire identity must not be mistaken for
     # "this roster forgot a row" - that dead mob simply belongs to a roster
     # this call was never given.
+    #
+    # ROUND qb70g2 (pf-adversary D1, measured end to end): that sentence was
+    # only half true in code.  The (scene, identity) key stopped the
+    # SHARED-identity confusion, but a record from a scene this roster does
+    # not cover at all still landed in ``missing`` and refused - so one
+    # authorized kill in Bg0002 made every later bg0001 recompose raise,
+    # outside runtime.py's compose catch-all, and the register survives the
+    # trip BY DESIGN (it is per-(identity, scene) so deaths persist across
+    # scene changes).  A foreign-scene record is now what the comment above
+    # always said it was: a row for a roster this call was never given -
+    # ignored here, consumed when THAT scene composes.  A record in one of
+    # THIS roster's own scenes with no roster row is still the real drift
+    # this check exists for, and still refuses by name.
     roster_keys = set((m.scene, m.actor_identity) for m in roster)
+    roster_scenes = set(m.scene for m in roster)
     missing = tuple(
         record.actor_identity for record in register.records
-        if (record.scene, record.actor_identity) not in roster_keys
+        if record.scene in roster_scenes
+        and (record.scene, record.actor_identity) not in roster_keys
     )
     if missing:
         raise MobDeathContractError(
