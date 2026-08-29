@@ -754,6 +754,14 @@ class EventNameContractTests(_Case):
             "gm_chat_action_outcome_stage_not_reverted"
         ),
         "EVENT_OUTCOME_STAGE_REVERTED": "gm_chat_action_outcome_stage_reverted",
+        # Round `c48x1n`: a console line this module MEANT to write and could
+        # not.  Pinned like the rest, and for this one the grep is the whole
+        # point -- it is what separates "the console is broken" from "the
+        # route was never wired", which an attended `GT-127` run would
+        # otherwise read as the same silence.
+        "EVENT_CONSOLE_WRITE_FAILED_PREFIX": (
+            "gm_chat_action_console_write_failed_"
+        ),
     }
 
     # Action labels are the same kind of interface as the event names, and a
