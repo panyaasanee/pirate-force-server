@@ -87,6 +87,13 @@ LANE_B_MODULES = (
     # tuple is the lane's own second record of what it owns and a module
     # missing from it is a module the fabrication sweep never reads.
     "mob_pickup_persist.py",
+    # ROUND y9s0xo: the mid-session recompose census, scene by scene -- the
+    # composer that keeps a hit or a kill in Bg0002 from shipping the
+    # one-entry frame RE-092 proved erases every other actor.  Listed in the
+    # same commit as the module, for the reason the two entries above already
+    # record: a module missing from this tuple is a module the fabrication
+    # sweep never reads.
+    "mob_scene_recompose.py",
 )
 
 # The exact identifiers RE-122's own BUILD_IMPACT line names, plus the exact

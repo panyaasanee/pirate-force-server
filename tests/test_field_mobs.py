@@ -828,11 +828,20 @@ class FieldMobTests(unittest.TestCase):
             # nothing either -- runtime.py reaches it only through
             # mob_census_hostility, and the keyword that would let it
             # matter is this round's wiring ask.
+            # ROUND y9s0xo adds mob_scene_recompose.py: it reads
+            # ``roster_for_scene_id``/``scene_for_scene_id`` to compose the
+            # mid-session recompose census for whichever scene the hit
+            # happened in, and takes ``FIELD_MOB_FACTION`` as the default it
+            # forwards (mob_death's own signature default, mirrored rather
+            # than re-guessed).  IT DISPATCHES NOTHING: runtime.py does not
+            # call it, and the two call sites that would are this round's
+            # wiring ask (mob_scene_recompose.SCENE_RECOMPOSE_WIRING).
             ["diag_multi_object_wiring.py", "mob_ai_control.py",
              "mob_census_hostility.py",
              "mob_combat.py", "mob_death.py",
              "mob_diag_multi_object.py",
              "mob_ledger_admission.py", "mob_loot.py",
+             "mob_scene_recompose.py",
              "player_hostile_pairing.py", "runtime.py"],
             "field_mobs importers changed; update the letter")
         runtime_body = (

@@ -920,8 +920,13 @@ guard(SRC_ACTOR_ENTRY_SITES == 17,
       "HYP-PF-038 hostile HP link + the lane-B production modules + the "
       "GT-114 multi-object diagnostic + the lane-A bg0002 and bg0015 "
       "censuses)")
-guard(SRC_ACTOR_STREAM_SITES == 25,
-      "src/ sends the actor-entry carrier at exactly 25 call sites")
+# ROUND y9s0xo (lane B): 25 -> 26.  mob_scene_recompose.py re-encodes the
+# collection when it splices a scene's roster override into a recompose --
+# the same encoder, one more call site, and no new actor ENTRY builder (the
+# guard above is unchanged at 17, which is the pair of numbers saying this
+# module composes existing bodies rather than inventing any).
+guard(SRC_ACTOR_STREAM_SITES == 26,
+      "src/ sends the actor-entry carrier at exactly 26 call sites")
 guard(SRC_MODULES_WITH_ACTOR_ENTRY == 16
       and SRC_MODULES_WITH_ACTOR_ENTRY_NAMES == (
           "field_mobs.py",
