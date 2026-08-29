@@ -96,11 +96,11 @@ class StubProjector:
 
 
 class StubLifecycle:
-    """The two calls ``select_and_start`` makes before gate 2, and no more."""
+    """The three calls ``select_and_start`` makes before gate 2, and no
+    more: ``select``, ``backpack``, and the counter read."""
 
     def __init__(self, backpack):
         self._backpack = backpack
-        self.store = None
 
     def login(self, login_name):
         return 1, "session-1", []
@@ -110,6 +110,20 @@ class StubLifecycle:
 
     def backpack(self, session_id, selected):
         return self._backpack
+
+    def backpack_issued_through(self, session_id, selected):
+        # Route 1 (COO-DECISION 20260829_0848) threads the identity counter
+        # into gate 2.  The honest stub value is the bag's own highest
+        # identity -- the counter as the real store would hold it after
+        # everything this bag carries was issued -- so these tests keep
+        # measuring the SHAPE rule, not the ceiling (the ceiling's tests
+        # live in tests/test_bag_admission.py::CounterCeilingTests).
+        try:
+            return max(item.identity for item in self._backpack.items)
+        except (TypeError, AttributeError, ValueError):
+            # A malformed value has no honest counter; gate 2 refuses it on
+            # shape whatever this number is.
+            return 0
 
 
 def enter(backpack, *, allow_hypothesized_item_move=False):
@@ -126,6 +140,49 @@ def enter(backpack, *, allow_hypothesized_item_move=False):
         except PermissionError as exc:
             error = exc
     return session, captured.getvalue(), error
+
+
+class Gate2ThreadsTheRealCounter(unittest.TestCase):
+    """The gate acts on the number the STORE holds, not on a constant.
+
+    Route 1 (COO-DECISION 20260829_0848): ``session.select_and_start`` reads
+    ``store.backpack_issued_through`` and threads it into
+    ``may_enter_world``.  GATE-WALK (COO letter 0742): the branch walked is
+    ``_classify_against``'s ceiling refusal, reached through the REAL
+    session call.  Mutation kill: hardcode the threaded value in
+    ``session.py``, or stop reading the store there, and the refusal below
+    becomes an admission.
+    """
+
+    def test_a_counter_below_the_acquired_row_refuses_the_relog(self):
+        acquired, item = mob_pickup.place_in_bag(INITIAL_BACKPACK, a_drop())
+        lifecycle = StubLifecycle(acquired)
+        # The store says it never issued this row's identity: the counter
+        # still stands at the golden's seed.
+        seed = max(row.identity for row in INITIAL_BACKPACK.items)
+        self.assertGreater(item.identity, seed)
+        lifecycle.backpack_issued_through = lambda sid, sel: seed
+        session = FoundationSession(
+            lifecycle, StubProjector(), "gate2-user",
+            allow_hypothesized_item_move=False,
+        )
+        captured, error = io.StringIO(), None
+        with redirect_stderr(captured):
+            try:
+                session.select_and_start(0)
+            except PermissionError as exc:
+                error = exc
+        self.assertIsNotNone(
+            error,
+            "gate 2 admitted a row the store says it never issued -- the "
+            "session is not threading the real counter",
+        )
+        self.assertEqual(len(session.projector.started_with), 0)
+        self.assertIn(
+            "reason=" + bag_admission.REASON_ACQUIRED_IDENTITY_NOT_ISSUED,
+            captured.getvalue(),
+            "the console line must name the counter refusal the gate made",
+        )
 
 
 class Gate2AdmitsAnAcquiredRow(unittest.TestCase):

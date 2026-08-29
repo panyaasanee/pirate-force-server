@@ -84,6 +84,13 @@ class CharacterLifecycle:
     def backpack(self, session_id, character):
         return self.store.get_backpack(session_id, character.id)
 
+    def backpack_issued_through(self, session_id, character):
+        # Route 1 (COO-DECISION 20260829_0848): gate 2 needs the identity
+        # counter, and the admission predicate must not import store --
+        # session reads it through here, the same indirection backpack()
+        # above uses.
+        return self.store.backpack_issued_through(session_id, character.id)
+
     def merge_v111_stack(self, session_id, character):
         return self.store.apply_v111_stack_merge(session_id, character.id)
 

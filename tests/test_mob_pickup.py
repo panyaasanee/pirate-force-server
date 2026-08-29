@@ -1408,6 +1408,8 @@ class MobPickupTests(unittest.TestCase):
         self.assertFalse(inventory.is_unmoved_baseline(bag))
         self.assertTrue(bag_admission.may_enter_world(
             bag, allow_hypothesized_item_move=False,
+            # the counter after these very pickups: it moves with each one
+            issued_through=max(item.identity for item in bag.items),
         ))
         # Gate 3: the world-entry attr build -- WIDENED this round
         # (COO-DECISION 20260828_0844).  It no longer raises for this bag;
@@ -1422,6 +1424,8 @@ class MobPickupTests(unittest.TestCase):
         # change it exists to catch.
         self.assertTrue(bag_admission.may_enter_world(
             bag, allow_hypothesized_item_move=False,
+            # the counter after these very pickups: it moves with each one
+            issued_through=max(item.identity for item in bag.items),
         ))
         # The encoder writes each identity twice by design (the full ItemAttr
         # record, then the trailing identity-only index) -- see

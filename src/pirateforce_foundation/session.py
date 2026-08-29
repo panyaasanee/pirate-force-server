@@ -71,6 +71,15 @@ class FoundationSession:
     def select_and_start(self, selector: int):
         selected = self.lifecycle.select(self.session_id, selector)
         backpack = self.lifecycle.backpack(self.session_id, selected)
+        # COO-DECISION 20260829_0848 (route 1): gate 2's acquired-row
+        # criterion is the identity counter, and bag_admission must not
+        # import store -- so the counter is read HERE (through lifecycle,
+        # the same indirection backpack() uses) and threaded in.
+        # backpack_issued_through is INCLUSIVE (column minus one; see
+        # store.py's own EXCLUSIVE/INCLUSIVE trap note).
+        issued_through = self.lifecycle.backpack_issued_through(
+            self.session_id, selected,
+        )
         # Gate 2, per COO-DECISION 20260829_0441 (BAG_ADMISSION_WIRING).  The
         # first two terms of may_enter_world ARE the condition this line
         # carried before, in the same order.  TWO differences, both measured
@@ -96,13 +105,18 @@ class FoundationSession:
         if not bag_admission.may_enter_world(
             backpack,
             allow_hypothesized_item_move=self.allow_hypothesized_item_move,
+            issued_through=issued_through,
         ):
             # Unconditional, not attended-only.  The PermissionError below
-            # names HYP-PF-008, which is the wrong sentence for two of the
+            # names HYP-PF-008, which is the wrong sentence for THREE of the
             # refusals this predicate returns (a malformed bag -- a real bug,
-            # gate 1 should have raised first -- and a drifted header).
-            # Without this line a structural fault reaches the operator
-            # misattributed to a hypothesis that had nothing to do with it.
+            # gate 1 should have raised first -- a drifted header, and since
+            # round hsz32u a counter refusal: acquired_identity_not_issued,
+            # e.g. a store whose next_item_identity fell behind the bag
+            # after a partial restore).  Without this line a structural
+            # fault reaches the operator misattributed to a hypothesis that
+            # had nothing to do with it -- the stderr token below is the
+            # line that names the true reason.
             #
             # A DIAGNOSTIC MAY NEVER ALTER DISPATCH (runtime.make_stdout_event
             # _exporter's rule, applied here).  pf-adversary measured TWO
@@ -119,9 +133,15 @@ class FoundationSession:
             # cure for that one is an event beside the print, which this
             # round did not add -- see the round letter.
             try:
+                # Same issued_through as the gate above, so the console line
+                # names the SAME refusal the gate returned -- a bare
+                # classify() here could report golden_plus_acquired for a
+                # bag the gate just refused on the counter.
                 print(
                     bag_admission.console_line(
-                        bag_admission.classify(backpack)
+                        bag_admission.classify(
+                            backpack, issued_through=issued_through,
+                        )
                     ),
                     file=sys.stderr,
                 )

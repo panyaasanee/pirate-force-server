@@ -229,7 +229,9 @@ class PickupPersistTests(unittest.TestCase):
             admission.verdict, bag_admission.VERDICT_GOLDEN_PLUS_ACQUIRED)
         self.assertEqual(admission.acquired, (result.outcome.item,))
         self.assertTrue(bag_admission.may_enter_world(
-            reloaded, allow_hypothesized_item_move=False))
+            reloaded, allow_hypothesized_item_move=False,
+            issued_through=self.store.backpack_issued_through(
+                self.sid, self.character.id)))
         # and the next session's cell seeds from the moved column, so the
         # pickup after the relog does not re-mint the identity that survived
         after = self._claim_cell()
