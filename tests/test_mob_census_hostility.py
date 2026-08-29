@@ -474,7 +474,8 @@ class CensusHostilityTests(unittest.TestCase):
         self.assertEqual(
             line,
             "MOB_CENSUS_HOSTILITY scene_id=2 scene=Bg0002 roster=12 "
-            "backed=12 unbacked=none refused=8 override=not_reported",
+            "backed=12 unbacked=none refused=8 override=not_reported "
+            "ledger=not_reported",
         )
 
     def test_the_console_line_names_an_unbacked_identity_rather_than_hiding_it(self):

@@ -73,6 +73,12 @@ LANE_B_MODULES = (
     "mob_census_wire_count.py",
     "mob_combat.py",
     "mob_death.py",
+    # ROUND jop8ph: whether a combat ledger may be consulted while composing
+    # a given scene's census -- the build half of the scene-bound ledger
+    # admission decision.  Listed in the same commit as the module, because
+    # round z096sw learned the hard way that this tuple is what makes a new
+    # module part of the sweep at all.
+    "mob_ledger_admission.py",
     "mob_diag_multi_object.py",
     "mob_loot.py",
     "mob_pickup.py",

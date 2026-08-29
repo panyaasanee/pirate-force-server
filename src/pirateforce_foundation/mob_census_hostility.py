@@ -55,6 +55,7 @@ from typing import Any
 
 from . import field_mobs
 from . import mob_death
+from . import mob_ledger_admission
 
 
 class CensusHostilityError(ValueError):
@@ -134,16 +135,31 @@ def hostile_override_for_scene_id(
     passes NO ledger today, and why every wounded scene-2 monster is
     therefore re-sent at its ceiling by a census recompose.
 
-    THE FIX IS DECIDED AND IS NOT IN THIS FUNCTION YET.  A ledger does not
-    know which scene it was opened for, so no caller can ask "is this
-    yours?" without triggering the refusal.  This lane's decision --
-    ``pf_bridge/notes_to_chief/20260829_1849_LANE-B-DECISION-scene-bound-
-    ledger-admission.md`` -- is to give ``mob_combat.CombatLedger`` its
-    scene and let THIS function admit or decline a ledger by scene, three
-    ways: same scene, forward it; other scene, decline it WITHOUT raising
-    and say so on the console; absent, a named state rather than a silent
-    default.  Until that lands, a caller must pass a ledger for THIS
-    scene or none at all.
+    ~~THE FIX IS DECIDED AND IS NOT IN THIS FUNCTION YET.~~  [BUILT, ROUND
+    jop8ph.]  The decision -- ``pf_bridge/notes_to_chief/20260829_1849_LANE-
+    B-DECISION-scene-bound-ledger-admission.md``, affirmed by ``COO-DECISION
+    2026-08-29T18:42+07:00`` -- was to give ``mob_combat.CombatLedger`` its
+    scene and let this lane admit or decline a ledger, three ways rather
+    than two.  Both halves are now in the tree, and the admission itself
+    lives in :mod:`mob_ledger_admission` rather than inline here, because
+    the recompose path the COO's ruling names needs the same decision with
+    a different escalation.
+
+    SO THE SENTENCE THIS DOCSTRING USED TO END ON IS NO LONGER TRUE, and it
+    is the whole point of the round: a caller no longer has to pass "a
+    ledger for THIS scene or none at all".  It passes whatever ledger it
+    holds.  A ledger for another scene, or one that cannot answer for part
+    of this roster, is DECLINED -- not raised on -- and this function
+    composes exactly as it would have with no ledger, which is the
+    behaviour that was already live.  What it never does again is unwind
+    the listener thread, and what a call site never has to do again is
+    remember which scene its ledger came from.
+
+    The decline is not silent: the record is on
+    :func:`describe_census_hostility`'s line as ``ledger=<state>``, and a
+    caller that does not pass the ledger to that line at all prints
+    ``ledger=not_reported`` -- a named gap rather than a reassuring blank,
+    exactly as ``override=`` already works.
     """
     # ~~if not roster: return {}~~ REMOVED, self-mutation sweep this round
     # (M2): that early return was DEAD CODE.  ``full_roster_override`` over
@@ -154,8 +170,15 @@ def hostile_override_for_scene_id(
     # exercises the REAL composer for that case instead of a shortcut around
     # it, which is what it was supposed to be pinning all along.
     roster = field_mobs.roster_for_scene_id(scene_id)
+    # The admission is asked about THE ROWS BEING COMPOSED, not about a
+    # re-derivation of them.  Same rule ``census_backing_report`` states for
+    # its own inputs: a check computed from a different copy of the thing it
+    # is checking can agree with itself while the composition raises.
+    admitted = mob_ledger_admission.ledger_for_scene(
+        scene_id, ledger, roster=roster,
+    )
     return mob_death.full_roster_override(
-        legacy, roster, register, ledger=ledger,
+        legacy, roster, register, ledger=admitted,
     )
 
 
@@ -238,11 +261,15 @@ def census_backing_report(
     }
 
 
+_LEDGER_NOT_REPORTED = object()
+
+
 def describe_census_hostility(
     scene_id: int,
     census_identities: Any,
     *,
     override: Any = None,
+    ledger: Any = _LEDGER_NOT_REPORTED,
 ) -> tuple[str, ...]:
     """One ASCII console line for :func:`census_backing_report` (G-OBS).
 
@@ -280,6 +307,37 @@ def describe_census_hostility(
     ``refused=`` is the D11 half: the count of placements the owner's
     ruling keeps out of this scene's roster, so a boot can tell whether
     the filter is still doing anything.
+
+    ``ledger=`` IS THE jop8ph HALF, and it is on THIS line rather than on a
+    new one on purpose.  Round jop8ph made
+    :func:`hostile_override_for_scene_id` safe to hand any ledger, which
+    means a call site can now pass one -- and the whole value of that is
+    lost if a boot cannot tell whether the ledger it passed was CONSULTED.
+    "The HP in this census came from the live ledger" and "the ledger was
+    declined and every monster is at its ceiling" are the two states this
+    round exists to separate, and they must not look alike in a log.
+
+    A caller that does not pass ``ledger=`` prints ``ledger=not_reported``,
+    the same named gap ``override=`` uses.  It is NOT defaulted to
+    ``absent``: "I did not tell you" and "there was none" are different
+    facts about different people, and a call site that forgot the keyword
+    would otherwise print a line accusing itself of a defect it may not
+    have.  Passing ``ledger=None`` explicitly is what prints ``absent``.
+
+    The state names come from :mod:`mob_ledger_admission` unchanged, so one
+    grep answers the question on either line.
+
+    WHAT THIS LINE DOES NOT DO, SAID PLAINLY: it does not observe the
+    decision :func:`hostile_override_for_scene_id` actually made.  It asks
+    the same question again, and it resolves the roster a second time to do
+    so, because a ``runtime.py`` call site holds the scene id and the
+    ledger and never sees the roster in between.  The two answers agree
+    because ``field_mobs.roster_for_scene_id`` is a pure function of
+    committed tables -- there is no clock, no file read and no session
+    state in it -- and ``tests/test_mob_ledger_admission.py`` pins that
+    agreement rather than assuming it.  A future roster that depends on
+    session state would break that equivalence silently, and this
+    paragraph is where the next reader finds out why.
     """
     report = census_backing_report(scene_id, census_identities)
     unbacked = (
@@ -293,9 +351,17 @@ def describe_census_hostility(
             carried = "%d" % len(override)
         except Exception:
             carried = "unreadable"
+    if ledger is _LEDGER_NOT_REPORTED:
+        admission = "not_reported"
+    else:
+        try:
+            admission = mob_ledger_admission.admit_ledger(
+                scene_id, ledger)["state"]
+        except Exception:  # noqa: BLE001 - a console line never kills a boot
+            admission = "undescribable"
     return (
         "MOB_CENSUS_HOSTILITY scene_id=%d scene=%s roster=%d backed=%d "
-        "unbacked=%s refused=%d override=%s" % (
+        "unbacked=%s refused=%d override=%s ledger=%s" % (
             report["scene_id"],
             report["scene"] if report["scene"] else "?",
             report["roster_count"],
@@ -303,6 +369,7 @@ def describe_census_hostility(
             unbacked,
             report["refused_count"],
             carried,
+            admission,
         ),
     )
 

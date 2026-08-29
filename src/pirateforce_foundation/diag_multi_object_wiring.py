@@ -414,7 +414,15 @@ def widen_for_combat(
         # the first hit would ever work.
         wider_ledger = (
             ledger if len(rows) == len(ledger.balances)
-            else mob_combat.CombatLedger(tuple(rows), ledger.generation)
+            # ``ledger.scene`` is carried, round jop8ph.  The widened ledger
+            # is the SAME session's ledger with the diagnostic rows added,
+            # not a new one for a different place -- dropping the scene here
+            # would make the first diagnostic widening silently turn a
+            # scoped ledger into an unscoped one, and
+            # ``mob_ledger_admission`` would then admit it into any scene
+            # whose roster it happens to contain.
+            else mob_combat.CombatLedger(
+                tuple(rows), ledger.generation, ledger.scene)
         )
     except Exception as error:  # noqa: BLE001 - fail closed, see docstring
         return roster, ledger, EVENT_COMBAT_WIDEN_REFUSED % type(error).__name__
