@@ -382,6 +382,55 @@ class PickupPersistTests(unittest.TestCase):
             mob_pickup_persist.REFUSE_SESSION_DOES_NOT_OWN_THIS_CHARACTER)
         self.assertIsInstance(caught.exception.__cause__, PermissionError)
 
+    def test_a_permission_error_that_is_not_about_ownership_is_not_called_one(self):
+        """The discriminating half of that fix, which nothing else drives.
+
+        pf-adversary, third pass: replacing the whole gate with ``return
+        True`` -- i.e. going back to keying on the ``PermissionError`` CLASS,
+        the exact defect the previous pass reported -- left the suite green,
+        because only the ownership case was ever exercised.  WinError 32 is
+        the case that matters: a backup or antivirus holding the sqlite file
+        must not be reported as a client asking for a character it does not
+        own.
+        """
+        cell = self._claim_cell()
+        held = PermissionError(
+            13,
+            "[WinError 32] The process cannot access the file because it is "
+            "being used by another process: "
+            "'C:\\Panya\\sessions\\selected\\state.sqlite3'")
+        with mock.patch.object(
+                self.store, "backpack_issued_through", side_effect=held):
+            with self.assertRaises(MobPickupPersistError) as caught:
+                precheck_persistable(
+                    self.store, self.sid, self.character.id, cell)
+        self.assertEqual(
+            caught.exception.reason,
+            mob_pickup_persist.REFUSE_STORE_CANNOT_BE_ASKED)
+        self.assertIs(caught.exception.__cause__, held)
+        # ...and the path segments that look like the store's own wording do
+        # not flip it back: "sessions" contains "session", and a directory
+        # called "selected" used to finish the job
+        self.assertNotIn(
+            mob_pickup_persist.REFUSE_SESSION_DOES_NOT_OWN_THIS_CHARACTER,
+            caught.exception.reason)
+
+    def test_the_ownership_gate_matches_the_stores_own_words_and_no_others(self):
+        # The coupling named for what it is: if store.py rewords its refusal,
+        # THIS goes red rather than the log going quietly wrong.  The real
+        # store's real exception is the first case, driven end to end by
+        # test_a_session_without_this_character_selected_is_refused_by_name.
+        reads_as = mob_pickup_persist._reads_as_an_ownership_refusal
+        self.assertTrue(reads_as(
+            PermissionError("stale or non-owning character session")))
+        for foreign in (
+            PermissionError(13, "[WinError 32] ... 'C:\\sessions\\x.sqlite3'"),
+            PermissionError("Permission denied: '/srv/sessions/state.db'"),
+            PermissionError("read-only file system"),
+        ):
+            with self.subTest(exc=str(foreign)[:40]):
+                self.assertFalse(reads_as(foreign))
+
     def test_a_store_that_cannot_answer_is_reported_as_that_and_stays_ascii(self):
         """The catch-all, and the cp874 exposure in its own detail string.
 
@@ -478,6 +527,60 @@ class PickupPersistTests(unittest.TestCase):
         # and the row really is there, which is what the line now says
         self.assertEqual(len(self._rows()), len(INITIAL_BACKPACK.items) + 1)
 
+    def test_another_row_wearing_the_identity_is_a_collision_not_a_write(self):
+        """The scenario this module was built around, and it has its own token.
+
+        pf-adversary, third pass.  The post-take refusal that will ACTUALLY
+        happen is the store's identity check -- and that check can only fail
+        because another row already holds the identity this pickup minted.  A
+        read-back that matched on identity alone therefore reported
+        WROTE_THEN_FAILED for somebody else's row, printed this pickup's own
+        template beside it, and told the operator not to restore an item that
+        was never written.  Four states, not three.
+        """
+        ground = a_ground_cell(a_drop())
+        cell = self._claim_cell()
+        # somebody else takes identity 5 with a different template, behind
+        # this session's back and after this cell was seeded
+        other_cell = mob_pickup.BagCell(
+            self.store.get_backpack(self.sid, self.character.id),
+            self.character.id,
+            self.store.backpack_issued_through(self.sid, self.character.id),
+        )
+        _, stolen = mob_pickup.place_in_bag(
+            other_cell.bag,
+            mob_loot.GroundDrop(
+                mob_loot.DROP_KEY_BASE + 9, 2200201, 1,
+                mob_loot.as_wire_float(DROP_AT[0]),
+                mob_loot.as_wire_float(DROP_AT[1]),
+                mob_loot.as_wire_float(DROP_AT[2]), MOB, KILLER),
+            other_cell.issued_through,
+        )
+        self.store.commit_acquired_backpack_item(
+            self.sid, self.character.id, stolen)
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            with self.assertRaises(MobPickupPersistError) as caught:
+                # straight through dispatch + persist, so the precheck does
+                # not refuse first: this is the after-the-take path
+                outcome = mob_pickup.dispatch_pickup_request(
+                    cell, ground, self.legacy, KILLER, DROP_AT[0], DROP_AT[1],
+                    DROP_AT[2], mob_loot.DROP_KEY_BASE, 0)
+                mob_pickup_persist.persist_pickup(
+                    self.store, self.sid, self.character.id, outcome)
+        self.assertEqual(
+            caught.exception.reason,
+            mob_pickup_persist.REFUSE_WRITE_FAILED_AFTER_THE_TAKE)
+        printed = buffer.getvalue()
+        self.assertIn(mob_pickup_persist.AFTERMATH_ROW_COLLIDED, printed)
+        self.assertNotIn(mob_pickup_persist.AFTERMATH_ROW_PRESENT, printed)
+        self.assertIn("this item was NOT written", printed)
+        # and the measurement that makes the distinction real: identity 5 IS
+        # in the database, and it is not this pickup's row
+        rows = self._rows()
+        self.assertIn(5, [row[0] for row in rows])
+        self.assertNotIn(ITEM, [row[1] for row in rows])
+
     def test_when_the_read_back_also_fails_the_fate_is_named_unknown(self):
         """Three answers, never two: "I do not know" is one of them.
 
@@ -550,6 +653,53 @@ class PickupPersistTests(unittest.TestCase):
                     self._pickup(cell, ground)
         buffer.getvalue().encode("cp874")
         caught.exception.detail.encode("cp874")
+
+    def test_the_read_back_answers_unknown_rather_than_raising_on_junk(self):
+        """It runs inside the except block, so it must not raise there.
+
+        pf-adversary, third pass: the guard was added to the console composer
+        on exactly this argument and not to the read-back beside it.  Rows
+        that are not ``ItemAttrState`` raise ``AttributeError`` from
+        ``row.identity``, which the ``except TypeError`` there did not catch
+        -- replacing the named refusal and burying the store's own exception.
+        """
+        ground = a_ground_cell(a_drop())
+        cell = self._claim_cell()
+        outcome = mob_pickup.dispatch_pickup_request(
+            cell, ground, self.legacy, KILLER, DROP_AT[0], DROP_AT[1],
+            DROP_AT[2], mob_loot.DROP_KEY_BASE, 0)
+
+        class NotABag:
+            items = ({"identity": 5},)
+
+        for junk in (NotABag(), object(), None):
+            with self.subTest(read_back=type(junk).__name__):
+                with mock.patch.object(
+                        self.store, "get_backpack", return_value=junk):
+                    self.assertEqual(
+                        mob_pickup_persist.aftermath_of_a_failed_write(
+                            self.store, self.sid, self.character.id,
+                            outcome.row_write),
+                        mob_pickup_persist.AFTERMATH_UNKNOWN)
+
+    def test_the_loss_line_refuses_a_token_it_did_not_define(self):
+        # The token is the first word of the line, which is the field an
+        # operator greps: a function that validates its row and then emits any
+        # string at all as the token checks the wrong argument.
+        ground = a_ground_cell(a_drop())
+        cell = self._claim_cell()
+        result = self._pickup(cell, ground)
+        with self.assertRaises(MobPickupPersistError) as caught:
+            mob_pickup_persist.row_lost_console_line(
+                result.outcome.row_write, ValueError("boom"), "ANYTHING_ELSE")
+        self.assertEqual(
+            caught.exception.reason,
+            mob_pickup_persist.REFUSE_TYPE_NOT_TYPED_RECORD)
+        for token in mob_pickup_persist.AFTERMATH_TOKENS:
+            with self.subTest(token=token):
+                line = mob_pickup_persist.row_lost_console_line(
+                    result.outcome.row_write, ValueError("boom"), token)
+                self.assertTrue(line.startswith(token + " "))
 
     def test_the_loss_line_refuses_a_value_that_is_not_the_typed_row(self):
         # Same guard as the sibling composer, and it matters more here: this
@@ -800,6 +950,18 @@ class PickupPersistTests(unittest.TestCase):
         that destroys a drop when the cell has drifted -- with no mention that
         a safer one exists.  Two recipes for one opcode, and the canonical one
         was the old one.  This keeps them from drifting apart again.
+
+        WHAT THIS TEST CANNOT DO, named rather than implied, because a test
+        whose limits are not written down gets read as a guarantee.  It pins
+        the presence of the instruction and the absence of two exact
+        negations.  It is a phrase blacklist, and a blacklist cannot pin a
+        DIRECTION: pf-adversary appended a later clause to the note
+        ("WITHDRAWN: ... ignore that paragraph and follow the dispatch call
+        and step 3 exactly as written") and every assertion below still held.
+        Closing that properly means the note being generated from the same
+        source the call path uses, which is more than this round is doing.
+        What holds the direction today is the PR review of any change to that
+        note -- a person, not this file.
         """
         note = mob_pickup.MOB_PICKUP_WIRING
         self.assertIn(mob_pickup_persist.MOB_PICKUP_PERSIST_HEADLINE_CALL, note)

@@ -50,22 +50,27 @@ module cannot prevent that.  What it does instead, since round uq2lxw:
   * the failure is re-raised as :exc:`MobPickupPersistError` with the named
     reason ``write_failed_after_the_take``, never as the store's own
     exception class, so a caller has one vocabulary to catch;
-  * the database is READ BACK and the console gets one of three lines --
+  * the database is READ BACK and the console gets one of FOUR lines --
     ``MOB_PICKUP_ROW_LOST`` (read back, not there),
-    ``MOB_PICKUP_ROW_WROTE_THEN_FAILED`` (read back, it IS there) or
-    ``MOB_PICKUP_ROW_FATE_UNKNOWN`` (the read failed too).  Printed whatever
-    ``echo`` says, because an item that may have been destroyed is not a
-    console preference.  An earlier draft printed "LOST" on the strength of
-    an exception having arrived and pf-adversary measured it lying: with a
-    store that commits and then raises, the row was in the database and the
-    console told an operator to put it back by hand;
-  * when the row really is absent, every later pickup in that session
-    refuses before its take (``cell_disagrees_with_the_database``), so one
-    lost drop does not become a session of silently diverging bags.  When it
-    is PRESENT, the cell and the database agree again and the session simply
-    continues -- with the caller having been told the pickup failed.  That
-    case is named here rather than smoothed over; the resync below is what
-    would answer it.
+    ``MOB_PICKUP_ROW_WROTE_THEN_FAILED`` (this exact row IS there),
+    ``MOB_PICKUP_ROW_COLLIDED`` (another row wears the identity this pickup
+    minted) or ``MOB_PICKUP_ROW_FATE_UNKNOWN`` (the read failed too).
+    Printed whatever ``echo`` says, because an item that may have been
+    destroyed is not a console preference.  Two earlier drafts got this
+    wrong and pf-adversary measured both: one printed "LOST" on the strength
+    of an exception having arrived, while the row was in the database; the
+    next read the bag back but matched on the identity alone, which reports
+    PRESENT for somebody else's row on the one scenario that actually
+    happens;
+  * every later pickup in that session refuses before its take
+    (``cell_disagrees_with_the_database``), so one bad write does not become
+    a session of silently diverging bags.  ~~"When it is PRESENT, the cell
+    and the database agree again and the session simply continues"~~ IS
+    STRUCK AS FALSE (pf-adversary, third pass, measured): the cell holds the
+    row it took, the database holds whatever it holds, and they are not equal
+    in any of the cases -- the safety net fires in all of them.  What differs
+    between the cases is what an OPERATOR should do, which is what the lines
+    say.
 
 THE QUESTION THAT IS STILL OPEN, and it is the chief's to answer at the call
 site rather than this module's: what the PLAYER is told when that happens.
@@ -145,8 +150,12 @@ MOB_PICKUP_PERSIST_REFUSAL_REASONS = (
 #: rewords it, that test goes red rather than the log going quietly wrong.
 def _reads_as_an_ownership_refusal(exc: Any) -> bool:
     text = str(exc).lower()
-    return "session" in text and (
-        "non-owning" in text or "stale" in text or "selected" in text)
+    # ~~"selected" as a third disjunct~~ REMOVED (pf-adversary, third pass):
+    # the shipped store emits "stale or non-owning character session" and
+    # never the word "selected", so that disjunct matched nothing real while
+    # matching a Windows path segment named `selected` happily.  A term that
+    # can only produce false positives is not a widening, it is surface.
+    return "session" in text and ("non-owning" in text or "stale" in text)
 
 
 def console_safe(text: str) -> str:
@@ -229,29 +238,49 @@ def row_inserted_console_line(row_write: Any) -> str:
     )
 
 
-#: What a read-back after a failed write found.  Three answers, never two:
-#: an exception arriving is not evidence about what is in the database.
+#: What a read-back after a failed write found.  FOUR answers, and the count
+#: is the whole point: an exception arriving is not evidence about what is in
+#: the database, and neither is one field of one row.
 AFTERMATH_ROW_ABSENT = "MOB_PICKUP_ROW_LOST"
 AFTERMATH_ROW_PRESENT = "MOB_PICKUP_ROW_WROTE_THEN_FAILED"
+#: Something else is wearing the identity this pickup minted.  This is the
+#: state that ACTUALLY HAPPENS on the module's headline scenario -- the store's
+#: post-take refusal is "identity N is not this character's next free
+#: identity", which can only fire because somebody else's row already holds N
+#: -- and a read-back that matched on identity alone called it PRESENT and
+#: told the operator not to restore a row that was never written
+#: (pf-adversary, third pass, measured).
+AFTERMATH_ROW_COLLIDED = "MOB_PICKUP_ROW_COLLIDED"
 AFTERMATH_UNKNOWN = "MOB_PICKUP_ROW_FATE_UNKNOWN"
+
+AFTERMATH_TOKENS = (
+    AFTERMATH_ROW_ABSENT,
+    AFTERMATH_ROW_PRESENT,
+    AFTERMATH_ROW_COLLIDED,
+    AFTERMATH_UNKNOWN,
+)
 
 
 def aftermath_of_a_failed_write(store: Any, sid: Any, character_id: Any,
                                 row_write: Any) -> str:
-    """Which of the three the database actually says, by READING it.
+    """Which of the four the database actually says, by READING it.
 
-    ROUND uq2lxw, pf-adversary's second pass.  The first version of this path
-    printed ``MOB_PICKUP_ROW_LOST`` on the strength of "an exception reached
-    me", and that is an inference about the internals of a ``store`` this
-    module only knows as ``Any``.  Measured with a store that commits and
-    then raises on the way out (``db.close()`` in a ``finally`` is enough):
-    the console said the row was LOST while the row was in the database, and
-    an operator following that line's own advice would have inserted a
-    duplicate.
+    ROUND uq2lxw, pf-adversary's second and third passes, and the shape
+    changed once in each.  The first version printed ``MOB_PICKUP_ROW_LOST``
+    on the strength of "an exception reached me" -- an inference about the
+    internals of a ``store`` this module only knows as ``Any``, measured
+    lying with a store that commits and then raises on the way out.  The
+    second version read the bag back but matched on ``item_identity`` alone,
+    which is worse than it sounds: the post-take refusal that will actually
+    happen is the store's identity check, and that check can only fail
+    because ANOTHER row already holds the identity this pickup minted.  So
+    the read was guaranteed to find "a" row and report PRESENT, naming this
+    pickup's own template beside somebody else's row.
 
-    So the failure path asks.  One read, and a third answer for the case
-    where the read fails too -- naming "I do not know" rather than picking
-    the more comfortable of the other two.
+    THE WHOLE ROW IS COMPARED, in ``BagRowWrite``'s own column order, and a
+    row wearing the identity but not matching it is its own answer
+    (:data:`AFTERMATH_ROW_COLLIDED`).  Four states, because four is how many
+    there are.
     """
     try:
         bag = store.get_backpack(sid, character_id)
@@ -259,11 +288,30 @@ def aftermath_of_a_failed_write(store: Any, sid: Any, character_id: Any,
         return AFTERMATH_UNKNOWN
     items = getattr(bag, "items", None)
     try:
-        present = any(
-            row.identity == row_write.item_identity for row in items)
-    except TypeError:
+        wearing = [
+            row for row in items
+            if row.identity == row_write.item_identity
+        ]
+    except (TypeError, AttributeError):
+        # TypeError: `items` is not iterable.  AttributeError: it is, but its
+        # rows are not ItemAttrState.  BOTH have to be caught here, because
+        # this runs inside persist_pickup's own except block, where an
+        # uncaught one replaces the named refusal and buries the store's
+        # exception in __context__ (pf-adversary, third pass: the guard was
+        # added to the console composer on this exact argument and not here).
         return AFTERMATH_UNKNOWN
-    return AFTERMATH_ROW_PRESENT if present else AFTERMATH_ROW_ABSENT
+    if not wearing:
+        return AFTERMATH_ROW_ABSENT
+    try:
+        mine = any(
+            (row.identity, row.template_id, row.quantity, row.slot)
+            == (row_write.item_identity, row_write.template_id,
+                row_write.quantity, row_write.slot)
+            for row in wearing
+        )
+    except AttributeError:
+        return AFTERMATH_UNKNOWN
+    return AFTERMATH_ROW_PRESENT if mine else AFTERMATH_ROW_COLLIDED
 
 
 def row_lost_console_line(row_write: Any, exc: Any,
@@ -286,6 +334,15 @@ def row_lost_console_line(row_write: Any, exc: Any,
             REFUSE_TYPE_NOT_TYPED_RECORD,
             "a console line needs the typed mob_pickup.BagRowWrite the "
             "outcome carries")
+    if token not in AFTERMATH_TOKENS:
+        # The token is the FIRST WORD of the line, which is the field an
+        # operator greps.  A function that validates its row and then emits
+        # any string at all as the token checks the wrong argument
+        # (pf-adversary, third pass).
+        raise MobPickupPersistError(
+            REFUSE_TYPE_NOT_TYPED_RECORD,
+            "%r is not one of this module's aftermath tokens %r"
+            % (token, AFTERMATH_TOKENS))
     tail = {
         AFTERMATH_ROW_ABSENT:
             "the drop left the ground and the row is NOT in the database "
@@ -294,11 +351,15 @@ def row_lost_console_line(row_write: Any, exc: Any,
             "the drop left the ground and the row IS in the database "
             "(read back after the failure) - do NOT insert it by hand; the "
             "caller was told the pickup failed and the client may disagree",
+        AFTERMATH_ROW_COLLIDED:
+            "the drop left the ground and ANOTHER row is wearing the "
+            "identity this pickup minted (read back after the failure) - "
+            "this item was NOT written; do not insert it under that identity",
         AFTERMATH_UNKNOWN:
             "the drop left the ground and the database could not be read "
             "back, so whether the row is there is UNKNOWN - check before "
             "changing anything",
-    }.get(token, "the drop left the ground and the write failed")
+    }[token]
     return (
         "%s table=character_backpack_items "
         "claimant=0x%X character_id=%d item_identity=%d template_id=%d "
@@ -597,9 +658,12 @@ def pickup_and_persist(
       3. :func:`persist_pickup` -- the write.
 
     Every refusal from step 1 and step 2 is raised with the drop still on the
-    ground.  A failure in step 3 leaves the drop gone and nothing written, and
-    that window is real; :func:`precheck_persistable` documents what is and is
-    not removed from it.
+    ground.  A failure in step 3 leaves the drop gone and the database in one
+    of the states :func:`aftermath_of_a_failed_write` reads back and names --
+    ~~"nothing written"~~ IS STRUCK, it was the two-outcome claim this
+    round's own read-back exists to retract.  That window is real;
+    :func:`precheck_persistable` documents what is and is not removed from
+    it.
 
     The caller still owns ``outcome.delta`` (step 4 of ``MOB_PICKUP_WIRING``)
     and gets it from ``result.outcome.delta``.  This function does not send
