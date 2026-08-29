@@ -263,6 +263,21 @@ class ConsumeCauseWiringTests(unittest.TestCase):
             "gm_login_scene_override_lookup_failed_AttributeError",
             state.events,
         )
+        # AND on the console, which is the ONLY artifact a default boot
+        # has: pf-adversary (round k882hm, D2) measured that state.events
+        # is never printed and app.py builds an exporter under
+        # --export-events only, so the events row above proves nothing to
+        # an operator watching a live boot.  Mutation kill: delete the
+        # print in that except arm and this assertion reddens.
+        self.assertIn(
+            "GM_LOGIN_SCENE_OVERRIDE_LOOKUP_FAILED "
+            "effect=login_at_own_row error=AttributeError",
+            console,
+        )
+        # ASCII only: this line reaches the bridge's cp874 console.
+        for line in console.splitlines():
+            if line.startswith("GM_LOGIN_SCENE_OVERRIDE_LOOKUP_FAILED"):
+                line.encode("ascii")
         # The override is what was lost, not the login: the character is
         # standing at its own row's scene.
         self.assertEqual(

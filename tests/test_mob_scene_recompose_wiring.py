@@ -31,18 +31,22 @@ wiring by hand before the round's push):
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import io
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from pirateforce_foundation import diag_multi_object_wiring  # noqa: E402
 from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import mob_combat  # noqa: E402
 from pirateforce_foundation import mob_death  # noqa: E402
+from pirateforce_foundation import mob_diag_multi_object  # noqa: E402
 from pirateforce_foundation import mob_scene_recompose  # noqa: E402
 from pirateforce_foundation import world_population  # noqa: E402
 from pirateforce_foundation import world_population_bg0002  # noqa: E402
@@ -319,6 +323,184 @@ class MobSceneRecomposeWiringTests(unittest.TestCase):
         self.assertGreaterEqual(
             console.count(mob_scene_recompose.CONSOLE_TOKEN), 2, console,
         )
+
+
+    # ----- pf-adversary (round k882hm) D5: mutants the suite let live ----
+
+    def test_scene1_bar_recompose_carries_the_diagnostic_objects(self):
+        """M6: ``objects=(...)`` -> ``objects=()`` survived the whole suite.
+
+        Nothing pinned the scene-1-with-diag-objects bytes, so deleting the
+        five diagnostic bodies from the bar recompose stayed green while a
+        diag session's bar frame silently lost them.  This is that pin: the
+        frame the dispatch queues equals the compose done WITH the session's
+        objects, and differs from the one done without.
+
+        The session's ``diag_multi_objects`` is set directly rather than
+        through a config file: this tree ships no
+        ``config/diag_multi_object.json``, and what is under test is the
+        call site's argument, not the activation path (which
+        tests/test_diag_multi_object_wiring.py owns).
+        """
+        state = self._state_scene1("rw_objects")
+        self._arrive(state)
+        objects = mob_diag_multi_object.diagnostic_objects()
+        state.diag_multi_objects = objects
+        roster, ledger, _note = diag_multi_object_wiring.widen_for_combat(
+            field_mobs.roster_for_scene_id(world_population.SCENE_ID),
+            state.mob_combat_ledger, objects,
+        )
+        state.mob_combat_ledger = ledger
+        target = objects[0].mob.actor_identity
+        actions, _console = self._attack(state, target)
+        bar = [a for a in actions if a[0] == "MOB_COMBAT_BAR"]
+        self.assertEqual(1, len(bar), self._combat_labels(actions))
+        with_objects = mob_scene_recompose.recompose_frames(
+            self.legacy, state.census_anchor_record,
+            state.mob_death_register,
+            ledger=state.mob_combat_ledger, roster=roster,
+            objects=objects,
+        )
+        without_objects = mob_scene_recompose.recompose_frames(
+            self.legacy, state.census_anchor_record,
+            state.mob_death_register,
+            ledger=state.mob_combat_ledger, roster=roster,
+        )
+        self.assertTrue(with_objects.composed, with_objects.state)
+        self.assertTrue(without_objects.composed, without_objects.state)
+        # The two are genuinely different collections -- otherwise this
+        # test would pass with the objects dropped.
+        self.assertNotEqual(without_objects.pc, with_objects.pc)
+        self.assertEqual(with_objects.pc, bar[0][1])
+        self.assertEqual(with_objects.frame, bar[0][2])
+
+    def test_a_death_where_only_one_compose_succeeds_degrades_both(self):
+        """M8: the all-or-nothing guard (``and`` -> ``or``) survived.
+
+        No test reached a state where one compose succeeds and the other
+        refuses -- the existing refusal tests patch so BOTH fail -- so the
+        invariant this file's call site argues for ("a dying frame from one
+        collection and a dead frame from another must never interleave")
+        was unproven.  With ``or`` in place of ``and``, the mutant assigns
+        ``dying_pc = None`` into the action tuple on a mixed state.
+
+        The mixed state is built the only way it can be: patch the module
+        function the call site uses so the FIRST call composes and the
+        SECOND refuses.
+        """
+        state = self._state_at_scene2("rw_mixed")
+        self._arrive(state)
+        target = self.bg0002_mob.actor_identity
+        self._set_balance(state, target, 1)
+
+        real = mob_scene_recompose.recompose_frames
+        calls = {"n": 0}
+
+        def _first_composes_then_refuses(*args, **kwargs):
+            calls["n"] += 1
+            record = real(*args, **kwargs)
+            if calls["n"] == 1:
+                return record
+            return mob_scene_recompose.SceneRecompose(
+                record.scene_id, record.scene,
+                mob_scene_recompose.STATE_REFUSED_PREFIX + "ValueError",
+                detail="test-induced second-compose refusal",
+            )
+
+        from pirateforce_foundation import runtime as runtime_module
+        with mock.patch.object(
+            runtime_module.mob_scene_recompose, "recompose_frames",
+            side_effect=_first_composes_then_refuses,
+        ):
+            actions, _console = self._attack(state, target)
+
+        labels = self._combat_labels(actions)
+        self.assertEqual(
+            labels[:3],
+            ["MOB_COMBAT_ANNOUNCE", "MOB_DEATH_DYING", "MOB_DEATH_DEAD"],
+        )
+        dying = [a for a in actions if a[0] == "MOB_DEATH_DYING"][0]
+        dead = [a for a in actions if a[0] == "MOB_DEATH_DEAD"][0]
+        # Both pairs fall back together: real bytes, never a None pc, and
+        # never one recomposed frame beside one one-entry frame.
+        for pc, frame in ((dying[1], dying[2]), (dead[1], dead[2])):
+            self.assertIsInstance(pc, bytes)
+            self.assertIsInstance(frame, bytes)
+            self.assertEqual(frame, self.legacy.frame_pc(pc))
+        self.assertIn(
+            "mob_death_frames_census_compose_refused_ValueError",
+            state.events,
+        )
+
+    def test_a_kill_outside_the_stamped_scene_falls_back_at_the_death_site(
+        self,
+    ):
+        """M10: dropping the scene check in the DEATH guard survived.
+
+        The bar site had a test for it (test_mob_combat_census_wiring.py);
+        the death site did not, so the death guard could trust a stamp from
+        another scene and recompose the previous map into this one.
+        """
+        state = self._state_scene1("rw_death_wrong_scene")
+        self._arrive(state)
+        self.assertEqual(
+            world_population.SCENE_ID, state.census_anchor_record.scene_id,
+        )
+        # Stand the character in scene 2 while the stamp still describes
+        # scene 1, then kill a scene-2 mob.
+        state.foundation.selected = dataclasses.replace(
+            state.foundation.selected,
+            position=dataclasses.replace(
+                state.foundation.selected.position, scene_id=SCENE2_N_ID,
+            ),
+        )
+        # The combat ledger is re-opened on the scene the character now
+        # stands in the first time a dispatch reads it, so the balance is
+        # lowered through a probe attack's own ledger rather than the
+        # boot's.  One attack only: a second one in the same second is
+        # refused by the cadence gate (mob_combat_cadence_rejected_no_reply),
+        # measured this round.
+        target = self.bg0002_mob.actor_identity
+        state._sync_combat_scene_state()
+        self._set_balance(state, target, 1)
+        actions, _console = self._attack(state, target)
+        labels = self._combat_labels(actions)
+        self.assertIn("MOB_DEATH_DEAD", labels)
+        self.assertIn(
+            "mob_death_frames_census_compose_skipped_no_population_anchor",
+            state.events,
+        )
+
+    def test_every_non_composed_state_keeps_a_greppable_prefix(self):
+        """D6: an event outside ``_refused_``/``_skipped_`` is a false green.
+
+        tests/test_mob_combat_dispatch.py asserts that no event starts with
+        either prefix, so a bare ``no_composer_for_scene`` would pass that
+        assertion while the one-entry world-wipe frame goes out.  This pins
+        the mapping at the source.
+        """
+        from pirateforce_foundation import runtime as runtime_module
+        cases = {
+            mob_scene_recompose.STATE_NO_LEDGER: "refused_no_ledger",
+            mob_scene_recompose.STATE_NO_COMPOSER:
+                "skipped_no_composer_for_scene",
+            mob_scene_recompose.STATE_REFUSED_PREFIX + "ValueError":
+                "refused_ValueError",
+            mob_scene_recompose.STATE_REFUSED_PREFIX
+            + "objects_outside_scene_1":
+                "refused_objects_outside_scene_1",
+        }
+        for state_name, expected in cases.items():
+            record = mob_scene_recompose.SceneRecompose(
+                1, "bg0001", state_name,
+            )
+            suffix = runtime_module._recompose_event_suffix(record)
+            self.assertEqual(expected, suffix)
+            self.assertTrue(
+                suffix.startswith("refused_")
+                or suffix.startswith("skipped_"),
+                suffix,
+            )
 
 
 if __name__ == "__main__":

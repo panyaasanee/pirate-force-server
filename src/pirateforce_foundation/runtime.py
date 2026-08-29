@@ -277,6 +277,30 @@ MOB_COMBAT_DEFAULT_ATTACKER = mob_combat.pin_attacker()
 MOB_COMBAT_STALE_RETRY_LIMIT = 8
 
 
+def _recompose_event_suffix(record):
+    """The event suffix for a recompose that did NOT compose.
+
+    KEEPS ONE OF THE TWO PREFIXES THIS TREE ALREADY GREPS FOR.  Before the
+    scene-dispatched recompose there were exactly two shapes:
+    ``..._refused_<ExceptionName>`` (the compose raised) and
+    ``..._skipped_no_population_anchor`` (there was nothing to compose
+    against).  ``mob_scene_recompose`` returns four states, two of which
+    (``no_composer_for_scene``, ``refused_objects_outside_scene_1``) are
+    neither -- and pf-adversary (round k882hm, D6) measured what that costs:
+    ``tests/test_mob_combat_dispatch.py`` asserts that NO event starts with
+    ``..._skipped_`` or ``..._refused_``, so a state outside both prefixes
+    passes that assertion while the one-entry world-wipe frame goes out.
+
+    So a ``refused_*`` state keeps its exact old spelling and every other
+    non-composed state is named as the skip it is.  A caller must not pass a
+    composed record: there is no event for success.
+    """
+    state = record.state
+    if state.startswith(mob_scene_recompose.STATE_REFUSED_PREFIX):
+        return state
+    return "skipped_" + state
+
+
 def _apply_mob_death_census_override(legacy, generation, override):
     """Splice ``mob_death.corpse_override`` entries into a built world census.
 
@@ -4224,9 +4248,20 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             )
                         )
                         # The lane's wiring ask, point (3): the module's
-                        # own line prints in EVERY state it can return --
-                        # the one-entry-frame states used to be the ones
-                        # with no line at all.
+                        # own line prints in every state a RECOMPOSE can
+                        # return, composed or refused.
+                        # HONEST LIMIT (pf-adversary, round k882hm, D4):
+                        # this is inside the anchor guard, so the arm
+                        # below -- no stamp, or a stamp from another
+                        # scene -- still ships a one-entry frame with NO
+                        # MOB_SCENE_RECOMPOSE line.  It is not silent
+                        # (MOB_COMBAT_BAR_CENSUS_RECOMPOSE prints
+                        # wire_actors=1 for it, outside every if), but the
+                        # module's own line is absent from exactly the
+                        # state the lane demanded it for.  Closing that
+                        # needs a record for "no anchor", which is the
+                        # lane's type to define, not this file's to
+                        # invent; asked for in the round letter.
                         for line in mob_scene_recompose.describe_recompose(
                             recompose_record,
                         ):
@@ -4238,13 +4273,23 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         else:
                             # Every non-composed state degrades to the
                             # one-entry frame, exactly as the old except
-                            # arm did; ``state`` already carries the
-                            # ``refused_<Exception>`` shape the old event
-                            # names used, so existing greps keep matching.
+                            # arm did.  THE EVENT NAME KEEPS ONE OF THE TWO
+                            # OLD PREFIXES, always: pf-adversary (round
+                            # k882hm, D6) measured that
+                            # tests/test_mob_combat_dispatch.py:602 asserts
+                            # no event starts with ``..._skipped_`` or
+                            # ``..._refused_``, so a bare ``state`` of
+                            # ``no_composer_for_scene`` would pass that
+                            # assertion while the one-entry world-wipe
+                            # frame is on the wire.  ``refused_*`` states
+                            # keep their exact old spelling
+                            # (``refused_<Exception>``); every other
+                            # non-composed state is a skip and is named
+                            # like one.
                             bar_pc, bar_frame = step.bar_pc, step.bar_frame
                             self.events.append(
                                 "mob_combat_bar_census_compose_"
-                                f"{recompose_record.state}"
+                                + _recompose_event_suffix(recompose_record)
                             )
                     else:
                         # Reached in ordinary play, not merely in theory:
@@ -4541,14 +4586,14 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             dead_pc, dead_frame = (
                                 death_step.dead_pc, death_step.dead_frame,
                             )
-                            failed_state = (
-                                recompose_dying.state
+                            failed = (
+                                recompose_dying
                                 if not recompose_dying.composed
-                                else recompose_dead.state
+                                else recompose_dead
                             )
                             self.events.append(
                                 "mob_death_frames_census_compose_"
-                                f"{failed_state}"
+                                + _recompose_event_suffix(failed)
                             )
                     else:
                         # Reached in ordinary play, not merely in theory --
@@ -5717,33 +5762,51 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         ValueError, OSError, TypeError, AttributeError,
                     ) as error:
                         # Same refuse-by-name-not-by-crash shape as the
-                        # is_gm_account() guard below (CORE-REQUEST-006):
-                        # nothing this call can raise is a reason to take
-                        # down the listener thread for every other login.
+                        # is_gm_account() guard a few hundred lines below
+                        # (CORE-REQUEST-006): nothing this call can raise
+                        # is a reason to take down the listener thread for
+                        # every other login.
                         # CORE-REQUEST-GM-039 added AttributeError to this
                         # net, REVERSING the GM-037-era carve-out that let
                         # a lost `cause` field escape: pf-adversary (D7,
                         # round npo898) measured that the lane's
                         # ConsumeResultMisuse only narrowed the hole to one
                         # class -- any OTHER AttributeError raised inside
-                        # this same try (is_gm_account, the override
-                        # loader, or a line written tomorrow) still
-                        # unwound the game listener thread (v141:7440 has
-                        # no except), leaving the login port alive over a
-                        # dead game port for the rest of the process's
-                        # life.  The priced cost, from the lane's own
-                        # letter: a typo'd field name in this block now
-                        # degrades to "override lost + one event row"
-                        # instead of a traceback -- accepted because CI
-                        # catches exactly that typo before any boot
-                        # (measured: `casue` reddens 11 tests in 5 files),
-                        # while the listener death had no test that could
-                        # see it.  The loud-failure contract moved, it did
-                        # not vanish: the wiring test now pins that a
+                        # THIS try (the consume call itself, the override
+                        # loader it drives, or a line written tomorrow)
+                        # still unwound the game listener thread
+                        # (v141:7440 has no except), leaving the login
+                        # port alive over a dead game port for the rest of
+                        # the process's life.
+                        # WHAT THIS NET DOES NOT COVER, said plainly
+                        # because the first draft of this comment claimed
+                        # otherwise (pf-adversary, round k882hm, D1): the
+                        # is_gm_account() call is NOT in this try.  It has
+                        # its own, narrower net further down this method
+                        # (`except (ValueError, OSError)`), so an
+                        # AttributeError from the accounts loader still
+                        # escapes there.  That is a separate hole and it
+                        # is filed, not silently widened here.
+                        # The priced cost, from the lane's own letter: a
+                        # typo'd field name in this block now degrades to
+                        # a refusal instead of a traceback -- accepted
+                        # because CI catches exactly that typo before any
+                        # boot (measured this round: `casue` reddens 11
+                        # tests across 7 files), while the listener death
+                        # had no test that could see it.
+                        # The loud-failure contract is REDUCED, not moved
+                        # (pf-adversary, round k882hm, D2): `state.events`
+                        # is never printed on a default boot (app.py builds
+                        # an exporter under --export-events only), so the
+                        # events row below is not an operator-visible
+                        # artifact.  The console line printed here is --
+                        # it is what a default boot has instead of the
+                        # traceback, and it is the reason this arm is not
+                        # silent.  The wiring test pins both halves: a
                         # result which lost its `cause` lands HERE, named
                         # `..._lookup_failed_AttributeError`, with the
-                        # character at its own row.  No override is
-                        # applied; the character logs in at its own row.
+                        # character at its own row, AND the line below on
+                        # the console.  No override is applied.
                         # Since the consumer replaced the reader
                         # (CORE-REQUEST-GM-033 v2) a malformed config no
                         # longer arrives here -- it comes back as the
@@ -5752,6 +5815,20 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         # (a token that is empty or not a str) plus any
                         # error a future version of that call may raise.
                         login_scene_override = None
+                        # Guarded exactly like the CONSUME_FAILED print
+                        # above: a diagnostic must never cost the login.
+                        # ASCII only, exception class name only -- never
+                        # str(error), whose text this file does not own
+                        # and which could carry bytes outside cp874 onto
+                        # the bridge's console.
+                        try:
+                            print(
+                                "GM_LOGIN_SCENE_OVERRIDE_LOOKUP_FAILED "
+                                "effect=login_at_own_row "
+                                f"error={type(error).__name__}"
+                            )
+                        except Exception:
+                            pass
                         self.events.append(
                             "gm_login_scene_override_lookup_failed_"
                             f"{type(error).__name__}"
@@ -7086,6 +7163,32 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 f"{len(lane_pc)}_frame_"
                                 f"{len(lane_frame)}"
                             )
+                            # CORE-REQUEST (LANE-B 20260829_2055), THE
+                            # THIRD ARRIVAL COMMIT.  pf-adversary (round
+                            # k882hm, D3) measured that the round's own
+                            # claim of "both arrival census commits" was
+                            # short by one: this lane-composer commit
+                            # ships a full census and set no stamp, so the
+                            # first swing in a lane scene would send the
+                            # one-entry frame RE-092 proved erases the
+                            # map.  Latent today (no lane claims a scene
+                            # a player can stand in and fight in), armed
+                            # the day one does.  ``mob_scene_recompose``
+                            # has no composer for a lane scene yet, so the
+                            # stamp buys the NAMED refusal
+                            # (``..._skipped_no_composer_for_scene`` plus
+                            # the module's console line) instead of the
+                            # silent anchor-less skip.
+                            try:
+                                self.census_anchor_record = (
+                                    mob_scene_recompose.census_anchor(
+                                        scene_id, anchor, lane_actor_count,
+                                    )
+                                )
+                            except mob_scene_recompose.SceneRecomposeError:
+                                self.events.append(
+                                    "world_census_lane_anchor_stamp_refused"
+                                )
                             census_actions = [
                                 (
                                     f"WORLD_CENSUS_LANE_SCENE{scene_id}"
