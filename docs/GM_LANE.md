@@ -3200,3 +3200,335 @@ question, not as something the round solved.
    logins until this round's PR merges (its head carries the reason).
 4. เขียว(cloud sanity): whole repo **4377 passed / 327 skipped / 0 failed**,
    lane GM **640 passed / 4 skipped**. Actions decides.
+
+## Modules delivered (round `qq0i9u`, config ADMISSION: the silent lockout)
+
+### The defect, measured before it was fixed
+
+Two config files in this lane point an account at a scene on login: the
+GM-gated `config/gm_login_scene.json` (which a chat `/warp` writes) and the
+standalone map (which only an operator writes). Until this round only the
+WRITER asked whether the login path would accept the destination --
+`stage_login_scene` has asked lane A's registry since round `0z3kjx`,
+because staging a named-but-unpinned scene bricked the account. The READER
+asked the client's 330-row scene NAME table and nothing else.
+
+An entry that arrived through a text editor therefore skipped the check
+entirely. Round `38c4tv` walked it through the real dispatcher with
+`{"plain_tester": 17}` -- scene 17 is in the name catalog, so it loaded, and
+is pinned `login_entry_allowed: false`, so `resolve_entry` refused it:
+
+```
+login #1: actions == []   events: standalone_kept_17, applied_17,
+                          world_scene_entry_refused_no_reply
+login #2: byte-for-byte identical
+```
+
+The refusal deliberately sends no reply so the client can retry -- and the
+standalone map is deliberately never consumed (`COO-DECISION 20260829_0542`)
+-- so the retry met the same wall. **Permanently, and silently**: no audit
+row, no expiry, no in-game fix (the in-game fix needs a chat line, which
+needs a login), and the file is in `.gitignore`, so only somebody with shell
+access on the server host could undo it.
+
+### What was built
+
+| module | what it does |
+|---|---|
+| `gm/login_scene_admission.py` (new) | owns `login_entry_is_pinned` / `stageable_scene_ids`. Imports neither the reader nor the writer, so BOTH can use it -- `login_scene_stage` already imports `login_scene_override`, so the arrow only goes one way and the reader could not have imported the writer's copy. |
+| `login_scene_override._load_scene_id_map` | refuses an inadmissible entry when the map is READ, for both files: prints `GM_LOGIN_SCENE_CONFIG_REFUSED` to stderr, then raises `ValueError`. |
+| `login_scene_stage` | keeps the two names bound to the new module rather than owning a second copy. One implementation, asserted with `assertIs` in the tests, not described in a comment. |
+
+**A second condition was added to the predicate.** `resolve_entry` -- the
+call the login actually makes -- has FOUR refusal reasons: not pinned, id out
+of range, `login_entry_allowed=False`, and pinned-with-no-spawn
+(`REFUSED_NO_PINNED_SPAWN`, home excepted because home arrives on the
+character's own row). The staging path modelled only the third. A spawnless
+pinned destination would have been admitted and then refused at login --
+the same lockout, one refusal reason along. No scene in the registry is
+spawnless today, so this half is a guard against lane A pinning one
+tomorrow, and the code says so rather than implying a fix.
+
+### Why the raise does not take a login down
+
+`consume_login_scene_override` already catches `(OSError, ValueError)` and
+answers `CONSUME_FAILED`, which grants no scene. So a refused entry means:
+the account logs in at its own stored row (scene 1), the console names the
+file, the account, the scene and the admissible ids, and the operator's file
+is not edited. **Fail-closed on the whole FILE, deliberately** -- a loader
+that dropped the bad line and honoured the rest would be the same silence
+this round is closing, one row down. Price, stated: one typo stops every
+override in that file until it is fixed. Nobody is locked out of the game.
+
+### The cross-check that makes this more than a second opinion
+
+`tests/test_gm_login_scene_admission.py` walks lane A's registry scene by
+scene and asks `resolve_entry` itself, in the shape `runtime.py`'s login
+calls it, **in both directions**: every admitted scene must be accepted, and
+every refused scene must be refused. A fifth refusal reason added upstream,
+or a spawn removed from a pinned scene, turns this red here instead of
+turning a tester's account into a locked door. The admissible set is also
+pinned as the literal `(1, 2, 278, 997)`, so lane A pinning a fifth scene is
+a decision somebody makes rather than a silent widening.
+
+**What that cross-check could NOT reach, measured rather than assumed.** It
+walks the scenes in today's registry, and none of them is spawnless, so the
+spawn condition never executed on its False side: deleting it left the whole
+lane suite green, 658 passed. Same for the home carve-out, and same for the
+name-catalog filter in `stageable_scene_ids` -- and that last mutation
+reached a pushed commit of this branch before a test existed that could see
+it. `TheSpawnConditionTests` and `TheAdmissibleSetIsAlsoNamedTests` bend the
+registry through lane A's own loader and ask both sides about the bent row,
+which is the only way to execute those branches at all. Ten mutations, all
+killed, on a 667-test baseline: 14 / 20 / 98 / 2 / 14 / 4 / 1 / 1 / 1 / 1.
+
+### GATE-WALK (`COO-DECISION 20260829_0742`)
+
+`runtime.py`'s `world_scene_entry_refused_no_reply` branch and the
+restore-after-refusal handler inside it are no longer reachable from a
+config file **on a process whose registry matches the disk**. The test that
+walked them was not deleted: it reaches them at the seam that remains, with
+an admissible scene, so the gate is walked open rather than disabled.
+Mutation M13 (delete the handler from `runtime.py`) turns exactly that one
+test red and nothing else, so the branch really executes.
+
+~~the seam ... microseconds later~~ **That was wrong, and it matters.**
+`runtime.py:527` loads the registry ONCE at boot and threads it into
+`resolve_entry` at `runtime.py:5355`; admission re-reads the file on every
+login. The gap is the uptime of the process, not microseconds -- see the
+defect below.
+
+### The claim this round could not keep (D1)
+
+`pf-adversary` reproduced the original lockout **with this change in
+place**: a process holding a boot snapshot that bars scene 278 while the
+disk allows it admits the config entry, applies it, and `resolve_entry`
+refuses -- no reply, no consumption, every retry identical, and
+`GM_LOGIN_SCENE_CONFIG_REFUSED` never prints, so the new diagnostic points
+away from the fault. Any post-boot edit that WIDENS the registry does it;
+narrowing edits are safe (admission simply refuses, which is stricter than
+the login needs).
+
+So the honest claim is: **a config typo can no longer lock an account out
+on a process whose registry matches the disk.** "No account can be locked
+out by this lane's configs" is false and has been struck everywhere it was
+written. `CORE-REQUEST-GM-034` asks chief for the one line at
+`runtime.py:5308` that closes it; the lane will add the
+`scene_registry=` parameter on its side, defaulting to today's behaviour,
+with a test that stays red until that line lands.
+
+### The diagnostic had to stop altering dispatch
+
+`session.py` states the rule -- A DIAGNOSTIC MAY NEVER ALTER DISPATCH --
+and the first version of this round's console line broke it. The bridge
+console is `cp874`; an account name it cannot encode raised
+`UnicodeEncodeError` out of the print, and `runtime_console._Mirror` writes
+the console before the retained file, so the refusal was recorded nowhere
+at all while the caller received the encoder's exception instead of this
+lane's. Operator-controlled fields are folded ~~through `ascii()`~~ and the
+whole print is wrapped: a closed or hostile stderr costs the line, never the
+refusal.
+
+> Two corrections from round `7gplcy`, struck rather than deleted.
+>
+> **The escape.** `ascii()` was the right idea in the wrong function -- it
+> escapes as well as folds, which is what turned the gate red and closed
+> `PR #249`. The fold goes through `console_safe()` now, which asks the
+> stream what it can carry rather than assuming ASCII.
+>
+> **The attribution.** This paragraph reads as though the FOLD is what keeps
+> the diagnostic from altering dispatch. It is not; the WRAP is, and it holds
+> with no fold at all (measured, pf-adversary round `7gplcy`: with the fold
+> removed the caller still receives this module's `ValueError`, never the
+> encoder's). The fold buys something narrower and still worth buying -- that
+> the line gets written, and written in a form an operator can read, paste
+> and grep. Two mechanisms, two promises.
+>
+> See "Round 7gplcy" at the end of this file.
+
+### Cross-lane coupling, declared rather than discovered later
+
+Lane A's `scenarios/world_scene_registry_001.json` now decides what this
+lane's configs may contain. Letter to lane A and chief:
+`pf_bridge/notes_to_chief/20260829_0930_LANE-GM-STATUS-config-admission-follows-lane-A-registry.md`.
+
+### nonclaim
+
+1. Nothing here says a tester CAN reach any scene. It says the server will
+   not accept an instruction to send them somewhere the login would refuse.
+   Reaching a scene is `GT-141`'s to decide, on a screen.
+2. **Never measured against a real client.** Every line of this round was
+   measured through the dispatcher in the test suite.
+3. ~~`[สมมติของสาย GM - รอ COO ยืนยัน]`~~ **RULED in round `7gplcy`**
+   (`COO-DECISION 20260829_0941` approves option (a)) -- this was option (a) of the lane's own
+   ASK-COO letter of 2026-08-29T09:06+07:00, which said the lane would walk
+   it if no answer arrived by the next round. None did. It does not reverse
+   `COO-DECISION 20260829_0542`: that ruled on whether an accepted entry is
+   spent, this rules on whether it is accepted. The revert is this module
+   plus two lines in the reader.
+4. The spawn condition fixes nothing that is broken today.
+5. **A reviewer's mutation reached a pushed commit of this branch** (`483db7c`,
+   `stageable_scene_ids` missing its name-catalog filter) because a
+   mutation run and a forced commit shared one working tree, and no test
+   could tell. Recovered in the next commit, and the test that kills it now
+   exists. Recorded because the process failure is the finding: never run a
+   mutation pass on the tree you are about to commit, and remember that
+   `git checkout -- <path>` restores the INDEX, not the work you just did.
+6. **Not tested, declared by the adversary rather than by me**: that an
+   ADMISSIBLE config value cannot break a login further downstream. It
+   stopped short of driving scenes 278 and 997 end to end. Unknown, not
+   safe.
+
+## Round 7gplcy -- the round qq0i9u lost, and the gap that lost it
+
+Round `qq0i9u` built everything above and **none of it reached `main`**.
+`PR #249` was closed unmerged by `.github/workflows/merge-claude-pr.yml`
+because the Windows gate was RED, and a red pull request left open would
+hold the cloud round lock against every later round forever. The branch was
+kept; this round recovers those two commits onto `main` as it stands today
+and fixes what turned the gate red.
+
+Approved in the meantime, so the assumption tag above is now a ruling:
+`pf_bridge/notes_to_chief/20260829_0941_COO-DECISION-standalone-map-refuses-an-unreachable-scene-at-load.md`
+walks option (a), keeps `COO-DECISION 0542` standing, and states the
+combined rule as **hard to admit, unlimited to use** -- not *easy to admit,
+then deleted quietly*. Its item 4 also settles what looked like a
+limitation: today only scenes 1, 2, 278 and 997 are admissible, and that is
+the correct value rather than something to widen. A door opens, the map
+accepts it, automatically, with no second list to maintain.
+
+### The defect: a fold that also escapes is not a fold
+
+One test failed on the gate, `TheLoaderTests::test_the_console_token_names_
+the_file_the_account_and_the_way_out`, on this line:
+
+    self.assertIn(str(self.standalone_path), console)
+
+The console token folds operator-controlled fields to ASCII so a `cp874`
+console cannot turn a diagnostic into an exception (the section above).
+That fold ran through `ascii()`, which folds AND escapes -- so on Windows
+the line said `path='C:\\Users\\RUNNER~1\\...'` while the test, and the
+operator, wanted `C:\Users\RUNNER~1\...`. The line named the file in a form
+nobody could paste.
+
+~~`console_safe()` now folds through `str.encode("ascii",
+"backslashreplace")` instead: it folds exactly what `cp874` has no room for
+and leaves every ASCII character, separators included, as it found them.~~
+
+**Struck the same round, by pf-adversary, before it left draft. That second
+sentence is false and the code it described repeated the defect it was
+fixing** -- see "What pf-adversary broke" below. `console_safe()` folds
+through the encoding of *the stream being written to*, and nothing wider.
+
+### The finding is the blind spot, not the escape
+
+`ascii()` was not a careless choice; it was measured, it fixed a real
+defect, and the round that introduced it ran a full suite that reported
+**0 failed**. It could not have reported anything else: on POSIX there are
+no separators to double, so every assertion about that line passed here and
+the only machine that could see the fault was the one that closes pull
+requests.
+
+So the fix is not "use `backslashreplace`". The fix is a test that
+reproduces a Windows-shaped input **on the machine the round is written
+on**: a backslash is a legal character in a POSIX filename, and
+`TheLoaderTests::test_a_path_with_separators_in_it_is_named_verbatim`
+writes a config at `dir\sub\standalone.json` and asks for the path back
+verbatim. Reverting `console_safe` to `ascii()` turns it red here, in 0.16
+seconds, instead of six minutes later on the gate.
+
+~~`test_the_fold_survives_that_and_still_reaches_a_cp874_console` pins the
+other half in the same place~~ -- it did not; it was named for the cp874
+property and measured the ASCII-fold property. Replaced, below.
+
+### What pf-adversary broke, before this left draft
+
+**D3 -- the fix repeated the defect it was fixing, one field to the left.**
+`str.encode("ascii", "backslashreplace")` does not fold "exactly what
+`cp874` has no room for". It folds every non-ASCII character, and **`cp874`
+is the Thai code page**: `"ทดสอบ".encode("cp874")` succeeds. On a
+Thai-language project, an operator named `ทดสอบ` got a console line that did
+not contain their account name and could not be grepped for it -- the
+identical shape to `path='C:\\Users\\...'`, shipped by the round whose
+whole thesis was *a fold that also escapes is not a fold*. Worse, this
+round's own `assertNotIn("ทดสอบ", console)` would have made fixing it a red
+test.
+
+So the fold is no longer assumed. `console_safe(text, stream)` asks the
+stream for its `encoding` and folds through that, falling back to ASCII when
+the stream will not say (a `StringIO` has no `encoding` at all) -- narrowest
+wins when we do not know. A Windows path keeps its separators, a Thai name
+survives on a Thai code page, and `张三` still escapes.
+
+That also sidesteps a question nobody has answered, rather than guessing at
+it: **`runtime_console._Mirror` announces `utf-8` while `gate-windows.yml`
+forces `cp874:strict`, and nobody has measured the real stream on the
+owner's machine.** Asking the stream is correct in both worlds. Raised with
+chief as `CORE-REQUEST-GM-035`.
+
+**D1 -- the path half of the fold was pinned by nothing at all.** Deleting
+`console_safe` from the *path* argument alone left the whole 4483-test suite
+green, while the same deletion on the *account* argument went red in 0.16s.
+Both of this round's new tests were about the path not being *escaped*, and
+neither noticed it had stopped being *folded*. The live shape:
+`PF_GM_LOGIN_SCENE_STANDALONE_CONFIG` under a home directory `cp874` cannot
+carry -- the print raises, the wrap swallows it, and because
+`runtime_console._Mirror` writes the console before the retained file the
+refusal is recorded nowhere. The qq0i9u defect, returning through the other
+field. `test_a_path_the_console_cannot_encode_is_folded_not_dropped` kills
+it.
+
+**D2 -- the test named for cp874 could not see cp874.** It used `ทดสอบ`,
+which cp874 encodes natively, and its docstring claimed that dropping the
+fold would raise `UnicodeEncodeError` out of the print. Both halves wrong:
+that input does not raise, and for an input that genuinely cannot be encoded
+the *wrap* (round `qq0i9u`) stops it raising out of the print anyway. An
+evidence-layer swap -- a test named for one property, measuring another.
+Replaced by the two above, and the dispatch claim re-attributed to the wrap
+everywhere it was written.
+
+**D4, D5 -- the strike over-struck and the ruling was not carried.** The
+`ascii()` strike above took the true half of its sentence with the false
+half; restored. And five places still carried
+`[สมมติของสาย GM - รอ COO ยืนยัน]` after this round said the tag had become a
+ruling; the three that are about *this* decision now say so. The two left
+standing (`login_scene_override.load_standalone_login_scene_overrides` and
+its module docstring) are about the standalone map's *existence without GM
+listing*, which `COO-DECISION 0941` does not rule on. Still pending, still
+tagged, deliberately.
+
+| mutation | red here (was) |
+|---|---|
+| drop the fold on the **path** field | **1 (was 0 -- pf-adversary's survivor)** |
+| drop the fold on the **account** field | 1 |
+| fold at ASCII again, ignoring the stream | **1 (was 0)** |
+| back to the `ascii()` escaping fold that closed `#249` | 2 |
+
+Baseline 4484 passed, 327 skipped, 0 failed.
+
+### nonclaim
+
+1. This round wrote no new gameplay behaviour. It recovers a lost round and
+   closes the gap that lost it; the claims of round `qq0i9u` above stand as
+   written, including its struck sentence and `CORE-REQUEST-GM-034`.
+2. **No GM step was skipped to produce any result here, because this round
+   produces no gameplay result.** Nothing in it says a tester can reach a
+   scene.
+3. Never measured against a real client, or on Windows. The Windows failure
+   is understood from the gate's own log for run `33229946448`; the fix is
+   measured only through a POSIX reproduction of the same shape. The gate
+   decides.
+4. **[เสนอ ยังไม่วัด] and left standing deliberately.** `gate-windows.yml`
+   sets `PYTHONIOENCODING: cp874:strict` job-wide, and
+   `tests/test_gm_login_scene_admission.py` carries `张三`, `café`, `naïve…`
+   as test inputs -- none of them cp874-mappable. If one of those subtests
+   ever FAILS on Windows, pytest must print the subtest id to a strict cp874
+   stdout, and whether its terminal writer's escape fallback survives that is
+   unverified. They pass today (Actions run `33231419482`), so this is a
+   hazard on the failure path only: a red run in this file could in principle
+   come back as an INTERNALERROR with no `FAILED` line for the gate's own
+   extractor to find. Raised rather than fixed -- the tests need those inputs,
+   and `.github/` is chief's.
+5. **The adversary's own untested claim, restated rather than absorbed:** it
+   stopped short of driving an *admissible* config value end to end through
+   scenes 278 and 997. Unknown, not safe.

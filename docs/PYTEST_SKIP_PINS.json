@@ -827,11 +827,12 @@
     {
       "key": "bridge_gamedata",
       "module": "tests/test_world_scene_marker.py",
-      "count": 1,
+      "count": 2,
       "tests": [
-        "MarkerReverificationOnTheBridgeTest::test_the_reverification_script_runs_against_the_bridge_tree"
+        "MarkerReverificationOnTheBridgeTest::test_the_reverification_script_runs_against_the_bridge_tree",
+        "MarkerReverificationOnTheBridgeTest::test_the_committed_copy_is_what_the_client_tables_produce"
       ],
-      "note": "round vyi2ud (LANE-A): world_scene_marker.py pins 13 MARKER rows and the totals of the two client tables they come from, and this test runs the module's own re-derivation script against the bridge clone's gamedata so neither the rows nor the sha256 pins can drift unnoticed. A clone without pf_bridge beside it cannot answer. Pinned here because the first draft wrote a bare skipTest and the Windows gate's skip census closed pull request #231 for it - the same defect shape as rounds ctflxc, 2vxlx2 and y7koj9, which is why the note in each of those says 'pinned in the same commit as the test'."
+      "note": "round vyi2ud (LANE-A): world_scene_marker.py pins 13 MARKER rows and the totals of the two client tables they come from, and this test runs the module's own re-derivation script against the bridge clone's gamedata so neither the rows nor the sha256 pins can drift unnoticed. A clone without pf_bridge beside it cannot answer. Pinned here because the first draft wrote a bare skipTest and the Windows gate's skip census closed pull request #231 for it - the same defect shape as rounds ctflxc, 2vxlx2 and y7koj9, which is why the note in each of those says 'pinned in the same commit as the test'. ROUND i8timv MOVED THIS COUNT FROM 1 TO 2, in the same commit as the test that moved it, exactly as the 'why' block above demands: COO-DECISION 20260829_0941 ordered the used rows of the client tables committed as data, and the second test is the bridge-only hop that check cannot make - it re-curates world_data/world_marker_crosswalk.json from the client's own bytes and compares. It was added as a second method INSIDE the already-pinned class rather than as a new class, so this remains one precondition. The gate-side half of the same ruling is tests/test_world_marker_copy.py, which carries NO skip and therefore must never appear in this file - a test there asserts that too."
     },
     {
       "key": "bridge_gamedata",

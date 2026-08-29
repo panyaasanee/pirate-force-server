@@ -80,8 +80,8 @@ import tempfile
 import threading
 from pathlib import Path
 
-from .. import world_scene_travel
 from .accounts import is_gm_account
+from . import login_scene_admission
 from . import login_scene_override as login_scene_override_module
 from .login_scene_override import (
     load_login_scene_overrides,
@@ -185,54 +185,19 @@ def stage_login_scene(
     return _write_entry(account_name, scene_id, config_path)
 
 
-def login_entry_is_pinned(scene_id: int) -> bool:
-    """Can the login path actually put a character INTO this scene?
-
-    Asked through lane A's own registry loader, never through a copy of its
-    data: `world_scene_travel` owns which scenes have a pinned entry and
-    which are barred from being a login destination (`login_entry_allowed`,
-    scene 17 today), and a second copy here would drift the moment lane A
-    pins one more.  Unknown-to-that-registry is False -- fail-closed, and
-    deliberately the opposite default from `is_position_persist_allowed`,
-    because here an unknown destination is one the login path will refuse
-    with no reply, which costs the GM their account until someone with shell
-    access deletes a config file.
-
-    Public so a caller (or a ticket) can ask which scenes are stageable
-    without discovering the answer by locking an account out.
-    """
-    if type(scene_id) is not int:
-        raise TypeError("scene_id must be an int")
-    try:
-        registry = world_scene_travel.load_scene_registry()
-    except Exception:  # noqa: BLE001 - a registry this module cannot read is
-        # not a reason to stage into the dark; it is a reason to refuse.
-        return False
-    try:
-        target = registry[scene_id]
-    except KeyError:
-        return False
-    return bool(target.login_entry_allowed)
-
-
-def stageable_scene_ids() -> tuple[int, ...]:
-    """Every scene `stage_login_scene` will accept today, in id order.
-
-    `GT-141` prints this instead of telling a tester to pick any scene from
-    the 330-row name table -- which is what the first version of that entry
-    did, and what would have locked the test account out on the first try.
-    """
-    try:
-        registry = world_scene_travel.load_scene_registry()
-    except Exception:  # noqa: BLE001 - same reason as above
-        return ()
-    return tuple(
-        sorted(
-            target.n_id
-            for target in registry.destinations
-            if target.login_entry_allowed and is_known_scene_id(target.n_id)
-        )
-    )
+# RE-EXPORTED, NOT REDEFINED.  Both names used to have their bodies here,
+# and this module was the only caller that asked lane A's registry before
+# writing a scene id into a config file.  Round qq0i9u made the READER ask
+# the same question (an operator's text editor reaches those files too, and
+# a hand-written entry naming a scene the login path refuses locked the
+# account out permanently and silently), and the reader cannot import this
+# module -- `login_scene_override` is imported HERE, so the arrow only goes
+# one way.  So the predicate moved to `gm/login_scene_admission.py`, which
+# imports neither of us, and both sides now enforce one implementation
+# instead of two that agree today.  The names stay bound here because
+# `GT-141` and this module's own tests call them through this module.
+login_entry_is_pinned = login_scene_admission.login_entry_is_pinned
+stageable_scene_ids = login_scene_admission.stageable_scene_ids
 
 
 def restore_login_scene(
