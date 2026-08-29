@@ -133,12 +133,30 @@ def _load_scene_id_map(
             # is once per login for as long as the typo stands; that is the
             # noise of a config nobody has fixed yet, not of normal
             # operation (a file with no bad entry prints nothing, ever).
-            print(
-                f"{CONFIG_REFUSED_CONSOLE_TOKEN} path={path} key={json_key} "
-                f"account={account_name!r} scene_id={scene_id} "
-                f"reason=no_pinned_login_entry stageable={stageable_scene_ids()}",
-                file=sys.stderr,
-            )
+            #
+            # ASCII-FOLDED AND SWALLOWED, both measured rather than
+            # imagined (pf-adversary, round qq0i9u).  The bridge console is
+            # `cp874`: an account name carrying a character that encoding
+            # has no room for raised `UnicodeEncodeError` out of the print
+            # -- and `runtime_console._Mirror` writes to the console BEFORE
+            # the retained file, so the refusal was recorded nowhere at all,
+            # while the exception the caller saw came from the encoder
+            # rather than from this function.  `session.py` states the house
+            # rule that broke: A DIAGNOSTIC MAY NEVER ALTER DISPATCH.  So
+            # the two fields an operator controls are folded through
+            # `ascii()`, and the print is wrapped -- a closed or hostile
+            # stderr costs the line, never the refusal.
+            try:
+                print(
+                    f"{CONFIG_REFUSED_CONSOLE_TOKEN} path={ascii(str(path))} "
+                    f"key={json_key} account={ascii(account_name)} "
+                    f"scene_id={scene_id} reason=no_pinned_login_entry "
+                    f"stageable={stageable_scene_ids()}",
+                    file=sys.stderr,
+                )
+            except Exception:  # noqa: BLE001 - see the paragraph above; the
+                # refusal below is the product, the line is the courtesy.
+                pass
             raise ValueError(
                 f"{path}: '{json_key}'[{account_name!r}] = {scene_id} names a "
                 "scene the login path will refuse (no pinned login entry in "

@@ -140,5 +140,14 @@ def stageable_scene_ids() -> tuple[int, ...]:
             target.n_id
             for target in registry.destinations
             if _target_is_admissible(registry, target.n_id)
+            # A destination lane A pins that this lane's committed name
+            # catalog does not know is not a scene this lane may offer: the
+            # console line and `GT-141` both PRINT this tuple to a human,
+            # and an id with no name in it is an instruction nobody can
+            # check.  Dropping this filter left the whole lane suite green
+            # (mutation M10) until `TheAdmissibleSetIsAlsoNamedTests` --
+            # and, measured the hard way, that mutation reached a pushed
+            # commit of this file before that test existed.
+            and is_known_scene_id(target.n_id)
         )
     )
