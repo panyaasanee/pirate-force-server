@@ -404,6 +404,9 @@ REFUSE_BALANCE_ABOVE_MAX = "balance_above_max"
 REFUSE_BAR_FRAME_FOR_A_DEAD_BODY = "bar_frame_for_a_dead_body"
 REFUSE_DAMAGE_WIRE_POSITIVE = "damage_wire_positive"
 REFUSE_LEDGER_NOT_SORTED = "ledger_not_sorted"
+REFUSE_LEDGER_SCENE_EMPTY = "ledger_scene_empty"
+REFUSE_LEDGER_SCENE_DISAGREES_WITH_ROSTER = (
+    "ledger_scene_disagrees_with_roster")
 REFUSE_LEDGER_STALE = "ledger_stale"
 REFUSE_LEDGER_ROW_DISAGREES_WITH_ROSTER = "ledger_row_disagrees_with_roster"
 REFUSE_OUTCOME_SELF_CONTRADICTORY = "outcome_self_contradictory"
@@ -430,6 +433,8 @@ MOB_COMBAT_REFUSAL_REASONS = (
     REFUSE_BAR_FRAME_FOR_A_DEAD_BODY,
     REFUSE_DAMAGE_WIRE_POSITIVE,
     REFUSE_LEDGER_NOT_SORTED,
+    REFUSE_LEDGER_SCENE_EMPTY,
+    REFUSE_LEDGER_SCENE_DISAGREES_WITH_ROSTER,
     REFUSE_LEDGER_STALE,
     REFUSE_LEDGER_ROW_DISAGREES_WITH_ROSTER,
     REFUSE_OUTCOME_SELF_CONTRADICTORY,
@@ -561,15 +566,56 @@ class CombatLedger:
     Sorted-tuple rather than a dict so two ledgers built from the same hits
     compare equal and hash the same in any process, and so no caller can mutate
     a balance behind the driver's back.
+
+    ``scene`` IS THE FIELD ROUND jop8ph ADDED, AND IT EXISTS FOR A CALLER THAT
+    MUST NOT BE ALLOWED TO ASK ITS QUESTION THE OTHER WAY.  A census composer
+    holding a ledger needs to know "is this one mine?"  Before this field the
+    only way to find out was to USE it: ``mob_death._balance_in`` raises
+    ``ledger_disagrees_with_register ... target_not_in_ledger`` on the first
+    identity a foreign ledger cannot answer for, at a call site inside
+    ``runtime.py``'s census dispatch where that refusal unwinds the listener
+    thread.  MEASURED, round z096sw: a scene-2 roster against a bg0001 ledger
+    refuses at ``0x2033``; a scene-1 roster against a Bg0002 ledger refuses at
+    ``0x2068``.  So the Bg0002 census branch passes NO ledger today, and every
+    wounded monster in that scene is re-sent at its ceiling by any recompose --
+    which is BUILD-005's promise, taken back one frame later.
+
+    The field is OPTIONAL and defaults to ``None``, which is a real state with
+    a name ("this ledger does not say which scene it is for"), not a silent
+    stand-in for any particular scene.  :func:`open_ledger` fills it in from
+    the roster it was handed when every row agrees, so the ledger
+    ``runtime.py`` opens at session start is scene-tagged with no call-site
+    change at all.  Nothing here refuses a ledger for being unscoped -- that
+    decision belongs to :mod:`mob_ledger_admission`, which treats the scene
+    label as a declaration and roster containment as the ground truth.
+
+    A ledger's scene never changes once opened: :meth:`with_balance` carries it
+    forward, and a ledger for a scene the player has left is stale in exactly
+    the way it was before this field existed.  This field makes that
+    detectable; it does not make it not happen.
     """
 
     balances: tuple[MobBalance, ...]
     generation: int = 0
+    scene: str | None = None
 
     def __post_init__(self) -> None:
         if type(self.balances) is not tuple:
             raise MobCombatContractError(
                 REFUSE_TYPE_NOT_TYPED_RECORD, "balances must be a tuple")
+        if self.scene is not None:
+            if type(self.scene) is not str:
+                raise MobCombatContractError(
+                    REFUSE_TYPE_NOT_TYPED_RECORD,
+                    "scene must be a scene folder name or None")
+            if not self.scene:
+                # The empty string is the shape that would read as "unscoped"
+                # at every ``if ledger.scene:`` and as "a scene named ''" at
+                # every ``ledger.scene is None``.  One of those readers is
+                # always wrong, so neither gets written.
+                raise MobCombatContractError(
+                    REFUSE_LEDGER_SCENE_EMPTY,
+                    "an empty scene name is not 'no scene': pass None")
         seen = set()
         for balance in self.balances:
             if type(balance) is not MobBalance:
@@ -616,6 +662,10 @@ class CombatLedger:
                 for row in self.balances
             ),
             self.generation + 1,
+            # Carried, not re-derived.  A ledger that forgot its scene on the
+            # first hit would be scene-tagged exactly until a player used it,
+            # which is the one moment the tag has to still be there.
+            self.scene,
         )
 
 
@@ -776,20 +826,56 @@ def require_damage_and_flags_agree(damage_wire: int, flags: int) -> None:
 
 def open_ledger(
     roster: tuple[FieldMob, ...] | None = None,
+    *,
+    scene: str | None = None,
 ) -> CombatLedger:
-    """Every monster in the roster, standing at its own ceiling."""
+    """Every monster in the roster, standing at its own ceiling.
+
+    THE SCENE COMES OFF THE ROSTER, ROUND jop8ph.  Every ``FieldMob`` already
+    carries the scene folder it was mined from -- ``mob_death`` reads
+    ``mob.scene`` on the register path -- so the ledger can be tagged with no
+    change at any call site, INCLUDING the no-argument one in
+    ``runtime.py``'s ``PersistentGameSessionState.__init__``, which is the
+    ledger a live boot actually holds.  That mattered more than the explicit
+    argument: had the tag only arrived through a new keyword, the one ledger
+    in production would have stayed unscoped and
+    :mod:`mob_ledger_admission` would have had nothing to read on the only
+    boot that counts.
+
+    ``scene=`` overrides the derivation and is checked against it, because a
+    caller who names a scene and hands rows from another one has two answers
+    and this function will not silently keep the wrong one.
+
+    A ROSTER WHOSE ROWS DISAGREE STAYS UNSCOPED, and is not refused.  Nothing
+    in this tree builds a mixed-scene roster today, but the diagnostic
+    widening path (``diag_multi_object_wiring``) grows a ledger past its
+    roster on purpose, and an admission decision that falls back to
+    membership is strictly safer there than a raise on a path that is inside
+    a listener thread's ``try``.  Unscoped is a state with a name, and
+    :func:`mob_ledger_admission.admit_ledger` reads it as "prove it by
+    containment", never as "trust me".
+    """
     mobs = field_mobs.load_roster() if roster is None else roster
     if type(mobs) is not tuple:
         raise MobCombatContractError(
             REFUSE_TYPE_NOT_TYPED_RECORD, "roster must be a tuple of FieldMob")
     rows = []
+    scenes = set()
     for mob in mobs:
         if type(mob) is not FieldMob:
             raise MobCombatContractError(
                 REFUSE_TYPE_NOT_TYPED_RECORD,
                 "roster must be a tuple of FieldMob")
         rows.append(MobBalance(mob.actor_identity, mob.max_hp, mob.max_hp))
-    return CombatLedger(tuple(rows))
+        scenes.add(mob.scene)
+    derived = scenes.pop() if len(scenes) == 1 else None
+    if scene is not None and derived is not None and scene != derived:
+        raise MobCombatContractError(
+            REFUSE_LEDGER_SCENE_DISAGREES_WITH_ROSTER,
+            "caller named scene %r and handed rows from scene %r" % (
+                scene, derived),
+        )
+    return CombatLedger(tuple(rows), 0, scene if scene is not None else derived)
 
 
 def open_ledger_for_scene_id(scene_id: int) -> CombatLedger:
@@ -829,8 +915,19 @@ def open_ledger_for_scene_id(scene_id: int) -> CombatLedger:
     intended behaviour and the intended DIFFERENCE from today: a town is a
     place where there is nothing to hit, not a place where bg0001's
     monsters can be hit through the floor.
+
+    ROUND jop8ph: the scene name is passed EXPLICITLY here rather than left to
+    :func:`open_ledger`'s derivation, and the difference is the empty-roster
+    case.  A scene this lane ships no monsters for derives nothing from zero
+    rows, so it would open an UNSCOPED empty ledger -- and an unscoped empty
+    ledger is admitted by containment into any scene at all (it is missing
+    nothing, because nothing was asked of it).  Named here, it is a ledger
+    that says which town it belongs to and refuses the next one by name.
     """
-    return open_ledger(field_mobs.roster_for_scene_id(scene_id))
+    return open_ledger(
+        field_mobs.roster_for_scene_id(scene_id),
+        scene=field_mobs.scene_for_scene_id(scene_id),
+    )
 
 
 def apply_hit(
