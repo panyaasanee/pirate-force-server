@@ -755,7 +755,21 @@ GRADE_SUBSET_SHA256 = (
     # the structured refs pointing only at the old lanes hides the new one
     # from any machine reading this file.
     #   R167 / parent EB932A54B4958527BA172D34A81673B6B91AA54A0979372EED3A3525902C65DB
-    "034304EA80D0C8119BC208A8EB1AA5F934F3D8C34AB473223492B7E629E3ABB3"
+    #
+    # ROUND uq2lxw (LANE-B, 2026-08-29 +07:00) moves this pin ONE more step,
+    # and again it is NOT a grade change.  npc_interaction/
+    # monster_spawn_and_loot stays in_progress -- runtime.py still has no
+    # inbound pickup call site (GT-124), so no player has caused one byte of
+    # this round to run and nothing here is client-observable -- but the row
+    # gains one evidence ref (src/pirateforce_foundation/mob_pickup_persist.py)
+    # and one test ref (tests/test_mob_pickup_persist.py).  Why the refs have
+    # to move with the prose: the row's notes said the pickup row is still
+    # log-only and nothing advances the identity counter, and that stopped
+    # being true when chief's STORE-INSERT-001 landed; this round adds the
+    # only caller of that write in src/, so a machine reading the structured
+    # refs would otherwise see a row whose evidence stops at the log.
+    #   g627j0 / parent 034304EA80D0C8119BC208A8EB1AA5F934F3D8C34AB473223492B7E629E3ABB3
+    "DB3F2D0DC76426B0EF93DBF33809E3E0A87AA99FDD1F9D4559371C846238064B"
 )
 
 

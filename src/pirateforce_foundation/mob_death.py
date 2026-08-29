@@ -167,6 +167,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
+import re
 import struct
 from typing import Any
 
@@ -504,6 +505,111 @@ def rulings_covering(mob: FieldMob) -> tuple[str, ...]:
     return tuple(covering)
 
 
+#: The two shapes a letter's own timestamp is written in inside a ruling
+#: NAME, both of which are already in ``WIDENING_RULINGS`` at HEAD: the ISO
+#: one the letters themselves carry (``2026-08-27T09:55+07:00``) and the
+#: compact one a letter id carries (``COO-RULING-20260827-1350``).  Ordered by
+#: nothing: :func:`ruling_registered_at` takes whichever match starts
+#: EARLIEST in the name, not whichever pattern is listed first.
+_RULING_TIMESTAMP_PATTERNS = (
+    re.compile(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})"),
+    re.compile(r"(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})"),
+)
+
+
+def _is_a_real_minute(
+        year: int, month: int, day: int, hour: int, minute: int) -> bool:
+    """Calendar validation, written out rather than imported.
+
+    ``datetime`` is on this module's forbidden-import list
+    (``tests/test_mob_death.py::test_nothing_is_installed_by_importing_this
+    _module``) and the reason is not stylistic: nothing here may be able to
+    read a clock, so a death frame can never depend on when it was composed.
+    Validating a STRING needs no clock, so the calendar is spelled out here
+    instead of reaching for the module that also carries ``now()``.
+    """
+    if not 1 <= month <= 12:
+        return False
+    leap = year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+    lengths = (31, 29 if leap else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+    return (
+        1 <= day <= lengths[month - 1]
+        and 0 <= hour <= 23
+        and 0 <= minute <= 59
+    )
+
+
+def ruling_registered_at(name: str) -> str:
+    """When the letter named ``name`` was written, as sortable ``YYYYMMDDHHMM``.
+
+    ROUND uq2lxw, COO-DECISION 2026-08-29T08:48+07:00 item 1 (b).  This is the
+    tie-break term :func:`ruling_for` uses when two letters cover one monster
+    with equally narrow template sets, replacing the sorted NAME this lane had
+    assumed.  COO's reason, in that letter's own words: name-sorting means a
+    letter written TOMORROW can move the provenance of every kill that already
+    happened under a letter written yesterday, and "provenance you can
+    retroactively edit is not provenance".
+
+    THE FIRST TIMESTAMP IN THE NAME IS THE LETTER'S OWN, and that is a
+    registration convention this function DEPENDS on rather than one it can
+    verify.  The 916 ruling's name carries two (``2026-08-27T09:55+07:00``,
+    its own, then ``(ref PANYA-DECISION 2026-08-27T09:50+07:00 ...)``, the
+    older letter it cites), and taking the earliest MATCH POSITION -- not the
+    earliest TIME -- is what picks the letter's own.  A ruling registered with
+    the citation first would be ordered by the cited letter's clock;
+    ``tests/test_mob_death_wired_widening.py`` pins the convention on every
+    shipped ruling so a name written the other way round is caught in CI, not
+    in a kill.
+
+    THAT RULE HAS TWO HALVES AND ONLY ONE OF THEM FIRES ON THE SHIPPED NAMES
+    (pf-adversary, this round: two mutants survived here).  Within ONE
+    pattern, ``re.search`` is already leftmost -- that is what resolves the
+    916 name's own 09:55 over its cited 09:50, and it needs nothing from the
+    loop below.  The loop's own comparison decides only when the TWO patterns
+    both match one name, which no registered ruling does today; it is
+    exercised on constructed names instead
+    (``test_the_position_rule_and_the_earliest_time_rule_are_not_the_same``),
+    because a term that has never executed is a term nobody has checked.
+
+    THE UTC OFFSET IS NOT READ, and this is a house convention rather than a
+    property: both patterns stop before ``+07:00``, so two letters naming the
+    same instant in different offsets would order by wall clock.  Every
+    letter this project writes is ``+07:00`` (ADDENDUM v2 section C makes the
+    stamp come from one command), so the convention holds today and nothing
+    here enforces it.
+
+    Raises rather than sorting a nameless letter last: a ruling with no
+    timestamp cannot be ordered at all, and a missing sort key silently
+    becomes "first" or "last" depending on the comparison, which is how a
+    provenance rule turns into a coin toss.
+    """
+    if not isinstance(name, str):
+        raise MobDeathContractError(
+            REFUSE_RULING_NAME_HAS_NO_TIMESTAMP,
+            "a ruling name must be text, not %r" % type(name).__name__)
+    earliest: tuple[int, tuple[str, ...]] | None = None
+    for pattern in _RULING_TIMESTAMP_PATTERNS:
+        found = pattern.search(name)
+        if found is None:
+            continue
+        if earliest is None or found.start() < earliest[0]:
+            earliest = (found.start(), found.groups())
+    if earliest is None:
+        raise MobDeathContractError(
+            REFUSE_RULING_NAME_HAS_NO_TIMESTAMP,
+            "ruling %r carries no letter timestamp (expected either "
+            "YYYY-MM-DDTHH:MM or YYYYMMDD-HHMM in the name), so there is no "
+            "way to say which of two letters was registered first - "
+            "COO-DECISION 2026-08-29T08:48+07:00 item 1(b)" % name)
+    stamp = "".join(earliest[1])
+    if not _is_a_real_minute(*(int(part) for part in earliest[1])):
+        raise MobDeathContractError(
+            REFUSE_RULING_NAME_HAS_NO_TIMESTAMP,
+            "ruling %r carries %r where a letter timestamp should be, and it "
+            "is not a real date and time" % (name, stamp))
+    return stamp
+
+
 def ruling_for(mob: FieldMob) -> str | None:
     """The ONE ruling name a kill on ``mob`` should travel under, or None.
 
@@ -541,21 +647,38 @@ def ruling_for(mob: FieldMob) -> str | None:
     never needs a special case.
 
     WHEN TWO LETTERS COVER THE SAME MONSTER: narrower covered set first, then
-    sorted name.  [ASSUMPTION OF LANE B - AWAITING COO] Nothing written down
-    says whose decision it is which letter a kill is RECORDED under when two
-    of the owner's letters both authorise it, and this lane picked a rule
-    rather than stopping.  It is chosen to be the least surprising one
-    available: it reproduces ``PIN_WIDENING_RULING``, the letter this module's
-    own shipped pin already travels under, so the tree keeps one answer
-    instead of gaining a second.
-    MEASURED, so the rule is not read as doing more than it does: bg0001's two
-    letters BOTH carry ``frozenset({916})`` today (round 8ftmbx narrowed the
-    roster letter), so the ``len`` term separates nothing at HEAD and the
-    winner is decided by the name sort alone.  The ``len`` term is what the
-    rule MEANS and is exercised on constructed letters in the tests; the name
-    sort is what it currently DOES.  A future letter over template 916 whose
-    name sorts before this one would move the pin's provenance, and
-    ``test_the_tie_break_is_the_rule_it_claims_to_be`` is what says so.
+    the letter registered EARLIER (:func:`ruling_registered_at`), then sorted
+    name.  ~~[ASSUMPTION OF LANE B - AWAITING COO] ... narrower covered set
+    first, then sorted name~~ IS STRUCK AND ANSWERED: COO-DECISION
+    2026-08-29T08:48+07:00 item 1 rules (a) narrower set, (b) tie to the older
+    letter by the timestamp IN ITS NAME, (c) sorted name only when two letters
+    carry the same timestamp -- and refuses the name sort as the deciding
+    term, because it lets a letter written tomorrow move the provenance of
+    every kill already recorded under one written yesterday.
+    MEASURED ON THE SHIPPED ROSTER, ROUND uq2lxw, so the change is not read as
+    doing more than it does: bg0001's two letters BOTH carry
+    ``frozenset({916})`` (round 8ftmbx narrowed the roster letter), so the
+    ``len`` term separates nothing at HEAD and the new term is what decides.
+    It decides the SAME WAY the name sort did -- 2026-08-27T09:55 is both the
+    alphabetically first name and the older letter -- so every shipped row's
+    answer, and ``PIN_WIDENING_RULING``, are byte-identical before and after
+    this round.  What changed is which future letter can move them: under the
+    old rule a new letter over template 916 named ``AAA...`` took the pin;
+    under this one it cannot, and only a letter registered BEFORE
+    2026-08-27T09:55 could.  ``test_a_newer_letter_does_not_move_an_older
+    _kills_provenance`` is what says so.
+
+    AND THE SCOPE OF THAT SENTENCE, WHICH A READER WILL OTHERWISE OVERSTATE
+    (pf-adversary, this round).  "Them" is this function's own answers and
+    ``PIN_WIDENING_RULING`` -- NOT the letter a kill on the live server is
+    recorded under.  This function has NO production caller today:
+    ``runtime.py``'s roster kill site passes the bg0001 literal, which this
+    function disagrees with on every shipped row (it answers the 09:55
+    letter; the call site passes the 13:50 one).  So the harm COO's letter
+    names was not reachable in production before this round, and this round
+    does not make it reachable -- it makes the RULE right for the day chief's
+    one line lands.  ``test_the_literal_the_call_site_hardcodes_is_the_wrong
+    _letter`` is what keeps that disagreement visible.
     """
     _require_mob(mob)
     if (
@@ -573,7 +696,11 @@ def ruling_for(mob: FieldMob) -> str | None:
             "a monster nobody authorised killing" % (
                 mob.actor_identity, mob.template_id, mob.scene),
         )
-    return sorted(covering, key=lambda name: (len(WIDENING_RULINGS[name]), name))[0]
+    return sorted(
+        covering,
+        key=lambda name: (
+            len(WIDENING_RULINGS[name]), ruling_registered_at(name), name),
+    )[0]
 
 
 def describe_widening_coverage() -> tuple[str, ...]:
@@ -886,6 +1013,12 @@ REFUSE_LEDGER_DISAGREES_WITH_REGISTER = "ledger_disagrees_with_register"
 REFUSE_OUTCOME_DISAGREES_WITH_ROSTER = "outcome_disagrees_with_roster"
 REFUSE_REGISTER_STALE = "register_stale"
 REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE = "target_outside_the_sanctioned_scope"
+# ROUND uq2lxw, COO-DECISION 2026-08-29T08:48+07:00 item 1: a registered
+# ruling whose NAME carries no letter timestamp cannot be ordered against the
+# others, and the tie-break is the thing that decides which letter a kill is
+# recorded under.  Refused by name rather than sorted last, which is what a
+# missing key silently becomes.
+REFUSE_RULING_NAME_HAS_NO_TIMESTAMP = "ruling_name_has_no_timestamp"
 # pf-adversary (round lp6hg4): roster_override_coverage checked only that
 # ``override`` itself was a dict, not that its entries were well-typed -
 # every real caller's dict happens to satisfy this, so no live failure was
@@ -934,6 +1067,7 @@ MOB_DEATH_REFUSAL_REASONS = (
     REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE,
     REFUSE_OVERRIDE_ENTRY_NOT_INT_BYTES,
     REFUSE_CENSUS_FRAME_WITHOUT_A_LEDGER,
+    REFUSE_RULING_NAME_HAS_NO_TIMESTAMP,
 )
 
 _FLOAT32_MAX = 3.4028234663852886e38

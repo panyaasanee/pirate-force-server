@@ -327,6 +327,20 @@ MOB_PICKUP_WIRING = (
     "of instructions and the row is normally gone before resolve runs.  "
     "NEITHER refusal is evidence about RE-082 -- see the note on that split "
     "in resolve_claim.\n"
+    "  ROUND uq2lxw SUPERSEDES THE TWO STEPS BELOW WITH ONE CALL, AND THE "
+    "OLD RECIPE IS KEPT ONLY AS THE RECORD OF WHY: use "
+    + "mob_pickup_persist.pickup_and_persist(store, sid, character_id, "
+    "bag_cell, drop_ledger_cell, legacy, identity, x, y, z, "
+    "object_ref_u32, opaque_u8)" +
+    " instead of the dispatch call above followed by step 3.  It runs the "
+    "SAME dispatch, and adds the one thing this note cannot: it asks the "
+    "store everything the store would refuse BEFORE the take, so a doomed "
+    "write refuses the pickup instead of eating the drop.  Following the "
+    "two steps as written below destroys a player's item whenever this "
+    "session's bag cell has drifted from the database -- proven by "
+    "execution in tests/test_mob_pickup_persist.py::test_without_the_"
+    "precheck_the_same_drift_destroys_the_drop.  Then send "
+    "result.outcome.delta at step 4, unchanged.\n"
     "  3. PERSIST via store.commit_acquired_backpack_item(sid, "
     "character_id, outcome.item) -- and STILL do not write an INSERT of "
     "your own.  ~~STOP: persisting is not safe yet, gate 2 "
@@ -1281,6 +1295,33 @@ class BagCell:
     def character_id(self) -> int:
         return self._character_id
 
+    @property
+    def issued_through(self) -> int | None:
+        """The high-water mark this cell allocates from, or None if unseeded.
+
+        ROUND uq2lxw.  Added for ``mob_pickup_persist.precheck_persistable``,
+        which has to answer "would the identity this cell mints next be the
+        one the database's column will demand" BEFORE a drop is taken off the
+        ground -- and could otherwise only answer it by reaching into
+        ``_issued_through``, which is a private of this class.  A reader of
+        this value cannot change it: the mark moves only inside
+        :meth:`commit_pickup`, under the lock, and only forward.
+
+        WHAT THE LOCK HERE DOES AND DOES NOT DO, stated exactly because the
+        first draft of this property claimed more (pf-adversary, round
+        uq2lxw).  It makes THIS read atomic against a ``commit_pickup`` that
+        is mid-update, nothing more.  ~~"an unlocked read of it beside a
+        locked read of the bag could pair a mark with a bag it never went
+        with"~~ IS STRUCK: two SEPARATE locked reads pair no better than one
+        locked and one unlocked, and a caller that wants the mark and the bag
+        to belong to one state cannot get that from this class today.
+        ``mob_pickup_persist.precheck_persistable`` reads both, and what
+        makes it safe is not this lock: every interleaving it can see is
+        refused rather than written (its own docstring says which).
+        """
+        with self._lock:
+            return self._issued_through
+
     def commit_pickup(self, ledger_cell: Any, claim: Any,
                       legacy: Any = None) -> PickupOutcome:
         """Take one drop off the ground and put it in this bag.  Once.
@@ -1373,13 +1414,26 @@ def bag_row_write_console_line(row_write: Any) -> str:
     below is the one caller that does print it, and it says so in its own
     docstring.
 
-    ``MOB_PICKUP_ROW_WOULD_INSERT`` is the token.  WOULD, not DID: see THE
-    WALL in the module docstring -- ``inventory.require_known_backpack``
-    refuses a bag holding a fifth item at the very next character select, so
-    nothing in this file ever turns this line into a real INSERT.  It exists
-    so the row a widened allowlist would eventually let through is visible on
-    the console by name today, instead of being silently discarded between
-    the take and the wall.
+    ``MOB_PICKUP_ROW_WOULD_INSERT`` is the token.  WOULD, not DID, and the
+    WOULD is now about THIS FILE ONLY: nothing in ``mob_pickup`` ever turns
+    this line into an INSERT, because this module has no cursor.
+
+    ~~"``inventory.require_known_backpack`` refuses a bag holding a fifth
+    item at the very next character select, so nothing in this file ever
+    turns this line into a real INSERT"~~ IS STRUCK AS FALSE, round uq2lxw,
+    measured rather than reasoned (pf-adversary): ``require_known_backpack``
+    still refuses such a bag, but it is NOT on the character-select path at
+    any of the three gates any more -- gate 1 (``store._load_backpack``) and
+    gate 3 (``inventory.make_backpack_attr``) ask ``require_backpack_shape``,
+    and gate 2 asks ``bag_admission.may_enter_world``.  A five-row bag
+    holding a picked-up item passes all three today, measured end to end.
+    THE STRUCK SENTENCE MATTERS BECAUSE OF WHO READS IT: an operator who
+    greps this token on the console lands here, and would have reported to
+    the owner both "nothing was written" and "character select would refuse
+    it anyway" -- the second is false now, and since round uq2lxw the first
+    is false too whenever ``mob_pickup_persist.pickup_and_persist`` is the
+    call site (its ``MOB_PICKUP_ROW_INSERTED`` line is printed right after
+    this one, and THAT is the DID).
     """
     if type(row_write) is not BagRowWrite:
         raise MobPickupContractError(

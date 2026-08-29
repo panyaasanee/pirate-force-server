@@ -68,6 +68,11 @@ LANE_B_MODULES = (
     "mob_diag_multi_object.py",
     "mob_loot.py",
     "mob_pickup.py",
+    # ROUND uq2lxw: the pickup path's write half, joined to store.py's
+    # STORE-INSERT-001.  Listed here the moment it was added, because this
+    # tuple is the lane's own second record of what it owns and a module
+    # missing from it is a module the fabrication sweep never reads.
+    "mob_pickup_persist.py",
 )
 
 # The exact identifiers RE-122's own BUILD_IMPACT line names, plus the exact
