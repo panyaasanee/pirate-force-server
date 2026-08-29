@@ -1,23 +1,29 @@
-"""LANE-B / round j0u64p: one kill site, every scene the server ships.
+"""LANE-B / round j0u64p: one kill site, the right letter for every scene.
 
-WHAT THIS FILE IS ABOUT, IN ONE SENTENCE.  ``runtime.py`` reaches
-``mob_death.kill()`` from ONE call site for every monster that dies, and that
-call site passes ONE owner ruling by name -- bg0001's.  The server now ships a
-second scene.  Measured before a line of this round was written: all 17 Bg0002
-monsters were refused a death by that single string, so a player fighting one
-in Prison Exile takes it to 0 HP and it never falls.
+WHAT THIS FILE IS ABOUT.  ``runtime.py`` reaches ``mob_death.kill()`` from ONE
+call site for every monster that dies, and that call site hardcodes ONE ruling
+string -- bg0001's.  The server ships a second scene, so that literal is the
+wrong letter for 17 of the 21 monsters it ships, and the day a third scene
+lands it is the wrong letter again.  ``mob_death.ruling_for(mob)`` answers the
+question the call site cannot answer from a literal.
 
-``test_every_shipped_mob_dies_through_one_widened_value`` is the load-bearing
-test here.  It walks the REAL rosters of every live scene, kills each row
-through the single value ``wired_widening_rulings()`` produces, and requires
-all of them to die.  On the tree this round started from it fails 17 times.
+WHAT THIS ROUND IS NOT, stated first because its first draft got it wrong and
+pf-adversary broke it by execution:
 
-The other tests exist because the fix is a widening of a GATE, and a widened
-gate is exactly where this project has been bitten before (pf-adversary, round
-67jejl: an unregistered ruling name used to authorise a kill).  So they attack
-the widening rather than demonstrate it: a mistranscribed name riding along
-beside a correct one, an empty sequence, two rulings whose halves would
-authorise a mob neither covers on its own.
+  * The death gate was NOT broken.  ``kill()`` already authorised every
+    monster the server ships -- the Bg0002 letter has been registered since
+    round y7koj9 and covers all 17 of that scene's rows, each under its own
+    correct string.  ``test_the_gate_itself_is_unchanged_by_this_round``
+    holds that: this round does not widen ``kill`` by one byte.
+  * A Bg0002 monster does NOT "reach 0 HP and keep standing".  It is refused
+    two layers earlier, at ``mob_combat``'s ``target_not_in_ledger``, because
+    ``runtime.py:3911`` loads only bg0001's roster -- so no hit lands on it at
+    all.  ``test_the_first_wall_is_in_mob_combat_not_here`` pins that, so this
+    file cannot be read as claiming a client-observable symptom it never saw.
+
+The load-bearing test is ``test_every_shipped_mob_dies_under_the_letter_
+ruling_for_names``: walk the REAL rosters of every live scene, kill each row
+under the letter this module names for it, and require all of them to die.
 """
 
 import sys
@@ -28,152 +34,254 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from pirateforce_foundation import field_mobs, mob_death
+from pirateforce_foundation import field_mobs, mob_combat, mob_death
 from pirateforce_foundation.legacy_bridge import load_legacy
 from pirateforce_foundation.mob_combat import Combatant, open_ledger, strike
 from pirateforce_foundation.mob_death import (
     DeathRegister,
     MobDeathContractError,
     kill,
-    wired_widening_rulings,
+    ruling_for,
+    rulings_covering,
 )
 
 
 PERFORMER = 0x750059
 LETHAL = Combatant(level=1000, ability_str=100000, ability_con=0)
 
-WIDENED_916_RULING = (
-    "COO-DECISION widen-death-scope-916-training-iron-man "
-    "2026-08-27T09:55+07:00 (ref PANYA-DECISION 2026-08-27T09:50+07:00 "
-    "section 3, supersedes COO 0954)"
-)
-WIDENED_BG0001_RULING = "COO-RULING-20260827-1350 widen-death-scope-bg0001"
-WIDENED_BG0002_RULING = (
-    "PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18) "
-    "widen-death-scope-bg0002"
-)
-# The value ``runtime.py``'s kill site passes TODAY, quoted here so the
-# before/after measurement below is against the real call site and not against
-# a convenient stand-in.
-RUNTIME_CALL_SITE_VALUE_BEFORE_THIS_ROUND = WIDENED_BG0001_RULING
+# The value runtime.py's kill site passes TODAY, quoted so the measurement
+# below is against the real call site and not a convenient stand-in.
+RUNTIME_CALL_SITE_LITERAL = "COO-RULING-20260827-1350 widen-death-scope-bg0001"
 
 
-class WiredWideningTests(unittest.TestCase):
+class RulingForTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
         cls.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
 
     def lethal_outcome(self, mob):
-        """A killing blow on ``mob`` through a one-mob ledger.
+        """A killing blow on ``mob`` through a ledger opened on itself.
 
-        Every subject in this file is loaded from its own scene's roster, and
-        the default ledger only knows bg0001's, so each mob gets a ledger
-        opened on itself -- the same shape test_mob_death.killing_outcome_solo
-        uses for its off-roster subjects.
+        The default ledger only knows bg0001's roster, so every subject here
+        gets a one-mob ledger -- the same shape test_mob_death's own
+        killing_outcome_solo uses for its off-roster subjects.
         """
         return strike(
             self.legacy, None, open_ledger((mob,)), None, mob, PERFORMER,
             LETHAL).outcome
 
-    def shipped_mobs(self):
-        for scene in field_mobs.live_scenes():
-            for mob in field_mobs.load_roster(scene=scene):
-                yield scene, mob
+    def shipped(self):
+        rows = [
+            (scene, mob)
+            for scene in field_mobs.live_scenes()
+            for mob in field_mobs.load_roster(scene=scene)
+        ]
+        # NON-VACUITY, and it guards every loop in this file rather than one
+        # of them (pf-adversary, this round: three tests here stayed green
+        # with every owner letter revoked, because their loops ran zero
+        # times).  A floor, not a pin: rosters are allowed to grow.
+        self.assertGreaterEqual(len(rows), 21, "the shipped rosters shrank")
+        self.assertGreaterEqual(len(field_mobs.live_scenes()), 2)
+        self.assertGreaterEqual(len(mob_death.WIDENING_RULINGS), 4)
+        return rows
 
-    # -- the measurement -------------------------------------------------
+    # -- what the round delivers -----------------------------------------
 
-    def test_every_shipped_mob_dies_through_one_widened_value(self):
-        # THE round's claim, stated as the thing a player would notice: every
-        # monster this server ships, in every scene it ships, falls when it is
-        # beaten -- through ONE value, because there is only one kill site.
-        wired = wired_widening_rulings()
-        shipped = list(self.shipped_mobs())
-        # Guard the guard: a roster that silently emptied would make the loop
-        # below vacuously green, which is the failure mode round 149wbp's own
-        # note warns about ("a loop that runs zero times is always green").
-        self.assertGreaterEqual(len(shipped), 21, "the shipped rosters shrank")
-        self.assertGreaterEqual(
-            len(field_mobs.live_scenes()), 2,
-            "this test is about more than one scene reaching one kill site")
-        for scene, mob in shipped:
+    def test_every_shipped_mob_dies_under_the_letter_ruling_for_names(self):
+        for scene, mob in self.shipped():
             with self.subTest(scene=scene, identity=hex(mob.actor_identity)):
                 step = kill(
                     self.legacy, mob, self.lethal_outcome(mob),
-                    DeathRegister(), widened=wired)
-                # is_dead is asked WITH the mob's own scene.  Its scene
-                # argument defaults to bg0001, so an assertion that omits it
-                # reads False for every Bg0002 corpse and would have turned
-                # the whole point of this test into a puzzle.
+                    DeathRegister(), widened=ruling_for(mob))
+                # is_dead is asked WITH the mob's own scene; its default is
+                # bg0001, so omitting it reads False for every Bg0002 corpse.
                 self.assertTrue(
                     step.register.is_dead(mob.actor_identity, mob.scene))
 
-    def test_the_single_string_in_use_today_cannot_kill_the_second_scene(self):
-        # The before half of the measurement, kept as a test rather than
-        # written up in the round note, so the day someone widens the bg0001
-        # ruling's own template set to "fix" this by another route, this file
-        # says so.  Nothing here asserts the refusal is DESIRABLE -- it
-        # asserts the single-string call site is INSUFFICIENT, which is the
-        # fact that made this round necessary.
-        bg0002 = field_mobs.load_roster(scene=field_mobs.BG0002_SCENE)
-        self.assertTrue(bg0002)
-        for mob in bg0002:
-            with self.subTest(identity=hex(mob.actor_identity)):
+    def test_the_literal_the_call_site_hardcodes_is_the_wrong_letter(self):
+        # The honest before-measurement.  NOT "these monsters cannot die" --
+        # each of them dies under its own letter, as the test above shows.
+        # What is measured here is that ONE hardcoded literal cannot be the
+        # right letter for a world with more than one scene.
+        # A mob the literal does not COVER is refused outright.  A mob it
+        # covers is killed by it -- bg0001's four dummies are covered by both
+        # bg0001 letters, so the literal works for them and only the letter a
+        # kill travels UNDER differs.  Both halves are asserted, because
+        # "17 of 21 are refused" and "the literal is wrong for all of them"
+        # are different claims and only the first one is true.
+        refused = killed = 0
+        for scene, mob in self.shipped():
+            covered = RUNTIME_CALL_SITE_LITERAL in rulings_covering(mob)
+            with self.subTest(scene=scene, identity=hex(mob.actor_identity)):
+                if covered:
+                    killed += 1
+                    step = kill(
+                        self.legacy, mob, self.lethal_outcome(mob),
+                        DeathRegister(), widened=RUNTIME_CALL_SITE_LITERAL)
+                    self.assertTrue(
+                        step.register.is_dead(mob.actor_identity, mob.scene))
+                    continue
+                refused += 1
                 with self.assertRaises(MobDeathContractError) as caught:
                     kill(
                         self.legacy, mob, self.lethal_outcome(mob),
-                        DeathRegister(),
-                        widened=RUNTIME_CALL_SITE_VALUE_BEFORE_THIS_ROUND)
+                        DeathRegister(), widened=RUNTIME_CALL_SITE_LITERAL)
                 self.assertEqual(
                     caught.exception.reason,
                     mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
+        # Floors with a reason rather than bare numbers, so a roster edit does
+        # not fail this test for something it is not about.
+        self.assertGreaterEqual(
+            refused, 17,
+            "the hardcoded literal is supposed to be the wrong letter for at "
+            "least Bg0002's whole roster")
+        self.assertGreaterEqual(
+            killed, 4,
+            "the literal still has to work for the scene it names, or this "
+            "round would be describing a regression instead of a hardcode")
 
-    # -- the derivation --------------------------------------------------
+    def test_the_gate_itself_is_unchanged_by_this_round(self):
+        # This round deliberately did NOT widen kill().  Its first draft did
+        # -- it taught widened= to accept a sequence of names -- and
+        # pf-adversary showed the gate had never been the constraint.  So the
+        # old one-string contract is pinned here: a tuple, even a tuple of one
+        # perfectly valid letter, is still refused exactly as before.
+        _scene, mob = self.shipped()[0]
+        name = ruling_for(mob)
+        self.assertIsInstance(name, str)
+        with self.assertRaises(MobDeathContractError) as caught:
+            kill(
+                self.legacy, mob, self.lethal_outcome(mob), DeathRegister(),
+                widened=(name,))
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
+        self.assertIn(mob_death.SANCTIONING_RULING, caught.exception.detail)
 
-    def test_the_wired_value_is_derived_from_the_world_not_typed_in(self):
-        # Every name it returns is a registered ruling...
-        wired = wired_widening_rulings()
-        for name in wired:
-            self.assertIn(name, mob_death.WIDENING_RULINGS)
-        # ...and every name is there BECAUSE some shipped row needs it: drop
-        # the rows a ruling covers and the ruling leaves the value.  This is
-        # what "derived" has to mean to be worth the word; a hardcoded tuple
-        # would pass the assertion above and fail this one.
-        for name in wired:
-            covered = [
-                mob for _scene, mob in self.shipped_mobs()
-                if name in mob_death._rulings_covering(mob)
-            ]
-            self.assertTrue(
-                covered,
-                "%r is in the wired value but covers nothing the world "
-                "ships" % (name,))
+    def test_the_first_wall_is_in_mob_combat_not_in_this_module(self):
+        # Why this round changes nothing a player sees, pinned so no reader of
+        # this file mistakes a mob_death fact for a client-observable one.  A
+        # Bg0002 monster never reaches 0 HP: runtime.py loads bg0001's roster,
+        # so mob_combat refuses the target before mob_death is ever consulted.
+        bg0002 = field_mobs.load_roster(scene=field_mobs.BG0002_SCENE)
+        self.assertTrue(bg0002)
+        runtime_roster = field_mobs.load_roster()   # runtime.py:3911, verbatim
+        runtime_ledger = open_ledger()              # runtime.py:1119, verbatim
+        for mob in bg0002:
+            with self.subTest(identity=hex(mob.actor_identity)):
+                self.assertNotIn(mob.actor_identity,
+                                 {m.actor_identity for m in runtime_roster})
+                with self.assertRaises(mob_combat.MobCombatContractError) as c:
+                    strike(
+                        self.legacy, None, runtime_ledger, None, mob,
+                        PERFORMER, LETHAL)
+                self.assertEqual(
+                    c.exception.reason, mob_combat.REFUSE_TARGET_NOT_IN_LEDGER)
 
-    def test_a_ruling_that_covers_nothing_shipped_is_not_wired_in(self):
-        # The diagnostic Mountain Deer letter (template 27) is a real
-        # registered ruling whose bodies mob_diag_multi_object places
-        # directly; no roster carries template 27.  It must NOT be handed to
-        # the kill site: the wired value is what the world needs, not a
-        # catalogue of every letter the project has received.
-        diag = (
-            "PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18) "
-            "diag-mountain-deer-template-27"
+    # -- the derivation ---------------------------------------------------
+
+    def test_ruling_for_is_derived_and_every_answer_is_a_real_letter(self):
+        for scene, mob in self.shipped():
+            with self.subTest(scene=scene, identity=hex(mob.actor_identity)):
+                name = ruling_for(mob)
+                self.assertIn(name, mob_death.WIDENING_RULINGS)
+                # derived, not typed in: the letter it names must be one that
+                # genuinely covers this mob on both axes
+                self.assertIn(name, rulings_covering(mob))
+
+    def test_the_narrower_letter_wins_and_it_is_the_one_the_pin_uses(self):
+        # bg0001's dummies are covered by TWO letters.  A kill travels under
+        # exactly one, and the rule (smallest covered set, ties by sorted
+        # name) has to reproduce the answer the tree already gave in
+        # PIN_WIDENING_RULING rather than invent a second one.
+        bg0001 = field_mobs.load_roster()
+        self.assertTrue(bg0001)
+        for mob in bg0001:
+            with self.subTest(identity=hex(mob.actor_identity)):
+                self.assertGreaterEqual(
+                    len(rulings_covering(mob)), 2,
+                    "this test is about a mob two letters cover")
+                self.assertEqual(ruling_for(mob), mob_death.PIN_WIDENING_RULING)
+
+    def test_a_monster_no_letter_covers_is_refused_not_given_some_letter(self):
+        # Fail-closed.  The tempting bug is to return the first registered
+        # ruling, or None, and let kill() sort it out -- None is the
+        # SANCTIONED path, so that would hand a free kill to a monster nobody
+        # authorised.
+        bg0001 = field_mobs.load_roster()[0]
+        stranger = field_mobs.FieldMob(
+            placement_index=9401,
+            template_id=4242,
+            x=bg0001.x, y=bg0001.y, z=bg0001.z,
+            visual_preset=bg0001.visual_preset,
+            display_name="TEMPLATE NO LETTER NAMES",
+            level=bg0001.level, rank=bg0001.rank,
+            ai_wander=bg0001.ai_wander, ai_combat=bg0001.ai_combat,
+            speed_walk=bg0001.speed_walk, max_hp=bg0001.max_hp,
+            drops_normal=0, drops_equipment=0, drops_specially=0,
+            scene=bg0001.scene,
         )
-        self.assertIn(diag, mob_death.WIDENING_RULINGS)
         self.assertNotIn(
-            27, {mob.template_id for _scene, mob in self.shipped_mobs()})
-        self.assertNotIn(diag, wired_widening_rulings())
+            4242,
+            {t for s in mob_death.WIDENING_RULINGS.values() for t in s})
+        self.assertEqual(rulings_covering(stranger), ())
+        with self.assertRaises(MobDeathContractError) as caught:
+            ruling_for(stranger)
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
+        self.assertIn("4242", caught.exception.detail)
+
+    def test_the_sanctioned_target_needs_no_letter_and_is_told_so(self):
+        # widened=ruling_for(mob) has to be the correct argument for EVERY
+        # mob, so a caller never needs a special case.  For the sanctioned
+        # first target in its own scene, kill() wants None, and that is what
+        # this returns -- and the kill goes through with it.
+        bg0001 = field_mobs.load_roster()[0]
+        sanctioned = field_mobs.FieldMob(
+            placement_index=mob_death.SANCTIONED_FIRST_TARGET_IDENTITY
+            - 0x2000 - 1,
+            template_id=4242,
+            x=bg0001.x, y=bg0001.y, z=bg0001.z,
+            visual_preset=bg0001.visual_preset,
+            display_name="THE SANCTIONED FIRST TARGET",
+            level=bg0001.level, rank=bg0001.rank,
+            ai_wander=bg0001.ai_wander, ai_combat=bg0001.ai_combat,
+            speed_walk=bg0001.speed_walk, max_hp=bg0001.max_hp,
+            drops_normal=0, drops_equipment=0, drops_specially=0,
+            scene=mob_death.SANCTIONED_FIRST_TARGET_SCENE,
+        )
+        self.assertEqual(
+            sanctioned.actor_identity,
+            mob_death.SANCTIONED_FIRST_TARGET_IDENTITY)
+        # no letter covers its template; the bypass is what admits it
+        self.assertEqual(rulings_covering(sanctioned), ())
+        self.assertIsNone(ruling_for(sanctioned))
+        step = kill(
+            self.legacy, sanctioned, self.lethal_outcome(sanctioned),
+            DeathRegister(), widened=ruling_for(sanctioned))
+        self.assertTrue(
+            step.register.is_dead(
+                sanctioned.actor_identity, sanctioned.scene))
 
     def test_the_derivation_and_the_gate_agree_on_every_shipped_mob(self):
-        # _rulings_covering() is a SECOND expression of the two questions
+        # rulings_covering() is a SECOND expression of the two questions
         # kill() asks, because kill() has to walk the rulings itself to say
         # which letter declined.  Two expressions of one rule drift; this
-        # holds them to the same answer by execution, over every shipped row
-        # crossed with every registered ruling, instead of trusting a comment.
-        for _scene, mob in self.shipped_mobs():
+        # holds them to the same answer by execution.  The sanctioned
+        # identity is EXCLUDED BY NAME, not by luck: kill() admits it with no
+        # letter at all, so the two would legitimately disagree there.
+        checked = 0
+        for scene, mob in self.shipped():
+            if (mob.actor_identity
+                    == mob_death.SANCTIONED_FIRST_TARGET_IDENTITY
+                    and mob.scene == mob_death.SANCTIONED_FIRST_TARGET_SCENE):
+                continue
             outcome = self.lethal_outcome(mob)
-            covering = mob_death._rulings_covering(mob)
+            covering = rulings_covering(mob)
             for name in mob_death.WIDENING_RULINGS:
+                checked += 1
                 with self.subTest(
                         identity=hex(mob.actor_identity), ruling=name[:40]):
                     try:
@@ -185,138 +293,60 @@ class WiredWideningTests(unittest.TestCase):
                     else:
                         gate_says_yes = True
                     self.assertEqual(gate_says_yes, name in covering)
+        self.assertGreaterEqual(checked, 21 * 4)
 
     def test_live_scenes_is_the_list_load_roster_actually_obeys(self):
-        # wired_widening_rulings walks live_scenes(); if that list and the
-        # scenes load_roster accepts ever diverge, the wired value would be
-        # derived from a world the server does not run.
-        for scene in field_mobs.live_scenes():
+        scenes = field_mobs.live_scenes()
+        self.assertGreaterEqual(len(scenes), 2)
+        for scene in scenes:
             self.assertTrue(field_mobs.load_roster(scene=scene))
         with self.assertRaises(field_mobs.FieldMobContractError):
             field_mobs.load_roster(scene="no-such-scene")
 
-    def test_the_coverage_report_names_a_monster_no_ruling_covers(self):
+    # -- the report -------------------------------------------------------
+
+    def test_the_coverage_report_names_a_monster_no_letter_covers(self):
         # G-OBS.  Round szdkgs shipped four unkillable dummies and the suite
-        # stayed green, so "nothing covers this row" has to reach a console,
-        # by identity, not wait for a tester to stand in front of it.
-        # DERIVED, not typed in: the counts come from the roster itself, so a
-        # roster edit changes what this test expects instead of failing it for
-        # a reason that has nothing to do with what it is guarding.
-        bg0002_size = len(field_mobs.load_roster(scene=field_mobs.BG0002_SCENE))
-        self.assertGreater(bg0002_size, 0)
-        healthy = mob_death.describe_wired_widening_coverage()
+        # stayed green, so "nothing covers this row" has to be sayable by
+        # identity.  Counts are DERIVED from the roster, so a roster edit
+        # changes what this expects instead of failing it for the wrong
+        # reason.
+        bg0002 = len(field_mobs.load_roster(scene=field_mobs.BG0002_SCENE))
+        self.assertGreater(bg0002, 0)
+        healthy = mob_death.describe_widening_coverage()
         self.assertFalse([ln for ln in healthy if "UNKILLABLE" in ln])
         self.assertTrue([
             ln for ln in healthy
-            if "%d of %d" % (bg0002_size, bg0002_size) in ln])
+            if "scene=%s killable=%d of %d" % (
+                field_mobs.BG0002_SCENE, bg0002, bg0002) in ln])
+        # the scope line: this report covers live scenes and says so, rather
+        # than reading as "there is nothing else"
+        self.assertTrue([ln for ln in healthy if "scope=live_scenes(" in ln])
         previous = dict(mob_death.WIDENING_RULINGS)
         try:
-            mob_death.WIDENING_RULINGS.pop(WIDENED_BG0002_RULING)
-            broken = mob_death.describe_wired_widening_coverage()
+            mob_death.WIDENING_RULINGS.pop(
+                "PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18) "
+                "widen-death-scope-bg0002")
+            broken = mob_death.describe_widening_coverage()
         finally:
+            # clear+update, not rebinding: any module that did
+            # ``from mob_death import WIDENING_RULINGS`` holds this same dict
             mob_death.WIDENING_RULINGS.clear()
             mob_death.WIDENING_RULINGS.update(previous)
-        named = [ln for ln in broken if "UNKILLABLE" in ln]
-        self.assertEqual(len(named), bg0002_size)
-        self.assertTrue([
-            ln for ln in broken if "0 of %d" % (bg0002_size,) in ln])
-        # the report is restored with the dict, so a later test in this file
-        # is not reading a mutated module
-        self.assertEqual(mob_death.describe_wired_widening_coverage(), healthy)
-
-    # -- the gate is not loosened ----------------------------------------
-
-    def test_one_bad_name_beside_a_good_one_is_refused_not_rescued(self):
-        # The defect this round could most easily have introduced.  A caller
-        # assembling a list by hand mistranscribes one ruling; the correct
-        # name beside it kills the mob anyway and nobody ever learns the
-        # second letter was never really quoted.  pf-adversary round 67jejl
-        # found the single-string version of exactly this.
-        mob = field_mobs.load_roster(scene=field_mobs.BG0002_SCENE)[0]
-        paraphrase = "PANYA-DECISION 2026-08-27 widen-death-scope-bg0002"
-        self.assertNotIn(paraphrase, mob_death.WIDENING_RULINGS)
-        for value in (
-            (WIDENED_BG0002_RULING, paraphrase),
-            (paraphrase, WIDENED_BG0002_RULING),
-        ):
-            with self.subTest(order=value.index(paraphrase)):
-                with self.assertRaises(MobDeathContractError) as caught:
-                    kill(
-                        self.legacy, mob, self.lethal_outcome(mob),
-                        DeathRegister(), widened=value)
-                self.assertEqual(
-                    caught.exception.reason,
-                    mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
-                self.assertIn("recognises", caught.exception.detail)
-
-    def test_two_rulings_do_not_assemble_an_authorisation_neither_gives(self):
-        # The reverse-direction hazard, in its new multi-name shape.  Ruling A
-        # (bg0001) covers template 916 in scene bg0001.  Ruling B (Bg0002)
-        # covers template 31 in scene Bg0002.  A mob carrying template 916 in
-        # scene Bg0002 matches A's template and B's scene -- and must still be
-        # refused, because no single letter covers it.  A gate that tested
-        # "some ruling's templates" and "some ruling's scenes" separately
-        # would authorise this and would look correct in review.
-        bg0001 = field_mobs.load_roster()[0]
-        self.assertEqual(bg0001.template_id, 916)
-        smuggled = field_mobs.FieldMob(
-            placement_index=9101,
-            template_id=bg0001.template_id,
-            x=bg0001.x, y=bg0001.y, z=bg0001.z,
-            visual_preset=bg0001.visual_preset,
-            display_name="916 BODY WEARING THE OTHER SCENE",
-            level=bg0001.level, rank=bg0001.rank,
-            ai_wander=bg0001.ai_wander, ai_combat=bg0001.ai_combat,
-            speed_walk=bg0001.speed_walk, max_hp=bg0001.max_hp,
-            drops_normal=0, drops_equipment=0, drops_specially=0,
-            scene=field_mobs.BG0002_SCENE,
-        )
-        with self.assertRaises(MobDeathContractError) as caught:
-            kill(
-                self.legacy, smuggled, self.lethal_outcome(smuggled),
-                DeathRegister(),
-                widened=(WIDENED_BG0001_RULING, WIDENED_BG0002_RULING))
         self.assertEqual(
-            caught.exception.reason,
-            mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
-        # and the refusal says BOTH why each letter declined, not just the
-        # last one tried -- a caller holding three letters needs to know which
-        # of them it thought applied.
-        self.assertIn(WIDENED_BG0001_RULING, caught.exception.detail)
-        self.assertIn(WIDENED_BG0002_RULING, caught.exception.detail)
+            len([ln for ln in broken if "UNKILLABLE" in ln]), bg0002)
+        self.assertTrue([
+            ln for ln in broken
+            if "scene=%s killable=0 of %d" % (
+                field_mobs.BG0002_SCENE, bg0002) in ln])
+        self.assertEqual(mob_death.describe_widening_coverage(), healthy)
 
-    def test_an_empty_or_malformed_widened_authorises_nothing(self):
-        mob = field_mobs.load_roster(scene=field_mobs.BG0002_SCENE)[0]
-        outcome = self.lethal_outcome(mob)
-        for value in ((), [], None, "", "   ", (WIDENED_BG0002_RULING, ""),
-                      (WIDENED_BG0002_RULING, None), 916,
-                      {WIDENED_BG0002_RULING}):
-            with self.subTest(value=repr(value)):
-                with self.assertRaises(MobDeathContractError) as caught:
-                    kill(
-                        self.legacy, mob, outcome, DeathRegister(),
-                        widened=value)
-                self.assertEqual(
-                    caught.exception.reason,
-                    mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
-
-    def test_a_ruling_string_is_not_iterated_into_its_characters(self):
-        # str is a sequence.  A normaliser that forgot to special-case it
-        # would turn the real ruling into 60-odd one-character "rulings", none
-        # registered, and the refusal a caller read back would name a letter
-        # of the alphabet instead of the letter they quoted.  The positive
-        # path proves it: a bare string still kills what it always killed.
-        mob = field_mobs.load_roster()[0]
-        step = kill(
-            self.legacy, mob, self.lethal_outcome(mob), DeathRegister(),
-            widened=WIDENED_916_RULING)
-        self.assertTrue(step.register.is_dead(mob.actor_identity))
-        # and a single-element sequence carrying the same name is the same
-        # authorisation, not a different one
-        again = kill(
-            self.legacy, mob, self.lethal_outcome(mob), DeathRegister(),
-            widened=(WIDENED_916_RULING,))
-        self.assertEqual(again.dead_frame, step.dead_frame)
+    def test_the_report_encodes_to_the_console_this_project_actually_has(self):
+        # G-OBS again: the bridge console is cp874.  A line that cannot be
+        # encoded is a line nobody reads, and a display_name mined from the
+        # game tables is not this lane's choice of characters.
+        for line in mob_death.describe_widening_coverage():
+            line.encode("cp874")
 
 
 if __name__ == "__main__":

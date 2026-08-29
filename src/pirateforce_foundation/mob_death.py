@@ -464,116 +464,26 @@ WIDENING_RULING_SCENES: dict[str, str] = {
 }
 
 
-def _widening_names(widened: Any, mob: FieldMob) -> tuple[str, ...]:
-    """Normalise :func:`kill`'s ``widened=`` to a tuple of ruling names.
-
-    ROUND j0u64p.  ``widened`` was one string and is now one string OR a
-    sequence of them, because a server that ships more than one scene stands
-    on more than one letter and :func:`kill` is reached from ONE call site for
-    every monster that dies.  This function does the SHAPE work only -- which
-    ruling covers which monster is still decided in :func:`kill`, unchanged.
-
-    A ``str`` is itself a sequence, so it is matched FIRST and on purpose: the
-    alternative (iterating it) would turn the real ruling string into a list
-    of single characters, each of them an unregistered "ruling", and the
-    refusal a caller got back would name a letter of the alphabet.
-    """
-    if type(widened) is str:
-        if not widened.strip():
-            widened = None
-        else:
-            return (widened,)
-    if widened is None:
-        raise MobDeathContractError(
-            REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE,
-            "identity 0x%X is not the sanctioned first target 0x%X.  %s "
-            "says: prove the death loop on that identity FIRST, then move "
-            "to a real table mob, and do not merge the two steps.  If a "
-            "later ruling widened this, pass widened='<its name>' and say "
-            "so in the round note" % (
-                mob.actor_identity, SANCTIONED_FIRST_TARGET_IDENTITY,
-                SANCTIONING_RULING),
-        )
-    if type(widened) not in (tuple, list):
-        raise MobDeathContractError(
-            REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE,
-            "widened= must be a ruling name or a tuple/list of them, not %r "
-            "(a set or a generator would make the refusal message this "
-            "function produces depend on iteration order, or consume the "
-            "names before kill() could read them twice)" % (type(widened),),
-        )
-    names = tuple(widened)
-    if not names:
-        raise MobDeathContractError(
-            REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE,
-            "widened=() names no ruling at all; an empty sequence authorises "
-            "nothing, exactly as widened=None does - identity 0x%X is not "
-            "the sanctioned first target 0x%X" % (
-                mob.actor_identity, SANCTIONED_FIRST_TARGET_IDENTITY),
-        )
-    for name in names:
-        if type(name) is not str or not name.strip():
-            raise MobDeathContractError(
-                REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE,
-                "every name in widened= must be a non-empty ruling name; "
-                "%r is not" % (name,),
-            )
-    return names
-
-
-def wired_widening_rulings() -> tuple[str, ...]:
-    """The exact ``widened=`` value ONE kill site needs for the shipped world.
-
-    ROUND j0u64p, and this is the whole point of the round.  Measured before
-    it was written: with the single bg0001 ruling string ``runtime.py``'s kill
-    site passes today, ALL 17 Bg0002 monsters are refused a death -- a player
-    who fights one in Prison Exile takes it to 0 HP and watches it keep
-    standing.  ``GT-132``, the head of the test queue, has to be run in Bg0002
-    (chief R223: killing in town drops nothing), so the ticket at the front of
-    the queue could not have passed.
-
-    DERIVED, NEVER HAND-TYPED.  The names come from asking every LIVE scene's
-    own shipped roster which registered rulings cover its rows, so the day a
-    scene is added, retired, or re-mined this value follows it instead of
-    going stale the way a hardcoded string does.  A ruling that covers nothing
-    the world ships (the diagnostic Mountain Deer letter, whose bodies are
-    placed by ``mob_diag_multi_object`` and never appear in a roster) is NOT
-    included: this is the set the world needs, not a catalogue of every letter
-    the project has ever received.
-
-    This function AUTHORISES NOTHING ON ITS OWN.  Each name it returns is a
-    real registered ruling and :func:`kill` still holds every one of them to
-    its own template and scene scope; a monster no letter covers is refused
-    here exactly as it is refused today -- see
-    :func:`describe_wired_widening_coverage`, which names those rather than
-    letting them pass silently.
-    """
-    needed: list[str] = []
-    for scene in field_mobs.live_scenes():
-        for mob in field_mobs.load_roster(scene=scene):
-            for name in _rulings_covering(mob):
-                if name not in needed:
-                    needed.append(name)
-    return tuple(sorted(needed))
-
-
-def _rulings_covering(mob: FieldMob) -> tuple[str, ...]:
+def rulings_covering(mob: FieldMob) -> tuple[str, ...]:
     """Every registered ruling that authorises killing ``mob``, both axes.
 
-    The same two questions :func:`kill` asks.  It is a SECOND expression of
-    them, not a shared one -- ``kill`` cannot call this function because it
-    owes the caller a refusal that says which letter declined and why, which
-    means walking the rulings itself.  Two expressions of one rule is exactly
-    how a gate and its derivation drift apart, so
-    ``test_the_derivation_and_the_gate_agree_on_every_shipped_mob`` holds them
-    to the same answer by execution over every shipped row and every
-    registered ruling rather than by this paragraph promising it.
+    ROUND j0u64p.  The same two questions :func:`kill` asks -- is this mob's
+    template in the ruling's covered set, and if the ruling is tied to a
+    scene, is this mob in it.  This is a SECOND expression of them, not a
+    shared one: :func:`kill` cannot call this, because it owes its caller a
+    refusal saying which letter declined and why, which means walking the
+    rulings itself.  Two expressions of one rule is exactly how a gate and its
+    derivation drift apart, so ``tests/test_mob_death_wired_widening.py``
+    holds them to the same answer by execution over every shipped row crossed
+    with every registered ruling.
 
-    Measured (round j0u64p): ``wired_widening_rulings`` costs ~0.1 ms, which
-    is why it re-derives on every call instead of caching.  A cache here would
-    go stale the moment ``WIDENING_RULINGS`` gains a ruling -- which is what a
-    new owner letter IS -- to buy a tenth of a millisecond on a path that runs
-    once per monster killed.
+    THE SANCTIONED BYPASS IS DELIBERATELY NOT MODELLED HERE, and callers must
+    ask :func:`ruling_for` rather than this function for that reason.
+    ``kill`` lets ``SANCTIONED_FIRST_TARGET_IDENTITY`` in its own scene
+    through with no ``widened=`` at all, so for that one actor this function
+    answers ``()`` while ``kill`` answers "killed".  Naming it here rather
+    than papering over it: the equality test above excludes that identity by
+    name, and :func:`ruling_for` reports it as needing no ruling.
     """
     covering: list[str] = []
     for name, templates in WIDENING_RULINGS.items():
@@ -586,30 +496,106 @@ def _rulings_covering(mob: FieldMob) -> tuple[str, ...]:
     return tuple(covering)
 
 
-def describe_wired_widening_coverage() -> tuple[str, ...]:
-    """Console lines: what the shipped world can kill, and what it cannot.
+def ruling_for(mob: FieldMob) -> str | None:
+    """The ONE ruling name a kill on ``mob`` should travel under, or None.
 
-    G-OBS.  A monster that no ruling covers is a monster a player can beat to
-    0 HP and never fell, and this project has already shipped that state once
-    without noticing (round szdkgs made four dummies unkillable and the suite
-    stayed green).  So the uncovered rows are PRINTED, by scene and identity,
-    rather than left to be discovered by a tester standing in front of one.
+    ROUND j0u64p, and this is what the round is actually for.  ``runtime.py``
+    reaches :func:`kill` from ONE call site for every monster that dies, and
+    that call site hardcodes ONE ruling string -- bg0001's.  The server now
+    ships a second scene, so the hardcoded string is the wrong letter for 17
+    of the 21 monsters it ships, and the day a third scene lands it is the
+    wrong letter again.  This function answers the question the call site
+    cannot answer from a literal: given this monster, which letter authorises
+    killing it.
+
+    MEASURED, AND THE MEASUREMENT MATTERS FOR HOW THIS IS READ (pf-adversary,
+    this round, breaking this round's own first draft): ``kill`` ALREADY
+    authorises every monster the server ships -- the Bg0002 letter has been
+    registered since round y7koj9 and covers all 17 of that scene's rows.
+    Nothing here is a fix to a broken gate, and the gate is not widened by one
+    byte.  What is removed is a hardcoded per-scene argument in a file this
+    lane does not own, replaced by a value derived from the world itself.
+
+    Returns ``None`` for the sanctioned first target in its own scene, which
+    :func:`kill` admits with no ruling at all -- so ``widened=ruling_for(mob)``
+    is the correct argument for EVERY mob, including that one, and a caller
+    never needs a special case.
+
+    WHEN TWO LETTERS COVER THE SAME MONSTER, THE NARROWER ONE WINS, ties
+    broken by sorted name.  bg0001's four dummies are covered both by the
+    letter that names template 916 and by the letter that names the bg0001
+    roster; a kill travels under exactly one of them, and picking the letter
+    with the smaller covered set keeps a kill's provenance as specific as the
+    letters allow.  That rule reproduces ``PIN_WIDENING_RULING`` -- the letter
+    this module's own shipped pin already travels under -- rather than
+    inventing a second answer to a question the tree had already answered.
     """
-    lines = ["MOB_DEATH_WIRED_WIDENING: %d ruling(s) cover the shipped world"
-             % (len(wired_widening_rulings()),)]
-    for name in wired_widening_rulings():
-        lines.append("  ruling: %s" % (name,))
+    _require_mob(mob)
+    if (
+        mob.actor_identity == SANCTIONED_FIRST_TARGET_IDENTITY
+        and mob.scene == SANCTIONED_FIRST_TARGET_SCENE
+    ):
+        return None
+    covering = rulings_covering(mob)
+    if not covering:
+        raise MobDeathContractError(
+            REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE,
+            "no registered ruling covers identity 0x%X (template %d, scene "
+            "%r), so there is no letter a kill on it could travel under - see "
+            "describe_widening_coverage(), and ask the owner before shipping "
+            "a monster nobody authorised killing" % (
+                mob.actor_identity, mob.template_id, mob.scene),
+        )
+    return sorted(covering, key=lambda name: (len(WIDENING_RULINGS[name]), name))[0]
+
+
+def describe_widening_coverage() -> tuple[str, ...]:
+    """Console lines: which shipped monsters have a letter, and which do not.
+
+    G-OBS.  A monster no ruling covers is a monster a player can beat to zero
+    and never fell, and this project has already shipped that state once
+    without noticing (round szdkgs made four dummies unkillable and the suite
+    stayed green).  So the uncovered rows are named, by scene and identity.
+
+    THIS FUNCTION ONLY RETURNS THE LINES.  Nothing in ``src/`` prints them
+    yet -- printing happens in ``runtime.py``, which is not this lane's file
+    (pf-adversary, this round: the first draft's docstring claimed they WERE
+    printed, which was false and is the exact defect class this lane was
+    burned by last round).  The one line that makes this observable is named
+    in the round's letter to chief, beside ``runtime.py:6402``'s existing
+    ``print(mob_death.describe_roster_override_coverage(...))``.
+    """
+    lines = []
     for scene in field_mobs.live_scenes():
         roster = field_mobs.load_roster(scene=scene)
-        uncovered = [m for m in roster if not _rulings_covering(m)]
+        sanctioned = [
+            mob for mob in roster
+            if mob.actor_identity == SANCTIONED_FIRST_TARGET_IDENTITY
+            and mob.scene == SANCTIONED_FIRST_TARGET_SCENE
+        ]
+        uncovered = [
+            mob for mob in roster
+            if not rulings_covering(mob) and mob not in sanctioned
+        ]
         lines.append(
-            "  scene %s: %d of %d shipped mob(s) can die" % (
+            "MOB_DEATH_WIDENING_COVERAGE scene=%s killable=%d of %d" % (
                 scene, len(roster) - len(uncovered), len(roster)))
         for mob in uncovered:
             lines.append(
-                "    UNKILLABLE identity=0x%X template=%d %s - no registered "
+                "  UNKILLABLE identity=0x%X template=%d %s - no registered "
                 "ruling covers it" % (
                     mob.actor_identity, mob.template_id, mob.display_name))
+    # SCOPE, said out loud rather than left to be inferred (pf-adversary, this
+    # round): this report walks the scenes load_roster will actually load.  A
+    # scene whose table is mined but not registered ships no monsters into any
+    # world and raises no coverage question here -- and a report silent about
+    # that reads as "there is nothing else", which is a different claim and a
+    # false one.  Which scenes those are is field_mobs' business to name, not
+    # this module's, and that file deliberately does not name them literally.
+    lines.append(
+        "MOB_DEATH_WIDENING_COVERAGE scope=live_scenes(%s) - a mined but "
+        "unregistered scene is outside this count, not proven empty by it" % (
+            ",".join(field_mobs.live_scenes()),))
     return tuple(lines)
 
 
@@ -1694,22 +1680,17 @@ def kill(
         # The owner's sequencing, held as a gate.  A caller that has a ruling
         # widening this names it; a caller that does not gets a refusal that
         # says which ruling it is standing on and what it was allowed.
-        #
-        # ROUND j0u64p: ``widened`` may now be ONE name or a SEQUENCE of them.
-        # The open question this dict's own comment left standing ("kill()
-        # takes ONE widened= string and a roster can now need two, so a lane
-        # whose roster stops fitting through one string has to ask chief for
-        # its file") stopped being theoretical: measured this round, ALL 17
-        # Bg0002 mobs are refused a death by the exact single string
-        # runtime.py's kill site passes, because that string is bg0001's
-        # ruling and Bg0002's rows carry templates 31/34/35/103.  A player who
-        # kills a monster in Prison Exile takes it to 0 HP and it never falls.
-        # Nothing here is loosened to fix that: every name in the sequence
-        # must still be a registered ruling, and the mob must still clear a
-        # ruling's OWN template and scene checks.  What changes is only that a
-        # caller may stand on more than one letter at once, which is what a
-        # server with more than one shipped scene actually does.
-        names = _widening_names(widened, mob)
+        if type(widened) is not str or not widened.strip():
+            raise MobDeathContractError(
+                REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE,
+                "identity 0x%X is not the sanctioned first target 0x%X.  %s "
+                "says: prove the death loop on that identity FIRST, then move "
+                "to a real table mob, and do not merge the two steps.  If a "
+                "later ruling widened this, pass widened='<its name>' and say "
+                "so in the round note" % (
+                    mob.actor_identity, SANCTIONED_FIRST_TARGET_IDENTITY,
+                    SANCTIONING_RULING),
+            )
         # FAILS CLOSED on the ruling name itself, not only on the template it
         # names.  The first draft of this guard treated any STRING this
         # module had never catalogued as pre-fix-legal ("just needs to be
@@ -1723,66 +1704,44 @@ def kill(
         # UNRECOGNISED ruling name is refused here, by name, same as an
         # empty one - it authorises nothing, on principle, rather than by
         # accident of what happens to already be in WIDENING_RULINGS.
-        #
-        # EVERY name is checked for registration BEFORE any coverage question
-        # is asked of any of them.  A caller that hands over one good name and
-        # one mistranscribed one is refused on the bad one, not quietly
-        # rescued by the good one - a paraphrase that rides along unnoticed in
-        # a list is the SAME defect pf-adversary found in round 67jejl, only
-        # harder to see.
-        for name in names:
-            if name not in WIDENING_RULINGS:
-                raise MobDeathContractError(
-                    REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE,
-                    "widened=%r is not a ruling this module recognises (see "
-                    "WIDENING_RULINGS); a string that merely paraphrases or "
-                    "mistranscribes a real ruling authorises nothing - "
-                    "register the ruling under its exact name first" % (
-                        name,),
-                )
-        # ADDED round y7koj9 (PANYA-DECISION 2026-08-27T20:10+07:00 "M1-P"
-        # item 3): the template_id check is not sufficient by itself once a
-        # second scene's roster can reach this function at all -- the bg0001
-        # and Bg0002 rulings' covered template sets OVERLAP (31, 34, 35, 103
-        # are in both), so a mob whose template_id passes could still be the
-        # WRONG scene's instance of that template. WIDENING_RULING_SCENES
-        # only names the rulings that actually need this (see its own
-        # docstring); a ruling with no entry there is unaffected.
-        #
-        # A mob is authorised when SOME named ruling covers it on BOTH axes.
-        # Both checks stay exactly as strict per ruling as they were when only
-        # one name could be passed: nothing is authorised by the ACCUMULATION
-        # of two partial matches (a template from one letter, a scene from
-        # another) - that would be the reverse-direction hazard this dict's
-        # own comment names, assembled out of two rulings instead of one.
-        refusals: list[str] = []
-        for name in names:
-            covered_templates = WIDENING_RULINGS[name]
-            if mob.template_id not in covered_templates:
-                refusals.append(
-                    "widened=%r is a known ruling and it names MOBS template "
-                    "id(s) %s; mob 0x%X carries template_id %d, which is not "
-                    "one of them - the ruling's own string does not authorise "
-                    "this monster" % (
-                        name, sorted(covered_templates), mob.actor_identity,
-                        mob.template_id))
-                continue
-            required_scene = WIDENING_RULING_SCENES.get(name)
-            if required_scene is not None and mob.scene != required_scene:
-                refusals.append(
-                    "widened=%r only authorises scene %r; mob 0x%X carries "
-                    "template_id %d (which IS in the ruling's covered set) but "
-                    "scene %r, so this ruling's own scope does not cover it - "
-                    "a template_id match alone is not enough once more than "
-                    "one scene shares that template" % (
-                        name, required_scene, mob.actor_identity,
-                        mob.template_id, mob.scene))
-                continue
-            break
-        else:
+        covered_templates = WIDENING_RULINGS.get(widened)
+        if covered_templates is None:
             raise MobDeathContractError(
                 REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE,
-                "; ".join(refusals),
+                "widened=%r is not a ruling this module recognises (see "
+                "WIDENING_RULINGS); a string that merely paraphrases or "
+                "mistranscribes a real ruling authorises nothing - register "
+                "the ruling under its exact name first" % (widened,),
+            )
+        if mob.template_id not in covered_templates:
+            raise MobDeathContractError(
+                REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE,
+                "widened=%r is a known ruling and it names MOBS template "
+                "id(s) %s; mob 0x%X carries template_id %d, which is not "
+                "one of them - the ruling's own string does not authorise "
+                "this monster" % (
+                    widened, sorted(covered_templates), mob.actor_identity,
+                    mob.template_id),
+            )
+        # ADDED this round (PANYA-DECISION 2026-08-27T20:10+07:00 "M1-P" item
+        # 3): the template_id check above is no longer sufficient by itself
+        # once a second scene's roster can reach this function at all -- the
+        # bg0001 and Bg0002 rulings' covered template sets OVERLAP (31, 34,
+        # 35, 103 are in both), so a mob whose template_id passes could still
+        # be the WRONG scene's instance of that template. WIDENING_RULING_
+        # SCENES only names the rulings that actually need this (see its own
+        # docstring); a ruling with no entry there is unaffected.
+        required_scene = WIDENING_RULING_SCENES.get(widened)
+        if required_scene is not None and mob.scene != required_scene:
+            raise MobDeathContractError(
+                REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE,
+                "widened=%r only authorises scene %r; mob 0x%X carries "
+                "template_id %d (which IS in the ruling's covered set) but "
+                "scene %r, so this ruling's own scope does not cover it - "
+                "a template_id match alone is not enough once more than one "
+                "scene shares that template" % (
+                    widened, required_scene, mob.actor_identity,
+                    mob.template_id, mob.scene),
             )
     if live.is_dead(mob.actor_identity, mob.scene):
         raise MobDeathContractError(
