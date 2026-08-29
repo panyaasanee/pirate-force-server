@@ -36,9 +36,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from pirateforce_foundation import mob_census_hostility  # noqa: E402
 from pirateforce_foundation import world_population  # noqa: E402
 from pirateforce_foundation import world_population_bg0002  # noqa: E402
 from pirateforce_foundation import world_scene_travel  # noqa: E402
+from pirateforce_foundation.runtime import (  # noqa: E402
+    _apply_mob_death_census_override,
+)
 from pirateforce_foundation.legacy_bridge import (  # noqa: E402
     LegacyProjector, load_legacy,
 )
@@ -166,6 +170,32 @@ class Bg0002CensusWiringTests(unittest.TestCase):
             if action[0].startswith("WORLD_CENSUS_")
         ]
 
+    def _expected_spliced(self, state, anchor):
+        """The census bytes the wired branch now queues: the raw bg0002
+        build with LANE-B's hostile-faction override spliced in
+        (CORE-REQUEST 20260829_1600), composed through the same public
+        functions the call site uses.  Deliberately NO ledger argument,
+        same as the call site and for the measured reason in the letter:
+        at login the boot ledger still holds bg0001's roster and
+        ``full_roster_override`` raises on the mismatched pair.
+
+        Still mutation-proof for the wiring: revert the override
+        application in runtime.py's bg0002 branch and every byte
+        comparison built from this helper fails, because the splice
+        changes entry sizes (0x2033: 183 -> 196 bytes, measured by the
+        lane's own headless run).
+        """
+        independent = world_population_bg0002.build_bg0002_population(
+            self.legacy, anchor, scene_id=SCENE2_N_ID,
+            count_source=world_population_bg0002.COUNT_SOURCE_FULL_ROSTER,
+        )
+        override = mob_census_hostility.hostile_override_for_scene_id(
+            self.legacy, SCENE2_N_ID, state.mob_death_register,
+        )
+        return _apply_mob_death_census_override(
+            self.legacy, independent, override,
+        )
+
     # ----- point 1: the login teleport needs no runtime.py change ------
 
     def test_a_scene2_stored_row_teleports_to_the_pinned_spawn(self):
@@ -206,13 +236,10 @@ class Bg0002CensusWiringTests(unittest.TestCase):
             [f"{INITIAL_PREFIX}97", f"{REAPPLY_PREFIX}97"],
         )
         self.assertEqual([action[3] for action in census], [0.0, 3.0])
-        independent = world_population_bg0002.build_bg0002_population(
-            self.legacy, PIN_ANCHOR, scene_id=SCENE2_N_ID,
-            count_source=world_population_bg0002.COUNT_SOURCE_FULL_ROSTER,
-        )
+        expected = self._expected_spliced(state, PIN_ANCHOR)
         for action in census:
-            self.assertEqual(action[1], independent.pc)
-            self.assertEqual(action[2], independent.frame)
+            self.assertEqual(action[1], expected.pc)
+            self.assertEqual(action[2], expected.frame)
         self.assertEqual(
             census[1][3],
             world_population_bg0002.INITIAL_REAPPLY_MS / 1000.0,
@@ -221,7 +248,7 @@ class Bg0002CensusWiringTests(unittest.TestCase):
         self.assertIs(state.world_census_refused, False)
         self.assertIn(
             "world_census_bg0002_committed_actors_97_pc_"
-            f"{independent.pc_bytes}_frame_{independent.frame_bytes}",
+            f"{expected.pc_bytes}_frame_{expected.frame_bytes}",
             state.events,
         )
         # Deliberately not touched by this branch -- see runtime.py's own
@@ -378,13 +405,10 @@ class Bg0002CensusWiringTests(unittest.TestCase):
         spawn = world_scene_travel.spawn_position(
             world_scene_travel.destination(SCENE2_N_ID)
         )
-        independent = world_population_bg0002.build_bg0002_population(
-            self.legacy, spawn, scene_id=SCENE2_N_ID,
-            count_source=world_population_bg0002.COUNT_SOURCE_FULL_ROSTER,
-        )
+        expected = self._expected_spliced(state, spawn)
         for action in census:
-            self.assertEqual(action[1], independent.pc)
-            self.assertEqual(action[2], independent.frame)
+            self.assertEqual(action[1], expected.pc)
+            self.assertEqual(action[2], expected.frame)
 
     def test_a_late_target_pos_vital_still_wins_as_the_anchor(self):
         """If the player DOES move before the next poll, the real position
@@ -395,13 +419,10 @@ class Bg0002CensusWiringTests(unittest.TestCase):
             "bg0002_real_target_pos_wins"
         )
         census = self._census(self._step(state))
-        independent = world_population_bg0002.build_bg0002_population(
-            self.legacy, PIN_ANCHOR, scene_id=SCENE2_N_ID,
-            count_source=world_population_bg0002.COUNT_SOURCE_FULL_ROSTER,
-        )
+        expected = self._expected_spliced(state, PIN_ANCHOR)
         for action in census:
-            self.assertEqual(action[1], independent.pc)
-            self.assertEqual(action[2], independent.frame)
+            self.assertEqual(action[1], expected.pc)
+            self.assertEqual(action[2], expected.frame)
 
     def test_an_unpinned_arrival_anchor_latches_a_refusal_not_a_retry_loop(
         self,
@@ -460,6 +481,117 @@ class Bg0002CensusWiringTests(unittest.TestCase):
         actions = state.dispatch(self.legacy.parse_outer(EMPTY_RUNTIME_PC))
         self.assertEqual(self._census(actions), [])
         self.assertIs(state.world_census_sent, False)
+
+    # ----- CORE-REQUEST (LANE-B 20260829_1600): hostile splice ---------
+
+    def test_the_scene2_census_bytes_are_not_the_raw_faction0_build(self):
+        """The queued census must DIFFER from the raw bg0002 build: the
+        hostile override replaces every roster monster's entry with a
+        wider spliced body (0x2033: 183 -> 196 bytes, the lane's own
+        headless measurement), so byte-identity with the raw build means
+        the splice never ran.  This is the direct kill for a mutation
+        that deletes the override application but keeps the console line.
+        """
+        state, _login_actions, _out = self._state_at_scene2(
+            "bg0002_hostile_bytes"
+        )
+        census = self._census(self._step(state))
+        self.assertEqual(len(census), 2)
+        raw = world_population_bg0002.build_bg0002_population(
+            self.legacy, PIN_ANCHOR, scene_id=SCENE2_N_ID,
+            count_source=world_population_bg0002.COUNT_SOURCE_FULL_ROSTER,
+        )
+        override = mob_census_hostility.hostile_override_for_scene_id(
+            self.legacy, SCENE2_N_ID, state.mob_death_register,
+        )
+        # The scene's roster is non-empty, so the override must be too --
+        # an empty override would make this whole test vacuous.
+        self.assertTrue(override)
+        for identity, body in override.items():
+            self.assertIn(identity, raw.actor_identities)
+        self.assertNotEqual(census[0][1], raw.pc)
+        spliced = _apply_mob_death_census_override(
+            self.legacy, raw, override,
+        )
+        self.assertEqual(census[0][1], spliced.pc)
+        self.assertEqual(census[0][2], spliced.frame)
+        # Same actors, same order -- the splice widens entries, it never
+        # adds, drops or reorders them.
+        self.assertEqual(spliced.actor_identities, raw.actor_identities)
+
+    def test_the_hostility_console_line_prints_unconditionally(self):
+        """CORE-REQUEST (LANE-B 20260829_1600), point 3: the
+        MOB_CENSUS_HOSTILITY line prints on the census step, OUTSIDE the
+        override's if -- "no line at all" is the state GT-084 already
+        misread once.  Pinned to the full text so a regression to
+        "backed=0" or a silent scene mismatch fails by word, not just by
+        presence.
+        """
+        state, _login_actions, _login_out = self._state_at_scene2(
+            "bg0002_hostility_line"
+        )
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            self._step(state)
+        lines = [
+            l for l in captured.getvalue().splitlines()
+            if l.startswith("MOB_CENSUS_HOSTILITY ")
+        ]
+        self.assertEqual(len(lines), 1, captured.getvalue())
+        report = mob_census_hostility.census_backing_report(
+            SCENE2_N_ID, ())
+        roster_count = report["roster_count"]
+        self.assertEqual(
+            lines[0],
+            "MOB_CENSUS_HOSTILITY scene_id=%d scene=Bg0002 roster=%d "
+            "backed=%d unbacked=none" % (
+                SCENE2_N_ID, roster_count, roster_count,
+            ),
+        )
+
+    def test_the_hostility_line_still_prints_when_the_override_is_empty(
+        self,
+    ):
+        """The half the test above cannot see (pf-adversary, round roj9lp,
+        D1): with scene 2's real roster the override is never empty, so
+        "prints unconditionally" and "prints when the override is
+        non-empty" are indistinguishable there -- a later editor could
+        move the print inside ``if override:`` and stay green.  This
+        forces the empty-override state the way the roster could reach it
+        for real (an owner ruling shrinking it to nothing, the mechanism
+        that already cut 17 rows to 12) by patching the composer runtime
+        actually calls, and demands the line anyway: an empty answer is a
+        real answer, silence is the GT-084 misread.
+        """
+        state, _login_actions, _login_out = self._state_at_scene2(
+            "bg0002_hostility_line_empty"
+        )
+        original = mob_census_hostility.hostile_override_for_scene_id
+        mob_census_hostility.hostile_override_for_scene_id = (
+            lambda *args, **kwargs: {}
+        )
+        try:
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                actions = self._step(state)
+        finally:
+            mob_census_hostility.hostile_override_for_scene_id = original
+        lines = [
+            l for l in captured.getvalue().splitlines()
+            if l.startswith("MOB_CENSUS_HOSTILITY ")
+        ]
+        self.assertEqual(len(lines), 1, captured.getvalue())
+        # And the census itself shipped the RAW build -- an empty
+        # override overrides nothing, it never falls back to anything
+        # else (the one misreading hostile_override_for_scene_id's own
+        # docstring forbids).
+        census = self._census(actions)
+        self.assertEqual(len(census), 2)
+        raw = world_population_bg0002.build_bg0002_population(
+            self.legacy, PIN_ANCHOR, scene_id=SCENE2_N_ID,
+            count_source=world_population_bg0002.COUNT_SOURCE_FULL_ROSTER,
+        )
+        self.assertEqual(census[0][1], raw.pc)
 
 
 if __name__ == "__main__":
