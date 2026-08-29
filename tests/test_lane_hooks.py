@@ -310,5 +310,171 @@ class LaneHooksFireTests(unittest.TestCase):
         self.assertEqual(out.getvalue(), "")
 
 
+class SceneCensusComposerRegistryTests(unittest.TestCase):
+    """The census composer table (CORE-REQUEST LANE-A 20260829_1845): a
+    VALUE-RETURNING registry, so it is not a fire() point -- one composer
+    per scene, first registration wins, duplicates refused loudly, and
+    withdrawal covers it the same as hooks.  The runtime.py consumption of
+    this table is proven on the real dispatcher in
+    tests/test_lane_scene_census_wiring.py; this class proves the registry
+    itself."""
+
+    SCENE = 999_901  # private test scene id, no real scene reaches here
+    MODULE_A = "pirateforce_foundation.lane_hooks._test_census_module_a"
+
+    def setUp(self):
+        lane_hooks._SCENE_CENSUS_COMPOSERS.pop(self.SCENE, None)
+        self.addCleanup(
+            lane_hooks._SCENE_CENSUS_COMPOSERS.pop, self.SCENE, None,
+        )
+
+    def _register(self, module_name, fn=None):
+        # The decorator reads fn.__module__; a test function's real module
+        # is this test file, so drive the registry the way _discover()'s
+        # imports would by spelling the module name explicitly.
+        composer = fn or (lambda **kwargs: None)
+        composer.__module__ = module_name
+        return lane_hooks.census_composer(self.SCENE)(composer)
+
+    def test_an_unclaimed_scene_answers_none(self):
+        self.assertIsNone(lane_hooks.scene_census_composer(self.SCENE))
+
+    def test_registration_is_looked_up_with_module_and_callable(self):
+        def compose(**kwargs):
+            return None
+
+        self._register(self.MODULE_A, compose)
+        entry = lane_hooks.scene_census_composer(self.SCENE)
+        self.assertEqual(entry.module, self.MODULE_A)
+        self.assertIs(entry.compose, compose)
+
+    def test_registration_prints_the_registered_token_to_stderr(self):
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            self._register(self.MODULE_A)
+        self.assertEqual(out.getvalue(), "")
+        self.assertIn("LANE_HOOK_REGISTERED", err.getvalue())
+        self.assertIn(f"scene_census_composer:{self.SCENE}", err.getvalue())
+
+    def test_a_duplicate_registration_is_refused_and_the_first_kept(self):
+        import io
+        from contextlib import redirect_stderr
+
+        first = lambda **kwargs: None  # noqa: E731
+        self._register(self.MODULE_A, first)
+        with redirect_stderr(io.StringIO()) as err:
+            self._register(
+                "pirateforce_foundation.lane_hooks._test_census_module_b",
+            )
+        entry = lane_hooks.scene_census_composer(self.SCENE)
+        self.assertEqual(entry.module, self.MODULE_A)
+        self.assertIs(entry.compose, first)
+        self.assertIn("LANE_HOOK_DUPLICATE", err.getvalue())
+        self.assertIn("_test_census_module_b", err.getvalue())
+        self.assertIn(f"KEPT {self.MODULE_A}", err.getvalue())
+
+    def test_withdraw_removes_a_modules_census_claim_and_frees_the_scene(self):
+        self._register(self.MODULE_A)
+        lane_hooks._withdraw(self.MODULE_A)
+        self.assertIsNone(lane_hooks.scene_census_composer(self.SCENE))
+        # Freed, not tombstoned: the next lane in discovery order can
+        # claim the scene a closed module abandoned.
+        other = "pirateforce_foundation.lane_hooks._test_census_module_b"
+        self._register(other)
+        self.assertEqual(
+            lane_hooks.scene_census_composer(self.SCENE).module, other,
+        )
+
+    def test_withdraw_leaves_other_modules_claims_alone(self):
+        self._register(self.MODULE_A)
+        lane_hooks._withdraw(
+            "pirateforce_foundation.lane_hooks._test_census_module_b",
+        )
+        self.assertEqual(
+            lane_hooks.scene_census_composer(self.SCENE).module,
+            self.MODULE_A,
+        )
+
+    def test_a_composer_from_outside_the_package_is_rejected_loudly(self):
+        # pf-adversary (round 73fhoc): a composer whose owning module is
+        # not a lane_hooks module can register but never pass the gate --
+        # module_production_allowed() qualifies bare names into THIS
+        # package and _gate_module only ever records lane files, so the
+        # scene would silently degrade to the not-home skip forever.
+        # Refused at registration instead, with its own token.
+        import io
+        from contextlib import redirect_stderr
+
+        def compose(**kwargs):
+            return None
+
+        compose.__module__ = "pirateforce_foundation.gm.census_helper"
+        with redirect_stderr(io.StringIO()) as err:
+            returned = lane_hooks.census_composer(self.SCENE)(compose)
+        self.assertIsNone(lane_hooks.scene_census_composer(self.SCENE))
+        self.assertIn("LANE_HOOK_REJECTED", err.getvalue())
+        self.assertIn("NOT_A_LANE_HOOKS_MODULE", err.getvalue())
+        self.assertIs(returned, compose)
+
+    def test_the_decorator_returns_the_function_on_every_path(self):
+        # pf-adversary (round 73fhoc): nothing asserted the decorator's
+        # return value, so `return None` on either path would silently
+        # turn a real lane module's decorated name into None.
+        def compose(**kwargs):
+            return None
+
+        compose.__module__ = self.MODULE_A
+        self.assertIs(lane_hooks.census_composer(self.SCENE)(compose), compose)
+
+        def second(**kwargs):
+            return None
+
+        second.__module__ = self.MODULE_A
+        # duplicate path
+        import io
+        from contextlib import redirect_stderr
+
+        with redirect_stderr(io.StringIO()):
+            self.assertIs(
+                lane_hooks.census_composer(self.SCENE)(second), second,
+            )
+
+    def test_withdraw_removes_every_scene_a_module_claimed(self):
+        # pf-adversary (round 73fhoc): a `break` slipped into _withdraw's
+        # composer loop survived every test because no test registered one
+        # module for two scenes -- the later scene's slot would stay
+        # occupied by a closed module, blocking other lanes.
+        second_scene = self.SCENE + 1
+        self.addCleanup(
+            lane_hooks._SCENE_CENSUS_COMPOSERS.pop, second_scene, None,
+        )
+        self._register(self.MODULE_A)
+        other = lambda **kwargs: None  # noqa: E731
+        other.__module__ = self.MODULE_A
+        lane_hooks.census_composer(second_scene)(other)
+        lane_hooks._withdraw(self.MODULE_A)
+        self.assertIsNone(lane_hooks.scene_census_composer(self.SCENE))
+        self.assertIsNone(lane_hooks.scene_census_composer(second_scene))
+
+    def test_announce_direct_fire_prints_the_fired_token_to_stderr(self):
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            lane_hooks.announce_direct_fire(
+                self.MODULE_A, f"scene_census_composer:{self.SCENE}",
+            )
+        self.assertEqual(out.getvalue(), "")
+        self.assertIn(
+            f"LANE_HOOK_FIRED {self.MODULE_A} "
+            f"scene_census_composer:{self.SCENE}",
+            err.getvalue(),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

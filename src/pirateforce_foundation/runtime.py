@@ -6782,14 +6782,161 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 / 1000.0,
                             ),
                         ]
+                elif (
+                    scene_id != world_population.SCENE_ID
+                    and scene_id != world_population_bg0002.SCENE2_N_ID
+                    and (
+                        lane_census
+                        := lane_hooks.scene_census_composer(scene_id)
+                    ) is not None
+                    and lane_hooks.module_production_allowed(
+                        lane_census.module
+                    )
+                ):
+                    # CORE-REQUEST (LANE-A 20260829_1845): the scene census
+                    # point, table-driven instead of a fourth per-scene
+                    # elif.  A lane registers a composer for a scene in its
+                    # own lane_hooks/lane_<x>_*.py file
+                    # (lane_hooks.census_composer(scene_id)); this branch
+                    # asks the table and stands aside when the answer is
+                    # None.  The fire() shape cannot serve here because a
+                    # census must hand actors back (fire() is report-only
+                    # by contract), so this is the COO-DECISION
+                    # 20260829_0041 option (b) shape the 0xAC52 chat route
+                    # already uses: read module_production_allowed() first,
+                    # then call directly.
+                    #
+                    # NO REGRESSION PATH, by construction rather than by
+                    # discipline: BOTH dedicated scenes are excluded in
+                    # this elif's own condition, so a composer registered
+                    # for scene 1 or scene 2 is simply never consulted and
+                    # those scenes walk their existing branches to the
+                    # byte.  The scene-2 conjunct is redundant with the
+                    # scene-2 elif above at today's line order -- it is
+                    # there so the guarantee survives a reordering of the
+                    # chain, which pf-adversary (round 73fhoc) measured
+                    # the whole suite failing to notice when the property
+                    # lived in line order alone.  This table only ever
+                    # claims scenes that today fall through to the
+                    # "skipped, not home" latch below, i.e. scenes that
+                    # send NOTHING.
+                    #
+                    # Same trigger as every sibling branch: for a lane
+                    # scene, `anchor` can only be last_target_pos (the
+                    # arrival-trigger disjunct above is bg0002-only), so a
+                    # lane census fires on the first TargetPosVital after
+                    # the runtime ack -- the bg0001 requirement, not the
+                    # bg0002 relaxation.  A lane that needs
+                    # trigger-on-arrival for its scene opens a follow-up
+                    # letter; widening the trigger is not smuggled in here.
+                    # EVERYTHING that touches the composer's return value
+                    # stays inside this one try.  pf-adversary (round
+                    # 73fhoc) measured two escapes from a draft that only
+                    # guarded the call itself: a well-typed
+                    # SceneCensusResult carrying a str reapply-ms unwound
+                    # the listener thread AFTER the committed event was
+                    # logged (false green plus evidence laundering), and a
+                    # truthy dict escaped as AttributeError with neither
+                    # latch set.  So every field is coerced here, as
+                    # untrusted lane input, before any latch or print --
+                    # and only the coerced values are used after the net.
+                    lane_declined = False
+                    try:
+                        composed = lane_census.compose(
+                            legacy=legacy, anchor=anchor, scene_id=scene_id,
+                            scene_entry_registry=scene_entry_registry,
+                        )
+                        if composed is None:
+                            lane_declined = True
+                        else:
+                            lane_pc = bytes(composed.pc)
+                            lane_frame = bytes(composed.frame)
+                            lane_actor_count = int(composed.actor_count)
+                            lane_reapply_seconds = (
+                                float(composed.initial_reapply_ms) / 1000.0
+                            )
+                            # cp874 net on every lane-authored line: the
+                            # one print in this block whose text another
+                            # lane composed (bg0001/bg0002 print
+                            # chief-owned strings), and the scar this
+                            # guards (rounds 86, 142) raises INSIDE the
+                            # print call itself.
+                            lane_console_lines = [
+                                lane_hooks.console_safe(str(line))
+                                for line in composed.console_lines
+                            ]
+                    except Exception as error:
+                        # Fail closed, the same net and the same reasoning
+                        # as the bg0002 branch above: an escape here
+                        # unwinds out of the listener thread (v141:7440
+                        # has no except), and there is no frozen fallback
+                        # for a lane scene, so a refusal sends NO frame at
+                        # all rather than inventing one.
+                        self.world_census_refused = True
+                        self.events.append(
+                            "world_census_lane_composer_refused_"
+                            f"{type(error).__name__}"
+                        )
+                    else:
+                        if lane_declined:
+                            # The lane looked at the scene and declined --
+                            # a permanent, named answer for this process
+                            # (composers read boot-loaded registry data;
+                            # see census_composer()'s docstring), same
+                            # latch shape as the not-home skip below, but
+                            # distinguishable from it in the event log.
+                            self.world_census_sent = True
+                            self.events.append(
+                                "world_census_lane_composer_declined_"
+                                f"scene_{scene_id}"
+                            )
+                        else:
+                            # The FIRED token prints only on this commit
+                            # path, never on refuse/decline, so a WIRED-v2
+                            # grep that reads it as emission counts only a
+                            # census that actually shipped (pf-adversary,
+                            # round 73fhoc).
+                            lane_hooks.announce_direct_fire(
+                                lane_census.module,
+                                f"scene_census_composer:{scene_id}",
+                            )
+                            # Console proof before the frame is queued --
+                            # the lane's own lines, in the lane's own
+                            # order, same discipline as the siblings.
+                            for line in lane_console_lines:
+                                print(line)
+                            self.world_census_sent = True
+                            # Byte counts derived by len() from the actual
+                            # queued payloads, never composer-asserted, so
+                            # this greppable line cannot disagree with the
+                            # wire (pf-adversary, round 73fhoc).
+                            self.events.append(
+                                "world_census_lane_committed_actors_"
+                                f"{lane_actor_count}_pc_"
+                                f"{len(lane_pc)}_frame_"
+                                f"{len(lane_frame)}"
+                            )
+                            census_actions = [
+                                (
+                                    f"WORLD_CENSUS_LANE_SCENE{scene_id}"
+                                    f"_INITIAL_{lane_actor_count}",
+                                    lane_pc, lane_frame, 0.0,
+                                ),
+                                (
+                                    f"WORLD_CENSUS_LANE_SCENE{scene_id}"
+                                    f"_REAPPLY_{lane_actor_count}",
+                                    lane_pc, lane_frame,
+                                    lane_reapply_seconds,
+                                ),
+                            ]
                 elif scene_id != world_population.SCENE_ID:
                     # Away from home the bg0001 census is not merely useless,
                     # it is wrong: every actor in it is encoded with scene 1.
                     # The inherited branch is already disarmed, so this sends
                     # NOTHING rather than delivering dock NPCs into another
-                    # map.  Unreachable until BUILD-002 can move a default boot
-                    # off scene 1, which is the moment it stops being
-                    # unreachable.
+                    # map.  Reachable for any scene no lane's census
+                    # composer claims (see the lane branch above) once
+                    # BUILD-002 can move a boot off scene 1.
                     self.world_census_sent = True
                     self.events.append(
                         f"world_census_skipped_scene_{scene_id}_not_home"
