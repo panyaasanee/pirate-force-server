@@ -513,12 +513,24 @@ class Scene14RegistryTests(unittest.TestCase):
         them:
 
         (1) 108 bg0001 actors anchored on the volcano, because the census
-            dispatch read the STORED row.  Closed twice: CHIEF-DECISION
-            20260829_0520 option A resyncs the selected position to the
-            RESOLVED scene, and scene 14 now has a census OF ITS OWN
-            (lane_hooks/lane_a_scene_census.py, 81 actors from
-            world_population_bg0015).  Driven end to end in
+            dispatch read the STORED row.  Closed ON THE FLAGLESS PRODUCTION
+            PATH, twice: CHIEF-DECISION 20260829_0520 option A resyncs the
+            selected position to the RESOLVED scene, and scene 14 now has a
+            census OF ITS OWN (lane_hooks/lane_a_scene_census.py, 81 actors
+            from world_population_bg0015).  Driven end to end in
             tests/test_lane_a_scene_census.py on the real registry.
+            !! NARROWED AFTER pf-adversary (D1), BECAUSE THE UNQUALIFIED
+            WORD "CLOSED" WAS FALSE.  That closure holds only while
+            runtime.py's world_census_enabled is True.  On an OPT-IN boot
+            (--*-scenario, or --second-password-mode bypass) the lane census
+            never fires, the inherited v141:4292 dispatcher stays armed, and
+            three bg0001 Port Royal placements ship into this scene with no
+            scene test -- defect (1) in reduced form.  Yesterday's shut door
+            refused that login outright; today it succeeds, so opening the
+            door made that path REACHABLE.  It is an open hazard, guarded
+            today only by GT-134's hard precondition, and it is pinned by
+            tests/test_world_faction_admission.py::TheOptInBootHazardTests
+            rather than left to this docstring.
         (2) (scene 1, volcano XYZ) written into character_positions.
             Closed by runtime.py's login_scene_override_visit branch
             withholding the durable write -- and belt-and-braces, THIS ROW

@@ -109,8 +109,19 @@ scene-14 ``elif``.  chief added ONE table-driven point in round ``73fhoc``
 and the lane registered on it.  "``fire()`` cannot contribute the actions a
 census dispatch returns" was right, which is why the point that landed hands
 a value back instead.  What is still true: no human has stood in scene 14,
-its door is pinned shut (``login_entry_allowed: false``), and ``GT-134`` is
-the ticket that opens the eye.  The original text follows.
+~~its door is pinned shut (``login_entry_allowed: false``),~~ and ``GT-134``
+is the ticket that opens the eye.
+
+!! THE DOOR IS OPEN AS OF ROUND vvy6q7 (2026-08-30), on COO-DECISION
+20260829_2342 -- struck above rather than rewritten, because a reader who
+believed that clause would read a LIVE path as an unreachable one, which is
+the exact misreading this module has already written itself up about once.
+The 81 actors this file composes now reach a real login.  Still true, and
+now the ONLY thing still standing between this roster and a pair of human
+eyes: nobody has stood in scene 14, so ``GT-134`` remains the ticket that
+opens the eye.  Caught by pf-adversary (D6) before the round left draft.
+
+The original text follows.
 
 ~~Nothing in this repository calls this module yet.~~  ``runtime.py``'s census dispatch is
 an if/elif over scene id -- bg0002, then "any other scene: send NOTHING", then

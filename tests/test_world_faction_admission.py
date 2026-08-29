@@ -146,13 +146,37 @@ class ThePredicateOnTheRealRegistryTests(unittest.TestCase):
         self.assertIn("not_open_at_login", wfa.refusal_reason(SHUT_AT_LOGIN))
 
     def test_the_console_line_carries_the_whole_set_and_the_rule(self):
+        """THE ONLY MUTANT THAT SURVIVED THIS ROUND'S BATTERY LIVED HERE.
+
+        pf-adversary (D3) replaced this function's body with a hardcoded
+        ``ids = (1, 2, 14)`` and the ENTIRE SUITE STAYED GREEN, because this
+        test asserted the literal string "scenes=1,2,14" -- which a hardcoded
+        answer satisfies perfectly.  A stale pin, inside the one function
+        whose whole purpose is to not be one.
+
+        Fixed by asserting against the DERIVED set instead of a literal, and
+        by driving a registry the derivation must follow.  A hardcoded
+        ``console_line`` now fails both halves.
+        """
         line = wfa.console_line()
-        self.assertIn("WORLD_FACTION_ADMISSION scenes=1,2,14", line)
+        expected = ",".join(str(i) for i in wfa.admitted_scene_ids())
+        self.assertIn(f"WORLD_FACTION_ADMISSION scenes={expected}", line)
         self.assertIn("n_save_1", line)
         # cp874 is the bridge console's codepage; a line it cannot encode is
         # a line nobody can grep on the machine that runs the server.
         line.encode("ascii")
         line.encode("cp874")
+
+    def test_the_console_line_follows_a_registry_that_moves(self):
+        # The half a literal cannot fake: hand it a registry with another
+        # door open and the printed set has to change.
+        with tempfile.TemporaryDirectory() as work:
+            opened, _ = _registry_with_door(
+                Path(work), SHUT_AT_LOGIN, allowed=True)
+            line = wfa.console_line(opened)
+            self.assertIn(
+                f"WORLD_FACTION_ADMISSION scenes=1,2,{SHUT_AT_LOGIN},14", line)
+            self.assertNotIn("scenes=1,2,14 ", line)
 
 
 class TheTwoConditionsTests(unittest.TestCase):
@@ -358,6 +382,15 @@ class TheSerializerTests(unittest.TestCase):
             self.addCleanup(
                 setattr, world_scene_travel, "load_scene_registry",
                 real_loader)
+            # THE CACHE IS PER PROCESS, SO A LOADER PATCH ALONE NO LONGER
+            # REACHES THIS MODULE -- which is the entire point of the cache
+            # (D2: this policy must read the same age of the world as every
+            # other reader, not re-read the file per login).  Dropping it
+            # here is how a test simulates a fresh BOOT against a different
+            # registry, and the cleanup drops it again so no later test
+            # inherits this one's view.
+            wfa.forget_cached_registry()
+            self.addCleanup(wfa.forget_cached_registry)
             with self.assertRaises(ValueError) as caught:
                 self._compose(VOLCANO)
             self.assertIn("not_open_at_login", str(caught.exception))
@@ -378,7 +411,7 @@ class OnTheRealDispatcherTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.legacy = _legacy()
 
-    def _login_into(self, work: Path, scene_id: int):
+    def _login_into(self, work: Path, scene_id: int, **state_kwargs):
         store = SQLiteStore(work / "state.sqlite3", ROOT / "migrations")
         store.migrate()
         legacy = self.legacy
@@ -389,7 +422,7 @@ class OnTheRealDispatcherTests(unittest.TestCase):
             legacy.extract_avatar_attr_wire_from_actor,
         )
         state_type = make_state_class(
-            legacy, lifecycle, LegacyProjector(legacy))
+            legacy, lifecycle, LegacyProjector(legacy), **state_kwargs)
         state = state_type("driver")
         state.dispatch(legacy.parse_outer(
             legacy._synthetic_client_login_pc("driver")))
@@ -408,14 +441,29 @@ class OnTheRealDispatcherTests(unittest.TestCase):
                 legacy._synthetic_start_game_pc(character.selector)))
         return state, buf.getvalue()
 
+    # THE REFUSAL EVENT IS A PREFIX, NOT A WHOLE STRING, AND ASSERTING THE
+    # WHOLE STRING IS AN ASSERTION THAT CANNOT FAIL.  pf-adversary caught
+    # this round writing ``assertNotIn("player_faction1_compose_refused_
+    # production_start_game", state.events)`` (D8): runtime.py:6385 latches
+    # the event with the exception repr appended --
+    # ``..._start_game_ValueError('faction-1 is refused: ...')`` -- so exact
+    # list membership NEVER matches and the assertion passed whether or not
+    # the faction had been refused.  Both of the tests below were among the
+    # round's headline evidence.  Matched by prefix now, and a test asserts
+    # the prefix itself still appears on a real refusal, so this cannot rot
+    # back into a tautology if the event name changes.
+    REFUSED_PREFIX = "player_faction1_compose_refused_production_start_game"
+
+    def _assert_no_faction_refusal(self, state):
+        refused = [e for e in state.events if e.startswith(self.REFUSED_PREFIX)]
+        self.assertEqual([], refused)
+
     def test_a_scene_14_login_now_ships_the_player_faction_frame(self):
         with tempfile.TemporaryDirectory() as work:
             state, console = self._login_into(Path(work), VOLCANO)
             self.assertTrue(state.teleport_sent)
             self.assertIn("player_faction1_start_game_sent", state.events)
-            self.assertNotIn(
-                "player_faction1_compose_refused_production_start_game",
-                state.events)
+            self._assert_no_faction_refusal(state)
             self.assertIn("PLAYER_FACTION basic_faction=", console)
 
     def test_the_home_login_is_byte_for_byte_unaffected(self):
@@ -427,10 +475,180 @@ class OnTheRealDispatcherTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as work:
             state, console = self._login_into(Path(work), HOME)
             self.assertIn("player_faction1_start_game_sent", state.events)
-            self.assertNotIn(
-                "player_faction1_compose_refused_production_start_game",
-                state.events)
+            self._assert_no_faction_refusal(state)
             self.assertIn("PLAYER_FACTION basic_faction=", console)
+
+    def test_the_refusal_prefix_really_is_what_a_refused_login_latches(self):
+        """The control that keeps the two tests above from going vacuous.
+
+        If ``runtime.py`` ever renames the event, the two ``_assert_no_
+        faction_refusal`` calls would start passing for the wrong reason --
+        exactly the defect D8 named.  So drive a REAL refusal and require the
+        prefix to show up, on a scene the policy refuses.
+        """
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            _, patched = _registry_with_door(work, VOLCANO, allowed=False)
+            real_loader = world_scene_travel.load_scene_registry
+            world_scene_travel.load_scene_registry = (
+                lambda *a, _f=real_loader, _p=patched, **k: _f(_p))
+            self.addCleanup(
+                setattr, world_scene_travel, "load_scene_registry",
+                real_loader)
+            wfa.forget_cached_registry()
+            self.addCleanup(wfa.forget_cached_registry)
+            # Scene 278 is pinned, open at login, and refused by n_SAVE - so
+            # the login itself succeeds and only the FACTION is refused,
+            # which is the exact state the prefix has to be able to name.
+            state, _ = self._login_into(work, STAGE_OPEN_BUT_NOT_A_HOME)
+            refused = [
+                e for e in state.events if e.startswith(self.REFUSED_PREFIX)]
+            self.assertEqual(1, len(refused), state.events)
+            self.assertIn("n_save", refused[0])
+
+
+class TheOptInBootHazardTests(unittest.TestCase):
+    """!! A KNOWN, OPEN HAZARD, PINNED SO IT CANNOT BE LOST AGAIN.
+
+    THIS CLASS ASSERTS BEHAVIOUR THIS LANE CONSIDERS WRONG.  It is here
+    because pf-adversary (round vvy6q7, D1) measured that opening scene 14's
+    door made a bad path REACHABLE that the shut door had been holding
+    closed, and because the only thing standing in front of it today is a
+    paragraph in a ticket header in ANOTHER REPOSITORY, which depends on a
+    human reading it.
+
+    THE MECHANISM.  ``runtime.py``'s ``world_census_enabled`` is
+    ``(not active_lanes and second_password_mode == "required")``.  That one
+    expression is BOTH the guard on the per-scene lane census AND the disarm
+    of the inherited ``v141:4292`` dispatcher.  So on any opt-in boot -- a
+    ``--*-scenario`` flag, or ``--second-password-mode bypass`` -- the lane
+    census never fires and the inherited branch stays armed, and that branch
+    composes three bg0001 PORT ROYAL placements with NO SCENE TEST AT ALL.
+
+    WHAT CHANGED THIS ROUND.  Nothing about the mechanism.  What changed is
+    that yesterday the login was refused at the door
+    (``WORLD_SCENE_ENTRY_REFUSED [scene_not_allowed_at_login]``,
+    ``teleport_sent=False``) so the branch never got the chance; today the
+    login succeeds.  Measured by pf-adversary across three boots.
+
+    WHY THE ROUND SHIPPED ANYWAY, AND WHO DECIDED.  COO-DECISION
+    20260829_2342 opened the door with the flag ban as its condition 1, and
+    that ruling is the authority here, not this lane's preference.  The
+    code-level guard belongs in ``runtime.py``, which is the chief's file --
+    asked in this round's status letter and in
+    ``notes_to_chief/20260830_01xx_LANE-A-ASK-COO-which-reader-of-the-door-
+    wins.md``.
+
+    WHEN THIS CLASS GOES RED, THAT IS GOOD NEWS: it means somebody closed
+    the hazard.  Read this docstring, delete the class, and say so.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.legacy = _legacy()
+
+    def _opt_in_login_into_the_volcano(self, work: Path):
+        store = SQLiteStore(work / "state.sqlite3", ROOT / "migrations")
+        store.migrate()
+        legacy = self.legacy
+        lifecycle = CharacterLifecycle(
+            store,
+            Position(1, 0, legacy.V135_PLAYER_X, legacy.V135_PLAYER_Y,
+                     legacy.V135_PLAYER_Z),
+            legacy.extract_avatar_attr_wire_from_actor,
+        )
+        state_type = make_state_class(
+            legacy, lifecycle, LegacyProjector(legacy),
+            second_password_mode="bypass",
+        )
+        state = state_type("driver")
+        state.dispatch(legacy.parse_outer(
+            legacy._synthetic_client_login_pc("driver")))
+        state.dispatch(legacy.parse_outer(legacy._V25_REAL_CREATE_PC))
+        character = store.list_characters(state.foundation.account_id)[-1]
+        spawn = world_scene_travel.spawn_position(
+            world_scene_travel.destination(
+                VOLCANO, world_scene_travel.load_scene_registry()))
+        store.select_character(state.foundation.session_id, character.selector)
+        store.save_position(
+            state.foundation.session_id, character.id,
+            Position(VOLCANO, 0, spawn[0], spawn[1], spawn[2], 0.0))
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            state.dispatch(legacy.parse_outer(
+                legacy._synthetic_start_game_pc(character.selector)))
+        return state, buf.getvalue()
+
+    def test_an_opt_in_boot_reaches_scene_14_now_and_the_census_does_not(self):
+        """The door lets the login through; the census is disarmed with it."""
+        with tempfile.TemporaryDirectory() as work:
+            state, console = self._opt_in_login_into_the_volcano(Path(work))
+            # Yesterday this was False and the console said
+            # WORLD_SCENE_ENTRY_REFUSED.  That is the whole delta.
+            self.assertTrue(
+                state.teleport_sent,
+                "if this is False the hazard is closed - read the class "
+                "docstring and delete this class",
+            )
+            # ...and the scene's own census is NOT what ships.
+            self.assertNotIn("WORLD_CENSUS_BG0015", console)
+            self.assertNotIn("world_census_armed", state.events)
+
+    def test_the_wrong_islands_actors_are_what_ships_instead(self):
+        """Defect D1 reproduced in reduced form: Port Royal on the volcano.
+
+        Three bg0001 placement indices, composed with no scene test, anchored
+        on Hell Volcano Island.  A tester on this boot sees three bodies and
+        no BG0015 line, which is exactly the false FAIL GT-134's hard
+        precondition exists to prevent.
+        """
+        with tempfile.TemporaryDirectory() as work:
+            state, _ = self._opt_in_login_into_the_volcano(Path(work))
+            state.runtime_ack_sent = True
+            state.welcome_message_sent = True
+            state.current_scene_music_sent = True
+            spawn = world_scene_travel.spawn_position(
+                world_scene_travel.destination(VOLCANO))
+            pc = (
+                self.legacy.u16tag(
+                    0x12, self.legacy.GSCN_RUNTIME_PROTOCOL_REQ)
+                + self.legacy.u32tag(0x14, 0)
+                + self.legacy.u8tag(0x08, 0)
+                + self.legacy.u8tag(0x0B, 2)
+                + self.legacy.u16tag(0x12, 1)
+                + self.legacy.u16tag(0x12, self.legacy.TARGET_POS_VITAL)
+                + self.legacy.u8tag(0x0B, 0)
+                + b"".join(
+                    self.legacy.f32tag(v) for v in (*spawn, 0.0))
+                + self.legacy.u8tag(0x0B, 0)
+                + self.legacy.u8tag(0x0B, 0)
+            )
+            with contextlib.redirect_stdout(io.StringIO()):
+                actions = state.dispatch(self.legacy.parse_outer(pc))
+            labels = [a[0] for a in actions]
+            self.assertTrue(
+                any("V134_P0_P30_P91_ISOLATED" in label for label in labels),
+                f"expected the inherited dispatcher to fire; got {labels}",
+            )
+            self.assertFalse(
+                [lbl for lbl in labels if lbl.startswith("WORLD_CENSUS_LANE")])
+            self.assertEqual((0, 30, 91), state.population_indices)
+
+    def test_the_faction_frame_still_ships_which_is_the_confusing_part(self):
+        """The faction policy does NOT depend on the census, and says so.
+
+        A tester on a wrongly-flagged boot sees PLAYER_FACTION and three
+        Port Royal NPCs, and could read the faction line as confirmation
+        that the scene is working.  It is not.  This is pinned because it is
+        the exact misreading GT-134's precondition has to survive, and
+        because the PLAYER_FACTION console token carries no scene id
+        (pf-adversary D4) so it cannot be told apart from a Port Royal login
+        by grep alone.
+        """
+        with tempfile.TemporaryDirectory() as work:
+            state, console = self._opt_in_login_into_the_volcano(Path(work))
+            self.assertIn("PLAYER_FACTION basic_faction=", console)
+            self.assertIn("player_faction1_start_game_sent", state.events)
 
 
 if __name__ == "__main__":

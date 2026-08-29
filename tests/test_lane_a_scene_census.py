@@ -51,6 +51,18 @@ NOT WALKED, AND WHY - gates that are shut, not coverage this file claims:
   and nothing there, treats a census firing or a faction field reaching the
   wire as evidence that a hostile will READ as hostile.  That is ``GT-134``,
   attended, on a screen.
+* !! THE OPT-IN BOOT IS NOT WALKED HERE, AND IT IS NOW A REACHABLE HAZARD
+  RATHER THAN AN UNREACHABLE ONE.  Every boot in this file has
+  ``world_census_enabled`` True.  On a ``--*-scenario`` or
+  ``--second-password-mode bypass`` boot the lane census never fires AND the
+  inherited ``v141:4292`` dispatcher stays armed, so three bg0001 Port Royal
+  placements ship into scene 14 with no scene test.  Until round vvy6q7 the
+  shut door refused that login and the path could not be reached; opening
+  the door reached it.  pf-adversary measured it (D1) and it is pinned in
+  ``tests/test_world_faction_admission.py::TheOptInBootHazardTests``.  This
+  bullet exists because the omission itself was a finding: the list below
+  did not name it, which is how a gate-walk declaration turns into a
+  formality.
 * Scene 2's composer is not registered and not driven - the runtime keeps
   that branch and ``tests/test_lane_scene_census_wiring.py`` owns that proof.
 * The call site's own decline latch is chief's branch, proven with a stub in

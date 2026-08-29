@@ -65,6 +65,12 @@ from pirateforce_foundation.model import Position  # noqa: E402
 # derives itself from `login_entry_allowed` -- so `/warp 14` becomes a legal
 # instruction in the same commit.  THAT IS WANTED, not tolerated: the entry
 # route GT-134 is written against IS the per-account login-scene override.
+# !! The override is not the ONLY route, and an earlier draft of this comment
+# said it was (pf-adversary D7, driven): a character whose own
+# character_positions row names 14 logs in with no override at all -- which is
+# the primary meaning of `login_entry_allowed`, not a leak.  What bounds the
+# reach is the WRITE side: no production path writes such a row, because
+# persist_position_allowed is false for scene 14.
 # LANE-GM is told in pf_bridge/notes_to_chief/20260830_00xx_LANE-A-TO-LANE-
 # GM-scene-14-is-stageable-now.md rather than left to find it here.  Only
 # this literal moved; the predicate, the refusals below and every dispatcher
