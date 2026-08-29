@@ -366,9 +366,21 @@ class ComposerContractTests(unittest.TestCase):
             len(unshipped),
             len(world_population_bg0015.unresolved_lines()))
         self.assertGreater(len(unshipped), 0)
+        # The hostility-coverage line, added round ucaybn after pf-adversary
+        # measured its absence (D10): describe_census_hostility's contract is
+        # "printed UNCONDITIONALLY", and "no line at all" is the state GT-084
+        # misread once.  Its CONTENT for scene 14 is expected to be
+        # unbacked=none - no actor here carries a faction bit - so what is
+        # asserted is that the line EXISTS and names this scene.
+        hostility = [
+            line for line in result.console_lines
+            if line.startswith("MOB_CENSUS_HOSTILITY ")
+        ]
+        self.assertEqual(len(hostility), 1)
+        self.assertIn("scene_id=%d" % VOLCANO, hostility[0])
         self.assertEqual(
             len(result.console_lines),
-            1 + 1 + ROSTER_COUNT + len(unshipped))
+            1 + 1 + ROSTER_COUNT + len(unshipped) + 1)
 
     def test_every_console_line_is_ascii(self):
         # The bridge console is cp874; a non-ASCII line raises inside the

@@ -47,8 +47,13 @@ finished, tested, shipped roster in this repository for rounds
     have arrived in a provably empty map that this lane had already
     populated.~~  REFUTED BY THE REPO, pf-adversary round 80x5ba D8(b), and
     the struck sentence is kept because it is the kind of claim this lane
-    keeps reaching for.  NO PLAYER HAS EVER REACHED THIS SEAM - it has no
-    caller - and for scene 2 a live populator already exists on the LOGIN
+    keeps reaching for.  ~~NO PLAYER HAS EVER REACHED THIS SEAM - it has no
+    caller~~ - STRUCK ROUND ucaybn: it has a caller now
+    (``lane_hooks/lane_a_scene_census.py``, on the login census point chief
+    wired in round ``73fhoc``), though scene 14's door is still pinned shut
+    so no player has reached it yet.  What is still true is the rest of the
+    sentence, and it is the half that mattered: for scene 2 a live populator
+    already exists on the LOGIN
     path: ``runtime.py:6624`` ships bg0002's full 97-actor roster today, with
     lane B's hostile-faction splice and a ``mob_combat_ledger`` sync that
     ``_roster_handoff`` does NOT do.  The honest sentence is the narrow one:
@@ -70,10 +75,16 @@ whether to clear.  Scene 278 is deliberately still on the empty branch - see
 ``ROSTER_COMPOSERS`` for why its nine Mob-Set placements are not identities
 this lane may invent.
 
-THE OWNERSHIP QUESTION THIS ROUND OPENS AND DOES NOT ANSWER.  [OPEN - handed
-to chief and COO in ``pf_bridge/notes_to_chief/20260829_21xx_LANE-A-ASK-COO-
-who-owns-scene-2-when-the-seam-is-wired.md``.  Raised by pf-adversary, round
-80x5ba, as the one question the design had not answered.]
+THE OWNERSHIP QUESTION.  [~~OPEN~~ **RULED**, 2026-08-29T22:45+07:00, in
+``pf_bridge/notes_to_chief/20260829_2245_COO-DECISION-scene2-login-owns-
+composer-removed-from-crossing.md``, answering this lane's
+``20260829_2110_LANE-A-ASK-COO-who-owns-scene-2-when-the-seam-is-wired.md``.
+Raised by pf-adversary, round 80x5ba, as the one question the design had not
+answered; asked one round, answered the next, and CARRIED OUT in round
+ucaybn, which removed the scene 2 entry from ``ROSTER_COMPOSERS``.  See the
+struck entry there for the permanent rule the ruling set.  The description
+below is kept in the present tense because it is the reasoning the ruling
+rests on, not a description of today's table.]
 
 Scene 2 now has TWO populators in this repository, and they are not the same:
 
@@ -85,7 +96,13 @@ Scene 2 now has TWO populators in this repository, and they are not the same:
                           the same ``0x2000 + placement_index + 1``
                           identities, with NEITHER of those two.
 
-Nothing breaks today, because nothing calls the seam.  But this module's own
+~~Nothing breaks today, because nothing calls the seam.~~  ROUND ucaybn: the
+seam HAS a caller - ``lane_hooks/lane_a_scene_census.py``, landed the same
+evening - and the reason nothing breaks is now a NARROWER one that has to be
+read as a live constraint rather than a grace period: the runtime call site
+excludes scenes 1 and 2 in its own condition, that lane file filters them out
+again, and this table no longer holds scene 2 at all.  The answer "nobody
+calls it" is spent.  But this module's own
 docstring already states the rule that decides it: *"anything else that ever
 shares this collection on the flagless path has to be composed INTO the
 arrival generation, not sent as a second frame after it.  Two senders and a
@@ -222,7 +239,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from . import world_population_bg0002, world_population_bg0015
+# ~~from . import world_population_bg0002, world_population_bg0015~~ --
+# bg0002 dropped round ucaybn with its ROSTER_COMPOSERS entry (COO-DECISION
+# 20260829_2245).  An import with zero code uses is the flag-with-no-reader
+# shape PANYA-DIRECTIVE 20260829_2222 item 7 bans, one level down: a reader
+# would take it as evidence this module still composes scene 2.  The module
+# is still NAMED in this docstring and in LOGIN_OWNED_SOURCES, which is where
+# the relationship now lives.
+from . import world_population_bg0015
 from .world_population import (
     COLLECTION_TAG,
     COUNT_SOURCE_CALLER,
@@ -341,16 +365,32 @@ class _SceneComposer:
 
 
 ROSTER_COMPOSERS: dict[str, _SceneComposer] = {
-    "bg0002_roster": _SceneComposer(
-        source="bg0002_roster",
-        build=world_population_bg0002.build_bg0002_population,
-        full_roster_count_source=world_population_bg0002.COUNT_SOURCE_FULL_ROSTER,
-        membership_of=lambda generation: tuple(generation.placement_indices),
-        caller_count_source=world_population_bg0002.COUNT_SOURCE_CALLER,
-        report_of=world_population_bg0002.dispatch_report,
-        generation_type=world_population_bg0002.Bg0002PopulationGeneration,
-        full_roster_count=world_population_bg0002.DEFAULT_ACTOR_COUNT,
-    ),
+    # ~~"bg0002_roster": _SceneComposer(source="bg0002_roster", build=
+    # world_population_bg0002.build_bg0002_population, ...)~~
+    #
+    # REMOVED ROUND ucaybn BY COO-DECISION 2026-08-29T22:45+07:00
+    # (``pf_bridge/notes_to_chief/20260829_2245_COO-DECISION-scene2-login-
+    # owns-composer-removed-from-crossing.md``), answering this lane's own
+    # ``ASK-COO`` ``20260829_2110``.  Struck rather than deleted because the
+    # entry was correct code that a later round would otherwise write again.
+    #
+    # THE RULE THE RULING SET, WHICH IS WIDER THAN THIS ONE ENTRY AND IS WHY
+    # IT IS WRITTEN HERE RATHER THAN ONLY IN THE LETTER: **the crossing seam
+    # may not compose a scene that already has a populator on the LOGIN
+    # path.**  Scene 2's login populator (``runtime.py``'s bg0002 branch)
+    # carries lane B's hostile-faction splice AND a ``mob_combat_ledger``
+    # sync; this module's composer carries neither, and
+    # ``make_runtime_remote_actors`` has replace semantics, so a crossing
+    # frame would have deleted both silently, with no test able to see it.
+    # The COO weighed that real regression against a mid-session crossing
+    # back into scene 2 that has no calling path at all today, and took the
+    # regression off the table.
+    #
+    # NOTE: COO-DECISION 20260829_2254 tells chief to call this table from
+    # ``runtime.py`` next round, and says in as many words: scene 2 is out,
+    # only scene 14 remains, DO NOT put scene 2 back.  If a real crossing
+    # into scene 2 ever exists, the order is fixed: open a CORE-REQUEST for
+    # lane B's ledger+faction half FIRST, and only then wire the seam.
     "bg0015_roster": _SceneComposer(
         source="bg0015_roster",
         build=world_population_bg0015.build_bg0015_population,
@@ -361,6 +401,35 @@ ROSTER_COMPOSERS: dict[str, _SceneComposer] = {
         generation_type=world_population_bg0015.Bg0015PopulationGeneration,
         full_roster_count=world_population_bg0015.DEFAULT_ACTOR_COUNT,
     ),
+}
+
+
+# POPULATION SOURCES THIS SEAM MAY NOT COMPOSE, BECAUSE SOMETHING ELSE
+# ALREADY COMPOSES THEM ON THE LOGIN PATH.
+#
+# ADDED ROUND ucaybn, carrying out COO-DECISION 2026-08-29T22:45+07:00.  It
+# exists for the same reason ``SCENES_INTENTIONALLY_UNPOPULATED`` does, and
+# the reason is worth repeating because this table is the SECOND time the
+# same lesson has been paid for: a source that is simply MISSING from
+# ``ROSTER_COMPOSERS`` is indistinguishable from a source nobody has got
+# round to building, and the seam would print the same
+# ``..._has_no_crossing_handoff_yet`` for both.  One of those is a ruling and
+# the other is a to-do.  A decision that reads as an oversight is an
+# oversight.
+#
+# WHAT NO BOOT PRINTS TODAY, said here rather than left to be assumed.  The
+# CLEAR branch that reads this table has NO production reader: the only scene
+# it can name is scene 2, and scene 2 reaches this module from nowhere -
+# ``runtime.py``'s lane branch excludes it by construction and
+# ``lane_a_scene_census`` filters it out of its own registration.  So this is
+# a rule written where the next person to add the entry back will be
+# standing, plus a string a TEST greps.  It is not evidence of anything a
+# console has ever shown.
+LOGIN_OWNED_SOURCES: dict[str, str] = {
+    # runtime.py's bg0002 branch ships this roster at login WITH lane B's
+    # hostile-faction splice and a mob_combat_ledger sync.  A crossing frame
+    # composed here would carry neither and would replace both.
+    "bg0002_roster": "coo_decision_20260829_2245",
 }
 
 
@@ -823,7 +892,17 @@ def handoff_for_arrival(
         )
     if source != CENSUS_SOURCE:
         pc, frame = build_clear_generation(legacy)
-        if source is not None:
+        if source in LOGIN_OWNED_SOURCES:
+            # ROUND ucaybn, COO-DECISION 20260829_2245.  Not "unfinished" -
+            # RULED.  Without this branch the ruling would print the to-do
+            # string below and be indistinguishable from a composer nobody
+            # has written yet, which is the reading that would get the scene
+            # 2 entry added straight back.
+            reason = (
+                f"scene_{scene}_login_path_owns_this_source_"
+                f"{LOGIN_OWNED_SOURCES[source]}"
+            )
+        elif source is not None:
             # A source named in CENSUS_SOURCES with no entry in
             # ROSTER_COMPOSERS.  This is the string scene 14 printed at this
             # lane for three rounds about code that was already written, so it

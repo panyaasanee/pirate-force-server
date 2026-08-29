@@ -100,6 +100,7 @@ import sys
 from typing import Any
 
 from .. import lane_hooks
+from .. import mob_census_hostility
 from .. import world_population_bg0015
 from .. import world_population_handoff
 from .. import world_scene_travel
@@ -185,6 +186,42 @@ def scene_is_open_to_players(scene_id: int, registry: Any = None) -> bool:
     return bool(getattr(destination, "login_entry_allowed", False))
 
 
+def _hostility_lines(scene_id: int, generation: Any) -> tuple[str, ...]:
+    """The hostility-coverage line every other census branch prints.
+
+    ADDED round ucaybn after pf-adversary measured its ABSENCE here (D10):
+    the scene-14 census printed 93 lines and not one of them was this one.
+    ``mob_census_hostility.describe_census_hostility``'s own docstring says
+    it is "printed UNCONDITIONALLY by a wiring call site, never inside an
+    ``if``", because "no line at all" is the state ``GT-084`` already
+    misread once.  The bg0002 branch prints it (LANE-B CORE-REQUEST
+    20260829_1600); the lane branch in ``runtime.py`` does not, and that
+    branch is chief's - so this lane prints it for its own scene, from the
+    identities of the generation that is actually going out.
+
+    ``unbacked=none`` is the expected answer for scene 14 and is the point:
+    none of its 81 actors carries a faction bit, and a line SAYING so is
+    what an attended round can grade.  A missing line is what it cannot.
+
+    It cannot take the census down - a reporter that raised here would turn
+    a composed roster into a refusal - so a failure becomes a line instead.
+    """
+    try:
+        return tuple(
+            str(line)
+            for line in mob_census_hostility.describe_census_hostility(
+                scene_id, generation.actor_identities,
+            )
+        )
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException as failure:  # noqa: BLE001 - see the docstring
+        return (
+            "WORLD_CENSUS_HOSTILITY unreportable reason="
+            + type(failure).__name__,
+        )
+
+
 def _compose_for_scene(scene_id: int):
     """Build the composer closure for one scene.
 
@@ -219,8 +256,10 @@ def _compose_for_scene(scene_id: int):
             return None
         source = world_scene_travel.CENSUS_SOURCES[scene_id]
         console_lines = (
-            world_population_handoff.handoff_console_line(handoff),
-        ) + tuple(_CONSOLE_LINES_OF[source](handoff.generation))
+            (world_population_handoff.handoff_console_line(handoff),)
+            + tuple(_CONSOLE_LINES_OF[source](handoff.generation))
+            + _hostility_lines(scene_id, handoff.generation)
+        )
         return lane_hooks.SceneCensusResult(
             actor_count=handoff.actor_count,
             pc=handoff.pc,
