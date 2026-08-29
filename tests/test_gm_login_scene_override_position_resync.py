@@ -390,11 +390,21 @@ class GmLoginSceneOverridePositionResyncTests(unittest.TestCase):
         closed the CONFIG route into that handler, which would have left
         chief's code with no test walking it at all -- so this one reaches
         it at the seam that is still real: admission asks lane A's registry
-        at the moment the map loads, `resolve_entry` asks it again a few
-        microseconds later, and a registry that changes in between (or any
-        refusal reason admission does not model) lands here.  Narrow, and
-        that is exactly why the handler must keep working -- nobody will be
-        watching when it fires.
+        at the moment the map loads, `resolve_entry` asks it again -- and
+        a registry that disagrees between those two readings, or any
+        refusal reason admission does not model, lands here.  Narrow, and
+        that is exactly why it must keep working -- nobody will be watching
+        when it fires.
+
+        THAT SEAM IS NOT "A FEW MICROSECONDS", which is what this docstring
+        used to say and what `CORE-REQUEST-GM-034` corrected: `runtime.py`
+        reads the registry ONCE AT BOOT, so the gap between the two
+        readings is the age of the process.  Since that ticket the entry is
+        given back by the registry probe, before the override is applied,
+        and the login survives; the handler further down no longer restores
+        anything, because it can no longer be reached holding a spent
+        entry.  See `test_gm_login_scene_override_registry_authority` for
+        the unmocked walk of that probe.
 
         The staged scene is an ADMISSIBLE one, so the entry gets in, gets
         consumed, and is then refused at the seam: the branch is walked with
@@ -419,7 +429,18 @@ class GmLoginSceneOverridePositionResyncTests(unittest.TestCase):
         ):
             state, _selector = self._login_and_start("gm_runner")
 
-        self.assertIn("world_scene_entry_refused_no_reply", state.events)
+        # CORE-REQUEST-GM-034 MOVED THIS, AND THE MOVE IS THE POINT.  The
+        # registry probe now refuses the override BEFORE it is applied, so
+        # the seam this test stands on is caught one step earlier: the
+        # entry comes back at the probe, and the login is no longer refused
+        # at all -- the character goes to its own row and is in the game.
+        # The assertion that mattered is unchanged and kept word for word
+        # below: the operator's instruction survives.
+        self.assertNotIn("world_scene_entry_refused_no_reply", state.events)
+        self.assertIn(
+            f"gm_login_scene_override_refused_by_registry_{KNOWN_SCENE_ID}",
+            state.events,
+        )
         self.assertIn(
             f"gm_login_scene_override_restored_after_refusal_{KNOWN_SCENE_ID}",
             state.events,
