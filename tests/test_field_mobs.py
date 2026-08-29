@@ -30,7 +30,9 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from pf_preconditions import BRIDGE_GAMEDATA
 from pirateforce_foundation import (
     field_mob_tables,
     field_mob_tables_bg0002,
@@ -1154,6 +1156,7 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
 
 
 
+@BRIDGE_GAMEDATA.skip_unless_present()
 class Bg0001RegenerateAndDiffTest(unittest.TestCase):
     """The control bg0002 and bg0015 have had all along and bg0001 did not.
 
@@ -1162,12 +1165,18 @@ class Bg0001RegenerateAndDiffTest(unittest.TestCase):
     per-placement rule labels, the Mob-Set numbers, the withdrawn rows, the
     unresolved rows -- rested on the author having run the tool by hand.  It
     reproduces byte-for-byte; now something says so on every run.
-    """
 
-    @classmethod
-    def setUpClass(cls) -> None:
-        if not (ROOT.parent / "pf_bridge" / "gamedata").is_dir():
-            raise unittest.SkipTest("the bridge clone's gamedata is not here")
+    ROUND 0n9inw: ~~a bare ``unittest.SkipTest`` in ``setUpClass``~~ IS STRUCK.
+    Lane A's status letter of 2026-08-29T10:50+07:00 (section 3) measured it on
+    a fresh Linux clone: ``tools/pf_pytest_precondition_census.py`` reported
+    these two tests as an UNDECLARED SKIP and the census as ``RESULT: FAIL``.
+    Lane A said plainly they could not reproduce a red GATE and did not claim
+    one, and that is still true -- but the skip was undeclared either way, and
+    ``pf_preconditions``' own header names this exact shape as the thing it
+    exists to stop.  It is the same defect that closed pull requests in rounds
+    ctflxc, 2vxlx2, y7koj9 and vyi2ud, which is why every note in the pin file
+    says "pinned in the same commit as the test": this one is too.
+    """
 
     def test_regenerating_reproduces_the_committed_bg0001_module(self) -> None:
         import importlib.util
