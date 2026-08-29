@@ -115,6 +115,7 @@ from .commands import (
     GmCommand,
     GmCommandArgsError,
     GmCommandParseError,
+    usage_hint_for,
     log_gm_command,
     new_audit_record_id,
     parse_gm_command,
@@ -192,6 +193,64 @@ REFUSAL_LOG_WRITE_FAILED_PREFIX = "command_log_write_failed_"
 REFUSAL_LOG_QUOTA_EXCEEDED = "command_log_quota_exceeded"
 REFUSAL_UNSAFE_COMMAND_TEXT = "command_text_has_format_characters"
 
+# The refusals where a GM TYPED SOMETHING THAT LOOKED LIKE A COMMAND and got
+# nothing back.  Kept here, beside the constants themselves and not in the
+# printer, for the reason `login_scene_stage.DESTINATION_SHAPED_REASONS`
+# exists: a refusal added to this module later must not silently inherit
+# "no way out" from a list that lives in another file.
+#
+# WHAT IS DELIBERATELY NOT IN IT, and each exclusion is a different reason:
+#
+#   REFUSAL_NOT_GM              -- nothing was decoded.  This lane never looks
+#                                  at a non-GM's chat, so it has nothing to
+#                                  say about it and must not learn to.
+#   REFUSAL_NOT_A_COMMAND       -- a GM chatting normally.  Printing this puts
+#                                  one console line on every sentence a GM
+#                                  says to another player.  The line is a way
+#                                  out of a MISTYPED COMMAND; ordinary
+#                                  conversation is not lost and needs none.
+#   REFUSAL_PAYLOAD_TOO_LARGE   -- no client-typed line reaches these; they
+#   REFUSAL_UNDECODABLE_PREFIX     mean a malformed frame, and naming a usage
+#                                  sentence would blame a human's typing for
+#                                  something no typing can fix.
+#   REFUSAL_LOOKUP_FAILED_PREFIX -- the allowlist file could not be READ, so
+#                                  nothing was decoded and this lane does not
+#                                  know whether a GM typed anything.  Named
+#                                  here because pf-adversary (D5) found it
+#                                  missing from the first version of this
+#                                  list, which read as exhaustive and was
+#                                  not.  It is a real operator question ("is
+#                                  my config broken") and it is STILL SILENT
+#                                  on this path -- said in the round record
+#                                  rather than papered over here.
+#
+# Two of these constants live in `dispatch.py`, not beside this tuple
+# (`REFUSAL_NOT_GM`, `REFUSAL_LOOKUP_FAILED_PREFIX`, `REFUSAL_RATE_LIMITED`)
+# -- so "the list lives beside the constants" is true of this module's own
+# refusals only, which is the half that can grow without this file noticing.
+#
+# STILL SILENT AFTER THIS ROUND, AND NAMED SO NOBODY READS THIS SET AS "no
+# GM command can vanish quietly any more": REFUSAL_RATE_LIMITED,
+# REFUSAL_LOG_QUOTA_EXCEEDED and REFUSAL_LOG_WRITE_FAILED_PREFIX each drop a
+# WELL-FORMED command with no console line at all.  Those are server-side
+# conditions, not typing mistakes, and their way out is a different sentence
+# (and, for the log ones, arguably an alarm rather than a hint) -- so they
+# are a separate piece of work rather than a widening of this one.
+TYPED_COMMAND_REFUSAL_PREFIXES = (
+    REFUSAL_PARSE_ERROR_PREFIX,
+    REFUSAL_UNSAFE_COMMAND_TEXT,
+)
+
+# The way out for a line refused by `has_format_characters`.  Fixed text, and
+# it deliberately does NOT echo what was typed: the whole reason that line is
+# refused is that its bytes render in an order other than the one they are
+# in, and a console line quoting them would carry that same property into the
+# operator's terminal.
+FORMAT_CHARACTER_REFUSAL_DETAIL = (
+    "command text contains Unicode format characters (bidi overrides or "
+    "isolates); retype the command without them"
+)
+
 
 class ChatDecodeError(ValueError):
     """The bytes are not a well-formed 0xAC52 payload.
@@ -230,6 +289,29 @@ class ChatCommandOutcome:
     pair -- see `gm/commands.py`'s AUDIT VOCABULARY block and
     `gm/chat_command_action.py`, which writes the `outcome` row.  A refusal
     wrote no row, so it carries no id; there is nothing to close.
+
+    `refusal_hint` is the operator-readable half of a refusal: what would
+    have worked instead.  Set only for the refusals in
+    `TYPED_COMMAND_REFUSAL_PREFIXES` -- a GM typed something command-shaped
+    and it did not parse -- and None everywhere else, because every other
+    refusal either has nothing to say or must not say it (see that tuple's
+    own comment).  It exists because `refusal_reason` carries an exception
+    TYPE name only: `command_parse_error_GmCommandParseError` is the same
+    string for `/warp island`, a bare `/warp`, and `/nonsense`, and tells a
+    reader which of them none of the time.
+
+    !! IT IS NEVER DERIVED FROM WHAT WAS TYPED, and that is a contract, not
+    an accident.  Every value ever put here is text THIS LANE WROTE: one of
+    `commands.COMMAND_USAGE`'s sentences, all six joined, or
+    `FORMAT_CHARACTER_REFUSAL_DETAIL`.  pf-adversary (round `9wy444`, D1)
+    measured why: `session.token` is the process-wide `--token`, not a
+    per-connection login (`runtime.py:5140-5150`), so a field carrying
+    client bytes would put any player's sentence on the operator's console
+    under the operator's own account name.  A future value read out of a
+    payload, an exception message, or an OS error breaks that contract --
+    pinned by
+    `tests/test_gm_chat_command_parse_way_out.py::NothingTypedEverReaches
+    TheConsoleTests`.
     """
 
     authorized: bool
@@ -237,6 +319,7 @@ class ChatCommandOutcome:
     text: str | None
     refusal_reason: str | None
     record_id: str | None = None
+    refusal_hint: str | None = None
 
 
 def decode_local_talk_payload(payload: bytes) -> tuple[str, str]:
@@ -453,14 +536,6 @@ def handle_local_talk_chat(
             refusal_reason=REFUSAL_NOT_A_COMMAND,
         )
 
-    if has_format_characters(text):
-        return ChatCommandOutcome(
-            authorized=True,
-            command=None,
-            text=text,
-            refusal_reason=REFUSAL_UNSAFE_COMMAND_TEXT,
-        )
-
     # Rate limit AFTER the sigil check, so a GM's ordinary conversation
     # never consumes the budget a real command needs.  The window is shared
     # with the 0x51E9 path on purpose (see dispatch.rate_limit_allows): the
@@ -485,6 +560,24 @@ def handle_local_talk_chat(
             refusal_reason=REFUSAL_RATE_LIMITED,
         )
 
+    # AFTER THE LIMITER, and that ordering is load-bearing as of round
+    # `9wy444`.  It used to run before it, which made this the ONE refusal
+    # that could print a console line without spending a slot: pf-adversary
+    # measured 100 lines from 100 `/warp <U+200B>1` frames, against 20 from
+    # 100 `/warp island` frames (D3).  Every line also lands in
+    # `server_console_live.err.txt`, so an unlimited one is an unbounded
+    # write driven from the wire.  Nothing is lost by the move -- a line
+    # carrying format characters is refused either way; it now costs the
+    # same budget every other command-shaped line costs.
+    if has_format_characters(text):
+        return ChatCommandOutcome(
+            authorized=True,
+            command=None,
+            text=text,
+            refusal_reason=REFUSAL_UNSAFE_COMMAND_TEXT,
+            refusal_hint=FORMAT_CHARACTER_REFUSAL_DETAIL,
+        )
+
     try:
         command = parse_chat_command_text(text)
     except (GmCommandParseError, GmCommandArgsError) as error:
@@ -495,6 +588,13 @@ def handle_local_talk_chat(
             refusal_reason=(
                 f"{REFUSAL_PARSE_ERROR_PREFIX}{type(error).__name__}"
             ),
+            # `command_body`, not a slice: the verb this names the grammar
+            # of has to be the verb `parse_chat_command_text` read, and two
+            # places that strip the sigil are two places that can disagree.
+            # `error` is deliberately NOT passed -- its message quotes what
+            # was typed, and nothing typed may reach the console (see
+            # `refusal_hint`'s contract and `usage_hint_for`'s docstring).
+            refusal_hint=usage_hint_for(command_body(text)),
         )
 
     resolved_log_path = Path(
@@ -563,4 +663,25 @@ def parse_chat_command_text(text: str) -> GmCommand:
         raise TypeError("text must be a str")
     if not looks_like_gm_command(text):
         raise GmCommandParseError("text does not start with the command sigil")
-    return parse_gm_command(text[len(CHAT_COMMAND_SIGIL):])
+    return parse_gm_command(command_body(text))
+
+
+def command_body(text: str) -> str:
+    """The command without its sigil -- the string the grammar sees.
+
+    One definition, used by `parse_chat_command_text` and by the refusal
+    path that has to describe what the grammar just rejected.  A second
+    hand-written `text[1:]` somewhere else is a second thing to update the
+    day `CHAT_COMMAND_SIGIL` changes, and the failure mode is quiet: the
+    describer would read `warp` off a line the parser read as `/warp` and
+    name a usage sentence for the wrong verb.
+
+    Non-command text is returned unchanged rather than refused: this is a
+    string operation for callers that have already decided what they hold,
+    not a second sigil check.
+    """
+    if not isinstance(text, str):
+        raise TypeError("text must be a str")
+    if not looks_like_gm_command(text):
+        return text
+    return text[len(CHAT_COMMAND_SIGIL):]

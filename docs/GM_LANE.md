@@ -3660,3 +3660,88 @@ The one that swallows is the dangerous one.  Both fixed.
    killed, but nobody adversarial has looked at the FIXES.  D2's rule in
    particular is one round old and has had exactly one reviewer: the lane that
    wrote it.
+
+## Round `9wy444` -- a mistyped GM command names its grammar, and says nothing else
+
+**D8, closed on the operator's side, by the ruling that decided which side that is --
+and NARROWER than the first attempt, because pf-adversary measured the first attempt
+against the wired server instead of against a test.**
+
+`pf-adversary` opened D8 against round `c48x1n`, this lane asked COO who the way out is
+for (`notes_to_chief/20260829_1252_LANE-GM-ASK-COO-who-reads-the-way-out.md`), and
+`COO-DECISION 20260829_1344` answered: path **(a)**, the console watcher. A reply that
+reaches the tester at the game client needs the server->client channel locked behind
+`/say`'s own gate (`COO-DECISION 20260829_0041`), and `CORE-REQUEST-GM-036` may not
+start before that gate opens. So this round buys the operator a line and claims nothing
+at all about the game screen.
+
+### What was silent, measured through the real dispatcher
+
+| typed | before | after |
+|---|---|---|
+| `/warp 9999` | `GM_CHAT_WARP_REFUSED ... stageable=(1, 2, 278, 997)` | unchanged |
+| `/warp island` | NOTHING | `GM_CHAT_COMMAND_REFUSED account='...' reason=command_parse_error_GmCommandParseError usage='warp <scene_id> [x y]'` |
+| `/warp`, `/warp 3 100`, `/warp 3 x y` | NOTHING | same usage line |
+| `/nonsense`, `/` | NOTHING | the whole vocabulary, six usage sentences |
+
+The refusal happens at the PARSE layer, upstream of every printer this lane owns --
+which is why the way out added in `c48x1n` could not reach it.
+
+### 🔴 The line carries NO CLIENT BYTES, and that is the design, not a detail
+
+The first version printed `str(error)`, which quotes the offending token
+(`got 'island'`). pf-adversary (D1) measured what that means where it runs:
+`runtime.py:5140-5150` states plainly that `session.token` is the process-wide `--token`
+CLI value, **not** a per-connection authenticated login -- every connection this listener
+accepts shares one identity. On the only configuration where this feature ever fires
+(that one token listed in `gm_accounts.json`), **any player typing `/warp <anything>` in
+local chat would have had their sentence printed to the operator's console under the
+operator's own GM account** -- and `decode_local_talk_payload` discards the wire's
+`speaker` field, so the line could not even have told the truth about who typed it.
+This lane's founding rule is that a non-GM's chat is never decoded, pattern-matched or
+written anywhere by it.
+
+So `usage_hint_for` returns one of exactly **seven fixed strings**: one of the six
+`COMMAND_USAGE` sentences, or all six joined. Which of the seven is the only thing a
+typed line can influence. That one change also closed three more of pf-adversary's
+findings by construction rather than by patch:
+
+* **D2** -- `runtime_console._Mirror` ANNOUNCES `utf-8` while the console FORCES
+  `cp874:strict`, so `console_safe` folded nothing and `print` raised: `/warp ésland`
+  produced **zero** lines on console *and* zero in the retained log, for exactly the
+  inputs the feature was built for. Nothing unencodable is left in the line.
+* **D7** -- strong-RTL letters and combining marks are category `Lo`/`Mn`, not `Cf`, so
+  `has_format_characters` never saw them and `repr` left them raw: the parse-error path
+  was echoing text carrying the very property the format-character path refuses to echo.
+* **D6** -- a typed `GM_CHAT_WARP_REFUSED` could be quoted into the line.
+
+### The rest of pf-adversary's report, and what was done with each
+
+| # | finding | this round |
+|---|---|---|
+| D3 | `has_format_characters` ran BEFORE the rate limiter -- the one refusal that could print without spending a slot (**100 lines from 100 frames**, against 20 from 100 `/warp island`), and every line also lands in `server_console_live.err.txt` | **fixed**: moved behind the limiter; pinned with its control |
+| D4 | the limiter runs before the parser, so a tester retyping at 5/s loses the way out after ~4 s -- at peak confusion | **not fixed, pinned as a known gap**: printing there is the flood D3 is about. The round's claim is scoped instead of widened |
+| D5 | `REFUSAL_LOOKUP_FAILED_PREFIX` ("is my config broken") missing from a comment that read as exhaustive, and from the gate test | **fixed**: named in both, and its silence stated rather than papered over |
+| D8 | a mutation echoing the refused text passed all 37 tests -- the bare `io.StringIO` console reports NO encoding, so `console_safe` ASCII-folded the bidi character the assertion looked for | **fixed**: `Utf8Console` announces `utf-8` like production; every "not in the console" assertion uses it |
+| D9 | reversing `COMMAND_USAGE` left the WHOLE SUITE green; the comment claimed a pin that compares SETS | **fixed**: order pinned by a real test, false claim corrected |
+| D10 | the width cap lived in the describer, so it was a property of that supplier, not of the line the printer writes | **fixed**: `MAX_CONSOLE_HINT_LENGTH` held at the printer |
+| D11 | `GmCommandArgsError` arm of the `except` is dead -- `parse_gm_command` never raises it | **recorded, not removed**: it is a real catch for a real exception type; removing it would be a behaviour change outside D8's scope |
+
+### The silence that stays, named so this is not read as more than it is
+
+`not_gm` (never decoded), `not_a_command` (a GM talking to another player -- one console
+line per sentence would bury the ones that mean something), oversized and undecodable
+payloads (no human typing to blame).
+
+**Still silent and NOT closed:** `rate_limited` (D4), `command_log_quota_exceeded`,
+`command_log_write_failed_*`, `gm_account_lookup_failed_*` (D5). Each drops a
+WELL-FORMED command, or a whole session, with no console line at all.
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้ (round `9wy444`)
+
+**คนเฝ้าคอนโซล** พิมพ์คำสั่ง GM ผิดแล้วรู้ว่าไวยากรณ์ที่ถูกคืออะไร แทนที่จะเห็นบรรทัดแชทหายไปเฉย ๆ
+และแยก "พิมพ์ผิด" ออกจาก "เส้นทางตาย" ได้ ซึ่งก่อนรอบนี้แยกไม่ได้เลย
+🔴 **สิ่งที่เขาไม่ได้และเคยเกือบได้: ตัวคำที่พิมพ์ผิด** -- ถอดออกโดยตั้งใจตาม D1 ข้างบน
+
+**ผู้เทสหน้าจอเกม: ไม่ได้อะไรใหม่ และรอบนี้จะไม่แกล้งบอกว่าได้** บรรทัดนี้อยู่บน stderr ของเครื่องเซิร์ฟเวอร์
+คนที่อ่านมันได้คือคนที่อยู่บนเครื่องนั้นและมี shell อยู่แล้ว ตาม `COO-DECISION 20260829_1344` ข้อ (ก)
