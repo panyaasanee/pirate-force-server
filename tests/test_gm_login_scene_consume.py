@@ -312,9 +312,174 @@ class OnlyOneLoginGetsItTests(_Case):
             )
             self.assertIsNone(self.entries().get(self.GM_ACCOUNT))
 
+    def test_the_loser_of_a_claim_is_not_told_the_standalone_map_answered(self):
+        """The second way this module lost a single-use race, made determin-
+
+        istic instead of left to load.  pf-adversary reproduced it 4/4 under
+        parallel load and 0/8 alone -- a contention-gated flake, the kind that
+        gets re-run rather than diagnosed, which is why it is forced here
+        rather than chased with more threads.
+
+        The window: `get_login_scene_override` reads the scene, and the GM
+        map is read again a few lines later.  If another login's atomic claim
+        lands between the two, the second read finds nothing -- and the code
+        used to conclude "then the STANDALONE map answered", handing the
+        single-use scene to the loser as well.  Both logins got it, and the
+        audit row named a map that does not even have a file on disk.
+        """
+        self.assertTrue(self.stage(self.GM_ACCOUNT, PORT_ROYAL).staged)
+        self.assertFalse(self.standalone_path.exists())
+
+        real_is_gm_account = login_scene_consume.is_gm_account
+        state = {"claimed": False}
+
+        def claim_in_the_window(account_name, config_path=None):
+            # `is_gm_account` is called inside the window, so the other
+            # login's claim is forced to land exactly there.
+            result = real_is_gm_account(account_name, config_path)
+            if not state["claimed"]:
+                state["claimed"] = True
+                self.assertEqual(
+                    PORT_ROYAL,
+                    login_scene_stage.claim_login_scene(
+                        self.GM_ACCOUNT, config_path=str(self.config_path)
+                    ),
+                )
+            return result
+
+        with mock.patch.object(
+            login_scene_consume, "is_gm_account", claim_in_the_window
+        ):
+            loser = self.consume(self.GM_ACCOUNT)
+
+        self.assertTrue(state["claimed"], "the window was never entered")
+        self.assertIsNone(
+            loser.scene_id, "the loser was handed the single-use scene too"
+        )
+        self.assertEqual(login_scene_consume.NOTHING_STAGED, loser.outcome)
+        # And the outcome word has to be true of the world: there is no
+        # standalone file at all here, so `standalone_not_consumed` would be
+        # a lie in the audit row as well as a wrong scene.
+        self.assertFalse(self.standalone_path.exists())
+
+    def test_the_loser_of_the_CLAIM_still_gets_a_standing_standalone_entry(self):
+        """The D3 fix reached one loser branch and not the other.
+
+        MEASURED by pf-adversary on the first version of that fix: the
+        `claimed is None` branch -- the MORE likely loser under contention,
+        not the rarer one -- returned `NOTHING_STAGED` without ever asking
+        the standalone map.  An operator with a standing "always start me
+        here" entry lost it on every login that lost the claim: 420 of 420
+        losers over 60 trials x 8 threads.  That falsified this round's own
+        deliverable sentence about `GT-110` re-entering the same scene on
+        every retry.
+        """
+        # A standing standalone entry for the SAME account that also has a
+        # staged GM entry.  Different scenes, so which one answered is
+        # visible in the result rather than inferred.
+        self.write_standalone(self.GM_ACCOUNT, PRISON_EXILE)
+        self.assertTrue(self.stage(self.GM_ACCOUNT, PORT_ROYAL).staged)
+
+        real_claim = login_scene_stage.claim_login_scene
+        state = {"stolen": False}
+
+        def lose_the_claim(account_name, config_path=None):
+            # Another login takes the entry a moment before we do, so this
+            # call's own claim comes back None.
+            if not state["stolen"]:
+                state["stolen"] = True
+                real_claim(account_name, config_path=config_path)
+            return real_claim(account_name, config_path=config_path)
+
+        with mock.patch.object(
+            login_scene_stage, "claim_login_scene", lose_the_claim
+        ):
+            loser = self.consume(self.GM_ACCOUNT)
+
+        self.assertTrue(state["stolen"], "the claim was never contested")
+        self.assertEqual(
+            PRISON_EXILE,
+            loser.scene_id,
+            "the loser was denied a standalone entry that is on disk",
+        )
+        self.assertEqual(
+            login_scene_consume.STANDALONE_NOT_CONSUMED, loser.outcome
+        )
+
+    def test_the_loser_of_the_claim_with_no_standalone_entry_gets_nothing(self):
+        # The other half of the same branch: with no standalone entry, the
+        # loser must still get the ordinary scene, not the staged one.
+        self.assertTrue(self.stage(self.GM_ACCOUNT, PORT_ROYAL).staged)
+        self.assertFalse(self.standalone_path.exists())
+
+        real_claim = login_scene_stage.claim_login_scene
+        state = {"stolen": False}
+
+        def lose_the_claim(account_name, config_path=None):
+            if not state["stolen"]:
+                state["stolen"] = True
+                real_claim(account_name, config_path=config_path)
+            return real_claim(account_name, config_path=config_path)
+
+        with mock.patch.object(
+            login_scene_stage, "claim_login_scene", lose_the_claim
+        ):
+            loser = self.consume(self.GM_ACCOUNT)
+
+        self.assertIsNone(loser.scene_id)
+        self.assertEqual(login_scene_consume.NOTHING_STAGED, loser.outcome)
+
+    def test_a_non_gm_keeps_their_scene_when_the_file_moves_under_them(self):
+        """The regression the first version of the D3 fix bought for nothing.
+
+        MEASURED: re-reading the standalone map on the NON-GM path turned a
+        file that was mid-save inside the new window into `consume_failed`,
+        and a file removed inside it into `nothing_staged` -- where the old
+        code returned the scene.  A non-GM's scene can only have come from
+        the standalone map, so there is nothing to disambiguate there and
+        the second read is pure downside.
+        """
+        self.write_standalone(self.PLAYER, PRISON_EXILE)
+        real_is_gm = login_scene_consume.is_gm_account
+
+        def delete_the_file_in_the_window(account_name, config_path=None):
+            result = real_is_gm(account_name, config_path)
+            self.standalone_path.unlink(missing_ok=True)
+            return result
+
+        with mock.patch.object(
+            login_scene_consume, "is_gm_account", delete_the_file_in_the_window
+        ):
+            result = self.consume(self.PLAYER)
+
+        self.assertEqual(PRISON_EXILE, result.scene_id)
+        self.assertEqual(
+            login_scene_consume.STANDALONE_NOT_CONSUMED, result.outcome
+        )
+
+    def test_a_real_standalone_entry_still_wins_that_same_window(self):
+        # The fix must not turn "the standalone map really did answer" into
+        # NOTHING_STAGED: a non-GM has no GM-map entry to lose, and this is
+        # the case the previous code got right.
+        self.write_standalone(self.PLAYER, PRISON_EXILE)
+        result = self.consume(self.PLAYER)
+        self.assertEqual(PRISON_EXILE, result.scene_id)
+        self.assertEqual(
+            login_scene_consume.STANDALONE_NOT_CONSUMED, result.outcome
+        )
+
 
 class StandaloneMapTests(_Case):
-    """[สมมติของสาย GM - รอ COO ยืนยัน] -- see the module docstring."""
+    """CONFIRMED by `COO-DECISION 20260829_0542` -- these do NOT flip.
+
+    Item 1 of that decision says so in as many words: `STANDALONE_NOT
+    _CONSUMED` stays and the two cases below are not to be inverted.  What
+    keeps the decision true is item 3's condition -- nothing a client sends
+    or a chat line triggers may write that file -- and the tripwire for it
+    lives in `tests/test_gm_standalone_map_is_not_chat_writable.py`, not
+    here.  Reading these two as evidence that the standalone path is SAFE
+    would be reading them backwards; see the module docstring's NONCLAIM.
+    """
 
     def test_a_standalone_entry_is_used_but_not_spent(self):
         self.write_standalone(self.PLAYER, PRISON_EXILE)
@@ -371,6 +536,17 @@ class GrantsNothingTests(_Case):
         # A behavioural test only covers routes someone thought to write.
         # The standalone map is the one that works with NO allowlist
         # membership; nothing here may write to it.
+        #
+        # THE READER IS NOW ALLOWED AND THE WRITER IS STILL NOT, which is a
+        # narrowing of this guard, so the reason is recorded rather than
+        # left in a diff: pf-adversary measured this module concluding "the
+        # GM map is empty, therefore the standalone map answered" and
+        # handing the single-use scene to the LOSER of a concurrent claim,
+        # labelled `standalone_not_consumed`, with no standalone file on
+        # disk.  Asking that map directly is the fix, and asking it means
+        # importing its reader.  `load_standalone_login_scene_overrides` is
+        # a pure read -- the writer names below are what this guard is for,
+        # and `login_scene_stage` still refuses that file at its own door.
         source = (
             REPO_ROOT
             / "src/pirateforce_foundation/gm/login_scene_consume.py"
@@ -384,12 +560,36 @@ class GrantsNothingTests(_Case):
             line for line in code.splitlines()
             if not line.strip().startswith("#")
         )
+        # The one read this module is allowed is removed before the scan, so
+        # the JSON key inside its NAME cannot satisfy the key check for a
+        # real write that follows it.
+        allowed_reader = "load_standalone_login_scene_overrides"
+        code = code.replace(allowed_reader, "")
         for forbidden in (
             login_scene_override.STANDALONE_JSON_KEY,
             "STANDALONE_DEFAULT_CONFIG_PATH",
+            "STANDALONE_ENV_OVERRIDE",
             "stage_login_scene",
+            "restore_login_scene",
+            "claim_standalone",
+            "open(",
+            "write_text",
+            "write_bytes",
         ):
             self.assertNotIn(forbidden, code, forbidden)
+
+    def test_that_guard_still_sees_a_write_hidden_behind_the_allowed_reader(self):
+        # The `.replace(allowed_reader, "")` above is a hole if it is done
+        # carelessly: a module could spell a write as
+        # `load_standalone_login_scene_overrides` + a real writer and have
+        # the key stripped along with the reader's name.  Prove the stripped
+        # source still carries a planted key.
+        planted = (
+            "load_standalone_login_scene_overrides(p)\n"
+            f'doc["{login_scene_override.STANDALONE_JSON_KEY}"] = x\n'
+        )
+        stripped = planted.replace("load_standalone_login_scene_overrides", "")
+        self.assertIn(login_scene_override.STANDALONE_JSON_KEY, stripped)
 
     def test_the_permanent_identity_nonclaim_is_stated_in_the_module(self):
         # COO-DECISION 20260829_0441 made this a permanent NONCLAIM of the
