@@ -30,6 +30,7 @@ a screen.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import io
 import json
 import sys
@@ -183,6 +184,211 @@ class TheRealLoginPathAgreesTests(unittest.TestCase):
             with self.subTest(scene_id=scene_id):
                 with self.assertRaises(world_scene_entry.SceneEntryRefused):
                     self._login_call(scene_id)
+
+
+class TheSpawnConditionTests(unittest.TestCase):
+    """The half of the predicate no live registry row can exercise.
+
+    MEASURED, and the reason this class exists: with every other test in
+    this file written, deleting the spawn condition from
+    `_target_is_admissible` left the whole lane suite green -- **658 passed,
+    0 failed**.  Every scene in the registry has a spawn today, so the
+    cross-check above cannot reach the condition, and a guard no test can
+    turn red is a guard that will be deleted by the next person who tidies
+    up.  `resolve_entry` refuses a pinned, login-allowed, SPAWNLESS scene
+    with `REFUSED_NO_PINNED_SPAWN`; admission has to refuse it too or the
+    lockout comes back one refusal reason along.
+
+    So the registry is bent for the length of these tests, through lane A's
+    own loader, and both sides are asked about the same bent row.  This is
+    the only thing in this file that is not a fact about today's data -- it
+    is a fact about what happens the day lane A pins a scene it has not
+    measured a spawn for yet.
+    """
+
+    SPAWNLESS = 278  # not home; home is exempt and gets its own test below
+
+    @contextlib.contextmanager
+    def _registry_without_a_spawn_on(self, scene_id):
+        real = world_scene_travel.load_scene_registry()
+        bent = dataclasses.replace(
+            real,
+            destinations=tuple(
+                dataclasses.replace(target, spawn=None)
+                if target.n_id == scene_id else target
+                for target in real.destinations
+            ),
+        )
+        self.assertIsNone(bent[scene_id].spawn, "the fixture bent nothing")
+        self.assertTrue(
+            bent[scene_id].login_entry_allowed,
+            "this row must still be login-allowed, or it would be refused "
+            "for the OTHER reason and prove nothing",
+        )
+        with mock.patch.object(
+            world_scene_travel, "load_scene_registry", return_value=bent
+        ):
+            yield bent
+
+    def test_the_login_path_really_does_refuse_a_spawnless_destination(self):
+        """The premise, checked rather than assumed."""
+        with self._registry_without_a_spawn_on(self.SPAWNLESS):
+            with self.assertRaises(world_scene_entry.SceneEntryRefused) as caught:
+                world_scene_entry.resolve_entry(
+                    Position(self.SPAWNLESS, 0, 1.0, 2.0, 3.0, 0.5),
+                    emit=lambda line: None,
+                )
+        self.assertEqual(
+            caught.exception.reason, world_scene_entry.REFUSED_NO_PINNED_SPAWN
+        )
+
+    def test_admission_refuses_it_too(self):
+        with self._registry_without_a_spawn_on(self.SPAWNLESS):
+            self.assertFalse(
+                login_scene_admission.login_entry_is_pinned(self.SPAWNLESS)
+            )
+            self.assertNotIn(
+                self.SPAWNLESS, login_scene_admission.stageable_scene_ids()
+            )
+
+    def test_a_config_naming_it_is_refused_when_the_map_is_read(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / "gm_login_scene.json"
+        path.write_text(
+            json.dumps({"gm_login_scene": {"gm_runner": self.SPAWNLESS}}),
+            encoding="utf-8",
+        )
+        with self._registry_without_a_spawn_on(self.SPAWNLESS):
+            with contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(ValueError):
+                    login_scene_override.load_login_scene_overrides(path)
+
+    def test_home_stays_admissible_without_a_spawn_because_home_uses_the_row(
+        self,
+    ):
+        """The carve-out, pinned so it is not quietly widened or dropped.
+
+        `resolve_entry` never reads home's spawn -- a character arriving home
+        keeps its own persisted position -- so refusing home for a missing
+        spawn would break every ordinary login to make a scene nobody
+        overrides safer.  Both sides must agree on THAT too.
+        """
+        with self._registry_without_a_spawn_on(HOME):
+            self.assertTrue(login_scene_admission.login_entry_is_pinned(HOME))
+            world_scene_entry.resolve_entry(
+                Position(HOME, 0, 1.0, 2.0, 3.0, 0.5), emit=lambda line: None,
+            )  # must not raise
+
+
+class TheAdmissibleSetIsAlsoNamedTests(unittest.TestCase):
+    """A pinned destination with no NAME may not be offered to anybody.
+
+    This filter existed in the first version of the module and pinned
+    nothing: mutation M10 deleted it and the whole lane suite stayed green,
+    658 passed.  It then reached a pushed commit of this branch, because a
+    review's mutation and the round's `git add` collided and no test could
+    tell the difference.  The scar is the reason this class exists at all:
+    the tuple it filters is PRINTED to a human -- in the console line and by
+    `GT-141` -- and an id with no name in the client's own catalog is an
+    instruction the tester cannot check.
+    """
+
+    UNNAMED = 60000
+
+    def test_the_catalog_does_not_know_the_id_this_test_uses(self):
+        # Or the test below proves nothing.
+        from pirateforce_foundation.gm.scene_catalog import is_known_scene_id
+        self.assertFalse(is_known_scene_id(self.UNNAMED))
+
+    def test_a_pinned_but_unnamed_destination_is_not_offered(self):
+        real = world_scene_travel.load_scene_registry()
+        bent = dataclasses.replace(
+            real,
+            destinations=tuple(
+                dataclasses.replace(target, n_id=self.UNNAMED)
+                if target.n_id == 997 else target
+                for target in real.destinations
+            ),
+        )
+        with mock.patch.object(
+            world_scene_travel, "load_scene_registry", return_value=bent
+        ):
+            offered = login_scene_admission.stageable_scene_ids()
+        self.assertNotIn(self.UNNAMED, offered)
+        self.assertEqual((1, 2, 278), offered)
+
+
+class TheConsoleLineNeverAltersDispatchTests(unittest.TestCase):
+    """`session.py`'s house rule, applied to this round's diagnostic.
+
+    MEASURED by pf-adversary: the bridge console is `cp874`, an operator
+    account name carrying a character it cannot encode raised
+    `UnicodeEncodeError` out of the print, and `runtime_console._Mirror`
+    writes to the console BEFORE the retained file -- so the refusal was
+    recorded nowhere, and the exception the caller saw came from the
+    encoder rather than from this module.  A diagnostic that changes what
+    the caller sees is worse than no diagnostic.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "standalone.json"
+
+    def _write(self, account):
+        self.path.write_text(
+            json.dumps(
+                {login_scene_override.STANDALONE_JSON_KEY: {account: 17}}
+            ),
+            encoding="utf-8",
+        )
+
+    def _load(self):
+        return login_scene_override.load_standalone_login_scene_overrides(
+            self.path
+        )
+
+    def test_a_name_the_console_cannot_encode_still_gets_the_real_refusal(self):
+        for account in ("张三", "café", "naïve…",
+                        "ทดสอบ"):
+            with self.subTest(account=account):
+                self._write(account)
+                buffer = io.TextIOWrapper(
+                    io.BytesIO(), encoding="cp874", errors="strict"
+                )
+                with mock.patch.object(sys, "stderr", buffer):
+                    with self.assertRaises(ValueError) as caught:
+                        self._load()
+                # The refusal, not the encoder's complaint.
+                self.assertNotIsInstance(
+                    caught.exception, UnicodeEncodeError,
+                    "the diagnostic replaced the refusal it was explaining",
+                )
+                self.assertIn("names a", str(caught.exception))
+
+    def test_the_token_still_reaches_a_cp874_console_for_such_a_name(self):
+        self._write("张三")
+        raw = io.BytesIO()
+        buffer = io.TextIOWrapper(raw, encoding="cp874", errors="strict")
+        with mock.patch.object(sys, "stderr", buffer):
+            with self.assertRaises(ValueError):
+                self._load()
+            buffer.flush()
+        console = raw.getvalue().decode("cp874")
+        self.assertIn(
+            login_scene_override.CONFIG_REFUSED_CONSOLE_TOKEN, console
+        )
+        self.assertIn("scene_id=17", console)
+
+    def test_a_closed_stderr_costs_the_line_and_nothing_else(self):
+        self._write("plain_tester")
+        closed = io.StringIO()
+        closed.close()
+        with mock.patch.object(sys, "stderr", closed):
+            with self.assertRaises(ValueError) as caught:
+                self._load()
+        self.assertIn("names a", str(caught.exception))
 
 
 class TheLoaderTests(unittest.TestCase):

@@ -3271,16 +3271,63 @@ turning a tester's account into a locked door. The admissible set is also
 pinned as the literal `(1, 2, 278, 997)`, so lane A pinning a fifth scene is
 a decision somebody makes rather than a silent widening.
 
+**What that cross-check could NOT reach, measured rather than assumed.** It
+walks the scenes in today's registry, and none of them is spawnless, so the
+spawn condition never executed on its False side: deleting it left the whole
+lane suite green, 658 passed. Same for the home carve-out, and same for the
+name-catalog filter in `stageable_scene_ids` -- and that last mutation
+reached a pushed commit of this branch before a test existed that could see
+it. `TheSpawnConditionTests` and `TheAdmissibleSetIsAlsoNamedTests` bend the
+registry through lane A's own loader and ask both sides about the bent row,
+which is the only way to execute those branches at all. Ten mutations, all
+killed, on a 667-test baseline: 14 / 20 / 98 / 2 / 14 / 4 / 1 / 1 / 1 / 1.
+
 ### GATE-WALK (`COO-DECISION 20260829_0742`)
 
 `runtime.py`'s `world_scene_entry_refused_no_reply` branch and the
-restore-after-refusal handler inside it are **no longer reachable from a
-config file**. The test that walked them was not deleted: it now reaches
-them at the seam that is still real (admission reads lane A's registry at
-load, `resolve_entry` reads it again microseconds later; a registry that
-changes in between, or a refusal reason admission does not model, lands
-there), with an admissible scene so the gate is walked open rather than
-disabled. Chief's code keeps a test.
+restore-after-refusal handler inside it are no longer reachable from a
+config file **on a process whose registry matches the disk**. The test that
+walked them was not deleted: it reaches them at the seam that remains, with
+an admissible scene, so the gate is walked open rather than disabled.
+Mutation M13 (delete the handler from `runtime.py`) turns exactly that one
+test red and nothing else, so the branch really executes.
+
+~~the seam ... microseconds later~~ **That was wrong, and it matters.**
+`runtime.py:527` loads the registry ONCE at boot and threads it into
+`resolve_entry` at `runtime.py:5355`; admission re-reads the file on every
+login. The gap is the uptime of the process, not microseconds -- see the
+defect below.
+
+### The claim this round could not keep (D1)
+
+`pf-adversary` reproduced the original lockout **with this change in
+place**: a process holding a boot snapshot that bars scene 278 while the
+disk allows it admits the config entry, applies it, and `resolve_entry`
+refuses -- no reply, no consumption, every retry identical, and
+`GM_LOGIN_SCENE_CONFIG_REFUSED` never prints, so the new diagnostic points
+away from the fault. Any post-boot edit that WIDENS the registry does it;
+narrowing edits are safe (admission simply refuses, which is stricter than
+the login needs).
+
+So the honest claim is: **a config typo can no longer lock an account out
+on a process whose registry matches the disk.** "No account can be locked
+out by this lane's configs" is false and has been struck everywhere it was
+written. `CORE-REQUEST-GM-034` asks chief for the one line at
+`runtime.py:5308` that closes it; the lane will add the
+`scene_registry=` parameter on its side, defaulting to today's behaviour,
+with a test that stays red until that line lands.
+
+### The diagnostic had to stop altering dispatch
+
+`session.py` states the rule -- A DIAGNOSTIC MAY NEVER ALTER DISPATCH --
+and the first version of this round's console line broke it. The bridge
+console is `cp874`; an account name it cannot encode raised
+`UnicodeEncodeError` out of the print, and `runtime_console._Mirror` writes
+the console before the retained file, so the refusal was recorded nowhere
+at all while the caller received the encoder's exception instead of this
+lane's. Operator-controlled fields now go through `ascii()` and the whole
+print is wrapped: a closed or hostile stderr costs the line, never the
+refusal.
 
 ### Cross-lane coupling, declared rather than discovered later
 
@@ -3302,3 +3349,14 @@ lane's configs may contain. Letter to lane A and chief:
    spent, this rules on whether it is accepted. The revert is this module
    plus two lines in the reader.
 4. The spawn condition fixes nothing that is broken today.
+5. **A reviewer's mutation reached a pushed commit of this branch** (`483db7c`,
+   `stageable_scene_ids` missing its name-catalog filter) because a
+   mutation run and a forced commit shared one working tree, and no test
+   could tell. Recovered in the next commit, and the test that kills it now
+   exists. Recorded because the process failure is the finding: never run a
+   mutation pass on the tree you are about to commit, and remember that
+   `git checkout -- <path>` restores the INDEX, not the work you just did.
+6. **Not tested, declared by the adversary rather than by me**: that an
+   ADMISSIBLE config value cannot break a login further downstream. It
+   stopped short of driving scenes 278 and 997 end to end. Unknown, not
+   safe.
