@@ -546,10 +546,16 @@ class Bg0002CensusWiringTests(unittest.TestCase):
         # is what a call site that does not hand the override dict over
         # prints -- a NAMED gap rather than a reassuring number, and this
         # pin holds it to that until the one-kwarg wiring ask lands.
+        # ROUND jop8ph: ``ledger=`` joins them, for the same reason and with
+        # the same default.  This call site passes neither keyword yet, so
+        # the line it prints today reports BOTH gaps by name -- which is the
+        # honest state of the Bg0002 branch and is exactly what the wiring
+        # ask in this round's PR body asks the chief to close.
         self.assertEqual(
             lines[0],
             "MOB_CENSUS_HOSTILITY scene_id=%d scene=Bg0002 roster=%d "
-            "backed=%d unbacked=none refused=%d override=not_reported" % (
+            "backed=%d unbacked=none refused=%d override=not_reported "
+            "ledger=not_reported" % (
                 SCENE2_N_ID, roster_count, roster_count,
                 report["refused_count"],
             ),

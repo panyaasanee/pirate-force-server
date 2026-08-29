@@ -317,6 +317,24 @@ class ProfileJoinTests(unittest.TestCase):
         #      (2 Sep 23:59).  When RE-150 closes with such a placement,
         #      this assertion is EXPECTED to go red and the day it does is
         #      the day the lane reads it as progress, not as a break.
+        #
+        # ROUND jop8ph: RE-150 HAS CLOSED, AND THE PIN STAYS -- with a
+        # stronger reason than it had.  The result
+        # (pf_bridge/notes_to_chief/20260829_1912_RE-150-RESULT-NO-AGGRO-
+        # MONSTER-OUTSIDE-REFUSED.md) is DONE / BOUNDED-NEGATIVE: a full
+        # scan of both scenes' placements, joined through CLINE leader AND
+        # all nine crew slots, plus 616/616 Lua files, found exactly five
+        # rows that are monsters (rank > 0, ai_combat > 0) and initiate
+        # (n_OFFESIVE = 1, n_AGGRO = 1200) -- Bg0002 placements 92-96, all
+        # five inside the owner-refused block.  So the stated lifetime
+        # above is SPENT and the assertion did not go red, because there is
+        # nothing outside the block to place, not because nobody looked.
+        # The result's own BUILD_IMPACT forbids the workaround this lane
+        # might otherwise reach for: a rank-zero NPC or a practice dummy
+        # with a lively-looking AI row must not be promoted to "monster" to
+        # fill an M6 milestone.  The pin's NEW lifetime is therefore the
+        # owner's, not a ticket's: it stands until the owner rules again on
+        # the 101-104 block, or a new scene/data pack brings its own rows.
         for scene in (None, field_mobs.BG0002_SCENE):
             roster = (field_mobs.load_roster() if scene is None
                       else field_mobs.load_roster(scene=scene))

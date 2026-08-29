@@ -822,10 +822,17 @@ class FieldMobTests(unittest.TestCase):
             # ``OWNER_REFUSED_PLACEMENTS`` literal.  It dispatches nothing
             # -- runtime.py does not call it yet; that is this round's
             # one-line wiring ask, not a landed call site.
+            # ROUND jop8ph adds mob_ledger_admission.py: it reads
+            # ``roster_for_scene_id``/``scene_for_scene_id`` to answer
+            # whether a combat ledger speaks for a scene.  It dispatches
+            # nothing either -- runtime.py reaches it only through
+            # mob_census_hostility, and the keyword that would let it
+            # matter is this round's wiring ask.
             ["diag_multi_object_wiring.py", "mob_ai_control.py",
              "mob_census_hostility.py",
              "mob_combat.py", "mob_death.py",
-             "mob_diag_multi_object.py", "mob_loot.py",
+             "mob_diag_multi_object.py",
+             "mob_ledger_admission.py", "mob_loot.py",
              "player_hostile_pairing.py", "runtime.py"],
             "field_mobs importers changed; update the letter")
         runtime_body = (
