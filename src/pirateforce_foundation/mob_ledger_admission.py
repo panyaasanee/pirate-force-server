@@ -38,11 +38,42 @@ TWO SIGNALS, AND THEY ARE NOT EQUALS.
     ledger that names a different scene than the one being composed is
     declined on that alone -- an explicit disagreement is never overruled by
     a membership coincidence.
-  * The GROUND TRUTH is CONTAINMENT: does the ledger carry a row for every
-    identity in this scene's roster?  That, exactly, is the precondition
-    ``mob_death.repopulation_entries`` raises on.  Nothing else is.
+  * The GROUND TRUTH is what the composer will actually refuse on.
+    ~~CONTAINMENT: does the ledger carry a row for every identity in this
+    scene's roster?  That, exactly, is the precondition
+    ``mob_death.repopulation_entries`` raises on.  Nothing else is.~~
 
-Containment is checked even when the scenes agree, and that is not
+THAT LAST SENTENCE WAS FALSE, AND IT WAS THE CLAIM THIS MODULE WAS BUILT
+ON.  [CORRECTED, ROUND jop8ph-2, pf-adversary on the jop8ph diff, MEASURED.]
+``repopulation_entries`` raises on FOUR things, not one, and the first
+version of this module checked exactly one of them:
+
+  1. containment -- the ledger cannot answer for a roster identity
+     (``mob_death._balance_in``);
+  2. an identity at 0 HP in the ledger that the death register does NOT hold
+     dead (``mob_death.py:2140``) -- "the kill was computed and never
+     finished";
+  3. an identity above 0 HP that the register DOES hold dead
+     (``mob_death.py:2160``);
+  4. a register row whose ceiling disagrees with the roster's (``:2168``),
+     which is the register's business and not this module's.
+
+MEASURED at the time: a ledger built exactly as ``_sync_combat_scene_state``
+builds it, with one identity taken to 0 HP and no death committed, was
+printed ``state=same_scene admitted=yes covered=12/12 missing=none``,
+forwarded, and RAISED -- and ``runtime.py`` documents that very state (a mob
+at 0 HP with no registered owner ruling) as shipped and disclosed.  The
+outcome is the one this module's opening paragraph exists to prevent.
+
+So conditions 2 and 3 are checked here now, whenever the caller hands over
+the register that can answer them, and a fifth check the composer does NOT
+make is here too: a ledger row whose CEILING disagrees with the roster row of
+the same identity ships a wrong HP number with no exception and no line
+anywhere (``mob_combat.strike`` refuses that pair by name; the census path
+did not).  A composed-wrong-number is worse than a refusal, because nothing
+reports it.
+
+Containment is still checked even when the scenes agree, and that is not
 belt-and-braces.  A ledger opened for ``Bg0002`` BEFORE this lane's
 owner-refusal filter changed which placements ship carries a different
 identity set than today's roster for the same scene, and would raise with
@@ -111,6 +142,30 @@ STATE_ABSENT = "absent"
 # without raising, because a census composer that dies on a malformed
 # argument sends a player an empty world.
 STATE_UNREADABLE = "ledger_unreadable"
+# ROUND jop8ph-2, pf-adversary D2.  A ledger row whose CEILING disagrees with
+# the roster row of the same identity.  Containment says nothing about this:
+# the identity sets match exactly and the HP the census then ships is a
+# number from a different table.  ``mob_combat.strike`` already refuses this
+# pair by name (REFUSE_LEDGER_ROW_DISAGREES_WITH_ROSTER); the census path had
+# nothing.  MEASURED: roster ceiling 3857, ledger row 11571, admitted, and
+# the composed bytes carried 11571 with no exception and no console line.
+STATE_LEDGER_ROW_DISAGREES_WITH_ROSTER = "ledger_row_disagrees_with_roster"
+# ROUND jop8ph-2, pf-adversary D1 -- THE ONE THAT REFUTED THIS MODULE'S
+# HEADLINE CLAIM.  Containment is NOT the only precondition
+# ``mob_death.repopulation_entries`` raises on; it has two more, both about
+# the ledger disagreeing with the DEATH REGISTER (mob_death.py:2140 and
+# :2160).  A ledger standing at 0 HP for an identity the register does not
+# hold dead, or standing above 0 for one it does, raises -- inside the
+# listener thread, from a ledger this module was printing ``admitted=yes
+# covered=12/12`` for.  Checkable only when the caller hands over its
+# register, which the census composer always has.
+STATE_LEDGER_DISAGREES_WITH_REGISTER = "ledger_disagrees_with_register"
+# The scene id itself could not be read, or the roster override was not a
+# sequence of roster rows.  ROUND jop8ph-2, pf-adversary D6: this function
+# promised "without raising" and then raised for both, because only the
+# ``ledger`` argument was guarded -- the asymmetry was backwards, since the
+# guarded argument is the one a caller is least sure of.
+STATE_INPUTS_UNREADABLE = "inputs_unreadable"
 
 ADMITTING_STATES = (STATE_SAME_SCENE, STATE_UNSCOPED_COVERS_ROSTER)
 
@@ -121,12 +176,65 @@ ADMITTING_STATES = (STATE_SAME_SCENE, STATE_UNSCOPED_COVERS_ROSTER)
 # defect being reported.  "Refuse" here means refuse to be silent.
 FATAL_TOKEN = "MOB_LEDGER_ADMISSION_FATAL"
 
+# The HP a dead monster stands at, which is what both of the register
+# disagreements at ``mob_death.py:2140``/``:2160`` compare against.  Spelled
+# here rather than imported so this module keeps its one-sibling import and
+# stays cheap on the census path; ``test_mob_ledger_admission`` joins it
+# against ``mob_death.HP_WHEN_DEAD`` so the copy cannot drift silently -- the
+# same literal-plus-guard split ``field_mobs.OWNER_REFUSED_PLACEMENTS`` uses.
+HP_WHEN_DEAD = 0
+
+
+def _ceiling_conflicts(ledger: Any, ceilings: Any) -> Any:
+    """Identities whose ledger ceiling disagrees with the roster's (D2).
+
+    ``None`` means the ledger could not be read row by row, which is the
+    caller's cue to report :data:`STATE_UNREADABLE` rather than an empty
+    list -- "no conflicts found" and "could not look" are the pair this
+    module keeps having to separate.
+    """
+    try:
+        conflicts = []
+        for identity, ceiling in ceilings.items():
+            if ledger.balance_of(identity).max_hp != ceiling:
+                conflicts.append(identity)
+        return tuple(sorted(conflicts))
+    except Exception:  # noqa: BLE001 - never raise at a census composer
+        return None
+
+
+def _register_conflicts(ledger: Any, rows: Any, register: Any) -> Any:
+    """Identities where the ledger and the death register contradict (D1).
+
+    The two conditions are transcribed from the refusals themselves
+    (``mob_death.py:2140`` and ``:2160``), not paraphrased: an identity the
+    register does NOT hold dead standing at 0 HP in the ledger, and an
+    identity it DOES hold dead standing above 0.  Either one raises out of
+    ``repopulation_entries``.
+
+    ``None`` means the register or the ledger could not be read.  The scene
+    a record belongs to is ``mob.scene`` -- the roster row's own table tag,
+    which is what ``repopulation_entries`` passes to ``is_dead`` -- so this
+    asks the register the same question in the same words.
+    """
+    try:
+        conflicts = []
+        for mob in rows:
+            standing = ledger.balance_of(mob.actor_identity).current_hp
+            dead_in_register = register.is_dead(mob.actor_identity, mob.scene)
+            if dead_in_register != (standing == HP_WHEN_DEAD):
+                conflicts.append(mob.actor_identity)
+        return tuple(sorted(conflicts))
+    except Exception:  # noqa: BLE001 - never raise at a census composer
+        return None
+
 
 def admit_ledger(
     scene_id: int,
     ledger: Any,
     *,
     roster: Any = None,
+    register: Any = None,
 ) -> dict[str, Any]:
     """Decide, without raising, whether ``ledger`` speaks for ``scene_id``.
 
@@ -138,11 +246,35 @@ def admit_ledger(
     apart in a bool and are one code change apart in what the reader must do
     next.
 
-    ``roster`` is an override for tests and for a caller that has already
-    resolved the rows; by default the scene's own roster is loaded.  Passing
-    the rows the caller is ACTUALLY composing is the more honest call: this
-    module then answers about that composition rather than about a
-    re-derivation of it.
+    ~~``roster`` ... this module then answers about that composition rather
+    than about a re-derivation of it.~~  [CORRECTED, ROUND jop8ph-2,
+    pf-adversary D5.]  ``roster`` IS the rows the caller is composing, and
+    passing them is still the right call -- but the sentence claimed a
+    measurement that does not exist today: the default is
+    ``field_mobs.roster_for_scene_id(scene_id)``, the same pure call with
+    the same argument the census composer makes, so deleting the keyword at
+    that call site survives the whole suite.  It is plumbing for the day
+    those two differ, not evidence that they do.
+    ``test_the_roster_override_is_measured_equivalent_today`` pins the
+    equivalence, so the day it stops holding is a noticed day.
+
+    ``register`` IS EVIDENCE, and it is the argument this function was
+    missing.  ROUND jop8ph-2, pf-adversary D1, MEASURED: containment is NOT
+    the only precondition ``mob_death.repopulation_entries`` raises on, and
+    the first version of this module said in its own docstring that it was
+    ("Nothing else is").  Two further refusals live at ``mob_death.py:2140``
+    and ``:2160``, both comparing the ledger against the DEATH REGISTER: an
+    identity at 0 HP the register does not hold dead, and an identity above
+    0 HP that it does.  Either one raises out of a census composition this
+    module had just printed ``admitted=yes covered=12/12 missing=none`` for
+    -- inside a listener thread, which is the exact outcome (a logged-in
+    player receiving zero actors) the module exists to prevent.
+
+    Without a register those two cannot be checked, so ``register_checked``
+    is reported next to the verdict and the console line says
+    ``register=unchecked``.  A caller composing entries HAS a register --
+    ``mob_death.repopulation_entries`` requires one -- so the path that can
+    actually raise is the path that can always check.
 
     ``vacuous`` is true when the roster has no rows.  ``admitted`` is then
     true for any readable ledger and means nothing at all -- containment
@@ -153,11 +285,35 @@ def admit_ledger(
     ``fully_backed``: the two sentences differ and only the caller knows
     which one it needs.
     """
-    scene = field_mobs.scene_for_scene_id(scene_id)
-    rows = (
-        field_mobs.roster_for_scene_id(scene_id) if roster is None else roster
-    )
-    wanted = tuple(mob.actor_identity for mob in rows)
+    try:
+        scene = field_mobs.scene_for_scene_id(scene_id)
+        rows = tuple(
+            field_mobs.roster_for_scene_id(scene_id) if roster is None
+            else roster
+        )
+        wanted = tuple(mob.actor_identity for mob in rows)
+        ceilings = {mob.actor_identity: mob.max_hp for mob in rows}
+    except Exception:  # noqa: BLE001 - see STATE_INPUTS_UNREADABLE
+        # D6.  The promise on this function's first line is "without
+        # raising", and it applied to one argument out of three.  A bad
+        # scene id went out through field_mobs, and a bad roster override
+        # went out through the generator expression below it, both
+        # uncaught.
+        return {
+            "scene_id": scene_id,
+            "scene": None,
+            "ledger_scene": None,
+            "roster_count": 0,
+            "covered_count": 0,
+            "missing": (),
+            "conflicts": None,
+            "vacuous": False,
+            "missing_measured": False,
+            "register_checked": False,
+            "state": STATE_INPUTS_UNREADABLE,
+            "admitted": False,
+            "ledger": None,
+        }
 
     record: dict[str, Any] = {
         "scene_id": scene_id,
@@ -166,7 +322,24 @@ def admit_ledger(
         "roster_count": len(wanted),
         "covered_count": 0,
         "missing": (),
+        # Identities whose ledger row contradicts the roster's ceiling (D2)
+        # or the death register (D1).  Separate from ``missing``, which stays
+        # containment-only: "the ledger cannot answer for it" and "the ledger
+        # answers something else" are different failures with different fixes.
+        #
+        # ``None`` until the check RUNS, and the console prints
+        # ``conflicts=not_measured`` for it.  Every state that returns early
+        # -- absent, unreadable, other_scene, either incomplete -- never
+        # reaches the comparison, and reporting ``none`` there would be the
+        # ``covered=0/12 missing=none`` self-contradiction rebuilt in a new
+        # field one round after it was found in the old one.
+        "conflicts": None,
         "vacuous": not wanted,
+        # Whether the two register-disagreement preconditions (D1) could be
+        # checked at all.  Reported rather than assumed either way: "checked
+        # and clean" and "not checkable" are the two states the whole finding
+        # is about, and collapsing them would rebuild it.
+        "register_checked": False,
         # WHETHER THE MISSING LIST WAS EVER COMPUTED.  Without this flag an
         # absent or unreadable ledger reports ``missing=()`` -- which is the
         # same value a fully covering ledger reports, and the console line
@@ -203,14 +376,23 @@ def admit_ledger(
     record["missing_measured"] = True
     record["covered_count"] = len(covered)
 
-    both_named = ledger_scene is not None and scene is not None
-    if both_named and ledger_scene != scene:
-        # THE DECLARATION WINS HERE, and it wins even when containment would
-        # have passed.  Two scenes that happen to share every identity in one
-        # of their rosters (identities carry no scene component -- field_mobs
-        # says so in its own words, and 0x2068/0x206A are in fact in both
-        # live scenes) are still two scenes, and the HP in a ledger for the
-        # other one is the HP of a different monster with the same number.
+    # THE DECLARATION WINS HERE, and it wins even when containment would have
+    # passed.  Identities carry no scene component -- field_mobs says so in
+    # its own words -- so a ledger built from another scene's rows can contain
+    # everything this scene's roster asks for and still be the HP of different
+    # monsters that share a number.
+    #
+    # ~~if both_named and ledger_scene != scene:~~ [CORRECTED, ROUND
+    # jop8ph-2, pf-adversary D3, MEASURED.]  Requiring BOTH names made this
+    # check structurally dead for every scene the project ships no table for:
+    # ``scene_for_scene_id`` returns None for exactly those scenes, so
+    # ``admit_ledger(997, <a bg0001 ledger>)`` printed
+    # ``scene=? ledger_scene=bg0001 state=same_scene admitted=yes`` -- a line
+    # that contradicts itself on its own face -- and FORWARDED the ledger.
+    # The bytes were harmless (an empty roster overrides nothing); the
+    # EVIDENCE was not, and a state name is evidence.  A ledger that names a
+    # scene we cannot even name is a ledger we cannot show belongs here.
+    if ledger_scene is not None and ledger_scene != scene:
         record["state"] = STATE_OTHER_SCENE
         return record
 
@@ -220,6 +402,33 @@ def admit_ledger(
             else STATE_SAME_SCENE_INCOMPLETE
         )
         return record
+
+    # D2.  Containment compares identity SETS and says nothing about the
+    # numbers on the rows.  A ledger row whose ceiling disagrees with the
+    # roster row of the same identity composes a body carrying HP from a
+    # different table -- no exception, no console line, a monster the client
+    # is told has three times its real health.  ``mob_combat.strike`` refuses
+    # this exact pair by name and the census path had nothing.
+    disagreeing = _ceiling_conflicts(ledger, ceilings)
+    if disagreeing is None:
+        record["state"] = STATE_UNREADABLE
+        return record
+    record["conflicts"] = disagreeing
+    if disagreeing:
+        record["state"] = STATE_LEDGER_ROW_DISAGREES_WITH_ROSTER
+        return record
+
+    # D1.  The two preconditions this module used to say did not exist.
+    if register is not None:
+        conflict = _register_conflicts(ledger, rows, register)
+        if conflict is None:
+            record["state"] = STATE_UNREADABLE
+            return record
+        record["register_checked"] = True
+        record["conflicts"] = conflict
+        if conflict:
+            record["state"] = STATE_LEDGER_DISAGREES_WITH_REGISTER
+            return record
 
     record["state"] = (
         STATE_UNSCOPED_COVERS_ROSTER if ledger_scene is None
@@ -235,6 +444,7 @@ def ledger_for_scene(
     ledger: Any,
     *,
     roster: Any = None,
+    register: Any = None,
 ) -> Any:
     """The ledger a composer for ``scene_id`` may safely use, or ``None``.
 
@@ -242,7 +452,8 @@ def ledger_for_scene(
     ``None`` here means "compose without consulting HP", which is what every
     ledger-less path in this tree already does.
     """
-    return admit_ledger(scene_id, ledger, roster=roster)["ledger"]
+    return admit_ledger(
+        scene_id, ledger, roster=roster, register=register)["ledger"]
 
 
 def describe_ledger_admission(record: Any) -> tuple[str, ...]:
@@ -284,9 +495,16 @@ def describe_ledger_admission(record: Any) -> tuple[str, ...]:
             missing = "none"
         else:
             missing = ",".join("0x%X" % i for i in record["missing"])
+        if record["conflicts"] is None:
+            conflicts = "not_measured"
+        elif not record["conflicts"]:
+            conflicts = "none"
+        else:
+            conflicts = ",".join("0x%X" % i for i in record["conflicts"])
         return (
-            "MOB_LEDGER_ADMISSION scene_id=%d scene=%s ledger_scene=%s "
-            "state=%s admitted=%s covered=%d/%d missing=%s vacuous=%s" % (
+            "MOB_LEDGER_ADMISSION scene_id=%s scene=%s ledger_scene=%s "
+            "state=%s admitted=%s covered=%d/%d missing=%s conflicts=%s "
+            "register=%s vacuous=%s" % (
                 record["scene_id"],
                 scene,
                 ledger_scene,
@@ -295,6 +513,8 @@ def describe_ledger_admission(record: Any) -> tuple[str, ...]:
                 record["covered_count"],
                 record["roster_count"],
                 missing,
+                conflicts,
+                "checked" if record["register_checked"] else "unchecked",
                 "yes" if record["vacuous"] else "no",
             ),
         )
@@ -307,6 +527,7 @@ def require_ledger_for_recompose(
     ledger: Any,
     *,
     roster: Any = None,
+    register: Any = None,
 ) -> dict[str, Any]:
     """The admission record for a RECOMPOSE, where absence is fatal to report.
 
@@ -331,7 +552,8 @@ def require_ledger_for_recompose(
     because the caller did its part and the ledger simply is not the right
     one.
     """
-    record = admit_ledger(scene_id, ledger, roster=roster)
+    record = admit_ledger(
+        scene_id, ledger, roster=roster, register=register)
     record["fatal"] = record["state"] == STATE_ABSENT
     return record
 

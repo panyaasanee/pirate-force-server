@@ -69,18 +69,45 @@ class LedgerCarriesItsSceneTests(unittest.TestCase):
         self.assertEqual(bg0001_ledger().scene, BG0001_SCENE)
         self.assertNotEqual(bg0001_ledger().scene, bg0002_ledger().scene)
 
-    def test_a_scene_with_no_roster_still_names_its_scene(self):
-        # An UNSCOPED empty ledger is admitted into every scene by
-        # containment -- it is missing nothing, because nothing was asked of
-        # it.  ``open_ledger_for_scene_id`` therefore names the scene rather
-        # than letting zero rows derive nothing.  If this regresses, the
-        # empty ledger of a town silently becomes a valid ledger for a
-        # battlefield.
+    def test_the_explicit_scene_here_is_measured_equivalent_today(self):
+        # ~~test_a_scene_with_no_roster_still_names_its_scene~~ RENAMED AND
+        # REWRITTEN, ROUND jop8ph-2, pf-adversary D4.  The old name said the
+        # ledger IS named and the old body asserted, on its own line 3, that
+        # the scene resolves to None -- the test contradicted its own title,
+        # and the assertion it passed on (``admitted`` false) passed because
+        # scene 2's roster is non-empty, not because of any label.
+        #
+        # The measured truth: ``scene_for_scene_id`` returns None for exactly
+        # the scenes ``roster_for_scene_id`` returns () for, so the explicit
+        # keyword in ``open_ledger_for_scene_id`` cannot fire in the case it
+        # was added for.  It is kept for the day those two diverge; this pins
+        # that they have not, so that day is noticed.
         empty = mob_combat.open_ledger_for_scene_id(NO_ROSTER_SCENE_ID)
         self.assertEqual(empty.balances, ())
+        self.assertIsNone(empty.scene)
         self.assertIsNone(field_mobs.scene_for_scene_id(NO_ROSTER_SCENE_ID))
-        record = admission.admit_ledger(BG0002_SCENE_ID, empty)
-        self.assertFalse(record["admitted"])
+        for scene_id in (BG0001_SCENE_ID, BG0002_SCENE_ID,
+                         NO_ROSTER_SCENE_ID, 278, 12345):
+            with self.subTest(scene_id=scene_id):
+                self.assertEqual(
+                    mob_combat.open_ledger_for_scene_id(scene_id),
+                    mob_combat.open_ledger(
+                        field_mobs.roster_for_scene_id(scene_id)),
+                    "scene_for_scene_id and roster_for_scene_id no longer "
+                    "answer None/() for the same scenes: the explicit "
+                    "scene= in open_ledger_for_scene_id now MATTERS, and "
+                    "its docstring must stop saying it does not",
+                )
+
+    def test_naming_the_scene_of_an_empty_roster_is_accepted_not_refused(self):
+        # M5.  The ``derived is not None`` guard in open_ledger had no pin:
+        # dropping it made ``open_ledger((), scene="bg0001")`` RAISE, and the
+        # whole suite stayed green.  Zero rows derive nothing, so there is
+        # nothing for an explicit name to disagree WITH -- naming it is the
+        # one case where the keyword is the only source of truth.
+        named = mob_combat.open_ledger((), scene=BG0001_SCENE)
+        self.assertEqual(named.scene, BG0001_SCENE)
+        self.assertEqual(named.balances, ())
 
     def test_a_hit_does_not_make_the_ledger_forget_its_scene(self):
         ledger = bg0002_ledger()
@@ -279,14 +306,42 @@ class AdmissionStateTests(unittest.TestCase):
         record = admission.admit_ledger(BG0002_SCENE_ID, Mislabelled())
         self.assertEqual(record["state"], admission.STATE_UNREADABLE)
 
+    def test_a_named_ledger_is_declined_for_a_scene_we_cannot_even_name(self):
+        # D3 / M20, MEASURED.  The label check used to require BOTH names,
+        # which made it structurally dead for every scene the project ships
+        # no table for -- exactly the scenes whose roster is empty.  So
+        # ``admit_ledger(997, <bg0001 ledger>)`` printed
+        # ``scene=? ledger_scene=bg0001 state=same_scene admitted=yes`` and
+        # FORWARDED it: a line contradicting itself on its own face.  The
+        # bytes were harmless because the roster is empty; the evidence was
+        # not, and a state name is evidence.
+        record = admission.admit_ledger(NO_ROSTER_SCENE_ID, bg0001_ledger())
+        self.assertIsNone(record["scene"])
+        self.assertTrue(record["vacuous"])
+        self.assertEqual(record["state"], admission.STATE_OTHER_SCENE)
+        self.assertFalse(record["admitted"])
+        self.assertIsNone(
+            admission.ledger_for_scene(NO_ROSTER_SCENE_ID, bg0001_ledger()))
+        # M21's half: the FATAL token must still fire for an empty-roster
+        # scene that was handed no ledger at all.
+        self.assertTrue(
+            admission.require_ledger_for_recompose(
+                NO_ROSTER_SCENE_ID, None)["fatal"])
+
     def test_admitted_is_vacuous_for_a_scene_with_no_monsters(self):
         # ``admitted`` alone is not evidence, and this is the case that
         # proves it: an empty roster is missing nothing, so any readable
         # ledger clears containment.  ``vacuous`` is what a caller reads to
         # tell "verified" from "nothing was asked".  Same lesson
         # ``census_backing_report`` learned about ``fully_backed``.
+        # ROUND jop8ph-2: the ledger here is UNSCOPED, because after the D3
+        # fix a ledger that NAMES a scene is declined for a scene that has no
+        # name.  The vacuity being pinned is the one that survives that fix:
+        # an unscoped ledger clears containment over an empty set, and
+        # ``admitted`` then means nothing at all.
+        unscoped = mob_combat.CombatLedger(bg0001_ledger().balances)
         record = admission.admit_ledger(
-            NO_ROSTER_SCENE_ID, bg0001_ledger(), roster=())
+            NO_ROSTER_SCENE_ID, unscoped, roster=())
         self.assertTrue(record["vacuous"])
         self.assertTrue(record["admitted"])
         self.assertEqual(record["roster_count"], 0)
@@ -297,6 +352,207 @@ class AdmissionStateTests(unittest.TestCase):
         keeper = bg0002_ledger()
         self.assertIs(
             admission.ledger_for_scene(BG0002_SCENE_ID, keeper), keeper)
+
+
+class WhatTheComposerActuallyRefusesOnTests(unittest.TestCase):
+    """D1/D2: the preconditions this module said did not exist.
+
+    Every test here builds the ledger the way ``_sync_combat_scene_state``
+    builds it -- ``open_ledger(load_roster(folder))`` -- because the whole
+    finding is that the production ledger reaches these states, not a
+    hand-made one.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.legacy = load_legacy(
+            ROOT / "current/pf_login_game_server_v141.py")
+
+    def setUp(self):
+        self.roster = field_mobs.load_roster("Bg0002")
+        self.ledger = mob_combat.open_ledger(self.roster)
+        self.subject = self.ledger.balances[0].actor_identity
+        self.ceiling = self.ledger.balances[0].max_hp
+
+    def _at(self, hp, ledger=None):
+        base = self.ledger if ledger is None else ledger
+        return base.with_balance(
+            mob_combat.MobBalance(self.subject, self.ceiling, hp))
+
+    def _compose(self, ledger, register):
+        return mch.hostile_override_for_scene_id(
+            self.legacy, BG0002_SCENE_ID, register, ledger=ledger)
+
+    def test_the_dead_copy_constant_still_matches_mob_deaths(self):
+        # The literal-plus-guard split: this module spells HP_WHEN_DEAD
+        # rather than importing it, so the join runs here.
+        self.assertEqual(admission.HP_WHEN_DEAD, mob_death.HP_WHEN_DEAD)
+
+    def test_zero_hp_with_no_death_recorded_is_declined_not_admitted(self):
+        # D1, first half.  ``mob_death.py:2140``: "dead in the arithmetic and
+        # alive in the register -- the kill was computed and never finished."
+        # runtime.py documents that state as SHIPPED.  Before this fix the
+        # module printed admitted=yes covered=12/12 for it and forwarded.
+        register = mob_death.DeathRegister()
+        dead = self._at(0)
+        record = admission.admit_ledger(
+            BG0002_SCENE_ID, dead, roster=self.roster, register=register)
+        self.assertEqual(
+            record["state"], admission.STATE_LEDGER_DISAGREES_WITH_REGISTER)
+        self.assertFalse(record["admitted"])
+        self.assertEqual(record["conflicts"], (self.subject,))
+        self.assertTrue(record["register_checked"])
+        # And the composer no longer raises through it.
+        self._compose(dead, register)
+
+    def test_the_register_check_is_skipped_and_said_so_without_one(self):
+        # The other half of the same fact: no register means the two
+        # conditions were not checked, and the record says which.  A caller
+        # reading admitted=yes with register=unchecked has been told exactly
+        # how much was verified.
+        record = admission.admit_ledger(
+            BG0002_SCENE_ID, self._at(0), roster=self.roster)
+        self.assertFalse(record["register_checked"])
+        self.assertIn(
+            "register=unchecked",
+            admission.describe_ledger_admission(record)[0])
+        with_it = admission.admit_ledger(
+            BG0002_SCENE_ID, self.ledger, roster=self.roster,
+            register=mob_death.DeathRegister())
+        self.assertTrue(with_it["register_checked"])
+        self.assertIn(
+            "register=checked",
+            admission.describe_ledger_admission(with_it)[0])
+
+    def test_a_ledger_row_whose_ceiling_disagrees_is_declined(self):
+        # D2.  Containment compares identity SETS.  A ledger row carrying a
+        # ceiling from a different table passes containment and composes a
+        # body with an HP number no table in this scene contains -- no
+        # exception, no console line.  mob_combat.strike refuses this pair by
+        # name; the census path had nothing.
+        wrong = mob_combat.CombatLedger(
+            tuple(
+                mob_combat.MobBalance(
+                    row.actor_identity, row.max_hp * 3, row.max_hp * 3)
+                if row.actor_identity == self.subject else row
+                for row in self.ledger.balances
+            ),
+            0, "Bg0002",
+        )
+        record = admission.admit_ledger(
+            BG0002_SCENE_ID, wrong, roster=self.roster)
+        self.assertEqual(
+            record["state"],
+            admission.STATE_LEDGER_ROW_DISAGREES_WITH_ROSTER)
+        self.assertFalse(record["admitted"])
+        self.assertEqual(record["conflicts"], (self.subject,))
+        self.assertEqual(
+            self._compose(wrong, mob_death.DeathRegister()),
+            self._compose(None, mob_death.DeathRegister()),
+            "a ledger carrying a ceiling from another table is still "
+            "reaching the wire",
+        )
+
+    def test_a_wounded_ledger_with_a_clean_register_is_still_admitted(self):
+        # The regression guard for the two fixes above: they must decline the
+        # broken states and nothing else.  This is the chief's bb094f0 path.
+        register = mob_death.DeathRegister()
+        wounded = self._at(self.ceiling // 2)
+        record = admission.admit_ledger(
+            BG0002_SCENE_ID, wounded, roster=self.roster, register=register)
+        self.assertEqual(record["state"], admission.STATE_SAME_SCENE)
+        self.assertTrue(record["admitted"])
+        self.assertEqual(record["conflicts"], ())
+        self.assertNotEqual(
+            self._compose(wounded, register)[self.subject],
+            self._compose(None, register)[self.subject],
+        )
+
+    def test_conflicts_says_not_measured_when_the_check_never_ran(self):
+        # The same lesson as ``missing=not_measured``, one round later and in
+        # a new field: every state that returns early never reaches the
+        # comparison, and "none" there would be the self-contradiction
+        # rebuilt.
+        for ledger in (None, bg0001_ledger(), object()):
+            record = admission.admit_ledger(BG0002_SCENE_ID, ledger)
+            self.assertIsNone(record["conflicts"])
+            self.assertIn(
+                "conflicts=not_measured",
+                admission.describe_ledger_admission(record)[0])
+
+    def test_bad_inputs_are_a_named_state_rather_than_a_raise(self):
+        # D6.  "Decide, without raising" applied to one argument out of
+        # three: a bad scene id went out through field_mobs and a bad roster
+        # override went out through the identity comprehension.
+        for scene_id in ("2", None, 1.5):
+            record = admission.admit_ledger(scene_id, self.ledger)
+            self.assertEqual(
+                record["state"], admission.STATE_INPUTS_UNREADABLE,
+                repr(scene_id))
+            self.assertFalse(record["admitted"])
+        record = admission.admit_ledger(
+            BG0002_SCENE_ID, self.ledger, roster=[object()])
+        self.assertEqual(record["state"], admission.STATE_INPUTS_UNREADABLE)
+        # And the wrappers inherit it rather than raising through it.
+        self.assertIsNone(admission.ledger_for_scene("2", self.ledger))
+        self.assertFalse(
+            admission.require_ledger_for_recompose("2", self.ledger)["fatal"])
+
+    def test_a_mixed_scene_roster_leaves_the_ledger_unscoped(self):
+        # M19.  ``open_ledger``'s docstring gives a whole paragraph to "A
+        # ROSTER WHOSE ROWS DISAGREE STAYS UNSCOPED" and no test built one,
+        # so tagging such a ledger with an arbitrary one of its scenes
+        # survived the whole suite.  Unscoped is what forces the admission
+        # to prove membership instead of trusting a label that is at best
+        # half true.
+        mixed = tuple(sorted(
+            field_mobs.load_roster()[:1] + field_mobs.load_roster("Bg0002")[:1],
+            key=lambda mob: mob.actor_identity,
+        ))
+        self.assertEqual(
+            {mob.scene for mob in mixed}, {BG0001_SCENE, "Bg0002"})
+        self.assertIsNone(mob_combat.open_ledger(mixed).scene)
+
+    def test_a_non_string_scene_on_a_ledger_is_refused_at_construction(self):
+        # M7.  The type refusal in CombatLedger.__post_init__ had no test:
+        # deleting it made ``CombatLedger((), 0, 2)`` constructible, and an
+        # int scene then compares unequal to every folder name forever --
+        # a ledger permanently declined for a reason no line explains.
+        with self.assertRaises(mob_combat.MobCombatContractError) as caught:
+            mob_combat.CombatLedger((), 0, 2)
+        self.assertEqual(
+            caught.exception.reason,
+            mob_combat.REFUSE_TYPE_NOT_TYPED_RECORD)
+
+    def test_the_missing_list_is_ordered_so_two_boots_print_one_line(self):
+        # M6.  Dropping ``sorted`` survived because roster order is already
+        # ascending today.  The console line is greppable evidence and two
+        # boots of the same state must produce byte-identical text, which is
+        # a property of the sort, not of the roster's current order.
+        shuffled = tuple(reversed(field_mobs.load_roster("Bg0002")))
+        record = admission.admit_ledger(
+            BG0002_SCENE_ID, bg0001_ledger(), roster=shuffled)
+        self.assertEqual(
+            list(record["missing"]), sorted(record["missing"]))
+
+    def test_the_roster_override_is_measured_equivalent_today(self):
+        # D5.  The composer passes roster= to say what it is composing; the
+        # default recomputes the same pure call.  Deleting the keyword there
+        # survives the suite, so the plumbing measures nothing TODAY -- and
+        # this pin is what makes the day it starts mattering a noticed day.
+        for scene_id in (BG0001_SCENE_ID, BG0002_SCENE_ID, NO_ROSTER_SCENE_ID):
+            with self.subTest(scene_id=scene_id):
+                self.assertEqual(
+                    field_mobs.roster_for_scene_id(scene_id),
+                    field_mobs.roster_for_scene_id(scene_id),
+                )
+                self.assertEqual(
+                    admission.admit_ledger(scene_id, self.ledger)["state"],
+                    admission.admit_ledger(
+                        scene_id, self.ledger,
+                        roster=field_mobs.roster_for_scene_id(scene_id),
+                    )["state"],
+                )
 
 
 class ConsoleTests(unittest.TestCase):
@@ -313,7 +569,8 @@ class ConsoleTests(unittest.TestCase):
             "MOB_LEDGER_ADMISSION scene_id=2 scene=Bg0002 "
             "ledger_scene=%s state=other_scene admitted=no covered=0/12 "
             "missing=0x2033,0x203B,0x203C,0x203D,0x203E,0x204E,0x204F,"
-            "0x2050,0x2051,0x2057,0x2058,0x2059 vacuous=no" % BG0001_SCENE,
+            "0x2050,0x2051,0x2057,0x2058,0x2059 conflicts=not_measured "
+            "register=unchecked vacuous=no" % BG0001_SCENE,
         )
 
     def test_the_line_reports_what_was_true_not_only_what_was_decided(self):
