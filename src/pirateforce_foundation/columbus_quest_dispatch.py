@@ -207,6 +207,7 @@ exact one-line hook needed.
 from __future__ import annotations
 
 from . import population
+from . import world_population_handoff
 from . import world_scene_entry
 from .model import Position
 
@@ -222,6 +223,21 @@ COLUMBUS_PLACEMENT_INDEX = 1
 COLUMBUS_MOBS_N_ID = "156"
 COLUMBUS_QUEST_ID = 3021
 COLUMBUS_QUEST_OP_DISPATCH = 1
+# ID SPACE, STATED BECAUSE A RULING REQUIRES IT (COO-DECISION 2026-08-29
+# 14:44, "var2 attended test before any flip", item 4: a destination module
+# must say whether its number is a ``SCENE_NAME.n_ID`` or a ``MARKER.n_ID``,
+# and a value legal in both spaces may not be labelled measured until a
+# control exists that the rival reading answers differently and wrong).
+#
+#     17 is read here as ``CONSTDATA_TH__SCENE_NAME.n_ID`` - the scene id -
+#     taken from ``QUESTDATA_TH__QUEST`` row 3021's ``n_VARI_2``.
+#     [CONTESTED, NOT MEASURED] The rival reading is ``MARKER.n_ID``, under
+#     which the same 17 resolves to ``MARKER[17].n_SCENE = 126`` at
+#     (3050, 232, 90).  Both readings are legal for this value; the
+#     discriminating control does not exist in any table, which is why the
+#     COO ruled it goes to an attended test rather than to another
+#     re-reading.  Until that result: this constant stays 17, by
+#     COO-DECISION 20260829_0441, and NOBODY MAY FLIP IT FROM A TABLE.
 COLUMBUS_DEST_SCENE_ID = 17
 
 # Option 2, added 2026-08-27 per COO-DECISION-M2-not-closed and GT-106 (4).1
@@ -451,7 +467,51 @@ def resolve_columbus_arrival(*, registry=None, emit=print):
 M2_NO_VEHICLE_TAG = "M2-NO-VEHICLE-OWNER-20260827-1525"
 
 
-def dispatch_columbus_quest3021(*, registry=None, emit=print):
+def _emit_arrival_stowaways(entry, *, legacy, held_indices, emit):
+    """Print who the client is still holding at the point this boat lands.
+
+    Report only, and it cannot raise: every path here ends in a printed
+    line, including the one where ``entry`` itself is the wrong shape.  That
+    matters more than the usual amount because the caller is on the frame
+    path with no ``except`` of its own - see the module ``dispatch``
+    function's own docstring.
+    """
+    try:
+        fields = tuple(entry.teleport_fields)
+        anchor = (float(fields[2]), float(fields[3]), float(fields[4]))
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException as failure:  # noqa: BLE001 - report-only, see docstring
+        # ``_console_safe`` on the class NAME, not only on the message:
+        # Python 3 allows non-ASCII identifiers, so an exception class named
+        # in Thai raises UnicodeEncodeError inside ``print`` on the cp874
+        # bridge console - outside this try, in the one line of this feature
+        # that used to skip the escaping every other line goes through
+        # (pf-adversary, round 2pdf6j, D7).
+        emit(
+            "WORLD_POP_STOWAWAYS unmeasured reason=no_arrival_anchor:"
+            + type(failure).__name__.encode("ascii", "backslashreplace").decode("ascii")
+        )
+        return
+    if legacy is None:
+        # NOT a failure and deliberately not silent.  The call site in
+        # runtime.py does not pass the frozen module or the membership
+        # today, so the honest answer is "nobody asked the table", printed
+        # in the same field shape as the measured line so one grep catches
+        # both states.
+        emit(
+            "WORLD_POP_STOWAWAYS unmeasured reason=call_site_passed_no_legacy "
+            "anchor=({0:.3f},{1:.3f},{2:.3f})".format(*anchor)
+        )
+        return
+    view = world_population_handoff.stowaways_on_crossing(
+        legacy, held_indices, anchor,
+    )
+    emit(world_population_handoff.stowaway_console_line(view))
+
+
+def dispatch_columbus_quest3021(*, registry=None, emit=print, legacy=None,
+                                held_indices=None):
     """The compound action CORE-REQUEST-014 asked for was bind-vehicle-then-
     teleport; what M2 actually ships today, by owner decree, is teleport
     alone.
@@ -474,6 +534,31 @@ def dispatch_columbus_quest3021(*, registry=None, emit=print):
     without a replacement.  Reasons stay a tuple (rather than switching
     return shape) for exactly that case, so a caller's existing
     ``except ColumbusDispatchRefused`` handling keeps working unchanged.
+
+    ROUND 2pdf6j (LANE-A, M2) ADDS ONE REPORT LINE AND NO FRAME.  A player
+    who takes this boat keeps the actor collection they were sent at login -
+    nothing in this crossing replaces it (``world_population_handoff``'s
+    module docstring, "the town follows you out of it") - and until this
+    round nothing anywhere said WHO that leaves standing around them.  Now
+    the crossing prints it.  ``legacy`` and ``held_indices`` are OPTIONAL and
+    default to the call site as it stands today, which has neither to hand:
+    without them the line still prints, saying it is unmeasured and why, so
+    the console never goes quiet about a question it cannot answer.  The
+    one-token change that turns it into names and distances -
+    ``legacy=legacy, held_indices=self.world_census_indices`` at
+    ``runtime.py``'s existing call - is this round's CORE-REQUEST to chief.
+
+    NOTHING HERE DECIDES ANYTHING.  No refusal reads this line, the wire is
+    untouched, the returned ``SceneEntry`` is untouched, and a failure inside
+    the report cannot reach the caller: it goes through
+    ``stowaways_on_crossing``.
+
+    NOT "purely additive", THOUGH, AND THE DIFFERENCE IS WORTH THE SENTENCE
+    (pf-adversary, round 2pdf6j, D8): ``runtime.py``'s ``emit`` both prints
+    AND appends to ``self.events``, which is the ``--export-events``
+    evidence stream.  So every quest-3021 dispatch now records one more
+    event than it did yesterday.  Nothing asserts that sequence today; a
+    round that starts asserting it should know this line is in it.
     """
     try:
         entry = resolve_columbus_arrival(registry=registry, emit=emit)
@@ -487,6 +572,8 @@ def dispatch_columbus_quest3021(*, registry=None, emit=print):
         "COLUMBUS_QUEST3021_NO_VEHICLE_DISPATCH scene=17 source="
         + M2_NO_VEHICLE_TAG
     )
+    _emit_arrival_stowaways(entry, legacy=legacy, held_indices=held_indices,
+                            emit=emit)
     return entry
 
 

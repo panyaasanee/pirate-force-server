@@ -15,7 +15,15 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from pirateforce_foundation import columbus_quest_dispatch, population
+import copy
+import dataclasses
+
+from pirateforce_foundation import (
+    columbus_quest_dispatch,
+    population,
+    world_population,
+    world_scene_travel,
+)
 from pirateforce_foundation.legacy_bridge import load_legacy
 
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
@@ -376,12 +384,21 @@ class DispatchColumbusQuest3021Tests(unittest.TestCase):
             "source=PROVISIONAL-OWNER-DECREE-20260827-1445",
             lines,
         )
+        # ROUND 2pdf6j MOVED THIS ASSERTION BY ONE AND KEPT IT EXACT.  The
+        # dispatch's own decision line is unchanged, byte for byte, and is
+        # still the LAST decision this function prints; what follows it now
+        # is one report line about who the client is still holding at the
+        # landing point (see ``_emit_arrival_stowaways``).  Weakening this
+        # to ``assertIn`` would have hidden a future line inserted BETWEEN
+        # the decision and the report, so the position is still pinned -
+        # against the report, which the next assertion pins too.
         self.assertEqual(
-            lines[-1],
+            lines[-2],
             "COLUMBUS_QUEST3021_NO_VEHICLE_DISPATCH scene=17 source="
             + columbus_quest_dispatch.M2_NO_VEHICLE_TAG,
         )
-        self.assertEqual(len(lines), 3, lines)
+        self.assertTrue(lines[-1].startswith("WORLD_POP_STOWAWAYS "), lines)
+        self.assertEqual(len(lines), 4, lines)
 
 
 class DispatchColumbusQuest3205Tests(unittest.TestCase):
@@ -421,6 +438,126 @@ class DispatchColumbusQuest3205Tests(unittest.TestCase):
             columbus_quest_dispatch.dispatch_columbus_quest3205(
                 emit=lambda line: None,
             )
+
+
+class ArrivalStowawayReportTests(unittest.TestCase):
+    """The one line round 2pdf6j added to this live, flagless dispatch.
+
+    It is a REPORT.  Every test here checks that it says something true and
+    that it cannot reach the return value or the caller - never that it
+    changes what goes on the wire, because it does not.
+    """
+
+    def _dispatch(self, **kwargs):
+        lines = []
+        entry = columbus_quest_dispatch.dispatch_columbus_quest3021(
+            emit=lines.append, **kwargs)
+        return entry, lines
+
+    def _stowaway_line(self, lines):
+        found = [line for line in lines if line.startswith("WORLD_POP_STOWAWAYS")]
+        self.assertEqual(len(found), 1, lines)
+        return found[0]
+
+    def test_the_call_site_as_it_stands_today_says_so_out_loud(self):
+        entry, lines = self._dispatch()
+        line = self._stowaway_line(lines)
+        self.assertIn("unmeasured", line)
+        self.assertIn("reason=call_site_passed_no_legacy", line)
+        # The anchor is real even when the membership is not, so the line is
+        # still evidence of WHERE the boat lands.
+        self.assertIn("anchor=(0.000,0.000,0.000)", line)
+        self.assertIsNotNone(entry)
+
+    def _census_membership(self):
+        """What ``self.world_census_indices`` actually holds at the call site.
+
+        The first draft of this test built the membership from the frozen
+        TABLE (115 rows) and pinned ``held=115`` - a line the requested
+        one-token change can never print, because the census ships 108 of
+        those rows (pf-adversary, round 2pdf6j, D3).  Built the way the
+        login path builds it now, so this test proves the change it is
+        named for.
+        """
+        return tuple(
+            world_population.build_world_population(
+                _legacy(), (0.0, 0.0, 0.0), scene_id=1,
+            ).indices
+        )
+
+    def test_with_the_one_token_change_it_names_them(self):
+        legacy = _legacy()
+        membership = self._census_membership()
+        self.assertEqual(len(membership), 108)
+        entry, lines = self._dispatch(legacy=legacy, held_indices=membership)
+        line = self._stowaway_line(lines)
+        self.assertIn("held=108", line)
+        self.assertIn("within=4", line)
+        self.assertIn("radius=2000.0", line)
+        self.assertIn("nearest=Legend_Jack@1226.6", line)
+        self.assertIsNotNone(entry)
+
+    def test_the_line_reports_where_the_boat_actually_lands(self):
+        """The anchor comes from the entry, and moving the entry moves it.
+
+        pf-adversary (round 2pdf6j, D5) mutated the anchor read to a
+        hardcoded ``(0, 0, 0)`` and every test still passed, because the
+        only destination this dispatch produces today IS the origin.  This
+        drives the dispatch with a registry whose scene-17 spawn is
+        somewhere else, so the plumbing is pinned rather than assumed - the
+        exact case that arrives the day the owner's provisional decree is
+        replaced by a measured spawn.
+        """
+        legacy = _legacy()
+        registry = world_scene_travel.load_scene_registry()
+        moved = copy.deepcopy(registry)
+        rows = [
+            dataclasses.replace(row, spawn=(111.0, 222.0, 333.0))
+            if row.n_id == 17 else row
+            for row in moved.destinations
+        ]
+        moved = dataclasses.replace(moved, destinations=tuple(rows))
+        entry, lines = self._dispatch(
+            registry=moved, legacy=legacy,
+            held_indices=self._census_membership(),
+        )
+        line = self._stowaway_line(lines)
+        self.assertIn("anchor=(111.000,222.000,333.000)", line)
+        self.assertNotIn("anchor=(0.000,0.000,0.000)", line)
+        # and the crowd it names changes with the landing point
+        self.assertNotIn("nearest=Legend_Jack@1226.6", line)
+
+    def test_the_report_cannot_change_what_the_dispatch_returns(self):
+        legacy = _legacy()
+        plain, _ = self._dispatch()
+        reported, _ = self._dispatch(legacy=legacy, held_indices=(0, 1))
+        self.assertEqual(plain.teleport_fields, reported.teleport_fields)
+
+    def test_a_broken_membership_is_reported_not_raised(self):
+        legacy = _legacy()
+        entry, lines = self._dispatch(legacy=legacy, held_indices="115")
+        self.assertIn("unmeasured", self._stowaway_line(lines))
+        self.assertIsNotNone(entry)
+
+    def test_an_emit_that_is_asked_for_junk_still_gets_one_line(self):
+        """The anchor half can fail too, and it fails to a printed line."""
+        lines = []
+        columbus_quest_dispatch._emit_arrival_stowaways(
+            object(), legacy=None, held_indices=None, emit=lines.append)
+        self.assertEqual(len(lines), 1)
+        self.assertIn("reason=no_arrival_anchor:", lines[0])
+
+    def test_every_line_this_dispatch_prints_survives_the_bridge_console(self):
+        legacy = _legacy()
+        membership = tuple(
+            placement.placement_index
+            for placement in population.load_port_royal_placements(legacy)
+        )
+        for kwargs in ({}, {"legacy": legacy, "held_indices": membership}):
+            _, lines = self._dispatch(**kwargs)
+            for line in lines:
+                line.encode("ascii")
+                line.encode("cp874")
 
 
 if __name__ == "__main__":
