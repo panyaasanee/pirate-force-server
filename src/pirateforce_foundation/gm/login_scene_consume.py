@@ -553,12 +553,26 @@ def _refusal_cause(refused: LoginSceneRefusedError, scene_registry) -> str:
         # the judge are the same reading and a restart cannot change it.
         return CAUSE_SCENE_NOT_ADMISSIBLE
     try:
-        from .login_scene_admission import login_entry_is_pinned
+        from .login_scene_admission import disk_admits_under_rule
 
-        # `scene_registry=None` = read the pin file FRESH, deliberately:
-        # the question is precisely "does the disk disagree with the
-        # snapshot this login was judged against".
-        disk_admits = login_entry_is_pinned(refused.scene_id)
+        # THE RULE THE REFUSING MAP USES, not a fixed one.  Since
+        # `CORE-REQUEST-GM-038` the two maps admit different sets, and this
+        # function's whole job is to ask "would the DISK have taken this row
+        # -- i.e. is the remedy a restart rather than an edit".  Asked with
+        # the narrow rule about a single-use refusal of a sanctioned scene,
+        # the answer is False for a reason that has nothing to do with the
+        # disk, and the operator is sent to grep a config that is correct.
+        # `refused.single_use` is set by the reader that refused, so the two
+        # cannot drift; a refusal carrying no flag defaults to the narrow
+        # rule, which under-states the remedy rather than over-stating it.
+        #
+        # The fresh DISK read is inside `disk_admits_under_rule`, which
+        # takes no registry for the reason its docstring gives: the
+        # question is precisely "does the disk disagree with the snapshot
+        # this login was judged against".
+        disk_admits = disk_admits_under_rule(
+            refused.scene_id, single_use=getattr(refused, "single_use", False)
+        )
     except Exception:  # noqa: BLE001 - a diagnostic may never alter dispatch
         return CAUSE_SCENE_NOT_ADMISSIBLE
     if disk_admits:

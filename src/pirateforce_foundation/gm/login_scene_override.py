@@ -52,6 +52,7 @@ import sys
 from pathlib import Path
 
 from .accounts import is_gm_account
+from . import login_scene_admission
 from .login_scene_admission import login_entry_is_pinned, stageable_scene_ids
 from .scene_catalog import is_known_scene_id
 
@@ -95,11 +96,34 @@ class LoginSceneRefusedError(ValueError):
     caller that scraped it out of `str(error)` would be parsing a sentence
     -- and this lane's standing rule is that no console word is ever built
     from message text.
+
+    `single_use` IS CARRIED FOR THE SAME REASON `scene_id` IS: the caller
+    needs to know WHICH RULE refused, and the message is prose.  Since
+    `CORE-REQUEST-GM-038` the two maps are held to two different admission
+    rules (see `gm/login_scene_admission.py`, THE WIDENING), so
+    `login_scene_consume._refusal_cause` -- which asks "does the DISK admit
+    what this process's snapshot refused, i.e. is the remedy a restart" --
+    has to ask with the rule the refusing map uses.  Asking the narrow rule
+    about a single-use refusal reports a stale-snapshot fault as a config
+    typo and sends the operator to edit a file that is correct.
+
+    Defaulted to `False` (the narrow rule) rather than left required,
+    because that is the answer that can only ever UNDER-state a remedy: the
+    worst a wrong `False` produces is "edit the file" for something a
+    restart would fix, while a wrong `True` would claim a scene is
+    admissible on disk when no map would take it.
     """
 
-    def __init__(self, message: str, scene_id: int | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        scene_id: int | None = None,
+        *,
+        single_use: bool = False,
+    ) -> None:
         super().__init__(message)
         self.scene_id = scene_id
+        self.single_use = single_use
 
 DEFAULT_CONFIG_PATH = "config/gm_login_scene.json"
 ENV_OVERRIDE = "PF_GM_LOGIN_SCENE_CONFIG"
@@ -170,8 +194,22 @@ def _resolve_path(
 
 
 def _load_scene_id_map(
-    path: Path, json_key: str, scene_registry=None
+    path: Path, json_key: str, scene_registry=None, *, single_use: bool
 ) -> dict[str, int]:
+    """Read one account -> scene_id map, holding it to ONE admission rule.
+
+    `single_use` IS REQUIRED AND HAS NO DEFAULT, deliberately.  Since
+    `CORE-REQUEST-GM-038` the two maps this function serves are held to two
+    different rules -- the map that is SPENT on use may name a sanctioned-
+    barred scene, the map that is not may never (the full argument is in
+    `gm/login_scene_admission.py` under THE WIDENING, and the short version
+    is that chief's `via_login=False` bypass is gated on the CONSUMED
+    outcome, which only the GM-gated map produces).  A default here is
+    precisely how a third caller would inherit the wrong rule in silence,
+    and the wrong rule in the widening direction rebuilds the permanent
+    login lockout this whole admission check exists to close.  So both
+    callers state it, and a new one cannot avoid choosing.
+    """
     if not path.is_file():
         return {}
     with path.open("r", encoding="utf-8") as handle:
@@ -186,6 +224,20 @@ def _load_scene_id_map(
             f"{path}: '{json_key}' must be a JSON object, "
             f"got {type(overrides).__name__}"
         )
+    # ONE RULE PER MAP, CHOSEN ONCE, before the loop -- so every row in a
+    # file is judged by the same predicate and the way out printed beside a
+    # refusal is the one that map can actually reach.  See this function's
+    # docstring for why `single_use` may not be defaulted.
+    admits = (
+        login_scene_admission.single_use_entry_is_admissible
+        if single_use
+        else login_entry_is_pinned
+    )
+    way_out = (
+        login_scene_admission.single_use_stageable_scene_ids
+        if single_use
+        else stageable_scene_ids
+    )
     result: dict[str, int] = {}
     for account_name, scene_id in overrides.items():
         if not isinstance(account_name, str):
@@ -202,7 +254,7 @@ def _load_scene_id_map(
                 f"{path}: '{json_key}'[{account_name!r}] = {scene_id} is not a "
                 "known scene_id in gm/scene_catalog.py's committed table"
             )
-        if not login_entry_is_pinned(scene_id, scene_registry=scene_registry):
+        if not admits(scene_id, scene_registry=scene_registry):
             # ADMISSION, round qq0i9u.  Being in the client's NAME table is
             # not the same as being a scene the login path will let a
             # character into, and until this check existed the difference
@@ -250,7 +302,7 @@ def _load_scene_id_map(
                     f"account='{console_safe(account_name, stream)}' "
                     f"scene_id={scene_id} reason=no_pinned_login_entry "
                     "stageable="
-                    f"{stageable_scene_ids(scene_registry=scene_registry)}",
+                    f"{way_out(scene_registry=scene_registry)}",
                     file=stream,
                 )
             except Exception:  # noqa: BLE001 - see the paragraph above; the
@@ -263,8 +315,9 @@ def _load_scene_id_map(
                 "login_entry_allowed=false) -- an account pointed here could "
                 "not log in at all until this file was edited by hand; "
                 "admissible scene_ids today: "
-                f"{stageable_scene_ids(scene_registry=scene_registry)}",
+                f"{way_out(scene_registry=scene_registry)}",
                 scene_id=scene_id,
+                single_use=single_use,
             )
         result[account_name] = scene_id
     return result
@@ -304,7 +357,14 @@ def load_login_scene_overrides(
     ``load_standalone_login_scene_overrides``.
     """
     path = _resolve_path(config_path, DEFAULT_CONFIG_PATH, ENV_OVERRIDE)
-    return _load_scene_id_map(path, "gm_login_scene", scene_registry)
+    # single_use=True: this is the map `consume_login_scene_override` SPENDS
+    # (the CONSUMED outcome), which is the exact condition chief's
+    # `via_login=False` bypass is gated on -- so this map, and only this map,
+    # may name a sanctioned-barred scene.  See `gm/login_scene_admission.py`,
+    # THE WIDENING.
+    return _load_scene_id_map(
+        path, "gm_login_scene", scene_registry, single_use=True
+    )
 
 
 def load_standalone_login_scene_overrides(
@@ -324,7 +384,15 @@ def load_standalone_login_scene_overrides(
     path = _resolve_path(
         config_path, STANDALONE_DEFAULT_CONFIG_PATH, STANDALONE_ENV_OVERRIDE
     )
-    return _load_scene_id_map(path, STANDALONE_JSON_KEY, scene_registry)
+    # single_use=False: this map is NEVER consumed (`COO-DECISION
+    # 20260829_0542`), so a login it grants resolves with `via_login=True`
+    # and a sanctioned-barred scene here would be refused on this login and
+    # on every retry after it -- the permanent lockout this module's
+    # admission check exists to close.  The narrow rule is not an oversight
+    # here; it is the reason the widening is safe over there.
+    return _load_scene_id_map(
+        path, STANDALONE_JSON_KEY, scene_registry, single_use=False
+    )
 
 
 def get_login_scene_override(

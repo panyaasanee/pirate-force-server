@@ -81,7 +81,24 @@ def _registry_with_sanctioned_row(*, login_entry_allowed: bool):
 
 class TheSanctionSetGrantsNothingTests(unittest.TestCase):
     """The class this whole file exists for.  If it goes green wrongly, a
-    tester is being sent at a destination their next login will refuse."""
+    tester is being sent at a destination their next login will refuse.
+
+    SCOPE, said out loud since round ``znb56z`` because the class name alone
+    now over-promises: this pins that the sanction grants nothing UNDER THE
+    PLAIN RULE -- ``login_entry_is_pinned`` and ``stageable_scene_ids``.
+    That rule is what the standalone map is judged by and what the login
+    path's own guard asks, so every assertion here is still exactly as
+    load-bearing as it was.  What changed is that a SECOND rule now exists
+    for the map that is spent on use
+    (``login_scene_admission.single_use_entry_is_admissible``, after
+    ``CORE-REQUEST-GM-038`` landed), and under that one a sanctioned scene
+    IS admitted once lane A's row exists.  It is pinned in
+    ``tests/test_gm_login_scene_sanctioned_admission.py``; this file and that
+    one together are the statement that the widening reached one map and not
+    the other.  A future reader who deletes this class because "the sanction
+    grants something now" would be deleting the guard on the map that must
+    never widen.
+    """
 
     def test_the_stageable_set_did_not_grow_by_the_sanctioned_scene(self):
         self.assertEqual(
@@ -94,7 +111,15 @@ class TheSanctionSetGrantsNothingTests(unittest.TestCase):
 
     def test_it_still_refuses_after_lane_a_lands_the_barred_row(self):
         # The important one: the sanction must NOT turn into permission the
-        # moment half one arrives.  Only chief's half can do that.
+        # moment half one arrives.
+        #
+        # ~~Only chief's half can do that.~~ Chief's half HAS landed (#281),
+        # and this assertion is still green and still right, which is the
+        # point worth keeping: what chief's half unlocked is the SINGLE-USE
+        # rule, not this one.  `login_entry_is_pinned` is the standalone
+        # map's rule and the login guard's own question, and no half of any
+        # request widens it.  If this ever goes red, the widening has
+        # escaped the map it was scoped to.
         registry = _registry_with_sanctioned_row(login_entry_allowed=False)
         self.assertFalse(
             login_scene_admission.login_entry_is_pinned(

@@ -305,20 +305,36 @@ def stage_login_scene(
     # a caller's snapshot may only ever NARROW what may be written, never
     # widen it.  See this function's docstring, "A SNAPSHOT MAY NOT WIDEN
     # A WRITE", for the file-wide poisoning that measured version caused.
-    if not login_entry_is_pinned(scene_id):
+    # THE SINGLE-USE RULE, because this function writes the GM-gated map and
+    # only ever that one -- `_write_entry_locked`'s output-shaped door
+    # refuses the standalone file outright, whatever path resolution
+    # produced.  Since `CORE-REQUEST-GM-038` that map may name a sanctioned-
+    # barred scene whose only remaining blocker is the login bar chief now
+    # bypasses; every other scene is judged exactly as before.  The argument
+    # for why the OTHER map keeps the narrow rule is in
+    # `gm/login_scene_admission.py` under THE WIDENING.
+    if not login_scene_admission.single_use_entry_is_admissible(scene_id):
         # SAME REFUSAL, DIFFERENT REMEDY.  Both branches write nothing; the
         # split exists so a sanctioned destination's refusal can name the
         # half of its route that is missing instead of looking identical to
         # "lane A never pinned this scene at all".  The admission module is
         # asked with no snapshot on purpose: the refusal being explained is
         # the DISK one, three lines up.
+        #
+        # A sanctioned scene reaches this branch only when its blocker is
+        # something the bypass does not fix -- today, MEASURED on main,
+        # `lane_a_registry_row_missing` for 126.  The word the console
+        # prints beside it therefore now names LANE A rather than chief,
+        # with no edit here: `sanctioned_barred_blocker` is asked live.
         if login_scene_admission.is_sanctioned_barred_scene(scene_id):
             return StageResult(
                 False, REASON_SANCTIONED_NOT_YET_REACHABLE, None, None
             )
         return StageResult(False, REASON_NO_LOGIN_ENTRY, None, None)
-    if scene_registry is not None and not login_entry_is_pinned(
-        scene_id, scene_registry=scene_registry
+    if scene_registry is not None and not (
+        login_scene_admission.single_use_entry_is_admissible(
+            scene_id, scene_registry=scene_registry
+        )
     ):
         return StageResult(False, REASON_NO_LOGIN_ENTRY, None, None)
     return _write_entry(

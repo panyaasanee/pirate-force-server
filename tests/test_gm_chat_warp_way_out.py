@@ -152,7 +152,13 @@ class TheRefusedWarpNamesTheWayOutTests(_Case):
         self.assertIn(f"scene_id={scene_id}", line)
         self.assertIn(f"reason={login_scene_stage.REASON_NO_LOGIN_ENTRY}", line)
         self.assertIn(
-            str(login_scene_admission.stageable_scene_ids()),
+            # THE SINGLE-USE SET, because `/warp` writes the single-use map.
+            # The two sets are equal on main today (126, the only sanctioned
+            # id, is still blocked by `lane_a_registry_row_missing`), so
+            # asserting the narrow one passed for a reason that would stop
+            # being true the hour lane A lands that row -- and would then
+            # fail here rather than where the rule lives.
+            str(login_scene_admission.single_use_stageable_scene_ids()),
             line,
             "the way out is the POINT of the line; printing the refusal "
             "without it is the defect this file exists for",
@@ -167,7 +173,9 @@ class TheRefusedWarpNamesTheWayOutTests(_Case):
         session = FakeSession(position=FakePosition(scene_id=1))
         scene_id = self.an_unreachable_scene_id()
         with mock.patch.object(
-            chat_command_action, "stageable_scene_ids", return_value=(1, 2, 3)
+            chat_command_action,
+            "single_use_stageable_scene_ids",
+            return_value=(1, 2, 3),
         ):
             _, console = self.act(session, f"/warp {scene_id}")
         self.assertIn("stageable=(1, 2, 3)", self.way_out_lines(console)[0])
@@ -467,7 +475,7 @@ class NothingRaisesBeforeTheGuardedBlockTests(_Case):
         scene_id = self.an_unreachable_scene_id()
         with mock.patch.object(
             chat_command_action,
-            "stageable_scene_ids",
+            "single_use_stageable_scene_ids",
             side_effect=RuntimeError("registry exploded"),
         ):
             _, console = self.act(session, f"/warp {scene_id}")

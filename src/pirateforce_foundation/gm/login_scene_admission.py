@@ -103,12 +103,33 @@ from .scene_catalog import is_known_scene_id
 # (``via_login=False``, columbus_quest_dispatch.py:464), and that call site is
 # in ``runtime.py`` = chief's file = ``CORE-REQUEST-GM-038``.
 #
-# Until that request lands, the ONLY thing this lane can honestly ship is a
-# refusal that says WHICH half is missing, measured live rather than quoted
-# from a doc that goes stale the hour lane A merges.  That is
-# ``sanctioned_barred_blocker`` below.  Nothing in this block admits a scene,
-# and ``TheSanctionSetGrantsNothingTests`` in
-# ``tests/test_gm_login_scene_sanctioned_barred.py`` is what keeps that true.
+# ~~Until that request lands, the ONLY thing this lane can honestly ship is a
+# refusal that says WHICH half is missing ... Nothing in this block admits a
+# scene~~ -- STRUCK, round ``znb56z``: ``CORE-REQUEST-GM-038`` LANDED
+# (``pirate-force-server`` #281).  ``single_use_entry_is_admissible`` below
+# does now admit a sanctioned scene, for the single-use map only, and
+# ``sanctioned_barred_blocker`` is one of the two questions it asks.  The
+# sentence above was accurate when written and stopped being accurate at that
+# merge; it is struck rather than deleted because the REASONING above it --
+# why this lane may not widen ``login_entry_is_pinned`` and may not route
+# around the login path's own guard -- is unchanged and is what makes the
+# widening lawful rather than a workaround.  What replaced the refusal is
+# THE WIDENING, further down this file, which is narrower than it sounds:
+# one blocker value, one map, one already-authorised operator.
+#
+# The blocker is still measured live rather than quoted from a doc that goes
+# stale the hour lane A merges -- that part was right and is now load-bearing
+# rather than merely diagnostic.
+#
+# ``TheSanctionSetGrantsNothingTests`` in
+# ``tests/test_gm_login_scene_sanctioned_barred.py`` still holds and is still
+# the guard, with its scope now said out loud: it pins that the sanction
+# grants nothing UNDER THE PLAIN RULE -- ``login_entry_is_pinned`` and
+# ``stageable_scene_ids``, which is exactly what the standalone map and the
+# login path's own guard are judged by.  The single-use rule is pinned
+# separately in ``tests/test_gm_login_scene_sanctioned_admission.py``, and the
+# two files together are the statement that the widening reached one map and
+# not the other.
 #
 # HOW AN ENTRY DIES, written the same round it was born, because pf-adversary
 # asked and the map had no answer: an entry is RETIRED (deleted, with the
@@ -408,9 +429,12 @@ def stageable_scene_ids(*, scene_registry=None) -> tuple[int, ...]:
 def is_sanctioned_barred_scene(scene_id: int) -> bool:
     """Does a chief letter this lane holds name this scene?
 
-    A pure lookup in ``SANCTIONED_BARRED_SCENES``.  It says NOTHING about
-    whether the scene may be staged -- ``login_entry_is_pinned`` is still
-    the only answer to that question, and this map never reaches it.
+    A pure lookup in ``SANCTIONED_BARRED_SCENES``.  It says NOTHING on its
+    own about whether the scene may be staged: ``login_entry_is_pinned`` is
+    still the whole answer for the standalone map, and for the single-use
+    map the answer is ``single_use_entry_is_admissible``, which asks this
+    AND the blocker below and admits only on the pair.  This lookup alone
+    has never granted anything and still does not.
 
     ``type(...) is not int`` rather than ``isinstance``, for the reason
     ``stage_login_scene`` gives: ``bool`` is a subclass of ``int``, and
@@ -435,10 +459,20 @@ def sanctioned_barred_provenance(scene_id: int) -> str | None:
 def sanctioned_barred_blocker(scene_id: int, *, scene_registry=None) -> str:
     """WHICH half of a sanctioned scene's route is missing, measured now.
 
-    This is a DIAGNOSTIC and only a diagnostic.  It grants nothing, it is
-    not consulted by ``login_entry_is_pinned`` or ``stageable_scene_ids``,
-    and a caller that treats a non-``BLOCKER_NONE`` answer as permission
-    has misread it.  Its whole job is to turn one refusal
+    NO LONGER ONLY A DIAGNOSTIC, and the sentence that used to stand here
+    ("it grants nothing, it is not consulted by ``login_entry_is_pinned``
+    or ``stageable_scene_ids``") was true until ``CORE-REQUEST-GM-038``
+    landed and is now only three-quarters true.  What is still exactly
+    true: it is not consulted by ``login_entry_is_pinned`` or by
+    ``stageable_scene_ids``, and a caller that treats a non-``BLOCKER_NONE``
+    answer as permission has misread it.  What CHANGED:
+    ``single_use_entry_is_admissible`` consults it and admits on exactly
+    ONE of its answers (``BLOCKER_LOGIN_PATH_BARS_IT``), so this function
+    is now load-bearing for the single-use map and a wrong word here is a
+    wrong admission there, not merely a confusing console line.  Every
+    OTHER answer it can give is still a refusal.
+
+    Its whole job is otherwise unchanged -- to turn one refusal
     (``scene_has_no_login_entry``) into the sentence a person can act on:
     "lane A has not landed the row yet" and "chief has not wired
     ``via_login=False`` yet" are the SAME refusal today and have completely
@@ -480,6 +514,32 @@ def sanctioned_barred_blocker(scene_id: int, *, scene_registry=None) -> str:
     letter; a real fix has to compare the two readings, which is a
     different function than this one.
     """
+    # THE SPAWN CHECK COMES BEFORE THE LOGIN BAR, and since round `znb56z`
+    # that order is load-bearing rather than a reporting preference.
+    # `single_use_entry_is_admissible` admits on exactly one answer from
+    # here, so a row that is barred AND spawnless must report the SPAWN --
+    # reporting the bar would admit a destination `resolve_entry` refuses
+    # with `REFUSED_NO_PINNED_SPAWN`, which chief's bypass does not remove.
+    # `_target_is_admissible` orders these two the other way round (it
+    # orders by cost and its answer is a bool, so no order can mislead it);
+    # a reader who "makes them consistent" in this direction opens the
+    # lockout.  `test_a_row_with_no_spawn_is_still_refused` is the guard.
+    #
+    # THE PRICE OF THAT ORDER, named because pf-adversary (D7) measured it
+    # rather than left it for someone to hit: on the TRUSTED path a row
+    # that raises while `.spawn` is read propagates out of here, and hence
+    # out of `single_use_entry_is_admissible`, where the plain predicate
+    # would have short-circuited to False on `login_entry_allowed` first.
+    # That raise escapes `consume_login_scene_override` (it catches
+    # OSError/ValueError/LoginSceneRefusedError) and `runtime.py`'s net
+    # (ValueError/OSError/TypeError/AttributeError), i.e. into the game
+    # listener thread.  NOT REACHABLE TODAY, measured: `SceneDestination`
+    # is a frozen dataclass and `spawn` is a plain field, so the read
+    # cannot raise, and a malformed FILE is caught by `_registry_to_ask`.
+    # It becomes reachable the day `spawn` becomes a computed property.
+    # The fix is NOT to swap the order -- that reopens the hole above --
+    # but to narrow what may raise here; recorded in the round letter as
+    # the open one rather than half-fixed under time pressure.
     if not is_sanctioned_barred_scene(scene_id):
         return BLOCKER_NOT_SANCTIONED
     registry, trusted = _registry_to_ask(scene_registry)
@@ -507,6 +567,217 @@ def sanctioned_barred_blocker(scene_id: int, *, scene_registry=None) -> str:
             raise
         return BLOCKER_REGISTRY_UNREADABLE
     return BLOCKER_NONE
+
+
+# ---------------------------------------------------------------------------
+# THE WIDENING, AND THE ONE MAP IT MAY NOT REACH.
+#
+# `CORE-REQUEST-GM-038` landed (`pirate-force-server` #281, chief's letter
+# `notes_to_chief/20260829_2222_CHIEF-TO-LANE-GM-gm-038-wired-plus-restore-
+# rule-question.md`): `runtime.py` now resolves a sanctioned-barred scene with
+# `via_login=False` -- the `columbus_quest_dispatch.py:464` shape -- so the
+# refusal this module was built to prevent (`REFUSED_NOT_ALLOWED_AT_LOGIN` on
+# every login and every retry, forever) no longer happens for that ONE set.
+# The half of the route this lane owns is the admission below.
+#
+# THE WIDENING IS BOUND TO THE MAP THAT IS SPENT ON USE, and that is the whole
+# safety argument rather than a scoping preference.  Chief's bypass is gated on
+# `override_consumed_scene is not None` (runtime.py:5726), which is set on the
+# CONSUMED outcome and on nothing else.  Only the GM-gated map
+# (`gm_login_scene`) produces CONSUMED.  The standalone map is deliberately
+# NEVER consumed (`COO-DECISION 20260829_0542`), so it yields
+# STANDALONE_NOT_CONSUMED, `override_consumed_scene` stays None, the bypass
+# stays False, and `resolve_entry` is asked with `via_login=True`.  A
+# sanctioned scene admitted into THAT map would therefore be refused at login
+# and refused identically on every retry, with the account unable to log in
+# until somebody with shell access hand-edited a gitignored file -- the exact
+# lockout this whole module exists to close, rebuilt by the fix for it.
+#
+# So: `single_use_entry_is_admissible` for the map that is spent,
+# `login_entry_is_pinned` for the map that is not.  `login_scene_override.
+# _load_scene_id_map` takes the rule as a REQUIRED argument rather than
+# defaulting it, because a default is how a third map would quietly get the
+# wrong one.  `tests/test_gm_login_scene_sanctioned_admission.py`'s
+# `TheStandaloneMapNeverWidensTests` is what keeps the pairing true.
+#
+# WHAT THIS DOES NOT WIDEN, said plainly because the words are close enough to
+# confuse: it does not widen `login_entry_is_pinned`, it does not widen
+# `stageable_scene_ids`, it grants no GM status to anybody, and it does not
+# let a client name its own destination -- `/warp` still runs behind
+# `accounts.is_gm_account`, and the standalone map still grants a scene and
+# nothing else.  It widens WHICH SCENE IDS one already-authorised operator may
+# write into one already-gated file.
+
+
+def single_use_entry_is_admissible(scene_id: int, *, scene_registry=None) -> bool:
+    """May the SINGLE-USE (GM-gated) map name this scene?
+
+    Plain admission, OR a sanctioned scene whose ONLY remaining blocker is
+    the login-path bar that ``CORE-REQUEST-GM-038`` now bypasses for it.
+
+    The second arm is deliberately the BLOCKER and not
+    ``is_sanctioned_barred_scene`` alone: a sanction is a chief letter
+    saying "this destination is wanted", never a statement that the route
+    exists.  A sanctioned scene lane A has not pinned yet
+    (``BLOCKER_NO_REGISTRY_ROW`` -- MEASURED on main this round for the only
+    id in the map, 126) has no arrival point at all, and admitting it would
+    write an entry the login path refuses for a reason chief's bypass does
+    not touch: ``REFUSED_NO_PINNED_SPAWN`` is not
+    ``REFUSED_NOT_ALLOWED_AT_LOGIN``.  So exactly one blocker value admits,
+    and the other five refuse -- including ``BLOCKER_NONE``, which cannot
+    reach the second arm at all because the first arm already answered True
+    for it.
+
+    ~~THE ORDER IS NOT COSMETIC.  ``login_entry_is_pinned`` is asked first
+    so that a non-``int`` raises ``TypeError`` out of it exactly as it does
+    for the plain predicate.~~ STRUCK, pf-adversary D4, round ``znb56z``,
+    MEASURED: with the arms swapped, all four of the test's bad values
+    (``'126'``, ``126.0``, ``True``, ``None``) still raise the identical
+    ``TypeError``, because ``is_sanctioned_barred_scene`` type-guards to
+    ``False`` and control falls through to ``login_entry_is_pinned``
+    anyway.  M16 (arms reordered) left the whole lane suite green.  The
+    ``TypeError`` contract IS real -- it is just not the ORDER that
+    provides it, and asserting a load-bearing reason that does not exist is
+    the defect this lane does not ship.  The order is now what it looks
+    like: the cheap and overwhelmingly common answer first.
+
+    WHAT *IS* LOAD-BEARING, and it is in ``sanctioned_barred_blocker``
+    rather than here: that blocker checks the pinned SPAWN **before** the
+    login bar.  Flipping those two -- which the plain predicate's own order
+    might tempt a reader into "for consistency" -- would report
+    ``BLOCKER_LOGIN_PATH_BARS_IT`` for a row that is barred AND spawnless,
+    and this function would then ADMIT a destination the login path refuses
+    with ``REFUSED_NO_PINNED_SPAWN``, which no bypass removes.
+    ``test_a_row_with_no_spawn_is_still_refused`` is what holds it.
+
+    ``scene_registry`` means what it means everywhere in this module: pass
+    the reading you will be JUDGED against, or pass nothing for a fresh
+    disk read.
+
+    ~~Both arms are asked with the same one, which is the point: a widening
+    that consulted the snapshot for one arm and the disk for the other
+    would be a third reader with a casting vote.~~ HALF STRUCK, pf-adversary
+    D5, MEASURED.  With a caller-supplied registry it is exactly true --
+    both arms receive that object.  With the default ``None`` -- which
+    ``stage_login_scene``'s first branch and ``disk_admits_under_rule`` both
+    use -- each arm calls ``_registry_to_ask(None)`` and performs its OWN
+    ``load_scene_registry()``: two reads for a sanctioned id, and
+    ``single_use_stageable_scene_ids`` costs three where the function it
+    sits beside costs one.
+
+    Why that is a cost and not a correctness hole, said rather than
+    implied: the two reads are of the same file microseconds apart, and if
+    they ever disagreed the second arm's answer would be the one used --
+    but a registry rewritten between them yields at worst a refusal or an
+    admission this lane would have given for one of the two states, both of
+    which are states the process legitimately passes through.  It is NOT
+    the "third reader with a casting vote" of ``CORE-REQUEST-GM-034``,
+    which was about a reader whose answer could disagree with the ones that
+    DECIDE; here every reader is this decision.  The read count is recorded
+    because it is on the config reader's per-refused-row path, and a lane
+    that measures its own claims has to measure this one too.
+    """
+    if login_entry_is_pinned(scene_id, scene_registry=scene_registry):
+        return True
+    if not is_sanctioned_barred_scene(scene_id):
+        return False
+    return (
+        sanctioned_barred_blocker(scene_id, scene_registry=scene_registry)
+        == BLOCKER_LOGIN_PATH_BARS_IT
+    )
+
+
+def single_use_stageable_scene_ids(*, scene_registry=None) -> tuple[int, ...]:
+    """The way out for a refusal on the SINGLE-USE map, in id order.
+
+    ``stageable_scene_ids`` is still the way out for the standalone map and
+    still means what it meant.  This one exists because the two maps now
+    accept different sets, and handing a refused operator the OTHER map's
+    list is the failure this lane already paid for once in the other
+    direction: a way out that names a destination the caller cannot reach
+    is worse than no way out, because it sends them to try the one thing
+    that cannot work.
+
+    Built ON TOP of ``stageable_scene_ids`` rather than beside it, so the
+    trusted/untrusted and unreadable-registry behaviour is inherited rather
+    than reimplemented: a caller-supplied object this module cannot use
+    yields ``()`` there, and every sanctioned id then fails the same way
+    here, so the union is empty for the same reason and by the same rule.
+
+    ``is_known_scene_id`` is re-applied to the sanctioned ids for the reason
+    ``_admissible_ids`` gives: this tuple is PRINTED to a person, and an id
+    with no name in the committed catalog is an instruction nobody can
+    check.  It is not redundant with the reader's own name check -- that
+    one guards what may be WRITTEN, this one guards what may be OFFERED.
+    Pinned by ``TheWayOutMayNotNameAnUnnamedSceneTests``, which supplies the
+    case the sanction map cannot (an id with no name): without it, deleting
+    the filter left the whole lane suite green -- the SAME mutation
+    ``_admissible_ids``' own scar note says once reached a pushed commit,
+    repeated here because this function copied the filter and the citation
+    and not the test.  pf-adversary D2, round ``znb56z``.
+
+    ONE READING, AND ``stage_login_scene`` REQUIRES TWO -- so this tuple
+    can name a scene that command then refuses (pf-adversary D6, MEASURED:
+    the way out computed from a snapshot offers the sanctioned id while
+    ``/warp`` on the same registry answers
+    ``REASON_SANCTIONED_NOT_YET_REACHABLE``, because staging asks the DISK
+    first and a snapshot may only narrow).  Stated rather than fixed, and
+    the reason is that the honest fix is not free: this function is called
+    from inside ``_load_scene_id_map``'s REFUSAL, once for the console line
+    (guarded) and once for the message of the ``LoginSceneRefusedError``
+    itself (NOT guarded).  Intersecting with a second reading there adds a
+    read that can raise on the path that builds the refusal, which would
+    swap the refusal a caller must handle for a registry error it does not
+    -- a diagnostic altering dispatch, which this lane does not ship to fix
+    a diagnostic.
+    The gap is NOT introduced by the widening: ``stageable_scene_ids`` has
+    the identical one-reading shape and always has, so the sanctioned id
+    makes an existing hole visible rather than opening it.  The bound: the
+    two readings differ only while lane A's file and the running process
+    disagree, i.e. between a lane A merge and the next restart -- the same
+    window ``sanctioned_barred_blocker``'s own D7 note names, and it needs
+    the same fix, which is a function that compares the two readings rather
+    than a wider guard here.  Recorded in the round letter as open.
+    """
+    base = stageable_scene_ids(scene_registry=scene_registry)
+    widened = set(base)
+    for scene_id in SANCTIONED_BARRED_SCENES:
+        if scene_id in widened or not is_known_scene_id(scene_id):
+            continue
+        if single_use_entry_is_admissible(scene_id, scene_registry=scene_registry):
+            widened.add(scene_id)
+    return tuple(sorted(widened))
+
+
+def disk_admits_under_rule(scene_id: int, *, single_use: bool) -> bool:
+    """Would the DISK reading take this row, under the rule that refused it?
+
+    ONE CALLER, and naming it rather than letting that caller pick a
+    predicate itself is the whole point.  ``login_scene_consume.
+    _refusal_cause`` asks a question none of the predicates above ask: not
+    "may this be staged" but "does the disk DISAGREE with the snapshot this
+    login was judged against" -- because those two have different remedies
+    (edit the config vs. restart the server) and printing one for the other
+    sends an operator to grep a file that is correct.
+
+    ``scene_registry`` is deliberately absent rather than defaulted: the
+    disk reading is the only reading this question has any use for, and a
+    caller that could pass a snapshot here would be asking the snapshot
+    whether it disagrees with itself.
+
+    IT IS ALSO THE SEAM, said plainly because the alternative bit this lane
+    once.  A diagnostic that shares a mockable name with the CONFIG READER
+    cannot be broken in a test without also breaking the reader, so the test
+    that pins "a diagnostic may never alter dispatch" would be pinning the
+    reader's behaviour instead -- and, measured this round, a mock aimed at
+    the probe escaped through ``_load_scene_id_map`` and out of
+    ``consume_login_scene_override`` as a ``RuntimeError``.  This name has
+    exactly one caller and no other reader depends on it, so a test may
+    explode it and observe only what it meant to.
+    """
+    if single_use:
+        return single_use_entry_is_admissible(scene_id)
+    return login_entry_is_pinned(scene_id)
 
 
 def _admissible_ids(registry, *, trusted: bool) -> tuple[int, ...]:

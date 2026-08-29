@@ -264,6 +264,12 @@ from .chat_command import (
 )
 from . import login_scene_admission
 from .login_scene_admission import stageable_scene_ids
+# The way out for THIS module's refusals: `/warp` writes the single-use map,
+# so it must offer the set that map admits.  Imported by name, like
+# `stageable_scene_ids` beside it, so the seam a test moves is this module's
+# own binding rather than a predicate two layers down that the config reader
+# also depends on.
+from .login_scene_admission import single_use_stageable_scene_ids
 from .login_scene_override import console_safe
 from .commands import (
     COMMAND_NAMES,
@@ -1332,8 +1338,15 @@ def _print_warp_way_out(
             f"{WARP_REFUSED_CONSOLE_TOKEN} "
             f"account='{console_safe(_one_line(token), stream)}' "
             f"scene_id={scene_id} reason={reason} "
+            # THE SINGLE-USE LIST, because `/warp` writes the single-use map
+            # and a way out from the other map's rule would omit exactly the
+            # destinations this command CAN reach since `CORE-REQUEST-GM-038`
+            # -- telling a refused operator that a scene they may stage is
+            # not on the menu.  `login_scene_admission`'s
+            # `single_use_stageable_scene_ids` is the same tuple judged by
+            # the rule `stage_login_scene` applies.
             "stageable="
-            f"{stageable_scene_ids(scene_registry=scene_registry)}"
+            f"{single_use_stageable_scene_ids(scene_registry=scene_registry)}"
             f"{suffix}",
             file=stream,
         )

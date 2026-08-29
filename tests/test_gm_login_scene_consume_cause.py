@@ -192,9 +192,18 @@ class CauseIsReachableTests(_Case):
         )
         from pirateforce_foundation.gm import login_scene_admission
 
+        # THE PROBE'S OWN SEAM, and the reason it exists rather than
+        # `login_entry_is_pinned` is measured, not stylistic.  Since
+        # `CORE-REQUEST-GM-038` the CONFIG READER asks the admission module
+        # too, so a mock on the shared predicate broke the reader as well
+        # and a `RuntimeError` escaped `consume_login_scene_override`
+        # entirely -- this test would then have been pinning the reader's
+        # behaviour under a name that says "probe".  `disk_admits_under_rule`
+        # has one caller (`_refusal_cause`), so exploding it observes only
+        # what this test means to observe.
         with mock.patch.object(
             login_scene_admission,
-            "login_entry_is_pinned",
+            "disk_admits_under_rule",
             side_effect=RuntimeError("disk on fire"),
         ):
             result = C.consume_login_scene_override(
