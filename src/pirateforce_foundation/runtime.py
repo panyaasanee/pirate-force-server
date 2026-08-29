@@ -15,6 +15,7 @@ from . import mob_census_hostility
 from . import mob_census_wire_count
 from . import mob_combat
 from . import mob_death
+from . import mob_drop_presence
 from . import mob_loot
 from . import mob_pickup
 from . import mob_scene_recompose
@@ -23,6 +24,7 @@ from . import world_density
 from . import world_face_frame
 from . import world_population
 from . import world_population_bg0002
+from . import world_population_handoff
 from . import world_scene_entry
 from . import world_scene_folder
 from . import world_scene_liveness
@@ -4701,31 +4703,22 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             "no_drops"
                         )
                         drops = ()
-                    if drops:
-                        for loot_pc, loot_frame in mob_loot.drop_frames(
-                            legacy, drops,
-                        ):
-                            actions.append((
-                                "MOB_LOOT_DROP", loot_pc, loot_frame, 0.0,
-                            ))
-                        # PRUNE THROUGH THE CELL (MOB_LOOT_WIRING step 4):
-                        # "Nothing in this module expires a row ... a
-                        # caller that never prunes grows the ledger without
-                        # bound."  No pickup path is wired on this build
-                        # (see the CORE-REQUEST-007 handback) and
-                        # DROP_REFRESH_MS/refresh_frames stay off any
-                        # production path per the COO's 2026-08-26 ruling
-                        # quoted in mob_loot.py's own header -- so nothing
-                        # else will ever read these rows back out of the
-                        # cell, and pruning each one right after the frame
-                        # that announces it is the only bound this lane has
-                        # without a timer.
-                        print(mob_loot.drops_console_line(mob, drops))
-                        for drop in drops:
-                            self.mob_loot_cell.take(drop.drop_key)
-                        self.events.append(
-                            f"mob_loot_drops_sent_{len(drops)}_pruned"
-                        )
+                    # CORE-REQUEST 2246 (lane B, COO 2026-08-29T23:42): the
+                    # generation is the WHOLE live ledger per kill (shape
+                    # 4b), so no `if drops:` guard -- a kill that drops
+                    # nothing must still re-announce the rows already on
+                    # the ground, or the client registry loses them.  The
+                    # old prune-after-announce loop is deleted, not
+                    # replaced: expiry-per-row plus sustain_a_kill's own
+                    # trim are the only bounds (no prune_previous_kills --
+                    # it would delete rows still inside their 120s life).
+                    step = mob_drop_presence.sustain_a_kill(
+                        self.mob_loot_cell, legacy, drops)
+                    print(mob_loot.drops_console_line(mob, drops))
+                    print(mob_drop_presence.describe_presence(step))
+                    actions.extend(mob_drop_presence.loot_actions(step))
+                    self.events.append(
+                        mob_drop_presence.presence_event(step))
             return actions
 
         def _dispatch_columbus_quest3021(self, parsed):
@@ -6757,12 +6750,135 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     tp_pc, tp_frame = legacy.make_login_teleport(
                         *departure.confirmed_fields()
                     )
-                    actions = actions + [(
+                    # COO-DECISION 20260829_2254: the crossing population
+                    # handoff, composed AFTER the crossing committed
+                    # (confirmed_fields() above) and queued around the
+                    # teleport frame in the slot the handoff itself names:
+                    # a clear belongs to the scene the client still renders
+                    # (before the teleport), a census to the scene it is
+                    # loading (after).  handoff_on_crossing never raises
+                    # (its own contract), which is what lets it live in
+                    # this except-less block.  Scene 2 stays with its login
+                    # populator (COO-DECISION 20260829_2245): the table
+                    # answers a reasoned clear for it, never a roster.
+                    handoff = world_population_handoff.handoff_on_crossing(
+                        legacy,
+                        departure.arrival.scene_id,
+                        (
+                            departure.arrival.x,
+                            departure.arrival.y,
+                            departure.arrival.z,
+                        ),
+                    )
+                    print(
+                        world_population_handoff
+                        .handoff_console_line(handoff)
+                    )
+                    crossing_actions = [(
                         departure.action_label, tp_pc, tp_frame, 0.70,
                     )]
+                    if handoff.sends_a_frame:
+                        handoff_actions = [(
+                            handoff.label, handoff.pc, handoff.frame, 0.0,
+                        )]
+                        if handoff.reapply_ms is not None:
+                            handoff_actions.append((
+                                handoff.label + "_REAPPLY",
+                                handoff.pc, handoff.frame,
+                                handoff.reapply_ms / 1000.0,
+                            ))
+                        if (
+                            handoff.dispatch_slot
+                            == world_population_handoff
+                            .SLOT_BEFORE_TELEPORT
+                        ):
+                            crossing_actions = (
+                                handoff_actions + crossing_actions
+                            )
+                        else:
+                            crossing_actions = (
+                                crossing_actions + handoff_actions
+                            )
+                    # BOTH frozen-state membership fields, from the one
+                    # value the seam hands out so they cannot disagree
+                    # (MembershipReset's docstring).  Applied on EVERY
+                    # crossing, frame or no frame: an unavailable handoff
+                    # deliberately clears both -- a membership nobody can
+                    # answer for is a membership to drop.
+                    #
+                    # HOME ONLY (pf-adversary R235, D2 -- MEASURED).  The
+                    # only ChooseNPC answerer in the tree (v141:4395)
+                    # speaks the bg0001 table unconditionally: 16 of
+                    # bg0015's 81 indices are not in
+                    # PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS, so a roster
+                    # membership written here is one click from a
+                    # KeyError that kills the connection -- and the ones
+                    # that ARE present would recompose Port Royal into
+                    # the new map.  So a census into any other scene
+                    # ships its frame but withholds the membership, with
+                    # a named event, until a click answerer for roster
+                    # scenes exists (ASK-COO, round t7t5yd).
+                    # world_census_indices moves with the same decision:
+                    # a stowaways line reading the login membership after
+                    # a crossing is the k882hm-D3 shape (a field
+                    # describing a census the client no longer holds).
+                    reset = handoff.membership_reset
+                    home_census = (
+                        handoff.kind
+                        == world_population_handoff.KIND_CENSUS
+                        and departure.arrival.scene_id
+                        == world_scene_travel.HOME_SCENE_ID
+                    )
+                    if home_census:
+                        self.population_indices = (
+                            reset.population_indices
+                        )
+                        self.population_refresh_anchor = (
+                            reset.population_refresh_anchor
+                        )
+                        self.world_census_indices = (
+                            reset.population_indices
+                        )
+                        # The recompose stamp travels with the census in
+                        # force, same as the login and lane commits do
+                        # (pf-adversary R235, D6): a stale stamp is a
+                        # wrong-anchor recompose on the next kill.
+                        try:
+                            self.census_anchor_record = (
+                                mob_scene_recompose.census_anchor(
+                                    departure.arrival.scene_id,
+                                    reset.population_refresh_anchor,
+                                    handoff.actor_count,
+                                )
+                            )
+                        except mob_scene_recompose.SceneRecomposeError:
+                            self.events.append(
+                                "world_pop_handoff_anchor_stamp_refused"
+                            )
+                    else:
+                        self.population_indices = None
+                        self.population_refresh_anchor = None
+                        self.world_census_indices = None
+                        if (
+                            handoff.kind
+                            == world_population_handoff.KIND_CENSUS
+                        ):
+                            self.events.append(
+                                "world_pop_handoff_membership_withheld_"
+                                f"scene_{handoff.scene_id}"
+                            )
+                    self.world_census_identity_resolved = (
+                        home_census
+                        and reset.population_indices is not None
+                    )
+                    actions = actions + crossing_actions
                     self.events.append(
                         "world_travel_departed_scene_"
                         f"{departure.gate.to_scene_id}"
+                    )
+                    self.events.append(
+                        "world_pop_handoff_"
+                        f"{handoff.kind}_scene_{handoff.scene_id}"
                     )
 
             # WORLD-CENSUS-001.  Composed AFTER the inherited dispatch, on
@@ -7112,6 +7228,39 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 lane_hooks.console_safe(str(line))
                                 for line in composed.console_lines
                             ]
+                            # CORE-REQUEST (LANE-A 20260829_2321) option
+                            # (a): the membership walking back.  Coerced
+                            # INSIDE this net like every other lane field:
+                            # a malformed membership refuses the whole
+                            # census rather than committing a frame whose
+                            # server-side bookkeeping then explodes.  None
+                            # (the field's default) means the composer
+                            # said nothing and the three fields below stay
+                            # exactly as they are.
+                            lane_membership = composed.membership
+                            if lane_membership is None:
+                                lane_member_indices = None
+                                lane_member_anchor = None
+                            else:
+                                lane_member_indices = (
+                                    None
+                                    if lane_membership.population_indices
+                                    is None
+                                    else tuple(
+                                        int(index) for index in
+                                        lane_membership.population_indices
+                                    )
+                                )
+                                lane_member_anchor = (
+                                    None
+                                    if lane_membership
+                                    .population_refresh_anchor is None
+                                    else tuple(
+                                        float(value) for value in
+                                        lane_membership
+                                        .population_refresh_anchor
+                                    )
+                                )
                     except Exception as error:
                         # Fail closed, the same net and the same reasoning
                         # as the bg0002 branch above: an escape here
@@ -7188,6 +7337,31 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             except mob_scene_recompose.SceneRecomposeError:
                                 self.events.append(
                                     "world_census_lane_anchor_stamp_refused"
+                                )
+                            # CORE-REQUEST (LANE-A 20260829_2321) option
+                            # (a), the write half: all three server-side
+                            # membership fields, from the one coerced
+                            # value, in one place -- half-taking them is
+                            # the ChooseNPC-recomposes-the-old-town
+                            # failure the seam's MembershipReset exists
+                            # to make unwritable.
+                            if lane_membership is not None:
+                                self.population_indices = (
+                                    lane_member_indices
+                                )
+                                self.population_refresh_anchor = (
+                                    lane_member_anchor
+                                )
+                                self.world_census_indices = (
+                                    lane_member_indices
+                                )
+                                self.events.append(
+                                    "world_census_lane_membership_set_"
+                                    + (
+                                        "cleared"
+                                        if lane_member_indices is None
+                                        else str(len(lane_member_indices))
+                                    )
                                 )
                             census_actions = [
                                 (

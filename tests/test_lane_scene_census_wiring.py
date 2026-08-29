@@ -224,6 +224,83 @@ class LaneSceneCensusWiringTests(unittest.TestCase):
             state.events,
         )
 
+    # ----- CORE-REQUEST (LANE-A 20260829_2321) option (a): membership ----
+
+    def test_a_membership_result_rewrites_all_three_fields_together(self):
+        from pirateforce_foundation.world_population_handoff import (
+            MembershipReset,
+        )
+
+        indices = (3, 7, 11)
+        anchor = (100.0, 200.0, 300.0)
+        self._register(lambda **kwargs: self._result()._replace(
+            membership=MembershipReset(indices, anchor),
+        ))
+        state = self._state_at_scene("lane_census_membership", LANE_SCENE_N_ID)
+        actions, _out = self._step(state)
+        self.assertEqual(len(self._census(actions)), 2)
+        self.assertEqual(state.population_indices, indices)
+        self.assertEqual(state.population_refresh_anchor, anchor)
+        self.assertEqual(state.world_census_indices, indices)
+        self.assertIn(
+            "world_census_lane_membership_set_3", state.events,
+        )
+
+    def test_membership_values_are_coerced_not_committed_as_handed(self):
+        """The commit half of the untrusted-input net (pf-adversary R235,
+        D5: removing the int()/float() coercion survived the suite).  A
+        lane handing numeric STRINGS gets real ints/floats committed --
+        v141's ``idx in population_indices`` would silently never match a
+        str, which is membership set with nothing clickable."""
+        from pirateforce_foundation.world_population_handoff import (
+            MembershipReset,
+        )
+
+        self._register(lambda **kwargs: self._result()._replace(
+            membership=MembershipReset(
+                ("3", "7"), ("1.0", "2.0", "3.0"),
+            ),
+        ))
+        state = self._state_at_scene("lane_census_coerce", LANE_SCENE_N_ID)
+        actions, _out = self._step(state)
+        self.assertEqual(len(self._census(actions)), 2)
+        self.assertEqual(state.population_indices, (3, 7))
+        self.assertEqual(
+            state.population_refresh_anchor, (1.0, 2.0, 3.0),
+        )
+
+    def test_the_default_membership_none_touches_nothing(self):
+        """Every composer written before the field existed keeps meaning
+        what it meant: the three fields stay in their documented safe
+        state (unset) on a lane boot."""
+        self._register(lambda **kwargs: self._result())
+        state = self._state_at_scene("lane_census_no_membership", LANE_SCENE_N_ID)
+        actions, _out = self._step(state)
+        self.assertEqual(len(self._census(actions)), 2)
+        self.assertIsNone(state.population_indices)
+        self.assertIsNone(state.population_refresh_anchor)
+        self.assertIsNone(state.world_census_indices)
+        self.assertNotIn(
+            "world_census_lane_membership_set_cleared", state.events,
+        )
+
+    def test_a_malformed_membership_refuses_the_whole_census(self):
+        """Untrusted lane input, same net as every other field: a value
+        with no MembershipReset shape refuses the census instead of
+        committing a frame whose bookkeeping then explodes."""
+        self._register(lambda **kwargs: self._result()._replace(
+            membership="not a MembershipReset",
+        ))
+        state = self._state_at_scene("lane_census_bad_membership", LANE_SCENE_N_ID)
+        actions, _out = self._step(state)
+        self.assertEqual(self._census(actions), [])
+        self.assertIn(
+            "world_census_lane_composer_refused_AttributeError",
+            state.events,
+        )
+        self.assertTrue(state.world_census_refused)
+        self.assertIsNone(state.population_indices)
+
     def test_the_lane_census_sends_once_not_every_poll(self):
         self._register(lambda **kwargs: self._result())
         state = self._state_at_scene("lane_census_once", LANE_SCENE_N_ID)

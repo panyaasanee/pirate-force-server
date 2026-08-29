@@ -114,7 +114,7 @@ import importlib
 import pkgutil
 import sys
 from pathlib import Path
-from typing import Callable, NamedTuple
+from typing import Any, Callable, NamedTuple
 
 _HOOKS: dict[str, list[tuple[str, Callable[..., None]]]] = {}
 # Scene n_id -> the ONE composer registered for that scene.  Unlike _HOOKS
@@ -262,6 +262,20 @@ class SceneCensusResult(NamedTuple):
     frame: bytes
     console_lines: tuple[str, ...]
     initial_reapply_ms: int
+    # CORE-REQUEST (LANE-A 20260829_2321), option (a): the way BACK for the
+    # membership the seam already computes.  A composer that hands one over
+    # is handing the call site ``world_population_handoff.MembershipReset``
+    # -- BOTH server-side fields in one value, so they cannot disagree (that
+    # object's own docstring) -- and the call site then rewrites
+    # ``population_indices`` / ``population_refresh_anchor`` /
+    # ``world_census_indices`` from it.  The default ``None`` means "do not
+    # touch them", which keeps every composer written before this field
+    # existed meaning exactly what it meant: those fields stay unset on a
+    # lane boot, the documented safe state while nothing answers ChooseNPC
+    # for a lane scene.  The annotation is a string on purpose: lane_hooks
+    # must not import the seam at module level for a type it never
+    # constructs.
+    membership: "Any | None" = None
 
 
 def census_composer(scene_id: int) -> Callable[

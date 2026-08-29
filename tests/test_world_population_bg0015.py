@@ -340,12 +340,23 @@ class Bg0015Census(unittest.TestCase):
         # TheAdmissionCheckIsTheGateTests.  This assertion's job is smaller
         # and worth keeping: a new seam caller appearing under src/ is a
         # change somebody should have to write a sentence about.
+        # THE SECOND CALLER, ARGUED FOR AS THIS COMMENT DEMANDS (round
+        # t7t5yd, chief, carrying out COO-DECISION 20260829_2254): runtime.py
+        # now calls handoff_on_crossing from the crossing-commit block --
+        # the ONLY entry point whose contract never raises -- queues the
+        # frame in the slot the handoff names, and applies MembershipReset.
+        # Sorted WITH duplicates, not a set (pf-adversary R235, D3: the set
+        # form let a rogue SECOND call site inside an already-blessed file
+        # pass unseen -- exactly the double-populator shape COO-DECISION
+        # 20260829_2245 bans).  One call site per blessed file; a second
+        # one anywhere fails here and has to be argued for in a round of
+        # its own.
         self.assertEqual(
-            [site.split(":")[0] for site in call_sites],
-            ["lane_a_scene_census.py"],
-            "the arrival seam's caller set under src/ changed -- this roster "
-            "reaches players through exactly one lane-owned file, and a "
-            "second caller has to be argued for in a round of its own: %r"
+            sorted(site.split(":")[0] for site in call_sites),
+            ["lane_a_scene_census.py", "runtime.py"],
+            "the arrival seam's call sites under src/ changed -- this "
+            "roster reaches players through ONE call in the lane-owned "
+            "census file and ONE in the chief-owned crossing block: %r"
             % (call_sites,),
         )
 
