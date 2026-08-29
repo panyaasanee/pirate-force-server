@@ -1,0 +1,305 @@
+"""The ten scenes rule 1 addressed in round ga91m5, and the door it did NOT open.
+
+WHAT THIS FILE IS FOR.  ``COO-DECISION 20260829_0542`` made one rule standing:
+a scene whose ``SCENE_NAME[n].n_MARKER`` is non-zero takes ``MARKER[n_MARKER]``
+as its arrival point, with no per-scene ruling asked for.  Round 8ubiku put the
+rule's text on main under the COO's own hold ("do not apply this rule to any
+further scene before the rule text lands on main").  This round spent it on the
+ten scenes that qualified and were not already pinned: 3, 4, 5, 6, 7, 8, 9, 10,
+11 and 130.
+
+WHAT THE TEN ARE, AND THE WORD THAT MATTERS.  They are ADDRESSES, not doors.
+Every one carries ``login_entry_allowed: false``, so the login path refuses
+them and the GM ``/warp`` stageable set is unchanged.  The round intended to
+leave them open, wrote a safety case, and ``pf-adversary`` refuted both of its
+legs before the commit:
+
+* the inherited ``V134_P0_P30_P91`` dispatcher
+  (``current/pf_login_game_server_v141.py:4292``) is only disarmed when
+  ``runtime.py``'s ``world_census_enabled`` is true, and on any other boot it
+  composes three ``scene_id=1`` Port Royal actors into whatever scene the
+  player is standing in, with no scene test at all -- so "these ten have no
+  population" was an inventory of ``world_population*`` modules standing in
+  for a gate, and there is no gate;
+* ``gm/login_scene_consume.py``'s STANDALONE map grants a login scene with no
+  ``gm_accounts.json`` membership and is never consumed -- so "GM-only, and
+  single-use" was false of that path.
+
+So these tests check what the round can actually stand behind: that the ten are
+exactly the scenes the client's table qualifies, that each stands on its own
+marker's point, and that the door is shut.
+
+GATE-WALK DECLARATION (``COO-DECISION 20260829_0742``, rule for every test
+written from this round on -- state in the file which branches are walked, and
+which are not walked because a gate is shut).
+
+WALKED, THROUGH THE PRODUCTION CALL SHAPE:
+
+* ``world_scene_entry.resolve_entry(stored, registry=...)`` for all ten,
+  called exactly as ``runtime.py``'s ``START_GAME_REQ`` path calls it:
+  positional stored row, ``registry`` from a load done once, ``emit`` and
+  ``via_login`` left on their defaults.  ``via_login`` in particular is NOT
+  passed: the production login path does not pass it, and a test that passed
+  ``via_login=False`` would walk a branch only
+  ``columbus_quest_dispatch.resolve_columbus_arrival`` walks and would report
+  coverage the login path does not have.  That call is asserted to REFUSE.
+* ``gm/login_scene_stage.login_entry_is_pinned`` and ``stageable_scene_ids``,
+  the real predicates the ``/warp`` writer asks, for all ten.
+* ``world_scene_travel.load_scene_registry()`` at its real path, with the real
+  file -- every relation the loader enforces on the ten rows is walked by
+  loading them, not by a fixture that restates them.
+
+NOT WALKED, AND WHY -- these are gates that are shut, not coverage this file
+claims:
+
+* No frame for any of the ten ever goes on a wire here, and no arrival is
+  composed for one.  ``via_login=False`` is deliberately never exercised for
+  these scenes: no caller in this tree passes it for them, so a test that did
+  would be walking a branch that does not exist in production.
+* The inherited v141 population branch is NOT driven here.  It is the defect
+  that shut these doors, it lives in a file frozen by enforcement
+  (``COO-DECISION 20260829_0345``), and this lane may not gate it.  ACCEPTED
+  IS NOT REACHED (rule 3 of GATE-WALK): nothing in this file counts that
+  branch as covered by having reasoned about it in a docstring.
+* ``runtime.py``'s census dispatch and its override-visit branch are chief's
+  branches with chief's tests
+  (``tests/test_gm_login_scene_override_position_resync.py``).
+"""
+from __future__ import annotations
+
+import json
+import sys
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from pirateforce_foundation import world_scene_entry  # noqa: E402
+from pirateforce_foundation import world_scene_marker  # noqa: E402
+from pirateforce_foundation import world_scene_travel  # noqa: E402
+from pirateforce_foundation.gm import login_scene_stage  # noqa: E402
+from pirateforce_foundation.model import Position  # noqa: E402
+
+# The ten this round added.  Written out rather than derived, so that a future
+# round which drops one silently has to edit this line and say so.
+RULE_1_SCENES_ADDED_THIS_ROUND = (3, 4, 5, 6, 7, 8, 9, 10, 11, 130)
+
+# The three marker scenes that were already pinned, each by its own ruling.
+MARKER_SCENES_ALREADY_PINNED = (1, 2, 14)
+
+# The one of the three that declines its marker, under a declared deviation.
+SCENE_THAT_DEVIATES_FROM_RULE_1 = 1
+
+# Measured this round against each scene's own native placements.  Four of the
+# ten marker points fall INSIDE their scene's placement extents and six fall
+# outside; the split decides nothing at load time and is pinned because the
+# ground-block reasoning in the registry cites it.
+MARKER_POINT_INSIDE_PLACEMENT_BOUNDS = (7, 8, 9, 11)
+
+
+def _raw_rows() -> dict[int, dict]:
+    data = json.loads(
+        world_scene_travel.REGISTRY_PATH.read_text(encoding="ascii"))
+    return {row["n_id"]: row for row in data["destinations"]}
+
+
+class TheTenAreExactlyWhatTheClientTableQualifies(unittest.TestCase):
+    """The set, not the members: a hand-picked ten would pass a per-row test."""
+
+    def test_the_ten_are_every_marker_scene_that_was_not_already_pinned(self):
+        # world_scene_marker's crosswalk is the client's table, transcribed and
+        # self-checked there; this derives the expected set FROM it rather than
+        # from the registry the set is supposed to be checking.
+        qualified = set(world_scene_marker.scenes_with_an_arrival_point())
+        self.assertEqual(len(qualified), world_scene_marker.SCENES_WITH_A_MARKER)
+        expected = qualified - set(MARKER_SCENES_ALREADY_PINNED)
+        self.assertEqual(expected, set(RULE_1_SCENES_ADDED_THIS_ROUND))
+
+    def test_no_scene_was_added_that_the_rule_does_not_reach(self):
+        rows = _raw_rows()
+        for n_id in RULE_1_SCENES_ADDED_THIS_ROUND:
+            with self.subTest(scene=n_id):
+                self.assertNotEqual(rows[n_id]["table_row"]["n_MARKER"], 0)
+
+
+class EachOfTheTenStandsOnItsOwnMarkersPoint(unittest.TestCase):
+    """The loader already enforces this; these say what it enforces, out loud.
+
+    Not a tautology check: the assertions here read the marker crosswalk
+    directly and compare against the registry's own JSON, so a commit that
+    edited the coordinate and the provenance field together -- which the
+    loader's cross-check is specifically built to catch -- fails here too, from
+    the other side.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.registry = world_scene_travel.load_scene_registry()
+        cls.rows = _raw_rows()
+
+    def test_every_new_row_uses_the_marker_its_own_table_row_names(self):
+        for n_id in RULE_1_SCENES_ADDED_THIS_ROUND:
+            with self.subTest(scene=n_id):
+                row = self.rows[n_id]
+                arrival = world_scene_marker.arrival_point(n_id)
+                self.assertIsNotNone(arrival)
+                self.assertEqual(
+                    row["coordinate_provenance"]["marker_n_id"],
+                    arrival.marker_n_id)
+                self.assertEqual(
+                    row["table_row"]["n_MARKER"], arrival.marker_n_id)
+                spawn = world_scene_travel.destination(n_id, self.registry).spawn
+                self.assertEqual(spawn, arrival.xyz)
+
+    def test_scene_130_is_the_row_that_makes_rule_2_load_bearing(self):
+        # The whole reason the ruling forbids indexing MARKER by a scene id.
+        # If this ever equals 130, the indirection stopped mattering and
+        # somebody should find out why before relaxing anything.
+        arrival = world_scene_marker.arrival_point(130)
+        self.assertEqual(arrival.marker_n_id, 1000)
+        self.assertNotEqual(arrival.marker_n_id, 130)
+
+    def test_every_new_row_is_authored_and_claims_no_more(self):
+        for n_id in RULE_1_SCENES_ADDED_THIS_ROUND:
+            with self.subTest(scene=n_id):
+                provenance = self.rows[n_id]["coordinate_provenance"]
+                self.assertEqual(provenance["evidence_tier"], "authored")
+                self.assertEqual(
+                    provenance["evidence_tier"],
+                    world_scene_marker.EVIDENCE_TIER)
+                self.assertIs(provenance["from_marker"], True)
+                self.assertIs(provenance["deviates_from_rule_1"], False)
+
+    def test_the_ten_carry_no_ground_block(self):
+        # TWO REASONS, AND THEY APPLY TO DIFFERENT ROWS - keeping them apart is
+        # pf-adversary's finding (round ga91m5, D6), because an earlier draft
+        # gave all ten the six-of-ten reason.
+        #
+        # For the SIX whose marker point is outside their scene's placement
+        # extents, a ground block would make _spawn()'s bound check refuse the
+        # row outright, so adding one would break the load.
+        #
+        # For the FOUR inside (7, 8, 9, 11) the registry WOULD still load with
+        # a ground block, and the reason is the one scene 278's and scene 17's
+        # own ground blocks already state in their `limit` field: a .npc file
+        # carries NPC placements, not terrain, so bounding an authored
+        # player-arrival point by where the developers put monsters would
+        # invent a constraint the client's data does not assert.
+        for n_id in RULE_1_SCENES_ADDED_THIS_ROUND:
+            with self.subTest(scene=n_id):
+                self.assertIsNone(self.rows[n_id]["ground"])
+
+    def test_the_inside_outside_split_the_ground_reasoning_cites(self):
+        # The registry's why_the_ten_carry_no_ground_block quotes this split.
+        # Pinned from the rows' own measured field so the prose and the data
+        # cannot drift apart silently.
+        inside = tuple(sorted(
+            n_id for n_id in RULE_1_SCENES_ADDED_THIS_ROUND
+            if self.rows[n_id]["table_row_differences"]
+            ["marker_geometry_measured_not_enforced"]
+            ["marker_point_inside_placement_bounds"]
+        ))
+        self.assertEqual(inside, MARKER_POINT_INSIDE_PLACEMENT_BOUNDS)
+
+    def test_scene_1_is_still_the_only_declared_deviation(self):
+        deviating = [
+            n_id for n_id, row in self.rows.items()
+            if row["coordinate_provenance"]["deviates_from_rule_1"]
+        ]
+        self.assertEqual(deviating, [SCENE_THAT_DEVIATES_FROM_RULE_1])
+
+
+class TheDoorIsShutAndThisIsTheLoadBearingTest(unittest.TestCase):
+    """Ten addresses, zero doors.  If this file has one test, it is this one.
+
+    Same shape, and for a related reason, as scene 14's
+    ``test_the_door_is_closed_and_this_is_the_load_bearing_test`` in
+    ``tests/test_world_scene_travel.py``.  Scene 14's door is shut because
+    defect D3 (``player_wire``'s faction-1 serializer refusing every scene
+    outside ``(1, 2)``) is open and it has 81 composed actors for that to
+    matter to.  These ten are shut for a wider reason: there is no gate that
+    every actor-composing path passes before a frame is sent into scene N.
+    ``world_population``, ``world_population_bg0002``,
+    ``world_population_bg0015``, ``field_mobs.load_roster`` and the inherited
+    v141 ``make_v112_monster_shop_population_state`` each decide for
+    themselves, and the last of those decides nothing at all -- it composes
+    ``scene_id=1`` actors whatever scene the player is in.
+
+    AN EARLIER DRAFT OF THIS FILE TESTED THE OPPOSITE, and the way it failed
+    is worth more than the tests it is replaced by.  It asserted that no
+    ``world_population*`` module names one of the ten, and claimed in its own
+    docstring that this "goes red the day" one does.  pf-adversary defeated it
+    twice in three lines each: once with a ``field_mob_tables_bg0003.py``
+    naming its scene as the string ``'Bg0003'`` (a module shape the glob never
+    looked at), and once with a ``world_population_bg0003.py`` exposing
+    ``SCENE``, ``SCENES`` and a default argument instead of ``SCENE_ID`` (an
+    attribute shape the filter never matched).  Both stayed green.  An
+    inventory of the composers somebody thought of is not a gate, and no test
+    of this shape can be made complete -- so the claim is withdrawn rather
+    than patched, and the door is shut instead.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.registry = world_scene_travel.load_scene_registry()
+
+    def _stored_row(self, scene_id: int) -> Position:
+        # The shape a persisted row actually has at a login: seq 0, and a
+        # coordinate that is NOT the destination's spawn, because a stored row
+        # never carries the arrival point of a scene it has not been to.
+        return Position(scene_id, 0, 0.0, 0.0, 0.0, 0)
+
+    def test_the_login_path_refuses_every_one_of_the_ten(self):
+        for n_id in RULE_1_SCENES_ADDED_THIS_ROUND:
+            with self.subTest(scene=n_id):
+                with self.assertRaises(
+                    world_scene_entry.SceneEntryRefused
+                ) as caught:
+                    world_scene_entry.resolve_entry(
+                        self._stored_row(n_id),
+                        registry=self.registry,
+                        emit=lambda line: None,
+                    )
+                self.assertEqual(
+                    caught.exception.reason,
+                    world_scene_entry.REFUSED_NOT_ALLOWED_AT_LOGIN)
+
+    def test_the_registry_says_so_in_the_field_that_carries_it(self):
+        rows = _raw_rows()
+        for n_id in RULE_1_SCENES_ADDED_THIS_ROUND:
+            with self.subTest(scene=n_id):
+                self.assertIs(rows[n_id]["login_entry_allowed"], False)
+                self.assertIs(
+                    world_scene_travel.destination(
+                        n_id, self.registry).login_entry_allowed,
+                    False)
+
+    def test_the_gm_warp_writer_still_refuses_all_ten(self):
+        # The predicate the /warp writer actually asks, not a copy of it.
+        for n_id in RULE_1_SCENES_ADDED_THIS_ROUND:
+            with self.subTest(scene=n_id):
+                self.assertFalse(login_scene_stage.login_entry_is_pinned(n_id))
+
+    def test_the_stageable_set_did_not_grow_by_a_single_scene(self):
+        stageable = set(login_scene_stage.stageable_scene_ids())
+        self.assertEqual(
+            stageable & set(RULE_1_SCENES_ADDED_THIS_ROUND), set())
+
+    def test_a_scene_with_no_marker_and_no_ruling_is_refused_differently(self):
+        # The control: rule 1 reached the marker scenes and NOTHING else, and
+        # the two refusals are distinguishable.  Scene 126 is the ocean panel
+        # three different Columbuses advertise, it has no marker, and it is the
+        # id most likely to be reached for next.
+        with self.assertRaises(world_scene_entry.SceneEntryRefused) as caught:
+            world_scene_entry.resolve_entry(
+                self._stored_row(126),
+                registry=self.registry,
+                emit=lambda line: None,
+            )
+        self.assertEqual(
+            caught.exception.reason, world_scene_entry.REFUSED_SCENE_NOT_PINNED)
+
+
+if __name__ == "__main__":
+    unittest.main()

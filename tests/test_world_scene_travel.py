@@ -102,9 +102,48 @@ class SceneRegistryTests(unittest.TestCase):
         refused until the runtime asks about the scene a character is
         actually in.  See the registry's own nonclaims, which name what has
         to change before the key flips.
+
+        SIXTEEN SINCE ROUND ga91m5 (2026-08-29, LANE-A), AND THE TEN NEW ONES
+        ARRIVED WITHOUT A DECISION EACH, WHICH IS THE POINT.  Every id above
+        got here by a ruling of its own; 3, 4, 5, 6, 7, 8, 9, 10, 11 and 130
+        did not, and asking for ten more rulings is exactly the cost
+        COO-DECISION 20260829_0542 abolished.  They are every remaining scene
+        the client's own table gives a non-zero n_MARKER (13 marker scenes,
+        minus 1, 2 and 14, which were already here), each standing on the
+        point SCENE_NAME[n].n_MARKER -> MARKER[n_MARKER] resolves to, each at
+        evidence tier `authored`, none with a ground block, and none with a
+        population.  130 is the row that earns its place twice over: it names
+        marker 1000, so it is this registry's live example of why rule 2
+        forbids indexing MARKER by a scene id.  An id appearing here with
+        NEITHER a decision NOR a non-zero n_MARKER behind it is what this test
+        is now for, and that second half is checked rather than asserted in
+        tests/test_world_scene_registry_rule_1_scenes.py.
+
+        AND ALL TEN ARE ADDRESSES, NOT DOORS.  Every one carries
+        login_entry_allowed false, so this registry grew by ten rows and the
+        set of scenes anything can enter did not grow at all.  The round
+        intended to open them; pf-adversary refuted the safety case before the
+        commit and the doors were shut instead - see
+        tests/test_world_scene_registry_rule_1_scenes.py, class
+        TheDoorIsShutAndThisIsTheLoadBearingTest, which carries both
+        refutations and the shape of the test that failed to catch them.
+
+        THE PARAGRAPH ABOVE ABOUT SCENE 14 IS KEPT, NOT CORRECTED, AND TWO OF
+        ITS THREE DEFECTS ARE NOW CLOSED ON THE FLAGLESS PATH.  D1 (the bg0001
+        census delivered into another map) and D2 (a character_positions row
+        labelled scene 1 carrying another scene's XYZ) were closed by
+        CHIEF-DECISION 20260829_0520 option A and the
+        login_scene_override_visit branch that landed with it.  D3, the
+        faction-1 byte, is still open.  Neither closure reaches the inherited
+        v141 population branch, which composes scene-1 actors into whatever
+        scene the player stands in on any boot that is not exactly flagless -
+        that is what shut the ten, and it would reopen D1 for scene 14 too.
         """
         self.assertEqual(
-            self.registry.ids, (1, 2, 14, 17, TEST_STAGE_SCENE_ID, 997))
+            self.registry.ids,
+            (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 17, 130,
+             TEST_STAGE_SCENE_ID, 997),
+        )
 
     def test_the_default_destination_is_still_home(self):
         # Nothing in this module may move where a player lands by existing.

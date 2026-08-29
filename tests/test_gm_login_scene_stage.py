@@ -49,7 +49,20 @@ PRISON_EXILE = 2
 TEST_STAGE = 278
 # In the name table, NOT pinned as a login entry.  Staging this used to brick
 # the account; it is now the refusal case.
-NAMED_BUT_UNPINNED = 3
+# ~~NAMED_BUT_UNPINNED = 3~~ - scene 3 (Spice Paradise Island) entered the
+# registry in LANE-A round ga91m5, when COO-DECISION 20260829_0542's rule 1 was
+# applied to every remaining scene the client's table gives a non-zero
+# n_MARKER.  Scene 3 would still REFUSE here, since that round pinned all ten
+# with `login_entry_allowed: false` - but it would refuse for the reason
+# BARRED_FROM_LOGIN below tests, not the reason this constant is named for, and
+# a case whose name stops describing it is a case that stops catching
+# regressions.  The comment above UNKNOWN_SCENE calls this "the correct amount
+# of noise", and this is it happening.  12 is a strictly better choice than 3
+# ever was: it is in the 330-row GM name table (TEXTDATA_TH__SCENE_NAME_TIP,
+# "Drake empty Walled") and NOT in the 271-row CONSTDATA_TH__SCENE_NAME table
+# at all, so it has no n_MARKER to gain and rule 1 can never reach it.  This
+# case therefore stops being a moving target.
+NAMED_BUT_UNPINNED = 12
 # Pinned, but `login_entry_allowed: false` -- lane A barred it after GT-106.
 BARRED_FROM_LOGIN = 17
 # Not in the 330-scene name table at all.  If this ever becomes a real scene,
@@ -202,6 +215,24 @@ class OnlyScenesTheLoginPathCanEnterTests(_Case):
         # Pinned as a literal tuple so that lane A pinning a fifth scene is a
         # decision someone makes here, not a silent widening of what a chat
         # line can do to an account.  GT-141 prints this list to the tester.
+        #
+        # STILL FOUR AFTER LANE-A ROUND ga91m5 ADDED TEN SCENES TO THE
+        # REGISTRY, AND THAT IS THE POINT OF THIS COMMENT.  That round pinned
+        # scenes 3, 4, 5, 6, 7, 8, 9, 10, 11 and 130 under COO-DECISION
+        # 20260829_0542's rule 1, and set `login_entry_allowed: false` on
+        # every one of them, so this set is unchanged and `/warp 3` is still
+        # refused at the stage.  The round INTENDED to leave them open;
+        # pf-adversary refuted the safety case (the inherited v141 population
+        # branch composes scene-1 actors into any scene on a non-flagless
+        # boot with no scene test, and the STANDALONE login-scene map grants
+        # entry with no gm_accounts.json membership and is never consumed),
+        # and the doors were shut before the commit.  Reasoning and the
+        # condition that would open them:
+        # scenarios/world_scene_registry_001.json, arrival_point_rule.
+        # why_the_ten_doors_are_shut; letter pf_bridge/notes_to_chief/
+        # 20260829_0915_LANE-A-ASK-COO-ten-doors-shut-and-the-gate-that-
+        # would-open-them.md.  If this tuple ever grows, that is lane A
+        # deciding to open a door and it should arrive with the gate.
         self.assertEqual((1, 2, 278, 997), login_scene_stage.stageable_scene_ids())
         for scene_id in login_scene_stage.stageable_scene_ids():
             with self.subTest(scene_id=scene_id):
