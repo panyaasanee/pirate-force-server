@@ -34,6 +34,7 @@ from .gm import chat_command_action
 from .gm.dispatch import GM_RUN_GM_COMMAND_VITAL_ID
 from .gm import state_wire
 from .gm.state_wire import make_gm_update_state_frame
+from .gm import login_scene_admission
 from .gm import login_scene_stage
 from .gm.login_scene_consume import (
     CONSUMED,
@@ -3937,7 +3938,13 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 else ()
             )
             if folder != self.mob_combat_scene_folder:
-                ledger = mob_combat.open_ledger(roster)
+                # LANE-B CORE-REQUEST 20260829_1955 item (3), COO 20:41:
+                # an addressed scene with no mob table gives an EMPTY
+                # roster, and open_ledger cannot derive a scene tag from
+                # zero rows -- scene= declares it, and open_ledger joins
+                # the declaration against what the rows say, so a
+                # contradiction refuses instead of mislabeling.
+                ledger = mob_combat.open_ledger(roster, scene=folder)
                 ledger_identities = ledger.identities()
                 for record in self.mob_death_register.records:
                     # record.scene is the mob's own table tag, which IS the
@@ -5538,6 +5545,11 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     # which is the only case that can put it back if the
                     # destination is then refused (see the refusal handler).
                     override_consumed_scene = None
+                    # CORE-REQUEST-GM-038: False on every login that has no
+                    # applied override; only the probe block below can turn
+                    # it on, and only for a CONSUMED (GM-gated) grant to a
+                    # sanctioned-barred scene.
+                    gm_sanctioned_bypass = False
 
                     def _put_back_consumed_override(scene_id):
                         """Give a spent staged entry back.  Best effort.
@@ -5693,11 +5705,35 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         candidate_row = replace(
                             login_row, scene_id=login_scene_override
                         )
+                        # CORE-REQUEST-GM-038: a sanctioned-barred scene
+                        # (today: 126 only, one chief letter per id in
+                        # gm/login_scene_admission.py) may be resolved with
+                        # via_login=False -- the same bypass shape
+                        # columbus_quest_dispatch.py:464 already uses --
+                        # but ONLY when this exact login took the entry off
+                        # the GM-GATED map (override_consumed_scene is set
+                        # solely on the CONSUMED outcome).  A standalone-map
+                        # grant (STANDALONE_NOT_CONSUMED) never qualifies:
+                        # that map answers for accounts that are not in
+                        # gm_accounts.json, and widening it here would hand
+                        # non-GM accounts a server-side result the GM
+                        # charter forbids (the letter's own no-go #1).  A
+                        # character's persisted row that happens to name a
+                        # sanctioned scene never qualifies either: with no
+                        # override, login_scene_override is None and this
+                        # stays False, so the real call below keeps
+                        # via_login=True (no-go #2).
+                        gm_sanctioned_bypass = (
+                            override_consumed_scene is not None
+                            and login_scene_admission
+                            .is_sanctioned_barred_scene(login_scene_override)
+                        )  # initialized False above the consume call
                         try:
                             world_scene_entry.resolve_entry(
                                 candidate_row,
                                 registry=scene_entry_registry,
                                 emit=lambda _line: None,
+                                via_login=not gm_sanctioned_bypass,
                             )
                         except world_scene_entry.SceneEntryRefused as exc:
                             # Refuse the OVERRIDE, not the login.  The
@@ -5765,9 +5801,21 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 f"gm_login_scene_override_applied_{login_scene_override}"
                             )
                     try:
+                        # CORE-REQUEST-GM-038, second half of the pair: the
+                        # real call must agree with the probe above, or the
+                        # probe admits a sanctioned destination the real
+                        # call then refuses.  login_scene_override is None
+                        # on every path where the override was refused or
+                        # never granted, so a login resolving the
+                        # character's OWN stored row always passes
+                        # via_login=True here, sanctioned scene id or not.
                         entry = world_scene_entry.resolve_entry(
                             login_row,
                             registry=scene_entry_registry,
+                            via_login=not (
+                                gm_sanctioned_bypass
+                                and login_scene_override is not None
+                            ),
                         )
                     except world_scene_entry.SceneEntryRefused as exc:
                         # Deliberately a LookupError and not a KeyError
@@ -6749,8 +6797,15 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         # Computed from the census this boot actually
                         # built (post-splice identities), same as the
                         # bg0001 branch's own coverage line.
+                        # LANE-B CORE-REQUEST 20260829_1955 item (2), COO
+                        # 20:41: without these two fields the line prints
+                        # override=not_reported ledger=not_reported forever,
+                        # and "correctly silent" vs "silently broken" read
+                        # identically off a boot console.
                         for line in mob_census_hostility.describe_census_hostility(
-                                scene_id, generation.actor_identities):
+                                scene_id, generation.actor_identities,
+                                override=override,
+                                ledger=self.mob_combat_ledger):
                             print(line)
                         self.world_census_sent = True
                         self.events.append(
