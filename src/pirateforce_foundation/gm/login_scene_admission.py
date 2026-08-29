@@ -408,9 +408,12 @@ def stageable_scene_ids(*, scene_registry=None) -> tuple[int, ...]:
 def is_sanctioned_barred_scene(scene_id: int) -> bool:
     """Does a chief letter this lane holds name this scene?
 
-    A pure lookup in ``SANCTIONED_BARRED_SCENES``.  It says NOTHING about
-    whether the scene may be staged -- ``login_entry_is_pinned`` is still
-    the only answer to that question, and this map never reaches it.
+    A pure lookup in ``SANCTIONED_BARRED_SCENES``.  It says NOTHING on its
+    own about whether the scene may be staged: ``login_entry_is_pinned`` is
+    still the whole answer for the standalone map, and for the single-use
+    map the answer is ``single_use_entry_is_admissible``, which asks this
+    AND the blocker below and admits only on the pair.  This lookup alone
+    has never granted anything and still does not.
 
     ``type(...) is not int`` rather than ``isinstance``, for the reason
     ``stage_login_scene`` gives: ``bool`` is a subclass of ``int``, and
@@ -435,10 +438,20 @@ def sanctioned_barred_provenance(scene_id: int) -> str | None:
 def sanctioned_barred_blocker(scene_id: int, *, scene_registry=None) -> str:
     """WHICH half of a sanctioned scene's route is missing, measured now.
 
-    This is a DIAGNOSTIC and only a diagnostic.  It grants nothing, it is
-    not consulted by ``login_entry_is_pinned`` or ``stageable_scene_ids``,
-    and a caller that treats a non-``BLOCKER_NONE`` answer as permission
-    has misread it.  Its whole job is to turn one refusal
+    NO LONGER ONLY A DIAGNOSTIC, and the sentence that used to stand here
+    ("it grants nothing, it is not consulted by ``login_entry_is_pinned``
+    or ``stageable_scene_ids``") was true until ``CORE-REQUEST-GM-038``
+    landed and is now only three-quarters true.  What is still exactly
+    true: it is not consulted by ``login_entry_is_pinned`` or by
+    ``stageable_scene_ids``, and a caller that treats a non-``BLOCKER_NONE``
+    answer as permission has misread it.  What CHANGED:
+    ``single_use_entry_is_admissible`` consults it and admits on exactly
+    ONE of its answers (``BLOCKER_LOGIN_PATH_BARS_IT``), so this function
+    is now load-bearing for the single-use map and a wrong word here is a
+    wrong admission there, not merely a confusing console line.  Every
+    OTHER answer it can give is still a refusal.
+
+    Its whole job is otherwise unchanged -- to turn one refusal
     (``scene_has_no_login_entry``) into the sentence a person can act on:
     "lane A has not landed the row yet" and "chief has not wired
     ``via_login=False`` yet" are the SAME refusal today and have completely
@@ -507,6 +520,150 @@ def sanctioned_barred_blocker(scene_id: int, *, scene_registry=None) -> str:
             raise
         return BLOCKER_REGISTRY_UNREADABLE
     return BLOCKER_NONE
+
+
+# ---------------------------------------------------------------------------
+# THE WIDENING, AND THE ONE MAP IT MAY NOT REACH.
+#
+# `CORE-REQUEST-GM-038` landed (`pirate-force-server` #281, chief's letter
+# `notes_to_chief/20260829_2222_CHIEF-TO-LANE-GM-gm-038-wired-plus-restore-
+# rule-question.md`): `runtime.py` now resolves a sanctioned-barred scene with
+# `via_login=False` -- the `columbus_quest_dispatch.py:464` shape -- so the
+# refusal this module was built to prevent (`REFUSED_NOT_ALLOWED_AT_LOGIN` on
+# every login and every retry, forever) no longer happens for that ONE set.
+# The half of the route this lane owns is the admission below.
+#
+# THE WIDENING IS BOUND TO THE MAP THAT IS SPENT ON USE, and that is the whole
+# safety argument rather than a scoping preference.  Chief's bypass is gated on
+# `override_consumed_scene is not None` (runtime.py:5726), which is set on the
+# CONSUMED outcome and on nothing else.  Only the GM-gated map
+# (`gm_login_scene`) produces CONSUMED.  The standalone map is deliberately
+# NEVER consumed (`COO-DECISION 20260829_0542`), so it yields
+# STANDALONE_NOT_CONSUMED, `override_consumed_scene` stays None, the bypass
+# stays False, and `resolve_entry` is asked with `via_login=True`.  A
+# sanctioned scene admitted into THAT map would therefore be refused at login
+# and refused identically on every retry, with the account unable to log in
+# until somebody with shell access hand-edited a gitignored file -- the exact
+# lockout this whole module exists to close, rebuilt by the fix for it.
+#
+# So: `single_use_entry_is_admissible` for the map that is spent,
+# `login_entry_is_pinned` for the map that is not.  `login_scene_override.
+# _load_scene_id_map` takes the rule as a REQUIRED argument rather than
+# defaulting it, because a default is how a third map would quietly get the
+# wrong one.  `tests/test_gm_login_scene_sanctioned_admission.py`'s
+# `TheStandaloneMapNeverWidensTests` is what keeps the pairing true.
+#
+# WHAT THIS DOES NOT WIDEN, said plainly because the words are close enough to
+# confuse: it does not widen `login_entry_is_pinned`, it does not widen
+# `stageable_scene_ids`, it grants no GM status to anybody, and it does not
+# let a client name its own destination -- `/warp` still runs behind
+# `accounts.is_gm_account`, and the standalone map still grants a scene and
+# nothing else.  It widens WHICH SCENE IDS one already-authorised operator may
+# write into one already-gated file.
+
+
+def single_use_entry_is_admissible(scene_id: int, *, scene_registry=None) -> bool:
+    """May the SINGLE-USE (GM-gated) map name this scene?
+
+    Plain admission, OR a sanctioned scene whose ONLY remaining blocker is
+    the login-path bar that ``CORE-REQUEST-GM-038`` now bypasses for it.
+
+    The second arm is deliberately the BLOCKER and not
+    ``is_sanctioned_barred_scene`` alone: a sanction is a chief letter
+    saying "this destination is wanted", never a statement that the route
+    exists.  A sanctioned scene lane A has not pinned yet
+    (``BLOCKER_NO_REGISTRY_ROW`` -- MEASURED on main this round for the only
+    id in the map, 126) has no arrival point at all, and admitting it would
+    write an entry the login path refuses for a reason chief's bypass does
+    not touch: ``REFUSED_NO_PINNED_SPAWN`` is not
+    ``REFUSED_NOT_ALLOWED_AT_LOGIN``.  So exactly one blocker value admits,
+    and the other five refuse -- including ``BLOCKER_NONE``, which cannot
+    reach the second arm at all because the first arm already answered True
+    for it.
+
+    THE ORDER IS NOT COSMETIC.  ``login_entry_is_pinned`` is asked first so
+    that a non-``int`` raises ``TypeError`` out of it exactly as it does for
+    the plain predicate -- this function's contract for a bad type is the
+    plain one's, not ``is_sanctioned_barred_scene``'s silent ``False``.
+
+    ``scene_registry`` means what it means everywhere in this module: pass
+    the reading you will be JUDGED against, or pass nothing for a fresh
+    disk read.  Both arms are asked with the same one, which is the point:
+    a widening that consulted the snapshot for one arm and the disk for the
+    other would be a third reader with a casting vote.
+    """
+    if login_entry_is_pinned(scene_id, scene_registry=scene_registry):
+        return True
+    if not is_sanctioned_barred_scene(scene_id):
+        return False
+    return (
+        sanctioned_barred_blocker(scene_id, scene_registry=scene_registry)
+        == BLOCKER_LOGIN_PATH_BARS_IT
+    )
+
+
+def single_use_stageable_scene_ids(*, scene_registry=None) -> tuple[int, ...]:
+    """The way out for a refusal on the SINGLE-USE map, in id order.
+
+    ``stageable_scene_ids`` is still the way out for the standalone map and
+    still means what it meant.  This one exists because the two maps now
+    accept different sets, and handing a refused operator the OTHER map's
+    list is the failure this lane already paid for once in the other
+    direction: a way out that names a destination the caller cannot reach
+    is worse than no way out, because it sends them to try the one thing
+    that cannot work.
+
+    Built ON TOP of ``stageable_scene_ids`` rather than beside it, so the
+    trusted/untrusted and unreadable-registry behaviour is inherited rather
+    than reimplemented: a caller-supplied object this module cannot use
+    yields ``()`` there, and every sanctioned id then fails the same way
+    here, so the union is empty for the same reason and by the same rule.
+
+    ``is_known_scene_id`` is re-applied to the sanctioned ids for the reason
+    ``_admissible_ids`` gives: this tuple is PRINTED to a person, and an id
+    with no name in the committed catalog is an instruction nobody can
+    check.  It is not redundant with the reader's own name check -- that
+    one guards what may be WRITTEN, this one guards what may be OFFERED.
+    """
+    base = stageable_scene_ids(scene_registry=scene_registry)
+    widened = set(base)
+    for scene_id in SANCTIONED_BARRED_SCENES:
+        if scene_id in widened or not is_known_scene_id(scene_id):
+            continue
+        if single_use_entry_is_admissible(scene_id, scene_registry=scene_registry):
+            widened.add(scene_id)
+    return tuple(sorted(widened))
+
+
+def disk_admits_under_rule(scene_id: int, *, single_use: bool) -> bool:
+    """Would the DISK reading take this row, under the rule that refused it?
+
+    ONE CALLER, and naming it rather than letting that caller pick a
+    predicate itself is the whole point.  ``login_scene_consume.
+    _refusal_cause`` asks a question none of the predicates above ask: not
+    "may this be staged" but "does the disk DISAGREE with the snapshot this
+    login was judged against" -- because those two have different remedies
+    (edit the config vs. restart the server) and printing one for the other
+    sends an operator to grep a file that is correct.
+
+    ``scene_registry`` is deliberately absent rather than defaulted: the
+    disk reading is the only reading this question has any use for, and a
+    caller that could pass a snapshot here would be asking the snapshot
+    whether it disagrees with itself.
+
+    IT IS ALSO THE SEAM, said plainly because the alternative bit this lane
+    once.  A diagnostic that shares a mockable name with the CONFIG READER
+    cannot be broken in a test without also breaking the reader, so the test
+    that pins "a diagnostic may never alter dispatch" would be pinning the
+    reader's behaviour instead -- and, measured this round, a mock aimed at
+    the probe escaped through ``_load_scene_id_map`` and out of
+    ``consume_login_scene_override`` as a ``RuntimeError``.  This name has
+    exactly one caller and no other reader depends on it, so a test may
+    explode it and observe only what it meant to.
+    """
+    if single_use:
+        return single_use_entry_is_admissible(scene_id)
+    return login_entry_is_pinned(scene_id)
 
 
 def _admissible_ids(registry, *, trusted: bool) -> tuple[int, ...]:

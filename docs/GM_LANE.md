@@ -4053,6 +4053,24 @@ plus a red suite for CI -- and the game port stays up.**
   itself, which is chief's file: **`CORE-REQUEST-GM-039`**. pf-adversary tried 12
   malformed config shapes across the three files and could not reach the escape
   from config today -- it is a code-change risk, not a live one.
+- ~~"Closing it needs ... which is chief's file"~~ — **CLOSED, round `znb56z`.**
+  Chief wired it (`CHIEF-REPLY` 2026-08-29T23:20+07:00, letter
+  `notes_to_chief/20260829_2320_CHIEF-REPLY-LANE-GM-039-wired-main-option.md`,
+  landed as `pirate-force-server` #287): the login consume block's net is now
+  `except (ValueError, OSError, TypeError, AttributeError)`, one point, no other
+  net in the file touched. Chief took the **main** option and refused (a), (b)
+  and (c). This lane's own test was **inverted** rather than deleted --
+  `..._lands_in_the_net_by_name` now requires `dispatch` to return normally, an
+  events row `gm_login_scene_override_lookup_failed_AttributeError`, the
+  character on its own row, and **no `CONSUME_FAILED` line at all** (the
+  "never print a word in place of the cause" promise is unchanged: the attribute
+  read is still outside the print's guard and there is still no `getattr`
+  default). Mutant measured by chief: removing `AttributeError` from the tuple
+  turns that test RED rather than silently green. The price -- a wider net can
+  swallow a real bug -- is accepted and is written into the comment at that
+  point in `runtime.py`, together with this lane's `casue` measurement (a
+  one-character typo goes red in 11 tests across 5 files), so a reader next year
+  can see it was weighed rather than shrugged at.
 
 ### Item 2 -- the heading said seven, the table has eight
 
@@ -4086,7 +4104,7 @@ keeps paying for:
 | D4 | the token fired on a `hasattr` probe that refused nothing, saying `effect=override_refused_login_at_own_row` -- and this round's own suite printed it **6x per run** | the line says `read=refused` and claims no effect; every test captures stdout instead of leaking to it |
 | D5 | "console says nothing" was **false** -- the daemon thread's traceback reaches stderr through Python's default excepthook | struck in three places (this section, the class docstring, the test module docstring), with the honest reason kept |
 | D6 | "an events row the operator can grep" -- `app.py` exports events only under `--export-events` | corrected above; the console line is the default artifact |
-| D7 | the hole is **narrowed to one class**, not closed | named above; `CORE-REQUEST-GM-039` opened for the net itself |
+| D7 | the hole is **narrowed to one class**, not closed | named above; `CORE-REQUEST-GM-039` opened for the net itself — ~~open~~ **closed round `znb56z`**, chief wired the net (#287); see the struck bullet above |
 | D8 | the heading was struck and the **seven-row table that generated it** was left in the source | corrected in `gm/login_scene_consume.py`, struck not deleted |
 | D9 | `:7440` pinned in a file this lane does not own, against its own rule, and the weakest of the three facts | restated structurally |
 | D10 | `repr()` of a lost result **raised** -- and a repr is most likely written inside an `except` handler | `__repr__` renders `<lost>` via `object.__getattribute__`; a sibling read inside `__getattr__` would recurse forever, and the source now says so |
@@ -4258,3 +4276,124 @@ sets or the operator's own `--token`), any line forgery, any way for the new
 line to alter dispatch (raise, withhold an outgoing action, write to stdout),
 and any double line -- including the case it expected to find one,
 `/warp 126`.
+
+## Round `znb56z` -- the map that is SPENT may name a sanctioned scene; the other never may
+
+`CORE-REQUEST-GM-038` landed both halves this round. Chief's half reached main
+as `pirate-force-server` #281: `runtime.py` resolves a login with
+`via_login=False` when, and only when, `override_consumed_scene is not None`
+(the CONSUMED outcome) **and** `login_scene_admission.is_sanctioned_barred_scene`
+answers for the destination. This lane's half is the admission that lets such an
+entry reach that path at all -- until this round the reader refused it two
+statements earlier and chief's bypass could not be reached from any real config
+file.
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้ (round `znb56z`)
+
+**วันนี้ยังทำอะไรไม่ได้เพิ่ม และนั่นคือคำตอบที่วัดได้ ไม่ใช่คำแก้ตัว.** ตัวเลขที่วัดบน
+main รอบนี้: `sanctioned_barred_blocker(126)` = `lane_a_registry_row_missing` --
+แถวทะเบียนของสาย A (ครึ่งที่ 1 ของ `CHIEF-DECISION 20260829_1603`) ยังไม่ลง main
+ดังนั้น `/warp 126` ยังปฏิเสธเหมือนเดิม
+
+สิ่งที่เปลี่ยนจริงและผู้เทสเห็นได้: **คำที่พิมพ์ข้างการปฏิเสธเปลี่ยนเจ้าของ** จาก
+"chief ยังไม่ต่อ `via_login=False`"
+(`login_path_bars_it_needs_core_request_gm_038`) เป็น "สาย A ยังไม่ลงแถว"
+(`lane_a_registry_row_missing`) -- คนละใบที่ต้องไปตาม คนละคนที่ต้องรอ และ
+`sanctioned_barred_blocker` ถามทะเบียนสดทุกครั้ง จึงเปลี่ยนคำเองในวินาทีที่สาย A
+merge โดยไม่ต้องแก้อะไรในเขตนี้
+
+และในวินาทีนั้น -- **โดยไม่มี PR ของสายนี้คั่นอีกใบ** -- `/warp 126` จะผ่าน, entry
+จะถูกเขียน, login ถัดไปจะถูกวางด้วย `via_login=False`, และใบคืน (put-back) จะรับ
+entry เดิมกลับแทนที่จะทำลายทิ้ง ทั้งสี่ข้อพินไว้ใน
+`tests/test_gm_login_scene_sanctioned_admission.py` ด้วยทะเบียนตัวแทน
+
+**NONCLAIM:** ทุกเส้นทางข้างบนคือทางลัด GM ผู้เทสที่ไปถึงฉาก 126 ด้วยวิธีนี้
+**ข้ามการเดินทางในเกมทั้งหมด** -- เห็นเกาะ ไม่ใช่ M2 ผ่าน และไม่ใช่หลักฐานว่า
+เส้นทาง Columbus -> ทะเล -> เกาะ ทำงาน
+
+### The rule, and why it is scoped rather than global
+
+One predicate, `single_use_entry_is_admissible`: the plain
+`login_entry_is_pinned`, **or** a sanctioned scene whose only remaining blocker
+is `BLOCKER_LOGIN_PATH_BARS_IT` -- the one blocker chief's bypass actually
+removes. Every other blocker still refuses, and that is not caution for its own
+sake: `REFUSED_NO_PINNED_SPAWN` is a different refusal from
+`REFUSED_NOT_ALLOWED_AT_LOGIN` and `via_login=False` does not touch it, so
+admitting a spawnless sanctioned row would write an entry the login path
+refuses for a reason nothing in this lane has bypassed.
+
+**The widening is bound to the map that is SPENT on use, and that is the whole
+safety argument.** Chief's bypass is gated on the CONSUMED outcome, which only
+the GM-gated map (`gm_login_scene`) produces. The standalone map is deliberately
+never consumed (`COO-DECISION 20260829_0542`), so it yields
+`STANDALONE_NOT_CONSUMED`, the bypass stays False, and `resolve_entry` is asked
+with `via_login=True`. A sanctioned scene admitted **there** would be refused at
+login and refused identically on every retry -- the permanent silent lockout
+this admission module was built to close, rebuilt by the fix for it. So
+`_load_scene_id_map` takes `single_use` as a **required** keyword with no
+default: a default is how a third map would inherit the wrong rule in silence.
+
+What this does NOT widen, said plainly because the words are close enough to
+confuse: not `login_entry_is_pinned`, not `stageable_scene_ids`, no GM status
+for anybody, and no client-named destination. `/warp` still runs behind
+`accounts.is_gm_account`, and the standalone map still grants a scene and
+nothing else. It widens **which scene ids one already-authorised operator may
+write into one already-gated file.**
+
+### D5 -- chief's restore question, answered by construction
+
+Chief's letter (2026-08-29T22:22+07:00) asked, from pf-adversary's D5: once the
+consume side is widened, `restore_login_scene` still judges by plain admission,
+so a granted sanctioned entry the snapshot then refuses would be **destroyed**
+(`gm_login_scene_override_lost_to_refusal_126`) instead of handed back --
+consume and restore running on two different rules for the same entry.
+
+**This lane's answer: the undo believes the rule the write believed, because
+there is only one rule to believe.** The widening lives in the READER
+(`_load_scene_id_map` for the single-use key). `stage_login_scene` writes
+through `_write_entry`, which re-validates the whole file through that same
+reader; `restore_login_scene` is `_write_entry` with `allow_delete`. So consume,
+stage and undo cannot disagree without someone deleting the shared reader --
+a different and much harder mistake than forgetting to widen a second call
+site. It is the same shape as the rule already written at
+`restore_login_scene`: **undo with the same reading you staged with**, now also
+**under the same predicate you staged under**.
+
+Walked end to end rather than argued:
+`test_the_undo_puts_a_sanctioned_entry_back_rather_than_losing_it` stages the
+sanctioned scene, claims it (what a login's consume does), and puts it back
+(what `_put_back_consumed_override` does when the probe refuses). A `False` from
+that put-back **is** the destroyed-entry event, so the assertion is the defect
+itself rather than a proxy for it.
+
+### Two seams moved, and one added, because the reader now shares a predicate
+
+- `chat_command_action` prints `single_use_stageable_scene_ids`: `/warp` writes
+  the single-use map, so a way out computed under the other map's rule would
+  omit exactly the destinations this command can reach -- telling a refused
+  operator that a scene they may stage is not on the menu.
+- `LoginSceneRefusedError` carries `single_use`, set by the reader that refused.
+  `login_scene_consume._refusal_cause` asks "would the DISK have taken this row"
+  to tell *edit the config* from *restart the server*; asked with the narrow
+  rule about a single-use refusal it answers no for a reason that has nothing to
+  do with the disk, and sends the operator to grep a file that is correct.
+  Defaulted `False`, which can only ever under-state a remedy.
+- `disk_admits_under_rule` is new and has exactly one caller. **Measured, not
+  stylistic:** a diagnostic that shares a mockable name with the config reader
+  cannot be broken in a test without also breaking the reader -- and
+  `test_the_remedy_probe_can_never_cost_the_login` did exactly that this round,
+  a `RuntimeError` escaping `consume_login_scene_override` through
+  `_load_scene_id_map`. That test was then pinning the reader's behaviour under
+  a name that says "probe". The seam gives it back the thing it meant to
+  explode.
+
+### One test class here is designed to go RED on lane A's merge
+
+`TheSanctionAdmitsNothingOnMainTodayTests` asserts the blocker is
+`lane_a_registry_row_missing` **today**. The hour lane A lands the row it goes
+red -- deliberately: at that moment the sentence "the widening admits nothing
+today" is false in this document, in `login_scene_admission`'s header, and in
+the round letter simultaneously, and somebody has to come and say so rather
+than leave three documents lying. It is the same mechanism
+`test_every_sanctioned_scene_is_one_the_predicate_refuses_today` already uses
+for the retirement of a sanction.
