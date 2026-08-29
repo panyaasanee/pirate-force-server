@@ -72,6 +72,20 @@ MOB = 0x2068
 KILLER = 0x750059
 
 
+def issued_through_for(bag):
+    """The counter as it stands after everything this bag carries was issued.
+
+    Route 1 (COO-DECISION 20260829_0848) made ``may_enter_world`` require the
+    character's inclusive identity counter.  ``store.backpack_issued_through``
+    moves with every committed pickup and is seeded at the golden's own
+    highest identity, so for a bag whose rows were all genuinely issued the
+    counter is exactly the bag's highest identity.  The tests in this file
+    exercise the SHAPE rule with an honest counter; the ceiling's own tests
+    (``CounterCeilingTests``) pass tight values instead.
+    """
+    return max(item.identity for item in bag.items)
+
+
 def a_drop(key=KEY, item=ITEM, quantity=1, at=(10.0, 20.0, 30.0)):
     return mob_loot.GroundDrop(
         key, item, quantity,
@@ -138,6 +152,7 @@ class GoldenBagsTests(unittest.TestCase):
                 self.assertFalse(bag_admission.is_golden_plus_acquired(golden))
                 self.assertTrue(bag_admission.may_enter_world(
                     golden, allow_hypothesized_item_move=False,
+                    issued_through=issued_through_for(golden),
                 ))
 
 
@@ -221,6 +236,7 @@ class GovernedFamilyStaysRefusedTests(unittest.TestCase):
                 self.assertFalse(
                     bag_admission.may_enter_world(
                         state, allow_hypothesized_item_move=False,
+                        issued_through=issued_through_for(state),
                     ),
                     label,
                 )
@@ -233,6 +249,7 @@ class GovernedFamilyStaysRefusedTests(unittest.TestCase):
                 self.assertTrue(
                     bag_admission.may_enter_world(
                         state, allow_hypothesized_item_move=True,
+                        issued_through=issued_through_for(state),
                     ),
                     label,
                 )
@@ -251,6 +268,7 @@ class GovernedFamilyStaysRefusedTests(unittest.TestCase):
                     self.assertFalse(
                         bag_admission.may_enter_world(
                             state, allow_hypothesized_item_move=False,
+                            issued_through=issued_through_for(state),
                         ),
                         label,
                     )
@@ -277,6 +295,7 @@ class GovernedFamilyStaysRefusedTests(unittest.TestCase):
         self.assertFalse(
             bag_admission.may_enter_world(
                 state, allow_hypothesized_item_move=False,
+                issued_through=issued_through_for(state),
             ),
             "the shipped rule must refuse what the weakened rule admits",
         )
@@ -304,6 +323,7 @@ class AcquiredBagsTests(unittest.TestCase):
                 self.assertEqual(admission.acquired, (item,))
                 self.assertTrue(bag_admission.may_enter_world(
                     after, allow_hypothesized_item_move=False,
+                    issued_through=issued_through_for(after),
                 ))
 
     def test_several_real_pickups_in_a_row_stay_admitted(self):
@@ -320,6 +340,7 @@ class AcquiredBagsTests(unittest.TestCase):
                 self.assertEqual(len(admission.acquired), step + 1)
                 self.assertTrue(bag_admission.may_enter_world(
                     bag, allow_hypothesized_item_move=False,
+                    issued_through=issued_through_for(bag),
                 ))
 
     def test_a_pickup_onto_a_moved_bag_is_still_refused(self):
@@ -334,6 +355,7 @@ class AcquiredBagsTests(unittest.TestCase):
         after, _ = mob_pickup.place_in_bag(moved[0], a_drop())
         self.assertFalse(bag_admission.may_enter_world(
             after, allow_hypothesized_item_move=False,
+            issued_through=issued_through_for(after),
         ))
         self.assertEqual(
             bag_admission.classify(after).reason,
@@ -391,6 +413,7 @@ class WholeM5ChainTests(unittest.TestCase):
         self.assertTrue(
             bag_admission.may_enter_world(
                 after, allow_hypothesized_item_move=False,
+                issued_through=issued_through_for(after),
             ),
             "the proposed rule must admit it, or the round delivers nothing",
         )
@@ -443,6 +466,7 @@ class ForgedAndDegenerateBagsTests(unittest.TestCase):
         )
         self.assertFalse(bag_admission.may_enter_world(
             bag, allow_hypothesized_item_move=False,
+            issued_through=issued_through_for(bag),
         ))
         self.assertEqual(highest, 4)
 
@@ -460,6 +484,7 @@ class ForgedAndDegenerateBagsTests(unittest.TestCase):
                 )
                 self.assertFalse(bag_admission.may_enter_world(
                     bag, allow_hypothesized_item_move=False,
+                    issued_through=issued_through_for(bag),
                 ))
 
     def test_a_zero_quantity_row_is_refused(self):
@@ -558,6 +583,7 @@ class ForgedAndDegenerateBagsTests(unittest.TestCase):
                 self.assertFalse(
                     bag_admission.may_enter_world(
                         drifted, allow_hypothesized_item_move=False,
+                        issued_through=issued_through_for(drifted),
                     ),
                     f"a drifted {label} was admitted because a row was "
                     "acquired; that is the hole the header check closes",
@@ -575,6 +601,7 @@ class ForgedAndDegenerateBagsTests(unittest.TestCase):
         )
         self.assertTrue(bag_admission.may_enter_world(
             clean, allow_hypothesized_item_move=False,
+            issued_through=issued_through_for(clean),
         ))
 
     def test_a_changed_bag_header_is_refused_and_names_the_header(self):
@@ -648,9 +675,11 @@ class ForgedAndDegenerateBagsTests(unittest.TestCase):
         # session.select_and_start makes.
         self.assertFalse(bag_admission.may_enter_world(
             reordered, allow_hypothesized_item_move=False,
+            issued_through=issued_through_for(reordered),
         ))
         self.assertTrue(bag_admission.may_enter_world(
             bag, allow_hypothesized_item_move=False,
+            issued_through=issued_through_for(bag),
         ))
         # THE SCOPE OF THE FIX, PINNED RATHER THAN LEFT TO BE DISCOVERED.
         # With the HYP-PF-008 opt-in on, may_enter_world short-circuits
@@ -662,6 +691,7 @@ class ForgedAndDegenerateBagsTests(unittest.TestCase):
         # read as unconditional.
         self.assertTrue(bag_admission.may_enter_world(
             reordered, allow_hypothesized_item_move=True,
+            issued_through=issued_through_for(reordered),
         ))
 
     def test_the_no_acquired_branch_is_unreachable_and_that_is_measured(self):
@@ -741,11 +771,100 @@ class ForgedAndDegenerateBagsTests(unittest.TestCase):
                 )
                 self.assertFalse(bag_admission.may_enter_world(
                     value, allow_hypothesized_item_move=False,
+                    issued_through=999,
                 ))
                 # Even the opt-in must not admit a bag that is not a bag.
                 self.assertFalse(bag_admission.may_enter_world(
                     value, allow_hypothesized_item_move=True,
+                    issued_through=999,
                 ))
+
+
+class CounterCeilingTests(unittest.TestCase):
+    """Route 1 of COO-DECISION 20260829_0848: the counter's ceiling.
+
+    GATE-WALK (COO letter 0742): the branch these tests walk is the
+    ``issued_through is not None and item.identity > issued_through``
+    refusal inside ``_classify_against`` -- the ceiling.  The FLOOR branch
+    (``identity <= highest_golden_identity``) is walked by
+    ``ForgedAndDegenerateBagsTests``' NOT_ABOVE_GOLDEN tests, not here.
+    Deleting the ceiling branch turns the first test's refusal into an
+    admission, so these tests are the mutation kill for it.
+    """
+
+    def test_an_identity_the_counter_never_issued_is_refused(self):
+        """The COO-required test: identity > issued_through is refused."""
+        for index, golden in enumerate(GOLDENS):
+            with self.subTest(golden=index):
+                after, item = mob_pickup.place_in_bag(golden, a_drop())
+                # The counter still stands at its seed, the golden's own
+                # highest: this bag's acquired row was never issued by it.
+                seed = max(row.identity for row in golden.items)
+                self.assertGreater(item.identity, seed)
+                admission = bag_admission.classify(
+                    after, issued_through=seed,
+                )
+                self.assertFalse(admission.admissible)
+                self.assertEqual(
+                    admission.reason,
+                    bag_admission.REASON_ACQUIRED_IDENTITY_NOT_ISSUED,
+                )
+                self.assertFalse(bag_admission.may_enter_world(
+                    after, allow_hypothesized_item_move=False,
+                    issued_through=seed,
+                ))
+
+    def test_an_identity_at_the_counter_exactly_is_admitted(self):
+        """The bound is inclusive: identity == issued_through was issued."""
+        after, item = mob_pickup.place_in_bag(INITIAL_BACKPACK, a_drop())
+        admission = bag_admission.classify(
+            after, issued_through=item.identity,
+        )
+        self.assertEqual(
+            admission.verdict, bag_admission.VERDICT_GOLDEN_PLUS_ACQUIRED,
+        )
+        self.assertTrue(bag_admission.may_enter_world(
+            after, allow_hypothesized_item_move=False,
+            issued_through=item.identity,
+        ))
+
+    def test_classify_without_a_counter_skips_the_ceiling_openly(self):
+        """``issued_through=None`` runs the shape rule alone, by contract.
+
+        Pinned so nobody reads a bare ``classify(bag)`` verdict as the
+        gate's answer: the same bag the first test refuses comes back
+        GOLDEN_PLUS_ACQUIRED without the counter.  ``may_enter_world`` has
+        no such mode -- its ``issued_through`` has no default, which the
+        next test pins.
+        """
+        after, _ = mob_pickup.place_in_bag(INITIAL_BACKPACK, a_drop())
+        self.assertEqual(
+            bag_admission.classify(after).verdict,
+            bag_admission.VERDICT_GOLDEN_PLUS_ACQUIRED,
+        )
+
+    def test_the_gate_cannot_be_called_without_the_counter(self):
+        """The production predicate requires issued_through, no default."""
+        after, _ = mob_pickup.place_in_bag(INITIAL_BACKPACK, a_drop())
+        with self.assertRaises(TypeError):
+            bag_admission.may_enter_world(
+                after, allow_hypothesized_item_move=False,
+            )
+
+    def test_the_opt_in_still_overrides_the_ceiling(self):
+        """Same shape as the family opt-in: refused bags enter with it ON.
+
+        Pinned so 'the counter refuses it' is never read as unconditional --
+        the HYP opt-in short-circuits before the verdict is read, exactly as
+        it does for a reordered bag.
+        """
+        after, item = mob_pickup.place_in_bag(INITIAL_BACKPACK, a_drop())
+        seed = max(row.identity for row in INITIAL_BACKPACK.items)
+        self.assertGreater(item.identity, seed)
+        self.assertTrue(bag_admission.may_enter_world(
+            after, allow_hypothesized_item_move=True,
+            issued_through=seed,
+        ))
 
 
 class ContractTests(unittest.TestCase):
@@ -849,11 +968,13 @@ class ContractTests(unittest.TestCase):
         # edit here, which is the point.
         # ~~8~~ -> 9 in round 4gqnwm: STORE-INSERT-001 met nonclaim 8's
         # expiry, and the deletion it prescribes was measured to admit the
-        # HYP-PF-008/010 bags this gate refuses.  Nonclaim 9 records that
-        # the condition is met, that the literal replacement is refuted, and
-        # that the rule stands only until COO rules -- deliberately raised
-        # here rather than rewritten in place, so the expiry's own wording
-        # (which the expiry test pins) survives unedited.
+        # HYP-PF-008/010 bags this gate refuses.  ~~Nonclaim 9 records ...
+        # that the rule stands only until COO rules ... so the expiry's own
+        # wording survives unedited~~ -> COO ruled (COO-DECISION
+        # 20260829_0848, route 1) and round hsz32u rewrote nonclaims 8 and 9
+        # in place to record the ruling: the shape rule stays, the counter
+        # ceiling joins it, no expiry remains.  The count stays 9 -- the
+        # ruling resolved two nonclaims, it did not add one.
         self.assertEqual(len(bag_admission.BAG_ADMISSION_NONCLAIMS), 9)
 
 

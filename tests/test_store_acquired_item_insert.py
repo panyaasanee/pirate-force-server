@@ -234,6 +234,8 @@ class StoreAcquiredItemInsertTests(unittest.TestCase):
         # acquired row itself rather than by the permissive term.
         self.assertTrue(bag_admission.may_enter_world(
             reloaded, allow_hypothesized_item_move=False,
+            issued_through=self.store.backpack_issued_through(
+                self.sid, self.character.id),
         ))
 
     def test_two_pickups_take_two_identities(self):
@@ -359,6 +361,8 @@ class StoreAcquiredItemInsertTests(unittest.TestCase):
                 )
                 self.assertFalse(bag_admission.may_enter_world(
                     would_be, allow_hypothesized_item_move=False,
+                    issued_through=self.store.backpack_issued_through(
+                        self.sid, self.character.id),
                 ))
                 with self.assertRaises(ValueError):
                     self.store.commit_acquired_backpack_item(

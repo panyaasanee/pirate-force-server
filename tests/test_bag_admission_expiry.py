@@ -21,9 +21,11 @@ creation plus one for a pickup, one advance of the counter -- so a second
 pickup path or a second counter writer still fails.  The replacement COO
 specified (delete ``_classify_against``) was NOT performed in that round,
 because deleting it was measured to admit the HYP-PF-008/010 bags this gate
-refuses; the measurement, the deviation and the open ask are recorded in
-``bag_admission`` nonclaim 9 and in the docstring of
-``test_exactly_one_named_write_advances_the_identity_counter``.
+refuses; the ask is no longer open -- COO-DECISION 20260829_0848 ruled
+route 1 (the shape rule STAYS, the counter tightens it as
+``may_enter_world``'s ``issued_through`` ceiling, wired in round hsz32u).
+The measurement is recorded in ``bag_admission`` nonclaim 9 and in the
+docstring of ``test_exactly_one_named_write_advances_the_identity_counter``.
 
 DELIBERATELY A SOURCE-TEXT TEST.  ``bag_admission`` must not import ``store``
 (it sits on the character-select path and pulling the store in to read a
@@ -54,30 +56,40 @@ def _source(module_name: str) -> str:
 
 
 def test_nonclaim_8_states_the_expiry_and_names_the_replacement() -> None:
-    """The tuple a console reader sees carries the sunset, not just the rule.
+    """The tuple a console reader sees carries the rule's full history.
 
     Pinned by content and not by index: a later round is free to renumber,
-    but it may not quietly drop the sentence that says this rule dies.
+    but it may not quietly drop the record.  ~~"the sentence that says this
+    rule dies"~~ IS STRUCK: COO-DECISION 20260829_0848 CANCELLED the sunset
+    (route 1 -- the shape rule stays, the counter tightens it), so what may
+    not be quietly dropped now is the cancellation itself and the ruling
+    that ordered it, beside the 0441 history that created the expiry.
     """
     joined = "\n".join(bag_admission.BAG_ADMISSION_NONCLAIMS)
     assert "COO-DECISION 20260829_0441" in joined, (
         "the ruling that made this rule interim is not cited in the "
         "nonclaims a reader actually sees"
     )
+    assert "COO-DECISION 20260829_0848" in joined, (
+        "the ruling that cancelled the expiry and kept the shape rule is "
+        "not cited in the nonclaims a reader actually sees"
+    )
     assert "next_item_identity" in joined, (
-        "the expiry is keyed to the identity counter; the nonclaims do not "
-        "name it"
+        "the criterion is keyed to the identity counter; the nonclaims do "
+        "not name it"
     )
     assert "_classify_against" in joined, (
-        "COO ordered replace-not-extend: the nonclaims must name the "
-        "function the superseding round deletes"
+        "the nonclaims must name the function 0848 ruled STAYS -- a reader "
+        "grepping for its fate must find the answer here"
     )
 
 
 def test_the_expiry_condition_is_two_named_facts_not_a_date() -> None:
     """A date cannot be evaluated by a test; these two facts can.
 
-    Both are about ``store.py`` doing something it does not do yet.  The
+    Both are about ``store.py`` doing something it now does (since round
+    4gqnwm) -- the constant survives as the record of what was evaluated,
+    the supersession it once armed having been cancelled by 0848.  The
     order is meaningful -- the INSERT is what makes the counter advance
     possible -- and it is asserted so the constant cannot be reshuffled into
     a weaker pair.
@@ -194,10 +206,12 @@ def test_exactly_one_named_write_advances_the_identity_counter() -> None:
     (HYP-PF-008) and the free-slot move (HYP-PF-010) are ADMITTED -- both
     move a golden row without minting an identity, so a rule that only asks
     whether an identity was issued cannot see them, and every family test in
-    ``tests/test_bag_admission.py`` requires them refused.  The deviation,
-    the measurement and the proposed tightening are in ``bag_admission``
-    nonclaim 9 and in CHIEF-ASK-COO 20260829.  A round that gets COO's
-    answer replaces nonclaim 9 and this docstring together.
+    ``tests/test_bag_admission.py`` requires them refused.  COO's answer
+    ARRIVED: COO-DECISION 20260829_0848 ruled on that measurement -- route
+    1, keep the shape rule, and require of an acquired row an identity the
+    counter issued (the ``issued_through`` ceiling, wired in round hsz32u).
+    Nonclaim 9 and this docstring were replaced together, as the previous
+    version of this docstring required.
     """
     # BOTH modules, matching the inserter test below.  Scanning only
     # ``store`` left the sharpest evasion invisible: a second counter
@@ -318,7 +332,7 @@ def test_classify_against_still_exists_so_the_expiry_has_a_subject() -> None:
         if isinstance(node, ast.FunctionDef)
     }
     assert "_classify_against" in names, (
-        "nonclaim 8 tells a later round to delete _classify_against, but no "
-        "function by that name exists; update the nonclaim in the same "
-        "commit as the rename"
+        "COO-DECISION 20260829_0848 ruled that _classify_against STAYS, but "
+        "no function by that name exists; if it was renamed, update the "
+        "nonclaims in the same commit as the rename"
     )
