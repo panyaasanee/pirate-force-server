@@ -1,1 +1,1 @@
-{"sha":"abceacd39b7173bb5493dd868442d0c1f3c27b67","conclusion":"failure","event":"push","ref":"refs/heads/claude/sleepy-sagan-qq0i9u","run_id":"33229884427","utc":"2026-08-29T02:54:10Z"}
+{"sha":"abceacd39b7173bb5493dd868442d0c1f3c27b67","conclusion":"failure","event":"pull_request","ref":"refs/pull/249/merge","run_id":"33229886827","utc":"2026-08-29T03:00:51Z"}
