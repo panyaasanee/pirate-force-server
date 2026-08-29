@@ -11,6 +11,7 @@ from . import columbus_quest_dispatch
 from . import diag_multi_object_wiring
 from . import field_mobs
 from . import mob_ai_control
+from . import mob_census_hostility
 from . import mob_combat
 from . import mob_death
 from . import mob_loot
@@ -4702,6 +4703,41 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             # contract) and no frame is composed from it.
                             legacy=legacy,
                             held_indices=self.world_census_indices,
+                            # CORE-REQUEST (LANE-A 20260829_1546): the third
+                            # keyword on this same line -- the SCENE-1 row
+                            # this character is standing on at the moment
+                            # the crossing is taken.  The in-memory
+                            # position is the row last read/written (the
+                            # census, the travel gates and
+                            # _checkpoint_exact_target all read/update it),
+                            # so the printed drift is measured from where
+                            # THIS character departed, not from the pinned
+                            # new-character spawn.  The scene guard is part
+                            # of the contract, not caution: a row already
+                            # naming another scene is not a departure from
+                            # home, and return_ticket validates a passed
+                            # row even when it would not use it, so
+                            # handing one over degrades the whole line to
+                            # a reason-only "refused:ValueError" stub --
+                            # None instead makes it print the full
+                            # pinned-home ticket with the named absence
+                            # (pf-adversary, this round, D4).  No branch
+                            # here can raise: selected is only ever None
+                            # or a frozen Character with a total position
+                            # field, and dispatch is single-writer.
+                            # return_leg_console_line itself never raises
+                            # (its own contract) and no frame or row is
+                            # composed from it.
+                            departed_from=(
+                                self.foundation.selected.position
+                                if (
+                                    self.foundation.selected is not None
+                                    and self.foundation.selected.position
+                                    .scene_id
+                                    == world_scene_travel.HOME_SCENE_ID
+                                )
+                                else None
+                            ),
                         )
                     except columbus_quest_dispatch.ColumbusDispatchRefused as error:
                         for reason in error.reasons:
@@ -5506,33 +5542,25 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             # direction goes back to the silence
                             # CORE-REQUEST-GM-034 was filed about.
                             #
-                            # THE LINE NAMES NO CAUSE, on purpose
-                            # (pf-adversary, this round): ConsumeResult
-                            # carries no cause, and CONSUME_FAILED is wider
-                            # than its name -- a snapshot-refused entry, a
-                            # malformed overrides file, an unreadable
-                            # accounts file, or a removal that half
-                            # happened all arrive here as the same word.
-                            # An earlier draft printed
-                            # "judged_by=boot_snapshot"; measured against a
-                            # truncated JSON file, that sent the operator
-                            # to restart a server whose restart changes
-                            # nothing.  So the line offers BOTH remedies
-                            # and says which fact it does know: the login
-                            # proceeds at the character's own row.
+                            # CORE-REQUEST-GM-037: `cause` names the ONE
+                            # remedy, so this line stopped offering both.
+                            # Every cause is a closed literal written in
+                            # gm/login_scene_consume.py before any client
+                            # connected; the remedy table lives in
+                            # docs/GM_LANE.md next to the vocabulary.
+                            #
+                            # Attribute access OUTSIDE the print guard, and
+                            # no getattr default: a ConsumeResult that lost
+                            # its `cause` field must raise, not fall back
+                            # to a placeholder word on a live console.
+                            consume_cause = override_result.cause
                             # Guarded like the probe's print: a diagnostic
                             # must never cost the login.
                             try:
                                 print(
                                     "GM_LOGIN_SCENE_OVERRIDE_CONSUME_FAILED "
                                     "effect=login_at_own_row "
-                                    "cause=not_carried_by_the_outcome -- "
-                                    "check the login-scene config files "
-                                    "for a malformed or refused line "
-                                    "first; if the scene registry file "
-                                    "was edited since boot, that edit is "
-                                    "not in effect until the server is "
-                                    "restarted"
+                                    f"cause={consume_cause}"
                                 )
                             except Exception:
                                 pass
@@ -5543,7 +5571,22 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         # Same refuse-by-name-not-by-crash shape as the
                         # is_gm_account() guard below (CORE-REQUEST-006):
                         # nothing this call can raise is a reason to take
-                        # down the listener thread for every other login. No
+                        # down the listener thread for every other login --
+                        # with ONE deliberate exception since
+                        # CORE-REQUEST-GM-037: a ConsumeResult that lost its
+                        # `cause` field raises AttributeError above, which
+                        # this net does NOT catch, BY THE GM LETTER'S OWN
+                        # DEMAND (no getattr fallback, a missing field must
+                        # be loud).  pf-adversary (round nbulzb) measured
+                        # where that loudness lands: the escape unwinds the
+                        # game listener thread (v141:7440 has no except),
+                        # leaving the login port alive over a dead game
+                        # port.  That cost is accepted because the path is
+                        # unreachable at HEAD (ConsumeResult makes `cause`
+                        # mandatory on CONSUME_FAILED, __slots__ makes it
+                        # unlosable) and the wiring test pins the
+                        # propagation, so only an in-repo regression -- red
+                        # in CI before any boot -- can reach it.  No
                         # override is applied; the character logs in at its
                         # own row.  Since the consumer replaced the reader
                         # (CORE-REQUEST-GM-033 v2) a malformed config no
@@ -6543,6 +6586,49 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 ),
                             )
                         )
+                        # CORE-REQUEST (LANE-B 20260829_1600): hostile
+                        # faction splice for this scene's census, INSIDE
+                        # this same try on purpose -- the branch is
+                        # fail-closed by design (v141:7440 has no except)
+                        # and an escape from the splice must land in the
+                        # same net as an escape from the builder.
+                        # Deliberately NO ledger kwarg, per the letter: at
+                        # census time self.mob_combat_ledger holds
+                        # whatever scene it was last synced to (boot =
+                        # bg0001, runtime.py:1131), and
+                        # full_roster_override raises
+                        # MobDeathContractError on a mismatched pair --
+                        # measured, letter 1600, re-measured by
+                        # pf-adversary this round (passing it turns this
+                        # branch into a compose refusal: fail-closed, no
+                        # thread unwind, but no census either).  NOTE the
+                        # sibling bg0001 branch below takes the safe
+                        # symmetric route instead -- it calls
+                        # _sync_combat_scene_state() on this same census
+                        # path and passes the synced ledger; doing that
+                        # here is a design change to lane B's explicit
+                        # request, so it is flagged in the R230 letter,
+                        # not taken silently.  Known narrow window
+                        # (pf-adversary D2): a frame that both wounds a
+                        # scene-2 mob and triggers this census ships that
+                        # mob at full HP -- wire layer, wounded-alive
+                        # only; deaths ARE covered, the register is
+                        # passed.  Any future mid-session recompose must
+                        # pass THAT scene's ledger (mob_combat.open_ledger
+                        # over field_mobs.roster_for_scene_id) -- and
+                        # nothing yet REFUSES a ledger-less recompose;
+                        # that open design question is raised to lane
+                        # B/COO in the R230 letter.  [lane-B assumption,
+                        # COO confirmation pending, tagged in the letter.]
+                        override = (
+                            mob_census_hostility.hostile_override_for_scene_id(
+                                legacy, scene_id, self.mob_death_register,
+                            )
+                        )
+                        if override:
+                            generation = _apply_mob_death_census_override(
+                                legacy, generation, override,
+                            )
                     except Exception as error:
                         # Fail closed, same reasoning as the bg0001 branch's
                         # own catch-all below: the builder reads frozen
@@ -6579,6 +6665,16 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         for line in world_population_bg0002.actor_lines(
                             generation,
                         ):
+                            print(line)
+                        # CORE-REQUEST (LANE-B 20260829_1600): printed
+                        # UNCONDITIONALLY, never inside the override's if
+                        # -- "unbacked=none" is a real answer and "no line
+                        # at all" is the state GT-084 already misread once.
+                        # Computed from the census this boot actually
+                        # built (post-splice identities), same as the
+                        # bg0001 branch's own coverage line.
+                        for line in mob_census_hostility.describe_census_hostility(
+                                scene_id, generation.actor_identities):
                             print(line)
                         self.world_census_sent = True
                         self.events.append(

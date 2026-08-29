@@ -84,6 +84,7 @@ import os
 
 from .accounts import is_gm_account
 from .login_scene_override import (
+    LoginSceneRefusedError,
     get_login_scene_override,
     load_login_scene_overrides,
     load_standalone_login_scene_overrides,
@@ -99,25 +100,279 @@ STANDALONE_NOT_CONSUMED = "standalone_not_consumed"
 # config this process could not read, so which map answered is unknown".
 # Both mean the same thing to a login -- no scene is returned -- and neither
 # may be reported as a scene the caller can use.
+#
+# `cause` below is what tells those apart WITHOUT widening what a login may
+# do about them.  The word stays one word on purpose.
 CONSUME_FAILED = "consume_failed"
+
+# ---------------------------------------------------------------------------
+# WHY `CONSUME_FAILED` HAPPENED -- a CLOSED vocabulary this lane wrote.
+#
+# Asked for by chief in `CHIEF-REPLY` 2026-08-29T15:16+07:00 item 5, whose
+# own console line had to print `cause=not_carried_by_the_outcome` because
+# this class carried no cause: six different faults arrived at the operator
+# as one word, and the two remedies they need (edit a config / restart the
+# server) are not the same remedy.
+#
+# THE RULE THAT SHAPES THIS LIST, and it is not a style preference -- chief
+# PRINTS this token on the owner's console.  Round `9wy444` D1 established
+# that no byte a client sent may reach that console, and a cause built from
+# `str(exc)` would carry a config file's bytes (a JSON parse error quotes
+# the offending line) straight there, wearing this lane's own token as a
+# prefix.  So:
+#
+#   * every cause is a literal written HERE, before any client connected;
+#   * an exception's message NEVER becomes a cause, not even in part;
+#   * the set is closed and `ConsumeResult` REFUSES anything outside it, so
+#     a future branch cannot invent a cause by passing a string.
+#
+# That last point is the difference between this and a filter: there is no
+# path that sanitises a cause, because there is no path that builds one.
+#
+# THE AXIS IS THE REMEDY, NOT THE RETURN SITE.  The first version of this
+# list split on "which of the three reads saw the bad bytes" and pf-adversary
+# measured what that bought an operator: nothing.  Six of its seven tokens
+# fired only if a config file changed underneath a login MID-FLIGHT, and the
+# seventh -- the only one an ordinary bad config could produce -- answered
+# BOTH of the two remedies chief said were not the same remedy:
+#
+#     malformed JSON            -> cause=override_lookup_unreadable
+#     row the snapshot refuses  -> cause=override_lookup_unreadable
+#
+# and the second of those is the case chief measured as the NEW NORMAL after
+# `CORE-REQUEST-GM-036`, on a file that is perfectly readable.  Telling an
+# operator a readable file is "unreadable" is worse than saying nothing: they
+# grep it, find it well-formed, and stop believing the line.
+#
+# So the split that ships is the one an operator can ACT on:
+#
+#   `config_unreadable`      the bytes are bad          -> edit the file
+#   `registry_refused_entry` the bytes are fine, this   -> restart the
+#                            process will not admit        server, or fix
+#                            the row                       lane A's registry
+#   `gm_accounts_unreadable` } which FILE, when the loader can say -- these
+#   `gm_map_unreadable`      } are reachable only through a mid-flight race
+#   `standalone_map_unreadable`
+#   `claim_raised`           removal raised, entry's fate UNKNOWN
+#   `entry_survived_claim`   removal failed, entry KNOWN to be on disk
+#
+# WHAT WAS DELIBERATELY DROPPED, so the next reader does not "restore" it:
+# `gm_map_unreadable_after_claim`.  It split one file's read on WHICH MOMENT
+# it failed at, and pf-adversary pointed out that the standalone read has the
+# same two moments and got one token -- so the axis was not even applied
+# consistently.  Rather than add a token to match, the axis went: an operator
+# does not do anything different about a read that failed before the claim
+# than one that failed after it.  `claim_raised` / `entry_survived_claim`
+# stay because THEY are a remedy split ("go look at the disk" vs "delete the
+# line by hand"), not a chronology.
+CAUSE_NONE = "none"
+# NOT "unreadable".  Second pf-adversary pass: five of this token's six
+# producers are VALID JSON with good bytes (a string where a scene_id
+# belongs, a scene_id outside the catalog, a top-level list, a bool).
+# Calling those "unreadable" is the same sin the first version committed,
+# relocated -- so the word says REJECTED, which is true of all six.
+CAUSE_CONFIG_REJECTED = "config_rejected"
+# THE TWO REMEDIES OF THE FORMER `registry_refused_entry`, which the second
+# pf-adversary pass measured as INVERTED for the ordinary case.  That token
+# sent every inadmissible row to "restart the server".  But the row an
+# operator actually hand-types -- a scene with a real name that the login
+# path does not admit, e.g. 3 or 17 -- is refused by EVERY reading of the
+# registry, now and after any restart.  Restarting changes nothing; the
+# remedy is editing the file, which is the remedy the OTHER token owns.
+# The two remedies had stopped sharing a word without stopping being
+# crossed.
+CAUSE_SCENE_NOT_ADMISSIBLE = "scene_not_admissible"
+CAUSE_REGISTRY_STALE_SINCE_BOOT = "registry_stale_since_boot"
+CAUSE_GM_ACCOUNTS_UNREADABLE = "gm_accounts_unreadable"
+CAUSE_GM_MAP_UNREADABLE = "gm_map_unreadable"
+CAUSE_STANDALONE_MAP_UNREADABLE = "standalone_map_unreadable"
+CAUSE_CLAIM_RAISED = "claim_raised"
+CAUSE_ENTRY_SURVIVED_CLAIM = "entry_survived_claim"
+
+# Every `CONSUME_FAILED` return site in this module carries one of these, and
+# `test_gm_login_scene_consume_cause.py` COUNTS THE RETURN SITES IN THIS
+# SOURCE and refuses one that carries a cause outside the set -- pinning the
+# count of constants alone did not refuse an eighth branch that borrows an
+# existing token, which is what pf-adversary added to prove it.
+CONSUME_FAILED_CAUSES = frozenset(
+    {
+        CAUSE_CONFIG_REJECTED,
+        CAUSE_SCENE_NOT_ADMISSIBLE,
+        CAUSE_REGISTRY_STALE_SINCE_BOOT,
+        CAUSE_GM_ACCOUNTS_UNREADABLE,
+        CAUSE_GM_MAP_UNREADABLE,
+        CAUSE_STANDALONE_MAP_UNREADABLE,
+        CAUSE_CLAIM_RAISED,
+        CAUSE_ENTRY_SURVIVED_CLAIM,
+    }
+)
 
 
 class ConsumeResult:
     """What the login should do, and what happened to the entry on disk."""
 
-    __slots__ = ("scene_id", "outcome")
+    __slots__ = ("scene_id", "outcome", "cause")
 
-    def __init__(self, scene_id: int | None, outcome: str) -> None:
-        self.scene_id = scene_id
-        self.outcome = outcome
+    def __init__(
+        self, scene_id: int | None, outcome: str, cause: str = CAUSE_NONE
+    ) -> None:
+        # REFUSED BY NAME, not filtered.  `cause` is not free text and this
+        # is the only place that could let it become free text, so the check
+        # lives here rather than at seven call sites that would each have to
+        # remember it.
+        #
+        # SAFE TO RAISE, measured rather than assumed: the consume call in
+        # `runtime.py` sits inside `except (ValueError, OSError, TypeError)`,
+        # which logs `gm_login_scene_override_lookup_failed_ValueError`, so a
+        # cause this lane got wrong costs the OVERRIDE and never the login.
+        # Fail-closed in the direction that matters: an unprintable cause
+        # becomes no scene, not an unchecked string on the owner's console.
+        # (No line number here on purpose -- an earlier revision pinned one
+        # in chief's 6800-line file, where it goes stale every round and no
+        # test can notice it moved.)
+        #
+        # `type(...) is not str`, never isinstance, for the same reason
+        # `account_name` gets it below: a `str` SUBCLASS compares equal to a
+        # member of the set, passes `in`, and then renders as whatever its
+        # `__str__` says when chief interpolates it -- which is a forged
+        # `key=value` field, or a forged second console line, arriving with
+        # this lane's token in front of it.
+        # ALL THREE FIELDS, not just `cause`.  The first version guarded
+        # only the cause and advertised that as "the str-subclass forgery is
+        # closed"; pf-adversary pointed out `runtime.py` interpolates
+        # `override_result.scene_id` into an event string and `outcome` into
+        # its own comparisons, so a forged `outcome` or `scene_id` reaches a
+        # printed line by a door the advertisement did not mention.
+        if type(cause) is not str:
+            raise TypeError("cause must be a str, not a str subclass")
+        if type(outcome) is not str:
+            raise TypeError("outcome must be a str, not a str subclass")
+        if scene_id is not None and type(scene_id) is not int:
+            raise TypeError("scene_id must be an int or None")
+        if cause not in CONSUME_FAILED_CAUSES and cause != CAUSE_NONE:
+            raise ValueError("cause must be one of CONSUME_FAILED_CAUSES")
+        # THE TWO-WAY BINDING, and both directions earn their keep.  Without
+        # the first, a success could carry a cause and chief's console line
+        # would name a fault on a login that worked.  Without the second, a
+        # failure could carry `CAUSE_NONE` and chief would be back to
+        # printing "not carried by the outcome" for a branch that simply
+        # forgot -- the exact regression this field exists to end.
+        if outcome == CONSUME_FAILED:
+            if cause == CAUSE_NONE:
+                raise ValueError("CONSUME_FAILED must carry a cause")
+        elif cause != CAUSE_NONE:
+            raise ValueError("only CONSUME_FAILED may carry a cause")
+        object.__setattr__(self, "scene_id", scene_id)
+        object.__setattr__(self, "outcome", outcome)
+        object.__setattr__(self, "cause", cause)
+
+    # FROZEN AFTER CONSTRUCTION, and this is the half the first version was
+    # missing.  pf-adversary measured it: validating only in `__init__` left
+    # `result.cause = f"{CAUSE_GM_MAP_UNREADABLE}: {exc}"` a legal one-line
+    # change that put a config file's PATH and an ACCOUNT NAME onto the
+    # owner's console -- and it survived all 23 tests, because every one of
+    # them drove the constructor.  The module comment above claims "there is
+    # no path that builds a cause"; assignment was that path.  Now the only
+    # way a `ConsumeResult` gets a cause is through the check above.
+    def __setattr__(self, name: str, value: object) -> None:
+        raise AttributeError(
+            "ConsumeResult is immutable; construct a new one instead"
+        )
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError("ConsumeResult is immutable")
+
+    # COPY AND PICKLE HAVE TO KEEP WORKING, and the first version of the
+    # immutability fix broke both.  pf-adversary measured the regression:
+    # `copy.copy`, `copy.deepcopy` and `pickle.loads` all restore state by
+    # SETTING ATTRIBUTES, so they began raising `AttributeError` -- which is
+    # NOT in `runtime.py`'s `except (ValueError, OSError, TypeError)`.  Any
+    # future audit-row serialisation, or a `deepcopy` of an events
+    # structure holding one of these, would take down the login thread.
+    # That is strictly worse than the leak the immutability was closing.
+    #
+    # Rebuilding through `__init__` (rather than restoring a state dict)
+    # also means a copy goes through the SAME validation as an original --
+    # there is no round-trip that launders a forged cause.
+    # `__reduce__` ALONE is enough: `copy.copy`, `copy.deepcopy` and
+    # `pickle` all fall back to it.  An earlier revision also defined
+    # `__copy__` and `__deepcopy__`; removing those two left every test
+    # green, which is the correct verdict on redundant code rather than a
+    # gap to paper over with a test that only exercises them.
+    def __reduce__(self):
+        return (self.__class__, (self.scene_id, self.outcome, self.cause))
 
     def __repr__(self) -> str:  # pragma: no cover - diagnostics only
-        return f"ConsumeResult(scene_id={self.scene_id!r}, outcome={self.outcome!r})"
+        return (
+            f"ConsumeResult(scene_id={self.scene_id!r}, "
+            f"outcome={self.outcome!r}, cause={self.cause!r})"
+        )
 
     def __eq__(self, other: object) -> bool:
+        # `cause` IS part of the identity.  Measured before choosing: no
+        # test in this repo constructs a `ConsumeResult`, so nothing had to
+        # be relaxed to include it -- and leaving it out would have made
+        # `== ConsumeResult(None, CONSUME_FAILED, X)` pass for cause `Y`,
+        # which is a test that reads like it pins the cause and does not.
         if not isinstance(other, ConsumeResult):
             return NotImplemented
-        return (self.scene_id, self.outcome) == (other.scene_id, other.outcome)
+        return (self.scene_id, self.outcome, self.cause) == (
+            other.scene_id,
+            other.outcome,
+            other.cause,
+        )
+
+
+def _refusal_cause(refused: LoginSceneRefusedError, scene_registry) -> str:
+    """Which of the TWO remedies an inadmissible row needs.
+
+    The refusal above was judged against `scene_registry` -- since
+    `CORE-REQUEST-GM-036` that is `runtime.py`'s BOOT SNAPSHOT.  So there
+    are two ways to arrive here and they need opposite things:
+
+      * the row is inadmissible under every reading, now and after a
+        restart (the ordinary hand-typed typo: a scene with a real name
+        that the login path does not admit) -> EDIT THE FILE
+      * the row is admissible on disk TODAY and only the running process
+        disagrees, because lane A's registry was edited after boot
+        -> RESTART THE SERVER
+
+    Asking the disk is the only way to tell them apart, so this asks -- and
+    everything about how it asks is shaped by the two rules it must not
+    break:
+
+    A DIAGNOSTIC MAY NEVER ALTER DISPATCH.  This picks a WORD.  It is
+    called only on a path that has already decided to return
+    `CONSUME_FAILED` with no scene, it cannot change that, and every
+    failure inside it falls back to a word rather than escaping.
+
+    IT IS NOT A THIRD READER OF THE REGISTRY, which is the defect this lane
+    itself reported in `CORE-REQUEST-GM-034`.  A third reader is one whose
+    answer can DISAGREE with the two that decide things.  This one decides
+    nothing: admission was already settled, against the caller's registry,
+    before this function is reached.
+
+    FAIL-CLOSED TOWARDS THE COMMON CASE: anything unexpected returns
+    `scene_not_admissible`, which is both the overwhelmingly likelier cause
+    and the advice that is harmless if wrong (reading your own config file
+    costs a minute; restarting a live server does not).
+    """
+    if scene_registry is None or refused.scene_id is None:
+        # The refusal already came from a fresh disk read, so the disk and
+        # the judge are the same reading and a restart cannot change it.
+        return CAUSE_SCENE_NOT_ADMISSIBLE
+    try:
+        from .login_scene_admission import login_entry_is_pinned
+
+        # `scene_registry=None` = read the pin file FRESH, deliberately:
+        # the question is precisely "does the disk disagree with the
+        # snapshot this login was judged against".
+        disk_admits = login_entry_is_pinned(refused.scene_id)
+    except Exception:  # noqa: BLE001 - a diagnostic may never alter dispatch
+        return CAUSE_SCENE_NOT_ADMISSIBLE
+    if disk_admits:
+        return CAUSE_REGISTRY_STALE_SINCE_BOOT
+    return CAUSE_SCENE_NOT_ADMISSIBLE
 
 
 def _ask_the_standalone_map(
@@ -149,11 +404,20 @@ def _ask_the_standalone_map(
         standalone = load_standalone_login_scene_overrides(
             standalone_config_path, scene_registry=scene_registry
         )
+    except LoginSceneRefusedError as refused:
+        # ORDER MATTERS: this is a `ValueError` subclass, so it has to be
+        # caught first or the wider arm below swallows it and the console
+        # says "unreadable" about a file that reads perfectly.
+        return ConsumeResult(
+            None, CONSUME_FAILED, _refusal_cause(refused, scene_registry)
+        )
     except (OSError, ValueError):
         # A config this process cannot read is one it must not act on, and
         # no scene is returned.  See `CONSUME_FAILED`'s own note on what the
         # word covers -- it is wider than "a removal failed".
-        return ConsumeResult(None, CONSUME_FAILED)
+        return ConsumeResult(
+            None, CONSUME_FAILED, CAUSE_STANDALONE_MAP_UNREADABLE
+        )
     scene_id = standalone.get(account_name)
     if scene_id is None:
         return ConsumeResult(None, NOTHING_STAGED)
@@ -204,8 +468,14 @@ def consume_login_scene_override(
     lane just stops working until a restart.  Judged against the snapshot,
     the file is held to what the process can actually do.
 
-    Default `None` = read the file fresh, which is what every caller does
-    today and what every test in this lane was written against.
+    Default `None` = read the file fresh, which is what every test in this
+    lane was written against.  It is NO LONGER what the real login does:
+    chief wired the boot snapshot in at this call site and two others
+    (`CHIEF-REPLY` 2026-08-29T15:16+07:00, main as `pirate-force-server`
+    #264), so the sentence this docstring used to carry -- "what every
+    caller does today" -- is false and the difference matters, because the
+    snapshot reading is the one that decides `CAUSE_OVERRIDE_LOOKUP
+    _UNREADABLE` below.
     """
     if type(account_name) is not str:
         raise TypeError("account_name must be a str")
@@ -226,8 +496,21 @@ def consume_login_scene_override(
             standalone_config_path=standalone_config_path,
             scene_registry=scene_registry,
         )
+    except LoginSceneRefusedError as refused:
+        # THE CASE THAT ACTUALLY HAPPENS, and the one the first version of
+        # this field got wrong.  The file parsed; lane A's registry -- as
+        # THIS PROCESS holds it, which since `CORE-REQUEST-GM-036` is the
+        # boot snapshot -- will not admit the row.  Editing the config is
+        # not the remedy and saying "unreadable" sends the operator to grep
+        # a well-formed file.
+        return ConsumeResult(
+            None, CONSUME_FAILED, _refusal_cause(refused, scene_registry)
+        )
     except (OSError, ValueError):
-        return ConsumeResult(None, CONSUME_FAILED)
+        # The bytes really are bad.  The lookup reads all three configs and
+        # the loader does not say which, so this names the fault and not the
+        # file -- an honest "edit one of your config files" beats a guess.
+        return ConsumeResult(None, CONSUME_FAILED, CAUSE_CONFIG_REJECTED)
     if scene_id is None:
         return ConsumeResult(None, NOTHING_STAGED)
 
@@ -246,7 +529,9 @@ def consume_login_scene_override(
             account_name, gm_accounts_config_path
         )
     except (OSError, ValueError):
-        return ConsumeResult(None, CONSUME_FAILED)
+        return ConsumeResult(
+            None, CONSUME_FAILED, CAUSE_GM_ACCOUNTS_UNREADABLE
+        )
     if not answered_by_gm_map:
         # NO RE-READ HERE, and that is deliberate rather than an omission.
         # `get_login_scene_override` consults the GM map ONLY for a listed GM
@@ -269,8 +554,12 @@ def consume_login_scene_override(
         gm_map = load_login_scene_overrides(
             login_scene_config_path, scene_registry=scene_registry
         )
+    except LoginSceneRefusedError as refused:
+        return ConsumeResult(
+            None, CONSUME_FAILED, _refusal_cause(refused, scene_registry)
+        )
     except (OSError, ValueError):
-        return ConsumeResult(None, CONSUME_FAILED)
+        return ConsumeResult(None, CONSUME_FAILED, CAUSE_GM_MAP_UNREADABLE)
     if gm_map.get(account_name) is None:
         # NOT "therefore the standalone map answered".  MEASURED by
         # pf-adversary against the version that concluded exactly that:
@@ -318,7 +607,10 @@ def consume_login_scene_override(
             scene_registry=scene_registry,
         )
     except Exception:
-        return ConsumeResult(None, CONSUME_FAILED)
+        # BEFORE/AFTER MATTERS TO THE OPERATOR: this one says the remover
+        # itself raised, so the entry's fate on disk is unknown.  Distinct
+        # from `CAUSE_ENTRY_SURVIVED_CLAIM`, where it is known to be there.
+        return ConsumeResult(None, CONSUME_FAILED, CAUSE_CLAIM_RAISED)
 
     if claimed is None:
         # We know the GM map held the entry a moment ago and we did not get
@@ -329,10 +621,24 @@ def consume_login_scene_override(
             after = load_login_scene_overrides(
                 login_scene_config_path, scene_registry=scene_registry
             )
+        except LoginSceneRefusedError as refused:
+            return ConsumeResult(
+                None, CONSUME_FAILED, _refusal_cause(refused, scene_registry)
+            )
         except (OSError, ValueError):
-            return ConsumeResult(None, CONSUME_FAILED)
+            # SAME token as the pre-claim read of the same file.  An earlier
+            # revision split these on which MOMENT failed; pf-adversary
+            # observed the standalone read has the identical two moments and
+            # got one token, so the axis was not applied consistently -- and
+            # an operator does nothing different about the two.  The axis
+            # went rather than the inconsistency being papered over.
+            return ConsumeResult(
+                None, CONSUME_FAILED, CAUSE_GM_MAP_UNREADABLE
+            )
         if after.get(account_name) is not None:
-            return ConsumeResult(None, CONSUME_FAILED)
+            return ConsumeResult(
+                None, CONSUME_FAILED, CAUSE_ENTRY_SURVIVED_CLAIM
+            )
         # THE OTHER LOSER BRANCH, and the D3 fix reached only one of them.
         # MEASURED by pf-adversary: this branch returned `NOTHING_STAGED`
         # without ever asking the standalone map, so an operator with a
