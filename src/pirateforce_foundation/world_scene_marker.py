@@ -293,17 +293,34 @@ _READING = "u32 columns read as two's-complement int32"
 # committed artifact whose bytes are pinned by world_marker_copy.COPY_SHA256.
 # What the gate STILL cannot check: whether that artifact matches the client,
 # because the client's tables are not in this repository and no test here can
-# reach them. The E1 forgery is not impossible now, it is four coordinated
-# edits (this file, the verbatim row in the copy, that row's raw u32 text, and
-# COPY_SHA256) instead of three, all of them visible in one diff, and each
-# verbatim row carries its source line number so one sed on the bridge settles
-# it. Quote this constant, not "the tests are green".
+# reach them.
+#
+# ~~The E1 forgery is not impossible now, it is four coordinated edits ...
+# instead of three ... and each verbatim row carries its source line number so
+# one sed on the bridge settles it.~~  STRUCK, MEASURED FALSE IN THE ROUND THAT
+# WROTE IT (pf-adversary, round i8timv, D1 and D6), before the PR left draft.
+# Executed end to end the forgery costs FIVE edits, four hand-typed - _ROWS,
+# the by-value literal in tests/test_world_scene_marker.py, the registry spawn,
+# the verbatim row in the copy - plus COPY_SHA256, which is computed rather
+# than typed.  The honest delta is +1 hand-typed literal and one sha256sum.
+# The sed line settles the 18 verbatim rows; the 661 index pairs carry no line
+# numbers, so a wrong TOTAL is still caught by internal literals only.
+#
+# WHAT IS ACTUALLY TRUE, AND IT IS THE PART WORTH KEEPING: an accident - a
+# typo, a bad merge, a half-finished edit - cannot survive at all now, where
+# before it could; and a deliberate forgery has to touch one more file and
+# leave it in the diff.  Quote this constant, not "the tests are green", and
+# do not quote it for agreement with the client.
 VERIFICATION_REACH = (
-    "internal consistency everywhere; agreement with the COMMITTED client-table "
-    "copy (world_data/world_marker_crosswalk.json) everywhere, gate included, "
-    "via tests/test_world_marker_copy.py which never skips; agreement between "
-    "that copy and the client's own tables only where pf_bridge sits beside "
-    "this repo, which is still NOT the merge gate"
+    "internal consistency everywhere; agreement with a committed CURATED "
+    "PROJECTION of the client tables (world_data/world_marker_crosswalk.json - "
+    "two columns of every row, full rows for 18 of 390) on every machine, the "
+    "gate included, via tests/test_world_marker_copy.py, which carries no skip "
+    "and pins that it never gains one; agreement between that projection and "
+    "the client's own tables only where pf_bridge sits beside this repo, which "
+    "is still NOT the merge gate. Every artifact in that chain is written by "
+    "this lane in one commit, so what the gate proves is that LANE-A is "
+    "internally consistent across four files instead of three"
 )
 # Where the committed copy lives and what regenerates it.  Named here as text
 # rather than imported: build_foundation_release.py collects src/**/*.py and
@@ -413,6 +430,16 @@ def forbidden_direct_index_scenes() -> dict[int, str]:
 SCENES_THE_SHORTCUT_WOULD_INVENT_A_POINT_FOR = 257
 MARKER_LESS_SCENES = 258
 SHORTCUT_SURVIVES_THE_BACK_POINTER_CHECK = (126, 127, 128)
+# The same three as (marker id, x, y, z), so "all three are the degenerate
+# (0, 0, z) origin" stops being prose.  pf-adversary (round i8timv, D9) found
+# that sentence was the one claim in this block no machine could check: the
+# copy kept no coordinates for 126/127/128.  It keeps them now, and
+# world_marker_copy.shortcut_survivor_points() re-derives this tuple.
+SHORTCUT_SURVIVOR_POINTS = (
+    (126, 0, 0, 90),
+    (127, 0, 0, 70),
+    (128, 0, 0, 100),
+)
 # What MARKER[130] actually carries.  Scene 130 names marker 1000, so the
 # shortcut does not merely miss - it returns Prison Exile Island's row.
 MARKER_ROW_AT_SCENE_130_BELONGS_TO = 2

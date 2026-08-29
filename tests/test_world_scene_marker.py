@@ -581,6 +581,41 @@ class Scene14RegistryTests(unittest.TestCase):
             )
 
 
+class TheCopyBindingSurvivesLosingItsOwnTestFileTest(unittest.TestCase):
+    """A second, independent copy of the guarantee round ``i8timv`` added.
+
+    pf-adversary deleted ``tests/test_world_marker_copy.py`` outright and the
+    suite went green with a forged coordinate in ``_ROWS`` (round ``i8timv``,
+    D2a): nothing anywhere pinned that the file exists, and the skip census
+    only notices modules that SKIP, never modules that vanish.  So the binding
+    is asserted here too, in a file with its own reasons to exist, and this
+    class also fails if the other file goes missing.
+
+    Two files can still both be deleted.  The point is not that it is
+    impossible - it is that it stops being a one-line change that reads like
+    tidying, and starts being the deletion of a test file that this module's
+    own docstring names.
+    """
+
+    def test_the_pinned_rows_re_derive_from_the_committed_copy(self):
+        from pirateforce_foundation import world_marker_copy
+
+        self.assertEqual(world_marker_copy.derive_rows(),
+                         world_scene_marker._ROWS)
+
+    def test_the_dedicated_test_file_is_still_in_the_tree(self):
+        companion = ROOT / "tests" / "test_world_marker_copy.py"
+        self.assertTrue(
+            companion.is_file(),
+            "tests/test_world_marker_copy.py is the gate-side half of "
+            "COO-DECISION 20260829_0941 and may not be deleted",
+        )
+        self.assertIn(
+            "def test_every_pinned_row_re_derives_from_the_copy",
+            companion.read_text(encoding="utf-8"),
+        )
+
+
 @BRIDGE_GAMEDATA.skip_unless_present()
 class MarkerReverificationOnTheBridgeTest(unittest.TestCase):
     """The check that needs the bridge clone's gamedata beside this repo.

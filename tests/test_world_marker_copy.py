@@ -29,6 +29,7 @@ appear in one diff.
 import ast
 import copy as copy_module
 import hashlib
+import importlib.util
 import json
 import sys
 import tempfile
@@ -97,16 +98,24 @@ class ThePinnedRowsAreAProjectionOfTheCopyTest(unittest.TestCase):
     def test_every_pinned_row_re_derives_from_the_copy(self):
         self.assertEqual(derive_rows(self.document), world_scene_marker._ROWS)
 
-    def test_all_thirteen_rows_and_all_seven_columns_are_covered(self):
-        """A projection over 12 of 13 rows would pass the test above.
+    def test_every_scene_that_names_a_marker_is_covered_by_the_copy(self):
+        """A copy missing one of the 13 rows must not read as agreement.
 
-        It would not: the tuples are compared whole.  This states the size of
-        what that comparison covers so a later round that narrows the copy
-        finds out here rather than in a docstring.
+        ~~``assertTrue(all(len(row) == 7 ...))``~~ was here and could not fail
+        for any input: ``derive_rows`` appends a 7-element tuple literal, so
+        the assertion restated the code it was checking - the round-``uajlve``
+        defect this file's own docstring warns about (pf-adversary, round
+        i8timv, D7). What replaces it is the property that can actually break:
+        the copy's scene index must name a marker for exactly the scenes
+        ``_ROWS`` covers, so dropping a row from either side is a mismatch
+        rather than a shorter agreement.
         """
-        derived = derive_rows(self.document)
-        self.assertEqual(len(derived), world_scene_marker.SCENES_WITH_A_MARKER)
-        self.assertTrue(all(len(row) == 7 for row in derived))
+        named = tuple(
+            scene for scene, marker in self.document["scene_marker_index"]
+            if marker
+        )
+        self.assertEqual(named, tuple(row[0] for row in world_scene_marker._ROWS))
+        self.assertEqual(len(named), world_scene_marker.SCENES_WITH_A_MARKER)
 
     def test_forging_a_coordinate_in_the_copy_turns_this_file_red(self):
         """The test that proves the tests above can fail at all.
@@ -114,9 +123,16 @@ class ThePinnedRowsAreAProjectionOfTheCopyTest(unittest.TestCase):
         A re-derivation that agreed with ``_ROWS`` no matter what the copy said
         would be the round-``uajlve`` defect one layer up: a check that asserts
         what the loader already guarantees.
+
+        The forged value is derived from the real one rather than typed. The
+        first version hardcoded ``"18990"``, which made this NEGATIVE CONTROL
+        the thing that failed when a forgery happened to use the same number,
+        and would fail spuriously the day the client ships it (pf-adversary,
+        round i8timv, D11).
         """
         forged = copy_module.deepcopy(self.document)
-        forged["marker_rows_verbatim"]["14"]["raw"]["n_Y"] = "18990"
+        real = int(forged["marker_rows_verbatim"]["14"]["raw"]["n_Y"])
+        forged["marker_rows_verbatim"]["14"]["raw"]["n_Y"] = str(real + 1)
         self.assertNotEqual(derive_rows(forged), world_scene_marker._ROWS)
 
     def test_forging_the_scene_index_in_the_copy_turns_this_file_red(self):
@@ -204,6 +220,60 @@ class EveryTotalTheModuleStatesIsRecomputedTest(unittest.TestCase):
         self.assertEqual(world_marker_copy.shortcut_at_scene_17(),
                          world_scene_marker.SHORTCUT_AT_SCENE_17)
 
+    def test_the_three_survivors_really_are_the_degenerate_origin(self):
+        """The last sentence of the totals block that was only prose.
+
+        ``world_scene_marker`` says markers 126/127/128 are "the degenerate
+        (0, 0, z) origin". It was true and no machine could check it, because
+        the copy kept no coordinates for those three (pf-adversary, round
+        i8timv, D9). They are in the copy now.
+        """
+        derived = world_marker_copy.shortcut_survivor_points()
+        self.assertEqual(derived, world_scene_marker.SHORTCUT_SURVIVOR_POINTS)
+        self.assertEqual(
+            tuple(point[0] for point in derived),
+            world_scene_marker.SHORTCUT_SURVIVES_THE_BACK_POINTER_CHECK,
+        )
+        for marker_id, x, y, _z in derived:
+            with self.subTest(marker=marker_id):
+                self.assertEqual((x, y), (0, 0))
+
+
+class TheReachStatementSaysWhatWasMeasuredTest(unittest.TestCase):
+    """``VERIFICATION_REACH`` is the most-quoted string in this lane.
+
+    Until this round it was also the least checked: the registry cites it as
+    the authority on how far verification reaches and no test asserted a word
+    of it, so the round that widened it shipped a claim its own adversary
+    refuted in the same commit (pf-adversary, round i8timv, D3).
+    """
+
+    def test_it_does_not_claim_agreement_with_the_client(self):
+        reach = world_scene_marker.VERIFICATION_REACH
+        self.assertIn("NOT the merge gate", reach)
+        self.assertIn("only where pf_bridge sits beside this repo", reach)
+
+    def test_it_calls_the_copy_a_projection_rather_than_the_client_table(self):
+        reach = world_scene_marker.VERIFICATION_REACH
+        self.assertIn("CURATED PROJECTION", reach)
+
+    def test_it_names_the_limit_the_adversary_measured(self):
+        """The chain is written by one lane in one commit, and it says so."""
+        reach = world_scene_marker.VERIFICATION_REACH
+        self.assertIn("internally consistent", reach)
+        self.assertIn("one commit", reach)
+
+    def test_the_committed_copy_constant_names_a_file_that_exists(self):
+        """``COMMITTED_COPY`` had no reader and no assertion (D10).
+
+        A path constant nobody checks is the stale-pin shape this lane keeps
+        writing up; rename the directory and it lies silently.
+        """
+        named = ROOT / world_scene_marker.COMMITTED_COPY
+        self.assertTrue(named.is_file(), f"{named} does not exist")
+        self.assertEqual(named.resolve(),
+                         world_marker_copy.COPY_PATH.resolve())
+
 
 class TheCopySaysWhereItCameFromAndWhoOwnsItTest(unittest.TestCase):
     """The ruling's third instruction: the rule lives in the file's header."""
@@ -261,35 +331,74 @@ class TheseTestsRunOnEveryMachineTest(unittest.TestCase):
         running on the machine that gates the merge.
         """
         tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+        # EVERY name and attribute in the module, lowercased.  The first
+        # version of this test checked decorators (lowercased) plus two call
+        # targets compared CASE-SENSITIVELY, and pf-adversary walked straight
+        # through it three ways in round i8timv (D2): `raise
+        # unittest.SkipTest(...)` has a capital S and was not matched; a skip
+        # applied after the class body (`C = unittest.skip('later')(C)`) is an
+        # Assign and has no decorator_list at all; and `__unittest_skip__ =
+        # True` is neither. Scanning every Name/Attribute catches all three,
+        # because a skip cannot be applied without naming something. Function
+        # and class NAMES are not Name nodes, so this test's own name is fine,
+        # and string literals are not either, so the prose above is fine.
+        # IDENTIFIERS ONLY, not whole expressions.  Unparsing the node caught
+        # `(ROOT / 'docs' / 'PYTEST_SKIP_PINS.json').read_text` because the
+        # string literal is part of that expression - a check that cannot tell
+        # a filename from a call would have forced the sibling test to stop
+        # reading the pin file in order to stay green.
         for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
-                                 ast.ClassDef)):
-                for decorator in node.decorator_list:
-                    with self.subTest(decorated=node.name):
-                        self.assertNotIn(
-                            "skip", ast.unparse(decorator).lower(),
-                            f"{node.name} grew a skip decorator; the ruling "
-                            "says this file runs on every machine",
-                        )
-            if isinstance(node, ast.Call):
-                target = ast.unparse(node.func)
-                with self.subTest(call=target):
-                    self.assertNotIn("skipTest", target)
-                    self.assertNotIn("skip_unless_present", target)
+            if isinstance(node, ast.Name):
+                identifier = node.id
+            elif isinstance(node, ast.Attribute):
+                identifier = node.attr
+            else:
+                continue
+            with self.subTest(identifier=identifier):
+                self.assertNotIn(
+                    "skip", identifier.lower(),
+                    "this file may not name anything skip-shaped; "
+                    "COO-DECISION 20260829_0941 says the re-derive test "
+                    "runs on every machine",
+                )
 
-    def test_this_file_is_absent_from_the_skip_pin_census(self):
+    def test_this_file_is_absent_from_every_section_of_the_skip_pin_file(self):
         """A file with no skips may not appear in the pin file at all.
 
         ``tools/pf_pytest_precondition_census.py`` goes red in either
         direction, so an entry added here later -- the paperwork half of
         adding a skip -- is caught even before the decorator is.
+
+        Reads EVERY section, not just ``preconditions``: the first version
+        read only that key, and ``design_skips`` is the other half of the
+        file - pinning a bare ``SkipTest`` there was one of the three ways
+        pf-adversary removed this file's guarantee with everything green
+        (round i8timv, D2b).
         """
         pins = json.loads(
             (ROOT / "docs" / "PYTEST_SKIP_PINS.json").read_text(
                 encoding="utf-8")
         )
-        modules = [entry["module"] for entry in pins["preconditions"]]
-        self.assertNotIn("tests/test_world_marker_copy.py", modules)
+        for section in ("preconditions", "design_skips"):
+            with self.subTest(section=section):
+                modules = [
+                    entry.get("module") for entry in pins.get(section, [])
+                ]
+                self.assertNotIn("tests/test_world_marker_copy.py", modules)
+
+    def test_the_load_bearing_test_is_still_here_under_its_own_name(self):
+        """Deleting this file must not be a silent way to remove the check.
+
+        pf-adversary deleted the whole module and the suite went green with a
+        forged coordinate in place (round i8timv, D2a): nothing pinned that
+        the file exists. The counterpart of this assertion lives in
+        ``tests/test_world_scene_marker.py``, which re-derives ``_ROWS`` from
+        the copy independently, so removing the guarantee now means deleting
+        an assertion in a second file that names this one.
+        """
+        source = Path(__file__).read_text(encoding="utf-8")
+        self.assertIn("def test_every_pinned_row_re_derives_from_the_copy",
+                      source)
 
 
 class TheReleaseArchiveConstraintTest(unittest.TestCase):
@@ -302,11 +411,33 @@ class TheReleaseArchiveConstraintTest(unittest.TestCase):
     load it at import" finds out in one second.
     """
 
-    def test_the_release_archive_still_collects_only_python_from_src(self):
-        builder = (ROOT / "tools" / "build_foundation_release.py").read_text(
-            encoding="utf-8")
-        self.assertIn("(ROOT/'src').rglob('*.py')", builder)
-        self.assertNotIn("world_data", builder)
+    def test_the_release_archive_does_not_carry_this_data_file(self):
+        """Executed against the builder, not asserted about its text.
+
+        ~~``assertIn("(ROOT/'src').rglob('*.py')")`` plus
+        ``assertNotIn("world_data")``~~ was here and did not test its own
+        name: pf-adversary added ``rglob('*.json')`` to the builder and the
+        test still passed, and the ``assertNotIn`` would also have fired on
+        the FIX rather than only on the bug (round i8timv, D8). This imports
+        the builder's own ``FILES`` list and asks it directly.
+        """
+        spec = importlib.util.spec_from_file_location(
+            "pf_build_foundation_release",
+            ROOT / "tools" / "build_foundation_release.py",
+        )
+        builder = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(builder)
+        collected = [Path(p) for p in builder.FILES]
+        self.assertNotIn(world_marker_copy.COPY_PATH.resolve(),
+                         [p.resolve() for p in collected])
+        # And the reader itself DOES ship, which is the asymmetry worth
+        # knowing: a release-side caller of load_copy() gets MarkerCopyError,
+        # by design, rather than a wrong answer.
+        self.assertIn(
+            (ROOT / "src" / "pirateforce_foundation"
+             / "world_marker_copy.py").resolve(),
+            [p.resolve() for p in collected],
+        )
 
     def test_no_module_in_the_package_imports_the_copy_reader(self):
         """Read as imports, not as text.

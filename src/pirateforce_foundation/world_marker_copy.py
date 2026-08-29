@@ -26,8 +26,8 @@ and this module is both of them:
 
 HOW FAR THIS ACTUALLY REACHES, STATED BEFORE ANYONE QUOTES IT.  What the gate
 can now prove is that ``world_scene_marker._ROWS``, the six totals beside it,
-and the two shortcut examples are a faithful projection of a COMMITTED
-artifact whose bytes are pinned by ``COPY_SHA256``.  What the gate still
+the two shortcut examples and the three degenerate-origin rows are a faithful
+projection of a COMMITTED artifact whose bytes are pinned by ``COPY_SHA256``.  What the gate still
 cannot prove is that the committed artifact matches the client, because the
 client's tables are not in this repository and nothing here can reach them.
 That last hop is still the bridge's, and it is now ONE command against ONE
@@ -36,19 +36,52 @@ bridge tree and compares bytes.
 
 So the honest description of the change is narrower than "the gate now checks
 the client data", and this docstring says the narrower thing on purpose.
-Before: forging a coordinate cost THREE hand-typed literals in one lane's own
-files, all mutually checking each other.  After: it costs an edit to ``_ROWS``,
-a matching edit to the verbatim row in the copy, a matching edit to that row's
-RAW u32 text (the copy keeps the unsigned source text, not the signed reading,
-so the forger has to be consistent in a second number system), and a new
-``COPY_SHA256``.  Four coordinated edits, every one of them in the diff, and
-each verbatim row carries its 1-based source line number so a reviewer with
-the bridge tree falsifies the whole thing with ``sed -n '<line>p'``.
 
-That is a real increase in what a forgery costs and a real decrease in what an
-ACCIDENT can do.  It is not proof of agreement with the client, and no round
-may quote it for that.  ``VERIFICATION_REACH`` in ``world_scene_marker`` is
-updated in the same commit and says the same thing.
+~~Before: forging a coordinate cost THREE hand-typed literals ... After ...
+Four coordinated edits ... and each verbatim row carries its 1-based source
+line number so a reviewer with the bridge tree falsifies the whole thing with
+``sed -n '<line>p'``.~~  **STRUCK, MEASURED FALSE BY pf-adversary IN THE ROUND
+THAT WROTE IT (round i8timv, D1 and D6), BEFORE THE PR LEFT DRAFT.**  Three
+things were wrong with that paragraph and all three flattered this round:
+
+* **"the verbatim row in the copy" and "that row's RAW u32 text" are THE SAME
+  EDIT.**  There is no signed number anywhere in the JSON; the raw u32 text IS
+  the verbatim row.  A list of four was a list of three.
+* **The before-count and the after-count were not counting the same things**,
+  so subtracting them was meaningless.  Executed end to end, the forgery that
+  round ``8ubiku2`` measured now costs FIVE edits, four of them hand-typed:
+  ``_ROWS``, the by-value literal in ``tests/test_world_scene_marker.py``, the
+  registry spawn in ``scenarios/world_scene_registry_001.json``, the verbatim
+  row here - and then ``COPY_SHA256``, which is not typed but computed with one
+  ``sha256sum``.  **The honest delta this round bought is +1 hand-typed literal
+  and one mechanical hash.**  pf-adversary ran it: 4419 passed, 385 skipped,
+  byte-identical to the unforged baseline, forged point still labelled
+  ``client_marker_table``.
+* **"a second number system" is false for half the table.**  Scene 14's ``n_Y``
+  is ``18989`` in the file and ``18989`` in the module.  Only negative
+  coordinates differ, and there the conversion is one expression.
+* **"falsifies the whole thing with sed" is false for the six TOTALS.**  Line
+  numbers exist for the 18 verbatim rows only.  The 661 index pairs carry none,
+  so a wrong total is caught by internal literals, not by an external anchor.
+
+What is left after all that is smaller and still worth having: an ACCIDENT -
+a typo, a bad merge, a half-finished edit - cannot survive at all, where before
+it could; and a deliberate forgery has to touch one more file and leave it in
+the diff.  That is the claim.  ``VERIFICATION_REACH`` in ``world_scene_marker``
+carries the same sentence and a test asserts its wording, because the previous
+version of that constant was the most-quoted and least-checked string in the
+lane.
+
+THE QUESTION THIS DESIGN DOES NOT ANSWER, RECORDED BECAUSE IT IS THE REAL ONE.
+``COPY_SHA256``, this JSON, and both source-table hashes are all literals in
+one repository, written by one lane, in one commit.  Every artifact the gate
+compares is authored by the party being audited; what changed is how many
+places that party must write the same number.  A lock is only a lock if the
+other party can lose it.  Anchoring this outside the lane needs something the
+lane cannot write in the same commit - a gate-time fetch of the client table,
+a signature, or a second party's countersignature - and that is a project-level
+choice, asked in
+``pf_bridge/notes_to_chief/20260829_1126_LANE-A-ASK-COO-what-can-a-lane-not-write.md``.
 
 WHAT IS COPIED, AND WHY IT IS NOT THE WHOLE TABLE.  The ruling says to curate
 the rows this project actually uses.  Taken literally that is 15 marker rows,
@@ -61,9 +94,13 @@ ago.  So the copy keeps:
 * the COLUMNS every total is computed from, for ALL rows -- ``(n_ID,
   n_MARKER)`` for the 271 scenes and ``(n_ID, n_SCENE)`` for the 390 markers.
   Two small integers per row, no coordinates, no names, no music files;
-* the FULL row, verbatim, for the 15 markers this project quotes a coordinate
-  from -- the 13 arrival points plus ``MARKER[130]`` and ``MARKER[17]``, the
-  two rows the prohibition in rule 2 is argued from.
+* the FULL row, verbatim, for the 18 markers this project quotes a coordinate
+  from -- the 13 arrival points, ``MARKER[130]`` and ``MARKER[17]`` (the two
+  rows the prohibition in rule 2 is argued from), and ``MARKER[126..128]``,
+  added in this round's adversary pass because ``world_scene_marker`` states
+  those three are "the degenerate (0, 0, z) origin" and pf-adversary (D9)
+  measured that the claim was the one line of the totals block still resting
+  on nothing a gate could check.
 
 [LANE-A READING OF AN APPROVED RULING -- AWAITING COO CONFIRMATION]  Keeping
 two columns of every row is this lane's reading of "the rows actually used",
@@ -97,16 +134,29 @@ COPY_PATH = Path(__file__).parent / "world_data" / "world_marker_crosswalk.json"
 # test, and a round that edits the copy and leaves this pin alone fails
 # load_copy().  Neither can be satisfied by "updating the pin to match myself"
 # without the change appearing in the diff of BOTH files.
-COPY_SHA256 = "7f33a15160d38738f5a40befd8c15c4ac3b78f5d95db8e35515dbe4fa9e3fb06"
+COPY_SHA256 = "ee4f601f215a70547230f9bc3657111f0acfbfc29f0649dbef1236bf0f2f65da"
 
 # The two source files, named the way the rest of this package names them.
 SCENE_NAME_TSV = "pf_bridge/gamedata/tables/CONSTDATA_TH__SCENE_NAME.tsv"
 MARKER_TSV = "pf_bridge/gamedata/tables/CONSTDATA_TH__MARKER.tsv"
 
-# The 15 marker rows kept verbatim: the 13 a scene names, plus the two the
-# prohibition is argued from.  130 is the row the shortcut hands scene 130
-# (it belongs to scene 2) and 17 is the row it hands the sea.
-QUOTED_MARKER_IDS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 17, 130, 1000)
+# The 18 marker rows kept verbatim: the 13 a scene names, the two the
+# prohibition is argued from, and the three the totals block describes.
+# 130 is the row the shortcut hands scene 130 (it belongs to scene 2), 17 is
+# the row it hands the sea, and 126/127/128 are the three that survive the
+# back-pointer check - world_scene_marker calls them the degenerate (0, 0, z)
+# origin, and until pf-adversary's D9 in this round that sentence was the one
+# claim in the totals block no machine could check.
+QUOTED_MARKER_IDS = (
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 17, 126, 127, 128, 130, 1000,
+)
+
+
+# Sentinel used only inside curate(): the two index arrays are substituted into
+# the rendered JSON one PAIR per line.  Plain ASCII on purpose - a control
+# character would be re-escaped by json.dumps and the replace would miss.  The
+# substitution matches the full quoted token, so it cannot hit real data.
+_PAIRS_PLACEHOLDER = "__PF_PAIRS__"
 
 
 class MarkerCopyError(RuntimeError):
@@ -148,15 +198,36 @@ def curate(tables_dir: Path | str) -> str:
     marker_path = tables / Path(MARKER_TSV).name
     scene_rows = _read_tsv(scene_path)
     marker_rows = _read_tsv(marker_path)
-    marker_by_id = {int(row["n_ID"]): row for row in marker_rows}
+    # 1-based line number in the source file, captured while walking it: the
+    # header is line 1 and the rows follow in file order, so a reviewer on the
+    # bridge checks a row with sed -n '<line>p' and never has to trust this
+    # file's ordering.  Taken from enumerate rather than from list.index(row),
+    # which the first draft used: index() returns the FIRST equal row, so two
+    # byte-identical rows in a future table would silently point one of them at
+    # the other's line, and the cross-check test could not see it because the
+    # two rows agree on everything it compares (pf-adversary, round i8timv,
+    # D11).  No duplicate exists in today's 390 rows; this is the guard for the
+    # table that changes.
+    marker_by_id: dict[int, tuple[int, dict[str, str]]] = {}
+    for offset, row in enumerate(marker_rows):
+        marker_id = int(row["n_ID"])
+        if marker_id in marker_by_id:
+            raise MarkerCopyError(
+                f"marker id {marker_id} appears twice in {marker_path.name}; "
+                "the crosswalk cannot say which row a scene named"
+            )
+        marker_by_id[marker_id] = (2 + offset, row)
+
+    scene_index = [
+        (int(row["n_ID"]), int(row["n_MARKER"])) for row in scene_rows
+    ]
+    marker_index = [
+        (int(row["n_ID"]), int(row["n_SCENE"])) for row in marker_rows
+    ]
 
     verbatim: dict[str, dict[str, object]] = {}
     for marker_id in QUOTED_MARKER_IDS:
-        row = marker_by_id[marker_id]
-        # 1-based line number in the source file: the header is line 1 and the
-        # rows follow in file order, so a reviewer on the bridge checks a row
-        # with sed -n '<line>p' and never has to trust this file's ordering.
-        line_number = 2 + marker_rows.index(row)
+        line_number, row = marker_by_id[marker_id]
         verbatim[str(marker_id)] = {
             "source_line": line_number,
             "raw": {key: row[key] for key in ("n_ID", "n_SCENE", "n_X", "n_Y",
@@ -174,15 +245,24 @@ def curate(tables_dir: Path | str) -> str:
         ),
         "_who_updates_this_and_when": (
             "LANE-A owns this file. It is regenerated, never hand-edited, and "
-            "only from a bridge working tree: "
-            "python -c \"import pathlib, sys; "
+            "only from a bridge working tree. Use the project's pinned "
+            "interpreter (py -3 on the bridge, python3 elsewhere) and note "
+            "newline='' - it is load-bearing, not decoration: "
+            "py -3 -c \"import pathlib, sys; "
             "sys.path.insert(0, 'src'); "
             "from pirateforce_foundation.world_marker_copy import curate; "
             "pathlib.Path('src/pirateforce_foundation/world_data/"
             "world_marker_crosswalk.json').write_text("
-            "curate('../pf_bridge/gamedata/tables'), encoding='utf-8')\" "
+            "curate('../pf_bridge/gamedata/tables'), encoding='utf-8', "
+            "newline='')\" "
             "-- then update COPY_SHA256 in world_marker_copy.py in the SAME "
-            "commit. When the client's tables change, the source sha256 values "
+            "commit. WITHOUT newline='' this command writes CRLF on Windows, "
+            "the pin you compute is the CRLF digest, .gitattributes normalizes "
+            "the committed blob back to LF, and every test goes red on the "
+            "gate for a reason invisible on your own machine (pf-adversary, "
+            "round i8timv, D4: the CRLF file even PASSED the old "
+            "verify_against_sources, which compared text and not bytes). "
+            "When the client's tables change, the source sha256 values "
             "below stop matching and that regeneration is mandatory before any "
             "round may quote a marker coordinate again. A hand edit to this "
             "file is a defect even when the numbers in it are right, because "
@@ -209,22 +289,35 @@ def curate(tables_dir: Path | str) -> str:
                 "rows_kept_in_full": list(QUOTED_MARKER_IDS),
             },
         },
-        "scene_marker_index": [
-            [int(row["n_ID"]), int(row["n_MARKER"])] for row in scene_rows
-        ],
-        "marker_scene_index": [
-            [int(row["n_ID"]), int(row["n_SCENE"])] for row in marker_rows
-        ],
+        "scene_marker_index": _PAIRS_PLACEHOLDER + "scene_marker_index",
+        "marker_scene_index": _PAIRS_PLACEHOLDER + "marker_scene_index",
         "marker_rows_verbatim": verbatim,
     }
-    return json.dumps(document, indent=1, ensure_ascii=True, sort_keys=False) + "\n"
+    text = json.dumps(document, indent=1, ensure_ascii=True, sort_keys=False)
+    # The two index arrays are 661 pairs.  Rendered by json.dumps at indent=1
+    # they become 3300 lines of one integer each, which is a data file no
+    # reviewer can read and a diff nobody will scroll.  They are rendered one
+    # PAIR per line instead - still valid JSON, still one line per row of the
+    # client's table, and a human can now scan for the row they care about.
+    for key, pairs in (("scene_marker_index", scene_index),
+                       ("marker_scene_index", marker_index)):
+        rendered = "[\n" + ",\n".join(
+            f"  [{left}, {right}]" for left, right in pairs
+        ) + "\n ]"
+        text = text.replace(f'"{_PAIRS_PLACEHOLDER}{key}"', rendered)
+    return text + "\n"
 
 
 def load_copy() -> dict[str, object]:
     """The committed copy, refused if its bytes are not the pinned bytes."""
     try:
         raw = COPY_PATH.read_bytes()
-    except FileNotFoundError as exc:  # pragma: no cover - the file is committed
+    except FileNotFoundError as exc:
+        # No "pragma: no cover" here.  The first draft carried one saying "the
+        # file is committed", which was wrong twice: the branch IS covered by
+        # test_a_missing_copy_is_an_error_and_not_an_empty_answer, and the file
+        # is NOT present in the release archive, which collects src/**/*.py and
+        # no data (pf-adversary, round i8timv, D8).
         raise MarkerCopyError(
             f"the committed marker crosswalk is missing at {COPY_PATH}"
         ) from exc
@@ -298,6 +391,29 @@ def derive_census(copy: dict[str, object] | None = None) -> dict[str, object]:
     }
 
 
+def shortcut_survivor_points(copy: dict[str, object] | None = None) -> tuple[
+    tuple[int, int, int, int], ...
+]:
+    """The XYZ of markers 126/127/128, the three the back-pointer check misses.
+
+    ``world_scene_marker`` says in prose that all three are "the degenerate
+    (0, 0, z) origin".  Until this round the copy kept no coordinates for them,
+    so that sentence was the one line of the totals block a gate could not
+    check - true, and resting on nothing (pf-adversary, round i8timv, D9).
+    Returns ``(marker id, x, y, z)`` ascending.
+    """
+    document = load_copy() if copy is None else copy
+    verbatim = document["marker_rows_verbatim"]  # type: ignore[index]
+    survivors = []
+    for marker_id in sorted(
+        int(k) for k in verbatim if int(k) in (126, 127, 128)
+    ):
+        row = verbatim[str(marker_id)]["raw"]  # type: ignore[index]
+        survivors.append((marker_id, s32(row["n_X"]), s32(row["n_Y"]),
+                          s32(row["n_Z"])))
+    return tuple(survivors)
+
+
 def shortcut_at_scene_17(copy: dict[str, object] | None = None) -> tuple[
     int, int, int, int
 ]:
@@ -315,13 +431,30 @@ def verify_against_sources(tables_dir: Path | str) -> None:
     gets a raise here has found drift between the committed copy and the
     client's shipped data and must regenerate, never edit either side to
     agree.
+
+    COMPARES BYTES, NOT TEXT, AND THAT IS THE WHOLE POINT OF THIS PARAGRAPH.
+    The first version read the committed file with ``read_text``, which
+    normalizes newlines, so a CRLF copy written by the documented regeneration
+    command on Windows compared EQUAL here and was then REFUSED by
+    ``load_copy()`` on every machine, including the gate - the verifier the
+    design nominates as its last hop reported green on the one accident the
+    design makes easy (pf-adversary, round i8timv, D4).  ``read_bytes`` is what
+    the digest sees, so this is what the check has to see.
     """
-    regenerated = curate(tables_dir)
-    committed = COPY_PATH.read_text(encoding="utf-8")
+    regenerated = curate(tables_dir).encode("utf-8")
+    committed = COPY_PATH.read_bytes()
     if regenerated != committed:
-        regenerated_sha = hashlib.sha256(regenerated.encode("utf-8")).hexdigest()
-        committed_sha = hashlib.sha256(committed.encode("utf-8")).hexdigest()
+        regenerated_sha = hashlib.sha256(regenerated).hexdigest()
+        committed_sha = hashlib.sha256(committed).hexdigest()
+        detail = ""
+        if regenerated.replace(b"\r\n", b"\n") == committed.replace(b"\r\n", b"\n"):
+            detail = (
+                " - the two differ ONLY in line endings, so this is the CRLF "
+                "regeneration accident: rewrite the copy with newline='' and "
+                "re-pin"
+            )
         raise MarkerCopyError(
             "the committed crosswalk is not what the client tables produce: "
             f"regenerated sha256 {regenerated_sha}, committed {committed_sha}"
+            + detail
         )
