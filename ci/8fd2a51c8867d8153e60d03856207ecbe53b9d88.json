@@ -1,1 +1,1 @@
-{"sha":"8fd2a51c8867d8153e60d03856207ecbe53b9d88","conclusion":"failure","event":"push","ref":"refs/heads/claude/funny-volta-jop8ph","run_id":"33256339205","utc":"2026-08-29T14:05:51Z"}
+{"sha":"8fd2a51c8867d8153e60d03856207ecbe53b9d88","conclusion":"failure","event":"pull_request","ref":"refs/pull/282/merge","run_id":"33256340539","utc":"2026-08-29T14:08:34Z"}
