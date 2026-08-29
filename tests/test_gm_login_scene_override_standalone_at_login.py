@@ -31,14 +31,33 @@ GATE-WALK (``COO-DECISION 20260829_0742``), branches this file walks:
   asserts "the entry is still on disk" cannot show it can tell a spent entry
   from a kept one.
 
+* BOTH returns that produce ``STANDALONE_NOT_CONSUMED`` -- walked.  The
+  outcome has two sources and they are different code: the non-GM shortcut
+  in ``consume_login_scene_override``, and ``_ask_the_standalone_map`` for a
+  LISTED GM whose scene came from the standalone map because the GM-gated
+  file has no entry for them.  An earlier version of this file walked only
+  the first, so a regression that mislabelled the second would have been
+  invisible here -- measured by pf-adversary, which flipped that return to
+  ``CONSUMED`` and watched all five tests stay green.
+* the refused-destination REFUSAL, reached from a standalone grant -- walked,
+  and it is why the restore below is asserted rather than assumed.
+
 Branches this file does NOT walk, and why:
 
 * ``CONSUME_FAILED`` and ``NOTHING_STAGED`` -- reached by the two files named
   above; not repeated here.
-* the refused-destination restore -- unreachable from a standalone grant by
-  construction, since ``override_consumed_scene`` stays ``None`` when no
-  entry was taken off disk.  There is nothing to give back, and this file
-  asserts that silence rather than pretending to walk the branch.
+* the refused-destination RESTORE -- unreachable from a standalone grant,
+  because ``override_consumed_scene`` stays ``None`` when no entry was taken
+  off disk.  That reason is prose, and prose is not a guard: pf-adversary
+  measured a one-line mutation (setting ``override_consumed_scene`` inside
+  the standalone branch) that leaves the whole 645-test GM suite green and
+  turns the restore into a write of a NEVER-STAGED entry into the GM-gated
+  file, which is the chat-writable one.  So this file no longer states the
+  reason -- it asserts the consequence, in
+  ``test_a_refused_standalone_destination_writes_nothing_to_the_gm_map``.
+* the caller-side ``except (ValueError, OSError, TypeError)`` at the consume
+  call, and the frame-resync ``refused`` / ``length_drift`` branches -- not
+  reached by anything in this file, and not claimed to be.
 
 Production-call shape: every login here goes through ``state.dispatch`` on
 real client packets.  No test in this file calls
@@ -249,8 +268,17 @@ class GmStandaloneLoginSceneAtLoginTests(unittest.TestCase):
         Two independent witnesses, because either alone is weak: the file on
         disk still carries the line, AND a SECOND login by the same account
         is granted the same scene again.  A call site that spent the entry
-        would pass neither; one that rewrote the file with the same content
-        would pass the first and fail the second.
+        passes neither.
+
+        WHAT THESE TWO WITNESSES DO NOT CATCH, stated because an earlier
+        version of this docstring claimed the opposite and pf-adversary
+        measured it false: a call site that DELETES the line, writes the
+        file, then writes it back with identical content passes BOTH.  That
+        is a real regression shape -- it makes the standalone file a write
+        target, and any reader inside that window sees the entry gone -- and
+        nothing in this file would go red for it.  Catching it needs a
+        witness these tests do not have (a write watch on the path, or an
+        open-for-write count), so it is named here rather than implied away.
         """
         self._write_configs([], {}, {"plain_tester": KNOWN_SCENE_ID})
         before = self.standalone_path.read_bytes()
@@ -380,6 +408,126 @@ class GmStandaloneLoginSceneAtLoginTests(unittest.TestCase):
             [action[0] for action in gm_actions
              if action[0] == "GM_UPDATE_STATE_AFTER_LOGIN"],
             ["GM_UPDATE_STATE_AFTER_LOGIN"],
+        )
+
+    # ----- the second source of the same outcome ---------------------------
+
+    def test_a_listed_gm_can_be_answered_by_the_standalone_map_too(self):
+        """The OTHER return that produces ``STANDALONE_NOT_CONSUMED``.
+
+        ``get_login_scene_override`` consults the GM-gated map only for a
+        listed GM, then falls through to the standalone map for EVERYONE,
+        GMs included.  So a listed GM with no GM-gated entry and a standalone
+        one is answered by the standalone map -- and that answer comes back
+        through ``_ask_the_standalone_map``, a different return statement in
+        a different function from the non-GM shortcut every other test in
+        this file walks.
+
+        pf-adversary measured the cost of missing it: flipping that return to
+        ``CONSUMED`` left all five original tests green, so the file's own
+        stated purpose -- "the call site could have labelled a standalone
+        grant consumed and every existing test would still be green" -- did
+        not hold for half of the outcome it names.
+
+        The GM state frame is asserted present here on purpose: it shows the
+        two decisions are independent.  Being a GM is what grants the frame;
+        it is not what decided which map answered.
+        """
+        self._write_configs(["gm_runner"], {}, {"gm_runner": KNOWN_SCENE_ID})
+        before = self.standalone_path.read_bytes()
+
+        state, selector, actions = self._login_and_start("gm_runner")
+
+        self.assertIn(
+            f"gm_login_scene_override_standalone_kept_{KNOWN_SCENE_ID}",
+            state.events,
+        )
+        self.assertNotIn(
+            f"gm_login_scene_override_consumed_{KNOWN_SCENE_ID}", state.events,
+        )
+        self.assertEqual(
+            state.foundation.selected.position.scene_id, KNOWN_SCENE_ID,
+        )
+        self.assertEqual(self.standalone_path.read_bytes(), before)
+        self.assertEqual(
+            [action[0] for action in actions
+             if action[0] == "GM_UPDATE_STATE_AFTER_LOGIN"],
+            ["GM_UPDATE_STATE_AFTER_LOGIN"],
+        )
+
+        second, _selector, _actions = self._login_and_start(
+            "gm_runner", selector=selector,
+        )
+        self.assertIn(
+            f"gm_login_scene_override_standalone_kept_{KNOWN_SCENE_ID}",
+            second.events,
+        )
+
+    # ----- the branch whose reason used to be the only guard ---------------
+
+    def test_a_refused_standalone_destination_writes_nothing_to_the_gm_map(
+        self,
+    ):
+        """The consequence, asserted, of a branch this file does not walk.
+
+        When a destination is refused, the call site gives the staged entry
+        back -- but only when THIS login took one off disk, which a standalone
+        grant never does.  That "never" was written as prose in the GATE-WALK
+        paragraph above, and pf-adversary showed prose is not a guard: setting
+        ``override_consumed_scene`` inside the standalone branch is one line,
+        leaves the entire GM suite green, and makes the restore write an entry
+        that was NEVER STAGED into ``gm_login_scene.json``.
+
+        Why that file and not any other: it is the GM-gated one, the one a
+        chat ``/warp`` writes, and ``restore_login_scene`` deliberately skips
+        the allowlist check on the stated ground that it "only ever writes a
+        value that was already in this file, or deletes one".  Under that
+        mutation the ground is false.  A phantom entry there is invisible to
+        this lane's standalone tripwire (wrong file) and activates the day the
+        account is added to ``gm_accounts.json``.
+
+        Scene 17 is the destination because it is in the committed catalog --
+        so the config loads -- and pinned ``login_entry_allowed=False``, so
+        the refusal is the real one and not a fixture trick.
+
+        NOT A CLAIM THAT THIS LOGIN IS FINE.  It is refused, it sends no
+        actions at all, and because the standalone entry is never consumed
+        the client's retry is refused again, every time, until someone
+        hand-edits the file.  That is a defect in ADMISSION rather than in
+        consumption, it is outside this lane's write zone, and it is asked in
+        pf_bridge's ASK-COO letter of 2026-08-29T09:06+07:00,
+        ``...LANE-GM-ASK-COO-standalone-map-admits-a-scene-no-login-can-enter``
+        (the lane walks on under option (a) if no answer arrives next round).
+        This test pins today's blast radius
+        -- which files the refusal may touch -- not today's outcome as
+        desirable.
+        """
+        refusal_scene = 17
+        self._write_configs([], {}, {"plain_tester": refusal_scene})
+        gm_map_before = self.overrides_path.read_bytes()
+        standalone_before = self.standalone_path.read_bytes()
+
+        state, _selector, actions = self._login_and_start("plain_tester")
+
+        self.assertIn(
+            f"gm_login_scene_override_standalone_kept_{refusal_scene}",
+            state.events,
+        )
+        self.assertIn("world_scene_entry_refused_no_reply", state.events)
+        self.assertEqual(actions, [], "a refused entry sends nothing")
+
+        # The guard the GATE-WALK paragraph used to only assert in words.
+        self.assertEqual(self.overrides_path.read_bytes(), gm_map_before)
+        self.assertEqual(self._gm_map(), {})
+        self.assertEqual(self.standalone_path.read_bytes(), standalone_before)
+        # ...and the silence that goes with it, by name rather than by
+        # "no override events at all", which would also hold if the whole
+        # override path had been skipped.
+        self.assertEqual(
+            [event for event in state.events
+             if event.startswith("gm_login_scene_override_restored_after_")
+             or event.startswith("gm_login_scene_override_lost_to_refusal_")],
+            [],
         )
 
 

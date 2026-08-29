@@ -66,6 +66,9 @@ from pirateforce_foundation.chat_input_hypothesis import (  # noqa: E402
     CHAT_INPUT_VITAL_ID,
 )
 from pirateforce_foundation.gm import accounts as gm_accounts  # noqa: E402
+from pirateforce_foundation.gm import (  # noqa: E402
+    login_scene_override,
+)
 from pirateforce_foundation.gm import chat_command  # noqa: E402
 from pirateforce_foundation.gm import chat_command_action  # noqa: E402
 from pirateforce_foundation.gm.dispatch import (  # noqa: E402
@@ -134,6 +137,23 @@ class ChatCommandDispatchWiringTests(unittest.TestCase):
         reset_rate_limit_state_for_tests()
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
+        # Both login-scene override configs pinned inside this test's own
+        # temp dir, at paths nothing writes.  Left unpinned they resolve to
+        # the repo-relative defaults (`config/gm_login_scene.json`,
+        # `config/gm_login_scene_standalone.json`), and `config/` is
+        # gitignored -- so "this account has no staged login scene" would be
+        # a fact about the machine running the suite rather than about this
+        # fixture.  pf-adversary measured it: dropping one standalone map
+        # into `config/` turns eight tests across this lane red.  A later
+        # `patch.dict` in an individual test still wins for the keys it sets.
+        _login_scene_env_pin = mock.patch.dict(gm_accounts.os.environ, {
+            login_scene_override.ENV_OVERRIDE:
+                str(Path(self.tmp.name) / "no_gm_login_scene.json"),
+            login_scene_override.STANDALONE_ENV_OVERRIDE:
+                str(Path(self.tmp.name) / "no_standalone_map.json"),
+        })
+        _login_scene_env_pin.start()
+        self.addCleanup(_login_scene_env_pin.stop)
         self.store = SQLiteStore(
             Path(self.tmp.name) / "state.sqlite3", ROOT / "migrations",
         )

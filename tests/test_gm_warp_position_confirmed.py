@@ -67,6 +67,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -74,6 +75,10 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import world_scene_travel  # noqa: E402
+from pirateforce_foundation.gm import (  # noqa: E402
+    accounts as gm_accounts,
+    login_scene_override,
+)
 from pirateforce_foundation.gm.chat_command_action import (  # noqa: E402
     WARP_ACTION_LABEL,
 )
@@ -116,6 +121,24 @@ class GmWarpPositionConfirmedTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
+        # Both login-scene override configs pinned inside this test's own
+        # temp dir, at paths nothing writes.  Left unpinned they resolve to
+        # the repo-relative defaults (`config/gm_login_scene.json`,
+        # `config/gm_login_scene_standalone.json`), and `config/` is
+        # gitignored -- so "this account has no staged login scene" would be
+        # a fact about the machine running the suite rather than about this
+        # fixture.  pf-adversary measured it against THIS file in
+        # particular: one standalone map dropped into `config/` turns four
+        # of its tests red, because an overridden login is a visit and a
+        # visit never prints the token this file is named after.
+        _login_scene_env_pin = mock.patch.dict(gm_accounts.os.environ, {
+            login_scene_override.ENV_OVERRIDE:
+                str(Path(self.tmp.name) / "no_gm_login_scene.json"),
+            login_scene_override.STANDALONE_ENV_OVERRIDE:
+                str(Path(self.tmp.name) / "no_standalone_map.json"),
+        })
+        _login_scene_env_pin.start()
+        self.addCleanup(_login_scene_env_pin.stop)
         self.store = SQLiteStore(
             Path(self.tmp.name) / "state.sqlite3", ROOT / "migrations",
         )

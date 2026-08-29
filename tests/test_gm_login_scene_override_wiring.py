@@ -96,10 +96,19 @@ class GmLoginSceneOverrideWiringTests(unittest.TestCase):
             gm_accounts.ENV_OVERRIDE: str(accounts_path),
             login_scene_override.ENV_OVERRIDE: str(overrides_path),
         }
-        if standalone_path is not None:
-            env[login_scene_override.STANDALONE_ENV_OVERRIDE] = str(
-                standalone_path
-            )
+        # Always pinned, never left to fall through.  `standalone_path=None`
+        # means "this test has no standalone map", and before this line that
+        # was expressed by NOT setting the variable -- which resolved to the
+        # repo-relative default `config/gm_login_scene_standalone.json`, a
+        # gitignored path.  pf-adversary dropped a map there and turned this
+        # file's `test_missing_override_config_means_no_override_for_any_gm`
+        # red: "no override for any GM" was a fact about the machine, not
+        # about the fixture.  An unwritten path inside this test's own temp
+        # dir says the same thing and means it.
+        env[login_scene_override.STANDALONE_ENV_OVERRIDE] = str(
+            standalone_path if standalone_path is not None
+            else Path(self.tmp.name) / "no_standalone_map.json"
+        )
         with mock.patch.dict(gm_accounts.os.environ, env):
             import io
             import contextlib
