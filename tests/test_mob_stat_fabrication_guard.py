@@ -66,6 +66,11 @@ LANE_B_MODULES = (
     # ROUND wmomy7: the scene-scoped hostile census override, and the
     # census-backing check that found five roster rows with no body.
     "mob_census_hostility.py",
+    # ROUND z096sw: the count a recomposed census actually declares to the
+    # client, read back off the transmitted collection's own header.  Added
+    # in the same commit as the module -- this guard caught it missing on
+    # the first full run, which is the tuple doing its job.
+    "mob_census_wire_count.py",
     "mob_combat.py",
     "mob_death.py",
     "mob_diag_multi_object.py",

@@ -68,9 +68,30 @@ SO.  ``MOB_COMBAT_BAR_CENSUS_RECOMPOSE actor_count=108`` prints
 ``self.world_census_actor_count``, read from session state BEFORE the frame
 is composed.  It is an INPUT.  Two tests here assert the token appears
 (proving the recompose branch was TAKEN, which is all the token can
-honestly show) and separately count the bodies on the wire.  An attended
+honestly show) and separately count the bodies on the wire.  ~~An attended
 tester may use the token to confirm the path ran; the count is the headless
-layer's job, not the console's.
+layer's job, not the console's.~~
+
+[SUPERSEDED IN ITS LAST SENTENCE ONLY, ROUND z096sw -- the paragraph above
+is kept because the reasoning is still exactly right about
+``actor_count=``.]  The line now carries a SECOND field,
+``wire_actors=``, produced by ``mob_census_wire_count
+.describe_census_recompose``: the count read back off the composed
+collection's own header, after checking the frame is that pc's frame.  That
+one IS a measurement of what the client is told, taken from the same
+``world_population_handoff.wire_count_of`` this file's own
+``_declared_count`` uses and gated by the same pair check as ``_wire``.  So
+the console can now answer the world-wipe item's closing criterion ("boot
+flagless, one hit and one death, census after the event still whole,
+greppable from the console"), which is what round wmomy7 correctly refused
+to claim while ``actor_count`` was the only number on the line.
+
+WHAT THE NEW FIELD STILL DOES NOT DO, AND WHY THIS FILE LOSES NO READING.
+``wire_actors`` is the number the collection header DECLARES.  A collection
+that declares 108 and carries twelve bodies would print ``wire_actors=108``
+and be a world wipe.  Only the per-identity occurrence count below sees
+that, so every reading this file already had is kept, and the two new
+console assertions are added beside them rather than in place of them.
 
 NONCLAIMS.
 
@@ -113,6 +134,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from pirateforce_foundation import diag_multi_object_wiring  # noqa: E402
 from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import mob_combat  # noqa: E402
 from pirateforce_foundation import mob_death  # noqa: E402
@@ -495,8 +517,10 @@ class WorldWipeHeadlessProofTests(unittest.TestCase):
         with contextlib.redirect_stdout(buf):
             actions = self._attack(state, CONTROL_TARGET)
         self.assertIn(
-            "MOB_COMBAT_BAR_CENSUS_RECOMPOSE actor_count=%d target=0x%X"
-            % (state.world_census_actor_count, CONTROL_TARGET),
+            "MOB_COMBAT_BAR_CENSUS_RECOMPOSE actor_count=%d "
+            "wire_actors=%d target=0x%X"
+            % (state.world_census_actor_count,
+               state.world_census_actor_count, CONTROL_TARGET),
             buf.getvalue(),
         )
         _bar_pc, bar_frame = self._wire(actions, "MOB_COMBAT_BAR")
@@ -517,8 +541,15 @@ class WorldWipeHeadlessProofTests(unittest.TestCase):
             actions = self._attack(state, CONTROL_TARGET)
         announced = state.world_census_actor_count
         self.assertIn(
-            "MOB_DEATH_FRAMES_CENSUS_RECOMPOSE actor_count=%d target=0x%X"
-            % (announced, CONTROL_TARGET),
+            "MOB_DEATH_FRAMES_CENSUS_RECOMPOSE_DYING actor_count=%d "
+            "wire_actors=%d target=0x%X"
+            % (announced, announced, CONTROL_TARGET),
+            buf.getvalue(),
+        )
+        self.assertIn(
+            "MOB_DEATH_FRAMES_CENSUS_RECOMPOSE actor_count=%d "
+            "wire_actors=%d target=0x%X"
+            % (announced, announced, CONTROL_TARGET),
             buf.getvalue(),
         )
         for wanted in ("MOB_DEATH_DYING", "MOB_DEATH_DEAD"):
@@ -528,6 +559,107 @@ class WorldWipeHeadlessProofTests(unittest.TestCase):
                 announced,
                 f"{wanted} carries fewer bodies than the token announces",
             )
+
+    # ----- ROUND z096sw: the state that had no line at all ----------------
+    #
+    # pf-adversary measured this before it was committed: with the console
+    # line inside the compose-succeeded branch, the two FALLBACK paths --
+    # a compose that raised, and the no-anchor path this file and runtime.py
+    # both describe as reached in ordinary play -- put the one-entry frame
+    # on the wire and printed NOTHING.  That frame is the world wipe RE-092
+    # proved is replace-by-omission, so the one state a tester most needed
+    # a line for was the one state with no line, which is the mistake
+    # GT-084 already made once reading silence as absence of a problem.
+    #
+    # These two tests are the reason the line moved out of the branch, and
+    # they are also the answer to "can this line ever disagree with itself
+    # on a production path": here, and measurably, it can.
+
+    def test_a_hit_whose_recompose_fails_still_prints_and_prints_a_gap(self):
+        state = self._state()
+        _anchor, (census_pc, census_frame) = self._arrive(state)
+        self._baseline(state, census_pc, census_frame)
+        announced = state.world_census_actor_count
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            with mock.patch.object(
+                diag_multi_object_wiring, "hostile_census_frames",
+                side_effect=RuntimeError("compose refused"),
+            ):
+                actions = self._attack(state, CONTROL_TARGET)
+        printed = buf.getvalue()
+        self.assertIn("mob_combat_bar_census_compose_refused_RuntimeError",
+                      state.events)
+        # THE LINE EXISTS AT ALL.  This is the assertion that would have
+        # failed before the print moved.
+        self.assertIn("MOB_COMBAT_BAR_CENSUS_RECOMPOSE ", printed)
+        self.assertIn("actor_count=%d" % announced, printed)
+        # AND IT DISAGREES WITH ITSELF, which is the whole value: the
+        # fallback frame declares ONE actor while the session asked for
+        # 108.  Nothing about the number is asserted as a literal -- it is
+        # read off the frame that actually went into ``actions``.
+        _pc, frame = self._wire(actions, "MOB_COMBAT_BAR")
+        declared = self._declared_count(_pc)
+        self.assertLess(
+            declared, announced,
+            "the fallback is supposed to be the one-entry frame; if it is "
+            "not, this test is no longer measuring the wipe",
+        )
+        # The whole line, not a prefix: ``wire_actors=1`` is a prefix of
+        # ``wire_actors=108``, so a substring assertion here would pass
+        # against the very mutant this test exists to kill.
+        self.assertIn(
+            "MOB_COMBAT_BAR_CENSUS_RECOMPOSE actor_count=%d "
+            "wire_actors=%d target=0x%X" % (
+                announced, declared, CONTROL_TARGET,
+            ),
+            printed,
+        )
+        self.assertNotIn("wire_actors=%d " % announced, printed)
+        # ...and the wipe is real on the wire, not merely in the header.
+        self.assertEqual(
+            sum(1 for n in self._bodies(frame, self._baseline(
+                state, census_pc, census_frame)).values() if n),
+            1,
+            "the fallback frame is supposed to carry exactly the target",
+        )
+
+    def test_a_kill_whose_recompose_fails_still_prints_both_lines(self):
+        state = self._state()
+        _anchor, (census_pc, census_frame) = self._arrive(state)
+        self._baseline(state, census_pc, census_frame)
+        self._set_balance(state, CONTROL_TARGET, 500)
+        announced = state.world_census_actor_count
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            with mock.patch.object(
+                diag_multi_object_wiring, "hostile_census_frames",
+                side_effect=RuntimeError("compose refused"),
+            ):
+                actions = self._attack(state, CONTROL_TARGET)
+        printed = buf.getvalue()
+        self.assertIn("mob_death_frames_census_compose_refused_RuntimeError",
+                      state.events)
+        for token, label in (
+            ("MOB_DEATH_FRAMES_CENSUS_RECOMPOSE_DYING", "MOB_DEATH_DYING"),
+            ("MOB_DEATH_FRAMES_CENSUS_RECOMPOSE", "MOB_DEATH_DEAD"),
+        ):
+            with self.subTest(token=token):
+                pc, _frame = self._wire(actions, label)
+                declared = self._declared_count(pc)
+                self.assertLess(declared, announced)
+                # The WHOLE line, rebuilt from what actually went on the
+                # wire.  An earlier draft asserted the prefix
+                # ``wire_actors=1`` and passed against a mutant printing
+                # ``wire_actors=108``, because one is a prefix of the
+                # other -- the same substring trap this file's own
+                # ``_bodies`` docstring warns about in another form.
+                self.assertIn(
+                    "%s actor_count=%d wire_actors=%d target=0x%X" % (
+                        token, announced, declared, CONTROL_TARGET,
+                    ),
+                    printed,
+                )
 
 
 if __name__ == "__main__":

@@ -541,11 +541,17 @@ class Bg0002CensusWiringTests(unittest.TestCase):
         report = mob_census_hostility.census_backing_report(
             SCENE2_N_ID, ())
         roster_count = report["roster_count"]
+        # ROUND z096sw: two fields added after pf-adversary read this line
+        # (D11 ``refused=``, D2 ``override=``).  ``override=not_reported``
+        # is what a call site that does not hand the override dict over
+        # prints -- a NAMED gap rather than a reassuring number, and this
+        # pin holds it to that until the one-kwarg wiring ask lands.
         self.assertEqual(
             lines[0],
             "MOB_CENSUS_HOSTILITY scene_id=%d scene=Bg0002 roster=%d "
-            "backed=%d unbacked=none" % (
+            "backed=%d unbacked=none refused=%d override=not_reported" % (
                 SCENE2_N_ID, roster_count, roster_count,
+                report["refused_count"],
             ),
         )
 

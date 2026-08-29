@@ -12,6 +12,7 @@ from . import diag_multi_object_wiring
 from . import field_mobs
 from . import mob_ai_control
 from . import mob_census_hostility
+from . import mob_census_wire_count
 from . import mob_combat
 from . import mob_death
 from . import mob_loot
@@ -4201,18 +4202,6 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 "mob_combat_bar_census_compose_refused_"
                                 f"{type(error).__name__}"
                             )
-                        else:
-                            # COO's console gate (2026-08-27 03:45): a
-                            # grep-able line proving the hostile frame
-                            # recompose actually ran on this boot, same
-                            # convention as MOB_DEATH_ROSTER_OVERRIDE_
-                            # COVERAGE for arrival.
-                            print(
-                                "MOB_COMBAT_BAR_CENSUS_RECOMPOSE "
-                                "actor_count=%d target=0x%X" % (
-                                    count, step.outcome.target_identity,
-                                )
-                            )
                     else:
                         # Reached in ordinary play, not merely in theory:
                         # pf-adversary (round keen-pasteur-ahn7zb) ran this
@@ -4233,6 +4222,53 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             "mob_combat_bar_census_compose_skipped_"
                             "no_population_anchor"
                         )
+                    # COO's console gate (2026-08-27 03:45): a grep-able
+                    # line proving which collection this hit put on the
+                    # wire, same convention as
+                    # MOB_DEATH_ROSTER_OVERRIDE_COVERAGE for arrival.  The
+                    # token and the ``actor_count=`` field are UNCHANGED
+                    # (ROUND z096sw, LANE B, the one edit to this block the
+                    # lane's charter reserves for the world-wipe item), so
+                    # every existing grep, ticket line and runbook keeps
+                    # matching; ``wire_actors=`` is added beside it, read
+                    # back off the composed collection's own header after
+                    # checking the frame is this pc's frame.
+                    #
+                    # PRINTED OUTSIDE THE `if` AND OUTSIDE THE `try`, WHICH
+                    # IS THE WHOLE POINT, and the first draft of this round
+                    # got it wrong in exactly the way this file already
+                    # warns about a few hundred lines below ("Printed
+                    # OUTSIDE the `if` on purpose ... because 'no line' is
+                    # the state GT-084 already mis-read once").
+                    #
+                    # pf-adversary, this round, MEASURED: with the print
+                    # inside the success branch, the two FALLBACK paths --
+                    # a compose that raised, and the no-anchor path this
+                    # file's own comment says is "reached in ordinary
+                    # play" -- put the one-entry frame on the wire (171
+                    # bytes against arrival's 20112, header declaring 1
+                    # actor, 107 of 108 arrival actors absent) and the
+                    # console said NOTHING.  That frame IS the world wipe
+                    # RE-092 proved is replace-by-omission, and it was the
+                    # one state with no line.  `state.events` is never
+                    # printed anywhere in this tree (276 appends, zero
+                    # prints), so silence was the only signal.
+                    #
+                    # Printed here, the fallback prints `wire_actors=1`
+                    # against `actor_count=108` -- and that gap is the ONLY
+                    # way this line can ever disagree with itself on a
+                    # production path, which makes it the reading that
+                    # matters.  See the round record for why the
+                    # compose-succeeded case cannot differ.
+                    print(
+                        mob_census_wire_count.describe_census_recompose(
+                            legacy,
+                            "MOB_COMBAT_BAR_CENSUS_RECOMPOSE",
+                            bar_pc, bar_frame,
+                            target_identity=step.outcome.target_identity,
+                            input_count=count,
+                        )
+                    )
                     actions.append(("MOB_COMBAT_BAR", bar_pc, bar_frame, 0.0))
             if step.death_due:
                 # attack_from_observed_action already matched ``target``
@@ -4429,14 +4465,6 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 "mob_death_frames_census_compose_refused_"
                                 f"{type(error).__name__}"
                             )
-                        else:
-                            # Same console gate as MOB_COMBAT_BAR above.
-                            print(
-                                "MOB_DEATH_FRAMES_CENSUS_RECOMPOSE "
-                                "actor_count=%d target=0x%X" % (
-                                    count, death_step.record.actor_identity,
-                                )
-                            )
                     else:
                         # Reached in ordinary play, not merely in theory --
                         # same reasoning as MOB_COMBAT_BAR above
@@ -4454,6 +4482,33 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         self.events.append(
                             "mob_death_frames_census_compose_skipped_"
                             "no_population_anchor"
+                        )
+                    # OUTSIDE the `if` and OUTSIDE the `try`, for the same
+                    # reason spelled out at MOB_COMBAT_BAR above: the two
+                    # fallback paths are the ones that put a one-entry
+                    # frame on the wire, and they were the two with no
+                    # console line at all.  Both pairs are reported: the
+                    # DEAD pair is what a tester greps to ask whether the
+                    # world survived the kill, and the DYING pair is
+                    # reported separately because the two are composed by
+                    # separate calls -- what that second line can actually
+                    # catch is a pc and a frame that came apart (round
+                    # z096sw mutant M6), NOT a different count, since the
+                    # two composes differ only in dead_timer and cannot
+                    # disagree on how many entries they carry.
+                    for token, pc_, frame_ in (
+                        ("MOB_DEATH_FRAMES_CENSUS_RECOMPOSE_DYING",
+                         dying_pc, dying_frame),
+                        ("MOB_DEATH_FRAMES_CENSUS_RECOMPOSE",
+                         dead_pc, dead_frame),
+                    ):
+                        print(
+                            mob_census_wire_count.describe_census_recompose(
+                                legacy, token, pc_, frame_,
+                                target_identity=(
+                                    death_step.record.actor_identity),
+                                input_count=count,
+                            )
                         )
                     actions.append((
                         "MOB_DEATH_DYING", dying_pc, dying_frame, 0.0,
