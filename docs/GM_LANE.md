@@ -3532,3 +3532,131 @@ Baseline 4484 passed, 327 skipped, 0 failed.
 5. **The adversary's own untested claim, restated rather than absorbed:** it
    stopped short of driving an *admissible* config value end to end through
    scenes 278 and 997. Unknown, not safe.
+
+---
+
+## Round `7hfrt0` -- WHICH READING of lane A's registry a config entry is judged against
+
+`CHIEF-REPLY` 2026-08-29T12:21+07:00 item 4 asked this lane to land a
+`scene_registry=` keyword first, so chief's call site can pass `runtime.py`'s
+boot snapshot into it.  Landed here, threaded through six files, default
+`None` = the fresh file read every caller does today.
+
+**THE PARAMETER DOES NOT ADD A READER OF THE REGISTRY -- IT REMOVES ONE.**
+That is worth stating first because a new kwarg reads like the opposite.
+`CORE-REQUEST-GM-034` reported a lane with three readings of one registry
+free to disagree; chief's answer was to call `resolve_entry` itself at the
+login site rather than write a private predicate.  This is the same answer
+for the staging side: a caller that supplies its reading makes this lane
+stop having one of its own.
+
+### The two directions are not the same problem
+
+| direction | who closes it | what it costs today |
+|---|---|---|
+| disk WIDER than the snapshot (file approves, process refuses) | chief's `resolve_entry` probe, on main via `#253` | closed -- override refused by name, character logs in at its own row |
+| disk NARROWER than the snapshot (registry edited to bar or drop a destination after boot) | nothing yet | the whole-file load raises, `CONSUME_FAILED` -- EVERY account's override in that file stops working, including accounts naming scenes the running process would place them in |
+
+No gate at the call site can reach the second one: by the time the call site
+sees anything, the load has already raised.  It has to be decided at the
+load, which is where this parameter goes.
+
+### What pf-adversary broke, and what changed because of it
+
+The first version of this round was **not approved**.  Seven defects; the two
+that changed the DESIGN rather than the code:
+
+**D2 -- a snapshot-validated write poisons the file for every other account,
+permanently.**  The measured version let a boot snapshot WIDEN a write.  The
+entry lands in `config/gm_login_scene.json`, `_load_scene_id_map` then refuses
+the WHOLE file (one bad line, every account's override dead), and no removal
+path in this lane can clear it because `restore_login_scene` and
+`claim_login_scene` both re-validate the whole file first.  A hand edit of a
+gitignored config is the only way out.  It needed no exotic wiring: one server
+RESTART re-reads the registry, and the fresh narrow reading meets the entry the
+old wide one authorised.
+
+The fix is a rule, not a patch: **THE FILE DECIDES WHAT MAY BE WRITTEN; A
+SNAPSHOT MAY ONLY REFUSE ON TOP OF THAT.**  Reading may honour one process's
+view, because a read writes nothing that outlives it.  Writing may not, because
+THE ENTRY OUTLIVES THE PROCESS THAT WROTE IT.  That also answers the question
+the adversary closed with -- "what happens to an entry whose authorising reading
+no longer exists" -- by making such an entry unwritable in the first place.
+
+**D1 -- the predicate never checked that the row it got was the row it asked
+for.**  `registry[scene_id]` was trusted.  The most plausible wiring slip,
+passing `scene_entry_registry.destinations` instead of `scene_entry_registry`,
+is a TUPLE: subscriptable, so nothing raised, and `registry[14]` returned the
+row at INDEX 14 (scene 278).  Scene 14 was admitted on scene 278's evidence,
+`/warp 14` accepted, written, and refused by the login path -- the silent
+lockout this module exists to close, reopened through the parameter meant to
+help it.  A `MagicMock` admitted scenes 3, 17 and 999999 the same way.  Fixed
+with `target.n_id != scene_id -> False`.
+
+A duck-type shape gate was written alongside it and then **deleted**: removing
+it again left every test green, because the identity check already refuses
+every shape it did.  A second guard no test can tell apart from the first is a
+claim with no evidence behind it.
+
+Also fixed, all measured: **D3** the widened `except` clauses had changed the
+DEFAULT path from "a bent lane-A row raises where a person sees it" to "no
+scene is stageable" -- now `trusted` keeps the file path exactly as loud as it
+was; **D4** eight of the threaded hops could be dropped with all 4599 tests
+green (the whole standalone branch was green because the fixture wrote an
+EMPTY map -- under the wrong JSON key, at that); **D5** the undo hop below;
+**D7** two new tests were green for weaker reasons than their names, and the
+"wrong objects" list had been chosen to pass rather than to probe -- the two
+shapes that actually broke the guarantee were both absent from it.
+
+### The defect this round nearly shipped, and it was in the UNDO
+
+`restore_login_scene` was left without the parameter in the first draft.
+`_write_entry` re-validates the WHOLE file before writing -- the reader's own
+rules, deliberately, so a config with a typo comes back untouched.  So an
+undo judged against a different reading from the write it is undoing
+REFUSES: stage scene N under a snapshot that admits it, undo without the
+snapshot, the load refuses N, `_write_entry` answers
+`REASON_CONFIG_UNREADABLE`, and **the entry the call exists to remove stays
+on disk**.  That is precisely the state `chat_command_action`'s withhold rule
+("this house does not perform an effect it cannot record") exists to prevent,
+reached through the undo that enforces it.
+
+The rule now written into the source, because it is not obvious from any one
+call site: **UNDO WITH THE SAME READING YOU STAGED WITH.**  It is why
+`CORE-REQUEST-GM-036` asks for THREE call sites -- the third is chief's own
+`_put_back_consumed_override`, which puts an entry back after the probe
+refuses.
+
+### Chief's merge-order warning, measured again in this lane's own house
+
+Item 2 of that letter: a kwarg whose callee does not accept it raises
+`TypeError`, which `runtime.py:5327` SWALLOWS into `login_scene_override =
+None` plus an event -- the feature turns off silently.  Two test doubles in
+this lane had exactly that shape:
+
+* `test_gm_login_scene_consume.py`'s `lose_the_claim` -- the `TypeError` was
+  eaten by `consume`'s own `except Exception`, and the test became "the claim
+  was never contested".  It would have been GREEN but for one assertion that
+  checks the race actually happened.
+* `test_gm_login_scene_stage.py`'s `flaky` -- raised loudly, because the
+  `except` around that call is narrower.
+
+The one that swallows is the dangerous one.  Both fixed.
+
+### What is NOT claimed
+
+1. One layer only: wire/DB, headless.  **No client-observable evidence in
+   this round at all.**
+2. **No GM status was used to prove anything here.**  Nothing in this round
+   is a milestone and nothing in it was reached by being a GM.
+3. The parameter has NO effect on a running server until `CORE-REQUEST-GM-036`
+   lands: every caller in this repository passes `None`.
+4. Not measured against a real client; no scene named here is shown to be
+   reachable by a person.
+5. Green = **green(cloud sanity)** from `python -m pytest tests/`, not an
+   Actions run.  The Windows gate closed round `7gplcy` outright once.
+6. **The second adversary pass was this lane's own, not pf-adversary's.**  The
+   twelve-mutation battery was re-run after every fix and all twelve are now
+   killed, but nobody adversarial has looked at the FIXES.  D2's rule in
+   particular is one round old and has had exactly one reviewer: the lane that
+   wrote it.

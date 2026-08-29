@@ -519,6 +519,7 @@ def make_gm_chat_command_action(
     config_path: str | None = None,
     log_path: str | None = None,
     login_scene_config_path: str | None = None,
+    scene_registry=None,
 ) -> tuple[str, bytes, bytes, float] | None:
     """Authorize + audit one chat line; return one outbound action, or None.
 
@@ -541,6 +542,18 @@ def make_gm_chat_command_action(
     Returns `(label, pc, frame, delay_before)` -- append it to the action
     list, exactly like `gm_state_action` -- or None, which means "this frame
     is not ours; behave exactly as the server did before this lane existed".
+
+    `scene_registry` -- OPTIONAL, AND THE ONE ARGUMENT WHOSE ABSENCE COSTS
+    THE TESTER SOMETHING.  `/warp` decides whether a destination can be
+    entered at login, and left `None` it decides that from lane A's registry
+    FILE while the login that follows is placed from the snapshot
+    `runtime.py` loaded at boot.  A file edited wider since boot makes
+    `/warp` accept a scene the login then refuses -- and the refusal reaches
+    the server console, never the person who typed the command.  Passing
+    the caller's own `scene_entry_registry` moves that refusal to the chat
+    line, and makes the list of destinations printed with it the list the
+    running process would really accept.  `CORE-REQUEST-GM-036`; no caller
+    passes it in this commit.
     """
     try:
         return _make_action(
@@ -550,6 +563,7 @@ def make_gm_chat_command_action(
             config_path=config_path,
             log_path=log_path,
             login_scene_config_path=login_scene_config_path,
+            scene_registry=scene_registry,
         )
     except Exception as error:  # noqa: BLE001 - fail-closed, see module docstring
         # Type name only: an exception MESSAGE can embed client-supplied
@@ -566,6 +580,7 @@ def _make_action(
     config_path: str | None,
     log_path: str | None,
     login_scene_config_path: str | None = None,
+    scene_registry=None,
 ) -> tuple[str, bytes, bytes, float] | None:
     token = getattr(session, "token", None)
     # `type(...) is not str`, not isinstance, and checked HERE rather than
@@ -648,6 +663,7 @@ def _make_action(
             token=token,
             gm_accounts_config_path=config_path,
             login_scene_config_path=login_scene_config_path,
+            scene_registry=scene_registry,
         )
     elif command.name == "say":
         verdict = _say_action(session, command, legacy)
@@ -768,6 +784,7 @@ def _warp_action(
     token: str,
     gm_accounts_config_path: str | None,
     login_scene_config_path: str | None,
+    scene_registry=None,
 ) -> _Verdict:
     """`/warp`'s two halves -- see `_make_action`'s single write point.
 
@@ -813,6 +830,7 @@ def _warp_action(
             token=token,
             gm_accounts_config_path=gm_accounts_config_path,
             login_scene_config_path=login_scene_config_path,
+            scene_registry=scene_registry,
         )
 
     version = teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED
@@ -879,7 +897,11 @@ def _one_line(text: str) -> str:
 
 
 def _print_warp_way_out(
-    session: object, token: str, scene_id: int, reason: str
+    session: object,
+    token: str,
+    scene_id: int,
+    reason: str,
+    scene_registry=None,
 ) -> None:
     """Name the destinations a refused chat `/warp` could have used instead.
 
@@ -951,7 +973,8 @@ def _print_warp_way_out(
             f"{WARP_REFUSED_CONSOLE_TOKEN} "
             f"account='{console_safe(_one_line(token), stream)}' "
             f"scene_id={scene_id} reason={reason} "
-            f"stageable={stageable_scene_ids()}",
+            "stageable="
+            f"{stageable_scene_ids(scene_registry=scene_registry)}",
             file=stream,
         )
     except Exception as error:  # noqa: BLE001 - see the last paragraph above
@@ -966,6 +989,7 @@ def _stage_action(
     token: str,
     gm_accounts_config_path: str | None,
     login_scene_config_path: str | None,
+    scene_registry=None,
 ) -> _Verdict:
     """The cross-scene half of `/warp`: write the next-login scene, send nothing.
 
@@ -993,6 +1017,7 @@ def _stage_action(
             scene_id,
             gm_accounts_config_path=gm_accounts_config_path,
             config_path=login_scene_config_path,
+            scene_registry=scene_registry,
         )
     except Exception as error:  # noqa: BLE001 - type name only, as everywhere
         _note(session, f"{EVENT_WARP_STAGE_REFUSED_PREFIX}{type(error).__name__}")
@@ -1002,7 +1027,9 @@ def _stage_action(
 
     if not result.staged:
         _note(session, f"{EVENT_WARP_STAGE_REFUSED_PREFIX}{result.reason}")
-        _print_warp_way_out(session, token, scene_id, result.reason)
+        _print_warp_way_out(
+            session, token, scene_id, result.reason, scene_registry
+        )
         return _Verdict(None, f"{OUTCOME_STAGE_REFUSED_PREFIX}{result.reason}")
 
     _note(session, f"{EVENT_WARP_STAGED_PREFIX}{scene_id}")
@@ -1010,11 +1037,16 @@ def _stage_action(
     previous_scene_id = result.previous_scene_id
 
     def _undo() -> bool:
+        # THE SAME READING THE STAGE USED.  `restore_login_scene`
+        # re-validates the whole file, so an undo judged against the file
+        # while the stage was judged against a snapshot refuses and leaves
+        # the entry it was called to remove sitting on disk.
         return login_scene_stage.restore_login_scene(
             token,
             previous_scene_id,
             gm_accounts_config_path=gm_accounts_config_path,
             config_path=login_scene_config_path,
+            scene_registry=scene_registry,
         )
 
     return _Verdict(

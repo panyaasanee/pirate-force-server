@@ -123,6 +123,7 @@ class ConsumeResult:
 def _ask_the_standalone_map(
     account_name: str,
     standalone_config_path: str | os.PathLike | None,
+    scene_registry=None,
 ) -> ConsumeResult:
     """Did the STANDALONE map really answer, and with which scene?
 
@@ -146,7 +147,7 @@ def _ask_the_standalone_map(
     """
     try:
         standalone = load_standalone_login_scene_overrides(
-            standalone_config_path
+            standalone_config_path, scene_registry=scene_registry
         )
     except (OSError, ValueError):
         # A config this process cannot read is one it must not act on, and
@@ -164,6 +165,8 @@ def consume_login_scene_override(
     gm_accounts_config_path: str | os.PathLike | None = None,
     login_scene_config_path: str | os.PathLike | None = None,
     standalone_config_path: str | os.PathLike | None = None,
+    *,
+    scene_registry=None,
 ) -> ConsumeResult:
     """Resolve this account's login scene AND spend the entry that gave it.
 
@@ -182,6 +185,27 @@ def consume_login_scene_override(
     * `CONSUME_FAILED` -- an entry was found but could not be removed, so
       **no scene is returned**: the login goes to the default rather than to
       a scene whose override would outlive it.
+
+    `scene_registry` -- CHIEF-REPLY 2026-08-29T12:21+07:00 item 4, the
+    parameter chief asked this lane to land first so their call site can
+    pass `runtime.py`'s boot snapshot into it.  It reaches every load below
+    and decides ONE thing: which reading of lane A's registry the admission
+    check judges a config entry against.
+
+    WHAT IT ACTUALLY FIXES, and it is NOT the lockout chief's own gate
+    closes.  That gate handles the disk being WIDER than the snapshot (an
+    entry the file approves and the process refuses).  This parameter is
+    for the other direction, which no gate at the call site can reach: when
+    the disk is NARROWER -- lane A's registry file edited to bar or drop a
+    scene after boot -- the fresh read refuses that entry, the whole-file
+    load raises, and `CONSUME_FAILED` turns off EVERY account's override,
+    including accounts naming scenes the running process would still place
+    them in perfectly well.  Nobody is locked out and nothing says why; the
+    lane just stops working until a restart.  Judged against the snapshot,
+    the file is held to what the process can actually do.
+
+    Default `None` = read the file fresh, which is what every caller does
+    today and what every test in this lane was written against.
     """
     if type(account_name) is not str:
         raise TypeError("account_name must be a str")
@@ -200,6 +224,7 @@ def consume_login_scene_override(
             gm_accounts_config_path=gm_accounts_config_path,
             login_scene_config_path=login_scene_config_path,
             standalone_config_path=standalone_config_path,
+            scene_registry=scene_registry,
         )
     except (OSError, ValueError):
         return ConsumeResult(None, CONSUME_FAILED)
@@ -241,7 +266,9 @@ def consume_login_scene_override(
     # after: once the entry is gone there is no way to tell "the standalone
     # map answered" from "the GM map answered and another login took it".
     try:
-        gm_map = load_login_scene_overrides(login_scene_config_path)
+        gm_map = load_login_scene_overrides(
+            login_scene_config_path, scene_registry=scene_registry
+        )
     except (OSError, ValueError):
         return ConsumeResult(None, CONSUME_FAILED)
     if gm_map.get(account_name) is None:
@@ -260,7 +287,9 @@ def consume_login_scene_override(
         # The comment above about deciding WHICH MAP before the claim is true
         # of this call's claim and false of everybody else's.  So ask the
         # standalone map itself rather than inferring it by elimination.
-        return _ask_the_standalone_map(account_name, standalone_config_path)
+        return _ask_the_standalone_map(
+            account_name, standalone_config_path, scene_registry
+        )
 
     # Imported here, not at module scope: `login_scene_stage` imports from
     # `login_scene_override`, which this module also imports, and a
@@ -284,7 +313,9 @@ def consume_login_scene_override(
     # case rather than the exotic one.
     try:
         claimed = login_scene_stage.claim_login_scene(
-            account_name, config_path=login_scene_config_path
+            account_name,
+            config_path=login_scene_config_path,
+            scene_registry=scene_registry,
         )
     except Exception:
         return ConsumeResult(None, CONSUME_FAILED)
@@ -295,7 +326,9 @@ def consume_login_scene_override(
         # the ordinary scene -- or the removal failed.  One read tells them
         # apart, and only the second is a fault.
         try:
-            after = load_login_scene_overrides(login_scene_config_path)
+            after = load_login_scene_overrides(
+                login_scene_config_path, scene_registry=scene_registry
+            )
         except (OSError, ValueError):
             return ConsumeResult(None, CONSUME_FAILED)
         if after.get(account_name) is not None:
@@ -309,6 +342,8 @@ def consume_login_scene_override(
         # path under contention, not the rarer one, and it falsified this
         # round's own deliverable sentence about `GT-110` being able to
         # re-enter the same scene on every retry.
-        return _ask_the_standalone_map(account_name, standalone_config_path)
+        return _ask_the_standalone_map(
+            account_name, standalone_config_path, scene_registry
+        )
 
     return ConsumeResult(claimed, CONSUMED)

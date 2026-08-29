@@ -129,7 +129,7 @@ def _resolve_path(
 
 
 def _load_scene_id_map(
-    path: Path, json_key: str
+    path: Path, json_key: str, scene_registry=None
 ) -> dict[str, int]:
     if not path.is_file():
         return {}
@@ -161,7 +161,7 @@ def _load_scene_id_map(
                 f"{path}: '{json_key}'[{account_name!r}] = {scene_id} is not a "
                 "known scene_id in gm/scene_catalog.py's committed table"
             )
-        if not login_entry_is_pinned(scene_id):
+        if not login_entry_is_pinned(scene_id, scene_registry=scene_registry):
             # ADMISSION, round qq0i9u.  Being in the client's NAME table is
             # not the same as being a scene the login path will let a
             # character into, and until this check existed the difference
@@ -208,7 +208,8 @@ def _load_scene_id_map(
                     f"key={json_key} "
                     f"account='{console_safe(account_name, stream)}' "
                     f"scene_id={scene_id} reason=no_pinned_login_entry "
-                    f"stageable={stageable_scene_ids()}",
+                    "stageable="
+                    f"{stageable_scene_ids(scene_registry=scene_registry)}",
                     file=stream,
                 )
             except Exception:  # noqa: BLE001 - see the paragraph above; the
@@ -220,7 +221,8 @@ def _load_scene_id_map(
                 "lane A's world_scene_registry_001, or pinned "
                 "login_entry_allowed=false) -- an account pointed here could "
                 "not log in at all until this file was edited by hand; "
-                f"admissible scene_ids today: {stageable_scene_ids()}"
+                "admissible scene_ids today: "
+                f"{stageable_scene_ids(scene_registry=scene_registry)}"
             )
         result[account_name] = scene_id
     return result
@@ -244,6 +246,8 @@ def resolve_gm_login_scene_config_path(
 
 def load_login_scene_overrides(
     config_path: str | os.PathLike | None = None,
+    *,
+    scene_registry=None,
 ) -> dict[str, int]:
     """Load the GM-gated account -> scene_id override map.
 
@@ -258,11 +262,13 @@ def load_login_scene_overrides(
     ``load_standalone_login_scene_overrides``.
     """
     path = _resolve_path(config_path, DEFAULT_CONFIG_PATH, ENV_OVERRIDE)
-    return _load_scene_id_map(path, "gm_login_scene")
+    return _load_scene_id_map(path, "gm_login_scene", scene_registry)
 
 
 def load_standalone_login_scene_overrides(
     config_path: str | os.PathLike | None = None,
+    *,
+    scene_registry=None,
 ) -> dict[str, int]:
     """Load the standalone account -> scene_id override map.
 
@@ -276,7 +282,7 @@ def load_standalone_login_scene_overrides(
     path = _resolve_path(
         config_path, STANDALONE_DEFAULT_CONFIG_PATH, STANDALONE_ENV_OVERRIDE
     )
-    return _load_scene_id_map(path, STANDALONE_JSON_KEY)
+    return _load_scene_id_map(path, STANDALONE_JSON_KEY, scene_registry)
 
 
 def get_login_scene_override(
@@ -284,6 +290,8 @@ def get_login_scene_override(
     gm_accounts_config_path: str | os.PathLike | None = None,
     login_scene_config_path: str | os.PathLike | None = None,
     standalone_config_path: str | os.PathLike | None = None,
+    *,
+    scene_registry=None,
 ) -> int | None:
     """The scene_id ``account_name`` should log into instead of the default.
 
@@ -307,15 +315,24 @@ def get_login_scene_override(
     subclass lying through ``__eq__``/``__hash__`` could otherwise resolve
     to a different account's override entry. See ``accounts.is_gm_account``
     for the full failure scenario this closes.
+
+    ``scene_registry`` is passed straight to both loaders and means what it
+    means in ``gm/login_scene_admission.py``: judge admission against the
+    caller's OWN reading of lane A's registry rather than against a fresh
+    one of this module's.  Not defaulted to anything clever -- ``None``
+    keeps every existing caller on the fresh read, which is the behaviour
+    every test in this lane was written against.
     """
     if type(account_name) is not str:
         raise TypeError("account_name must be a str")
     if is_gm_account(account_name, gm_accounts_config_path):
-        overrides = load_login_scene_overrides(login_scene_config_path)
+        overrides = load_login_scene_overrides(
+            login_scene_config_path, scene_registry=scene_registry
+        )
         scene_id = overrides.get(account_name)
         if scene_id is not None:
             return scene_id
     standalone_overrides = load_standalone_login_scene_overrides(
-        standalone_config_path
+        standalone_config_path, scene_registry=scene_registry
     )
     return standalone_overrides.get(account_name)

@@ -383,13 +383,21 @@ class OnlyOneLoginGetsItTests(_Case):
         real_claim = login_scene_stage.claim_login_scene
         state = {"stolen": False}
 
-        def lose_the_claim(account_name, config_path=None):
+        def lose_the_claim(account_name, config_path=None, scene_registry=None):
             # Another login takes the entry a moment before we do, so this
             # call's own claim comes back None.
             if not state["stolen"]:
                 state["stolen"] = True
-                real_claim(account_name, config_path=config_path)
-            return real_claim(account_name, config_path=config_path)
+                real_claim(
+                    account_name,
+                    config_path=config_path,
+                    scene_registry=scene_registry,
+                )
+            return real_claim(
+                account_name,
+                config_path=config_path,
+                scene_registry=scene_registry,
+            )
 
         with mock.patch.object(
             login_scene_stage, "claim_login_scene", lose_the_claim
@@ -415,11 +423,19 @@ class OnlyOneLoginGetsItTests(_Case):
         real_claim = login_scene_stage.claim_login_scene
         state = {"stolen": False}
 
-        def lose_the_claim(account_name, config_path=None):
+        def lose_the_claim(account_name, config_path=None, scene_registry=None):
             if not state["stolen"]:
                 state["stolen"] = True
-                real_claim(account_name, config_path=config_path)
-            return real_claim(account_name, config_path=config_path)
+                real_claim(
+                    account_name,
+                    config_path=config_path,
+                    scene_registry=scene_registry,
+                )
+            return real_claim(
+                account_name,
+                config_path=config_path,
+                scene_registry=scene_registry,
+            )
 
         with mock.patch.object(
             login_scene_stage, "claim_login_scene", lose_the_claim

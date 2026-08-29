@@ -182,6 +182,7 @@ def stage_login_scene(
     *,
     gm_accounts_config_path: str | os.PathLike | None = None,
     config_path: str | os.PathLike | None = None,
+    scene_registry=None,
 ) -> StageResult:
     """Point one listed GM account at `scene_id` on its next login.
 
@@ -190,6 +191,41 @@ def stage_login_scene(
     Every other failure -- not a GM, unknown scene, unreadable config, a
     write that did not survive its own read-back -- comes back as
     `staged=False` with a reason, and leaves the config file unchanged.
+
+    `scene_registry` moves a refusal to where a PERSON IS STANDING.  Left
+    `None` this call decides whether a destination is enterable by reading
+    lane A's registry FILE, while the process that will place the character
+    at the next login decides it from a snapshot taken at boot.  When the
+    file is the wider of the two, `/warp` accepts a scene the login then
+    refuses -- the tester is told nothing, lands at their own row, and the
+    retry meets the same wall.  Passing the caller's snapshot makes that
+    refusal happen at the moment the command is TYPED, instead of at a
+    login this lane has no way to speak to (`gm/say_wire.py`'s send gate is
+    shut on RE-132).
+
+    !! A SNAPSHOT MAY NOT WIDEN A WRITE, only narrow it, and the version
+    that let it widen was measured as a file-wide poisoning by
+    pf-adversary (round 7hfrt0, D2).  The reason is that the ENTRY OUTLIVES
+    THE PROCESS THAT WROTE IT.  Stage scene N under a boot snapshot that
+    admits N while the file does not, and `config/gm_login_scene.json` now
+    holds a line that `_load_scene_id_map` refuses -- and it refuses the
+    WHOLE FILE, so every OTHER account's override dies with it.  Worse, it
+    cannot be taken back off: `restore_login_scene` and `claim_login_scene`
+    both re-validate the whole file before writing, so every removal path
+    in this lane refuses it too.  It takes a hand edit of a gitignored
+    config to clear.  And it needs no exotic wiring to reach -- one server
+    RESTART re-reads the file, and the fresh (narrow) snapshot meets the
+    entry the old (wide) one authorised.
+
+    So: the FILE decides what may be written, the snapshot may refuse on
+    top of that, and a written file is therefore loadable by any reading,
+    including the next process's.  Reading is where a snapshot is allowed
+    to be the wider of the two, because a read writes nothing that outlives
+    it -- see `login_scene_consume.consume_login_scene_override`.
+
+    NOT WIRED YET (`CORE-REQUEST-GM-036`): `runtime.py` is chief's file, so
+    every caller today is `None` and nothing above is in effect.  It is
+    written as the reason the parameter exists, not as a fix already made.
     """
     if type(account_name) is not str:
         # `type(...) is not str`, never isinstance: `accounts.is_gm_account`
@@ -208,9 +244,19 @@ def stage_login_scene(
         return StageResult(False, REASON_NOT_GM_ACCOUNT, None, None)
     if not is_known_scene_id(scene_id):
         return StageResult(False, REASON_UNKNOWN_SCENE, None, None)
+    # BOTH READINGS, AND THE ORDER OF THE WORDS IS THE WHOLE RULE:
+    # a caller's snapshot may only ever NARROW what may be written, never
+    # widen it.  See this function's docstring, "A SNAPSHOT MAY NOT WIDEN
+    # A WRITE", for the file-wide poisoning that measured version caused.
     if not login_entry_is_pinned(scene_id):
         return StageResult(False, REASON_NO_LOGIN_ENTRY, None, None)
-    return _write_entry(account_name, scene_id, config_path)
+    if scene_registry is not None and not login_entry_is_pinned(
+        scene_id, scene_registry=scene_registry
+    ):
+        return StageResult(False, REASON_NO_LOGIN_ENTRY, None, None)
+    return _write_entry(
+        account_name, scene_id, config_path, scene_registry=scene_registry
+    )
 
 
 # RE-EXPORTED, NOT REDEFINED.  Both names used to have their bodies here,
@@ -234,6 +280,7 @@ def restore_login_scene(
     *,
     gm_accounts_config_path: str | os.PathLike | None = None,
     config_path: str | os.PathLike | None = None,
+    scene_registry=None,
 ) -> bool:
     """Undo a `stage_login_scene`: put the entry back the way it was.
 
@@ -256,6 +303,24 @@ def restore_login_scene(
     that module withholds bytes, which costs nothing to undo because they
     were never sent.  A staged entry is already on disk by then, so
     "withhold" has to mean "take it back off disk".
+
+    `scene_registry` IS NOT DECORATION ON AN UNDO, and leaving it off this
+    function was the mistake that made the parameter worth checking twice.
+    `_write_entry` re-validates the WHOLE file before it writes -- the
+    reader's own rules, so a config with a typo comes back untouched instead
+    of being rewritten around it.  An undo judged against a DIFFERENT
+    reading from the write it is undoing therefore REFUSES: stage scene N
+    under a snapshot that admits it, undo without the snapshot, and the file
+    load refuses N, `_write_entry` answers `REASON_CONFIG_UNREADABLE`, and
+    THE ENTRY THIS CALL EXISTS TO REMOVE STAYS ON DISK -- the exact state
+    `chat_command_action`'s withhold rule ("this house does not perform an
+    effect it cannot record") is written to prevent, reached through the
+    undo that enforces it.
+
+    So, as a rule rather than as advice: UNDO WITH THE SAME READING YOU
+    STAGED WITH.  That includes `runtime.py`'s put-back after a refused
+    login (`_put_back_consumed_override`), which is why
+    `CORE-REQUEST-GM-036` asks for three call sites and not two.
     """
     if type(account_name) is not str:
         raise TypeError("account_name must be a str")
@@ -275,6 +340,7 @@ def restore_login_scene(
         config_path,
         allow_delete=True,
         gm_accounts_config_path=gm_accounts_config_path,
+        scene_registry=scene_registry,
     )
     return result.staged
 
@@ -283,6 +349,7 @@ def claim_login_scene(
     account_name: str,
     *,
     config_path: str | os.PathLike | None = None,
+    scene_registry=None,
 ) -> int | None:
     """Take this account's staged scene OFF disk and return what was taken.
 
@@ -314,6 +381,17 @@ def claim_login_scene(
     most needs clearing.  Deciding WHETHER this account's scene may come
     from this map is the caller's job, and `login_scene_consume` does it
     before calling.
+
+    `scene_registry` is handed to every whole-file validation this call
+    makes, for one reason: THE THREE LOADS HAVE TO AGREE.  This function
+    reads the map, deletes an entry, and reads it back, and each read
+    re-validates every OTHER account's entry through the admission
+    predicate.  If the reads did not all judge against the same reading of
+    lane A's registry, a registry edited between two of them could make the
+    read-back refuse a file the first read accepted -- and the read-back's
+    only vocabulary for that is `None`, which this function's caller is
+    required to read as "somebody else took it".  A spent entry reported as
+    a lost race is the one answer here that is worse than an error.
     """
     if type(account_name) is not str:
         raise TypeError("account_name must be a str")
@@ -321,7 +399,9 @@ def claim_login_scene(
         raise ValueError("account_name must be a non-empty str")
     with _WRITE_LOCK:
         try:
-            before = load_login_scene_overrides(config_path)
+            before = load_login_scene_overrides(
+                config_path, scene_registry=scene_registry
+            )
         except (OSError, ValueError):
             return None
         scene_id = before.get(account_name)
@@ -333,6 +413,7 @@ def claim_login_scene(
             config_path,
             allow_delete=True,
             gm_accounts_config_path=None,
+            scene_registry=scene_registry,
         )
         if not result.staged:
             return None
@@ -340,7 +421,9 @@ def claim_login_scene(
         # changed nothing would otherwise hand out a scene whose override
         # outlives the login, with an audit row saying it was spent.
         try:
-            after = load_login_scene_overrides(config_path)
+            after = load_login_scene_overrides(
+                config_path, scene_registry=scene_registry
+            )
         except (OSError, ValueError):
             return None
         if after.get(account_name) is not None:
@@ -355,6 +438,7 @@ def _write_entry(
     *,
     allow_delete: bool = False,
     gm_accounts_config_path: str | os.PathLike | None = None,
+    scene_registry=None,
 ) -> StageResult:
     """Read-validate-write-verify one entry, or leave the file untouched."""
     if scene_id is None and not allow_delete:
@@ -366,6 +450,7 @@ def _write_entry(
             config_path,
             allow_delete=allow_delete,
             gm_accounts_config_path=gm_accounts_config_path,
+            scene_registry=scene_registry,
         )
 
 
@@ -376,6 +461,7 @@ def _write_entry_locked(
     *,
     allow_delete: bool = False,
     gm_accounts_config_path=None,
+    scene_registry=None,
 ) -> StageResult:
     path = resolve_gm_login_scene_config_path(config_path)
     # RESOLVE THE SYMLINK, and write through it rather than over it.  Measured:
@@ -415,7 +501,9 @@ def _write_entry_locked(
         # module refuses to write into it.  An operator whose config has a
         # typo gets it back untouched with a named reason, instead of a
         # rewritten file that hides the typo under one new entry.
-        previous_map = load_login_scene_overrides(path)
+        previous_map = load_login_scene_overrides(
+            path, scene_registry=scene_registry
+        )
     except (ValueError, OSError, json.JSONDecodeError):
         return StageResult(False, REASON_CONFIG_UNREADABLE, scene_id, None)
 
@@ -449,7 +537,9 @@ def _write_entry_locked(
         return StageResult(False, REASON_WRITE_FAILED, scene_id, previous_scene_id)
 
     try:
-        written = load_login_scene_overrides(path)
+        written = load_login_scene_overrides(
+            path, scene_registry=scene_registry
+        )
     except (ValueError, OSError, json.JSONDecodeError):
         written = None
     if written is None or written.get(account_name) != scene_id:
