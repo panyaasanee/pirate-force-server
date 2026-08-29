@@ -493,17 +493,6 @@
       "note": "round g627j0 (LANE-B): field_drop_tables.py is GENERATED, and this is the test that re-runs its generator with --check so the shipped table cannot drift from the bridge clone's gamedata unnoticed. A clone without pf_bridge beside it cannot answer, so the skip is declared rather than hand-written - the first draft wrote a bare skipTest and the gate's skip census caught it."
     },
     {
-      "key": "bridge_gamedata",
-      "module": "tests/test_pf_scan_field_scene_candidates.py",
-      "count": 3,
-      "tests": [
-        "FieldSceneCandidatesRegenerateAndDiffTest::test_regenerating_reproduces_the_committed_report_byte_for_byte",
-        "FieldSceneCandidatesRegenerateAndDiffTest::test_scene_278_scans_as_zero_hostile_under_the_shipped_tables",
-        "FieldSceneCandidatesRegenerateAndDiffTest::test_control_scene_refusal_fires_on_a_tampered_mobs_row"
-      ],
-      "note": "round ctflxc (LANE-B): tools/pf_scan_field_scene_candidates.py is the census behind the BUILD-004 field-scene blocker, and these three re-run it against the bridge clone's gamedata so docs/FIELD_SCENE_CANDIDATES.json cannot drift unnoticed and the scene-278-is-empty finding stays checked. pf-adversary caught the first draft shipping this test file with no matching pin, which would have failed this exact census on any machine without pf_bridge beside it."
-    },
-    {
       "key": "client_image",
       "module": "tests/test_move_authority_targetpos_static.py",
       "count": 8,
@@ -551,6 +540,17 @@
         "ToolRunTests::test_thunk_verifier_still_reproduces_the_three_round62_pins"
       ],
       "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "bridge_gamedata",
+      "module": "tests/test_pf_scan_field_scene_candidates.py",
+      "count": 3,
+      "tests": [
+        "FieldSceneCandidatesRegenerateAndDiffTest::test_regenerating_reproduces_the_committed_report_byte_for_byte",
+        "FieldSceneCandidatesRegenerateAndDiffTest::test_scene_278_scans_as_zero_hostile_under_the_shipped_tables",
+        "FieldSceneCandidatesRegenerateAndDiffTest::test_control_scene_refusal_fires_on_a_tampered_mobs_row"
+      ],
+      "note": "round ctflxc (LANE-B): tools/pf_scan_field_scene_candidates.py is the census behind the BUILD-004 field-scene blocker, and these three re-run it against the bridge clone's gamedata so docs/FIELD_SCENE_CANDIDATES.json cannot drift unnoticed and the scene-278-is-empty finding stays checked. pf-adversary caught the first draft shipping this test file with no matching pin, which would have failed this exact census on any machine without pf_bridge beside it."
     },
     {
       "key": "backups_tree",
@@ -848,7 +848,7 @@
         "TheCommittedCopyIsTheRealTable::test_no_shipped_control_was_measured_on_the_scene_it_ships_under",
         "TheCommittedCopyIsTheRealTable::test_cline_resolves_set_103_to_the_id_this_module_committed"
       ],
-      "note": "round ua236k (LANE-B): COO-DECISION 20260829_0345 made cline the project's one identity rule and ordered the 35/35 equality pinned by a test. scene_identity_rule.py commits the CLINE blocks for the two scene types in play because CONSTDATA_TH__CLINE.tsv lives on the bridge clone, not here; these four re-derive those blocks and the two readings of Mob-Set 103 from that clone so the committed copy cannot drift. Pinned in the same commit as the test, per the defect shape pf-adversary caught in rounds ctflxc, 2vxlx2 and y7koj9. Grew from four to 9 after pf-adversary's review: the scene_name and mobs_tip digests, SCENE_CLINE_TYPE itself (the crosswalk's entry point, which nothing re-derived), the n_ID-vs-n_CLINE_TYPE control, the rule's 19/271 reach, and the pin that Bg0015 ships under controls measured on another scene type."
+      "note": "round ua236k (LANE-B): COO-DECISION 20260829_0345 made cline the project's one identity rule and ordered the 35/35 equality pinned by a test. scene_identity_rule.py commits the CLINE blocks for the two scene types in play because CONSTDATA_TH__CLINE.tsv lives on the bridge clone, not here; these re-derive those blocks, both disputed readings of Mob-Set 103, SCENE_CLINE_TYPE itself (the crosswalk's entry point, which nothing re-derived before pf-adversary's review), the n_ID-vs-n_CLINE_TYPE control, the rule's 19/271 reach, and the gap that Bg0015 ships under controls measured on another scene type. Pinned in the same commit as the test, per the defect shape that closed PRs in rounds ctflxc, 2vxlx2, y7koj9 and vyi2ud."
     }
   ],
   "windows_gate_excluded_modules": {

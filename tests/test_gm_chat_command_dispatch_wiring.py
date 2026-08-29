@@ -243,12 +243,24 @@ class ChatCommandDispatchWiringTests(unittest.TestCase):
         with mock.patch.dict(
             gm_accounts.os.environ, {gm_accounts.ENV_OVERRIDE: str(path)},
         ):
+            # The control is measured FIRST, and the order is load-bearing
+            # (chief, round ngwnnj/R223).  A GM's `/warp` to another scene
+            # STAGES a single-use login-scene override for this same account
+            # (LANE-GM's cross-scene warp), and the control's own login is a
+            # second login of "gm_runner": measured after the subject, it
+            # spends that entry and arrives in scene 2 for real, which since
+            # CHIEF-DECISION 20260829_0520 also moves the in-memory
+            # character -- so the very next frame composes scene 2's census
+            # and the "control" carries two actions the subject never had.
+            # That is not this route's doing; it is a control that is no
+            # longer the same login.  With the route mocked out, the control
+            # stages nothing, so running it first leaves both sides on a
+            # login with no override.
+            control = self._actions_without_the_route("gm_runner", "/warp 2")
             state = self._login_and_start("gm_runner")
             actions = self._say(state, "/warp 2")
             # Observe-only: the point adds no reply of its own.
-            self.assertEqual(
-                actions, self._actions_without_the_route("gm_runner", "/warp 2")
-            )
+            self.assertEqual(actions, control)
         self.assertIn("gm_chat_action_accepted_warp", state.events)
         records = self._audit_lines()
         # Two rows since CORE-REQUEST-GM-032 (issued + outcome), one pair per
