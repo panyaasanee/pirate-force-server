@@ -205,5 +205,53 @@ class CensusLineIntegrationTest(unittest.TestCase):
         self.assertNotIn("scene=bg0001", line)
 
 
+class TheOtherSceneNameReaderAgreesWithThisOneTest(unittest.TestCase):
+    """The counterpart anchor for ``world_scene_folder``.
+
+    ADDED ROUND ``yam18f`` (LANE-A), and it is here rather than only in that
+    module's own test file because pf-adversary (D3) deleted
+    ``tests/test_world_scene_folder.py``, forged ``BG0001``/``BG0002`` into the
+    reader's literals, and ran the WHOLE suite: 4459 passed, zero failures.
+    Nothing else in the tree named the module, so its guarantees lasted exactly
+    as long as one file nobody was required to keep.
+
+    Two readers now answer "what is this scene called": this module's
+    ``scene_file_for_scene_id`` (3 hand-typed ids, the identity guard's keys)
+    and ``world_scene_folder.scene_folder_for_scene_id`` (16 ids, generated
+    from the client's index, the one COO-DECISION 20260829_0848 item 3 ordered
+    for the roster path).  THEY MUST NEVER DISAGREE WHERE BOTH ANSWER.  Two of
+    this module's three anchors - bg0001 and Bg0002 - are case-different from
+    the client table's own ``s_MODLE_ID``, so this is a real cross-check on
+    hand-typed values, not a restatement of the generated ones.
+    """
+
+    def test_the_roster_address_reader_agrees_on_every_id_this_module_maps(self):
+        from pirateforce_foundation import world_scene_folder
+        for scene_id, expected in wsn.SCENE_ID_TO_SCENE_FILE.items():
+            with self.subTest(scene_id=scene_id):
+                self.assertEqual(
+                    world_scene_folder.scene_folder_for_scene_id(scene_id),
+                    expected,
+                )
+
+    def test_the_identity_guard_keys_survive_the_other_readers_answer(self):
+        # The consequence the other module exists to prevent, asserted from
+        # this side of the seam: its answer for scene 2 must be the string THIS
+        # module's OWNER_CONFIRMED_SCENES is keyed by.  Hand it the client
+        # table's spelling instead and the one scene the owner walked and
+        # confirmed on screen reads as unassessed.
+        from pirateforce_foundation import world_scene_folder
+        folder = world_scene_folder.scene_folder_for_scene_id(2)
+        self.assertIn(folder, wsn.OWNER_CONFIRMED_SCENES)
+        self.assertTrue(wsn.identity_is_provable(folder))
+        self.assertFalse(wsn.identity_is_provable("BG0002"))
+
+    def test_that_readers_own_test_file_still_exists(self):
+        # Deleting it is what made the forgery invisible.  Named here, in a
+        # file that module cannot reach, so the deletion cannot be silent.
+        path = Path(__file__).resolve().parent / "test_world_scene_folder.py"
+        self.assertTrue(path.exists(), "%s was deleted" % path.name)
+
+
 if __name__ == "__main__":
     unittest.main()
