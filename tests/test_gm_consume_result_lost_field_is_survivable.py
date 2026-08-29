@@ -10,28 +10,40 @@ the source in this round before writing a line of this file):
   except Exception: pass` guard -- this lane demanded that, and it stands;
 * that read sits INSIDE `except (ValueError, OSError, TypeError)`;
 * a bare `AttributeError` is in neither net, so it unwinds the game
-  listener thread (`pf_login_game_server_v141.py:7440` has no `except`).
-  The process keeps the login port and loses the game port.  A supervisor
-  sees a live process; a tester sees a client that connects and then never
-  enters; the console says nothing.
+  listener thread: `game_listener` in
+  `current/pf_login_game_server_v141.py` wraps `state.dispatch` in no
+  `except` but the socket ones, its accept loop catches only
+  `socket.timeout`, and it is a daemon thread while the login accept loop
+  is the main one.  The process keeps the login port and loses the game
+  port -- a supervisor sees a live process, a tester sees a client that
+  connects and never enters.
 
-So "loud" had a consumer nobody had named, and the honest answer is that a
-dead game port is not loudness -- it is the quietest failure this lane can
-produce, because the one artifact an operator watches (the console) stays
-empty while the server looks healthy.
+WHAT THIS FILE'S FIRST VERSION GOT WRONG, kept rather than quietly fixed
+(pf-adversary D5, this round, measured): it said the old failure left "the
+console saying nothing".  It does not.  An uncaught error in a daemon
+thread reaches Python's default `threading.excepthook`, which prints a
+full traceback -- file, line, field name -- to stderr.  The old failure was
+LOUDER IN CONTENT than what replaces it.  The defect was the DEAD PORT, and
+a supervisor blind to it.  That is enough of a reason on its own; the
+exaggeration was not needed and is struck here rather than argued.
 
-THE ANSWER THIS LANE SHIPS: the consumer of the loudness is the events row
-`gm_login_scene_override_lookup_failed_ConsumeResultMisuse` and a red CI.
-`ConsumeResultMisuse` inherits BOTH `AttributeError` (so nothing that
-catches one changes behaviour, `copy.deepcopy`'s instance-level
-`getattr(x, "__deepcopy__", None)` included) and `TypeError` (so the net
-`runtime.py` ALREADY has catches it, with no change to chief's file).
+THE ANSWER THIS LANE SHIPS: the operator's artifact is a named console
+line, and a red CI.  `ConsumeResultMisuse` inherits BOTH `AttributeError`
+(so nothing that catches one changes behaviour, `copy.deepcopy`'s
+instance-level `getattr(x, "__deepcopy__", None)` included) and `TypeError`
+(so the net `runtime.py` ALREADY has catches it, with no change to chief's
+file).  The events row `..._lookup_failed_ConsumeResultMisuse` is a third
+artifact and NOT a greppable one on a default boot (D6): `app.py` builds an
+event exporter only under `--export-events`.
 
 WHAT IS NOT CLAIMED.  Nothing here is client-observable: no byte of any of
 this reaches a client, and the paths driven below are in-repo regression
 drills -- at HEAD a real `ConsumeResult` cannot exist without a cause.
-This file is wire/console-side only.  The end-to-end half of the same
-property (the events row, through the real dispatcher) is in
+This file is console-side only.  It also does not claim the game listener
+is now safe from `AttributeError` in general (D7): only THIS class's
+raises moved inside chief's net.  `CORE-REQUEST-GM-039` is the ticket for
+the net itself.  The end-to-end half of the property (the console line and
+the events row, through the real dispatcher) is in
 `test_gm_login_scene_consume_cause_wiring_in_runtime.py`; this file pins
 the object.
 """
@@ -58,11 +70,26 @@ C = login_scene_consume
 # chief's source could change under it without a single test going red --
 # it would just start proving a different, weaker sentence.  The end-to-end
 # file drives the real dispatcher, which is what pins the real tuple.
+# (pf-adversary attacked this hand-copy from both sides this round --
+# narrowing chief's net, widening it to `except Exception`, and swapping
+# the bases underneath it -- and every attack turned the wiring file red.)
 THE_RUNTIME_NET = (ValueError, OSError, TypeError)
 
+# Values chosen to be unmistakable in a haystack: if either ever reaches a
+# console line, `assertNotIn` finds it.  A real failure's `scene_id` is an
+# integer read out of `gm_login_scene.json`, which is why `None` -- what the
+# first version of these tests used -- could not prove anything (D3).
+LOUD_SCENE_ID = 90210
+LOUD_OUTCOME = C.CONSUME_FAILED
 
-def a_result_that_lost_its_cause() -> C.ConsumeResult:
-    """A real `ConsumeResult` with the `cause` slot never filled.
+
+def a_result_missing(
+    field: str,
+    scene_id: int | None = LOUD_SCENE_ID,
+    outcome: str = LOUD_OUTCOME,
+    cause: str = C.CAUSE_CLAIM_RAISED,
+) -> C.ConsumeResult:
+    """A real `ConsumeResult` with exactly one slot never filled.
 
     Not a stub class: the point is the object chief's call site actually
     receives.  `__new__` skips `__init__`, which is the only shape in which
@@ -70,10 +97,32 @@ def a_result_that_lost_its_cause() -> C.ConsumeResult:
     return path could write (a subclass filling two slots, a fast-path
     constructor) without any test noticing today.
     """
+    values = {"scene_id": scene_id, "outcome": outcome, "cause": cause}
+    del values[field]
     result = C.ConsumeResult.__new__(C.ConsumeResult)
-    object.__setattr__(result, "scene_id", None)
-    object.__setattr__(result, "outcome", C.CONSUME_FAILED)
+    for name, value in values.items():
+        object.__setattr__(result, name, value)
     return result
+
+
+def a_result_that_lost_its_cause() -> C.ConsumeResult:
+    return a_result_missing("cause")
+
+
+@contextlib.contextmanager
+def console():
+    """Capture stdout, so the suite does not print the lane's own token.
+
+    pf-adversary D4 counted six emissions of
+    `GM_CONSUME_RESULT_LOST_FIELD` on a plain `pytest -s` run of this
+    round's files -- from a suite whose own source argues that a token
+    printed where nothing was refused is what teaches an operator to
+    ignore it.  Every test here now reads the console rather than leaking
+    to it, including the ones that do not assert on it.
+    """
+    captured = io.StringIO()
+    with contextlib.redirect_stdout(captured):
+        yield captured
 
 
 class TheErrorIsBothKindsOfWrongTests(unittest.TestCase):
@@ -104,8 +153,9 @@ class TheErrorIsBothKindsOfWrongTests(unittest.TestCase):
     def test_the_events_row_would_name_it(self):
         # `runtime.py` appends `..._lookup_failed_{type(error).__name__}`,
         # so the class NAME is an operator-facing string, not an internal
-        # detail: it is what a GT harness greps for.  Renaming the class is
-        # allowed; renaming it without noticing this is not.
+        # detail.  (It is only greppable under `--export-events`; see the
+        # module docstring.)  Renaming the class is allowed; renaming it
+        # without noticing this is not.
         self.assertEqual(
             "ConsumeResultMisuse", C.ConsumeResultMisuse.__name__
         )
@@ -114,39 +164,66 @@ class TheErrorIsBothKindsOfWrongTests(unittest.TestCase):
 class AResultThatLostAFieldTests(unittest.TestCase):
     def test_reading_the_lost_field_raises_the_survivable_error(self):
         result = a_result_that_lost_its_cause()
-        with self.assertRaises(C.ConsumeResultMisuse):
-            result.cause
+        with console():
+            with self.assertRaises(C.ConsumeResultMisuse):
+                result.cause
 
     def test_that_raise_is_caught_by_the_runtime_net(self):
         # The whole point, stated where it can fail: this is the read
         # `runtime.py` performs, and it no longer leaves the try block.
         result = a_result_that_lost_its_cause()
-        try:
-            result.cause
-        except THE_RUNTIME_NET:
-            pass
-        else:  # pragma: no cover - only reachable if __getattr__ goes
-            self.fail("the lost-field read escaped the runtime's net")
+        with console():
+            try:
+                result.cause
+            except THE_RUNTIME_NET:
+                pass
+            else:  # pragma: no cover - only reachable if __getattr__ goes
+                self.fail("the lost-field read escaped the runtime's net")
+
+    def test_every_slot_raises_when_it_is_the_one_that_is_missing(self):
+        # `runtime.py` reads `scene_id` and `outcome` BEFORE it reads
+        # `cause`, so those two are the fields a real regression loses
+        # first.  The first version of this file only ever lost `cause`.
+        for field in ("scene_id", "outcome", "cause"):
+            with self.subTest(field=field):
+                result = a_result_missing(field)
+                with console():
+                    with self.assertRaises(C.ConsumeResultMisuse):
+                        getattr(result, field)
+
+    def test_a_name_outside_the_slots_still_raises(self):
+        # THE D1 KILL, and it was the disqualifying gap: an `else: return
+        # None` in `__getattr__` -- four characters -- turned the hook into
+        # the silent default this whole round forbids, and survived 4951
+        # tests.  A name that is not a slot must still RAISE, and must
+        # print nothing.
+        result = C.ConsumeResult(1, C.CONSUMED)
+        with console() as printed:
+            with self.assertRaises(C.ConsumeResultMisuse):
+                result.consume_cause  # a plausible typo, not a slot
+        self.assertEqual("", printed.getvalue())
 
     def test_the_message_names_the_field_and_carries_no_value(self):
-        result = a_result_that_lost_its_cause()
-        with self.assertRaises(C.ConsumeResultMisuse) as caught:
-            result.cause
-        message = str(caught.exception)
-        self.assertIn("cause", message)
-        # No VALUE from the result may ride along: `outcome` is set on this
-        # object and a message built with `!r` of the instance would print
-        # it (and, on a real failure, a scene id).  Round `9wy444` D1.
-        self.assertNotIn(C.CONSUME_FAILED, message)
+        for field in ("scene_id", "outcome", "cause"):
+            with self.subTest(field=field):
+                result = a_result_missing(field)
+                with console():
+                    with self.assertRaises(C.ConsumeResultMisuse) as caught:
+                        getattr(result, field)
+                message = str(caught.exception)
+                self.assertIn(field, message)
+                self.assertNotIn(str(LOUD_SCENE_ID), message)
+                self.assertNotIn(C.CAUSE_CLAIM_RAISED, message)
 
     def test_hasattr_and_getattr_default_still_behave(self):
         # Proof of the `AttributeError` half, on the object rather than on
         # the class: the standard library's swallow still swallows.
         result = a_result_that_lost_its_cause()
-        self.assertFalse(hasattr(result, "cause"))
-        self.assertEqual(
-            "sentinel", getattr(result, "cause", "sentinel")
-        )
+        with console():
+            self.assertFalse(hasattr(result, "cause"))
+            self.assertEqual(
+                "sentinel", getattr(result, "cause", "sentinel")
+            )
 
     def test_a_well_formed_result_is_not_intercepted(self):
         # `__getattr__` runs only after normal lookup fails, so nothing on
@@ -155,59 +232,90 @@ class AResultThatLostAFieldTests(unittest.TestCase):
         result = C.ConsumeResult(
             None, C.CONSUME_FAILED, C.CAUSE_CLAIM_RAISED
         )
-        self.assertEqual(C.CAUSE_CLAIM_RAISED, result.cause)
-        self.assertEqual(C.CONSUME_FAILED, result.outcome)
-        self.assertIsNone(result.scene_id)
+        with console() as printed:
+            self.assertEqual(C.CAUSE_CLAIM_RAISED, result.cause)
+            self.assertEqual(C.CONSUME_FAILED, result.outcome)
+            self.assertIsNone(result.scene_id)
+        self.assertEqual("", printed.getvalue())
 
 
-class TheOperatorGetsALineAndNotOnlyAnEventsRowTests(unittest.TestCase):
-    """Otherwise this round would have made the failure QUIETER.
+class TheOperatorGetsALineTests(unittest.TestCase):
+    """With the raise now CAUGHT, the console would otherwise get nothing.
 
-    The escape it replaces at least reached stderr through the thread
-    excepthook on its way to killing the listener.  An events row is read
-    by a GT harness and by nobody watching a console at 3am, so the console
-    keeps a line -- a named one, not the placeholder cause the letter
-    forbids.
+    Not "a message where there was none" -- see the module docstring: the
+    escape this replaces printed a traceback on its way to killing the
+    port.  This is a message that does not cost the port.
     """
 
-    LINE = (
-        "GM_CONSUME_RESULT_LOST_FIELD field=cause "
-        "effect=override_refused_login_at_own_row"
-    )
-
-    def read_the_console(self, action):
-        console = io.StringIO()
-        with contextlib.redirect_stdout(console):
-            with self.assertRaises(C.ConsumeResultMisuse):
-                action()
-        return console.getvalue()
-
-    def test_the_lost_field_prints_its_own_token(self):
-        result = a_result_that_lost_its_cause()
-        self.assertIn(
-            self.LINE, self.read_the_console(lambda: result.cause)
+    def line_for(self, field):
+        return (
+            f"GM_CONSUME_RESULT_LOST_FIELD field={field} read=refused"
         )
 
+    def read_the_console(self, result, field):
+        with console() as printed:
+            with self.assertRaises(C.ConsumeResultMisuse):
+                getattr(result, field)
+        return printed.getvalue()
+
+    def test_the_line_names_the_field_that_was_actually_lost(self):
+        # THE D2 KILL: three mutants survived the whole suite before this
+        # -- hardcoding `field=cause`, hardcoding the message's field, and
+        # narrowing the slot guard to `name == "cause"`.  An operator was
+        # being told to grep `cause` while `cause` was present and intact.
+        for field in ("scene_id", "outcome", "cause"):
+            with self.subTest(field=field):
+                printed = self.read_the_console(
+                    a_result_missing(field), field
+                )
+                self.assertIn(self.line_for(field), printed)
+
+    def test_the_line_claims_no_effect_it_cannot_know(self):
+        # D4: the first version printed
+        # `effect=override_refused_login_at_own_row` -- word for word the
+        # same line a `hasattr` probe produced, having refused nothing.
+        # What the effect WAS belongs to the events row `runtime.py`
+        # appends, which is the only place that knows.
+        printed = self.read_the_console(
+            a_result_that_lost_its_cause(), "cause"
+        )
+        self.assertNotIn("effect=", printed)
+        self.assertIn("read=refused", printed)
+
     def test_the_line_carries_no_value_from_the_result(self):
-        result = a_result_that_lost_its_cause()
-        printed = self.read_the_console(lambda: result.cause)
-        # `outcome` is set on this object and a scene id would be set on a
-        # real one; neither may ride out on a console line.  Round `9wy444`
-        # D1, same rule as the cause vocabulary itself.
+        # D3: the first version drove a result whose `scene_id` was None,
+        # so appending `scene_id={...}` to the printed line survived the
+        # whole suite.  A real failure's scene id comes out of
+        # `gm_login_scene.json` -- round `9wy444` D1 forbids it reaching a
+        # console under this lane's token.
+        printed = self.read_the_console(
+            a_result_missing("cause"), "cause"
+        )
+        self.assertNotIn(str(LOUD_SCENE_ID), printed)
         self.assertNotIn(C.CONSUME_FAILED, printed)
         self.assertEqual(1, len(printed.splitlines()))
 
+    def test_a_subclass_that_loses_its_own_slot_prints_too(self):
+        # D12: the guard read `ConsumeResult.__slots__`, so the shape the
+        # hook's own docstring names -- a subclass filling some of its
+        # slots -- raised with no console line at all.
+        class Sub(C.ConsumeResult):
+            __slots__ = ("extra",)
+
+        instance = Sub(1, C.CONSUMED)
+        printed = self.read_the_console(instance, "extra")
+        self.assertIn(self.line_for("extra"), printed)
+
     def test_an_ordinary_dunder_probe_prints_nothing(self):
-        # THE mutation kill for the `in __slots__` guard: drop it and every
+        # The other half of the `in slots` guard: drop it and every
         # `copy.deepcopy` in the tree prints a lane token, which is how a
         # console token stops meaning anything.
-        console = io.StringIO()
-        with contextlib.redirect_stdout(console):
+        with console() as printed:
             copy.deepcopy(C.ConsumeResult(1, C.CONSUMED))
             self.assertIsNone(
                 getattr(C.ConsumeResult(1, C.CONSUMED), "__deepcopy__", None)
             )
-        self.assertEqual("", console.getvalue())
+        self.assertEqual("", printed.getvalue())
 
     def test_a_dead_stdout_does_not_change_the_error(self):
         # A diagnostic must never cost more than the diagnostic.  Kill:
@@ -219,6 +327,35 @@ class TheOperatorGetsALineAndNotOnlyAnEventsRowTests(unittest.TestCase):
         with contextlib.redirect_stdout(broken):
             with self.assertRaises(C.ConsumeResultMisuse):
                 result.cause
+
+
+class ADiagnosticThatRaisesIsNotADiagnosticTests(unittest.TestCase):
+    """D10: `repr()` of a lost result used to raise -- inside an `except`.
+
+    The likeliest place anyone writes `repr(override_result)` is chief's
+    own handler, where a second raise is caught by nothing and takes the
+    listener thread after all -- the exact failure this round exists to
+    remove, re-entered through the diagnostic.
+    """
+
+    def test_repr_of_a_lost_result_neither_raises_nor_prints(self):
+        for field in ("scene_id", "outcome", "cause"):
+            with self.subTest(field=field):
+                result = a_result_missing(field)
+                with console() as printed:
+                    rendered = repr(result)
+                self.assertIn("<lost>", rendered)
+                self.assertEqual("", printed.getvalue())
+
+    def test_repr_of_a_well_formed_result_is_unchanged(self):
+        result = C.ConsumeResult(
+            7, C.CONSUME_FAILED, C.CAUSE_GM_MAP_UNREADABLE
+        )
+        self.assertEqual(
+            "ConsumeResult(scene_id=7, outcome='consume_failed', "
+            "cause='gm_map_unreadable')",
+            repr(result),
+        )
 
 
 class WritingAFieldIsTheSameKindOfWrongTests(unittest.TestCase):
@@ -258,8 +395,9 @@ class WritingAFieldIsTheSameKindOfWrongTests(unittest.TestCase):
         result = C.ConsumeResult(1, C.CONSUMED)
         with self.assertRaises(AttributeError):
             result.cause = "anything"
-        with self.assertRaises(AttributeError):
-            a_result_that_lost_its_cause().cause
+        with console():
+            with self.assertRaises(AttributeError):
+                a_result_that_lost_its_cause().cause
 
 
 class CopyAndPickleAreUntouchedTests(unittest.TestCase):
@@ -280,13 +418,6 @@ class CopyAndPickleAreUntouchedTests(unittest.TestCase):
                 None, C.CONSUME_FAILED, C.CAUSE_ENTRY_SURVIVED_CLAIM
             ),
         ]
-
-    def test_the_dunder_probe_falls_back_instead_of_raising(self):
-        for original in self.results():
-            with self.subTest(outcome=original.outcome):
-                self.assertIsNone(
-                    getattr(original, "__deepcopy__", None)
-                )
 
     def test_copy_deepcopy_and_pickle_still_round_trip(self):
         for original in self.results():

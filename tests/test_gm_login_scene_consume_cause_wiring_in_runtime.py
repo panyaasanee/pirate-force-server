@@ -318,11 +318,13 @@ class ConsumeCauseWiringTests(unittest.TestCase):
             state.events,
         )
         # And the person watching the console gets a line of their own --
-        # named, not a placeholder cause.  Without this the round would
-        # have traded a thread-killing traceback for total silence.
+        # named, not a placeholder cause.  With the raise now caught by
+        # chief's net, this line is the ONLY artifact a default boot has:
+        # `app.py` builds an event exporter under `--export-events` only,
+        # so the events row asserted above stays in memory otherwise
+        # (pf-adversary D6).
         self.assertIn(
-            "GM_CONSUME_RESULT_LOST_FIELD field=cause "
-            "effect=override_refused_login_at_own_row",
+            "GM_CONSUME_RESULT_LOST_FIELD field=cause read=refused",
             console,
         )
         # The override is what was lost, not the login: the character is

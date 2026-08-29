@@ -469,9 +469,13 @@ class EveryReturnSiteIsAccountedForTests(unittest.TestCase):
         # branch borrowing an existing token, which every other check here
         # accepts).  Note what is NOT asserted: "no two sites share a
         # token".  That WAS the first version's rule and the remedy axis
-        # deliberately broke it -- `registry_refused_entry` is returned from
-        # four sites, because a refused row is the same fault and the same
-        # remedy wherever the loader met it.
+        # deliberately broke it -- ~~`registry_refused_entry` is returned
+        # from four sites~~ several tokens are returned from more than one
+        # site, because a refused row is the same fault and the same remedy
+        # wherever the loader met it.  (The struck half named a token that
+        # was SPLIT and no longer exists, and a count nothing re-derives:
+        # pf-adversary D8, round `npo898`.  The live count is the assertion
+        # below, which AST-parses the source on every run.)
         #
         # So the pin is the COUNT.  Adding or removing a `CONSUME_FAILED`
         # branch is then a deliberate act: this number moves, and whoever
