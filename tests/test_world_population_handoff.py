@@ -38,6 +38,10 @@ from pirateforce_foundation.world_population import (  # noqa: E402
     build_world_population,
 )
 from pirateforce_foundation import world_density  # noqa: E402
+from pirateforce_foundation import (  # noqa: E402
+    world_population_bg0002,
+    world_population_bg0015,
+)
 from pirateforce_foundation.world_population_handoff import (  # noqa: E402
     STOWAWAY_REPORT_RADIUS,
     stowaway_console_line,
@@ -75,11 +79,33 @@ LEGACY_PATH = ROOT / "current/pf_login_game_server_v141.py"
 # read CENSUS_COUNT.
 SHIPPED_CENSUS_COUNT = 108
 
-# Every scene pinned in scenarios/world_scene_registry_001.json except home.
+# ~~Every scene pinned in scenarios/world_scene_registry_001.json except home.
 # 2 is the one this project has actually rendered besides Port Royal, 278 is
 # the M2 stage, 997 is the pinned candidate COO-DECISION 0550 did not choose.
 # None has a population table, and none may receive the dock census.
-NON_HOME_SCENES = (2, 278, 997)
+# NON_HOME_SCENES = (2, 278, 997)~~
+#
+# ROUND 80x5ba (LANE-A).  The struck comment said "none has a population
+# table", and by the round it was written that was already false: scene 2 has
+# had ``world_population_bg0002``'s roster since M1-P.  The list was doing two
+# jobs at once - "not home" and "gets the empty generation" - and those stopped
+# being the same set two rounds ago.  Split, so that a scene gaining a composer
+# moves between two named lists instead of quietly changing what a test means.
+#
+# Scenes that arrive EMPTY, and the reason each one does.  278 is the M2 stage:
+# its nine placements are Mob-Sets and resolving those to identities is the
+# reading GT-078 rejected, so it stays empty by decision, not by omission.  997
+# is the pinned candidate COO-DECISION 0550 did not choose and has no
+# placements mined at all.
+SCENES_WITHOUT_A_COMPOSER = (278, 997)
+
+# Scenes that arrive POPULATED from this lane's own finished per-scene
+# composers.  Both rosters are on main and tested in their own files; what is
+# tested here is only that the seam hands each arrival ITS OWN roster.
+COMPOSED_AWAY_SCENES = (2, 14)
+
+# Home is still its own branch and its own builder, not a registry entry.
+NON_HOME_SCENES = SCENES_WITHOUT_A_COMPOSER
 
 # Each mode is a way the frozen encoder could drift or be replaced such that a
 # frame this module calls a clear is not one, paired with the fragment of the
@@ -229,13 +255,190 @@ class HandoffTests(unittest.TestCase):
         football field at bg0001 coordinates.  No non-home scene may come back
         with a frame that declares actors, whatever the caller asked for.
         """
-        for scene in NON_HOME_SCENES:
+        for scene in SCENES_WITHOUT_A_COMPOSER:
             for requested in (None, 3, CENSUS_COUNT):
                 with self.subTest(scene=scene, actor_count=requested):
                     handoff = handoff_for_arrival(
                         self.legacy, scene, self.anchor, actor_count=requested
                     )
                     self.assertEqual(wire_count_of(handoff.pc), 0)
+
+    def test_a_composed_scene_gets_its_own_roster_and_never_the_dock_census(self):
+        """ROUND 80x5ba: the same refusal, for the scenes that now DO populate.
+
+        A scene that arrives populated is the case where "some other scene's
+        actors" is possible at all - the empty branch cannot get it wrong,
+        because it has no bodies to get wrong.  So this is where the check
+        belongs now, and it is made at the BYTES: the frame a composed arrival
+        carries must be byte-for-byte the frame that scene's OWN builder
+        produces, and must differ from the dock census.
+        """
+        home = handoff_for_arrival(self.legacy, 1, self.anchor)
+        for scene, build in (
+            (2, world_population_bg0002.build_bg0002_population),
+            (14, world_population_bg0015.build_bg0015_population),
+        ):
+            with self.subTest(scene=scene):
+                handoff = handoff_for_arrival(self.legacy, scene, self.anchor)
+                self.assertEqual(handoff.kind, KIND_CENSUS)
+                self.assertNotEqual(handoff.pc, home.pc)
+                self.assertNotEqual(handoff.frame, home.frame)
+                direct = build(
+                    self.legacy, self.anchor, scene_id=scene,
+                    count_source=(
+                        world_population_bg0002.COUNT_SOURCE_FULL_ROSTER
+                        if scene == 2
+                        else world_population_bg0015.COUNT_SOURCE_FULL_ROSTER
+                    ),
+                )
+                self.assertEqual(handoff.pc, direct.pc)
+                self.assertEqual(handoff.frame, direct.frame)
+                self.assertEqual(
+                    handoff.membership, tuple(direct.placement_indices))
+                self.assertEqual(
+                    wire_count_of(handoff.pc), len(handoff.membership))
+                self.assertEqual(handoff.actor_count, len(handoff.membership))
+                self.assertGreater(handoff.actor_count, 0)
+
+    def test_every_scene_prints_a_readable_console_line(self):
+        """The line a tester greps must survive for EVERY scene, not most.
+
+        THIS TEST EXISTS BECAUSE THE ROUND THAT ADDED THE ROSTER BRANCH SHIPPED
+        THIS BUG PAST ITS OWN SUITE.  ``handoff_report`` described the
+        generation with ``world_population.dispatch_report``, which reads
+        fields only the home census carries, so a roster generation raised
+        ValueError inside it - and ``handoff_console_line`` catches
+        BaseException by contract, so scene 2 and scene 14 printed exactly
+        ``WORLD_POP_HANDOFF unreportable reason=ValueError`` and nothing else.
+        Every assertion in this file was on the OBJECT; not one printed the
+        line.  A tester on GT-131's successor would have had no number to read
+        for the two scenes this change exists to populate.
+        """
+        for scene in (1,) + COMPOSED_AWAY_SCENES + SCENES_WITHOUT_A_COMPOSER:
+            with self.subTest(scene=scene):
+                handoff = handoff_for_arrival(self.legacy, scene, self.anchor)
+                line = handoff_console_line(handoff)
+                self.assertNotIn("unreportable", line)
+                self.assertIn("scene=%d" % scene, line)
+                self.assertIn("wire=%d" % wire_count_of(handoff.pc), line)
+                self.assertIn("actors=%d" % handoff.actor_count, line)
+                # And the report it is built from carries the composer's own
+                # description, not a hole where one failed.
+                report = handoff_report(handoff)
+                if handoff.kind == KIND_CENSUS:
+                    self.assertIsInstance(report["census"], dict)
+                    self.assertNotEqual(report["census"], {})
+
+    def test_a_composed_arrival_is_anchored_where_the_player_lands(self):
+        """Unlike a clear, a roster is built at the arrival point.
+
+        The clear is the same bytes from anywhere (the test above pins that).
+        A roster must NOT be: actors composed around the departure point put
+        the whole scene in the wrong place relative to the player.
+        """
+        for scene in COMPOSED_AWAY_SCENES:
+            with self.subTest(scene=scene):
+                near = handoff_for_arrival(self.legacy, scene, self.anchor)
+                far = handoff_for_arrival(self.legacy, scene, self.far_anchor)
+                self.assertEqual(near.generation.anchor, self.anchor)
+                self.assertEqual(far.generation.anchor, self.far_anchor)
+                self.assertEqual(
+                    near.membership_reset.population_refresh_anchor,
+                    self.anchor,
+                )
+
+    def test_a_composed_arrival_carries_the_addition_ordering_and_a_reapply(self):
+        for scene in COMPOSED_AWAY_SCENES:
+            with self.subTest(scene=scene):
+                handoff = handoff_for_arrival(self.legacy, scene, self.anchor)
+                self.assertEqual(handoff.dispatch_slot, SLOT_AFTER_TELEPORT)
+                self.assertEqual(handoff.reapply_ms, INITIAL_REAPPLY_MS)
+                self.assertEqual(handoff.label, LABEL_CENSUS.format(scene))
+                self.assertIn(str(scene), handoff.reason)
+                self.assertTrue(handoff.sends_a_frame)
+
+    def test_the_membership_reset_of_a_composed_arrival_is_not_empty(self):
+        """The trap the roster generations set for this module.
+
+        Both rosters call their membership ``placement_indices``; the home
+        census calls it ``indices``.  A reset that read ``generation.indices``
+        would have raised on every composed arrival, and one that reached for
+        the name with a bare ``getattr(..., ())`` would have reported "this
+        frame put nobody on the client" while shipping a full roster - which
+        is the state that lets one ChooseNPC recompose the old town into the
+        new map.
+        """
+        for scene in COMPOSED_AWAY_SCENES:
+            with self.subTest(scene=scene):
+                reset = handoff_for_arrival(
+                    self.legacy, scene, self.anchor).membership_reset
+                self.assertFalse(reset.clears_everything)
+                self.assertIsNotNone(reset.population_indices)
+                self.assertGreater(len(reset.population_indices), 0)
+                self.assertEqual(
+                    reset.population_refresh_anchor, self.anchor)
+
+    def test_a_header_that_disagrees_with_the_membership_is_refused(self):
+        """The check that survived this round's own first mutation run.
+
+        Deleting ``declared != len(membership)`` left the whole suite green,
+        because nothing in it could make the two disagree: the real builders
+        always agree with themselves, so the check was untested rather than
+        redundant.  It is not a tautology - the header is read back out of the
+        composed BYTES and the membership out of the generation's own field,
+        which is exactly the pair that comes apart when an encoder or a reader
+        drifts, and a header promising more bodies than the payload carries is
+        the client error (ErrorData=28317) this project has already paid for.
+
+        Driven the only way it can be: a composer whose membership reader
+        under-reports by one, which is what a drifting reader looks like.
+        """
+        import pirateforce_foundation.world_population_handoff as handoff_mod
+        original = dict(handoff_mod.ROSTER_COMPOSERS)
+        honest = original["bg0002_roster"]
+        try:
+            from dataclasses import replace
+            handoff_mod.ROSTER_COMPOSERS["bg0002_roster"] = replace(
+                honest,
+                membership_of=lambda generation: tuple(
+                    generation.placement_indices)[:-1],
+            )
+            with self.assertRaises(ValueError) as caught:
+                handoff_for_arrival(self.legacy, 2, self.anchor)
+            self.assertIn("encoder or reader drift", str(caught.exception))
+            # And it is the strict path that raises: the frame path still
+            # refuses instead of killing the connection.
+            refused = handoff_on_crossing(self.legacy, 2, self.anchor)
+            self.assertEqual(refused.kind, KIND_UNAVAILABLE)
+            self.assertFalse(refused.sends_a_frame)
+        finally:
+            handoff_mod.ROSTER_COMPOSERS.clear()
+            handoff_mod.ROSTER_COMPOSERS.update(original)
+
+    def test_a_composed_scene_refuses_a_roster_built_for_another_scene(self):
+        """The second lock: the arrival scene is handed to the builder.
+
+        If ``CENSUS_SOURCES`` ever names the wrong composer for a scene, the
+        builder's own scene guard has to fire.  Simulated by pointing the
+        registry entry for scene 14 at bg0002's composer - the exact shape of
+        a one-character edit in that table - and the arrival must refuse
+        rather than deliver Prison Exile's NPCs into the volcano.
+        """
+        import pirateforce_foundation.world_population_handoff as handoff_mod
+        original = dict(handoff_mod.ROSTER_COMPOSERS)
+        try:
+            handoff_mod.ROSTER_COMPOSERS["bg0015_roster"] = (
+                original["bg0002_roster"])
+            with self.assertRaises(Exception) as caught:
+                handoff_for_arrival(self.legacy, 14, self.anchor)
+            self.assertIn("scene", str(caught.exception).lower())
+            # And the frame path turns that raise into a refusal, not a crash.
+            refused = handoff_on_crossing(self.legacy, 14, self.anchor)
+            self.assertEqual(refused.kind, KIND_UNAVAILABLE)
+            self.assertFalse(refused.sends_a_frame)
+        finally:
+            handoff_mod.ROSTER_COMPOSERS.clear()
+            handoff_mod.ROSTER_COMPOSERS.update(original)
 
     # ---- ordering --------------------------------------------------------
 

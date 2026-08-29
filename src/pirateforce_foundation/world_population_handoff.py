@@ -35,7 +35,27 @@ population is, over the SAME encoder and the SAME frozen table the census
 already uses::
 
     scene 1 (home)      -> the bg0001 census, rebuilt at the arrival anchor
-    any other scene     -> the EMPTY generation, 0 entries
+    ~~any other scene   -> the EMPTY generation, 0 entries~~
+
+WIDENED ROUND 80x5ba (LANE-A, M2).  The struck line was true when this module
+was written and stopped being true two rounds before it was corrected: it sent
+the EMPTY generation to scene 2 and scene 14, both of which have had a
+finished, tested, shipped roster in this repository for rounds
+(``world_population_bg0002``, ``world_population_bg0015``).  A player crossing
+into Prison Exile Island or Hell Volcano Island would have arrived in a
+provably empty map that this lane had already populated.  The table now reads::
+
+    scene 1 (home)          -> the bg0001 census, rebuilt at the arrival anchor
+    a scene whose source
+      names a composer       -> THAT composer's roster, at the arrival anchor
+    every other scene        -> the EMPTY generation, 0 entries
+
+The choice is still ``world_scene_travel.population_source`` and still not a
+second table this lane would have to keep in step; what is new is that the
+answer now selects a BUILDER (``ROSTER_COMPOSERS``) instead of only deciding
+whether to clear.  Scene 278 is deliberately still on the empty branch - see
+``ROSTER_COMPOSERS`` for why its nine Mob-Set placements are not identities
+this lane may invent.
 
 It does not invent a population for a scene that has none, and it cannot
 deliver dock NPCs into another map: the census path goes through
@@ -154,8 +174,9 @@ nobody has opened.  Arriving there means arriving alone, on purpose.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
+from . import world_population_bg0002, world_population_bg0015
 from .world_population import (
     COLLECTION_TAG,
     COUNT_SOURCE_CALLER,
@@ -198,6 +219,86 @@ LABEL_UNAVAILABLE = "WORLD_POP_HANDOFF_UNAVAILABLE"
 # clear being dropped, this is the constant that answers it, and it should be
 # changed with that evidence attached rather than pre-emptively.
 CLEAR_REAPPLY_MS: int | None = None
+
+
+# --------------------------------------------------------------------------
+# THE COMPOSERS THIS LANE HAS FINISHED, KEYED BY THE NAME THE REGISTRY
+# ALREADY CALLS THEM (round 80x5ba, LANE-A)
+# --------------------------------------------------------------------------
+#
+# WHAT CHANGED AND WHY IT IS NOT A NEW TABLE.  ``world_scene_travel.
+# CENSUS_SOURCES`` has named a composer per scene since round vyi2ud, and this
+# module read it to decide whether to CLEAR - never to decide what to BUILD.
+# So a scene with a finished, tested, shipped roster (scene 2 since M1-P,
+# scene 14 since round 02k3w5) arrived EMPTY, and the console said
+# ``scene_14_source_bg0015_roster_has_no_crossing_handoff_yet`` - a sentence
+# this lane had been printing at itself for three rounds about code that was
+# already written.  This dict is the other half of the table that was already
+# there: source name -> the builder that answers for it.  Adding a scene is
+# one entry here plus the entry in ``CENSUS_SOURCES``, and no chief round.
+#
+# WHY A REGISTRY AND NOT TWO MORE ``elif``s.  That is the shape this lane is
+# blocked BY in ``runtime.py`` (one hardcoded branch per scene, and the lane
+# cannot add one), and repeating it inside the one module that exists to be
+# the seam would be this lane building its own wall a second time.
+#
+# WHAT IS DELIBERATELY NOT IN HERE.  Scene 278 (``Bg1177``), BUILD-002's own
+# target: its nine placements are Mob-Sets, and resolving a Mob-Set number to
+# an actor identity is the reading ``GT-078`` REJECTED (see
+# ``world_population_bg0015``'s collision paragraph for what that reading
+# shipped last time it was trusted).  It stays on the CLEAR branch, by name,
+# until an owner verdict or an RE result gives it identities - arriving there
+# alone is still on purpose.  Scene 17 (the sea) is absent for the same class
+# of reason: it has no composed population at all.
+@dataclass(frozen=True)
+class _SceneComposer:
+    """One finished per-scene composer, and how to read what it built.
+
+    ``membership_of`` exists because the three generations do NOT share a
+    field name: ``world_population`` calls it ``indices`` and both rosters
+    call it ``placement_indices``.  A single ``getattr`` chain here would
+    silently return ``()`` the day a fourth composer names it something else
+    again, and ``()`` is indistinguishable from "this frame put nobody on the
+    client" - which is precisely the state ``membership_reset`` exists to
+    keep honest.  One reader per composer, named at registration, cannot
+    degrade quietly.
+    """
+
+    source: str
+    build: Callable[..., Any]
+    full_roster_count_source: str
+    membership_of: Callable[[Any], tuple[int, ...]]
+    caller_count_source: str
+    # The composer's OWN dispatch report.  For the same reason as
+    # ``membership_of``, and found the same way: ``world_population.
+    # dispatch_report`` reads fields a roster generation does not have, so
+    # ``handoff_report`` calling it on a roster raised ValueError - and
+    # ``handoff_console_line`` catches everything, so the ONLY thing a tester
+    # would have seen for scene 2 and scene 14 was
+    # ``WORLD_POP_HANDOFF unreportable reason=ValueError``.  Caught by
+    # printing the line for all five scenes before commit rather than by any
+    # test in this file, which is why the test that prints it now exists.
+    report_of: Callable[[Any], dict]
+
+
+ROSTER_COMPOSERS: dict[str, _SceneComposer] = {
+    "bg0002_roster": _SceneComposer(
+        source="bg0002_roster",
+        build=world_population_bg0002.build_bg0002_population,
+        full_roster_count_source=world_population_bg0002.COUNT_SOURCE_FULL_ROSTER,
+        membership_of=lambda generation: tuple(generation.placement_indices),
+        caller_count_source=world_population_bg0002.COUNT_SOURCE_CALLER,
+        report_of=world_population_bg0002.dispatch_report,
+    ),
+    "bg0015_roster": _SceneComposer(
+        source="bg0015_roster",
+        build=world_population_bg0015.build_bg0015_population,
+        full_roster_count_source=world_population_bg0015.COUNT_SOURCE_FULL_ROSTER,
+        membership_of=lambda generation: tuple(generation.placement_indices),
+        caller_count_source=world_population_bg0015.COUNT_SOURCE_CALLER,
+        report_of=world_population_bg0015.dispatch_report,
+    ),
+}
 
 # THE BAND A CROSSING IS JUDGED IN.  2000 units is not chosen here: it is the
 # band ``world_density`` already reports the login view in ("census members
@@ -269,7 +370,19 @@ class SceneHandoff:
     frame: bytes
     reapply_ms: int | None
     dispatch_slot: str
-    generation: WorldPopulationGeneration | None
+    generation: Any | None
+    # The placement indices this frame actually put on the client, read from
+    # the generation AT CONSTRUCTION by the composer's own reader rather than
+    # by a property guessing a field name off whatever object it was handed
+    # (see ``_SceneComposer.membership_of``).  Defaulted so that every
+    # hand-built ``SceneHandoff`` in the suite - all of which assert on the
+    # clear/unavailable side - keeps meaning exactly what it meant before.
+    membership_indices: tuple[int, ...] = ()
+    # Which entry of ``ROSTER_COMPOSERS`` built this, so ``handoff_report``
+    # can ask the right module to describe it.  ``None`` means the home
+    # census, which is described by ``world_population.dispatch_report`` -
+    # the behaviour every existing caller and test already gets.
+    composer_source: str | None = None
 
     @property
     def sends_a_frame(self) -> bool:
@@ -292,10 +405,16 @@ class SceneHandoff:
 
         PREFER ``membership_reset``.  This property is half of a pair and
         nothing here stops a caller taking only the half they remembered.
+
+        ~~Reads ``generation.indices``.~~  Reads ``membership_indices``, which
+        the composer's own reader filled in: since round 80x5ba this can be a
+        roster generation, whose field is ``placement_indices``, and the old
+        line would have raised ``AttributeError`` on the arrival path for
+        every scene but home.
         """
         if self.generation is None:
             return ()
-        return tuple(self.generation.indices)
+        return self.membership_indices
 
     @property
     def membership_reset(self) -> "MembershipReset":
@@ -322,7 +441,7 @@ class SceneHandoff:
         if self.kind != KIND_CENSUS or self.generation is None:
             return MembershipReset(None, None)
         return MembershipReset(
-            tuple(self.generation.indices), tuple(self.generation.anchor))
+            self.membership_indices, tuple(self.generation.anchor))
 
 
 def _require_scene_id(scene_id: Any) -> int:
@@ -423,6 +542,70 @@ def build_clear_generation(legacy: Any) -> tuple[bytes, bytes]:
     return (pc, frame)
 
 
+def _roster_handoff(
+    legacy: Any,
+    scene: int,
+    arrival_anchor: tuple[float, float, float],
+    composer: _SceneComposer,
+    *,
+    actor_count: int | None,
+) -> SceneHandoff:
+    """Compose an arrival over one of this lane's finished per-scene rosters.
+
+    THE SCENE ID IS PASSED, NEVER DEFAULTED, AND THAT IS THE SECOND LOCK.
+    Every one of these builders refuses any scene but its own and takes
+    ``scene_id`` as a keyword with no default, for the reason all three of
+    their docstrings give: their entries are encoded with a fixed scene, so a
+    caller that forgets which scene it is in delivers volcano monsters into a
+    town.  This function hands each one THE ARRIVAL SCENE - not the scene the
+    registry says it answers for - so a wrong row in ``CENSUS_SOURCES`` raises
+    out of the builder instead of composing the wrong map's actors.  The first
+    lock is the registry lookup; a table that agrees with itself is not
+    evidence, so they are checked against each other rather than trusted.
+
+    THE HEADER IS CHECKED AGAINST THE MEMBERSHIP, which the home branch does
+    not do and which matters more here: a roster reports its own count, and a
+    header that declares more bodies than the payload carries is the client
+    error (``ErrorData=28317``) this project has already paid for once.
+    """
+    if actor_count is None:
+        generation = composer.build(
+            legacy, arrival_anchor,
+            scene_id=scene,
+            count_source=composer.full_roster_count_source,
+        )
+    else:
+        if type(actor_count) is not int or isinstance(actor_count, bool):
+            raise ValueError(f"actor count must be an int, not {actor_count!r}")
+        generation = composer.build(
+            legacy, arrival_anchor, actor_count,
+            scene_id=scene,
+            count_source=composer.caller_count_source,
+        )
+    _require_pair(legacy, generation.pc, generation.frame, composer.source)
+    membership = composer.membership_of(generation)
+    declared = wire_count_of(generation.pc)
+    if declared != len(membership):
+        raise ValueError(
+            f"the {composer.source} frame declares {declared} actors over a "
+            f"membership of {len(membership)} - encoder or reader drift"
+        )
+    return SceneHandoff(
+        scene_id=scene,
+        kind=KIND_CENSUS,
+        reason=f"scene_{scene}_repopulated_from_{composer.source}",
+        label=LABEL_CENSUS.format(scene),
+        actor_count=len(membership),
+        pc=generation.pc,
+        frame=generation.frame,
+        reapply_ms=INITIAL_REAPPLY_MS,
+        dispatch_slot=SLOT_AFTER_TELEPORT,
+        generation=generation,
+        membership_indices=membership,
+        composer_source=composer.source,
+    )
+
+
 def handoff_for_arrival(
     legacy: Any,
     scene_id: Any,
@@ -462,9 +645,17 @@ def handoff_for_arrival(
     # is deliberately NOT done here.  M1-P's own Bg0002 population is built
     # by ``world_population_bg0002.build_bg0002_population`` on the LOGIN
     # path, which this module does not touch.
-    if population_source(scene) != CENSUS_SOURCE:
+    source = population_source(scene)
+    if source != CENSUS_SOURCE and source in ROSTER_COMPOSERS:
+        # ROUND 80x5ba (LANE-A, M2).  The scene names a composer this lane has
+        # finished, so it gets that composer's roster instead of an empty
+        # collection.  The bg0001 branch below is untouched, byte for byte.
+        return _roster_handoff(
+            legacy, scene, arrival_anchor, ROSTER_COMPOSERS[source],
+            actor_count=actor_count,
+        )
+    if source != CENSUS_SOURCE:
         pc, frame = build_clear_generation(legacy)
-        source = population_source(scene)
         reason = (
             f"scene_{scene}_has_no_population_table" if source is None
             else f"scene_{scene}_source_{source}_has_no_crossing_handoff_yet"
@@ -510,6 +701,7 @@ def handoff_for_arrival(
         reapply_ms=INITIAL_REAPPLY_MS,
         dispatch_slot=SLOT_AFTER_TELEPORT,
         generation=generation,
+        membership_indices=tuple(generation.indices),
     )
 
 
@@ -615,7 +807,16 @@ def handoff_report(handoff: SceneHandoff) -> dict:
         except ValueError:
             report["wire_actor_count"] = "UNREADABLE"
     if handoff.generation is not None:
-        report["census"] = dispatch_report(handoff.generation)
+        # Each composer describes its own generation.  ``world_population.
+        # dispatch_report`` reads fields only the home census has, so calling
+        # it on a roster raised - and every caller of this function is behind
+        # a catch-all, so the failure surfaced as "unreportable" rather than
+        # as anything naming the cause.
+        composer = ROSTER_COMPOSERS.get(handoff.composer_source or "")
+        report["census"] = (
+            composer.report_of(handoff.generation) if composer is not None
+            else dispatch_report(handoff.generation)
+        )
     return report
 
 

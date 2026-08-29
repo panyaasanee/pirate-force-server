@@ -206,10 +206,26 @@ class Bg0015Census(unittest.TestCase):
                 count_source=census.COUNT_SOURCE_FULL_ROSTER)
         self.assertEqual(self._build().actor_count, census.ROSTER_COUNT)
 
-    def test_nothing_under_src_imports_this_module_yet(self) -> None:
-        # The handback, kept honest: the day runtime.py gains the scene-14
-        # branch this test is the one that has to be updated, deliberately,
-        # in the same round -- so "wired" can never happen silently.
+    def test_only_the_population_seam_imports_this_module(self) -> None:
+        # ~~test_nothing_under_src_imports_this_module_yet~~ -- renamed and
+        # widened in round 80x5ba (LANE-A), deliberately and in the same round
+        # as the change that made it fail, which is exactly the protocol the
+        # original comment demanded:
+        #
+        #     "the day runtime.py gains the scene-14 branch this test is the
+        #      one that has to be updated, deliberately, in the same round --
+        #      so 'wired' can never happen silently."
+        #
+        # WHAT CHANGED, AND WHAT DID NOT.  ``world_population_handoff`` now
+        # imports this module, because the arrival seam composes THIS roster
+        # for a scene-14 arrival instead of sending an empty collection to a
+        # map this lane had already populated.  What has NOT changed is the
+        # handback this test exists for: ``runtime.py`` still does not import
+        # the seam, so no player reaches this roster yet.  The assertion is
+        # therefore an EXACT SET, not a "contains" - a third importer, or the
+        # seam being swapped for a direct runtime.py import, both fail here
+        # and have to be argued for in a round of their own.
+        #
         # An AST walk, not a text search: this module's NAME appears in
         # sibling docstrings on purpose (world_bg0015_identity points at it),
         # and a grep would call that wiring.
@@ -231,7 +247,14 @@ class Bg0015Census(unittest.TestCase):
                 if any("world_population_bg0015" in name for name in names):
                     importers.append(path.name)
                     break
-        self.assertEqual(importers, [])
+        self.assertEqual(sorted(importers), ["world_population_handoff.py"])
+        # The half that is still the handback: the seam has no caller on the
+        # frame path, so this roster still reaches no player.  When THAT
+        # changes, this line is the one that has to be argued with.
+        self.assertNotIn("runtime.py", importers)
+        runtime_source = (ROOT / "src" / "pirateforce_foundation"
+                          / "runtime.py").read_text(encoding="utf-8")
+        self.assertNotIn("world_population_handoff", runtime_source)
 
 
 if __name__ == "__main__":  # pragma: no cover
