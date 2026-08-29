@@ -514,6 +514,32 @@ def sanctioned_barred_blocker(scene_id: int, *, scene_registry=None) -> str:
     letter; a real fix has to compare the two readings, which is a
     different function than this one.
     """
+    # THE SPAWN CHECK COMES BEFORE THE LOGIN BAR, and since round `znb56z`
+    # that order is load-bearing rather than a reporting preference.
+    # `single_use_entry_is_admissible` admits on exactly one answer from
+    # here, so a row that is barred AND spawnless must report the SPAWN --
+    # reporting the bar would admit a destination `resolve_entry` refuses
+    # with `REFUSED_NO_PINNED_SPAWN`, which chief's bypass does not remove.
+    # `_target_is_admissible` orders these two the other way round (it
+    # orders by cost and its answer is a bool, so no order can mislead it);
+    # a reader who "makes them consistent" in this direction opens the
+    # lockout.  `test_a_row_with_no_spawn_is_still_refused` is the guard.
+    #
+    # THE PRICE OF THAT ORDER, named because pf-adversary (D7) measured it
+    # rather than left it for someone to hit: on the TRUSTED path a row
+    # that raises while `.spawn` is read propagates out of here, and hence
+    # out of `single_use_entry_is_admissible`, where the plain predicate
+    # would have short-circuited to False on `login_entry_allowed` first.
+    # That raise escapes `consume_login_scene_override` (it catches
+    # OSError/ValueError/LoginSceneRefusedError) and `runtime.py`'s net
+    # (ValueError/OSError/TypeError/AttributeError), i.e. into the game
+    # listener thread.  NOT REACHABLE TODAY, measured: `SceneDestination`
+    # is a frozen dataclass and `spawn` is a plain field, so the read
+    # cannot raise, and a malformed FILE is caught by `_registry_to_ask`.
+    # It becomes reachable the day `spawn` becomes a computed property.
+    # The fix is NOT to swap the order -- that reopens the hole above --
+    # but to narrow what may raise here; recorded in the round letter as
+    # the open one rather than half-fixed under time pressure.
     if not is_sanctioned_barred_scene(scene_id):
         return BLOCKER_NOT_SANCTIONED
     registry, trusted = _registry_to_ask(scene_registry)
@@ -602,16 +628,54 @@ def single_use_entry_is_admissible(scene_id: int, *, scene_registry=None) -> boo
     reach the second arm at all because the first arm already answered True
     for it.
 
-    THE ORDER IS NOT COSMETIC.  ``login_entry_is_pinned`` is asked first so
-    that a non-``int`` raises ``TypeError`` out of it exactly as it does for
-    the plain predicate -- this function's contract for a bad type is the
-    plain one's, not ``is_sanctioned_barred_scene``'s silent ``False``.
+    ~~THE ORDER IS NOT COSMETIC.  ``login_entry_is_pinned`` is asked first
+    so that a non-``int`` raises ``TypeError`` out of it exactly as it does
+    for the plain predicate.~~ STRUCK, pf-adversary D4, round ``znb56z``,
+    MEASURED: with the arms swapped, all four of the test's bad values
+    (``'126'``, ``126.0``, ``True``, ``None``) still raise the identical
+    ``TypeError``, because ``is_sanctioned_barred_scene`` type-guards to
+    ``False`` and control falls through to ``login_entry_is_pinned``
+    anyway.  M16 (arms reordered) left the whole lane suite green.  The
+    ``TypeError`` contract IS real -- it is just not the ORDER that
+    provides it, and asserting a load-bearing reason that does not exist is
+    the defect this lane does not ship.  The order is now what it looks
+    like: the cheap and overwhelmingly common answer first.
+
+    WHAT *IS* LOAD-BEARING, and it is in ``sanctioned_barred_blocker``
+    rather than here: that blocker checks the pinned SPAWN **before** the
+    login bar.  Flipping those two -- which the plain predicate's own order
+    might tempt a reader into "for consistency" -- would report
+    ``BLOCKER_LOGIN_PATH_BARS_IT`` for a row that is barred AND spawnless,
+    and this function would then ADMIT a destination the login path refuses
+    with ``REFUSED_NO_PINNED_SPAWN``, which no bypass removes.
+    ``test_a_row_with_no_spawn_is_still_refused`` is what holds it.
 
     ``scene_registry`` means what it means everywhere in this module: pass
     the reading you will be JUDGED against, or pass nothing for a fresh
-    disk read.  Both arms are asked with the same one, which is the point:
-    a widening that consulted the snapshot for one arm and the disk for the
-    other would be a third reader with a casting vote.
+    disk read.
+
+    ~~Both arms are asked with the same one, which is the point: a widening
+    that consulted the snapshot for one arm and the disk for the other
+    would be a third reader with a casting vote.~~ HALF STRUCK, pf-adversary
+    D5, MEASURED.  With a caller-supplied registry it is exactly true --
+    both arms receive that object.  With the default ``None`` -- which
+    ``stage_login_scene``'s first branch and ``disk_admits_under_rule`` both
+    use -- each arm calls ``_registry_to_ask(None)`` and performs its OWN
+    ``load_scene_registry()``: two reads for a sanctioned id, and
+    ``single_use_stageable_scene_ids`` costs three where the function it
+    sits beside costs one.
+
+    Why that is a cost and not a correctness hole, said rather than
+    implied: the two reads are of the same file microseconds apart, and if
+    they ever disagreed the second arm's answer would be the one used --
+    but a registry rewritten between them yields at worst a refusal or an
+    admission this lane would have given for one of the two states, both of
+    which are states the process legitimately passes through.  It is NOT
+    the "third reader with a casting vote" of ``CORE-REQUEST-GM-034``,
+    which was about a reader whose answer could disagree with the ones that
+    DECIDE; here every reader is this decision.  The read count is recorded
+    because it is on the config reader's per-refused-row path, and a lane
+    that measures its own claims has to measure this one too.
     """
     if login_entry_is_pinned(scene_id, scene_registry=scene_registry):
         return True
@@ -645,6 +709,35 @@ def single_use_stageable_scene_ids(*, scene_registry=None) -> tuple[int, ...]:
     with no name in the committed catalog is an instruction nobody can
     check.  It is not redundant with the reader's own name check -- that
     one guards what may be WRITTEN, this one guards what may be OFFERED.
+    Pinned by ``TheWayOutMayNotNameAnUnnamedSceneTests``, which supplies the
+    case the sanction map cannot (an id with no name): without it, deleting
+    the filter left the whole lane suite green -- the SAME mutation
+    ``_admissible_ids``' own scar note says once reached a pushed commit,
+    repeated here because this function copied the filter and the citation
+    and not the test.  pf-adversary D2, round ``znb56z``.
+
+    ONE READING, AND ``stage_login_scene`` REQUIRES TWO -- so this tuple
+    can name a scene that command then refuses (pf-adversary D6, MEASURED:
+    the way out computed from a snapshot offers the sanctioned id while
+    ``/warp`` on the same registry answers
+    ``REASON_SANCTIONED_NOT_YET_REACHABLE``, because staging asks the DISK
+    first and a snapshot may only narrow).  Stated rather than fixed, and
+    the reason is that the honest fix is not free: this function is called
+    from inside ``_load_scene_id_map``'s REFUSAL, once for the console line
+    (guarded) and once for the message of the ``LoginSceneRefusedError``
+    itself (NOT guarded).  Intersecting with a second reading there adds a
+    read that can raise on the path that builds the refusal, which would
+    swap the refusal a caller must handle for a registry error it does not
+    -- a diagnostic altering dispatch, which this lane does not ship to fix
+    a diagnostic.
+    The gap is NOT introduced by the widening: ``stageable_scene_ids`` has
+    the identical one-reading shape and always has, so the sanctioned id
+    makes an existing hole visible rather than opening it.  The bound: the
+    two readings differ only while lane A's file and the running process
+    disagree, i.e. between a lane A merge and the next restart -- the same
+    window ``sanctioned_barred_blocker``'s own D7 note names, and it needs
+    the same fix, which is a function that compares the two readings rather
+    than a wider guard here.  Recorded in the round letter as open.
     """
     base = stageable_scene_ids(scene_registry=scene_registry)
     widened = set(base)

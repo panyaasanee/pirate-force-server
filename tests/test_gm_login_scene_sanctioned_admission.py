@@ -45,6 +45,8 @@ travel to it works.
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import pathlib
 import sys
@@ -64,20 +66,49 @@ from pirateforce_foundation.gm import login_scene_stage  # noqa: E402
 A = login_scene_admission
 
 
-def the_only_sanctioned_scene() -> int:
-    """The id the sanction map names, taken from the map itself.
+def the_only_sanctioned_scene():
+    """The id the sanction map names, taken from the map itself, or `None`.
 
     Not the literal 126: the map is where the chief letters are recorded,
     and a test that hardcodes its contents stops testing the rule the day a
     second letter lands.
+
+    IT RETURNS `None` RATHER THAN RAISING `SkipTest`, and the difference is
+    not style (pf-adversary D8, round `znb56z`).  This runs at IMPORT, and
+    `login_scene_admission`'s own "HOW AN ENTRY DIES" block MANDATES
+    emptying the sanction map the day its scene becomes ordinarily
+    reachable -- so an import-time skip here is scheduled, not
+    hypothetical.  MEASURED with the map emptied: it turned
+    `test_gm_tests_collect_without_posix`'s import probe RED, for a reason
+    that has nothing to do with POSIX, and it is not the kind of skip
+    `docs/PYTEST_SKIP_PINS.json` can carry (that file requires a positive
+    count, i.e. a skip that actually happens, and this one does not happen
+    today).  A class-level `skipIf` costs nothing, keeps the module
+    importable on every tree, and declares the condition where a reader
+    looking at the class can see it.
     """
     ids = sorted(A.SANCTIONED_BARRED_SCENES)
-    if not ids:
-        raise unittest.SkipTest("no sanctioned scene to test the widening with")
-    return ids[0]
+    return ids[0] if ids else None
 
 
 SANCTIONED = the_only_sanctioned_scene()
+
+# Every test below asks about a sanctioned scene, so all of them are moot
+# when no chief letter names one.  Applied per class rather than by raising
+# at import: see `the_only_sanctioned_scene`.
+requires_a_sanctioned_scene = unittest.skipIf(
+    SANCTIONED is None,
+    "no scene is sanctioned by any chief letter this lane holds, so the "
+    "single-use widening has nothing to admit and nothing to refuse",
+)
+
+
+# The arrival point `CHIEF-DECISION 20260829_1603` item 1 asks lane A to pin
+# for the sanctioned scene.  Used by the stand-in below so the fixture is not
+# quietly testing HOME's coordinates under scene 126's id -- pf-adversary D9,
+# round `znb56z`, which measured that the first version of this fixture
+# differed from the row lane A will actually land in every field but three.
+SANCTIONED_SPAWN_PER_CHIEF_DECISION = (3050.0, 232.0, 90.0)
 
 
 def registry_with_sanctioned_row(*, login_entry_allowed=False, spawn=True):
@@ -88,6 +119,20 @@ def registry_with_sanctioned_row(*, login_entry_allowed=False, spawn=True):
     every field this lane does not care about is whatever lane A's own
     loader produces, rather than a shape invented here that could pass a
     predicate the real one would fail.
+
+    WHAT THIS FIXTURE STILL IS NOT, stated because pf-adversary asked and
+    the first version had no answer (D9).  Three fields are now the ones
+    the decision names -- `n_id`, `login_entry_allowed` and the `spawn`
+    COORDINATES.  Every other field is still HOME's:
+    `persist_position_allowed`, `entry_marker`, `save_flag`, `role`,
+    `status`, the ground bounds, the camera.  None of them is read by
+    anything this file tests -- `login_entry_is_pinned`,
+    `sanctioned_barred_blocker` and `resolve_entry`'s two refusals look at
+    `n_id`, `login_entry_allowed` and `spawn is None`, and nothing else --
+    so the fixture is honest for THIS lane's question and is not a
+    rehearsal of lane A's row.  When that row lands, what proves the route
+    is `TheSanctionAdmitsNothingOnMainTodayTests` going red against the
+    real registry, not this stand-in going green.
     """
     base = world_scene_travel.load_scene_registry()
     template = base[world_scene_travel.HOME_SCENE_ID]
@@ -95,11 +140,12 @@ def registry_with_sanctioned_row(*, login_entry_allowed=False, spawn=True):
         template,
         n_id=SANCTIONED,
         login_entry_allowed=login_entry_allowed,
-        spawn=template.spawn if spawn else None,
+        spawn=SANCTIONED_SPAWN_PER_CHIEF_DECISION if spawn else None,
     )
     return world_scene_travel.SceneRegistry(destinations=base.destinations + (row,))
 
 
+@requires_a_sanctioned_scene
 class TheSanctionAdmitsNothingOnMainTodayTests(unittest.TestCase):
     """The state of the route as measured, not as hoped.
 
@@ -125,6 +171,7 @@ class TheSanctionAdmitsNothingOnMainTodayTests(unittest.TestCase):
         )
 
 
+@requires_a_sanctioned_scene
 class OnlyTheBlockerTheBypassFixesTests(unittest.TestCase):
     """A sanction is a letter saying a destination is wanted, not a route."""
 
@@ -237,6 +284,7 @@ class _ConfigCase(unittest.TestCase):
         )
 
 
+@requires_a_sanctioned_scene
 class TheStandaloneMapNeverWidensTests(_ConfigCase):
     """Property 1: the map that is never spent never gets the wide rule.
 
@@ -277,6 +325,52 @@ class TheStandaloneMapNeverWidensTests(_ConfigCase):
         )
         self.assertEqual({self.GM_ACCOUNT: ordinary}, loaded)
 
+    def test_the_readers_way_out_follows_the_readers_rule(self):
+        """pf-adversary D3/M14: the reader picks a way out as well as a rule.
+
+        MEASURED: pinning `way_out = stageable_scene_ids` unconditionally
+        left the whole lane suite green.  The chat path's equivalent
+        mutation is caught twice over; the READER's had nothing.  The
+        console line an operator gets from a hand-edited config would then
+        omit the sanctioned scene on the very file it is legal in, which
+        `single_use_stageable_scene_ids`' own docstring calls worse than no
+        way out.
+        """
+        registry = registry_with_sanctioned_row()
+        ordinary = A.stageable_scene_ids(scene_registry=registry)
+        self.assertNotIn(SANCTIONED, ordinary)
+        # A file that is legal under the single-use rule except for ONE bad
+        # row, so the refusal (and its way out) is printed for the bad row.
+        unreachable = next(
+            i for i in registry.ids if i not in A.single_use_stageable_scene_ids(
+                scene_registry=registry
+            )
+        )
+        self.gm_map_path.write_text(
+            json.dumps(
+                {
+                    "gm_login_scene": {
+                        self.GM_ACCOUNT: SANCTIONED,
+                        "GM_TWO": unreachable,
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        buffer = io.StringIO()
+        with contextlib.redirect_stderr(buffer):
+            with self.assertRaises(login_scene_override.LoginSceneRefusedError):
+                login_scene_override.load_login_scene_overrides(
+                    self.gm_map_path, scene_registry=registry
+                )
+        line = buffer.getvalue()
+        self.assertIn(
+            f"stageable={A.single_use_stageable_scene_ids(scene_registry=registry)}",
+            line,
+            "the reader must offer the set ITS OWN rule admits",
+        )
+        self.assertIn(str(SANCTIONED), line.split("stageable=")[1])
+
     def test_the_reader_cannot_be_called_without_choosing_a_rule(self):
         # `single_use` is keyword-only and has no default, so a third map
         # cannot inherit whichever rule happened to be written first.
@@ -286,6 +380,7 @@ class TheStandaloneMapNeverWidensTests(_ConfigCase):
             )
 
 
+@requires_a_sanctioned_scene
 class TheRefusalCarriesTheRuleThatRefusedTests(_ConfigCase):
     """A refusal says which rule it came from, so the remedy is right.
 
@@ -320,22 +415,122 @@ class TheRefusalCarriesTheRuleThatRefusedTests(_ConfigCase):
         self.assertFalse(caught.exception.single_use)
 
     def test_the_probe_asks_with_the_flagged_rule(self):
-        # The disk holds the widened answer only for a single-use refusal.
-        registry = registry_with_sanctioned_row()
-        original = A.SANCTIONED_BARRED_SCENES
-        self.assertTrue(
-            A.disk_admits_under_rule.__doc__,
-            "the probe seam is documented; see why it is separate",
-        )
-        # Asked about a scene the disk admits under BOTH rules, both agree.
-        ordinary = A.stageable_scene_ids()[0]
-        self.assertTrue(A.disk_admits_under_rule(ordinary, single_use=True))
-        self.assertTrue(A.disk_admits_under_rule(ordinary, single_use=False))
-        # Asked about the sanctioned scene, both refuse TODAY (no lane A
-        # row), and that is the honest state rather than a rigged pass.
+        """The two rules must be TOLD APART, not merely both asked.
+
+        The first version of this test asserted that both rules agree on an
+        ordinary scene and both refuse the sanctioned one today -- which is
+        true, and which a probe that ignored `single_use` entirely would
+        also satisfy.  MEASURED: deleting the `if single_use:` branch from
+        `disk_admits_under_rule` left the whole lane suite green (957
+        passed).  That is the rigged-pass shape this file's own docstring
+        warns about, found in this file.
+
+        So the case that separates them is the one that matters: a DISK
+        that holds lane A's row.  There the single-use rule admits and the
+        plain rule does not, and a probe that ignores the flag cannot
+        answer both.
+        """
+        with lane_a_row_on_disk(registry_with_sanctioned_row()):
+            self.assertTrue(
+                A.disk_admits_under_rule(SANCTIONED, single_use=True),
+                "the single-use rule admits a sanctioned scene whose only "
+                "blocker is the login bar",
+            )
+            self.assertFalse(
+                A.disk_admits_under_rule(SANCTIONED, single_use=False),
+                "the plain rule -- the standalone map's rule -- must not",
+            )
+        # And on the disk as it stands today, both refuse, for the honest
+        # reason that lane A's row is not there.
         self.assertFalse(A.disk_admits_under_rule(SANCTIONED, single_use=True))
         self.assertFalse(A.disk_admits_under_rule(SANCTIONED, single_use=False))
-        self.assertIs(original, A.SANCTIONED_BARRED_SCENES)
+
+    def test_the_remedy_word_follows_the_rule_that_refused(self):
+        """The operator-visible payoff, walked rather than asserted about.
+
+        Disk has lane A's row; the process's snapshot does not (lane A
+        merged after this server booted).  A single-use entry naming the
+        sanctioned scene is refused by the snapshot, and the remedy is
+        RESTART THE SERVER -- not "edit the config", which is what the
+        narrow rule would have said about a file that is correct.
+        """
+        from pirateforce_foundation.gm import login_scene_consume as C
+
+        self.write_gm_map(SANCTIONED)
+        stale_snapshot = world_scene_travel.load_scene_registry()
+        with lane_a_row_on_disk(registry_with_sanctioned_row()):
+            result = C.consume_login_scene_override(
+                self.GM_ACCOUNT,
+                gm_accounts_config_path=str(self.accounts_path),
+                login_scene_config_path=str(self.gm_map_path),
+                standalone_config_path=str(self.standalone_path),
+                scene_registry=stale_snapshot,
+            )
+        self.assertEqual(C.CONSUME_FAILED, result.outcome)
+        self.assertEqual(
+            C.CAUSE_REGISTRY_STALE_SINCE_BOOT,
+            result.cause,
+            "asked with the narrow rule this says scene_not_admissible and "
+            "sends the operator to grep a config file that is correct",
+        )
+
+
+@requires_a_sanctioned_scene
+class TheWayOutMayNotNameAnUnnamedSceneTests(unittest.TestCase):
+    """MEASURED GAP, fixed in the round that opened it.
+
+    `single_use_stageable_scene_ids` re-applies `is_known_scene_id` to the
+    sanctioned ids, and its docstring says why: the tuple is PRINTED to a
+    person and an id with no name in the committed catalog is an
+    instruction nobody can check.  Deleting that filter left the whole lane
+    suite green (957 passed) -- because the one sanctioned id today, 126,
+    IS in the name catalog, so no fixture could tell the difference.
+
+    A claim no test can fail is a claim with no evidence behind it, which
+    is exactly what `_admissible_ids`' own comment says cost this lane a
+    pushed commit once already.  So the fixture supplies the case the
+    sanction map cannot: a sanctioned id the catalog does not name.
+    """
+
+    def test_a_sanctioned_id_with_no_name_is_never_offered(self):
+        from types import MappingProxyType
+        from unittest import mock
+
+        from pirateforce_foundation.gm import scene_catalog
+
+        unnamed = next(
+            i for i in range(9000, 12000) if not scene_catalog.is_known_scene_id(i)
+        )
+        registry = registry_with_sanctioned_row()
+        # The row has to be admissible-but-barred, or the id would be
+        # filtered out by the blocker instead and this would pass for the
+        # wrong reason.
+        template = registry[world_scene_travel.HOME_SCENE_ID]
+        registry = world_scene_travel.SceneRegistry(
+            destinations=registry.destinations
+            + (replace(template, n_id=unnamed, login_entry_allowed=False),)
+        )
+        with mock.patch.object(
+            A,
+            "SANCTIONED_BARRED_SCENES",
+            MappingProxyType({unnamed: "fixture: an id with no name"}),
+        ):
+            self.assertEqual(
+                A.BLOCKER_LOGIN_PATH_BARS_IT,
+                A.sanctioned_barred_blocker(unnamed, scene_registry=registry),
+                "the fixture must reach the branch the filter guards",
+            )
+            self.assertTrue(
+                A.single_use_entry_is_admissible(unnamed, scene_registry=registry),
+                "admission does not consult the name catalog -- the READER "
+                "does, and so does the way out; this pins which is which",
+            )
+            self.assertNotIn(
+                unnamed,
+                A.single_use_stageable_scene_ids(scene_registry=registry),
+                "an id with no name in the committed catalog may not be "
+                "PRINTED to a person as a destination they may pick",
+            )
 
 
 class lane_a_row_on_disk:
@@ -374,6 +569,7 @@ class lane_a_row_on_disk:
         return False
 
 
+@requires_a_sanctioned_scene
 class TheUndoBelievesTheSameRuleTests(_ConfigCase):
     """Property 3 -- chief's D5 question, answered by construction.
 
@@ -401,6 +597,41 @@ class TheUndoBelievesTheSameRuleTests(_ConfigCase):
             config_path=str(self.gm_map_path),
             scene_registry=registry,
         )
+
+    def test_the_way_out_can_name_what_this_snapshot_alone_cannot_stage(self):
+        """The contradiction, asserted deliberately instead of by accident.
+
+        pf-adversary D6 found this file holding both halves of it in two
+        tests that pass without noticing: the way out computed from a
+        snapshot offers the sanctioned id, and `/warp` on that SAME
+        registry refuses, because staging asks the DISK first and a
+        snapshot may only narrow.
+
+        It is a real property of the two-reading design, not a test
+        artifact, and it is NOT introduced by the widening --
+        `stageable_scene_ids` has the identical one-reading shape and
+        always has.  The sanctioned id makes an existing hole visible.  So
+        it is pinned here, in one place, with the bound written down:
+        the two answers differ only while lane A's file and the running
+        process disagree, i.e. between a lane A merge and the next restart.
+        The day somebody writes the function that compares the two
+        readings, this test is where they will find out what it has to fix.
+        """
+        registry = registry_with_sanctioned_row()
+        self.assertIn(
+            SANCTIONED, A.single_use_stageable_scene_ids(scene_registry=registry)
+        )
+        result = self.stage(SANCTIONED, registry)
+        self.assertFalse(
+            result.staged,
+            "if this goes green the disk grew the row -- re-read the bound "
+            "above; the way out and the stage now agree and this test is "
+            "testing nothing",
+        )
+        # Both readings agreeing is what closes the gap, and it is the
+        # state the day lane A merges AND the process is restarted.
+        with lane_a_row_on_disk(registry):
+            self.assertTrue(self.stage(SANCTIONED, registry).staged)
 
     def test_a_sanctioned_scene_can_be_staged_once_lane_a_lands_the_row(self):
         with lane_a_row_on_disk(registry_with_sanctioned_row()) as registry:

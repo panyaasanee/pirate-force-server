@@ -4397,3 +4397,85 @@ the round letter simultaneously, and somebody has to come and say so rather
 than leave three documents lying. It is the same mechanism
 `test_every_sanctioned_scene_is_one_the_predicate_refuses_today` already uses
 for the retirement of a sanction.
+
+### What pf-adversary broke this round, and what changed because of it
+
+The first version of this round was **not approvable**. The *safety argument*
+held -- twelve refutation attempts, listed below, all failed -- but **six
+independent mutations of this round's own new code left the whole lane suite
+green (957 passed)**, which is the shape of defect this lane keeps paying for:
+a claim with no test that can fail it.
+
+| # | what survived, measured | what this round did |
+|---|---|---|
+| M5 | dropping `is_known_scene_id` from `single_use_stageable_scene_ids` -- **the same mutation `_admissible_ids`' own scar note says once reached a pushed commit of this file**. The new function copied the filter and the citation and not the test; no fixture could tell, because 126 IS named | `TheWayOutMayNotNameAnUnnamedSceneTests` patches the sanction map to an id the catalog does not name. **Kill measured** |
+| M6/M7 | `disk_admits_under_rule` ignoring `single_use` in either direction | the old test asked only ids on which both rules agree, so no input could distinguish them. Replaced with the case that separates them (disk holds lane A's row): single-use admits, plain refuses. **Kills measured** |
+| M8 | `_refusal_cause` hardcoding `single_use=False` | `test_the_remedy_word_follows_the_rule_that_refused` walks the real consume with a disk ahead of the snapshot: `registry_stale_since_boot` (restart) vs `scene_not_admissible` (edit a correct file). **Kill measured** |
+| M14 | the config reader's `way_out` always narrow -- the chat path's equivalent is caught twice, the reader's had nothing | `test_the_readers_way_out_follows_the_readers_rule` reads the real refusal line off stderr. **Kill measured** |
+| M16 | the two arms of `single_use_entry_is_admissible` reordered | **no test added, on purpose.** The mutation is green because the *claim* was false, not because the property was untested -- see D4 |
+
+And four claims or gaps that were not mutations:
+
+- **D4 -- a docstring asserting a reason that does not exist.** "THE ORDER IS
+  NOT COSMETIC ... asked first so that a non-`int` raises `TypeError`": measured
+  with the arms swapped, all four bad values raise the identical `TypeError`
+  anyway, because `is_sanctioned_barred_scene` type-guards and control falls
+  through. Struck. What *is* load-bearing turned out to be somewhere else, and
+  is now written where it lives: `sanctioned_barred_blocker` checks the pinned
+  spawn **before** the login bar, and a reader who "makes that consistent" with
+  `_target_is_admissible`'s opposite order would admit a spawnless destination.
+- **D5 -- "both arms are asked with the same reading" is only half true.** With
+  a caller-supplied registry, yes. With the default `None` each arm loads the
+  registry itself: two reads for a sanctioned id, three for the way out where
+  the function beside it costs one. Half struck, with the reason it is a cost
+  and not a correctness hole written down rather than assumed.
+- **D6 -- this file held both halves of a contradiction in two passing tests.**
+  The way out (one reading) can name a scene `stage_login_scene` (two readings)
+  then refuses. Real, and **not introduced by the widening** --
+  `stageable_scene_ids` has the identical shape and always has. Now asserted
+  deliberately in one place, with its bound (between a lane A merge and the next
+  restart) and the reason the cheap fix is refused: the way out is built inside
+  the refusal's own `raise`, where an added read that can throw would swap the
+  refusal a caller must handle for a registry error it does not.
+- **D7 -- a latent raise the plain predicate would not make.** Not reachable
+  today (`spawn` is a frozen-dataclass field), reachable the day it becomes a
+  property, and the obvious one-line fix is **wrong**: swapping the blocker's
+  order reopens the spawnless admission above. Recorded as open rather than
+  half-fixed.
+- **D8 -- fixed at the cause, not pinned.** The first attempt added the
+  import-time skip to `docs/PYTEST_SKIP_PINS.json` and the repository's own
+  guard refused it: `test_every_pinned_count_is_a_positive_integer`. That file
+  carries skips that *actually happen*, and this one does not happen today --
+  which is the honest answer to why it should not be pinned at all. So the
+  import-time `SkipTest` is gone: `the_only_sanctioned_scene()` returns `None`
+  and every class carries `@requires_a_sanctioned_scene`. Measured with the
+  sanction map emptied, in a worktree: this module is **25 skipped, 0 failed**,
+  and `test_gm_tests_collect_without_posix` is **no longer among the red**. The
+  14 that stay red are in files from earlier rounds and are the retirement
+  doctrine working as designed.
+- **D9** the stand-in row now carries the arrival point the chief decision names
+  `(3050, 232, 90)` instead of home's, and says out loud which fields are still
+  home's and why none of them is read.
+
+**Process defect, recorded because it is the more dangerous one.** The first
+mutation sweep was run **in the live checkout**, reverting with
+`git checkout -- .` between mutations. pf-adversary caught one of those
+mutations mid-flight in `git diff` -- specifically M2, the standalone map on the
+wide rule, i.e. verbatim the permanent-lockout regression this whole ticket
+exists to prevent, sitting uncommitted in the tree one `git commit -a` from
+shipping. Nothing shipped (every mutation reverted; `git status` clean at the
+commit), but the exposure was real and the fix is free: the second sweep ran in
+`git worktree add --detach`, and that is the rule from here.
+
+### What pf-adversary attacked and could NOT break
+
+Walked against `runtime.py` itself rather than against this lane's summary of
+it: any path putting a sanctioned scene into a login that resolves
+`via_login=True` (the standalone map, the character's own persisted row, the
+two-map race, `get_login_scene_override`'s ordering, probe/real-call
+disagreement, restore writing into the wrong map); any non-GM reach; any
+client-named destination; `_refusal_cause` altering dispatch; and
+`lane_a_row_on_disk` hiding a real refusal. The two mutations that matter most
+-- standalone map on the wide rule (M2) and the reader's rule defaulting wide
+(M1) -- were **red from the first sweep**, which is the part of this report
+worth keeping.
