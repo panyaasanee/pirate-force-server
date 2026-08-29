@@ -68,6 +68,26 @@ STANDALONE_ENV_OVERRIDE = "PF_GM_LOGIN_SCENE_STANDALONE_CONFIG"
 STANDALONE_JSON_KEY = "standalone_login_scene"
 
 
+def console_safe(text: str) -> str:
+    """ASCII-fold one operator-controlled field for the bridge console.
+
+    The bridge console is `cp874` and a name it cannot encode used to raise
+    `UnicodeEncodeError` out of the diagnostic print, which is how a
+    diagnostic came to replace the refusal it was explaining (pf-adversary,
+    round qq0i9u).  The fold is what stops that; it is not optional.
+
+    `ascii()` did the fold until round 7gplcy, and it also escaped every
+    BACKSLASH -- so on Windows the line named the file as
+    `C:\\\\Users\\\\...` and the operator could not paste the path the line
+    was there to give them.  It cost this lane a whole round: the gate is
+    Windows, the sanity run is not, and the test that asserted the real path
+    was in the line passed here and failed there.  `backslashreplace` folds
+    exactly what cp874 has no room for and leaves every ASCII character --
+    the separators included -- as it found them.
+    """
+    return text.encode("ascii", "backslashreplace").decode("ascii")
+
+
 def _resolve_path(
     config_path: str | os.PathLike | None,
     default_path: str = DEFAULT_CONFIG_PATH,
@@ -148,8 +168,9 @@ def _load_scene_id_map(
             # stderr costs the line, never the refusal.
             try:
                 print(
-                    f"{CONFIG_REFUSED_CONSOLE_TOKEN} path={ascii(str(path))} "
-                    f"key={json_key} account={ascii(account_name)} "
+                    f"{CONFIG_REFUSED_CONSOLE_TOKEN} "
+                    f"path='{console_safe(str(path))}' "
+                    f"key={json_key} account='{console_safe(account_name)}' "
                     f"scene_id={scene_id} reason=no_pinned_login_entry "
                     f"stageable={stageable_scene_ids()}",
                     file=sys.stderr,

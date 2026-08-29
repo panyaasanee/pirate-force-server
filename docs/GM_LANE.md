@@ -3325,9 +3325,14 @@ console is `cp874`; an account name it cannot encode raised
 `UnicodeEncodeError` out of the print, and `runtime_console._Mirror` writes
 the console before the retained file, so the refusal was recorded nowhere
 at all while the caller received the encoder's exception instead of this
-lane's. Operator-controlled fields now go through `ascii()` and the whole
+lane's. ~~Operator-controlled fields now go through `ascii()`~~ and the whole
 print is wrapped: a closed or hostile stderr costs the line, never the
 refusal.
+
+> Struck in round `7gplcy`, not deleted: `ascii()` was the right idea in the
+> wrong function -- it escapes as well as folds, which is what turned the
+> gate red and closed `PR #249`. The fold now goes through `console_safe()`.
+> See "Round 7gplcy" at the end of this file.
 
 ### Cross-lane coupling, declared rather than discovered later
 
@@ -3360,3 +3365,79 @@ lane's configs may contain. Letter to lane A and chief:
    ADMISSIBLE config value cannot break a login further downstream. It
    stopped short of driving scenes 278 and 997 end to end. Unknown, not
    safe.
+
+## Round 7gplcy -- the round qq0i9u lost, and the gap that lost it
+
+Round `qq0i9u` built everything above and **none of it reached `main`**.
+`PR #249` was closed unmerged by `.github/workflows/merge-claude-pr.yml`
+because the Windows gate was RED, and a red pull request left open would
+hold the cloud round lock against every later round forever. The branch was
+kept; this round recovers those two commits onto `main` as it stands today
+and fixes what turned the gate red.
+
+Approved in the meantime, so the assumption tag above is now a ruling:
+`pf_bridge/notes_to_chief/20260829_0941_COO-DECISION-standalone-map-refuses-an-unreachable-scene-at-load.md`
+walks option (a), keeps `COO-DECISION 0542` standing, and states the
+combined rule as **hard to admit, unlimited to use** -- not *easy to admit,
+then deleted quietly*. Its item 4 also settles what looked like a
+limitation: today only scenes 1, 2, 278 and 997 are admissible, and that is
+the correct value rather than something to widen. A door opens, the map
+accepts it, automatically, with no second list to maintain.
+
+### The defect: a fold that also escapes is not a fold
+
+One test failed on the gate, `TheLoaderTests::test_the_console_token_names_
+the_file_the_account_and_the_way_out`, on this line:
+
+    self.assertIn(str(self.standalone_path), console)
+
+The console token folds operator-controlled fields to ASCII so a `cp874`
+console cannot turn a diagnostic into an exception (the section above).
+That fold ran through `ascii()`, which folds AND escapes -- so on Windows
+the line said `path='C:\\Users\\RUNNER~1\\...'` while the test, and the
+operator, wanted `C:\Users\RUNNER~1\...`. The line named the file in a form
+nobody could paste.
+
+`console_safe()` now folds through `str.encode("ascii", "backslashreplace")`
+instead: it folds exactly what `cp874` has no room for and leaves every
+ASCII character, separators included, as it found them.
+
+### The finding is the blind spot, not the escape
+
+`ascii()` was not a careless choice; it was measured, it fixed a real
+defect, and the round that introduced it ran a full suite that reported
+**0 failed**. It could not have reported anything else: on POSIX there are
+no separators to double, so every assertion about that line passed here and
+the only machine that could see the fault was the one that closes pull
+requests.
+
+So the fix is not "use `backslashreplace`". The fix is a test that
+reproduces a Windows-shaped input **on the machine the round is written
+on**: a backslash is a legal character in a POSIX filename, and
+`TheLoaderTests::test_a_path_with_separators_in_it_is_named_verbatim`
+writes a config at `dir\sub\standalone.json` and asks for the path back
+verbatim. Reverting `console_safe` to `ascii()` turns it red here, in 0.16
+seconds, instead of six minutes later on the gate.
+
+`test_the_fold_survives_that_and_still_reaches_a_cp874_console` pins the
+other half in the same place, because the two halves pull against each
+other: `ascii()` was safe and unreadable, and a naive fix would be readable
+and unsafe.
+
+| mutation | red here (was) |
+|---|---|
+| `console_safe` back to `ascii()` escaping | 2 (was 0) |
+| `console_safe` returns its argument unfolded | 2 (was 1) |
+
+### nonclaim
+
+1. This round wrote no new gameplay behaviour. It recovers a lost round and
+   closes the gap that lost it; the claims of round `qq0i9u` above stand as
+   written, including its struck sentence and `CORE-REQUEST-GM-034`.
+2. **No GM step was skipped to produce any result here, because this round
+   produces no gameplay result.** Nothing in it says a tester can reach a
+   scene.
+3. Never measured against a real client, or on Windows. The Windows failure
+   is understood from the gate's own log for run `33229946448`; the fix is
+   measured only through a POSIX reproduction of the same shape. The gate
+   decides.

@@ -450,6 +450,72 @@ class TheLoaderTests(unittest.TestCase):
         self.assertIn(str(self.standalone_path), console)
         self.assertIn(f"stageable={ADMISSIBLE_TODAY}", console)
 
+    def test_a_path_with_separators_in_it_is_named_verbatim(self):
+        """Round 7gplcy.  The line has to be PASTABLE, not merely present.
+
+        This is the defect that cost round qq0i9u: the fold ran through
+        `ascii()`, which escapes backslashes as well as folding, so on the
+        Windows gate the line said
+        `path='C:\\\\Users\\\\RUNNER~1\\\\...'` while
+        `test_the_console_token_names_the_file_the_account_and_the_way_out`
+        asked for `C:\\Users\\RUNNER~1\\...`.  Every sibling test above
+        passed on POSIX, where there are no separators to double, so the
+        cloud sanity run said 0 failed and the gate said RED and closed the
+        pull request.
+
+        A backslash is a legal character in a POSIX filename, so this test
+        reproduces that gap HERE.  Revert `console_safe` to `ascii()` and
+        this goes red on the machine the round is written on.
+        """
+        weird = Path(self.tmp.name) / "dir\\sub\\standalone.json"
+        # POSIX: one filename with backslashes in it.  Windows: a real
+        # nested path.  Either way `str(weird)` carries a separator the
+        # console line has to reproduce, and either way the parent must
+        # exist before the write.
+        weird.parent.mkdir(parents=True, exist_ok=True)
+        self._write(
+            weird,
+            login_scene_override.STANDALONE_JSON_KEY,
+            {"plain_tester": BARRED_AT_LOGIN},
+        )
+        with contextlib.redirect_stderr(io.StringIO()) as stderr:
+            with self.assertRaises(ValueError):
+                login_scene_override.load_standalone_login_scene_overrides(
+                    weird
+                )
+        self.assertIn(str(weird), stderr.getvalue())
+
+    def test_the_fold_survives_that_and_still_reaches_a_cp874_console(self):
+        """...and the readability above did not cost the encode-safety.
+
+        The two halves pull against each other -- `ascii()` was safe and
+        unreadable -- so they are pinned together.  Drop the fold entirely
+        and this raises `UnicodeEncodeError` out of the print.
+        """
+        weird = Path(self.tmp.name) / "dir\\sub\\standalone.json"
+        # POSIX: one filename with backslashes in it.  Windows: a real
+        # nested path.  Either way `str(weird)` carries a separator the
+        # console line has to reproduce, and either way the parent must
+        # exist before the write.
+        weird.parent.mkdir(parents=True, exist_ok=True)
+        self._write(
+            weird,
+            login_scene_override.STANDALONE_JSON_KEY,
+            {"ทดสอบ": BARRED_AT_LOGIN},
+        )
+        raw = io.BytesIO()
+        buffer = io.TextIOWrapper(raw, encoding="cp874", errors="strict")
+        with mock.patch.object(sys, "stderr", buffer):
+            with self.assertRaises(ValueError) as caught:
+                login_scene_override.load_standalone_login_scene_overrides(
+                    weird
+                )
+            buffer.flush()
+        self.assertNotIsInstance(caught.exception, UnicodeEncodeError)
+        console = raw.getvalue().decode("cp874")
+        self.assertIn(str(weird), console)
+        self.assertNotIn("ทดสอบ", console)
+
     def test_an_admissible_entry_still_loads_and_prints_nothing(self):
         self._write(self.gm_path, "gm_login_scene", {"gm_runner": 2})
         with contextlib.redirect_stderr(io.StringIO()) as stderr:
