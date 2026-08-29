@@ -481,10 +481,15 @@ def live_scenes() -> tuple[str, ...]:
     decides which scenes are LIVE (as opposed to mined-but-dormant, which
     ``_KNOWN_SCENE_TABLE_MODULES_FOR_REPORTING`` covers), and a caller that
     needs to walk every shipped roster had no way to ask without reaching into
-    a private name.  ``mob_death.wired_widening_rulings`` is the first such
-    caller: it derives which owner rulings the shipped world needs from the
-    world itself, so it must see the same scene list ``load_roster`` obeys and
-    not a second hand-typed copy of it that can drift.
+    a private name.  ``mob_death.describe_widening_coverage`` is the first
+    such caller: it reports which shipped monsters an owner letter authorises
+    killing, so it must walk the same scene list ``load_roster`` obeys and not
+    a second hand-typed copy of it that can drift.  That drift is not
+    hypothetical to guard against -- a stale copy here would make a
+    REGISTERED scene's whole roster vanish from that report with no line
+    saying so -- so ``tests/test_mob_death_wired_widening.py`` pins this to
+    ``_SCENE_TABLE_MODULES`` by set equality, not merely by "everything it
+    returns loads".
 
     Sorted rather than dict-ordered, so a caller that pins this value is
     pinning the SET of live scenes and not the order two module-level

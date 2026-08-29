@@ -470,20 +470,28 @@ def rulings_covering(mob: FieldMob) -> tuple[str, ...]:
     ROUND j0u64p.  The same two questions :func:`kill` asks -- is this mob's
     template in the ruling's covered set, and if the ruling is tied to a
     scene, is this mob in it.  This is a SECOND expression of them, not a
-    shared one: :func:`kill` cannot call this, because it owes its caller a
-    refusal saying which letter declined and why, which means walking the
-    rulings itself.  Two expressions of one rule is exactly how a gate and its
+    shared one: ``kill`` answers about ONE named letter and owes its caller a
+    refusal saying why THAT letter declined, so it looks the name up directly
+    and never sweeps the table; this function sweeps the table and names no
+    refusal.  Neither can be written in terms of the other without one of them
+    losing what it is for.  Two expressions of one rule is how a gate and its
     derivation drift apart, so ``tests/test_mob_death_wired_widening.py``
-    holds them to the same answer by execution over every shipped row crossed
-    with every registered ruling.
+    holds them to the same answer by execution -- over every shipped row
+    crossed with every registered ruling, AND over constructed rows that
+    exercise the scene axis, which no shipped row does today (pf-adversary,
+    this round: the scene branch below never fires on the live rosters, so a
+    crossing of shipped rows alone could not have caught a scene-axis drift).
 
     THE SANCTIONED BYPASS IS DELIBERATELY NOT MODELLED HERE, and callers must
     ask :func:`ruling_for` rather than this function for that reason.
     ``kill`` lets ``SANCTIONED_FIRST_TARGET_IDENTITY`` in its own scene
     through with no ``widened=`` at all, so for that one actor this function
-    answers ``()`` while ``kill`` answers "killed".  Naming it here rather
-    than papering over it: the equality test above excludes that identity by
-    name, and :func:`ruling_for` reports it as needing no ruling.
+    answers ``()`` while ``kill`` answers "killed".  MEASURED, so the guard is
+    not mistaken for the reason a test passes: that identity is in NO shipped
+    roster today (COO-DECISION 2026-08-29T00:41+07:00 withdrew bg0001
+    placement 30), so the equality test's exclusion of it currently excludes
+    nothing.  It is future-proofing for the day that row returns, and the
+    disagreement it would then cover is proven on a constructed actor instead.
     """
     covering: list[str] = []
     for name, templates in WIDENING_RULINGS.items():
@@ -499,14 +507,21 @@ def rulings_covering(mob: FieldMob) -> tuple[str, ...]:
 def ruling_for(mob: FieldMob) -> str | None:
     """The ONE ruling name a kill on ``mob`` should travel under, or None.
 
-    ROUND j0u64p, and this is what the round is actually for.  ``runtime.py``
-    reaches :func:`kill` from ONE call site for every monster that dies, and
-    that call site hardcodes ONE ruling string -- bg0001's.  The server now
-    ships a second scene, so the hardcoded string is the wrong letter for 17
-    of the 21 monsters it ships, and the day a third scene lands it is the
-    wrong letter again.  This function answers the question the call site
-    cannot answer from a literal: given this monster, which letter authorises
-    killing it.
+    ROUND j0u64p.  This is for THE ROSTER KILL SITE -- ``runtime.py``'s
+    ``mob_death.kill()`` call in the ``else`` branch at ~4168, the one every
+    field-roster monster dies through.  It hardcodes ONE ruling string,
+    bg0001's, which is the wrong letter for the 17 rows Bg0002 ships and will
+    be the wrong letter again for a third scene.  This function answers what a
+    literal cannot: given this monster, which letter authorises killing it.
+
+    NOT FOR THE DIAGNOSTIC CALL SITE, and this is a scope line, not a caveat.
+    ``runtime.py`` reaches a kill through ``diag_multi_object_wiring.
+    death_dispatch`` as well, and that path carries its own
+    ``DIAG_WIDENED_RULING`` on the stated design position that it "does not
+    choose a ruling and must not".  This function does not override that;
+    nothing in this round asks that lane to adopt it (pf-adversary, this
+    round: the first draft said "ONE call site", which is false -- there are
+    two, and only one of them has the problem this solves).
 
     MEASURED, AND THE MEASUREMENT MATTERS FOR HOW THIS IS READ (pf-adversary,
     this round, breaking this round's own first draft): ``kill`` ALREADY
@@ -515,20 +530,32 @@ def ruling_for(mob: FieldMob) -> str | None:
     Nothing here is a fix to a broken gate, and the gate is not widened by one
     byte.  What is removed is a hardcoded per-scene argument in a file this
     lane does not own, replaced by a value derived from the world itself.
+    AND THE 17 ROWS DO NOT REACH THAT CALL SITE AT ALL TODAY: ``runtime.py``
+    loads one scene's roster, so ``mob_combat`` refuses a Bg0002 target before
+    this module is consulted.  "The wrong letter for 17 rows" is a statement
+    about an argument, not about anything a player has seen.
 
     Returns ``None`` for the sanctioned first target in its own scene, which
     :func:`kill` admits with no ruling at all -- so ``widened=ruling_for(mob)``
     is the correct argument for EVERY mob, including that one, and a caller
     never needs a special case.
 
-    WHEN TWO LETTERS COVER THE SAME MONSTER, THE NARROWER ONE WINS, ties
-    broken by sorted name.  bg0001's four dummies are covered both by the
-    letter that names template 916 and by the letter that names the bg0001
-    roster; a kill travels under exactly one of them, and picking the letter
-    with the smaller covered set keeps a kill's provenance as specific as the
-    letters allow.  That rule reproduces ``PIN_WIDENING_RULING`` -- the letter
-    this module's own shipped pin already travels under -- rather than
-    inventing a second answer to a question the tree had already answered.
+    WHEN TWO LETTERS COVER THE SAME MONSTER: narrower covered set first, then
+    sorted name.  [ASSUMPTION OF LANE B - AWAITING COO] Nothing written down
+    says whose decision it is which letter a kill is RECORDED under when two
+    of the owner's letters both authorise it, and this lane picked a rule
+    rather than stopping.  It is chosen to be the least surprising one
+    available: it reproduces ``PIN_WIDENING_RULING``, the letter this module's
+    own shipped pin already travels under, so the tree keeps one answer
+    instead of gaining a second.
+    MEASURED, so the rule is not read as doing more than it does: bg0001's two
+    letters BOTH carry ``frozenset({916})`` today (round 8ftmbx narrowed the
+    roster letter), so the ``len`` term separates nothing at HEAD and the
+    winner is decided by the name sort alone.  The ``len`` term is what the
+    rule MEANS and is exercised on constructed letters in the tests; the name
+    sort is what it currently DOES.  A future letter over template 916 whose
+    name sorts before this one would move the pin's provenance, and
+    ``test_the_tie_break_is_the_rule_it_claims_to_be`` is what says so.
     """
     _require_mob(mob)
     if (
@@ -577,8 +604,19 @@ def describe_widening_coverage() -> tuple[str, ...]:
             mob for mob in roster
             if not rulings_covering(mob) and mob not in sanctioned
         ]
+        # The field is named for what it MEASURES -- how many rows a letter
+        # authorises -- and not "killable", which is what the first draft
+        # called it (pf-adversary, this round).  "killable" would have had
+        # chief boot the server, read "Bg0002 killable=17 of 17", and tell the
+        # owner Bg0002's monsters can be killed.  They cannot: this module is
+        # never even consulted for them, because runtime.py loads one scene's
+        # roster and mob_combat refuses the target first.  An authorisation
+        # count is not a client-observable one, and this line must not be
+        # readable as one.
         lines.append(
-            "MOB_DEATH_WIDENING_COVERAGE scene=%s killable=%d of %d" % (
+            "MOB_DEATH_WIDENING_COVERAGE scene=%s letter_covers=%d of %d "
+            "(authorisation only - says nothing about whether a hit can "
+            "reach these rows)" % (
                 scene, len(roster) - len(uncovered), len(roster)))
         for mob in uncovered:
             lines.append(
@@ -590,11 +628,19 @@ def describe_widening_coverage() -> tuple[str, ...]:
     # scene whose table is mined but not registered ships no monsters into any
     # world and raises no coverage question here -- and a report silent about
     # that reads as "there is nothing else", which is a different claim and a
-    # false one.  Which scenes those are is field_mobs' business to name, not
-    # this module's, and that file deliberately does not name them literally.
+    # false one.
+    #
+    # The line names the LIVE list rather than asserting anything about what
+    # is outside it.  The first draft said the omitted scenes were "mined but
+    # unregistered", which would become a false statement the moment
+    # live_scenes() drifted from the registry it reads -- the report would
+    # then skip a REGISTERED scene and affirmatively give the wrong reason.
+    # tests/test_mob_death_wired_widening.py pins live_scenes() to the
+    # registry by set equality so that drift cannot happen quietly; this line
+    # states only what it can see.
     lines.append(
-        "MOB_DEATH_WIDENING_COVERAGE scope=live_scenes(%s) - a mined but "
-        "unregistered scene is outside this count, not proven empty by it" % (
+        "MOB_DEATH_WIDENING_COVERAGE scope=live_scenes(%s) - scenes outside "
+        "this list are not counted here and are not claimed empty by it" % (
             ",".join(field_mobs.live_scenes()),))
     return tuple(lines)
 

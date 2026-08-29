@@ -1,11 +1,16 @@
 """LANE-B / round j0u64p: one kill site, the right letter for every scene.
 
-WHAT THIS FILE IS ABOUT.  ``runtime.py`` reaches ``mob_death.kill()`` from ONE
-call site for every monster that dies, and that call site hardcodes ONE ruling
-string -- bg0001's.  The server ships a second scene, so that literal is the
-wrong letter for 17 of the 21 monsters it ships, and the day a third scene
-lands it is the wrong letter again.  ``mob_death.ruling_for(mob)`` answers the
-question the call site cannot answer from a literal.
+WHAT THIS FILE IS ABOUT.  ``runtime.py``'s ROSTER kill site -- the
+``mob_death.kill()`` call in the ``else`` branch at ~4168, which every field
+monster dies through -- hardcodes ONE ruling string, bg0001's.  The server
+ships a second scene, so that literal is the wrong letter for 17 of the 21
+monsters it ships, and the day a third scene lands it is the wrong letter
+again.  ``mob_death.ruling_for(mob)`` answers what a literal cannot.
+
+There is a SECOND kill site (the diagnostic branch, through
+``diag_multi_object_wiring.death_dispatch``), which carries its own ruling on
+its own stated design position and is no business of this round's.  "One call
+site" was the first draft's phrasing and it was wrong.
 
 WHAT THIS ROUND IS NOT, stated first because its first draft got it wrong and
 pf-adversary broke it by execution:
@@ -13,13 +18,15 @@ pf-adversary broke it by execution:
   * The death gate was NOT broken.  ``kill()`` already authorised every
     monster the server ships -- the Bg0002 letter has been registered since
     round y7koj9 and covers all 17 of that scene's rows, each under its own
-    correct string.  ``test_the_gate_itself_is_unchanged_by_this_round``
-    holds that: this round does not widen ``kill`` by one byte.
+    correct string.  What holds "kill() is untouched" is the diff plus a full
+    old-vs-new behavioural differential;
+    ``test_the_gate_still_takes_one_string_and_nothing_else`` narrows it to
+    every container shape a caller might reach for.
   * A Bg0002 monster does NOT "reach 0 HP and keep standing".  It is refused
     two layers earlier, at ``mob_combat``'s ``target_not_in_ledger``, because
     ``runtime.py:3911`` loads only bg0001's roster -- so no hit lands on it at
-    all.  ``test_the_first_wall_is_in_mob_combat_not_here`` pins that, so this
-    file cannot be read as claiming a client-observable symptom it never saw.
+    all.  ``test_the_first_wall_is_in_mob_combat_not_in_this_module`` pins that, so
+    this file cannot be read as claiming a symptom it never saw.
 
 The load-bearing test is ``test_every_shipped_mob_dies_under_the_letter_
 ruling_for_names``: walk the REAL rosters of every live scene, kill each row
@@ -70,6 +77,27 @@ class RulingForTests(unittest.TestCase):
         return strike(
             self.legacy, None, open_ledger((mob,)), None, mob, PERFORMER,
             LETHAL).outcome
+
+    def stand_in(self, *, template_id, scene, placement_index=9401,
+                 display_name="STAND-IN"):
+        """A FieldMob built to reach a branch no shipped row reaches.
+
+        Every field except the three under test is copied from a real shipped
+        row, so a stand-in cannot pass or fail for a reason this file is not
+        about.
+        """
+        real = field_mobs.load_roster()[0]
+        return field_mobs.FieldMob(
+            placement_index=placement_index,
+            template_id=template_id,
+            x=real.x, y=real.y, z=real.z,
+            visual_preset=real.visual_preset,
+            display_name=display_name,
+            level=real.level, rank=real.rank, ai_wander=real.ai_wander,
+            ai_combat=real.ai_combat, speed_walk=real.speed_walk,
+            max_hp=real.max_hp, drops_normal=0, drops_equipment=0,
+            drops_specially=0, scene=scene,
+        )
 
     def shipped(self):
         rows = [
@@ -141,23 +169,40 @@ class RulingForTests(unittest.TestCase):
             "the literal still has to work for the scene it names, or this "
             "round would be describing a regression instead of a hardcode")
 
-    def test_the_gate_itself_is_unchanged_by_this_round(self):
+    def test_the_gate_still_takes_one_string_and_nothing_else(self):
         # This round deliberately did NOT widen kill().  Its first draft did
         # -- it taught widened= to accept a sequence of names -- and
-        # pf-adversary showed the gate had never been the constraint.  So the
-        # old one-string contract is pinned here: a tuple, even a tuple of one
-        # perfectly valid letter, is still refused exactly as before.
+        # pf-adversary showed the gate had never been the constraint.
+        #
+        # WHAT ESTABLISHES "kill() is untouched" IS THE DIFF AND A FULL
+        # OLD-VS-NEW DIFFERENTIAL, not this test (pf-adversary, this round:
+        # the first version passed one tuple, so the same widening re-landed
+        # as a frozenset would have gone straight past it).  What this test
+        # does is narrower and worth having on its own terms: every container
+        # shape a caller might reach for is refused, and the refusal is still
+        # the one that names the sequencing ruling.
         _scene, mob = self.shipped()[0]
         name = ruling_for(mob)
         self.assertIsInstance(name, str)
-        with self.assertRaises(MobDeathContractError) as caught:
-            kill(
-                self.legacy, mob, self.lethal_outcome(mob), DeathRegister(),
-                widened=(name,))
-        self.assertEqual(
-            caught.exception.reason,
-            mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
-        self.assertIn(mob_death.SANCTIONING_RULING, caught.exception.detail)
+        outcome = self.lethal_outcome(mob)
+        for value in (
+            (name,), [name], {name}, frozenset({name}), iter([name]),
+            (n for n in (name,)), {name: 1}, [[name]], bytes(name, "ascii"),
+        ):
+            with self.subTest(shape=type(value).__name__):
+                with self.assertRaises(MobDeathContractError) as caught:
+                    kill(
+                        self.legacy, mob, outcome, DeathRegister(),
+                        widened=value)
+                self.assertEqual(
+                    caught.exception.reason,
+                    mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
+                self.assertIn(
+                    mob_death.SANCTIONING_RULING, caught.exception.detail)
+        # and the bare string it has always taken still works
+        step = kill(
+            self.legacy, mob, outcome, DeathRegister(), widened=name)
+        self.assertTrue(step.register.is_dead(mob.actor_identity, mob.scene))
 
     def test_the_first_wall_is_in_mob_combat_not_in_this_module(self):
         # Why this round changes nothing a player sees, pinned so no reader of
@@ -203,6 +248,37 @@ class RulingForTests(unittest.TestCase):
                     len(rulings_covering(mob)), 2,
                     "this test is about a mob two letters cover")
                 self.assertEqual(ruling_for(mob), mob_death.PIN_WIDENING_RULING)
+
+    def test_the_tie_break_is_the_rule_it_claims_to_be(self):
+        # pf-adversary, this round: "the narrower letter wins" was decorative.
+        # bg0001's two letters BOTH carry frozenset({916}) at HEAD, so the len
+        # term separated nothing, and two mutants survived -- dropping len
+        # entirely, and reversing it so the WIDER letter wins.  The rule is
+        # therefore exercised on registered stand-in letters, where the two
+        # terms can be told apart, and both terms are pinned separately.
+        bg0001 = field_mobs.load_roster()[0]
+        previous = dict(mob_death.WIDENING_RULINGS)
+        try:
+            # (1) a WIDER letter, whose name sorts FIRST, must still lose --
+            #     this fails under sorted(covering)[0] and under a reversed
+            #     len term alike.
+            mob_death.WIDENING_RULINGS["AAA test-only wide letter"] = (
+                frozenset({916, 31, 34, 35}))
+            self.assertEqual(
+                ruling_for(bg0001), mob_death.PIN_WIDENING_RULING,
+                "a wider letter sorting first took the kill: the len term is "
+                "not deciding")
+            # (2) an EQUALLY narrow letter whose name sorts first must win --
+            #     that is the tie-break, and it is the term that actually
+            #     decides at HEAD.
+            mob_death.WIDENING_RULINGS["AAA test-only narrow letter"] = (
+                frozenset({916}))
+            self.assertEqual(
+                ruling_for(bg0001), "AAA test-only narrow letter")
+        finally:
+            mob_death.WIDENING_RULINGS.clear()
+            mob_death.WIDENING_RULINGS.update(previous)
+        self.assertEqual(ruling_for(bg0001), mob_death.PIN_WIDENING_RULING)
 
     def test_a_monster_no_letter_covers_is_refused_not_given_some_letter(self):
         # Fail-closed.  The tempting bug is to return the first registered
@@ -296,12 +372,57 @@ class RulingForTests(unittest.TestCase):
         self.assertGreaterEqual(checked, 21 * 4)
 
     def test_live_scenes_is_the_list_load_roster_actually_obeys(self):
+        # SET EQUALITY against the registry itself, not "everything it returns
+        # loads" (pf-adversary, this round: the weaker version let a
+        # registered scene be DROPPED from live_scenes() with the whole file
+        # still green -- and describe_widening_coverage would then omit that
+        # scene's entire roster, unkillable rows included, with a scope line
+        # giving the wrong reason for the omission).
         scenes = field_mobs.live_scenes()
+        self.assertEqual(
+            set(scenes), set(field_mobs._SCENE_TABLE_MODULES),
+            "live_scenes() has drifted from the registry load_roster obeys")
+        self.assertEqual(scenes, tuple(sorted(scenes)))
         self.assertGreaterEqual(len(scenes), 2)
         for scene in scenes:
             self.assertTrue(field_mobs.load_roster(scene=scene))
         with self.assertRaises(field_mobs.FieldMobContractError):
             field_mobs.load_roster(scene="no-such-scene")
+
+    def test_the_scene_axis_of_rulings_covering_is_actually_exercised(self):
+        # pf-adversary, this round: the scene branch of rulings_covering never
+        # fires on the live rosters -- no shipped row's template appears in a
+        # letter tied to a different scene -- so deleting that branch left the
+        # whole file green.  The crossing over shipped rows cannot reach it,
+        # so it is reached HERE, on constructed rows, and both directions are
+        # asserted: covered when the scene matches, dropped when it does not.
+        bg2_letter = (
+            "PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18) "
+            "widen-death-scope-bg0002"
+        )
+        self.assertEqual(
+            mob_death.WIDENING_RULING_SCENES[bg2_letter],
+            field_mobs.BG0002_SCENE)
+        template = sorted(mob_death.WIDENING_RULINGS[bg2_letter])[0]
+        for scene, expected in (
+            (field_mobs.BG0002_SCENE, True),
+            (field_mobs.load_roster()[0].scene, False),
+            ("some-third-scene", False),
+        ):
+            with self.subTest(scene=scene):
+                mob = self.stand_in(template_id=template, scene=scene)
+                self.assertEqual(bg2_letter in rulings_covering(mob), expected)
+                # and the gate itself agrees, which is the whole point of
+                # having a second expression of the rule at all
+                try:
+                    kill(
+                        self.legacy, mob, self.lethal_outcome(mob),
+                        DeathRegister(), widened=bg2_letter)
+                except MobDeathContractError:
+                    gate_says_yes = False
+                else:
+                    gate_says_yes = True
+                self.assertEqual(gate_says_yes, expected)
 
     # -- the report -------------------------------------------------------
 
@@ -317,7 +438,7 @@ class RulingForTests(unittest.TestCase):
         self.assertFalse([ln for ln in healthy if "UNKILLABLE" in ln])
         self.assertTrue([
             ln for ln in healthy
-            if "scene=%s killable=%d of %d" % (
+            if "scene=%s letter_covers=%d of %d" % (
                 field_mobs.BG0002_SCENE, bg0002, bg0002) in ln])
         # the scope line: this report covers live scenes and says so, rather
         # than reading as "there is nothing else"
@@ -337,7 +458,7 @@ class RulingForTests(unittest.TestCase):
             len([ln for ln in broken if "UNKILLABLE" in ln]), bg0002)
         self.assertTrue([
             ln for ln in broken
-            if "scene=%s killable=0 of %d" % (
+            if "scene=%s letter_covers=0 of %d" % (
                 field_mobs.BG0002_SCENE, bg0002) in ln])
         self.assertEqual(mob_death.describe_widening_coverage(), healthy)
 
@@ -345,7 +466,26 @@ class RulingForTests(unittest.TestCase):
         # G-OBS again: the bridge console is cp874.  A line that cannot be
         # encoded is a line nobody reads, and a display_name mined from the
         # game tables is not this lane's choice of characters.
+        #
+        # THE HEALTHY REPORT IS NOT THE TEST (pf-adversary, this round): the
+        # only line that interpolates a display_name is the UNKILLABLE one,
+        # which the healthy report never emits -- so the first version of this
+        # test stayed green with an un-encodable name planted in a shipped
+        # row, and the report would have died mid-emission in exactly the
+        # state it exists for.  Both states are encoded here, and the
+        # un-encodable-name case is the one that matters.
         for line in mob_death.describe_widening_coverage():
+            line.encode("cp874")
+        previous = dict(mob_death.WIDENING_RULINGS)
+        try:
+            mob_death.WIDENING_RULINGS.clear()
+            broken = mob_death.describe_widening_coverage()
+        finally:
+            mob_death.WIDENING_RULINGS.clear()
+            mob_death.WIDENING_RULINGS.update(previous)
+        named = [ln for ln in broken if "UNKILLABLE" in ln]
+        self.assertGreaterEqual(len(named), 21)
+        for line in broken:
             line.encode("cp874")
 
 
