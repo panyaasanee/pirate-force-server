@@ -1,0 +1,547 @@
+"""LANE-A's own scene census composers, and the gate that keeps them shut.
+
+WHAT THIS FILE PROVES.  ``lane_hooks/lane_a_scene_census.py`` is the first
+time this lane has wired itself to a player without a chief round in between:
+chief built the per-scene composer point in round ``73fhoc`` and this lane
+registered scene 14's composer against it.  These tests drive that composer on
+the REAL dispatcher, not against a double.
+
+THE GATE, AND WHY THESE TESTS DRIVE IT INSTEAD OF READING IT BACK.  An earlier
+version of this file asserted that scene 14's registry row says
+``login_entry_allowed: false`` and called that "the door is shut".
+pf-adversary refuted it: ``world_scene_entry.resolve_entry`` refuses scene 14
+only on its ``via_login=True`` path, and a ``via_login=False`` call site - the
+thing LANE-GM's ``CORE-REQUEST-GM-038`` is currently asking chief for, for a
+different scene - reaches it with the registry key untouched.  Simulated, and
+81 actors shipped to a player while that assertion stayed green.  A test that
+watches a proxy for the property instead of the property is the scar this
+project has paid for more than once.
+
+So the module now carries an ADMISSION CHECK - it declines for any scene the
+registry does not declare open - and these tests drive the refusal:
+``TheAdmissionCheckIsTheGateTests`` calls the composer directly, through the
+factory, and through a ``via_login=False`` resolution, and gets ``None`` every
+time.  The registry boolean is asserted too, but as a second-order fact and
+never on its own.
+
+GATE-WALK DECLARATION (``COO-DECISION 20260829_0742``).
+
+WALKED, THROUGH THE PRODUCTION CALL SHAPE:
+
+* The composer invoked the way ``runtime.py``'s lane branch invokes it -
+  keyword-only ``legacy``, ``anchor``, ``scene_id``, ``scene_entry_registry``
+  - and once by that branch itself, through a full dispatcher boot, login,
+  ``START_GAME`` and a first ``TargetPosVital``.
+* ``lane_hooks.census_composer`` registration as ``_discover()`` performs it
+  at import: the registry is read after a real import of the real module.
+* The admission check's refusal path, which is the LIVE production path for
+  scene 14 today - not a hypothetical branch.
+* The strict-entry-point choice, driven by making the seam raise and checking
+  the exception reaches the caller instead of becoming a decline.
+
+NOT WALKED, AND WHY - gates that are shut, not coverage this file claims:
+
+* No frame reaches a client here, and no claim is made that a client renders
+  81 actors on the volcano.  That is ``GT-134``, attended, still BLOCKED.
+* The faction-1 path (defect D3) is NOT exercised: ``player_wire`` refuses
+  every scene outside ``(1, 2)``, so no ``PLAYER_FACTION`` frame exists for
+  scene 14 to test.  ACCEPTED IS NOT REACHED: nothing here treats the census
+  firing as evidence that a hostile will read as hostile.
+* Scene 2's composer is not registered and not driven - the runtime keeps
+  that branch and ``tests/test_lane_scene_census_wiring.py`` owns that proof.
+* The call site's own decline latch is chief's branch, proven with a stub in
+  chief's file.  This file proves what the composer returns, not what the
+  runtime does with it.
+"""
+from __future__ import annotations
+
+import contextlib
+import io
+import json
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from pirateforce_foundation import lane_hooks  # noqa: E402
+from pirateforce_foundation import world_population_bg0015  # noqa: E402
+from pirateforce_foundation import world_population_handoff  # noqa: E402
+from pirateforce_foundation import world_scene_entry  # noqa: E402
+from pirateforce_foundation import world_scene_travel  # noqa: E402
+from pirateforce_foundation.lane_hooks import (  # noqa: E402
+    lane_a_scene_census as lane_a,
+)
+from pirateforce_foundation.legacy_bridge import (  # noqa: E402
+    LegacyProjector, load_legacy,
+)
+from pirateforce_foundation.lifecycle import CharacterLifecycle  # noqa: E402
+from pirateforce_foundation.model import Position  # noqa: E402
+from pirateforce_foundation.runtime import make_state_class  # noqa: E402
+from pirateforce_foundation.store import SQLiteStore  # noqa: E402
+
+LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
+VOLCANO = 14
+ROSTER_COUNT = 81
+
+
+def _legacy():
+    if not hasattr(_legacy, "cached"):
+        _legacy.cached = load_legacy(LEGACY_PATH)
+    return _legacy.cached
+
+
+def _registry_with_door_open(work: Path, scene_id: int = VOLCANO):
+    """A loaded registry whose ``scene_id`` row is open.  Temp file only.
+
+    Never the repository's file: this exists to measure what the one boolean
+    is worth, not to turn it.
+    """
+    raw = json.loads(
+        world_scene_travel.REGISTRY_PATH.read_text(encoding="ascii"))
+    for row in raw["destinations"]:
+        if row["n_id"] == scene_id:
+            row["login_entry_allowed"] = True
+    path = work / f"registry_scene_{scene_id}_open.json"
+    path.write_text(
+        json.dumps(raw, indent=2, ensure_ascii=True) + "\n", encoding="ascii")
+    return world_scene_travel.load_scene_registry(path), path
+
+
+class RegistrationTests(unittest.TestCase):
+    def test_the_module_is_discovered_and_gated_open(self):
+        self.assertTrue(
+            lane_hooks.module_production_allowed("lane_a_scene_census"))
+
+    def test_scene_14_has_this_lanes_composer_registered(self):
+        composer = lane_hooks.scene_census_composer(VOLCANO)
+        self.assertIsNotNone(composer)
+        self.assertEqual(composer.module, lane_a.__name__)
+
+    def test_the_registered_set_is_exactly_what_the_module_declares(self):
+        for scene_id in lane_a.scenes_this_lane_composes_for():
+            with self.subTest(scene=scene_id):
+                composer = lane_hooks.scene_census_composer(scene_id)
+                self.assertIsNotNone(composer)
+                self.assertEqual(composer.module, lane_a.__name__)
+
+    def test_a_console_reader_with_no_scene_is_a_dead_table_row(self):
+        # ~~the other direction used to be asserted here too~~ -- it restated
+        # scenes_this_lane_composes_for()'s own filter predicate verbatim and
+        # could not fail under any table state (pf-adversary, round
+        # ga91m5-r2, D5).  The dangerous direction is driven in
+        # SkippedScenesAreNamedTests below.
+        sources = set(world_scene_travel.CENSUS_SOURCES.values())
+        for source in lane_a._CONSOLE_LINES_OF:
+            with self.subTest(source=source):
+                self.assertIn(source, sources)
+
+    def test_each_composer_binds_its_own_scene(self):
+        # runtime.py passes scene_id explicitly, so a late-binding closure
+        # would still compose the right scene THERE.  This is about direct
+        # callers - this lane's own tests, and any future non-runtime one.
+        first = lane_a._compose_for_scene(VOLCANO)
+        second = lane_a._compose_for_scene(278)
+        self.assertEqual(first.__kwdefaults__["scene_id"], VOLCANO)
+        self.assertEqual(second.__kwdefaults__["scene_id"], 278)
+
+
+class SkippedScenesAreNamedTests(unittest.TestCase):
+    """A scene dropped in silence is the defect, not the drop.
+
+    pf-adversary added a row to the seam's ``CENSUS_SOURCES`` with no console
+    reader and measured that it vanished: no event, no line, nothing red
+    (round ga91m5-r2, D3).  These drive both filters, each on its own, so a
+    refactor that deletes either conjunct goes red - the mutants that survived
+    that pass.
+    """
+
+    def setUp(self):
+        self._sources = dict(world_scene_travel.CENSUS_SOURCES)
+        self._readers = dict(lane_a._CONSOLE_LINES_OF)
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        world_scene_travel.CENSUS_SOURCES.clear()
+        world_scene_travel.CENSUS_SOURCES.update(self._sources)
+        lane_a._CONSOLE_LINES_OF.clear()
+        lane_a._CONSOLE_LINES_OF.update(self._readers)
+
+    def test_a_scene_with_no_console_reader_is_skipped_and_named(self):
+        world_scene_travel.CENSUS_SOURCES[130] = "bg0130_roster_not_written"
+        self.assertNotIn(130, lane_a.scenes_this_lane_composes_for())
+        skipped = {
+            scene_id: reason
+            for scene_id, _source, reason in lane_a.skipped_scenes()
+        }
+        self.assertEqual(
+            skipped.get(130), "no_console_reader_in_this_lane_file")
+
+    def test_a_reserved_scene_stays_out_even_with_a_console_reader(self):
+        # Drives the reserved filter ALONE.  Without this, giving scene 1 a
+        # reader is the only thing standing between the runtime's home census
+        # and a lane composer registered over it - and pf-adversary measured
+        # that deleting the reserved filter changed nothing any test saw.
+        home = world_scene_travel.CENSUS_SCENE_ID
+        lane_a._CONSOLE_LINES_OF[
+            world_scene_travel.CENSUS_SOURCES[home]] = lambda generation: ()
+        self.assertNotIn(home, lane_a.scenes_this_lane_composes_for())
+        skipped = {
+            scene_id: reason
+            for scene_id, _source, reason in lane_a.skipped_scenes()
+        }
+        self.assertEqual(skipped.get(home), "reserved_by_a_runtime_branch")
+
+    def test_the_two_reserved_scenes_are_named_as_skipped_today(self):
+        skipped = {
+            scene_id for scene_id, _source, _reason in lane_a.skipped_scenes()
+        }
+        for scene_id in lane_a.RESERVED_BY_RUNTIME_BRANCHES:
+            with self.subTest(scene=scene_id):
+                self.assertIn(scene_id, skipped)
+
+
+class TheAdmissionCheckIsTheGateTests(unittest.TestCase):
+    """The property, driven three ways, instead of the registry boolean once.
+
+    Every route pf-adversary found into scene 14 ends here, including the one
+    that needs no registry edit at all.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.legacy = _legacy()
+        cls.anchor = world_scene_travel.spawn_position(
+            world_scene_travel.destination(VOLCANO))
+
+    def _compose_with_real_registry(self, scene_id=VOLCANO):
+        return lane_a._compose_for_scene(scene_id)(
+            legacy=self.legacy,
+            anchor=self.anchor,
+            scene_id=scene_id,
+            scene_entry_registry=world_scene_travel.load_scene_registry(),
+        )
+
+    def test_the_composer_declines_for_every_scene_it_registered(self):
+        # The live production answer today.  If this ever returns a result,
+        # this lane opened a scene: go read defect D3 and GT-134's blockers
+        # before deciding that is intended.
+        for scene_id in lane_a.scenes_this_lane_composes_for():
+            with self.subTest(scene=scene_id):
+                self.assertIsNone(self._compose_with_real_registry(scene_id))
+
+    def test_the_registered_composer_object_declines_too(self):
+        # Not the factory: the exact callable runtime.py holds.
+        composer = lane_hooks.scene_census_composer(VOLCANO)
+        self.assertIsNone(composer.compose(
+            legacy=self.legacy, anchor=self.anchor, scene_id=VOLCANO,
+            scene_entry_registry=world_scene_travel.load_scene_registry(),
+        ))
+
+    def test_a_via_login_false_resolution_still_gets_no_census(self):
+        """The route that needs no registry edit, and the reason for the check.
+
+        ``resolve_entry(..., via_login=False)`` resolves scene 14 today -
+        asserted here rather than assumed, because if it ever stops doing so
+        the admission check is guarding a door that closed elsewhere and
+        somebody should know.  The census still refuses.
+        """
+        entry = world_scene_entry.resolve_entry(
+            Position(VOLCANO, 0, 0.0, 0.0, 0.0, 0),
+            registry=world_scene_travel.load_scene_registry(),
+            emit=lambda line: None,
+            via_login=False,
+        )
+        self.assertEqual(entry.position.scene_id, VOLCANO)
+        self.assertIsNone(self._compose_with_real_registry())
+
+    def test_a_missing_or_unreadable_registry_declines_rather_than_ships(self):
+        # Fail-closed in the direction that matters: no registry is not a
+        # licence to populate.
+        self.assertFalse(lane_a.scene_is_open_to_players(VOLCANO, object()))
+        self.assertFalse(lane_a.scene_is_open_to_players(999999))
+
+    def test_the_registry_row_says_shut_too(self):
+        # Second-order, and never asserted on its own - see the class
+        # docstring for the assertion this replaced.
+        destination = world_scene_travel.destination(
+            VOLCANO, world_scene_travel.load_scene_registry())
+        self.assertFalse(destination.login_entry_allowed)
+
+
+class ComposerContractTests(unittest.TestCase):
+    """What the composer returns once a scene IS open.
+
+    The registry is opened in a temp file and handed to the composer as
+    ``scene_entry_registry`` - the same argument runtime.py passes - so
+    nothing here monkeypatches a loader or touches the repository's file.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.legacy = _legacy()
+        cls.anchor = world_scene_travel.spawn_position(
+            world_scene_travel.destination(VOLCANO))
+        cls._work = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls._work.cleanup)
+        cls.open_registry, _ = _registry_with_door_open(Path(cls._work.name))
+
+    def _compose(self, scene_id=VOLCANO, anchor=None):
+        return lane_a._compose_for_scene(scene_id)(
+            legacy=self.legacy,
+            anchor=self.anchor if anchor is None else anchor,
+            scene_id=scene_id,
+            scene_entry_registry=self.open_registry,
+        )
+
+    def test_the_result_is_the_contract_tuple_and_nothing_else(self):
+        result = self._compose()
+        self.assertIsInstance(result, lane_hooks.SceneCensusResult)
+        self.assertEqual(result.actor_count, ROSTER_COUNT)
+        self.assertIsInstance(result.pc, bytes)
+        self.assertIsInstance(result.frame, bytes)
+        self.assertGreater(len(result.pc), 0)
+
+    def test_the_count_and_bytes_are_the_seams_and_not_recounted_here(self):
+        handoff = world_population_handoff.handoff_for_arrival(
+            self.legacy, VOLCANO, self.anchor)
+        result = self._compose()
+        self.assertEqual(result.actor_count, handoff.actor_count)
+        self.assertEqual(result.pc, handoff.pc)
+        self.assertEqual(result.frame, handoff.frame)
+
+    def test_the_reapply_is_the_scenes_own_schedule_not_zero(self):
+        # pf-adversary mutated this to 0 and nothing went red (round
+        # ga91m5-r2, D4): a 0 ms reapply collapses the model-readiness resend
+        # into the initial frame, which is the one thing the second action
+        # exists to avoid.
+        result = self._compose()
+        self.assertEqual(
+            result.initial_reapply_ms,
+            world_population_bg0015.INITIAL_REAPPLY_MS)
+        self.assertGreater(result.initial_reapply_ms, 0)
+
+    def test_the_reapply_field_can_never_reach_the_call_site_as_none(self):
+        # SceneHandoff.reapply_ms is `int | None` and the call site coerces
+        # it, so None there would refuse the census instead of shipping it.
+        # Measured, and corrected after pf-adversary refuted an earlier
+        # version of this comment: BOTH non-census kinds carry None -
+        # KIND_CLEAR through world_population_handoff.CLEAR_REAPPLY_MS (that
+        # module declares it `int | None = None`) and KIND_UNAVAILABLE
+        # through the builder that returns it.  The earlier comment named
+        # "only KIND_UNAVAILABLE" and cited an `_unavailable` builder that
+        # does not exist under that name.  Declining every non-census kind is
+        # what keeps both out.
+        for scene_id in lane_a.scenes_this_lane_composes_for():
+            with self.subTest(scene=scene_id):
+                handoff = world_population_handoff.handoff_for_arrival(
+                    self.legacy, scene_id,
+                    world_scene_travel.spawn_position(
+                        world_scene_travel.destination(scene_id)))
+                self.assertEqual(
+                    handoff.kind, world_population_handoff.KIND_CENSUS)
+                self.assertIsNotNone(handoff.reapply_ms)
+                self.assertIsInstance(
+                    self._compose(scene_id).initial_reapply_ms, int)
+
+    def test_the_console_carries_the_seam_line_the_census_and_the_shortfall(
+            self):
+        result = self._compose()
+        self.assertTrue(
+            result.console_lines[0].startswith("WORLD_POP_HANDOFF scene=14 "),
+            result.console_lines[0])
+        self.assertTrue(
+            any(line.startswith("WORLD_CENSUS_BG0015 ")
+                for line in result.console_lines))
+        # The dropped placements are CHARTER-02's shortfall evidence, and
+        # pf-adversary measured that deleting unresolved_lines() left every
+        # assertion green (round ga91m5-r2, D4).  Counted, not bounded.
+        unshipped = [
+            line for line in result.console_lines
+            if line.startswith("BG0015_UNSHIPPED ")
+        ]
+        self.assertEqual(
+            len(unshipped),
+            len(world_population_bg0015.unresolved_lines()))
+        self.assertGreater(len(unshipped), 0)
+        self.assertEqual(
+            len(result.console_lines),
+            1 + 1 + ROSTER_COUNT + len(unshipped))
+
+    def test_every_console_line_is_ascii(self):
+        # The bridge console is cp874; a non-ASCII line raises inside the
+        # print itself, which is the scar rounds 86 and 142 left.
+        for line in self._compose().console_lines:
+            with self.subTest(line=line[:40]):
+                line.encode("ascii")
+
+    def test_a_composition_failure_raises_instead_of_declining(self):
+        """The strict entry point, pinned.
+
+        ``handoff_for_arrival`` raises where ``handoff_on_crossing`` returns
+        ``KIND_UNAVAILABLE``.  Swapping them would turn every composition
+        crash into ``..._declined_scene_14`` - a crash relabelled as a lane
+        decision - and pf-adversary measured that no test could see the
+        difference (round ga91m5-r2, D4).  A bad anchor is a composition
+        failure the seam raises on.
+        """
+        with self.assertRaises(Exception) as caught:
+            self._compose(anchor="not-a-point")
+        self.assertNotIsInstance(caught.exception, AssertionError)
+
+    def test_a_scene_the_seam_leaves_empty_is_declined_not_cleared(self):
+        # 278 is in SCENES_INTENTIONALLY_UNPOPULATED, so the seam answers
+        # `clear`.  The arrival path never asked for a clear frame, so the
+        # honest answer is None.  Driven with 278's door open, so that the
+        # admission check is not what produces the None.
+        self.assertIn(
+            278, world_population_handoff.SCENES_INTENTIONALLY_UNPOPULATED)
+        with tempfile.TemporaryDirectory() as work:
+            registry, _ = _registry_with_door_open(Path(work), 278)
+            self.assertTrue(lane_a.scene_is_open_to_players(278, registry))
+            self.assertIsNone(lane_a._compose_for_scene(278)(
+                legacy=self.legacy,
+                anchor=world_scene_travel.spawn_position(
+                    world_scene_travel.destination(278, registry)),
+                scene_id=278,
+                scene_entry_registry=registry,
+            ))
+
+
+class OnTheRealDispatcherTests(unittest.TestCase):
+    """End to end: open the door in a temp registry and 81 actors ship.
+
+    This is the only test that monkeypatches the loader, because the runtime
+    loads the registry itself at boot.  The cleanup restores it on failure as
+    well as on success.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.legacy = _legacy()
+
+    @staticmethod
+    def _target_pos_pc(legacy, xyz, heading=0.0, moving=0, derived=0):
+        return (
+            legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_REQ)
+            + legacy.u32tag(0x14, 0)
+            + legacy.u8tag(0x08, 0)
+            + legacy.u8tag(0x0B, 2)
+            + legacy.u16tag(0x12, 1)
+            + legacy.u16tag(0x12, legacy.TARGET_POS_VITAL)
+            + legacy.u8tag(0x0B, 0)
+            + b"".join(legacy.f32tag(value) for value in (*xyz, heading))
+            + legacy.u8tag(0x0B, moving)
+            + legacy.u8tag(0x0B, derived)
+        )
+
+    def test_with_the_door_open_the_lane_census_ships_81_actors(self):
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            _, patched = _registry_with_door_open(work)
+            real_loader = world_scene_travel.load_scene_registry
+            world_scene_travel.load_scene_registry = (
+                lambda *a, _f=real_loader, _p=patched, **k: _f(_p))
+            self.addCleanup(
+                setattr, world_scene_travel, "load_scene_registry",
+                real_loader)
+            store = SQLiteStore(work / "state.sqlite3", ROOT / "migrations")
+            store.migrate()
+            legacy = self.legacy
+            lifecycle = CharacterLifecycle(
+                store,
+                Position(1, 0, legacy.V135_PLAYER_X, legacy.V135_PLAYER_Y,
+                         legacy.V135_PLAYER_Z),
+                legacy.extract_avatar_attr_wire_from_actor,
+            )
+            state_type = make_state_class(
+                legacy, lifecycle, LegacyProjector(legacy))
+            state = state_type("driver")
+            state.dispatch(legacy.parse_outer(
+                legacy._synthetic_client_login_pc("driver")))
+            state.dispatch(legacy.parse_outer(legacy._V25_REAL_CREATE_PC))
+            character = store.list_characters(
+                state.foundation.account_id)[-1]
+            spawn = world_scene_travel.spawn_position(
+                world_scene_travel.destination(
+                    VOLCANO, world_scene_travel.load_scene_registry()))
+            store.select_character(
+                state.foundation.session_id, character.selector)
+            store.save_position(
+                state.foundation.session_id, character.id,
+                Position(VOLCANO, 0, spawn[0], spawn[1], spawn[2], 0.0))
+            with contextlib.redirect_stdout(io.StringIO()):
+                state.dispatch(legacy.parse_outer(
+                    legacy._synthetic_start_game_pc(character.selector)))
+            # The login reached a teleport, which is exactly what the shut
+            # door prevents in production.
+            self.assertTrue(state.teleport_sent)
+            state.runtime_ack_sent = True
+            state.welcome_message_sent = True
+            state.current_scene_music_sent = True
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                actions = state.dispatch(legacy.parse_outer(
+                    self._target_pos_pc(legacy, spawn)))
+            census = [a for a in actions if a[0].startswith("WORLD_CENSUS_")]
+            self.assertEqual(
+                [a[0] for a in census],
+                [f"WORLD_CENSUS_LANE_SCENE{VOLCANO}_INITIAL_{ROSTER_COUNT}",
+                 f"WORLD_CENSUS_LANE_SCENE{VOLCANO}_REAPPLY_{ROSTER_COUNT}"])
+            # Byte counts derived by the call site with len(), so this is the
+            # wire agreeing with the label rather than the lane asserting it.
+            self.assertIn(
+                f"world_census_lane_committed_actors_{ROSTER_COUNT}"
+                f"_pc_{len(census[0][1])}_frame_{len(census[0][2])}",
+                state.events)
+            printed = buf.getvalue()
+            self.assertIn("WORLD_POP_HANDOFF scene=14 kind=census", printed)
+            self.assertIn("WORLD_CENSUS_BG0015 assembled=81/91", printed)
+
+    def test_with_the_real_registry_the_login_never_reaches_the_census(self):
+        """The production run, driven: refused at the login, no census at all.
+
+        The other half of the pair.  Together they say the difference between
+        an empty island and 81 actors is one boolean, and that nothing else
+        in this file's chain is missing.
+        """
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            store = SQLiteStore(work / "state.sqlite3", ROOT / "migrations")
+            store.migrate()
+            legacy = self.legacy
+            lifecycle = CharacterLifecycle(
+                store,
+                Position(1, 0, legacy.V135_PLAYER_X, legacy.V135_PLAYER_Y,
+                         legacy.V135_PLAYER_Z),
+                legacy.extract_avatar_attr_wire_from_actor,
+            )
+            state_type = make_state_class(
+                legacy, lifecycle, LegacyProjector(legacy))
+            state = state_type("driver")
+            state.dispatch(legacy.parse_outer(
+                legacy._synthetic_client_login_pc("driver")))
+            state.dispatch(legacy.parse_outer(legacy._V25_REAL_CREATE_PC))
+            character = store.list_characters(
+                state.foundation.account_id)[-1]
+            spawn = world_scene_travel.spawn_position(
+                world_scene_travel.destination(VOLCANO))
+            store.select_character(
+                state.foundation.session_id, character.selector)
+            store.save_position(
+                state.foundation.session_id, character.id,
+                Position(VOLCANO, 0, spawn[0], spawn[1], spawn[2], 0.0))
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                state.dispatch(legacy.parse_outer(
+                    legacy._synthetic_start_game_pc(character.selector)))
+            self.assertFalse(state.teleport_sent)
+            self.assertIn(
+                "WORLD_SCENE_ENTRY_REFUSED [scene_not_allowed_at_login]",
+                buf.getvalue())
+
+
+if __name__ == "__main__":
+    unittest.main()
