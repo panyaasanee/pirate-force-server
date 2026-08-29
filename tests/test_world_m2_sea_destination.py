@@ -79,6 +79,7 @@ class DestinationTests(unittest.TestCase):
         self.assertIn("target_scene=17", line)
         self.assertIn("advertises_ocean=126", line)
         self.assertIn("state=READY_DECREED", line)
+        self.assertIn("var2_reading=CONTESTED", line)
         self.assertIn("arrival=0.000,0.000,0.000", line)
         self.assertIn("evidence=GT-106", line)
 
@@ -114,6 +115,77 @@ class ArrivalPointTests(unittest.TestCase):
         )
         self.assertIn("world_scene_registry_001.json", sea.ARRIVAL_POSITION_OWNER)
 
+    def test_moving_the_registrys_point_moves_this_modules_answer(self):
+        """The control the first draft of this class did NOT have.
+
+        pf-adversary (round drrnpu, D4) drove two fakes past all 21 tests:
+        one that answered from its own module-level copy of (0,0,0), and one
+        that ignored the caller's registry and read the file from disk.  Both
+        passed because every assertion compared two things that were both
+        (0,0,0), and because the anti-copy check was a check on a NAME.  This
+        one moves the registry's point somewhere no default could produce.
+        """
+        loaded = world_scene_travel.load_scene_registry()
+        moved = replace(
+            loaded[sea.DESTINATION_SCENE_N_ID], spawn=(111.0, 222.0, 333.0),
+        )
+        registry = replace(loaded, destinations=tuple(
+            moved if row.n_id == sea.DESTINATION_SCENE_N_ID else row
+            for row in loaded.destinations
+        ))
+        self.assertEqual(sea.arrival_position(registry), (111.0, 222.0, 333.0))
+        self.assertIn(
+            "arrival=111.000,222.000,333.000", sea.console_line(registry),
+        )
+
+    def test_the_var2_reading_is_carried_as_contested_not_as_measured(self):
+        """Item 0 of the module docstring, as data a machine can check.
+
+        The refutation must survive a later round that reads only the code:
+        Var2 is a valid MARKER id in all 41 rows and is not a scene id in
+        five of them, and the console line has to say the reading is
+        contested rather than print a destination as settled.
+        """
+        self.assertEqual(sea.TELEPORT_ROWS_TOTAL, 41)
+        self.assertEqual(len(sea.VAR2_VALUES_THAT_ARE_NOT_SCENE_IDS), 5)
+        self.assertIn(
+            (3037, sea.SCENE_130_DECLARES_MARKER),
+            sea.VAR2_VALUES_THAT_ARE_NOT_SCENE_IDS,
+        )
+        self.assertEqual(sea.MARKER_AT_VAR2[0], sea.ADVERTISED_OCEAN_SCENE_N_ID)
+        self.assertIn(
+            "var2_reading=CONTESTED",
+            sea.console_line(world_scene_travel.load_scene_registry()),
+        )
+
+    def test_the_marker_reading_reproduces_this_files_own_ocean_column(self):
+        """8 of 8, from the copy this repository commits - no bridge needed.
+
+        This is the measurement that refuted the round: MARKER[Var2].n_SCENE
+        gives, in one lookup, the same eight oceans this file derives through
+        a three-hop chain.  If a later round wants to keep the scene reading
+        it has to explain this agreement away.
+        """
+        crosswalk = json.loads(
+            (ROOT / "src/pirateforce_foundation/world_data"
+             / "world_marker_crosswalk.json").read_text()
+        )
+        marker_scene = {row[0]: row[1] for row in crosswalk["marker_scene_index"]}
+        checked = 0
+        for _mobs, _home, _row_id, target, ocean in sea.COLUMBUS_ROUTES:
+            # COLUMBUS_ROUTES' fourth field IS the row's Var2, read as a
+            # scene id by this file and as a marker id by the refutation.
+            var2 = target
+            self.assertIn(var2, marker_scene, "Var2 must be a valid marker id")
+            self.assertEqual(
+                marker_scene[var2], ocean,
+                "MARKER[Var2].n_SCENE must reproduce the advertised ocean - "
+                "that agreement is the refutation, and losing it silently is "
+                "how this round's error would come back",
+            )
+            checked += 1
+        self.assertEqual(checked, 8)
+
     def test_the_door_has_a_landing_spot_and_the_state_says_who_authored_it(self):
         self.assertTrue(sea.destination_ready(self.registry))
         self.assertEqual(sea.refusal_reason(self.registry), "")
@@ -141,7 +213,8 @@ class ArrivalPointTests(unittest.TestCase):
             with self.assertRaises(sea.SeaDestinationError):
                 sea.arrival_position(not_a_registry)
         reason = sea.refusal_reason(empty)
-        self.assertIn("n_MARKER = 0", reason)
+        self.assertIn("n_MARKER is 0", reason)
+        self.assertIn("MARKER[17] does exist", reason)
         self.assertNotIn(
             "nothing here has read that path", reason,
             "that path IS read - q_teleport1.lua, one argument, no "
@@ -162,9 +235,9 @@ class ArrivalPointTests(unittest.TestCase):
         ))
         self.assertFalse(sea.arrival_is_decreed(registry))
         self.assertEqual(
-            sea.destination_state(registry), sea.STATE_READY_MEASURED,
+            sea.destination_state(registry), sea.STATE_READY_NOT_DECREED,
         )
-        self.assertIn("state=READY_MEASURED", sea.console_line(registry))
+        self.assertIn("state=READY_NOT_DECREED", sea.console_line(registry))
 
     def _registry_with(self, provenance, z):
         """A copy of the real registry file with scene 17's spawn edited."""

@@ -140,6 +140,58 @@ and that nobody had read the path that would carry one.  Both were false ON
 MAIN while they were written, and a reader who believed them would have gone
 looking for work that is already done.
 
+0.  **AND THE ROUND THAT WROTE ITEMS 1-3 BELOW WAS ITSELF REFUTED, BY ITS OWN
+    ADVERSARY PASS, BEFORE IT LEFT DRAFT.  READ THIS ITEM FIRST.**
+    ``n_VARI_2`` is almost certainly **a MarkerID, not a scene id**, and this
+    module has stated the scene reading as MEASURED since it was written.
+    Re-derived twice, once by ``pf-adversary`` and once by the round, from
+    ``QUESTDATA_TH__QUEST.tsv`` and ``CONSTDATA_TH__MARKER.tsv``:
+
+        41 rows use these two scripts.  41 of 41 carry a Var2 that is a valid
+        MARKER id.  FIVE carry a Var2 that is not a scene id at all:
+        3016 -> 12, 3018 -> 16, 3019 -> 12, 3037 -> 1000, 3039 -> 336.
+        Row 3037 passes 1000, and 1000 is exactly what SCENE_NAME row 130
+        declares in its own n_MARKER column.  A destination "scene 1000"
+        does not exist.
+
+        MARKER[Var2].n_SCENE reproduces this file's whole eight-row
+        "advertised ocean" column - 126,126,126,304,304,127,127,305 - in ONE
+        lookup, where this file derives it through a three-hop
+        MAP_SCENE_LIST -> n_ID_MAINTITLE -> SCENE_NAME_TIP chain.  Under the
+        marker reading the three Columbuses that "advertise the same ocean"
+        are three different BERTHS in scene 126: MARKER[17] is
+        (3050, 232, 90) dir 6 and MARKER[18] is (-5072, 4000, 90) dir 7,
+        about 8000 units apart.
+
+    ``q_teleport_new.lua`` states the argument's type in the client's own
+    header comment (Big5): teleport methods 0 and 4 take a **MarkerID** in
+    the variable it then passes to ``Player.Teleport``.  And the control this
+    file offered for the scene reading - "measured across siblings: 3002 ->
+    1, 3003 -> 4, 3005 -> 5, 3007 -> 6, 3009 -> 8, 3014 -> 14" - is
+    DEGENERATE: every one of those six values is in the 19-row subset where
+    ``MARKER.n_ID == MARKER.n_SCENE``, so both readings give the same answer
+    and the control could not have failed.
+
+    **The owner said this on 2026-08-27 and the project overruled them.**
+    GT-106's letter, section 4.2: in the original game that option turns you
+    into a ship and puts you in "Atlantic Ocean: Rising Sun Sea", not "Ship
+    in the Sea".  That is scene 126 - and ``MARKER[17].n_SCENE`` is 126.
+    The letter's own open question, "how does the original server turn 17
+    into scene 126", has that one-column answer.
+
+    WHAT THIS FILE DOES ABOUT IT, AND WHAT IT DELIBERATELY DOES NOT.
+    ``DESTINATION_SCENE_N_ID`` stays 17 in code this round, because
+    ``columbus_quest_dispatch`` and a live flagless call site agree on 17
+    and because ``COO-DECISION 20260829_0441`` closed the 17-vs-126 question
+    in favour of 17 - on this lane's own withdrawal of it, and on the
+    degenerate control above.  Changing a live destination on a lane's own
+    reading is not this lane's call.  So the number stays and the CLAIM
+    changes: the scene reading is **[CONTESTED - LANE-A round drrnpu,
+    awaiting COO]**, not measured, and the letter is
+    ``pf_bridge/notes_to_chief/20260829_1410_LANE-A-ASK-COO-var2-is-a-
+    markerid.md``.  Nothing in this file may be quoted as measuring that
+    row 3021's destination is a scene id.
+
 1.  **"Nothing here has read that path."**  The path is
     ``q_teleport1.lua``, the script row 3021 names in ``s_LUASCRIPT`` -
     ``PF_GAMEDATA_LUA_INDEX.tsv`` indexes it, with its directory, under that
@@ -150,23 +202,37 @@ looking for work that is already done.
     calls ``Player.Teleport(<the row's own n_VARI_2 field>)`` with **ONE
     argument, the destination scene id, and no coordinate of any kind**.  Its
     sibling ``q_teleport_with_vehicle1.lua`` (rows 3002-3014) is the same call
-    with ``Player.TeleportWithVehicle``, same single argument.  So the client
-    script carries no arrival XYZ and never did - which is not a gap in what
-    was extracted, it is the shape of the mechanism, and it is the last
-    unread path ``RE-103`` was left open on.  ``CONSTDATA_TH__SCENE_NAME``'s
+    with ``Player.TeleportWithVehicle``, same single argument.  So THOSE TWO
+    SCRIPTS carry no float coordinate - a fact about two files, not about the
+    mechanism (item 0), and narrower than it first reads: the family has five
+    members, and ``q_teleport3.lua`` calls ``Player.ResetMarker(Var2)`` right
+    before its own teleport, which is a positioning call taking the same
+    argument.  This round read two of the five in full; ``q_teleport_new``
+    was read afterwards, by the adversary, and it is the one that names the
+    argument's type.  ``CONSTDATA_TH__SCENE_NAME``'s
     own ``n_MARKER`` column, the client's authored arrival-point pointer,
     reads **0** for scene 17 and for every scene in the sea family (18-23),
     so the table that WOULD have carried one says there is none.  Together
-    those two close ``RE-103`` positively rather than by absence of
-    evidence: for a sea scene the arriving position is not authored data
-    anywhere, so whoever sends the teleport owns it.
+    those two close ``RE-103``'s question about SCENE 17's OWN default
+    arrival point: no scene-keyed arrival data exists for the sea family.
+    ~~for a sea scene the arriving position is not authored data anywhere, so
+    whoever sends the teleport owns it.~~  **STRUCK IN THE SAME ROUND THAT
+    WROTE IT (item 0).**  The arriving position for row 3021 IS authored, in
+    ``MARKER[17]``, and reading a Lua stub's lack of a coordinate as the
+    whole mechanism's lack of one was the error: RE-103's own T3 recorded
+    that the WIRE Teleport target carries scene_id AND a vec3, and the land
+    case shows where the server gets that vec3 - SCENE_NAME.n_MARKER ->
+    MARKER -> point.  One layer's silence is not another layer's answer.
 
     ``Accept_Check`` in the same script gates acceptance on
     ``Var1``, which is **111** for rows 3021 and 3022 and 0 for 3023-3028 -
-    a flag precondition on the client side.  ``GT-106`` measured that it does
-    not stop anything: the client displayed the option and sent
-    ``QuestOperateVital`` for row 3021 with no such flag set.  Recorded
-    because the next reader of this script will otherwise re-open it.
+    a flag precondition on the client side.  **[PROPOSED, NOT MEASURED]**
+    that it stops nothing: what GT-106 measured is that with the dialog THIS
+    server built, the client displayed the option and sent the operate frame
+    for row 3021 with no such flag set - and that letter's own nonclaims say
+    it does not prove ``Accept_Check`` was called at all.  A gate that is
+    never invoked has not been measured as harmless.  Recorded because the
+    next reader of this script will otherwise re-open it.
 
 2.  **"No pinned arrival position."**  There has been one since
     2026-08-27T14:45+07:00, in this project's own registry, and this module
@@ -412,13 +478,38 @@ SCENE_NAME_MARKER_COLUMN_FOR_THE_SEA_FAMILY = 0
 SEA_FAMILY_SCENE_IDS = (17, 18, 19, 20, 21, 22, 23)
 
 # The prefix that marks a spawn the owner decreed rather than one anybody
-# measured.  Not re-typed here: world_scene_travel owns the string and two
-# other modules branch on it.
+# measured.  Not re-typed here - this module imports the constant.  ~~two
+# other modules branch on it~~ CORRECTED (pf-adversary, round drrnpu, D9):
+# world_scene_entry hard-codes the literal at TWO places (285, 476) instead
+# of importing it, so the string exists by hand in three spots and this
+# module is the only one reading it from its owner.  Said out loud rather
+# than left as a comment that flatters this file.
 _DECREE_PREFIX_OWNER = "world_scene_travel.PROVISIONAL_SPAWN_PROVENANCE_PREFIX"
+
+# The literal Var2 of row 3021, and what MARKER says at that id.  These are
+# the numbers item 0 of the docstring turns on, kept as data so a test can
+# drive them instead of a reader having to trust prose.
+DESTINATION_QUEST_ROW_VAR2 = 17
+MARKER_AT_VAR2 = (126, 3050, 232, 90)          # (n_SCENE, x, y, z)
+MARKER_AT_VAR2_DIRECTION = 6
+# Rows in the two teleport scripts whose Var2 is NOT a scene id at all - the
+# five that falsify the scene reading.  (row id, Var2).
+VAR2_VALUES_THAT_ARE_NOT_SCENE_IDS = (
+    (3016, 12), (3018, 16), (3019, 12), (3037, 1000), (3039, 336),
+)
+TELEPORT_ROWS_TOTAL = 41
+# Row 3037 passes 1000; SCENE_NAME row 130 declares n_MARKER 1000.  One
+# number, in both places, that cannot be a scene id.
+SCENE_130_DECLARES_MARKER = 1000
 
 STATE_REFUSED = "REFUSED"
 STATE_READY_DECREED = "READY_DECREED"
-STATE_READY_MEASURED = "READY_MEASURED"
+# NOT "READY_MEASURED": this fires on the ABSENCE of the decree prefix, and
+# nothing here checks that a measurement exists.  pf-adversary (round drrnpu,
+# D7) named the input that would make a measured-sounding token print with no
+# measurement anywhere: any hand-edited provenance, "pending re-measurement"
+# included.  The name says what the test actually is.
+STATE_READY_NOT_DECREED = "READY_NOT_DECREED"
 
 
 class SeaDestinationError(Exception):
@@ -542,11 +633,15 @@ def arrival_is_decreed(registry) -> bool:
 
 
 def destination_state(registry) -> str:
-    """REFUSED, READY_DECREED or READY_MEASURED - one word for a console."""
+    """REFUSED, READY_DECREED or READY_NOT_DECREED - one word for a console.
+
+    The third state is deliberately not called READY_MEASURED: it is the
+    absence of the decree prefix, which is not the presence of a measurement.
+    """
     if arrival_position(registry) is None:
         return STATE_REFUSED
     return STATE_READY_DECREED if arrival_is_decreed(registry) else (
-        STATE_READY_MEASURED
+        STATE_READY_NOT_DECREED
     )
 
 
@@ -575,14 +670,18 @@ def refusal_reason(registry) -> str:
     if destination_ready(registry):
         return ""
     return (
-        "scene %d (%s) has no arrival point in the registry - the client "
-        "authors none for the sea family (SCENE_NAME.n_MARKER = %d) and %s "
-        "carries no coordinate, so this project has to pin one"
+        "scene %d (%s) has no arrival point in the registry - SCENE_NAME."
+        "n_MARKER is %d for this scene, so the client authors none KEYED BY "
+        "SCENE; MARKER[%d] does exist and carries (%d,%d,%d) in scene %d, "
+        "which is the contested reading (see this module's docstring item 0) "
+        "and must not be pinned here without a ruling"
         % (
             DESTINATION_SCENE_N_ID,
             DESTINATION_SCENE_MODEL_ID,
             SCENE_NAME_MARKER_COLUMN_FOR_THE_SEA_FAMILY,
-            TELEPORT_CALL,
+            DESTINATION_QUEST_ROW_VAR2,
+            MARKER_AT_VAR2[1], MARKER_AT_VAR2[2], MARKER_AT_VAR2[3],
+            MARKER_AT_VAR2[0],
         )
     )
 
@@ -599,7 +698,8 @@ def console_line(registry) -> str:
     )
     return (
         "M2_SEA_DESTINATION offer=%d target_scene=%d model=%s "
-        "advertises_ocean=%d (%s_%s) state=%s arrival=%s evidence=%s reason=%s"
+        "advertises_ocean=%d (%s_%s) var2_reading=CONTESTED state=%s "
+        "arrival=%s evidence=%s reason=%s"
         % (
             DESTINATION_QUEST_ID,
             DESTINATION_SCENE_N_ID,
@@ -664,6 +764,20 @@ def _self_check() -> None:
         raise SeaDestinationError(
             "the docstring says the walked z is about one unit under the "
             "lowest native placement; these two numbers no longer say that"
+        )
+    if DESTINATION_QUEST_ROW_VAR2 != OPTION_TARGET_SCENE_N_ID[DESTINATION_QUEST_ID]:
+        raise SeaDestinationError(
+            "the row's literal Var2 and the number this file reads as a "
+            "scene id have been allowed to differ - the whole contest in "
+            "docstring item 0 is that they are the SAME number read two ways"
+        )
+    if SCENE_130_DECLARES_MARKER not in [
+        var2 for _row, var2 in VAR2_VALUES_THAT_ARE_NOT_SCENE_IDS
+    ]:
+        raise SeaDestinationError(
+            "1000 is the number that closes item 0 - a Var2 that is a marker "
+            "id and cannot be a scene id; removing it from the list guts the "
+            "refutation this file is required to carry"
         )
     if TELEPORT_CALL_ARGUMENT_COUNT != 1 or TELEPORT_CALL_CARRIES_A_POSITION:
         raise SeaDestinationError(
