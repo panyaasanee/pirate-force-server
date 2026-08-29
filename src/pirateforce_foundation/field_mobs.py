@@ -474,6 +474,30 @@ _SCENE_TABLE_MODULES = {
 BG0002_SCENE = field_mob_tables_bg0002.SCENE
 
 
+def live_scenes() -> tuple[str, ...]:
+    """The scenes :func:`load_roster` will actually load, in a stable order.
+
+    ROUND j0u64p.  ``_SCENE_TABLE_MODULES`` has always been the one place that
+    decides which scenes are LIVE (as opposed to mined-but-dormant, which
+    ``_KNOWN_SCENE_TABLE_MODULES_FOR_REPORTING`` covers), and a caller that
+    needs to walk every shipped roster had no way to ask without reaching into
+    a private name.  ``mob_death.describe_widening_coverage`` is the first
+    such caller: it reports which shipped monsters an owner letter authorises
+    killing, so it must walk the same scene list ``load_roster`` obeys and not
+    a second hand-typed copy of it that can drift.  That drift is not
+    hypothetical to guard against -- a stale copy here would make a
+    REGISTERED scene's whole roster vanish from that report with no line
+    saying so -- so ``tests/test_mob_death_wired_widening.py`` pins this to
+    ``_SCENE_TABLE_MODULES`` by set equality, not merely by "everything it
+    returns loads".
+
+    Sorted rather than dict-ordered, so a caller that pins this value is
+    pinning the SET of live scenes and not the order two module-level
+    assignments happen to appear in.
+    """
+    return tuple(sorted(_SCENE_TABLE_MODULES))
+
+
 def load_roster(scene: str = field_mob_tables.SCENE) -> tuple[FieldMob, ...]:
     """Type and check ONE scene's generated roster.  No file read at import time.
 
