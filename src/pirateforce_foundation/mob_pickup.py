@@ -206,20 +206,42 @@ gates now read:
     3. legacy_bridge.start_game -> make_backpack_attr -> require_backpack_shape
        -- WIDENED this round.  No longer the blocker; gate 2 is.
 
-So the character-select ValueError-hang bug IS fixed (gate 1, prior round),
-and the wire encoder can now serialize a bag holding a picked-up item (gate
-3, this round) -- but a bag that has genuinely drifted still cannot
-select/enter today: it is refused at gate 2, cleanly, exactly as before both
-rounds.  Full relog with a drifted bag needs gate 2 redesigned to
-distinguish real gameplay drift from a governed hypothesis's own post-state
--- that redesign is deferred (COO-DECISION 20260827_1350, targeted for the
-first week of M5) and is not this round's work either.  ``inventory.py`` and
-``legacy_bridge.py`` remain outside this lane's ordinary write zone; this
-round's two edits there are the exact narrow scope COO-DECISION 20260828_0844
-granted, nothing wider.  ``MOB_PICKUP_ROW_WOULD_INSERT`` (see
-``dispatch_pickup_request`` below) stays a LOG, not an INSERT, because
-persistence was never part of this grant and gate 2 still blocks the relog
-that would prove it safe.
+THE WALL MOVED ON 2026-08-29, AND ROW 2 ABOVE IS NOW HISTORY.  Chief wired
+gate 2 to ``bag_admission.may_enter_world`` in PR #233 on COO-DECISION
+20260829_0441 item 1, so ~~"session.select_and_start -> is_unmoved_baseline,
+STILL UNCHANGED, the gate that actually stops a relog today"~~ IS STRUCK.
+The three gates as they stand:
+
+    1. store._load_backpack -> require_backpack_shape -- structure only.
+    2. session.select_and_start -> bag_admission.may_enter_world -- ADMITS a
+       golden-plus-acquired bag; refuses a drifted one by a named reason.
+       ``is_unmoved_baseline`` itself was NOT narrowed, so every governed
+       mutation's reconnect guard is untouched -- that is why the earlier
+       attempt to narrow it was wrong and this one is not.
+    3. legacy_bridge.start_game -> make_backpack_attr -> require_backpack_shape
+       -- structure only.
+
+So no gate blocks the relog any more.  WHAT BLOCKS IT IS THAT NO INSERT RUNS
+ON A PICKUP PATH.  ~~"``store.py`` has no backpack INSERT"~~ IS STRUCK AS
+FALSE: ``store._insert_initial_backpack`` INSERTs INTO
+``character_backpack_items`` at CHARACTER CREATION -- pinned by
+``tests/test_bag_admission_expiry.py`` before this section ever claimed
+otherwise.  That creation INSERT is the ONLY one; there is none on a pickup
+path; and nothing advances ``character_backpacks.next_item_identity``, not
+even the creation write, which leaves it to migration 005's DEFAULT.  So a
+picked-up item exists only inside the session that took it, and a relog
+reloads the golden bag it always did.  A round adding the pickup INSERT has
+BOTH to write the row and to reconcile that counter.
+That is chief's ticket ``STORE-INSERT-001``, the closing
+condition of BUILD-006, and the expiry condition of ``bag_admission``'s
+NONCLAIM 8 -- one ticket, named in three places, so no reader can conclude
+from this file that a gate is what they have to go and widen.
+``inventory.py`` and ``legacy_bridge.py`` remain outside this lane's
+ordinary write zone; the edits there were the exact narrow scope
+COO-DECISION 20260828_0844 granted, nothing wider.
+``MOB_PICKUP_ROW_WOULD_INSERT`` (see ``dispatch_pickup_request`` below)
+stays a LOG, not an INSERT: writing that row is ``store.py``'s, which is
+chief's file, not this lane's.
 """
 
 from __future__ import annotations
@@ -308,7 +330,9 @@ MOB_PICKUP_WIRING = (
     "  3. PERSIST via store.commit_acquired_backpack_item(sid, "
     "character_id, outcome.item) -- and STILL do not write an INSERT of "
     "your own.  ~~STOP: persisting is not safe yet, gate 2 "
-    "(is_unmoved_baseline) refuses a bag holding it~~ is SUPERSEDED TWICE: "
+    "(is_unmoved_baseline) refuses a bag holding it~~ is SUPERSEDED TWICE "
+    "(LANE-B struck the same sentence in round 149wbp, from the gate side; "
+    "this is the same correction plus the write that now exists): "
     "gate 2 asks bag_admission.may_enter_world since round 1684ra, which "
     "admits a bag place_in_bag produced, and STORE-INSERT-001 (round "
     "4gqnwm) put the row and the identity counter in one transaction "
@@ -420,16 +444,36 @@ PIN_ID = "port_royal_field_mob_pickup_001"
 PIN_BUILD_ORDER = MOB_PICKUP_BUILD_ORDER
 PIN_LANE = MOB_PICKUP_LANE
 
-# Gate 3 (the wire encoder) was widened by COO-DECISION 20260828_0844; gate 2
-# was widened in round 1684ra (PR #233) and now asks
-# bag_admission.may_enter_world, which admits a bag place_in_bag produced.
-# With STORE-INSERT-001 (round 4gqnwm) the persistence path exists, so NO
-# GATE BLOCKS A PICKUP ROW ANY MORE.  What blocks a PLAYER is the missing
-# call site (GT-124), which is not a gate and must not be recorded as one.
+# ~~Gate 2 is what actually still blocks persistence~~ IS STRUCK, AND IT WAS
+# SHIPPING AS DATA, NOT AS A COMMENT (chief's R222 letter, 2026-08-29T05:10
+# +07:00, item 3): all three gates are widened now.  Gate 1 and gate 3 by
+# COO-DECISION 20260826_0950 / 20260828_0844, gate 2 by chief's PR #233 on
+# COO-DECISION 20260829_0441 -- session.select_and_start calls
+# bag_admission.may_enter_world, which ADMITS a golden-plus-acquired bag.
+#
+# ~~What blocks the relog now is upstream of every gate: no INSERT runs on a
+# PICKUP path, so a picked-up row never reaches the database.~~  STRUCK IN
+# ROUND 4gqnwm, one round later: STORE-INSERT-001 landed
+# store.commit_acquired_backpack_item, which INSERTs the row and advances the
+# counter in one transaction.  What blocks a PLAYER is now the absent call
+# site (GT-124) -- which is not a gate, and must not be recorded as one.
+#
+# ~~"store.py has no backpack INSERT"~~ IS STRUCK AS FALSE, and it was the
+# first draft of this very correction (pf-adversary, round 149wbp):
+# store._insert_initial_backpack DOES INSERT INTO character_backpack_items at
+# character creation.  Getting THIS sentence wrong is not cosmetic -- a
+# reader told the file writes nothing would add a second INSERT beside one
+# they never looked at, and would not reconcile the character-creation write
+# (which leaves next_item_identity to migration 005's DEFAULT) with a counter
+# that now has to advance.  The value below is DERIVED from store.py's
+# executed SQL by tests/test_mob_pickup.py, not asserted against this
+# literal, so the day STORE-INSERT-001 lands it goes red here too.
 GOVERNED_BAG_ALLOWLIST_BLOCKS_PERSISTENCE = False
 GOVERNED_BAG_ALLOWLIST_OWNER = (
     "nobody: gate 2's admission predicate admits an acquired row since "
-    "round 1684ra; the remaining blocker is the absent call site (GT-124)"
+    "round 1684ra, and store.commit_acquired_backpack_item writes the row "
+    "with the identity counter since round 4gqnwm; the remaining blocker "
+    "is the absent call site (GT-124)"
 )
 
 MOB_PICKUP_NONCLAIMS = (
@@ -479,14 +523,24 @@ MOB_PICKUP_NONCLAIMS = (
     "every other drop survives, and only this player's item is gone.  A "
     "put-back is not possible either: mob_loot never reuses a key, so a taken "
     "row cannot be returned to the ground under the key the client was shown.",
-    "9. STOP: RELOG IS STILL NOT CLOSED, EVEN NOW THAT COO-DECISION "
-    "20260828_0844 HAS WIDENED GATE 3.  inventory.make_backpack_attr no "
-    "longer refuses a drifted bag's CONTENT (it calls require_backpack_shape, "
-    "not require_known_backpack) -- but session.select_and_start's "
-    "is_unmoved_baseline (gate 2) is unchanged and still refuses any "
-    "non-baseline bag before gate 3 would ever run for one.  Persisting a "
-    "picked-up item BEFORE gate 2 is redesigned does not merely fail to "
-    "persist: it makes the character unable to enter the world at all.",
+    "9. STOP: RELOG IS STILL NOT CLOSED, AND THE REASON CHANGED.  ~~'session."
+    "select_and_start's is_unmoved_baseline (gate 2) is unchanged and still "
+    "refuses any non-baseline bag'~~ IS STRUCK: chief wired gate 2 to "
+    "bag_admission.may_enter_world in PR #233 (COO-DECISION 20260829_0441 "
+    "item 1), so all three gates now ADMIT a golden-plus-acquired bag and "
+    "~~'persisting a picked-up item makes the character unable to enter the "
+    "world at all'~~ IS STRUCK WITH IT.  What is not closed is that no "
+    "INSERT runs on a PICKUP path.  ~~'store.py has no backpack INSERT'~~ IS "
+    "STRUCK AS FALSE TOO, and it was this lane's own first draft of this "
+    "correction: store._insert_initial_backpack INSERTs INTO "
+    "character_backpack_items at CHARACTER CREATION, which "
+    "tests/test_bag_admission_expiry.py has pinned all along.  Precisely: "
+    "that is store.py's only backpack INSERT, there is none on a pickup "
+    "path, and nothing advances character_backpacks.next_item_identity -- "
+    "the creation INSERT does not set it either, so it comes from migration "
+    "005's DEFAULT and a round that adds the pickup INSERT has to reconcile "
+    "both. That is chief's ticket STORE-INSERT-001, and it "
+    "is the same condition bag_admission's NONCLAIM 8 expires on.",
     "10. Nothing here writes a database row, opens a socket, reads a clock or "
     "reads a file.  It is a pure transaction over values plus one take "
     "through mob_loot's cell.  dispatch_pickup_request is the one exception "
@@ -1383,11 +1437,13 @@ def dispatch_pickup_request(
     caller reading that reason see something this lane never produced.
 
     ON SUCCESS, STEP 3 IS A LOG, NOT AN INSERT.  See THE WALL in the module
-    docstring: persisting ``outcome.row_write`` is still refused at the very
-    next character select by Gate 2 (``session.select_and_start``'s
-    ``is_unmoved_baseline``), even now that COO-DECISION 20260828_0844 has
-    widened Gate 3's encoder (``inventory.make_backpack_attr``) past the two
-    golden snapshots.  This function never calls
+    docstring.  ~~"persisting ``outcome.row_write`` is still refused at the
+    very next character select by Gate 2 (``is_unmoved_baseline``)"~~ IS
+    STRUCK -- gate 2 is ``bag_admission.may_enter_world`` since PR #233 and
+    admits such a bag.  It stays a log because the INSERT belongs to
+    ``store.py``, which has to advance
+    ``character_backpacks.next_item_identity`` in the same transaction and
+    is not this lane's file (``STORE-INSERT-001``).  This function never calls
     anything DB-shaped -- no cursor, no connection, no store function -- it
     prints ``bag_row_write_console_line(outcome.row_write)`` (token
     ``MOB_PICKUP_ROW_WOULD_INSERT``) and returns ``outcome`` UNCHANGED, so
@@ -1797,12 +1853,16 @@ def pin_document(legacy: Any) -> dict:
             "relog_persistence": GOVERNED_BAG_ALLOWLIST_BLOCKS_PERSISTENCE,
             "blocked_by": GOVERNED_BAG_ALLOWLIST_OWNER,
             "what_happens_if_wired_anyway": (
-                "the row persists and the character enters the world: all "
-                "three gates admit an acquired bag now (gate 2 asks its "
-                "admission predicate since round 1684ra), and "
-                "store.commit_acquired_backpack_item writes the row with "
-                "the identity counter.  What is absent is the call site "
-                "(GT-124), not a gate"
+                "the character CAN enter the world carrying it, and the row "
+                "persists: all three gates admit a golden-plus-acquired bag "
+                "(gate 2 since PR #233), and "
+                "store.commit_acquired_backpack_item writes the row with the "
+                "identity counter since STORE-INSERT-001.  Both of this "
+                "field's earlier answers are struck: 'the character cannot "
+                "enter the world ... gate 2 still raises' was the reverse of "
+                "the truth, and 'what is missing is the INSERT itself' was "
+                "true for exactly one round.  What is absent is the call "
+                "site (GT-124), which is not a gate"
             ),
             "open_question_for_the_item_lane": (
                 "answered: character_backpacks.next_item_identity "

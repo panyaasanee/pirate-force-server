@@ -9,21 +9,42 @@ production character-select path used to refuse a bag whose contents are not
 one of two golden snapshots.  Two of them have been widened:
 
     1. ``store._load_backpack``  -> ``require_backpack_shape``    (widened)
-    2. ``session.select_and_start`` -> ``is_unmoved_baseline``    (UNCHANGED)
+    2. ``session.select_and_start`` -> ``may_enter_world``        (widened)
     3. ``legacy_bridge.start_game`` -> ``make_backpack_attr``     (widened)
 
-Gate 2 is the one that still stops the relog, and it is the only one left.
-COO-DECISION 20260827_1350 deferred its redesign with a date on it -- "นำงาน
-ออกแบบด่านที่ 2 เข้าคิว M5 ... revisit ต้นสัปดาห์ M5 (30-31 ส.ค.)" -- and
-COO-DECISION 20260828_0844, which granted this lane the gate-3 edit, is
-silent on gate 2 (see NONCLAIM 7: silence, not a statement).
+~~"Gate 2 is the one that still stops the relog, and it is the only one
+left"~~ IS STRUCK, AND SO IS ~~"-> is_unmoved_baseline (UNCHANGED)"~~ ABOVE:
+chief wired gate 2 to ``may_enter_world`` in pirate-force-server PR #233
+(COO-DECISION 20260829_0441 item 1), merged as ``e15bcac``, and
+``session.py`` line 96 is the call site.  All three gates now admit a
+golden-plus-acquired bag.  COO-DECISION 20260827_1350 deferred this
+redesign with a date on it -- "นำงานออกแบบด่านที่ 2 เข้าคิว M5 ... revisit
+ต้นสัปดาห์ M5 (30-31 ส.ค.)" -- and COO-DECISION 20260828_0844, which granted
+this lane the gate-3 edit, was silent on gate 2 (see NONCLAIM 7: silence,
+not a statement); 20260829_0441 is what ended that silence.
 
-THIS MODULE IS THAT REDESIGN, AND NOTHING ELSE.  It is a pure predicate.  It
-does not import ``session``, it is not called by anything on the production
-path yet, and it changes no behaviour on its own: gate 2 is untouched by this
-round, deliberately, because the ruling that carved it out of the last grant
-is still standing.  What this round removes is the reason the redesign was
-deferred -- "การรีบแยกด่านโดยไม่มี metadata เพิ่มเสี่ยงพังเทส HYP ที่มีอยู่จริง"
+WHAT STOPS A RELOG TODAY IS NOT A GATE.  It is that nothing INSERTs the bag
+row on a PICKUP path.  ~~"``store.py`` has no backpack INSERT"~~ IS STRUCK AS
+FALSE -- pf-adversary refuted it in the round that wrote it, from this repo's
+own committed evidence: ``store._insert_initial_backpack`` DOES
+``INSERT INTO character_backpack_items``, at character creation, and
+``tests/test_bag_admission_expiry.py`` has pinned exactly that all along
+(``inserters == {"_insert_initial_backpack"}``).  The true statement is
+narrower and is the one to quote: ``store.py``'s only backpack INSERT is
+``_insert_initial_backpack`` at character creation, there is no INSERT on any
+pickup path, and nothing anywhere advances
+``character_backpacks.next_item_identity`` -- the character-creation INSERT
+does not set it either, so it comes from migration 005's DEFAULT.  That is
+chief's ticket ``STORE-INSERT-001``, and it is also the expiry condition
+NONCLAIM 8 records for this whole module.
+
+THIS MODULE IS THAT REDESIGN, AND IT IS NOW THE GATE.  It is still a pure
+predicate and it still does not import ``session`` -- the dependency runs one
+way, ``session`` -> here -- but ~~"it is not called by anything on the
+production path yet, and it changes no behaviour on its own"~~ IS STRUCK.
+A change in this file is a change to who can enter the world.  The round that
+wrote it removed the reason the redesign was deferred -- "การรีบแยกด่านโดยไม่มี
+metadata เพิ่มเสี่ยงพังเทส HYP ที่มีอยู่จริง"
 -- by showing that the separation needs no new metadata and breaks no HYP
 test.  See ``BAG_ADMISSION_WIRING`` for the one line that turns it on.
 
@@ -416,24 +437,60 @@ def _classify_against(
                 detail=_describe_row_difference(expected, present),
             )
 
+    # ORDER IS CHECKED ON EVERY PATH, AND THAT ORDER IS A FIX -- the same
+    # defect shape as the header fix above, in the same function, found by
+    # chief's R222 letter (2026-08-29T05:10+07:00, item 4) after this module
+    # was already wired.  ~~The order question was asked only inside
+    # ``if not acquired:``~~ IS STRUCK: a bag whose golden rows are reordered
+    # AND which carries one acquired row skipped the question entirely and
+    # came back GOLDEN_PLUS_ACQUIRED.  MEASURED before the fix, on
+    # INITIAL_BACKPACK with rows 1 and 2 swapped plus exactly what
+    # ``place_in_bag`` mints.
+    #
+    # Ascending identity order is the invariant, not "the golden's own
+    # order", because both producers of a real bag emit it: ``place_in_bag``
+    # sorts the whole tuple by identity, and ``store._load_backpack`` reads
+    # ORDER BY item_identity.  A bag in any other order came from neither.
+    # It gets its own reason because order is load-bearing: reporting this as
+    # "an item moved or was altered" would send a reader hunting a row that
+    # is byte-identical.
+    if tuple(value.items) != tuple(
+        sorted(value.items, key=lambda row: row.identity)
+    ):
+        return BagAdmission(
+            VERDICT_REFUSED, golden_index=index,
+            reason=REASON_ITEM_ORDER_DIFFERS,
+            detail=(
+                "the bag's rows are not in ascending identity order, which is "
+                "the only order place_in_bag and store._load_backpack produce"
+            ),
+        )
+
     golden_identities = {item.identity for item in golden.items}
     acquired = tuple(
         item for item in value.items if item.identity not in golden_identities
     )
-    if not acquired:
-        # Header equal, every golden row present and byte-identical, nothing
-        # added -- and still not EQUAL to the golden.  Only tuple ORDER is
-        # left.  Refused today too (``is_unmoved_baseline`` is equality), and
-        # it gets its own reason because order is load-bearing here:
-        # ``place_in_bag`` sorts by identity because ``store._load_backpack``
-        # reads back ORDER BY item_identity, so a bag in another order came
-        # from neither.  Reporting this as "an item moved or was altered"
-        # would send a reader hunting a row that is byte-identical.
-        return BagAdmission(
-            VERDICT_REFUSED, golden_index=index,
-            reason=REASON_ITEM_ORDER_DIFFERS,
-            detail="the golden's rows are all here, in a different order",
-        )
+    # THERE IS NO ``if not acquired:`` BRANCH HERE ANY MORE, AND IT RESTS ON
+    # TWO PREMISES, NOT ONE.  Past this point the header is equal, every
+    # golden row is present and byte-identical, and the rows ascend by
+    # identity.
+    #   (1) ``require_backpack_shape`` (gate 1, run by ``classify`` before
+    #       this function, on every path including ``may_enter_world``)
+    #       refuses duplicate identities, so ascending order is unique.
+    #   (2) EACH GOLDEN'S OWN ``items`` TUPLE IS ITSELF ASCENDING.  This one
+    #       was left unstated in the first draft and pf-adversary supplied
+    #       the counter-example: hand an UNSORTED golden to this function and
+    #       a sorted bag comes back GOLDEN_PLUS_ACQUIRED with nothing
+    #       acquired -- through the branch this comment calls unreachable.
+    #       The invariant lives in ``inventory.py``, outside this lane's
+    #       write zone, so it is not asserted there; it is asserted from
+    #       here, in ``tests/test_bag_admission.py::
+    #       test_the_no_acquired_branch_is_unreachable_and_that_is_measured``,
+    #       which also fails if a golden stops being sorted.
+    # With both premises a bag with no acquired rows is byte-equal to the
+    # golden and returned at the top of this function.  The branch was
+    # written, measured unreachable, and removed rather than left reading
+    # like a second line of defence.
 
     for item in acquired:
         if item.identity <= highest_golden_identity:
@@ -570,9 +627,12 @@ def may_enter_world(
 ) -> bool:
     """The whole of the proposed gate-2 condition, in one place.
 
-    The first two terms are today's gate, unchanged and in today's order.
-    The third is this module.  ``session.select_and_start`` is NOT calling
-    this yet -- see ``BAG_ADMISSION_WIRING`` and NONCLAIM 3.
+    The first two terms are the gate as it stood before this module, in that
+    order.  The third is this module.  ~~"``session.select_and_start`` is
+    NOT calling this yet"~~ IS STRUCK: it calls this, since PR #233
+    (``session.py`` line 96, COO-DECISION 20260829_0441 item 1).  THIS IS
+    THE PRODUCTION GATE-2 PREDICATE -- a change here changes who can enter
+    the world, not what a document says.
 
     ONE DELIBERATE DIFFERENCE FROM TODAY'S CONDITION, found by this module's
     own test before it was wired anywhere.  Today's second term is a bare
@@ -632,9 +692,12 @@ def console_line(admission: BagAdmission) -> str:
     return " ".join(parts)
 
 
-#: The one line that turns this on.  It is written here rather than done here
-#: because ``session.py`` carries gate 2, and COO-DECISION 20260828_0844 held
-#: gate 2 out of this lane's grant in as many words.
+#: The one line that turned this on.  ~~"It is written here rather than done
+#: here because ``session.py`` carries gate 2"~~ IS STRUCK: chief did it in
+#: PR #233 on COO-DECISION 20260829_0441 item 1.  Kept as the record of what
+#: was asked for and what landed -- read it against ``session.py`` line 96,
+#: not as an outstanding request.  ``tests/test_gate2_bag_admission_wiring.py``
+#: is what holds the call site in place now.
 BAG_ADMISSION_WIRING = (
     "GATE 2 REDESIGN, one line, for whoever holds the grant.  In "
     "session.Session.select_and_start, replace\n"
