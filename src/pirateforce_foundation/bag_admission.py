@@ -239,9 +239,12 @@ NONCLAIMS -- read these before quoting this module as a safety argument.
     So, stated as a condition a later round can evaluate rather than a
     date:
 
-      EXPIRY CONDITION.  This shape rule is superseded on the day
+      ~~EXPIRY CONDITION.  This shape rule is superseded on the day
       ``store.py`` performs a real backpack INSERT for a pickup AND advances
-      ``character_backpacks.next_item_identity`` past it.  ~~Until then the
+      ``character_backpacks.next_item_identity`` past it.~~  IS STRUCK:
+      both halves came true (round 4gqnwm) and COO-DECISION 20260829_0848
+      then CANCELLED the supersession itself -- there is no expiry on this
+      rule any more.  Kept as the record of what was evaluated.  ~~Until then the
       counter cannot be the criterion -- ``MOB_PICKUP_ROW_WOULD_INSERT`` is
       a log, so every live character still reads migration 005's backfilled
       value and a real pickup's identity would be REFUSED by a counter
@@ -250,17 +253,21 @@ NONCLAIMS -- read these before quoting this module as a safety argument.
       4gqnwm: both halves are true now.  What the condition did not
       anticipate is that the counter answers a NARROWER question than the
       shape rule -- "was this identity issued" cannot see a golden row that
-      moved -- so meeting the expiry does not by itself authorise the
-      deletion it prescribed.  Nonclaim 9 carries the measurement and the
-      open ask.
+      moved -- so meeting the expiry did not by itself authorise the
+      deletion it prescribed.  Nonclaim 9 carries the measurement; the ask
+      is closed -- COO-DECISION 20260829_0848 ruled on it.
 
-      WHAT THE SUPERSEDING ROUND MUST DO.  Replace, not extend.
+      ~~WHAT THE SUPERSEDING ROUND MUST DO.  Replace, not extend.
       ``_classify_against`` is DELETED and the admission term becomes the
       counter question -- "was this identity issued by this server to this
-      character?" -- read from the row the INSERT wrote.  A round that keeps
-      ``_classify_against`` as a fallback beside the counter has not done
-      what this nonclaim says; it has kept the interim rule forever under a
-      new name.
+      character?" -- read from the row the INSERT wrote.~~  IS STRUCK:
+      COO-DECISION 20260829_0848 revoked exactly that sentence of 0441
+      item 2 against nonclaim 9's measurement.  The ruling is route 1: the
+      shape rule STAYS, and the acquired-row criterion becomes the counter
+      question -- golden's highest < identity <= ``issued_through`` -- as a
+      TIGHTENING beside it, threaded through ``may_enter_world``'s new
+      ``issued_through`` parameter.  Keeping ``_classify_against`` is now
+      the instruction, not a violation of one.
 
       WHO OWNS THE TRIGGER.  Not this lane.  ``COO-DECISION 20260829_0441``
       item 3 makes chief the owner of the "real INSERT + advance the counter
@@ -269,12 +276,16 @@ NONCLAIMS -- read these before quoting this module as a safety argument.
       lane B's write zone, and this lane must not pre-empt it here.
 
       THE COST COO ACCEPTED, IN ONE LINE, SO NOBODY RE-DISCOVERS IT AS A
-      BUG.  Nonclaim 1's hole stays open for the interim: a backpack row
+      BUG.  ~~Nonclaim 1's hole stays open for the interim: a backpack row
       hand-edited into the right shape with a high enough identity is
-      admitted.  COO's stated reason -- gate 2 is regression protection, not
+      admitted.~~  NARROWED by 0848's ceiling (round hsz32u): a merely-HIGH
+      identity is now exactly what the counter refuses.  What remains open
+      is nonclaim 1's residue -- a hand-edited row that REUSES an
+      already-issued identity in the right shape.  COO's stated reason
+      still stands for that residue -- gate 2 is regression protection, not
       a defence against an untrusted client, and whoever can hand-edit the
-      DB is already running the server.  That is a decision on record, not
-      an oversight, and it EXPIRES with this rule.
+      DB is already running the server.  A decision on record, not an
+      oversight; ~~it EXPIRES with this rule~~ nothing expires any more.
 """
 
 from __future__ import annotations
@@ -336,6 +347,7 @@ REASON_MALFORMED = "malformed"
 REASON_GOLDEN_ITEM_MOVED_OR_ALTERED = "golden_item_moved_or_altered"
 REASON_GOLDEN_ITEM_MISSING = "golden_item_missing"
 REASON_ACQUIRED_IDENTITY_NOT_ABOVE_GOLDEN = "acquired_identity_not_above_golden"
+REASON_ACQUIRED_IDENTITY_NOT_ISSUED = "acquired_identity_not_issued"
 REASON_ACQUIRED_ROW_NOT_PICKUP_SHAPED = "acquired_row_not_pickup_shaped"
 REASON_NO_GOLDEN_MATCHES = "no_golden_matches"
 REASON_BAG_HEADER_DIFFERS = "bag_header_differs"
@@ -384,8 +396,22 @@ def _describe_row_difference(
 
 def _classify_against(
     value: BackpackState, golden: BackpackState, index: int,
+    issued_through: int | None = None,
 ) -> BagAdmission:
-    """Classify ``value`` as a possible ``golden``-plus-acquisitions bag."""
+    """Classify ``value`` as a possible ``golden``-plus-acquisitions bag.
+
+    ``issued_through`` is the character's inclusive identity counter
+    (``store.backpack_issued_through``), threaded in by the caller because
+    this module must not import ``store``.  With it, an acquired row is
+    admitted only when its identity lies in the interval the counter has
+    actually issued: above the golden's highest (the counter's own floor --
+    ``mob_pickup.next_item_identity`` only ever mints above it) AND at or
+    below ``issued_through``.  The two bounds together are the counter
+    question COO-DECISION 20260829_0848 approved as route 1: "was this
+    identity issued by this server to this character?"  ``None`` means the
+    caller has no counter (diagnostics, tests of the shape rule alone); the
+    production gate, ``may_enter_world``, always passes it.
+    """
     if value == golden:
         return BagAdmission(VERDICT_GOLDEN, golden_index=index)
 
@@ -503,6 +529,22 @@ def _classify_against(
                     "mob_pickup.next_item_identity only ever mints above it"
                 ),
             )
+        if issued_through is not None and item.identity > issued_through:
+            # Route 1 (COO-DECISION 20260829_0848): the counter's ceiling.
+            # The floor above is the counter's own floor, so past both
+            # checks the identity is one the counter actually issued.  This
+            # is the check whose absence let HYP-PF-008/010-shaped bags be
+            # admitted when _classify_against was deleted (the measurement
+            # nonclaim 9 records) -- kept HERE, beside the shape rule, not
+            # instead of it.
+            return BagAdmission(
+                VERDICT_REFUSED, golden_index=index,
+                reason=REASON_ACQUIRED_IDENTITY_NOT_ISSUED,
+                detail=(
+                    f"identity {item.identity} is above issued_through "
+                    f"({issued_through}); the counter never issued it"
+                ),
+            )
         # THERE IS NO "is this slot free in the golden?" CHECK HERE, AND
         # THAT IS DELIBERATE.  By this point every golden item has been
         # proven present AND unchanged, so the golden's slots are exactly
@@ -546,8 +588,17 @@ def _classify_against(
     )
 
 
-def classify(value: Any) -> BagAdmission:
+def classify(
+    value: Any, *, issued_through: int | None = None,
+) -> BagAdmission:
     """Say what kind of bag this is, without raising for a bad one.
+
+    Pass ``issued_through`` (the character's inclusive identity counter)
+    whenever you have one -- the verdict then also refuses an acquired row
+    the counter never issued.  ``None`` runs the shape rule alone; the
+    production gate never calls with ``None`` (``may_enter_world`` requires
+    the counter), so a bare ``classify(bag)`` is a diagnostic or a test of
+    the shape rule, not the gate's answer.
 
     Fail-closed: a structurally malformed bag comes back REFUSED with the
     exception type named, rather than propagating.  Gate 1
@@ -570,7 +621,7 @@ def classify(value: Any) -> BagAdmission:
 
     refusals: list[tuple[tuple, BagAdmission]] = []
     for index, golden in enumerate(GOLDEN_BACKPACKS):
-        admission = _classify_against(value, golden, index)
+        admission = _classify_against(value, golden, index, issued_through)
         if admission.admissible:
             return admission
         refusals.append((_golden_match_score(value, golden), admission))
@@ -611,7 +662,9 @@ def _golden_match_score(value: BackpackState, golden: BackpackState) -> tuple:
     return (identical, shared, -abs(len(value.items) - len(golden.items)))
 
 
-def is_golden_plus_acquired(value: Any) -> bool:
+def is_golden_plus_acquired(
+    value: Any, *, issued_through: int | None = None,
+) -> bool:
     """The NEW third admission path, and only that one.
 
     Deliberately False for a plain golden bag: this is the term that gets
@@ -619,11 +672,14 @@ def is_golden_plus_acquired(value: Any) -> bool:
     reader of the wired condition should be able to see both terms doing
     their own work.
     """
-    return classify(value).verdict == VERDICT_GOLDEN_PLUS_ACQUIRED
+    return (
+        classify(value, issued_through=issued_through).verdict
+        == VERDICT_GOLDEN_PLUS_ACQUIRED
+    )
 
 
 def may_enter_world(
-    value: Any, *, allow_hypothesized_item_move: bool,
+    value: Any, *, allow_hypothesized_item_move: bool, issued_through: int,
 ) -> bool:
     """The whole of the proposed gate-2 condition, in one place.
 
@@ -647,7 +703,13 @@ def may_enter_world(
     row at slot 65535, which is a BackpackState the shape gate refuses, so
     the wider wording was false as written.
     """
-    admission = classify(value)
+    # ``issued_through`` is REQUIRED here, with no default, on purpose: this
+    # is the production gate-2 predicate, and COO-DECISION 20260829_0848
+    # (route 1) makes the counter part of the criterion.  A caller that has
+    # no counter has no business answering "may this character enter the
+    # world" -- session.select_and_start reads it from
+    # store.backpack_issued_through and this module stays store-free.
+    admission = classify(value, issued_through=issued_through)
     if admission.verdict == VERDICT_MALFORMED:
         return False
     if admission.verdict == VERDICT_GOLDEN:
@@ -724,11 +786,13 @@ BAG_ADMISSION_WIRING = (
 )
 
 BAG_ADMISSION_NONCLAIMS = (
-    "1. Shape, not provenance: a hand-edited additive row is admitted.  The "
-    "provenance column exists (migration 005) and IS advanced now "
-    "(store.commit_acquired_backpack_item, STORE-INSERT-001); this module "
-    "still does not use it -- see nonclaim 9 for why that is a pending "
-    "decision rather than an oversight.",
+    "1. Shape plus the counter, still not full provenance: since "
+    "COO-DECISION 20260829_0848 (route 1) an acquired row must also carry "
+    "an identity the counter actually issued (golden's highest < identity "
+    "<= issued_through), which closes the 'high enough identity' half of "
+    "the old hole.  A hand-edited row that REUSES an already-issued "
+    "identity in the right shape is still admitted: the counter answers "
+    "'was this identity issued', not 'is this the row that was issued'.",
     "2. Shrinkage is refused.  Not because nothing can consume an item -- a "
     "merge can -- but because the only shrinkage reachable today lands on a "
     "golden.",
@@ -740,34 +804,38 @@ BAG_ADMISSION_NONCLAIMS = (
     "5. The admission rule is APPROVED by COO-DECISION 20260829_0441 as an "
     "interim, not endorsed as final -- see nonclaim 8.",
     "6. An acquired row's slot, template and quantity are NOT pinned, on "
-    "purpose; only its identity floor is.",
+    "purpose; only its identity interval is (above the golden's highest, "
+    "at or below issued_through).",
     "7. COO-DECISION 20260828_0844 is silent on gate 2 rather than explicit "
     "about it.",
-    "8. INTERIM WITH A WRITTEN EXPIRY (COO-DECISION 20260829_0441 item 2). "
-    "Superseded the day store.py does a real backpack INSERT and advances "
-    "character_backpacks.next_item_identity; that round DELETES "
-    "_classify_against rather than keeping it as a fallback.  chief owns "
-    "the trigger ticket.  Until then nonclaim 1's hole is an accepted cost, "
-    "on record, not an oversight.",
-    "9. THE EXPIRY IN NONCLAIM 8 IS NOW MET, AND ITS LITERAL INSTRUCTION IS "
-    "REFUTED BY MEASUREMENT.  STORE-INSERT-001 landed the INSERT and the "
-    "counter advance, so both halves of BAG_ADMISSION_EXPIRY_CONDITION are "
-    "true.  Deleting _classify_against and admitting on the counter alone "
-    "was measured to ADMIT the HYPOTHESIZED_V111_SLOT2 (HYP-PF-008) and "
-    "free-slot-move (HYP-PF-010) bags, which this gate refuses today and "
-    "which every family test requires it to keep refusing: those bags move "
-    "a golden row without minting any identity, so a rule that only asks "
-    "'was this identity issued' cannot see them.  The counter is a TIGHTER "
-    "test for ACQUIRED rows, not a replacement for comparing the golden "
-    "ones.  The shape rule therefore stays until COO rules on "
-    "CHIEF-ASK-COO 20260829 (delete-vs-tighten); no round may read this "
-    "nonclaim as permission to keep it indefinitely.",
+    "8. NO LONGER INTERIM.  The written expiry this nonclaim used to carry "
+    "(COO-DECISION 20260829_0441 item 2: 'delete _classify_against when the "
+    "INSERT lands') was CANCELLED by COO-DECISION 20260829_0848, which "
+    "revoked exactly that sentence after the measurement in nonclaim 9: "
+    "the shape rule stays, the counter tightens it.  There is no pending "
+    "expiry condition on this module any more; a new one requires a new "
+    "measurement and a new COO decision.",
+    "9. THE MEASUREMENT THAT DECIDED IT.  STORE-INSERT-001 landed the "
+    "INSERT and the counter advance, meeting 0441's literal expiry -- and "
+    "deleting _classify_against to admit on the counter alone was measured "
+    "to ADMIT the HYPOTHESIZED_V111_SLOT2 (HYP-PF-008) and free-slot-move "
+    "(HYP-PF-010) bags, which every family test requires this gate to keep "
+    "refusing: those bags move a golden row without minting any identity, "
+    "so a rule that only asks 'was this identity issued' cannot see them.  "
+    "COO-DECISION 20260829_0848 ruled on that number: route 1, keep the "
+    "shape rule AND require an acquired identity the counter issued "
+    "(identity <= issued_through, threaded from "
+    "store.backpack_issued_through -- the inclusive reading of "
+    "character_backpacks.next_item_identity -- via "
+    "session.select_and_start; this module still imports no store).  "
+    "Wired in round hsz32u.",
 )
 
-#: The expiry of nonclaim 8, as something a later round can evaluate instead
-#: of re-reading the prose.  Both must be true before the counter can BE the
-#: admission criterion; today the second is False, which is the whole reason
-#: the shape rule exists.  Deliberately not a runtime check: this module must
+#: The expiry that nonclaim 8 used to carry, kept as the record of what was
+#: evaluated.  Both halves became true in round 4gqnwm (STORE-INSERT-001),
+#: and COO-DECISION 20260829_0848 then CANCELLED the deletion this expiry
+#: prescribed -- the counter tightens the shape rule (route 1) instead of
+#: replacing it.  Deliberately not a runtime check: this module must
 #: not import ``store``, and a stale True here would be worse than no
 #: constant at all -- the test file asserts the flag against
 #: ``mob_pickup``'s own text instead.
