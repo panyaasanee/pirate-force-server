@@ -3862,3 +3862,98 @@ WELL-FORMED command, or a whole session, with no console line at all.
 
 **ผู้เทสหน้าจอเกม: ไม่ได้อะไรใหม่ และรอบนี้จะไม่แกล้งบอกว่าได้** บรรทัดนี้อยู่บน stderr ของเครื่องเซิร์ฟเวอร์
 คนที่อ่านมันได้คือคนที่อยู่บนเครื่องนั้นและมี shell อยู่แล้ว ตาม `COO-DECISION 20260829_1344` ข้อ (ก)
+
+## Round `6vhfgh` -- a SANCTIONED destination is not an ADMITTED one
+
+`notes_to_chief/20260829_1603_CHIEF-DECISION-var2-test-path-scene126-registry-row-plus-gm-warp.md`
+is addressed to lane A and to this lane. Item 1 asks lane A for a scene-126 registry row pinned
+`login_entry_allowed: false`; item 2 asks this lane to "add 126 to the set `/warp` accepts".
+
+**Measured on main this round, the two halves as written cannot both be true.** Not quoted from a
+doc -- read off the files, and the greps are in the letter:
+
+| fact | where |
+|---|---|
+| cross-scene `/warp` puts nothing on the wire; it stages the NEXT LOGIN scene | `gm/login_scene_stage.py` |
+| `runtime.py` resolves that through `resolve_entry` with `via_login` DEFAULTED at both call sites | `runtime.py:5635` (silenced probe), `runtime.py:5706` (the call that places the character) |
+| `via_login` true + `login_entry_allowed: false` = refused | `world_scene_entry.py:390`, `REFUSED_NOT_ALLOWED_AT_LOGIN` |
+| the one lawful shape for a sanctioned non-login caller already exists | `columbus_quest_dispatch.py:464`, `via_login=False` |
+
+So an admitted 126 writes a config entry the very next login throws away: one relog spent, nothing
+reached, and the only explanation on the server host's stderr where the tester at the client cannot
+read it. That is the same dead end `REASON_NO_LOGIN_ENTRY` was created to prevent, re-created one
+layer up. **This lane does not own the login path's guard and will not route around it**, so the
+predicate was NOT widened. `stageable_scene_ids()` is still `(1, 2, 278, 997)`.
+
+### What shipped instead
+
+| module | what changed |
+|---|---|
+| `gm/login_scene_admission.py` | `SANCTIONED_BARRED_SCENES` (a `MappingProxyType`, today one entry: `126 -> "CHIEF-DECISION 20260829_1603 item 2"`), `is_sanctioned_barred_scene`, `sanctioned_barred_provenance`, and `sanctioned_barred_blocker`, which measures WHICH half of the route is missing against lane A's registry on every call |
+| `gm/login_scene_stage.py` | `REASON_SANCTIONED_NOT_YET_REACHABLE` (`scene_sanctioned_but_route_incomplete`), split out of `REASON_NO_LOGIN_ENTRY` and classified destination-shaped |
+| `gm/chat_command_action.py` | the way-out line gains `blocker=` and `sanction=` for that reason only |
+| `tests/test_gm_login_scene_sanctioned_barred.py` | new; the first class exists to prove the sanction grants NOTHING, and the last two pin the ORDER and the console line (a count is not written here on purpose -- pf-adversary D6 caught the first version's hardcoded one going stale inside the same round) |
+
+**The blocker changes its own answer without an edit here.** Today
+`sanctioned_barred_blocker(126)` returns `lane_a_registry_row_missing`, because
+`scenarios/world_scene_registry_001.json` on main carries no `n_id` 126 (parsed this round: 1, 2,
+3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 17, 130, 278, 997). The hour lane A's row lands it returns
+`login_path_bars_it_needs_core_request_gm_038` instead -- a different remedy, named as one. Two
+refusals that used to be one word.
+
+### Why the split is worth a reason of its own
+
+`scene_has_no_login_entry` answers "no". It does not answer "is this a merge I am waiting for, or a
+request somebody has to chase" -- and those were indistinguishable for scene 126. Same refusal on
+disk (nothing is written either way, pinned by
+`TheStagePathSaysWhichRefusalItIsTests.test_the_refusal_writes_nothing_at_all`), different sentence
+to a person.
+
+### What is NOT claimed
+
+The sanction map is not a grant, and the load-bearing test says so at the widest point:
+`test_it_still_refuses_after_lane_a_lands_the_barred_row` builds lane A's registry WITH the 126 row
+present and barred, and asserts the predicate, the stageable set, and `resolve_entry` itself all
+still refuse. `TheSanctionIsAskedOnlyAfterThePinRefusesTests` pins the ORDER -- a sanctioned scene
+the registry ADMITS still stages normally, so the map can never quietly become a deny-list.
+`test_the_map_refuses_an_item_assignment` is a typo guard and is labelled as one: the
+`MappingProxyType` stops an accidental item assignment from an importing module and nothing else,
+it does not stop a rebind of the attribute, and there is no client-reachable path to either
+(pf-adversary D8 refuted the first version's "closes the runtime-edit door" claim, and it is struck
+rather than deleted: ~~`test_the_map_cannot_be_edited_through_the_module_attribute` closes the
+runtime-edit door~~). Nobody has seen scene 126 on a screen; no claim here is client-observable.
+
+### Two gaps this round did NOT close, named rather than left to be found
+
+**The stale-boot-snapshot case is still one word (pf-adversary D7).** `stage_login_scene` asks the
+disk first and the caller's snapshot second, and only the DISK branch can return the new reason. A
+registry widened after boot (lane A merges, the process is not restarted) therefore refuses with
+plain `scene_has_no_login_entry` and prints no `blocker=` -- in exactly the case where the two
+readings disagree, which is the case the `scene_registry` parameter exists for. The remedy there is
+"restart the process", which is not one of the five `BLOCKER_*` values, and a sixth that a
+single-reading function cannot measure would be worse than the hole. It needs a function that
+compares the two readings; this is not that function. Recorded in `CORE-REQUEST-GM-038`.
+
+**If lane A lands the 126 row WITHOUT the key, 126 becomes stageable with no edit in this lane.**
+`world_scene_travel.DEFAULT_LOGIN_ENTRY_ALLOWED` is `True`, so an absent `login_entry_allowed` reads
+as allowed. That is lane A's call to make and this lane does not get a vote -- but it does get a
+tripwire: `test_every_sanctioned_scene_is_one_the_predicate_refuses_today` goes RED on that merge,
+because a sanction for an already-admissible scene is dead weight that reads like a grant. Read the
+red as "delete the entry", not as "the merge is wrong".
+
+**CORE-REQUEST-GM-038** (`notes_to_chief/20260829_1925_LANE-GM-CORE-REQUEST-GM-038-gm-warp-via-login-false.md`)
+asks chief for the one runtime change that would make item 2 real, with three conditions that must
+not leak -- the standalone map must never get the bypass (it grants a login scene to an account with
+no `gm_accounts.json` membership), a character's own persisted row naming 126 must still be refused,
+and no other scene may move. It also offers option B (lane A pins `login_entry_allowed: true`) and
+says why this lane does not recommend it.
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้ (round `6vhfgh`)
+
+**คนเฝ้าคอนโซล** พิมพ์ `/warp 126` แล้วรู้ว่า **ครึ่งไหนของเส้นทางยังไม่มี** -- แถวทะเบียนของสาย A
+ยังไม่ลง หรือ runtime ยังไม่ต่อสาย -- แทนที่จะเห็น `scene_has_no_login_entry` ก้อนเดียวเหมือนฉากที่
+ไม่มีใครสั่งอะไรไว้เลย และรู้ว่าใบไหนเป็นคนปลดล็อก (`CORE-REQUEST-GM-038`) โดยไม่ต้องเปิดไฟล์จดหมาย
+
+🔴 **ผู้เทสหน้าจอเกม: ไม่ได้อะไรใหม่ และรอบนี้จะไม่แกล้งบอกว่าได้** ยังไปฉาก 126 ไม่ได้ และรอบนี้
+**เลือกที่จะไม่ให้ไป** แทนที่จะให้ `/warp 126` ตอบว่าสำเร็จแล้วเผารอบรีล็อกของเขาทิ้ง
+บรรทัด `blocker=` อยู่บน stderr ของเครื่องเซิร์ฟเวอร์ ตาม `COO-DECISION 20260829_1344` ข้อ (ก)

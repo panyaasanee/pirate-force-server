@@ -261,6 +261,7 @@ from .chat_command import (
     TYPED_COMMAND_REFUSAL_PREFIXES,
     handle_local_talk_chat,
 )
+from . import login_scene_admission
 from .login_scene_admission import stageable_scene_ids
 from .login_scene_override import console_safe
 from .commands import (
@@ -1086,12 +1087,39 @@ def _print_warp_way_out(
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
         return
     try:
+        # EVERYTHING THAT COULD RAISE STAYS INSIDE THE GUARD (D2 again): the
+        # blocker call reads lane A's registry from disk and can raise for
+        # every reason `stageable_scene_ids` can.  Built here rather than
+        # hoisted, for the same reason the rest of this line is.
+        suffix = ""
+        if reason == login_scene_stage.REASON_SANCTIONED_NOT_YET_REACHABLE:
+            # The DISK reading, with no snapshot, because the refusal being
+            # explained is the disk one -- see `sanctioned_barred_blocker`.
+            # Mixing the two readings in one console line is the defect the
+            # `scene_registry` parameter was added to close, not to create.
+            # `provenance` is None only if the REASON and the sanction map
+            # disagree -- which is a bug in this lane, not a citation.  It
+            # is rendered as `unknown` rather than as the literal `None`,
+            # because the blocker on the same line already says
+            # `not_sanctioned` in exactly that case and the pair is the
+            # signal.  A reader must not have to guess whether "None" was
+            # the letter's name.
+            provenance = login_scene_admission.sanctioned_barred_provenance(
+                scene_id
+            )
+            suffix = (
+                " blocker="
+                f"{login_scene_admission.sanctioned_barred_blocker(scene_id)}"
+                " sanction="
+                f"'{console_safe(_one_line(provenance or 'unknown'), stream)}'"
+            )
         print(
             f"{WARP_REFUSED_CONSOLE_TOKEN} "
             f"account='{console_safe(_one_line(token), stream)}' "
             f"scene_id={scene_id} reason={reason} "
             "stageable="
-            f"{stageable_scene_ids(scene_registry=scene_registry)}",
+            f"{stageable_scene_ids(scene_registry=scene_registry)}"
+            f"{suffix}",
             file=stream,
         )
     except Exception as error:  # noqa: BLE001 - see the last paragraph above
