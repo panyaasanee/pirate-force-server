@@ -385,18 +385,35 @@ class MobCombatCensusWiringTests(unittest.TestCase):
         ``foundation.selected.position.scene_id`` no longer matches the
         scene the anchor/count describe, the wiring falls back to the
         one-entry frame instead of trusting a mismatched pair.
+
+        UPDATED round ytkgdh (COO-DECISION 2026-08-29T08:48+07:00 item 3):
+        the first version stood the character in scene 999 and still hit a
+        bg0001 mob, because the combat roster ignored the scene entirely --
+        the exact wall that decision closed.  An unaddressed scene now
+        refuses combat by name before any frame composes (pinned in
+        tests/test_scene_scoped_combat_wiring.py), so the ONLY way a hit
+        can land away from the home scene is in a scene with its own live
+        roster.  Same guard, proven where it is still reachable: the
+        scene-1 arrival anchor must not be recomposed into a Bg0002 hit's
+        bar frame.
         """
         state = self._state("cw_bar_wrong_scene")
         self._drive_arrival_census(state)
         state.foundation.selected = replace(
             state.foundation.selected,
             position=replace(
-                state.foundation.selected.position, scene_id=999,
+                state.foundation.selected.position, scene_id=2,
             ),
         )
-        actions = self._attack(state, CONTROL_TARGET)
+        bg0002_target = field_mobs.load_roster(
+            field_mobs.BG0002_SCENE
+        )[0].actor_identity
+        actions = self._attack(state, bg0002_target)
         self.assertEqual(
-            [label for label, _pc, _f, _d in actions],
+            [
+                label for label, _pc, _f, _d in actions
+                if not label.startswith("WORLD_CENSUS_")
+            ],
             ["MOB_COMBAT_ANNOUNCE", "MOB_COMBAT_BAR"],
         )
         self.assertIn(

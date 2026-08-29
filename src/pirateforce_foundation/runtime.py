@@ -21,6 +21,7 @@ from . import world_face_frame
 from . import world_population
 from . import world_population_bg0002
 from . import world_scene_entry
+from . import world_scene_folder
 from . import world_scene_liveness
 from . import world_scene_travel
 from . import world_travel_gate
@@ -1116,7 +1117,21 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # other mutable structure on this class already uses.  A
                 # server-wide ledger is a real follow-up, not a silent
                 # decision -- see the handback.
-                self.mob_combat_ledger = mob_combat.open_ledger()
+                # COO-DECISION 2026-08-29T08:48+07:00 item 3 (chief's half):
+                # the ledger and the AI register below open on ONE roster,
+                # and _sync_combat_scene_state() re-opens both the first
+                # time this session's selected character stands in a scene
+                # whose folder differs from the one recorded here.  At
+                # construction no character is selected and no scene is
+                # known, so this opens on the same default roster it always
+                # has (bg0001's) and records that roster's own scene tag --
+                # derived from the rows, not retyped, so it cannot drift
+                # from what the ledger actually holds.
+                _boot_roster = field_mobs.load_roster()
+                self.mob_combat_ledger = mob_combat.open_ledger(_boot_roster)
+                self.mob_combat_scene_folder = (
+                    _boot_roster[0].scene if _boot_roster else None
+                )
                 # CORE-REQUEST (LANE-B, 20260828_0337): the attack-cadence
                 # gate MOB_COMBAT_CADENCE_WIRING asks for, opened next to
                 # mob_combat_ledger for the same per-session reason.
@@ -1163,15 +1178,19 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # for the same reason: MOB_AI_CONTROL_WIRING does not say
                 # where the register lives, and this follows the pattern
                 # every other mutable structure on this class already uses.
-                # epoch=0 because this class never rebuilds the roster after
-                # opening it (roster comes from field_mobs.load_roster(), a
-                # frozen table read, not a live reload) -- so REFUSE_REGISTER
-                # _EPOCH_MISMATCH and mob_ai_control.reconcile() are both
-                # unreached today, kept only because no rebuild path exists
-                # yet to reach them, exactly like the stale-ledger retries
-                # above.
+                # epoch=0 because this class never rebuilds the roster
+                # WITHIN one scene (the table read is frozen, not a live
+                # reload) -- so REFUSE_REGISTER_EPOCH_MISMATCH and
+                # mob_ai_control.reconcile() stay unreached.  A SCENE CHANGE
+                # is not a rebuild: _sync_combat_scene_state() re-opens this
+                # register (and the combat ledger above) on the new scene's
+                # roster at epoch 0, because the old scene's mobs are gone
+                # from the player's world, not renumbered within it.
+                # Opened on the SAME _boot_roster as the ledger above
+                # (COO-DECISION 2026-08-29T08:48+07:00 item 3): the two must
+                # never hold different scenes' rows.
                 self.mob_ai_register = mob_ai_control.open_register(
-                    field_mobs.load_roster(), epoch=0,
+                    _boot_roster, epoch=0,
                 )
                 # CORE-REQUEST-007 (MOB-LOOT-001), MOB_LOOT_WIRING: "Hold ONE
                 # mob_loot.DropLedgerCell for the scene" -- same per-session
@@ -3865,6 +3884,82 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             )
             return inherited_actions + population_actions
 
+        def _sync_combat_scene_state(self):
+            """The selected character's scene decides the combat roster.
+
+            COO-DECISION 2026-08-29T08:48+07:00 item 3, the chief's half:
+            resolve ``position.scene_id`` through ``world_scene_folder.
+            scene_folder_for_scene_id`` -- THE one public reader, never the
+            registry's ``model_id``, which spells six of the sixteen
+            addressed scenes differently from their folders -- and hand back
+            that scene's own roster.  The combat ledger and the AI register
+            re-open on the same roster the moment the folder differs from
+            the one they were opened on, so the three can never hold
+            different scenes' rows (LANE-B letter 20260829_0744: a ledger
+            still holding bg0001's four identities is why a Bg0002 mob was
+            refused as ``target_not_in_ledger`` before any gate was asked).
+
+            Returns ``None`` when the registry does not address the scene id
+            at all -- a refusal, not an absence of data (world_scene_folder's
+            own contract): the caller must ship NO roster and say so before
+            composing any other verdict, never fall back to a default one.
+            An ADDRESSED scene with no mined mob table (folder known, not in
+            ``field_mobs.live_scenes()``) is different and legitimate: its
+            truthful roster is empty, so an attack there resolves no target
+            and answers with the existing not-a-field-mob silence.
+
+            Re-opening on a scene change resets a scene's WOUNDS and AI
+            state at epoch 0 -- but never its DEATHS.  mob_death_register is
+            per-(identity, scene) and survives the trip on purpose, so a
+            freshly re-opened ledger is rehydrated from it: every identity
+            the register holds dead in this folder re-opens at 0 HP, not at
+            its ceiling.  pf-adversary (this round, D1, measured on the real
+            1<->278 debug-gate round trip) broke the first version of this
+            method for skipping that: return to a scene you killed in and
+            repopulation_entries refused BY DESIGN on every subsequent hit
+            (dead in the register, standing at full HP in the ledger --
+            mob_death.py's REFUSE_LEDGER_DISAGREES_WITH_REGISTER), degrading
+            every bar/death frame to the one-entry shape RE-092 proved is
+            replace-by-omission, and the corpse answered further hits with
+            live damage numbers.  Re-entering a scene now looks exactly like
+            never having left it, deaths included -- the same state an
+            in-scene kill already leaves behind today.
+            """
+            scene_id = self.foundation.selected.position.scene_id
+            folder = world_scene_folder.scene_folder_for_scene_id(scene_id)
+            if folder is None:
+                return None
+            roster = (
+                field_mobs.load_roster(folder)
+                if folder in field_mobs.live_scenes()
+                else ()
+            )
+            if folder != self.mob_combat_scene_folder:
+                ledger = mob_combat.open_ledger(roster)
+                ledger_identities = ledger.identities()
+                for record in self.mob_death_register.records:
+                    # record.scene is the mob's own table tag, which IS the
+                    # folder name (each table module's SCENE constant), so
+                    # this comparison never crosses the model_id spelling
+                    # trap.  The identity guard keeps a record from outside
+                    # this roster (a diag object's, or a shrunken future
+                    # table's) from raising out of balance_of here.
+                    if (
+                        record.scene == folder
+                        and record.actor_identity in ledger_identities
+                    ):
+                        ledger = ledger.with_balance(mob_combat.MobBalance(
+                            record.actor_identity,
+                            ledger.balance_of(record.actor_identity).max_hp,
+                            0,
+                        ))
+                self.mob_combat_ledger = ledger
+                self.mob_ai_register = mob_ai_control.open_register(
+                    roster, epoch=0,
+                )
+                self.mob_combat_scene_folder = folder
+            return roster
+
         def _dispatch_mob_combat(self, parsed):
             """MOB-COMBAT-001 / MOB-DEATH-001, wired the way each module's
             own docstring asks: see ``mob_combat.MOB_COMBAT_WIRING`` and
@@ -3908,7 +4003,18 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     "mob_combat_target_not_positive_or_self_no_reply"
                 )
                 return []
-            roster = field_mobs.load_roster()
+            # COO-DECISION 2026-08-29T08:48+07:00 item 3: the roster is the
+            # SELECTED SCENE's own, and an unaddressed scene id ships no
+            # roster -- refused HERE, before the diag widen, the cadence
+            # gate, or any ledger step composes a verdict of its own.
+            roster = self._sync_combat_scene_state()
+            if roster is None:
+                self.events.append(
+                    "mob_combat_scene_"
+                    f"{self.foundation.selected.position.scene_id}"
+                    "_unaddressed_no_roster_no_reply"
+                )
+                return []
             # CORE-REQUEST (GT-DIAG-MULTI-OBJECT-001), point (2) of
             # GT_DIAG_MULTI_OBJECT_WIRING.  Off (self.diag_multi_objects ==
             # ()) this returns roster/self.mob_combat_ledger untouched.
@@ -4168,24 +4274,40 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             candidate = mob_death.kill(
                                 legacy, mob, step.outcome,
                                 self.mob_death_register,
-                                widened=(
-                                    "COO-RULING-20260827-1350 "
-                                    "widen-death-scope-bg0001"
-                                ),
+                                # COO-DECISION 2026-08-29T08:48+07:00 item 3:
+                                # the ONE letter that authorises killing THIS
+                                # mob, derived from the registered rulings
+                                # (narrower template set first, tie to the
+                                # older letter, per that decision's item 1)
+                                # instead of a per-scene literal that was the
+                                # wrong letter for every Bg0002 row and would
+                                # be wrong again for a third scene.  kill()'s
+                                # own gate is not widened by one byte: this
+                                # only selects among letters that already
+                                # cover the mob, and returns None for the
+                                # sanctioned first target, which kill()
+                                # admits with no ruling at all.
+                                widened=mob_death.ruling_for(mob),
                             )
                         except mob_death.MobDeathContractError as error:
-                            # Honest degradation, not a bug.  COO-RULING-
-                            # 20260827-1350 widened this wiring past the
-                            # SANCTIONING_RULING gate to the 10 template ids
-                            # mob_death.WIDENING_RULINGS names for that ruling
-                            # (the bg0001 field roster) -- 0x201F and those ten
-                            # templates get a finished kill on this build.  Any
-                            # OTHER template id (a mob outside that named
-                            # roster) still refuses here: it stays at 0 HP with
-                            # no death frames and answers further hits with
+                            # Honest degradation, not a bug.  A mob no
+                            # registered owner letter covers refuses here --
+                            # as a raise from ruling_for itself, thrown while
+                            # the arguments are evaluated and before kill()
+                            # is ever entered, caught by this same except
+                            # (ruling_for returns None ONLY for the
+                            # sanctioned first target, which kill() admits
+                            # with no ruling; for an uncovered mob it raises,
+                            # it does not return None -- pf-adversary, this
+                            # round, D4).  The mob stays at 0 HP with no
+                            # death frames and answers further hits with
                             # silence (mob_combat's own no_room path) -- the
-                            # pre-death-half state this project already shipped
-                            # and disclosed, not a new one.
+                            # pre-death-half state this project already
+                            # shipped and disclosed, not a new one.  What a
+                            # boot's letters DO cover is printed at census
+                            # time by mob_death.describe_widening_coverage(),
+                            # so an uncovered scene is seen at boot, not in
+                            # front of a tester.
                             self.events.append(
                                 f"mob_death_refused_{error.reason}_"
                                 "no_death_frames"
@@ -6517,6 +6639,15 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         print(mob_death.describe_roster_override_coverage(
                             mob_death_override, generation.actor_identities,
                         )[0])
+                        # LANE-B letter 20260829_0744 point 3 (COO-DECISION
+                        # 2026-08-29T08:48+07:00 item 3): which shipped mobs
+                        # NO owner letter covers, said at boot next to the
+                        # census gate above -- so an uncovered scene is seen
+                        # the day it ships, not the day a tester stands in
+                        # front of it.  G-OBS lines; the module composes
+                        # them, only this file may print them.
+                        for line in mob_death.describe_widening_coverage():
+                            print(line)
                         self.world_census_sent = True
                         # This census resolved every identity it shipped
                         # (census_order drops what it cannot resolve), so the
