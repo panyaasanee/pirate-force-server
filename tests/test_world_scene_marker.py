@@ -421,12 +421,59 @@ class TheRulingIsPinnedNotJustWrittenTest(unittest.TestCase):
             (home["spawn"]["x"], home["spawn"]["y"], home["spawn"]["z"]),
             tuple(float(v) for v in PORT_ROYAL_MARKER),
         )
-        self.assertIn(
-            "AWAITING COO CONFIRMATION",
-            registry["arrival_point_rule"][
-                "carve_out_scene_1_home_is_not_retro_moved"
-            ],
-        )
+        carve_out = registry["arrival_point_rule"][
+            "carve_out_scene_1_home_is_not_retro_moved"
+        ]
+        # ~~The carve-out carries this lane's pending label.~~  It carried one
+        # until COO-DECISION 20260829_0848 answered it; round i8timv struck the
+        # label and this assertion moved with it.  Asserting the PENDING label
+        # would now be asserting that the question is still open, which would
+        # go red the day someone tidies the struck text away - the opposite of
+        # what this test is for.
+        self.assertIn("~~[LANE-A ASSUMPTION", carve_out)
+        self.assertIn("COO-DECISION 20260829_0848", carve_out)
+        # The two things the ruling made permanent.  A round that moves home
+        # has to delete one of these sentences to make its own change read as
+        # consistent, and deleting either one fails here.
+        self.assertIn("PERMANENT UNTIL A NEW RULING", carve_out)
+        self.assertIn("SPAWN-MOVE", carve_out)
+
+    def test_no_answered_assumption_label_is_still_pending_in_the_registry(self):
+        """Every ``AWAITING COO CONFIRMATION`` here must be struck or live.
+
+        The defect this pins is the one round i8timv found: scene 14's spawn
+        provenance still carried a label that ``COO-DECISION 20260829_0542``
+        had answered two rulings earlier, because the round that struck the
+        copy in ``world_scene_marker.py`` never looked for the second copy.
+        A pending label is legitimate - a live question SHOULD be labelled -
+        so this does not forbid them; it requires that a labelled string names
+        the letter that asks, which is what makes the pair findable next time.
+        """
+        registry_text = (ROOT / "scenarios" / "world_scene_registry_001.json")
+        registry = json.loads(registry_text.read_text(encoding="utf-8"))
+
+        def strings(node):
+            if isinstance(node, dict):
+                for value in node.values():
+                    yield from strings(value)
+            elif isinstance(node, list):
+                for value in node:
+                    yield from strings(value)
+            elif isinstance(node, str):
+                yield node
+
+        for text in strings(registry):
+            if "AWAITING COO CONFIRMATION" not in text:
+                continue
+            struck = "~~[LANE-A ASSUMPTION - AWAITING COO CONFIRMATION]~~" in text
+            struck = struck or "~~[LANE-A ASSUMPTION - AWAITING COO" in text
+            struck = struck or "~~WITHDRAWN" in text
+            with self.subTest(label=text[:60]):
+                self.assertTrue(
+                    struck or "notes_to_chief/" in text,
+                    "a pending assumption label must name the letter that "
+                    "asks for it, so the answer can find its way back here",
+                )
 
 
 class Scene14RegistryTests(unittest.TestCase):
@@ -563,6 +610,22 @@ class MarkerReverificationOnTheBridgeTest(unittest.TestCase):
             )
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn("13 rows re-derived", done.stdout)
+
+    def test_the_committed_copy_is_what_the_client_tables_produce(self):
+        """The one hop the gate cannot make: copy vs the client's own bytes.
+
+        Added in round ``i8timv`` INSIDE this already-pinned class rather than
+        as a new skipping class, because a second
+        ``@BRIDGE_GAMEDATA.skip_unless_present()`` class would move the
+        ``bridge_gamedata`` count in ``docs/PYTEST_SKIP_PINS.json`` and the
+        skip census goes red in either direction.  Same precondition, same
+        pin, one more assertion under it.
+        """
+        from pirateforce_foundation import world_marker_copy
+
+        world_marker_copy.verify_against_sources(
+            ROOT.parent / "pf_bridge" / "gamedata" / "tables"
+        )
 
 
 if __name__ == "__main__":
