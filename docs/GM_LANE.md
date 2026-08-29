@@ -4154,7 +4154,7 @@ for the wiring and one is not, and the entry is graded from that console.
 
 | file | change |
 |---|---|
-| `gm/chat_command_action.py` | fourth console token `GM_CHAT_NO_BYTES_SENT`, printed once per accepted command that produced no action: the command name, the `outcome` word the ndjson row carries, and `blocked_on='<what would unblock it>'` from the fixed `NO_BYTES_BLOCKERS` table.  `_Verdict` gained `line_printed`, and `_print_warp_way_out` now reports whether its line actually reached the stream, so a refusal that already explained itself is never explained twice |
+| `gm/chat_command_action.py` | fourth console token `GM_CHAT_NO_BYTES_SENT` for an accepted command that sent nothing and had no line of its own: the command name, the `outcome` word the ndjson row ACTUALLY carries, and `blocked_on='<what would unblock it>'` from the fixed `NO_BYTES_BLOCKERS` table.  Fifth token `GM_CHAT_STAGED_NEXT_LOGIN` for the cross-scene `/warp`, naming the staged scene, whether the typed coordinates were dropped, and the relog it needs.  `_Verdict` gained `line_printed`, `_print_warp_way_out` now reports whether its line actually reached the stream, and every console decision is made at ONE point, after the audit write |
 | `tests/test_gm_chat_no_bytes_line.py` | new: the six silent commands each get exactly one line and the right blocker; the line never prints what was typed; no second line for `/warp 9999`, `/warp 126` or `/warp island`; a STAGED cross-scene warp stays silent; the audit-failure drop says so; a `None` or exploding stderr is named and costs no command |
 
 No `runtime.py` change and no CORE-REQUEST: the whole fix is inside this
@@ -4166,10 +4166,12 @@ lane's own module, and chief's call site is untouched.
 scene you named is not one login can enter (+ the list).
 `GM_CHAT_COMMAND_REFUSED` = that is not a command this lane can read (+ the
 usage).  `GM_CHAT_NO_BYTES_SENT` = we read you, we accepted it, and we
-deliberately sent nothing (+ the blocker).  An operator greps one question at
+deliberately sent nothing (+ the blocker).  `GM_CHAT_STAGED_NEXT_LOGIN` = we
+read you, we wrote your next-login scene, and here is what you do now
+(+ whether your coordinates were dropped).  An operator greps one question at
 a time.
 
-### What the line never carries, and why that is the property to guard
+### What these lines never carry, and why that is the property to guard
 
 `session.token` on the wired server is the process-wide `--token`, not a
 per-connection login, so a line that echoed what was typed would put any
@@ -4178,13 +4180,15 @@ player's sentence on the operator's console under the owner's own GM account
 command NAME renders only if it is in `commands.COMMAND_NAMES` (`unnamed`
 otherwise, which also stops a hand-built `GmCommand` from forging a second
 line carrying another route's grep token), and the blocker sentence comes
-from a fixed table, never from the command's arguments.
+from a fixed table, never from the command's arguments.  The staged line carries ONE field derived from what was typed -- the scene id, as an `int`, re-derived by the same helper the handler used and rendered `unknown` if it cannot be read.  That is the rung `GM_CHAT_WARP_REFUSED` has printed a typed `scene_id` on since round `c48x1n`, not a new one.
 
 ### Evidence
 
-* green(local pytest, whole suite): 5131 passed, 327 skipped, 8928 subtests
-  (~102s, `__pycache__` cleared first).
-* seven mutants measured killed, each run clean: dropping the `line_printed`
+* green(local pytest, whole suite): 5147 passed, 327 skipped, 8941 subtests
+  (~106s, `__pycache__` cleared first).  The pass/skip split is
+  environment-dependent (5147+327 = 5474 collected either way).
+* seventeen mutants measured killed, each run clean.  The first seven:
+  dropping the `line_printed`
   hand-back (2 red -- doubled lines); the way-out printer returning `True`
   unconditionally (1 red -- a refusal it declines goes silent again);
   hardcoding one blocker sentence (2 red); rendering the command name
@@ -4192,6 +4196,13 @@ from a fixed table, never from the command's arguments.
   `/warp 278` that wrote a config entry called "sent nothing"); dropping
   `_one_line` from the account field (1 red -- newline forgery); removing the
   backstop call (11 red).
+  Then the ten pf-adversary found surviving, re-run against the fixed
+  version and now red: deleting the hint cap; dropping `console_safe` from
+  the new line; `_print_warp_way_out` returning `True` from either failure
+  return; deleting the new printer's own `no_stderr` note; announcing before
+  the audit write; restricting the audit-drop line to the warp label; plus
+  two regression mutants for the fixes themselves -- a silent staged warp
+  (D3) and reading `why` off the verdict instead of the audit result (D1).
 
 ### What is NOT claimed
 
@@ -4204,8 +4215,46 @@ set changed, and no milestone is claimed from anything a GM shortcut reached.
 
 ### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้ (round `tvbiqc`)
 
-**คนเฝ้าคอนโซล (รวมผู้เทสที่นั่งข้างเครื่องเซิร์ฟเวอร์ตอนรัน `GT-127`/`GT-128`/`GT-133`):**
+**คนเฝ้าคอนโซล (รวมผู้เทสที่นั่งข้างเครื่องเซิร์ฟเวอร์ตอนรัน `GT-127`/`GT-128`/`GT-133`/`GT-141`):**
 เมื่อวาน พิมพ์ `/warp 2 100 200` แล้วตัวไม่ขยับ คอนโซลพูดคำสุดท้ายว่า `warp route=action`
 ซึ่งอ่านเหมือน "ส่งแล้ว" ⇒ ต้องเดาเองระหว่างเกตปิด / ไคลเอนต์ไม่สน / สายตาย
 วันนี้ บรรทัดถัดมาบอกว่า **ไม่มีไบต์ออกไปเลย** พร้อมชื่อเกตและสิ่งที่จะปลดมัน
+· และ `/warp <ฉากอื่น>` ซึ่งเมื่อวานเงียบเหมือนกันทั้งที่ **เขียนไฟล์จริง** วันนี้บอกว่าสตางค์ฉากไหนไว้
+ต้องล็อกเอาต์-ล็อกอินใหม่ และ **พิกัดที่พิมพ์มาถูกทิ้ง** (ข้อสุดท้ายเมื่อวานไม่มีที่ไหนบอกเลย
+นอกจากคำใน ndjson)
 🔴 **ผู้เทสหน้าจอเกม: ไม่ได้อะไรใหม่รอบนี้** และรอบนี้จะไม่แกล้งบอกว่าได้
+
+### What pf-adversary broke in this round's first version, and what changed
+
+Twelve defects, ten surviving mutants, on a version whose own test file was
+green.  The three that reshaped the round:
+
+| # | what was measured | what the shipped version does |
+|---|---|---|
+| D1 | on an unwritable capture directory the line said `why=withheld_force_pos_vital_version` while the ndjson carried NO outcome row -- the console naming a word the operator cannot find, on the one boot where they are grepping both.  The line was printed BEFORE the audit write and keyed on the verdict | one announce point, AFTER the write: `why` is `verdict.audit_outcome` when the row landed and `audit_row_not_written` when it did not.  **Kill measured** |
+| D2 | the branch that DID say `audit_row_not_written` sat behind `action is not None`, which cannot happen while both version gates are shut -- the reachable case printed the wrong word and the right word lived in unreachable code | the same single point covers both shapes; the audit-drop case no longer needs a composed frame to be heard |
+| D3 | the staged cross-scene `/warp` -- the only `/warp` form that changes anything today -- printed NOTHING, so the hole this round claims to close stayed open for it, and `/warp 278 100 200` silently dropped the typed coordinates | `GM_CHAT_STAGED_NEXT_LOGIN`, with the scene, the coordinates verdict, and the relog.  A stage whose audit failed says `audit_row_not_written` instead, because the entry came back off disk.  **Kills measured** |
+
+And the rest, each with the mutant that now fails: `no blocker recorded` on
+five NAMED stage faults with knowable remedies, one of them a chmod (D4 --
+the table now carries them and the contract test derives the list from
+`login_scene_stage` instead of hand-copying it); `console_safe` droppable
+from the new line with the whole suite green, which is round `qq0i9u`'s
+incident shape (D5); a placement comment claiming a load-bearing reason for
+what was then a no-op (D6); a docstring contradicted by its own second call
+site in the same commit (D7); `_print_warp_way_out`'s new `bool` contract
+unpinned in both failure returns (D8); a `None`-stderr test that passed
+because an OLDER printer had already appended the same event for the same
+session (D9); a client-driven console line whose volume doubled without
+being named (D10 -- stated at the token, bounded by the rate limit); a
+citation to a round file that does not exist and a "seven fixed sentences"
+comment one commit after the second supplier arrived (D11); and an
+audit-drop line restrictable to the warp label with everything still green
+(D12).
+
+What pf-adversary attacked and could NOT break: any path putting
+client-typed bytes on the operator console (all four fields traced to closed
+sets or the operator's own `--token`), any line forgery, any way for the new
+line to alter dispatch (raise, withhold an outgoing action, write to stdout),
+and any double line -- including the case it expected to find one,
+`/warp 126`.

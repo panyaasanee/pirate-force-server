@@ -367,7 +367,9 @@ COMMAND_REFUSED_CONSOLE_TOKEN = "GM_CHAT_COMMAND_REFUSED"
 # the wire and no other line said so.
 #
 # THE HOLE THIS CLOSES, MEASURED THROUGH THE REAL DISPATCHER THIS ROUND (the
-# five inputs are in `rounds/GM_20260829_2112_*.md`):
+# six inputs are reproduced in `rounds/GM_20260829_2231_accepted_and_sent_
+# nothing_now_says_so.md`; the first draft of this comment cited a round file
+# name that never existed, caught by pf-adversary D11):
 #
 #   /warp 2 100 200 -> events say `..._warp_withheld_no_confirmed_force_pos_
 #                      vital_version_re129_open`; the CONSOLE said exactly
@@ -392,19 +394,60 @@ COMMAND_REFUSED_CONSOLE_TOKEN = "GM_CHAT_COMMAND_REFUSED"
 #
 # A FOURTH TOKEN, not a reuse of the three above, for the reason they are
 # each separate: this one means "we read you, and deliberately sent nothing".
+#
+# WHAT IT COSTS THE CONSOLE, stated because it is client-driven volume
+# (pf-adversary D10, measured): an accepted command used to print one line
+# and now prints two, so the ceiling doubles from 20 to 40 lines per
+# `gm/dispatch.py` rate-limit window.  On the wired server `session.token`
+# is the process-wide `--token`, so ANY connected player's `/lv 10` is an
+# "authorized GM command" paying into that one shared bucket -- the same
+# identity fact `_say_action` states.  Bounded by
+# `RATE_LIMIT_MAX_CALLS_PER_WINDOW`, so a nuisance, not a flood; named here
+# rather than discovered on an attended boot.
 WITHHELD_CONSOLE_TOKEN = "GM_CHAT_NO_BYTES_SENT"
+
+# And a FIFTH, for the one accepted command that sends no bytes and is not a
+# disappointment: the cross-scene `/warp`, which writes the account's
+# next-login scene and lands the GM there on the NEXT login.
+#
+# WHY IT IS NOT THE FOURTH TOKEN WEARING A HAT (pf-adversary D3, and the
+# first version of this round earned it): `GM_CHAT_NO_BYTES_SENT` was made
+# to say "nothing happened, here is the blocker".  A staged warp DID happen
+# -- there is a config entry on disk deciding the next login -- so printing
+# the no-bytes token for it would be false in the only direction that
+# matters to a tester.  But printing NOTHING, which is what the first draft
+# did, left the exact hole this round says it closes open for the ONE
+# `/warp` form that changes anything today: the console said `route=action`
+# and stopped, and the tester grading `GT-141` from that console could not
+# tell a staged entry from a dead route.
+#
+# It carries the coordinates verdict because nothing else does: `/warp 278
+# 100 200` silently drops the two numbers the GM typed (`ForcePos` cannot
+# cross scenes, so the cross-scene half stages the SCENE and nothing else).
+# That was invisible everywhere except the ndjson `outcome` word.
+STAGED_CONSOLE_TOKEN = "GM_CHAT_STAGED_NEXT_LOGIN"
 
 # What each no-bytes outcome is waiting on, as fixed sentences this lane
 # wrote -- never a string built from anything a client typed.  Keyed on the
 # audit outcome so the ndjson word and the console line cannot drift apart:
 # one decision, spelled once, read twice.
 #
-# NOT EXHAUSTIVE, ON PURPOSE.  `refused_warp_<ExcType>` and
-# `refused_stage_<ExcType>` name a type, not a blocker, and inventing a
-# sentence for a family whose members do not exist yet is how a console line
-# starts lying.  Those print `NO_BLOCKER_RECORDED` instead -- the operator
-# still learns the two facts this token exists for: nothing was sent, and
-# which outcome the audit file will carry.
+# NOT EXHAUSTIVE, ON PURPOSE -- BUT NARROWER THAN THE FIRST DRAFT THOUGHT.
+# `refused_warp_<ExcType>` and `refused_stage_<ExcType>` name a type, not a
+# blocker, and inventing a sentence for a family whose members do not exist
+# yet is how a console line starts lying.  Those print `NO_BLOCKER_RECORDED`
+# -- the operator still learns the two facts this token exists for: nothing
+# was sent, and which word the audit file carries.
+#
+# !! WHAT THAT PARAGRAPH GOT WRONG (pf-adversary D4, measured): five of the
+# `refused_stage_*` outcomes are NOT an `<ExcType>` family.  They are the
+# named constants in `login_scene_stage.NOT_DESTINATION_SHAPED_REASONS`,
+# every one of them a server-side fault with a knowable remedy -- and one of
+# them, `config_not_writable`, has a one-command fix.  They were printing
+# `no blocker recorded` on the very boot where the operator most needs the
+# sentence.  They are in the table below now, and the contract test derives
+# the list FROM that module instead of hand-copying it, so a sixth reason
+# added upstream turns a test red rather than inheriting a shrug.
 NO_BLOCKER_RECORDED = "no blocker recorded"
 
 # Why nothing went out when the command itself was fine and the AUDIT was
@@ -412,13 +455,27 @@ NO_BLOCKER_RECORDED = "no blocker recorded"
 # written -- so it is spelled here and never passed to `log_gm_command_
 # outcome`.  `_make_action`'s own comment explains the withholding; this is
 # the console's half of it.
+#
+# !! IT COVERS THE NO-ACTION COMMANDS TOO, and the first version of this
+# round did not (pf-adversary D1/D2, both measured).  That version printed
+# the line BEFORE the audit write and keyed it on `verdict.audit_outcome`,
+# so on an unwritable capture directory a `/warp 2 100 200` said
+# `why=withheld_force_pos_vital_version` while the ndjson carried no outcome
+# row at all -- the console naming a word the audit file does not have, on
+# the one boot where the operator is grepping both.  The branch that DID say
+# `audit_row_not_written` sat behind `action is not None`, which cannot
+# happen at HEAD because both version gates are shut: the reachable case
+# printed the wrong word and the right word sat in unreachable code.
+# One call site now, after the audit, for every shape.
 WHY_AUDIT_ROW_NOT_WRITTEN = "audit_row_not_written"
 
-# Width bound for the usage half of that line, held at the PRINTER.  The one
-# supplier in this tree returns one of seven fixed sentences (the longest is
-# the six-command vocabulary, ~100 characters), so this never binds today --
-# which is exactly why it is here: the bound belongs to the line, not to
-# whichever function happened to build the string this time.
+# Width bound for the hint half of a console line, held at the PRINTER.
+# TWO suppliers now (pf-adversary D11 -- this comment said "the one supplier"
+# one commit after the second arrived): `commands.usage_hint_for`'s seven
+# fixed sentences, and `NO_BYTES_BLOCKERS` below.  Both are short, so the cap
+# has never fired on a real value -- which is exactly why it is here and why
+# a test drives a long sentence through it: the bound belongs to the line,
+# not to whichever table happened to fill it in this time.
 MAX_CONSOLE_HINT_LENGTH = 240
 
 # A console line this module MEANT to write and could not.  Named rather than
@@ -549,38 +606,80 @@ OUTCOME_NO_WIRE_PATH = f"{OUTCOME_REFUSED_PREFIX}no_wire_path"
 # file does not have to learn a second grammar for the cross-scene half.
 OUTCOME_STAGE_REFUSED_PREFIX = f"{OUTCOME_REFUSED_PREFIX}stage_"
 
+# The two outcomes that mean AN EFFECT IS ON DISK: the cross-scene `/warp`
+# wrote the account's next-login scene.  Spelled as a pair once, here,
+# because two places used to test them inline and a third would have been
+# the one that forgot the `_coords_ignored` half.
+STAGED_OUTCOMES = (
+    OUTCOME_STAGED_LOGIN_SCENE,
+    OUTCOME_STAGED_LOGIN_SCENE_COORDS_IGNORED,
+)
+
 # The blocker sentence for each no-bytes outcome.  Read by the console line
 # only; nothing here reaches the audit file or a client.  A `MappingProxyType`
 # for the same reason `login_scene_admission` uses one: it stops a later
 # module from editing this in place by accident, and it is NOT a safety
 # boundary (the module attribute can still be rebound).
-NO_BYTES_BLOCKERS = MappingProxyType(
-    {
-        OUTCOME_WARP_WITHHELD_NO_VERSION: (
-            "RE-129 open: no confirmed ForcePos vital_version, so"
-            " gm/teleport_wire.py cannot compose the frame"
-        ),
-        OUTCOME_SAY_WITHHELD_NO_VERSION: (
-            "gm/say_wire.py gate shut: RE-132 answered the byte, the"
-            " per-connection identity fix and a COO decision are what is left"
-        ),
-        OUTCOME_NO_WIRE_PATH: (
-            "this lane has no proven server->client wire for that command;"
-            " a CORE-REQUEST-GM opens one"
-        ),
-        OUTCOME_WARP_NO_POSITION: (
-            "this connection has no current position to warp from"
-        ),
-        OUTCOME_SAY_VERSION_CODEC_MISMATCH: (
-            "the confirmed vital_version is not the codec's; composing"
-            " would build a frame the client cannot read"
-        ),
-        WHY_AUDIT_ROW_NOT_WRITTEN: (
-            "the frame was built and then dropped: its outcome row could not"
-            " be appended, and this house keeps no effect it cannot record"
-        ),
-    }
-)
+# The dict the proxy wraps, kept as its own name so a test can put a long
+# sentence in it and prove the printer's cap actually cuts one (the cap has
+# never fired on a real supplier, and that is how pf-adversary's M1 -- delete
+# the cap, suite still green -- survived).  Read through the proxy below
+# everywhere else.
+_NO_BYTES_BLOCKERS_SOURCE = {
+    OUTCOME_WARP_WITHHELD_NO_VERSION: (
+        "RE-129 open: no confirmed ForcePos vital_version, so"
+        " gm/teleport_wire.py cannot compose the frame"
+    ),
+    OUTCOME_SAY_WITHHELD_NO_VERSION: (
+        "gm/say_wire.py gate shut: RE-132 answered the byte, the"
+        " per-connection identity fix and a COO decision are what is left"
+    ),
+    OUTCOME_NO_WIRE_PATH: (
+        "this lane has no proven server->client wire for that command;"
+        " a CORE-REQUEST-GM opens one"
+    ),
+    OUTCOME_WARP_NO_POSITION: (
+        "this connection has no current position to warp from"
+    ),
+    OUTCOME_SAY_VERSION_CODEC_MISMATCH: (
+        "the confirmed vital_version is not the codec's; composing"
+        " would build a frame the client cannot read"
+    ),
+    WHY_AUDIT_ROW_NOT_WRITTEN: (
+        "the outcome row could not be appended, so this command's audit"
+        " trail is broken; anything it had in hand was dropped with it"
+    ),
+    # The five server-side stage faults (pf-adversary D4).  Keyed by the
+    # audit word `_stage_action` writes, built from the reason constants
+    # rather than spelled as literals so a rename upstream is a red test
+    # here instead of a silent `no blocker recorded`.
+    f"{OUTCOME_STAGE_REFUSED_PREFIX}"
+    f"{login_scene_stage.REASON_NOT_GM_ACCOUNT}": (
+        "the account is not in gm_accounts.json at the path this process"
+        " booted with; the command was authorized against another reading"
+    ),
+    f"{OUTCOME_STAGE_REFUSED_PREFIX}"
+    f"{login_scene_stage.REASON_CONFIG_UNREADABLE}": (
+        "the gm_login_scene.json this process reads is malformed; fix or"
+        " delete that file (see GM_LOGIN_SCENE_CONFIG_REFUSED)"
+    ),
+    f"{OUTCOME_STAGE_REFUSED_PREFIX}"
+    f"{login_scene_stage.REASON_EXISTING_ENTRY_NOT_ADMISSIBLE}": (
+        "another ACCOUNT's line in gm_login_scene.json names a scene"
+        " login will not admit; the whole file is refused until it goes"
+    ),
+    f"{OUTCOME_STAGE_REFUSED_PREFIX}"
+    f"{login_scene_stage.REASON_CONFIG_NOT_WRITABLE}": (
+        "the config DIRECTORY is not writable by this process; os.replace"
+        " needs the directory's write bit, not the file's"
+    ),
+f"{OUTCOME_STAGE_REFUSED_PREFIX}"
+f"{login_scene_stage.REASON_WRITE_FAILED}": (
+    "the write to gm_login_scene.json failed; the previous entry, if"
+    " any, is untouched"
+),
+}
+NO_BYTES_BLOCKERS = MappingProxyType(_NO_BYTES_BLOCKERS_SOURCE)
 
 
 @dataclass(frozen=True)
@@ -800,37 +899,15 @@ def _make_action(
         verdict = _Verdict(None, OUTCOME_NO_WIRE_PATH)
 
     action = verdict.action
-    # THE BACKSTOP LINE, before the audit write and not after it: this says
-    # "no bytes went to the client", which is already true and does not
-    # depend on a file append succeeding.  Running it after would make the
-    # console silent again on exactly the boot where the capture directory
-    # is unwritable -- an attended shape this lane has already shipped a fix
-    # for once (round `vb3ktn`).
-    #
-    # The staged cross-scene warp is excluded by outcome, not by command
-    # name: `/warp` reaches here both ways, and the half that wrote a config
-    # entry is not a command that "sent nothing" in any sense worth
-    # greping.  See `_print_no_bytes_way_out`.
-    if (
-        action is None
-        and not verdict.line_printed
-        and verdict.audit_outcome
-        not in (
-            OUTCOME_STAGED_LOGIN_SCENE,
-            OUTCOME_STAGED_LOGIN_SCENE_COORDS_IGNORED,
-        )
-    ):
-        _print_no_bytes_way_out(
-            session, token, getattr(command, "name", None), verdict.audit_outcome
-        )
     # ONE write point for the `outcome` row, deliberately: CORE-REQUEST-GM-032
     # item 1 exists because the audit could not tell a withheld command from a
     # sent one, and an audit whose closing row is appended at four different
     # `return` statements grows a fifth return that forgets it.  Every branch
     # above therefore reports its verdict back here instead of writing.
-    if not _log_outcome(
+    audited = _log_outcome(
         session, token, command, outcome.record_id, verdict.audit_outcome, log_path
-    ):
+    )
+    if not audited:
         # AN EFFECT THAT IS ALREADY ON DISK HAS TO COME BACK OFF IT.  Until
         # the cross-scene warp, every branch above could be "withheld" for
         # free, because withholding meant not returning bytes that had never
@@ -875,20 +952,17 @@ def _make_action(
                 if not clear_warp_target(session):
                     _note(session, EVENT_OUTCOME_STALE_TARGET_NOT_CLEARED)
             _note(session, EVENT_OUTCOME_NOT_AUDITED_ACTION_WITHHELD)
-            # The one no-bytes path that gets here with a frame in hand.
-            # It is the WORST one to leave silent: every other withhold is a
-            # gate this lane knows is shut, while this one means the console
-            # already printed `route=action`, the command was good, and the
-            # frame was dropped for a reason that lives on disk.  Its `why`
-            # is not an audit outcome on purpose -- that row is the thing
-            # that could not be written.
-            _print_no_bytes_way_out(
-                session,
-                token,
-                getattr(command, "name", None),
-                WHY_AUDIT_ROW_NOT_WRITTEN,
-            )
-            return None
+            # Dropped, not returned -- and the console is told below, on the
+            # same call site every other shape uses.  An early `return None`
+            # here is how the first version of this round grew two
+            # announcers that disagreed (pf-adversary D2/D7).
+            action = None
+    # THE ONE PLACE THE CONSOLE IS TOLD, and it is AFTER the audit write on
+    # purpose: `why` has to be the word the ndjson actually carries, and
+    # until this line runs nobody knows whether the row landed.
+    _announce_console_outcome(
+        session, token, command, verdict, audited=audited, sent=action is not None
+    )
     return action
 
 
@@ -1285,16 +1359,19 @@ def _print_no_bytes_way_out(
       typed is refused upstream with `refused_not_a_command` and returns
       long before this, which is the founding rule that a non-GM's chat and
       a GM's conversation are never written anywhere;
-    * it runs only when the verdict carried NO action and no handler printed
+    * it runs only when nothing went to the client and no handler printed
       its own line (`_Verdict.line_printed`), so the scene list `/warp 9999`
       gets is never doubled by a shorter line saying the same thing worse;
-    * it does NOT run for a staged cross-scene warp.  That command had a
-      real effect -- a config entry that decides the next login -- and a
-      token whose name says NO_BYTES_SENT is true of it only in the most
-      useless sense.  Whether the console should announce a stage is a
-      separate question with a separate answer (`GT-141` tells the tester in
-      prose today); borrowing this token for it would make "nothing
-      happened" and "something happened elsewhere" grep the same.
+    * a staged cross-scene warp gets `STAGED_CONSOLE_TOKEN` instead, not
+      this token and not silence.  That command had a real effect -- a
+      config entry that decides the next login -- so "no bytes sent" would
+      be true in the only sense nobody cares about;
+    * `why` is what the AUDIT FILE ended up carrying, decided after the
+      write: `verdict.audit_outcome` when the row was appended, and
+      `WHY_AUDIT_ROW_NOT_WRITTEN` when it was not.  Reading the verdict
+      before the write -- what the first draft did -- prints a word the
+      ndjson does not have on exactly the boot where both are being read
+      together (pf-adversary D1).
 
     IT NEVER PRINTS WHAT WAS TYPED -- the same property
     `_print_command_refusal_way_out` spends its docstring on, and for the
@@ -1341,6 +1418,104 @@ def _print_no_bytes_way_out(
         )
     except Exception as error:  # noqa: BLE001 - see the last paragraph above
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
+
+
+def _print_staged_way_out(
+    session: object,
+    token: str,
+    command: object,
+    outcome: str,
+) -> None:
+    """Say that a cross-scene `/warp` was staged, and what the GM must do now.
+
+    The one accepted command that sends no bytes and is not a
+    disappointment.  See `STAGED_CONSOLE_TOKEN` for why it is a separate
+    token from the no-bytes one rather than either sharing it or staying
+    silent, which is what this round shipped first and pf-adversary D3
+    measured as leaving the hole open for the only `/warp` that does
+    anything.
+
+    THREE FIELDS, and the middle one is the reason this exists rather than
+    being a nicety: the SCENE the next login will use, whether the typed
+    COORDINATES were dropped, and the next step.  `/warp 278 100 200` drops
+    the two numbers the GM typed -- `ForcePos` carries no scene id, so the
+    cross-scene half stages the scene and nothing else -- and before this
+    line that fact appeared nowhere a human would look, only in the ndjson
+    `outcome` word `staged_login_scene_coords_ignored`.
+
+    THE SCENE ID IS THE ONE FIELD DERIVED FROM WHAT WAS TYPED, and it is an
+    INT, re-derived inside the guard by the same helper the handler used --
+    the same shape and the same rung as `GM_CHAT_WARP_REFUSED`, which has
+    printed a typed `scene_id` since round `c48x1n`.  A `GmCommand` whose
+    args cannot be read renders `unknown` rather than raising: a diagnostic
+    may never alter dispatch, and by the time this runs the entry is already
+    on disk.
+    """
+    stream = sys.stderr
+    if stream is None:
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
+        return
+    try:
+        try:
+            scene_id = int(warp_command_scene_id(command))
+        except Exception:  # noqa: BLE001 - see the last paragraph above
+            scene_id = "unknown"
+        coordinates = (
+            "ignored"
+            if outcome == OUTCOME_STAGED_LOGIN_SCENE_COORDS_IGNORED
+            else "none"
+        )
+        print(
+            f"{STAGED_CONSOLE_TOKEN} "
+            f"account='{console_safe(_one_line(token), stream)}' "
+            f"command=warp scene_id={scene_id} coordinates={coordinates} "
+            "next='log out and log back in to land there;"
+            " nothing was sent to the client now'",
+            file=stream,
+        )
+    except Exception as error:  # noqa: BLE001 - see the last paragraph above
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
+
+
+def _announce_console_outcome(
+    session: object,
+    token: str,
+    command: object,
+    verdict: "_Verdict",
+    *,
+    audited: bool,
+    sent: bool,
+) -> None:
+    """The ONE place this route decides what the console is told, and when.
+
+    One call site, after the audit write, for every shape an accepted
+    command can end in.  The first version of this round had two, one of
+    them unreachable at HEAD, and they disagreed about what to print on the
+    boot that reaches the reachable one (pf-adversary D1, D2, D7, D12).
+
+    Nothing here can decide to SEND or WITHHOLD anything: the caller has
+    already decided that and holds the action.  This function only speaks.
+
+    `sent` is the caller's FINAL answer, not the verdict's: a frame the
+    audit failure dropped is not sent, and a command whose bytes are on
+    their way says nothing here -- `route=action` and the serve loop's own
+    label are that command's record.  Keyed on the caller's variable rather
+    than on `verdict.action` for exactly that reason.
+    """
+    if sent:
+        return
+    if verdict.audit_outcome in STAGED_OUTCOMES and audited:
+        _print_staged_way_out(session, token, command, verdict.audit_outcome)
+        return
+    if verdict.line_printed:
+        # A handler already said it, in a vocabulary built for that refusal.
+        return
+    _print_no_bytes_way_out(
+        session,
+        token,
+        getattr(command, "name", None),
+        verdict.audit_outcome if audited else WHY_AUDIT_ROW_NOT_WRITTEN,
+    )
 
 
 def _stage_action(

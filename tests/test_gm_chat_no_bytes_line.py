@@ -1,7 +1,7 @@
 """An ACCEPTED GM command that sent nothing says so on the console.
 
 THE DEFECT THIS FILE PINS, measured through the real dispatcher this round
-(round `tvbiqc`, the five inputs are reproduced in the round record):
+(round `tvbiqc`, all six inputs are reproduced in the round record):
 
     /warp 2 100 200 -> console: `LANE_GM_CHAT_ACTION warp route=action`
     /say hello      -> console: `LANE_GM_CHAT_ACTION say route=action`
@@ -299,7 +299,12 @@ class NoSecondLineTests(_Case):
         said = self.lines(err, TOKEN)
         self.assertEqual(len(said), 1, err)
         self.assertIn(f"why=refused_stage_{reason} ", said[0])
-        self.assertIn(chat_command_action.NO_BLOCKER_RECORDED, said[0])
+        # pf-adversary D4: this used to print `no blocker recorded` -- these
+        # five are named constants with knowable remedies, not an exception
+        # family, and the boot that reaches them is the boot that needs the
+        # sentence most.
+        self.assertNotIn(chat_command_action.NO_BLOCKER_RECORDED, said[0])
+        self.assertIn("gm_login_scene.json", said[0])
 
     def test_a_stage_refusal_that_raised_gets_the_type_name(self):
         with mock.patch.object(
@@ -356,8 +361,118 @@ class ThingsThatMustStaySilentTests(_Case):
         self.assertEqual(self.lines(err, TOKEN), [], err)
 
 
+class TheStagedWarpTests(_Case):
+    """The one accepted command that sends nothing and is not a disappointment.
+
+    pf-adversary D3: the first version of this round printed NOTHING for a
+    staged cross-scene warp, which left the hole open for the only `/warp`
+    form that changes anything today -- and the round's own claim said it
+    was closed.
+    """
+
+    STAGED = chat_command_action.STAGED_CONSOLE_TOKEN
+
+    def test_it_names_the_scene_and_the_next_step(self):
+        action, err = self.act("/warp 278")
+        self.assertIsNone(action)
+        said = self.lines(err, self.STAGED)
+        self.assertEqual(len(said), 1, err)
+        self.assertIn("scene_id=278 ", said[0])
+        self.assertIn("coordinates=none ", said[0])
+        self.assertIn("log out and log back in", said[0])
+        # It is NOT the no-bytes token: an effect is on disk.
+        self.assertEqual(self.lines(err, TOKEN), [], err)
+
+    def test_it_says_when_the_typed_coordinates_were_dropped(self):
+        # The fact that lived nowhere a human would look.  `ForcePos` cannot
+        # cross scenes, so `/warp 278 100 200` stages the scene and discards
+        # the two numbers -- and before this line the only record of that was
+        # the ndjson word.
+        action, err = self.act("/warp 278 100 200")
+        self.assertIsNone(action)
+        said = self.lines(err, self.STAGED)
+        self.assertEqual(len(said), 1, err)
+        self.assertIn("coordinates=ignored ", said[0])
+
+    def test_a_stage_whose_audit_failed_does_not_claim_a_staged_scene(self):
+        # The entry is taken back off disk when its outcome row cannot be
+        # written, so a console line saying "log back in to land there"
+        # would send the tester to a scene nobody staged.
+        with mock.patch.object(
+            chat_command_action,
+            "log_gm_command_outcome",
+            side_effect=OSError("read-only capture directory"),
+        ):
+            action, err = self.act("/warp 278")
+        self.assertIsNone(action)
+        self.assertEqual(self.lines(err, self.STAGED), [], err)
+        said = self.lines(err, TOKEN)
+        self.assertEqual(len(said), 1, err)
+        self.assertIn(
+            f"why={chat_command_action.WHY_AUDIT_ROW_NOT_WRITTEN} ", said[0]
+        )
+
+    def test_it_never_prints_a_scene_it_could_not_read(self):
+        # A diagnostic may never alter dispatch, and by the time this line
+        # runs the config entry is already written.
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            chat_command_action._print_staged_way_out(
+                self.session(),
+                self.GM_ACCOUNT,
+                object(),
+                chat_command_action.OUTCOME_STAGED_LOGIN_SCENE,
+            )
+        printed = err.getvalue()
+        self.assertEqual(len(printed.splitlines()), 1, printed)
+        self.assertIn("scene_id=unknown ", printed)
+
+
 class TheAuditFailurePathTests(_Case):
-    """The one no-bytes path that reaches the end holding a real frame."""
+    """`why` is the word the ndjson CARRIES, not the word the verdict wanted.
+
+    pf-adversary D1, measured: the first version printed the line BEFORE the
+    audit write and keyed it on the verdict, so on an unwritable capture
+    directory a `/warp 2 100 200` announced `why=withheld_force_pos_vital_
+    version` while the audit file held no outcome row at all -- the console
+    naming a word the operator cannot find, on the one boot where they are
+    reading both.  D2: the branch that DID carry the right word sat behind
+    `action is not None`, which cannot happen while both version gates are
+    shut, so the reachable case printed the wrong word and the right word
+    lived in unreachable code.
+    """
+
+    def test_a_no_action_command_whose_audit_failed_says_so(self):
+        session = self.session()
+        with mock.patch.object(
+            chat_command_action,
+            "log_gm_command_outcome",
+            side_effect=OSError("read-only capture directory"),
+        ):
+            action, err = self.act("/lv 10", session=session)
+        self.assertIsNone(action)
+        said = self.lines(err, TOKEN)
+        self.assertEqual(len(said), 1, err)
+        self.assertIn(
+            f"why={chat_command_action.WHY_AUDIT_ROW_NOT_WRITTEN} ", said[0]
+        )
+        # And the word the verdict wanted is NOT on the line, because it is
+        # not in the file either.
+        self.assertNotIn(chat_command_action.OUTCOME_NO_WIRE_PATH, said[0])
+
+    def test_the_word_on_the_line_is_the_word_in_the_file(self):
+        # The other half of the same property: when the row DOES land, the
+        # console and the ndjson say the same thing.
+        _, err = self.act("/lv 10")
+        said = self.lines(err, TOKEN)[0]
+        rows = [
+            json.loads(line)
+            for line in self.log_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        outcomes = [r.get("outcome") for r in rows if r.get("outcome")]
+        self.assertEqual(len(outcomes), 1, rows)
+        self.assertIn(f"why={outcomes[0]} ", said)
 
     def test_a_dropped_frame_says_the_audit_row_is_why(self):
         session = self.session()
@@ -464,6 +579,220 @@ class TheLineNeverAltersDispatchTests(_Case):
         self.assertEqual(self.lines(err, TOKEN), [], err)
 
 
+class TheConsoleEncodingTests(_Case):
+    """The bridge console is cp874, and this line is not exempt from that.
+
+    pf-adversary D5: dropping `console_safe` from the three text fields
+    survived the whole suite.  The shape it reintroduces is round `qq0i9u`'s
+    incident -- a name the console could not encode, and the refusal
+    recorded nowhere a person looks.
+    """
+
+    class Cp874Stream(io.TextIOWrapper):
+        pass
+
+    def _cp874_stream(self):
+        buffer = io.BytesIO()
+        return io.TextIOWrapper(buffer, encoding="cp874", errors="strict"), buffer
+
+    def test_a_name_the_console_cannot_encode_still_gets_a_line(self):
+        stream, buffer = self._cp874_stream()
+        session = self.session()
+        real = sys.stderr
+        try:
+            sys.stderr = stream
+            chat_command_action._print_no_bytes_way_out(
+                session,
+                "GM中文",  # CJK: not in cp874
+                "lv",
+                chat_command_action.OUTCOME_NO_WIRE_PATH,
+            )
+            stream.flush()
+        finally:
+            sys.stderr = real
+        printed = buffer.getvalue().decode("cp874")
+        self.assertIn(chat_command_action.WITHHELD_CONSOLE_TOKEN, printed)
+        self.assertEqual(len(printed.strip().splitlines()), 1, printed)
+        self.assertNotIn(
+            f"{chat_command_action.EVENT_CONSOLE_WRITE_FAILED_PREFIX}"
+            "UnicodeEncodeError",
+            session.events,
+        )
+
+    def test_the_staged_line_is_encoding_safe_too(self):
+        stream, buffer = self._cp874_stream()
+        session = self.session()
+        real = sys.stderr
+        try:
+            sys.stderr = stream
+            chat_command_action._print_staged_way_out(
+                session,
+                "GM中文",
+                gm_commands.GmCommand("warp", ("278",), "/warp 278"),
+                chat_command_action.OUTCOME_STAGED_LOGIN_SCENE,
+            )
+            stream.flush()
+        finally:
+            sys.stderr = real
+        printed = buffer.getvalue().decode("cp874")
+        self.assertIn(chat_command_action.STAGED_CONSOLE_TOKEN, printed)
+        self.assertIn("scene_id=278 ", printed)
+
+
+class TheWayOutPrinterReportsHonestlyTests(_Case):
+    """`_print_warp_way_out`'s new bool is a claim, so it is pinned.
+
+    pf-adversary D8: flipping either failure return to `True` survived the
+    whole suite.  The cost of that lie is the backstop standing down while
+    the operator has no line at all.
+    """
+
+    def test_a_none_stderr_lets_the_backstop_try_too(self):
+        session = self.session()
+        real = sys.stderr
+        out = io.StringIO()
+        try:
+            sys.stderr = None
+            with contextlib.redirect_stdout(out):
+                chat_command_action.make_gm_chat_command_action(
+                    session,
+                    make_chat_payload("/warp 9999"),
+                    self.legacy,
+                    config_path=str(self.config_path),
+                    log_path=str(self.log_path),
+                    login_scene_config_path=str(self.login_scene_config_path),
+                )
+        finally:
+            sys.stderr = real
+        self.assertEqual(out.getvalue(), "")
+        # Three printers wanted the console on this command: the route line,
+        # the scene-list way out, and the backstop the way out's honest
+        # `False` let through.  Two would mean the way out claimed a line it
+        # never wrote.
+        self.assertEqual(
+            session.events.count(
+                f"{chat_command_action.EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr"
+            ),
+            3,
+            session.events,
+        )
+
+    def test_a_raising_stderr_lets_the_backstop_try_too(self):
+        class Hostile(io.StringIO):
+            def write(self, *args, **kwargs):
+                raise ValueError("closed stream")
+
+        session = self.session()
+        with contextlib.redirect_stderr(Hostile()):
+            chat_command_action.make_gm_chat_command_action(
+                session,
+                make_chat_payload("/warp 9999"),
+                self.legacy,
+                config_path=str(self.config_path),
+                log_path=str(self.log_path),
+                login_scene_config_path=str(self.login_scene_config_path),
+            )
+        self.assertEqual(
+            session.events.count(
+                f"{chat_command_action.EVENT_CONSOLE_WRITE_FAILED_PREFIX}ValueError"
+            ),
+            3,
+            session.events,
+        )
+
+    def test_the_printer_says_true_only_when_it_wrote(self):
+        session = self.session()
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            wrote = chat_command_action._print_warp_way_out(
+                session, self.GM_ACCOUNT, 9999, login_scene_stage.REASON_UNKNOWN_SCENE
+            )
+            declined = chat_command_action._print_warp_way_out(
+                session,
+                self.GM_ACCOUNT,
+                278,
+                login_scene_stage.REASON_WRITE_FAILED,
+            )
+        self.assertTrue(wrote)
+        self.assertFalse(declined)
+        self.assertEqual(len(err.getvalue().strip().splitlines()), 1, err.getvalue())
+
+
+class TheGuardsOfTheNewPrinterItselfTests(_Case):
+    """Measured on the new printer ALONE, not through a command.
+
+    pf-adversary D9: the through-a-command version of this test was green
+    because the pre-existing route print had already appended the same event
+    for the same session -- deleting the new printer's own guard survived.
+    """
+
+    def test_a_none_stderr_is_named_by_this_printer(self):
+        session = self.session()
+        real = sys.stderr
+        out = io.StringIO()
+        try:
+            sys.stderr = None
+            with contextlib.redirect_stdout(out):
+                chat_command_action._print_no_bytes_way_out(
+                    session,
+                    self.GM_ACCOUNT,
+                    "lv",
+                    chat_command_action.OUTCOME_NO_WIRE_PATH,
+                )
+        finally:
+            sys.stderr = real
+        self.assertEqual(out.getvalue(), "")
+        self.assertEqual(
+            session.events,
+            [f"{chat_command_action.EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr"],
+        )
+
+    def test_a_none_stderr_is_named_by_the_staged_printer(self):
+        session = self.session()
+        real = sys.stderr
+        out = io.StringIO()
+        try:
+            sys.stderr = None
+            with contextlib.redirect_stdout(out):
+                chat_command_action._print_staged_way_out(
+                    session,
+                    self.GM_ACCOUNT,
+                    gm_commands.GmCommand("warp", ("278",), "/warp 278"),
+                    chat_command_action.OUTCOME_STAGED_LOGIN_SCENE,
+                )
+        finally:
+            sys.stderr = real
+        self.assertEqual(out.getvalue(), "")
+        self.assertEqual(
+            session.events,
+            [f"{chat_command_action.EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr"],
+        )
+
+    def test_a_blocker_longer_than_the_cap_is_cut(self):
+        # The cap has never executed -- both suppliers are short sentences --
+        # so deleting it survived the suite (pf-adversary D11/M1).  The bound
+        # belongs to the LINE, not to whichever table filled it in.
+        long_one = "x" * (chat_command_action.MAX_CONSOLE_HINT_LENGTH + 50)
+        session = self.session()
+        err = io.StringIO()
+        with mock.patch.dict(
+            chat_command_action._NO_BYTES_BLOCKERS_SOURCE,
+            {chat_command_action.OUTCOME_NO_WIRE_PATH: long_one},
+        ), contextlib.redirect_stderr(err):
+            chat_command_action._print_no_bytes_way_out(
+                session,
+                self.GM_ACCOUNT,
+                "lv",
+                chat_command_action.OUTCOME_NO_WIRE_PATH,
+            )
+        printed = err.getvalue()
+        self.assertIn("...", printed)
+        self.assertNotIn(long_one, printed)
+        self.assertIn(
+            "x" * chat_command_action.MAX_CONSOLE_HINT_LENGTH + "...", printed
+        )
+
+
 class ContractTests(_Case):
     def test_every_blocker_is_one_ascii_line_within_the_cap(self):
         for why, blocker in chat_command_action.NO_BYTES_BLOCKERS.items():
@@ -475,6 +804,42 @@ class ContractTests(_Case):
                 self.assertLessEqual(
                     len(blocker), chat_command_action.MAX_CONSOLE_HINT_LENGTH
                 )
+
+    def test_every_named_stage_fault_has_a_blocker_derived_from_upstream(self):
+        # pf-adversary D4: the list used to be hand-typed here and said five
+        # when there were ten, so a reason added upstream inherited
+        # `no blocker recorded` in silence.  Derived now: a sixth
+        # NOT_DESTINATION_SHAPED reason turns this red the day it lands.
+        for reason in login_scene_stage.NOT_DESTINATION_SHAPED_REASONS:
+            with self.subTest(reason=reason):
+                outcome = (
+                    f"{chat_command_action.OUTCOME_STAGE_REFUSED_PREFIX}{reason}"
+                )
+                self.assertIn(outcome, chat_command_action.NO_BYTES_BLOCKERS)
+        # The destination-shaped ones are NOT here on purpose: they print
+        # `GM_CHAT_WARP_REFUSED` with the admissible scene list, and a
+        # second sentence would be the doubling this round refuses.
+        for reason in login_scene_stage.DESTINATION_SHAPED_REASONS:
+            with self.subTest(reason=reason):
+                outcome = (
+                    f"{chat_command_action.OUTCOME_STAGE_REFUSED_PREFIX}{reason}"
+                )
+                self.assertNotIn(outcome, chat_command_action.NO_BYTES_BLOCKERS)
+
+    def test_a_stage_fault_names_its_remedy_through_the_dispatcher(self):
+        # The one with a one-command fix, measured end to end rather than
+        # asserted off the table.
+        reason = login_scene_stage.REASON_CONFIG_NOT_WRITABLE
+        result = mock.Mock(staged=False, reason=reason, previous_scene_id=None)
+        with mock.patch.object(
+            login_scene_stage, "stage_login_scene", return_value=result
+        ):
+            action, err = self.act("/warp 278")
+        self.assertIsNone(action)
+        said = self.lines(err, TOKEN)
+        self.assertEqual(len(said), 1, err)
+        self.assertIn("DIRECTORY", said[0])
+        self.assertNotIn(chat_command_action.NO_BLOCKER_RECORDED, said[0])
 
     def test_every_no_bytes_outcome_this_module_can_write_has_a_blocker(self):
         # The five constants below are every "nothing went out" outcome that
