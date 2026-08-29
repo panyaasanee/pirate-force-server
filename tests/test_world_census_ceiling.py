@@ -121,17 +121,25 @@ class CeilingClassificationTests(unittest.TestCase):
         table that has resolved leader 155, which is what a regeneration
         would produce.
         """
+        # The module's OWN derivation, handed the refusal table a
+        # regeneration that resolved leader 155 would produce.  An earlier
+        # version of this test recomputed the expression itself, which meant
+        # replacing the whole derivation with a literal ``()`` - disabling
+        # staleness detection outright - kept it green (mutant M11).
         resolved_one = {
             leader
             for leader, _ in identity_table.UNRESOLVED.values()
             if leader != 155
         }
-        stale = tuple(sorted(
-            set(identity_table.CEILING_ADJUDICATED_LEADERS) - resolved_one))
-        self.assertEqual(stale, (155,))
-        # And the module it would be read from is importable regardless -
-        # i.e. nothing about this condition is expressed as an import-time
-        # raise.  Re-importing is the cheapest way to assert that.
+        self.assertEqual(
+            identity_table.stale_adjudicated_leaders(resolved_one), (155,))
+        self.assertEqual(
+            identity_table.stale_adjudicated_leaders(set()),
+            (155, 819, 937, 942, 9107),
+            "a table refusing nobody leaves the whole pin stale",
+        )
+        # And the module is importable in that state - i.e. nothing about
+        # this condition is expressed as an import-time raise.
         import importlib
 
         importlib.reload(identity_table)

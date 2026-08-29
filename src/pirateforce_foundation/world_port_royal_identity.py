@@ -445,9 +445,23 @@ CEILING_ADJUDICATED_LEADERS = (155, 819, 937, 942, 9107)
 # needs to change for it to be correct: a leader that stops being refused
 # stops appearing in ``undressable`` at all, so the count simply rises and
 # the classifier is never asked about it.
+def stale_adjudicated_leaders(refused_leaders) -> tuple[int, ...]:
+    """Which of RE-149's five a given refusal table no longer refuses.
+
+    A FUNCTION, not an inline expression, on a mutation finding this round
+    (M11): with the derivation written inline at module level, replacing the
+    whole thing with a literal ``()`` - which disables staleness detection
+    entirely - left every test green, because the only test covering it
+    recomputed the same expression itself instead of exercising the module's
+    own arrow.  A test can now hand this function a refusal table where one
+    of the five HAS been resolved, which is the state that cannot otherwise
+    be reached without editing the file.
+    """
+    return tuple(sorted(set(CEILING_ADJUDICATED_LEADERS) - set(refused_leaders)))
+
+
 _REFUSED_LEADERS = {leader for leader, _ in UNRESOLVED.values()}
-CEILING_TICKET_STALE_LEADERS = tuple(sorted(
-    set(CEILING_ADJUDICATED_LEADERS) - _REFUSED_LEADERS))
+CEILING_TICKET_STALE_LEADERS = stale_adjudicated_leaders(_REFUSED_LEADERS)
 
 # The three reasons a placement in the frozen bg0001 table can have no body,
 # kept apart because they have different evidence under them and a different
