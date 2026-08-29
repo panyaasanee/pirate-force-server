@@ -240,6 +240,17 @@ class WorldPopulationGeneration:
     # token on the census line describes the census actually in hand.  Defaults
     # to this module's scene so existing constructions keep their meaning.
     scene_id: int = SCENE_ID
+    # Who this scene's table wanted and this census could not dress, as
+    # (placement index, Mob-Set number, CLINE leader id, client name), or
+    # ``None`` when the builder did not record it.
+    #
+    # NONE AND () ARE DIFFERENT FACTS AND THE CONSOLE PRINTS THEM DIFFERENTLY.
+    # ``()`` is a measurement - this build looked and nothing was dropped.
+    # ``None`` is the absence of one, which is what every generation built by
+    # hand in a test or by an older path carries.  Defaulting to ``()`` would
+    # have made "nobody asked" print as "nobody is missing", which is the
+    # shape of claim CHARTER-02 forbids: a shortfall that goes unsaid.
+    undressable: tuple[tuple[int, int, int, str], ...] | None = None
 
     @property
     def pc_bytes(self) -> int:
@@ -357,6 +368,94 @@ def unshippable_placements(legacy: Any) -> tuple[tuple[int, int, str], ...]:
             dropped.append(
                 (placement.placement_index, placement.template_id, reason))
     return tuple(dropped)
+
+
+def undressable_placements_named(
+    legacy: Any,
+) -> tuple[tuple[int, int, int, str], ...]:
+    """``unshippable_placements`` with the leader id and the client's name.
+
+    (placement index, Mob-Set number, CLINE leader id, client name).  The name
+    is the client's OWN name for that leader out of ``MOBS_TIP``, unescaped
+    and possibly not ASCII - ``undressable_console_token`` is what makes it safe
+    for a cp874 console, and this function stays lossless so a note or a
+    ticket can quote the real string.
+
+    An empty name is not a missing measurement: two of the seven have CLINE
+    leader 0, so there is nobody for the client to have named.  The leader id
+    in the same tuple is what tells those apart, which is why it is carried.
+    """
+    named = []
+    for index, template_id, reason in unshippable_placements(legacy):
+        leader, _ = world_port_royal_identity.UNRESOLVED[template_id]
+        named.append((
+            index,
+            template_id,
+            leader,
+            world_port_royal_identity.UNRESOLVED_CLIENT_NAMES[template_id],
+        ))
+    return tuple(named)
+
+
+def _console_name(leader: int, name: str) -> str:
+    """One name, reduced to something a cp874 console can print.
+
+    The bridge console cannot encode this table's one CJK name, and a boot
+    that dies inside its own log line is worse than a boot that prints a
+    weaker name, so nothing here can raise on a string.  Three outcomes and
+    they are deliberately distinguishable: ``NO_CREATURE`` for a Mob-Set whose
+    CLINE leader is 0 (nobody to name), ``NO_NAME`` for a leader the text
+    table does not name, and ``NON_ASCII`` for a name that exists and cannot
+    reach this console - never an empty field, which a reader would read as
+    the previous case.
+    """
+    if leader == 0:
+        return "NO_CREATURE"
+    if not name:
+        return "NO_NAME"
+    safe = "".join(
+        character if character.isascii() and character.isalnum() else "_"
+        for character in name
+    ).strip("_")
+    if not safe:
+        return "NON_ASCII"
+    return safe[:world_port_royal_identity.ASCII_NAME_LIMIT]
+
+
+def undressable_console_token(
+    generation: WorldPopulationGeneration,
+) -> str:
+    """The ``undressable=`` field of the census line: who the town is missing.
+
+    BUILD-001's own terms, from the owner: a census that does not go out whole
+    reports the real number AND the reason.  The count and the category have
+    been on this line since RE-128 landed (``shortfall=identity_resolved=108``
+    and ``identity=CLINE:108 composed,7 unresolvable``); what nobody could get
+    from a boot log was WHICH placements those are, so an operator standing in
+    Port Royal wondering why a corner is empty had to open two source files to
+    find out.  This is that list, and it is the whole of what this round adds
+    to the wire path - no frame changes, no count changes.
+
+    ``undressable=not_recorded`` is printed for a generation that never carried
+    the measurement, and it is not the same token as ``undressable=0``.  Nothing
+    here raises: this is composed inside a boot's own console line.
+    """
+    if type(generation) is not WorldPopulationGeneration:
+        return "undressable=not_recorded"
+    dropped = generation.undressable
+    if dropped is None:
+        return "undressable=not_recorded"
+    try:
+        if not dropped:
+            return "undressable=0"
+        rows = ",".join(
+            "P{0}/set{1}/lead{2}/{3}".format(
+                index, template_id, leader, _console_name(leader, name))
+            for index, template_id, leader, name in dropped
+        )
+        return "undressable={0} {1}".format(len(dropped), rows)
+    except Exception as error:  # never break a boot's own log line
+        return "undressable=unavailable:" + type(error).__name__
 
 
 def _entry(legacy: Any, placement: SceneActorPlacement) -> bytes:
@@ -509,6 +608,11 @@ def build_world_population(
         tuple(len(entry) for entry in entries),
         count_source,
         scene_id,
+        # Recorded HERE, where ``legacy`` is in hand, rather than at print
+        # time: the console call site (runtime.py:6672) passes the generation
+        # and nothing else, so a report that needed the placement table again
+        # would have had to say "unmeasured" on every real boot.
+        undressable_placements_named(legacy),
     )
 
 
@@ -810,7 +914,7 @@ def census_console_line(generation: WorldPopulationGeneration) -> str:
     return (
         "WORLD_CENSUS assembled={0}/{1} wire={2} bodies={3} pc={4}B frame={5}B "
         "anchor=({6:.3f},{7:.3f},{8:.3f}) reapply_ms={9} source={10} "
-        "shortfall={11} | {12} | {13}".format(
+        "shortfall={11} | {12} | {13} | {14}".format(
             report["assembled_count"], report["census_count"],
             report["wire_actor_count"] if report["counts_agree"]
             else "MISMATCH:%d" % report["wire_actor_count"],
@@ -831,6 +935,10 @@ def census_console_line(generation: WorldPopulationGeneration) -> str:
                 report["census_count"] - report["assembled_count"]
                 if report["count_source"] == COUNT_SOURCE_IDENTITY_RESOLVED
                 else None),
+            # Appended, like the token before it, rather than spliced into an
+            # existing field: every reader that greps ``WORLD_CENSUS `` or
+            # matches the fields ahead of it keeps working unchanged.
+            undressable_console_token(generation),
         )
     )
 

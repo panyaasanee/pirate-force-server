@@ -393,12 +393,19 @@ class DispatchColumbusQuest3021Tests(unittest.TestCase):
         # the decision and the report, so the position is still pinned -
         # against the report, which the next assertion pins too.
         self.assertEqual(
-            lines[-2],
+            lines[-3],
             "COLUMBUS_QUEST3021_NO_VEHICLE_DISPATCH scene=17 source="
             + columbus_quest_dispatch.M2_NO_VEHICLE_TAG,
         )
-        self.assertTrue(lines[-1].startswith("WORLD_POP_STOWAWAYS "), lines)
-        self.assertEqual(len(lines), 4, lines)
+        # ROUND mcxexp MOVED IT BY ONE AGAIN, FOR THE SAME REASON AND UNDER
+        # THE SAME RULE.  The decision line is still byte-identical and still
+        # the last DECISION; two report lines now follow it, in a fixed order
+        # - who the client is still holding, then the way home this crossing
+        # owes.  Both are pinned by position rather than by ``assertIn``, so a
+        # line inserted between the decision and either report still fails.
+        self.assertTrue(lines[-2].startswith("WORLD_POP_STOWAWAYS "), lines)
+        self.assertTrue(lines[-1].startswith("WORLD_M2_RETURN_LEG "), lines)
+        self.assertEqual(len(lines), 5, lines)
 
 
 class DispatchColumbusQuest3205Tests(unittest.TestCase):

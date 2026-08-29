@@ -23,10 +23,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import world_population
+from pirateforce_foundation import world_port_royal_identity
 from pirateforce_foundation.legacy_bridge import load_legacy
 from pirateforce_foundation.population import (
     AUTHORITATIVE_COUNT,
     build_port_royal_initial_population,
+    load_port_royal_placements,
 )
 from pirateforce_foundation.world_population import (
     CENSUS_COUNT,
@@ -974,11 +976,26 @@ class CensusDispatchCountTests(unittest.TestCase):
         # A rung SMALLER than the whole census is short because someone asked
         # for three, so the token names the source without claiming 112 are
         # unresolvable.
-        self.assertTrue(
-            short.endswith("identity=CLINE:3 composed"),
-            f"census line does not end with the identity token: {short!r}",
-        )
+        # AMENDED 2026-08-29 (LANE-A, round mcxexp): the identity token is no
+        # longer last on the line - the undressable roster is appended after
+        # it - so this pins the token and its position relative to what
+        # follows instead of pinning the end of the line to it.  The two
+        # tokens say different things and a reader must not read one as the
+        # other: "composed" counts what went into THIS rung, "undressable"
+        # counts what NO rung of this scene can dress.
+        self.assertIn("identity=CLINE:3 composed |", short)
         self.assertNotIn("unresolvable", short)
+        self.assertTrue(
+            short.endswith(world_population.undressable_console_token(
+                build_world_population(
+                    self.legacy, self.spawn, 3, scene_id=1))),
+            f"census line does not end with the undressable roster: {short!r}",
+        )
+        # A three-actor rung is short because a caller asked for three; the
+        # undressable roster beside it is a property of the scene's table and
+        # is the same seven on every rung, which is why it is worded as a
+        # roster and not as this frame's shortfall.
+        self.assertIn("undressable=7 ", short)
 
     def test_the_report_refuses_anything_that_is_not_a_generation(self) -> None:
         for bad in (None, 115, {"actor_count": 115}, [1, 2, 3]):
@@ -1064,6 +1081,136 @@ class CensusDispatchCountTests(unittest.TestCase):
         ):
             with self.assertRaises(ValueError):
                 apply_identity_override(self.legacy, generation, bad_override)
+
+
+class UndressablePlacementNamingTests(unittest.TestCase):
+    """The seven placements Port Royal loses are named on the boot line.
+
+    BUILD-001's terms from the owner: a census that does not go out whole
+    reports the real number AND the reason, and the 115 target is never
+    quietly rewritten.  The count has been on the line since RE-128; these
+    pin the part a log reader could not get before - WHICH placements, and
+    who the client's own text table says they are.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+        cls.spawn = (
+            cls.legacy.V135_PLAYER_X,
+            cls.legacy.V135_PLAYER_Y,
+            cls.legacy.V135_PLAYER_Z,
+        )
+        cls.generation = world_population.build_world_population(
+            cls.legacy, cls.spawn, world_population.CENSUS_COUNT, scene_id=1,
+        )
+
+    def test_the_named_report_is_the_same_seven_the_census_filter_dropped(
+        self,
+    ) -> None:
+        named = world_population.undressable_placements_named(self.legacy)
+        dropped = world_population.unshippable_placements(self.legacy)
+        self.assertEqual(
+            [(row[0], row[1]) for row in named],
+            [(row[0], row[1]) for row in dropped],
+        )
+        # And the same seven the census actually left out, read from the
+        # shipped membership rather than from a literal.
+        shipped = set(self.generation.indices)
+        every = {
+            placement.placement_index
+            for placement in load_port_royal_placements(self.legacy)
+        }
+        self.assertEqual(
+            sorted(row[0] for row in named), sorted(every - shipped),
+        )
+
+    def test_every_named_row_carries_the_leader_its_refusal_recorded(
+        self,
+    ) -> None:
+        for index, template_id, leader, name in (
+            world_population.undressable_placements_named(self.legacy)
+        ):
+            recorded_leader, _ = world_port_royal_identity.UNRESOLVED[
+                template_id]
+            self.assertEqual(leader, recorded_leader)
+            self.assertEqual(
+                name,
+                world_port_royal_identity.UNRESOLVED_CLIENT_NAMES[template_id],
+            )
+            self.assertIn(index, UNSHIPPABLE_PLACEMENT_INDICES)
+
+    def test_the_census_line_names_the_seven_and_stays_printable(self) -> None:
+        line = world_population.census_console_line(self.generation)
+        self.assertIn("undressable=7 ", line)
+        # The dock placement is the one an operator is most likely to be
+        # standing next to when they wonder where everybody is.
+        self.assertIn("P0/set1/lead155/Port_transportation", line)
+        self.assertIn("P86/set86/lead0/NO_CREATURE", line)
+        # 113's client name is CJK and the bridge console is cp874.
+        self.assertIn("P148/set113/lead942/NON_ASCII", line)
+        line.encode("ascii")
+        line.encode("cp874")
+
+    def test_a_generation_that_never_measured_says_so_and_not_zero(
+        self,
+    ) -> None:
+        # "nobody asked" must not print as "nobody is missing" - the two
+        # tokens are different strings on purpose.
+        unmeasured = dataclasses.replace(self.generation, undressable=None)
+        self.assertEqual(
+            world_population.undressable_console_token(unmeasured),
+            "undressable=not_recorded",
+        )
+        self.assertEqual(
+            world_population.undressable_console_token(
+                dataclasses.replace(self.generation, undressable=()),
+            ),
+            "undressable=0",
+        )
+        self.assertIn(
+            "undressable=not_recorded",
+            world_population.census_console_line(unmeasured),
+        )
+
+    def test_the_token_never_raises_inside_a_boots_own_log_line(self) -> None:
+        for broken in (
+            None,
+            "not a generation",
+            dataclasses.replace(self.generation, undressable=((1, 2), )),
+            dataclasses.replace(self.generation, undressable=(("a",) * 4, )),
+            dataclasses.replace(self.generation, undressable=(None, )),
+        ):
+            token = world_population.undressable_console_token(broken)
+            self.assertTrue(token.startswith("undressable="))
+            token.encode("cp874")
+
+    def test_a_console_name_is_bounded_and_tells_its_three_absences_apart(
+        self,
+    ) -> None:
+        name_of = world_population._console_name
+        self.assertEqual(name_of(0, ""), "NO_CREATURE")
+        self.assertEqual(name_of(0, "anything"), "NO_CREATURE")
+        self.assertEqual(name_of(155, ""), "NO_NAME")
+        self.assertEqual(name_of(942, "\u96f7\u9813"), "NON_ASCII")
+        self.assertEqual(name_of(155, "Port transportation"),
+                         "Port_transportation")
+        long_name = name_of(155, "a" * 200)
+        self.assertEqual(
+            len(long_name), world_port_royal_identity.ASCII_NAME_LIMIT,
+        )
+
+    def test_the_names_table_covers_every_refusal_and_nothing_else(
+        self,
+    ) -> None:
+        self.assertEqual(
+            set(world_port_royal_identity.UNRESOLVED_CLIENT_NAMES),
+            set(world_port_royal_identity.UNRESOLVED),
+        )
+        # A named Mob-Set number may never also be resolvable: that would be
+        # a name for an actor that ships, recorded in the refusal table.
+        for template_id in world_port_royal_identity.UNRESOLVED_CLIENT_NAMES:
+            self.assertIsNone(world_port_royal_identity.resolve(template_id))
 
 
 if __name__ == "__main__":

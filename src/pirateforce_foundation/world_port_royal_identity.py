@@ -330,7 +330,52 @@ UNRESOLVED = {
     113: (942, 'CLINE leader 942 has no CONSTDATA MOBS row, so no s_OUTFIT (MOBS_TIP has a name for it)'),
 }
 
+# Mob-Set number -> the name the CLIENT'S OWN TEXT TABLE gives that leader,
+# verbatim from TEXTDATA_TH__MOBS_TIP.tsv s_NAME (digest in SOURCE_SHA256,
+# re-hashed on the bridge tree 2026-08-29T15:2x+07:00 and matched).  The same
+# five names are already written into the UNRESOLVED reason strings above as
+# prose; this is the machine-readable copy, so a console reader can be told
+# WHO the town is missing without a caller parsing an English sentence.
+#
+# WHAT AN EMPTY STRING MEANS HERE, AND IT IS TWO DIFFERENT FACTS.  Mob-Set 86
+# and 87 have no leader at all (CLINE leader 0), so there is nobody to name.
+# Mob-Set 101's leader 10002 has a MOBS row and no MOBS_TIP row; its MOBS
+# s_NAME is Chinese and reads as a pathfinding-helper prop, not a person, and
+# no placement in the frozen bg0001 table uses Mob-Set 101 at all.  The two
+# cases are told apart by UNRESOLVED's leader id (0 vs non-zero), never by the
+# emptiness of this string.
+#
+# 113's name is kept in its original characters rather than transliterated.
+# The bridge console is cp874 and cannot encode them, which is why every
+# console path through this module goes through ``ascii_display_name`` below
+# instead of printing this table.
+UNRESOLVED_CLIENT_NAMES = {
+    1: 'Port transportation',
+    76: 'Tuna',
+    86: '',
+    87: '',
+    101: '',
+    110: 'Jack',
+    112: 'Mengsk',
+    113: '\u96f7\u9813',
+}
+
+# Every name this table carries has to belong to a refusal recorded above; a
+# name for a Mob-Set number that is not refused would be a claim about an
+# actor that ships, made in the wrong file.  Raised rather than asserted:
+# ``python -O`` strips an assert, and this is a consistency guard, not a
+# development aid.
+if set(UNRESOLVED_CLIENT_NAMES) != set(UNRESOLVED):
+    raise ValueError(
+        "unresolved client names and unresolved refusals disagree"
+    )
+
 _BY_TEMPLATE = {row[0]: SceneIdentity(*row) for row in _RESOLVED_ROWS}
+
+# The longest name a console token may carry.  Bounded because this string
+# reaches a log line that a human reads beside twelve other fields, and an
+# unbounded field there is how one row hides the rest of them.
+ASCII_NAME_LIMIT = 24
 
 
 def resolve(template_id: int) -> SceneIdentity | None:
