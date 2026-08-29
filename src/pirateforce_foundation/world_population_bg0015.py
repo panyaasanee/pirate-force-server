@@ -65,8 +65,11 @@ WHAT IS DIFFERENT FROM THE OTHER TWO, NAMED RATHER THAN LEFT IMPLICIT.
       up, and this lane's own test now pins the XYZ leg lane B did not.
     - **All sixteen** members of ``COLLIDING_PLACEMENTS`` are still in lane
       B's module.  Exactly one (placement **70**) is still SHIPPED; the
-      other fifteen moved into ``WITHDRAWN_UNDER_THIS_RULE`` and
-      ``UNRESOLVED_PLACEMENTS``.  Placement 61 is one of them, verbatim.
+      other fifteen appear in ``WITHDRAWN_UNDER_THIS_RULE`` AND AGAIN in
+      ``UNRESOLVED_PLACEMENTS`` - the two lists duplicate here rather than
+      partitioning, which the first draft of this sentence read as a split
+      (pf-adversary, round 8ubiku2, E14).  Placement 61 is one of them,
+      verbatim.
       "Still in the table" and "still shipped" are different claims and the
       first rewrite widened one into the other.
     - **AND THAT IS THE POINT.  The overlap did not disappear because the

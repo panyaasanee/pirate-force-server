@@ -104,8 +104,16 @@ them are executable:
    arithmetic, and the reason it needs to be: the shortcut agrees with the
    crosswalk on 12 of the 13 marker scenes, so a round that tries it will most
    likely see it work.
-3. **The evidence tier of a marker-sourced point is ``authored``, never
-   ``client-observed``.**  ``EVIDENCE_TIER`` below carries that value and
+3. **The evidence tier of a marker-sourced point is ``authored`` ~~, never
+   ``client-observed``~~ UNLESS an attended or runtime pass has actually stood
+   a client on that exact point.**  The struck absolute was false of scene 2
+   in this project's own registry on the day it was written (pf-adversary,
+   round 8ubiku D6): scene 2's spawn came from ``MARKER[2]`` AND ``SCENE-001``
+   stood a live client on it, so it reads ``client-observed`` while still
+   being marker-sourced.  It was corrected in the registry JSON in round
+   8ubiku and NOT here, which is the same correct-one-of-two-copies mistake
+   that round had just written up about itself; round 8ubiku2 is the copy it
+   missed.  ``EVIDENCE_TIER`` below carries the default and
    ``console_line`` prints it.  No marker-sourced spawn may be promoted to
    ``confirmed`` until an attended round stands a client on that point and a
    human looks at it (``COO-DECISION 20260828_2250``, unchanged by this one).
@@ -120,16 +128,30 @@ wiring a scene.  And the rule may not be applied to a sixth scene until this
 text is on ``main`` - the COO set that order explicitly, so the rule and its
 first use cannot land in one unreviewed step.
 
-NOTHING IN PRODUCTION IMPORTS THIS FILE, AND SAYING SO IS NOT A FORMALITY
-(pf-adversary, round vyi2ud, D7).  ``grep -rn world_scene_marker --include=*.py``
-finds this module and its test file, and nothing else: the scene-14 spawn in
-``scenarios/world_scene_registry_001.json`` is a hand-typed JSON literal that
-a test cross-checks against the row below, not a value read from here at boot.
-So ``_self_check`` guards THIS module's own consistency and never runs during
-a real login, and the sentence an earlier draft carried - "a raise here is a
-boot that stops with a reason" - was false.  What this file is, exactly: the
-crosswalk written down once, with its sources pinned, so the next scene is a
-lookup and a test rather than an argument.
+~~NOTHING IN PRODUCTION IMPORTS THIS FILE, AND SAYING SO IS NOT A FORMALITY
+(pf-adversary, round vyi2ud, D7).  ``grep -rn world_scene_marker
+--include=*.py`` finds this module and its test file, and nothing else ... So
+``_self_check`` guards THIS module's own consistency and never runs during a
+real login, and the sentence an earlier draft carried - "a raise here is a
+boot that stops with a reason" - was false.~~
+
+**THIS FILE IS NOW ON THE BOOT PATH, AND THE ROUND THAT PUT IT THERE LEFT THE
+PARAGRAPH ABOVE STANDING.**  Struck, not deleted, because the sequence is the
+lesson: round vyi2ud was made to write that paragraph by an adversary pass,
+and round 8ubiku then falsified it with its own one-line import while
+quoting it as still true (pf-adversary, round 8ubiku2, E6).  At HEAD:
+``world_scene_travel.py`` imports this module for the load-time cross-check,
+``runtime.py`` imports ``world_scene_liveness`` / ``world_travel_gate`` /
+``gm.login_scene_stage`` which all import ``world_scene_travel``, and
+``runtime.py``'s ``world_travel_gate.preload()`` calls
+``load_scene_registry()``.  So ``_self_check()`` runs at server import and a
+bad pinned row IS now a boot that stops with a reason - the sentence an
+earlier draft carried, which was false when written and is true now.  A
+paragraph asserting what imports a file is a claim with a shelf life; this
+one is pinned by a test as of this round rather than left to the next reader.
+
+What this file is, exactly: the crosswalk written down once, with its sources
+pinned, so the next scene is a lookup and a test rather than an argument.
 
 WHAT A MARKER IS NOT.  It is not ground: it says a coordinate was authored,
 not that the mesh under it can be stood on, and this module makes no claim
@@ -217,9 +239,41 @@ _READING = "u32 columns read as two's-complement int32"
 # on it, and the two marker points a client HAS accepted (MARKER[1] via V137,
 # MARKER[2] via SCENE-001) were accepted as teleport destinations, not as the
 # arrival the original game would have chosen.
+# HOW FAR THE VERIFICATION IN THIS MODULE ACTUALLY REACHES, ON THE MACHINE
+# THAT DECIDES WHETHER A CHANGE MERGES.  Round 8ubiku wired a load-time
+# cross-check in world_scene_travel and called the pinned rows below "the
+# second opinion ... from the client's table rather than from this file".
+# That is true on a workstation with the bridge tree beside this repo.  It is
+# FALSE on the gate: MarkerReverificationOnTheBridgeTest is
+# @BRIDGE_GAMEDATA.skip_unless_present() and is a DECLARED SKIP in
+# docs/PYTEST_SKIP_PINS.json, so on a clone without pf_bridge the only thing
+# tying _ROWS to CONSTDATA_TH__MARKER.tsv does not run.
+#
+# Measured by pf-adversary (round 8ubiku2, E1): on such a clone, forge a
+# coordinate in _ROWS, update the by-value pin to match - which a round would
+# call "updating the pin" - move the registry spawn to match, and the suite is
+# GREEN (4311 passed).  The forged point then carries source
+# "client_marker_table" and the loader's cross-check certifies it.  Three
+# hand-typed literals in one repo, one commit, one lane, checked against each
+# other and reported as corroboration: the round vyi2ud D5 shape, one layer up.
+#
+# So: what is enforced everywhere is INTERNAL CONSISTENCY - registry spawn,
+# registry table_row.n_MARKER and these rows must agree, and a bad edit to any
+# ONE of them is refused at boot.  What is enforced only where the bridge tree
+# exists is AGREEMENT WITH THE CLIENT.  A round that edits _ROWS is unverified
+# until a bridge-side run says otherwise, and this constant is what a reader
+# should quote instead of "the tests are green".
+#
+# The project-level fix is not this lane's to choose - it is either committing
+# the marker rows as gate-checkable data or teaching the gate that a diff
+# touching _ROWS needs a bridge run - and it is asked in
+# pf_bridge/notes_to_chief/20260829_0834_LANE-A-ASK-COO-the-gate-cannot-check-
+# client-data.md.
+VERIFICATION_REACH = (
+    "internal consistency everywhere; agreement with the client tables only "
+    "where pf_bridge sits beside this repo, which is NOT the merge gate"
+)
 EVIDENCE_TIER = "authored"
-EVIDENCE_TIER_ABOVE_THIS = "client-observed, and only an attended round grants it"
-RULING = "COO-DECISION 20260829_0542 (option 1, standing rule, evidence tier authored)"
 
 
 def forbidden_direct_index_scenes() -> dict[int, str]:
@@ -262,27 +316,50 @@ def forbidden_direct_index_scenes() -> dict[int, str]:
     like pin drift.  The lesson recorded rather than smoothed: this docstring
     also claimed the full table was unreadable from here and the question
     could not be settled.  It was readable - ``MarkerReverificationOnTheBridge
-    Test`` executes against the bridge tree and does not skip - so the hedge
-    was not caution, it was an unmeasured claim wearing caution's clothes.
+    Test`` executes against the bridge tree WHERE THAT TREE EXISTS - so the
+    hedge was not caution, it was an unmeasured claim wearing caution's
+    clothes.  Read ``VERIFICATION_REACH`` below before quoting that test as
+    proof of anything: it is a declared skip on the machine that gates the
+    merge, which round 8ubiku did not say and should have.
 
     The count is what makes rule 2 worth enforcing rather than trusting: the
     shortcut is RIGHT for 12 of the 13 scenes anyone is likely to try it on,
     so it will look correct to the round that introduces it and be wrong for
     the round that inherits it.
 
-    Returns scene id -> why the shortcut lies there.  The seven are counted
-    here, not named: identifying WHICH seven needs the full 390-row table,
-    which is pinned in the bridge repo and not readable from this one, and
-    ``reverification_script()`` is where that check belongs.
+    Returns scene id -> why the shortcut lies there, for the pinned scenes
+    only.  ~~The seven are counted here, not named: identifying WHICH seven
+    needs the full 390-row table, which is pinned in the bridge repo and not
+    readable from this one.~~  STRUCK (pf-adversary, round 8ubiku2, E7): that
+    sentence restated, twenty lines below it, the exact hedge this docstring
+    had just struck as an unmeasured claim - and it misdescribed the return,
+    which counts no sevens and names no sevens.  The seven row ids ARE named
+    above, because the table WAS read.
     """
     lying: dict[int, str] = {}
     for arrival in _BY_SCENE.values():
         if arrival.marker_n_id != arrival.scene_n_id:
+            # Only scene 130's foreign row is MEASURED, so only scene 130's
+            # message may state one.  The first version interpolated
+            # MARKER_ROW_AT_SCENE_130_BELONGS_TO into EVERY entry, so a 14th
+            # pinned row - say scene 200 naming marker 1500 - would have told
+            # the reader "MARKER[200] carries n_SCENE 2", a number nobody
+            # measured (pf-adversary, round 8ubiku2, E8).
+            if arrival.scene_n_id == 130:
+                detail = (
+                    f"and MARKER[130] carries n_SCENE "
+                    f"{MARKER_ROW_AT_SCENE_130_BELONGS_TO}, so the shortcut "
+                    "hands this scene Prison Exile Island's row"
+                )
+            else:
+                detail = (
+                    f"so MARKER[{arrival.scene_n_id}] is not the row this "
+                    "scene named; what that row carries is not pinned here "
+                    "and must not be guessed"
+                )
             lying[arrival.scene_n_id] = (
                 f"scene {arrival.scene_n_id} names marker "
-                f"{arrival.marker_n_id}, but MARKER[{arrival.scene_n_id}] "
-                f"carries n_SCENE {MARKER_ROW_AT_SCENE_130_BELONGS_TO}, so "
-                "the shortcut hands this scene another map's arrival point"
+                f"{arrival.marker_n_id}, {detail}"
             )
     return lying
 
@@ -538,7 +615,6 @@ def reverification_script() -> str:
         "# Rule 2's hazard, re-derived rather than asserted.  These are the\n"
         "# numbers a docstring got wrong by a factor of 36 before a bridge\n"
         "# round could check them (round 8ubiku, pf-adversary D1).\n"
-        "scene_ids = {int(row['n_ID']) for row in scenes}\n"
         "marker_less = [int(r['n_ID']) for r in scenes if not int(r['n_MARKER'])]\n"
         "assert len(marker_less) == MARKER_LESS_SCENES, len(marker_less)\n"
         "invents = [i for i in marker_less if i in by_id]\n"

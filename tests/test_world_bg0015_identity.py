@@ -344,9 +344,16 @@ class CollidesWithACommittedTableTest(unittest.TestCase):
         for index in sorted(recorded - shipped):
             with self.subTest(placement=index):
                 self.assertIn(index, withdrawn | unresolved)
+        # pf-adversary, round 8ubiku2, E14: the first version read reasons
+        # only from WITHDRAWN_UNDER_THIS_RULE.  That was harmless only
+        # because the fifteen sit in BOTH lists today - a duplication, not a
+        # partition - so a future split would have left half unchecked.
         reasons = [
-            row[-1] for row in field_mob_tables_bg0015.WITHDRAWN_UNDER_THIS_RULE
-            if row[0] in recorded
+            row[-1]
+            for source in (field_mob_tables_bg0015.WITHDRAWN_UNDER_THIS_RULE,
+                           field_mob_tables_bg0015.UNRESOLVED_PLACEMENTS)
+            for row in source
+            if row[0] in recorded - shipped
         ]
         self.assertTrue(reasons)
         for reason in reasons:
