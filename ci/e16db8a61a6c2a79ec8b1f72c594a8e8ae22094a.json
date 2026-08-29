@@ -1,1 +1,1 @@
-{"sha":"e16db8a61a6c2a79ec8b1f72c594a8e8ae22094a","conclusion":"success","event":"push","ref":"refs/heads/claude/sleepy-cray-1k0tfu","run_id":"33243388161","utc":"2026-08-29T08:38:38Z"}
+{"sha":"e16db8a61a6c2a79ec8b1f72c594a8e8ae22094a","conclusion":"success","event":"pull_request","ref":"refs/pull/264/merge","run_id":"33243390552","utc":"2026-08-29T08:38:55Z"}
