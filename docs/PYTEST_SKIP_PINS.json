@@ -860,6 +860,16 @@
         "TheCommittedCopyIsTheRealTable::test_cline_resolves_set_103_to_the_id_this_module_committed"
       ],
       "note": "round ua236k (LANE-B): COO-DECISION 20260829_0345 made cline the project's one identity rule and ordered the 35/35 equality pinned by a test. scene_identity_rule.py commits the CLINE blocks for the two scene types in play because CONSTDATA_TH__CLINE.tsv lives on the bridge clone, not here; these re-derive those blocks, both disputed readings of Mob-Set 103, SCENE_CLINE_TYPE itself (the crosswalk's entry point, which nothing re-derived before pf-adversary's review), the n_ID-vs-n_CLINE_TYPE control, the rule's 19/271 reach, and the gap that Bg0015 ships under controls measured on another scene type. Pinned in the same commit as the test, per the defect shape that closed PRs in rounds ctflxc, 2vxlx2, y7koj9 and vyi2ud."
+    },
+    {
+      "key": "bridge_gamedata",
+      "module": "tests/test_field_mobs.py",
+      "count": 2,
+      "tests": [
+        "Bg0001RegenerateAndDiffTest::test_regenerating_reproduces_the_committed_bg0001_module",
+        "Bg0001RegenerateAndDiffTest::test_the_scene_is_fully_accounted_for"
+      ],
+      "note": "round 0n9inw (LANE-B): this class re-runs tools/pf_mine_scene_mob_roster.py --scene bg0001 against the bridge clone's gamedata so the committed module cannot drift unnoticed - the control bg0002 and bg0015 already had. It shipped in round szdkgs with a BARE unittest.SkipTest in setUpClass, which pf_preconditions' own header names as the exact shape it exists to stop: undeclared, uncounted, invisible to this census. LANE-A measured it on a fresh Linux clone (status letter 20260829_1050 section 3) - tools/pf_pytest_precondition_census.py reported UNDECLARED SKIP (2 tests), RESULT: FAIL - and stated plainly they could not reproduce a red gate and did not claim one; the skip was undeclared either way. Converted to BRIDGE_GAMEDATA.skip_unless_present() and pinned in the same commit as that conversion, per the defect shape that closed PRs in rounds ctflxc, 2vxlx2, y7koj9 and vyi2ud."
     }
   ],
   "windows_gate_excluded_modules": {

@@ -190,12 +190,14 @@ than only in a letter, because letters get lost.
 
 from __future__ import annotations
 
+import collections as _collections
 from dataclasses import dataclass
 import hashlib
 import math
 import random as _random
 import struct
 import threading
+import time as _time
 from typing import Any
 
 from . import field_drop_tables
@@ -237,9 +239,15 @@ MOB_LOOT_WIRING = (
     "may be interleaved into another lane's typed lethal sequence for the "
     "same actor, and the label lives 0.2-0.4 s, so loot sent inside the hold "
     "is gone before the corpse frame is.\n"
-    "  4. PRUNE THROUGH THE CELL.  Nothing in this module expires a row "
-    "and the label is off screen in under half a second; a caller that "
-    "never prunes grows the ledger without bound.  Pruning beside the "
+    "  4. PRUNE THROUGH THE CELL.  ~~'Nothing in this module expires a row "
+    "... a caller that never prunes grows the ledger without bound'~~ IS "
+    "STRUCK, round 0n9inw: the cell now expires its own rows "
+    "(DROP_LIFETIME_SECONDS, evaluated lazily when you touch the cell -- no "
+    "thread, no timer), per COO-DECISION 2026-08-29T12:41+07:00.  A caller "
+    "that never prunes NO LONGER grows the ledger without bound.  YOU STILL "
+    "WANT THE PRUNE, for the other reason: RE-130 says a nonempty generation "
+    "erases the keys it omits, so the prune is what keeps the CLIENT'S list "
+    "narrow.  The expiry bounds the SERVER'S cell.  Pruning beside the "
     "cell, on a value you kept, loses whatever a kill wrote in between.\n"
     "  4-ROUND-uq2lxw2, AND READ THIS BEFORE WRITING cell.take(key) IN A "
     "LOOP: taking every key of the kill you just sent -- which is what "
@@ -253,11 +261,19 @@ MOB_LOOT_WIRING = (
     "step 3: it derives its own cut point from the cell (the newest "
     "kill's first key), takes no argument to get wrong, leaves the "
     "newest kill's rows on the ground for the player who is reaching "
-    "for them, and still bounds the ledger.  [ASSUMPTION OF LANE B - "
+    "for them, and still bounds the ledger.  ~~'[ASSUMPTION OF LANE B - "
     "AWAITING COO] chief asked the COO what replaces the ledger ceiling "
-    "(a timer, a per-drop expiry); this lane shipped the option that "
-    "needs no clock and no ruling, and the ruling may still name a "
-    "different one.\n"
+    "(a timer, a per-drop expiry); the ruling may still name a different "
+    "one'~~ IS STRUCK, round 0n9inw -- THE RULING CAME AND IT NAMED THE "
+    "PER-DROP EXPIRY (COO-DECISION 2026-08-29T12:41+07:00, evaluated lazily "
+    "at insert and dispatch, explicitly not a background timer).  It is "
+    "built, it is on by default, and it needs NOTHING from this call site.  "
+    "The prune stays for RE-130's reason, not for the ceiling's.\n"
+    "  4c. AND A REFUSAL YOU MUST NOT COLLAPSE, round 0n9inw: cell.take(key) "
+    "now raises drop_expired for a row whose deadline passed, which is a "
+    "DIFFERENT name from drop_already_taken.  A pickup call site that maps "
+    "both to one message tells a player 'somebody beat you to it' when "
+    "nobody was there.\n"
     "  4b. AND SINCE RE-130 THE PRUNE HAS A COST THIS CONTRACT OWES THE "
     "CALLER, round zxnwtd.  The consumer erases every key a nonempty "
     "generation omits, so a generation built from ONE kill's rows removes "
@@ -431,6 +447,43 @@ WIRE_TO_SCREEN_SECONDS = 0.12
 # frame as the green "received item" line.  That is a PICKUP-TERMINATED
 # interval, not an expiry, and that clip contains no case of nobody picking up.
 ORIGINAL_SERVER_PICKUP_TERMINATED_SECONDS = 0.633
+
+# ---------------------------------------------------------------------------
+# ROUND 0n9inw -- THE LEDGER CEILING, RULED.  COO-DECISION 2026-08-29T12:41
+# +07:00 ("gt124-fix-the-prune-loop-open-the-capture-ticket-no-flags") answered
+# the question round uq2lxw2 shipped under an [ASSUMPTION OF LANE B] tag: what
+# replaces the ledger ceiling when runtime.py stops taking every key of the
+# kill it just sent.  THE RULING: a PER-DROP EXPIRY, evaluated LAZILY at insert
+# and dispatch -- explicitly NOT a background timer -- because that shape is
+# deterministic, testable headless, and adds no thread.
+#
+# WHAT THE RULING DID NOT NAME IS THE NUMBER, and nothing measured supplies it:
+#   * GROUND_LABEL_OBSERVED_LIFETIME_SECONDS (0.2-0.4) is THE LABEL'S life on
+#     screen, not the row's.  The row is what makes a click succeed, and RE-130
+#     is why a player clicks where nothing is drawn -- so the label's life is
+#     the wrong quantity and using it would delete every drop before a player
+#     could reach one.
+#   * ORIGINAL_SERVER_PICKUP_TERMINATED_SECONDS (0.633) is an interval that
+#     ENDED IN A PICKUP on the original server.  It bounds nothing: that clip
+#     contains no case of nobody picking up.
+# So the number below is this lane's own, and it is tagged as such.  It answers
+# one question -- how long after a kill may a player still successfully click
+# the object -- and it is sized for a player who has to walk there.
+# [ASSUMPTION OF LANE B - AWAITING COO] The MECHANISM is ruled and is not an
+# assumption; only this figure is.  Changing it is a one-line change with no
+# call-site consequence, which is why the lane took a number rather than
+# waiting for one.
+DROP_LIFETIME_SECONDS = 120.0
+#: A lifetime must be shorter than this.  Not a policy, a tripwire: a cell
+#: built with a lifetime measured in days is a cell with no ceiling at all,
+#: which is the exact defect the expiry exists to close.
+MAX_DROP_LIFETIME_SECONDS = 3600.0
+#: How many expired rows a cell remembers so it can tell a late click "your
+#: object expired" instead of "no such object".  BOUNDED ON PURPOSE: the memory
+#: that names the refusal must not become the unbounded growth the expiry is
+#: here to prevent.  Beyond this depth a late click falls back to
+#: ``drop_not_in_ledger``, which is true, just less useful.
+EXPIRED_KEY_MEMORY = 64
 
 # The money slot: ``n_ITEM = 0`` with a nonzero rate.  [INFERENCE] in the
 # round-100 fact pack, [INFERENCE] here, and it can never reach the ground
@@ -663,6 +716,27 @@ REFUSE_FRAME_ENCODER_DISAGREES = "frame_encoder_disagrees"
 #: remove the rows a player can still be reaching for -- the one mistake the
 #: prune primitive is shaped to make loud rather than silent.
 REFUSE_PRUNE_WOULD_TAKE_THE_NEWEST_KILL = "prune_would_take_the_newest_kill"
+#: ROUND 0n9inw.  The row was on the ground and its deadline passed before the
+#: player's click arrived.  It is a SEPARATE NAME from drop_not_in_ledger and
+#: from a row another player took, and that separation is the point: round
+#: uq2lxw2 wrote down that expiry and someone-else's-pickup gave the caller the
+#: same word, so a call site could not tell a player "you were too slow" apart
+#: from "somebody beat you to it".  A refusal that cannot distinguish those two
+#: cannot be turned into an honest message on screen.
+REFUSE_DROP_EXPIRED = "drop_expired"
+#: ROUND 0n9inw.  A cell's clock read lower than its own previous reading.  With
+#: the default clock (time.monotonic) this cannot happen; it is reachable, and
+#: reached in tests, through an injected clock -- which is exactly the case that
+#: must be loud, because a backwards clock silently stops every expiry and the
+#: ledger grows without bound again with nothing raised anywhere.
+REFUSE_CLOCK_WENT_BACKWARDS = "clock_went_backwards"
+#: ROUND 0n9inw.  A lifetime that is zero, negative, non-finite or absurdly
+#: large is refused when the cell is built rather than the day a drop either
+#: vanishes before the frame carrying it or never leaves the ground.
+REFUSE_LIFETIME_OUT_OF_RANGE = "lifetime_out_of_range"
+#: ROUND 0n9inw.  The clock handed to a cell is not callable, or does not return
+#: a finite real number.
+REFUSE_CLOCK_IS_NOT_A_CLOCK = "clock_is_not_a_clock"
 
 MOB_LOOT_REFUSAL_REASONS = (
     REFUSE_TYPE_NOT_TYPED_RECORD,
@@ -695,6 +769,10 @@ MOB_LOOT_REFUSAL_REASONS = (
     REFUSE_DUPLICATE_KEY_IN_GENERATION,
     REFUSE_FRAME_ENCODER_DISAGREES,
     REFUSE_PRUNE_WOULD_TAKE_THE_NEWEST_KILL,
+    REFUSE_DROP_EXPIRED,
+    REFUSE_CLOCK_WENT_BACKWARDS,
+    REFUSE_LIFETIME_OUT_OF_RANGE,
+    REFUSE_CLOCK_IS_NOT_A_CLOCK,
 )
 
 
@@ -744,6 +822,70 @@ def _require_identity(value: Any, label: str) -> int:
         raise MobLootContractError(
             REFUSE_IDENTITY_NOT_POSITIVE, "%s must be positive" % label)
     return identity
+
+
+def _require_lifetime(value: Any) -> float:
+    """ROUND 0n9inw.  A drop lifetime, in seconds, or a refusal by name."""
+    if type(value) not in (int, float):   # a bool is neither, by exact type
+        raise MobLootContractError(
+            REFUSE_LIFETIME_OUT_OF_RANGE,
+            "a lifetime is a number of seconds, not %r" % (value,))
+    lifetime = float(value)
+    if not math.isfinite(lifetime):
+        raise MobLootContractError(
+            REFUSE_LIFETIME_OUT_OF_RANGE, "a lifetime must be finite")
+    if lifetime <= 0.0:
+        # Zero is refused, not treated as "expire immediately": a cell whose
+        # rows are gone before the frame announcing them is sent is a cell that
+        # silently eats every drop, and it would look like a loot bug for as
+        # long as it took somebody to find this number.
+        raise MobLootContractError(
+            REFUSE_LIFETIME_OUT_OF_RANGE,
+            "a lifetime must be above zero; %r would take every drop off the "
+            "ground before the frame carrying it is sent" % (lifetime,))
+    if lifetime > MAX_DROP_LIFETIME_SECONDS:
+        raise MobLootContractError(
+            REFUSE_LIFETIME_OUT_OF_RANGE,
+            "a lifetime of %r s is above this lane's tripwire of %r s; a cell "
+            "with a lifetime that long has no ceiling, which is the defect "
+            "the expiry exists to close"
+            % (lifetime, MAX_DROP_LIFETIME_SECONDS))
+    return lifetime
+
+
+def _require_clock(clock: Any) -> Any:
+    """ROUND 0n9inw.  A zero-argument callable returning a finite real number."""
+    if not callable(clock):
+        raise MobLootContractError(
+            REFUSE_CLOCK_IS_NOT_A_CLOCK,
+            "a clock is called with no arguments; %r is not callable"
+            % (clock,))
+    return clock
+
+
+def _read_clock(clock: Any, previous: Any) -> float:
+    """Take one reading, refusing a clock that is not one or has gone back."""
+    try:
+        now = clock()
+    except TypeError as exc:
+        raise MobLootContractError(
+            REFUSE_CLOCK_IS_NOT_A_CLOCK,
+            "a clock is called with no arguments: %s" % (exc,)) from exc
+    if type(now) not in (int, float):
+        raise MobLootContractError(
+            REFUSE_CLOCK_IS_NOT_A_CLOCK,
+            "a clock returns a number of seconds, not %r" % (now,))
+    now = float(now)
+    if not math.isfinite(now):
+        raise MobLootContractError(
+            REFUSE_CLOCK_IS_NOT_A_CLOCK, "a clock reading must be finite")
+    if previous is not None and now < previous:
+        raise MobLootContractError(
+            REFUSE_CLOCK_WENT_BACKWARDS,
+            "this cell's clock read %r after reading %r; every deadline it "
+            "issued is now in the future and nothing would ever expire again"
+            % (now, previous))
+    return now
 
 
 def _require_float32(value: Any, label: str) -> float:
@@ -1520,19 +1662,42 @@ class DropLedgerCell:
     supply a stale generation, cannot allocate a key that another kill just
     took, and cannot prune against a ledger that has moved.
 
-    It is deliberately tiny and it still does nothing on its own: no clock, no
-    socket, no thread, no expiry.  Pruning is still the caller's duty (there
-    is nothing in this lane that knows when a label has faded), but it is now
-    a duty performed THROUGH the cell instead of on a value beside it.
+    It is deliberately tiny and it still does nothing on its own: no socket and
+    no thread.  ~~"no clock, no expiry"~~ IS STRUCK, round 0n9inw: the cell now
+    reads a clock and expires its own rows, because COO-DECISION 2026-08-29T
+    12:41+07:00 ruled a per-drop expiry to be what bounds the ledger.  What it
+    still does not have is a THREAD: nothing here ticks.  The clock is read
+    only when a caller touches the cell, which is what "lazy at insert and
+    dispatch" means and what makes the whole mechanism testable headless with a
+    clock that is just a list of numbers.
+
+    Pruning by key remains the caller's duty and is unchanged; expiry is the
+    cell's own and needs no call site at all.  The two answer different
+    questions and BOTH are needed: the prune keeps the CLIENT'S generation
+    narrow (RE-130 -- a nonempty generation erases the keys it omits), while
+    the expiry is what bounds a cell whose caller never prunes, or prunes and
+    then stops killing things.
     """
 
-    def __init__(self, ledger: Any = None) -> None:
+    def __init__(
+        self,
+        ledger: Any = None,
+        lifetime_seconds: Any = DROP_LIFETIME_SECONDS,
+        clock: Any = None,
+    ) -> None:
         if ledger is None:
             ledger = DropLedger()
         if type(ledger) is not DropLedger:
             raise MobLootContractError(
                 REFUSE_TYPE_NOT_TYPED_RECORD,
                 "a cell holds a typed DropLedger")
+        self._lifetime = _require_lifetime(lifetime_seconds)
+        # time.monotonic, not time.time: a wall clock that steps backwards over
+        # a DST change or an NTP correction would freeze every deadline in the
+        # future and stop the expiry dead, and one that steps forward would
+        # take the ground out from under a player mid-walk.  Neither is a
+        # failure this lane should be able to have.
+        self._clock = _time.monotonic if clock is None else _require_clock(clock)
         self._ledger = ledger
         # Where the newest kill's key block starts, or None until a kill with
         # drops lands.  Round uq2lxw2: this is what lets prune_previous_kills
@@ -1540,12 +1705,100 @@ class DropLedgerCell:
         # defect rather than the feature.
         self._newest_kill_first_key = None
         self._lock = threading.Lock()
+        # Read once here so a broken clock is refused when the cell is built,
+        # not in the middle of somebody's kill.
+        self._now = _read_clock(self._clock, None)
+        # key -> deadline, for the rows on the ground.  Rows handed in through
+        # ``ledger`` get a deadline too: a row that entered before the cell
+        # existed must not be the one row that lives forever.
+        self._deadlines = {
+            drop.drop_key: self._now + self._lifetime for drop in ledger.drops}
+        # The bounded memory behind REFUSE_DROP_EXPIRED.  A deque, so the
+        # structure that explains a refusal cannot itself grow without bound.
+        self._expired = _collections.deque(maxlen=EXPIRED_KEY_MEMORY)
+
+    def _read_now_locked(self) -> float:
+        """Advance the cell's clock.  Call with the lock held.
+
+        One reading serves a whole call: a sweep and the deadlines the same
+        call hands out must agree, or a drop placed in the same breath as a
+        sweep could be born already expired.
+        """
+        self._now = _read_clock(self._clock, self._now)
+        return self._now
+
+    def _sweep_locked(self, now: float) -> tuple:
+        """Remove every row whose deadline has passed.  Lock held, no clock read.
+
+        ``>=`` rather than ``>``: a deadline is the first instant the row is
+        gone, so a click landing exactly on it is late.  With a real clock the
+        difference is unobservable; with an injected one it is the difference
+        between a test that pins the boundary and a test that pins nothing.
+        """
+        due = [
+            key for key, deadline in self._deadlines.items() if now >= deadline]
+        if not due:
+            return ()
+        ledger = self._ledger
+        removed = []
+        for key in sorted(due):
+            # A key can be in _deadlines without being on the ground if a
+            # caller took it through take_drop on a value beside the cell.
+            # Dropping the deadline is right either way.
+            del self._deadlines[key]
+            try:
+                ledger, taken = take_drop(ledger, key)
+            except MobLootContractError:
+                continue
+            removed.append(taken)
+            self._expired.append(key)
+        self._ledger = ledger
+        return tuple(removed)
 
     @property
     def ledger(self) -> DropLedger:
-        """The current value.  A snapshot; storing it is not owning it."""
+        """The current value.  A snapshot; storing it is not owning it.
+
+        READING IS ONE OF THE LAZY EVALUATION POINTS, and so this property has
+        a side effect, which is worth stating rather than hiding: it sweeps
+        first, so a snapshot never contains a row that is already past its
+        deadline.  The alternative -- a pure read -- means a caller can see a
+        row here, call ``take`` on the next line and be refused for a deadline
+        that had already passed when it looked.  A property that lies is worse
+        than a property that works.
+        """
         with self._lock:
+            now = self._read_now_locked()
+            self._sweep_locked(now)
             return self._ledger
+
+    def sweep_expired(self) -> tuple:
+        """Expire what is due and return the removed rows, oldest key first.
+
+        The explicit form of what :attr:`ledger`, :meth:`loot_a_kill`,
+        :meth:`take` and :meth:`frames` already do.  A caller wants this when
+        it needs the ROWS -- to log them, or to send a narrower generation --
+        rather than just the guarantee that they are gone.
+        """
+        with self._lock:
+            now = self._read_now_locked()
+            return self._sweep_locked(now)
+
+    def expires_at(self, drop_key: int) -> float:
+        """The deadline of one live row, on the cell's own clock.
+
+        Refuses by name for a key that is not on the ground, so it cannot be
+        used to ask whether a row exists and get a number that means "no".
+        """
+        drop_key = _require_int(drop_key, "drop key", 0, 0xFFFFFFFF)
+        with self._lock:
+            now = self._read_now_locked()
+            self._sweep_locked(now)
+            if drop_key not in self._deadlines:
+                raise MobLootContractError(
+                    REFUSE_DROP_NOT_IN_LEDGER,
+                    "no drop with key 0x%X is on the ground" % drop_key)
+            return self._deadlines[drop_key]
 
     def loot_a_kill(
         self,
@@ -1562,6 +1815,13 @@ class DropLedgerCell:
         guess.  A refusal leaves the cell exactly as it was.
         """
         with self._lock:
+            # INSERT is one of the two lazy points the ruling names.  Sweeping
+            # BEFORE the placement, not after, is deliberate: the new rows must
+            # not be measured against a deadline computed one instruction
+            # earlier, and a kill is the moment a cell is most likely to be
+            # holding rows nobody will ever come back for.
+            now = self._read_now_locked()
+            self._sweep_locked(now)
             current = self._ledger
             drops = place_drops(
                 mob, record, roll, current.next_key, position=position)
@@ -1569,6 +1829,9 @@ class DropLedgerCell:
                 current, drops, base_generation=current.generation,
                 kill_token=kill_token,
                 mob_identity=getattr(record, "actor_identity", None))
+            deadline = now + self._lifetime
+            for drop in drops:
+                self._deadlines[drop.drop_key] = deadline
             if drops:
                 # A kill that dropped nothing does not move the mark: the
                 # newest kill WITH ROWS is the one a player can be reaching
@@ -1578,9 +1841,25 @@ class DropLedgerCell:
             return drops
 
     def take(self, drop_key: int) -> Any:
-        """Remove one row -- a pickup, or the prune the caller owes."""
+        """Remove one row -- a pickup, or the prune the caller owes.
+
+        DISPATCH is the second lazy point, and a click that arrives after the
+        deadline is refused as :data:`REFUSE_DROP_EXPIRED` rather than as a
+        missing row.  That distinction is the one round uq2lxw2 wrote down as
+        owed: "the row expired" and "somebody else took it" are different
+        things to tell a player, and before this round they were the same word.
+        """
+        drop_key = _require_int(drop_key, "drop key", 0, 0xFFFFFFFF)
         with self._lock:
+            now = self._read_now_locked()
+            self._sweep_locked(now)
+            if drop_key in self._expired:
+                raise MobLootContractError(
+                    REFUSE_DROP_EXPIRED,
+                    "drop 0x%X was on the ground and its deadline passed; it "
+                    "was not taken by anyone" % drop_key)
             self._ledger, taken = take_drop(self._ledger, drop_key)
+            self._deadlines.pop(drop_key, None)
             return taken
 
     def prune_previous_kills(self) -> tuple:
@@ -1679,6 +1958,12 @@ class DropLedgerCell:
                 if drop.drop_key < drop_key:
                     ledger, taken = take_drop(ledger, drop.drop_key)
                     removed.append(taken)
+                    # Round 0n9inw: a pruned row must lose its deadline too.
+                    # A deadline outliving its row is not harmless -- it is a
+                    # key this cell would later "expire" and remember as
+                    # expired, so a pickup call site would be told a row the
+                    # PRUNE removed had timed out.
+                    pass
             self._ledger = ledger
             return tuple(removed)
 
