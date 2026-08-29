@@ -294,6 +294,29 @@ class ProfileJoinTests(unittest.TestCase):
         # therefore player-initiated only, which is what BUILD-005 needs
         # ("hit it, it bleeds, it dies") but NOT what an aggro milestone
         # would need.  Pinned so the day that changes is a noticed day.
+        #
+        # ROUND z096sw, CONSUMING COO-DECISION 2026-08-29T17:41+07:00
+        # (pf_bridge/notes_to_chief/20260829_1741_COO-DECISION-owner-
+        # refused-block-filter-confirmed-aggro-ticket-before-m6.md, which
+        # answers this lane's own ASK-COO of 16:05).  Three things that
+        # ruling settles, recorded here because this is the test they bear
+        # on:
+        #   1. The owner-refusal filter is CONFIRMED RETROACTIVELY and is
+        #      the standing line until the 101-104 block's meaning is
+        #      PROVEN -- the block returns to the roster only via evidence
+        #      plus a new ruling, never via a regeneration under some
+        #      other mining rule.
+        #   2. "No monster anywhere initiates" is ACCEPTED THROUGH M5 and
+        #      explicitly NOT accepted as permanent.
+        #   3. THIS PIN HAS A STATED LIFETIME, which it did not have when
+        #      it was written: it stands until the aggro ticket closes.
+        #      That ticket now exists -- RE-150 (opened by chief, R230,
+        #      2026-08-29T18:05+07:00), STATIC-ON-BRIDGE, looking for an
+        #      ``ai_wander 11`` placement OUTSIDE the forbidden block, from
+        #      committed artifacts only, due before the M6 window
+        #      (2 Sep 23:59).  When RE-150 closes with such a placement,
+        #      this assertion is EXPECTED to go red and the day it does is
+        #      the day the lane reads it as progress, not as a break.
         for scene in (None, field_mobs.BG0002_SCENE):
             roster = (field_mobs.load_roster() if scene is None
                       else field_mobs.load_roster(scene=scene))

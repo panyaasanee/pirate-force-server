@@ -542,6 +542,18 @@ def live_scenes() -> tuple[str, ...]:
 # (Placement 65 is in the same source list under a DIFFERENT reason --
 # "no_mobs_row_for_this_n_id_no_body_data" -- which is a mining limit, not
 # an owner ruling, and is deliberately NOT carried here.)
+# CONFIRMED RETROACTIVELY BY THE COO, round z096sw.  ``pf_bridge/notes_to_
+# chief/20260829_1741_COO-DECISION-owner-refused-block-filter-confirmed-
+# aggro-ticket-before-m6.md`` (answering this lane's ASK-COO of 16:05)
+# rules that this literal, the ``load_roster`` filter and
+# ``assert_owner_refusals_match_scene_source`` are the STANDING line until
+# the meaning of the n_id 101-104 block is PROVEN -- and that the only way
+# back into the roster for these placements is evidence of that meaning
+# plus a fresh ruling, never a regeneration under a different mining rule
+# ("regenerating under another rule is guessing a new identity scheme,
+# which the same owner order already forbids").  The ruling also states
+# that this lane did not need approval to STOP disobeying an owner order,
+# which is why the filter shipped in wmomy7 rather than waiting here.
 OWNER_REFUSED_PLACEMENTS: dict[str, tuple[int, ...]] = {
     'Bg0002': (89, 90, 92, 93, 94, 95, 96, 97),
 }

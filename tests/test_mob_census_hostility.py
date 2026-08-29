@@ -16,6 +16,7 @@ is the pin for that.
 
 import pathlib
 import sys
+import types
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -116,6 +117,87 @@ class OwnerRefusalTests(unittest.TestCase):
             field_mobs.OWNER_REFUSED_PLACEMENTS.clear()
             field_mobs.OWNER_REFUSED_PLACEMENTS.update(original)
 
+    # ----- ROUND z096sw: the three holes pf-adversary measured in this
+    # guard, each driven the way the guard's own docstring claimed they
+    # already were.  All three were written after the finding, not before,
+    # and each was confirmed to FAIL against the pre-round guard.
+
+    def test_the_guard_refuses_a_refusal_scene_with_no_registered_source(
+        self,
+    ):
+        # D1, and this is the one that mattered.  The guard used to walk
+        # ``_OWNER_RULING_SOURCE`` alone, so a scene named ONLY in the
+        # refusal literal was filtered at ``load_roster`` and joined
+        # against nothing at all: pf-adversary drove a bogus ``Bg0003``
+        # refusal end to end and watched three of four rows vanish from
+        # the shipped roster while this function returned clean.
+        original = dict(field_mobs.OWNER_REFUSED_PLACEMENTS)
+        field_mobs.OWNER_REFUSED_PLACEMENTS['Bg0003'] = (1, 2, 3)
+        try:
+            with self.assertRaises(mch.CensusHostilityError) as caught:
+                mch.assert_owner_refusals_match_scene_source()
+            message = str(caught.exception)
+            self.assertIn("Bg0003", message)
+            self.assertIn("_OWNER_RULING_SOURCE", message)
+        finally:
+            field_mobs.OWNER_REFUSED_PLACEMENTS.clear()
+            field_mobs.OWNER_REFUSED_PLACEMENTS.update(original)
+
+    def test_the_guard_refuses_a_source_attribute_that_is_not_a_list(self):
+        # D3: this refusal branch had NEVER EXECUTED, and survived being
+        # replaced with ``if False:`` against the whole suite, while the
+        # docstring said the join was broken "on synthetic data".  It is
+        # synthetic data now.
+        original = dict(mch._OWNER_RULING_SOURCE)
+        mch._OWNER_RULING_SOURCE['Bg0002'] = (
+            'field_mob_tables_bg0002', 'SCENE',   # a str, not a list
+        )
+        try:
+            with self.assertRaises(mch.CensusHostilityError) as caught:
+                mch.assert_owner_refusals_match_scene_source()
+            self.assertIn("is not a list", str(caught.exception))
+        finally:
+            mch._OWNER_RULING_SOURCE.clear()
+            mch._OWNER_RULING_SOURCE.update(original)
+
+    def test_the_guard_refuses_a_source_row_of_the_wrong_shape(self):
+        # D3, the second never-executed branch.  A module object is stood
+        # up rather than a real table edited, so nothing this test does can
+        # reach the shipped tables.
+        module = types.ModuleType("synthetic_owner_ruling_source")
+        module.ROWS = [(89, 'ok', 'n_id_101_104_..._owner_says_do_not_place'),
+                       (90, 'too short')]
+        original = dict(mch._OWNER_RULING_SOURCE)
+        sys.modules[
+            "%s.synthetic_owner_ruling_source" % mch.__package__
+        ] = module
+        mch._OWNER_RULING_SOURCE['Bg0002'] = (
+            'synthetic_owner_ruling_source', 'ROWS',
+        )
+        try:
+            with self.assertRaises(mch.CensusHostilityError) as caught:
+                mch.assert_owner_refusals_match_scene_source()
+            self.assertIn("wrong shape", str(caught.exception))
+        finally:
+            mch._OWNER_RULING_SOURCE.clear()
+            mch._OWNER_RULING_SOURCE.update(original)
+            sys.modules.pop(
+                "%s.synthetic_owner_ruling_source" % mch.__package__, None)
+
+    def test_the_guard_fires_when_the_recorded_reason_string_drifts(self):
+        # D4: ``OWNER_REFUSAL_REASON`` was a write-only literal -- one
+        # occurrence repo-wide, no reader anywhere, and replacing its value
+        # with nonsense survived the entire suite.  It is joined now.
+        original = dict(field_mobs.OWNER_REFUSAL_REASON)
+        field_mobs.OWNER_REFUSAL_REASON['Bg0002'] = 'a_reason_nobody_ruled'
+        try:
+            with self.assertRaises(mch.CensusHostilityError) as caught:
+                mch.assert_owner_refusals_match_scene_source()
+            self.assertIn("REASON drift", str(caught.exception))
+        finally:
+            field_mobs.OWNER_REFUSAL_REASON.clear()
+            field_mobs.OWNER_REFUSAL_REASON.update(original)
+
     def test_a_filter_that_would_empty_a_roster_refuses_instead(self):
         original = dict(field_mobs.OWNER_REFUSED_PLACEMENTS)
         every = tuple(row[0] for row in fmt2.SHIPPED_PLACEMENTS)
@@ -179,6 +261,68 @@ class CensusHostilityTests(unittest.TestCase):
         self.assertEqual(report["backed_count"], 12)
         self.assertEqual(report["census_count"], 97)
 
+    def test_the_report_says_whether_the_owner_filter_is_still_doing_anything(
+        self,
+    ):
+        # D11.  Before this field a boot could not tell a scene whose five
+        # refused rows the FILTER removes from one whose generated table
+        # simply no longer produces them: byte-identical console line,
+        # identical pins.  The day the ruling stops mattering must look
+        # different from every other day.
+        report = mch.census_backing_report(
+            BG0002_SCENE_ID, self.generation.actor_identities,
+        )
+        self.assertEqual(report["refused"], OWNER_REFUSED)
+        self.assertEqual(report["refused_count"], len(OWNER_REFUSED))
+        # ...and it is a real join, not a constant: bg0001 has no ruling.
+        bg0001 = mch.census_backing_report(world_population.SCENE_ID, ())
+        self.assertEqual(bg0001["refused"], ())
+        self.assertEqual(bg0001["refused_count"], 0)
+
+    def test_fully_backed_on_an_empty_roster_is_marked_vacuous(self):
+        # D6.  ``fully_backed`` is True for a roster with zero rows, which
+        # is a true sentence about nothing and a trap for a caller that
+        # gates on it.  Both fields are kept and the caller can tell the
+        # two apart; the real scene is NOT vacuous, so this cannot pass by
+        # the flag being constant.
+        empty = mch.census_backing_report(999, ())
+        self.assertEqual(empty["roster_count"], 0)
+        self.assertTrue(empty["fully_backed"])
+        self.assertTrue(empty["vacuous"])
+        real = mch.census_backing_report(
+            BG0002_SCENE_ID, self.generation.actor_identities,
+        )
+        self.assertTrue(real["fully_backed"])
+        self.assertFalse(real["vacuous"])
+
+    def test_the_console_line_reports_the_override_size_or_names_the_gap(self):
+        # D2.  The line is blind to the splice by construction (the splice
+        # does not change census MEMBERSHIP, which is all this line reads),
+        # so an override that came back EMPTY -- every actor left at
+        # faction 0 -- printed the identical all-clear.  A caller that
+        # hands the override over gets the number; one that does not gets a
+        # named gap, never a reassuring zero.
+        identities = self.generation.actor_identities
+        named_gap = mch.describe_census_hostility(BG0002_SCENE_ID, identities)
+        self.assertIn("override=not_reported", named_gap[0])
+        empty = mch.describe_census_hostility(
+            BG0002_SCENE_ID, identities, override={},
+        )
+        self.assertIn("override=0", empty[0])
+        real = mch.hostile_override_for_scene_id(
+            self.legacy, BG0002_SCENE_ID, mob_death.DeathRegister(),
+        )
+        carried = mch.describe_census_hostility(
+            BG0002_SCENE_ID, identities, override=real,
+        )
+        self.assertIn("override=%d" % len(real), carried[0])
+        # The three lines must differ from each other, or the field is
+        # decoration.
+        self.assertEqual(len({named_gap[0], empty[0], carried[0]}), 3)
+        for line in (named_gap[0], empty[0], carried[0]):
+            line.encode("ascii")
+            self.assertNotIn("\n", line)
+
     def test_the_report_actually_detects_an_unbacked_row(self):
         # Same reasoning as the drift guard: prove the report can fail.
         short = tuple(
@@ -198,49 +342,17 @@ class CensusHostilityTests(unittest.TestCase):
         self.assertEqual(coverage["missing"], ())
         self.assertEqual(coverage["matched_count"], 12)
 
-    def test_the_ledger_is_actually_forwarded_and_not_dropped(self):
-        # A MUTANT THAT SURVIVED the first draft of this file: changing
-        # ``ledger=ledger`` to ``ledger=None`` inside
-        # ``hostile_override_for_scene_id`` left the whole suite green,
-        # because every other test here passes a ledger in which nothing has
-        # been hit -- so forwarding it and dropping it produce identical
-        # bytes, and the pin could not tell them apart.
-        #
-        # Not a cosmetic gap.  Dropping the ledger is exactly the failure
-        # MOB-DEATH-001's wiring note named: a census rebuilt while a monster
-        # is wounded heals it back to its ceiling.  To catch it the pin has
-        # to wound something first.
-        register = mob_death.DeathRegister()
-        roster = field_mobs.roster_for_scene_id(BG0002_SCENE_ID)
-        ledger = mob_combat.open_ledger(roster)
-        full = ledger.balance_of(SUBJECT_IDENTITY)
-        wounded = ledger.with_balance(
-            mob_combat.MobBalance(
-                actor_identity=SUBJECT_IDENTITY,
-                max_hp=full.max_hp,
-                current_hp=full.max_hp // 2,
-            )
-        )
-        self.assertLess(
-            wounded.balance_of(SUBJECT_IDENTITY).current_hp, full.current_hp,
-        )
-
-        with_ledger = mch.hostile_override_for_scene_id(
-            self.legacy, BG0002_SCENE_ID, register, ledger=wounded,
-        )
-        without = mch.hostile_override_for_scene_id(
-            self.legacy, BG0002_SCENE_ID, register, ledger=None,
-        )
-        self.assertNotEqual(
-            with_ledger[SUBJECT_IDENTITY], without[SUBJECT_IDENTITY],
-            "the ledger was not forwarded: a wounded monster is being sent "
-            "to the client at full HP",
-        )
-        # ...and only the wounded one differs, so this cannot pass by the
-        # override having changed wholesale.
-        for identity in with_ledger:
-            if identity != SUBJECT_IDENTITY:
-                self.assertEqual(with_ledger[identity], without[identity])
+    # ~~test_the_ledger_is_actually_forwarded_and_not_dropped~~ REMOVED
+    # HERE, ROUND z096sw (pf-adversary on the wmomy7 diff, D7).  This class
+    # DEFINED THAT NAME TWICE, here and again further down, so Python bound
+    # the second body and discarded this one with no warning and no skip:
+    # the file looked like it had sixteen tests and ran fifteen.  The two
+    # bodies were near-duplicates, so nothing was being tested that stopped
+    # being tested -- but "a check that silently stopped existing" is the
+    # exact shape this lane keeps writing guards against, and it had one of
+    # its own.  The surviving copy (the one that has actually been running)
+    # is kept unchanged rather than merged, so what runs after this round is
+    # byte-for-byte what ran before it.
 
     def test_an_unaddressed_scene_overrides_nothing_and_does_not_fall_back(self):
         register = mob_death.DeathRegister()
@@ -352,12 +464,17 @@ class CensusHostilityTests(unittest.TestCase):
         self.assertEqual(len(lines), 1)
         line = lines[0]
         line.encode("ascii")
-        self.assertEqual("\n", "\n")  # documents the single-line contract
+        # ~~self.assertEqual("\n", "\n")  # documents the single-line
+        # contract~~ REMOVED, ROUND z096sw (pf-adversary on the wmomy7
+        # diff, D7): a tautology documents nothing and cannot fail.  The
+        # single-line contract is stated by the two assertions around it --
+        # ``len(lines) == 1`` above and ``assertNotIn("\n", line)`` below --
+        # both of which really can go red.
         self.assertNotIn("\n", line)
         self.assertEqual(
             line,
             "MOB_CENSUS_HOSTILITY scene_id=2 scene=Bg0002 roster=12 "
-            "backed=12 unbacked=none",
+            "backed=12 unbacked=none refused=8 override=not_reported",
         )
 
     def test_the_console_line_names_an_unbacked_identity_rather_than_hiding_it(self):

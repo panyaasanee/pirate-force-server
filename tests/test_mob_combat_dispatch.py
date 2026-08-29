@@ -586,9 +586,15 @@ class MobCombatDispatchTests(unittest.TestCase):
             ["MOB_COMBAT_ANNOUNCE", "MOB_COMBAT_BAR"],
         )
         printed = buf.getvalue()
+        # ROUND z096sw: the line now carries a MEASUREMENT beside the input.
+        # ``actor_count`` is unchanged (session state, read before the
+        # compose); ``wire_actors`` is read back off the composed
+        # collection's own header.  Asserted as one substring so a future
+        # edit cannot drop the measurement and leave the token matching.
         self.assertIn(
             "MOB_COMBAT_BAR_CENSUS_RECOMPOSE "
             f"actor_count={state.world_census_actor_count} "
+            f"wire_actors={state.world_census_actor_count} "
             f"target=0x{CONTROL_TARGET:X}",
             printed,
         )
@@ -642,9 +648,20 @@ class MobCombatDispatchTests(unittest.TestCase):
         # not loot -- same carve-out as the two pre-existing census tests.
         self.assertTrue(all(label == "MOB_LOOT_DROP" for label in labels[3:]))
         printed = buf.getvalue()
+        # ROUND z096sw: both death frames are measured, on their own lines.
+        # The DYING line is new; the DEAD line keeps the token every
+        # existing grep already uses.
+        self.assertIn(
+            "MOB_DEATH_FRAMES_CENSUS_RECOMPOSE_DYING "
+            f"actor_count={state.world_census_actor_count} "
+            f"wire_actors={state.world_census_actor_count} "
+            f"target=0x{CONTROL_TARGET:X}",
+            printed,
+        )
         self.assertIn(
             "MOB_DEATH_FRAMES_CENSUS_RECOMPOSE "
             f"actor_count={state.world_census_actor_count} "
+            f"wire_actors={state.world_census_actor_count} "
             f"target=0x{CONTROL_TARGET:X}",
             printed,
         )
