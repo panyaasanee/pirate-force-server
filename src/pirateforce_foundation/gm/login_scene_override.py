@@ -60,6 +60,35 @@ from .scene_catalog import is_known_scene_id
 # tester grepping a console) can match it exactly.
 CONFIG_REFUSED_CONSOLE_TOKEN = "GM_LOGIN_SCENE_CONFIG_REFUSED"
 
+
+class LoginSceneRefusedError(ValueError):
+    """The file parsed FINE; this process's registry will not admit the row.
+
+    A `ValueError` SUBCLASS, deliberately: every existing caller catches
+    `(OSError, ValueError)` and keeps behaving exactly as it did.  Nothing
+    is asked to handle a new exception type; the subclass only lets a
+    caller that WANTS the distinction ask for it.
+
+    WHY IT EXISTS, and it is not tidiness.  pf-adversary measured (round
+    `1fq5yf`) that the two faults an operator must tell apart --
+
+        a config file that is MALFORMED   -> remedy: edit the file
+        a row this process WILL NOT ADMIT -> remedy: restart the server,
+                                             or fix lane A's registry
+
+    -- were both plain `ValueError` out of `_load_scene_id_map`, so
+    `login_scene_consume` folded them into one cause and the console line
+    built from it offered both remedies and named neither.  Worse, it
+    called a perfectly readable file "unreadable", which is the second
+    fault's normal case since `CORE-REQUEST-GM-036` wired the boot snapshot
+    in: the operator greps the file, finds nothing wrong, and stops
+    believing the line.
+
+    A DIAGNOSTIC MAY NEVER ALTER DISPATCH: this changes which WORD is
+    printed, never which branch runs.  Everything that treats it as a
+    `ValueError` continues to.
+    """
+
 DEFAULT_CONFIG_PATH = "config/gm_login_scene.json"
 ENV_OVERRIDE = "PF_GM_LOGIN_SCENE_CONFIG"
 
@@ -215,7 +244,7 @@ def _load_scene_id_map(
             except Exception:  # noqa: BLE001 - see the paragraph above; the
                 # refusal below is the product, the line is the courtesy.
                 pass
-            raise ValueError(
+            raise LoginSceneRefusedError(
                 f"{path}: '{json_key}'[{account_name!r}] = {scene_id} names a "
                 "scene the login path will refuse (no pinned login entry in "
                 "lane A's world_scene_registry_001, or pinned "
@@ -320,8 +349,12 @@ def get_login_scene_override(
     means in ``gm/login_scene_admission.py``: judge admission against the
     caller's OWN reading of lane A's registry rather than against a fresh
     one of this module's.  Not defaulted to anything clever -- ``None``
-    keeps every existing caller on the fresh read, which is the behaviour
-    every test in this lane was written against.
+    keeps a bare caller on the fresh read, which is the behaviour every test
+    in this lane was written against.  The LOGIN PATH is no longer such a
+    caller: chief wired ``runtime.py``'s boot snapshot into the three call
+    sites of ``CORE-REQUEST-GM-036`` (``CHIEF-REPLY`` 2026-08-29T15:16+07:00,
+    main as ``pirate-force-server`` #264), so "every existing caller", which
+    this sentence said until that merge, now names only the bare ones.
     """
     if type(account_name) is not str:
         raise TypeError("account_name must be a str")

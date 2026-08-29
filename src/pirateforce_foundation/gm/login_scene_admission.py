@@ -99,9 +99,9 @@ def login_entry_is_pinned(scene_id: int, *, scene_registry=None) -> bool:
     a tester who cannot log in.
 
     ``scene_registry`` -- WHICH READING OF THE REGISTRY THIS ANSWER IS FOR.
-    Left ``None`` (every caller today) the pin file is read FRESH, and that
-    is the reading this whole module was written against.  It is not the
-    reading that places the character.  ``runtime.py`` loads the registry
+    Left ``None`` -- the default, and what this lane's own tests pass -- the
+    pin file is read FRESH, and that is the reading this whole module was
+    written against.  It is not the reading that places the character.  ``runtime.py`` loads the registry
     ONCE at boot (``runtime.py:527``) and every login is placed by that
     snapshot, so a disk reading and a placement reading are the AGE OF THE
     PROCESS apart -- chief measured this and gated the login path on the
@@ -118,14 +118,22 @@ def login_entry_is_pinned(scene_id: int, *, scene_registry=None) -> bool:
     a private predicate, and this parameter is the same answer for the
     STAGING side, where the refusal can still reach a person.
 
-    NOT WIRED BY ANY CALLER IN THIS COMMIT, said plainly so nothing reads as
-    a fix already in effect: ``runtime.py`` is chief's file and this lane
-    does not edit it.  ``CORE-REQUEST-GM-036`` asks for THREE call sites --
-    the login consume, the chat command, and the put-back after a refused
-    login (see ``login_scene_stage.restore_login_scene`` for why an undo
-    judged against the other reading refuses and strands the entry it was
-    called to remove).  Until they land, every caller is ``None`` and the
-    behaviour of this module is byte-for-byte what it was.
+    WIRED AT ALL THREE CALL SITES, which is a change of state and not a
+    change of design: ``CORE-REQUEST-GM-036`` asked for the login consume,
+    the chat command, and the put-back after a refused login (see
+    ``login_scene_stage.restore_login_scene`` for why an undo judged against
+    the other reading refuses and strands the entry it was called to
+    remove).  Chief answered all three in ``CHIEF-REPLY``
+    2026-08-29T15:16+07:00 and they reached main as ``pirate-force-server``
+    #264, pinned from the runtime side by
+    ``tests/test_gm_login_scene_registry_wiring_in_runtime.py``, which is
+    RED on a tree where the kwarg is dropped at any one of the three.
+
+    An earlier revision said "NOT WIRED BY ANY CALLER IN THIS COMMIT ...
+    every caller is None"; it was accurate when written and stopped being
+    accurate at that merge.  What is still true, and is the part worth
+    keeping: ``None`` is still the default and still adds a fresh read, so
+    a caller that does not pass one is NOT judged against the snapshot.
     """
     if type(scene_id) is not int:
         raise TypeError("scene_id must be an int")

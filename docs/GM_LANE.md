@@ -504,6 +504,25 @@ and `CORE-REQUEST-011`'s same-scene-only wiring).
     `CONSUME_FAILED` outcome grants no scene at all.
     `get_login_scene_override` still exists and is still the right call for
     anything that wants to LOOK without spending.
+  - **CORRECTION 2** (LANE-GM round `1fq5yf`, after `pirate-force-server#264`
+    merged 2026-08-29T08:38:50Z): the call shape written above is now the
+    BARE one, not the real one. The login site calls
+    `consume_login_scene_override(self.token, scene_registry=scene_entry_registry)`,
+    passing the registry snapshot `runtime.py` loaded once at boot, so the
+    config is judged against what the process can actually place rather than
+    against a fresh read of the file.
+  - **NOT YET PRINTED** (LANE-GM round `1fq5yf`): as of this round the
+    `CONSUME_FAILED` outcome also carries a `cause`, but **nothing reads
+    it** — `runtime.py` still prints the literal
+    `cause=not_carried_by_the_outcome`, so on a running server this change
+    is invisible. `CORE-REQUEST-GM-037` asks chief to print it. An earlier
+    draft of this line said the outcome "carries a `cause` naming which of
+    seven checks failed" full stop, which pf-adversary flagged as a NEW
+    stale label in a diff whose stated purpose is retiring stale ones — an
+    operator would read it, look at the console, and see a contradiction.
+    `tests/test_gm_login_scene_consume_cause.py::TheDocsAndTheConsoleAgree
+    Tests` is the tripwire: it goes RED the moment chief wires the print,
+    so this paragraph gets corrected in the same round rather than rotting.
 
 ## Modules delivered (RE-105 vital-version-pin round)
 
@@ -1127,6 +1146,13 @@ never needed to ask.
     NOT spend (`COO-DECISION 20260829_0542`). That branch is walked through
     the real dispatcher by
     `tests/test_gm_login_scene_override_standalone_at_login.py`.
+  - **CORRECTION 2** (LANE-GM round `1fq5yf`, after `pirate-force-server#264`
+    merged): the call shape shown here is the bare one and is no longer what
+    the login site does -- it passes `scene_registry=scene_entry_registry`.
+    The routing claim is unaffected (both maps are still consulted in the
+    same order at the same wiring point); what changes is WHICH READING of
+    lane A's registry admits an entry, and therefore which entries survive
+    to be routed at all.
 - `tests/test_gm_login_scene.py`: +7 tests for the standalone path
   (missing-file, grant-with-zero-`gm_accounts.json`-membership,
   gated-path-still-wins-with-**differing** scene_ids so the precedence
@@ -3554,12 +3580,79 @@ stop having one of its own.
 
 | direction | who closes it | what it costs today |
 |---|---|---|
-| disk WIDER than the snapshot (file approves, process refuses) | chief's `resolve_entry` probe, on main via `#253` | closed -- override refused by name, character logs in at its own row |
-| disk NARROWER than the snapshot (registry edited to bar or drop a destination after boot) | nothing yet | the whole-file load raises, `CONSUME_FAILED` -- EVERY account's override in that file stops working, including accounts naming scenes the running process would place them in |
+| disk WIDER than the snapshot (file approves, process refuses) | chief's `resolve_entry` probe, on main via `#253` | ~~closed -- override refused by name, character logs in at its own row~~ see CORRECTION |
+| disk NARROWER than the snapshot (registry edited to bar or drop a destination after boot) | ~~nothing yet~~ chief, on main via `#264` | ~~the whole-file load raises, `CONSUME_FAILED` -- EVERY account's override in that file stops working~~ closed for this direction: the load is judged against the snapshot the process holds |
+
+- **CORRECTION** (LANE-GM round `1fq5yf`, 2026-08-29, from chief's own
+  measurement in `CHIEF-REPLY` 2026-08-29T15:16+07:00 items 3 and 5/D2):
+  wiring the snapshot into the consume call **moved** the WIDER case rather
+  than leaving it where this table put it. It used to be caught downstream
+  by the probe, which refused ONE entry BY NAME and printed
+  `GM_LOGIN_SCENE_OVERRIDE_REFUSED`. Now the snapshot refuses the row at
+  load time, the whole-file load refuses, and every account in that file
+  gets `CONSUME_FAILED` together -- measured by chief through the real
+  dispatcher with a two-account file `{good: 2, barred: 278}`, where the
+  good account went down with the barred one, and pinned by their
+  `test_one_refused_entry_takes_every_override_down_destroying_nothing`.
+  - What did NOT get worse, and is why chief accepted the trade: the entry
+    is never taken off disk, so nothing is destroyed, the login finishes at
+    the character's own row, and there is no lockout.
+  - What DID get worse: per-account resolution. One line the snapshot
+    dislikes darkens every override in the file.
+  - So the honest reading of row 1 today is "closed, at whole-file
+    granularity" -- not "refused by name". The probe and restore remain as
+    defence in depth for the case where admission and probe drift apart.
+  - Chief has offered to relax the read side to per-line if this lane opens
+    a ticket. **Not opened this round** and the reason is written down
+    rather than left implied: this lane has no measurement of how often an
+    operator's file holds more than one account, and asking for a rework of
+    chief's read path on a guess is how the last two rounds' rework got
+    paid for twice.
 
 No gate at the call site can reach the second one: by the time the call site
 sees anything, the load has already raised.  It has to be decided at the
 load, which is where this parameter goes.
+
+### `ConsumeResult.cause` — the seven words, and the axis they are cut on
+
+Added round `1fq5yf` for `CORE-REQUEST-GM-037`. **Nothing prints these yet**
+— see the NOT YET PRINTED note above, and its tripwire test.
+
+The axis is **the remedy an operator would apply**, not which read failed.
+The first draft cut it the other way and pf-adversary measured the result:
+six of its seven tokens fired only if a config changed underneath a login
+mid-flight, and the seventh answered *the same word* for both of the two
+remedies chief said were different — including calling a perfectly readable
+file `unreadable`, which is the normal case since `#264`.
+
+| cause | what happened | remedy |
+|---|---|---|
+| `config_unreadable` | bytes are bad — malformed/unreadable JSON | edit the config file |
+| `registry_refused_entry` | bytes are **fine**; this process's registry will not admit the row | restart the server, or fix lane A's registry |
+| `gm_accounts_unreadable` | `gm_accounts.json` unreadable after the lookup passed | look at the accounts file |
+| `gm_map_unreadable` | `gm_login_scene.json` unreadable | look at the override file |
+| `standalone_map_unreadable` | the standalone map unreadable | look at the standalone file |
+| `claim_raised` | the remover raised — entry's fate on disk **unknown** | check disk/permissions, then check whether the entry is still there |
+| `entry_survived_claim` | removal failed — entry **known** to still be there | delete the line by hand |
+
+The split that makes this worth printing is the first two rows. It is carried
+by `login_scene_override.LoginSceneRefusedError`, a `ValueError` **subclass**
+so that every existing caller's `except (OSError, ValueError)` behaves exactly
+as before — the subclass only lets a caller that wants the distinction ask.
+
+**Deliberately NOT split**, so it is not "restored" later: which *moment* a
+read failed at (before vs after the claim). The standalone read has the same
+two moments and got one token, so the axis was not even applied consistently,
+and an operator does nothing different about the two. `claim_raised` vs
+`entry_survived_claim` stays because that one *is* a remedy split.
+
+Safety, since chief prints these on the owner's console: closed set, every
+word a literal written before any client connected, no exception message ever
+becomes a cause, `ConsumeResult` is immutable after construction, a `str`
+subclass is refused by `type(...) is not str`, and every token is ASCII/cp874
+with no space, `=`, or newline — so a forged second field or second console
+line is not expressible. Four of those six exist because pf-adversary got
+through the first version.
 
 ### What pf-adversary broke, and what changed because of it
 
@@ -3649,8 +3742,16 @@ The one that swallows is the dangerous one.  Both fixed.
    this round at all.**
 2. **No GM status was used to prove anything here.**  Nothing in this round
    is a milestone and nothing in it was reached by being a GM.
-3. The parameter has NO effect on a running server until `CORE-REQUEST-GM-036`
-   lands: every caller in this repository passes `None`.
+3. ~~The parameter has NO effect on a running server until `CORE-REQUEST-GM-036`
+   lands: every caller in this repository passes `None`.~~
+   - **CORRECTION** (LANE-GM round `1fq5yf`, 2026-08-29): struck because it
+     stopped being true at a merge and nobody in this lane noticed --
+     chief flagged it, along with six more labels of the same kind, in
+     `CHIEF-REPLY` 2026-08-29T15:16+07:00 item 5 (D4). `CORE-REQUEST-GM-036`
+     landed as `pirate-force-server` #264 (merged 2026-08-29T08:38:50Z) and
+     `runtime.py` now passes its boot snapshot at all three call sites, so
+     the parameter DOES have effect on a running server. What survives of
+     the sentence: a caller that passes nothing still gets a fresh read.
 4. Not measured against a real client; no scene named here is shown to be
    reachable by a person.
 5. Green = **green(cloud sanity)** from `python -m pytest tests/`, not an

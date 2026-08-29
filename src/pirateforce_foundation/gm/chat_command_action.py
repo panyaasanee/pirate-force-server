@@ -571,8 +571,16 @@ def make_gm_chat_command_action(
     the server console, never the person who typed the command.  Passing
     the caller's own `scene_entry_registry` moves that refusal to the chat
     line, and makes the list of destinations printed with it the list the
-    running process would really accept.  `CORE-REQUEST-GM-036`; no caller
-    passes it in this commit.
+    running process would really accept.  `CORE-REQUEST-GM-036`.
+
+    WIRED: chief passes `runtime.py`'s boot snapshot into the chat factory
+    (`CHIEF-REPLY` 2026-08-29T15:16+07:00, main as `pirate-force-server`
+    #264), by naming the closure variable directly rather than through
+    `getattr` -- so if that variable is ever renamed the result is a loud
+    `NameError` and not a quiet fall back to reading the file.  An earlier
+    revision of this line said "no caller passes it in this commit", which
+    was true when written and false from that merge on.  `None` is still
+    the default and still means a fresh read.
     """
     try:
         return _make_action(

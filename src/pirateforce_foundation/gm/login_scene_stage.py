@@ -223,9 +223,19 @@ def stage_login_scene(
     to be the wider of the two, because a read writes nothing that outlives
     it -- see `login_scene_consume.consume_login_scene_override`.
 
-    NOT WIRED YET (`CORE-REQUEST-GM-036`): `runtime.py` is chief's file, so
-    every caller today is `None` and nothing above is in effect.  It is
-    written as the reason the parameter exists, not as a fix already made.
+    WIRED (`CORE-REQUEST-GM-036`, answered by chief in `CHIEF-REPLY`
+    2026-08-29T15:16+07:00, landed on main as `pirate-force-server` #264).
+    `runtime.py` passes its boot snapshot at all three call sites, this one
+    being the put-back in `_put_back_consumed_override`, so everything above
+    is in effect for the real login path.  An earlier revision of this
+    docstring said "NOT WIRED YET ... every caller today is None"; that was
+    true when it was written and became false at #264's merge, and chief
+    flagged it rather than editing this lane's file.
+
+    `None` remains the default and still means "read the pin file fresh",
+    which is what this lane's own tests pass.  So the sentence to keep in
+    mind is not "nobody passes it" but "the LOGIN PATH passes it and a bare
+    call does not".
     """
     if type(account_name) is not str:
         # `type(...) is not str`, never isinstance: `accounts.is_gm_account`
