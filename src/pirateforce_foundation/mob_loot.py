@@ -691,8 +691,15 @@ def _require_int(value: Any, label: str, minimum: int, maximum: int) -> int:
     return value
 
 
+#: The magnitude an actor identity may reach in this lane, named in round
+#: uq2lxw2 so the sibling lane can BE this value rather than repeat it.  The
+#: number is unchanged: it is the bound this function has always applied.
+MAX_IDENTITY_MAGNITUDE = 2 ** 62
+
+
 def _require_identity(value: Any, label: str) -> int:
-    identity = _require_int(value, label, -(2 ** 62), 2 ** 62)
+    identity = _require_int(
+        value, label, -MAX_IDENTITY_MAGNITUDE, MAX_IDENTITY_MAGNITUDE)
     if identity <= 0:
         raise MobLootContractError(
             REFUSE_IDENTITY_NOT_POSITIVE, "%s must be positive" % label)
@@ -1524,6 +1531,55 @@ class DropLedgerCell:
         with self._lock:
             self._ledger, taken = take_drop(self._ledger, drop_key)
             return taken
+
+    def prune_issued_before(self, drop_key: Any) -> tuple:
+        """Remove every live row whose key is BELOW ``drop_key``.  Returns them.
+
+        ROUND uq2lxw2, and it exists because of a measurement chief made in
+        round ni2wh2 and could not act on inside their own file: ``runtime.py``
+        obeys :data:`MOB_LOOT_WIRING` step 4 by taking EVERY key of the kill it
+        just sent, in the same dispatch -- so a pickup call site, the day it
+        exists, is refused ``drop_already_taken`` 100% of the time.  Their
+        control run: prune-as-runtime-does -> 0 live rows, refused; no prune ->
+        2 live rows, accepted.
+
+        WHY STEP 4 SAYS PRUNE AT ALL, kept in view rather than argued away:
+        nothing in this module expires a row, so a caller that never prunes
+        grows the ledger without bound.  That ceiling is real and this method
+        does not remove it -- it moves WHERE the ceiling is cut.  Pruning the
+        PREVIOUS kill's rows when the next kill lands leaves the newest kill's
+        rows on the ground (the only ones a player could be reaching for)
+        while still bounding the ledger by one kill's worth of rows per scene.
+
+        NO CLOCK, and that is why the cut is by key rather than by age.  Keys
+        are a monotonic high-water mark this cell hands out and never reuses
+        (``DropLedger.next_key``), so "issued before" is an ordering this
+        module can evaluate on its own values.  An expiry in SECONDS would
+        need a clock, which this lane does not have and will not grow for
+        this.
+
+        THIS IS A PRIMITIVE, NOT A POLICY, and the difference is the whole
+        reason it is shaped this way: it does not decide when to prune, how
+        many kills to keep, or what the client is told afterwards.  Those are
+        the call site's, and the call site is the chief's file.  What this
+        removes is the excuse that the alternative to "prune everything now"
+        has to be designed before it can be tried.
+
+        Returns the removed rows, newest last, so a caller can log or re-send
+        what it dropped rather than discovering it later.
+        """
+        # The same bound every other drop key in this module carries; a
+        # cut point is a key, so it is validated as one.
+        drop_key = _require_int(drop_key, "prune key", 0, 0xFFFFFFFF)
+        with self._lock:
+            ledger = self._ledger
+            removed = []
+            for drop in ledger.drops:
+                if drop.drop_key < drop_key:
+                    ledger, taken = take_drop(ledger, drop.drop_key)
+                    removed.append(taken)
+            self._ledger = ledger
+            return tuple(removed)
 
     def frames(self, legacy: Any) -> tuple:
         """Re-emit every live row.  See :func:`refresh_frames` for the caveat."""

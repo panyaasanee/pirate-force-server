@@ -1220,6 +1220,71 @@ class MobLootTests(unittest.TestCase):
         for row in after:
             self.assertNotIn(row.drop_key, keys)
 
+    def test_pruning_the_previous_kill_leaves_the_newest_kill_pickable(self):
+        """chief's ni2wh2 control, with this round's primitive in the loop.
+
+        Their measurement, on the real cell and the real dispatch: prune the
+        way ``runtime.py`` does today -- every key of the kill just sent, in
+        the same dispatch -- and a pickup is refused ``drop_already_taken``
+        100% of the time; do not prune at all and it is accepted.  Neither is
+        shippable: the first makes M5 impossible, the second grows the ledger
+        without bound.
+
+        ``prune_issued_before`` is the third thing.  Prune the PREVIOUS kill's
+        rows when the next kill lands: the newest rows -- the only ones a
+        player could be reaching for -- stay, and the ledger is still bounded.
+        """
+        cell = DropLedgerCell()
+        record = DeathRecord(self.mob.actor_identity, KILLER, self.mob.max_hp)
+        first = cell.loot_a_kill(
+            self.mob, record, roll_drops(self.mob, random.Random(3)),
+            kill_token=1)
+        self.assertTrue(first, "this test needs a kill that dropped something")
+        second = cell.loot_a_kill(
+            self.mob, record, roll_drops(self.mob, random.Random(4)),
+            kill_token=2)
+        self.assertTrue(second)
+        # the cut point is the first key of the newest kill: everything the
+        # cell issued BEFORE it goes, everything from it on stays
+        removed = cell.prune_issued_before(second[0].drop_key)
+        self.assertEqual(
+            [row.drop_key for row in removed],
+            [row.drop_key for row in first])
+        live = [row.drop_key for row in cell.ledger.drops]
+        self.assertEqual(live, [row.drop_key for row in second])
+        # and the surviving rows are genuinely takeable -- the property the
+        # runtime loop destroys today
+        for key in live:
+            self.assertIsNotNone(cell.take(key))
+
+    def test_pruning_before_the_oldest_live_key_removes_nothing(self):
+        # A cut point below everything is a no-op, not "prune the lot": a
+        # caller that passes the wrong end of the ledger must not silently
+        # clear it.
+        cell = DropLedgerCell()
+        record = DeathRecord(self.mob.actor_identity, KILLER, self.mob.max_hp)
+        drops = cell.loot_a_kill(
+            self.mob, record, roll_drops(self.mob, random.Random(3)),
+            kill_token=1)
+        self.assertTrue(drops)
+        before = tuple(cell.ledger.drops)
+        self.assertEqual(cell.prune_issued_before(min(
+            row.drop_key for row in drops)), ())
+        self.assertEqual(cell.ledger.drops, before)
+        # ...and a cut point above everything clears it, which is the
+        # runtime-today behaviour expressed in one call rather than a loop
+        self.assertEqual(
+            len(cell.prune_issued_before(
+                max(row.drop_key for row in drops) + 1)), len(before))
+        self.assertEqual(cell.ledger.drops, ())
+
+    def test_the_prune_key_is_validated_as_a_key(self):
+        cell = DropLedgerCell()
+        for bad in (-1, 0x1_0000_0000, "0x100000", 1.0, True):
+            with self.subTest(value=bad):
+                with self.assertRaises(MobLootContractError):
+                    cell.prune_issued_before(bad)
+
     def test_a_respawned_monster_killed_again_still_drops(self):
         """The register used to brick the scene after 13 kills.
 

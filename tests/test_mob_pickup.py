@@ -1836,6 +1836,72 @@ class MobPickupTests(unittest.TestCase):
             json.loads(PIN_PATH.read_text(encoding="utf-8")),
             json.loads(json.dumps(pin_document(self.legacy), sort_keys=True)))
 
+    # -- the width two lanes have to agree on (round uq2lxw2) --------------
+
+    def test_this_lane_accepts_every_actor_identity_mob_loot_accepts(self):
+        """chief's ni2wh2 measurement, turned into a test rather than a note.
+
+        ``runtime.py`` composes a performer identity as ``(hi << 32) | lo``
+        and hands the SAME number to both lanes.  ``mob_loot`` accepted it;
+        this lane capped identities at ``0xFFFFFFFF``, so a character with a
+        non-zero ``identity_hi`` could kill a monster, have the drop recorded
+        under its identity, and then be refused when it reached for it -- with
+        ``value_out_of_range``, a message nobody could act on.  Only
+        ``lifecycle.py``'s ``hi = 0`` kept that off the live path.
+        """
+        wide = (1 << 32) | 0x750059          # identity_hi == 1, chief's case
+        # mob_loot takes it, as the killer of a real drop...
+        drop = a_drop(killer=wide)
+        self.assertEqual(drop.killer_identity, wide)
+        # ...and now so does this lane, on both records that carry an actor id
+        claim = PickupClaim(wide, 10.0, 20.0, 30.0, KEY, 0)
+        self.assertEqual(claim.claimant_identity, wide)
+        row = mob_pickup.BagRowWrite(wide, CHARACTER, 5, ITEM, 1, 4)
+        self.assertEqual(row.claimant_identity, wide)
+        # and the whole pickup goes through under it, rather than merely
+        # validating: the killer-only rule compares these two values
+        cell = BagCell(INITIAL_BACKPACK, CHARACTER)
+        outcome = cell.commit_pickup(a_cell(drop), claim, self.legacy)
+        self.assertEqual(outcome.row_write.claimant_identity, wide)
+
+    def test_the_two_lanes_bounds_are_one_value_not_two_that_look_alike(self):
+        # The defect was two files disagreeing about one quantity's width, so
+        # the fix is pinned as an EQUALITY between the two lanes rather than
+        # as a literal in this lane.  A widening on either side that forgets
+        # the other goes red here.
+        self.assertEqual(
+            mob_pickup.MAX_ACTOR_IDENTITY, mob_loot.MAX_IDENTITY_MAGNITUDE)
+        for over in (mob_pickup.MAX_ACTOR_IDENTITY + 1,):
+            with self.subTest(value=over):
+                self.assertEqual(
+                    self._refusal(
+                        PickupClaim, over, 10.0, 20.0, 30.0, KEY, 0),
+                    mob_pickup.REFUSE_VALUE_OUT_OF_RANGE)
+                with self.assertRaises(mob_loot.MobLootContractError):
+                    a_drop(killer=over)
+
+    def test_the_quantities_that_are_not_actor_identities_keep_their_bounds(self):
+        # The widening is for ACTOR identities only.  A drop key is a u32 on
+        # the wire and an item identity is a database column: different
+        # quantities that share a validator's name in prose and must not share
+        # its bound.  Measured in BOTH directions, so this cannot pass by the
+        # bounds happening to coincide.
+        wide = mob_pickup.MAX_ACTOR_IDENTITY
+        # (1) the u32 wire field refuses what an actor identity now allows
+        self.assertEqual(
+            self._refusal(PickupClaim, KILLER, 10.0, 20.0, 30.0, wide, 0),
+            mob_pickup.REFUSE_VALUE_OUT_OF_RANGE)
+        # (2) the database column ALLOWS more than an actor identity does --
+        #     it is a different quantity, not a narrower one
+        self.assertGreater(mob_pickup.MAX_ITEM_IDENTITY, wide)
+        row = mob_pickup.BagRowWrite(KILLER, CHARACTER, wide + 1, ITEM, 1, 4)
+        self.assertEqual(row.item_identity, wide + 1)
+        self.assertEqual(
+            self._refusal(
+                mob_pickup.BagRowWrite, KILLER, CHARACTER,
+                mob_pickup.MAX_ITEM_IDENTITY + 1, ITEM, 1, 4),
+            mob_pickup.REFUSE_VALUE_OUT_OF_RANGE)
+
 
 if __name__ == "__main__":
     unittest.main()
