@@ -985,11 +985,20 @@ class CensusDispatchCountTests(unittest.TestCase):
         # counts what NO rung of this scene can dress.
         self.assertIn("identity=CLINE:3 composed |", short)
         self.assertNotIn("unresolvable", short)
-        self.assertTrue(
-            short.endswith(world_population.undressable_console_token(
-                build_world_population(
-                    self.legacy, self.spawn, 3, scene_id=1))),
-            f"census line does not end with the undressable roster: {short!r}",
+        # AMENDED AGAIN 2026-08-29 (LANE-A, round tz2eri): this assertion said
+        # ``endswith`` while the comment above it said "position relative to
+        # what follows", and the two stopped agreeing the moment a field was
+        # appended after the roster (``ceiling=``, RE-149's verdict).  An
+        # ``endswith`` on the last field of a line that is DESIGNED to be
+        # extended by appending is a test that fails for the one change it
+        # should be indifferent to, so it now pins what it always meant: the
+        # roster is present, whole, and sits after the identity token.
+        roster = world_population.undressable_console_token(
+            build_world_population(self.legacy, self.spawn, 3, scene_id=1))
+        self.assertIn(roster, short)
+        self.assertLess(
+            short.index("identity=CLINE:3 composed"), short.index(roster),
+            f"undressable roster does not follow the identity token: {short!r}",
         )
         # A three-actor rung is short because a caller asked for three; the
         # undressable roster beside it is a property of the scene's table and

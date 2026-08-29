@@ -458,6 +458,79 @@ def undressable_console_token(
         return "undressable=unavailable:" + type(error).__name__
 
 
+def ceiling_console_token(
+    generation: WorldPopulationGeneration,
+) -> str:
+    """The ``ceiling=`` field: is 108/115 a shortfall, or the data's own limit.
+
+    THE LAST FIELD BUILD-001'S OWN RULE ASKS FOR.  The owner's order is 115 in
+    one shot and its red rule is that a census which does not go out whole
+    reports the real number AND the reason.  ``assembled=108/115`` has carried
+    the number since round 2pdf6j and ``undressable=`` has named the seven
+    since round mcxexp.  Neither says whether somebody could still go and FIX
+    the seven, and that is the difference between a bug and a boundary.  This
+    token carries the verdict, so a boot log answers the question that was
+    being answered by re-reading two source files and a ticket.
+
+    WHY THE CLASSES ARE COUNTED SEPARATELY INSTEAD OF SUMMED.  ``RE-149``
+    adjudicated five specific CLINE leaders and nothing else; placements 86
+    and 87 are empty slots (leader 0), which was never that ticket's question.
+    Printing ``7 unfixable (RE-149)`` would credit the ticket with two rows it
+    never looked at.  Anything this module cannot classify prints under
+    ``unadjudicated``, which is deliberately the loud word: it is where a
+    future table change lands, and it must not be able to hide inside a
+    citation.
+
+    WHAT THIS TOKEN DOES NOT CLAIM, kept short because the module it reads
+    from carries the long version.  ``RE-149`` is bounded-negative at the
+    static ceiling of the CURRENT shipped corpus - not a claim about other
+    builds or locales, and not a claim from anybody's screen that these actors
+    cannot be drawn.  ``adjudicated`` here means "this project has a recorded,
+    re-derivable reason", never "proved impossible".
+
+    ONLY FOR A WHOLE CENSUS.  A diagnostic rung is short because somebody
+    asked for a small rung, so a ceiling verdict beside it would be answering
+    a question nobody asked; those print ``ceiling=not_applicable``.  Nothing
+    here raises - it is composed inside a boot's own console line.
+    """
+    if type(generation) is not WorldPopulationGeneration:
+        return "ceiling=not_recorded"
+    dropped = generation.undressable
+    if dropped is None:
+        return "ceiling=not_recorded"
+    try:
+        if generation.actor_count + len(dropped) != CENSUS_COUNT:
+            # A rung, not the census: the two numbers only add up to the whole
+            # frozen table on the full build.  Checked rather than assumed,
+            # because ``undressable`` is recorded at build time and a rung
+            # carries the same measurement the full census does.
+            return "ceiling=not_applicable"
+        counted: dict[str, int] = {}
+        for _index, _template_id, leader, _name in dropped:
+            key = world_port_royal_identity.ceiling_class_for_leader(leader)
+            counted[key] = counted.get(key, 0) + 1
+        classes = ",".join(
+            "%s=%d" % (key, counted[key]) for key in sorted(counted)
+        )
+        # A pinned ticket that has gone stale says so ON THE LINE rather than
+        # at import: see CEILING_TICKET_STALE_LEADERS' own comment for why
+        # this must not be a raise.  Empty on every boot today; the day it is
+        # not, the citation beside it is describing a closed question and the
+        # ticket has to be reopened.
+        stale = world_port_royal_identity.CEILING_TICKET_STALE_LEADERS
+        return "ceiling={0}/{1} client_data_bounded {2}:{3} {4}{5}".format(
+            generation.actor_count,
+            CENSUS_COUNT,
+            world_port_royal_identity.CEILING_TICKET,
+            world_port_royal_identity.CEILING_TICKET_VERDICT,
+            classes,
+            "" if not stale else " ticket_stale=" + ",".join(
+                str(leader) for leader in stale),
+        )
+    except Exception as error:  # never break a boot's own log line
+        return "ceiling=unavailable:" + type(error).__name__
+
+
 def _entry(legacy: Any, placement: SceneActorPlacement) -> bytes:
     """Exactly the frozen V134 per-actor shape, for every member of the census.
 
@@ -914,7 +987,7 @@ def census_console_line(generation: WorldPopulationGeneration) -> str:
     return (
         "WORLD_CENSUS assembled={0}/{1} wire={2} bodies={3} pc={4}B frame={5}B "
         "anchor=({6:.3f},{7:.3f},{8:.3f}) reapply_ms={9} source={10} "
-        "shortfall={11} | {12} | {13} | {14}".format(
+        "shortfall={11} | {12} | {13} | {14} | {15}".format(
             report["assembled_count"], report["census_count"],
             report["wire_actor_count"] if report["counts_agree"]
             else "MISMATCH:%d" % report["wire_actor_count"],
@@ -939,6 +1012,12 @@ def census_console_line(generation: WorldPopulationGeneration) -> str:
             # existing field: every reader that greps ``WORLD_CENSUS `` or
             # matches the fields ahead of it keeps working unchanged.
             undressable_console_token(generation),
+            # Appended after the names, for the same reason and with the same
+            # rule: a reader that greps ``WORLD_CENSUS `` or matches any field
+            # ahead of it is unaffected.  It goes AFTER ``undressable`` on
+            # purpose - the list of who is missing is what raises the
+            # question this field answers, and a log reads top to bottom.
+            ceiling_console_token(generation),
         )
     )
 
