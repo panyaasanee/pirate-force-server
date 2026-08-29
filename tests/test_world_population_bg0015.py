@@ -247,7 +247,18 @@ class Bg0015Census(unittest.TestCase):
                 if any("world_population_bg0015" in name for name in names):
                     importers.append(path.name)
                     break
-        self.assertEqual(sorted(importers), ["world_population_handoff.py"])
+        # UPDATED DELIBERATELY IN THE ROUND THAT WIRED IT, WHICH IS WHAT THE
+        # PARAGRAPH ABOVE ASKED FOR (round ga91m5-r2).  The second importer is
+        # `lane_hooks/lane_a_scene_census.py`, this lane's own composer file,
+        # registered against the per-scene census point chief built in round
+        # 73fhoc.  It reads this module only for its console readers
+        # (census_console_line / actor_lines / unresolved_lines) and takes the
+        # roster itself from the seam, so the seam is still the one composer.
+        # Still an EXACT SET: a third importer has to be argued for in a round
+        # of its own.
+        self.assertEqual(
+            sorted(importers),
+            ["lane_a_scene_census.py", "world_population_handoff.py"])
 
         # ~~self.assertNotIn("runtime.py", importers)~~
         # ~~self.assertNotIn("world_population_handoff", runtime_source)~~
@@ -269,6 +280,15 @@ class Bg0015Census(unittest.TestCase):
         # imports, so that is what is asserted now: nothing under src/ calls
         # either entry point of the seam.  This one fails against the
         # adversary's own wiring.
+        # ALIAS-RESOLVING, NOT NAME-MATCHING (pf-adversary, round ga91m5-r2,
+        # D1).  The previous version matched the identifier at the call, so
+        # `from .world_population_handoff import handoff_for_arrival as
+        # _arrive` followed by `_arrive(...)` walked straight past it -
+        # measured, in columbus_quest_dispatch.py, a file runtime.py already
+        # imports and calls on the live path, with the whole suite green.
+        # Every local name bound to an entry point is collected first, then
+        # calls are matched against that set as well as against the
+        # attribute form.
         entry_points = {"handoff_for_arrival", "handoff_on_crossing"}
         call_sites = []
         for path in (ROOT / "src").rglob("*.py"):
@@ -278,19 +298,55 @@ class Bg0015Census(unittest.TestCase):
             if path.name == "world_population_handoff.py":
                 continue
             tree = ast.parse(path.read_text(encoding="utf-8"))
+            local_names = set()
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom):
+                    for alias in node.names:
+                        if alias.name in entry_points:
+                            local_names.add(alias.asname or alias.name)
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Call):
                     continue
                 func = node.func
-                name = (func.attr if isinstance(func, ast.Attribute)
-                        else func.id if isinstance(func, ast.Name) else None)
-                if name in entry_points:
+                if isinstance(func, ast.Attribute):
+                    name = func.attr
+                elif isinstance(func, ast.Name):
+                    name = func.id
+                else:
+                    name = None
+                if name in entry_points or name in local_names:
                     call_sites.append("%s:%d" % (path.name, node.lineno))
+        # ~~self.assertEqual(call_sites, [], ...)~~ -- THE EMPTY SET WAS THE
+        # RIGHT ASSERTION FOR EXACTLY ONE ROUND, AND THIS IS THE ROUND THAT
+        # SPENDS IT (ga91m5-r2).  The seam now has exactly one caller under
+        # src/: lane_hooks/lane_a_scene_census.py, the composer this lane
+        # registered against chief's per-scene census point.  Asserting the
+        # exact FILE rather than the count records WHERE the wiring that was
+        # the point of three rounds actually lives.
+        #
+        # WHAT THIS ASSERTION IS NOT, STATED BECAUSE AN EARLIER VERSION OF
+        # THIS COMMENT CLAIMED IT (pf-adversary, round ga91m5-r2, D1).  It is
+        # NOT a containment guarantee that "nothing reaches this roster
+        # except through a file this lane owns".  A static scan of one
+        # module's call syntax cannot make that claim: the adversary reached
+        # the roster twice without tripping it, once through an aliased
+        # import (now resolved above) and once by calling this lane's own
+        # composer factory from another file, which names neither the seam
+        # nor this module's roster.  What actually contains the roster is the
+        # ADMISSION CHECK in lane_hooks/lane_a_scene_census.py - it declines
+        # for any scene the registry does not declare open, on every route
+        # including those two - and it is driven in
+        # tests/test_lane_a_scene_census.py, class
+        # TheAdmissionCheckIsTheGateTests.  This assertion's job is smaller
+        # and worth keeping: a new seam caller appearing under src/ is a
+        # change somebody should have to write a sentence about.
         self.assertEqual(
-            call_sites, [],
-            "the arrival seam has gained a caller under src/ -- this roster "
-            "now reaches players, which is a claim this round's handback "
-            "makes in the other direction: %r" % (call_sites,),
+            [site.split(":")[0] for site in call_sites],
+            ["lane_a_scene_census.py"],
+            "the arrival seam's caller set under src/ changed -- this roster "
+            "reaches players through exactly one lane-owned file, and a "
+            "second caller has to be argued for in a round of its own: %r"
+            % (call_sites,),
         )
 
 
