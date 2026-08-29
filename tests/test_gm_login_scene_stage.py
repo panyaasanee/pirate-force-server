@@ -30,6 +30,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from pirateforce_foundation.gm import (  # noqa: E402
     accounts as gm_accounts,
+    login_scene_admission,
     login_scene_override,
     login_scene_stage,
 )
@@ -213,8 +214,14 @@ class OnlyScenesTheLoginPathCanEnterTests(_Case):
                 self.assertTrue(self.stage(self.GM_ACCOUNT, scene_id).staged)
 
     def test_an_unreadable_registry_refuses_rather_than_stages_into_the_dark(self):
+        # Patched on `login_scene_admission`, not on this module: round
+        # qq0i9u moved the predicate there so the config READER could ask it
+        # too (an operator's text editor reaches the same files a `/warp`
+        # does), and this module now re-exports it rather than owning a
+        # second copy.  Patching the owner is what proves the staging path
+        # still goes through it.
         with mock.patch.object(
-            login_scene_stage.world_scene_travel,
+            login_scene_admission.world_scene_travel,
             "load_scene_registry",
             side_effect=OSError("registry gone"),
         ):

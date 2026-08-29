@@ -48,10 +48,17 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 from .accounts import is_gm_account
+from .login_scene_admission import login_entry_is_pinned, stageable_scene_ids
 from .scene_catalog import is_known_scene_id
+
+# Printed to stderr, once per refused entry per load, when a config file
+# names a scene the login path would refuse.  Spelled once so a test (and a
+# tester grepping a console) can match it exactly.
+CONFIG_REFUSED_CONSOLE_TOKEN = "GM_LOGIN_SCENE_CONFIG_REFUSED"
 
 DEFAULT_CONFIG_PATH = "config/gm_login_scene.json"
 ENV_OVERRIDE = "PF_GM_LOGIN_SCENE_CONFIG"
@@ -106,6 +113,39 @@ def _load_scene_id_map(
             raise ValueError(
                 f"{path}: '{json_key}'[{account_name!r}] = {scene_id} is not a "
                 "known scene_id in gm/scene_catalog.py's committed table"
+            )
+        if not login_entry_is_pinned(scene_id):
+            # ADMISSION, round qq0i9u.  Being in the client's NAME table is
+            # not the same as being a scene the login path will let a
+            # character into, and until this check existed the difference
+            # was paid for by the account: an entry naming a scene with no
+            # pinned login entry (or one pinned `login_entry_allowed:
+            # false`, scene 17 today) was accepted here, applied at login,
+            # and then refused by `resolve_entry` with no reply -- on that
+            # login and on every retry after it, because the standalone map
+            # is deliberately never consumed (`COO-DECISION 20260829_0542`).
+            # See `gm/login_scene_admission.py` for the measurement and for
+            # why this is admission rather than a reversal of that decision.
+            #
+            # LOUD, because the alternative is not quiet -- it is a tester
+            # who cannot log in and nothing anywhere saying why.  The token
+            # goes to stderr on every login that loads the bad file, which
+            # is once per login for as long as the typo stands; that is the
+            # noise of a config nobody has fixed yet, not of normal
+            # operation (a file with no bad entry prints nothing, ever).
+            print(
+                f"{CONFIG_REFUSED_CONSOLE_TOKEN} path={path} key={json_key} "
+                f"account={account_name!r} scene_id={scene_id} "
+                f"reason=no_pinned_login_entry stageable={stageable_scene_ids()}",
+                file=sys.stderr,
+            )
+            raise ValueError(
+                f"{path}: '{json_key}'[{account_name!r}] = {scene_id} names a "
+                "scene the login path will refuse (no pinned login entry in "
+                "lane A's world_scene_registry_001, or pinned "
+                "login_entry_allowed=false) -- an account pointed here could "
+                "not log in at all until this file was edited by hand; "
+                f"admissible scene_ids today: {stageable_scene_ids()}"
             )
         result[account_name] = scene_id
     return result
