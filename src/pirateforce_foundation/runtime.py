@@ -6647,39 +6647,60 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         # fail-closed by design (v141:7440 has no except)
                         # and an escape from the splice must land in the
                         # same net as an escape from the builder.
-                        # Deliberately NO ledger kwarg, per the letter: at
-                        # census time self.mob_combat_ledger holds
-                        # whatever scene it was last synced to (boot =
-                        # bg0001, runtime.py:1131), and
-                        # full_roster_override raises
-                        # MobDeathContractError on a mismatched pair --
-                        # measured, letter 1600, re-measured by
-                        # pf-adversary this round (passing it turns this
-                        # branch into a compose refusal: fail-closed, no
-                        # thread unwind, but no census either).  NOTE the
-                        # sibling bg0001 branch below takes the safe
-                        # symmetric route instead -- it calls
-                        # _sync_combat_scene_state() on this same census
-                        # path and passes the synced ledger; doing that
-                        # here is a design change to lane B's explicit
-                        # request, so it is flagged in the R230 letter,
-                        # not taken silently.  Known narrow window
-                        # (pf-adversary D2): a frame that both wounds a
-                        # scene-2 mob and triggers this census ships that
-                        # mob at full HP -- wire layer, wounded-alive
-                        # only; deaths ARE covered, the register is
-                        # passed.  Any future mid-session recompose must
-                        # pass THAT scene's ledger (mob_combat.open_ledger
-                        # over field_mobs.roster_for_scene_id) -- and
-                        # nothing yet REFUSES a ledger-less recompose;
-                        # that open design question is raised to lane
-                        # B/COO in the R230 letter.  [lane-B assumption,
-                        # COO confirmation pending, tagged in the letter.]
-                        override = (
-                            mob_census_hostility.hostile_override_for_scene_id(
-                                legacy, scene_id, self.mob_death_register,
+                        # COO-DECISION 20260829_1842 (recompose, R231):
+                        # the R230 shape deliberately passed NO ledger
+                        # (self.mob_combat_ledger could hold another
+                        # scene's rows, and full_roster_override raises on
+                        # a mismatched pair), which left the measured
+                        # narrow window: a frame that both wounds a
+                        # scene-2 mob and triggers this census shipped
+                        # that mob at full HP.  This is now the same safe
+                        # symmetric route the sibling bg0001 branch
+                        # already takes: sync ledger+roster to THIS scene
+                        # first, then pass the synced ledger, so wounds
+                        # survive the compose and the pair can never
+                        # mismatch.  The invariant that carries this is
+                        # SAME ROSTER, not same folder: measured over
+                        # scene ids 0..999, field_mobs.roster_for_scene_id
+                        # and the sync's load_roster-over-folder answer
+                        # identical rosters everywhere (both filter
+                        # through the same live-scene table membership),
+                        # while the two FOLDER answers disagree on
+                        # addressed-but-not-live ids (278 among them,
+                        # pf-adversary this round) -- none of which can
+                        # reach this scene-2-only branch.  So the ledger
+                        # the sync opened and the roster the override
+                        # loads are the same rows.  The COO's other half of that ruling
+                        # -- the MODULE refusing a ledger-less recompose
+                        # loudly instead of defaulting to None -- lives in
+                        # lane B's files and is theirs to land; this call
+                        # site simply never omits the ledger again.
+                        synced_roster = self._sync_combat_scene_state()
+                        if synced_roster is None:
+                            # Registry does not address the scene: no
+                            # roster, no override, said by name -- same
+                            # latch as the bg0001 branch.  Unreachable
+                            # while this branch only composes for scene 2,
+                            # which the registry addresses.
+                            override = {}
+                            # _bg0002 suffix on purpose (pf-adversary,
+                            # this round): the bg0001 arm below logs the
+                            # unsuffixed string, and a shared spelling
+                            # would leave the log unable to say which
+                            # branch latched.
+                            self.events.append(
+                                "mob_death_census_override_skipped_"
+                                "scene_unaddressed_bg0002"
                             )
-                        )
+                        else:
+                            override = (
+                                mob_census_hostility
+                                .hostile_override_for_scene_id(
+                                    legacy, scene_id,
+                                    self.mob_death_register,
+                                    ledger=self.mob_combat_ledger,
+                                )
+                            )
                         if override:
                             generation = _apply_mob_death_census_override(
                                 legacy, generation, override,

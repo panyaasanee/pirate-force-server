@@ -193,11 +193,21 @@ class SceneScopedCombatWiringTests(unittest.TestCase):
         )
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            state.dispatch(legacy.parse_outer(pc))
+            self._last_arrival_actions = state.dispatch(
+                legacy.parse_outer(pc)
+            )
         return anchor
 
-    def _action_vital_pc(self, target_identity):
+    def _action_vital_pc(self, target_identity, outer_id=None):
+        """``outer_id`` other than the default RuntimeProtocolReq builds
+        the wound-before-census frame pf-adversary (round nbulzb, D1)
+        measured: combat dispatch is NESTED-id gated while the census
+        guard is OUTER-id gated, and ``parse_outer`` extracts a nested
+        vital under any outer id with mask bit 0x02 -- so this frame
+        wounds without composing the arrival census."""
         legacy = self.legacy
+        if outer_id is None:
+            outer_id = legacy.GSCN_RUNTIME_PROTOCOL_REQ
         body = (
             legacy.qwordtag(0x32, 0)
             + legacy.qwordtag(0x32, target_identity)
@@ -211,7 +221,7 @@ class SceneScopedCombatWiringTests(unittest.TestCase):
             + legacy.u8tag(0x0B, 0)
         )
         return (
-            legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_REQ)
+            legacy.u16tag(0x12, outer_id)
             + legacy.u32tag(0x14, 0)
             + legacy.u8tag(0x08, 0)
             + legacy.u8tag(0x0B, 2)
@@ -632,6 +642,122 @@ class SceneScopedCombatWiringTests(unittest.TestCase):
             state.mob_combat_ledger.balance_of(CONTROL_TARGET).current_hp,
             0,
         )
+
+
+    def test_the_bg0002_arrival_census_syncs_combat_state_to_the_scene(self):
+        """COO-DECISION 20260829_1842 item 3, the chief's call-site half:
+        the Bg0002 arrival census takes the same symmetric route the
+        bg0001 branch already takes -- sync ledger+roster+AI register to
+        the scene it composes for, then pass that synced ledger to the
+        hostility override, never omitting it again.
+
+        What this makes observable: on a scene-2 boot the combat state
+        holds Bg0002's rows from the ARRIVAL census on, not from the first
+        attack on (the lazy attack-time sync was the only opener before) --
+        so anything that reads the ledger between arrival and the first
+        swing sees the right scene, and the mismatched
+        ledger-against-roster pair that made R230 omit the ledger can no
+        longer be composed.
+
+        What this deliberately does NOT claim: that the census bytes of a
+        WELL-ORDERED session change.  On an untouched arrival a fresh sync
+        holds every mob at its ceiling with deaths rehydrated from the
+        register -- the same facts the register-only compose carried --
+        and in the one frame that both wounds and composes, dispatch order
+        puts the compose FIRST (measured: census labels precede
+        MOB_COMBAT_* in the same dispatch).  The case where the bytes DO
+        change -- a wound landed in an EARLIER frame, reachable through a
+        foreign-outer ActionVital -- is pinned by
+        ``test_a_wound_landed_before_the_census_reaches_the_census_bytes``
+        below, which is what makes the ledger kwarg itself falsifiable
+        (pf-adversary this round, D1: without it, dropping ``ledger=``
+        alone kept the entire tree green).
+
+        MUTATION-PROOF (measured): revert the call site to the unsynced
+        no-ledger shape and the folder assertion goes red (boot folder is
+        bg0001 until the first attack).
+        """
+        state = self._state_at_scene2("ssc_bg0002_arrival_sync")
+        self.assertNotEqual(state.mob_combat_scene_folder, "Bg0002")
+        self._arrive(state)
+        self.assertTrue(state.world_census_sent)
+        self.assertEqual(state.mob_combat_scene_folder, "Bg0002")
+        self.assertIn(
+            self.bg0002_mob.actor_identity,
+            state.mob_combat_ledger.identities(),
+        )
+        self.assertFalse(any(
+            "census" in event and "refused" in event
+            for event in state.events
+        ), state.events)
+        # And the first swing still lands, exactly as before the change.
+        actions = self._attack(state, self.bg0002_mob.actor_identity)
+        self.assertIn(
+            "MOB_COMBAT_ANNOUNCE",
+            [label for label, *_rest in actions],
+        )
+
+    def test_a_wound_landed_before_the_census_reaches_the_census_bytes(self):
+        """The ledger kwarg's own mutation kill (pf-adversary D1, measured).
+
+        A wound CAN precede the arrival census: combat dispatch is gated
+        on the NESTED vital id while the census guard is gated on the
+        OUTER id, and ``parse_outer`` extracts a nested vital under any
+        outer id carrying mask bit 0x02 -- so an ActionVital under a
+        foreign outer id wounds the mob (the attack-time sync opens the
+        Bg0002 ledger) while ``world_census_sent`` stays False.  The
+        arrival census that follows must ship that mob at its wounded HP:
+        this is the exact full-HP window COO-DECISION 20260829_1842
+        exists to close, and before this test, deleting ``ledger=`` alone
+        from the call site kept the entire suite green.
+
+        MUTATION-PROOF (measured): drop ``ledger=self.mob_combat_ledger``
+        from the Bg0002 override call and the wounded-entry assertion
+        goes red (the census ships the ceiling again).
+        """
+        state = self._state_at_scene2("ssc_bg0002_wound_before_census")
+        target = self.bg0002_mob.actor_identity
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            actions = state.dispatch(self.legacy.parse_outer(
+                self._action_vital_pc(target, outer_id=0x1234)
+            ))
+        self.assertIn(
+            "MOB_COMBAT_ANNOUNCE",
+            [label for label, *_rest in actions],
+        )
+        self.assertFalse(
+            state.world_census_sent,
+            "fixture failure: the foreign-outer frame composed the census "
+            "after all, so no wound-before-census state exists",
+        )
+        wounded_hp = state.mob_combat_ledger.balance_of(target).current_hp
+        self.assertLess(wounded_hp, self.bg0002_mob.max_hp)
+        self.assertGreater(
+            wounded_hp, 0,
+            "fixture failure: the strike killed outright -- deaths were "
+            "already covered by the register, this pins the wounded-alive "
+            "case",
+        )
+        self._arrive(state)
+        self.assertTrue(state.world_census_sent)
+        census_pc = next(
+            pc for label, pc, *_rest in self._last_arrival_actions
+            if label.startswith("WORLD_CENSUS_BG0002_INITIAL_")
+        )
+        wounded_entry = field_mobs.hostile_actor_entry(
+            self.legacy, self.bg0002_mob, current_hp=wounded_hp,
+        )
+        full_entry = field_mobs.hostile_actor_entry(
+            self.legacy, self.bg0002_mob,
+            current_hp=self.bg0002_mob.max_hp,
+        )
+        self.assertIn(wounded_entry, census_pc)
+        self.assertNotIn(full_entry, census_pc)
+        self.assertFalse(any(
+            "census" in event and "refused" in event
+            for event in state.events
+        ), state.events)
 
 
 if __name__ == "__main__":
