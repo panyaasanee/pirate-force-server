@@ -40,10 +40,14 @@ the SAME predicate the staging path already enforces rather than a second
 one that could drift: one implementation, imported by both, so a config an
 operator hand-writes is held to exactly the rule ``/warp`` is held to.
 
-[สมมติของสาย GM - รอ COO ยืนยัน] Refusing at ADMISSION rather than at use
-is option (a) of ``notes_to_chief/20260829_0906_LANE-GM-ASK-COO-standalone-
-map-admits-a-scene-no-login-can-enter.md``.  The letter said the lane would
-walk option (a) if no answer arrived by the next round; none did.  It does
+~~[สมมติของสาย GM - รอ COO ยืนยัน]~~ RULED, round 7gplcy:
+``notes_to_chief/20260829_0941_COO-DECISION-standalone-map-refuses-an-
+unreachable-scene-at-load.md`` approves option (a).  Refusing at ADMISSION
+rather than at use is option (a) of ``notes_to_chief/20260829_0906_LANE-GM-
+ASK-COO-standalone-map-admits-a-scene-no-login-can-enter.md``.  The letter
+said the lane would walk option (a) if no answer arrived by the next round;
+none had when it was written, and the ruling arrived while the round that
+built it was being closed unmerged by the gate.  It does
 NOT reverse ``COO-DECISION 20260829_0542``: that decision is about whether
 an accepted entry is spent on use, and this is about whether the entry is
 accepted at all.  If the COO rules otherwise, the reversal is this module

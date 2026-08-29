@@ -3325,13 +3325,25 @@ console is `cp874`; an account name it cannot encode raised
 `UnicodeEncodeError` out of the print, and `runtime_console._Mirror` writes
 the console before the retained file, so the refusal was recorded nowhere
 at all while the caller received the encoder's exception instead of this
-lane's. ~~Operator-controlled fields now go through `ascii()`~~ and the whole
-print is wrapped: a closed or hostile stderr costs the line, never the
+lane's. Operator-controlled fields are folded ~~through `ascii()`~~ and the
+whole print is wrapped: a closed or hostile stderr costs the line, never the
 refusal.
 
-> Struck in round `7gplcy`, not deleted: `ascii()` was the right idea in the
-> wrong function -- it escapes as well as folds, which is what turned the
-> gate red and closed `PR #249`. The fold now goes through `console_safe()`.
+> Two corrections from round `7gplcy`, struck rather than deleted.
+>
+> **The escape.** `ascii()` was the right idea in the wrong function -- it
+> escapes as well as folds, which is what turned the gate red and closed
+> `PR #249`. The fold goes through `console_safe()` now, which asks the
+> stream what it can carry rather than assuming ASCII.
+>
+> **The attribution.** This paragraph reads as though the FOLD is what keeps
+> the diagnostic from altering dispatch. It is not; the WRAP is, and it holds
+> with no fold at all (measured, pf-adversary round `7gplcy`: with the fold
+> removed the caller still receives this module's `ValueError`, never the
+> encoder's). The fold buys something narrower and still worth buying -- that
+> the line gets written, and written in a form an operator can read, paste
+> and grep. Two mechanisms, two promises.
+>
 > See "Round 7gplcy" at the end of this file.
 
 ### Cross-lane coupling, declared rather than discovered later
@@ -3347,7 +3359,8 @@ lane's configs may contain. Letter to lane A and chief:
    Reaching a scene is `GT-141`'s to decide, on a screen.
 2. **Never measured against a real client.** Every line of this round was
    measured through the dispatcher in the test suite.
-3. `[สมมติของสาย GM - รอ COO ยืนยัน]` -- this is option (a) of the lane's own
+3. ~~`[สมมติของสาย GM - รอ COO ยืนยัน]`~~ **RULED in round `7gplcy`**
+   (`COO-DECISION 20260829_0941` approves option (a)) -- this was option (a) of the lane's own
    ASK-COO letter of 2026-08-29T09:06+07:00, which said the lane would walk
    it if no answer arrived by the next round. None did. It does not reverse
    `COO-DECISION 20260829_0542`: that ruled on whether an accepted entry is
@@ -3398,9 +3411,14 @@ the line said `path='C:\\Users\\RUNNER~1\\...'` while the test, and the
 operator, wanted `C:\Users\RUNNER~1\...`. The line named the file in a form
 nobody could paste.
 
-`console_safe()` now folds through `str.encode("ascii", "backslashreplace")`
-instead: it folds exactly what `cp874` has no room for and leaves every
-ASCII character, separators included, as it found them.
+~~`console_safe()` now folds through `str.encode("ascii",
+"backslashreplace")` instead: it folds exactly what `cp874` has no room for
+and leaves every ASCII character, separators included, as it found them.~~
+
+**Struck the same round, by pf-adversary, before it left draft. That second
+sentence is false and the code it described repeated the defect it was
+fixing** -- see "What pf-adversary broke" below. `console_safe()` folds
+through the encoding of *the stream being written to*, and nothing wider.
 
 ### The finding is the blind spot, not the escape
 
@@ -3419,15 +3437,74 @@ writes a config at `dir\sub\standalone.json` and asks for the path back
 verbatim. Reverting `console_safe` to `ascii()` turns it red here, in 0.16
 seconds, instead of six minutes later on the gate.
 
-`test_the_fold_survives_that_and_still_reaches_a_cp874_console` pins the
-other half in the same place, because the two halves pull against each
-other: `ascii()` was safe and unreadable, and a naive fix would be readable
-and unsafe.
+~~`test_the_fold_survives_that_and_still_reaches_a_cp874_console` pins the
+other half in the same place~~ -- it did not; it was named for the cp874
+property and measured the ASCII-fold property. Replaced, below.
+
+### What pf-adversary broke, before this left draft
+
+**D3 -- the fix repeated the defect it was fixing, one field to the left.**
+`str.encode("ascii", "backslashreplace")` does not fold "exactly what
+`cp874` has no room for". It folds every non-ASCII character, and **`cp874`
+is the Thai code page**: `"ทดสอบ".encode("cp874")` succeeds. On a
+Thai-language project, an operator named `ทดสอบ` got a console line that did
+not contain their account name and could not be grepped for it -- the
+identical shape to `path='C:\\Users\\...'`, shipped by the round whose
+whole thesis was *a fold that also escapes is not a fold*. Worse, this
+round's own `assertNotIn("ทดสอบ", console)` would have made fixing it a red
+test.
+
+So the fold is no longer assumed. `console_safe(text, stream)` asks the
+stream for its `encoding` and folds through that, falling back to ASCII when
+the stream will not say (a `StringIO` has no `encoding` at all) -- narrowest
+wins when we do not know. A Windows path keeps its separators, a Thai name
+survives on a Thai code page, and `张三` still escapes.
+
+That also sidesteps a question nobody has answered, rather than guessing at
+it: **`runtime_console._Mirror` announces `utf-8` while `gate-windows.yml`
+forces `cp874:strict`, and nobody has measured the real stream on the
+owner's machine.** Asking the stream is correct in both worlds. Raised with
+chief as `CORE-REQUEST-GM-035`.
+
+**D1 -- the path half of the fold was pinned by nothing at all.** Deleting
+`console_safe` from the *path* argument alone left the whole 4483-test suite
+green, while the same deletion on the *account* argument went red in 0.16s.
+Both of this round's new tests were about the path not being *escaped*, and
+neither noticed it had stopped being *folded*. The live shape:
+`PF_GM_LOGIN_SCENE_STANDALONE_CONFIG` under a home directory `cp874` cannot
+carry -- the print raises, the wrap swallows it, and because
+`runtime_console._Mirror` writes the console before the retained file the
+refusal is recorded nowhere. The qq0i9u defect, returning through the other
+field. `test_a_path_the_console_cannot_encode_is_folded_not_dropped` kills
+it.
+
+**D2 -- the test named for cp874 could not see cp874.** It used `ทดสอบ`,
+which cp874 encodes natively, and its docstring claimed that dropping the
+fold would raise `UnicodeEncodeError` out of the print. Both halves wrong:
+that input does not raise, and for an input that genuinely cannot be encoded
+the *wrap* (round `qq0i9u`) stops it raising out of the print anyway. An
+evidence-layer swap -- a test named for one property, measuring another.
+Replaced by the two above, and the dispatch claim re-attributed to the wrap
+everywhere it was written.
+
+**D4, D5 -- the strike over-struck and the ruling was not carried.** The
+`ascii()` strike above took the true half of its sentence with the false
+half; restored. And five places still carried
+`[สมมติของสาย GM - รอ COO ยืนยัน]` after this round said the tag had become a
+ruling; the three that are about *this* decision now say so. The two left
+standing (`login_scene_override.load_standalone_login_scene_overrides` and
+its module docstring) are about the standalone map's *existence without GM
+listing*, which `COO-DECISION 0941` does not rule on. Still pending, still
+tagged, deliberately.
 
 | mutation | red here (was) |
 |---|---|
-| `console_safe` back to `ascii()` escaping | 2 (was 0) |
-| `console_safe` returns its argument unfolded | 2 (was 1) |
+| drop the fold on the **path** field | **1 (was 0 -- pf-adversary's survivor)** |
+| drop the fold on the **account** field | 1 |
+| fold at ASCII again, ignoring the stream | **1 (was 0)** |
+| back to the `ascii()` escaping fold that closed `#249` | 2 |
+
+Baseline 4484 passed, 327 skipped, 0 failed.
 
 ### nonclaim
 
@@ -3441,3 +3518,17 @@ and unsafe.
    is understood from the gate's own log for run `33229946448`; the fix is
    measured only through a POSIX reproduction of the same shape. The gate
    decides.
+4. **[เสนอ ยังไม่วัด] and left standing deliberately.** `gate-windows.yml`
+   sets `PYTHONIOENCODING: cp874:strict` job-wide, and
+   `tests/test_gm_login_scene_admission.py` carries `张三`, `café`, `naïve…`
+   as test inputs -- none of them cp874-mappable. If one of those subtests
+   ever FAILS on Windows, pytest must print the subtest id to a strict cp874
+   stdout, and whether its terminal writer's escape fallback survives that is
+   unverified. They pass today (Actions run `33231419482`), so this is a
+   hazard on the failure path only: a red run in this file could in principle
+   come back as an INTERNALERROR with no `FAILED` line for the gate's own
+   extractor to find. Raised rather than fixed -- the tests need those inputs,
+   and `.github/` is chief's.
+5. **The adversary's own untested claim, restated rather than absorbed:** it
+   stopped short of driving an *admissible* config value end to end through
+   scenes 278 and 997. Unknown, not safe.

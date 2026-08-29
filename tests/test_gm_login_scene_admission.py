@@ -16,7 +16,10 @@ Measured through the real dispatcher in round 38c4tv; asked in pf_bridge's
 `notes_to_chief/20260829_0906_LANE-GM-ASK-COO-standalone-map-admits-a-scene-
 no-login-can-enter.md`, which named option (a) -- refuse at admission -- as
 the one the lane would walk if no answer arrived by the next round.  None
-did.  [สมมติของสาย GM - รอ COO ยืนยัน]
+had.  ~~[สมมติของสาย GM - รอ COO ยืนยัน]~~ RULED, round 7gplcy:
+`notes_to_chief/20260829_0941_COO-DECISION-standalone-map-refuses-an-
+unreachable-scene-at-load.md` approves it, and adds that the admissible set
+being four scenes wide is the correct value rather than a limitation.
 
 This file owns the predicate.  The two dispatcher-level consequences live
 where the logins do: `test_gm_login_scene_override_standalone_at_login.py`
@@ -403,6 +406,17 @@ class TheLoaderTests(unittest.TestCase):
     def _write(self, path, key, mapping):
         path.write_text(json.dumps({key: mapping}), encoding="utf-8")
 
+    @staticmethod
+    def _cp874_stderr():
+        """A stderr that behaves like the bridge console: cp874, strict.
+
+        `strict` on purpose -- a stream that silently replaces what it
+        cannot carry would hide exactly the failures these tests exist to
+        catch.
+        """
+        raw = io.BytesIO()
+        return raw, io.TextIOWrapper(raw, encoding="cp874", errors="strict")
+
     def _load_gm(self):
         return login_scene_override.load_login_scene_overrides(self.gm_path)
 
@@ -485,36 +499,75 @@ class TheLoaderTests(unittest.TestCase):
                 )
         self.assertIn(str(weird), stderr.getvalue())
 
-    def test_the_fold_survives_that_and_still_reaches_a_cp874_console(self):
-        """...and the readability above did not cost the encode-safety.
+    def test_a_thai_account_name_survives_on_a_thai_code_page(self):
+        """The other half of the same mistake, found by pf-adversary.
 
-        The two halves pull against each other -- `ascii()` was safe and
-        unreadable -- so they are pinned together.  Drop the fold entirely
-        and this raises `UnicodeEncodeError` out of the print.
+        Round 7gplcy replaced `ascii()` -- which escaped separators -- with
+        `str.encode("ascii", "backslashreplace")`, and congratulated itself
+        on "folding exactly what cp874 has no room for".  It does not.  It
+        folds every non-ASCII character, and `cp874` IS the Thai code page:
+        `"ทดสอบ".encode("cp874")` succeeds.  On a Thai-language project, an
+        operator named `ทดสอบ` got a line that did not contain their account
+        name and could not be grepped for it -- the identical defect to
+        `path='C:\\\\Users\\\\...'`, one field to the left, shipped by the
+        round that was fixing it.
+
+        So the fold is asked of the STREAM now, not assumed.  Revert
+        `console_safe` to fold at ASCII and this goes red.
         """
-        weird = Path(self.tmp.name) / "dir\\sub\\standalone.json"
-        # POSIX: one filename with backslashes in it.  Windows: a real
-        # nested path.  Either way `str(weird)` carries a separator the
-        # console line has to reproduce, and either way the parent must
-        # exist before the write.
-        weird.parent.mkdir(parents=True, exist_ok=True)
+        raw, buffer = self._cp874_stderr()
         self._write(
-            weird,
+            self.standalone_path,
             login_scene_override.STANDALONE_JSON_KEY,
             {"ทดสอบ": BARRED_AT_LOGIN},
         )
-        raw = io.BytesIO()
-        buffer = io.TextIOWrapper(raw, encoding="cp874", errors="strict")
+        with mock.patch.object(sys, "stderr", buffer):
+            with self.assertRaises(ValueError):
+                self._load_standalone()
+            buffer.flush()
+        console = raw.getvalue().decode("cp874")
+        self.assertIn("ทดสอบ", console)
+
+    def test_a_path_the_console_cannot_encode_is_folded_not_dropped(self):
+        """The path field's fold, which nothing pinned until now.
+
+        MEASURED by pf-adversary: deleting `console_safe` from the PATH
+        argument alone left the whole 4483-test suite green, while the same
+        deletion on the ACCOUNT argument went red in 0.16s.  The two new
+        tests of this round were both about the path NOT being escaped, and
+        neither one noticed that it had stopped being folded at all.
+
+        The live shape: `PF_GM_LOGIN_SCENE_STANDALONE_CONFIG` pointed at a
+        path under a home directory with a name cp874 cannot carry.  Without
+        the fold the print raises, the wrap swallows it, and -- because
+        `runtime_console._Mirror` writes the console before the retained
+        file -- the refusal is recorded NOWHERE, which is the whole qq0i9u
+        defect returning through the other field.
+        """
+        raw, buffer = self._cp874_stderr()
+        # U+00E9 has no cp874 mapping.  A legal filename character on both
+        # platforms, and the sort of thing a real home directory contains.
+        unmappable = Path(self.tmp.name) / "Jos\u00e9.json"
+        self._write(
+            unmappable,
+            login_scene_override.STANDALONE_JSON_KEY,
+            {"plain_tester": BARRED_AT_LOGIN},
+        )
         with mock.patch.object(sys, "stderr", buffer):
             with self.assertRaises(ValueError) as caught:
                 login_scene_override.load_standalone_login_scene_overrides(
-                    weird
+                    unmappable
                 )
             buffer.flush()
-        self.assertNotIsInstance(caught.exception, UnicodeEncodeError)
+        # The refusal, not the encoder's complaint -- held by the wrap.
+        self.assertIn("names a", str(caught.exception))
         console = raw.getvalue().decode("cp874")
-        self.assertIn(str(weird), console)
-        self.assertNotIn("ทดสอบ", console)
+        # And the line is there, which is what the fold is for.
+        self.assertIn(
+            login_scene_override.CONFIG_REFUSED_CONSOLE_TOKEN, console
+        )
+        self.assertIn("scene_id=17", console)
+        self.assertIn("Jos\\xe9.json", console)
 
     def test_an_admissible_entry_still_loads_and_prints_nothing(self):
         self._write(self.gm_path, "gm_login_scene", {"gm_runner": 2})

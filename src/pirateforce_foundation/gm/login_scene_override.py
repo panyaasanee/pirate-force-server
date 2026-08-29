@@ -68,24 +68,51 @@ STANDALONE_ENV_OVERRIDE = "PF_GM_LOGIN_SCENE_STANDALONE_CONFIG"
 STANDALONE_JSON_KEY = "standalone_login_scene"
 
 
-def console_safe(text: str) -> str:
-    """ASCII-fold one operator-controlled field for the bridge console.
+def console_safe(text: str, stream=None) -> str:
+    """Fold one operator-controlled field to what ``stream`` can carry.
 
-    The bridge console is `cp874` and a name it cannot encode used to raise
-    `UnicodeEncodeError` out of the diagnostic print, which is how a
-    diagnostic came to replace the refusal it was explaining (pf-adversary,
-    round qq0i9u).  The fold is what stops that; it is not optional.
+    WHAT THIS IS AND IS NOT FOR, because round 7gplcy got this backwards
+    twice before pf-adversary measured it.  A field a console cannot encode
+    raises ``UnicodeEncodeError`` out of the ``print``; what stops that from
+    reaching the caller is the ``try/except`` around the print, NOT this
+    function.  ``session.py``'s rule (A DIAGNOSTIC MAY NEVER ALTER DISPATCH)
+    is held by the wrap.  This function holds the weaker, and separate,
+    promise: that the line still gets WRITTEN, and written in a form the
+    operator can read, paste and grep.
 
-    `ascii()` did the fold until round 7gplcy, and it also escaped every
-    BACKSLASH -- so on Windows the line named the file as
-    `C:\\\\Users\\\\...` and the operator could not paste the path the line
-    was there to give them.  It cost this lane a whole round: the gate is
-    Windows, the sanity run is not, and the test that asserted the real path
-    was in the line passed here and failed there.  `backslashreplace` folds
-    exactly what cp874 has no room for and leaves every ASCII character --
-    the separators included -- as it found them.
+    So the only correct fold is the one this stream actually needs, and the
+    two ways to get that wrong are symmetrical:
+
+    * fold too little and the line is lost (qq0i9u: a name the console could
+      not encode, and the refusal recorded nowhere);
+    * fold too much and the line is useless.  ``ascii()`` escaped every
+      BACKSLASH, so on Windows the line named the file `C:\\\\Users\\\\...`
+      and nobody could paste it -- that cost this lane a whole round.  Then
+      the fix for it, ``str.encode("ascii", ...)``, folded away THAI, on a
+      Thai-language project, on a console (`cp874`) that encodes Thai
+      natively: an operator named ``ทดสอบ`` would grep the console for their
+      own account and find nothing.  Same defect, one field to the left.
+
+    Hence: fold through the encoding of the stream being written to, and
+    nothing wider.  ``backslashreplace`` is what makes that lossless-looking
+    rather than silent -- an unmappable character becomes a visible escape,
+    never a ``?``.
+
+    The fallback when the stream will not say what it is (``None``, or a
+    ``StringIO``, which has no ``encoding`` at all) is ASCII: we do not know
+    what it can carry, so we assume the narrowest.  That is a real open
+    question and not a settled one -- ``runtime_console._Mirror`` ANNOUNCES
+    ``utf-8`` while the gate FORCES ``cp874:strict``, and nobody has measured
+    the stream on the owner's machine.  Asking the stream is what makes this
+    right in both worlds without anyone having to settle it first.
     """
-    return text.encode("ascii", "backslashreplace").decode("ascii")
+    encoding = getattr(stream, "encoding", None) or "ascii"
+    try:
+        return text.encode(encoding, "backslashreplace").decode(encoding)
+    except (LookupError, UnicodeError):
+        # An encoding name Python does not have, or one that cannot survive
+        # the round trip.  Narrowest wins: a mangled line beats no line.
+        return text.encode("ascii", "backslashreplace").decode("ascii")
 
 
 def _resolve_path(
@@ -154,26 +181,35 @@ def _load_scene_id_map(
             # noise of a config nobody has fixed yet, not of normal
             # operation (a file with no bad entry prints nothing, ever).
             #
-            # ASCII-FOLDED AND SWALLOWED, both measured rather than
-            # imagined (pf-adversary, round qq0i9u).  The bridge console is
-            # `cp874`: an account name carrying a character that encoding
-            # has no room for raised `UnicodeEncodeError` out of the print
-            # -- and `runtime_console._Mirror` writes to the console BEFORE
-            # the retained file, so the refusal was recorded nowhere at all,
-            # while the exception the caller saw came from the encoder
-            # rather than from this function.  `session.py` states the house
-            # rule that broke: A DIAGNOSTIC MAY NEVER ALTER DISPATCH.  So
-            # the two fields an operator controls are folded through
-            # `ascii()`, and the print is wrapped -- a closed or hostile
-            # stderr costs the line, never the refusal.
+            # SWALLOWED AND FOLDED -- two mechanisms, two promises, and
+            # round 7gplcy attributed one to the other until pf-adversary
+            # measured it.  Keep them apart:
+            #
+            #   the WRAP holds dispatch.  An account name `cp874` has no
+            #   room for raised `UnicodeEncodeError` out of the print, and
+            #   `runtime_console._Mirror` writes the console BEFORE the
+            #   retained file, so the refusal was recorded nowhere at all
+            #   while the caller received the encoder's exception instead of
+            #   this function's (pf-adversary, round qq0i9u).  `session.py`
+            #   states the rule that broke: A DIAGNOSTIC MAY NEVER ALTER
+            #   DISPATCH.  A closed or hostile stderr costs the LINE, never
+            #   the refusal -- and that is true with no fold at all.
+            #
+            #   the FOLD holds the line's usefulness.  It is asked of the
+            #   STREAM, not assumed: fold what this console cannot carry and
+            #   nothing wider, so a Windows path keeps its separators and a
+            #   Thai account name survives on a Thai code page.  See
+            #   `console_safe`.
+            stream = sys.stderr
             try:
                 print(
                     f"{CONFIG_REFUSED_CONSOLE_TOKEN} "
-                    f"path='{console_safe(str(path))}' "
-                    f"key={json_key} account='{console_safe(account_name)}' "
+                    f"path='{console_safe(str(path), stream)}' "
+                    f"key={json_key} "
+                    f"account='{console_safe(account_name, stream)}' "
                     f"scene_id={scene_id} reason=no_pinned_login_entry "
                     f"stageable={stageable_scene_ids()}",
-                    file=sys.stderr,
+                    file=stream,
                 )
             except Exception:  # noqa: BLE001 - see the paragraph above; the
                 # refusal below is the product, the line is the courtesy.
