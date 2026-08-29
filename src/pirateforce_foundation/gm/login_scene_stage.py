@@ -84,6 +84,7 @@ from .accounts import is_gm_account
 from . import login_scene_admission
 from . import login_scene_override as login_scene_override_module
 from .login_scene_override import (
+    LoginSceneRefusedError,
     load_login_scene_overrides,
     resolve_gm_login_scene_config_path,
 )
@@ -130,6 +131,22 @@ REASON_CONFIG_NOT_WRITABLE = "config_not_writable"
 # file on the server host.  So this module now asks the SECOND table too,
 # through lane A's own loader rather than a copy of its data.
 REASON_NO_LOGIN_ENTRY = "scene_has_no_login_entry"
+# A DIFFERENT LINE in the file -- not the one being staged -- names a scene
+# the login path will not admit, so the reader refuses the whole document
+# and this module refuses to write into it.  Split out of
+# `REASON_CONFIG_UNREADABLE` in round `1fq5yf` after pf-adversary measured
+# the two arriving identically HERE, on the surface that reaches a PERSON:
+#
+#     gm_login_scene.json = {"gm_login_scene": {"GM_TWO": 17}}  (valid JSON)
+#     GM_ONE types /warp 1  ->  staged=False  reason=config_unreadable
+#     gm_login_scene.json = {not json
+#     GM_ONE types /warp 1  ->  staged=False  reason=config_unreadable
+#
+# The first file is perfectly readable and the operator is told it is not.
+# The consume side got this distinction the same round; leaving it out here
+# would have kept the misdiagnosis on the one surface a tester actually
+# sees, which is the wrong half to fix.
+REASON_EXISTING_ENTRY_NOT_ADMISSIBLE = "existing_entry_not_admissible"
 
 # WHICH REFUSALS A DIFFERENT DESTINATION WOULD FIX, owned HERE because the
 # reasons are owned here.  pf-adversary's D3, measured: the answer used to be
@@ -155,6 +172,10 @@ DESTINATION_SHAPED_REASONS = (
 NOT_DESTINATION_SHAPED_REASONS = (
     REASON_NOT_GM_ACCOUNT,
     REASON_CONFIG_UNREADABLE,
+    # NOT destination-shaped, and the distinction is worth stating: the bad
+    # line belongs to somebody ELSE's account, so no destination this
+    # caller retypes can help.  It still tells them WHICH fault it is.
+    REASON_EXISTING_ENTRY_NOT_ADMISSIBLE,
     REASON_CONFIG_NOT_WRITABLE,
     REASON_WRITE_FAILED,
 )
@@ -513,6 +534,12 @@ def _write_entry_locked(
         # rewritten file that hides the typo under one new entry.
         previous_map = load_login_scene_overrides(
             path, scene_registry=scene_registry
+        )
+    except LoginSceneRefusedError:
+        # ORDER MATTERS: a `ValueError` subclass, so it has to be caught
+        # before the wide arm or this reports a readable file as unreadable.
+        return StageResult(
+            False, REASON_EXISTING_ENTRY_NOT_ADMISSIBLE, scene_id, None
         )
     except (ValueError, OSError, json.JSONDecodeError):
         return StageResult(False, REASON_CONFIG_UNREADABLE, scene_id, None)

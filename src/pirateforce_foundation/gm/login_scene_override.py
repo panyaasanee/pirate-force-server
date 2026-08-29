@@ -87,7 +87,19 @@ class LoginSceneRefusedError(ValueError):
     A DIAGNOSTIC MAY NEVER ALTER DISPATCH: this changes which WORD is
     printed, never which branch runs.  Everything that treats it as a
     `ValueError` continues to.
+
+    `scene_id` IS CARRIED AS A FIELD, not left in the message, because the
+    caller needs the NUMBER and the message is prose.  Round `1fq5yf`'s
+    second pf-adversary pass measured why it matters: "this row is not
+    admissible" has TWO remedies, and telling them apart needs the id.  A
+    caller that scraped it out of `str(error)` would be parsing a sentence
+    -- and this lane's standing rule is that no console word is ever built
+    from message text.
     """
+
+    def __init__(self, message: str, scene_id: int | None = None) -> None:
+        super().__init__(message)
+        self.scene_id = scene_id
 
 DEFAULT_CONFIG_PATH = "config/gm_login_scene.json"
 ENV_OVERRIDE = "PF_GM_LOGIN_SCENE_CONFIG"
@@ -251,7 +263,8 @@ def _load_scene_id_map(
                 "login_entry_allowed=false) -- an account pointed here could "
                 "not log in at all until this file was edited by hand; "
                 "admissible scene_ids today: "
-                f"{stageable_scene_ids(scene_registry=scene_registry)}"
+                f"{stageable_scene_ids(scene_registry=scene_registry)}",
+                scene_id=scene_id,
             )
         result[account_name] = scene_id
     return result

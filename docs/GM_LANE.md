@@ -3627,13 +3627,30 @@ file `unreadable`, which is the normal case since `#264`.
 
 | cause | what happened | remedy |
 |---|---|---|
-| `config_unreadable` | bytes are bad — malformed/unreadable JSON | edit the config file |
-| `registry_refused_entry` | bytes are **fine**; this process's registry will not admit the row | restart the server, or fix lane A's registry |
+| `config_rejected` | the loader refused the file — malformed JSON, **or** valid JSON whose shape or scene id this lane rejects | edit the config file |
+| `scene_not_admissible` | a row names a scene no reading of the registry admits (the ordinary hand-typed typo — e.g. 3 or 17, which *have* names) | edit the config file, to one of the admissible ids |
+| `registry_stale_since_boot` | the row **is** admissible on disk today; only this process disagrees, because its snapshot predates the edit | **restart the server** |
 | `gm_accounts_unreadable` | `gm_accounts.json` unreadable after the lookup passed | look at the accounts file |
 | `gm_map_unreadable` | `gm_login_scene.json` unreadable | look at the override file |
 | `standalone_map_unreadable` | the standalone map unreadable | look at the standalone file |
-| `claim_raised` | the remover raised — entry's fate on disk **unknown** | check disk/permissions, then check whether the entry is still there |
+| `claim_raised` | the remover raised — entry's fate on disk **unknown** | check disk/permissions, then whether the entry is still there |
 | `entry_survived_claim` | removal failed — entry **known** to still be there | delete the line by hand |
+
+🔴 **Two corrections this table already carries, both from pf-adversary's second
+pass, because the first version of it gave WRONG ADVICE:**
+
+- `registry_refused_entry` sent *every* inadmissible row to "restart the
+  server". But the row an operator actually hand-types — a scene with a real
+  name that the login path does not admit — is refused by every reading of the
+  registry, now and after any restart. The remedy was editing the file, which
+  is the remedy the *other* token owned. The two remedies had stopped sharing
+  a word without stopping being crossed. Split into `scene_not_admissible`
+  (edit) and `registry_stale_since_boot` (restart), told apart by asking the
+  disk whether it still admits the row.
+- `config_unreadable` was renamed `config_rejected` because five of its six
+  producers are **valid JSON with good bytes** (a string where a scene_id
+  belongs, a scene id outside the catalog, a top-level list, a bool). Calling
+  those "unreadable" was the same sin the first version committed, relocated.
 
 The split that makes this worth printing is the first two rows. It is carried
 by `login_scene_override.LoginSceneRefusedError`, a `ValueError` **subclass**
