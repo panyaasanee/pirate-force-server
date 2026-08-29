@@ -282,18 +282,19 @@ class LoginSceneRegistryAuthorityTests(unittest.TestCase):
             state.events,
         )
         # The operator is told on the console -- the complaint in
-        # CORE-REQUEST-GM-034 was that this path went silent.  The line
-        # names NO cause (ConsumeResult carries none, and a malformed
-        # config arrives here as the same word as this test's snapshot
-        # disagreement -- pf-adversary measured a "judged_by=boot_snapshot"
-        # draft lying about a truncated JSON file), so what is pinned is
-        # that it offers BOTH remedies rather than diagnosing.
+        # CORE-REQUEST-GM-034 was that this path went silent.  Since
+        # CORE-REQUEST-GM-037 the line carries the ONE remedy by naming a
+        # cause: this fixture's disk still admits the row the snapshot
+        # refuses, so the honest remedy is a restart and the measured
+        # cause is ``registry_stale_since_boot``.  (Before GM-037 the line
+        # named no cause and offered both remedies; that placeholder must
+        # not come back.)
         failed_line = next(
             line for line in stdout.splitlines()
             if line.startswith("GM_LOGIN_SCENE_OVERRIDE_CONSUME_FAILED")
         )
-        self.assertIn("malformed", failed_line)
-        self.assertIn("restarted", failed_line)
+        self.assertIn("cause=registry_stale_since_boot", failed_line)
+        self.assertNotIn("not_carried_by_the_outcome", failed_line)
         self.assertNotIn("judged_by=boot_snapshot", failed_line)
 
     def test_the_retry_after_a_refused_override_is_the_same_as_the_first(self):
