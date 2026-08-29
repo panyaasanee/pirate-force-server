@@ -511,18 +511,16 @@ and `CORE-REQUEST-011`'s same-scene-only wiring).
     passing the registry snapshot `runtime.py` loaded once at boot, so the
     config is judged against what the process can actually place rather than
     against a fresh read of the file.
-  - **NOT YET PRINTED** (LANE-GM round `1fq5yf`): as of this round the
-    `CONSUME_FAILED` outcome also carries a `cause`, but **nothing reads
-    it** — `runtime.py` still prints the literal
-    `cause=not_carried_by_the_outcome`, so on a running server this change
-    is invisible. `CORE-REQUEST-GM-037` asks chief to print it. An earlier
-    draft of this line said the outcome "carries a `cause` naming which of
-    seven checks failed" full stop, which pf-adversary flagged as a NEW
-    stale label in a diff whose stated purpose is retiring stale ones — an
-    operator would read it, look at the console, and see a contradiction.
+  - **PRINTED** (chief round `nbulzb`, `CORE-REQUEST-GM-037` wired): the
+    `CONSUME_FAILED` outcome carries a `cause` and `runtime.py` prints it —
+    the console line is now
+    `GM_LOGIN_SCENE_OVERRIDE_CONSUME_FAILED effect=login_at_own_row
+    cause=<token>`, one token from the closed vocabulary below. An earlier
+    paragraph here (LANE-GM round `1fq5yf`) said "NOT YET PRINTED" while
+    only this lane's module carried the field;
     `tests/test_gm_login_scene_consume_cause.py::TheDocsAndTheConsoleAgree
-    Tests` is the tripwire: it goes RED the moment chief wires the print,
-    so this paragraph gets corrected in the same round rather than rotting.
+    Tests` is the tripwire that forced this paragraph to change in the
+    same round the print was wired, rather than rotting.
 
 ## Modules delivered (RE-105 vital-version-pin round)
 
@@ -3615,8 +3613,9 @@ load, which is where this parameter goes.
 
 ### `ConsumeResult.cause` — the seven words, and the axis they are cut on
 
-Added round `1fq5yf` for `CORE-REQUEST-GM-037`. **Nothing prints these yet**
-— see the NOT YET PRINTED note above, and its tripwire test.
+Added round `1fq5yf` for `CORE-REQUEST-GM-037`; printed by `runtime.py`
+since chief round `nbulzb` — see the PRINTED note above, and its tripwire
+test.
 
 The axis is **the remedy an operator would apply**, not which read failed.
 The first draft cut it the other way and pf-adversary measured the result:

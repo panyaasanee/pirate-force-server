@@ -5542,33 +5542,25 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             # direction goes back to the silence
                             # CORE-REQUEST-GM-034 was filed about.
                             #
-                            # THE LINE NAMES NO CAUSE, on purpose
-                            # (pf-adversary, this round): ConsumeResult
-                            # carries no cause, and CONSUME_FAILED is wider
-                            # than its name -- a snapshot-refused entry, a
-                            # malformed overrides file, an unreadable
-                            # accounts file, or a removal that half
-                            # happened all arrive here as the same word.
-                            # An earlier draft printed
-                            # "judged_by=boot_snapshot"; measured against a
-                            # truncated JSON file, that sent the operator
-                            # to restart a server whose restart changes
-                            # nothing.  So the line offers BOTH remedies
-                            # and says which fact it does know: the login
-                            # proceeds at the character's own row.
+                            # CORE-REQUEST-GM-037: `cause` names the ONE
+                            # remedy, so this line stopped offering both.
+                            # Every cause is a closed literal written in
+                            # gm/login_scene_consume.py before any client
+                            # connected; the remedy table lives in
+                            # docs/GM_LANE.md next to the vocabulary.
+                            #
+                            # Attribute access OUTSIDE the print guard, and
+                            # no getattr default: a ConsumeResult that lost
+                            # its `cause` field must raise, not fall back
+                            # to a placeholder word on a live console.
+                            consume_cause = override_result.cause
                             # Guarded like the probe's print: a diagnostic
                             # must never cost the login.
                             try:
                                 print(
                                     "GM_LOGIN_SCENE_OVERRIDE_CONSUME_FAILED "
                                     "effect=login_at_own_row "
-                                    "cause=not_carried_by_the_outcome -- "
-                                    "check the login-scene config files "
-                                    "for a malformed or refused line "
-                                    "first; if the scene registry file "
-                                    "was edited since boot, that edit is "
-                                    "not in effect until the server is "
-                                    "restarted"
+                                    f"cause={consume_cause}"
                                 )
                             except Exception:
                                 pass
@@ -5579,7 +5571,22 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         # Same refuse-by-name-not-by-crash shape as the
                         # is_gm_account() guard below (CORE-REQUEST-006):
                         # nothing this call can raise is a reason to take
-                        # down the listener thread for every other login. No
+                        # down the listener thread for every other login --
+                        # with ONE deliberate exception since
+                        # CORE-REQUEST-GM-037: a ConsumeResult that lost its
+                        # `cause` field raises AttributeError above, which
+                        # this net does NOT catch, BY THE GM LETTER'S OWN
+                        # DEMAND (no getattr fallback, a missing field must
+                        # be loud).  pf-adversary (round nbulzb) measured
+                        # where that loudness lands: the escape unwinds the
+                        # game listener thread (v141:7440 has no except),
+                        # leaving the login port alive over a dead game
+                        # port.  That cost is accepted because the path is
+                        # unreachable at HEAD (ConsumeResult makes `cause`
+                        # mandatory on CONSUME_FAILED, __slots__ makes it
+                        # unlosable) and the wiring test pins the
+                        # propagation, so only an in-repo regression -- red
+                        # in CI before any boot -- can reach it.  No
                         # override is applied; the character logs in at its
                         # own row.  Since the consumer replaced the reader
                         # (CORE-REQUEST-GM-033 v2) a malformed config no
