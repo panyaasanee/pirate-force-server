@@ -413,7 +413,7 @@ if set(UNRESOLVED_CLIENT_NAMES) != set(UNRESOLVED):
 # name.  The distinction matters because this comment is what a later round
 # reads instead of the ticket: the collapsed version tells that round the
 # shortfall is unfixable by rule and to close BUILD-001, when what the ticket
-# actually asked for was to OPEN work.  See RE-151 (this lane, round tz2eri)
+# actually asked for was to OPEN work.  See RE-152 (this lane, round tz2eri)
 # for the successor that carries route (1) for placement 0, the harbour.
 #
 # The two temptations, refused by name: MOBS 8529
