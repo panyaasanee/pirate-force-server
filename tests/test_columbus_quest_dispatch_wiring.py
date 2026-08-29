@@ -30,6 +30,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import columbus_quest_dispatch
+from pirateforce_foundation import world_m2_return_leg
 from pirateforce_foundation import world_scene_travel
 from pirateforce_foundation.legacy_bridge import LegacyProjector, load_legacy
 from pirateforce_foundation.lifecycle import CharacterLifecycle
@@ -564,6 +565,114 @@ class ColumbusQuest3021WiringTests(unittest.TestCase):
         # The call site's _emit records AND prints (the e0daaa finding's
         # convention): the same measured line must be in state.events too.
         self.assertIn(line, state.events)
+
+    def test_a_successful_crossing_reports_the_departed_row_return_leg(self):
+        """CORE-REQUEST (LANE-A 20260829_1546): the third keyword on the
+        same runtime.py line -- ``departed_from`` is the in-memory scene-1
+        position the character stands on at the moment of the crossing, so
+        the WORLD_M2_RETURN_LEG line reports ``source=departed_row`` with a
+        measured drift.
+
+        MUTATION-PROOF: revert the kwarg and the same crossing still prints
+        a WORLD_M2_RETURN_LEG line -- but the
+        ``source=pinned_home_entry ... drift=unmeasured:
+        call_site_passed_no_departure_row`` one, which this test forbids by
+        word.  Zero lines and two lines both fail the count assertion, so a
+        mutation cannot go quiet either way.
+        """
+        import io
+        from contextlib import redirect_stdout
+
+        state = self._real_state("tok-columbus-return-leg")
+        # The harness's TargetPos frame checkpointed the in-memory row to
+        # (10, 20, 30) in scene 1 -- the exact row the call site now hands
+        # to the dispatch.
+        departed = state.foundation.selected.position
+        self.assertEqual(departed.scene_id, 1)
+        columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
+            self.legacy,
+        )
+        state.dispatch(self.legacy.parse_outer(
+            _choose_npc_pc(self.legacy, columbus_identity)
+        ))
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            state.dispatch(self.legacy.parse_outer(
+                self.legacy._synthetic_quest_operate_pc(
+                    columbus_quest_dispatch.COLUMBUS_QUEST_ID, 1, 0, 0, 0, 0,
+                )
+            ))
+        printed = buffer.getvalue()
+        leg_lines = [
+            line for line in printed.splitlines()
+            if line.startswith("WORLD_M2_RETURN_LEG")
+        ]
+        self.assertEqual(len(leg_lines), 1, printed)
+        line = leg_lines[0]
+        self.assertIn("owed=YES", line)
+        self.assertIn("source=departed_row", line)
+        self.assertNotIn("call_site_passed_no_departure_row", line)
+        self.assertNotIn("unmeasured", line)
+        # The drift the line reports is the module's own measurement over
+        # the very row the harness checkpointed -- re-derived here through
+        # the same public function, not re-asserted as a constant.
+        expected_drift = world_m2_return_leg.drift_from_pinned_home(departed)
+        self.assertIn(" drift={0:.1f}".format(expected_drift), line)
+        # _emit records AND prints (the e0daaa convention).
+        self.assertIn(line, state.events)
+
+    def test_a_crossing_from_a_non_home_row_reports_the_named_absence(self):
+        """pf-adversary (round roj9lp, D4): the conversation latch has no
+        scene guard and survives a scene change, so the in-memory row can
+        name another scene by the time the QuestOperate arrives.  A row
+        from another scene is not a departure from home --
+        ``return_ticket`` validates a passed row even when it would not
+        use it, so handing it over degrades the whole line to a
+        reason-only ``refused:ValueError`` stub with no ticket in it.
+        The call site's scene guard passes None instead, which keeps the
+        full pinned-home ticket on the console with the named absence --
+        the exact line this state produced before the kwarg existed.
+
+        MUTATION-PROOF: drop the ``scene_id == HOME_SCENE_ID`` conjunct
+        from the guard and this crossing prints the "refused:" stub this
+        test forbids by word.
+        """
+        import io
+        from contextlib import redirect_stdout
+        from dataclasses import replace
+
+        state = self._real_state("tok-columbus-non-home-row")
+        columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
+            self.legacy,
+        )
+        state.dispatch(self.legacy.parse_outer(
+            _choose_npc_pc(self.legacy, columbus_identity)
+        ))
+        # A scene change between the conversation and the quest operate --
+        # the in-memory shape a travel-gate crossing or GM warp leaves
+        # behind (in-memory only, no durable write needed for this test).
+        selected = state.foundation.selected
+        state.foundation.selected = replace(
+            selected, position=replace(selected.position, scene_id=2),
+        )
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            state.dispatch(self.legacy.parse_outer(
+                self.legacy._synthetic_quest_operate_pc(
+                    columbus_quest_dispatch.COLUMBUS_QUEST_ID, 1, 0, 0, 0, 0,
+                )
+            ))
+        printed = buffer.getvalue()
+        leg_lines = [
+            line for line in printed.splitlines()
+            if line.startswith("WORLD_M2_RETURN_LEG")
+        ]
+        self.assertEqual(len(leg_lines), 1, printed)
+        line = leg_lines[0]
+        self.assertNotIn("refused:", line)
+        self.assertIn("owed=YES", line)
+        self.assertIn("source=pinned_home_entry", line)
+        self.assertIn("call_site_passed_no_departure_row", line)
 
 
 if __name__ == "__main__":

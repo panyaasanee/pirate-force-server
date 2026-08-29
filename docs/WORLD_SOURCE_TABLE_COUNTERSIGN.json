@@ -1,0 +1,19 @@
+{
+  "_what_this_is": "Chief's countersignature of the two client source-table digests, per COO-DECISION 20260829_1241 (answering LANE-A-ASK-COO 20260829_1126). LANE-A's gate reads the expected source sha256 values from THIS file instead of from values LANE-A itself wrote, so no lane authors every piece of its own verification chain. This file lives in the chief's write zone (docs/); LANE-A must not edit it (write-zone rules, pf_bridge AGENTS.md).",
+  "_who_updates_this_and_when": "Chief (LANE-E) only, and only when the client source tables change - which the crosswalk regeneration will surface as a digest mismatch. To re-sign: independently hash the two table files (sha256sum, bytes on disk, never a quoted value) and record the measurement context below.",
+  "_what_this_proves_and_does_not": "Proves: the chief independently measured these digests from the table files committed in pf_bridge (main), and they matched the source block of src/pirateforce_foundation/world_data/world_marker_crosswalk.json byte for byte - two independent writers, one value. Does NOT prove the pf_bridge copies match the client's shipped data: that last hop remains a bridge-side run of world_marker_copy.verify_against_sources(), exactly as the crosswalk's own _what_it_does_not_prove says.",
+  "schema_version": 1,
+  "countersigned_by": "chief (LANE-E), round roj9lp (R230)",
+  "countersigned_at": "2026-08-29T18:02+07:00",
+  "measurement": "sha256sum over pf_bridge main working tree (merge 7a758fe), cloud clone; values matched world_marker_crosswalk.json source block already on pirate-force-server main",
+  "sources": {
+    "scene_name": {
+      "path": "pf_bridge/gamedata/tables/CONSTDATA_TH__SCENE_NAME.tsv",
+      "sha256": "e38114a802576266ce37b2abcf8ebce3f105d7d5abaf4bc5ca066e7848c5d60b"
+    },
+    "marker": {
+      "path": "pf_bridge/gamedata/tables/CONSTDATA_TH__MARKER.tsv",
+      "sha256": "723c713aeb604b9b594777517d69f333bbe1509d4931b40294fa720163bd67dc"
+    }
+  }
+}
