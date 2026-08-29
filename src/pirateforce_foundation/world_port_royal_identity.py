@@ -370,6 +370,176 @@ if set(UNRESOLVED_CLIENT_NAMES) != set(UNRESOLVED):
         "unresolved client names and unresolved refusals disagree"
     )
 
+# --------------------------------------------------------------------------
+# WHY THE CENSUS STOPS AT 108, ADJUDICATED RATHER THAN STILL OPEN (RE-149).
+#
+# BUILD-001's order from the owner is 115 placements in one shot, and its one
+# red rule is that a census which does not go out whole reports the REAL
+# number and the REASON - never a target quietly rewritten to whatever came
+# out.  Since round pqx4fj the real number has been on the console (108/115)
+# and since round mcxexp the seven missing placements have been named there.
+# What was still missing is the last step of that rule: whether 7 of 115 is a
+# SERVER shortfall somebody can still go and fix, or a ceiling the client's
+# own shipped data sets.  Until it was answered, "108" was a number without a
+# verdict, and a number without a verdict is what gets quietly rounded to 115
+# by the next round that wants BUILD-001 closed.
+#
+# RE-149 (opened by this lane last round, answered 2026-08-29T18:14+07:00,
+# pf_bridge/notes_to_chief/20260829_1814_RE-149-RESULT-NO-SHIPPED-AVATAR-
+# SOURCE.md) is that verdict for the five leaders it covers: DONE /
+# BOUNDED-NEGATIVE.  All five have a NAMED crosswalk out of CLINE
+# n_LEADER_BK1 into MOBS id space, and none of them has a MOBS row, so there
+# is no s_OUTFIT to dress them with; the run enumerated every table carrying
+# an s_OUTFIT column, all 616 Lua files, all 289 scene .npc files and all four
+# shipped PC tables, and found no other source that gives those ids a body.
+#
+# THE SCOPE OF THAT WORD "BOUNDED", COPIED FROM THE TICKET RATHER THAN
+# SOFTENED.  It is negative AT THE STATIC METHOD CEILING OF THE CURRENT
+# CORPUS: the shipped tree whose digests are pinned above.  The ticket
+# explicitly does NOT claim that some other build or locale lacks these five,
+# and it does NOT claim from a screen that the five cannot be drawn.  What it
+# does establish is the only thing this module needs: there is no material in
+# WHAT WE SHIP TODAY to build them from.
+#
+# THAT IS NOT "UNFIXABLE", AND AN EARLIER DRAFT OF THIS COMMENT SAID IT WAS
+# (pf-adversary, this round, F5).  It read: "a round that fixed the shortfall
+# would have to invent a row - which is the one thing CHARTER-02 forbids
+# outright", which collapses three options into one.  The ticket's own
+# BUILD_IMPACT names TWO legitimate repairs and neither is invention:
+#   (1) open a job to find a new data pack / source, or
+#   (2) define a new actor by OWNER decision.
+# Only a third route - dressing these five from a number collision or a
+# shared display name - is forbidden, and the ticket refuses that one by
+# name.  The distinction matters because this comment is what a later round
+# reads instead of the ticket: the collapsed version tells that round the
+# shortfall is unfixable by rule and to close BUILD-001, when what the ticket
+# actually asked for was to OPEN work.  See RE-152 (this lane, round tz2eri)
+# for the successor that carries route (1) for placement 0, the harbour.
+#
+# The two temptations, refused by name: MOBS 8529
+# ("Tuna") and MOBS 855 ("Jack") share a DISPLAY NAME with two of the five and
+# are not crosswalked to them, and CHANGE_MODEL row 155 is a FIREARM in a
+# different id space that merely collides on the number.
+#
+# THE OTHER TWO OF THE SEVEN ARE NOT RE-149'S, AND ARE NOT AN OPEN QUESTION
+# EITHER.  Placements 86 and 87 carry CLINE leader 0.  There is no creature
+# there to dress; the table says the slot is empty.  Folding them into
+# RE-149's five would overstate what that ticket measured, so they are a
+# separate class below and are counted separately on the console.
+CEILING_TICKET = "RE-149"
+CEILING_TICKET_VERDICT = "BOUNDED-NEGATIVE"
+CEILING_TICKET_ANSWERED_AT = "2026-08-29T18:14+07:00"
+
+# The five CLINE leader ids RE-149 actually adjudicated.  Written as the
+# ticket's own list rather than derived from UNRESOLVED, so that a later edit
+# to UNRESOLVED cannot silently enlarge what this ticket is claimed to cover.
+CEILING_ADJUDICATED_LEADERS = (155, 819, 937, 942, 9107)
+
+# WHEN THE PIN ABOVE GOES STALE, AND WHY THAT MUST NOT RAISE.
+#
+# If a regeneration ever RESOLVES one of the five - exactly what happens if a
+# new data pack arrives and someone re-runs the census builder - then this
+# pinned list describes a question that is no longer open, and RE-149 has to
+# be reopened rather than left asserting a ceiling that moved.
+#
+# The first draft of this block raised ``ValueError`` at import for that,
+# matching the ``UNRESOLVED_CLIENT_NAMES`` guard a few lines below.  That was
+# wrong, and the difference is worth stating because the two look alike: that
+# guard fires when two tables in THIS FILE contradict each other, which is a
+# bug and should stop everything.  This one fires when the WORLD IMPROVED -
+# five residents Port Royal could not dress became dressable - and this module
+# is imported by ``world_population``, which is imported by ``runtime.py``.
+# So the raising version's real behaviour was: the day the town gets five
+# people back, every player's server refuses to boot.  Taking a live server
+# down because a stale citation needs updating is not fail-closed, it is just
+# a bigger failure - the same lesson ``lane_hooks._discover()`` writes up
+# about its own import path.
+#
+# So the staleness is RECORDED and travels to the console instead, where a
+# human reads it, and the census keeps working the whole time.  Nothing else
+# needs to change for it to be correct: a leader that stops being refused
+# stops appearing in ``undressable`` at all, so the count simply rises and
+# the classifier is never asked about it.
+def stale_adjudicated_leaders(refused_leaders) -> tuple[int, ...]:
+    """Which of RE-149's five a given refusal table no longer refuses.
+
+    A FUNCTION, not an inline expression, on a mutation finding this round
+    (M11): with the derivation written inline at module level, replacing the
+    whole thing with a literal ``()`` - which disables staleness detection
+    entirely - left every test green, because the only test covering it
+    recomputed the same expression itself instead of exercising the module's
+    own arrow.  A test can now hand this function a refusal table where one
+    of the five HAS been resolved, which is the state that cannot otherwise
+    be reached without editing the file.
+    """
+    return tuple(sorted(set(CEILING_ADJUDICATED_LEADERS) - set(refused_leaders)))
+
+
+_REFUSED_LEADERS = {leader for leader, _ in UNRESOLVED.values()}
+CEILING_TICKET_STALE_LEADERS = stale_adjudicated_leaders(_REFUSED_LEADERS)
+
+# The three reasons a placement in the frozen bg0001 table can have no body,
+# kept apart because they have different evidence under them and a different
+# way of ever being repaired.
+CEILING_CLASS_NO_AVATAR_SOURCE = "no_avatar_source"
+CEILING_CLASS_NO_CREATURE = "no_creature"
+CEILING_CLASS_NO_OUTFIT_COLUMN = "no_outfit_column"
+# A leader that is none of the three.  This is the bucket that matters most:
+# it is what a future table change would land in, and it must be LOUD on the
+# console rather than absorbed into RE-149's count.  RE-149's answer is about
+# five specific ids, not about "whatever the census could not dress today".
+CEILING_CLASS_UNADJUDICATED = "unadjudicated"
+
+
+# The substring of a refusal reason that means what RE-149 actually measured:
+# the leader has NO ``CONSTDATA MOBS`` row at all.  The ticket's finding is
+# about that state, not about the id.
+CEILING_ADJUDICATED_REASON_MARK = "has no CONSTDATA MOBS row"
+# And the older, different finding: a leader that HAS a MOBS row whose
+# ``s_OUTFIT`` is empty.  Measured long before RE-149 and not part of it.
+CEILING_NO_OUTFIT_REASON_MARK = "no s_OUTFIT avatar template"
+
+
+def ceiling_class_for_placement(template_id: int, leader: int) -> str:
+    """Which named reason applies to one refused placement.
+
+    KEYED ON THE RECORDED REASON, NOT ON THE ID ALONE (pf-adversary, this
+    round, F4).  The first draft matched ``leader in
+    CEILING_ADJUDICATED_LEADERS`` and stopped, which meant RE-149's verdict
+    outlived the fact it measured: give leader 155 a MOBS row with an empty
+    ``s_OUTFIT`` - a different, already-named state - and the console went on
+    citing "no shipped avatar source" for a row nobody had re-measured, with
+    nothing on the line to show the drift.  A ticket's finding is about a
+    STATE; when the state changes the citation has to stop, even though the
+    id has not moved.
+
+    The same finding closed a latent trap: taking a bare ``leader`` int, this
+    answered ``no_avatar_source`` just as readily for ``CHANGE_MODEL`` row
+    155 - the FIREARM in a different id space that RE-149 names as the
+    number-collision temptation - as for the CLINE leader.  Taking the
+    Mob-Set number too means the answer is anchored to a row in the table
+    this module owns.
+
+    ``CEILING_CLASS_UNADJUDICATED`` for anything the project has not actually
+    adjudicated, INCLUDING an id a future regeneration adds to ``UNRESOLVED``
+    and an id whose reason has changed out from under the ticket.
+    """
+    if type(template_id) is not int or type(leader) is not int:
+        raise ValueError("template id and leader must be integers")
+    if leader == 0:
+        return CEILING_CLASS_NO_CREATURE
+    entry = UNRESOLVED.get(template_id)
+    reason = "" if entry is None else entry[1]
+    if (
+        leader in CEILING_ADJUDICATED_LEADERS
+        and CEILING_ADJUDICATED_REASON_MARK in reason
+    ):
+        return CEILING_CLASS_NO_AVATAR_SOURCE
+    if CEILING_NO_OUTFIT_REASON_MARK in reason:
+        return CEILING_CLASS_NO_OUTFIT_COLUMN
+    return CEILING_CLASS_UNADJUDICATED
+
+
 _BY_TEMPLATE = {row[0]: SceneIdentity(*row) for row in _RESOLVED_ROWS}
 
 # The longest name a console token may carry.  Bounded because this string

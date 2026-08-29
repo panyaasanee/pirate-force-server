@@ -985,11 +985,27 @@ class CensusDispatchCountTests(unittest.TestCase):
         # counts what NO rung of this scene can dress.
         self.assertIn("identity=CLINE:3 composed |", short)
         self.assertNotIn("unresolvable", short)
-        self.assertTrue(
-            short.endswith(world_population.undressable_console_token(
-                build_world_population(
-                    self.legacy, self.spawn, 3, scene_id=1))),
-            f"census line does not end with the undressable roster: {short!r}",
+        # AMENDED AGAIN 2026-08-29 (LANE-A, round tz2eri): this assertion said
+        # ``endswith`` while the comment above it said "position relative to
+        # what follows", and the two stopped agreeing the moment a field was
+        # appended after the roster (``ceiling=``, RE-149's verdict).  An
+        # ``endswith`` on the last field of a line that is DESIGNED to be
+        # extended by appending is a test that fails for the one change it
+        # should be indifferent to, so it now pins what it always meant: the
+        # roster is present, whole, and sits after the identity token.
+        # AMENDED A THIRD TIME, same round (pf-adversary, F8): a bare
+        # ``assertIn(roster, short)`` dropped the FIELD BOUNDARY that
+        # ``endswith`` was giving for free - emitting the roster twice with
+        # no separator kept the suite green.  The append only forced giving
+        # up the right-hand POSITION, not the right-hand DELIMITER, so the
+        # roster is pinned between its two pipes and the word "whole" in the
+        # comment above is earned again.
+        roster = world_population.undressable_console_token(
+            build_world_population(self.legacy, self.spawn, 3, scene_id=1))
+        self.assertIn(" | %s | " % roster, short)
+        self.assertLess(
+            short.index("identity=CLINE:3 composed"), short.index(roster),
+            f"undressable roster does not follow the identity token: {short!r}",
         )
         # A three-actor rung is short because a caller asked for three; the
         # undressable roster beside it is a property of the scene's table and
@@ -1184,6 +1200,53 @@ class UndressablePlacementNamingTests(unittest.TestCase):
             token = world_population.undressable_console_token(broken)
             self.assertTrue(token.startswith("undressable="))
             token.encode("cp874")
+
+    def test_the_roster_lists_each_dropped_placement_exactly_once(
+        self,
+    ) -> None:
+        """Structure pinned WITHOUT calling the function to build the
+        expectation (pf-adversary, F8).
+
+        The sibling test that checks the roster's place on the census line
+        derives its expected value from ``undressable_console_token``
+        itself, so a mutation INSIDE that function changes both sides of the
+        comparison and cannot be seen - emitting every row twice with no
+        separator kept the suite green.  This one counts entries against the
+        generation's own ``undressable`` tuple instead.
+        """
+        token = world_population.undressable_console_token(self.generation)
+        count, _, rows = token.partition(" ")
+        self.assertEqual(count, "undressable=7")
+        entries = rows.split(",")
+        self.assertEqual(len(entries), len(self.generation.undressable))
+        self.assertEqual(len(entries), 7)
+        for index, template_id, leader, _name in self.generation.undressable:
+            stem = "P%d/set%d/lead%d/" % (index, template_id, leader)
+            self.assertEqual(
+                token.count(stem), 1, f"{stem} appears {token.count(stem)}x")
+
+    def test_something_that_is_not_a_generation_says_not_recorded_not_zero(
+        self,
+    ) -> None:
+        """ADDED round tz2eri, paying round mcxexp's un-reviewed diff.
+
+        ``mcxexp`` shipped this function claiming the ``not_recorded`` vs
+        ``0`` distinction as a core property - "nobody asked" must never
+        print as "nobody is missing" - and self-graded 13 mutants as killed.
+        A mutation run this round found the claim untested on ONE of the two
+        branches that produce it: the sibling test above passes ``None`` and
+        a string, but only asserts the ``undressable=`` PREFIX, which
+        ``undressable=0`` satisfies just as well.  So replacing this
+        function's non-generation branch with ``"undressable=0"`` - the exact
+        collapse the property forbids - left the whole suite green.
+
+        The value, not the prefix.
+        """
+        for bad in (None, "not a generation", 108, object(), {}):
+            self.assertEqual(
+                world_population.undressable_console_token(bad),
+                "undressable=not_recorded",
+            )
 
     def test_a_console_name_is_bounded_and_tells_its_three_absences_apart(
         self,
