@@ -66,7 +66,10 @@ from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 # Pinned as literals for the same reason `test_gm_login_scene_admission.py`
 # pins its own: this file has to fail when the registry moves, not agree
 # with whatever it happens to say today.
-ADMISSIBLE_ON_DISK_TODAY = (1, 2, 278, 997)
+# Scene 14 joined it in LANE-A round vvy6q7 (COO-DECISION 20260829_2342
+# opened Hell Volcano Island at login); see test_gm_login_scene_stage.py for
+# the gate that had to arrive with it.
+ADMISSIBLE_ON_DISK_TODAY = (1, 2, 14, 278, 997)
 # Named in the client's scene table (Spice Paradise) and pinned
 # `login_entry_allowed: false`, so the disk reading refuses it.
 BARRED_ON_DISK = 3

@@ -56,7 +56,20 @@ from pirateforce_foundation.model import Position  # noqa: E402
 
 # Pinned as literals, not read from the registry: the point of this file is
 # to fail when the registry moves, not to agree with whatever it says today.
-ADMISSIBLE_TODAY = (1, 2, 278, 997)
+#
+# IT DID EXACTLY THAT, AND THIS IS THE ACKNOWLEDGEMENT IT WAS ASKING FOR.
+# LANE-A round vvy6q7 opened scene 14 at login (scenarios/world_scene_
+# registry_001.json, on COO-DECISION 20260829_2342, which answers LANE-A's
+# ASK-COO 20260829_2240).  That flip is about the LOGIN path, but it widens
+# this lane's stageable set as a side effect, because `stageable_scene_ids`
+# derives itself from `login_entry_allowed` -- so `/warp 14` becomes a legal
+# instruction in the same commit.  THAT IS WANTED, not tolerated: the entry
+# route GT-134 is written against IS the per-account login-scene override.
+# LANE-GM is told in pf_bridge/notes_to_chief/20260830_00xx_LANE-A-TO-LANE-
+# GM-scene-14-is-stageable-now.md rather than left to find it here.  Only
+# this literal moved; the predicate, the refusals below and every dispatcher
+# consequence are untouched.
+ADMISSIBLE_TODAY = (1, 2, 14, 278, 997)
 HOME = 1
 # In the client's name catalog (so it passes the older check) and pinned
 # `login_entry_allowed: false` -- the exact entry that locked an account out.
@@ -319,7 +332,9 @@ class TheAdmissibleSetIsAlsoNamedTests(unittest.TestCase):
         ):
             offered = login_scene_admission.stageable_scene_ids()
         self.assertNotIn(self.UNNAMED, offered)
-        self.assertEqual((1, 2, 278), offered)
+        # 14 joined the set in LANE-A round vvy6q7; 997 is the row this test
+        # bends into UNNAMED, which is why it is the one id missing here.
+        self.assertEqual((1, 2, 14, 278), offered)
 
 
 class TheConsoleLineNeverAltersDispatchTests(unittest.TestCase):

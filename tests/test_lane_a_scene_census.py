@@ -43,10 +43,14 @@ NOT WALKED, AND WHY - gates that are shut, not coverage this file claims:
 
 * No frame reaches a client here, and no claim is made that a client renders
   81 actors on the volcano.  That is ``GT-134``, attended, still BLOCKED.
-* The faction-1 path (defect D3) is NOT exercised: ``player_wire`` refuses
+* ~~The faction-1 path (defect D3) is NOT exercised: ``player_wire`` refuses
   every scene outside ``(1, 2)``, so no ``PLAYER_FACTION`` frame exists for
-  scene 14 to test.  ACCEPTED IS NOT REACHED: nothing here treats the census
-  firing as evidence that a hostile will read as hostile.
+  scene 14 to test.~~ D3 WAS CLOSED IN ROUND vvy6q7 and the frame now exists;
+  ``tests/test_world_faction_admission.py`` owns that proof, and this file
+  still does not exercise it.  ACCEPTED IS STILL NOT REACHED: nothing here,
+  and nothing there, treats a census firing or a faction field reaching the
+  wire as evidence that a hostile will READ as hostile.  That is ``GT-134``,
+  attended, on a screen.
 * Scene 2's composer is not registered and not driven - the runtime keeps
   that branch and ``tests/test_lane_scene_census_wiring.py`` owns that proof.
 * The call site's own decline latch is chief's branch, proven with a stub in
@@ -93,21 +97,40 @@ def _legacy():
     return _legacy.cached
 
 
-def _registry_with_door_open(work: Path, scene_id: int = VOLCANO):
-    """A loaded registry whose ``scene_id`` row is open.  Temp file only.
+def _registry_with_door(work: Path, scene_id: int = VOLCANO, allowed=True):
+    """A loaded registry whose ``scene_id`` row is open/shut.  Temp file only.
 
     Never the repository's file: this exists to measure what the one boolean
     is worth, not to turn it.
+
+    ROUND vvy6q7 TURNED THE HELPER AROUND, because the repository's file
+    turned.  Scene 14 is OPEN on main now (COO-DECISION 20260829_2342), so
+    the interesting temp registry is the SHUT one: the admission property
+    this file exists for -- "no route ships a roster into a scene the
+    registry says is shut" -- can only be driven against a shut registry, and
+    driving it against the real one would now assert the opposite thing while
+    still passing.  ``allowed`` is the whole of the change.
     """
     raw = json.loads(
         world_scene_travel.REGISTRY_PATH.read_text(encoding="ascii"))
     for row in raw["destinations"]:
         if row["n_id"] == scene_id:
-            row["login_entry_allowed"] = True
-    path = work / f"registry_scene_{scene_id}_open.json"
+            row["login_entry_allowed"] = bool(allowed)
+    state = "open" if allowed else "shut"
+    path = work / f"registry_scene_{scene_id}_{state}.json"
     path.write_text(
         json.dumps(raw, indent=2, ensure_ascii=True) + "\n", encoding="ascii")
     return world_scene_travel.load_scene_registry(path), path
+
+
+def _registry_with_door_open(work: Path, scene_id: int = VOLCANO):
+    """Back-compatible name for the open case."""
+    return _registry_with_door(work, scene_id, allowed=True)
+
+
+def _registry_with_door_shut(work: Path, scene_id: int = VOLCANO):
+    """The registry as it read before round vvy6q7: this scene refused."""
+    return _registry_with_door(work, scene_id, allowed=False)
 
 
 class RegistrationTests(unittest.TestCase):
@@ -208,6 +231,18 @@ class TheAdmissionCheckIsTheGateTests(unittest.TestCase):
 
     Every route pf-adversary found into scene 14 ends here, including the one
     that needs no registry edit at all.
+
+    ROUND vvy6q7 REPOINTED THIS CLASS AT A SHUT TEMP REGISTRY, AND THE REASON
+    MATTERS MORE THAN THE EDIT.  Scene 14 is OPEN on main now (COO-DECISION
+    20260829_2342), so every assertion here that used to read the repository's
+    file would now be asserting the OPPOSITE PROPERTY WHILE STILL PASSING --
+    "the composer declines" would have quietly become "the composer declines
+    for scenes nobody registered", which is true of a module that does
+    nothing.  The property this class is for is unchanged and is not about
+    scene 14 at all: NO ROUTE SHIPS A ROSTER INTO A SCENE THE REGISTRY SAYS
+    IS SHUT.  It is driven against a registry that says shut, which is the
+    only registry that can drive it.  What the real file does today is pinned
+    below in ``test_the_real_registry_now_composes_and_that_is_the_round``.
     """
 
     @classmethod
@@ -215,47 +250,58 @@ class TheAdmissionCheckIsTheGateTests(unittest.TestCase):
         cls.legacy = _legacy()
         cls.anchor = world_scene_travel.spawn_position(
             world_scene_travel.destination(VOLCANO))
+        cls._work = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls._work.cleanup)
+        cls.shut_registry, _ = _registry_with_door_shut(Path(cls._work.name))
 
-    def _compose_with_real_registry(self, scene_id=VOLCANO):
+    def _compose_with_shut_registry(self, scene_id=VOLCANO):
         return lane_a._compose_for_scene(scene_id)(
             legacy=self.legacy,
             anchor=self.anchor,
             scene_id=scene_id,
-            scene_entry_registry=world_scene_travel.load_scene_registry(),
+            scene_entry_registry=self.shut_registry,
         )
 
     def test_the_composer_declines_for_every_scene_it_registered(self):
-        # The live production answer today.  If this ever returns a result,
-        # this lane opened a scene: go read defect D3 and GT-134's blockers
-        # before deciding that is intended.
+        # Every scene this lane registers a composer for, asked with that
+        # scene's own door shut.  If any of these returns a result, the
+        # admission check has stopped being a check.
         for scene_id in lane_a.scenes_this_lane_composes_for():
             with self.subTest(scene=scene_id):
-                self.assertIsNone(self._compose_with_real_registry(scene_id))
+                shut, _ = _registry_with_door_shut(
+                    Path(self._work.name), scene_id)
+                self.assertIsNone(lane_a._compose_for_scene(scene_id)(
+                    legacy=self.legacy,
+                    anchor=self.anchor,
+                    scene_id=scene_id,
+                    scene_entry_registry=shut,
+                ))
 
     def test_the_registered_composer_object_declines_too(self):
         # Not the factory: the exact callable runtime.py holds.
         composer = lane_hooks.scene_census_composer(VOLCANO)
         self.assertIsNone(composer.compose(
             legacy=self.legacy, anchor=self.anchor, scene_id=VOLCANO,
-            scene_entry_registry=world_scene_travel.load_scene_registry(),
+            scene_entry_registry=self.shut_registry,
         ))
 
     def test_a_via_login_false_resolution_still_gets_no_census(self):
         """The route that needs no registry edit, and the reason for the check.
 
-        ``resolve_entry(..., via_login=False)`` resolves scene 14 today -
-        asserted here rather than assumed, because if it ever stops doing so
-        the admission check is guarding a door that closed elsewhere and
-        somebody should know.  The census still refuses.
+        ``resolve_entry(..., via_login=False)`` resolves scene 14 whatever the
+        login key says - asserted here rather than assumed, because that is
+        the route pf-adversary used to ship 81 actors past a shut door with
+        one lambda and no registry edit.  With the door shut the census still
+        refuses, and THAT is what makes the boolean the only key.
         """
         entry = world_scene_entry.resolve_entry(
             Position(VOLCANO, 0, 0.0, 0.0, 0.0, 0),
-            registry=world_scene_travel.load_scene_registry(),
+            registry=self.shut_registry,
             emit=lambda line: None,
             via_login=False,
         )
         self.assertEqual(entry.position.scene_id, VOLCANO)
-        self.assertIsNone(self._compose_with_real_registry())
+        self.assertIsNone(self._compose_with_shut_registry())
 
     def test_a_missing_or_unreadable_registry_declines_rather_than_ships(self):
         # Fail-closed in the direction that matters: no registry is not a
@@ -263,12 +309,27 @@ class TheAdmissionCheckIsTheGateTests(unittest.TestCase):
         self.assertFalse(lane_a.scene_is_open_to_players(VOLCANO, object()))
         self.assertFalse(lane_a.scene_is_open_to_players(999999))
 
-    def test_the_registry_row_says_shut_too(self):
-        # Second-order, and never asserted on its own - see the class
-        # docstring for the assertion this replaced.
+    def test_the_real_registry_now_composes_and_that_is_the_round(self):
+        """What the file on main does today, stated as an assertion.
+
+        The inverse of the test this replaced (``test_the_registry_row_says_
+        shut_too``, which asserted ``login_entry_allowed`` was False).  It is
+        kept as an assertion rather than deleted because a silent revert of
+        that boolean is exactly the kind of change this lane wants to hear
+        about from a red test rather than from an attended round that boots
+        into an empty island.
+        """
         destination = world_scene_travel.destination(
             VOLCANO, world_scene_travel.load_scene_registry())
-        self.assertFalse(destination.login_entry_allowed)
+        self.assertTrue(destination.login_entry_allowed)
+        result = lane_a._compose_for_scene(VOLCANO)(
+            legacy=self.legacy,
+            anchor=self.anchor,
+            scene_id=VOLCANO,
+            scene_entry_registry=world_scene_travel.load_scene_registry(),
+        )
+        self.assertIsNotNone(result)
+        self.assertEqual(result.actor_count, ROSTER_COUNT)
 
 
 class ComposerContractTests(unittest.TestCase):
@@ -449,16 +510,26 @@ class OnTheRealDispatcherTests(unittest.TestCase):
             + legacy.u8tag(0x0B, derived)
         )
 
-    def test_with_the_door_open_the_lane_census_ships_81_actors(self):
+    def test_with_the_real_registry_the_lane_census_ships_81_actors(self):
+        """THE ROUND vvy6q7 CLAIM, DRIVEN ON THE FILE THAT IS ACTUALLY ON MAIN.
+
+        This test used to open the door in a temp registry and patch the
+        loader, because the repository's door was shut.  COO-DECISION
+        20260829_2342 opened it, so the patch is gone and this is now the
+        production path: no flags, no monkeypatched loader, the registry file
+        this repository ships.  A boot that logs a character into scene 14
+        composes and sends 81 actors.  That is the sentence GT-134 goes and
+        looks at on a screen.
+        """
         with tempfile.TemporaryDirectory() as work:
             work = Path(work)
-            _, patched = _registry_with_door_open(work)
-            real_loader = world_scene_travel.load_scene_registry
-            world_scene_travel.load_scene_registry = (
-                lambda *a, _f=real_loader, _p=patched, **k: _f(_p))
-            self.addCleanup(
-                setattr, world_scene_travel, "load_scene_registry",
-                real_loader)
+            self.assertTrue(
+                world_scene_travel.destination(
+                    VOLCANO, world_scene_travel.load_scene_registry()
+                ).login_entry_allowed,
+                "scene 14's door is shut again - this test is now measuring "
+                "the wrong registry; see COO-DECISION 20260829_2342",
+            )
             store = SQLiteStore(work / "state.sqlite3", ROOT / "migrations")
             store.migrate()
             legacy = self.legacy
@@ -512,15 +583,28 @@ class OnTheRealDispatcherTests(unittest.TestCase):
             self.assertIn("WORLD_POP_HANDOFF scene=14 kind=census", printed)
             self.assertIn("WORLD_CENSUS_BG0015 assembled=81/91", printed)
 
-    def test_with_the_real_registry_the_login_never_reaches_the_census(self):
-        """The production run, driven: refused at the login, no census at all.
+    def test_with_the_door_shut_the_login_never_reaches_the_census(self):
+        """The other half of the pair: refused at the login, no census at all.
 
-        The other half of the pair.  Together they say the difference between
-        an empty island and 81 actors is one boolean, and that nothing else
-        in this file's chain is missing.
+        UNTIL ROUND vvy6q7 THIS TEST USED THE REPOSITORY'S REGISTRY, because
+        the repository's registry was the shut one.  Scene 14 is open on main
+        now (COO-DECISION 20260829_2342), so the shut registry has moved into
+        a temp file and the patching that used to belong to the other test
+        belongs to this one.  Nothing about what is asserted changed: with the
+        door shut the login is refused by name, no teleport is sent, and the
+        census branch is never reached.  Together the pair still says the
+        difference between an empty island and 81 actors is one boolean, and
+        that nothing else in this file's chain is missing.
         """
         with tempfile.TemporaryDirectory() as work:
             work = Path(work)
+            _, patched = _registry_with_door_shut(work)
+            real_loader = world_scene_travel.load_scene_registry
+            world_scene_travel.load_scene_registry = (
+                lambda *a, _f=real_loader, _p=patched, **k: _f(_p))
+            self.addCleanup(
+                setattr, world_scene_travel, "load_scene_registry",
+                real_loader)
             store = SQLiteStore(work / "state.sqlite3", ROOT / "migrations")
             store.migrate()
             legacy = self.legacy

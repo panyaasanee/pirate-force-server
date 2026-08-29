@@ -376,7 +376,9 @@ class GmLoginSceneOverridePositionResyncTests(unittest.TestCase):
             login_scene_override.CONFIG_REFUSED_CONSOLE_TOKEN, console
         )
         self.assertIn("scene_id=17", console)
-        self.assertIn("stageable=(1, 2, 278, 997)", console)
+        # 14 joined the stageable set in LANE-A round vvy6q7; scene 17, the
+        # id this test actually drives, is still barred and still refused.
+        self.assertIn("stageable=(1, 2, 14, 278, 997)", console)
 
         # And the operator's file is untouched: refusing to ACT on an entry
         # is not licence to edit it.
