@@ -77,7 +77,18 @@ carries every live row, so:
   * a live drop's label is REDRAWN on every later kill (event-driven, no
     timer) -- which is the first thing an attended round can decide, because
     "did the older label come back when the second monster died" is one boot
-    and one pair of eyes;
+    and one pair of eyes.  THAT PROOF IS RUNNABLE: pf-adversary (S1b) held
+    that it is not, quoting this lane's own letter 20260829_2058 that no
+    Bg0002 monster can die -- and that letter is WRONG, measured this round.
+    Four Bg0002 mobs (0x2033 Tornado Eagle template 31, 0x203B-0x203D
+    Fighting Fish soldier template 34) go 3857/3138 -> 0 in one hit and
+    ``mob_death.kill(..., widened=mob_death.ruling_for(mob))`` ACCEPTS every
+    one, dying and dead frames 172 bytes each, hold 700 ms.  The permit is
+    PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18), templates
+    {31, 34, 35, 103} tied to scene "Bg0002", and ``runtime.py`` passes
+    ``mob_death.ruling_for(mob)`` -- it derives the right ruling per mob.
+    What letter 2058 measured was its own script naming the 916 ruling BY
+    HAND for a template-31 mob;
   * the ground ACCUMULATES within the lifetime instead of being replaced.
 
 THE COST, AS ARITHMETIC RATHER THAN ADJECTIVES -- because "too expensive for
@@ -117,7 +128,25 @@ production_allowed = True
 
 
 # ---------------------------------------------------------------------------
-# The two numbers that are MEASURED, kept apart from the ones that are chosen.
+# The two numbers that are MEASURED -- AND THE EMITTER THEY WERE MEASURED ON,
+# which is NOT the emitter this module drives.  READ THIS BEFORE CITING THEM.
+#
+# pf-adversary (round m0vp7m, S1) refuted the first draft of this section by
+# execution and it is the most important correction in the file.  BOTH numbers
+# below were measured on ``ground_loot_hypothesis`` (HYP-PF-032): a
+# SCENARIO-GATED probe that emits its own two hard-coded elements once per
+# session, latched by ``ground_loot_pair_sent``, fired by a TargetPosVital
+# W-tap -- not by a kill, and never touching ``DropLedgerCell``,
+# ``drop_frames`` or a drop key.  GT-146's own RECV census confirms it: no
+# monster was attacked and none died in that boot.
+#
+# THIS MODULE DRIVES ``mob_loot``'s PER-KILL EMITTER, WHICH NO ATTENDED SESSION
+# HAS EVER OBSERVED (docs/FUNCTIONAL_COVERAGE.json says so in its own words).
+# The elements are the same 44 bytes by construction -- mob_loot re-derives the
+# encoder and pins it against the probe lane's own element for element -- so
+# carrying the label's behaviour across is a REASONABLE INFERENCE.  It is an
+# inference, it is written here as one, and the round that cites these numbers
+# as if they had been measured on a kill is the round that has to be corrected.
 # ---------------------------------------------------------------------------
 # GT-045 (chief R163, 2026-08-25; evidence letter 20260825_1615): the floating
 # red name label was present at t = 249.733 and gone by t = 250.067 at a 30 fps
@@ -167,7 +196,9 @@ class PresenceRow(NamedTuple):
 
     drop_key: int
     name: str
-    seconds_left: float
+    # ``None`` when the row's deadline passed underneath the snapshot -- the
+    # row still travels, only its number is unknown.  See ``_row``.
+    seconds_left: float | None
     from_this_kill: bool
 
 
@@ -181,7 +212,11 @@ class PresenceStep(NamedTuple):
 
     Deliberately no ``frame_bytes`` field: the call site derives the length
     from the bytes it actually queues, so the greppable evidence cannot
-    disagree with the wire (pf-adversary, round 73fhoc).
+    disagree with the wire (pf-adversary, round 73fhoc).  ``describe_presence``
+    does print one, and pf-adversary (round m0vp7m, M-B) put a mutant through
+    it -- summing the PCs instead of the frames printed ``frame_bytes=44``
+    while 54 bytes went out.  That number is now pinned by a test that
+    compares it against the frames the same step carries.
     """
 
     state: str
@@ -193,6 +228,9 @@ class PresenceStep(NamedTuple):
     lifetime_seconds: float
     oldest_seconds_left: float | None
     newest_seconds_left: float | None
+    # Rows whose deadline passed between the snapshot and the reading.  They
+    # still travel in the generation; only their number is unknown.
+    stale: int
     detail: str
 
     @property
@@ -208,29 +246,72 @@ def _refusal(state: str, detail: str, lifetime: float = 0.0) -> PresenceStep:
     return PresenceStep(
         state=state, frames=(), rows=(), announced=0, carried=0, trimmed=0,
         lifetime_seconds=lifetime, oldest_seconds_left=None,
-        newest_seconds_left=None, detail=detail,
+        newest_seconds_left=None, stale=0, detail=detail,
     )
 
 
+def _oldest(rows: Any) -> float | None:
+    """The smallest remaining life among the rows that still have a number."""
+    known = [row.seconds_left for row in rows if row.seconds_left is not None]
+    return min(known) if known else None
+
+
+def _newest(rows: Any) -> float | None:
+    known = [row.seconds_left for row in rows if row.seconds_left is not None]
+    return max(known) if known else None
+
+
 def _row(cell: Any, drop: Any, mine: frozenset) -> PresenceRow:
+    """One reported row.  NEVER raises, and the reason is worth the paragraph.
+
+    pf-adversary (round m0vp7m, S4) measured what the first draft cost: this
+    function called ``cell.time_left``, which takes the lock, reads the clock
+    and SWEEPS -- so a row that crossed its deadline in the microseconds
+    between the ledger snapshot and this call raised ``drop_not_in_ledger``,
+    the whole ``sustain_a_kill`` returned a refusal, and EVERY drop of the
+    kill that just happened -- brand new, 120 s of life ahead, sitting live in
+    the cell -- was never announced to the client at all.  A cosmetic number
+    on a console line was being paid for with a player's loot.
+
+    So a deadline that passes underneath us costs the NUMBER, not the row:
+    ``seconds_left`` is ``None`` and the console line counts it as ``stale=``.
+    """
     try:
         name = str(drop.display_name)
     except Exception as error:                     # pragma: no cover - typed
         name = "<name %r>" % (error,)
+    try:
+        seconds_left = float(cell.time_left(drop.drop_key))
+    except Exception:
+        seconds_left = None
     return PresenceRow(
         drop_key=int(drop.drop_key),
         name=name,
-        seconds_left=float(cell.time_left(drop.drop_key)),
+        seconds_left=seconds_left,
         from_this_kill=int(drop.drop_key) in mine,
     )
 
 
 def _keys(drops: Any) -> frozenset:
+    """Every drop key in ``drops``.  Takes anything, including a non-iterable.
+
+    pf-adversary (round m0vp7m, S3): the ``for`` statement itself is outside
+    the per-item ``try``, so ``sustain_a_kill(cell, legacy, 5)`` raised
+    ``TypeError`` straight into the caller -- which for this module's one
+    intended call site is the listener thread, and the module header says an
+    exception there costs the connection, not a drop.  Latent today (the
+    dispatch always passes a tuple) and closed anyway, because a claim that
+    nothing here raises is either true or it is not.
+    """
     keys = set()
-    for drop in drops or ():
+    try:
+        iterator = iter(drops or ())
+    except TypeError:
+        return frozenset()
+    for drop in iterator:
         try:
             keys.add(int(drop.drop_key))
-        except Exception:                          # pragma: no cover - typed
+        except Exception:
             continue
     return frozenset(keys)
 
@@ -280,22 +361,37 @@ def sustain_a_kill(cell: Any, legacy: Any, drops: Any = ()) -> PresenceStep:
         # Unreachable on today's numbers (16 drops per kill, 120 s, a 2426
         # element cap) and kept because "unreachable" is a property of the
         # numbers, not of the code.
+        #
+        # ROW BY ROW, NOT ``prune_issued_before``, and pf-adversary (round
+        # m0vp7m, S5) is why: that method refuses ``prune_would_take_the_
+        # newest_kill`` whenever the cut point lands inside the newest kill's
+        # block -- which is EXACTLY the case a cap can be crossed in, a kill
+        # wider than the cap all by itself.  The branch that exists to give a
+        # loss "a name and a count" was instead returning a refusal with
+        # ``frames=()``, so the whole kill sent nothing.  An untested defence
+        # that does not defend.  ``take`` carries no such guard and removes
+        # precisely the rows that will not travel.
         keep = mob_loot.DROP_MAX_ELEMENTS_PER_FRAME
-        cut = live[-keep].drop_key
+        dropped = live[:-keep] if keep else live
+        live = live[-keep:] if keep else ()
         try:
-            removed = cell.prune_issued_before(cut)
-            ledger = cell.ledger
-            live = tuple(ledger.drops)
+            for row in dropped:
+                cell.take(row.drop_key)
+            # Composed from the rows that SURVIVED, not from a second read of
+            # the cell -- the cell and the generation now name the same set,
+            # and the snapshot rule above is not broken to achieve it.
+            ledger = mob_loot.DropLedger(
+                live, ledger.generation, ledger.issued_through, ledger.looted)
         except Exception as error:
             return _refusal(REFUSE_CELL_RAISED, repr(error), lifetime)
-        trimmed = len(removed)
+        trimmed = len(dropped)
 
     if not live:
         return PresenceStep(
             state=STATE_NOTHING_ON_THE_GROUND, frames=(), rows=(),
             announced=0, carried=0, trimmed=trimmed,
             lifetime_seconds=lifetime, oldest_seconds_left=None,
-            newest_seconds_left=None,
+            newest_seconds_left=None, stale=0,
             detail="no live rows; a kill that dropped nothing sends nothing")
 
     try:
@@ -317,8 +413,9 @@ def sustain_a_kill(cell: Any, legacy: Any, drops: Any = ()) -> PresenceStep:
         frames=frames, rows=rows,
         announced=announced, carried=len(rows) - announced, trimmed=trimmed,
         lifetime_seconds=lifetime,
-        oldest_seconds_left=min(row.seconds_left for row in rows),
-        newest_seconds_left=max(row.seconds_left for row in rows),
+        oldest_seconds_left=_oldest(rows),
+        newest_seconds_left=_newest(rows),
+        stale=sum(1 for row in rows if row.seconds_left is None),
         detail=PRESENCE_SHAPE,
     )
 
@@ -344,13 +441,14 @@ def presence_snapshot(cell: Any) -> PresenceStep:
         return PresenceStep(
             state=STATE_NOTHING_ON_THE_GROUND, frames=(), rows=(), announced=0,
             carried=0, trimmed=0, lifetime_seconds=lifetime,
-            oldest_seconds_left=None, newest_seconds_left=None,
+            oldest_seconds_left=None, newest_seconds_left=None, stale=0,
             detail="nothing is on the ground")
     return PresenceStep(
         state=STATE_SNAPSHOT, frames=(), rows=rows, announced=0,
         carried=len(rows), trimmed=0, lifetime_seconds=lifetime,
-        oldest_seconds_left=min(row.seconds_left for row in rows),
-        newest_seconds_left=max(row.seconds_left for row in rows),
+        oldest_seconds_left=_oldest(rows),
+        newest_seconds_left=_newest(rows),
+        stale=sum(1 for row in rows if row.seconds_left is None),
         detail=PRESENCE_SHAPE)
 
 
@@ -379,11 +477,13 @@ def describe_presence(step: Any) -> str:
     frame_bytes = sum(len(frame) for _pc, frame in step.frames)
     return (
         "%s state=%s shape=%s live=%d announced=%d carried=%d trimmed=%d "
-        "frames=%d frame_bytes=%d declared_lifetime=%.1fs oldest_left=%ss "
-        "newest_left=%ss label_life=%.1f-%.1fs redraw=%s detail=%s"
+        "stale=%d frames=%d frame_bytes=%d declared_lifetime=%.1fs "
+        "oldest_left=%ss newest_left=%ss label_life=%.1f-%.1fs redraw=%s "
+        "detail=%s"
         % (
             CONSOLE_TOKEN, step.state, PRESENCE_SHAPE, step.live,
-            step.announced, step.carried, step.trimmed, len(step.frames),
+            step.announced, step.carried, step.trimmed, step.stale,
+            len(step.frames),
             frame_bytes, step.lifetime_seconds,
             _seconds(step.oldest_seconds_left),
             _seconds(step.newest_seconds_left),
@@ -393,6 +493,44 @@ def describe_presence(step: Any) -> str:
     )
 
 
+ACTION_LABEL = "MOB_LOOT_DROP"
+
+
+def loot_actions(step: Any) -> tuple:
+    """The dispatch actions for ``step``, composed HERE rather than at the ask.
+
+    pf-adversary (round m0vp7m, M-A) named the hole this closes, and it was the
+    worst finding of that review: ``DROP_PRESENCE_WIRING`` is prose, no test
+    executes it, and this lane's only player-facing product was four hand-typed
+    lines nobody could run.  Swapping ``loot_pc`` and ``loot_frame`` inside that
+    string kept the whole suite green while every ground drop would have gone
+    out with the 44-byte pc in the frame slot -- no client would ever draw a
+    drop again, and the round would have called itself verified.
+
+    So the tuple shape is code now, pinned by a test, and the pasteable line is
+    ``actions.extend(mob_drop_presence.loot_actions(step))`` -- which has no
+    order to get wrong.  Empty for every refusal and for an empty ground, so
+    the call site needs no branch.
+    """
+    if not isinstance(step, PresenceStep):
+        return ()
+    return tuple(
+        (ACTION_LABEL, pc, frame, 0.0) for pc, frame in step.frames)
+
+
+def presence_event(step: Any) -> str:
+    """The one ``self.events`` entry the call site records for this step.
+
+    pf-adversary (round m0vp7m, S6): the first draft of the ask dropped the
+    existing ``mob_loot_drops_sent_..._pruned`` event and put nothing back, so
+    every refusal became a ``print()`` and nothing else -- invisible to a
+    headless test and to an operator grepping the session record.
+    """
+    if not isinstance(step, PresenceStep):
+        return "mob_drop_presence_refused_not_a_presence_step"
+    return "mob_drop_presence_%s_live_%d" % (step.state, step.live)
+
+
 # ---------------------------------------------------------------------------
 # The wiring ask.  runtime.py is chief's file; this is the whole change.
 # ---------------------------------------------------------------------------
@@ -400,14 +538,25 @@ DROP_PRESENCE_WIRING = """runtime.py, the MOB_LOOT block of _dispatch_mob_combat
 (today: 'if drops:' ... 'for loot_pc, loot_frame in mob_loot.drop_frames(' ...
 'for drop in drops: self.mob_loot_cell.take(drop.drop_key)').
 
-REPLACE THAT WHOLE 'if drops:' BODY WITH THREE LINES, AND DROP THE 'if drops:'
+REPLACE THAT WHOLE 'if drops:' BODY WITH FIVE LINES, AND DROP THE 'if drops:'
 GUARD ITSELF -- a kill that dropped nothing must still re-carry what is already
 on the ground, which is the entire point:
 
   step = mob_drop_presence.sustain_a_kill(self.mob_loot_cell, legacy, drops)
+  print(mob_loot.drops_console_line(mob, drops))
   print(mob_drop_presence.describe_presence(step))
-  for loot_pc, loot_frame in step.frames:
-      actions.append(("MOB_LOOT_DROP", loot_pc, loot_frame, 0.0))
+  actions.extend(mob_drop_presence.loot_actions(step))
+  self.events.append(mob_drop_presence.presence_event(step))
+
+plus mob_drop_presence on the import line at the top of the file.
+drops_console_line(mob, ()) is safe for an empty tuple (tests/test_mob_loot.py
+pins it), so no guard is needed around it.
+
+NOTE THAT NO TUPLE IS TYPED BY HAND HERE.  An earlier draft of this ask asked
+chief to paste 'actions.append(("MOB_LOOT_DROP", loot_pc, loot_frame, 0.0))',
+and pf-adversary showed that swapping those two names passes the entire suite
+while breaking every ground drop on the wire.  loot_actions() is that tuple,
+with a test on it.
 
 WHAT EACH LINE REPLACES, AND WHY IT IS NOT A CADENCE CHANGE:
 

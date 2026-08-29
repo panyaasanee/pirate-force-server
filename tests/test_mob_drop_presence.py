@@ -528,6 +528,192 @@ class TheTwoNumbersAreDifferentThingsTests(PresenceTestBase):
             mob_drop_presence.LABEL_LIFE_OBSERVED_UNDER_SECONDS)
 
 
+class AdversaryMutantTests(PresenceTestBase):
+    """One test per mutant pf-adversary got past the whole suite (round m0vp7m).
+
+    Every one of these was green before it was written, which is the only
+    interesting property a regression test has.
+    """
+
+    def test_M_A_the_dispatch_action_carries_pc_then_frame_in_that_order(self):
+        """The worst one: the ask was prose, so its tuple order was unpinned.
+
+        Swapping the two names inside DROP_PRESENCE_WIRING kept the suite
+        green while every ground drop would have gone out with the 44-byte pc
+        in the frame slot.  The tuple is code now; this is its pin.
+        """
+        self.kill()
+        step = sustain_a_kill(self.cell, self.legacy, ())
+        actions = mob_drop_presence.loot_actions(step)
+        self.assertEqual(len(actions), len(step.frames))
+        for (label, pc, frame, delay), (want_pc, want_frame) in zip(
+                actions, step.frames):
+            self.assertEqual(label, mob_drop_presence.ACTION_LABEL)
+            self.assertIs(pc, want_pc)
+            self.assertIs(frame, want_frame)
+            self.assertEqual(delay, 0.0)
+            # And the halves are not interchangeable: the frame CONTAINS the
+            # pc, so a swap is detectable without knowing either length.
+            self.assertIn(bytes(pc), bytes(frame))
+            self.assertGreater(len(frame), len(pc))
+
+    def test_M_A_every_refusal_still_yields_an_empty_action_tuple(self):
+        for step in (sustain_a_kill(None, self.legacy, ()),
+                     sustain_a_kill(self.cell, self.legacy, ()),
+                     presence_snapshot(self.cell),
+                     "not a step"):
+            self.assertEqual(mob_drop_presence.loot_actions(step), ())
+
+    def test_M_B_the_console_byte_count_is_the_frames_not_the_pcs(self):
+        self.kill()
+        step = sustain_a_kill(self.cell, self.legacy, ())
+        line = describe_presence(step)
+        frames = sum(len(f) for _pc, f in step.frames)
+        pcs = sum(len(pc) for pc, _f in step.frames)
+        self.assertNotEqual(frames, pcs)
+        self.assertIn("frame_bytes=%d" % frames, line)
+        self.assertNotIn("frame_bytes=%d" % pcs, line)
+
+    def test_M_C_oldest_is_the_smallest_remaining_life_not_the_largest(self):
+        self.kill(0)
+        sustain_a_kill(self.cell, self.legacy, ())
+        self.clock.advance(25.0)
+        self.kill(1)
+        step = sustain_a_kill(self.cell, self.legacy, ())
+        self.assertLess(step.oldest_seconds_left, step.newest_seconds_left)
+        self.assertAlmostEqual(
+            step.oldest_seconds_left,
+            mob_loot.DROP_LIFETIME_SECONDS - 25.0, places=6)
+        self.assertAlmostEqual(
+            step.newest_seconds_left, mob_loot.DROP_LIFETIME_SECONDS, places=6)
+
+    def test_M_D_the_attended_observation_is_pinned_to_what_gt146_reported(self):
+        """It is an OBSERVER_CONFIRMED number; it may not drift silently."""
+        self.assertEqual(
+            mob_drop_presence.LABEL_LIFE_OBSERVED_UNDER_SECONDS, 1.0)
+
+    def test_M_E_a_measured_no_prints_no_not_yes(self):
+        self.kill()
+        step = sustain_a_kill(self.cell, self.legacy, ())
+        for value, word in ((None, "unmeasured"), (True, "yes"), (False, "no")):
+            mob_drop_presence.REEMISSION_REDRAWS_THE_LABEL = value
+            try:
+                self.assertIn("redraw=%s" % word, describe_presence(step))
+            finally:
+                mob_drop_presence.REEMISSION_REDRAWS_THE_LABEL = None
+
+    def test_M_F_a_row_carries_the_drops_own_display_name(self):
+        drops = self.kill()
+        step = sustain_a_kill(self.cell, self.legacy, drops)
+        by_key = {row.drop_key: row.name for row in step.rows}
+        for drop in drops:
+            self.assertEqual(by_key[drop.drop_key], drop.display_name)
+            self.assertTrue(by_key[drop.drop_key])
+
+    def test_S3_a_drops_argument_that_is_not_iterable_does_not_raise(self):
+        self.kill()
+        for bad in (5, object(), 3.5):
+            step = sustain_a_kill(self.cell, self.legacy, bad)
+            self.assertEqual(step.state, STATE_SUSTAINED)
+            self.assertEqual(step.announced, 0)
+
+    def test_S4_a_deadline_that_passes_mid_call_costs_the_number_not_the_loot(
+        self,
+    ):
+        """The severe one.  A cosmetic console number was costing a kill's loot.
+
+        ``_row`` calls ``time_left``, which sweeps.  A row crossing its
+        deadline in that window used to raise, and the whole step refused with
+        ``frames=()`` -- so a monster that had just died left the ground empty
+        forever while the server still held the rows.
+        """
+        drops = self.kill()
+        # Every reading from the first row's time_left onward is past the
+        # deadline: construction, loot_a_kill, the ledger snapshot, then jump.
+        cell = mob_loot.DropLedgerCell(
+            lifetime_seconds=60.0,
+            clock=_ScriptedClock([1000.0] * 3 + [9999.0] * 12))
+        mob, seed = self.dropping[0]
+        cell.loot_a_kill(
+            mob, DeathRecord(mob.actor_identity, KILLER, mob.max_hp),
+            mob_loot.roll_drops(mob, random.Random(seed)), kill_token=1)
+        step = sustain_a_kill(cell, self.legacy, drops)
+        self.assertFalse(step.refused, step.detail)
+        self.assertTrue(step.rows)
+        self.assertTrue(step.frames, "the kill's loot was thrown away")
+        self.assertEqual(step.stale, step.live)
+        self.assertIsNone(step.oldest_seconds_left)
+        self.assertIn("stale=%d" % step.stale, describe_presence(step))
+
+    def test_S5_a_kill_wider_than_the_cap_still_sends_what_fits(self):
+        """The trim branch used to refuse instead of trimming.
+
+        ``prune_issued_before`` refuses ``prune_would_take_the_newest_kill``
+        when the cut lands inside the newest kill's block -- which is exactly
+        the shape that crosses a cap: one kill wider than the whole frame.
+        """
+        # ONE kill wider than the cap is the shape that matters, and it is the
+        # shape a cut point cannot express: pruning below the surviving row
+        # means pruning INTO the newest kill's own block, which
+        # prune_issued_before refuses by name.  A two-kill ground would let
+        # the mutant pass, so this test hunts a multi-drop roll rather than
+        # accepting whichever ground the default seeds happen to build.
+        mob, seed = None, None
+        for candidate in self.roster:
+            for trial in range(400):
+                if mob_loot.roll_drops(
+                        candidate, random.Random(trial)).placeable_count >= 2:
+                    mob, seed = candidate, trial
+                    break
+            if mob is not None:
+                break
+        if mob is None:                              # pragma: no cover
+            self.skipTest("no roll in this scene drops two rows")
+        drops = self.cell.loot_a_kill(
+            mob, DeathRecord(mob.actor_identity, KILLER, mob.max_hp),
+            mob_loot.roll_drops(mob, random.Random(seed)), kill_token=1)
+        live_before = len(self.cell.ledger.drops)
+        self.assertGreaterEqual(len(drops), 2, "this test needs one wide kill")
+        self.assertEqual(live_before, len(drops))
+
+        original = mob_loot.DROP_MAX_ELEMENTS_PER_FRAME
+        mob_loot.DROP_MAX_ELEMENTS_PER_FRAME = 1
+        try:
+            step = sustain_a_kill(self.cell, self.legacy, drops)
+        finally:
+            mob_loot.DROP_MAX_ELEMENTS_PER_FRAME = original
+
+        self.assertFalse(step.refused, step.detail)
+        self.assertEqual(step.state, STATE_TRIMMED_TO_FIT)
+        self.assertEqual(step.live, 1)
+        self.assertEqual(step.trimmed, live_before - 1)
+        self.assertTrue(step.frames)
+        # The cell and the generation name the same set afterwards.
+        self.assertEqual(
+            {drop.drop_key for drop in self.cell.ledger.drops},
+            {row.drop_key for row in step.rows})
+
+    def test_S6_the_call_site_records_one_event_on_every_outcome(self):
+        self.kill()
+        seen = set()
+        for step in (sustain_a_kill(self.cell, self.legacy, ()),
+                     sustain_a_kill(None, self.legacy, ()),
+                     presence_snapshot(self.cell)):
+            event = mob_drop_presence.presence_event(step)
+            self.assertTrue(event.startswith("mob_drop_presence_"))
+            # The entry has to SAY something: an operator grepping the session
+            # record must be able to tell a sustained kill from a refusal, and
+            # a one-row ground from a ten-row one.
+            self.assertIn(step.state, event)
+            self.assertIn("live_%d" % step.live, event)
+            event.encode("ascii")
+            seen.add(event)
+        self.assertEqual(len(seen), 3, "three outcomes, three distinct entries")
+        self.assertIn(
+            "not_a_presence_step",
+            mob_drop_presence.presence_event(object()))
+
+
 class ModuleShapeTests(unittest.TestCase):
     @staticmethod
     def _imported_names():
@@ -560,10 +746,29 @@ class ModuleShapeTests(unittest.TestCase):
                 self.assertNotIn(forbidden, name.lower())
 
     def test_the_module_has_no_thread_and_no_timer(self):
-        """ON A TIMER is the part the COO refused (2026-08-26 07:45 +07:00)."""
+        """ON A TIMER is the part the COO refused (2026-08-26 07:45 +07:00).
+
+        The import list alone is NOT enough, and pf-adversary (round m0vp7m)
+        showed why by execution: ``mob_loot`` already imports ``threading``
+        and ``time``, so ``mob_loot.threading.Timer(0.08, ...)`` written in
+        this file adds a timer while every import stays innocent.  The
+        attribute names are checked too.
+        """
+        import ast
+
         for name in self._imported_names():
             for forbidden in ("threading", "time", "sched", "asyncio"):
                 self.assertNotIn(forbidden, name.lower())
+        tree = ast.parse(
+            (SRC / "mob_drop_presence.py").read_text(encoding="ascii"))
+        reached = {
+            node.attr for node in ast.walk(tree)
+            if isinstance(node, ast.Attribute)
+        }
+        for forbidden in ("threading", "Timer", "monotonic", "sleep",
+                          "perf_counter", "Thread", "DROP_REFRESH_MS",
+                          "refresh_frames_on_a_timer"):
+            self.assertNotIn(forbidden, reached)
 
     def test_the_wiring_ask_names_the_two_lines_it_replaces(self):
         wiring = mob_drop_presence.DROP_PRESENCE_WIRING
