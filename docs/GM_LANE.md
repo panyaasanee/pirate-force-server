@@ -489,12 +489,21 @@ and `CORE-REQUEST-011`'s same-scene-only wiring).
   the call point.
 - **Not built this round** (chief's write zone, `runtime.py`): the two call
   points the owner's order asks for -- (1) at login, resolve
-  `get_login_scene_override(token)` and send that scene_id instead of the
+  ~~`get_login_scene_override(token)`~~ and send that scene_id instead of the
   default start scene when it is not `None`; (2) assemble that scene's
   census from `Data\Scene\Save\bgXXXX\bgXXXX.npc` placements (via
   `gamedata/pf_decode_lua_npc.py`, already used for `bg0001` by lane A/B)
   plus lane B's hostile roster where one exists for that scene (`bg0015`
   has one per the order). See `CORE-REQUEST-GM-015`.
+  - **CORRECTION** (LANE-GM round `38c4tv`, after `pirate-force-server#236`
+    merged 2026-08-28T23:39+07:00): the call point (1) describes is wired,
+    and the call it makes is `consume_login_scene_override(self.token)` --
+    which **replaced** the reader struck above rather than joining it
+    (`CORE-REQUEST-GM-033` v2: two reads in one login means the second gets
+    `None`). It answers with an outcome as well as a scene, and a
+    `CONSUME_FAILED` outcome grants no scene at all.
+    `get_login_scene_override` still exists and is still the right call for
+    anything that wants to LOOK without spending.
 
 ## Modules delivered (RE-105 vital-version-pin round)
 
@@ -1104,9 +1113,20 @@ never needed to ask.
   anything") -- see the struck-through paragraph above and
   `notes_to_chief/20260828_0222_LANE-GM-ASK-COO-standalone-login-scene-override-path.md`.
   Not built by touching `runtime.py`: the existing `CORE-REQUEST-015` call
-  site (`get_login_scene_override(self.token)`) already routes through this
+  site (~~`get_login_scene_override(self.token)`~~) already routes through this
   function, so the new path activates at the existing wiring point with no
   core-file edit.
+  - **CORRECTION** (LANE-GM round `38c4tv`, after `pirate-force-server#236`
+    merged): that call site now calls
+    `consume_login_scene_override(self.token)`. The routing claim above
+    still holds -- the consumer resolves the scene through
+    `get_login_scene_override`, so both maps are still consulted in the same
+    order at the same wiring point -- but the standalone half comes back
+    under the `STANDALONE_NOT_CONSUMED` outcome, which the call site
+    reports as `gm_login_scene_override_standalone_kept_<scene>` and does
+    NOT spend (`COO-DECISION 20260829_0542`). That branch is walked through
+    the real dispatcher by
+    `tests/test_gm_login_scene_override_standalone_at_login.py`.
 - `tests/test_gm_login_scene.py`: +7 tests for the standalone path
   (missing-file, grant-with-zero-`gm_accounts.json`-membership,
   gated-path-still-wins-with-**differing** scene_ids so the precedence

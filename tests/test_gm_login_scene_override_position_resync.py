@@ -100,6 +100,18 @@ class GmLoginSceneOverridePositionResyncTests(unittest.TestCase):
         return {
             gm_accounts.ENV_OVERRIDE: str(self.accounts_path),
             login_scene_override.ENV_OVERRIDE: str(self.overrides_path),
+            # Pinned at a path inside this test's own temp dir that is never
+            # written, so "no standalone entry" is a fact of the fixture.
+            # Left unpinned it resolved to the repo-relative default
+            # (`config/gm_login_scene_standalone.json`), and the no-override
+            # control below -- which asserts `ordinary_player` gets no
+            # override event at all -- would then have depended on whether
+            # the machine running the suite happened to have an operator's
+            # file there.  The standalone branch itself is walked by
+            # tests/test_gm_login_scene_override_standalone_at_login.py.
+            login_scene_override.STANDALONE_ENV_OVERRIDE: str(
+                Path(self.tmp.name) / "no_standalone_map.json"
+            ),
         }
 
     def _login_and_start(self, token, *, selector=None, ready=True):
