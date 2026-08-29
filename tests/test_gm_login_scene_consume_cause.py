@@ -2,7 +2,7 @@
 
 Asked for by chief in `CHIEF-REPLY` 2026-08-29T15:16+07:00 item 5.  Their
 console line had to print `cause=not_carried_by_the_outcome` because
-`CONSUME_FAILED` is one word covering seven different faults, and the
+`CONSUME_FAILED` is one word covering ~~seven~~ every fault below, and the
 remedies those faults need are not the same remedy: "fix a line in a config
 file" and "restart the server so it re-reads the registry" send an operator
 to opposite ends of the machine.  Chief could not name the cause because
@@ -469,9 +469,13 @@ class EveryReturnSiteIsAccountedForTests(unittest.TestCase):
         # branch borrowing an existing token, which every other check here
         # accepts).  Note what is NOT asserted: "no two sites share a
         # token".  That WAS the first version's rule and the remedy axis
-        # deliberately broke it -- `registry_refused_entry` is returned from
-        # four sites, because a refused row is the same fault and the same
-        # remedy wherever the loader met it.
+        # deliberately broke it -- ~~`registry_refused_entry` is returned
+        # from four sites~~ several tokens are returned from more than one
+        # site, because a refused row is the same fault and the same remedy
+        # wherever the loader met it.  (The struck half named a token that
+        # was SPLIT and no longer exists, and a count nothing re-derives:
+        # pf-adversary D8, round `npo898`.  The live count is the assertion
+        # below, which AST-parses the source on every run.)
         #
         # So the pin is the COUNT.  Adding or removing a `CONSUME_FAILED`
         # branch is then a deliberate act: this number moves, and whoever

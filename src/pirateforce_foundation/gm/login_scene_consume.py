@@ -146,15 +146,37 @@ CONSUME_FAILED = "consume_failed"
 #
 # So the split that ships is the one an operator can ACT on:
 #
-#   `config_unreadable`      the bytes are bad          -> edit the file
-#   `registry_refused_entry` the bytes are fine, this   -> restart the
-#                            process will not admit        server, or fix
-#                            the row                       lane A's registry
+#   ~~`config_unreadable`~~      renamed `config_rejected` (see below); the
+#   ~~`registry_refused_entry`~~ second was SPLIT in two.  Struck rather than
+#                                deleted: this table is where chief's
+#                                "seven words, count them, there are eight"
+#                                (reply 2026-08-29T19:24+07:00) actually came
+#                                from -- it kept naming tokens that no longer
+#                                exist, one line above the constants that
+#                                refute it.  Corrected round `npo898` after
+#                                pf-adversary D8 measured that striking the
+#                                heading in `docs/GM_LANE.md` had left the
+#                                SOURCE of the bad count untouched.
+#
+#   `config_rejected`        the loader refused the    -> edit the file
+#                            file: bad bytes, or good
+#                            bytes in a shape/scene id
+#                            this lane rejects
+#   `scene_not_admissible`   a row names a scene NO    -> edit the file, to
+#                            reading admits (the          an admissible id
+#                            hand-typed typo)
+#   `registry_stale_since_boot` the disk admits it     -> restart the server
+#                            today; only this process
+#                            disagrees
 #   `gm_accounts_unreadable` } which FILE, when the loader can say -- these
 #   `gm_map_unreadable`      } are reachable only through a mid-flight race
 #   `standalone_map_unreadable`
 #   `claim_raised`           removal raised, entry's fate UNKNOWN
 #   `entry_survived_claim`   removal failed, entry KNOWN to be on disk
+#
+# NO COUNT IS WRITTEN HERE, on purpose (D6, round `6vhfgh`).  The set that is
+# true is `CONSUME_FAILED_CAUSES` below, and the test that refuses a branch
+# outside it AST-parses this source rather than trusting a number in prose.
 #
 # WHAT WAS DELIBERATELY DROPPED, so the next reader does not "restore" it:
 # `gm_map_unreadable_after_claim`.  It split one file's read on WHICH MOMENT
@@ -208,6 +230,83 @@ CONSUME_FAILED_CAUSES = frozenset(
 )
 
 
+class ConsumeResultMisuse(AttributeError, TypeError):
+    """A `ConsumeResult` field is missing, or something tried to write one.
+
+    TWO BASES, AND THE SECOND ONE IS THE WHOLE POINT.  Chief's reply of
+    2026-08-29T19:24+07:00 (answering `CORE-REQUEST-GM-037`) carried back a
+    measurement from pf-adversary about where this lane's own "loud" lands:
+    `runtime.py` reads `override_result.cause` INSIDE
+    `except (ValueError, OSError, TypeError)` but OUTSIDE the print guard,
+    so a plain `AttributeError` from that read is caught by neither.  It
+    unwinds the game listener thread -- `game_listener` in
+    `current/pf_login_game_server_v141.py` wraps `state.dispatch` in no
+    `except` but the socket ones, its accept loop catches only
+    `socket.timeout`, and it runs as a DAEMON thread while the login
+    accept loop runs on the main one.  The process then holds the login
+    port open over a dead game port: alive to a supervisor, useless to a
+    tester.
+
+    WHAT WAS WRONG WITH THIS PARAGRAPH'S FIRST VERSION (pf-adversary D5,
+    measured; struck rather than quietly rewritten): it ended "-- and
+    ~~silent to the person watching the console~~".  It is NOT silent.  An
+    uncaught error in a daemon thread reaches Python's default
+    `threading.excepthook`, which prints a full traceback -- file, line,
+    field name -- to stderr.  The old failure was LOUDER IN CONTENT than
+    what replaces it.  What was wrong with it was the DEAD PORT and a
+    supervisor that cannot see one.  That alone is the reason to change
+    it, and it does not need the exaggeration.
+
+    This lane asked for the loudness and this lane owes the answer to "loud
+    to WHOM".  The answer that ships: a named console line from
+    `__getattr__` below, plus a red CI -- NOT a dead port.  The events row
+    `gm_login_scene_override_lookup_failed_ConsumeResultMisuse` that
+    `runtime.py` appends is a third artifact and is NOT greppable on a
+    default boot (D6): `app.py` builds an event exporter only under
+    `--export-events`, so without that flag the row stays an in-memory
+    list.  The console line is what an operator has by default.
+
+    Inheriting `TypeError` puts the failure inside the net `runtime.py`
+    already has, so a result that lost a field costs the OVERRIDE and
+    never the listener thread; inheriting `AttributeError` keeps every
+    `hasattr` / `getattr(x, n, default)` in the standard library behaving
+    as it did (`copy.deepcopy` looks up `__deepcopy__` ON THE INSTANCE and
+    relies on that swallow).
+
+    WHAT THIS DOES NOT CLOSE, named so it is not read as more (D7): it
+    changes ONE class's bases, not chief's net.  Any other
+    `AttributeError` raised inside that same `try` -- from
+    `is_gm_account`, from the override loader, from a line written
+    tomorrow -- still unwinds the game listener exactly as before, and
+    `test_a_result_that_lost_its_cause_raises_out_of_dispatch` still pins
+    that escape for a foreign object.  Closing it needs `AttributeError`
+    in the net itself, which is chief's file and chief's call:
+    `CORE-REQUEST-GM-039`.
+
+    NOT A WIDENING OF THE PRINT GUARD, which is the trade this refuses to
+    make: the read stays outside `try: print(...) except Exception: pass`,
+    no `getattr` default appears at the call site, and nothing is printed
+    for a lost field.  The contract "a result that lost its `cause` must
+    not become a placeholder word on a live console" is unchanged.  Only
+    the blast radius of enforcing it changed.
+    """
+
+
+def _slot_names(cls: type) -> tuple[str, ...]:
+    """Every slot this class owns, its bases included.
+
+    `ConsumeResult.__slots__` alone was the D12 defect: a subclass that
+    declares its own slot and forgets to fill it is the exact shape
+    `__getattr__` exists for, and it was the one shape that printed
+    nothing.  Reads the CLASS, never the instance, so it cannot recurse
+    back into `__getattr__`.
+    """
+    names: list[str] = []
+    for klass in cls.__mro__:
+        names.extend(klass.__dict__.get("__slots__", ()))
+    return tuple(names)
+
+
 class ConsumeResult:
     """What the login should do, and what happened to the entry on disk."""
 
@@ -218,8 +317,12 @@ class ConsumeResult:
     ) -> None:
         # REFUSED BY NAME, not filtered.  `cause` is not free text and this
         # is the only place that could let it become free text, so the check
-        # lives here rather than at seven call sites that would each have to
-        # remember it.
+        # lives here rather than at ~~seven~~ every `CONSUME_FAILED` return
+        # site in this module, each of which would have to remember it.
+        # (The number came out of the first draft and was already stale --
+        # chief's reply of 19:24 caught the same stale seven in the docs.
+        # No new number replaces it: a count in prose goes false in the
+        # round that adds a branch, which is D6 from round `6vhfgh`.)
         #
         # SAFE TO RAISE, measured rather than assumed: the consume call in
         # `runtime.py` sits inside `except (ValueError, OSError, TypeError)`,
@@ -274,13 +377,86 @@ class ConsumeResult:
     # them drove the constructor.  The module comment above claims "there is
     # no path that builds a cause"; assignment was that path.  Now the only
     # way a `ConsumeResult` gets a cause is through the check above.
+    #
+    # `ConsumeResultMisuse` RATHER THAN A BARE `AttributeError` since round
+    # `npo898`: the raise is still an `AttributeError` to everything that
+    # catches one, and is now ALSO inside `runtime.py`'s net, so the day a
+    # one-line change like the one above is written it costs the override
+    # and a named events row instead of the game listener thread.
     def __setattr__(self, name: str, value: object) -> None:
-        raise AttributeError(
+        raise ConsumeResultMisuse(
             "ConsumeResult is immutable; construct a new one instead"
         )
 
     def __delattr__(self, name: str) -> None:
-        raise AttributeError("ConsumeResult is immutable")
+        raise ConsumeResultMisuse("ConsumeResult is immutable")
+
+    # THE FIELD THAT IS NOT THERE, which is the half `__setattr__` never
+    # covered.  `__slots__` makes `cause` unlosable through the
+    # constructor, but not through `ConsumeResult.__new__(ConsumeResult)`
+    # or a subclass that fills two slots and forgets the third -- and an
+    # unset slot raises a bare `AttributeError` from the interpreter's own
+    # attribute machinery, which is exactly the escape chief measured.
+    # `__getattr__` runs ONLY when normal lookup has already failed, so a
+    # well-formed result never reaches this line: nothing is intercepted,
+    # nothing is defaulted, and the raise stays a raise.
+    #
+    # `name` IS SAFE TO INTERPOLATE, checked rather than assumed: it is an
+    # attribute name, so every producer of it in this tree is a literal in
+    # the source.  No path passes a client's bytes to `getattr`, and this
+    # message deliberately carries no VALUE from the result.
+    #
+    # AND IT PRINTS, because with the raise now CAUGHT by `runtime.py` the
+    # console would otherwise get nothing at all.  (The escape it replaces
+    # was not silent -- pf-adversary D5 measured that an uncaught error in
+    # a daemon thread prints a full traceback to stderr through Python's
+    # default `threading.excepthook`, with file, line and field name.  It
+    # was LOUDER in content and fatal to the game port.  What this line
+    # buys is not "a message where there was none"; it is a message that
+    # does not cost the port.  The first version of this comment claimed
+    # otherwise and was wrong.)
+    #
+    #   * only for a slot name -- `copy`/`pickle` probe `__deepcopy__`,
+    #     `__getstate__`, `__setstate__` and friends with a default on
+    #     EVERY copy, and a lane token printed on an ordinary deepcopy is
+    #     console spam that trains an operator to ignore the token.  Slots
+    #     are collected along the MRO, not read off `ConsumeResult`: D12
+    #     measured that a SUBCLASS losing its own slot -- the very shape
+    #     this hook exists for -- printed nothing at all;
+    #   * fields only, never values: the name is a source literal (see
+    #     above), and nothing from disk or from a client is on this line.
+    #     D3 measured the first version's test could not tell: it drove a
+    #     result whose `scene_id` was `None`, so a leak of a real scene id
+    #     read out of `gm_login_scene.json` would have printed green;
+    #   * `read=refused`, NOT `effect=override_refused_login_at_own_row`.
+    #     D4: the object cannot know what its caller will do -- the same
+    #     word-for-word line was emitted by a `hasattr` probe that refused
+    #     no login at all.  What the effect WAS belongs to the events row
+    #     `runtime.py` appends, which is the only place that knows;
+    #   * `flush=True` (D11): this replaces a stderr traceback, and stdout
+    #     is block-buffered under a supervisor that pipes it -- a 3am line
+    #     sitting in an 8 KB buffer is not a line;
+    #   * guarded, like every other diagnostic in this lane: a print that
+    #     fails must not change WHICH error the call site receives.
+    #
+    # NEVER READ A SIBLING FIELD IN HERE (D10): `self.scene_id` inside this
+    # hook recurses forever on the day `scene_id` is the lost one.  Use
+    # `object.__getattribute__`, which does not route back through here --
+    # `__repr__` below does exactly that.
+    def __getattr__(self, name: str):
+        if name in _slot_names(type(self)):
+            try:
+                print(
+                    "GM_CONSUME_RESULT_LOST_FIELD "
+                    f"field={name} read=refused",
+                    flush=True,
+                )
+            except Exception:
+                pass
+        raise ConsumeResultMisuse(
+            f"ConsumeResult has no {name!r}: a result that lost a field "
+            "must not reach a console"
+        )
 
     # COPY AND PICKLE HAVE TO KEEP WORKING, and the first version of the
     # immutability fix broke both.  pf-adversary measured the regression:
@@ -302,10 +478,25 @@ class ConsumeResult:
     def __reduce__(self):
         return (self.__class__, (self.scene_id, self.outcome, self.cause))
 
-    def __repr__(self) -> str:  # pragma: no cover - diagnostics only
+    # A DIAGNOSTIC THAT RAISES IS NOT A DIAGNOSTIC (D10).  The first
+    # version read the three fields normally, so `repr()` of a result that
+    # lost one RAISED -- and the place a repr is most likely to be written
+    # is inside an `except` handler, where a second raise is caught by
+    # nothing and takes the listener thread after all.  `object.__get
+    # attribute__` does not route through `__getattr__`, so this neither
+    # raises nor prints the token; a lost field renders as `<lost>`, which
+    # is the one thing the reader of a traceback actually needs.
+    def _field(self, name: str) -> str:
+        try:
+            return repr(object.__getattribute__(self, name))
+        except AttributeError:
+            return "<lost>"
+
+    def __repr__(self) -> str:
         return (
-            f"ConsumeResult(scene_id={self.scene_id!r}, "
-            f"outcome={self.outcome!r}, cause={self.cause!r})"
+            f"ConsumeResult(scene_id={self._field('scene_id')}, "
+            f"outcome={self._field('outcome')}, "
+            f"cause={self._field('cause')})"
         )
 
     def __eq__(self, other: object) -> bool:

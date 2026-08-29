@@ -3611,11 +3611,21 @@ No gate at the call site can reach the second one: by the time the call site
 sees anything, the load has already raised.  It has to be decided at the
 load, which is where this parameter goes.
 
-### `ConsumeResult.cause` — the seven words, and the axis they are cut on
+### `ConsumeResult.cause` — ~~the seven words~~ the closed vocabulary, and the axis they are cut on
 
 Added round `1fq5yf` for `CORE-REQUEST-GM-037`; printed by `runtime.py`
 since chief round `nbulzb` — see the PRINTED note above, and its tripwire
 test.
+
+🔴 **The heading said "seven" and the table below it has eight rows.** Chief
+caught it in their reply of 2026-08-29T19:24+07:00 (item 2) and left it for
+this lane; corrected in round `npo898` by **striking the number rather than
+updating it**. Eight would be false in the round that adds a ninth, which is
+D6 from round `6vhfgh` — this document stops carrying counts. The set that is
+true today is `CONSUME_FAILED_CAUSES`, and the test that refuses a branch
+outside it reads the *source*, not a number written here. The two "seven"s in
+the paragraph below are about the discarded FIRST draft, which really did have
+seven tokens; they stay.
 
 The axis is **the remedy an operator would apply**, not which read failed.
 The first draft cut it the other way and pf-adversary measured the result:
@@ -3957,3 +3967,159 @@ says why this lane does not recommend it.
 🔴 **ผู้เทสหน้าจอเกม: ไม่ได้อะไรใหม่ และรอบนี้จะไม่แกล้งบอกว่าได้** ยังไปฉาก 126 ไม่ได้ และรอบนี้
 **เลือกที่จะไม่ให้ไป** แทนที่จะให้ `/warp 126` ตอบว่าสำเร็จแล้วเผารอบรีล็อกของเขาทิ้ง
 บรรทัด `blocker=` อยู่บน stderr ของเครื่องเซิร์ฟเวอร์ ตาม `COO-DECISION 20260829_1344` ข้อ (ก)
+
+## Round `npo898` -- "loud" had a consumer nobody had named, and it was a dead port
+
+Consumes chief's reply of 2026-08-29T19:24+07:00 to `CORE-REQUEST-GM-037`
+(`notes_to_chief/20260829_1924_CHIEF-REPLY-GM-037-wired-merged-plus-two-findings-back.md`),
+both items.
+
+### Item 1 -- where this lane's own "loud" was landing
+
+The letter that asked chief to print `cause` also forbade a `getattr` default: a
+`ConsumeResult` that lost the field must **raise**, not print a placeholder word.
+Chief wired it exactly that way. pf-adversary then measured the other end of the
+raise, and chief handed the measurement back for this lane to decide on:
+
+| measured | where |
+|---|---|
+| the read is inside `except (ValueError, OSError, TypeError)` | `runtime.py`, the `CONSUME_FAILED` arm |
+| a bare `AttributeError` is in neither that net nor the print guard | same block |
+| an escape unwinds the **game listener thread**, and only that thread | `current/pf_login_game_server_v141.py`, `game_listener` — **re-measured in this round, not taken on trust**, and stated structurally rather than by line number (D9: this lane's own rule against pinning lines in a file it does not own): the only `except Exception` in the frame loop wraps decompress/parse, the `state.dispatch(parsed)` call is inside no `except` but the socket ones, the accept loop catches `socket.timeout` alone, and `game_listener` is started as a **daemon** thread while the login accept loop runs on the **main** thread. The last of those is what decides that the process survives its own dead port; the first version of this row cited the weakest of the three facts |
+| the process keeps the **login** port | so a supervisor sees a healthy process and does not restart |
+| the escape is **not** silent | Python's default `threading.excepthook` prints a full traceback -- file, line, field name -- to **stderr**. There is no excepthook override anywhere in this tree (`git grep excepthook`) |
+
+So the failure mode this lane had asked for was: client connects, never enters,
+supervisor says fine, and one traceback scrolls past on stderr while the port
+stays dead forever.
+
+🔴 **This paragraph said "console says nothing" and "the quietest failure the lane
+can produce" until pf-adversary (D5, this round) measured the excepthook and
+refuted it.** Struck rather than rewritten quietly, because the exaggeration was
+load-bearing in the argument: the old failure was **louder in content** than what
+replaces it. The defect is the **dead port** and a supervisor blind to it. That is
+enough of a reason on its own -- a fix does not need a worse "before" than the one
+that was actually there.
+
+**The answer this round ships, and it needed no change in chief's file.**
+`ConsumeResultMisuse` inherits **both** `AttributeError` and `TypeError`:
+
+- `TypeError` puts it inside the net `runtime.py` **already** has, so the fault
+  costs the **override** and never the thread. The events row then names it:
+  `gm_login_scene_override_lookup_failed_ConsumeResultMisuse`.
+- `AttributeError` keeps every `hasattr` / `getattr(x, n, default)` behaving as
+  before -- `copy.deepcopy` probes `__deepcopy__` **on the instance** and relies
+  on that swallow, which is the D8-R regression re-opened if the base is dropped.
+- `__getattr__` covers the field that is not there (an unset slot -- `__new__`, or
+  a subclass filling some of its slots), which `__setattr__` never could. Slot
+  names are collected along the **MRO**: reading them off `ConsumeResult` alone
+  (the first version) meant a subclass losing its own slot printed nothing at all
+  (D12).
+- **And it prints** -- because with the raise now *caught*, the console would
+  otherwise get nothing:
+  `GM_CONSUME_RESULT_LOST_FIELD field=<name> read=refused`, guarded,
+  `flush=True` (D11: it replaces a stderr traceback, and stdout is block-buffered
+  under a supervisor that pipes it), field names only (source literals), and
+  **only** for a slot name so an ordinary `deepcopy` does not print a lane token.
+  It says `read=refused` and **not** `effect=override_refused_login_at_own_row`
+  (D4): the object cannot know what its caller will do, and the first version
+  printed that effect word-for-word for a `hasattr` probe that refused nothing.
+- `__repr__` renders a lost field as `<lost>` instead of raising (D10). A repr is
+  most likely to be written *inside* an `except` handler, where a second raise is
+  caught by nothing and takes the listener thread after all.
+
+What did **not** change, because it is the contract, not the blast radius: the
+attribute read stays outside the print guard, there is no `getattr` default at
+the call site, and no placeholder `cause=` is ever printed for a lost field.
+
+Who consumes it, finally answered: **the console line above, on a default boot,
+plus a red suite for CI -- and the game port stays up.**
+
+🔴 **Two claims this section made and pf-adversary refuted, corrected in place:**
+
+- ~~"an events row for the operator"~~ / ~~"ที่ grep ได้"~~ — the events row
+  `gm_login_scene_override_lookup_failed_ConsumeResultMisuse` is real, but on a
+  **default boot there is nothing to grep** (D6): `app.py` builds an event
+  exporter only under `--export-events`, and without it the row stays an
+  in-memory list. The wiring test asserts `state.events`, which is a
+  **test-process list** -- one layer, not the console/disk layer. The operator's
+  default artifact is the console line, and only that.
+- **What this does NOT close (D7):** the round changed **one class's bases**, not
+  chief's net. Any other `AttributeError` raised inside that same `try` -- from
+  `is_gm_account`, from the override loader, from a line written tomorrow --
+  still unwinds the game listener exactly as before, and
+  `test_a_result_that_lost_its_cause_raises_out_of_dispatch` still pins that
+  escape for a foreign object. Closing it needs `AttributeError` in the net
+  itself, which is chief's file: **`CORE-REQUEST-GM-039`**. pf-adversary tried 12
+  malformed config shapes across the three files and could not reach the escape
+  from config today -- it is a code-change risk, not a live one.
+
+### Item 2 -- the heading said seven, the table has eight
+
+Corrected by striking the number rather than updating it (see the note under that
+heading). A count in prose goes false in the round that adds a branch -- D6 from
+round `6vhfgh`. The same stale seven in `login_scene_consume.py`'s constructor
+comment ("at seven call sites") is struck the same way; the two "seven"s that
+describe the discarded FIRST draft are accurate and stay.
+
+🔴 **The first pass at this fixed the heading and left the thing that GENERATED
+it** (pf-adversary D8): `gm/login_scene_consume.py` still carried the **seven-row**
+"the split that ships" table, naming two tokens that no longer exist
+(`config_unreadable`, `registry_refused_entry`) one screen above the constants
+that refute them, and omitting `registry_stale_since_boot`. That table -- not the
+heading -- is where chief's count came from. Corrected in the source, struck not
+deleted. Same for a stale "returned from four sites" line in
+`tests/test_gm_login_scene_consume_cause.py`, whose live count is an assertion
+that AST-parses the source on every run rather than a number in prose.
+
+### What pf-adversary broke, and what changed because of it
+
+The first version of this round was **not approvable**. Three mutants survived the
+**whole** suite (4951 passed, 0 failed), which is the shape of defect this lane
+keeps paying for:
+
+| # | what survived, measured | what this round did |
+|---|---|---|
+| D1 | four characters -- `else: return None` in `__getattr__` -- turned the hook into **the silent default the whole round forbids**, for any name outside `__slots__`. Every test lost only `cause`, which is inside the guard | `test_a_name_outside_the_slots_still_raises`: a plausible typo (`consume_cause`) must raise and print nothing. **Kill measured** |
+| D2 | three mutants hardcoding `field=cause` (in the line, in the message, and by narrowing the guard to `name == "cause"`). `runtime.py` reads `scene_id` and `outcome` **before** `cause`, so those are the fields a real regression loses first -- the operator would grep `cause` while `cause` was intact | every test now runs over all three slots; the line and the message must name the field actually lost. **Kills measured** |
+| D3 | appending `scene_id={...}` to the printed line stayed green: the fixture's `scene_id` was `None`, so the leak printed `scene_id=None`. The test named round `9wy444` D1 in its own comment and could not enforce it | fixtures carry a loud scene id (`90210`) and a real outcome; the line must contain neither. **Kill measured** |
+| D4 | the token fired on a `hasattr` probe that refused nothing, saying `effect=override_refused_login_at_own_row` -- and this round's own suite printed it **6x per run** | the line says `read=refused` and claims no effect; every test captures stdout instead of leaking to it |
+| D5 | "console says nothing" was **false** -- the daemon thread's traceback reaches stderr through Python's default excepthook | struck in three places (this section, the class docstring, the test module docstring), with the honest reason kept |
+| D6 | "an events row the operator can grep" -- `app.py` exports events only under `--export-events` | corrected above; the console line is the default artifact |
+| D7 | the hole is **narrowed to one class**, not closed | named above; `CORE-REQUEST-GM-039` opened for the net itself |
+| D8 | the heading was struck and the **seven-row table that generated it** was left in the source | corrected in `gm/login_scene_consume.py`, struck not deleted |
+| D9 | `:7440` pinned in a file this lane does not own, against its own rule, and the weakest of the three facts | restated structurally |
+| D10 | `repr()` of a lost result **raised** -- and a repr is most likely written inside an `except` handler | `__repr__` renders `<lost>` via `object.__getattribute__`; a sibling read inside `__getattr__` would recurse forever, and the source now says so |
+| D11 | the line went to unflushed stdout, replacing a stderr traceback | `flush=True` |
+| D12 | a **subclass** losing its own slot -- the shape the hook's docstring names -- printed nothing | slots collected along the MRO. **Kill measured** |
+
+What pf-adversary attacked and **could not** break: the premise of claim 1 (re-derived
+from `runtime.py` and `v141` source), the ordinary copy/pickle path, the leak half of
+the print (newline forgery through `__getattr__` is rejected by the slot guard before
+the f-string, and no client-controlled path to `getattr` on this object exists), the
+print guard, the three kills this round announced, and the hand-copied
+`THE_RUNTIME_NET` -- narrowing chief's net, widening it to `except Exception`, and
+swapping the bases underneath it each turned the wiring test red.
+
+### What is NOT claimed
+
+Nothing here is client-observable. No byte of any of this reaches a client and no
+test says otherwise; the drills are in-repo regressions -- at HEAD a real
+`ConsumeResult` cannot exist without a cause. This round did not touch the GM
+account gate, did not widen any scene set, and gave GM status to nobody.
+**It did not make the game listener safe from `AttributeError` in general** -- only
+this class's raises moved inside chief's existing net (D7).
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้ (round `npo898`)
+
+**คนเฝ้าคอนโซล/ผู้ดูแลเซิร์ฟเวอร์:** ถ้าวันหนึ่งมีรีเกรสชันที่ทำให้ผลลัพธ์ของ consume เสียฟิลด์ไป
+เมื่อวาน = พอร์ตเกมตายถาวรเงียบ ๆ ใต้โปรเซสที่ดูมีชีวิต (login ยังรับอยู่) ต้องเดาเอาเองว่าทำไม
+ลูกค้าเข้าเกมไม่ได้ · วันนี้ = ล็อกอินนั้นเสียแค่ปลายทาง GM ที่วางไว้ ตัวละครยืนที่แถวของตัวเอง
+**เซิร์ฟเวอร์ยังรับคนอื่นต่อ** และบนคอนโซลมีบรรทัดชื่อจริง
+`GM_CONSUME_RESULT_LOST_FIELD field=<ฟิลด์ที่หาย> read=refused`
+🔴 แก้คำอ้างเดิม (pf-adversary D5/D6): เมื่อวาน**ไม่ได้เงียบ** — มี traceback ลง stderr ก่อนพอร์ตตาย
+สิ่งที่ได้เพิ่มจริงคือ **พอร์ตไม่ตาย** ไม่ใช่ "มีข้อความที่เมื่อวานไม่มี"
+· และแถวเหตุการณ์ `gm_login_scene_override_lookup_failed_ConsumeResultMisuse`
+**grep ไม่ได้บนบูตปกติ** (ต้อง `--export-events`) ⇒ ของที่ operator มีจริงคือบรรทัดคอนโซลบรรทัดเดียว
+
+🔴 **ผู้เทสหน้าจอเกม: ไม่ได้อะไรใหม่รอบนี้** และรอบนี้จะไม่แกล้งบอกว่าได้
