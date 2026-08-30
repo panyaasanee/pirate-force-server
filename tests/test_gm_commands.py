@@ -132,6 +132,20 @@ class DescribeWarpTargetTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             describe_warp_target(cmd)
 
+    def test_a_scene_id_the_client_itself_left_nameless_is_still_known_not_none(self):
+        # scene_catalog id 13 has a row in the client's own committed table
+        # (gm/data/gm_scene_name_tip.tsv) but that row's own two name
+        # columns are both blank -- distinct from id 123456 above, which has
+        # NO row at all. `describe_warp_target`'s docstring promises None
+        # only for "the id has no row in the GM-004 catalog"; id 13 has one,
+        # so the return here is "" (a hint, not a validity gate, per this
+        # module's own docstring), and a caller must not read "" as "unknown
+        # scene, warp refused" -- the warp itself is judged elsewhere
+        # (login_scene_admission / world_scene_travel), never by this hint.
+        cmd = parse_gm_command("warp 13")
+        self.assertEqual(describe_warp_target(cmd), "")
+        self.assertIsNotNone(describe_warp_target(cmd))
+
 
 class DescribeNpcTargetTests(unittest.TestCase):
     def test_known_gm_switch_npc_returns_client_name(self):
