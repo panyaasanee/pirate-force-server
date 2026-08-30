@@ -479,6 +479,48 @@ _SCENE_TABLE_MODULES = {
 BG0002_SCENE = field_mob_tables_bg0002.SCENE
 
 
+def assert_scene_table_keys_match_their_own_modules(table: Any) -> None:
+    """Refuse a scene->module table whose key is not that module's own SCENE.
+
+    ROUND qf83nz (carried six rounds as debt item 4 before this one closed
+    it).  ``_SCENE_TABLE_MODULES`` is written today so this can never actually
+    fire -- every key literal IS ``module.SCENE`` read off the module, not a
+    retyped string -- but that is a property of how the dict happens to be
+    spelled, not something anything checked.  A future hand-edit that adds a
+    third scene by pasting an existing line and forgetting to swap the value
+    (``field_mob_tables_bg0002.SCENE: field_mob_tables,`` -- right-hand side
+    stale) would silently serve one scene's real MOBS rows under another
+    scene's name: exactly the kind of mismatch this M3 module exists to rule
+    out, just moved into its own registry instead of the mined tables it
+    reads.  ``load_roster`` would still return rows (no KeyError, because the
+    lookup key that broke is the map's OWN key, not a caller's), so nothing
+    downstream would raise -- a player would just see one field map's
+    monsters standing in another field map.
+
+    Deliberately independent of :func:`assert_single_scene_tables`: that
+    guard stops two DIFFERENT scenes' rows from being merged into one
+    roster; this one stops a single scene's own table from being filed
+    under the wrong name in the first place.  Neither implies the other.
+    """
+    mismatched = [
+        (key, module, getattr(module, "SCENE", None))
+        for key, module in table.items()
+        if getattr(module, "SCENE", None) != key
+    ]
+    if mismatched:
+        raise FieldMobContractError(
+            "scene table module(s) filed under the wrong key: %s -- each "
+            "key must equal that module's own SCENE constant"
+            % [
+                "%r maps to %r whose own SCENE is %r" % row
+                for row in mismatched
+            ]
+        )
+
+
+assert_scene_table_keys_match_their_own_modules(_SCENE_TABLE_MODULES)
+
+
 def live_scenes() -> tuple[str, ...]:
     """The scenes :func:`load_roster` will actually load, in a stable order.
 
