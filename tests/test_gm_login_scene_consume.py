@@ -28,9 +28,14 @@ from pirateforce_foundation.gm import (  # noqa: E402
 )
 
 # Two scene_ids that are BOTH in the committed catalog and pinned as having
-# a login entry (`stageable_scene_ids()` == (1, 2, 278, 997) on main).  Pinned
-# as literals: a catalog or pin table that lost one should fail this file
-# loudly rather than quietly agree with itself.
+# a login entry.  `stageable_scene_ids()` was (1, 2, 278, 997) on main when
+# this comment was written (round qq0i9u); scene 14 joined it in round
+# vvy6q7 (lane A, `login_entry_allowed(14)` -> true, PR #290) and the tuple
+# is (1, 2, 14, 278, 997) as of round 2q9lxx -- neither of the two literals
+# pinned below has ever left the admissible set, which is why this file did
+# not need to change when the set grew.  Pinned as literals: a catalog or
+# pin table that lost one should fail this file loudly rather than quietly
+# agree with itself.
 PORT_ROYAL = 1
 PRISON_EXILE = 2
 

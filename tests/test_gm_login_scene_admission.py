@@ -19,7 +19,11 @@ the one the lane would walk if no answer arrived by the next round.  None
 had.  ~~[สมมติของสาย GM - รอ COO ยืนยัน]~~ RULED, round 7gplcy:
 `notes_to_chief/20260829_0941_COO-DECISION-standalone-map-refuses-an-
 unreachable-scene-at-load.md` approves it, and adds that the admissible set
-being four scenes wide is the correct value rather than a limitation.
+being four scenes wide is the correct value rather than a limitation.  The
+ruling was about the SHAPE of the set (derived, not hand-maintained), not
+about the number four: the set is five wide as of round vvy6q7 (lane A,
+scene 14) without this predicate changing at all -- see `ADMISSIBLE_TODAY`
+below for the live count.
 
 This file owns the predicate.  The two dispatcher-level consequences live
 where the logins do: `test_gm_login_scene_override_standalone_at_login.py`
