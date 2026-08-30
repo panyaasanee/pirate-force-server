@@ -288,12 +288,21 @@ class TheDoorIsShutAndThisIsTheLoadBearingTest(unittest.TestCase):
 
     def test_a_scene_with_no_marker_and_no_ruling_is_refused_differently(self):
         # The control: rule 1 reached the marker scenes and NOTHING else, and
-        # the two refusals are distinguishable.  Scene 126 is the ocean panel
-        # three different Columbuses advertise, it has no marker, and it is the
-        # id most likely to be reached for next.
+        # the two refusals are distinguishable.
+        #
+        # THIS USED TO NAME SCENE 126, AND ITS OWN COMMENT PREDICTED WHY IT
+        # STOPPED BEING A VALID CONTROL: "it is the id most likely to be
+        # reached for next."  LANE-A round 2026-08-30 pinned scene 126 (per
+        # CHIEF-DECISION R229 - see test_world_scene_travel.py's
+        # ``test_scene_126_is_a_diagnostic_pin_not_a_destination``), so it
+        # now HAS a ruling behind it even though it still has no
+        # self-referencing marker - it is neither this test's case (no
+        # marker, no ruling) nor the rule-1 case (marker, no ruling needed)
+        # above.  Scene 18 (Bg1002, the next sea-family ship scene after 17)
+        # replaces it: same n_MARKER=0 shape, still genuinely unpinned.
         with self.assertRaises(world_scene_entry.SceneEntryRefused) as caught:
             world_scene_entry.resolve_entry(
-                self._stored_row(126),
+                self._stored_row(18),
                 registry=self.registry,
                 emit=lambda line: None,
             )
