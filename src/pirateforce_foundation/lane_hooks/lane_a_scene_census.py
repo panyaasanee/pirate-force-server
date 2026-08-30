@@ -82,6 +82,29 @@ could never fire.  This module filters them out anyway, and the filter is
 driven by a test that gives scene 1 a console reader and checks it stays out -
 without that, the filter is dead code that any refactor could drop unnoticed.
 
+THE CHOOSENPC RESPONDER GATE (COO-DECISION 20260830_0818).  ``membership``
+(see ``SceneCensusResult.membership``'s own docstring) defaults to ``None``
+-- the composer says nothing, and the three server-side fields stay in
+their documented safe state.  ``_membership_if_answerable`` below is the one
+place that ever supplies something else: it hands back the seam's own
+``handoff.membership_reset`` ONLY when
+``lane_hooks.scene_choose_npc_responder(scene_id)`` names a module AND
+``lane_hooks.module_production_allowed`` says that module is allowed --
+the same option-(b) gate every other direct-call ``lane_hooks`` consumer in
+this project already reads, not a bespoke flag invented for this file.
+``lane_hooks/lane_a_choose_npc_scene14.py`` is that responder for scene 14,
+and its own docstring is why its ``production_allowed`` is ``False`` today:
+pf-adversary (R235 D2) measured that arming real membership for this scene
+with no runtime.py guard in front of the frozen ChooseNPC handler is a
+GUARANTEED ``KeyError`` on the first click, not merely a risk when no
+responder exists.  So this gate does not turn on the moment a responder
+file exists on disk -- it turns on the moment that file is ALSO trusted
+(``production_allowed = True``), which this round leaves as the one-line
+follow-up named in the CORE-REQUEST, not as work done here.  Until then this
+composer's own behavior for scene 14 is unchanged from before this round:
+``membership`` stays ``None`` and the caller's existing withhold-equivalent
+(fields never written) stands, exactly as R235 left it.
+
 THE ONE THING STILL IN THE WAY (defect D3, this lane's debt).
 ``player_wire``'s faction-1 serializer refuses any ``scene_id`` outside
 ``(1, 2)``, because the byte shape was only ever proven at those two.  So a
@@ -222,6 +245,25 @@ def _hostility_lines(scene_id: int, generation: Any) -> tuple[str, ...]:
         )
 
 
+def _membership_if_answerable(scene_id: int, handoff: Any) -> Any | None:
+    """The seam's own membership, handed back ONLY if a registered,
+    production-allowed ChooseNPC responder exists for ``scene_id``.
+
+    See "THE CHOOSENPC RESPONDER GATE" in this module's own docstring for
+    why ``module_production_allowed`` -- not merely a registration -- is the
+    condition, and why that is a safety gate rather than an oversight.
+    ``None`` (the everyday answer while no such responder is both
+    registered and allowed) means the caller's three membership fields stay
+    exactly as untouched as they were before this function existed.
+    """
+    responder = lane_hooks.scene_choose_npc_responder(scene_id)
+    if responder is None:
+        return None
+    if not lane_hooks.module_production_allowed(responder.module):
+        return None
+    return handoff.membership_reset
+
+
 def _compose_for_scene(scene_id: int):
     """Build the composer closure for one scene.
 
@@ -266,6 +308,7 @@ def _compose_for_scene(scene_id: int):
             frame=handoff.frame,
             console_lines=console_lines,
             initial_reapply_ms=handoff.reapply_ms,
+            membership=_membership_if_answerable(scene_id, handoff),
         )
 
     return compose

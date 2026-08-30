@@ -377,6 +377,115 @@ def scene_census_composer(scene_id: int) -> SceneCensusComposer | None:
     return _SCENE_CENSUS_COMPOSERS.get(scene_id)
 
 
+class ChooseNpcResponder(NamedTuple):
+    """One lane's claim on answering ``ChooseNPC`` for one scene's composed
+    roster (COO-DECISION 20260830_0818): who owns it, and the callable that
+    answers a click.  Same shape and same reason as ``SceneCensusComposer`` --
+    ``module`` is what a call site passes to ``module_production_allowed()``
+    before it calls ``respond`` (option (b), same as the census point)."""
+
+    module: str
+    respond: Callable[..., "ChooseNpcResponse | None"]
+
+
+class ChooseNpcResponse(NamedTuple):
+    """What a scene's ChooseNPC responder hands back for one answered click.
+
+    Mirrors ``SceneCensusResult``'s own contract shape on purpose: a future
+    runtime.py call site is expected to coerce every field as untrusted lane
+    input before using it (bytes()/float()/str()), the same net the census
+    call site already runs, and to print ``console_lines`` in order BEFORE
+    queuing the frame -- console-proof-before-frame, the same discipline the
+    census point uses.  ``None`` from ``respond`` (not this type) means "no
+    honest answer for this click", the same everyday-not-an-error meaning
+    ``scene_census_composer`` gives its own ``None``.
+    """
+
+    label: str
+    pc: bytes
+    frame: bytes
+    delay: float
+    console_lines: tuple[str, ...]
+
+
+_SCENE_CHOOSE_NPC_RESPONDERS: dict[int, "ChooseNpcResponder"] = {}
+
+
+def choose_npc_responder(scene_id: int) -> Callable[
+    [Callable[..., "ChooseNpcResponse | None"]],
+    Callable[..., "ChooseNpcResponse | None"],
+]:
+    """Decorator: register ``fn`` as THE ChooseNPC responder for ``scene_id``.
+
+    Same registry shape as ``census_composer`` and for the same reason: one
+    responder per scene (a click has one honest answer), first registration
+    wins, a duplicate is refused loudly rather than silently shadowed, and a
+    responder from outside this package is rejected loudly rather than
+    silently dead (module_production_allowed only ever records lane_hooks
+    modules).  ``respond`` is called with keyword arguments only, so a future
+    call site can grow arguments without breaking every registered responder
+    at once; a responder should accept ``**kwargs`` for ones it ignores.
+
+    NOT YET CONSULTED BY ANY runtime.py CALL SITE, as of this point's first
+    round.  The only thing that answers a real ``ChooseNPC``/``TARGET_VITAL``
+    click today is the frozen dispatcher
+    (``current/pf_login_game_server_v141.py:4395``), reached unconditionally
+    from ``runtime.py``'s own ``super().dispatch(parsed)`` before any lane
+    code runs, and it answers from ``self.population_indices`` alone -- see
+    ``lane_hooks/lane_a_choose_npc_scene14.py``'s module docstring for the
+    exact crash a registration on this point does not, by itself, prevent,
+    and the CORE-REQUEST asking runtime.py for the guard that would.  This
+    registry exists so that guard has something ready to call the day it
+    lands, the same order this project already built the census point in
+    (registry first, call site by CORE-REQUEST, per
+    ``lane_a_scene_census.py``'s own docstring)."""
+
+    def decorator(
+        fn: Callable[..., "ChooseNpcResponse | None"],
+    ) -> Callable[..., "ChooseNpcResponse | None"]:
+        module_name = fn.__module__
+        if not module_name.startswith(f"{__name__}."):
+            print(
+                _console_safe(
+                    f"LANE_HOOK_REJECTED {module_name} "
+                    f"choose_npc_responder:{scene_id} "
+                    f"NOT_A_LANE_HOOKS_MODULE"
+                ),
+                file=sys.stderr,
+            )
+            return fn
+        existing = _SCENE_CHOOSE_NPC_RESPONDERS.get(scene_id)
+        if existing is not None:
+            print(
+                _console_safe(
+                    f"LANE_HOOK_DUPLICATE {module_name} "
+                    f"choose_npc_responder:{scene_id} KEPT {existing.module}"
+                ),
+                file=sys.stderr,
+            )
+            return fn
+        print(
+            _console_safe(
+                f"LANE_HOOK_REGISTERED {module_name} "
+                f"choose_npc_responder:{scene_id}"
+            ),
+            file=sys.stderr,
+        )
+        _SCENE_CHOOSE_NPC_RESPONDERS[scene_id] = ChooseNpcResponder(
+            module_name, fn,
+        )
+        return fn
+
+    return decorator
+
+
+def scene_choose_npc_responder(scene_id: int) -> ChooseNpcResponder | None:
+    """The responder registered for ``scene_id``, or ``None`` if no lane has
+    claimed it.  ``None`` is the everyday answer, not an error: it means
+    whatever the frozen dispatcher already does stands unchanged."""
+    return _SCENE_CHOOSE_NPC_RESPONDERS.get(scene_id)
+
+
 def console_safe(text: str) -> str:
     """Public spelling of ``_console_safe`` for call sites OUTSIDE this
     package that print lane-supplied text -- e.g. runtime.py printing a
@@ -446,20 +555,23 @@ def module_production_allowed(module_name: str) -> bool:
 
 
 def _withdraw(module_name: str) -> None:
-    """Remove every hook AND every scene census composer a module
-    registered.  Used when the module turns out not to be
-    production_allowed (see module docstring).  For census composers this
-    is belt-and-braces on purpose: the call site reads
-    ``module_production_allowed()`` before calling anyway (option (b)),
-    but a withdrawn entry also frees the scene slot: ``_discover()`` gates
-    each module right after importing it, so a closed lane's claim is gone
-    before the next file in filename-sort order even imports, and cannot
-    block another lane from registering the same scene."""
+    """Remove every hook, every scene census composer AND every ChooseNPC
+    responder a module registered.  Used when the module turns out not to be
+    production_allowed (see module docstring).  For census composers and
+    ChooseNPC responders this is belt-and-braces on purpose: a call site
+    reads ``module_production_allowed()`` before calling anyway (option
+    (b)), but a withdrawn entry also frees the scene slot: ``_discover()``
+    gates each module right after importing it, so a closed lane's claim is
+    gone before the next file in filename-sort order even imports, and
+    cannot block another lane from registering the same scene."""
     for point, entries in list(_HOOKS.items()):
         _HOOKS[point] = [(m, fn) for (m, fn) in entries if m != module_name]
     for scene_id, entry in list(_SCENE_CENSUS_COMPOSERS.items()):
         if entry.module == module_name:
             del _SCENE_CENSUS_COMPOSERS[scene_id]
+    for scene_id, entry in list(_SCENE_CHOOSE_NPC_RESPONDERS.items()):
+        if entry.module == module_name:
+            del _SCENE_CHOOSE_NPC_RESPONDERS[scene_id]
 
 
 def _import_module_safely(qualified_name: str) -> object | None:
