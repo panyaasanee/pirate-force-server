@@ -35,17 +35,19 @@ WHAT IS DIFFERENT FROM THE OTHER THREE, NAMED RATHER THAN LEFT IMPLICIT.
   20:10 drew for Bg0002's "widen the hostile faction pair" item), deliberately
   not made here - a wrong identity a player can walk up to and read is
   recoverable, a wrong identity that attacks on sight is not.
-* NOT WIRED.  This module is not registered in
-  ``world_scene_travel.CENSUS_SOURCES`` or
-  ``world_population_handoff.ROSTER_COMPOSERS`` this round, and scene 4's
-  ``login_entry_allowed`` stays ``false`` (COO-DECISION 2026-08-30T14:41's own
-  instruction: do not open the door until the population component is ready).
-  A player sees exactly what they saw yesterday because of this file.  Wiring
-  it is the same two-table change ``world_population_bg0015`` needed
-  (``lane_hooks/lane_a_scene_census.py`` round ga91m5-r2 did the wiring for
-  scene 14, several rounds after that module first shipped) - left for a
-  later round of this same multi-round order, deliberately, so this round's
-  diff is the identity+census pair alone and can be verified on its own.
+* WIRED, ROUND 2jdde8, DOOR STILL SHUT.  This module is now registered in
+  ``world_scene_travel.CENSUS_SOURCES`` and
+  ``world_population_handoff.ROSTER_COMPOSERS`` (the same two-table change
+  ``world_population_bg0015`` needed, and
+  ``lane_hooks/lane_a_scene_census.py`` reads its console lines the same
+  way).  Scene 4's ``login_entry_allowed`` STILL reads ``false`` (COO-DECISION
+  2026-08-30T14:41's own instruction stands: the wiring round is not the
+  door-opening round), and the admission check in
+  ``lane_hooks/lane_a_scene_census.py`` declines every call this composer
+  receives on the real registry today - see that module's own docstring for
+  the property this rests on.  A player sees exactly what they saw
+  yesterday because of this file, same as the round scene 14's composer was
+  wired and still sat behind a shut door for several more rounds.
 """
 
 from __future__ import annotations
@@ -63,9 +65,11 @@ from .population import (
 )
 
 
-# Convention marker only: nothing branches on it and no chief-owned file
-# imports this module yet.  See the module docstring's "NOT WIRED" paragraph
-# before reading this as "live today".
+# Convention marker only: nothing chief-owned (runtime.py/app.py) imports
+# this module directly.  It IS imported from this lane's own
+# world_population_handoff.py and lane_hooks/lane_a_scene_census.py since
+# round 2jdde8 - see the module docstring's "WIRED, DOOR STILL SHUT"
+# paragraph for why that import does not make this live today.
 production_allowed = True
 test_only = False
 

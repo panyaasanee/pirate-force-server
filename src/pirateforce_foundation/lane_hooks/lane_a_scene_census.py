@@ -135,6 +135,7 @@ from typing import Any
 
 from .. import lane_hooks
 from .. import mob_census_hostility
+from .. import world_population_bg0004
 from .. import world_population_bg0015
 from .. import world_population_handoff
 from .. import world_scene_travel
@@ -161,6 +162,22 @@ _CONSOLE_LINES_OF = {
         (world_population_bg0015.census_console_line(generation),)
         + world_population_bg0015.actor_lines(generation)
         + world_population_bg0015.unresolved_lines()
+    ),
+    # ADDED round 2jdde8 (2026-08-30, LANE-A): the second table this scene
+    # needs a row in, per "HOW A SCENE GETS ADDED" above.  Registered here
+    # AND in ``world_scene_travel.CENSUS_SOURCES`` in the same commit, so
+    # neither table can be true without the other for even one round - a
+    # scene in one and not the other prints ``LANE_A_CENSUS_SKIPPED`` at
+    # import (see ``skipped_scenes()``), and that is now testable rather
+    # than trusted.  Scene 4's registry row stays ``login_entry_allowed:
+    # false`` (COO-DECISION 2026-08-30T14:41+07:00), so THE ADMISSION CHECK
+    # above declines every call this composer ever receives in production
+    # today - registered, never fired, exactly as scene 14's own composer
+    # sat for several rounds before COO-DECISION 20260829_2342 opened it.
+    "bg0004_roster": lambda generation: (
+        (world_population_bg0004.census_console_line(generation),)
+        + world_population_bg0004.actor_lines(generation)
+        + world_population_bg0004.unresolved_lines()
     ),
 }
 
