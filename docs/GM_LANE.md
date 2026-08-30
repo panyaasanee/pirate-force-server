@@ -4893,3 +4893,69 @@ base `origin/main` ต้นรอบ)
 `is_known_item`/`item_max_stack` แม้แต่บรรทัดเดียว
 
 — สาย GM รอบ `aejgap`
+
+## รอบ `gm17278` (2026-08-31T02:25+07:00) — BT_GM/GMUI_BASIC experiment fork (RE-164/GT-165)
+
+### คำสั่ง
+
+`notes_to_chief/20260831_0152_PANYA-ORDER-LANE-GM-make-the-BT_GM-button-and-GMUI_BASIC-window-actually-work.md`
+(เจ้าของ, เขียนแทนโดยกะ1-A): ทำให้ปุ่ม `BT_GM` เปิดหน้าต่าง `GMUI_BASIC` ได้จริง เป็นงานหลักของสาย GM
+รอบนี้ แทนงานรองอื่น -- `gm/attr_wire.py` (COO-DECISION 2026-08-31T01:46+07:00, six นาทีก่อนหน้า) ถูกเลื่อน
+ออกไปรอบถัดไปตามข้อความของใบสั่งเองที่ว่า "แทนการวนกฎ F ทำงานรองไปเรื่อย ๆ"
+
+### สิ่งที่รู้แล้วก่อนรอบนี้ (ห้ามขุดซ้ำ)
+
+`RE-126` CLOSED: ปุ่ม `BT_GM` ผูกกับ object เดียวกับ dispatcher จริง (ไม่ใช่ผูกผิดตัว) -- ปิดท้ายด้วย
+รายชื่อสี่ผู้ต้องสงสัยที่เหลือ (connection context / query-0x25 gate ตอนคลิก / current-UI object-key จริง
+/ create path `0x007280D0`) แล้วปฏิเสธจะเดา `GT-103` A/B: NO-RESULT ที่มีค่า -- สี่สถานะ UI คลิกแล้วเงียบ
+ทุกครั้ง หักล้างข้อเสนอเชิงปฏิบัติของ `RE-118` ("current-UI key ต้องไม่ว่าง")
+
+### สิ่งที่สร้างรอบนี้
+
+1. `src/pirateforce_foundation/gm/bt_gm_probe.py` (ใหม่) -- experiment fork ตามแบบ `PF_ADHOC_ATTR_PROBE`:
+   - `iter_state_vital_bit_variants()`/`build_variant_frame()`/`build_variant_payload()`: 14 variant ของ
+     เฟรม `GM_UpdateGMStateVital` (`0x5A19`) ทีละฟิลด์ -- ใช้ `gm/state_wire.py`'s proven builder ตรง ๆ
+     ไม่เพิ่ม tag/offset ใหม่แม้แต่ตัวเดียว ครอบคลุมบิต 0-7 ของ `field_0x14` + ค่าสูงสุด `0xFFFFFFFF` +
+     ทั้งสอง u8 field -- **ไม่ครอบคลุมบิต 8-31 ของ `field_0x14` รอบนี้โดยตั้งใจ** (ช่องว่างที่บันทึกไว้
+     ชัดเจน ไม่ใช่ครบทุกกรณี รอบหน้าอาจขยาย)
+   - `SUSPECT_STUBS` (3 รายการ, แท็ก `[สมมติของสาย GM - รอ RE]`): ผู้ต้องสงสัย connection-context /
+     current-UI-object-key เก็บเป็นคำถาม+เหตุผลที่ยังต่อสายไม่ได้รอบนี้ -- ไม่มีการเดาความหมาย ผู้ต้อง
+     สงสัย query-gate-value-at-click-time ก็เป็น stub เช่นกัน (เป็นคำถามเรื่อง**เวลา**ที่ client เช็คซ้ำ
+     gate ไม่ใช่ค่าที่เฟรมนี้ตั้งได้) -- ผู้ต้องสงสัยตัวที่สี่ (factory ถูกเรียกไหม) ไม่ใช่ stub เพราะเป็น
+     **ผล**ที่การคลิกทดสอบสังเกต ไม่ใช่ตัวแปรขาเข้า
+2. `tests/test_gm_bt_gm_probe.py` (ใหม่, 22 เทส): ตรวจ frame/payload construction เท่านั้น (ความยาว 41/9
+   ไบต์ตรงกับที่ใบสั่งเจ้าของเรียก "เฟรม 41 ไบต์ที่พินแล้ว", vital id คงที่, field range, variant id ไม่ซ้ำ,
+   stub metadata) -- **ไม่มีเทสใดอ้างว่าหน้าต่างเปิด** ตามกฎ nonclaim ที่ตัวไฟล์ประกาศเอง
+3. `pf_bridge/CLIENT_RE_QUEUE.md`: เปิด `RE-164` (ใบสอบสวนหลัก, tag `[NEEDS-ATTENDED-CAPTURE]`)
+4. `pf_bridge/GAME_TEST_QUEUE.md`: เปิด `GT-165` (สเปกคลิกสำหรับกะ1-A ทีละ variant) -- **สถานะ BLOCKED**
+   ดูข้อถัดไป
+5. `pf_bridge/notes_to_chief/20260831_0225_LANE-GM-CORE-REQUEST-GM-043-...md`: ตรวจ `runtime.py:6424-6438`
+   แล้วพบว่าจุดเรียก `make_gm_update_state_frame` ที่มีอยู่ตอนนี้ยิงค่าคงที่ `(0,1,0)` ครั้งเดียวตอน
+   ล็อกอินของบัญชี GM เท่านั้น (`ALWAYS ON, no scenario flag` ตามคอมเมนต์จุดเรียกเอง) -- ไม่มีทางยิง
+   variant อื่นระหว่าง session เดียวกันได้เลย `GT-165` จึง BLOCKED จนกว่าจุดเสียบใหม่ (เสนอสองทางเลือก:
+   GM chat-command ใหม่ หรือ debug scenario flag) จะลงจาก chief
+
+### pf-adversary รอบนี้
+
+ตรวจ `bt_gm_probe.py`/เทสก่อน commit -- ดูหัวข้อ "pf-adversary" ด้านล่างสำหรับสิ่งที่พบ/แก้
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+ยังไม่มี -- รอบนี้สร้างแค่ตัวสร้างเฟรม/เทส/ใบคิว ยังไม่มีจุดเรียกที่ยิง variant ได้จริง (`CORE-REQUEST-GM-043`
+รออยู่) `GT-165` เขียนสเปกไว้ล่วงหน้าแล้วแต่คลิกไม่ได้จนกว่าจุดเสียบจะลง
+
+### nonclaim
+
+**ไม่มีการอ้างว่า `GMUI_BASIC` เปิดหรือไม่เปิดจาก variant ใดเลยรอบนี้** -- ไม่มีการเปิด client ไม่มีการส่ง
+เฟรมจริงไปยังไคลเอนต์จริง สาย GM ไม่มีจอ ไม่มีอิมเมจไคลเอนต์ การคลิกจริงเป็นของกะ1-A เท่านั้นตามกฎใบเดียว
+ผู้ทำเดียว -- งานรอบนี้ทั้งหมดคือการ**สร้างเครื่องมือให้พร้อมสำหรับการคลิกทดสอบ** ไม่ใช่การพิสูจน์ว่าปุ่ม
+ทำงาน ไม่แตะ `runtime.py`/`app.py`/`pf_login_game_server_v141.py` (อ่านอย่างเดียวผ่าน `legacy_bridge` ตาม
+ที่เทสเดิมทำอยู่แล้ว) และไม่แตะ `scenarios/world_*.json`/`scenarios/combat_*.json`
+
+`pytest tests/test_gm_bt_gm_probe.py -q`: **22 passed**
+`pytest tests/test_gm_*.py -q`: **1076 passed** (+22, tracked-file guard test นับรวม), 471 subtests, 0 failed
+`pytest tests/ -q` เต็ม: **5626 passed** (+30), 327 skipped, 9733 subtests passed, 0 failed (cloud sanity,
+base `origin/main` ต้นรอบ)
+`python3 tools/verify_hypothesis_ledger.py` / `verify_functional_coverage.py`: ทั้งคู่ PASS ไม่มี drift
+
+— สาย GM รอบ `gm17278`
