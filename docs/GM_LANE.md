@@ -4821,3 +4821,75 @@ diagnostic บนคอนโซล/ndjson event ที่นักพัฒน�
 ที่รันจริงเท่านั้น ไม่มีการใช้ GM ข้ามขั้นตอนใดเพราะไม่มีการทดสอบไคลเอนต์จริงในรอบนี้เลย
 
 — สาย GM รอบ `xq4vrn`
+
+## รอบ `aejgap` -- 2026-08-31T00:25+07:00 -- pf-adversary กลับมาใช้ได้: จับ off-by-one ใน docstring ของ `item_catalog.py`
+
+### หนึ่งบรรทัด
+
+ต้นรอบ (Addendum A) ยืนยัน `pf_bridge#541`/`pirate-force-server#342` (รอบ `xq4vrn`) ทั้งคู่ `merged: true`
+บน main แล้ว ไม่มีอะไรต้องกู้ กล่องจดหมายไม่มีใบที่จ่าหน้าถึงสายนี้ค้างบริโภค (สามใบ cc ถึงสายนี้ในคืนนี้
+เป็นเรื่องกติกา CLAIM ของสายอื่น ไม่มีข้อสั่งสายนี้) backlog ในเขต `gm/` ทั้งสามจุด (`GM-042` เต็ม, `GT-128`)
+ยังบล็อกบน chief/COO เหมือนเดิม -- แต่รอบนี้ `pf-adversary` subagent **เรียกได้จริงเป็นครั้งแรกในรอบ
+ติดต่อกันห้ารอบ** (`opr2xd`/`dao2gd`/`xq4vrn` ก่อนหน้าไม่มีให้เรียก) จึงใช้ตัวเลือก (ง) ของกฎข้อ F: ให้
+มันตรวจ `gm/` ทั้งโมดูลหาหนี้สินทางเทคนิคที่ค้างจากการไม่มีมันมาสี่รอบ
+
+### สิ่งที่พบ (ยืนยันซ้ำเองก่อนแก้ ไม่เชื่อผล subagent เปล่า ๆ)
+
+`item_catalog.py` docstring ("IMPORTANT finding" ย่อหน้า) อ้างว่า "id 6 is 'Earth Element' (misc) but
+'Fruit Wine Jar' (consumable)" -- ตรวจตรงกับ `gm/data/gm_item_misc.tsv`/`gm_item_consumable.tsv`/
+`gm_item_quest.tsv` ที่ pin sha256 ไว้เอง (`awk -F'\t'` ตรงบนไฟล์ ไม่ใช่เชื่อ docstring): **id 6 ไม่มีอยู่
+ในตาราง misc เลย** (id 6 มีแค่ใน consumable="Fruit Wine Jar" และ quest="Lucky Canine" -- เป็นคู่ชน
+consumable/quest ไม่ใช่ misc/consumable ตามที่ docstring อ้าง) ส่วน "Earth Element" ตัวจริงอยู่ที่ **id 7**
+ของตาราง misc -- และ id 7 เองก็ชนกับ consumable id 7 = "Fruit Wine Jar" พอดี (สามทาง จริง ๆ ยังชนกับ
+quest id 7 = "Princess Sick Leave" ด้วย) สรุปคือผู้เขียนย่อหน้าเดิมพิมพ์เลข id ผิดหนึ่งตัว (เอาชื่อจริงของ
+id 7 มาแปะไว้ใต้เลข 6) ไม่ใช่ชื่อไอเทมผิด -- ตัวอย่าง id 1 ในย่อหน้าเดียวกัน (misc="Adventure Key" /
+quest="Sky Lantern") ตรวจแล้วถูกต้องอยู่แล้ว ไม่แตะ
+
+ผลกระทบจริง: ไม่มีโค้ด production ทางใดอ่าน docstring นี้เป็นข้อมูล (`item_category()`/`item_name()`/
+`is_known_item()`/`item_max_stack()` อ่านจากไฟล์ tsv ตรง ๆ ไม่เคยอ่านตัวเลขจาก docstring) แต่ย่อหน้านี้
+เป็นจุดเดียวที่เตือนคนต่อไปที่จะ wire `item <id> <n>` ให้แจกไอเทมจริงว่า id ชนข้ามตารางได้ -- ถ้าใครเชื่อ
+ตัวอย่าง id 6 แทนที่จะวัดสดตอนตัดสินใจ จะได้ทั้งหมวดผิดและชื่อไอเทมผิด ตรงกับสิ่งที่ย่อหน้านี้เขียนมาเพื่อ
+ป้องกันพอดี -- `tests/test_gm_chat_command_action.py` (commit ก่อนหน้า) มีคอมเมนต์รับรู้ปัญหานี้แล้วแต่
+เลี่ยงด้วยการวัดสดแทนที่จะแก้ docstring ตรง ๆ
+
+### สิ่งที่แก้
+
+1. `item_catalog.py` บรรทัด docstring: `id 6` → `id 7` (แก้ตัวเลขเดียว ชื่อไอเทมทั้งสองที่อ้างถูกอยู่แล้ว)
+2. `tests/test_gm_item_catalog.py::test_module_docstrings_misc_consumable_example_id_matches_the_data`
+   (ใหม่): pin ตัวอย่าง id 7 ของ docstring กับข้อมูลจริงในไฟล์ (`misc[7]=="Earth Element"`,
+   `consumable[7]=="Fruit Wine Jar"`, ทั้งสองอยู่ใน `item_category(7)`, และ `6 not in misc`) ตอบคำถามที่
+   `pf-adversary` ทิ้งไว้ตรง ๆ: "มีกลไกผูก docstring ตัวอย่างกับข้อมูลจริงไหม" -- ตอนนี้มีหนึ่งเทสที่ทำแบบ
+   นั้น ถ้า data refresh รอบหน้าย้ายชื่อออกจาก id 7 เทสนี้แดงทันทีแทนที่จะปล่อยให้ docstring ค้างผิดอีกรอบ
+   mutation-kill ยืนยันด้วยมือ: เปลี่ยนชื่อฟังก์ชัน `item_category` ชั่วคราวให้เรียกไม่ได้ เห็นเทสนี้ (และอีก
+   6 เทสในไฟล์เดียวกัน) แดงจริงด้วย `NameError`, คืนของเดิม รันเขียวอีกครั้งก่อนคอมมิต
+
+`pytest tests/test_gm_item_catalog.py -q`: **14 passed** (+1), 12 subtests
+`pytest tests/test_gm_*.py -q`: **1054 passed** (+1), 469 subtests, 0 failed
+`pytest tests/ -q` เต็ม: **5596 passed** (+1), 327 skipped, 9729 subtests passed, 0 failed (cloud sanity,
+base `origin/main` ต้นรอบ)
+
+### สิ่งที่ pf-adversary ตรวจแล้วไม่พบข้อบกพร่อง (บันทึกไว้กันขุดซ้ำ)
+
+`chat_command_action.py`'s `_note_item_catalog_diagnostic` (ลำดับเรียก, shape guard, exception boundary),
+`scene_catalog.py` blank-row handling, `dispatch.py` rate-limiter/capture-quota locking, `accounts.py`,
+`npc_switch_catalog.py`, `login_scene_override.py`, `warp_executor.py`/`teleport_wire.py`/
+`warp_target_record.py` round-trip encode/decode -- อ่านครบ ไม่พบข้อบกพร่องจริงที่ยืนยันได้ พบข้อสังเกต
+อ่อนหนึ่งจุด (`chat_command.py`'s `_command_log_quota_allows` ไม่มี lock รอบ stat-then-append ต่างจาก
+`_capture_quota_allows` ที่มี) แต่ผลกระทบเล็กมาก (ต่อ write ไม่เกิน ~650 ไบต์) ไม่ยืนยันเป็นบั๊กจริง บันทึก
+ไว้เป็นจุดที่รอบหน้าอาจดูซ้ำ ไม่ใช่ finding
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+ไม่มี -- แก้ docstring และเพิ่มเทสเท่านั้น ไม่มีบรรทัดใดของ `item <id> <n>` หรือคำสั่ง GM อื่นเปลี่ยน
+พฤติกรรม `item` ยัง parse+log เหมือนเดิมทุกประการ ไม่มีการแจกไอเทมจริง
+
+### nonclaim
+
+ไม่มีการเปิด client ไม่มีการวัดกับไคลเอนต์จริง ไม่มีบรรทัดใดของ GM ไปถึงไวร์เพิ่มขึ้นจากรอบนี้ --
+`warp`/`npc`/`item`/`lv`/`spawn`/`say` ทั้งหมดยังทำงานเหมือนเดิมทุกประการ ไม่แตะ
+`runtime.py`/`app.py`/`pf_login_game_server_v141.py` และไม่แตะ `scenarios/world_*.json`/
+`scenarios/combat_*.json` ของสายอื่นเลย ไม่มีการใช้ GM ข้ามขั้นตอนใดเพราะไม่มีการทดสอบไคลเอนต์จริงในรอบนี้
+เลย การแก้ครั้งนี้เป็นเอกสาร (docstring) + เทสล้วน ๆ ไม่แตะ logic ของ `item_category`/`item_name`/
+`is_known_item`/`item_max_stack` แม้แต่บรรทัดเดียว
+
+— สาย GM รอบ `aejgap`
