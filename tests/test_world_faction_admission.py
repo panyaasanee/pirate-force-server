@@ -508,39 +508,44 @@ class OnTheRealDispatcherTests(unittest.TestCase):
 
 
 class TheOptInBootHazardTests(unittest.TestCase):
-    """!! A KNOWN, OPEN HAZARD, PINNED SO IT CANNOT BE LOST AGAIN.
+    """CLOSED 2026-08-30 by ``scene_admission_gate`` -- history kept, not deleted.
 
-    THIS CLASS ASSERTS BEHAVIOUR THIS LANE CONSIDERS WRONG.  It is here
-    because pf-adversary (round vvy6q7, D1) measured that opening scene 14's
-    door made a bad path REACHABLE that the shut door had been holding
-    closed, and because the only thing standing in front of it today is a
+    THIS CLASS USED TO ASSERT BEHAVIOUR THIS LANE CONSIDERED WRONG.  It was
+    added because pf-adversary (round vvy6q7, D1) measured that opening
+    scene 14's door made a bad path REACHABLE that the shut door had been
+    holding closed, and because the only thing standing in front of it was a
     paragraph in a ticket header in ANOTHER REPOSITORY, which depends on a
     human reading it.
 
-    THE MECHANISM.  ``runtime.py``'s ``world_census_enabled`` is
+    THE MECHANISM THAT MADE IT WRONG.  ``runtime.py``'s
+    ``world_census_enabled`` is
     ``(not active_lanes and second_password_mode == "required")``.  That one
-    expression is BOTH the guard on the per-scene lane census AND the disarm
-    of the inherited ``v141:4292`` dispatcher.  So on any opt-in boot -- a
-    ``--*-scenario`` flag, or ``--second-password-mode bypass`` -- the lane
-    census never fires and the inherited branch stays armed, and that branch
-    composes three bg0001 PORT ROYAL placements with NO SCENE TEST AT ALL.
+    expression is BOTH the guard on the per-scene lane census AND the
+    (former) sole disarm of the inherited ``v141:4292`` dispatcher.  So on
+    any opt-in boot -- a ``--*-scenario`` flag, or
+    ``--second-password-mode bypass`` -- the lane census never fired and the
+    inherited branch stayed armed, composing three bg0001 PORT ROYAL
+    placements with NO SCENE TEST AT ALL, wherever travel had actually put
+    the session.
 
-    WHAT CHANGED THIS ROUND.  Nothing about the mechanism.  What changed is
-    that yesterday the login was refused at the door
-    (``WORLD_SCENE_ENTRY_REFUSED [scene_not_allowed_at_login]``,
-    ``teleport_sent=False``) so the branch never got the chance; today the
-    login succeeds.  Measured by pf-adversary across three boots.
+    WHY IT SHIPPED ANYWAY AT THE TIME, AND WHO DECIDED.  COO-DECISION
+    20260829_2342 opened scene 14's door with the flag ban as its
+    condition 1, and that ruling was the authority, not this lane's
+    preference.  The code-level guard was named as the chief's job in
+    COO-DECISION 20260829_0941 item 2 and reaffirmed in COO-DECISION
+    20260830_0817 (deadline 2026-08-30T12:00+07:00).
 
-    WHY THE ROUND SHIPPED ANYWAY, AND WHO DECIDED.  COO-DECISION
-    20260829_2342 opened the door with the flag ban as its condition 1, and
-    that ruling is the authority here, not this lane's preference.  The
-    code-level guard belongs in ``runtime.py``, which is the chief's file --
-    asked in this round's status letter and in
-    ``notes_to_chief/20260830_01xx_LANE-A-ASK-COO-which-reader-of-the-door-
-    wins.md``.
-
-    WHEN THIS CLASS GOES RED, THAT IS GOOD NEWS: it means somebody closed
-    the hazard.  Read this docstring, delete the class, and say so.
+    THE CLOSE.  ``scene_admission_gate.strip_frozen_legacy_population``,
+    wired into ``runtime.py`` right after ``super().dispatch()`` this same
+    round, drops every ``V134_P0_P30_P91_ISOLATED_*`` action whenever the
+    session's current scene is not ``world_population.SCENE_ID`` (home) --
+    regardless of which opt-in lane left the inherited branch armed.  A
+    session that never leaves scene 1 is untouched (see
+    ``test_scene_admission_gate.py``'s CONTAINMENT-preserving control test);
+    a session travelled to the volcano no longer gets Port Royal's actors.
+    ``test_the_wrong_islands_actors_are_what_ships_instead`` below is kept,
+    inverted, as the regression proof -- the hazard reproduction it used to
+    assert is now what it asserts CANNOT happen.
     """
 
     @classmethod
@@ -583,24 +588,30 @@ class TheOptInBootHazardTests(unittest.TestCase):
         """The door lets the login through; the census is disarmed with it."""
         with tempfile.TemporaryDirectory() as work:
             state, console = self._opt_in_login_into_the_volcano(Path(work))
-            # Yesterday this was False and the console said
-            # WORLD_SCENE_ENTRY_REFUSED.  That is the whole delta.
-            self.assertTrue(
-                state.teleport_sent,
-                "if this is False the hazard is closed - read the class "
-                "docstring and delete this class",
-            )
+            self.assertTrue(state.teleport_sent)
             # ...and the scene's own census is NOT what ships.
             self.assertNotIn("WORLD_CENSUS_BG0015", console)
             self.assertNotIn("world_census_armed", state.events)
 
     def test_the_wrong_islands_actors_are_what_ships_instead(self):
-        """Defect D1 reproduced in reduced form: Port Royal on the volcano.
+        """CLOSED 2026-08-30 -- was defect D1 (Port Royal on the volcano).
 
-        Three bg0001 placement indices, composed with no scene test, anchored
-        on Hell Volcano Island.  A tester on this boot sees three bodies and
-        no BG0015 line, which is exactly the false FAIL GT-134's hard
-        precondition exists to prevent.
+        Three bg0001 placement indices used to compose with no scene test,
+        anchored on Hell Volcano Island: a tester on this boot would see
+        three bodies and no BG0015 line, exactly the false FAIL GT-134's
+        hard precondition exists to prevent.  ``scene_admission_gate`` now
+        WITHHOLDS them whenever the row this session carries names a scene
+        other than ``world_population.SCENE_ID``.
+
+        Withheld, not stripped, and this test asserts both halves.  An
+        earlier version of the fix dropped the two frames but left
+        ``population_indices`` latched at ``(0, 30, 91)``, and pf-adversary
+        measured what that bought: the ChooseNPC answerer reads that very
+        field as its evidence the client has the actor, so a click still
+        drew a full position/heading frame for a Port Royal placement at
+        volcano coordinates, and the trade window still opened.  The frozen
+        branch still RUNS unmodified (v141 is pinned); what changed is that
+        the state it latched is rolled back with the frames.
         """
         with tempfile.TemporaryDirectory() as work:
             state, _ = self._opt_in_login_into_the_volcano(Path(work))
@@ -626,13 +637,23 @@ class TheOptInBootHazardTests(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()):
                 actions = state.dispatch(self.legacy.parse_outer(pc))
             labels = [a[0] for a in actions]
-            self.assertTrue(
+            self.assertFalse(
                 any("V134_P0_P30_P91_ISOLATED" in label for label in labels),
-                f"expected the inherited dispatcher to fire; got {labels}",
+                f"the scene admission gate should have stripped these; "
+                f"got {labels}",
             )
             self.assertFalse(
                 [lbl for lbl in labels if lbl.startswith("WORLD_CENSUS_LANE")])
-            self.assertEqual((0, 30, 91), state.population_indices)
+            # ...and nothing downstream is left believing the client has
+            # them.  This is the assertion that would have caught the
+            # half-fix: it read (0, 30, 91) when the frames were merely
+            # stripped.
+            self.assertIsNone(state.population_indices)
+            self.assertIs(state.npc_spawn_sent, False)
+            self.assertIn(
+                "frozen_legacy_population_withheld_scene_"
+                f"{VOLCANO}", state.events,
+            )
 
     def test_the_faction_frame_still_ships_which_is_the_confusing_part(self):
         """The faction policy does NOT depend on the census, and says so.
