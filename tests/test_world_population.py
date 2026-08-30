@@ -1276,5 +1276,148 @@ class UndressablePlacementNamingTests(unittest.TestCase):
             self.assertIsNone(world_port_royal_identity.resolve(template_id))
 
 
+class UndressablePlacementPositionTests(unittest.TestCase):
+    """GT-151 support: WHERE each undressable placement is, not just who.
+
+    ``undressable=`` names the seven placements the census cannot dress;
+    these pin the new field/token that adds each one's world position, so a
+    tester walking Port Royal's seven holes does not have to open a second
+    source file to find where to stand.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+        cls.spawn = (
+            cls.legacy.V135_PLAYER_X,
+            cls.legacy.V135_PLAYER_Y,
+            cls.legacy.V135_PLAYER_Z,
+        )
+        cls.generation = world_population.build_world_population(
+            cls.legacy, cls.spawn, world_population.CENSUS_COUNT, scene_id=1,
+        )
+
+    def test_positioned_rows_match_named_rows_one_for_one_in_order(
+        self,
+    ) -> None:
+        named = world_population.undressable_placements_named(self.legacy)
+        positioned = world_population.undressable_placements_positioned(
+            self.legacy
+        )
+        self.assertEqual(len(positioned), len(named))
+        self.assertEqual(
+            [row[:4] for row in positioned],
+            [tuple(row) for row in named],
+        )
+
+    def test_each_position_is_the_placement_table_own_xyz(self) -> None:
+        by_index = {
+            placement.placement_index: placement
+            for placement in load_port_royal_placements(self.legacy)
+        }
+        for index, _tid, _lead, _name, x, y, z in (
+            world_population.undressable_placements_positioned(self.legacy)
+        ):
+            placement = by_index[index]
+            self.assertEqual((x, y, z), (placement.x, placement.y, placement.z))
+
+    def test_the_field_is_recorded_on_the_generation_built_by_the_module(
+        self,
+    ) -> None:
+        positions = self.generation.undressable_positions
+        self.assertIsNotNone(positions)
+        self.assertEqual(len(positions), 7)
+        self.assertEqual(
+            positions,
+            world_population.undressable_placements_positioned(self.legacy),
+        )
+
+    def test_the_census_line_carries_a_position_for_the_dock_placement(
+        self,
+    ) -> None:
+        line = world_population.census_console_line(self.generation)
+        by_index = {
+            placement.placement_index: placement
+            for placement in load_port_royal_placements(self.legacy)
+        }
+        dock = by_index[0]
+        self.assertIn(
+            "P0@{0:.1f},{1:.1f},{2:.1f}".format(dock.x, dock.y, dock.z), line,
+        )
+        line.encode("ascii")
+        line.encode("cp874")
+
+    def test_token_position_relative_to_ceiling_the_last_field_before_it(
+        self,
+    ) -> None:
+        line = world_population.census_console_line(self.generation)
+        self.assertLess(
+            line.index("ceiling="), line.index("undressable_positions="),
+            "where to stand comes after why the seven can never arrive",
+        )
+        self.assertTrue(
+            line.rstrip().endswith(
+                world_population.undressable_positions_console_token(
+                    self.generation
+                )
+            ),
+            "the position token is the last field on the line today",
+        )
+
+    def test_a_generation_that_never_measured_positions_says_so_not_zero(
+        self,
+    ) -> None:
+        unmeasured = dataclasses.replace(
+            self.generation, undressable_positions=None
+        )
+        self.assertEqual(
+            world_population.undressable_positions_console_token(unmeasured),
+            "undressable_positions=not_recorded",
+        )
+        self.assertEqual(
+            world_population.undressable_positions_console_token(
+                dataclasses.replace(
+                    self.generation, undressable_positions=(),
+                ),
+            ),
+            "undressable_positions=0",
+        )
+        self.assertIn(
+            "undressable_positions=not_recorded",
+            world_population.census_console_line(unmeasured),
+        )
+
+    def test_the_position_token_never_raises_inside_a_boots_own_log_line(
+        self,
+    ) -> None:
+        for broken in (
+            None,
+            "not a generation",
+            dataclasses.replace(
+                self.generation, undressable_positions=((1, 2), ),
+            ),
+            dataclasses.replace(
+                self.generation, undressable_positions=(("a",) * 7, ),
+            ),
+            dataclasses.replace(
+                self.generation, undressable_positions=(None, ),
+            ),
+        ):
+            token = world_population.undressable_positions_console_token(
+                broken
+            )
+            self.assertTrue(token.startswith("undressable_positions="))
+            token.encode("cp874")
+
+    def test_something_that_is_not_a_generation_says_not_recorded_not_zero(
+        self,
+    ) -> None:
+        for bad in (None, "not a generation", 108, object(), {}):
+            self.assertEqual(
+                world_population.undressable_positions_console_token(bad),
+                "undressable_positions=not_recorded",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
