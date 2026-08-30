@@ -257,7 +257,8 @@ import sys
 from dataclasses import dataclass
 from types import MappingProxyType
 
-from . import login_scene_stage, say_wire, teleport_wire
+from .. import gm_npc_toggle_recompose
+from . import login_scene_stage, npc_switch_catalog, say_wire, teleport_wire
 from .chat_command import (
     TYPED_COMMAND_REFUSAL_PREFIXES,
     handle_local_talk_chat,
@@ -523,6 +524,19 @@ EVENT_CONSOLE_WRITE_FAILED_PREFIX = "gm_chat_action_console_write_failed_"
 EVENT_ACCEPTED_PREFIX = "gm_chat_action_accepted_"
 EVENT_REFUSED_PREFIX = "gm_chat_action_refused_"
 EVENT_NO_WIRE_PATH_PREFIX = "gm_chat_action_no_wire_path_"
+
+# CORE-REQUEST-GM-041's read point (`gm_npc_toggle_recompose.
+# npc_toggle_would_recompose`) answers a question chief built specifically
+# for this lane to ask from the `no_wire_path` branch below: would toggling
+# THIS mob_id change what the next recompose sends, today.  This is a
+# diagnostic event on top of `EVENT_NO_WIRE_PATH_PREFIX`, never a
+# replacement for it and never a change to `verdict` -- `npc` still composes
+# no action (see the module's own no-wire-path comment table).  Answer is
+# always `false` at HEAD (letter 20260830_1909: no on/off state store exists
+# yet for a recompose call site to read), and this event is what turns that
+# from a claim in a letter into something `GT-127`'s console grep can see on
+# every `/npc` line without opening a file.
+EVENT_NPC_RECOMPOSE_DIAGNOSTIC_PREFIX = "gm_chat_action_npc_recompose_diagnostic_"
 EVENT_BAD_SESSION_PREFIX = "gm_chat_action_bad_session_"
 EVENT_BAD_PAYLOAD_PREFIX = "gm_chat_action_bad_payload_"
 EVENT_WARP_WITHHELD_NO_VERSION = (
@@ -777,6 +791,53 @@ def _note(session: object, event: str) -> None:
         pass
 
 
+def _note_npc_recompose_diagnostic(session: object, command: object) -> None:
+    """Read-only diagnostic for a parsed `npc` command; never touches verdict.
+
+    A DIAGNOSTIC MAY NEVER ALTER DISPATCH (this module's own rule, stated at
+    the `CONSOLE_TOKEN` print above) -- this function's only effect is one
+    `_note` call, exactly like that print.  The call site below runs it
+    AFTER `verdict` is already bound to `_Verdict(None, OUTCOME_NO_WIRE_PATH)`
+    -- pf-adversary (round `nbihci`) measured the first draft calling this
+    one line too early, before `verdict` was bound, so an uncaught exception
+    here would have propagated past the assignment instead of landing inside
+    it; harmless only because of the wrap below, and the wrong order to
+    trust by reading this docstring.  `_note` itself cannot raise (see its
+    own docstring); everything upstream of it here is wrapped so this
+    function cannot either -- a caller-supplied `command.args` of the wrong
+    shape (`GmCommandArgsError`'s own threat model -- a `tuple` SUBCLASS
+    lying through `__len__`/`__getitem__` defeats a plain `isinstance`
+    check, per `commands.py`'s own `_require_args_tuple`, which is why this
+    uses `type(args) is not tuple` and not `isinstance`) or a `mob_id` that
+    is not one of the 7 GM-switchable rows (`npc_toggle_would_recompose`'s
+    `ValueError`) must not turn a diagnostic into the reason `/npc` stopped
+    working.
+    """
+    try:
+        args = command.args
+        if type(args) is not tuple or len(args) != 2:
+            _note(session, f"{EVENT_NPC_RECOMPOSE_DIAGNOSTIC_PREFIX}bad_args_shape")
+            return
+        mob_id = int(args[1])
+        if not npc_switch_catalog.is_gm_switchable_npc(mob_id):
+            _note(
+                session,
+                f"{EVENT_NPC_RECOMPOSE_DIAGNOSTIC_PREFIX}not_switchable",
+            )
+            return
+        would_recompose = gm_npc_toggle_recompose.npc_toggle_would_recompose(mob_id)
+        _note(
+            session,
+            f"{EVENT_NPC_RECOMPOSE_DIAGNOSTIC_PREFIX}would_recompose_"
+            f"{'true' if would_recompose else 'false'}",
+        )
+    except Exception as error:  # noqa: BLE001 - a diagnostic must not raise
+        _note(
+            session,
+            f"{EVENT_NPC_RECOMPOSE_DIAGNOSTIC_PREFIX}unexpected_{type(error).__name__}",
+        )
+
+
 def make_gm_chat_command_action(
     session: object,
     payload: bytes,
@@ -953,6 +1014,8 @@ def _make_action(
         # never built that half" look identical on screen.
         _note(session, f"{EVENT_NO_WIRE_PATH_PREFIX}{command.name}")
         verdict = _Verdict(None, OUTCOME_NO_WIRE_PATH)
+        if command.name == "npc":
+            _note_npc_recompose_diagnostic(session, command)
 
     action = verdict.action
     # ONE write point for the `outcome` row, deliberately: CORE-REQUEST-GM-032
