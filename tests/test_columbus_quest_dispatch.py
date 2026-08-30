@@ -391,12 +391,10 @@ class DispatchColumbusQuest3021Tests(unittest.TestCase):
         # landing point (see ``_emit_arrival_stowaways``).  Weakening this
         # to ``assertIn`` would have hidden a future line inserted BETWEEN
         # the decision and the report, so the position is still pinned -
-        # against the report, which the next assertion pins too.
-        self.assertEqual(
-            lines[-4],
-            "COLUMBUS_QUEST3021_NO_VEHICLE_DISPATCH scene=17 source="
-            + columbus_quest_dispatch.M2_NO_VEHICLE_TAG,
-        )
+        # against the report, which the next assertion pins too.  (The actual
+        # ``assertEqual`` for this line lives below, at its current index -
+        # it has moved three more times since this comment was written, and
+        # is not repeated here to avoid two assertions racing on one line.)
         # ROUND mcxexp MOVED IT BY ONE AGAIN, FOR THE SAME REASON AND UNDER
         # THE SAME RULE.  The decision line is still byte-identical and still
         # the last DECISION; two report lines now follow it, in a fixed order
@@ -411,11 +409,25 @@ class DispatchColumbusQuest3021Tests(unittest.TestCase):
         # still held, the way home, then the population frame this crossing
         # owes and does not send.  A line inserted anywhere among them still
         # fails this test, which is the whole point of pinning by index.
-        self.assertTrue(lines[-3].startswith("WORLD_POP_STOWAWAYS "), lines)
-        self.assertTrue(lines[-2].startswith("WORLD_M2_RETURN_LEG "), lines)
+        #
+        # THE M2 RETURN-POPULATION ROUND MOVED IT BY ONE FOR THE FOURTH TIME.
+        # Same rule again: the decision line is still byte-identical and still
+        # last of the decisions, and there are now FOUR reports after it in a
+        # fixed order - who is still held, the way home, who would be there
+        # when this character comes back, then the population frame this
+        # crossing owes and does not send.
+        self.assertEqual(
+            lines[-5],
+            "COLUMBUS_QUEST3021_NO_VEHICLE_DISPATCH scene=17 source="
+            + columbus_quest_dispatch.M2_NO_VEHICLE_TAG,
+        )
+        self.assertTrue(lines[-4].startswith("WORLD_POP_STOWAWAYS "), lines)
+        self.assertTrue(lines[-3].startswith("WORLD_M2_RETURN_LEG "), lines)
+        self.assertTrue(
+            lines[-2].startswith("WORLD_M2_RETURN_POPULATION "), lines)
         self.assertTrue(
             lines[-1].startswith("WORLD_M2_CROSSING_HANDOFF "), lines)
-        self.assertEqual(len(lines), 6, lines)
+        self.assertEqual(len(lines), 7, lines)
 
 
 class DispatchColumbusQuest3205Tests(unittest.TestCase):

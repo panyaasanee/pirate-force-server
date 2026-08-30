@@ -31,6 +31,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import columbus_quest_dispatch
 from pirateforce_foundation import world_m2_return_leg
+from pirateforce_foundation import world_population
 from pirateforce_foundation import world_scene_travel
 from pirateforce_foundation.legacy_bridge import LegacyProjector, load_legacy
 from pirateforce_foundation.lifecycle import CharacterLifecycle
@@ -673,6 +674,57 @@ class ColumbusQuest3021WiringTests(unittest.TestCase):
         self.assertIn("owed=YES", line)
         self.assertIn("source=pinned_home_entry", line)
         self.assertIn("call_site_passed_no_departure_row", line)
+
+    def test_a_successful_crossing_reports_the_return_population_owed(self):
+        """The fourth report line on the same flagless call site: the
+        population handoff the RETURN trip would need, named but not built
+        (``world_m2_return_leg.return_population_owed`` -- see that
+        function's own docstring for why it stays a source/count report
+        rather than a composed frame).  Wired the same way the three report
+        lines before it were: through ``columbus_quest_dispatch``'s own
+        call, with no ``runtime.py`` edit.
+
+        MUTATION-PROOF: drop the emit call and this test's line count goes to
+        zero; swap in the eager ``handoff_on_crossing`` builder by mistake
+        and ``kind=census``/``count=`` would still print but the module's own
+        import-list tripwire (``test_world_m2_return_leg.py``) fails first.
+        """
+        import io
+        from contextlib import redirect_stdout
+
+        state = self._real_state("tok-columbus-return-population")
+        columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
+            self.legacy,
+        )
+        state.dispatch(self.legacy.parse_outer(
+            _choose_npc_pc(self.legacy, columbus_identity)
+        ))
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            state.dispatch(self.legacy.parse_outer(
+                self.legacy._synthetic_quest_operate_pc(
+                    columbus_quest_dispatch.COLUMBUS_QUEST_ID, 1, 0, 0, 0, 0,
+                )
+            ))
+        printed = buffer.getvalue()
+        population_lines = [
+            line for line in printed.splitlines()
+            if line.startswith("WORLD_M2_RETURN_POPULATION")
+        ]
+        self.assertEqual(len(population_lines), 1, printed)
+        line = population_lines[0]
+        self.assertIn("owed=YES", line)
+        self.assertIn(
+            "source=" + world_scene_travel.CENSUS_SOURCE, line)
+        self.assertIn("kind=census", line)
+        self.assertIn("composed=NO", line)
+        expected_count, expected_source = (
+            world_population.census_count_for_dispatch()
+        )
+        self.assertIn("count={0}".format(expected_count), line)
+        self.assertIn("count_source=" + expected_source, line)
+        # _emit records AND prints (the e0daaa convention).
+        self.assertIn(line, state.events)
 
 
 if __name__ == "__main__":
