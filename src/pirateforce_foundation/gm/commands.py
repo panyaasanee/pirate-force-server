@@ -76,6 +76,19 @@ COMMAND_USAGE = {
     "lv": "lv <n>",
     "spawn": "spawn <mob_id>",
     "say": "say <message>",
+    # Not one of the owner's original six (notes_to_chief 20260826_1630
+    # section GM-003) -- a LANE-GM tooling command, added by
+    # CORE-REQUEST-GM-043 (chief CHIEF-REPLY 2026-08-31T03:57+07:00, option
+    # A) so an attended tester can fire any named
+    # `gm.bt_gm_probe.iter_state_vital_bit_variants` combination mid-session
+    # by typing its `variant_id`, instead of the one hardcoded value the
+    # login-time call site already sends once per boot. Appended LAST,
+    # deliberately: the six owner commands keep the order pinned by
+    # `tests/test_gm_chat_command_parse_way_out.py::
+    # TheUsageHintItselfTests::test_the_vocabulary_order_is_pinned_because_a_human_reads_it`,
+    # and a tooling command reordering them ahead of a gameplay one would be
+    # a stranger drift than growing the tuple by one at the end.
+    "gmprobe": "gmprobe <variant_id>",
 }
 
 COMMAND_NAMES = tuple(COMMAND_USAGE)
@@ -333,6 +346,21 @@ def parse_gm_command(text: str) -> GmCommand:
                 f"say message exceeds {MAX_SAY_MESSAGE_LENGTH} characters"
             )
         return GmCommand(name, (rest,), stripped)
+
+    if name == "gmprobe":
+        args = rest.split()
+        if len(args) != 1:
+            raise GmCommandParseError(COMMAND_USAGE["gmprobe"])
+        # No int/catalog check here, deliberately -- `variant_id` is a
+        # string key into `gm.bt_gm_probe.VARIANTS_BY_ID`, and this module
+        # does not import that lane-tooling table (same separation
+        # `warp`'s `scene_catalog` lookup keeps: a catalog membership check
+        # is a hint for the log, decided downstream, never a parse-time
+        # rule -- see `describe_warp_target`). Whether the token names a
+        # REAL variant is decided at dispatch
+        # (`gm/chat_command_action.py::_gmprobe_action`), the one place
+        # this lane's grammar and its variant table are both in scope.
+        return GmCommand(name, tuple(args), stripped)
 
     raise GmCommandParseError(
         f"unknown GM command {name!r}; expected one of {COMMAND_NAMES}"
