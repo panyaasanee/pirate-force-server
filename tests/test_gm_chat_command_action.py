@@ -309,6 +309,84 @@ class WarpActionTests(_Case):
                     session.events,
                 )
 
+    def test_npc_on_a_switchable_mob_id_gets_the_measured_recompose_answer(self):
+        # CORE-REQUEST-GM-041's read point (`gm_npc_toggle_recompose.
+        # npc_toggle_would_recompose`) answers False for every switchable
+        # mob_id today (letter 20260830_1909) -- this pins that the chat
+        # route actually asks it, not a hand-picked expectation.
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        session = FakeSession(position=FakePosition(scene_id=2))
+        with self.open_the_version_gate():
+            action = self.act(session, "/npc on 855")
+        self.assertIsNone(action)
+        self.assertIn(
+            f"{chat_command_action.EVENT_NO_WIRE_PATH_PREFIX}npc",
+            session.events,
+        )
+        self.assertIn(
+            f"{chat_command_action.EVENT_NPC_RECOMPOSE_DIAGNOSTIC_PREFIX}"
+            "would_recompose_false",
+            session.events,
+        )
+
+    def test_npc_on_a_non_switchable_mob_id_is_named_not_guessed(self):
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        session = FakeSession(position=FakePosition(scene_id=2))
+        with self.open_the_version_gate():
+            action = self.act(session, "/npc on 999999")
+        self.assertIsNone(action)
+        self.assertIn(
+            f"{chat_command_action.EVENT_NPC_RECOMPOSE_DIAGNOSTIC_PREFIX}"
+            "not_switchable",
+            session.events,
+        )
+
+    def test_the_diagnostic_never_alters_dispatch_when_it_blows_up(self):
+        # A DIAGNOSTIC MAY NEVER ALTER DISPATCH: even if the read point
+        # itself raises something unexpected, `/npc` still resolves to
+        # no-wire-path, never to an exception escaping the chat route.
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        session = FakeSession(position=FakePosition(scene_id=2))
+        with self.open_the_version_gate(), mock.patch.object(
+            chat_command_action.gm_npc_toggle_recompose,
+            "npc_toggle_would_recompose",
+            side_effect=RuntimeError("boom"),
+        ):
+            action = self.act(session, "/npc on 855")
+        self.assertIsNone(action)
+        self.assertIn(
+            f"{chat_command_action.EVENT_NPC_RECOMPOSE_DIAGNOSTIC_PREFIX}"
+            "unexpected_RuntimeError",
+            session.events,
+        )
+
+    def test_a_lying_tuple_subclass_is_rejected_not_trusted(self):
+        # pf-adversary (round `nbihci`): a `tuple` subclass whose real
+        # storage is empty but whose overridden `__len__`/`__getitem__` lie
+        # to report length 2 must not sail past the shape guard and produce
+        # a `would_recompose_*` event for data that was never really there
+        # -- `commands.py::_require_args_tuple`'s own `type(args) is not
+        # tuple` check exists for exactly this, and this diagnostic now uses
+        # the same check instead of the weaker `isinstance`.
+        class Liar(tuple):
+            def __len__(self):
+                return 2
+
+            def __getitem__(self, index):
+                return "on" if index == 0 else "855"
+
+        session = FakeSession(position=FakePosition(scene_id=2))
+        chat_command_action._note_npc_recompose_diagnostic(
+            session, GmCommand(name="npc", args=Liar(), raw="/npc on 855")
+        )
+        self.assertIn(
+            f"{chat_command_action.EVENT_NPC_RECOMPOSE_DIAGNOSTIC_PREFIX}"
+            "bad_args_shape",
+            session.events,
+        )
+        for event in session.events:
+            self.assertNotIn("would_recompose", event)
+
     def test_say_sends_nothing_on_the_strength_of_the_warp_gate_alone(self):
         # The two gates are independent, and this is the pin that says so:
         # opening ForcePos's constant must not make a `say` frame go out.
@@ -792,6 +870,12 @@ class EventNameContractTests(_Case):
         ),
         "EVENT_QUEUED_CONFIRM_FIRED_TWICE": (
             "gm_chat_action_queued_confirm_fired_twice"
+        ),
+        # CORE-REQUEST-GM-041's read point, wired this round: a diagnostic
+        # on top of `EVENT_NO_WIRE_PATH_PREFIX` for `npc` specifically, never
+        # a replacement for it.
+        "EVENT_NPC_RECOMPOSE_DIAGNOSTIC_PREFIX": (
+            "gm_chat_action_npc_recompose_diagnostic_"
         ),
     }
 
