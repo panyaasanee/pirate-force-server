@@ -72,6 +72,11 @@ LANE_B_MODULES = (
     # the first full run, which is the tuple doing its job.
     "mob_census_wire_count.py",
     "mob_combat.py",
+    # LANE-B round (this round): RE-157 job 2's fail-closed announced-actor
+    # membership predicate, built with no runtime.py call site yet -- see the
+    # module's own CORE-REQUEST. Listed in the same commit as the module,
+    # same reason every other comment on this tuple already gives.
+    "mob_combat_membership.py",
     "mob_death.py",
     # ROUND jop8ph: whether a combat ledger may be consulted while composing
     # a given scene's census -- the build half of the scene-bound ledger
