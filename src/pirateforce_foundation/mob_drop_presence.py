@@ -606,13 +606,29 @@ flag: production_allowed is True and this behaviour is on for every boot.
 # the per-kill path above already calls, called again with no new kill --
 # resends the whole live ledger's frames at zero placement cost and zero new
 # byte layout, and does so correctly across a proven >= 30 s window (34 s,
-# uneven cadence, well inside the 120 s DROP_LIFETIME_SECONDS ceiling). "Send
-# the frame again periodically" is therefore not a mechanism to build; it is
-# a call site to add, gated by a scenario flag so it stays test-only (this
-# lane does not claim resend-on-every-movement is a production cadence
-# decision -- that is a separate, unopened COO question).
+# uneven cadence, well inside the 120 s DROP_LIFETIME_SECONDS ceiling). This
+# test still stands as a true, adversary-checked fact about the mechanism.
+#
+# ~~"Send the frame again periodically" is therefore not a mechanism to
+# build; it is a call site to add, gated by a scenario flag so it stays
+# test-only.."~~ WITHDRAWN, same round (u98etz), after a fetch surfaced work
+# this lane did not have when it wrote that sentence: round ``xt0g9c``
+# (earlier the same evening) had already re-verified this exact mechanism
+# headless (tests/test_mob_drop_presence.py, 48/48) and an ATTENDED round
+# that followed it (GT143/GT132/GT149, notes_to_chief/20260830_1554) measured
+# the real client label life at 0.2 s regardless of the server-side ledger
+# surviving 120 s -- the bottleneck this lane's proof addresses was never the
+# one blocking GT-146.  The COO then explicitly RULED, 2026-08-30T17:42+07:00
+# (notes_to_chief/20260830_1742_COO-DECISION-label-life-drop-announcement-
+# rule-stands.md), NOT to open any repeated-resend path -- capped or
+# movement-driven -- until an attended round fires exactly ONE extra resend
+# after the first drop and measures whether the label comes back.  The
+# call-site proposal below is exactly the kind of standing (repeated, not
+# single) resend that ruling refuses, so it is NOT a live ask: nobody should
+# wire it from this text.  It is kept, struck, rather than deleted, as the
+# record of what this lane asked for before it knew the ruling existed.
 # ---------------------------------------------------------------------------
-DROP_PRESENCE_RESEND_ON_MOVEMENT_WIRING = """runtime.py, the TargetPosVital
+WITHDRAWN_DROP_PRESENCE_RESEND_ON_MOVEMENT_WIRING = """runtime.py, the TargetPosVital
 scenario cluster that already gates ground_loot_hypothesis and
 ground_loot_nameprop_hypothesis (search 'nested_id == legacy.TARGET_POS_VITAL'
 -- three sibling blocks, all reading a scenario kwarg that defaults to None).

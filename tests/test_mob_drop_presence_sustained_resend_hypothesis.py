@@ -25,10 +25,18 @@ WHY A CLOCK THAT IS A LIST OF NUMBERS.  Same shape as
 tests/test_mob_drop_presence.py and tests/test_mob_loot_expiry.py, and for the
 same reason: nothing here sleeps, races, or depends on wall time.
 
-CORE-REQUEST for chief (runtime.py -- out of this lane's write zone): the one
-call site this proof justifies is documented as
-``DROP_PRESENCE_RESEND_ON_MOVEMENT_WIRING`` in
-``src/pirateforce_foundation/mob_drop_presence.py``.
+CORRECTION, same round (u98etz): a call site wiring this into runtime.py was
+drafted and then WITHDRAWN before push -- a fetch surfaced that round
+``xt0g9c`` (earlier the same evening) had already re-verified this mechanism
+and that an attended round following it (GT143/GT132/GT149) measured the
+real bottleneck to be the client's 0.2s label life, not the server-side
+ledger this file tests. The COO ruled 2026-08-30T17:42+07:00
+(notes_to_chief/20260830_1742_COO-DECISION-label-life-drop-announcement-
+rule-stands.md) not to open any repeated-resend path until a single-resend
+attended measurement exists. See
+``WITHDRAWN_DROP_PRESENCE_RESEND_ON_MOVEMENT_WIRING`` in
+``src/pirateforce_foundation/mob_drop_presence.py`` for the full record --
+it is not a live ask.
 """
 
 from pathlib import Path
