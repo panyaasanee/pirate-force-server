@@ -85,6 +85,8 @@ LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 HOME = 1
 SCENE_2 = 2
 VOLCANO = 14
+# ADDED round bq4mst (LANE-A): opened the same round this constant was added.
+SLAVE_MARKET = 4
 # Open at login and n_SAVE 0: the stage that proves the second condition is
 # doing work rather than decorating the sentence.
 STAGE_OPEN_BUT_NOT_A_HOME = 278
@@ -134,10 +136,15 @@ class ThePredicateOnTheRealRegistryTests(unittest.TestCase):
 
     def test_the_admitted_set_is_exactly_the_two_proven_scenes_and_the_volcano(
             self):
-        self.assertEqual((HOME, SCENE_2, VOLCANO), wfa.admitted_scene_ids())
+        # ADDED round bq4mst: scene 4 (SLAVE_MARKET) opened this round
+        # (COO-DECISION 20260830_1441) and carries n_SAVE 1, so the DERIVED
+        # set now includes it -- this is the file's own point, that the set
+        # follows the registry rather than a list somebody wrote once.
+        self.assertEqual(
+            (HOME, SCENE_2, SLAVE_MARKET, VOLCANO), wfa.admitted_scene_ids())
 
     def test_each_admitted_scene_says_yes_one_at_a_time(self):
-        for scene_id in (HOME, SCENE_2, VOLCANO):
+        for scene_id in (HOME, SCENE_2, SLAVE_MARKET, VOLCANO):
             with self.subTest(scene_id=scene_id):
                 self.assertTrue(wfa.admits(scene_id))
 
@@ -175,8 +182,9 @@ class ThePredicateOnTheRealRegistryTests(unittest.TestCase):
                 Path(work), SHUT_AT_LOGIN, allowed=True)
             line = wfa.console_line(opened)
             self.assertIn(
-                f"WORLD_FACTION_ADMISSION scenes=1,2,{SHUT_AT_LOGIN},14", line)
-            self.assertNotIn("scenes=1,2,14 ", line)
+                f"WORLD_FACTION_ADMISSION scenes=1,2,{SHUT_AT_LOGIN},4,14",
+                line)
+            self.assertNotIn("scenes=1,2,4,14 ", line)
 
 
 class TheTwoConditionsTests(unittest.TestCase):

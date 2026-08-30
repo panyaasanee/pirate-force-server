@@ -570,14 +570,33 @@ class Scene14RegistryTests(unittest.TestCase):
         Ten marker scenes were addressed in round ga91m5 and every one of
         them stayed shut.  Opening scene 14 was one ruling about one scene;
         if this ever goes red, a door opened without one.
+
+        UPDATED round bq4mst: scene 4 left this set the same way scene 14
+        left it here -- its OWN census composer was judged ready
+        (COO-DECISION 20260830_1441) and its door opened.  See
+        ``test_scene_4_opened_separately_and_that_is_a_different_round``
+        below for the assertion that replaces it, so a reader of THIS test
+        does not have to infer why the tuple below shrank by one.
         """
-        for scene_id in (3, 4, 5, 6, 7, 8, 9, 10, 11, 130):
+        for scene_id in (3, 5, 6, 7, 8, 9, 10, 11, 130):
             with self.subTest(scene_id=scene_id):
                 target = world_scene_travel.destination(
                     scene_id, self.registry)
                 self.assertFalse(target.login_entry_allowed)
                 self.assertFalse(
                     world_faction_admission.admits(scene_id, self.registry))
+
+    def test_scene_4_opened_separately_and_that_is_a_different_round(self):
+        """ADDED round bq4mst: the one scene removed from the tuple above.
+
+        Not this round's ruling (COO-DECISION 20260830_1441, LANE-A round
+        bq4mst) -- named here so this file's own blast-radius claim for
+        scene 14 stays accurate rather than silently wrong about a scene
+        this file does not otherwise mention.
+        """
+        target = world_scene_travel.destination(4, self.registry)
+        self.assertTrue(target.login_entry_allowed)
+        self.assertTrue(world_faction_admission.admits(4, self.registry))
 
     def test_a_non_login_caller_still_lands_on_the_marker_and_says_so(self):
         # The door being shut to logins does not make the pin untestable:

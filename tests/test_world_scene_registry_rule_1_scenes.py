@@ -82,8 +82,20 @@ from pirateforce_foundation.gm import login_scene_stage  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
 
 # The ten this round added.  Written out rather than derived, so that a future
-# round which drops one silently has to edit this line and say so.
+# round which drops one silently has to edit this line and say so.  Used for
+# the ADDRESS-only properties below (geometry, marker source, deviation flag)
+# that do not depend on the door -- those are true of all ten regardless of
+# login_entry_allowed.
 RULE_1_SCENES_ADDED_THIS_ROUND = (3, 4, 5, 6, 7, 8, 9, 10, 11, 130)
+
+# ADDED round bq4mst (LANE-A): of the ten above, scene 4 (Slave Market
+# Island) opened this round (COO-DECISION 20260830_1441 + this round's own
+# safety case on the registry row).  The nine below are UNCHANGED and still
+# carry login_entry_allowed false -- used by every ADMISSION test in
+# ``TheDoorIsShutAndThisIsTheLoadBearingTest``, which would otherwise assert
+# something false of scene 4 and fail for the right reason.
+RULE_1_SCENES_STILL_SHUT = tuple(
+    n_id for n_id in RULE_1_SCENES_ADDED_THIS_ROUND if n_id != 4)
 
 # The three marker scenes that were already pinned, each by its own ruling.
 MARKER_SCENES_ALREADY_PINNED = (1, 2, 14)
@@ -251,7 +263,11 @@ class TheDoorIsShutAndThisIsTheLoadBearingTest(unittest.TestCase):
         return Position(scene_id, 0, 0.0, 0.0, 0.0, 0)
 
     def test_the_login_path_refuses_every_one_of_the_ten(self):
-        for n_id in RULE_1_SCENES_ADDED_THIS_ROUND:
+        # ADDED round bq4mst: iterates RULE_1_SCENES_STILL_SHUT, not the
+        # original ten -- scene 4 opened this round and has its own test
+        # below (``test_the_one_scene_that_opened_is_no_longer_in_this_set``)
+        # asserting the opposite fact, same reasoning as scene 14's own file.
+        for n_id in RULE_1_SCENES_STILL_SHUT:
             with self.subTest(scene=n_id):
                 with self.assertRaises(
                     world_scene_entry.SceneEntryRefused
@@ -267,7 +283,7 @@ class TheDoorIsShutAndThisIsTheLoadBearingTest(unittest.TestCase):
 
     def test_the_registry_says_so_in_the_field_that_carries_it(self):
         rows = _raw_rows()
-        for n_id in RULE_1_SCENES_ADDED_THIS_ROUND:
+        for n_id in RULE_1_SCENES_STILL_SHUT:
             with self.subTest(scene=n_id):
                 self.assertIs(rows[n_id]["login_entry_allowed"], False)
                 self.assertIs(
@@ -277,14 +293,46 @@ class TheDoorIsShutAndThisIsTheLoadBearingTest(unittest.TestCase):
 
     def test_the_gm_warp_writer_still_refuses_all_ten(self):
         # The predicate the /warp writer actually asks, not a copy of it.
-        for n_id in RULE_1_SCENES_ADDED_THIS_ROUND:
+        # "all ten" in this method's name is the nine still shut plus the
+        # method below that drives scene 4 through the same predicate and
+        # gets the opposite answer -- kept together rather than renamed, so
+        # a reader scanning method names sees both halves of the same pair.
+        for n_id in RULE_1_SCENES_STILL_SHUT:
             with self.subTest(scene=n_id):
                 self.assertFalse(login_scene_stage.login_entry_is_pinned(n_id))
 
     def test_the_stageable_set_did_not_grow_by_a_single_scene(self):
+        # "did not grow" is now true of the nine still shut, not the ten --
+        # see the docstring on RULE_1_SCENES_STILL_SHUT for why.
         stageable = set(login_scene_stage.stageable_scene_ids())
         self.assertEqual(
-            stageable & set(RULE_1_SCENES_ADDED_THIS_ROUND), set())
+            stageable & set(RULE_1_SCENES_STILL_SHUT), set())
+
+    def test_the_one_scene_that_opened_is_no_longer_in_this_set(self):
+        """Scene 4's own half of the pair, ADDED round bq4mst.
+
+        Same predicates as the four tests above, driven at scene 4, asserting
+        the opposite of what they assert for the other nine -- the shape
+        ``tests/test_lane_a_scene_census.py::SlaveMarketRegistrationTests``
+        already proves at the census-composer layer; this is the admission
+        layer this file otherwise owns for all ten.
+        """
+        self.assertNotIn(4, RULE_1_SCENES_STILL_SHUT)
+        rows = _raw_rows()
+        self.assertIs(rows[4]["login_entry_allowed"], True)
+        self.assertIs(
+            world_scene_travel.destination(
+                4, self.registry).login_entry_allowed,
+            True)
+        self.assertTrue(login_scene_stage.login_entry_is_pinned(4))
+        self.assertIn(4, login_scene_stage.stageable_scene_ids())
+        result = world_scene_entry.resolve_entry(
+            self._stored_row(4),
+            registry=self.registry,
+            emit=lambda line: None,
+        )
+        self.assertEqual(result.destination.n_id, 4)
+        self.assertEqual(result.position.scene_id, 4)
 
     def test_a_scene_with_no_marker_and_no_ruling_is_refused_differently(self):
         # The control: rule 1 reached the marker scenes and NOTHING else, and

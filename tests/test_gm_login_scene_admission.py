@@ -79,7 +79,11 @@ from pirateforce_foundation.model import Position  # noqa: E402
 # GM-scene-14-is-stageable-now.md rather than left to find it here.  Only
 # this literal moved; the predicate, the refusals below and every dispatcher
 # consequence are untouched.
-ADMISSIBLE_TODAY = (1, 2, 14, 278, 997)
+# ADDED round bq4mst (LANE-A): scene 4 (Slave Market Island) joined this set
+# the same round its census composer was judged ready (COO-DECISION
+# 20260830_1441) -- see scenarios/world_scene_registry_001.json's own
+# login_entry_allowed_because on that row for the safety case.
+ADMISSIBLE_TODAY = (1, 2, 4, 14, 278, 997)
 # The GM-gated (single-use) map's own way out, which is wider than the
 # plain set above by exactly one scene since round R249 (chief, gate-red
 # repair of `pirate-force-server#332`): lane A landed the scene-126
@@ -350,9 +354,10 @@ class TheAdmissibleSetIsAlsoNamedTests(unittest.TestCase):
         ):
             offered = login_scene_admission.stageable_scene_ids()
         self.assertNotIn(self.UNNAMED, offered)
-        # 14 joined the set in LANE-A round vvy6q7; 997 is the row this test
-        # bends into UNNAMED, which is why it is the one id missing here.
-        self.assertEqual((1, 2, 14, 278), offered)
+        # 14 joined the set in LANE-A round vvy6q7, 4 in round bq4mst; 997 is
+        # the row this test bends into UNNAMED, which is why it is the one
+        # id missing here.
+        self.assertEqual((1, 2, 4, 14, 278), offered)
 
 
 class TheConsoleLineNeverAltersDispatchTests(unittest.TestCase):

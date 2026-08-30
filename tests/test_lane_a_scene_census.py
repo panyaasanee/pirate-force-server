@@ -106,6 +106,11 @@ ROSTER_COUNT = 81
 # this round into the same two tables VOLCANO uses.  Unlike VOLCANO the real
 # registry row stays SHUT (COO-DECISION 2026-08-30T14:41+07:00) -- see
 # ``SlaveMarketRegistrationTests`` below for the test that pins that fact.
+# ADDED round bq4mst (LANE-A): the real registry row flipped OPEN
+# (COO-DECISION 20260830_1441's own instruction: build first, then judge
+# readiness, then flip). ~~Unlike VOLCANO the real registry row stays
+# SHUT (COO-DECISION 2026-08-30T14:41+07:00)~~ -- struck, not deleted, per
+# this project's history rule: it was true for two rounds (6p22bu, 2jdde8).
 SLAVE_MARKET = 4
 SLAVE_MARKET_ROSTER_COUNT = 109
 
@@ -617,6 +622,81 @@ class OnTheRealDispatcherTests(unittest.TestCase):
             self.assertIn("WORLD_POP_HANDOFF scene=14 kind=census", printed)
             self.assertIn("WORLD_CENSUS_BG0015 assembled=81/91", printed)
 
+    def test_with_the_real_registry_the_slave_market_census_ships_109(self):
+        """SCENE 4'S OWN COPY OF THE TEST ABOVE, ADDED LANE-A ROUND bq4mst.
+
+        Same shape as ``test_with_the_real_registry_the_lane_census_ships_
+        81_actors``, on the scene COO-DECISION 20260830_1441 named as the
+        first of the ten to open once its composer was ready
+        (COO-DECISION 20260830_1441: 'do not flip login_entry_allowed until
+        the composer is truly ready'). Round bq4mst is the round that judged
+        it ready and flipped the one boolean on ``scenarios/world_scene_
+        registry_001.json``. No flag, no monkeypatched loader -- the
+        registry file this repository ships.
+        """
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            self.assertTrue(
+                world_scene_travel.destination(
+                    SLAVE_MARKET, world_scene_travel.load_scene_registry()
+                ).login_entry_allowed,
+                "scene 4's door is shut again - this test is now measuring "
+                "the wrong registry; see this round's own letter/round file",
+            )
+            store = SQLiteStore(work / "state.sqlite3", ROOT / "migrations")
+            store.migrate()
+            legacy = self.legacy
+            lifecycle = CharacterLifecycle(
+                store,
+                Position(1, 0, legacy.V135_PLAYER_X, legacy.V135_PLAYER_Y,
+                         legacy.V135_PLAYER_Z),
+                legacy.extract_avatar_attr_wire_from_actor,
+            )
+            state_type = make_state_class(
+                legacy, lifecycle, LegacyProjector(legacy))
+            state = state_type("driver")
+            state.dispatch(legacy.parse_outer(
+                legacy._synthetic_client_login_pc("driver")))
+            state.dispatch(legacy.parse_outer(legacy._V25_REAL_CREATE_PC))
+            character = store.list_characters(
+                state.foundation.account_id)[-1]
+            spawn = world_scene_travel.spawn_position(
+                world_scene_travel.destination(
+                    SLAVE_MARKET, world_scene_travel.load_scene_registry()))
+            store.select_character(
+                state.foundation.session_id, character.selector)
+            store.save_position(
+                state.foundation.session_id, character.id,
+                Position(SLAVE_MARKET, 0, spawn[0], spawn[1], spawn[2], 0.0))
+            with contextlib.redirect_stdout(io.StringIO()):
+                state.dispatch(legacy.parse_outer(
+                    legacy._synthetic_start_game_pc(character.selector)))
+            self.assertTrue(state.teleport_sent)
+            state.runtime_ack_sent = True
+            state.welcome_message_sent = True
+            state.current_scene_music_sent = True
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                actions = state.dispatch(legacy.parse_outer(
+                    self._target_pos_pc(legacy, spawn)))
+            census = [a for a in actions if a[0].startswith("WORLD_CENSUS_")]
+            self.assertEqual(
+                [a[0] for a in census],
+                [f"WORLD_CENSUS_LANE_SCENE{SLAVE_MARKET}_INITIAL_"
+                 f"{SLAVE_MARKET_ROSTER_COUNT}",
+                 f"WORLD_CENSUS_LANE_SCENE{SLAVE_MARKET}_REAPPLY_"
+                 f"{SLAVE_MARKET_ROSTER_COUNT}"])
+            self.assertIn(
+                f"world_census_lane_committed_actors_"
+                f"{SLAVE_MARKET_ROSTER_COUNT}"
+                f"_pc_{len(census[0][1])}_frame_{len(census[0][2])}",
+                state.events)
+            printed = buf.getvalue()
+            self.assertIn(
+                "WORLD_POP_HANDOFF scene=4 kind=census", printed)
+            self.assertIn(
+                "WORLD_CENSUS_BG0004 assembled=109/116", printed)
+
     def test_with_the_door_shut_the_login_never_reaches_the_census(self):
         """The other half of the pair: refused at the login, no census at all.
 
@@ -674,17 +754,20 @@ class OnTheRealDispatcherTests(unittest.TestCase):
 
 
 class SlaveMarketRegistrationTests(unittest.TestCase):
-    """Scene 4's own half of this round: wired, and pinned as still shut.
+    """Scene 4's own half of this round: wired round 2jdde8, OPENED round bq4mst.
 
-    ADDED round 2jdde8 (LANE-A).  Every VOLCANO test above that loops over
-    ``scenes_this_lane_composes_for()`` already exercises scene 4 too, so
-    this class is deliberately narrow: it drives the ONE thing those loops
-    do not - what the REPOSITORY'S OWN registry file says about scene 4
-    today, which is the opposite of what it says about scene 14.  Mirrors
-    ``TheAdmissionCheckIsTheGateTests.test_the_real_registry_now_composes_
-    and_that_is_the_round`` in shape, asserting the opposite fact, for the
-    same reason that test exists: a silent flip of this boolean should be
-    caught by a red test, not discovered in an attended round.
+    ADDED round 2jdde8 (LANE-A).  ~~this class is deliberately narrow: it
+    drives the ONE thing those loops do not - what the REPOSITORY'S OWN
+    registry file says about scene 4 today, which is the opposite of what
+    it says about scene 14.~~ STRUCK, NOT DELETED: true for two rounds
+    (2jdde8, oprday-adjacent), false as of round bq4mst, which flipped
+    ``login_entry_allowed`` on the same evidence COO-DECISION 20260830_1441
+    asked for ("do not flip until the composer is truly ready").  This
+    class now mirrors ``OnTheRealDispatcherTests.test_with_the_real_
+    registry_the_lane_census_ships_81_actors`` in shape for the registry
+    read-back half (the end-to-end dispatch proof itself lives in that
+    class, alongside VOLCANO's, per this file's own convention of keeping
+    the two production-path tests together).
     """
 
     @classmethod
@@ -700,32 +783,36 @@ class SlaveMarketRegistrationTests(unittest.TestCase):
         self.assertIsNotNone(composer)
         self.assertEqual(composer.module, lane_a.__name__)
 
-    def test_the_real_registry_still_shuts_this_door(self):
+    def test_the_real_registry_now_composes_and_that_is_the_round(self):
         """WHAT THE FILE ON MAIN DOES TODAY, STATED AS AN ASSERTION.
 
-        The COO decision this round carries out ("do not flip
-        login_entry_allowed until the composer is truly ready") is a
-        sentence in a letter; this is the same fact read back from the
-        actual registry file this repository ships, so a later round that
-        forgets and flips it gets a red test instead of a silent door.
+        The inverse of the test this replaced
+        (``test_the_real_registry_still_shuts_this_door``, which asserted
+        ``login_entry_allowed`` was False).  Kept as an assertion rather
+        than deleted, same reasoning as VOLCANO's own version of this test:
+        a silent revert of this boolean should be caught by a red test, not
+        discovered in an attended round that boots into a refusal.
         """
         destination = world_scene_travel.destination(
             SLAVE_MARKET, world_scene_travel.load_scene_registry())
-        self.assertFalse(destination.login_entry_allowed)
+        self.assertTrue(destination.login_entry_allowed)
         result = lane_a._compose_for_scene(SLAVE_MARKET)(
             legacy=self.legacy,
             anchor=self.anchor,
             scene_id=SLAVE_MARKET,
             scene_entry_registry=world_scene_travel.load_scene_registry(),
         )
-        self.assertIsNone(result)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.actor_count, SLAVE_MARKET_ROSTER_COUNT)
 
     def test_opened_in_a_temp_registry_it_composes_the_full_roster(self):
-        """The other half: the wiring itself works once a door opens.
+        """PLUMBING PROOF, KEPT INDEPENDENT OF THE REPOSITORY'S OWN FILE.
 
         Never against the repository's file (see the module above this
         test file borrows its temp-registry pattern from) - this proves the
-        PLUMBING is sound, not that the door should open today.
+        PLUMBING is sound on its own terms, not by riding on whatever the
+        real registry happens to say this round (that is the test above,
+        and ``OnTheRealDispatcherTests``, added separately).
         """
         with tempfile.TemporaryDirectory() as work:
             registry, _ = _registry_with_door_open(
