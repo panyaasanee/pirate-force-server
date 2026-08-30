@@ -209,6 +209,7 @@ from __future__ import annotations
 from . import population
 from . import world_m2_crossing_handoff
 from . import world_m2_return_leg
+from . import world_m2_sea_destination
 from . import world_population_handoff
 from . import world_scene_entry
 from .model import Position
@@ -579,6 +580,15 @@ def dispatch_columbus_quest3021(*, registry=None, emit=print, legacy=None,
     evidence stream.  So every quest-3021 dispatch now records one more
     event than it did yesterday.  Nothing asserts that sequence today; a
     round that starts asserting it should know this line is in it.
+
+    A FIFTH REPORT, APPENDED LAST (LANE-A, M2), NAMES THE DOOR ITSELF.
+    ``world_m2_sea_destination`` has held the whole eight-island Columbus
+    crosswalk and the [CONTESTED] var2 reading since round drrnpu; nothing
+    on this default path ever printed a word of it before this round.
+    ``world_m2_sea_destination.console_line_safe`` -- never raises, same
+    reason as every report above -- is the line.  Reuses the SAME
+    ``registry`` this function already resolved scene 17 against; composes
+    nothing new and sends no frame.
     """
     try:
         entry = resolve_columbus_arrival(registry=registry, emit=emit)
@@ -647,6 +657,20 @@ def dispatch_columbus_quest3021(*, registry=None, emit=print, legacy=None,
         dispatched=crossing_handoff_dispatched,
         held=held_indices,
     ))
+    # WHERE THE DOOR ITSELF LEADS, NAMED OUT LOUD -- ROUND (LANE-A, M2).
+    # ``world_m2_sea_destination`` has measured the whole Columbus-route
+    # crosswalk (eight islands, the [CONTESTED] var2 reading, the
+    # decreed-vs-measured arrival state) since round drrnpu and nothing on
+    # this default path ever printed a word of it.  Appended last, after
+    # the frame-bearing crossing-handoff report, for the same reason every
+    # earlier addition here was appended rather than inserted: the decision
+    # line and the reports ahead of it are pinned by POSITION in
+    # ``tests/test_columbus_quest_dispatch.py``, and a line inserted between
+    # two pinned ones fails that pin on purpose.  Uses the SAME ``registry``
+    # ``resolve_columbus_arrival`` already resolved scene 17 against above --
+    # never re-reads the file (``world_m2_sea_destination``'s own docstring:
+    # "this module must not read the file itself").
+    emit(world_m2_sea_destination.console_line_safe(registry))
     return entry
 
 
