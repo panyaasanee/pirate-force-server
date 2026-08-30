@@ -1,1 +1,1 @@
-{"sha":"50cbf99da80ee099dd60479ba7027c19dd420555","conclusion":"success","event":"push","ref":"refs/heads/claude/quiet-harbor-i95a1z","run_id":"33329036832","utc":"2026-08-30T18:56:13Z"}
+{"sha":"50cbf99da80ee099dd60479ba7027c19dd420555","conclusion":"success","event":"pull_request","ref":"refs/pull/348/merge","run_id":"33329064091","utc":"2026-08-30T18:58:02Z"}
