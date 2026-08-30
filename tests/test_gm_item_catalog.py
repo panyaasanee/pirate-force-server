@@ -101,6 +101,28 @@ class GmItemCatalogTests(unittest.TestCase):
         self.assertNotEqual(misc_raw[1][0], quest_raw[1][0])
         self.assertEqual(item_catalog.item_category(1), ("misc", "quest"))
 
+    def test_module_docstrings_misc_consumable_example_id_matches_the_data(self):
+        # The module docstring's "IMPORTANT finding" paragraph illustrates the
+        # misc/consumable collision with a specific id and names. An earlier
+        # version of that paragraph named id 6 for this pair, which was wrong
+        # (id 6 does not exist in misc at all -- pf-adversary caught the
+        # off-by-one against id 7, the id that actually holds these two
+        # names). Pin the real id here so a future data refresh that moves
+        # these names off id 7 fails this test instead of leaving a stale
+        # worked example in the docstring for the next reader to trust.
+        # id 7 is actually a three-way collision (misc/consumable/quest), not
+        # just the misc/consumable pair the docstring illustrates -- the
+        # docstring only needs the misc and consumable names to be right.
+        misc_raw = _read_raw("gm_item_misc.tsv")
+        cons_raw = _read_raw("gm_item_consumable.tsv")
+        self.assertIn(7, misc_raw)
+        self.assertIn(7, cons_raw)
+        self.assertEqual(misc_raw[7][0], "Earth Element")
+        self.assertEqual(cons_raw[7][0], "Fruit Wine Jar")
+        self.assertIn("misc", item_catalog.item_category(7))
+        self.assertIn("consumable", item_catalog.item_category(7))
+        self.assertNotIn(6, misc_raw)
+
     def test_item_name_on_a_colliding_id_without_category_raises(self):
         with self.assertRaises(ValueError):
             item_catalog.item_name(1)

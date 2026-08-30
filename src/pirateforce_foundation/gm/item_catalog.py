@@ -36,7 +36,7 @@ across the pf_bridge/pirate-force-server repo boundary at runtime:
 IMPORTANT finding for whoever wires this catalog to a runtime command:
 item ``n_ID`` is NOT a single global namespace -- the same numeric id is
 reused across the misc/consumable/quest tables for unrelated items, e.g.
-id 6 is "Earth Element" (misc) but "Fruit Wine Jar" (consumable); id 1 is
+id 7 is "Earth Element" (misc) but "Fruit Wine Jar" (consumable); id 1 is
 "Adventure Key" (misc) but "Sky Lantern" (quest). Measured overlap: 230
 ids shared between misc/consumable, 213 between misc/quest, 239 between
 consumable/quest (out of 1,646 / 1,260 / 579 rows respectively). A GM
