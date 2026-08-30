@@ -592,5 +592,246 @@ class ChatCommandDispatchWiringTests(unittest.TestCase):
         self.assertIsInstance(later, list)
 
 
+class ActionQueuedConfirmHookTests(ChatCommandDispatchWiringTests):
+    """CORE-REQUEST-GM-040 -- the append-site confirm hook, on the REAL
+    dispatcher.
+
+    `gm/commands.py`'s `OUTCOME_QUEUED` has been reserved and unreachable
+    since CORE-REQUEST-GM-032 item 3: it may only be written once the
+    append site at `runtime.py`'s `if gm_action is not None:` branch reports
+    back that the append actually ran.  This class does not wire that
+    reporting -- `gm/` owns the reader half, and no round of it has landed
+    yet -- it proves the HOOK chief's half adds: an optional
+    `_gm_action_queued_confirm` pairing, `(the exact action object, a
+    callback)`, set on the session by whatever composed the action, fired
+    exactly once at the one line that ever runs the append for THAT SAME
+    action object (identity, not equality), and cleared before the callback
+    runs so it cannot be replayed against a later, unrelated frame.
+
+    THE CONTRACT IS PAIR-AND-MATCH, NOT A BARE FLAG, and that is not a
+    style choice: pf-adversary's review of this hook's first version
+    (round `hd6tac`, D1/D2) measured that a bare "something is pending"
+    flag, set by a composer whose action was then withheld (the route
+    returned `None`, so the append below never ran for it that frame),
+    survived on `self` and fired against the NEXT frame's unrelated append
+    instead -- crediting one command's confirmation to a different one.
+    Every test below that proves non-replay uses a second composer that
+    does NOT touch `_gm_action_queued_confirm` at all, which is the case
+    the first version's equivalent test failed to cover (its second
+    composer always re-armed the attribute itself, so it only proved
+    "replacement works", not "a stale pairing cannot misfire").
+
+    Reuses `ChatCommandDispatchWiringTests`'s whole harness (setUp,
+    `_login_and_start`, `_say`) rather than a fresh copy of it, the same way
+    that class's own docstring says it borrowed its outer envelope from
+    `test_gm_run_command_dispatch_wiring.py`.
+    """
+
+    _FAKE_ACTION = ("FAKE_GM_ACTION", b"", b"", 0.0)
+    # A second, textually-identical-but-distinct action object.  Tuples of
+    # equal content still compare `==`, so every match below is asserted
+    # with `is` at the production code, and this constant exists so a test
+    # can hand out an action that is `==` to `_FAKE_ACTION` but never `is`
+    # it -- proving the match is on identity, not on the tuple's value.
+    # Built via `tuple(list(...))` rather than a second literal: CPython's
+    # compiler deduplicates identical literal tuples in one module's
+    # constant pool, so a second `("FAKE_GM_ACTION", b"", b"", 0.0)` literal
+    # here would in fact BE `_FAKE_ACTION` (`is` True) -- measured, not
+    # assumed, the same discipline this codebase applies to every other
+    # "obviously true" assumption about the interpreter.
+    _OTHER_ACTION = tuple(["FAKE_GM_ACTION", b"", b"", 0.0])
+
+    def test_absent_confirm_attribute_costs_nothing(self):
+        path = self._config(["gm_runner"])
+        with mock.patch.dict(
+            gm_accounts.os.environ, {gm_accounts.ENV_OVERRIDE: str(path)},
+        ):
+            with mock.patch.object(
+                runtime_module.chat_command_action,
+                "make_gm_chat_command_action",
+                return_value=self._FAKE_ACTION,
+            ):
+                state = self._login_and_start("gm_runner")
+                actions = self._say(state, "/warp 2")
+        self.assertIn(self._FAKE_ACTION, actions)
+        self.assertFalse(hasattr(state, "_gm_action_queued_confirm"))
+
+    def test_confirm_callback_fires_exactly_once_when_the_append_runs(self):
+        path = self._config(["gm_runner"])
+        calls = []
+
+        def _compose(*_args, **kwargs):
+            action = self._FAKE_ACTION
+            kwargs["session"]._gm_action_queued_confirm = (
+                action, lambda: calls.append(1),
+            )
+            return action
+
+        with mock.patch.dict(
+            gm_accounts.os.environ, {gm_accounts.ENV_OVERRIDE: str(path)},
+        ):
+            with mock.patch.object(
+                runtime_module.chat_command_action,
+                "make_gm_chat_command_action",
+                side_effect=_compose,
+            ):
+                state = self._login_and_start("gm_runner")
+                actions = self._say(state, "/warp 2")
+        self.assertEqual(calls, [1])
+        self.assertIn(self._FAKE_ACTION, actions)
+        # Cleared, not merely fired -- a leftover reference here would be
+        # matched against the next frame that appends this exact object.
+        self.assertIsNone(
+            getattr(state, "_gm_action_queued_confirm", "MISSING")
+        )
+
+    def test_a_raising_confirm_is_named_and_does_not_break_dispatch(self):
+        path = self._config(["gm_runner"])
+
+        def _compose(*_args, **kwargs):
+            def _boom():
+                raise RuntimeError("confirm blew up")
+
+            action = self._FAKE_ACTION
+            kwargs["session"]._gm_action_queued_confirm = (action, _boom)
+            return action
+
+        with mock.patch.dict(
+            gm_accounts.os.environ, {gm_accounts.ENV_OVERRIDE: str(path)},
+        ):
+            with mock.patch.object(
+                runtime_module.chat_command_action,
+                "make_gm_chat_command_action",
+                side_effect=_compose,
+            ):
+                state = self._login_and_start("gm_runner")
+                actions = self._say(state, "/warp 2")
+                # The connection survives and keeps serving later frames --
+                # the same shape as test_a_route_that_raises_does_not_break_
+                # the_connection above, for the hook this class adds.
+                later = state.dispatch(self.legacy.parse_outer(
+                    self.legacy._synthetic_client_login_pc("gm_runner")
+                ))
+        self.assertIn(self._FAKE_ACTION, actions)
+        self.assertIn(
+            "gm_action_queued_confirm_failed_RuntimeError", state.events,
+        )
+        self.assertIsInstance(later, list)
+
+    def test_a_stale_pairing_from_a_withheld_action_never_fires_for_a_later_unrelated_append(
+        self,
+    ):
+        """Composed-then-withheld (route returns `None`, so the append below
+        never runs this frame) leaves the pairing set.  The NEXT frame's
+        composer, in this test, sets NOTHING at all -- proving the leftover
+        pairing cannot be matched against (and therefore cannot fire for)
+        an action it was never paired with, with no re-arming to hide
+        behind.  This is the case pf-adversary's D1 measured the first
+        version of this hook's equivalent test never actually covered.
+        """
+        path = self._config(["gm_runner"])
+        calls = []
+
+        def _compose_but_withhold(*_args, **kwargs):
+            kwargs["session"]._gm_action_queued_confirm = (
+                self._FAKE_ACTION, lambda: calls.append("stale"),
+            )
+            return None
+
+        with mock.patch.dict(
+            gm_accounts.os.environ, {gm_accounts.ENV_OVERRIDE: str(path)},
+        ):
+            with mock.patch.object(
+                runtime_module.chat_command_action,
+                "make_gm_chat_command_action",
+                side_effect=_compose_but_withhold,
+            ):
+                state = self._login_and_start("gm_runner")
+                self._say(state, "hello everyone")
+            self.assertEqual(calls, [])
+            pending = getattr(state, "_gm_action_queued_confirm", "MISSING")
+            self.assertNotEqual(pending, "MISSING")
+
+            # The next frame's composer returns a DIFFERENT (but `==`)
+            # action object and touches `_gm_action_queued_confirm` not at
+            # all -- the append below still runs (this action is real, not
+            # withheld), but nothing may fire for it.
+            with mock.patch.object(
+                runtime_module.chat_command_action,
+                "make_gm_chat_command_action",
+                return_value=self._OTHER_ACTION,
+            ):
+                actions = self._say(state, "/warp 2")
+        self.assertIn(self._OTHER_ACTION, actions)
+        self.assertEqual(calls, [])
+        # The stale pairing is still sitting there, unfired and uncleared --
+        # inert forever, since `_FAKE_ACTION` is never appended again, but
+        # never wrongly fired either.
+        self.assertEqual(
+            getattr(state, "_gm_action_queued_confirm", "MISSING"), pending,
+        )
+
+    def test_a_reentrant_confirm_that_rearms_only_fires_for_the_action_it_names(
+        self,
+    ):
+        """A callback that sets a NEW pairing while it runs (a retry/re-arm
+        pattern) must not have that new pairing fire against THIS SAME
+        append (clear-before-call already prevents that) nor against a
+        LATER, unrelated append -- only against an append of the exact
+        object the new pairing names.  Closes pf-adversary's D2.
+        """
+        path = self._config(["gm_runner"])
+        calls = []
+
+        def _compose_first(*_args, **kwargs):
+            session = kwargs["session"]
+
+            def _rearm():
+                calls.append("first")
+                # Re-arms for OTHER_ACTION, an action this frame never
+                # composed and never appends.
+                session._gm_action_queued_confirm = (
+                    self._OTHER_ACTION, lambda: calls.append("rearmed"),
+                )
+
+            session._gm_action_queued_confirm = (self._FAKE_ACTION, _rearm)
+            return self._FAKE_ACTION
+
+        with mock.patch.dict(
+            gm_accounts.os.environ, {gm_accounts.ENV_OVERRIDE: str(path)},
+        ):
+            with mock.patch.object(
+                runtime_module.chat_command_action,
+                "make_gm_chat_command_action",
+                side_effect=_compose_first,
+            ):
+                state = self._login_and_start("gm_runner")
+                self._say(state, "/warp 2")
+            self.assertEqual(calls, ["first"])
+
+            # A second, unrelated frame whose composer sets nothing.  The
+            # re-armed pairing names `_OTHER_ACTION`, not whatever this
+            # frame appends, so it must not fire here.
+            with mock.patch.object(
+                runtime_module.chat_command_action,
+                "make_gm_chat_command_action",
+                return_value=("SOME_OTHER_LABEL", b"", b"", 0.0),
+            ):
+                self._say(state, "/warp 2")
+        self.assertEqual(calls, ["first"])
+
+        # It DOES fire once `_OTHER_ACTION` itself is the one appended.
+        with mock.patch.dict(
+            gm_accounts.os.environ, {gm_accounts.ENV_OVERRIDE: str(path)},
+        ):
+            with mock.patch.object(
+                runtime_module.chat_command_action,
+                "make_gm_chat_command_action",
+                return_value=self._OTHER_ACTION,
+            ):
+                self._say(state, "/warp 2")
+        self.assertEqual(calls, ["first", "rearmed"])
+
+
 if __name__ == "__main__":
     unittest.main()
