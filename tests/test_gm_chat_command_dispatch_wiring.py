@@ -851,10 +851,12 @@ class QueuedRowLandsEndToEndTests(ChatCommandDispatchWiringTests):
         lands in the real ndjson.
 
     Nothing here patches `chat_command_action`.  The only patch is the
-    ForcePos version gate, which is `None` on the shipped tree (RE-129
-    unanswered) and without which the lane composes nothing to append --
-    the same patch `test_gm_chat_command_action.py` has always used, and
-    `NoBytesWentOutTests` still pins that the SHIPPED constant is `None`.
+    ForcePos version gate -- opened to a test value for the tests that need
+    a composed frame, the same patch `test_gm_chat_command_action.py` has
+    always used, and forced explicitly SHUT for the one test below that
+    proves the withheld branch.  The gate shipped at `0` since COO-DECISION
+    20260830_1645/1742 (RE-129's measured byte), so `None` is no longer the
+    default either patch can rely on falling out of.
 
     Scene 1, not scene 2: `_login_and_start` places the character at
     `Position(1, ...)`, and `/warp <own scene> x y` is the same-scene
@@ -920,11 +922,14 @@ class QueuedRowLandsEndToEndTests(ChatCommandDispatchWiringTests):
     def test_a_line_the_lane_withholds_never_reaches_the_queued_word(self):
         # The control, and the one that would catch an arming that fired on
         # composition instead of on the append: same route, same GM, gate
-        # SHUT (the shipped state), so nothing is appended and the audit
-        # must stop at the withheld word.
+        # forced SHUT -- no longer the shipped state since COO-DECISION
+        # 20260830_1645/1742, so this test patches it shut itself -- so
+        # nothing is appended and the audit must stop at the withheld word.
         path = self._config(["gm_runner"])
         with mock.patch.dict(
             gm_accounts.os.environ, {gm_accounts.ENV_OVERRIDE: str(path)},
+        ), mock.patch.object(
+            teleport_wire, "FORCE_POS_VITAL_VERSION_CONFIRMED", None,
         ):
             state = self._login_and_start("gm_runner")
             actions = self._say(state, "/warp 1 100 200")
