@@ -136,6 +136,15 @@ class _ArmCase(unittest.TestCase):
             UNPROVEN_TEST_VERSION,
         )
 
+    def close_the_version_gate(self):
+        """The sibling of `open_the_version_gate`. Since COO-DECISION
+        20260830_1645/1742 the shipped constant is `0`, not `None`, so the
+        withheld branch below has to force the gate shut explicitly.
+        """
+        return mock.patch.object(
+            teleport_wire, "FORCE_POS_VITAL_VERSION_CONFIRMED", None
+        )
+
     def a_composed_warp(self, session=None):
         """One `/warp` that really composes a frame, with the gate patched."""
         session = session if session is not None else FakeSession(
@@ -196,12 +205,15 @@ class ArmingTests(_ArmCase):
         self.assertEqual(queued["command"], "warp")
 
     def test_a_withheld_command_arms_nothing(self):
-        # The version gate is SHUT here (shipped state), so `/warp` composes
-        # nothing.  Arming anyway would leave a pairing on the session that
-        # can never fire, and the next real command would have to report
-        # overwriting it -- an anomaly event for a non-anomaly.
+        # The version gate is forced SHUT here -- no longer the shipped
+        # state since COO-DECISION 20260830_1645/1742, so this test patches
+        # it shut itself -- so `/warp` composes nothing.  Arming anyway would
+        # leave a pairing on the session that can never fire, and the next
+        # real command would have to report overwriting it -- an anomaly
+        # event for a non-anomaly.
         session = FakeSession(position=FakePosition(scene_id=2))
-        self.assertIsNone(self.act(session, "/warp 2 100 200"))
+        with self.close_the_version_gate():
+            self.assertIsNone(self.act(session, "/warp 2 100 200"))
         self.assertFalse(hasattr(session, "_gm_action_queued_confirm"))
 
     def test_a_command_from_a_non_gm_arms_nothing(self):

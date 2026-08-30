@@ -13,11 +13,13 @@ WHY IT EXISTS.  `/warp <scene_id>` across scenes is the one thing the owner's
 own command list asks for that this lane cannot put on the wire: ForcePos
 carries no scene id (RE-129), and `TeleportVital`'s target/aux sub-objects
 still have positional-only fields nobody has proven (RE-090), so composing one
-would be guessing -- which this lane refuses.  Meanwhile the same-scene half
-is frozen by COO order (`FORCE_POS_VITAL_VERSION_CONFIRMED = None`, COO-DECISION
-20260829_0041) until chief's confirmation token compares against the commanded
-point.  So today a tester who types `/warp 126` gets a refusal and no way at
-all to see scene 126 -- while a path that DOES work, and is already wired and
+would be guessing -- which this lane refuses.  The same-scene half was frozen
+by COO order (`FORCE_POS_VITAL_VERSION_CONFIRMED = None`, COO-DECISION
+20260829_0041) until RE-129's measured value could be confirmed on main; that
+happened (`FORCE_POS_VITAL_VERSION_CONFIRMED = 0`, COO-DECISION 20260830_1645
+/1742).  Cross-scene warp is still unproven regardless (RE-090, no scene id on
+ForcePos), so a tester who types `/warp 126` still gets a refusal and no way
+to see scene 126 -- while a path that DOES work, and is already wired and
 tested, sits one config file away.  This module is the bridge between the
 command the owner asked for and the mechanism that already works.
 
