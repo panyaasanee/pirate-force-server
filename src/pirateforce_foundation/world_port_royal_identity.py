@@ -104,14 +104,25 @@ place in this tree where a Mob-Set number was used as one.  ``no_set_number_is
 _shipped_as_identity()`` below is the executable form of that claim - measured
 over the whole table: 0 of 113 CLINE type-1 rows have leader == creature type.
 
-[LANE-A ASSUMPTION - AWAITING COO/OWNER CONFIRMATION] The owner's standing
+~~[LANE-A ASSUMPTION - AWAITING COO/OWNER CONFIRMATION] The owner's standing
 instruction is that a scene's identities are not stated as fact until seven
 numeric anchors clear.  This lane reads the 32 video-confirmed ids plus the two
 placement anchors plus the four adjacency pairs as clearing that bar for
 bg0001, and ships on that reading; ``notes_to_chief/20260828_2240_LANE-A-ASK-
 COO-cline-identity-clears-the-anchor-bar.md`` is the letter asking for the
 ruling.  If the ruling goes the other way the revert is one commit: this file
-and the ``_entry``/``census_order`` change in ``world_population``.
+and the ``_entry``/``census_order`` change in ``world_population``.~~
+ANSWERED, and the assumption label is struck rather than deleted so the
+reading can still be told from the ruling that followed it.  The owner
+confirmed it directly, in person, at a higher evidence layer than the seven
+anchors themselves: ``GT-131`` PASS, owner watching the live client,
+"ตำแหน่ง npc ถูก ตัวถูกต้อง ฉันให้เทสนี้ผ่าน" (2026-08-30T00:2x+07:00,
+``notes_to_chief/20260830_0030_KA3A-GT131-PASS-owner-confirmed-*``), ratified
+in ``notes_to_chief/20260830_1351_COO-DECISION-cline-anchor-bar-cleared-
+gt131-pass.md``.  The identity read below is client-observable-confirmed now,
+not merely anchor-counted.  If a later finding contradicts it the revert is
+still one commit: this file and the ``_entry``/``census_order`` change in
+``world_population``.
 
 PROVENANCE.  Every row below was generated from these four committed artifacts
 and nothing else; the digests are the files as of 2026-08-28T22:5x+07:00.
