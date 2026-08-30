@@ -728,6 +728,53 @@ def console_line(registry) -> str:
     )
 
 
+def console_line_safe(registry) -> str:
+    """The ``M2_SEA_DESTINATION`` line, for every crossing, every boot.
+
+    ROUND (LANE-A, M2): ``console_line`` above has existed since round
+    drrnpu and was never called from anywhere on the default path -- this
+    module named the [CONTESTED] var2 reading and measured the whole
+    Columbus-route crosswalk, and then nobody read it out loud on a boot.
+    This is the wrapper that fixes that, in the same shape every other
+    WORLD_M2_* report in this M2 family already uses (``world_m2_return_leg
+    .return_leg_console_line``, ``.return_population_console_line``):
+    NEVER RAISES, because the call site is on the frame path with no
+    ``except`` of its own -- a report that can throw would turn a naming gap
+    into a lost crossing.
+
+    ``registry=None`` IS A NAMED CASE, NOT A CRASH.  ``dispatch_columbus_
+    quest3021`` accepts ``registry=None`` (``world_scene_entry.resolve_entry``
+    then falls back to a fresh disk read for the SceneEntry itself), so a
+    caller that never passed one can still reach this line.  ``_target``
+    refuses ``None`` outright -- deliberately, per its own docstring, this
+    module must not read the file itself -- so the same
+    ``call_site_passed_no_<thing>`` shape ``world_m2_return_leg`` and
+    ``_emit_arrival_stowaways`` already use for their own optional
+    arguments is used here rather than folding it into the generic
+    ``except`` below, which would report a true absence as an opaque
+    ``SeaDestinationError``.
+
+    ANY OTHER SHAPE ``console_line`` REJECTS (e.g. an object with no
+    ``destinations`` attribute) IS A GENUINE, UNNAMED REFUSAL, kept as a
+    real ``try`` rather than an assumption: a future call site is not
+    obligated to share the precondition every call site THIS round wires
+    (``resolve_columbus_arrival`` already having proven the SAME registry
+    resolves scene 17) actually holds.
+    """
+    if registry is None:
+        return (
+            "M2_SEA_DESTINATION unmeasured "
+            "reason=call_site_passed_no_registry"
+        )
+    try:
+        return console_line(registry)
+    except Exception as error:  # a report must not be able to end a boot
+        return (
+            "M2_SEA_DESTINATION unmeasured reason=refused:"
+            + type(error).__name__
+        )
+
+
 def _self_check() -> None:
     """Internal consistency only - this file has no tables to re-read."""
     if DESTINATION_SCENE_N_ID == ADVERTISED_OCEAN_SCENE_N_ID:

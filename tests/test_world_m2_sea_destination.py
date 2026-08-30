@@ -83,6 +83,36 @@ class DestinationTests(unittest.TestCase):
         self.assertIn("arrival=0.000,0.000,0.000", line)
         self.assertIn("evidence=GT-106", line)
 
+    def test_console_line_safe_agrees_with_console_line_when_nothing_fails(
+        self,
+    ):
+        registry = world_scene_travel.load_scene_registry()
+        self.assertEqual(
+            sea.console_line_safe(registry), sea.console_line(registry),
+        )
+
+    def test_console_line_safe_never_raises_on_a_registry_missing_the_attr(
+        self,
+    ):
+        line = sea.console_line_safe("not a registry")
+        line.encode("ascii")
+        line.encode("cp874")
+        self.assertTrue(line.startswith("M2_SEA_DESTINATION unmeasured "))
+        self.assertIn("reason=refused:SeaDestinationError", line)
+
+    def test_console_line_safe_names_a_none_registry_rather_than_guessing(
+        self,
+    ):
+        """``None`` is the shape ``dispatch_columbus_quest3021`` actually
+        defaults to (its own ``registry=None``) -- a NAMED absence, not the
+        generic ``SeaDestinationError`` catch-all below it."""
+        line = sea.console_line_safe(None)
+        self.assertEqual(
+            line,
+            "M2_SEA_DESTINATION unmeasured "
+            "reason=call_site_passed_no_registry",
+        )
+
 
 class ArrivalPointTests(unittest.TestCase):
     """The half of this module that was stale on main until round drrnpu.
