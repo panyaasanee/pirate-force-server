@@ -73,14 +73,26 @@ def _registry_with_sanctioned_row(*, login_entry_allowed: bool):
     Built by copying a REAL row (scene 17: pinned, spawned, barred) rather
     than by hand: a hand-built stand-in satisfies whatever fields the test
     author remembered, and the predicate reads three.
+
+    Filters out any existing `n_id == SANCTIONED` row before appending
+    (fixed round `2f9xji`, same defect and same fix as the identical
+    helper in `test_gm_login_scene_sanctioned_admission.py` and
+    `test_gm_login_scene_sanctioned_bypass_wiring.py` -- see the former's
+    docstring for the full explanation).  Without the filter, the day lane
+    A's real row for `SANCTIONED` lands on disk, `registry[SANCTIONED]`'s
+    linear scan would silently start returning THAT row instead of this
+    one for every reader this file drives.
     """
     registry = world_scene_travel.load_scene_registry()
     source = registry[BARRED_AT_LOGIN]
     landed = dataclasses.replace(
         source, n_id=SANCTIONED, login_entry_allowed=login_entry_allowed
     )
+    without_any_existing_sanctioned_row = tuple(
+        d for d in registry.destinations if d.n_id != SANCTIONED
+    )
     return dataclasses.replace(
-        registry, destinations=registry.destinations + (landed,)
+        registry, destinations=without_any_existing_sanctioned_row + (landed,)
     )
 
 

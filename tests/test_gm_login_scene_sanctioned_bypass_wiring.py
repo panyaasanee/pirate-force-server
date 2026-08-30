@@ -73,14 +73,28 @@ def _legacy():
 
 
 def _registry_with_sanctioned_row():
-    """Lane A's registry with the scene-126 row landed, barred at login."""
+    """Lane A's registry with the scene-126 row landed, barred at login.
+
+    Filters out any row already carrying `n_id == SANCTIONED` before
+    appending the synthetic one (fixed round `2f9xji`, per lane A's
+    `notes_to_chief/20260830_2112_LANE-A-BLOCKER-*`).  Without the filter,
+    the day lane A's real registry row for `SANCTIONED` lands on disk,
+    `SceneRegistry.__getitem__`'s linear scan would return that REAL row
+    instead of this synthetic one for every `registry[SANCTIONED]` lookup,
+    silently changing what this fixture tests without any code here
+    admitting it -- see the identical fix and full explanation in
+    `test_gm_login_scene_sanctioned_admission.py::registry_with_sanctioned_row`.
+    """
     registry = world_scene_travel.load_scene_registry()
     source = registry[BARRED_NOT_SANCTIONED]
     landed = dataclasses.replace(
         source, n_id=SANCTIONED, login_entry_allowed=False,
     )
+    without_any_existing_sanctioned_row = tuple(
+        d for d in registry.destinations if d.n_id != SANCTIONED
+    )
     return dataclasses.replace(
-        registry, destinations=registry.destinations + (landed,)
+        registry, destinations=without_any_existing_sanctioned_row + (landed,)
     )
 
 
@@ -319,13 +333,27 @@ class SanctionedBypassWiringTests(unittest.TestCase):
         resolve of the character's OWN stored row -- which here names
         barred scene 17 and must stay refused (no-gos #2 and #3 at once).
         """
+        # Same duplicate-id fix as `_registry_with_sanctioned_row` above,
+        # applied here too because this test builds its OWN inline registry
+        # instead of calling that helper -- this was the exact test lane A's
+        # blocker letter named as a fixture bug (not a stale expected
+        # value): without the filter, the day lane A's real spawn-bearing
+        # row for `SANCTIONED` lands on disk, `registry[SANCTIONED]` would
+        # return the REAL (spawn-bearing) row instead of this spawnless
+        # stand-in, the probe would never hit the no-spawn refusal this test
+        # exists to drive, and the second-conjunct guard it pins
+        # (`gm_sanctioned_bypass AND login_scene_override is not None`)
+        # would go untested again without the suite turning red to say so.
         registry = world_scene_travel.load_scene_registry()
         source = registry[BARRED_NOT_SANCTIONED]
         spawnless_sanctioned = dataclasses.replace(
             source, n_id=SANCTIONED, login_entry_allowed=False, spawn=None,
         )
+        without_any_existing_sanctioned_row = tuple(
+            d for d in registry.destinations if d.n_id != SANCTIONED
+        )
         self.registry = dataclasses.replace(
-            registry, destinations=registry.destinations + (
+            registry, destinations=without_any_existing_sanctioned_row + (
                 spawnless_sanctioned,
             ),
         )

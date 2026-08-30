@@ -4744,3 +4744,39 @@ error message and added coverage, nothing a tester watching a live game session 
 **NONCLAIM:** ไม่มีการเปิด client ไม่มีการวัดกับไคลเอนต์จริง ไม่มีบรรทัดใดของ GM ไปถึงไวร์เพิ่มขึ้นจาก
 รอบนี้ -- `warp`/`npc`/`item`/`lv`/`spawn`/`say` ทั้งหมดยังทำงานเหมือนเดิมทุกประการ รอบนี้เป็นการ
 ทำความสะอาด error-contract และเทสล้วน ๆ ไม่มีการใช้ GM ข้ามขั้นตอนใดเลย เพราะไม่มีการทดสอบไคลเอนต์จริง
+
+## รอบ `2f9xji` (2026-08-30T22:18+07:00) -- sanctioned-row fixture dedup fix
+
+**บริบท:** GM-001 (`gm/accounts.py`, `gm/state_wire.py` สำหรับ `GM_UpdateGMStateVital` 0x5A19) และ
+CORE-REQUEST-GM-001 ถูกสร้าง/ตอบ/ต่อสายไปแล้วตั้งแต่รอบก่อน ๆ (ดู `notes_to_chief/20260826_2047_
+CHIEF-REPLY-GM-CORE-REQUEST-GM-001-already-tracked-as-RE-089` และ CORE-REQUEST-016/020 ที่ตามมา) --
+รอบนี้ไม่สร้างซ้ำ. คำสั่งของรอบนี้ (แม่แบบ "build GM-001") เป็นแม่แบบรอบเปิดสายที่ล้าสมัยเทียบกับสถานะ
+จริงของ repo (ถึงรอบ ~248/GM-042); ดู `pf_bridge/rounds/GM_20260830_2218_sanctioned-row-fixture-
+dedup-fix.md` สำหรับเหตุผลเต็ม.
+
+**สิ่งที่ทำจริง:** สาย A (`notes_to_chief/20260830_2112_LANE-A-BLOCKER-*`) พบว่า `pirate-force-
+server#332` (เพิ่มแถวทะเบียนฉาก 126) gate แดง 20 เทสของสาย GM เอง -- 18 ใบเป็นค่าคาดหวังที่ตั้งใจพลิก
+เมื่อแถวจริงลง (`TheSanctionAdmitsNothingOnMainTodayTests` และญาติ), 2 ใบเป็นบั๊ก fixture จริง:
+`registry_with_sanctioned_row()`/`_registry_with_sanctioned_row()` ต่อแถวจำลองท้าย `.destinations`
+โดยไม่กรองแถวจริงที่ id ซ้ำออกก่อน -- `SceneRegistry.__getitem__` เป็น linear scan คืนแถวแรกที่ตรง
+ทำให้วันที่แถวจริงลง แถวจำลองจะถูกแถวจริงบังเงียบ ๆ
+
+แก้ทั้งสามไฟล์ที่มีรูปแบบเดียวกัน (`test_gm_login_scene_sanctioned_admission.py`,
+`test_gm_login_scene_sanctioned_bypass_wiring.py` สองจุด, `test_gm_login_scene_sanctioned_barred.py`)
+ให้กรองแถว `n_id == SANCTIONED` เดิมออกก่อน append เสมอ + เพิ่มเทส regression
+`TheFixtureDoesNotDuplicateOnceLaneALandsTests` จำลองสภาวะ "แถวลงแล้ว" ด้วยการ patch
+`load_scene_registry` (ไม่แตะไฟล์ทะเบียนจริงของสาย A เลย) ยืนยันว่าแถวจำลองชนะ lookup เสมอ
+
+**ทดสอบ:** `pytest tests/ -k "gm_" -q` = 1053 passed (เพิ่ม 1 จากเทส regression ใหม่), 0 failed. เทส
+เต็ม `pytest tests/ -q` = 5574 passed, 327 skipped, 0 failed. พฤติกรรมวันนี้ (ไม่มีแถว 126 บน main) ไม่
+เปลี่ยนเลย -- การกรองไม่มีผลเมื่อไม่มีแถวซ้ำ
+
+**ยังไม่แก้ (ของสาย A/chief ต่อ):** 18 เทสค่าคาดหวังที่ตั้งใจพลิกยังไม่ได้แตะ -- ต้องรอแถวจริงลง
+(cherry-pick `b5ca2b6` จาก branch `claude/sleepy-ride-kpz6vo`) แล้วรัน gate เต็มจริงถึงจะรู้ว่าค่าไหน
+ต้องพลิกเป็นอะไร เดาไม่ได้โดยไม่มีข้อมูลจริง
+
+**ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้:** ไม่มี -- รอบนี้แก้ fixture ของเทสเท่านั้น ไม่มีพฤติกรรมที่
+สังเกตได้จากภายนอกเปลี่ยนแปลง
+
+**NONCLAIM:** ไม่มีการเปิด client ไม่มีการวัดกับไคลเอนต์จริง ไม่แตะ `runtime.py`/`app.py`/
+`pf_login_game_server_v141.py` และไม่แตะ `scenarios/world_*.json`/`scenarios/combat_*.json` ของสายอื่น

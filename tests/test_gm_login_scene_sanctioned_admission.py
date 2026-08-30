@@ -133,6 +133,28 @@ def registry_with_sanctioned_row(*, login_entry_allowed=False, spawn=True):
     rehearsal of lane A's row.  When that row lands, what proves the route
     is `TheSanctionAdmitsNothingOnMainTodayTests` going red against the
     real registry, not this stand-in going green.
+
+    THE DUPLICATE-ID BUG THIS FUNCTION USED TO HAVE (found by lane A,
+    `notes_to_chief/20260830_2112_LANE-A-BLOCKER-*`, fixed this round --
+    round `2f9xji`).  `base` is `world_scene_travel.load_scene_registry()`
+    -- THE REAL REGISTRY ON DISK.  The day lane A's own row for
+    `SANCTIONED` lands there, `base.destinations` already contains a row
+    with `n_id == SANCTIONED`, and appending this stand-in on top used to
+    make the registry hold TWO rows sharing that id.
+    `SceneRegistry.__getitem__` is a linear scan that returns the FIRST
+    match, so every caller that indexes `registry[SANCTIONED]` (and
+    `sanctioned_barred_blocker`, `single_use_entry_is_admissible`,
+    `resolve_entry` all do) would silently start reading lane A's REAL row
+    instead of the stand-in this function was asked to build -- a
+    `spawn=False` stand-in meant to pin `BLOCKER_NO_PINNED_SPAWN` would
+    instead read the real row's real spawn and pin the wrong blocker,
+    invisibly, on whichever day lane A merges.  Filtering any existing
+    `SANCTIONED` row out of `base.destinations` before appending the
+    stand-in makes this function's own row the one every reader finds,
+    identically whether lane A's row exists on disk yet or not -- proven
+    against a synthetic duplicate by
+    `TheFixtureDoesNotDuplicateOnceLaneALandsTests` below, since the real
+    duplicate cannot be constructed here without lane A's row on disk.
     """
     base = world_scene_travel.load_scene_registry()
     template = base[world_scene_travel.HOME_SCENE_ID]
@@ -142,7 +164,60 @@ def registry_with_sanctioned_row(*, login_entry_allowed=False, spawn=True):
         login_entry_allowed=login_entry_allowed,
         spawn=SANCTIONED_SPAWN_PER_CHIEF_DECISION if spawn else None,
     )
-    return world_scene_travel.SceneRegistry(destinations=base.destinations + (row,))
+    without_any_existing_sanctioned_row = tuple(
+        d for d in base.destinations if d.n_id != SANCTIONED
+    )
+    return world_scene_travel.SceneRegistry(
+        destinations=without_any_existing_sanctioned_row + (row,)
+    )
+
+
+@requires_a_sanctioned_scene
+class TheFixtureDoesNotDuplicateOnceLaneALandsTests(unittest.TestCase):
+    """Regression pin for the duplicate-id fixture bug, fixed round `2f9xji`.
+
+    Simulates the day lane A's row lands WITHOUT touching lane A's own file
+    (`scenarios/world_scene_registry_001.json` is out of this lane's write
+    zone): patches `world_scene_travel.load_scene_registry` -- the same
+    seam `registry_with_sanctioned_row` itself reads through -- so its
+    internal call returns a registry that ALREADY carries a row for
+    `SANCTIONED`, given a property (`login_entry_allowed=True`) that
+    differs from this function's own default stand-in (`False`), so the
+    two are distinguishable at the lookup.
+
+    BEFORE THE FIX: `registry_with_sanctioned_row()` appended its stand-in
+    onto `base.destinations` without removing the already-landed row, so
+    the registry held two rows sharing `n_id == SANCTIONED` and
+    `SceneRegistry.__getitem__`'s linear scan returned the FIRST one --
+    the landed row, not the stand-in the caller asked for.  This test
+    reproduces that shape and pins the fixed behaviour: the stand-in wins,
+    and no duplicate remains.
+    """
+
+    def test_the_landed_row_does_not_shadow_the_stand_in(self):
+        already_landed = registry_with_sanctioned_row(login_entry_allowed=True)
+        from unittest import mock
+
+        with mock.patch.object(
+            world_scene_travel, "load_scene_registry",
+            return_value=already_landed,
+        ):
+            stand_in = registry_with_sanctioned_row()  # default: False
+
+        self.assertFalse(
+            stand_in[SANCTIONED].login_entry_allowed,
+            "the stand-in this call asked for (login_entry_allowed=False) "
+            "must win the lookup even though the simulated already-landed "
+            "row (login_entry_allowed=True) sorts first in .destinations "
+            "-- this is the exact shadowing the duplicate-id bug caused",
+        )
+        self.assertEqual(
+            1,
+            sum(1 for d in stand_in.destinations if d.n_id == SANCTIONED),
+            "exactly one row for the sanctioned id may remain after "
+            "building the stand-in -- a leftover duplicate is the bug "
+            "even on the call where the lookup happens to pick right",
+        )
 
 
 @requires_a_sanctioned_scene
