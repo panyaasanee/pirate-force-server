@@ -7,29 +7,34 @@ required test shape (COO's own words): drive the REAL dispatcher both ways --
 "no responder = withhold stands, responder present = the NPC is actually
 clickable/answerable".
 
-WHY "RESPONDER PRESENT" IS NOT DRIVEN THROUGH ``state.dispatch()`` FOR THE
-CLICK ITSELF, AND WHY THAT IS MEASURED HERE RATHER THAN ASSERTED IN PROSE.
-Building this responder does not, on its own, make the frozen dispatcher
-consult it: ``runtime.py``'s ``super().dispatch(parsed)`` is the ONLY thing
-that answers a real ``ChooseNPC`` click today, unconditionally, before any
-lane code runs, and its handler loops over the WHOLE of
-``self.population_indices`` doing an unconditional
-``PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS``-keyed lookup for every one of them --
-16 of scene 14's 81 composed indices have no row there.
-``TheCrashThisModuleGuardsAgainstTests`` below arms real scene-14 membership
-on the REAL dispatcher (by forcing ``lane_a_choose_npc_scene14``'s gate open
-for that one test only) and drives a REAL ChooseNPC frame for an actor that
-IS in the frozen table, through ``state.dispatch()`` itself -- and it still
-raises ``KeyError``, because the loop touches every index, not just the one
-clicked.  That is why ``lane_a_choose_npc_scene14.production_allowed`` is
-``False`` by default (see that module's own docstring) and why
-``TheResponderAnswersDirectlyTests`` below drives the responder's own
-``respond()`` function directly, with the REAL armed ``population_indices``
-and the REAL identities ``legacy.extract_choose_npc_identities`` pulls out
-of a REAL ChooseNPC wire frame, rather than through ``state.dispatch()``:
-the seam that would let ``state.dispatch()`` reach ``respond()`` instead of
-the frozen loop is the CORE-REQUEST in this round's PR body, not yet landed.
-Every OTHER piece here is real production code, not a double.
+THE runtime.py SEAM HAS LANDED (chief, round `hd6tac`/R237, answering this
+lane's `20260830_0909` CORE-REQUEST) -- THE PARAGRAPH BELOW DESCRIBES THE
+STATE BEFORE IT, KEPT FOR WHY THE GATE STILL MATTERS.  Before this round,
+``runtime.py``'s ``super().dispatch(parsed)`` was the ONLY thing that
+answered a real ``ChooseNPC`` click, unconditionally, before any lane code
+ran, and its handler loops over the WHOLE of ``self.population_indices``
+doing an unconditional ``PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS``-keyed lookup
+for every one of them -- 16 of scene 14's 81 composed indices have no row
+there.  ``runtime.py`` now checks, ahead of that inherited call, whether the
+session's current scene has a REGISTERED and ALLOWED
+``lane_hooks.scene_choose_npc_responder``, and if so answers through it
+INSTEAD of ever running the frozen loop for that frame --
+``TheGuardAnsweredTheClickInsteadOfCrashingTests`` below proves it, on the
+REAL dispatcher, with the gate forced open for that one test only (the same
+force ``TheCrashThisModuleGuardsAgainstTests`` used to use to prove the
+crash; this file keeps that test's name history in that class's own
+docstring rather than pretending the crash was never measured).
+
+``lane_a_choose_npc_scene14.production_allowed`` STAYS ``False`` in this
+round regardless -- the seam existing does not, by itself, make it safe to
+flip: see that module's own docstring for what is still true about it
+before flipping.  ``TheResponderAnswersDirectlyTests`` below still drives
+the responder's own ``respond()`` function directly (real armed
+``population_indices``, real identities via
+``legacy.extract_choose_npc_identities``) because that is the fastest,
+narrowest way to pin the responder's OWN logic without also depending on
+``runtime.py``'s guard existing -- both are exercised in this file now, at
+different layers, and neither replaces the other.
 """
 from __future__ import annotations
 
@@ -40,6 +45,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -86,6 +92,24 @@ def _target_pos_pc(legacy, xyz, heading=0.0, moving=0, derived=0):
         + b"".join(legacy.f32tag(value) for value in (*xyz, heading))
         + legacy.u8tag(0x0B, moving)
         + legacy.u8tag(0x0B, derived)
+    )
+
+
+def _target_vital_pc(legacy, actor_id, kind=0):
+    """One bare TARGET_VITAL frame (v141's `parse_target_vital` shape) --
+    no ChooseNPC record attached, so `extract_choose_npc_identities` finds
+    no identity in it and only v141's own arming side effect
+    (`action_target_last_identity` et al., v141:3788-3811) is at stake."""
+    return (
+        legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_REQ)
+        + legacy.u32tag(0x14, 0)
+        + legacy.u8tag(0x08, 0)
+        + legacy.u8tag(0x0B, 2)
+        + legacy.u16tag(0x12, 1)
+        + legacy.u16tag(0x12, legacy.TARGET_VITAL)
+        + legacy.u8tag(0x0B, 0)
+        + legacy.qwordtag(0x32, actor_id)
+        + legacy.u8tag(0x08, kind)
     )
 
 
@@ -504,15 +528,27 @@ class OnTheRealDispatcherBothWaysTests(unittest.TestCase):
         self.assertTrue(answer.frame)
 
 
-class TheCrashThisModuleGuardsAgainstTests(unittest.TestCase):
-    """MEASURED, NOT ASSERTED: what happens on the REAL dispatcher if
-    membership is armed for scene 14 with no runtime.py guard in front of
-    the frozen ChooseNPC handler -- the exact reason
-    ``lane_a_choose_npc_scene14.production_allowed`` is ``False`` and the
-    exact reason ``_membership_if_answerable`` reads that flag before
-    arming anything.  Forces the gate open for this ONE test, restores it
-    on cleanup, and proves the CORE-REQUEST in this round's PR body is not
-    a hypothetical.
+class TheGuardAnsweredTheClickInsteadOfCrashingTests(unittest.TestCase):
+    """MEASURED, NOT ASSERTED: what happens on the REAL dispatcher, now that
+    ``runtime.py`` (chief, round `hd6tac`/R237) checks
+    ``lane_hooks.scene_choose_npc_responder`` ahead of the inherited
+    ``super().dispatch(parsed)`` call.
+
+    RENAMED FROM ``TheCrashThisModuleGuardsAgainstTests``, kept in this
+    file's history rather than deleted: before this round, this exact test
+    -- same fixture, same forced gate, same clicked actor -- asserted
+    ``self.assertRaises(KeyError)``, and that assertion was true right up
+    until the guard landed (see the CHIEF-REPLY-shaped comment in
+    ``runtime.py`` at the call site for why the inherited branch's crash was
+    never a hypothetical: it looped over the WHOLE of
+    ``self.population_indices``, not only the clicked actor, so 16 of scene
+    14's 81 composed indices missing from
+    ``PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS`` doomed the FIRST click on ANY of
+    the 81, not just the missing ones).  ``lane_a_choose_npc_scene14.
+    production_allowed`` still forced ``True`` here and ONLY here, the same
+    way the old test forced it, because the module's own default of
+    ``False`` is a separate decision this round does not revisit (see that
+    module's docstring).
     """
 
     @classmethod
@@ -536,7 +572,7 @@ class TheCrashThisModuleGuardsAgainstTests(unittest.TestCase):
             QUALIFIED_MODULE, False,
         )
 
-    def test_a_real_click_still_crashes_the_real_dispatcher_today(self):
+    def _armed_state_on_scene_14(self, token):
         legacy = self.legacy
         lifecycle = CharacterLifecycle(
             self.store,
@@ -547,9 +583,9 @@ class TheCrashThisModuleGuardsAgainstTests(unittest.TestCase):
             legacy.extract_avatar_attr_wire_from_actor,
         )
         state_type = make_state_class(legacy, lifecycle, LegacyProjector(legacy))
-        state = state_type("choose-npc-crash-proof")
+        state = state_type(token)
         state.dispatch(legacy.parse_outer(
-            legacy._synthetic_client_login_pc("choose-npc-crash-proof")))
+            legacy._synthetic_client_login_pc(token)))
         state.dispatch(legacy.parse_outer(legacy._V25_REAL_CREATE_PC))
         character = self.store.list_characters(
             state.foundation.account_id)[-1]
@@ -569,21 +605,185 @@ class TheCrashThisModuleGuardsAgainstTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             state.dispatch(legacy.parse_outer(_target_pos_pc(legacy, spawn)))
         self.assertIsNotNone(state.population_indices)
+        return state
+
+    def test_a_real_click_is_answered_instead_of_crashing_the_dispatcher(
+        self,
+    ):
+        legacy = self.legacy
+        state = self._armed_state_on_scene_14("choose-npc-crash-proof")
 
         by_idx = {
             row[0]: row for row in legacy.PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS
         }
-        # Even a placement PRESENT in bg0001 crashes: v141's
-        # make_v98_conversation_face_state loops over the WHOLE of
-        # population_indices, not only the clicked one.
+        # A placement PRESENT in bg0001 -- before the guard, this crashed
+        # too, because the inherited loop touched every index, not just the
+        # one clicked.  The guard now answers it directly and the inherited
+        # branch never runs for this frame at all.
         present_idx = next(
             idx for idx in state.population_indices if idx in by_idx
         )
         actor_identity = 0x2000 + present_idx + 1
         with contextlib.redirect_stdout(io.StringIO()):
-            with self.assertRaises(KeyError):
-                state.dispatch(legacy.parse_outer(
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                actions = state.dispatch(legacy.parse_outer(
                     _choose_npc_pc(legacy, actor_identity)))
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(
+            actions[0][0],
+            f"LANE_A_CHOOSE_NPC_SCENE{VOLCANO}_FACE_P{present_idx}",
+        )
+        self.assertTrue(actions[0][1])
+        self.assertTrue(actions[0][2])
+        self.assertIn("LANE_HOOK_FIRED", err.getvalue())
+        self.assertIn(
+            f"LANE_A_CHOOSE_NPC_SCENE{VOLCANO}_ANSWERED", err.getvalue(),
+        )
+
+        # AND A MISSING PLACEMENT -- the one the inherited branch could
+        # never have survived at all -- is answered too, not merely spared.
+        missing_idx = next(
+            idx for idx in state.population_indices if idx not in by_idx
+        )
+        missing_identity = 0x2000 + missing_idx + 1
+        with contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()):
+            missing_actions = state.dispatch(legacy.parse_outer(
+                _choose_npc_pc(legacy, missing_identity)))
+        self.assertEqual(len(missing_actions), 1)
+        self.assertEqual(
+            missing_actions[0][0],
+            f"LANE_A_CHOOSE_NPC_SCENE{VOLCANO}_FACE_P{missing_idx}",
+        )
+
+    def test_a_multi_select_click_answers_only_the_first_identity(self):
+        """MEASURED GAP (pf-adversary, round `hd6tac`), pinned rather than
+        fixed: the frozen path answers EVERY distinct identity a multi-select
+        ChooseNPC frame names (v141:4408, one frame each), but every
+        registered responder returns at most one `ChooseNpcResponse` per
+        call -- built to try each named identity until ONE answers, not to
+        answer all of them.  A claimed scene therefore degrades a
+        multi-select click to a single answer instead of sending several.
+        This test exists to catch that gap getting SILENTLY WORSE (e.g.
+        zero answers instead of one), not to prove it acceptable -- see the
+        runtime.py guard's own comment for why it is not fixed in this
+        round.
+        """
+        state = self._armed_state_on_scene_14("choose-npc-multi-select")
+        by_idx = {
+            row[0]: row for row in self.legacy.PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS
+        }
+        # Index 1 is `columbus_quest_dispatch.COLUMBUS_PLACEMENT_INDEX` --
+        # an entirely unrelated, already-wired additive branch
+        # (`_dispatch_columbus_quest3021`) answers a click naming Columbus's
+        # own actor identity regardless of scene, appending a SECOND action
+        # this test is not about.  Excluded here so the count below isolates
+        # this guard's own behaviour, not a coincidence of shared index
+        # numbering between two unrelated features (measured: without this
+        # exclusion the "first two present indices" on this fixture are 0
+        # and 1, and 1 IS Columbus's).
+        present = [
+            idx for idx in state.population_indices
+            if idx in by_idx and idx != 1
+        ]
+        self.assertGreaterEqual(len(present), 2)
+        first_identity = 0x2000 + present[0] + 1
+        second_identity = 0x2000 + present[1] + 1
+        with contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()):
+            actions = state.dispatch(self.legacy.parse_outer(
+                _choose_npc_pc(self.legacy, first_identity, second_identity)
+            ))
+        # The frozen dispatcher would have answered BOTH (two actions); the
+        # claimed-scene guard answers only the first-tried identity.
+        face_actions = [
+            a for a in actions
+            if a[0].startswith(f"LANE_A_CHOOSE_NPC_SCENE{VOLCANO}_FACE_")
+        ]
+        self.assertEqual(len(face_actions), 1)
+        self.assertEqual(
+            face_actions[0][0],
+            f"LANE_A_CHOOSE_NPC_SCENE{VOLCANO}_FACE_P{present[0]}",
+        )
+
+    def test_claiming_a_target_vital_frame_skips_v141s_own_arming(self):
+        """MEASURED GAP (pf-adversary, round `hd6tac`), pinned rather than
+        fixed: v141:3788-3811 unconditionally arms
+        `action_target_last_identity` / `_last_kind` / `p30_action_target_
+        armed` on every TARGET_VITAL frame, read later by its own
+        ACTION_VITAL handling.  A claimed scene never calls
+        `super().dispatch(parsed)` at all for that frame, so this arming
+        never happens.  Harmless for scene 14 today only because
+        `exact_p30_target`'s strict match wants an arena-harness identity
+        this scene's real actors do not have -- INCIDENTAL, not designed
+        for.  See the runtime.py guard's own comment for the full warning
+        any future scene must read before flipping its own
+        `production_allowed`.
+        """
+        state = self._armed_state_on_scene_14("choose-npc-target-vital-arm")
+        self.assertIsNone(state.action_target_last_identity)
+        self.assertFalse(state.p30_action_target_armed)
+        present_identity = 0x2000 + state.population_indices[0] + 1
+        with contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()):
+            state.dispatch(self.legacy.parse_outer(
+                _target_vital_pc(self.legacy, present_identity)
+            ))
+        # The frozen path would have set this to `present_identity`
+        # (v141:3799); the claimed scene's guard never reaches that code.
+        self.assertIsNone(state.action_target_last_identity)
+        self.assertFalse(state.p30_action_target_armed)
+
+    def test_a_click_the_responder_declines_sends_no_bytes_and_is_named(
+        self,
+    ):
+        """An identity outside `population_indices` gets no honest answer
+        (the responder's own fail-closed rule) -- the guard's job is only to
+        route to the responder, not to invent a frame when it declines."""
+        state = self._armed_state_on_scene_14("choose-npc-declined")
+        outside_identity = 0x2000 + max(state.population_indices) + 1000
+        with contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()):
+            actions = state.dispatch(self.legacy.parse_outer(
+                _choose_npc_pc(self.legacy, outside_identity)))
+        self.assertEqual(actions, [])
+        self.assertIn("scene_choose_npc_responder_declined", state.events)
+
+    def test_a_raising_responder_does_not_break_the_connection(self):
+        """fail-closed at the guard's call site, not only inside the
+        responder's own try/except -- the same shape
+        tests/test_gm_chat_command_dispatch_wiring.py pins for the GM chat
+        route."""
+        state = self._armed_state_on_scene_14("choose-npc-raises")
+        present_identity = 0x2000 + state.population_indices[0] + 1
+
+        def _boom(*_args, **_kwargs):
+            raise RuntimeError("responder is broken")
+
+        # The registry stores the FUNCTION OBJECT at registration time
+        # (`ChooseNpcResponder(module_name, fn)`), not a live attribute
+        # lookup on `responder_mod` -- so the raising double has to replace
+        # the registry entry itself, the same way `setUp` installed the
+        # real one.
+        with mock.patch.dict(
+            lane_hooks._SCENE_CHOOSE_NPC_RESPONDERS,
+            {VOLCANO: lane_hooks.ChooseNpcResponder(QUALIFIED_MODULE, _boom)},
+        ):
+            with contextlib.redirect_stdout(io.StringIO()), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                actions = state.dispatch(self.legacy.parse_outer(
+                    _choose_npc_pc(self.legacy, present_identity)))
+                # The connection survives and keeps serving later frames.
+                later = state.dispatch(self.legacy.parse_outer(
+                    self.legacy._synthetic_client_login_pc(
+                        "choose-npc-raises"
+                    )
+                ))
+        self.assertEqual(actions, [])
+        self.assertIn(
+            "scene_choose_npc_responder_failed_RuntimeError", state.events,
+        )
+        self.assertIsInstance(later, list)
 
 
 if __name__ == "__main__":

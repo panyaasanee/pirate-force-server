@@ -6654,7 +6654,137 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.population_indices,
                 self.population_refresh_anchor,
             )
-            actions = super().dispatch(parsed)
+            # CORE-REQUEST (LANE-A, letter 20260830_0909).  A scene with a
+            # REGISTERED and ALLOWED lane_hooks ChooseNPC responder answers
+            # TARGET_VITAL/CHOOSE_NPC itself instead of letting the
+            # inherited branch below (v141:4395) run at all -- see
+            # lane_hooks/lane_a_choose_npc_scene14.py's module docstring for
+            # the exact KeyError that branch raises uncaught, unconditionally
+            # over every entry of population_indices, the moment a scene's
+            # real membership includes one index its own hardcoded
+            # PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS table lacks.  Inert today: no
+            # scene's responder module has production_allowed = True, so
+            # module_production_allowed(...) is False and this branch never
+            # takes over -- one registry lookup and a no-op on every other
+            # frame, the same inert-until-a-lane-flips-its-own-flag shape
+            # CORE-REQUEST-GM-040's hook takes just below in this file.
+            #
+            # !! pf-adversary (round `hd6tac`, MEASURED, not fixed here) --
+            # TWO gaps a lane MUST read before flipping its own responder's
+            # production_allowed, because skipping `super().dispatch(parsed)`
+            # entirely skips everything else v141 does for that ONE frame,
+            # not only the crash-prone ChooseNPC loop:
+            #
+            # (1) v141:3788-3816 unconditionally arms
+            # `self.action_target_last_identity` / `_last_kind` /
+            # `p30_action_target_armed` on every TARGET_VITAL frame, read
+            # later by its own ACTION_VITAL handling (`exact_p30_target`,
+            # v141:3818-3862) to gate `exact_target_bound_wield_action`.  A
+            # claimed scene never arms these for that frame -- repro'd live:
+            # `action_target_last_identity` stayed `None` through a claimed
+            # click that would have set it.  Harmless for scene 14 today
+            # only because `exact_p30_target`'s strict match wants an
+            # arena-harness identity/index shape scene 14's real actors do
+            # not have -- INCIDENTAL, not designed for.  A future scene
+            # whose players use melee/skill targeting on the SAME connection
+            # a responder claims must re-check this before flipping its flag.
+            #
+            # (2) `legacy.extract_choose_npc_identities` can name MORE THAN
+            # ONE actor in a single frame (multi-select), and the frozen
+            # path answers each distinct one with its own frame
+            # (v141:4408).  Every responder in this registry today
+            # (`ChooseNpcResponder.respond`) returns at most ONE
+            # `ChooseNpcResponse` per call -- built to try each named
+            # identity until ONE answers, not to answer all of them -- so a
+            # multi-select click through a claimed scene sends one frame
+            # where the inherited path would have sent several.  Degrades
+            # gracefully (one honest answer beats a crash) but is not full
+            # parity; `tests/test_lane_a_choose_npc_scene14.py::
+            # TheGuardAnsweredTheClickInsteadOfCrashingTests::
+            # test_a_multi_select_click_answers_only_the_first_identity`
+            # pins this exact shape so it cannot silently get worse.
+            #
+            # Neither gap is fixed here: (1) has no safe fix without either
+            # duplicating v141's arming logic (a second copy of frozen state
+            # this project has refused elsewhere) or running `super().
+            # dispatch()` and catching the crash mid-call, which this round
+            # does not attempt; (2) needs `ChooseNpcResponse` to become a
+            # collection to fix, a `lane_hooks`/lane_a design change outside
+            # a runtime.py guard's scope.
+            scene_choose_npc_responder = None
+            if (
+                nested_id in (legacy.TARGET_VITAL, legacy.CHOOSE_NPC)
+                and self.foundation.selected is not None
+            ):
+                candidate = lane_hooks.scene_choose_npc_responder(
+                    self.foundation.selected.position.scene_id
+                )
+                if candidate is not None and (
+                    lane_hooks.module_production_allowed(candidate.module)
+                ):
+                    scene_choose_npc_responder = candidate
+            if scene_choose_npc_responder is not None:
+                try:
+                    chosen_identities = tuple(
+                        legacy.extract_choose_npc_identities(parsed)
+                    )
+                except Exception as error:  # noqa: BLE001 - fail-closed:
+                    # a malformed frame this lane cannot parse must never
+                    # take the listener thread down for every player.
+                    self.events.append(
+                        "scene_choose_npc_responder_parse_error_"
+                        f"{type(error).__name__}"
+                    )
+                    chosen_identities = ()
+                response = None
+                if chosen_identities:
+                    # WIRED-v2 evidence, on the production path, only for a
+                    # frame this branch actually hands to the responder --
+                    # not merely because the guard condition matched, the
+                    # same distinction gm/chat_command_action.py's own
+                    # CONSOLE_TOKEN comment draws.
+                    lane_hooks.announce_direct_fire(
+                        scene_choose_npc_responder.module,
+                        "scene_choose_npc_responder",
+                    )
+                    try:
+                        response = scene_choose_npc_responder.respond(
+                            legacy=legacy,
+                            chosen_identities=chosen_identities,
+                            population_indices=self.population_indices,
+                            last_target_pos=self.last_target_pos,
+                            scene_id=self.foundation.selected.position.scene_id,
+                            scene_entry_registry=scene_entry_registry,
+                        )
+                    except Exception as error:  # noqa: BLE001 - a lane's
+                        # responder must never take the listener thread down
+                        # for every player; named, not silent.
+                        self.events.append(
+                            "scene_choose_npc_responder_failed_"
+                            f"{type(error).__name__}"
+                        )
+                        response = None
+                if response is not None:
+                    # Console-proof-before-frame, the same discipline the
+                    # census call site uses for a lane's own printed lines.
+                    for line in response.console_lines:
+                        print(
+                            lane_hooks.console_safe(line), file=sys.stderr,
+                        )
+                    actions = [
+                        (response.label, response.pc, response.frame,
+                         response.delay),
+                    ]
+                else:
+                    # No honest answer for this click (nothing chosen, or
+                    # every named identity declined) -- this scene has
+                    # claimed the vital family, so the frozen branch's own
+                    # crash-prone loop is skipped regardless, the same as an
+                    # ordinary refusal: no bytes, not an invented frame.
+                    self.events.append("scene_choose_npc_responder_declined")
+                    actions = []
+            else:
+                actions = super().dispatch(parsed)
             # The frozen branch is the "fifth line" -- it queues
             # scene-1-shaped actors without reading what scene the session
             # is in.  It cannot be edited (v141 is pinned) and cannot be
@@ -6742,6 +6872,55 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # first line at which `actions` exists on a chat frame's path.
                 # Shape is gm_state_action's: (label, pc, frame, delay_before).
                 actions = actions + [gm_action]
+                # CORE-REQUEST-GM-040.  The one-bit "append really happened"
+                # signal gm/commands.py's OUTCOME_QUEUED has waited on since
+                # CORE-REQUEST-GM-032 item 3: this line is the only place that
+                # ever runs the append above, so it is the only honest place
+                # to say so.  Deliberately a value this lane (gm/, via
+                # chat_command_action.make_gm_chat_command_action) sets on
+                # itself before returning the action tuple -- chief only
+                # FIRES it here, never reads back anything shaped by gm/'s
+                # own code beyond the pairing below.  Nothing sets this
+                # today, so this block is inert: one getattr and a no-op,
+                # every frame, until a future GM-lane round wires the
+                # setter.
+                #
+                # BOUND TO THE SPECIFIC ACTION, NOT A BARE "SOMETHING IS
+                # PENDING" FLAG -- pf-adversary's own review of the first
+                # version of this hook (round `hd6tac`, D1/D2) measured why
+                # that matters: a callback set for a composed-then-withheld
+                # action (`gm_action is None` that same call, so the append
+                # above never ran for it) stayed on `self` unfired, and a
+                # bare flag would have let it fire against the NEXT frame's
+                # unrelated append instead -- crediting one player's command
+                # with a different one's confirmation.  The pairing is
+                # `(the exact gm_action object, the callback)`; the identity
+                # check below (`is`, not `==`) means a leftover pairing from
+                # a withheld frame can only ever match that same frame's own
+                # object, which by construction is never appended again, so
+                # it can never fire for the wrong action.  Cleared before the
+                # callback runs, not after, so a callback that itself sets a
+                # NEW pairing (for whatever action it names) is never
+                # immediately overwritten by this block's own cleanup.
+                pending_confirm = getattr(
+                    self, "_gm_action_queued_confirm", None
+                )
+                if pending_confirm is not None and pending_confirm[0] is gm_action:
+                    self._gm_action_queued_confirm = None
+                    _, confirm_gm_action_queued = pending_confirm
+                    try:
+                        confirm_gm_action_queued()
+                    except Exception as error:  # noqa: BLE001 - a GM-lane
+                        # confirmation callback must never take the listener
+                        # thread down for every player; named, not silent.
+                        # Grep string, since this event has no declared
+                        # constant (runtime.py's own events are bare string
+                        # literals throughout, unlike gm/'s EVENT_* table):
+                        # "gm_action_queued_confirm_failed_".
+                        self.events.append(
+                            "gm_action_queued_confirm_failed_"
+                            f"{type(error).__name__}"
+                        )
             if (
                 second_password_mode == "bypass"
                 and not self.second_password_bypass_sent
