@@ -351,12 +351,38 @@ class Bg0015Census(unittest.TestCase):
         # 20260829_2245 bans).  One call site per blessed file; a second
         # one anywhere fails here and has to be argued for in a round of
         # its own.
+        # THE THIRD CALLER, ARGUED FOR AS THIS COMMENT DEMANDS (LANE-A, the
+        # M2 crossing-handoff round): world_m2_crossing_handoff.py composes
+        # the handoff the ONE crossing a player can actually take today owes
+        # -- Columbus, row 3021, scene 17 -- which runtime.py's Columbus
+        # branch has never asked the seam for (RE-162 Job 4 found the same
+        # gap independently).  IT REACHES NO PLAYER YET AND THAT IS WHY IT IS
+        # ADMISSIBLE HERE ON A LANE-A ROUND: the call composes bytes for a
+        # console line and returns them to a caller that queues nothing, so
+        # it adds no route to this roster.  It cannot reach this roster in
+        # particular by construction: scene 17 is in
+        # SCENES_INTENTIONALLY_UNPOPULATED, so its answer is a CLEAR, and the
+        # dispatch's destination is a constant.  When the chief's block
+        # starts queueing those bytes, the route that appears is a CLEAR into
+        # scene 17, not a bg0015 roster -- but this census should still be
+        # re-argued in that round rather than inherited from this sentence.
+        #
+        # ONE PER FILE STILL HOLDS, and it was checked by breaking it: the
+        # first draft of crossing_handoff called the seam once per branch and
+        # this assertion caught it (two 'world_m2_crossing_handoff.py'
+        # entries).  It was collapsed to a single call rather than the rule
+        # widened.
         self.assertEqual(
             sorted(site.split(":")[0] for site in call_sites),
-            ["lane_a_scene_census.py", "runtime.py"],
+            [
+                "lane_a_scene_census.py",
+                "runtime.py",
+                "world_m2_crossing_handoff.py",
+            ],
             "the arrival seam's call sites under src/ changed -- this "
             "roster reaches players through ONE call in the lane-owned "
-            "census file and ONE in the chief-owned crossing block: %r"
+            "census file and ONE in the chief-owned crossing block, plus "
+            "ONE compose-only call in the lane-owned M2 crossing report: %r"
             % (call_sites,),
         )
 

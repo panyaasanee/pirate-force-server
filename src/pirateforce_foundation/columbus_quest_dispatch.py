@@ -207,6 +207,7 @@ exact one-line hook needed.
 from __future__ import annotations
 
 from . import population
+from . import world_m2_crossing_handoff
 from . import world_m2_return_leg
 from . import world_population_handoff
 from . import world_scene_entry
@@ -512,7 +513,8 @@ def _emit_arrival_stowaways(entry, *, legacy, held_indices, emit):
 
 
 def dispatch_columbus_quest3021(*, registry=None, emit=print, legacy=None,
-                                held_indices=None, departed_from=None):
+                                held_indices=None, departed_from=None,
+                                crossing_handoff_dispatched=False):
     """The compound action CORE-REQUEST-014 asked for was bind-vehicle-then-
     teleport; what M2 actually ships today, by owner decree, is teleport
     alone.
@@ -590,6 +592,36 @@ def dispatch_columbus_quest3021(*, registry=None, emit=print, legacy=None,
     # in the same field shape as the measured one rather than going quiet.
     emit(world_m2_return_leg.return_leg_console_line(
         entry, departed=departed_from, registry=registry))
+    # THE POPULATION HANDOFF THIS CROSSING OWES AND DOES NOT SEND.  Composed
+    # here, on the default path, for every crossing -- see
+    # ``world_m2_crossing_handoff``'s docstring for the two independent
+    # sources (this lane's own WORLD_POP_STOWAWAYS line, and RE-162 Job 4)
+    # that found the same gap from opposite directions.  For scene 17 the
+    # answer is a 27-byte CLEAR in slot ``before_teleport``; the whole of
+    # Port Royal is on the client until something queues it.
+    #
+    # REPORT ONLY, TODAY.  The bytes exist on this line and go nowhere: this
+    # function returns a ``SceneEntry`` and the caller in ``runtime.py``
+    # composes the outbound action list, so the queueing is a block in the
+    # chief's file (this round's CORE-REQUEST).
+    #
+    # ``crossing_handoff_dispatched`` IS THE ONE-TOKEN FLIP, and it is the
+    # same shape the three keywords above it landed by (``legacy=``,
+    # ``held_indices=``, ``departed_from=``, each a CORE-REQUEST of its own).
+    # It defaults to False because that is currently TRUE - nothing queues
+    # these bytes - and it is a parameter rather than a constant so the edit
+    # that starts queueing them is also the edit that stops the console
+    # claiming otherwise.  A ``dispatched=YES`` printed by a boot that queued
+    # nothing would be worse than no line at all.
+    #
+    # ``held_indices`` is the collection the client is still holding, the same
+    # value the stowaway line above reads, so the two lines cannot disagree
+    # about the number they are both describing.
+    emit(world_m2_crossing_handoff.crossing_handoff_console_line(
+        world_m2_crossing_handoff.crossing_handoff(legacy, entry),
+        dispatched=crossing_handoff_dispatched,
+        held=held_indices,
+    ))
     return entry
 
 
