@@ -273,7 +273,22 @@ class NoSecondLineTests(_Case):
         self.assertEqual(self.lines(err, TOKEN), [], err)
 
     def test_a_sanctioned_but_barred_scene_keeps_its_blocker_line(self):
-        action, err = self.act("/warp 126")
+        # Round R249 (chief, gate-red repair of `pirate-force-server#332`)
+        # landed lane A's real scene-126 row with a pinned spawn, so
+        # `CORE-REQUEST-GM-038`'s single-use widening now ADMITS 126 --
+        # `/warp 126` stages instead of refusing.  The "blocker=" line only
+        # ever prints for `REASON_SANCTIONED_NOT_YET_REACHABLE`
+        # (`chat_command_action.py`), so force exactly that outcome instead
+        # of relying on 126 staying unreachable forever.
+        result = mock.Mock(
+            staged=False,
+            reason=login_scene_stage.REASON_SANCTIONED_NOT_YET_REACHABLE,
+            previous_scene_id=None,
+        )
+        with mock.patch.object(
+            login_scene_stage, "stage_login_scene", return_value=result
+        ):
+            action, err = self.act("/warp 126")
         self.assertIsNone(action)
         self.assertIn("blocker=", err)
         self.assertEqual(self.lines(err, TOKEN), [], err)

@@ -80,6 +80,14 @@ from pirateforce_foundation.model import Position  # noqa: E402
 # this literal moved; the predicate, the refusals below and every dispatcher
 # consequence are untouched.
 ADMISSIBLE_TODAY = (1, 2, 14, 278, 997)
+# The GM-gated (single-use) map's own way out, which is wider than the
+# plain set above by exactly one scene since round R249 (chief, gate-red
+# repair of `pirate-force-server#332`): lane A landed the scene-126
+# registry row, and `CORE-REQUEST-GM-038`'s single-use widening admits it
+# there while the plain rule (and the standalone map, which is never
+# widened -- `COO-DECISION 20260829_0542`) still refuses it.  See
+# `gm/login_scene_admission.py`'s `single_use_entry_is_admissible`.
+SINGLE_USE_ADMISSIBLE_TODAY = tuple(sorted(ADMISSIBLE_TODAY + (126,)))
 HOME = 1
 # In the client's name catalog (so it passes the older check) and pinned
 # `login_entry_allowed: false` -- the exact entry that locked an account out.
@@ -459,7 +467,9 @@ class TheLoaderTests(unittest.TestCase):
         self.assertIn("gm_runner", message)
         self.assertIn(str(BARRED_AT_LOGIN), message)
         # The way out is in the error, not in a doc somebody has to find.
-        self.assertIn(str(ADMISSIBLE_TODAY), message)
+        # The GM-gated map's way out is the SINGLE-USE set, not the plain
+        # one -- see `SINGLE_USE_ADMISSIBLE_TODAY` above.
+        self.assertIn(str(SINGLE_USE_ADMISSIBLE_TODAY), message)
 
     def test_the_standalone_map_refuses_a_barred_scene(self):
         self._write(

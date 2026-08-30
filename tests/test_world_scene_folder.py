@@ -4,7 +4,7 @@ WHAT THESE TESTS ESTABLISH.  That ``world_scene_folder._FOLDER_BY_SCENE_ID``
 is a faithful projection of ``world_data/world_scene_folder_crosswalk.json``,
 that the copy's bytes are the bytes ``COPY_SHA256`` pins, that the addressed id
 set is exactly the registry's, and that the reader is NOT ``model_id`` - the
-defect the module exists to prevent, which is live for six of sixteen scenes.
+defect the module exists to prevent, which is live for six of seventeen scenes.
 
 WHAT THEY DO NOT ESTABLISH.  That the copy matches the client.  The client's
 files are not in this repository; that hop is ``verify_against_sources()`` and
@@ -218,7 +218,8 @@ class TheReaderIsNotModelIdTest(unittest.TestCase):
         ))
         self.assertEqual(lower_is_right, (1, 4, 5, 6))
         self.assertEqual(
-            lower_is_wrong, (2, 3, 7, 8, 9, 10, 11, 14, 17, 130, 278, 997))
+            lower_is_wrong,
+            (2, 3, 7, 8, 9, 10, 11, 14, 17, 126, 130, 278, 997))
         # And the verbatim model id is wrong for the six the module names.
         verbatim_is_wrong = tuple(sorted(
             scene_id for scene_id, folder in wsf._FOLDER_BY_SCENE_ID

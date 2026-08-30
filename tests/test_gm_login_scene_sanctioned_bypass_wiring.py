@@ -79,9 +79,14 @@ def _registry_with_sanctioned_row():
     landed = dataclasses.replace(
         source, n_id=SANCTIONED, login_entry_allowed=False,
     )
-    return dataclasses.replace(
-        registry, destinations=registry.destinations + (landed,)
-    )
+    # `SceneRegistry.__getitem__` is a linear scan: the first row whose
+    # n_id matches wins.  Lane A's real scene-126 row is on main now (PR
+    # #332), so `registry.destinations` already carries one -- appending
+    # this stand-in after it would leave `registry[SANCTIONED]` resolving
+    # to the real row instead of the shape this fixture builds. Drop any
+    # existing row with the same id first.
+    kept = tuple(d for d in registry.destinations if d.n_id != SANCTIONED)
+    return dataclasses.replace(registry, destinations=kept + (landed,))
 
 
 class SanctionedBypassWiringTests(unittest.TestCase):
@@ -324,10 +329,15 @@ class SanctionedBypassWiringTests(unittest.TestCase):
         spawnless_sanctioned = dataclasses.replace(
             source, n_id=SANCTIONED, login_entry_allowed=False, spawn=None,
         )
+        # Same linear-scan hazard as `_registry_with_sanctioned_row()`
+        # above: lane A's real scene-126 row is on main now and has a
+        # spawn, so it must be dropped before appending the spawnless
+        # stand-in this test needs, or `registry[SANCTIONED]` would
+        # resolve to the real (non-spawnless) row and silently defeat the
+        # scenario under test.
+        kept = tuple(d for d in registry.destinations if d.n_id != SANCTIONED)
         self.registry = dataclasses.replace(
-            registry, destinations=registry.destinations + (
-                spawnless_sanctioned,
-            ),
+            registry, destinations=kept + (spawnless_sanctioned,),
         )
         self._write_configs(["gm_runner"], {}, {})
         with mock.patch.object(

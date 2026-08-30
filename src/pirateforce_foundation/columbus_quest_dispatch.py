@@ -546,10 +546,17 @@ def dispatch_columbus_quest3021(*, registry=None, emit=print, legacy=None,
     the crossing prints it.  ``legacy`` and ``held_indices`` are OPTIONAL and
     default to the call site as it stands today, which has neither to hand:
     without them the line still prints, saying it is unmeasured and why, so
-    the console never goes quiet about a question it cannot answer.  The
+    the console never goes quiet about a question it cannot answer.  ~~The
     one-token change that turns it into names and distances -
     ``legacy=legacy, held_indices=self.world_census_indices`` at
-    ``runtime.py``'s existing call - is this round's CORE-REQUEST to chief.
+    ``runtime.py``'s existing call - is this round's CORE-REQUEST to
+    chief.~~ LANDED (chief, round R229/qb70g2, ``runtime.py``'s
+    ``_dispatch_columbus_quest3021`` now passes both at its call to
+    ``dispatch_columbus_quest3021`` below).  Struck rather than deleted:
+    accurate when written, and a reader who still believes it would go
+    looking for a CORE-REQUEST that already landed instead of reading the
+    live call site.  ``departed_from`` (see the parameter of the same name
+    on this function) landed the same way, one CORE-REQUEST later.
 
     NOTHING HERE DECIDES ANYTHING.  No refusal reads this line, the wire is
     untouched, the returned ``SceneEntry`` is untouched, and a failure inside
