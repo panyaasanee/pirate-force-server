@@ -9,12 +9,16 @@ the per-scene composer point in round ``73fhoc`` (answering this lane's
 is that step.
 
     WHAT A PLAYER SEES BECAUSE OF THIS FILE, STATED HONESTLY AND FIRST.
-    Nothing today.  Scene 14 is not open to players, and this module REFUSES
-    to compose for a scene that is not - see THE ADMISSION CHECK below, which
-    is the load-bearing part of the file and was added after pf-adversary
-    refuted the version without it.  What changes here is that the census is
-    ready and wired: the day scene 14 opens, 81 actors compose and ship on
-    arrival with no further round of work from anybody.
+    ~~Nothing today.  Scene 14 is not open to players~~ -- STALE, kept for
+    the reasoning that follows it: scene 14 opened at login in LANE-A round
+    `vvy6q7` (COO-DECISION 20260829_2342), so a character whose own stored
+    row names scene 14 now logs straight in and this composer ships 81
+    actors on arrival, exactly as this paragraph predicted it would the day
+    the scene opened.  THE ADMISSION CHECK below is what makes that
+    conditional rather than automatic - see it for why this module still
+    REFUSES to compose the day someone shuts the door again, and it is the
+    load-bearing part of the file, added after pf-adversary refuted the
+    version without it.
 
     AN EARLIER DRAFT OF THIS MODULE SAID "the reason is one key" AND THAT WAS
     FALSE, MEASURED.  ``world_scene_entry.resolve_entry`` refuses scene 14
@@ -92,8 +96,8 @@ place that ever supplies something else: it hands back the seam's own
 ``lane_hooks.module_production_allowed`` says that module is allowed --
 the same option-(b) gate every other direct-call ``lane_hooks`` consumer in
 this project already reads, not a bespoke flag invented for this file.
-``lane_hooks/lane_a_choose_npc_scene14.py`` is that responder for scene 14,
-and its own docstring is why its ``production_allowed`` is ``False`` today:
+``lane_hooks/lane_a_choose_npc_scene14.py`` is that responder for scene 14.
+~~its own docstring is why its ``production_allowed`` is ``False`` today:
 pf-adversary (R235 D2) measured that arming real membership for this scene
 with no runtime.py guard in front of the frozen ChooseNPC handler is a
 GUARANTEED ``KeyError`` on the first click, not merely a risk when no
@@ -103,7 +107,14 @@ file exists on disk -- it turns on the moment that file is ALSO trusted
 follow-up named in the CORE-REQUEST, not as work done here.  Until then this
 composer's own behavior for scene 14 is unchanged from before this round:
 ``membership`` stays ``None`` and the caller's existing withhold-equivalent
-(fields never written) stands, exactly as R235 left it.
+(fields never written) stands, exactly as R235 left it.~~ FLIPPED, LANE-A
+round `n8fq3w`: the runtime.py guard R235 D2 required landed first (chief,
+round `hd6tac`/R237), and that responder module's own ``production_allowed``
+is now ``True``.  So ``_membership_if_answerable`` below now returns real
+membership for scene 14, and this composer's ``membership`` field is armed
+on every arrival -- see that responder module's own docstring for what a
+player sees because of the flip and the two gaps it ships with, pinned
+rather than fixed.
 
 THE ONE THING STILL IN THE WAY (defect D3, this lane's debt).
 ``player_wire``'s faction-1 serializer refuses any ``scene_id`` outside

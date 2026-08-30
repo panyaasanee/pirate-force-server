@@ -1,4 +1,5 @@
-"""LANE-A's ChooseNPC responder for scene 14, and the gate that keeps it off.
+"""LANE-A's ChooseNPC responder for scene 14, on by default as of round
+`n8fq3w`.
 
 COO-DECISION 20260830_0818 approved a ChooseNPC responder for roster scenes,
 registered through ``lane_hooks`` the same way
@@ -20,15 +21,19 @@ session's current scene has a REGISTERED and ALLOWED
 ``lane_hooks.scene_choose_npc_responder``, and if so answers through it
 INSTEAD of ever running the frozen loop for that frame --
 ``TheGuardAnsweredTheClickInsteadOfCrashingTests`` below proves it, on the
-REAL dispatcher, with the gate forced open for that one test only (the same
-force ``TheCrashThisModuleGuardsAgainstTests`` used to use to prove the
-crash; this file keeps that test's name history in that class's own
-docstring rather than pretending the crash was never measured).
+REAL dispatcher (the gate was forced open for that one class only between
+round `hd6tac` and round `n8fq3w`; round `n8fq3w` flipped the module's own
+default instead, so that class no longer needs to force anything -- see
+its own docstring for that history, kept rather than pretending the crash
+was never measured under a forced gate).
 
-``lane_a_choose_npc_scene14.production_allowed`` STAYS ``False`` in this
-round regardless -- the seam existing does not, by itself, make it safe to
-flip: see that module's own docstring for what is still true about it
-before flipping.  ``TheResponderAnswersDirectlyTests`` below still drives
+``lane_a_choose_npc_scene14.production_allowed`` FLIPPED TO ``True`` in
+LANE-A round `n8fq3w` -- the seam existing on `main` for one full round
+(`e2q8c6`, zero-diff) with this line still unflipped is what that round's
+own account calls out as the single highest-leverage unblock nobody had
+acted on yet; this round is that action.  See that module's own docstring
+for the full reasoning and the two gaps shipped with it, pinned rather than
+fixed.  ``TheResponderAnswersDirectlyTests`` below still drives
 the responder's own ``respond()`` function directly (real armed
 ``population_indices``, real identities via
 ``legacy.extract_choose_npc_identities``) because that is the fastest,
@@ -213,22 +218,28 @@ class ResponderRegistryTests(unittest.TestCase):
         )
 
 
-class TheResponderModuleGateIsClosedTests(unittest.TestCase):
-    """``production_allowed = False`` today, and that is this round's own
-    safety property, not an oversight -- see the module's docstring and
-    ``TheCrashThisModuleGuardsAgainstTests`` below for the measurement that
-    justifies it."""
+class TheResponderModuleGateIsOpenTests(unittest.TestCase):
+    """``production_allowed = True`` as of LANE-A round `n8fq3w`, flipped
+    once the runtime.py guard this file's own CORE-REQUEST asked for landed
+    on `main` (chief, round `hd6tac`/R237) -- see the module's docstring and
+    ``TheGuardAnsweredTheClickInsteadOfCrashingTests`` below for the
+    measurement that makes this safe.  RENAMED from
+    ``TheResponderModuleGateIsClosedTests``, kept in history rather than
+    deleted: this class asserted the opposite of both methods below from
+    this module's creation until this round."""
 
-    def test_the_real_module_declares_production_allowed_false(self):
-        self.assertIs(responder_mod.production_allowed, False)
+    def test_the_real_module_declares_production_allowed_true(self):
+        self.assertIs(responder_mod.production_allowed, True)
 
-    def test_the_registered_responder_is_withdrawn_at_discovery(self):
+    def test_the_registered_responder_is_registered_at_discovery(self):
         # _discover() already ran once for this process; the module's own
-        # False flag means its registration was withdrawn immediately after
-        # import, same mechanism test_lane_a_scene_census.py pins for a
-        # closed census module.
-        self.assertIsNone(lane_hooks.scene_choose_npc_responder(VOLCANO))
-        self.assertFalse(
+        # True flag means its registration stood after import, same
+        # mechanism test_lane_a_scene_census.py pins for an open census
+        # module.
+        entry = lane_hooks.scene_choose_npc_responder(VOLCANO)
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry.module, QUALIFIED_MODULE)
+        self.assertTrue(
             lane_hooks.module_production_allowed(
                 "lane_a_choose_npc_scene14",
             )
@@ -447,11 +458,24 @@ class OnTheRealDispatcherBothWaysTests(unittest.TestCase):
         return state, actions, spawn
 
     def test_no_responder_membership_withheld_stands(self):
-        """TODAY'S SHIPPED STATE.  No responder is registered (the module's
-        own ``production_allowed`` is False), so the composer's membership
-        stays ``None`` and the three server-side fields are never armed --
-        81 actors ship, none of them clickable, no crash."""
-        state, actions, _spawn = self._armed_state("choose-npc-none")
+        """REGRESSION COVERAGE FOR A STATE THIS PROCESS NO LONGER SHIPS BY
+        DEFAULT.  Until LANE-A round `n8fq3w`, this was "today's shipped
+        state" with no forcing at all; the module's own ``production_allowed``
+        is now ``True`` by default (see ``TheResponderModuleGateIsOpenTests``),
+        so the withhold path is driven here by forcing the registry back to
+        empty for this one test -- the same shape ``test_lane_a_scene_census.
+        py`` uses to prove its own admission check, not a new technique.  The
+        property this test still pins: IF a scene had no registered/allowed
+        responder, the three server-side fields would stay unarmed and 81
+        actors would still ship with none of them clickable, no crash --
+        the composer's fail-safe default, still exercised even though scene
+        14 itself no longer takes this branch."""
+        with mock.patch.dict(lane_hooks._SCENE_CHOOSE_NPC_RESPONDERS):
+            lane_hooks._SCENE_CHOOSE_NPC_RESPONDERS.pop(VOLCANO, None)
+            with mock.patch.dict(
+                lane_hooks._PRODUCTION_ALLOWED, {QUALIFIED_MODULE: False},
+            ):
+                state, actions, _spawn = self._armed_state("choose-npc-none")
         census = [a for a in actions if a[0].startswith("WORLD_CENSUS_")]
         self.assertEqual(
             [a[0] for a in census],
@@ -462,22 +486,15 @@ class OnTheRealDispatcherBothWaysTests(unittest.TestCase):
         self.assertIsNone(state.world_census_indices)
 
     def test_responder_registered_and_allowed_membership_is_armed(self):
-        """ONCE THE RESPONDER IS BOTH REGISTERED AND ALLOWED (forced here,
-        test-only, to stand in for the day CORE-REQUEST's runtime.py guard
-        lands and this lane flips the one line to True): the composer's own
-        ``_membership_if_answerable`` gate opens and the REAL dispatcher
-        arms all three fields from the seam's own membership, exactly as
-        COO-DECISION 20260830_0818 asked."""
-        lane_hooks.choose_npc_responder(VOLCANO)(responder_mod.respond)
-        lane_hooks._PRODUCTION_ALLOWED[QUALIFIED_MODULE] = True
-        self.addCleanup(
-            lane_hooks._SCENE_CHOOSE_NPC_RESPONDERS.pop, VOLCANO, None,
-        )
-        self.addCleanup(
-            lane_hooks._PRODUCTION_ALLOWED.__setitem__,
-            QUALIFIED_MODULE, False,
-        )
-
+        """TODAY'S SHIPPED STATE, LANE-A round `n8fq3w` onward.  No forcing:
+        the module's own ``production_allowed`` is ``True`` by default, so
+        the composer's own ``_membership_if_answerable`` gate is open and
+        the REAL dispatcher arms all three fields from the seam's own
+        membership on an ordinary boot, exactly as COO-DECISION 20260830_0818
+        asked.  RENAMED IN PLACE, kept forcing out of this test's own setup
+        (previously forced ``lane_hooks._PRODUCTION_ALLOWED`` True with an
+        ``addCleanup`` back to False, standing in for a flip that had not
+        happened yet -- that flip is what this round did)."""
         state, actions, spawn = self._armed_state("choose-npc-armed")
         census = [a for a in actions if a[0].startswith("WORLD_CENSUS_")]
         self.assertEqual(len(census), 2)
@@ -535,8 +552,8 @@ class TheGuardAnsweredTheClickInsteadOfCrashingTests(unittest.TestCase):
     ``super().dispatch(parsed)`` call.
 
     RENAMED FROM ``TheCrashThisModuleGuardsAgainstTests``, kept in this
-    file's history rather than deleted: before this round, this exact test
-    -- same fixture, same forced gate, same clicked actor -- asserted
+    file's history rather than deleted: before round `hd6tac`, this exact
+    test -- same fixture, same clicked actor -- asserted
     ``self.assertRaises(KeyError)``, and that assertion was true right up
     until the guard landed (see the CHIEF-REPLY-shaped comment in
     ``runtime.py`` at the call site for why the inherited branch's crash was
@@ -545,10 +562,13 @@ class TheGuardAnsweredTheClickInsteadOfCrashingTests(unittest.TestCase):
     14's 81 composed indices missing from
     ``PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS`` doomed the FIRST click on ANY of
     the 81, not just the missing ones).  ``lane_a_choose_npc_scene14.
-    production_allowed`` still forced ``True`` here and ONLY here, the same
-    way the old test forced it, because the module's own default of
-    ``False`` is a separate decision this round does not revisit (see that
-    module's docstring).
+    production_allowed`` was forced ``True`` here and ONLY here between
+    round `hd6tac` and round `n8fq3w`, while the module's own default was
+    still ``False``; LANE-A round `n8fq3w` flipped that default itself, so
+    the forcing this class used to do in ``setUp`` is gone -- these tests
+    now exercise the real shipped default, the same simplification
+    ``OnTheRealDispatcherBothWaysTests.
+    test_responder_registered_and_allowed_membership_is_armed`` made above.
     """
 
     @classmethod
@@ -562,15 +582,10 @@ class TheGuardAnsweredTheClickInsteadOfCrashingTests(unittest.TestCase):
             Path(self.tmp.name) / "state.sqlite3", ROOT / "migrations",
         )
         self.store.migrate()
-        lane_hooks.choose_npc_responder(VOLCANO)(responder_mod.respond)
-        lane_hooks._PRODUCTION_ALLOWED[QUALIFIED_MODULE] = True
-        self.addCleanup(
-            lane_hooks._SCENE_CHOOSE_NPC_RESPONDERS.pop, VOLCANO, None,
-        )
-        self.addCleanup(
-            lane_hooks._PRODUCTION_ALLOWED.__setitem__,
-            QUALIFIED_MODULE, False,
-        )
+        # No forcing needed as of round `n8fq3w`: the module's own
+        # ``production_allowed`` is ``True`` by default, so
+        # ``lane_hooks.scene_choose_npc_responder(VOLCANO)`` already names
+        # this responder from ``_discover()``'s own import-time pass.
 
     def _armed_state_on_scene_14(self, token):
         legacy = self.legacy
