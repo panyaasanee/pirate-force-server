@@ -496,11 +496,17 @@ def _emit_arrival_stowaways(entry, *, legacy, held_indices, emit):
         )
         return
     if legacy is None:
-        # NOT a failure and deliberately not silent.  The call site in
-        # runtime.py does not pass the frozen module or the membership
-        # today, so the honest answer is "nobody asked the table", printed
-        # in the same field shape as the measured line so one grep catches
-        # both states.
+        # NOT a failure and deliberately not silent.
+        # CORRECTED round 4lrspn: this comment used
+        # to claim, present tense, that "the call site in runtime.py does not
+        # pass the frozen module or the membership today" -- false at HEAD,
+        # struck rather than left to mislead a reader who does not also read
+        # runtime.py.  Since round R229/qb70g2 the real call site DOES pass
+        # both (``runtime.py:4985-4986``), so this branch is dead on that
+        # path; it still fires from any OTHER caller (tests, a future call
+        # site) that hands over no legacy module, and the honest answer for
+        # THAT caller is "nobody asked the table", printed in the same field
+        # shape as the measured line so one grep catches both states.
         emit(
             "WORLD_POP_STOWAWAYS unmeasured reason=call_site_passed_no_legacy "
             "anchor=({0:.3f},{1:.3f},{2:.3f})".format(*anchor)
@@ -557,6 +563,10 @@ def dispatch_columbus_quest3021(*, registry=None, emit=print, legacy=None,
     looking for a CORE-REQUEST that already landed instead of reading the
     live call site.  ``departed_from`` (see the parameter of the same name
     on this function) landed the same way, one CORE-REQUEST later.
+    (Round 4lrspn independently re-derived and drafted the same correction
+    before finding this one already on ``main`` after a mid-round rebase;
+    kept this wording rather than duplicating it, since a diff cannot say
+    the same true thing twice.)
 
     NOTHING HERE DECIDES ANYTHING.  No refusal reads this line, the wire is
     untouched, the returned ``SceneEntry`` is untouched, and a failure inside
@@ -588,9 +598,24 @@ def dispatch_columbus_quest3021(*, registry=None, emit=print, legacy=None,
     # mcxexp).  Report only, never raises, and it changes nothing that is
     # sent: see world_m2_return_leg's docstring for the three things it does
     # not claim.  ``departed_from`` is the row this character was standing on
-    # in Port Royal; the call site does not pass it yet, and the line says so
-    # in the same field shape as the measured one rather than going quiet.
+    # in Port Royal.
+    # CORRECTED round 4lrspn: this comment used to
+    # say "the call site does not pass it yet" - false at HEAD, the
+    # ``runtime.py`` call site has passed it since round R229/qb70g2.  The
+    # line still says so in the same field shape as the measured one on any
+    # OTHER call (default parameter, tests) that hands over none, rather than
+    # going quiet.
     emit(world_m2_return_leg.return_leg_console_line(
+        entry, departed=departed_from, registry=registry))
+    # THE POPULATION HANDOFF THE RETURN TRIP WOULD OWE, NAMED BUT NOT BUILT.
+    # ``world_m2_return_leg``'s own docstring explains why this stays a
+    # source/count REPORT rather than a composed frame: there is no dispatch
+    # site that sends anyone home yet (``RE-077``'s in-game return trigger is
+    # still open), so building the actual home-scene roster on every OUTBOUND
+    # crossing, just to describe a trip nobody can currently take, would pay
+    # the exact per-crossing cost the crossing-handoff module next door warns
+    # against - on a path that runs today for a trip that does not.
+    emit(world_m2_return_leg.return_population_console_line(
         entry, departed=departed_from, registry=registry))
     # THE POPULATION HANDOFF THIS CROSSING OWES AND DOES NOT SEND.  Composed
     # here, on the default path, for every crossing -- see

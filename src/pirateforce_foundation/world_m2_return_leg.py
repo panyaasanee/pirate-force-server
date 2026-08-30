@@ -44,11 +44,41 @@ by this round, and this module holds no GT-045 row to check it with.  A
 console reader can therefore tell "the fallback is fine for
 this character" from "the fallback would move this character" without knowing
 either coordinate.
+
+ROUND 4lrspn ADDS THE OTHER HALF OF THE SAME GAP.
+Everything above answers WHERE a return trip lands.  Nothing in this module,
+before this round, said WHO would be standing there.  ``world_m2_crossing_
+handoff`` closed that question for the outbound half of the trip (Port Royal
+empties on departure); the inbound half - does anyone repopulate the town on
+the way back - was never even asked out loud.  ``return_population_owed`` and
+``return_population_console_line`` ask it, in the same report-only shape as
+everything else in this file: no frame, no write, no scheduling, and the
+console function never raises.
+
+WHY THIS DOES NOT CALL ``world_population_handoff.handoff_on_crossing``, THE
+WAY ``world_m2_crossing_handoff`` DOES.  That function COMPOSES the wire bytes
+it reports on, and ``world_m2_crossing_handoff``'s own docstring already
+measured why that is safe for scene 17 and would not stay safe here: "a scene
+with a roster would build the whole roster per crossing for one console
+line."  Scene 17's outbound handoff is a 27-byte CLEAR - the cost is nothing.
+The home scene's INBOUND handoff is the full login census - the one this
+project measures in the hundreds of actors, not bytes - and there is no
+dispatch site that sends anyone home yet (``RE-077``'s in-game return trigger
+is still open, same wall this module's own header names).  Building that
+roster on every OUTBOUND crossing, to describe a trip nobody can currently
+take back, would be exactly the cost mistake flagged next door, paid on a
+path that runs today instead of one that might run tomorrow.  So this reads
+only the two SELECTORS that already decide the shape without building it -
+``world_scene_travel.population_source`` (a dict lookup) and
+``world_population.census_count_for_dispatch`` (a count, not a wire) - and
+names the day the actual roster gets built as the day this report starts
+describing bytes instead of a plan.
 """
 from __future__ import annotations
 
 import math
 
+from . import world_population
 from . import world_scene_entry
 from . import world_scene_travel
 from .model import Position
@@ -203,5 +233,113 @@ def return_leg_console_line(
     except Exception as error:
         return (
             "WORLD_M2_RETURN_LEG unmeasured reason=uncomposable:"
+            + type(error).__name__
+        )
+
+
+# What the population report prints when the return destination names no
+# population source at all.  Not reachable today - the only return target is
+# HOME_SCENE_ID, and it always names one - but the field is checked rather
+# than assumed, so a future second return destination that lacks one gets a
+# true answer instead of a silently wrong "census" default.
+SOURCE_NOT_NAMED = "no_named_population_source"
+
+
+def return_population_owed(
+    entry,
+    *,
+    departed: Position | None = None,
+    registry=None,
+) -> dict:
+    """What population handoff the return trip would need - SOURCE ONLY.
+
+    Deliberately does not build anything: see the module docstring for why
+    calling ``world_population_handoff.handoff_on_crossing`` here would repeat
+    the exact cost mistake ``world_m2_crossing_handoff`` warns against, on a
+    path (every outbound crossing) that runs far more often than the trip this
+    would describe.  ``owed`` reuses :func:`return_leg`'s own answer rather
+    than re-deriving it, so the two reports can never disagree about whether a
+    return trip exists.
+    """
+    ticket = return_leg(entry, departed=departed, registry=registry)
+    if not ticket["owed"]:
+        return {
+            "owed": False,
+            "source": None,
+            "count": None,
+            "count_source": None,
+        }
+    # Deliberately reads the *destination*'s scene (home.scene_id), not the
+    # departure scene (departed.scene_id) - the population owed is whatever
+    # the return trip lands the player into, not whatever they left. Under
+    # every currently reachable state these two agree (home is always the
+    # pinned HOME_SCENE_ID entry, and remember_departure/return_ticket both
+    # require any non-None departed row to already equal HOME_SCENE_ID too),
+    # so this choice is unexercised by the test suite today - pf-adversary
+    # (round 4lrspn) found the same swap survives all 77 tests unmutated.
+    # If a second return destination is ever added, this stops being a no-op
+    # and needs a test naming which side is authoritative.
+    home = ticket["position"]
+    source = world_scene_travel.population_source(home.scene_id)
+    if source != world_scene_travel.CENSUS_SOURCE:
+        return {
+            "owed": True,
+            "source": source if source is not None else SOURCE_NOT_NAMED,
+            "count": None,
+            "count_source": None,
+        }
+    count, count_source = world_population.census_count_for_dispatch()
+    return {
+        "owed": True,
+        "source": source,
+        "count": count,
+        "count_source": count_source,
+    }
+
+
+def return_population_console_line(
+    entry,
+    *,
+    departed: Position | None = None,
+    registry=None,
+) -> str:
+    """The ``WORLD_M2_RETURN_POPULATION`` line, for every crossing, every boot.
+
+    NEVER RAISES, for the same reason every other line in this file never
+    raises.  ``composed=NO`` is not a state this function can flip to YES on
+    its own - see the module docstring - so unlike
+    ``world_m2_crossing_handoff``'s ``dispatched=`` this is not a parameter
+    that a future edit toggles; the day a real dispatch composes and sends
+    this handoff, this report is superseded by that dispatch's own line, not
+    edited to claim it.
+    """
+    try:
+        report = return_population_owed(
+            entry, departed=departed, registry=registry)
+    except Exception as error:  # a report must not be able to end a boot
+        return (
+            "WORLD_M2_RETURN_POPULATION unmeasured reason=refused:"
+            + type(error).__name__
+        )
+    try:
+        if not report["owed"]:
+            return (
+                "WORLD_M2_RETURN_POPULATION owed=NO source="
+                + SOURCE_NONE_OWED
+            )
+        if report["count"] is None:
+            return (
+                "WORLD_M2_RETURN_POPULATION owed=YES source={0} "
+                "composed=NO".format(report["source"])
+            )
+        return (
+            "WORLD_M2_RETURN_POPULATION owed=YES source={0} kind=census "
+            "count={1} count_source={2} composed=NO".format(
+                report["source"], report["count"], report["count_source"],
+            )
+        )
+    except Exception as error:
+        return (
+            "WORLD_M2_RETURN_POPULATION unmeasured reason=uncomposable:"
             + type(error).__name__
         )
