@@ -58,8 +58,9 @@ from pirateforce_foundation.model import Position  # noqa: E402
 # opened Hell Volcano Island at login).  It arrived through the REGISTRY,
 # which is this file's whole point: the sanctioned scene 126 still grants
 # nothing, and 14 is here because a pinned row says open, not because a
-# letter said so.
-ADMISSIBLE_TODAY = (1, 2, 14, 278, 997)
+# letter said so.  Scene 4 joined it round bq4mst the same way (COO-DECISION
+# 20260830_1441, this lane's own census composer judged ready).
+ADMISSIBLE_TODAY = (1, 2, 4, 14, 278, 997)
 # The one scene a chief letter sanctions today.
 SANCTIONED = 126
 # Pinned, named, and barred at login -- the shape scene 126 will have once
