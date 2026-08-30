@@ -170,9 +170,26 @@ class TheGroundStaysTests(PresenceTestBase):
         second = self.kill(1)
         step = sustain_a_kill(self.cell, self.legacy, second)
 
-        whole = mob_loot.refresh_frames(self.legacy, self.cell.ledger)
+        # STRENGTHENED (round qf83nz, S7 debt carried from pf-adversary's
+        # m0vp7m pass): ``whole`` used to be built by calling
+        # ``mob_loot.refresh_frames(self.legacy, self.cell.ledger)`` a
+        # SECOND time with the exact same arguments ``sustain_a_kill``
+        # already called internally to produce ``step.frames`` -- comparing
+        # a function's output to a second call of itself on identical
+        # inputs, which cannot fail no matter what the function computes.
+        # A mutant that broke ``refresh_frames`` would have broken both
+        # sides of that assertion identically.  What actually needs
+        # checking independently of that function is the LEDGER's own
+        # contents: does it genuinely hold both kills' drops, or did
+        # ``sustain_a_kill`` silently narrow it to one?  That is asked here
+        # directly against the ledger, with no call through the frame
+        # encoder at all.
+        self.assertEqual(
+            {drop.drop_key for drop in self.cell.ledger.drops},
+            {drop.drop_key for drop in first} | {drop.drop_key for drop in second})
+        self.assertEqual(len(self.cell.ledger.drops), len(first) + len(second))
+
         narrow = mob_loot.drop_frames(self.legacy, second)
-        self.assertEqual(tuple(step.frames), tuple(whole))
         self.assertNotEqual(tuple(step.frames), tuple(narrow))
         # One generation, always -- the count of frames does not grow with the
         # ground, which is what makes this a shape change and not a cadence one.
@@ -503,7 +520,21 @@ class TheTwoNumbersAreDifferentThingsTests(PresenceTestBase):
     """
 
     def test_the_declared_lifetime_is_already_tens_of_seconds(self):
-        self.assertGreaterEqual(mob_loot.DROP_LIFETIME_SECONDS, 30.0)
+        # STRENGTHENED (round qf83nz, S7 debt carried from pf-adversary's
+        # m0vp7m pass): the old body was ``assertGreaterEqual(..., 30.0)``,
+        # which accepts anything from 30.0 to 3600.0 as equally fine -- a
+        # mutant that quietly narrowed the interim figure toward a
+        # sub-minute value (say 31.0, still "tens of seconds") would have
+        # survived unnoticed.  This pins the exact figure COO-DECISION
+        # 2026-08-29T14:44+07:00 item 1 accepted (INTERIM, not measured --
+        # GT-149 DROP-LIFETIME-MEASURE-001 is the ticket that replaces it;
+        # see the constant's own comment in mob_loot.py) AND the tripwire
+        # ceiling it must stay under, so the assertion is anchored to two
+        # independent module facts instead of one loose literal bound.
+        self.assertEqual(mob_loot.DROP_LIFETIME_SECONDS, 120.0)
+        self.assertLessEqual(
+            mob_loot.DROP_LIFETIME_SECONDS,
+            mob_loot.MAX_DROP_LIFETIME_SECONDS)
 
     def test_the_label_life_is_a_range_and_is_two_orders_smaller(self):
         self.assertLess(

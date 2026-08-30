@@ -311,6 +311,52 @@ class SceneBindingTest(unittest.TestCase):
             % len(field_mobs.load_roster()))
 
 
+class SceneTableKeyIntegrityTest(unittest.TestCase):
+    """ROUND qf83nz: debt item 4, carried six rounds, closed by this test.
+
+    ``_SCENE_TABLE_MODULES`` keys are today always spelled as ``module.SCENE``
+    (see the dict literal itself), so this property has never actually been
+    false in the tree.  What was missing is a check that would CATCH it if a
+    future hand-edit -- adding a third scene by copy-pasting an existing line
+    and forgetting to swap the right-hand side module -- ever made it false.
+    Without a check, that mistake would not raise anywhere: ``load_roster``
+    would still return rows keyed correctly by dict lookup, it would just be
+    serving one scene's real MOBS rows under a different scene's name, and a
+    player standing in scene A would see scene B's monsters with nothing in
+    any log saying so.
+    """
+
+    def test_the_real_table_passes_its_own_guard(self):
+        # No exception is the assertion here: the module already ran this at
+        # import time (see field_mobs.py, right after the dict literal), so
+        # calling it again just proves the call is idempotent and safe to
+        # repeat, not that it does nothing.
+        field_mobs.assert_scene_table_keys_match_their_own_modules(
+            field_mobs._SCENE_TABLE_MODULES)
+
+    def test_a_key_that_does_not_match_its_module_own_scene_is_refused(self):
+        mismatched = {
+            field_mob_tables_bg0002.SCENE: field_mob_tables,  # stale RHS
+        }
+        with self.assertRaises(FieldMobContractError) as ctx:
+            field_mobs.assert_scene_table_keys_match_their_own_modules(
+                mismatched)
+        message = str(ctx.exception)
+        self.assertIn(repr(field_mob_tables_bg0002.SCENE), message)
+        self.assertIn(repr(field_mob_tables.SCENE), message)
+
+    def test_an_empty_table_is_trivially_fine(self):
+        field_mobs.assert_scene_table_keys_match_their_own_modules({})
+
+    def test_a_module_with_no_scene_attribute_at_all_is_refused(self):
+        class NoScene:
+            pass
+
+        with self.assertRaises(FieldMobContractError):
+            field_mobs.assert_scene_table_keys_match_their_own_modules(
+                {"anything": NoScene()})
+
+
 class Bg0002CensusAndRosterOverlapTest(unittest.TestCase):
     """What this reader is and is not worth, in counts, on the wire layer.
 
