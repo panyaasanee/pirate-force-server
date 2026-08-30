@@ -4479,3 +4479,35 @@ client-named destination; `_refusal_cause` altering dispatch; and
 -- standalone map on the wide rule (M2) and the reader's rule defaulting wide
 (M1) -- were **red from the first sweep**, which is the part of this report
 worth keeping.
+
+## Round `h4v9wq` -- verify-only, no code change, and a shared tooling gotcha
+
+Mailbox checked clean (nothing addressed to `LANE-GM` without a `.CONSUMED.txt`
+stub already sitting next to it) and `GAME_TEST_QUEUE.md`'s GM-tagged entries
+(`GT-101`, `GT-103` closed; `GT-127`, `GT-128` HOLD/BLOCKED, both entirely on
+chief's side) leave nothing in this lane's write zone that is not already
+blocked on a wiring point this lane does not own. `CORE-REQUEST-GM-040`
+(escalated round `q9i00s`, 2026-08-30T08:35+07:00) is still unanswered but only
+45 minutes old at the time of this check -- re-escalating that soon with no new
+evidence would be manufacturing a cycle, so this round did not.
+
+The one finding worth recording here because it is not specific to GM:
+`list_pull_requests` (the REST list endpoint) returned `merged: false` for four
+pull requests independently confirmed merged by other means (`main`'s own
+commit log, and `pull_request_read(method="get")`'s `merged`/`merged_at`/
+`merged_by` fields) -- `pirate-force-server#294`, `#289`, `pf_bridge#468`,
+`#460`. The round-lock recovery step in the house protocol ("did my last
+closed `[LANE-X]` PR actually merge?") must be answered with
+`pull_request_read(method="get")` per PR, never with the `merged` field off a
+list call -- see
+`notes_to_chief/20260830_0920_LANE-GM-STATUS-mailbox-clear-plus-list-api-merged-field-gotcha.md`
+for the full measurement and the escalation of the wording fix (out of this
+lane's write zone; `AGENTS.md`/the round-lock protocol text is chief/COO's to
+edit).
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้ (round `h4v9wq`)
+
+ไม่มี -- รอบนี้ไม่มีการเปลี่ยนพฤติกรรมโค้ดใด ๆ เป็นรอบตรวจสอบล้วน
+
+**NONCLAIM:** ไม่มีการเปิด client ไม่มีการวัดกับไคลเอนต์จริง ทั้งหมดวัดจาก GitHub API และ
+grep/read ซอร์สที่ commit แล้วบนทั้งสอง repo
