@@ -170,6 +170,22 @@ def item_name(item_id: int, category: str | None = None) -> str:
 def item_max_stack(item_id: int, category: str) -> int:
     """Max stack size (n_QUATITY_STACK) for item_id within one category.
     Category is required here (unlike item_name) because stack size can
-    differ across colliding ids and silently picking one is unsafe."""
+    differ across colliding ids and silently picking one is unsafe.
+
+    Raises KeyError naming item_id and category for an id not in that
+    category's table -- not the bare `KeyError(str(item_id))` a raw dict
+    lookup gives.  Found this round (LANE-GM) reading item_catalog end to
+    end for edge-case coverage: every other lookup in this module
+    (`item_name`, `is_known_item`) already raises a message naming what was
+    not found; this one alone raised the dict's own repr, e.g.
+    `KeyError('99999999')`, which a caller catching KeyError-by-type cannot
+    tell apart from a different bug (a wrong dict, a typo'd key) without
+    reading this function's source. No behavior change for a KNOWN id;
+    only the unknown-id error message is new."""
     _validate_category(category)
-    return _BY_CATEGORY[category][item_id].max_stack
+    try:
+        return _BY_CATEGORY[category][item_id].max_stack
+    except KeyError as exc:
+        raise KeyError(
+            f"item_id {item_id} is not a known item in category {category!r}"
+        ) from exc

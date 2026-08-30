@@ -111,6 +111,38 @@ class GmItemCatalogTests(unittest.TestCase):
         self.assertEqual(item_catalog.item_name(1, category="misc"), misc_raw[1][0])
         self.assertEqual(item_catalog.item_name(1, category="quest"), quest_raw[1][0])
 
+    def test_item_max_stack_unknown_id_in_known_category_raises_named_keyerror(self):
+        # Before this round: a raw dict lookup leaked as `KeyError('99999999')`
+        # -- indistinguishable by message from a wrong-dict bug. item_name's
+        # KeyError already names the id and category; item_max_stack now
+        # matches that contract instead of being the one lookup in this
+        # module that does not.
+        with self.assertRaises(KeyError) as ctx:
+            item_catalog.item_max_stack(99999999, category="misc")
+        self.assertIn("99999999", str(ctx.exception))
+        self.assertIn("misc", str(ctx.exception))
+
+    def test_item_max_stack_unknown_id_message_names_the_category_it_was_checked_against(self):
+        # id 1 IS known in "quest" but not in "consumable" -- the message
+        # must name the category actually queried (consumable), not the one
+        # this id happens to resolve in elsewhere, or a reader debugging a
+        # `/item 1 5` typo would be pointed at the wrong table.
+        self.assertTrue(item_catalog.is_known_item(1, category="quest"))
+        self.assertFalse(item_catalog.is_known_item(1, category="consumable"))
+        with self.assertRaises(KeyError) as ctx:
+            item_catalog.item_max_stack(1, category="consumable")
+        self.assertIn("consumable", str(ctx.exception))
+
+    def test_item_max_stack_known_id_unaffected_by_the_error_message_fix(self):
+        # The fix only wraps the KeyError path; a real lookup must still
+        # return the plain int it always did, not a wrapped/decorated value.
+        misc_raw = _read_raw("gm_item_misc.tsv")
+        item_id = next(iter(sorted(misc_raw)))
+        _, expected_stack = misc_raw[item_id]
+        self.assertEqual(
+            item_catalog.item_max_stack(item_id, category="misc"), expected_stack
+        )
+
     def test_unknown_category_string_raises_clean_value_error_not_bare_keyerror(self):
         with self.assertRaises(ValueError):
             item_catalog.is_known_item(1, category="weapon")
