@@ -82,6 +82,12 @@ from pirateforce_foundation.gm import (  # noqa: E402
 from pirateforce_foundation.gm.chat_command_action import (  # noqa: E402
     WARP_ACTION_LABEL,
 )
+from pirateforce_foundation.gm.warp_executor import WarpTarget  # noqa: E402
+from pirateforce_foundation.gm.warp_target_record import (  # noqa: E402
+    current_character_id,
+    distance_to_target,
+    record_warp_target,
+)
 from pirateforce_foundation.legacy_bridge import (  # noqa: E402
     LegacyProjector, load_legacy,
 )
@@ -102,6 +108,11 @@ NOT_CONFIRMED_NO_WRITE = (
 NOT_CONFIRMED_SCENE_LOAD = (
     "gm_warp_position_not_confirmed_scene_load_scenario"
 )
+# CORE-REQUEST-GM-030/031: the additive match/mismatch/unknown layer on top
+# of the token and event above -- see the class docstring further down.
+MATCH_TOKEN = "GM_WARP_POSITION_TARGET_MATCH"
+MISMATCH_TOKEN = "GM_WARP_POSITION_TARGET_MISMATCH"
+MATCH_EVENT = "gm_warp_position_target_match"
 
 # The scene pf-adversary's D1 uses, and the exact standing point GT-106
 # measured a character at inside it (the XYZ that came out of teardown
@@ -557,6 +568,218 @@ class GmWarpPositionConfirmedTests(unittest.TestCase):
         self.assertEqual(
             self._row(state),
             (self._f32(moved[0]), self._f32(moved[1]), self._f32(moved[2])),
+        )
+
+
+class _FakeComparablePosition:
+    """A minimal x/y/z/scene_id stand-in, for computing an EXPECTED distance.
+
+    Not fed to the real dispatcher -- only to ``distance_to_target`` itself,
+    so a test can assert the exact rounded distance the production code
+    just computed without hand-deriving 3-D arithmetic a second time.
+    """
+
+    def __init__(self, scene_id, x, y, z):
+        self.scene_id = scene_id
+        self.x = x
+        self.y = y
+        self.z = z
+
+
+class GmWarpPositionTargetTests(GmWarpPositionConfirmedTests):
+    """CORE-REQUEST-GM-030/031 -- is the confirmed row the GM's own target.
+
+    ``GM_WARP_POSITION_CONFIRMED`` above says only "a durable position write
+    survived the frame after a warp".  It cannot say whether that row is the
+    POINT the GM asked for: the action tuple ``dispatch()`` sees carries no
+    destination (``gm/warp_target_record.py``'s own module docstring has the
+    full letter).  This class pins the additive layer that closes that gap,
+    using the parked ``WarpTarget`` that module hands back through
+    ``take_warp_target_with_reason`` -- strictly on top of the token above,
+    never instead of it, never gating it.
+
+    The harness below arms the warp AND parks a target the same two calls
+    ``chat_command_action``'s warp verdict makes once
+    ``teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED`` is no longer None:
+    ``record_warp_target`` (this file calls it directly), then the
+    WARP_ACTION_LABEL action (``_arm_the_warp``, inherited from the class
+    above, which replaces ``_dispatch_with_lanes`` for one frame so the
+    arming half runs on the REAL ``dispatch()``).  Reusing that exact seam,
+    instead of opening the version gate, is the same choice
+    ``test_gm_warp_position_confirmed.py`` already made and for the same
+    reason its own module docstring gives.
+    """
+
+    def _arm_the_warp_with_target(self, state, target):
+        """Park `target` for the character selected right now, then arm.
+
+        Mirrors ``chat_command_action``'s own order: the target is recorded
+        against the character present when the (would-be) ForcePos frame was
+        built, before the WARP_ACTION_LABEL action is queued.
+        """
+        character_id = current_character_id(state)
+        self.assertTrue(record_warp_target(state, target, character_id))
+        return self._arm_the_warp(state)
+
+    @staticmethod
+    def _match_or_mismatch_lines(text):
+        return [
+            line for line in text.splitlines()
+            if line in (MATCH_TOKEN, MISMATCH_TOKEN)
+        ]
+
+    # ----- (a) the reported point IS the warp's destination ---------------
+
+    def test_a_target_pos_at_the_warp_destination_prints_match(self):
+        state = self._login_and_start("gmwarp_target01")
+        x, y, z = self._origin(state)
+        moved = (x + 4243.0, y + 1234.0, z)
+        target = WarpTarget(
+            state.foundation.selected.position.scene_id, *moved,
+        )
+        self._arm_the_warp_with_target(state, target)
+        err = self._report(state, *moved)
+
+        self.assertEqual(self._token_lines(err), [CONSOLE_TOKEN])
+        self.assertEqual(self._match_or_mismatch_lines(err), [MATCH_TOKEN])
+        self.assertEqual(state.events.count(MATCH_EVENT), 1)
+        self.assertFalse(
+            any(
+                event.startswith("gm_warp_position_target_mismatch")
+                or event.startswith("gm_warp_position_target_unknown")
+                for event in state.events
+            )
+        )
+
+    # ----- (b) the reported point is somewhere else ------------------------
+
+    def test_a_target_pos_away_from_the_warp_destination_prints_mismatch(self):
+        state = self._login_and_start("gmwarp_target02")
+        x, y, z = self._origin(state)
+        scene_id = state.foundation.selected.position.scene_id
+        target = WarpTarget(scene_id, x + 100.0, y + 50.0, z)
+        self._arm_the_warp_with_target(state, target)
+
+        moved = (x + 100.0, y + 50.0 + 4243.0, z)
+        err = self._report(state, *moved)
+
+        expected_distance = distance_to_target(
+            target,
+            _FakeComparablePosition(
+                scene_id,
+                self._f32(moved[0]), self._f32(moved[1]), self._f32(moved[2]),
+            ),
+        )
+        self.assertIsNotNone(expected_distance)
+        expected_event = (
+            f"gm_warp_position_target_mismatch_{int(round(expected_distance))}"
+        )
+
+        self.assertEqual(self._token_lines(err), [CONSOLE_TOKEN])
+        self.assertEqual(self._match_or_mismatch_lines(err), [MISMATCH_TOKEN])
+        self.assertIn(expected_event, state.events)
+        self.assertNotIn(MATCH_EVENT, state.events)
+
+    # ----- (c) no warp at all: neither line, ever ---------------------------
+
+    def test_ordinary_movement_with_no_warp_pending_prints_neither_line(self):
+        state = self._login_and_start("gmwarp_target03")
+        x, y, z = self._origin(state)
+        err = self._report(state, x + 111.0, y + 222.0, z)
+
+        self.assertEqual(self._token_lines(err), [])
+        self.assertEqual(self._match_or_mismatch_lines(err), [])
+        self.assertNotIn(CONFIRMED_EVENT, state.events)
+        self.assertFalse(
+            any(
+                event.startswith("gm_warp_position_target_")
+                for event in state.events
+            )
+        )
+
+    # ----- (d) the client-ignores-ForcePos regression -----------------------
+
+    def test_a_stale_target_never_leaks_onto_a_later_unrelated_frame(self):
+        """The most important regression this ticket asks for.
+
+        RE-129: the client's own ForcePos handler is a no-op, so the warp's
+        own confirm frame typically reports the OLD point -- no checkpoint
+        write, no ``GM_WARP_POSITION_CONFIRMED``, and (per
+        ``_gm_warp_close_confirm_window``) the parked target must be dropped
+        right there.  A LATER frame -- ordinary movement, with no warp
+        pending any more -- must never be compared against that target: not
+        a match, not a mismatch, not even an "unknown" event, because that
+        target has nothing to do with this later frame at all.
+        """
+        state = self._login_and_start("gmwarp_target04")
+        x, y, z = self._origin(state)
+        target = WarpTarget(
+            state.foundation.selected.position.scene_id,
+            x + 4243.0, y + 1234.0, z,
+        )
+        self._arm_the_warp_with_target(state, target)
+
+        # The warp's own frame: the client reports the OLD point (RE-129).
+        first = self._report(state, x, y, z)
+        self.assertEqual(self._token_lines(first), [])
+        self.assertEqual(self._match_or_mismatch_lines(first), [])
+        self.assertIsNone(state.gm_warp_confirm_target)
+        self.assertIsNone(state.gm_warp_confirm_target_reason)
+
+        # A later, unrelated frame: the tester walks by hand.
+        second = self._report(state, x + 500.0, y + 500.0, z)
+        self.assertEqual(self._token_lines(second), [])
+        self.assertEqual(self._match_or_mismatch_lines(second), [])
+        self.assertFalse(
+            any(
+                event.startswith("gm_warp_position_target_")
+                for event in state.events
+            )
+        )
+
+    # ----- (e) a target parked for a DIFFERENT character -------------------
+
+    def test_a_target_parked_for_a_different_character_is_unknown_not_mismatch(
+        self,
+    ):
+        """A stale target from another character must never be compared.
+
+        Simulates "warp as character A, re-select to character B, B moves"
+        at the level ``gm.warp_target_record`` itself operates on: a target
+        parked under a foreign character id sits on the session (as it would
+        after a re-select on the same connection), while THIS connection's
+        own warp is armed normally for the character actually selected. The
+        confirm window opens on that real arming, finds the parked record
+        belongs to someone else, and must report the mismatch as
+        "unknown_character_mismatch" -- never as a position "_MISMATCH",
+        which would wrongly claim the row was measured against a real
+        destination for this character.
+        """
+        state = self._login_and_start("gmwarp_target05")
+        x, y, z = self._origin(state)
+        scene_id = state.foundation.selected.position.scene_id
+        foreign_character_id = state.foundation.selected.id + 999
+        target = WarpTarget(scene_id, x + 4243.0, y + 1234.0, z)
+        self.assertTrue(
+            record_warp_target(state, target, foreign_character_id)
+        )
+
+        self._arm_the_warp(state)
+        moved = (x + 4243.0, y + 1234.0, z)
+        err = self._report(state, *moved)
+
+        self.assertEqual(self._token_lines(err), [CONSOLE_TOKEN])
+        self.assertEqual(self._match_or_mismatch_lines(err), [])
+        self.assertIn(
+            "gm_warp_position_target_unknown_character_mismatch",
+            state.events,
+        )
+        self.assertNotIn(MATCH_EVENT, state.events)
+        self.assertFalse(
+            any(
+                event.startswith("gm_warp_position_target_mismatch")
+                for event in state.events
+            )
         )
 
 
