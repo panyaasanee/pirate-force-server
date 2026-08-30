@@ -43,6 +43,15 @@ client-observable fact only an attended click test can produce -- see
 pf_bridge GAME_TEST_QUEUE.md's paired GT entry and RE-164 itself. This
 module's job is to make that click test cheap to run and its inputs
 byte-auditable, nothing more.
+
+CALL SITE (CORE-REQUEST-GM-043, chief CHIEF-REPLY 2026-08-31T03:57+07:00,
+option A): `gm/chat_command_action.py`'s `_gmprobe_action` is now the mid-
+session way to fire any one of these variants -- `/gmprobe <variant_id>`,
+looked up via `VARIANTS_BY_ID`/`variant_by_id` below. This does not change
+the nonclaim above one bit: composing and sending a frame through a chat
+command is still not evidence that anything renders; it only removes the
+"only one hardcoded value, only once at login" limit `GT-164` was BLOCKED
+on (pf_bridge notes_to_chief 20260831_0321).
 """
 from __future__ import annotations
 
@@ -181,6 +190,49 @@ def build_variant_payload(legacy, variant: StateVitalBitVariant) -> bytes:
 
 
 # ---------------------------------------------------------------------------
+# variant_id lookup -- the seam CORE-REQUEST-GM-043's `/gmprobe <variant_id>`
+# chat command (gm/chat_command_action.py::_gmprobe_action) reads.
+# ---------------------------------------------------------------------------
+
+# Built once, at import time, from the same generator every other reader of
+# this module uses -- so this table and `iter_state_vital_bit_variants` can
+# never drift apart into two different lists of "the variants that exist".
+VARIANTS_BY_ID: dict[str, StateVitalBitVariant] = {
+    variant.variant_id: variant for variant in iter_state_vital_bit_variants()
+}
+
+
+def known_variant_ids() -> tuple[str, ...]:
+    """The `variant_id` values `/gmprobe` accepts, in generator order."""
+    return tuple(VARIANTS_BY_ID)
+
+
+def variant_by_id(variant_id: str) -> StateVitalBitVariant | None:
+    """The named variant, or None if `variant_id` matches none of them.
+
+    Wired for CORE-REQUEST-GM-043's `/gmprobe <variant_id>` (chief
+    CHIEF-REPLY 2026-08-31T03:57+07:00, option A): this is the one place
+    that turns operator-typed text into one of
+    `iter_state_vital_bit_variants`'s named combinations, so the chat action
+    and any future caller cannot disagree about which string maps to which
+    fields.
+
+    Returns `None` rather than raising -- an unknown id is the GM's typo,
+    not this module's error, and the caller decides how to report it
+    (`_gmprobe_action` refuses by name, never guesses the closest match).
+    `variant_id` is accepted "regardless of source" the same way
+    `gm/commands.py`'s `GmCommand.args` is (see `GmCommandArgsError`'s
+    docstring): a non-`str` key cannot be in this dict (every key is a
+    literal from `iter_state_vital_bit_variants`), but `dict.get` on an
+    unhashable value raises `TypeError` instead of returning `None`, so the
+    type is checked first rather than trusted.
+    """
+    if not isinstance(variant_id, str):
+        return None
+    return VARIANTS_BY_ID.get(variant_id)
+
+
+# ---------------------------------------------------------------------------
 # Suspects 1, 3, 4: NOT wire-constructible -- labelled hypothesis stubs only
 # ---------------------------------------------------------------------------
 
@@ -278,4 +330,7 @@ __all__ = [
     "CURRENT_UI_OBJECT_KEY_SUSPECT",
     "SUSPECT_STUBS",
     "GM_UPDATE_GM_STATE_VITAL_ID",
+    "VARIANTS_BY_ID",
+    "known_variant_ids",
+    "variant_by_id",
 ]

@@ -4959,3 +4959,68 @@ base `origin/main` ต้นรอบ)
 `python3 tools/verify_hypothesis_ledger.py` / `verify_functional_coverage.py`: ทั้งคู่ PASS ไม่มี drift
 
 — สาย GM รอบ `gm17278`
+
+## รอบ `jz4don` (2026-08-31T04:2x+07:00) — `/gmprobe <variant_id>` chat command (CORE-REQUEST-GM-043)
+
+### คำสั่ง
+
+`notes_to_chief/20260831_0357_CHIEF-REPLY-CORE-REQUEST-GM-043-decision-option-A-gmprobe-chat-command.md`:
+chief ตัดสินทางเลือก A -- คำสั่งแชท `/gmprobe <variant_id>` ต่อสายผ่าน dispatch เดียวกับ `/warp`/`/say`
+เรียก `bt_gm_probe.build_variant_frame` เพิ่มเทส dispatch wiring แบบเดียวกับ `WarpActionTests` -- ไม่ต้อง
+แตะ `runtime.py` เพราะ `GM_UpdateGMStateVital` proven เต็มแล้ว (`RE-105`/`RE-089`)
+
+### สิ่งที่สร้างรอบนี้
+
+1. `gm/commands.py`: เพิ่ม `"gmprobe": "gmprobe <variant_id>"` ต่อท้าย `COMMAND_USAGE` (ลำดับ 7 คำสั่ง
+   เดิม 6 ของเจ้าของยังเหมือนเดิม ต่อท้ายเท่านั้น -- pin โดย
+   `test_gm_chat_command_parse_way_out.py::TheUsageHintItselfTests::
+   test_the_vocabulary_order_is_pinned_because_a_human_reads_it`) + branch parse ใหม่ใน `parse_gm_command`
+   -- รับ token เดียวเป็น `variant_id` (str ใด ๆ ที่มี 1 คำ) ไม่ตรวจกับตาราง `bt_gm_probe` ที่ชั้นนี้
+   (แยกชั้นเหมือน `warp`'s `scene_catalog` hint -- ตรวจจริงที่ dispatch)
+2. `gm/bt_gm_probe.py`: เพิ่ม `VARIANTS_BY_ID` (dict สร้างจาก `iter_state_vital_bit_variants()` ตัวเดียว
+   กันสองตารางเพี้ยนออกจากกัน), `known_variant_ids()`, `variant_by_id()` -- คืน `None` สำหรับ id ที่ไม่รู้จัก
+   ไม่เดาตัวใกล้เคียง
+3. `gm/chat_command_action.py`: `GMPROBE_ACTION_LABEL` (ไม่มีคำว่า `TELEPORT` -- probe ไม่ขยับตัวละคร),
+   `EVENT_GMPROBE_UNKNOWN_VARIANT`/`EVENT_GMPROBE_REFUSED_PREFIX`/`OUTCOME_GMPROBE_UNKNOWN_VARIANT`,
+   ฟังก์ชัน `_gmprobe_action` (โมเดลตาม `_warp_action`/`_say_action`) ต่อเข้า `_make_action`'s dispatch
+   -- **ไม่มี version gate** ต่างจาก `warp`/`say`: `GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED` ถูก RE-105
+   พิน 0 ไว้ตรง ๆ ตั้งแต่ต้น ไม่ใช่ค่า `None`-รอพิสูจน์แบบ `FORCE_POS_VITAL_VERSION_CONFIRMED`/
+   `GM_GLOBAL_MESSAGE_VITAL_VERSION_CONFIRMED` -- ไม่มีประตูให้ปิด
+4. เทสใหม่: `GmprobeActionTests` (9 เคส) ใน `tests/test_gm_chat_command_action.py` -- variant รู้จักกลาย
+   เป็น action จริง, variant ไม่รู้จักถูกปฏิเสธแบบมีชื่อ (ไม่เดา), ครบทั้ง 14 variant compose ได้โดยไม่ต้อง
+   เปิดประตูใด, `args` shape ปลอมถูกปฏิเสธ (เหมือน `warp_executor`/`say_wire`), composer ที่ explode ถูก
+   ตั้งชื่อไม่รั่วไหล, ไม่ต้องมีตำแหน่งผู้เล่น (ต่างจาก `/warp`), ไม่ park warp target ใด ๆ
+5. อัปเดต pin tests สามจุดตามที่โค้ดเปลี่ยนแปลงจริงบังคับ: `TheUsageHintItselfTests` (ลำดับ vocabulary),
+   `TheExerciseTableCoversTheWholeCommandSurfaceTests`'s `COMMAND_EXERCISES` (tripwire คำสั่งใหม่ต้องเดิน
+   ผ่านประตู standalone-map-not-writable), `EventNameContractTests`'s `EXPECTED`/`EXPECTED_LABELS` (พิน
+   ชื่อ constant ใหม่เป็น literal)
+
+### pf-adversary รอบนี้
+
+เรียก agent `pf-adversary` ไม่ได้ในสภาพแวดล้อมนี้ (ไม่มี Task/agent-launch tool ในชุดเครื่องมือของรอบนี้)
+-- ตรวจทานเองอย่างเข้มแทนตามกติกา: ใช้ threat model เดียวกับ `warp_executor`/`say_wire` ทุกจุด
+(`type(args) is not tuple`, ไม่ใช่ `isinstance`, กัน tuple subclass โกหก), จับ `Exception` กว้างรอบ
+composer ไม่ให้หลุดไปกลางเธรดฟัง, ไม่ echo `variant_id` ที่ GM พิมพ์เข้า event/console เลย (ใช้ literal
+คงที่สำหรับ unknown-variant แทน), ไม่แตะ label ที่มีคำว่า `TELEPORT`, และรันสวีตเต็มก่อน/หลังเปรียบเทียบ
+ผลต่าง
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+ตอนนี้กะ1-A ยิง `bt_gm_probe`'s 14 variant ไหนก็ได้ระหว่าง session จริงด้วยการพิมพ์ `/gmprobe <variant_id>`
+ในแชท GM แทนที่จะรอค่าคงที่เดียวที่ยิงครั้งเดียวตอนล็อกอิน -- `GT-164` (เดิมชื่อ `GT-165` ในรอบ `gm17278`
+เปลี่ยนเลขตามอนุสัญญาโปรเจกต์ในรอบ `b3fgm6`) ไม่ BLOCKED อีกต่อไปด้วยเหตุผลเดิม เปิดให้เทสได้จริงรอบนี้
+
+### nonclaim
+
+**ไม่มีการอ้างว่า `GMUI_BASIC` เปิดหรือไม่เปิดจาก variant ใดเลย** -- การยิง `/gmprobe` ผ่านคำสั่งแชทไม่ใช่
+หลักฐานว่าอะไรเรนเดอร์บนไคลเอนต์ ยังต้องรอ `GT-164` (attended click test) เป็นผู้ตอบ ไม่มีการเปิด client
+ไม่มีการวัดกับไคลเอนต์จริงในรอบนี้ ไม่แตะ `runtime.py`/`app.py`/`pf_login_game_server_v141.py` (ยังคง
+dispatch call site เดิมของ chief ไม่เปลี่ยน) ไม่แตะ `scenarios/world_*.json`/`scenarios/combat_*.json`
+ไม่ให้สถานะ GM กับบัญชีใดที่ไม่อยู่ใน `gm_accounts` ไม่มีการประกาศ milestone จากผลที่ได้ด้วย GM
+
+`pytest tests/test_gm_*.py -q`: **1097 passed** (+21), 506 subtests, 4 skipped, 0 failed
+`pytest tests/ -q` เต็ม: **5649 passed** (+23), 327 skipped, 9758 subtests passed, 0 failed
+`python3 tools/verify_hypothesis_ledger.py`: PASS entries=47, ไม่มี drift
+`python3 tools/verify_functional_coverage.py`: PASS domains=8, ไม่มี drift
+
+— สาย GM รอบ `jz4don`

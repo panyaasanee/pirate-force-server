@@ -522,6 +522,131 @@ class WarpActionTests(_Case):
         )
 
 
+class GmprobeActionTests(_Case):
+    """CORE-REQUEST-GM-043: `/gmprobe <variant_id>` -> `GM_UpdateGMStateVital`.
+
+    Modelled on `WarpActionTests` per chief's CHIEF-REPLY (2026-08-31T03:57
+    +07:00): a known variant_id becomes a real composed action, an unknown
+    one is a named refusal, and -- unlike `/warp`/`/say` -- no version gate
+    has to be opened first, because `GM_UPDATE_STATE_VITAL_VERSION_
+    CONFIRMED` was pinned outright by RE-105 rather than starting life as
+    `None`.
+    """
+
+    def test_a_known_variant_becomes_a_real_state_vital_action(self):
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        session = FakeSession(position=FakePosition(scene_id=2))
+        action = self.act(session, "/gmprobe baseline-all-zero")
+        self.assertIsNotNone(action)
+        label, pc, frame, delay = action
+        self.assertEqual(label, chat_command_action.GMPROBE_ACTION_LABEL)
+        self.assertEqual(delay, 0.0)
+        self.assertIsInstance(pc, (bytes, bytearray))
+        self.assertIsInstance(frame, (bytes, bytearray))
+
+    def test_the_bytes_are_the_pinned_composers_bytes_not_new_ones(self):
+        # This module must never become a second place that knows how to
+        # build the state-vital frame: it composes through
+        # bt_gm_probe/state_wire or not at all.
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        session = FakeSession(position=FakePosition(scene_id=2))
+        _label, pc, frame, _delay = self.act(session, "/gmprobe u32-bit3")
+        expected_pc, expected_frame = chat_command_action.bt_gm_probe.build_variant_frame(
+            self.legacy, chat_command_action.bt_gm_probe.VARIANTS_BY_ID["u32-bit3"]
+        )
+        self.assertEqual(bytes(pc), bytes(expected_pc))
+        self.assertEqual(bytes(frame), bytes(expected_frame))
+
+    def test_every_named_variant_composes_without_a_version_gate_open(self):
+        # No `open_the_version_gate()` context anywhere in this test --
+        # that is the point being pinned: RE-105 already confirmed this
+        # vital's version, so there is nothing left to gate.
+        for variant_id in chat_command_action.bt_gm_probe.known_variant_ids():
+            with self.subTest(variant_id=variant_id):
+                gm_dispatch.reset_rate_limit_state_for_tests()
+                session = FakeSession(position=FakePosition(scene_id=2))
+                action = self.act(session, f"/gmprobe {variant_id}")
+                self.assertIsNotNone(action)
+
+    def test_an_unknown_variant_id_is_a_named_refusal_not_a_guess(self):
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        session = FakeSession(position=FakePosition(scene_id=2))
+        action = self.act(session, "/gmprobe not-a-real-variant")
+        self.assertIsNone(action)
+        self.assertIn(
+            chat_command_action.EVENT_GMPROBE_UNKNOWN_VARIANT, session.events
+        )
+
+    def test_the_unknown_variant_outcome_is_audited(self):
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        session = FakeSession(position=FakePosition(scene_id=2))
+        self.act(session, "/gmprobe not-a-real-variant")
+        records = self.log_records()
+        self.assertEqual(len(records), 2)
+        self.assertEqual(records[0]["command"], "gmprobe")
+        self.assertEqual(
+            records[1]["outcome"],
+            chat_command_action.OUTCOME_GMPROBE_UNKNOWN_VARIANT,
+        )
+
+    def test_gmprobe_needs_no_position_unlike_warp(self):
+        # A probe writes GM state, not a location -- a GM with no selected
+        # character (the case that refuses `/warp`) still gets a `/gmprobe`.
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        session = FakeSession(position=None)
+        action = self.act(session, "/gmprobe baseline-all-zero")
+        self.assertIsNotNone(action)
+
+    def test_a_composer_that_explodes_is_named_not_leaked(self):
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        session = FakeSession(position=FakePosition(scene_id=2))
+        with mock.patch.object(
+            chat_command_action.bt_gm_probe,
+            "build_variant_frame",
+            side_effect=RuntimeError("boom"),
+        ):
+            action = self.act(session, "/gmprobe baseline-all-zero")
+        self.assertIsNone(action)
+        self.assertIn(
+            f"{chat_command_action.EVENT_GMPROBE_REFUSED_PREFIX}RuntimeError",
+            session.events,
+        )
+
+    def test_a_lying_tuple_subclass_is_rejected_not_trusted(self):
+        # Same threat model as warp_executor/say_wire's own args-shape
+        # guards: a `tuple` subclass whose real storage disagrees with its
+        # overridden `__len__`/`__getitem__` must not sail past this
+        # module's own shape check.
+        class Liar(tuple):
+            def __len__(self):
+                return 1
+
+            def __getitem__(self, index):
+                raise AttributeError("gotcha")
+
+        session = FakeSession(position=FakePosition(scene_id=2))
+        outcome = chat_command.ChatCommandOutcome(
+            authorized=True,
+            command=GmCommand(name="gmprobe", args=Liar(), raw="/gmprobe x"),
+            text="/gmprobe x",
+            refusal_reason=None,
+        )
+        with mock.patch.object(
+            chat_command_action, "handle_local_talk_chat", return_value=outcome
+        ):
+            action = self.act(session, "/gmprobe baseline-all-zero")
+        self.assertIsNone(action)
+        self.assertIn(
+            f"{chat_command_action.EVENT_GMPROBE_REFUSED_PREFIX}GmProbeArgsShape",
+            session.events,
+        )
+
+    def test_gmprobe_parks_no_warp_target(self):
+        session = FakeSession(position=FakePosition(scene_id=2))
+        self.act(session, "/gmprobe baseline-all-zero")
+        self.assertIsNone(getattr(session, "gm_last_warp_target", None))
+
+
 class WarpTargetRecordingTests(_Case):
     """The destination is parked for the position reader -- and only then.
 
@@ -1007,6 +1132,13 @@ class EventNameContractTests(_Case):
         "EVENT_ITEM_CATALOG_DIAGNOSTIC_PREFIX": (
             "gm_chat_action_item_catalog_diagnostic_"
         ),
+        # CORE-REQUEST-GM-043: `/gmprobe <variant_id>`.  No withheld-by-
+        # version-gate event exists for this command -- see
+        # `_gmprobe_action`'s own docstring for why (RE-105 pinned
+        # `GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED` outright, it was never a
+        # `None`-until-proven gate the way `warp`/`say`'s constants are).
+        "EVENT_GMPROBE_UNKNOWN_VARIANT": "gm_chat_action_gmprobe_unknown_variant",
+        "EVENT_GMPROBE_REFUSED_PREFIX": "gm_chat_action_gmprobe_refused_",
     }
 
     # Action labels are the same kind of interface as the event names, and a
@@ -1015,6 +1147,7 @@ class EventNameContractTests(_Case):
     EXPECTED_LABELS = {
         "WARP_ACTION_LABEL": "LANE_GM_CHAT_WARP_TELEPORT_FORCE_POS",
         "SAY_ACTION_LABEL": "LANE_GM_CHAT_SAY_GM_GLOBAL_MESSAGE",
+        "GMPROBE_ACTION_LABEL": "LANE_GM_CHAT_GMPROBE_STATE_VITAL",
     }
 
     # The live hook route's names, pinned here as text for the disjointness
