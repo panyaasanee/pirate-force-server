@@ -393,7 +393,7 @@ class DispatchColumbusQuest3021Tests(unittest.TestCase):
         # the decision and the report, so the position is still pinned -
         # against the report, which the next assertion pins too.
         self.assertEqual(
-            lines[-3],
+            lines[-4],
             "COLUMBUS_QUEST3021_NO_VEHICLE_DISPATCH scene=17 source="
             + columbus_quest_dispatch.M2_NO_VEHICLE_TAG,
         )
@@ -403,9 +403,19 @@ class DispatchColumbusQuest3021Tests(unittest.TestCase):
         # - who the client is still holding, then the way home this crossing
         # owes.  Both are pinned by position rather than by ``assertIn``, so a
         # line inserted between the decision and either report still fails.
-        self.assertTrue(lines[-2].startswith("WORLD_POP_STOWAWAYS "), lines)
-        self.assertTrue(lines[-1].startswith("WORLD_M2_RETURN_LEG "), lines)
-        self.assertEqual(len(lines), 5, lines)
+        #
+        # THE M2 CROSSING-HANDOFF ROUND MOVED IT BY ONE FOR THE THIRD TIME.
+        # Same rule, same reason, and the same refusal to weaken it: the
+        # decision line is byte-identical and still last of the decisions,
+        # and there are now THREE reports after it in a fixed order - who is
+        # still held, the way home, then the population frame this crossing
+        # owes and does not send.  A line inserted anywhere among them still
+        # fails this test, which is the whole point of pinning by index.
+        self.assertTrue(lines[-3].startswith("WORLD_POP_STOWAWAYS "), lines)
+        self.assertTrue(lines[-2].startswith("WORLD_M2_RETURN_LEG "), lines)
+        self.assertTrue(
+            lines[-1].startswith("WORLD_M2_CROSSING_HANDOFF "), lines)
+        self.assertEqual(len(lines), 6, lines)
 
 
 class DispatchColumbusQuest3205Tests(unittest.TestCase):
