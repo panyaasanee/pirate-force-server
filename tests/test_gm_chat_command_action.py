@@ -387,6 +387,99 @@ class WarpActionTests(_Case):
         for event in session.events:
             self.assertNotIn("would_recompose", event)
 
+    def test_item_with_a_single_category_id_names_that_category(self):
+        # id 11 resolves in exactly one of the three item tables (measured
+        # live against gm/item_catalog.py, not assumed from its docstring's
+        # own examples -- id 1 and id 6 turned out ambiguous differently
+        # than that docstring's illustration, which is exactly why this
+        # diagnostic measures instead of guessing).
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        session = FakeSession(position=FakePosition(scene_id=2))
+        with self.open_the_version_gate():
+            action = self.act(session, "/item 11 2")
+        self.assertIsNone(action)
+        self.assertIn(
+            f"{chat_command_action.EVENT_NO_WIRE_PATH_PREFIX}item",
+            session.events,
+        )
+        self.assertIn(
+            f"{chat_command_action.EVENT_ITEM_CATALOG_DIAGNOSTIC_PREFIX}"
+            "known_quest",
+            session.events,
+        )
+
+    def test_item_with_an_unknown_id_is_named_not_guessed(self):
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        session = FakeSession(position=FakePosition(scene_id=2))
+        with self.open_the_version_gate():
+            action = self.act(session, "/item 99999999 2")
+        self.assertIsNone(action)
+        self.assertIn(
+            f"{chat_command_action.EVENT_ITEM_CATALOG_DIAGNOSTIC_PREFIX}"
+            "unknown",
+            session.events,
+        )
+
+    def test_item_with_an_id_that_collides_across_categories_is_named_ambiguous(
+        self,
+    ):
+        # id 1 resolves in two of the three tables (measured, see the
+        # single-category test above) -- this is the exact shape round
+        # `opr2xd` flagged as a future grammar question for chief/Panya to
+        # decide, not this lane; the diagnostic names it without picking one.
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        session = FakeSession(position=FakePosition(scene_id=2))
+        with self.open_the_version_gate():
+            action = self.act(session, "/item 1 2")
+        self.assertIsNone(action)
+        self.assertIn(
+            f"{chat_command_action.EVENT_ITEM_CATALOG_DIAGNOSTIC_PREFIX}"
+            "ambiguous_2",
+            session.events,
+        )
+
+    def test_item_diagnostic_never_alters_dispatch_when_it_blows_up(self):
+        # Same rule as npc's own version of this test: a diagnostic that
+        # raises must still resolve to no-wire-path, never escape the route.
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        session = FakeSession(position=FakePosition(scene_id=2))
+        with self.open_the_version_gate(), mock.patch.object(
+            chat_command_action.item_catalog,
+            "item_category",
+            side_effect=RuntimeError("boom"),
+        ):
+            action = self.act(session, "/item 11 2")
+        self.assertIsNone(action)
+        self.assertIn(
+            f"{chat_command_action.EVENT_ITEM_CATALOG_DIAGNOSTIC_PREFIX}"
+            "unexpected_RuntimeError",
+            session.events,
+        )
+
+    def test_item_diagnostic_rejects_a_lying_tuple_subclass(self):
+        # Same threat model as npc's own version: a `tuple` subclass whose
+        # overridden `__len__`/`__getitem__` lie about having 2 real
+        # elements must not sail past the shape guard.
+        class Liar(tuple):
+            def __len__(self):
+                return 2
+
+            def __getitem__(self, index):
+                return "11" if index == 0 else "2"
+
+        session = FakeSession(position=FakePosition(scene_id=2))
+        chat_command_action._note_item_catalog_diagnostic(
+            session, GmCommand(name="item", args=Liar(), raw="/item 11 2")
+        )
+        self.assertIn(
+            f"{chat_command_action.EVENT_ITEM_CATALOG_DIAGNOSTIC_PREFIX}"
+            "bad_args_shape",
+            session.events,
+        )
+        for event in session.events:
+            self.assertNotIn("known_", event)
+            self.assertNotIn("ambiguous_", event)
+
     def test_say_sends_nothing_on_the_strength_of_the_warp_gate_alone(self):
         # The two gates are independent, and this is the pin that says so:
         # opening ForcePos's constant must not make a `say` frame go out.
@@ -876,6 +969,12 @@ class EventNameContractTests(_Case):
         # a replacement for it.
         "EVENT_NPC_RECOMPOSE_DIAGNOSTIC_PREFIX": (
             "gm_chat_action_npc_recompose_diagnostic_"
+        ),
+        # GM-042 prep's read point, wired this round: same shape of
+        # diagnostic on top of `EVENT_NO_WIRE_PATH_PREFIX` for `item`, never
+        # a replacement for it -- see that constant's own comment above.
+        "EVENT_ITEM_CATALOG_DIAGNOSTIC_PREFIX": (
+            "gm_chat_action_item_catalog_diagnostic_"
         ),
     }
 
