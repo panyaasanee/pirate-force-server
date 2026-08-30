@@ -15,8 +15,15 @@ Scope of this file, stated plainly so it cannot be over-claimed later:
   ``aux`` sub-objects still carry several positional-only fields RE-090
   leaves unproven -- see ``gm/warp_executor.py``'s own docstring for which
   ones and why guessing them is refused rather than attempted).  ``spawn``
-  still needs mob-spawn wiring that is not proven yet (notes_to_chief
-  20260826_1630 lists this as RE-open); executing ``npc``/``item``/``lv``
+  is not a wiring gap, it is bounded-negative as of 2026-08-30: chief
+  (round `nnlka4`, notes_to_chief 20260830_1804) confirmed by independent
+  source-wide grep that no function anywhere in ``src/`` or ``gm/`` creates
+  a new mob actor and inserts it into a running world -- the only
+  ``def spawn*`` in the project is a coordinate finder, not an actor
+  factory. Wiring ``spawn`` for real needs a **new engine feature**
+  (a mob-spawn factory that does not exist yet), not a CORE-REQUEST call
+  site the way ``warp``/``npc`` do -- do not reopen this as an RE question.
+  Executing ``npc``/``item``/``lv``
   needs write access to player/world state that lives in runtime.py,
   outside this lane's write zone.  Wiring any of that in is a
   CORE-REQUEST to chief, filed per command once its dependency is ready --
