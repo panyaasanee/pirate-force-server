@@ -594,3 +594,82 @@ WHAT EACH LINE REPLACES, AND WHY IT IS NOT A CADENCE CHANGE:
 NOTHING ELSE MOVES.  No timer, no thread, no new dispatch branch, no scenario
 flag: production_allowed is True and this behaviour is on for every boot.
 """
+
+# ---------------------------------------------------------------------------
+# PANYA-ORDER 2026-08-30T14:50+07:00 step 1-2 (relayed
+# notes_to_chief/20260830_1450_PANYA-ORDER-prove-drop-persistence-BEFORE-
+# GT146-click-test-plus-nonclaim-routing-error.md): can the ground-loot
+# element be made to stay visible/clickable >= 30 s, proven headless first.
+#
+# tests/test_mob_drop_presence_sustained_resend_hypothesis.py answers the
+# mechanism half: ``sustain_a_kill(cell, legacy, ())`` -- the SAME function
+# the per-kill path above already calls, called again with no new kill --
+# resends the whole live ledger's frames at zero placement cost and zero new
+# byte layout, and does so correctly across a proven >= 30 s window (34 s,
+# uneven cadence, well inside the 120 s DROP_LIFETIME_SECONDS ceiling). "Send
+# the frame again periodically" is therefore not a mechanism to build; it is
+# a call site to add, gated by a scenario flag so it stays test-only (this
+# lane does not claim resend-on-every-movement is a production cadence
+# decision -- that is a separate, unopened COO question).
+# ---------------------------------------------------------------------------
+DROP_PRESENCE_RESEND_ON_MOVEMENT_WIRING = """runtime.py, the TargetPosVital
+scenario cluster that already gates ground_loot_hypothesis and
+ground_loot_nameprop_hypothesis (search 'nested_id == legacy.TARGET_POS_VITAL'
+-- three sibling blocks, all reading a scenario kwarg that defaults to None).
+
+ADD A FOURTH SIBLING BLOCK, new scenario kwarg
+``mob_drop_presence_resend_scenario`` (None by default, same constructor/
+__slots__/repr wiring as the two neighbours it sits beside -- see how
+``ground_loot_hypothesis_scenario`` is threaded through __init__ and
+docs/GM_LANE.md-style scenario tables for the exact shape chief already
+copies twice):
+
+  if (
+      mob_drop_presence_resend_scenario is not None
+      and self.runtime_ack_sent
+      and self.teleport_sent
+      and self.foundation.selected is not None
+      and nested_id == legacy.TARGET_POS_VITAL
+  ):
+      step = mob_drop_presence.sustain_a_kill(self.mob_loot_cell, legacy, ())
+      print(mob_drop_presence.describe_presence(step))
+      actions.extend(mob_drop_presence.loot_actions(step))
+      self.events.append(mob_drop_presence.presence_event(step))
+
+NOTE WHAT IS DELIBERATELY ABSENT: no ``_sent`` latch (unlike the two
+neighbours, which fire ONCE per session).  This block is meant to fire on
+EVERY qualifying TargetPosVital while the flag is set, because the whole
+point is CADENCE -- a client-driven event that already arrives every time
+the player moves, not a server clock (the COO's 2026-08-26 refusal was of a
+TIMER; there is no timer here, only an existing message handled one more
+way). ``sustain_a_kill`` costs nothing extra when the ground is empty
+(STATE_NOTHING_ON_THE_GROUND, frames=()) and composes no new bytes ever --
+it is the identical function object the always-on per-kill call site above
+already calls in production.
+
+THE SCENARIO FLAG ITSELF is the part this lane has not built: a permission-
+token loader/validator following the ``ground_loot_hypothesis`` pattern
+(frozen allowlisted profile, ``production_allowed = False``, refuses any
+drifted file by name). Until that token exists this block simply never
+fires (``mob_drop_presence_resend_scenario is None`` on every default boot),
+so landing the block ahead of the token is safe and unblocks the token being
+built in either lane's next round without a second runtime.py edit.
+
+pf-adversary (this round) asked who verifies the token defaults to refused
+before this wiring lands: the same guarantee ``ground_loot_hypothesis`` gives
+by construction, not by convention -- the CONSTRUCTOR arg defaults to
+``None`` (nothing fires with no file passed), the loader accepts only the
+one frozen profile by identity (``require_ground_loot_hypothesis_scenario``,
+``is`` not ``==``, so no value-equal lookalike opens it), and
+``load_ground_loot_hypothesis_scenario`` refuses any file that is not an
+exact match to the allowlisted body. Whoever builds the token for this flag
+owes the same three properties and a test pinning each one, exactly as
+``tests/test_ground_loot_hypothesis.py`` already does for the sibling --
+this file does not build that token and must not be read as claiming the
+default is safe until that test exists.
+
+WHAT THIS DOES NOT DO: it does not change what LABEL_LIFE_SECONDS_MIN/MAX
+mean, it does not set REEMISSION_REDRAWS_THE_LABEL (that stays an attended-
+only measurement), and it does not touch the always-on per-kill call site
+above in any way.
+"""
