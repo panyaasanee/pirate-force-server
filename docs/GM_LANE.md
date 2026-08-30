@@ -4511,3 +4511,116 @@ edit).
 
 **NONCLAIM:** ไม่มีการเปิด client ไม่มีการวัดกับไคลเอนต์จริง ทั้งหมดวัดจาก GitHub API และ
 grep/read ซอร์สที่ commit แล้วบนทั้งสอง repo
+
+## Round `dm8o4l` -- `queued` becomes writable, and the door that let it stays shut
+
+`CORE-REQUEST-GM-040` is CLOSED. Both halves are on `main`.
+
+**Chief's half (landed first, `pirate-force-server#299`, merged
+2026-08-30T10:47Z).** `runtime.py`'s append site --
+`if gm_action is not None: actions = actions + [gm_action]` -- now reads
+`session._gm_action_queued_confirm`, a `(action, callback)` pair matched by
+`is`, clears the slot, and fires the callback. Chief's own letter called it
+"inert scaffolding": nothing in the tree set the attribute.
+
+**This lane's half (this round).** `make_gm_chat_command_action` arms that
+pair with the exact tuple it is about to return, and the callback writes the
+`queued` row that `OUTCOME_QUEUED` has had reserved since
+`CORE-REQUEST-GM-032` item 3.
+
+### The shape of the door, and why it is not a flag
+
+`OUTCOME_QUEUED`'s own comment predicted the change would be "one line in
+`is_known_outcome`". **It deliberately was not, and that line did not
+change.** Flipping the predicate -- or adding a
+`confirmed=True` keyword to `log_gm_command_outcome` -- would have made the
+word reachable by any caller holding the string, which is precisely the hole
+`QueuedIsReservedTests` exists for: pf-adversary once got `queued` into the
+ndjson through `AUDIT_OUTCOMES[-1]`, a tuple index no source scan can see.
+
+Instead the word got its own writer, `commands.log_gm_command_queued`, which
+takes **no `outcome` parameter at all** and hard-codes the constant. A
+function with no outcome parameter cannot be reached by a VALUE; only by a
+NAME -- which a reader sees and a scan can find. Consequences:
+
+- `log_gm_command_outcome` still raises for `queued` by every spelling.
+- `is_known_outcome('queued')` is still `False`; `AUDIT_OUTCOMES` still
+  excludes it.
+- Because the writer hard-codes the word, `chat_command_action.py` never
+  names it -- so `QueuedIsReservedTests`' AST scan is still green AND still
+  means what it says, on the very round the word became writable.
+- **No test that guarded the old door was deleted or weakened to land this.**
+
+### The hole this round's own adversary pass found in this round's own work
+
+Moving the door moved what the scan can see. The AST scan forbids a lane file
+from NAMING `queued`; after this change a lane file no longer has to -- it
+only has to name a function. Before this round no lane file could write the
+word at all; without a new pin any of them could, and the old guard would
+have stayed green. Closed by
+`test_gm_queued_confirm_arming.py::TheOldDoorIsStillShutTests::
+test_only_the_confirmation_path_may_even_NAME_the_new_writer`, plus its
+own "the scanner really sees something" companion.
+
+### Three rows now, not two -- and one stale grading criterion
+
+An appended command writes `issued` -> `outcome:composed` -> `outcome:queued`,
+three lines sharing one `record_id`. Append-only, never an amend: the third
+line extends the sequence, it does not rewrite the second.
+
+**A reader of the ndjson must take the LAST outcome row for a `record_id`,
+not "the" outcome row.**
+
+- `GT-128`'s criterion already survives this: round `nz0qt2` rewrote it to
+  **count distinct `record_id`s**, which is still exactly one per command.
+- `GT-141`'s criterion is unaffected: a cross-scene `/warp` stages a login
+  scene and returns NO action, so nothing is appended and no `queued` row is
+  written -- its "two rows, second one `staged_login_scene`" still holds.
+- 🔴 **`GT-127`'s wire/DB criterion is stale and this lane cannot fix it**
+  (`GAME_TEST_QUEUE.md` is chief's file, `AGENTS.md` §7). It reads "ndjson has
+  one row per command (**not two**)" -- which was already stale from
+  `CORE-REQUEST-GM-032` (issued + outcome = two) before this round made it
+  three. Reported to chief in this round's letter. Note this is latent, not
+  live: `GT-127` grades the same-scene ForcePos path, whose version gate is
+  still `None` (RE-129 unanswered), so nothing composes there today anyway.
+
+### Failure shapes, each with its own name
+
+Four, because "the `composed` row has no `queued` beside it" has four very
+different causes and one event name would let a reader pick the wrong one:
+
+| event | what happened |
+|---|---|
+| `gm_chat_action_queued_confirm_not_armed_<ExcType>` | the session refused the attribute (slots, a proxy). The command still went out. |
+| `gm_chat_action_queued_confirm_overwrote_pending` | a pairing from an earlier frame was still unfired. Should be unreachable by construction; named because it means some earlier command's `queued` row went missing for THIS reason and not because an append failed. |
+| `gm_chat_action_queued_confirm_write_failed_<ExcType>` | the append really happened and the row would not write. |
+| `gm_chat_action_queued_confirm_fired_twice` | the callback was invoked twice. Chief's hook clears before calling, so this cannot come from him. Refused, because two `queued` rows read like two appends. |
+
+**Nothing is withheld on a write failure**, and that asymmetry with
+`_log_outcome` is deliberate: by the time the callback runs the action is
+already in `runtime.py`'s action list. There is nothing left to take back, so
+the honest report is "it went out and we could not record that".
+
+**Arming follows the ACTION, not the composer.** It happens last, only for an
+action really being returned -- a withheld, refused or unaudited command arms
+nothing. Pinned three ways, because arming on composition instead would leave
+a pairing that can never fire and would make the next real command report an
+anomaly.
+
+### What `queued` claims, and what it does not
+
+One rung above `composed` -- the action tuple really reached `runtime.py`'s
+action list. `executed` stays `false`. It is **not** a claim that bytes
+reached a socket, that a client parsed them, or that anything moved in the
+world; nothing inside this process can observe any of those. The three words
+are a ladder whose top rung this lane cannot reach.
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้ (round `dm8o4l`)
+
+อ่านไฟล์ ndjson แล้วแยกออกได้ว่า คำสั่งที่ "ประกอบเฟรมได้" กับคำสั่งที่ "เฟรมเข้าคิว
+ของ runtime จริง" ต่างกันตรงไหน -- เดิมสองสถานะนี้เขียนแถวเหมือนกันเป๊ะ
+
+**NONCLAIM:** ไม่มีการเปิด client ไม่มีการวัดกับไคลเอนต์จริง ทั้งหมดเป็น code path
+ที่วัดผ่าน dispatcher จริงแบบ headless (`QueuedRowLandsEndToEndTests`) และเทสออฟไลน์
+· ประตู ForcePos ยังปิดอยู่ (`FORCE_POS_VITAL_VERSION_CONFIRMED is None`, RE-129)
+⇒ รอบนี้ไม่ได้ทำให้ไบต์ใด ๆ ออกสู่ไคลเอนต์เพิ่มขึ้นแม้แต่ไบต์เดียว

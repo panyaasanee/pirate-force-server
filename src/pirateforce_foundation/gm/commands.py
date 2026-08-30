@@ -85,7 +85,8 @@ MAX_SAY_MESSAGE_LENGTH = 480
 # ---------------------------------------------------------------------------
 # AUDIT VOCABULARY (CORE-REQUEST-GM-032 items 1-2)
 #
-# One GM command writes up to two rows in `DEFAULT_LOG_PATH`, distinguished
+# ~~One GM command writes up to two rows~~ -- up to THREE since
+# CORE-REQUEST-GM-040 (2026-08-30) -- in `DEFAULT_LOG_PATH`, distinguished
 # by the `record` field and tied together by `record_id`:
 #
 #   issued  -- a GM account typed a line, it parses, here it is.  Written by
@@ -93,6 +94,18 @@ MAX_SAY_MESSAGE_LENGTH = 480
 #   outcome -- what this lane then did with it.  Written by
 #              `log_gm_command_outcome` AFTER the gates and the composer had
 #              their say.
+#   outcome -- (SECOND one, `outcome: "queued"`, only when the action really
+#              reached runtime.py's action list) written by
+#              `log_gm_command_queued` from the append-site confirmation
+#              callback chief wired for CORE-REQUEST-GM-040.
+#
+# !! A READER OF THIS FILE MUST TAKE THE **LAST** OUTCOME ROW FOR A
+# `record_id`, NOT "THE" OUTCOME ROW.  `GT-127`/`GT-141` grade on this file
+# and their old greps assume one outcome row per issued row; a composed-then-
+# appended command now writes `composed` and then `queued`, in that order,
+# and reading the first one back would report a command as less far along
+# than it got.  Append-only, never an amend: the second line does not
+# replace the first, it extends the sequence.
 #
 # Why the second row is not optional: COO-DECISION 20260829_0041 measured
 # that the issued row alone cannot answer the question GT-127 asks it.  With
@@ -143,15 +156,34 @@ AUDIT_OUTCOME_NOTE = (
 # this lane cannot read back.
 OUTCOME_COMPOSED = "composed"
 
-# RESERVED, AND UNREACHABLE ON PURPOSE.  `queued` is the word CORE-REQUEST-
+# ~~RESERVED, AND UNREACHABLE ON PURPOSE.~~  SUPERSEDED 2026-08-30 by
+# CORE-REQUEST-GM-040 (LANE-GM round `dm8o4l`); the paragraph below is kept
+# because it is the reason the door is shaped the way it now is.
+#
+# ~~`queued` is the word CORE-REQUEST-
 # GM-032 item 3 asks chief for: it may only be written once the append site
 # reports back (a callback handed out with the action, or anything else this
 # lane can read).  No code path passes it today, and
 # `tests/test_gm_command_audit_outcome.py` fails if one starts to without
 # that confirmation arriving -- i.e. the day someone makes this reachable,
-# they have to delete a test that says why they may not.  A token that
+# they have to delete a test that says why they may not.~~  A token that
 # claims more than it measured is the failure COO-DECISION 20260829_0141
 # item 3 made a standing pf-adversary check.
+#
+# WHAT IS TRUE NOW: the append site DOES report back.  Chief wired it at
+# `runtime.py`'s `actions = actions + [gm_action]` (CORE-REQUEST-GM-040,
+# merged 2026-08-30T10:47Z) as a `(action, callback)` pair matched by `is`,
+# and `chat_command_action.py` arms that pair with the exact object it is
+# about to return.  So the word is now writable -- BY ONE FUNCTION ONLY,
+# `log_gm_command_queued` below, which takes no `outcome` parameter and
+# hard-codes this constant.
+#
+# THE THREE OLD PINS DID NOT MOVE, and that is the point: `queued` is still
+# NOT in `AUDIT_OUTCOMES`, `is_known_outcome('queued')` is still False, and
+# `log_gm_command_outcome` still raises for it by every spelling including
+# the tuple-index route pf-adversary used.  Nothing was relaxed; a second,
+# narrower door was cut, and no test that guarded the first one was deleted
+# to do it.
 OUTCOME_QUEUED = "queued"
 
 # `withheld_` = the command was valid and authorized, and this lane chose to
@@ -563,11 +595,15 @@ def log_gm_command_outcome(
     # writing a row nobody can interpret.
     if outcome == OUTCOME_QUEUED:
         # Named separately from "unknown", because it is not unknown -- it is
-        # forbidden, and the caller who reaches this line is trying to write
-        # a claim this lane cannot observe (see OUTCOME_QUEUED's own comment).
+        # forbidden HERE, and the caller who reaches this line is trying to
+        # write through the general-purpose door a word that only the
+        # append-site confirmation may write (see OUTCOME_QUEUED's own
+        # comment).  Still a hard refusal after CORE-REQUEST-GM-040: the
+        # word became writable, this function did not become its writer.
         raise ValueError(
-            "outcome 'queued' may not be written by this lane until "
-            "CORE-REQUEST-GM-032 item 3 lets it observe the append site"
+            "outcome 'queued' may not be written through this writer; only "
+            "log_gm_command_queued, called from the append-site "
+            "confirmation callback (CORE-REQUEST-GM-040), may write it"
         )
     if not is_known_outcome(outcome):
         raise ValueError(f"unknown outcome: {outcome!r}")
@@ -588,13 +624,103 @@ def log_gm_command_outcome(
     return _append_audit_record(record, log_path)
 
 
+def log_gm_command_queued(
+    command: GmCommand,
+    account_name: str,
+    *,
+    record_id: str,
+    log_path: str | Path = DEFAULT_LOG_PATH,
+    now_ts: float | None = None,
+) -> Path:
+    """Append the `queued` row -- the word CORE-REQUEST-GM-032 item 3 reserved.
+
+    CORE-REQUEST-GM-040, LANE-GM's half.  Chief's half landed first
+    (`runtime.py`, the append site: `pirate-force-server#299`, merged
+    2026-08-30T10:47Z): right after `actions = actions + [gm_action]` it
+    reads `session._gm_action_queued_confirm`, a `(action, callback)` pair
+    matched by `is`, and fires the callback.  THAT CALLBACK IS THE ONLY
+    THING THIS FUNCTION EXISTS FOR.  Calling it from anywhere else writes a
+    claim nothing measured, which is exactly the failure
+    `OUTCOME_QUEUED`'s own comment was reserved against.
+
+    WHY A SEPARATE FUNCTION AND NOT A FLAG ON `log_gm_command_outcome`:
+    pf-adversary's standing finding (round `xk4wmz`, pinned by
+    `tests/test_gm_command_audit_outcome.py::QueuedIsReservedTests::
+    test_the_word_is_named_for_the_day_it_lands_and_refused_until_then`) is
+    that the WRITER is the door and a source scan cannot make an
+    output-shaped guarantee -- an `AUDIT_OUTCOMES[-1]` read past the scan
+    once already.  A keyword flag on the general writer would be reachable
+    by exactly that kind of accidental pass-through (`**kwargs` forwarded by
+    a hook, a caller that copies a call site).  A function with no `outcome`
+    parameter at all cannot be reached by a value; it can only be reached by
+    a name a reader can see and a test can scan for.  So:
+
+    - `log_gm_command_outcome` still REFUSES `queued` by every spelling,
+      unchanged, and `is_known_outcome('queued')` is still False.  Those
+      three pins stay exactly as they were; nothing was relaxed to land
+      this.
+    - the word is hard-coded HERE and never taken from a parameter, so no
+      caller has to name it -- which keeps the AST scan over the lane's
+      source (`QueuedIsReservedTests`) both green and meaningful: it still
+      says "no lane file outside this one names the reserved word", and
+      that is still true after this round.
+
+    THIS IS A THIRD ROW, NOT AN AMEND OF THE SECOND.  One appended command
+    now writes `issued` -> `outcome:composed` -> `outcome:queued`, three
+    lines sharing one `record_id`, in that order.  Append-only is this
+    house's rule (see `log_gm_command_outcome`'s own docstring) and the
+    order of the pair already carried meaning; the third line extends the
+    sequence rather than rewriting the second.  A reader of the file that
+    assumed "exactly one outcome row per issued row" must now read "the
+    LAST outcome row for a record_id is the furthest that command got" --
+    `GT-127`/`GT-141` grade on this file, so that sentence is the one that
+    changed for them.
+
+    `executed` stays False, and that is deliberate even here.  `queued`
+    means the action tuple really reached `runtime.py`'s action list -- one
+    step further than `composed`, which only ever meant "the frame exists
+    and was handed back".  It is still NOT a claim that bytes reached a
+    socket, that the client parsed them, or that anything moved in the
+    world; nothing inside this process can see any of those.  The three
+    words are a ladder with a top rung this lane cannot reach.
+    """
+    if not isinstance(account_name, str) or not account_name:
+        raise ValueError("account_name must be a non-empty str")
+    if not isinstance(record_id, str) or not record_id:
+        # Same reasoning as the outcome row: an id that matches no issued row
+        # reads like a complete record and is worse than a missing line.
+        raise ValueError("record_id must be a non-empty str")
+    args = _require_args_tuple(command.args, min_length=0)
+    ts = now_ts if now_ts is not None else time.time()
+    record = {
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts)),
+        "account": account_name,
+        "command": command.name,
+        "args": list(args),
+        "raw": command.raw,
+        "executed": False,
+        "note": AUDIT_OUTCOME_NOTE,
+        "record": AUDIT_RECORD_OUTCOME,
+        "record_id": record_id,
+        "outcome": OUTCOME_QUEUED,
+    }
+    return _append_audit_record(record, log_path)
+
+
 def is_known_outcome(outcome: str) -> bool:
     """True for a value `log_gm_command_outcome` will write.
 
     `queued` is False here, and by any spelling: a prefixed value cannot end
-    up equal to it either, since neither prefix is a prefix of the word.  The
-    day CORE-REQUEST-GM-032 item 3 lands, the change is one line HERE, next to
-    the reason, rather than in whichever caller happens to want it.
+    up equal to it either, since neither prefix is a prefix of the word.
+    ~~The day CORE-REQUEST-GM-032 item 3 lands, the change is one line HERE,
+    next to the reason, rather than in whichever caller happens to want
+    it.~~ -- that day came (CORE-REQUEST-GM-040, 2026-08-30) AND THIS LINE
+    DID NOT CHANGE, deliberately.  Flipping it here would have made `queued`
+    writable through `log_gm_command_outcome` by any caller holding the
+    string, which is the exact hole `QueuedIsReservedTests` measured.  The
+    word got its own writer (`log_gm_command_queued`) instead, and this
+    predicate keeps meaning what it always meant: "a value the GENERAL
+    outcome writer will accept".
     """
     if outcome == OUTCOME_QUEUED:
         return False
