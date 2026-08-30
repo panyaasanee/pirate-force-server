@@ -4668,3 +4668,79 @@ letter invited this as a separate request, not part of GM-041's scope.
 **NONCLAIM:** `npc on|off` still has zero effect in the game, exactly as before this round -- the
 diagnostic only lets a console grep tell "would recompose" from "would not" today, both of which
 mean nothing changes yet.
+
+## Round `dao2gd` -- item_catalog's one bare KeyError, and the blank scene rows that were never pinned
+
+Consumed chief's reply of 2026-08-30T21:00+07:00 to `CORE-REQUEST-GM-042`
+(`notes_to_chief/20260830_2100_CHIEF-REPLY-CORE-REQUEST-GM-042-store-plus-write-point-deferred-
+filter-wiring-too-risky-partial-read.md`) -- GM-042 stays OPEN, chief built neither the state
+store nor the roster filter this round, and reading that letter unlocked nothing new on this
+lane's own file territory (`gm/`) to build against. No code changed from it; see this round's own
+`notes_to_chief` letter for the acknowledgement.
+
+With no unblocked wiring step ready (`spawn` bounded-negative since `nnlka4`, `npc`/`item`/`lv`
+still waiting on a runtime.py call site none of which a CORE-REQUEST can shortcut this round), this
+round read `gm/item_catalog.py`, `gm/scene_catalog.py` and their test files end to end for edge-case
+gaps left by GM-004 (scene catalog) and the GM-042 prep item catalog -- neither module had touched
+runtime.py or another lane's file, and neither has an open RE/CORE-REQUEST blocking it. Found two:
+
+**1. `item_catalog.item_max_stack` leaked a bare, unnamed `KeyError`.** Every other lookup this
+module exposes (`item_name`, `is_known_item`) raises a `KeyError`/`ValueError` naming the id and
+category that failed to resolve. `item_max_stack(99999999, category="misc")` instead raised
+`KeyError('99999999')` -- the dict's own repr, with no mention of the category it was checked
+against. A caller catching `KeyError` by type cannot tell that apart from an unrelated bug (a wrong
+dict, a typo'd key) without reading this function's source. Fixed by wrapping the one dict lookup
+(`gm/item_catalog.py:170-186`) in the same try/except-and-rename pattern `item_name` already uses;
+no behavior change for a known id, confirmed by a test that reads the plain int back
+(`tests/test_gm_item_catalog.py::test_item_max_stack_known_id_unaffected_by_the_error_message_fix`).
+A second test pins that the message names the category actually QUERIED, not one the id happens to
+resolve in elsewhere (id `1` is known in `quest` but not `consumable` --
+`test_item_max_stack_unknown_id_message_names_the_category_it_was_checked_against`). `item_max_stack`
+has no production caller yet (grepped; only test files call it, matching the module's own GM-042
+prep docstring), so this is a contract cleanup with zero live-path risk, not a wiring change.
+
+**2. Four scene ids the client's own table leaves nameless were untested.** `gm_scene_name_tip.tsv`
+rows 13/137/138/141 carry an empty string in BOTH `s_SCENE_NAME` and `s_GM_SCENE_NAME` -- not a
+parsing gap this module introduced, a fact of the committed client table (verified against the raw
+tsv, not guessed). `scene_catalog.is_known_scene_id(13)` is `True` and `gm_scene_name(13)` returns
+`""`, which was previously unexercised by any test -- the existing suite only pinned a real name
+(id 1/2/3) and a truly-absent id (123456), leaving the third state (id present, name blank) to be
+discovered by whoever next read `gm_scene_name(13) == ""` and had to guess whether that was a bug.
+Pinned in `tests/test_gm_scene_catalog.py::test_blank_rows_in_the_clients_own_table_are_known_but_
+empty_named` and, one layer up, in `commands.describe_warp_target` via
+`tests/test_gm_commands.py::DescribeWarpTargetTests::test_a_scene_id_the_client_itself_left_
+nameless_is_still_known_not_none` -- `describe_warp_target(warp 13)` returns `""`, not `None`, and
+a caller must not read that empty string as "unknown scene, refuse the warp": the warp itself is
+judged by `login_scene_admission`/`world_scene_travel`, never by this hint. No source or docstring
+changed for either module; both are documentation-by-test of behavior that already existed.
+
+### pf-adversary
+
+The dedicated `pf-adversary` subagent tool was not reachable from this delegated session (no
+`Agent`/`Task`-shaped tool was present in this round's tool set -- checked via tool search before
+concluding this, not assumed). Ran the equivalent adversarial pass by hand instead of skipping it:
+grepped every production and test caller of `item_max_stack` to confirm zero live-path callers exist
+(only `tests/test_gm_item_catalog.py`, matching the module's own "GM-042 prep, not wired yet"
+docstring, so the message-text change cannot break a runtime consumer); re-derived the four blank
+scene ids straight from the committed tsv rather than trusting a memory of them; ran the full `gm_`
+test slice (1052 passed, 0 failed) both before describing this round's findings and after applying
+the fix, to rule out an unrelated regression riding along. Recorded here rather than silently
+substituted, per this lane's own file-territory rule that a gap in process gets named, not folded
+into "reviewed" language it did not earn this round.
+
+### What is NOT claimed
+
+Neither finding is wired to any client-observable behavior and neither touches `runtime.py`,
+`app.py`, `pf_login_game_server_v141.py`, or another lane's `scenarios/*.json`. `item_max_stack` and
+`describe_warp_target` are read by tests only today (GM-042/GM-004 prep) -- this round changed one
+error message and added coverage, nothing a tester watching a live game session can see change.
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้ (round `dao2gd`)
+
+ไม่มี -- รอบนี้ไม่มีอะไรใหม่ให้ผู้เทสหน้าจอเกมเห็น การเปลี่ยนแปลงทั้งหมดอยู่ในข้อความ error ของฟังก์ชัน
+เตรียมงาน (`item_catalog.item_max_stack`, ยังไม่ถูกเรียกจาก production path ใด ๆ) และเทสที่ pin
+พฤติกรรมเดิมของ `scene_catalog`/`commands.describe_warp_target` ที่มีอยู่แล้วแต่ยังไม่เคยมีเทสคุม
+
+**NONCLAIM:** ไม่มีการเปิด client ไม่มีการวัดกับไคลเอนต์จริง ไม่มีบรรทัดใดของ GM ไปถึงไวร์เพิ่มขึ้นจาก
+รอบนี้ -- `warp`/`npc`/`item`/`lv`/`spawn`/`say` ทั้งหมดยังทำงานเหมือนเดิมทุกประการ รอบนี้เป็นการ
+ทำความสะอาด error-contract และเทสล้วน ๆ ไม่มีการใช้ GM ข้ามขั้นตอนใดเลย เพราะไม่มีการทดสอบไคลเอนต์จริง
