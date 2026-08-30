@@ -636,6 +636,7 @@ jobs:
             BASE_REF=$(printf '%s' "$META"  | jq -r '.base.ref')
             BODY=$(printf '%s' "$META"      | jq -r '.body // ""')
             CREATED=$(printf '%s' "$META"   | jq -r '.created_at')
+            DRAFT=$(printf '%s' "$META"     | jq -r '.draft')
 
             [ "$HEAD_REPO" = "$REPO" ] || continue
             [ "$BASE_REF" = "$DEFAULT_BRANCH" ] || continue
@@ -649,8 +650,48 @@ jobs:
             CSEC=$(date -u -d "$CREATED" +%s 2>/dev/null || echo "$NOW")
             AGE=$(( NOW - CSEC ))
             echo ""
-            echo "--- #${PR} ${HEAD_REF} age=$(( AGE / 3600 ))h ---"
+            echo "--- #${PR} ${HEAD_REF} draft=${DRAFT} age=$(( AGE / 3600 ))h ---"
             [ "$AGE" -ge "$LIMIT" ] || { echo "  young enough - left alone"; continue; }
+
+            # [MEASURED, 2026-08-30, pf_bridge#507, ka1-A]: a round can finish
+            # clean and push real work, then find BOTH the REST `draft:false`
+            # PATCH and the GraphQL `markPullRequestReadyForReview` mutation
+            # rejected (403) for the agent's own token.  Before this repo's
+            # `decide` job ever sees such a pull request it stays draft on
+            # the agent's side; without a check here it would only ever leave
+            # draft by falling through to the generic "no gate verdict" close
+            # path below, on an attempted `gh pr merge` that is guaranteed to
+            # fail because the API refuses to merge a draft.
+            #
+            # [PROPOSED, UNTESTED, pf-adversary round `bunu7v`]: the fix below
+            # -- try this workflow's own `${{ github.token }}` for `gh pr
+            # ready` before treating a stale draft as dead -- has NOT been
+            # observed to succeed anywhere yet.  pf_bridge#507 itself was
+            # undrafted by the OWNER clicking "Ready for review" on
+            # github.com, not by any workflow call, so it is evidence the
+            # AGENT's token was refused, not evidence this WORKFLOW's token
+            # is accepted.  `gh pr ready` calls the same
+            # `markPullRequestReadyForReview` mutation that 403'd for the
+            # agent -- if the 403's root cause is a policy that blocks any
+            # bot-identity actor from that one mutation specifically, this
+            # call 403s too and the block below silently degrades to a no-op:
+            # one extra failed API call in front of the same eventual close,
+            # not a fix.  Nobody has yet root-caused why the agent's token
+            # was refused (see the source letter's own nonclaims).  Get one
+            # real observation of this call succeeding under
+            # `${{ github.token }}` before trusting that it closes the hole;
+            # until then this is strictly no WORSE than the pre-patch
+            # behavior (a reversible "try ready" ahead of an unconditional
+            # close), which is why it ships anyway.
+            READY_ATTEMPTED=""
+            if [ "$DRAFT" = "true" ]; then
+              READY_ATTEMPTED=yes
+              if gh pr ready "$PR" --repo "$REPO" 2>&1 | sed 's/^/  ready> /'; then
+                echo "  stale draft -> marked ready; the next event runs decide normally"
+                continue
+              fi
+              echo "  could not mark ready (token refused it too, or the fix does not work - see comment above) - falling through to the gate-verdict close path"
+            fi
 
             RUNS=$(api "repos/${REPO}/actions/runs?head_sha=${HEAD_SHA}&per_page=100")
             LIVE=$(printf '%s' "$RUNS" | jq '[.workflow_runs[] | select(.status != "completed")] | length')
@@ -679,8 +720,9 @@ jobs:
               REASON="$(printf '%s\n' \
                 "**The gate is GREEN for \`${HEAD_SHA}\`, but this pull request could not be merged - closing it.**" \
                 "" \
-                "The reaper tried the merge itself after \`decide\` left this open for more than ${PF_STALE_HOURS} hours, and the merge was refused. **If the run log of this job shows HTTP 403, this repository is refusing \`pull-requests: write\` to \`GITHUB_TOKEN\` and nothing will ever merge here until a setting changes.**" \
+                "The reaper tried the merge itself after \`decide\` left this open for more than ${PF_STALE_HOURS} hours, and the merge was refused. If this pull request was still a draft, that refusal is expected -- the API will not merge a draft -- and is unrelated to any \`GITHUB_TOKEN\` permission; otherwise, if the run log of this job shows HTTP 403, this repository is refusing \`pull-requests: write\` to \`GITHUB_TOKEN\` and nothing will ever merge here until a setting changes." \
                 "" \
+                "$( [ "$READY_ATTEMPTED" = "yes" ] && printf '%s\n\n' "This reap job also tried \`gh pr ready\` with its own token before this merge attempt, in case the round had actually finished and only the agent's token was refused to un-draft it; that call failed too." )" \
                 "**The branch \`${HEAD_REF}\` is kept and its commits are green.**")"
             else
               REASON="$(printf '%s\n' \
@@ -688,6 +730,7 @@ jobs:
                 "" \
                 "Commit: \`${HEAD_SHA}\`. No run of \`gate-windows\` for that commit is queued, running, or finished with job \`${PF_GATE_JOB}\` green." \
                 "" \
+                "$( [ "$READY_ATTEMPTED" = "yes" ] && printf '%s\n\n' "This pull request was still a draft; this reap job tried \`gh pr ready\` with its own token first, in case the round had actually finished and only the agent's token was refused to un-draft it, and that call failed too -- so this is a genuine stale draft, not a token-permission artifact." )" \
                 "An open \`claude/*\` pull request is the cloud chief's round lock. One waiting on a verdict that will never come is a lock nobody can release, so this reaper releases it. **The branch \`${HEAD_REF}\` is kept.**" \
                 "" \
                 "If gate runs are missing rather than slow, the fault is upstream of this pull request - Actions disabled, out of minutes, or a workflow that never triggered - and closing pull requests will not fix it.")"
