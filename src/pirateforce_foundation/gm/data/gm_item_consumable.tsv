@@ -1,0 +1,1261 @@
+n_ID	s_NAME	n_QUATITY_STACK
+6	Fruit Wine Jar	1
+7	Fruit Wine Jar	1
+10	Fruit Wine Jar	1
+17	Special Wine Jar	1
+20	Special Wine Jar	1
+27	Flavour Wine Jar	1
+30	Flavour Wine Jar	1
+36	Beginner Oblivion White Pill	25
+37	Normal Oblivion White Pill	25
+38	Advanced Oblivion White Pill	25
+39	Beginner Oblivion Green Pill	25
+40	Normal Oblivion Green Pill	25
+41	Advanced Oblivion Green Pill	25
+42	Class Chage Book	1
+46	Blood Cubic Crystal	1
+47	Energy Cubic Crystal	1
+48	Nutrition Soda Pack	25
+49	Nutrition Biscuit Pack	25
+50	Nutrition Bunopang Pack	25
+51	Nutrition Dango Pack	25
+52	Extra Nutrition Pack	25
+53	Crew Friend Tip	25
+54	Special Material Pack	25
+55	Slime Box	25
+56	Mallet Special Box	25
+60	Refining Protect Doll	25
+61	Beginner Soul Jade  Change Log	25
+62	Advanced Soul Jade  Change Log	25
+63	Old Doll	25
+64	Old Capsule	25
+84	Blank Message Bottle	1
+85	Penfriend Message Bottle	1
+86	Salvage Penfriend Message Bottle	1
+87	Message Bottle	1
+91	Crew Equipment Box Lv.1	1
+92	Crew Equipment Box Lv.2	1
+93	Crew Equipment Box Lv.3	1
+94	Crew Equipment Box Lv.4	1
+95	Crew Equipment Box Lv.5	1
+98	EXP loit Jelly	25
+99	Energy Crystal(General)	25
+100	Energy Crystal (General)	25
+101	Dim Light	1
+102	Dusk Light	1
+103	Light	1
+104	Blink Light	1
+105	Dazzling Light	1
+106	Hurt Evil Eye	1
+107	Vacant Evil Eye	1
+108	Evil Eye	1
+109	Gaze Evil Eye	1
+110	Sparkle Evil Eye	1
+111	Rupture Rock Skin	1
+112	Inferior Rock Skin	1
+113	Rock Skin	1
+114	Solid Rock Skin	1
+115	Hard Rock Skin	1
+116	Rupture Sparkling Skull	1
+117	Dim Sparkling Skull	1
+118	Sparkling Skull	1
+119	Blink Sparkling Skull	1
+120	Dazzling Sparkling Skull	1
+121	Fail Greystone Talisman	1
+122	Fuzzy Greystone Talisman	1
+123	Greystone Talisman	1
+124	Clear Greystone Talisman	1
+125	Potent Greystone Talisman	1
+126	Rupture Dragon Bone Necklace	1
+127	Defect Dragon Bone Necklace	1
+128	Dragon Bone Necklace	1
+129	Hard Dragon Bone Necklace	1
+130	Perfect Dragon Bone Necklace	1
+131	Stupid Gold Tiger Claw	1
+132	Cub Gold Tiger Claw	1
+133	Gold Tiger Claw	1
+134	Ripe Gold Tiger Claw	1
+135	Sharp Gold Tiger Claw	1
+136	Stupid Guide Pin	1
+137	Defect Guide Pin	1
+138	Guide Pin	1
+139	Part Time Guide Pin	1
+140	Perfect Guide Pin	1
+141	Rift Crystal	1
+142	Dim Crystal	1
+143	Crystal	1
+144	Clear Crystal	1
+145	Bright Crystal	1
+146	Calm Ghost Hammer	1
+147	Quiver Ghost Hammer	1
+148	Ghost Hammer	1
+149	Lament Ghost Hammer	1
+150	Tyrannical Ghost Hammer	1
+151	Meager Prayer	1
+152	One Way Prayer	1
+153	Prayer	1
+154	Number Prayer	1
+155	Abundant Prayer	1
+156	Purify Evil Mask	1
+157	Weak Evil Mask	1
+158	Evil Mask	1
+159	Lament Evil Mask	1
+160	Laughter Evil Mask	1
+161	Vacant Correct Eye	1
+162	Tired Correct Eye	1
+163	Correct Eye	1
+164	Gaze Correct Eye	1
+165	Clever Correct Eye	1
+166	Mess Lucky Feather	1
+167	Curl Lucky Feather	1
+168	Lucky Feather	1
+169	Beauty Lucky Feather	1
+170	Perfect Lucky Feather	1
+171	Dim Force Crystal	1
+172	Dusk Force Crystal	1
+173	Force Crystal	1
+174	Blink Force Crystal	1
+175	Dazzling Force Crystal	1
+176	Dim Rough Crystal	1
+177	Dusk Rough Crystal	1
+178	Rough Crystal	1
+179	Blink Rough Crystal	1
+180	Dazzling Rough Crystal	1
+181	Fail Lax Symbol	1
+182	Fuzzy Lax Symbol	1
+183	Lax Symbol	1
+184	Clear Lax Symbol	1
+185	Potent Lax Symbol	1
+186	Useless Cursed Doll	1
+187	Rip Cursed Doll	1
+188	Cursed Doll	1
+189	Sturdy Cursed Doll	1
+190	Perfect Cursed Doll	1
+191	Rupture Demon Necklace	1
+192	Defect Demon Necklace	1
+193	Demon Necklace	1
+194	Hard Demon Necklace	1
+195	Perfect Demon Necklace	1
+196	Wither Eternal Leaf	1
+197	Drying Eternal Leaf	1
+198	Eternal Leaf	1
+199	Fresh Eternal Leaf	1
+200	Perfect Eternal Leaf	1
+401	Basic Breechloader [Left ]	1
+402	Simple Ejector	1
+403	Basic Breechloader [Right]	1
+404	Hunter Breechloader [Left ]	1
+405	Spear Ejector	1
+406	Hunter Breechloader [Right]	1
+407	Military Breechloader [Left ]	1
+408	Military Javelin Ejector	1
+409	Military Breechloader [Right]	1
+410	Expedition Breechloader [Left ]	1
+411	Expedition Cluster Equipment	1
+412	Expedition Breechloader [Right]	1
+414	Rampage Device	1
+415	Armor Warship	1
+416	Cross Mine	1
+417	Fishnet [Front]	1
+418	Fishnet [Back]	1
+419	Accelerate	1
+423	Machine Gun [Left ]	1
+424	Strength Gun [Left ]	1
+425	Iron Ball [Left ]	1
+426	Aerosol Bomb [Left ]	1
+429	Machine Gun [Right]	1
+430	Strength Gun [Right]	1
+431	Iron Ball [Right]	1
+432	Aerosol Bomb [Right]	1
+434	Design: Rampage Device	25
+435	Design: Armored Warship	25
+436	Design: Cross Mine	25
+437	Design: Fishing Net【หน้า】	25
+438	Design: Fishing Net【หลัง】	25
+439	Design: Quicken	25
+443	Design: Running Fire【ซ้าย】	25
+444	Design: Strong Cannon【ซ้าย】	25
+445	Design: Iron Ball【ซ้าย】	25
+446	Design: Smoke Bomb【ซ้าย】	25
+449	Design: Running Fire【ขวา】	25
+450	Design: Strong Cannon【ขวา】	25
+451	Design: Iron Ball【ขวา】	25
+452	Design: Smoke Bomb【ขวา】	25
+501	Guild Red Crystal Maintain Lv.1	25
+502	Guild Red Crystal Maintain Lv.2	25
+503	Guild Red Crystal Maintain Lv.3	25
+504	Guild Red Crystal Maintain Lv.4	25
+505	Guild Red Crystal Maintain Lv.5	25
+507	Guild Blue Crystal Maintain Lv.1	25
+508	Guild Blue Crystal Maintain Lv.2	25
+509	Guild Blue Crystal Maintain Lv.3	25
+510	Guild Blue Crystal Maintain Lv.4	25
+511	Guild Blue Crystal Maintain Lv.5	25
+513	Guild Green Crystal Maintain Lv.1	25
+514	Guild Green Crystal Maintain Lv.2	25
+515	Guild Green Crystal Maintain Lv.3	25
+516	Guild Green Crystal Maintain Lv.4	25
+517	Guild Green Crystal Maintain Lv.5	25
+519	Coarse Red Crystal Maintain	25
+520	General Red Crystal Maintain	25
+521	Coarse Red Crystal Maintain	25
+522	Coarse Blue Crystal Maintain	25
+523	General Blue Crystal Maintain	25
+524	Coarse Blue Crystal Maintain	25
+525	Coarse Green Crystal Maintain	25
+526	General Green Crystal Maintain	25
+527	Coarse Green Crystal Maintain	25
+528	Reward Red Crystal Maintain Lv.1	25
+529	Reward Red Crystal Maintain Lv.2	25
+530	Reward Red Crystal Maintain Lv.3	25
+531	Reward Red Crystal Maintain Lv.4	25
+532	Reward Red Crystal Maintain Lv.5	25
+533	Reward Red Crystal Maintain Lv.6	25
+534	Reward Blue Crystal Maintain Lv.1	25
+535	Reward Blue Crystal Maintain Lv.2	25
+536	Reward Blue Crystal Maintain Lv.3	25
+537	Reward Blue Crystal Maintain Lv.4	25
+538	Reward Blue Crystal Maintain Lv.5	25
+539	Reward Blue Crystal Maintain Lv.6	25
+540	Reward Green Crystal Maintain Lv.1	25
+541	Reward Green Crystal Maintain Lv.2	25
+542	Reward Green Crystal Maintain Lv.3	25
+543	Reward Green Crystal Maintain Lv.4	25
+544	Reward Green Crystal Maintain Lv.5	25
+545	Reward Green Crystal Maintain Lv.6	25
+551	General Red Crystal Maintain	25
+552	Meticulous Red Crystal Maintain	25
+553	Aggregate Red Crystal Maintain	25
+554	Advanced Red Crystal Maintain	25
+555	Refined Red Crystal Maintain	25
+556	Perfect Red Crystal Maintain	25
+561	General Blue Crystal Maintain	25
+562	Meticulous Blue Crystal Maintain	25
+563	Aggregate Blue Crystal Maintain	25
+564	Advanced Blue Crystal Maintain	25
+565	Refined Blue Crystal Maintain	25
+566	Perfect Blue Crystal Maintain	25
+571	General Green Crystal Maintain	25
+572	Meticulous Green Crystal Maintain	25
+573	Aggregate Green Crystal Maintain	25
+574	Advanced Green Crystal Maintain	25
+575	Refined Green Crystal Maintain	25
+576	Perfect Green Crystal Maintain	25
+651	Maintain Pack Lv.60(Red)	25
+652	Maintain Pack Lv.60(Green)	25
+653	Maintain Pack Lv.60(Blue)	25
+654	Maintain Pack Lv.80(Red)	25
+655	Maintain Pack Lv.80(Green)	25
+656	Maintain Pack Lv.80(Blue)	25
+657	Maintain Pack Lv.90(Red)	25
+658	Maintain Pack Lv.90(Green)	25
+659	Maintain Pack Lv.90(Blue)	25
+660	Maintain Pack Lv.100(Red)	25
+661	Maintain Pack Lv.100(Green)	25
+662	Maintain Pack Lv.100(Blue)	25
+663	Maintain Pack Lv.110(Red)	25
+664	Maintain Pack Lv.110(Green)	25
+665	Maintain Pack Lv.110(Blue)	25
+666	Maintain Pack Lv.115(Red)	25
+667	Maintain Pack Lv.115(Green)	25
+668	Maintain Pack Lv.115(Blue)	25
+669	Advanced Maintain Pack(Red)	25
+670	Advanced Maintain Pack(Green)	25
+671	Advanced Maintain Pack(Blue)	25
+672	Special Maintain Pack(Red)	25
+673	Special Maintain Pack(Green)	25
+674	Special Maintain Pack(Blue)	25
+675	Maintain Pack Lv.50(Red)	25
+676	Maintain Pack Lv.50(Green)	25
+677	Maintain Pack Lv.50(Blue)	25
+678	Maintain Pack Lv.70(Red)	25
+679	Maintain Pack Lv.70(Green)	25
+680	Maintain Pack Lv.70(Blue)	25
+701	Small Money Pack Reward Lv.1	1
+702	Small Money Pack Reward Lv.2	1
+703	Small Money Pack Reward Lv.3	1
+704	Small Money Pack Reward Lv.4	1
+705	Small Money Pack Reward Lv.5	1
+706	Small Money Pack Reward Lv.6	1
+707	Small Money Pack Reward Lv.7	1
+708	Small Money Pack Reward Lv.8	1
+709	Navigation Money Pack(Micro)	1
+710	Navigation Money Pack(Less)	1
+711	Navigation Money Pack(Medium)	1
+712	Navigation Money Pack(More)	1
+751	Beginner Essence Dew	999
+752	EXP ert Essence Dew	999
+753	Advanced Essence Dew	999
+754	Special Essence Dew	999
+755	Reward Essence Dew Lv.1	25
+756	Reward Essence Dew Lv.2	25
+757	Reward Essence Dew Lv.3	25
+758	Reward Essence Dew Lv.4	25
+759	Reward Essence Dew Lv.5	25
+760	Reward Essence Dew Lv.6	25
+761	Essence Dew Pack Lv.40	25
+762	Essence Dew Pack Lv.60	25
+763	Essence Dew Pack Lv.80	25
+764	Essence Dew Pack Lv.90	25
+765	Essence Dew Pack Lv.100	25
+766	Essence Dew Pack Lv.110	25
+767	Essence Dew Pack Lv.115	25
+768	2 Star Essence Dew Pack	25
+769	3 Star Essence Dew Pack	25
+802	Croseyes Rubik's Cube	25
+803	Seabed Crusader Rubik's Cube	25
+804	Ancient Guard Rubik's Cube	25
+805	Guard Profession Rubik's Cube	25
+806	Protect Profession Rubik's Cube	25
+807	Elf Profession Rubik's Cube	25
+808	Aris Suit Rubik's Cube	25
+809	Muse Suit Rubik's Cube	25
+810	Hercules Suit Rubik's Cube	25
+811	Apollo Ornament Rubik's Cube	25
+812	Hermes Ornament Rubik's Cube	25
+813	Destiny Egg	25
+815	Seabed Crusader Rubik's Cube(Secret)	25
+816	Elf Profession Rubik's Cube(Secret)	25
+817	Aris Suit Rubik's Cube(Secret)	25
+818	Muse Suit Rubik's Cube(Secret)	25
+819	Hercules Suit Rubik's Cube(Secret)	25
+820	Wishing Rubik's Cube	25
+821	Detective Treasure Box	1
+822	Fantasy Fruit-Rosemary	25
+823	Fantasy Fruit-Grace	25
+824	Fantasy Fruit-Nelson	25
+825	Strange Fruit-Isoroku Yamamoto	25
+826	Fantasy Fruit-Sea Phantom	25
+827	Fantasy Fruit-Madisen	25
+828	Fantasy Fruit-Edward	25
+829	Fantasy Fruit-Angelina	25
+830	Fantasy Fruit-Odyssey	25
+831	Fantasy Fruit-Plato	25
+832	Fantasy Fruit-Siren	25
+833	Hunter Rubik's Cube	25
+834	Surprise Egg(1)	1
+835	Surprise Egg(2)	1
+836	Surprise Egg(3)	1
+837	Surprise Egg(4)	1
+838	Surprise Egg(5)	1
+839	Surprise Egg(6)	1
+840	Surprise Egg(7)	1
+841	Surprise Egg(8)	1
+842	Surprise Egg(9)	1
+843	Surprise Egg(10)	1
+844	Surprise Egg(11)	1
+845	Surprise Egg(12)	1
+846	Practice Book	1
+847	Purple Pumpkin Surprise	25
+848	Companion Gashapon	1
+849	Christmas Box	1
+850	Chocolate Surprise Box	1
+851	Pirate Rubik Cube	25
+901	Camouflage Item-Cask	99
+902	Camouflage Item-Crate	99
+903	Camouflage Item-Yellow Stone	99
+904	Camouflage Item-Cactus	99
+905	Camouflage Item-Blue barrel	99
+906	Camouflage Item-Wild Pineapple	99
+907	Camouflage Item-Lotus	99
+908	Camouflage Item-Dark Cage	99
+909	Camouflage Item-Green Grass	99
+910	Camouflage Item-Gray \nPillar	99
+911	Camouflage Item-Tinderbox	99
+912	Camouflage Item-Cannonball Box	99
+913	Camouflage Item-Tribal tombstone	99
+914	Camouflage Item-Firewood pile	99
+915	Camouflage Item-Snow pillar	99
+916	Camouflage Item-Snow grass	99
+917	Camouflage Item-Snow Flower	99
+918	Camouflage Item-Prototype Machine	99
+919	Camouflage Item-Air defense Fort	99
+920	Camouflage Item-Volcano Crystal	99
+921	Camouflage Item-Volcano Plant	99
+922	Camouflage Item-Brown Grass	99
+923	Camouflage Item-Gallipot	99
+924	Camouflage Item-Egg Shape Stone	99
+925	Prototype Pumpkin	99
+926	Grimace pumpkin	99
+927	Candle Grimace pumpkin	99
+928	Poseidon Instrument Field Guide Esoteric	1
+929	Snowman	99
+930	Christmas Tree	99
+931	Christmas Gift	99
+932	Violent Snowball	99
+933	Snowball	999
+934	Mother's Day Box	99
+935	กล่องกระทง	99
+1001	Red Potion Lv.1	25
+1002	Red Potion Lv.2	25
+1003	Red Potion Lv.3	25
+1004	Red Potion Lv.4	25
+1005	Red Potion Lv.5	25
+1006	Weak Red Potion	25
+1007	Minor Red Potion	25
+1008	Low Red Potion	25
+1009	Light Red Potion	25
+1010	Flat Red Potion	25
+1011	Medium Red Potion	25
+1012	High Red Potion	25
+1013	Efficient Red Potion	25
+1014	Heal Essence Lv.1	1
+1015	Heal Essence Lv.2	1
+1016	Heal Essence Lv.3	1
+1017	Heal Essence Lv.4	1
+1018	Heal Essence Lv.5	1
+1019	Lord Heal Essence	1
+1020	Lord Red Potion	25
+1021	Lord Heal Essence(Secret)	1
+1022	Lord Red Potion(Secret)	25
+1023	Beginner Reward Repair Cure	1
+1024	Royal Red Potion Lv.1	25
+1025	Royal Red Potion Lv.2	25
+1026	Royal Red Potion Lv.3	25
+1027	Royal Red Potion Lv.4	25
+1028	Royal Red Potion Lv.5	25
+1029	Repair Cure(Second)	1
+1030	Repair Cure(Sky)	1
+1031	Repair Cure(Numerous)	1
+1032	Repair Cure(Elegant)	1
+1033	Pumpkin Soup	99
+1034	Cookie	99
+1035	Delicious Sashimi	25
+1041	Healing Jelly LV.1	25
+1042	Healing Jelly LV.2	25
+1043	Healing Jelly LV.3	25
+1044	Healing Jelly LV.4	25
+1045	Healing Jelly LV.5	25
+1046	Healing Jelly LV.6	25
+1047	Healing Jelly LV7.	25
+1048	Healing Jelly LV8.	25
+1049	Healing Jelly LV9.	25
+1050	Healing Jelly LV.10	25
+1101	EXP  Stone Lv.1	25
+1102	EXP  Stone Lv.2	25
+1103	EXP  Stone Lv.3	25
+1104	EXP  Stone Lv.4	25
+1105	EXP  Stone Lv.5	25
+1106	Reward EXP Stone	25
+1107	Reward EXP Stone(Guild)	25
+1108	Athletics EXP Stone	25
+1151	Weak EXP Jelly	25
+1152	Minor EXP Jelly	25
+1153	Low EXP Jelly	25
+1154	Light EXP Jelly	25
+1155	Flat EXP Jelly	25
+1156	Medium EXP Jelly	25
+1157	High EXP Jelly	25
+1158	Efficient EXP Jelly	25
+1159	EXP  Jelly(Minimal)	25
+1160	EXP  Jelly(Small)	25
+1161	EXP  Jelly(Micro)	25
+1162	God EXP Jelly	25
+1163	EXP  Wgg(1)	25
+1164	EXP  Wgg(2)	25
+1165	EXP  Wgg(3)	25
+1166	EXP  Wgg(4)	25
+1167	EXP  Wgg(5)	25
+1168	EXP  Wgg(6)	25
+1169	EXP  Wgg(7)	25
+1170	EXP  Wgg(8)	25
+1171	EXP  Wgg(9)	25
+1172	EXP  Wgg(10)	25
+1173	EXP  Wgg(11)	25
+1174	EXP  Wgg(12)	25
+1175	EXP  Jelly(Minimal)	25
+1176	EXP  Jelly(Small)	25
+1177	EXP  Jelly(Micro)	25
+1201	Skill Stone Lv.1	25
+1202	Skill Stone Lv.2	25
+1203	Skill Stone Lv.3	25
+1204	Skill Stone Lv.4	25
+1205	Skill Stone Lv.5	25
+1206	Task Skill Stone	25
+1207	Task Skill Stone(Guild)	25
+1251	Weak Skill Point Jelly	25
+1252	Minor Skill Point Jelly	25
+1253	Low Skill Point Jelly	25
+1254	Light Skill Point Jelly	25
+1255	Flat Skill Point Jelly	25
+1256	Medium Skill Point Jelly	25
+1257	High Skill Point Jelly	25
+1258	Efficient Skill Point Jelly	25
+1259	Skill Point Jelly(Minimal)	25
+1260	Skill Point Jelly(Small)	25
+1261	Skill Point Jelly(Micro)	25
+1262	God Skill Point Jelly	25
+1263	Skill Point Egg(1)	25
+1264	Skill Point Egg(2)	25
+1265	Skill Point Egg(3)	25
+1266	Skill Point Egg(4)	25
+1267	Skill Point Egg(5)	25
+1268	Skill Point Egg(6)	25
+1269	Skill Point Egg(7)	25
+1270	Skill Point Egg(8)	25
+1271	Skill Point Egg(9)	25
+1272	Skill Point Egg(10)	25
+1273	Skill Point Egg(11)	25
+1274	Skill Point Egg(12)	25
+1275	Skill Point Jelly(Minimal)	25
+1276	Skill Point Jelly(Small)	25
+1277	Skill Point Jelly(Micro)	25
+1278	Advanced Skill Point Jelly LV.1	25
+1279	Advanced Skill Point Jelly LV.2	25
+1280	Advanced Skill Point Jelly LV.3	25
+1281	Advanced Skill Point Jelly LV.4	25
+1301	Sword Relic(Second)	999
+1302	Sword Relic(Sky)	999
+1303	Sword Relic(Numerous)	999
+1304	Sword Relic(Elegant)	999
+1305	Hammer Relic(Second)	999
+1306	Hammer Relic(Sky)	999
+1307	Hammer Relic(Numerous)	999
+1308	Hammer Relic(Elegant)	999
+1309	Shield Relic(Second)	999
+1310	Shield Relic(Sky)	999
+1311	Shield Relic(Numerous)	999
+1312	Shield Relic(Elegant)	999
+1313	Stele Relic(Second)	999
+1314	Stele Relic(Sky)	999
+1315	Stele Relic(Numerous)	999
+1316	Stele Relic(Elegant)	999
+1317	Gun Relic(Second)	999
+1318	Gun Relic(Sky)	999
+1319	Gun Relic(Numerous)	999
+1320	Gun Relic(Elegant)	999
+1321	Staff Relic(Second)	999
+1322	Staff Relic(Sky)	999
+1323	Staff Relic(Numerous)	999
+1324	Staff Relic(Elegant)	999
+1325	Blacksmith Box-Sword(Second)	25
+1326	Blacksmith Box-Sword(Sky)	25
+1327	Blacksmith Box-Sword(Numerous)	25
+1328	Blacksmith Box-Sword(Elegant)	25
+1329	Blacksmith Box-Hammer(Second)	25
+1330	Blacksmith Box-Hammer(Sky)	25
+1331	Blacksmith Box-Hammer(Numerous)	25
+1332	Blacksmith Box-Hammer(Elegant)	25
+1333	Blacksmith Box-Shield(Second)	25
+1334	Blacksmith Box-Shield(Sky)	25
+1335	Blacksmith Box-Shield(Numerous)	25
+1336	Blacksmith Box-Shield(Elegant)	25
+1337	Blacksmith Box-Pumice(Second)	25
+1338	Blacksmith Box-Pumice(Sky)	25
+1339	Blacksmith Box-Pumice(Numerous)	25
+1340	Blacksmith Box-Pumice(Elegant)	25
+1341	Blacksmith Box-Double Gun(Second)	25
+1342	Blacksmith Box-Double Gun(Sky)	25
+1343	Blacksmith Box-Double Gun(Numerous)	25
+1344	Blacksmith Box-Double Gun(Elegant)	25
+1345	Blacksmith Box-Staff(Second)	25
+1346	Blacksmith Box-Staff(Sky)	25
+1347	Blacksmith Box-Staff(Numerous)	25
+1348	Blacksmith Box-Staff(Elegant)	25
+1401	Bejeweled  Play Coupon	1
+1402	Same Play Coupon	1
+1403	Jigsaw Play Coupon	25
+1451	Cute Pet Egg	25
+1452	Playful Pet Egg	25
+1453	Lively Pet Egg	25
+1454	Healthy Pet Egg	25
+1501	Ship Rrepair Tool Lv.1	25
+1502	Ship Rrepair Tool Lv.2	25
+1503	Ship Rrepair Tool Lv.3	25
+1504	Ship Rrepair Tool Lv.4	25
+5001	Viciously Of wind Lv.1	25
+5002	Protect Of Brave Lv.1	25
+5003	Curvet Of Horn Lv.1	25
+5004	Soul Of Protect Lv.1	25
+5005	Civilization Of World Lv.1	25
+5006	Attention Rum Lv.1	25
+5007	Swallow Nest Rum Lv.1	25
+5008	Mad Rum Lv.1	25
+5009	Devil Rum Lv.1	25
+5018	Forest Protect Lv.1	25
+5019	Viciously Of wind Lv.2	25
+5020	Protect Of Brave Lv.2	25
+5021	Curvet Of Horn Lv.2	25
+5022	Soul Of Protect Lv.2	25
+5023	Civilization Of World Lv.2	25
+5024	Attention Rum Lv.2	25
+5025	Swallow Nest Rum Lv.2	25
+5026	Mad Rum Lv.2	25
+5027	Devil Rum Lv.2	25
+5036	Poseidon Protect Lv.1	25
+5037	Viciously Of wind Lv.3	25
+5038	Protect Of Brave Lv.3	25
+5039	Curvet Of Horn Lv.3	25
+5040	Soul Of Protect Lv.3	25
+5041	Civilization Of World Lv.3	25
+5042	Attention Rum Lv.3	25
+5043	Swallow Nest Rum Lv.3	25
+5044	Mad Rum Lv.3	25
+5045	Devil Rum Lv.3	25
+5054	Deep sea Protect Lv.1	25
+5055	Viciously Of wind Lv.4	25
+5056	Protect Of Brave Lv.4	25
+5057	Curvet Of Horn Lv.4	25
+5058	Soul Of Protect Lv.4	25
+5059	Civilization Of World Lv.4	25
+5060	Attention Rum Lv.4	25
+5061	Swallow Nest Rum Lv.4	25
+5062	Mad Rum Lv.4	25
+5063	Devil Rum Lv.4	25
+5072	Purgatory Protect Lv.1	25
+5073	Viciously Of wind Lv.5	25
+5074	Protect Of Brave Lv.5	25
+5075	Curvet Of Horn Lv.5	25
+5076	Soul Of Protect Lv.5	25
+5077	Civilization Of World Lv.5	25
+5078	Lv5Attention Rum	25
+5079	Swallow Nest Rum Lv.5	25
+5080	Mad Rum Lv.5	25
+5081	Devil Rum Lv.5	25
+5090	Sky Protect Lv.1	25
+5091	Event Brew Lv.1	25
+5092	Event Brew Lv.2	25
+5093	Event Brew Lv.3	25
+5094	Event Brew Lv.4	25
+5095	Event Brew Lv.5	25
+5096	Event Brew Lv.6	25
+5097	Event Brew Lv.7	25
+5098	Event Brew Lv.8	25
+5099	Event Brew Lv.9	25
+5100	Event Brew Lv.10	25
+5101	Primary Potion Lv.1	25
+5102	Primary Potion Lv.2	25
+5103	Primary Potion Lv.3	25
+5104	Chaotic Potion Lv.1	25
+5105	Chaotic Potion Lv.2	25
+5106	Chaotic Potion Lv.3	25
+5107	Sky Mirror Potion Lv.1	25
+5108	Sky Mirror Potion Lv.2	25
+5109	Sky Mirror Potion Lv.3	25
+5110	Adroit Potion Lv.1	25
+5111	Adroit Potion Lv.2	25
+5112	Adroit Potion Lv.3	25
+5113	Pumpkin Wine	99
+5114	Christmas Wine	99
+5151	Forest Protect LV.2	25
+5152	Poseidon Protect LV.2	25
+5153	Deep sea Protect LV.2	25
+5154	Purgatory Protect LV.2	25
+5155	Sky Protect LV.2	25
+5156	Forest Protect Lv.3	25
+5157	Poseidon Protect Lv.3	25
+5158	Deep sea Protect Lv.3	25
+5159	Purgatory Protect Lv.3	25
+5160	Sky Protect Lv.3	25
+5161	Forest Protect Lv.4	25
+5162	Poseidon Protect Lv.4	25
+5163	Deep sea Protect Lv.4	25
+5164	Purgatory Protect Lv.4	25
+5165	Sky Protect Lv.4	25
+5166	Forest Protect Lv.5	25
+5167	Poseidon Protect Lv.5	25
+5168	Deep sea Protect Lv.5	25
+5169	Purgatory Protect Lv.5	25
+5170	Sky Protect Lv.5	25
+5512	Viciously Of wind Formula Lv.2	1
+5513	Protect Of Brave Formula Lv2	1
+5514	Curvet Of Horn Formula Lv.2	1
+5515	Soul Of Protect Formula Lv2	1
+5516	Civilization Of World Formula Lv.2	1
+5517	Attention Rum Formula Lv.2	1
+5518	Swallow Nest Rum Formula Lv.2	1
+5519	Mad Rum Formula Lv.2	1
+5520	Devil Rum Formula Lv.2	1
+5523	Viciously Of wind Formula Lv.3	1
+5524	Protect Of Brave Formula Lv.3	1
+5525	Curvet Of Horn Formula Lv.3	1
+5526	Soul Of Protect Formula Lv.3	1
+5527	Civilization Of World Formula Lv.3	1
+5528	Attention Rum Formula Lv.3	1
+5529	Swallow Nest Rum Formula Lv.3	1
+5530	Mad Rum Formula Lv.3	1
+5531	Devil Rum Formula Lv.3	1
+5534	Viciously Of wind Formula Lv.4	1
+5535	Protect Of Brave Formula Lv.4	1
+5536	Curvet Of Horn Formula Lv.4	1
+5537	Soul Of Protect Formula Lv.4	1
+5538	Civilization Of World Formula Lv.4	1
+5539	Attention Rum Formula Lv.4	1
+5540	Swallow Nest Rum Formula Lv.4	1
+5541	Mad Rum Formula Lv.4	1
+5542	Devil Rum Formula Lv.4	1
+5545	Viciously Of wind Formula Lv.5	1
+5546	Protect Of Brave Formula Lv5	1
+5547	Curvet Of Horn Formula Lv.5	1
+5548	Soul Of Protect Formula Lv5	1
+5549	Civilization Of World Formula Lv.5	1
+5550	Attention Rum Formula Lv.5	1
+5551	Swallow Nest Rum Formula Lv.5	1
+5552	Mad Rum Formula Lv.5	1
+5553	Devil Rum Formula Lv.5	1
+5557	Vintage Formula Pack Lv.2	1
+5558	Vintage Formula Pack Lv.3	1
+5559	Vintage Formula Pack Lv.4	1
+5560	Vintage Formula Pack Lv.5	1
+6951	Glitter Red Crystal	1
+6952	Glitter Blue Crystal	1
+6953	Glitter Green Crystal	1
+6954	Dazzle Red Crystal	1
+6955	Dazzle Blue Crystal	1
+6956	Dazzle Green Crystal	1
+6957	Light Color Red Crystal	1
+6958	Light Color Blue Crystal	1
+6959	Light Color Green Crystal	1
+6966	Light Color Red Crystal	1
+6967	Light Color Blue Crystal	1
+6968	Light Color Green Crystal	1
+6971	Grey Color Red Crystal	1
+6972	Grey Color Blue Crystal	1
+6973	Grey Color Green Crystal	1
+6974	Light Color Red Crystal	1
+6975	Light Color Blue Crystal	1
+6976	Light Color Green Crystal	1
+6977	Dazzle Red Crystal	1
+6978	Dazzle Blue Crystal	1
+6979	Dazzle Green Crystal	1
+6980	Glitter Red Crystal	1
+6981	Glitter Blue Crystal	1
+6982	Glitter Green Crystal	1
+6983	Shine Red Crystal	1
+6984	Shine Blue Crystal	1
+6985	Shine Green Crystal	1
+7001	Fragment-Sea Phantom	1
+7002	Fragment-Nelson	1
+7003	Fragment-Odyssey	1
+7004	Fragment-Plato	1
+7005	Fragment-Jason	1
+7006	Fragment-Medea	1
+7007	Fragment-Drake	1
+7009	Fragment-Rosemary	1
+7010	Fragment-Angelina	1
+7011	Fragment-Bismarck	1
+7012	Fragment-Isoroku Yamamoto	1
+7013	Fragment-Columbus	1
+7014	Fragment-Magellan	1
+7201	Fragment-Port Royal	1
+7202	Fragment-Prison Exile Island	1
+7203	Fragment-Spice Paradise Island	1
+7204	Fragment-Slave Market Island	1
+7205	Fragment-Evil Port	1
+7206	Fragment-Ocean Walled City	1
+7207	Fragment-Voodoo Island	1
+7208	Fragment-Silver Harbour	1
+7209	Fragment-Death City Sea	1
+7210	Fragment-Deep Sea Temple	1
+7211	Fragment-Drake empty Walled	1
+7212	Fragment-Hell Volcanic Island	1
+7213	Fragment-Lost Eden	1
+7214	Fragment-Sunset Deserted	1
+7401	Fragment-Hammer of Judgment	1
+7402	Fragment-Poseidon servant	1
+7403	Fragment-Ancyn Grip	1
+7404	Fragment-Lydiana Melody	1
+7405	Fragment-Treasure Hunter Bag	1
+7406	Fragment-Night  Evilteeth	1
+7407	Fragment-Assault Boat Key	1
+7408	Fragment-Judge Certificate	1
+7501	Fragment-Mithril Burner	1
+7502	Fragment-White Beard Pipe	1
+7503	Fragment-Pearlshell Conch	1
+7504	Fragment-Destiny Triangle	1
+7505	Fragment-Remains Skull	1
+7506	Fragment-Exorcise Bell	1
+7507	Fragment-Imprisonment Of Light	1
+7508	Fragment-Exorcise Whip	1
+7509	Fragment-Luminous Fruit	1
+7510	Fragment-Holy Cross Syringe	1
+7511	Fragment-Night Candelabrum	1
+7512	Fragment-Muse Umbrella	1
+7513	Fragment-Double Dragon Guard	1
+7514	Fragment-Destroy Atom	1
+7515	Fragment-Cold Ice Crystal	1
+7516	Fragment-Seven Sea Pearl	1
+7517	Fragment-Paine Bottle	1
+7518	Fragment-Thorough Eye	1
+7519	Fragment-Chic Cap	1
+8001	Fragment-Fall Sun	1
+8002	Fragment-Rough Sea Fortress	1
+8003	Fragment-Poseidon Hall	1
+8004	Fragment-Kraken Lair	1
+8005	Fragment-Doom Church	1
+8006	Fragment-Hell Trial	1
+8007	Fragment-Skyfire Tower	1
+9015	PK Equipment Box	1
+10001	Admiral-Headdress	1
+10002	Admiral-Armor	1
+10003	Admiral-Legging	1
+10004	Splendid Yuppie-Headdress	1
+10005	Splendid Yuppie-Armor	1
+10006	Splendid Yuppie-Legging	1
+10007	Round Red Day-Headdress	1
+10008	Round Red Day-Armor	1
+10009	Round Red Day-Legging	1
+10010	Flying Eagle-Headdress	1
+10011	Flying Eagle-Armor	1
+10012	Flying Eagle-Legging	1
+10013	Sailor Suit-Headdress	1
+10014	Sailor Suit-Armor	1
+10015	Sailor Suit-Legging	1
+10016	Elegant England-Headdress	1
+10017	Elegant England-Armor	1
+10018	Elegant England-Legging	1
+10019	Sentimental Scout-Headdress	1
+10020	Sentimental Scout-Armor	1
+10021	Sentimental Scout-Legging	1
+10022	Soul Tutor-Headdress	1
+10023	Soul Tutor-Armor	1
+10024	Soul Tutor-Legging	1
+10025	Pirate Attire-Headdress	1
+10026	Pirate Attire-Armor	1
+10027	Pirate Attire-Legging	1
+10028	Impossible Blue Sky-Headdress	1
+10029	Impossible Blue Sky-Armor	1
+10030	Impossible Blue Sky-Legging	1
+10031	Fury Wild Tiger-Headdress	1
+10032	Fury Wild Tiger-Armor	1
+10033	Fury Wild Tiger-Legging	1
+10037	Knight Soldier-Headdress	1
+10038	Knight Soldier-Armor	1
+10039	Knight Soldier-Legging	1
+10040	Royal Officer-Headdress	1
+10041	Royal Officer-Armor	1
+10042	Royal Officer-Legging	1
+10043	Heavy Armor Priest-Headdress	1
+10044	Heavy Armor Priest-Armor	1
+10045	Heavy Armor Priest-Legging	1
+10046	Odd Alchemist-Headdress	1
+10047	Odd Alchemist-Armor	1
+10048	Odd Alchemist-Legging	1
+10049	Wilderness Passing-Headdress	1
+10050	Wilderness Passing-Armor	1
+10051	Wilderness Passing-Legging	1
+10052	New World Emissary-Headdress	1
+10053	New World Emissary-Armor	1
+10054	New World Emissary-Legging	1
+10064	Instructor-Headdress	1
+10065	Instructor-Armor	1
+10066	Instructor-Legging	1
+10067	Sakura Millennium-Headdress	1
+10068	Sakura Millennium-Armor	1
+10069	Sakura Millennium-Legging	1
+10070	Dream Of Seal-Headdress	1
+10071	Dream Of Seal-Armor	1
+10072	Dream Of Seal-Legging	1
+10082	Royal Noble-Headdress	1
+10083	Royal Noble-Armor	1
+10084	Royal Noble-Legging	1
+10085	Heaven Feather-Headdress	1
+10086	Heaven Feather-Armor	1
+10087	Heaven Feather-Legging	1
+10088	Dark Element-Headdress	1
+10089	Dark Element-Armor	1
+10090	Dark Element-Legging	1
+10091	Punch Squad-Headdress	1
+10092	Punch Squad-Armor	1
+10093	Punch Squad-Legging	1
+10094	Cupid-Headdress	1
+10095	Cupid-Armor	1
+10096	Cupid-Legging	1
+10097	War Machine-Headdress	1
+10098	War Machine-Armor	1
+10099	War Machine-Legging	1
+10106	Night Wizard-Headdress	1
+10107	Night Wizard-Armor	1
+10108	Night Wizard-Legging	1
+10109	Bard Poet-Headdress	1
+10110	Bard Poet-Armor	1
+10111	Bard Poet-Legging	1
+10112	God Fire-Headdress	1
+10113	God Fire-Armor	1
+10114	God Fire-Legging	1
+10115	Heaven Beast Armor-Headdress	1
+10116	Heaven Beast Armor-Armor	1
+10117	Heaven Beast Armor-Legging	1
+10118	Purgatory Of Flower-Headdress	1
+10119	Purgatory Of Flower-Armor	1
+10120	Purgatory Of Flower-Legging	1
+10121	Abyss Armor-Headdress	1
+10122	Abyss Armor-Armor	1
+10123	Abyss Armor-Legging	1
+10124	Blue Wind-Headdress	1
+10125	Blue Wind-Armor	1
+10126	Blue Wind-Legging	1
+10157	Guard-Headdress	1
+10158	Guard-Armor	1
+10159	Guard-Legging	1
+10160	Flame Cross-Headdress	1
+10161	Flame Cross-Armor	1
+10162	Flame Cross-Legging	1
+10163	Indigo Guard-Headdress	1
+10164	Indigo Guard-Armor	1
+10165	Indigo Guard-Legging	1
+10166	Prisoner-Headdress	1
+10167	Prisoner-Armor	1
+10168	Prisoner-Legging	1
+10169	Freedom-Headdress	1
+10170	Freedom-Armor	1
+10171	Freedom-Legging	1
+10172	Red Flame Armor-Headdress	1
+10173	Red Flame Armor-Armor	1
+10174	Red Flame Armor-Legging	1
+10175	Curse Of Graveyard-Headdress	1
+10176	Curse Of Graveyard-Armor	1
+10177	Curse Of Graveyard-Legging	1
+10178	Ice Beast Tooth-Headdress	1
+10179	Ice Beast Tooth-Armor	1
+10180	Ice Beast Tooth-Legging	1
+12001	Goggle	1
+12002	Antelope Red Horn	1
+12003	Beast Bone Face	1
+12004	Guawa Ornament	1
+12005	Seven herb	1
+12201	Purple Snake Wing	1
+12202	Gold Midge Wing	1
+12203	Jet Equipment	1
+12204	Little Angel	1
+12205	Tiamat Wing	1
+12501	Miracle Chest	1
+12502	Pumpkin Headdress	1
+12503	Christmas Hat	1
+12703	Canvas Wing	1
+13002	M Gu	1
+13004	Ivah	1
+13007	Gobao	1
+13021	Nalu Sase	1
+13024	Cale	1
+13030	Tuna	1
+13040	Croseyes	1
+13041	Yan Yuzi	1
+13042	Khayredin	1
+13101	Wilbur Wolf	1
+14001	Fur seal	1
+14002	Sediment Wolf	1
+14003	Blind Hound	1
+14004	Exotic Demon Wolf	1
+14005	Red Flame Demon Wolf	1
+14006	Two Horns Tiger	1
+14007	Purple Flame Lion	1
+14008	Jungle Tiger	1
+14009	Dark Roast Lion	1
+14010	Blue Tiger	1
+14011	Ned King Kong	1
+14012	Polar ape	1
+14013	Wild ape	1
+14014	Hell King Kong	1
+14015	Ward Kingkong	1
+14016	Zombie baboon	1
+14017	Greenwood Magic Flower	1
+14018	Fire magic	1
+14019	Toxic Vine	1
+14020	End date Flower	1
+14021	Charm Felvine	1
+14022	Mountain Deer	1
+14023	Sparkler Antelope	1
+14024	Flame Mountains deer	1
+14025	Polar deer	1
+14026	Prairie deer	1
+14027	Nightmare Claw beast	1
+14028	Rock turtle	1
+14029	Sand dragon	1
+14030	Purple turtle	1
+14031	Earth Flame Dragon	1
+14032	Swamp Tortoise	1
+14033	Iceberg Turtle	1
+14034	Desert Eagle	1
+14035	Blood red eagle	1
+14036	Forest Green Eagle	1
+14037	Razor Blackhawk	1
+14038	Steel blade Eagle	1
+14039	lenka	1
+14040	Raspberry Bibi	1
+14041	Flying Rat Sapphire	1
+14042	Remains Bibi	1
+14043	Crystal Bibi	1
+14044	Navy Two Tripods	1
+14045	Protect City Mech	1
+14046	Navy Tiger Mech	1
+14047	Pirates blitz Mech	1
+14048	Air Thief Meteor Mech	1
+14049	Navy guns Mech	1
+14050	Fire Euglena	1
+14051	Crusty Bone Fish	1
+14052	Jade Euglena	1
+14053	Craig Firebird	1
+14054	Ominous Bird	1
+14055	Angel Sheep	1
+14056	Blue Sea Snake	1
+14057	Sharp snake poison ivy	1
+14058	Red Flame Creeper	1
+14059	Phantom Demon Snake	1
+14060	Temple Snake	1
+14061	Snail	1
+14062	Deep Sea Snail	1
+14063	Flash Snail	1
+14064	Fighting Fish soldier	1
+14065	Gentry Platypus	1
+14066	Scythe beetle	1
+14067	Sunry beetle	1
+14068	Blue Beetle	1
+14069	Thorn Hammer Bee	1
+14070	Red blood Bee	1
+14071	Sea Phantom	1
+14072	Nelson	1
+14073	Odyssey	1
+14074	Plato	1
+14075	Jason	1
+14076	Medea	1
+14077	Drake	1
+14078	Siren	1
+14079	Rosemary	1
+14080	Angelina	1
+14081	Bismarck	1
+14082	Isoroku Yamamoto	1
+14083	Columbus	1
+14084	Magellan	1
+14085	Angel of Death	1
+14086	Juoda	1
+14087	Rosie Antelope	1
+14088	Pumpkin Ghost	1
+14089	Skeleton Seaman	1
+14090	Christmas Elf-Warm	1
+14091	Christmas Elf-Pretty	1
+14092	Romantic Lover	1
+14093	Pink Beauty	1
+15001	Blind Hound	1
+15003	Red Flame Demon Wolf	1
+15004	Purple Flame Lion	1
+15005	Christmas Elk	1
+16003	Mold-Silver Sword	1
+16004	Mold-Golden Sword	1
+16005	Mold-Red Night Devil	1
+16006	Mold-Green Night Devil	1
+16007	Mold-Pirate Sword	1
+16009	Mold-King Hold Knife	1
+16010	Mold-Glitter Hold Knife	1
+16013	Mold-Black King Saw	1
+16014	Mold-Green King Saw	1
+16015	Mold-Forest Saw Blade	1
+16017	Mold-Blue stab	1
+16018	Mold-Back Sword	1
+16019	Mold-Fire Sword	1
+16020	Mold-Blast Blade	1
+16023	Mold-Golden Bull Blade	1
+16024	Mold-Red Flame Wide Blade	1
+16025	Mold-Blood Sickle	1
+16027	Mold-Colorful Wing	1
+16029	Mold-Red Feather Hook	1
+16031	Mold-Knight  Sword	1
+16033	Mold-Laurel Glory	1
+16035	Mold-Linear	1
+16036	Mold-Broken Phantom	1
+16038	Mold-Sunset	1
+16039	Mold-Iron Rod	1
+16040	Mold-Heavy Rod	1
+16042	Mold-Purple Kilin Flame	1
+16045	Mold-Sky Wing	1
+16046	Mold-Dark Waste Wing	1
+16047	Mold-Black Wing Devil	1
+16049	Mold-Flame Angel Staff	1
+16051	Mold-Influence Feather Butterfly	1
+16052	Mold-Fly Feather Butterfly	1
+16053	Mold-Blue Hippocampal	1
+16055	Mold-Wooden Wheel Rod	1
+16057	Mold-Shine Sun	1
+16059	Mold-Snow  Frost	1
+16060	Mold-Fever Ice	1
+16061	Mold-Temple Allure	1
+16062	Mold-Devil  Dungeon	1
+16064	Mold-Rose	1
+16066	Mold-Forest Movement	1
+16069	Mold-Green Armored	1
+16071	Mold-Flame Root	1
+16072	Mold-Aluminum Armored Rod	1
+16073	Mold-Savage Visor	1
+16074	Mold-Quaint Hammer	1
+16076	Mold-Black Iron Hammer	1
+16078	Mold-Revenant Signet	1
+16079	Mold-Evil Signet	1
+16080	Mold-Scheelite Hammer	1
+16082	Mold-Seal Hammer	1
+16084	Mold-Dea Guard	1
+16085	Mold-Lea Guard	1
+16088	Mold-Purify Morning Light	1
+16089	Mold-Elegant Petal	1
+16090	Mold-Dark War Hammer	1
+16092	Mold-Dry Carving	1
+16093	Mold-Red Disaster	1
+16095	Mold-Lion Guard	1
+16097	Mold-Serenity Horn	1
+16098	Mold-Holy War Crystal	1
+16099	Mold-Evil War Crystal	1
+16101	Mold-Planet Angel	1
+16102	Mold-Salvation Neon	1
+16104	Mold-Purify Dragon Attack	1
+16106	Mold-Underworld Psychopomp	1
+16107	Mold-Poseidon Envoy	1
+16108	Mold-North Sea Hero	1
+16109	Mold-Quaint Shield	1
+16111	Mold-Black iron Shield	1
+16113	Mold-Spirit Shield	1
+16114	Mold-Soul Shield	1
+16117	Mold-Purify Morning Light	1
+16118	Mold-Elegant Petal	1
+16119	Mold-Dark War Shield	1
+16121	Mold-Dry Carving	1
+16122	Mold-Scheelite Shield	1
+16124	Mold-Seal Shield	1
+16126	Mold-Dea Wall	1
+16127	Mold-Lea Wall	1
+16128	Mold-Red Guard	1
+16130	Mold-Lion Guard	1
+16132	Mold-Moonlight	1
+16133	Mold-Jihad Wall	1
+16134	Mold-Battle Wall	1
+16136	Mold-Ocean Angel	1
+16137	Mold-Creation Rainbow	1
+16139	Mold-Purify Dragon Scale	1
+16141	Mold-Underworld Guard	1
+16142	Mold-Neptune Guard	1
+16143	Mold-North Sea Hero	1
+16146	Mold-Real Flame Pistol	1
+16147	Mold-Magic Flame Pistol	1
+16148	Mold-Glory Navy	1
+16149	Mold-God Bless Army	1
+16151	Mold-Blue Sky Fine Gun	1
+16153	Mold-Classic Copper Gun	1
+16154	Mold-Beautiful Rose	1
+16155	Mold-Luxury Age	1
+16156	Mold-Red Wheel Machine Gun	1
+16158	Mold-Elf Wing	1
+16159	Mold-Fairy Wing	1
+16160	Mold-Blue Eagle	1
+16161	Mold-Red Eagle	1
+16164	Mold-Callous Punish	1
+16165	Mold-Blood Punish	1
+16166	Mold-Extrajudicial Grace	1
+16167	Mold-Indigo Cannon	1
+16169	Mold-Fighting Double Dragon	1
+16172	Mold-Gully Lion	1
+16174	Mold-Skilful Crossbow	1
+16176	Mold-Stone Crossbow	1
+16177	Mold-Giddy Color Crossbow	1
+16178	Mold-Surfing Speed	1
+16181	Mold-Red Lotus Thorn	1
+16182	Mold-Blue Sharp	1
+16183	Mold-Clever Barrier	1
+16184	Mold-Rainbow Barrier	1
+16185	Mold-Sky Horse Timepiece	1
+16187	Mold-Afternoon Teatime	1
+16188	Mold-Elegant Time	1
+16189	Mold-Stars Fall	1
+16191	Mold-Bull King Skull	1
+16193	Mold-Flame Amethyst	1
+16197	Mold-Death Gaze	1
+16198	Mold-Cupid	1
+16199	Mold-Silence Angel	1
+16200	Mold-Cold Flame Maiden	1
+16202	Mold-Mask King	1
+16203	Mold-Clean Light Cross	1
+16204	Mold-Holy Light Cross	1
+16205	Mold-Softly Blessing	1
+16207	Mold-Archangel Mercy	1
+16209	Mold-Grey Of Light	1
+16211	Mold-Dream Night Light	1
+16212	Mold-Easily Light	1
+16213	Mold-Virgin Fly	1
+80001	Admiral- Headdress	1
+80002	Splendid Yuppie- Headdress	1
+80003	Splendid Yuppie-Armor	1
+80004	Splendid Yuppie-Legging	1
+80005	Sailor Suit- Headdress	1
+80006	Sentimental Scout- Headdress	1
+80007	Sentimental Scout-Armor	1
+80008	Sentimental Scout-Legging	1
+80009	Pirate Attire- Headdress	1
+80010	Impossible Blue Sky- Headdress	1
+80011	Impossible Blue Sky-Armor	1
+80012	Impossible Blue Sky-Legging	1
+80013	Knight Soldier- Headdress	1
+80014	Royal Officer- Headdress	1
+80015	Royal Officer-Armor	1
+80016	Royal Officer-Legging	1
+80017	Royal Noble- Headdress	1
+80018	Heaven Feather- Headdress	1
+80019	Heaven Feather-Armor	1
+80020	Heaven Feather-Legging	1
+80021	Crystal Bibi	1
+80022	Round Red Day- Headdress	1
+80023	Round Red Day-Armor	1
+80024	Round Red Day-Legging	1
+80025	Odd Alchemist- Headdress	1
+80026	Odd Alchemist-Armor	1
+80027	Odd Alchemist-Legging	1
+80028	Night Wizard-Headdress	1
+80029	Night Wizard-Armor	1
+80030	Night Wizard-Legging	1
+80031	Punch Squad- Headdress	1
+80032	Punch Squad-Armor	1
+80033	Punch Squad-Legging	1
+80034	Elegant England- Headdress	1
+80035	Elegant England-Armor	1
+80036	Elegant England-Legging	1
+80037	Wilderness Passing-Headdress	1
+80038	Wilderness Passing-Armor	1
+80039	Wilderness Passing-Legging	1
+80040	Instructor-Headdress	1
+80041	Instructor-Armor	1
+80042	Instructor-Legging	1
+80043	War Machine-Headdress	1
+80044	War Machine-Armor	1
+80045	War Machine-Legging	1
+80046	God Fire-Headdress	1
+80047	God Fire-Armor	1
+80048	God Fire-Legging	1
+80049	Abyss Armor-Headdress	1
+80050	Abyss Armor-Armor	1
+80051	Abyss Armor-Legging	1
+99801	LV.1補償錢袋	1
+99802	LV.2補償錢袋	1
+99803	LV.3補償錢袋	1
+99804	LV.4補償錢袋	1
+99805	LV.5補償錢袋	1
+99806	LV.6補償錢袋	1
+99807	LV.7補償錢袋	1
+99808	LV.8補償錢袋	1
+99809	LV.9補償錢袋	1
+99810	LV.10補償錢袋	1
+99951	BUFF堆疊9924	999
+99952	BUFF堆疊9925	999
+99953	BUFF堆疊9926	999
+99954	BUFF堆疊9927	999
+99955	BUFF堆疊9928	999
+99956	BUFF堆疊9929	999
+99957	BUFF堆疊9930	999
+99958	BUFF堆疊9931	999
+99959	BUFF堆疊9932	999
+99960	BUFF堆疊9933	999
+99961	BUFF堆疊9934	999
+99962	BUFF堆疊9935	999
+99963	BUFF堆疊9936	999
+99964	BUFF堆疊9937	999
+99965	BUFF堆疊9938	999
+99966	BUFF堆疊9939	999
+99967	BUFF堆疊9940	999
+99968	BUFF堆疊9941	999
+99969	BUFF堆疊9942	999
+99970	BUFF堆疊9943	999
+99971	BUFF堆疊9944	999
+99972	BUFF堆疊9945	999
+99973	BUFF堆疊9946	999
+99974	BUFF堆疊9947	999
+99975	BUFF堆疊9948	999
+99976	BUFF堆疊9949	999
+99977	BUFF堆疊9950	999
+99978	BUFF堆疊9951	999
+99979	BUFF堆疊9952	999
+99980	BUFF堆疊9953	999
