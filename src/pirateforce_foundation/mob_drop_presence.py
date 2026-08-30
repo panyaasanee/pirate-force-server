@@ -23,6 +23,20 @@ the lever the order was handed with only touches one of them:
     Fixing that is TWO LINES in a file this lane does not own -- see
     :data:`DROP_PRESENCE_WIRING`.
 
+    **THIS IS NOW WIRED.**  Chief's commit ``432381a2`` (round ``t7t5yd``,
+    2026-08-30T01:33+07:00) put the ask into ``runtime.py``'s MOB_LOOT block
+    -- the commit message's own words are "is the five DROP_PRESENCE_WIRING
+    lines verbatim".  Read that as a fact about ``runtime.py`` re-derived by
+    a test, not as this sentence: ``tests/test_mob_drop_presence.py``'s
+    ``ModuleShapeTests.test_the_wiring_ask_is_fulfilled_re_derived_from_
+    runtime_py`` parses the four ``mob_drop_presence.<name>(`` calls the ask
+    below names and confirms ``runtime.py``'s own AST really calls all four
+    today; ``tests/test_mob_drop_presence_wiring.py`` separately drives the
+    real dispatcher through a kill and pins the resulting behaviour.  The ask
+    text right below is kept as it was written -- this lane does not rewrite
+    an ask after the fact -- but a reader landing on it from the module
+    docstring should not treat it as still open.
+
   HOLE 2 -- THE CLIENT'S LABEL.  GT-045 measured the floating red name at
     0.2-0.4 s of screen life (frame-extracted, and the recorder duplicates
     frames in threes, so the number may not be written more precisely than
@@ -542,6 +556,19 @@ def presence_event(step: Any) -> str:
 
 # ---------------------------------------------------------------------------
 # The wiring ask.  runtime.py is chief's file; this is the whole change.
+#
+# STATUS: WIRED, not open.  Chief's commit 432381a2 (round t7t5yd,
+# 2026-08-30T01:33+07:00) put these five lines into runtime.py's MOB_LOOT
+# block -- verbatim, per that commit's own message.  This lane found this
+# text still framed as an unanswered ask on round jiy6lj (this round) with
+# no test re-deriving that fact from source, which is the same failure mode
+# GOVERNED_BAG_ALLOWLIST_OWNER had before round hpronz's AST tripwire: a
+# hand-typed status that cannot self-report going (or having gone) stale.
+# The string body below is left byte-for-byte as it was asked -- this lane
+# does not rewrite an ask after the fact -- but tests/test_mob_drop_presence.
+# py's ModuleShapeTests.test_the_wiring_ask_is_fulfilled_re_derived_from_
+# runtime_py is the thing that would go red if this status note itself ever
+# went stale (wiring reverted without this comment being noticed).
 # ---------------------------------------------------------------------------
 DROP_PRESENCE_WIRING = """runtime.py, the MOB_LOOT block of _dispatch_mob_combat
 (today: 'if drops:' ... 'for loot_pc, loot_frame in mob_loot.drop_frames(' ...
