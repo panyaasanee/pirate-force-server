@@ -5024,3 +5024,70 @@ dispatch call site เดิมของ chief ไม่เปลี่ยน) �
 `python3 tools/verify_functional_coverage.py`: PASS domains=8, ไม่มี drift
 
 — สาย GM รอบ `jz4don`
+
+## รอบ `gm-20260831-0517` (2026-08-31T05:1x-05:5x+07:00) — verify-only + npc_switch_catalog.py 8180/8181 label (COO-DECISION 0245)
+
+### ต้นรอบ
+
+- ไม่มี PR `[LANE-GM]` เปิดค้างทั้งสอง repo ก่อนยึดล็อก — ยึดด้วย empty commit "round claim:
+  gm-20260831-0517" แล้วเปิด draft PR ทันที (`pf_bridge#565`, `pirate-force-server#361`)
+- PR `[LANE-GM]` ล่าสุดของแต่ละ repo (`pf_bridge#561`, `pirate-force-server#357`, รอบ `jz4don`):
+  `pull_request_read(method=get)` ยืนยัน `merged=true` ทั้งคู่ — งานอยู่บน main จริง ไม่ต้องกู้คืน
+- กล่องจดหมาย: ไล่ `notes_to_chief/` หาใบที่จ่าหน้าถึง LANE-GM หรือเปิดโดย LANE-GM ที่ยังไม่มี
+  `.CONSUMED.txt` (ทั้งสองรูปแบบชื่อไฟล์ที่ใช้ในโปรเจกต์นี้) — **ไม่พบใบใหม่ที่ต้องบริโภครอบนี้** ใบล่าสุดที่
+  แตะ LANE-GM ตรง (`0430_LANE-GM-STATUS`, `0245_COO-DECISION-gm042-owner-questions`) มี `.CONSUMED.txt`
+  ครบแล้วทั้งคู่ (chief round `8skr91` backfill)
+
+### สถานะ RE-164/GT-164 (เรื่องหลักของ `PANYA-ORDER 0152`)
+
+ตรวจแล้วไม่มีอะไรให้ต่อสายเพิ่มรอบนี้: `GT-164` ปลด BLOCKED แล้วตั้งแต่รอบ `jz4don` (จุดเสียบ `/gmprobe
+<variant_id>` อยู่บน main) รอเพียงกะ1-A คลิกจริงในเซสชัน attended — ไม่ใช่งานที่ทำได้ในสภาพแวดล้อมรีโมต
+ไม่มีจอของรอบนี้ `RE-164` suspect 1/3/4 (connection context / current-UI object-key / create path
+`0x007280D0`) ต้องใช้ disassembly ของไบนารีไคลเอนต์จริง (VA อ้างอิงเป็นของ client .exe) — เป็นงาน RE lane
+ไม่ใช่ของ LANE-GM ตามกฎ "ถ้าเป็นงาน RE ไม่ใช่ของเรา เขียนใบขอแทนเดา" ใบ `RE-164` เปิดรออยู่แล้วจากรอบก่อน
+ไม่ต้องเปิดซ้ำ
+
+### สิ่งที่ทำรอบนี้ (เดียว, เล็ก, ปลอดภัย)
+
+`gm/npc_switch_catalog.py`: เติมป้าย docstring สำหรับ `8180`/`8181` (Water Lantern x2) ตามที่
+`COO-DECISION 20260831_0245` สั่งไว้ ("ครั้งต่อไปที่แตะไฟล์นี้ ให้ป้ายว่า catalog-only ยังไม่พบแถว
+server-side") — ไม่มีการเปลี่ยน logic ใด ๆ ในไฟล์ เป็นการเพิ่ม docstring บรรทัดเดียวเท่านั้น
+
+🔴 **พลาดแล้วแก้เอง**: ร่างแรกของ docstring ใส่ตัวอักษรจริงของ `s_NAME` (อักษรจีนดั้งเดิม ไม่ใช่ไทย) ลงในไฟล์
+`.py` ตรง ๆ — รันสวีตพบว่า `test_gm_source_is_cp874_safe.py` fail จริง (ตัวอักษรนั้นไม่มี mapping ใน cp874)
+แก้เป็นข้อความ ASCII ที่ชี้ไปที่ไฟล์ TSV แทนก่อน commit ไม่ได้ปล่อยโค้ดที่ทำให้ gate แดงหลุดออกไป
+
+### pf-adversary รอบนี้
+
+diff เดียวคือ docstring 12 บรรทัดใหม่ ไม่มีการเปลี่ยน logic/ฟังก์ชัน/ทางแยกใด ๆ — ไม่มี threat model ใหม่ให้
+ตรวจ (ไม่ใช่การแก้คำผิดตามตัวอักษร แต่ก็ไม่มีความเสี่ยง logic ให้ pf-adversary จับ) รันสวีตเต็มก่อน/หลัง
+ยืนยันจำนวนเทสไม่เปลี่ยน (`5661 passed` ทั้งสองครั้ง หลังนับรวมเทสที่ chief merge เพิ่มระหว่างรอบก่อนหน้า)
+
+### เช็คสวีต
+
+- `pytest tests/ -q` เต็ม: **5661 passed**, 323 skipped, 9758 subtests passed, 0 failed เขียว(cloud sanity)
+- `python3 tools/verify_hypothesis_ledger.py`: PASS entries=47 ไม่มี drift
+- `python3 tools/verify_functional_coverage.py`: PASS domains=8 ไม่มี drift (8 domain ยังเปิดเหมือนเดิม)
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+**ไม่มี** — รอบนี้ไม่มีจุดเสียบใหม่ที่ยิงได้จริง `GT-164` ยังรอกะ1-A คลิกจริงเหมือนเดิมทุกประการ (ปลด BLOCKED
+ไปแล้วตั้งแต่รอบ `jz4don`) การเปลี่ยนแปลงรอบนี้คือ docstring/label เท่านั้น ไม่กระทบพฤติกรรมรันไทม์ใด ๆ
+
+### nonclaim
+
+1. ไม่ได้ยิงเฟรมใด ๆ ใส่ client จริงรอบนี้ ไม่ได้เปิด client ไม่มีจอในสภาพแวดล้อมนี้
+2. ไม่ได้ตัดสินหรือเดาคำตอบของ `RE-164` suspect ใดเลย — ยังคงเป็นใบเปิดรอ RE lane เหมือนเดิม
+3. ไม่แตะ `runtime.py`/`app.py`/`pf_login_game_server_v141.py`/`scenarios/world_*.json`/
+   `scenarios/combat_*.json` เลยรอบนี้ ไม่ให้สถานะ GM กับบัญชีที่ไม่อยู่ใน `gm_accounts` ไม่มีการประกาศ
+   milestone จากผลที่ได้ด้วย GM
+4. ป้าย 8180/8181 เป็น docstring เท่านั้น ไม่ได้เพิ่ม/ลด behavior ของ `is_gm_switchable_npc`/`npc_gm_name`
+   ทั้งสอง id ยังถูกมองว่า "เป็นหนึ่งใน 7" เหมือนเดิมทุกประการ (แค่ไม่ให้ใครอ่านแล้วเข้าใจผิดว่ามีแถว
+   server-side ยืนยันแล้ว)
+
+### PR
+
+- `pf_bridge#565` (draft ต้นรอบ ปิดท้ายรอบนี้เป็น ready + retitle)
+- `pirate-force-server#361` (draft ต้นรอบ ปิดท้ายรอบนี้เป็น ready + retitle + wake-gate commit)
+
+— สาย GM รอบ `gm-20260831-0517`
