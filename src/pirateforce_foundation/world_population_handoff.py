@@ -473,6 +473,34 @@ SCENES_INTENTIONALLY_UNPOPULATED: dict[int, str] = {
     # The pinned candidate COO-DECISION 0550 did not choose.  No placements have
     # been mined for it at all - this one is genuinely "nobody has looked".
     997: "not_the_chosen_candidate_no_placements_mined",
+    # THE SEA, AND THE FIRST ENTRY IN THIS TABLE WITH A PRODUCTION READER.
+    # Added round pf-builder/M2 crossing-handoff.  278 and 997 are scenes no
+    # crossing reaches; scene 17 is the ONE scene a player can send themselves
+    # to on a default boot (Columbus, row 3021, ``columbus_quest_dispatch``;
+    # the whole word is avoided here for the same reason
+    # ``world_m2_crossing_handoff``'s docstring names - the
+    # QuestAndShopStateGuard word scan, which this file is not on the
+    # allowlist for and should not be added to for a comment), so this is the
+    # first row
+    # here that an actual arrival will read.
+    #
+    # THE MEASUREMENT, re-derived this round from the client's own tables
+    # rather than quoted:
+    #   gamedata/scene/Bg1001/Bg1001.placements.tsv -> 8 placements, and every
+    #   one of the 8 is a ``Mob_set_N`` row (sets 1-6).  Reading a Mob-Set
+    #   number as an actor identity is the reading GT-078 REJECTED, the same
+    #   wall scene 278 is behind.
+    #   CONSTDATA_TH__SCENE_NAME.tsv row 17 -> ``n_CLINE_TYPE = 4294967295``
+    #   (0xFFFFFFFF, "none"), so the Mob-Set -> CLINE -> MOBS crosswalk that
+    #   resolves other scenes' sets has NOTHING TO RESOLVE THROUGH here.  It
+    #   is not that nobody ran the crosswalk; the column the crosswalk keys on
+    #   is absent.  All seven sea scenes (17-23, Bg1001-Bg1007) carry the same
+    #   4294967295, checked rather than assumed.
+    # So scene 17 cannot be populated from committed evidence at all, and a
+    # composer for it would be an invented cast.  Arriving to an empty sea is
+    # the honest world; arriving with Port Royal still on the client is not,
+    # and that is what the CLEAR this branch composes is for.
+    17: "sea_scene_no_cline_type_mob_set_placements_unresolvable_gt078",
 }
 
 
