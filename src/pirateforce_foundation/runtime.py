@@ -6470,17 +6470,19 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     # Same frozen serializer, same fail-closed shape: any
                     # refusal or length drift falls back to the untouched
                     # production bytes with a named event, never a
-                    # half-composed frame.  KNOWN GAP (pf-adversary,
-                    # unresolved this round): the serializer itself only
-                    # accepts scene_id in (1, 2) -- a character stored in
-                    # any OTHER pinned scene (e.g. 278, 997/FilmScene) still
-                    # falls back to plain bytes here, silently, because the
-                    # frozen probe was never proven for those scenes.  Not
-                    # reachable by a normal player today (world-travel gates
-                    # stay closed by default), but real for RE-073's
-                    # FilmScene work and for any future world-travel
-                    # unlock -- flagged to COO/Panya in this round's reply,
-                    # not silently declared solved.
+                    # half-composed frame.  UPDATED 2026-08-30 by chief
+                    # (LANE-A round `vvy6q7`, 20260830_0050 letter, item @2'):
+                    # the "only scene_id in (1, 2)" half of this comment
+                    # is STALE -- the composer now accepts {1, 2, 14} and
+                    # decides by rule (registry login_entry_allowed AND
+                    # n_SAVE == 1), not by a hardcoded list. The other half
+                    # still holds: any OTHER pinned scene (e.g. 278, 997/
+                    # FilmScene) still falls back to plain bytes here,
+                    # because those scenes have n_SAVE == 0, not because of
+                    # their scene_id -- and that fallback is now named
+                    # (`faction_refused_scene_997_n_save_is_0_not_1`) instead
+                    # of silent. Real for RE-073's FilmScene work and for any
+                    # future world-travel unlock of a scene with n_SAVE == 0.
                     try:
                         faction_pc, faction_frame = (
                             self.foundation.projector.start_game(
