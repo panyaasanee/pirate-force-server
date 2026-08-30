@@ -39,6 +39,7 @@ import contextlib
 import io
 import json
 from pathlib import Path
+import re
 import sqlite3
 import struct
 import sys
@@ -49,7 +50,9 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from pirateforce_foundation import bag_admission, inventory, mob_loot, mob_pickup
+from pirateforce_foundation import (
+    bag_admission, inventory, mob_loot, mob_pickup, mob_pickup_persist,
+)
 from pirateforce_foundation.inventory import (
     BACKPACK_BASE_IDENTITY,
     BACKPACK_BASE_MASK,
@@ -147,6 +150,35 @@ def _executed_sql(module_name):
             continue
         out.append((owner.get(id(node), "<module>"), " ".join(text.split())))
     return out
+
+
+def _call_names(module_name):
+    """Every name a Python file in src/ actually CALLS, by function/method.
+
+    Companion to ``_executed_sql`` above, for the OTHER half of pf-adversary's
+    open item from round 149wbp (repeated in round j0u64p's letter, item
+    5.1): ``GOVERNED_BAG_ALLOWLIST_OWNER`` names GT-124's blocker in prose,
+    but nothing re-derived that the named call site is REALLY absent from
+    ``runtime.py`` -- the only thing the old test checked was that the
+    string mentioned a real function's name, which a stale string mentioning
+    the WRONG real function would still pass.  Same AST-walk shape as
+    ``_executed_sql`` and the same reason: a comment or a docstring that
+    MENTIONS a call is not a call, and only ``ast.Call.func``'s ``id``
+    (bare name) or ``attr`` (``module.name(...)`` / ``obj.name(...)``)
+    means the code actually reaches it.
+    """
+    source = (
+        ROOT / "src" / "pirateforce_foundation" / f"{module_name}.py"
+    ).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    names = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = getattr(node.func, "attr", None) or getattr(node.func, "id", None)
+        if name:
+            names.add(name)
+    return names
 
 # The identities the sibling lanes' tests use, so one kill reads the same in
 # three files: a roster monster, and a session-shaped player identity.
@@ -1509,6 +1541,75 @@ class MobPickupTests(unittest.TestCase):
         )
         self.assertEqual(item.identity, 5)
         require_bag_shape(bag)
+
+    def test_the_owner_strings_named_call_site_is_really_absent_from_runtime_py(
+        self,
+    ):
+        """pf-adversary's open item from round 149wbp/j0u64p, closed.
+
+        Round 149wbp's letter (section 5.1) and round j0u64p's letter (item
+        4) both left the same thing open: ``GOVERNED_BAG_ALLOWLIST_OWNER``
+        names GT-124's blocker in prose ("the remaining blocker is the
+        absent call site (GT-124)"), and the test above only checks that
+        the string MENTIONS a real function's name -- not that the named
+        call site is really missing from ``runtime.py`` today.  A stale
+        string that named the wrong real function, or a string left
+        unchanged the day the chief actually wires it, would both still
+        pass that check.
+
+        ``mob_pickup_persist`` (round uq2lxw, after both those letters)
+        sharpened the named blocker to one call, pinned as
+        :data:`mob_pickup_persist.MOB_PICKUP_PERSIST_HEADLINE_CALL` -- "the
+        line the chief adds ... once GT-124's call site exists".  This test
+        parses THAT constant for the symbol it names (so a future headline
+        call naming a different function is picked up automatically, not
+        hand-copied here a second time), then re-derives from
+        ``runtime.py``'s own AST -- not from a comment, not from trusting a
+        line number an earlier letter wrote down -- that the symbol is not
+        called anywhere in it.
+
+        THIS IS THE TRIPWIRE THAT WAS MISSING.  The day the chief wires
+        GT-124, this test goes red, which is the whole point: a hand-typed
+        OWNER string cannot self-report going stale, and an AST walk over
+        the file it describes can.  The older, narrower name this lane's
+        own docstring above still cites for the same absent call site
+        (``dispatch_pickup_request``) is checked too, since
+        ``pickup_and_persist`` calls it in turn -- a ``runtime.py`` that
+        called the inner name directly, skipping the persist wrapper
+        entirely, would still be GT-124 wired and must still go red here.
+        """
+        headline = mob_pickup_persist.MOB_PICKUP_PERSIST_HEADLINE_CALL
+        match = re.match(r"mob_pickup_persist\.(\w+)\(", headline)
+        self.assertIsNotNone(
+            match,
+            "MOB_PICKUP_PERSIST_HEADLINE_CALL no longer starts "
+            "'mob_pickup_persist.<name>(' -- this test's parser needs "
+            "updating to match its new shape before anything it derives "
+            "can be trusted.",
+        )
+        call_site_symbol = match.group(1)
+        self.assertTrue(
+            hasattr(mob_pickup_persist, call_site_symbol),
+            f"{headline!r} names {call_site_symbol!r}, which "
+            "mob_pickup_persist.py does not define -- the headline call is "
+            "not even callable as written.",
+        )
+        runtime_calls = _call_names("runtime")
+        self.assertNotIn(
+            call_site_symbol, runtime_calls,
+            f"runtime.py now calls {call_site_symbol!r} -- GT-124 is "
+            "wired.  mob_pickup.GOVERNED_BAG_ALLOWLIST_OWNER and "
+            "GOVERNED_BAG_ALLOWLIST_BLOCKS_PERSISTENCE describe a world "
+            "where it was not; both, and this lane's queue entry for "
+            "GT-124, need this round's attention -- not a silent green.",
+        )
+        self.assertNotIn(
+            "dispatch_pickup_request", runtime_calls,
+            "runtime.py now calls dispatch_pickup_request directly -- "
+            "that is GT-124 wired through the older, narrower path this "
+            "lane's own docstring above still names.  Same update is "
+            "owed as the pickup_and_persist case just above.",
+        )
 
     def test_make_backpack_attr_still_rejects_a_structurally_invalid_bag(self):
         """Widening gate 3's CONTENT gate did not touch its SHAPE gate.
