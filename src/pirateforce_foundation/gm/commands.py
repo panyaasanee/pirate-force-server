@@ -23,7 +23,7 @@ Scope of this file, stated plainly so it cannot be over-claimed later:
   factory. Wiring ``spawn`` for real needs a **new engine feature**
   (a mob-spawn factory that does not exist yet), not a CORE-REQUEST call
   site the way ``warp``/``npc`` do -- do not reopen this as an RE question.
-  executing ``npc``/``item``/``lv``
+  Executing ``npc``/``item``/``lv``
   needs write access to player/world state that lives in runtime.py,
   outside this lane's write zone.  Wiring any of that in is a
   CORE-REQUEST to chief, filed per command once its dependency is ready --
