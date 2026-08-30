@@ -4744,3 +4744,80 @@ error message and added coverage, nothing a tester watching a live game session 
 **NONCLAIM:** ไม่มีการเปิด client ไม่มีการวัดกับไคลเอนต์จริง ไม่มีบรรทัดใดของ GM ไปถึงไวร์เพิ่มขึ้นจาก
 รอบนี้ -- `warp`/`npc`/`item`/`lv`/`spawn`/`say` ทั้งหมดยังทำงานเหมือนเดิมทุกประการ รอบนี้เป็นการ
 ทำความสะอาด error-contract และเทสล้วน ๆ ไม่มีการใช้ GM ข้ามขั้นตอนใดเลย เพราะไม่มีการทดสอบไคลเอนต์จริง
+
+## รอบ `xq4vrn` -- 2026-08-30T23:45+07:00 -- GM-042 prep: `item` gets the same read-only diagnostic `npc` has
+
+### หนึ่งบรรทัด
+
+`gm/chat_command_action.py` ต้นรอบ (Addendum A) ยืนยันซ้ำว่ารอบก่อน (`2f9xji`) landed ครบ: `pf_bridge#535`
+merged=true; `pirate-force-server#337` merged=false แต่ diff ของมันซ้ำซ้อนกับ chief's merged `#334`
+ทุกจุด (ตรวจด้วย `pull_request_read get_files`/`get diff` ทั้งคู่ตรง ๆ ไม่เชื่อจดหมาย) -- ไม่ต้อง
+cherry-pick อะไร ยืนยันซ้ำจาก `origin/main` เองว่า `test_gm_login_scene_sanctioned_barred.py` มี dedup
+filter (`d.n_id != SANCTIONED`) ครบแล้วจริง แล้วจึงต่อยอด: `gm/item_catalog.py` (สร้างรอบ `opr2xd`, GM-042
+prep) มีอยู่แล้วแต่ไม่เคยถูกเรียกจากที่ไหนใน `gm/` เลย -- รอบนี้เพิ่ม `_note_item_catalog_diagnostic`
+mirror ของ `_note_npc_recompose_diagnostic` (CORE-REQUEST-GM-041's ของ `npc`) ทุกกระเบียดนิ้ว: same
+`type(args) is not tuple` guard, same `noqa: BLE001` boundary, called จากจุดเดิมหลัง `verdict` ผูกค่า
+แล้ว (จุดที่ pf-adversary รอบ `nbihci` เคยจับได้ว่าเรียกเร็วไปหนึ่งบรรทัด)
+
+### ทำไมสามคำตอบ ไม่ใช่สองแบบ npc
+
+`item_catalog.item_category(item_id)` คืน 0, 1 หรือมากกว่า 1 หมวด (module docstring: id ชนกันข้ามตาราง
+misc/consumable/quest จริง วัดแล้ว) -- diagnostic รอบนี้จึงตอบสามแบบ: `unknown` (ไม่มีในตารางไหนเลย)
+`known_<category>` (พบหมวดเดียว -- กรณีทั่วไป) `ambiguous_<n>` (พบ n หมวด, n=2 หรือ 3) วัดสดยืนยันตัวอย่าง
+จริงแทนการเดาจาก docstring เดิม (docstring ยกตัวอย่าง id 1/6 ผิดคู่จากที่วัดได้จริงรอบนี้ -- id 1 ชนกัน
+misc+quest ไม่ใช่ misc+consumable อย่างที่ตัวอย่างเดิมบอก; ไม่ได้แก้ docstring เพราะยังไม่ใช่จุดที่รอบนี้
+แตะ แต่บันทึกไว้ตรงนี้ให้คนอ่านรอบหน้ารู้ว่าตัวอย่างในเอกสารต้นทางคลาดเคลื่อนจากตารางจริงเล็กน้อย)
+
+### ทำไมยังไม่เปิด CORE-REQUEST หรือขยาย grammar
+
+คำถาม "จะทำ `item <id> <n>` ยังไงกับ id ที่ชนกันข้ามหมวด" (ที่รอบ `opr2xd` บอกไว้ว่า "chief/Panya
+เป็นคนตัดสิน ไม่ใช่ฝั่งนี้") **ยังไม่ตัดสิน** -- diagnostic รอบนี้แค่ทำให้คำถามนั้น**วัดได้จากคอนโซล**
+ทุกครั้งที่พิมพ์ `/item <id> <n>` (ไม่ต้องเปิดไฟล์ ndjson) ไม่ใช่การตัดสินใจแทน ไม่แตะ grammar 2-argument
+เดิมเลย (`COMMAND_USAGE["item"]` ไม่เปลี่ยน) เพราะการเพิ่ม argument ที่สามเป็นการเปลี่ยน interface ที่
+operator เห็น ต้องรอ chief/Panya เคาะก่อนตามที่ระบุไว้แล้ว
+
+### เทส (ยืนยันด้วย mutation-kill จริง ไม่ใช่แค่เขียนแล้วเขียว)
+
+5 เทสใหม่ใน `tests/test_gm_chat_command_action.py`: known-single-category (id 11 -> `quest`),
+unknown (id สมมติใหญ่เกินตาราง), ambiguous (id 1 -> 2 หมวด), exception-safety (`RuntimeError` ถูก mock
+เข้าไปที่ `item_catalog.item_category` -> `unexpected_RuntimeError`, ไม่หลุดออกนอกฟังก์ชัน), lying-tuple
+(`tuple` subclass โกหก `__len__`/`__getitem__` -> `bad_args_shape`, ไม่มี `known_`/`ambiguous_` event
+ใด ๆ หลุดออกมา) -- ยืนยัน mutation-kill ของกรณี single-category ด้วยมือ (`pf-adversary` subagent ไม่มีให้
+เรียกอีกครั้ง, สี่รอบติดต่อกันแล้วนับจาก `opr2xd`): แก้ `elif len(cats) == 1` เป็น `== 999` ชั่วคราว รัน
+เทส เห็นแดงจริง (`known_quest` หาไม่เจอ, ได้ `ambiguous_1` แทน) แล้วคืนของเดิม รันเขียวอีกครั้งก่อนคอมมิต
+(ระหว่างขั้นตอนนี้พลาดใช้ `git checkout --` ทับไฟล์ source ทั้งไฟล์โดยไม่ตั้งใจครั้งหนึ่ง -- เขียนซ้ำใหม่
+ทั้งหมดจาก diff ที่จำได้ ตรวจด้วย `git diff`/pytest ซ้ำจนมั่นใจว่าเหมือนของเดิมทุกบรรทัดก่อนไปต่อ บันทึก
+ไว้ตรงนี้เป็นบทเรียนกระบวนการ ไม่ใช่เพราะกระทบผลลัพธ์สุดท้าย)
+
+`pytest tests/test_gm_chat_command_action.py -q`: **68 passed** (+5 จากเดิม), 64 subtests
+`pytest tests/ -q` เต็ม: **5595 passed, 327 skipped, 9729 subtests passed**, 0 failed (base
+`origin/main` ที่ 53b9a0b ต้นรอบ, cloud sanity)
+
+### กล่องจดหมาย (Addendum B)
+
+สองใบบริโภครอบนี้ (ทั้งคู่ addressed ถึงสาย GM, ไม่มี `.CONSUMED.txt` มาก่อน):
+- `20260830_2048_COO-DECISION-warp-cross-scene-waits-for-gt106-r2.md`: ตัดสินไม่เปิด live teleport
+  กลางเซสชันจนกว่า `GT-106-R2` (ของ chief, ยังไม่เห็นว่าเปิดในคิว ณ เวลาที่ตรวจรอบนี้) จะมีผล -- ตรวจ
+  โค้ดจริง (grep `login_scene_stage.py`/`warp_executor.py`/`chat_command_action.py` หา
+  `[สมมติของสาย GM - รอ COO ยืนยัน]` ที่เกี่ยวกับหัวข้อนี้โดยเฉพาะ): **ไม่พบป้ายให้ลบ** -- ทางเลือก 3
+  (live teleport) ไม่เคยถูกเขียนเป็นโค้ดเลยสักบรรทัด อยู่แค่ระดับข้อเสนอในจดหมาย ป้ายที่จดหมายสั่งให้ลบ
+  จึงไม่มีอยู่จริงให้ลบ -- พฤติกรรม stage-รอ-login-หน้าเดิมของ `warp_executor.py`/`login_scene_stage.py`
+  ไม่เปลี่ยนแปลงเลยสักบรรทัด ตรงตามที่ COO สั่ง
+- `20260830_2244_COO-DECISION-claim-before-work-rule-for-shared-tickets.md`: กติกา "ประกาศจองก่อนเริ่ม"
+  สำหรับใบเปิดกว้างเกินหนึ่งสาย -- รับทราบ ไม่มีใบแบบนั้นเปิดอยู่ในกล่องจดหมายรอบนี้ให้ต้องจอง แต่บันทึก
+  กติกาไว้ที่นี่เพื่อให้รอบหน้าเห็นก่อนหยิบใบเปิดกว้าง
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+ไม่มี -- `item <id> <n>` ยังคง parse+log เหมือนเดิมทุกประการ ไม่มีการแจกไอเทมจริง รอบนี้แค่เพิ่มบรรทัด
+diagnostic บนคอนโซล/ndjson event ที่นักพัฒนา/ผู้ตรวจอ่านได้ ไม่ใช่สิ่งที่ผู้เล่นหรือผู้เทสในเกมเห็น
+
+### nonclaim
+
+ไม่มีการเปิด client ไม่มีการวัดกับไคลเอนต์จริง ไม่มีบรรทัดใดของ GM ไปถึงไวร์เพิ่มขึ้นจากรอบนี้ --
+`warp`/`npc`/`item`/`lv`/`spawn`/`say` ทั้งหมดยังทำงานเหมือนเดิมทุกประการ ไม่แตะ
+`runtime.py`/`app.py`/`pf_login_game_server_v141.py` และไม่แตะ `scenarios/world_*.json`/
+`scenarios/combat_*.json` ของสายอื่นเลยตลอดรอบ วัดผลจาก `pytest`/`grep`/`git diff`/`pull_request_read`
+ที่รันจริงเท่านั้น ไม่มีการใช้ GM ข้ามขั้นตอนใดเพราะไม่มีการทดสอบไคลเอนต์จริงในรอบนี้เลย
+
+— สาย GM รอบ `xq4vrn`

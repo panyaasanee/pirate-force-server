@@ -258,7 +258,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 from .. import gm_npc_toggle_recompose
-from . import login_scene_stage, npc_switch_catalog, say_wire, teleport_wire
+from . import item_catalog, login_scene_stage, npc_switch_catalog, say_wire, teleport_wire
 from .chat_command import (
     TYPED_COMMAND_REFUSAL_PREFIXES,
     handle_local_talk_chat,
@@ -537,6 +537,28 @@ EVENT_NO_WIRE_PATH_PREFIX = "gm_chat_action_no_wire_path_"
 # from a claim in a letter into something `GT-127`'s console grep can see on
 # every `/npc` line without opening a file.
 EVENT_NPC_RECOMPOSE_DIAGNOSTIC_PREFIX = "gm_chat_action_npc_recompose_diagnostic_"
+
+# GM-042 prep's read point (`gm.item_catalog`, committed round `opr2xd`)
+# answers the same shape of question for `item` that
+# `EVENT_NPC_RECOMPOSE_DIAGNOSTIC_PREFIX` answers for `npc`: is the id the
+# GM typed even a real item, today -- BEFORE this lane has any grant call
+# site to wire (letter 20260830_1924: no CORE-REQUEST opened yet, no
+# "give it to the runtime.py backpack" path exists the way
+# `mob_scene_recompose` exists for `npc`).  A diagnostic on top of
+# `EVENT_NO_WIRE_PATH_PREFIX`, never a replacement for it and never a
+# change to `verdict` -- `item` still composes no action either way, the
+# same rule `_note_npc_recompose_diagnostic`'s own docstring states.
+#
+# Three answers, not two, because `item_catalog.item_category()` can name
+# zero, one, or MORE than one category for the same numeric id (the
+# module's own docstring: 230 ids collide between misc/consumable alone).
+# An id that is ambiguous today would silently grant the wrong item's
+# stack size the day a grant call site lands if this lane's future
+# `item <id> <n>` wiring picked one category at random -- naming the
+# ambiguity now, while it is still parse+log, is what round `opr2xd`
+# asked "chief/Panya เป็นคนตัดสิน" about; this event is the measurement
+# that question is asked from, not a decision this lane made for them.
+EVENT_ITEM_CATALOG_DIAGNOSTIC_PREFIX = "gm_chat_action_item_catalog_diagnostic_"
 EVENT_BAD_SESSION_PREFIX = "gm_chat_action_bad_session_"
 EVENT_BAD_PAYLOAD_PREFIX = "gm_chat_action_bad_payload_"
 EVENT_WARP_WITHHELD_NO_VERSION = (
@@ -838,6 +860,53 @@ def _note_npc_recompose_diagnostic(session: object, command: object) -> None:
         )
 
 
+def _note_item_catalog_diagnostic(session: object, command: object) -> None:
+    """Read-only diagnostic for a parsed `item` command; never touches verdict.
+
+    Mirrors `_note_npc_recompose_diagnostic` exactly (same shape guard, same
+    `noqa: BLE001` boundary, same "diagnostic may never alter dispatch"
+    rule) -- see that function's docstring for why `type(args) is not tuple`
+    and not `isinstance` guards the shape check.  `command.args` for `item`
+    is `(id, n)` (see `commands.py::parse_gm_command`'s `item` branch); only
+    `args[0]` is read here, `n` is not this diagnostic's question.
+
+    Three outcomes instead of two, because `item_catalog.item_category`
+    can name zero, one, or more than one category for the same id:
+      unknown            -- item_id is in none of the three tables
+      known_<category>   -- item_id resolves in exactly one (the common
+                             case); the category is named so a reader does
+                             not have to cross-reference a second file
+      ambiguous_<n>       -- item_id resolves in `n` categories (2 or 3);
+                             this is the exact shape round `opr2xd` found
+                             and asked chief/Panya to decide the grammar
+                             for -- naming it here does not decide it
+    """
+    try:
+        args = command.args
+        if type(args) is not tuple or len(args) != 2:
+            _note(session, f"{EVENT_ITEM_CATALOG_DIAGNOSTIC_PREFIX}bad_args_shape")
+            return
+        item_id = int(args[0])
+        cats = item_catalog.item_category(item_id)
+        if not cats:
+            _note(session, f"{EVENT_ITEM_CATALOG_DIAGNOSTIC_PREFIX}unknown")
+        elif len(cats) == 1:
+            _note(
+                session,
+                f"{EVENT_ITEM_CATALOG_DIAGNOSTIC_PREFIX}known_{cats[0]}",
+            )
+        else:
+            _note(
+                session,
+                f"{EVENT_ITEM_CATALOG_DIAGNOSTIC_PREFIX}ambiguous_{len(cats)}",
+            )
+    except Exception as error:  # noqa: BLE001 - a diagnostic must not raise
+        _note(
+            session,
+            f"{EVENT_ITEM_CATALOG_DIAGNOSTIC_PREFIX}unexpected_{type(error).__name__}",
+        )
+
+
 def make_gm_chat_command_action(
     session: object,
     payload: bytes,
@@ -1016,6 +1085,8 @@ def _make_action(
         verdict = _Verdict(None, OUTCOME_NO_WIRE_PATH)
         if command.name == "npc":
             _note_npc_recompose_diagnostic(session, command)
+        elif command.name == "item":
+            _note_item_catalog_diagnostic(session, command)
 
     action = verdict.action
     # ONE write point for the `outcome` row, deliberately: CORE-REQUEST-GM-032
