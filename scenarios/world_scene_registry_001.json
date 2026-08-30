@@ -780,6 +780,57 @@
       }
     },
     {
+      "n_id": 126,
+      "model_id": "Bg3001",
+      "scene_name_source_utf8_hex": "e4ba9ee789b9e898ade68f90e696af",
+      "scene_name_ascii": "Atlantis",
+      "image_name": "Bg3001_air",
+      "native_placement_count": 38,
+      "native_definition_count": 56,
+      "native_sha256": "571c147ff1f07d5d97ad16970e96f04d4c88a5cd778fb7f4afff6d4c3dc9bdb8",
+      "role": "m2_var2_markerid_diagnostic_probe",
+      "status": "never_sent_to_any_client_by_this_project",
+      "login_entry_allowed": false,
+      "table_row": {
+        "n_SCENE_WEATHER": 5,
+        "n_SCENE_DAYANDNIGHT": 10,
+        "n_SCENE_TYPE": 8,
+        "n_SCENE_SUBTYPE": 14,
+        "n_CLINE_TYPE": 3001,
+        "n_CANGLIDE": 0,
+        "n_CANRIDE": 0,
+        "n_LIMIT_HEIGHT": 0,
+        "n_SAVE": 0,
+        "n_MARKER": 0,
+        "n_CAMERA_TYPE": 1,
+        "n_COLLECT_MAP": 0,
+        "n_SCENE_LV": 0,
+        "n_VIDEO_NAME": 0
+      },
+      "table_row_differences": {
+        "why_this_entry_exists": "DIAGNOSTIC PIN, added round (LANE-A, 2026-08-30), per CHIEF-DECISION R229 (pf_bridge/notes_to_chief/20260829_1603_CHIEF-DECISION-var2-test-path-scene126-registry-row-plus-gm-warp.md), itself answering COO-DECISION 20260829_1444 (var2-attended-test-before-any-flip) item 1 'take path 3: one attended test before any flip'. The whole question this pin exists to support: QUESTDATA_TH__QUEST.tsv row 3021's n_VARI_2 = 17 is legal as EITHER a SCENE_NAME.n_ID (the reading columbus_quest_dispatch.COLUMBUS_DEST_SCENE_ID uses today, per COO-DECISION 20260829_0441) or a MARKER.n_ID (under which MARKER[17].n_SCENE = 126 at (3050,232,90) dir 6). world_m2_sea_destination.py's docstring item 0 has the full derivation; COO-DECISION 20260830_1351 holds the destination at 17 and escalates the marker-id question to the owner, unchanged by this pin.",
+        "table_row_provenance": "CONSTDATA_TH__SCENE_NAME.tsv row n_ID=126, sha256 e38114a802576266ce37b2abcf8ebce3f105d7d5abaf4bc5ca066e7848c5d60b (same table, same hash as this file's own provenance.scene_name_table_sha256). n_MARKER for THIS row (scene 126's own self-reference) is 0.",
+        "why_not_rule_1": "COO-DECISION 20260829_0542's rule 1 (arrival_point_rule above) reads SCENE_NAME[n].n_MARKER for scene n itself. Scene 126's own n_MARKER is 0, so rule 1 does not reach this scene - the identical bounded negative scene 17's own coordinate_provenance.note already states for the same reason. This pin's coordinate is therefore NOT a rule-1 authored point: from_marker is false, marker_n_id is null, and deviates_from_rule_1 is false because rule 1 was never reached in the first place (there is nothing to deviate from) - see rule_2_indirect_read_only above, which forbids indexing MARKER by a scene id for exactly the reason a reader might otherwise try here: 3 of the 257 scenes carrying n_MARKER=0 (126, 127, 128) 'survive a naive back-pointer check' and all three are this same degenerate case.",
+        "why_the_door_is_shut": "login_entry_allowed is false: no character's persisted row may ever resolve to this scene through world_scene_entry.resolve_entry's ordinary login path (via_login=True), and GM's plain stageable_scene_ids() (the standalone /warp map) still excludes 126. CORRECTED post pf-adversary review (round oprday): this row also arms a pre-existing GM mechanism this pin did not build - gm/login_scene_admission.py's SANCTIONED_BARRED_SCENES={126: 'CHIEF-DECISION 20260829_1603 item 2'} plus single_use_entry_is_admissible()/single_use_stageable_scene_ids() (wired since CORE-REQUEST-GM-038, PR #281) - was waiting exactly on this row landing with a real spawn. As of this row, an already-authorized GM account CAN /warp 126 and reach it on next login through that sanctioned single-use bypass (its via_login=False path does not consult login_entry_allowed). So: ADDRESSABLE for chief's GT wiring, and already REACHABLE by authorized GM accounts via the pre-built sanctioned bypass - not reachable by anyone unqualified (no ordinary player login path exists, and that half of the original claim still holds), but the earlier wording that nobody at all could reach it was wrong and has been struck.",
+        "ground_is_null_because": "Not measured this round, on purpose - the pin chief asked for is spawn + coordinate_provenance + login_entry_allowed only (CHIEF-DECISION R229 item 1), and world_m2_sea_destination.py already holds the placement-resolution census feasibility numbers for this scene's 38 placements (37 resolving through n_LEADER_BK1, one two-variant shape) without needing raw x/y/z bounds. Adding a ground block here would also turn on world_scene_travel._spawn()'s bound check against real placement extents this round has not computed, for a spawn point already known to be contested rather than measured against this scene's own ground - the wrong moment to find out those two numbers disagree is at every server boot."
+      },
+      "spawn": {
+        "x": 3050.0,
+        "y": 232.0,
+        "z": 90.0,
+        "provenance": "DIAGNOSTIC-CHIEF-DECISION-R229-20260829-1603 (chief's own wiring-mechanism authority, pf_bridge/notes_to_chief/20260829_1603_CHIEF-DECISION-var2-test-path-scene126-registry-row-plus-gm-warp.md item 1) -- the value is CONSTDATA_TH__MARKER.tsv row 17's own x/y/z, not an invented number; see spawn_source_is_marker_17 above for why it is pinned here under this scene's OWN row rather than scene 17's."
+      },
+      "coordinate_provenance": {
+        "source": "constdata_th_marker_tsv_row_17_n_scene_reverse_lookup",
+        "from_marker": false,
+        "marker_n_id": null,
+        "evidence_tier": "decreed_provisional",
+        "note": "n_MARKER = 0 for THIS scene's own SCENE_NAME row, so the rule-1 crosswalk gives it nothing and from_marker must stay false (see why_not_rule_1 in table_row_differences). The coordinate is MARKER[17]'s real x/y/z, reached only by the reverse relation MARKER[17].n_SCENE == 126 - the same crosswalk direction rule 2 forbids using as a shortcut FROM a scene id, used here explicitly IN THE OTHER DIRECTION and under a named chief decision, not as a silent shortcut. Expires with COO-DECISION 20260830_1351's held var2 question; revisit this pin when that resolves either way.",
+        "deviates_from_rule_1": false
+      },
+      "ground": null
+    },
+    {
       "n_id": 130,
       "model_id": "Bg4001",
       "scene_name_source_utf8_hex": "e784a1e5908de5b3b6",
@@ -1007,6 +1058,9 @@
     "no claim that any of the ten scenes added in round ga91m5 is empty of actors on every boot. No world_population module composes for any of them, which is the only thing that was checked - and pf-adversary showed (round ga91m5, D1/D3) that this is an inventory of composers rather than a gate: on any boot that is not exactly flagless, the inherited v141 branch composes three scene-1 actors into whatever scene the player stands in, with no scene test at all. That measurement is why all ten carry login_entry_allowed false",
     "no claim that a character can travel BETWEEN any two of these scenes by an in-game means, and no claim about who can reach one at all: the ten are barred at login, and separately the bound this lane first wrote for the GM route was wrong - gm/login_scene_consume.py's STANDALONE map grants a login scene with no gm_accounts.json membership and is not consumed, so 'GM-only and single-use' was false of that path",
     "no claim that return_ticket=not_needed on the WORLD_SCENE console line means a player could get back out of one of these scenes. That token is derived purely from n_MARKER being non-zero (world_scene_travel, has_authored_entry), and world_scene_entry's own docstring already says n_MARKER is an ARRIVAL marker that says nothing whatever about a way back. Round ga91m5 multiplied that operator-facing token from 2 scenes to 12 and it is flagged here rather than left for a tester reading the console during GT-144 (pf-adversary, round ga91m5, D8)",
-    "no claim that scene_name_ascii is a transliteration of scene_name_source_utf8_hex beside it - they come from two different client tables and can disagree. The hex is CONSTDATA_TH__SCENE_NAME.s_SCENE_NAME; scene_name_ascii for the ten rows added in round ga91m5 is TEXTDATA_TH__SCENE_NAME_TIP.s_SCENE_NAME (sha256 f9076cfc3c14433b376811437d68375d5dd1ce1ef2c7a50dbc1d4e4d241bfa3a), the client's own English label. Scene 130 is where they disagree most: CONSTDATA calls it 'nameless island', TIP calls it Navy Training Camp, and the console prints the TIP name. The older rows disagree too (278: 'beach football field (TEST)' here against TIP's 'Beach Soccer Field'). Named after pf-adversary found the two layers merged into one unlabelled field (round ga91m5, D9)"
+    "no claim that scene_name_ascii is a transliteration of scene_name_source_utf8_hex beside it - they come from two different client tables and can disagree. The hex is CONSTDATA_TH__SCENE_NAME.s_SCENE_NAME; scene_name_ascii for the ten rows added in round ga91m5 is TEXTDATA_TH__SCENE_NAME_TIP.s_SCENE_NAME (sha256 f9076cfc3c14433b376811437d68375d5dd1ce1ef2c7a50dbc1d4e4d241bfa3a), the client's own English label. Scene 130 is where they disagree most: CONSTDATA calls it 'nameless island', TIP calls it Navy Training Camp, and the console prints the TIP name. The older rows disagree too (278: 'beach football field (TEST)' here against TIP's 'Beach Soccer Field'). Named after pf-adversary found the two layers merged into one unlabelled field (round ga91m5, D9)",
+    "no claim that scene 126 is the M2 destination - COO-DECISION 20260829_0441 and 20260830_1351 keep that at scene 17; this pin adds an address for chief's own GT test wiring, nothing about the 17-vs-126 question is decided by its presence here",
+    "no claim that (3050,232,90) is scene 126's own authored arrival point under rule 1 - SCENE_NAME[126].n_MARKER is 0, so rule 1 does not reach this scene; the coordinate is MARKER[17]'s point, reached by the reverse relation MARKER[17].n_SCENE == 126 under the contested var2-as-markerid reading this project has not resolved",
+    "no claim that a client has ever loaded scene 126, that it renders, or that a character standing in it becomes a ship - login_entry_allowed is false and, separately, no /warp-stageable set names 126 yet (that addition is LANE-GM's per CHIEF-DECISION R229 item 2), so this row alone makes scene 126 addressable and not reachable"
   ]
 }

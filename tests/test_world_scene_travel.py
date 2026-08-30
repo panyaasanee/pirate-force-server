@@ -141,9 +141,50 @@ class SceneRegistryTests(unittest.TestCase):
         """
         self.assertEqual(
             self.registry.ids,
-            (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 17, 130,
+            (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 17, 126, 130,
              TEST_STAGE_SCENE_ID, 997),
         )
+
+    def test_scene_126_is_a_diagnostic_pin_not_a_destination(self):
+        """SEVENTEEN SINCE THIS ROUND (LANE-A, 2026-08-30), AND IT IS NOT A
+        RULE-1 SCENE AND NOT A DESTINATION.
+
+        CHIEF-DECISION R229 (pf_bridge/notes_to_chief/20260829_1603_CHIEF-
+        DECISION-var2-test-path-scene126-registry-row-plus-gm-warp.md)
+        asked this lane for the smallest pin that lets chief open a GT
+        ticket testing whether ``QUESTDATA_TH__QUEST`` row 3021's
+        ``n_VARI_2 = 17`` is a scene id (today's reading,
+        ``COLUMBUS_DEST_SCENE_ID``, COO-DECISION 20260829_0441) or a
+        MARKER id (``MARKER[17].n_SCENE = 126`` at (3050,232,90), COO-
+        DECISION 20260830_1351 holds this question for the owner).
+
+        SCENE 126'S OWN ``SCENE_NAME.n_MARKER`` IS 0, so COO-DECISION
+        20260829_0542's rule 1 does not reach it the way it reaches the
+        ten scenes in ``tests/test_world_scene_registry_rule_1_scenes.py``
+        - this is why that file's control case for "no marker and no
+        ruling" moved to scene 18 instead: scene 126 now has a ruling
+        (CHIEF-DECISION R229) but still has no self-referencing marker, so
+        it is neither a rule-1 authored scene nor an unpinned one.  Its
+        coordinate is MARKER[17]'s real x/y/z, reached by the REVERSE
+        relation (MARKER[17].n_SCENE == 126) rule 2 forbids using as a
+        shortcut FROM a scene id - used here explicitly the other
+        direction, under a named decision, not as a silent shortcut.
+        """
+        row = destination(126, self.registry)
+        self.assertFalse(row.login_entry_allowed)
+        self.assertEqual(row.spawn, (3050.0, 232.0, 90.0))
+        self.assertFalse(row.sent_before)
+        raw = {d["n_id"]: d for d in _raw()["destinations"]}[126]
+        self.assertIs(raw["coordinate_provenance"]["from_marker"], False)
+        self.assertIsNone(raw["coordinate_provenance"]["marker_n_id"])
+        self.assertIs(
+            raw["coordinate_provenance"]["deviates_from_rule_1"], False)
+        self.assertEqual(
+            raw["coordinate_provenance"]["evidence_tier"],
+            "decreed_provisional",
+        )
+        self.assertEqual(raw["table_row"]["n_MARKER"], 0)
+        self.assertIsNone(raw["ground"])
 
     def test_the_default_destination_is_still_home(self):
         # Nothing in this module may move where a player lands by existing.
