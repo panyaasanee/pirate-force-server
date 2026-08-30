@@ -12,7 +12,7 @@ else here exists to keep that function honest.
 WHY LANE-B WAS RIGHT NOT TO GUESS THIS, AND IT IS NOT A STYLE POINT.  The
 obvious implementation - hand the caller ``s_MODLE_ID`` from the client's
 ``SCENE_NAME`` table, which the registry copies into each destination's
-``model_id`` - is WRONG FOR SIX OF THE SIXTEEN SCENES THIS REGISTRY ADDRESSES,
+``model_id`` - is WRONG FOR SIX OF THE SEVENTEEN SCENES THIS REGISTRY ADDRESSES,
 and wrong in a way that reads as correct on a Windows bridge and fails on the
 gate.  Measured this round against the two committed sources:
 
@@ -41,7 +41,7 @@ WHAT IT COSTS TO GET WRONG, stated as consequences rather than as tidiness:
   case-sensitive filesystem.  The gate is Linux; the bridge is Windows.  That
   is a defect that passes locally and fails only where the merge is decided.
 
-A FOLDER NAME IS NOT A SCENE IDENTITY, AND THIS ONE BITES INSIDE THE SIXTEEN.
+A FOLDER NAME IS NOT A SCENE IDENTITY, AND THIS ONE BITES INSIDE THE SEVENTEEN.
 The map from scene id to folder is a function; its inverse is not.  Measured
 from the same two files: the client's 271 scene rows name only 226 distinct
 folders, and 45 folders are named by two scene ids each.  One of those pairs is
@@ -51,7 +51,7 @@ IDENTIFY the scene: anything keyed per-scene (a roster cache, a census tag, a
 spawn record) must stay keyed by ``scene_id``, or scene 186 will silently be
 served whatever scene 17 put there the moment 186 is ever addressed.
 
-WHAT THIS READER REFUSES TO DO.  It answers for the sixteen scene ids the
+WHAT THIS READER REFUSES TO DO.  It answers for the seventeen scene ids the
 registry addresses and returns ``None`` for every other id.  It does not fall
 back to the client table for an unaddressed scene.  The reason is the one
 LANE-B named when it declined to build this itself: a wrong answer here puts
@@ -150,7 +150,7 @@ SCENE_INDEX_TSV_SHA256 = (
 # ~~That is what keeps this from becoming the second table the COO said not to
 # build.~~  STRUCK, round yam18f, pf-adversary D8, because it flattered this
 # round: the ruling said "one public reader, NOT a new table", and what shipped
-# is a 16-row literal table plus a 271-row committed JSON table.  The id-set
+# is a 17-row literal table plus a 271-row committed JSON table.  The id-set
 # test does not prevent that; it only prevents the table from carrying a
 # DIFFERENT id set than the registry.  The honest sentence is that this lane
 # built a table the ruling told it not to build, because the measurement in the
@@ -170,6 +170,7 @@ _FOLDER_BY_SCENE_ID = (
     (11, "Bg0011"),
     (14, "Bg0015"),
     (17, "Bg1001"),
+    (126, "Bg3001"),
     (130, "Bg4001"),
     (278, "Bg1177"),
     (997, "FilmScene"),
@@ -236,7 +237,7 @@ def scene_folder_for_scene_id(scene_id: int) -> str | None:
     any path that has a scene id and needs the scene's own name - a roster
     load, a census line, a gamedata path.  Do not read ``model_id`` off the
     registry for that purpose: it is the client table's spelling, which differs
-    from the folder's for six of the sixteen addressed scenes.
+    from the folder's for six of the seventeen addressed scenes.
 
     ``None`` means "this registry does not address that scene id", which is a
     refusal and not an absence of data.  Callers must treat it as "ship no
