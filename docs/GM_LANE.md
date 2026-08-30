@@ -4624,3 +4624,25 @@ are a ladder whose top rung this lane cannot reach.
 ที่วัดผ่าน dispatcher จริงแบบ headless (`QueuedRowLandsEndToEndTests`) และเทสออฟไลน์
 · ประตู ForcePos ยังปิดอยู่ (`FORCE_POS_VITAL_VERSION_CONFIRMED is None`, RE-129)
 ⇒ รอบนี้ไม่ได้ทำให้ไบต์ใด ๆ ออกสู่ไคลเอนต์เพิ่มขึ้นแม้แต่ไบต์เดียว
+
+### `spawn` closed bounded-negative, `npc` opened as `CORE-REQUEST-GM-041` (round `5btl0q`)
+
+chief (round `nnlka4`, `notes_to_chief 20260830_1804`) confirmed by an independent source-wide grep
+that no function in `src/` or `gm/` creates a new mob actor and inserts it into a running world -- the
+project's only `def spawn*` is a coordinate finder (`world_scene_travel.py:657`), not an actor factory.
+`gm/commands.py`'s module docstring is updated to state this as settled (bounded-negative), not
+"RE-open" -- a future round must not reopen a CORE-REQUEST asking for a mob-spawn factory call site,
+because there is no factory to call. Making `spawn` real needs a new engine feature, out of scope for a
+CORE-REQUEST.
+
+`npc on|off <mob_id>` is a different shape of problem: it toggles an NPC that already exists in the
+game's own tables (`gm/npc_switch_catalog.py`'s 7 `n_GM_SWITCH=1` rows), not a new actor. `runtime.py`
+already runs a re-encode/admission cycle for existing mobs via `mob_scene_recompose.recompose_frames`
+(`:4342,4640,4650`) and `mob_scene_recompose.census_anchor` (`:7230,7498,7715,7924`) --
+`CORE-REQUEST-GM-041` (`notes_to_chief 20260830_1817`) asks chief for a call site that lets `gm/`
+trigger that same cycle for a GM-switchable `mob_id`, mirroring how `CORE-REQUEST-011` bridges `warp`.
+Not built yet -- `npc` still only parses and logs, same as every other GM-003 command, until the call
+site lands and an end-to-end test proves it.
+
+**NONCLAIM:** no client opened, no live measurement, no code path added this round beyond a docstring
+edit -- `npc`/`item`/`lv`/`spawn`/`warp`/`say` all behave identically to before this round.
