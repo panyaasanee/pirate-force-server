@@ -4646,3 +4646,25 @@ site lands and an end-to-end test proves it.
 
 **NONCLAIM:** no client opened, no live measurement, no code path added this round beyond a docstring
 edit -- `npc`/`item`/`lv`/`spawn`/`warp`/`say` all behave identically to before this round.
+
+### `npc` gets a real diagnostic answer instead of a static assumption (round `nbihci`)
+
+`CORE-REQUEST-GM-041`'s read point (`gm_npc_toggle_recompose.npc_toggle_would_recompose`,
+chief's module, round `bunu7v`) is now called from `gm/chat_command_action.py`'s no-wire-path
+branch for `npc` only -- one diagnostic event
+(`gm_chat_action_npc_recompose_diagnostic_{not_switchable,would_recompose_true,
+would_recompose_false,bad_args_shape,unexpected_<ExcType>}`), never a change to `verdict`.
+Runs AFTER `verdict` is bound (pf-adversary this round measured the first draft calling it one
+line too early, before the binding -- fixed, and the call site's own comment now says so
+correctly). Shape guard uses `type(args) is not tuple`, matching `commands.py`'s own
+`_require_args_tuple` -- an `isinstance` check was proposed first and pf-adversary reproduced a
+`tuple` subclass lying through `__len__`/`__getitem__` defeating it; a live test
+(`test_a_lying_tuple_subclass_is_rejected_not_trusted`) pins the fix.
+
+Opened `CORE-REQUEST-GM-042` (state store + write point + roster filter) for the follow-up that
+would flip the diagnostic's answer from a measured `false` to a real per-mob check -- chief's own
+letter invited this as a separate request, not part of GM-041's scope.
+
+**NONCLAIM:** `npc on|off` still has zero effect in the game, exactly as before this round -- the
+diagnostic only lets a console grep tell "would recompose" from "would not" today, both of which
+mean nothing changes yet.
