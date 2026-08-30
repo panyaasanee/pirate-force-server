@@ -191,19 +191,24 @@ class Bg0004Census(unittest.TestCase):
                 count_source=census.COUNT_SOURCE_FULL_ROSTER)
         self.assertEqual(self._build().actor_count, census.ROSTER_COUNT)
 
-    def test_nothing_under_src_imports_this_module_yet(self) -> None:
-        """The handback, pinned rather than described in prose alone.
-
-        Deliberately the OPPOSITE assertion from
-        ``test_world_population_bg0015.py``'s current version of this test:
-        that module's wiring already happened, several rounds after it
-        shipped.  This module's identity+census pair landed THIS round and
-        wiring is explicitly left for a later one (module docstring, "NOT
-        WIRED").  An AST walk, not a text search, for the same reason the
-        bg0015 test gives: this module's name legitimately appears in prose
-        elsewhere (this test file, its own sibling identity module) without
-        that being an import.
-        """
+    def test_only_the_population_seam_imports_this_module(self) -> None:
+        # ~~test_nothing_under_src_imports_this_module_yet~~ -- renamed and
+        # widened round 2jdde8 (LANE-A), deliberately and in the same round
+        # as the change that made it fail, mirroring exactly what
+        # ``test_world_population_bg0015.py``'s own history of this test
+        # required of that module in round 80x5ba/ga91m5-r2.
+        #
+        # WHAT CHANGED, AND WHAT DID NOT.  ``world_population_handoff`` now
+        # imports this module, because the arrival seam composes THIS roster
+        # for a scene-4 arrival.  ``lane_hooks/lane_a_scene_census.py`` also
+        # imports it, for its console readers only (census_console_line /
+        # actor_lines / unresolved_lines) - the roster itself still comes
+        # from the seam.  What has NOT changed: ``runtime.py`` still does not
+        # import either, and scene 4's registry row stays shut, so no player
+        # reaches this roster because of this round.  An AST walk, not a text
+        # search: this module's NAME appears in sibling docstrings on purpose
+        # (world_bg0004_identity points at it), and a grep would call that
+        # wiring.
         import ast
 
         importers = []
@@ -222,13 +227,12 @@ class Bg0004Census(unittest.TestCase):
                 if any("world_population_bg0004" in name for name in names):
                     importers.append(path.name)
                     break
+        # EXACT SET, not "contains" - a third importer, or the seam being
+        # swapped for a direct runtime.py import, both fail here and have to
+        # be argued for in a round of their own.
         self.assertEqual(
-            importers, [],
-            "world_population_bg0004 has an importer under src/ -- if this "
-            "round wired the scene, update this test (and this module's own "
-            "'NOT WIRED' docstring paragraph) IN THE SAME COMMIT: %r"
-            % (importers,),
-        )
+            sorted(importers),
+            ["lane_a_scene_census.py", "world_population_handoff.py"])
 
 
 if __name__ == "__main__":  # pragma: no cover

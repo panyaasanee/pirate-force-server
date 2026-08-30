@@ -109,6 +109,7 @@ HOME_SCENE_ID = SCENE_ID
 TEST_STAGE_SCENE_ID = 278
 PRISON_EXILE_SCENE_ID = 2
 HELL_VOLCANO_SCENE_ID = 14
+SLAVE_MARKET_SCENE_ID = 4
 MEASURED_SCENE_IDS = (1, 2)
 CENSUS_SCENE_ID = SCENE_ID
 CENSUS_SOURCE = "bg0001_census"
@@ -134,10 +135,21 @@ CENSUS_SOURCE = "bg0001_census"
 # CLEAR branch for every source but bg0001's, unchanged), so nothing here
 # wires the roster to an arrival; that is the one line this lane cannot write
 # for itself and the round's letter to chief asks for it by name.
+# WIDENED 2026-08-30 (round 2jdde8, LANE-A) with the fourth composer this lane
+# has shipped: "bg0004_roster" is ``world_population_bg0004.py``'s own name for
+# itself (built, verified, NOT wired round 6p22bu; this round is the wiring
+# half of that pair, same split bg0015's own history shows).  Scene 4's
+# registry row still reads ``login_entry_allowed: false`` (COO-DECISION
+# 2026-08-30T14:41+07:00 approving the crosswalk explicitly said not to flip
+# it here) and no login/crossing path reaches scene 4 today, so this row is
+# inert on ``main`` the same way scene 14's row was inert between its own
+# build and open rounds: registered, refused by the admission check in
+# ``lane_hooks/lane_a_scene_census.py``, never invoked in production.
 CENSUS_SOURCES = {
     CENSUS_SCENE_ID: CENSUS_SOURCE,
     PRISON_EXILE_SCENE_ID: "bg0002_roster",
     HELL_VOLCANO_SCENE_ID: "bg0015_roster",
+    SLAVE_MARKET_SCENE_ID: "bg0004_roster",
 }
 CLIENT_REGISTERED_SCENE_COUNT = 271
 

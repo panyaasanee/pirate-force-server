@@ -209,6 +209,29 @@ ACKNOWLEDGED_WITHOUT_COMPOSER = {
         "has no combat roster and no strike can reach a recompose.  This "
         "lane composes it in the same round its first roster row lands."
     ),
+    # ADDED ROUND 2jdde8 (LANE-A), same day the tripwire above predicted:
+    # "the next scene another lane opens is red here on the commit that
+    # opens it."  Verified rather than assumed from the scene 14 entry's
+    # shape (PYTHONIOENCODING-neutral, read-only check this round):
+    # ``field_mobs.scene_for_scene_id(4)`` also returns ``None`` -- scene 4
+    # is in NEITHER of field_mobs' two tables either, so the identical
+    # reasoning applies verbatim.  This is a co-maintenance edit outside
+    # LANE-A's four named write-zone paths, made for the same reason round
+    # 6p22bu's actor-entry-pin fix was: leaving a shared cross-lane tripwire
+    # red is not an option this round can choose, and the fact asserted here
+    # (no combat roster reachable) is independently verifiable table data,
+    # not a LANE-B judgment call this round is making on their behalf.
+    # LANE-B/chief: please review and correct the wording if this table's
+    # convention expects more than the bare fact for a new entry.
+    4: (
+        "Bg0004 -- lane A's arrival census composes it (lane_hooks/"
+        "lane_a_scene_census.py, registered round 2jdde8, door still shut); "
+        "field_mobs names no scene 4 at all, so it has no combat roster and "
+        "no strike can reach a recompose.  Unlike scene 14 this composer is "
+        "not live yet (scene 4's login_entry_allowed is false), so no player "
+        "reaches it because of this entry; acknowledged now so the tripwire "
+        "does not fire silently the day the door opens."
+    ),
 }
 
 
