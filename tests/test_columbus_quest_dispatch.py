@@ -417,26 +417,32 @@ class DispatchColumbusQuest3021Tests(unittest.TestCase):
         # fixed order - who is still held, the way home, who would be there
         # when this character comes back, then the population frame this
         # crossing owes and does not send.
-        # THE SEA-DESTINATION ROUND APPENDED ONE MORE REPORT, LAST.  Same
-        # rule again: the decision line is still byte-identical and still
-        # last of the decisions, and there are now FIVE reports after it in
-        # a fixed order - who is still held, the way home, who would be
-        # there when this character comes back, the population frame this
-        # crossing owes and does not send, then where the door itself leads.
+        # THE SEA-DESTINATION ROUND APPENDED ONE MORE REPORT.  Same rule
+        # again: the decision line is still byte-identical and still last of
+        # the decisions, and there are now FIVE reports after it in a fixed
+        # order - who is still held, the way home, who would be there when
+        # this character comes back, the population frame this crossing
+        # owes and does not send, then where the door itself leads.
+        # THE SEA-MAP ROUND APPENDED A SIXTH REPORT, LAST.  Same rule again:
+        # a summary of registry readiness for all eight Columbus islands,
+        # widening the fifth report's single-door question rather than
+        # replacing it.
         self.assertEqual(
-            lines[-6],
+            lines[-7],
             "COLUMBUS_QUEST3021_NO_VEHICLE_DISPATCH scene=17 source="
             + columbus_quest_dispatch.M2_NO_VEHICLE_TAG,
         )
-        self.assertTrue(lines[-5].startswith("WORLD_POP_STOWAWAYS "), lines)
-        self.assertTrue(lines[-4].startswith("WORLD_M2_RETURN_LEG "), lines)
+        self.assertTrue(lines[-6].startswith("WORLD_POP_STOWAWAYS "), lines)
+        self.assertTrue(lines[-5].startswith("WORLD_M2_RETURN_LEG "), lines)
         self.assertTrue(
-            lines[-3].startswith("WORLD_M2_RETURN_POPULATION "), lines)
+            lines[-4].startswith("WORLD_M2_RETURN_POPULATION "), lines)
         self.assertTrue(
-            lines[-2].startswith("WORLD_M2_CROSSING_HANDOFF "), lines)
+            lines[-3].startswith("WORLD_M2_CROSSING_HANDOFF "), lines)
         self.assertTrue(
-            lines[-1].startswith("M2_SEA_DESTINATION "), lines)
-        self.assertEqual(len(lines), 8, lines)
+            lines[-2].startswith("M2_SEA_DESTINATION "), lines)
+        self.assertTrue(
+            lines[-1].startswith("WORLD_M2_SEA_MAP "), lines)
+        self.assertEqual(len(lines), 9, lines)
 
 
 class DispatchColumbusQuest3205Tests(unittest.TestCase):
@@ -675,6 +681,91 @@ class SeaDestinationReportTests(unittest.TestCase):
         refuses first) but is not this test's job to assume permanent."""
         line = world_m2_sea_destination.console_line_safe(object())
         self.assertTrue(line.startswith("M2_SEA_DESTINATION unmeasured "))
+        self.assertIn("reason=refused:", line)
+
+
+class SeaMapReportTests(unittest.TestCase):
+    """The sixth report, ``world_m2_sea_destination.sea_map_console_line`` --
+    the fifth report's question ("does the registry hold a place to land")
+    widened from scene 17 alone to all eight ``COLUMBUS_ROUTES`` islands.
+    Same discipline as ``SeaDestinationReportTests``: every test here checks
+    that the line says something true and cannot reach the return value.
+    """
+
+    def _dispatch(self, **kwargs):
+        lines = []
+        entry = columbus_quest_dispatch.dispatch_columbus_quest3021(
+            emit=lines.append, **kwargs)
+        return entry, lines
+
+    def _sea_map_line(self, lines):
+        found = [line for line in lines if line.startswith("WORLD_M2_SEA_MAP")]
+        self.assertEqual(len(found), 1, lines)
+        return found[0]
+
+    def test_a_dispatch_with_the_boot_registry_counts_one_ready_and_seven_refused(
+        self,
+    ):
+        registry = world_scene_travel.load_scene_registry()
+        entry, lines = self._dispatch(registry=registry)
+        line = self._sea_map_line(lines)
+        self.assertEqual(
+            line, world_m2_sea_destination.sea_map_console_line(registry),
+        )
+        self.assertIn("islands=8", line)
+        self.assertIn("ready_decreed=1", line)
+        self.assertIn("ready_not_decreed=0", line)
+        self.assertIn("refused=7", line)
+        self.assertIn("17:READY_DECREED", line)
+        self.assertIn("18:REFUSED", line)
+        self.assertIn("41:REFUSED", line)
+        self.assertIsNotNone(entry)
+
+    def test_the_default_dispatch_names_the_absence_not_a_guess(self):
+        entry, lines = self._dispatch()
+        line = self._sea_map_line(lines)
+        self.assertEqual(
+            line,
+            "WORLD_M2_SEA_MAP unmeasured reason=call_site_passed_no_registry",
+        )
+        self.assertIsNotNone(entry)
+
+    def test_it_reads_the_same_registry_the_sea_destination_report_did(self):
+        """Scene 18 has no registry row today (verified by the REFUSED
+        control above), so this adds one - cloned from scene 17's own row,
+        renumbered - and checks it turns up in the detail field.  Proves this
+        report reads the SAME registry object the sea-destination report
+        does rather than re-deriving its own copy of the eight islands, the
+        same reused-registry control ``SeaDestinationReportTests`` uses for
+        scene 17 alone."""
+        registry = world_scene_travel.load_scene_registry()
+        moved = copy.deepcopy(registry)
+        scene_17_row = next(
+            row for row in moved.destinations if row.n_id == 17
+        )
+        scene_18_row = dataclasses.replace(
+            scene_17_row, n_id=18, spawn=(9.0, 9.0, 9.0),
+            spawn_provenance="GT-000 test-only fixture spawn",
+        )
+        moved = dataclasses.replace(
+            moved, destinations=moved.destinations + (scene_18_row,),
+        )
+        entry, lines = self._dispatch(registry=moved)
+        line = self._sea_map_line(lines)
+        self.assertIn("18:READY_NOT_DECREED", line)
+        self.assertIn("ready_decreed=1", line)  # scene 17 unaffected
+        self.assertIn("ready_not_decreed=1", line)
+        self.assertIn("refused=6", line)
+        self.assertIsNotNone(entry)
+
+    def test_the_report_cannot_change_what_the_dispatch_returns(self):
+        plain, _ = self._dispatch()
+        with_report, _ = self._dispatch()
+        self.assertEqual(plain.teleport_fields, with_report.teleport_fields)
+
+    def test_a_broken_registry_is_reported_not_raised(self):
+        line = world_m2_sea_destination.sea_map_console_line_safe(object())
+        self.assertTrue(line.startswith("WORLD_M2_SEA_MAP unmeasured "))
         self.assertIn("reason=refused:", line)
 
 

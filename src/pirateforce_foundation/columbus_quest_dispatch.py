@@ -589,6 +589,13 @@ def dispatch_columbus_quest3021(*, registry=None, emit=print, legacy=None,
     reason as every report above -- is the line.  Reuses the SAME
     ``registry`` this function already resolved scene 17 against; composes
     nothing new and sends no frame.
+
+    A SIXTH REPORT, APPENDED LAST AGAIN (LANE-A, M2, this round).  Widens
+    the fifth report's question ("does the registry hold a place to land")
+    from scene 17 alone to all eight ``COLUMBUS_ROUTES`` islands --
+    ``world_m2_sea_destination.sea_map_console_line_safe``, same
+    never-raises shape, same reused ``registry``, no claim that the other
+    seven doors are reachable today.
     """
     try:
         entry = resolve_columbus_arrival(registry=registry, emit=emit)
@@ -671,6 +678,19 @@ def dispatch_columbus_quest3021(*, registry=None, emit=print, legacy=None,
     # never re-reads the file (``world_m2_sea_destination``'s own docstring:
     # "this module must not read the file itself").
     emit(world_m2_sea_destination.console_line_safe(registry))
+    # THE OTHER SEVEN DOORS, NAMED WITHOUT PRETENDING ANY OF THEM OPEN --
+    # ROUND (LANE-A, M2), APPENDED LAST FOR THE SAME REASON AS EVERY REPORT
+    # ABOVE.  ``world_m2_sea_destination.COLUMBUS_ROUTES`` has held all eight
+    # islands' target scenes and model ids since round drrnpu; only scene
+    # 17's registry readiness was ever asked about on this default path.
+    # This widens that ONE question ("does the registry hold a place to
+    # land") across all eight, reusing the exact same registry-reading
+    # functions scene 17's own report calls -- not a second selector, the
+    # same one fed a wider input set.  It does not claim a player can reach
+    # the other seven today (only row 3021 dispatches, here, and whether the
+    # other seven islands' Columbus NPCs are even placed by default is
+    # unmeasured); it reports registry-side readiness only.
+    emit(world_m2_sea_destination.sea_map_console_line_safe(registry))
     return entry
 
 

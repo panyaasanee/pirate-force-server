@@ -402,5 +402,99 @@ class FeasibilityCountTests(unittest.TestCase):
         self.assertGreater(scenes, 1)
 
 
+class SeaMapTests(unittest.TestCase):
+    """``sea_map_console_line`` widens the single-door registry question
+    (``console_line``, scene 17 only) to all eight ``COLUMBUS_ROUTES``
+    islands, by reusing the same registry-reading helpers rather than
+    re-deriving a second set - these tests hold that generalization to the
+    same discipline ``ArrivalPointTests`` holds the scene-17-only path to.
+    """
+
+    def setUp(self):
+        self.registry = world_scene_travel.load_scene_registry()
+
+    def test_the_model_id_table_names_exactly_the_eight_route_targets(self):
+        targets = {row[3] for row in sea.COLUMBUS_ROUTES}
+        self.assertEqual(set(sea.COLUMBUS_ROUTE_SCENE_MODEL_ID), targets)
+        self.assertEqual(set(sea.COLUMBUS_ROUTE_SCENE_NAME_MARKER), targets)
+        self.assertEqual(
+            sea.COLUMBUS_ROUTE_SCENE_MODEL_ID[sea.DESTINATION_SCENE_N_ID],
+            sea.DESTINATION_SCENE_MODEL_ID,
+        )
+        # Measured, not derived by the Bg100<n> arithmetic that happens to
+        # hold for scenes 17-21 and breaks for 39/40/41 (Bg1023/24/25).
+        self.assertEqual(sea.COLUMBUS_ROUTE_SCENE_MODEL_ID[39], "Bg1023")
+        self.assertEqual(sea.COLUMBUS_ROUTE_SCENE_MODEL_ID[41], "Bg1025")
+
+    def test_generalized_helpers_agree_with_the_scene_17_only_originals(self):
+        self.assertEqual(
+            sea._target_for(self.registry, sea.DESTINATION_SCENE_N_ID),
+            sea._target(self.registry),
+        )
+        self.assertEqual(
+            sea.arrival_position_for(self.registry, sea.DESTINATION_SCENE_N_ID),
+            sea.arrival_position(self.registry),
+        )
+        self.assertEqual(
+            sea.arrival_is_decreed_for(self.registry, sea.DESTINATION_SCENE_N_ID),
+            sea.arrival_is_decreed(self.registry),
+        )
+        self.assertEqual(
+            sea.destination_state_for(self.registry, sea.DESTINATION_SCENE_N_ID),
+            sea.destination_state(self.registry),
+        )
+
+    def test_a_scene_absent_from_the_registry_refuses_not_raises(self):
+        # None of the sea family beyond scene 17 has a registry row today.
+        self.assertIsNone(sea.arrival_position_for(self.registry, 18))
+        self.assertEqual(
+            sea.destination_state_for(self.registry, 18), sea.STATE_REFUSED,
+        )
+
+    def test_sea_map_lines_names_all_eight_in_columbus_routes_order(self):
+        rows = sea.sea_map_lines(self.registry)
+        self.assertEqual(len(rows), 8)
+        self.assertEqual(
+            tuple(scene for scene, _model, _state in rows),
+            tuple(row[3] for row in sea.COLUMBUS_ROUTES),
+        )
+        self.assertEqual(rows[0], (17, "Bg1001", sea.STATE_READY_DECREED))
+        for scene, model, state in rows[1:]:
+            self.assertEqual(state, sea.STATE_REFUSED)
+            self.assertEqual(model, sea.COLUMBUS_ROUTE_SCENE_MODEL_ID[scene])
+
+    def test_sea_map_lines_requires_a_real_registry_never_reads_the_file(self):
+        with self.assertRaises(sea.SeaDestinationError):
+            sea.sea_map_lines(None)
+        with self.assertRaises(sea.SeaDestinationError):
+            sea.sea_map_lines([1, 2, 3])
+
+    def test_console_line_counts_and_is_ascii(self):
+        line = sea.sea_map_console_line(self.registry)
+        line.encode("ascii")
+        self.assertTrue(line.startswith(sea.SEA_MAP_CONSOLE_TAG + " "))
+        self.assertIn("islands=8", line)
+        self.assertIn("ready_decreed=1", line)
+        self.assertIn("ready_not_decreed=0", line)
+        self.assertIn("refused=7", line)
+        self.assertIn("17:READY_DECREED", line)
+
+    def test_console_line_safe_names_a_none_registry_rather_than_guessing(self):
+        self.assertEqual(
+            sea.sea_map_console_line_safe(None),
+            sea.SEA_MAP_CONSOLE_TAG + " unmeasured "
+            "reason=call_site_passed_no_registry",
+        )
+
+    def test_console_line_safe_never_raises_on_a_registry_missing_the_attr(
+        self,
+    ):
+        line = sea.sea_map_console_line_safe(object())
+        self.assertTrue(
+            line.startswith(sea.SEA_MAP_CONSOLE_TAG + " unmeasured "), line,
+        )
+        self.assertIn("reason=refused:", line)
+
+
 if __name__ == "__main__":
     unittest.main()
