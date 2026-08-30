@@ -51,7 +51,7 @@ THE EXPIRY IT NEEDED NOW EXISTS (round 0n9inw, COO-DECISION 2026-08-29T12:41
 +07:00, per-drop and lazy).  So the precondition step 4b named is satisfied
 and this is a shippable behaviour, not a proposal.
 
-[ASSUMPTION OF LANE B - AWAITING COO] Step 5 of the same header also says
+~~[ASSUMPTION OF LANE B - AWAITING COO] Step 5 of the same header also says
 "ONE ANNOUNCEMENT PER DROP -- each drop announced ONCE and never
 re-announced", and this shape re-announces a live row on every later kill.
 This lane reads the two together the way step 4b itself does -- step 5 names
@@ -60,9 +60,18 @@ part, and there is no timer here: the number of emissions equals the number
 of kills exactly, and one kill is still ONE frame however wide the ground is.
 The letter asking the COO to confirm or overturn that reading is
 pf_bridge/notes_to_chief/20260829_2248_LANE-B-ASK-COO-whole-live-ledger-per-
-kill-vs-announce-once.md.  IF IT IS OVERTURNED the rollback is one line at
-the call site (``step.frames`` -> ``mob_loot.drop_frames(legacy, drops)``);
-nothing else in the tree depends on this shape.
+kill-vs-announce-once.md.~~  RULED, round qf83nz: COO-DECISION
+2026-08-29T23:42+07:00 (pf_bridge/notes_to_chief/20260829_2342_COO-DECISION-
+whole-floor-generation-not-covered-by-timer-refusal.md) confirms this
+reading -- the 2026-08-26 refusal covers ON A TIMER only, shape (a) has no
+timer, and what shipped stands.  The condition COO attached is the one this
+module already pins: ``test_one_kill_is_always_one_frame_however_wide_the_
+ground_is`` (emissions == kills, never a cadence) and ``test_rows_that_
+cannot_travel_are_removed_from_the_cell_too`` (the trim in :func:`sustain_a_
+kill`) must not be removed.  IF THIS READING IS LATER OVERTURNED the
+rollback is still one line at the call site (``step.frames`` ->
+``mob_loot.drop_frames(legacy, drops)``); nothing else in the tree depends
+on this shape.
 
 WHAT CHANGES FOR THE PLAYER, STATED SO IT CAN BE FALSIFIED.  RE-130 measured
 the consumer erasing every key a nonempty generation OMITS.  Today each kill

@@ -969,5 +969,90 @@ class SceneAccountedForTests(unittest.TestCase):
         self.assertIs(recompose.scene_is_accounted_for(True), False)
 
 
+class NoAnchorRecordTests(unittest.TestCase):
+    """ROUND qf83nz, answering the chief's letter ``20260830_0005``: the
+    call site's guard (``anchor_record is not None and census_scene_id ==
+    anchor_record.scene_id``) sits in ``runtime.py``, and its ``else`` arm
+    has shipped the one-entry fallback frame with no module line since it
+    was written, because nothing built a :class:`recompose.SceneRecompose`
+    for that branch.  These tests pin the record this lane is handing back,
+    not the guard itself -- the guard, and whether it prints these lines,
+    stays the chief's to wire."""
+
+    def test_no_anchor_yet_is_a_named_non_composing_state(self):
+        record = recompose.no_anchor_record(SCENE2, recompose.STATE_NO_ANCHOR)
+        self.assertEqual(record.state, recompose.STATE_NO_ANCHOR)
+        self.assertIs(record.composed, False)
+        self.assertIsNone(record.pc)
+        self.assertIsNone(record.frame)
+        self.assertEqual(record.scene_id, SCENE2)
+        self.assertTrue(record.detail)
+
+    def test_anchor_from_another_scene_is_a_different_named_state(self):
+        """Two distinct causes, two distinct states -- a reader grepping
+        one must not be shown the other's."""
+        record = recompose.no_anchor_record(
+            SCENE1, recompose.STATE_ANCHOR_SCENE_MISMATCH)
+        self.assertEqual(record.state, recompose.STATE_ANCHOR_SCENE_MISMATCH)
+        self.assertNotEqual(
+            recompose.STATE_NO_ANCHOR, recompose.STATE_ANCHOR_SCENE_MISMATCH)
+        self.assertIs(record.composed, False)
+
+    def test_neither_reason_is_in_composing_states(self):
+        """M-shape mutant this guards against: folding either constant into
+        COMPOSING_STATES would make a caller reading only ``record.composed``
+        send ``pc=None``/``frame=None`` as if they were real bytes."""
+        self.assertNotIn(recompose.STATE_NO_ANCHOR, recompose.COMPOSING_STATES)
+        self.assertNotIn(
+            recompose.STATE_ANCHOR_SCENE_MISMATCH, recompose.COMPOSING_STATES)
+
+    def test_an_unrecognised_reason_is_refused_loudly(self):
+        with self.assertRaises(recompose.SceneRecomposeError):
+            recompose.no_anchor_record(SCENE2, "made_up_reason")
+        with self.assertRaises(recompose.SceneRecomposeError):
+            recompose.no_anchor_record(SCENE2, recompose.STATE_NO_LEDGER)
+
+    def test_a_bad_scene_id_is_refused_before_a_record_is_built(self):
+        with self.assertRaises(recompose.SceneRecomposeError):
+            recompose.no_anchor_record("2", recompose.STATE_NO_ANCHOR)
+        with self.assertRaises(recompose.SceneRecomposeError):
+            recompose.no_anchor_record(True, recompose.STATE_NO_ANCHOR)
+
+    def test_the_console_line_names_the_state_with_no_fatal_banner(self):
+        """Visible, not alarming: neither reason means a defect happened --
+        the first is true of every session before its first arrival, and
+        the module has no way to tell a normal boot from a hostile one at
+        this call.  ``fatal`` stays at its default, ``False``."""
+        record = recompose.no_anchor_record(SCENE2, recompose.STATE_NO_ANCHOR)
+        self.assertFalse(record.fatal)
+        lines = recompose.describe_recompose(record)
+        self.assertTrue(
+            any(
+                line.startswith(recompose.CONSOLE_TOKEN)
+                and "state=%s" % recompose.STATE_NO_ANCHOR in line
+                for line in lines),
+            lines)
+        self.assertFalse(
+            [line for line in lines
+             if line.startswith(mob_ledger_admission.FATAL_TOKEN)],
+            lines)
+
+    def test_the_scene_name_matches_the_composed_path_when_one_exists(self):
+        """Scene 2's name here must read the same as the name a real compose
+        of scene 2 reports, so an operator correlating the two console lines
+        by ``scene=`` is not reading two different labels for one scene."""
+        no_anchor = recompose.no_anchor_record(
+            SCENE2, recompose.STATE_NO_ANCHOR)
+        composed = recompose.recompose_frames(
+            self.legacy, self.anchor2, self.register, ledger=self.ledger2)
+        self.assertEqual(no_anchor.scene, composed.scene)
+
+    def setUp(self):
+        self.legacy = load_legacy(str(LEGACY_PATH))
+        self.register = mob_death.DeathRegister()
+        self.ledger2 = mob_combat.open_ledger_for_scene_id(SCENE2)
+        self.anchor2 = recompose.census_anchor(SCENE2, ANCHOR, 12)
+
+
 if __name__ == "__main__":
     unittest.main()

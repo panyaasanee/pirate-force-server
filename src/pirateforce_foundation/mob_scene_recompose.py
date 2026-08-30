@@ -119,6 +119,24 @@ STATE_COMPOSED_HEALING = "composed_ledger_declined_at_ceiling"
 # reader at all.
 COMPOSING_STATES = (STATE_COMPOSED, STATE_COMPOSED_HEALING)
 
+# THE ONE BRANCH THIS MODULE HAS NEVER BEEN ABLE TO NAME, BECAUSE IT NEVER
+# REACHES THIS MODULE.  ROUND qf83nz, answering pf_bridge/notes_to_chief/
+# 20260830_0005_CHIEF-REPLY-LANE-B-adversary-eight-findings-and-the-refused-
+# no-ledger-question.md's D4/bonus paragraph.  ``runtime.py``'s call site
+# guards ``recompose_frames`` behind "do I have a stamped anchor, and does
+# it name the scene the player stands in RIGHT NOW" -- and when either half
+# fails, the guard's ``else`` arm ships the one-entry frame straight, with
+# NO :data:`CONSOLE_TOKEN` line, because no :class:`SceneRecompose` was ever
+# built for it.  These two states, and :func:`no_anchor_record` below, exist
+# so that fallback can print this module's own line too, without moving the
+# guard itself into this module (the guard reads session state --
+# ``self.foundation.selected`` -- this module does not hold).
+STATE_NO_ANCHOR = "no_anchor_stamped_yet"
+STATE_ANCHOR_SCENE_MISMATCH = "anchor_stamped_for_another_scene"
+# NEITHER is a member of COMPOSING_STATES: a caller reading only
+# ``record.composed`` keeps taking its existing fallback frame either way --
+# this pair documents the branch, it does not reroute it.
+
 
 class SceneRecomposeError(ValueError):
     """An argument-shape refusal from this module.
@@ -390,6 +408,57 @@ def composer_for_scene_id(scene_id: Any) -> SceneComposer | None:
     if type(scene_id) is not int or type(scene_id) is bool:
         return None
     return _COMPOSERS.get(scene_id)
+
+
+def no_anchor_record(scene_id: Any, reason: str) -> SceneRecompose:
+    """A record for the branch that sits BEFORE ``recompose_frames`` is
+    ever called: no stamped :class:`CensusAnchor` at all, or one stamped
+    for a different scene than the player stands in right now.
+
+    ANSWERS the chief's own D4/bonus question (round k882hm, ``pf_bridge/
+    notes_to_chief/20260830_0005_CHIEF-REPLY-LANE-B-adversary-eight-
+    findings-and-the-refused-no-ledger-question.md``): the wiring's guard
+    -- ``if anchor_record is not None and census_scene_id == anchor_record
+    .scene_id`` -- lives in ``runtime.py``, reads session state this module
+    does not hold, and its ``else`` arm has never had a record to build,
+    so the one-entry fallback frame it sends has shipped with no
+    :data:`CONSOLE_TOKEN` line since the guard was written.  This function
+    is the missing record, nothing else: the call site still decides what
+    bytes travel (this module still cannot see the dispatch), it can now
+    also do ``for line in describe_recompose(no_anchor_record(scene_id,
+    reason)): print(line)`` beside the frame it already sends.
+
+    ``reason`` must be :data:`STATE_NO_ANCHOR` (nothing has been stamped
+    for this session yet -- true of every session before its first
+    arrival census) or :data:`STATE_ANCHOR_SCENE_MISMATCH` (a stamp
+    exists, and it names a scene the player already left).  Anything else
+    is refused the same way every other argument-shape error in this
+    module is: loudly, before a record is built, because a caller passing
+    a third string has lost track of which of the two cases it is in.
+
+    NOT :data:`STATE_NO_LEDGER`: that state means a ledger argument of
+    literal ``None`` reached :func:`recompose_frames`, which cannot happen
+    here -- this record is built by a caller that never got as far as
+    calling it.  Keeping them separate means a reader grepping one state
+    is not shown the other's cause.
+    """
+    if type(scene_id) is not int or type(scene_id) is bool:
+        raise SceneRecomposeError("scene id must be an int, not %r" % (scene_id,))
+    if reason not in (STATE_NO_ANCHOR, STATE_ANCHOR_SCENE_MISMATCH):
+        raise SceneRecomposeError(
+            "no_anchor_record's reason must be STATE_NO_ANCHOR or "
+            "STATE_ANCHOR_SCENE_MISMATCH, not %r" % (reason,)
+        )
+    scene = field_mobs.scene_for_scene_id(scene_id)
+    if scene is None:
+        composer = composer_for_scene_id(scene_id)
+        scene = composer.scene if composer is not None else "?"
+    detail = (
+        "this session has not stamped a census anchor yet"
+        if reason == STATE_NO_ANCHOR else
+        "the stamped anchor names a scene the player already left"
+    )
+    return SceneRecompose(scene_id, scene, reason, detail=detail)
 
 
 def splice_identity_override(
@@ -701,9 +770,22 @@ def recompose_frames(
     # ~17,900-byte census.  "The record stops lying" is true of the other
     # declined states and false of this one; a frame that was never sent is
     # now sent.  Written here, at the line that does it.
-    # [LANE-B assumption - awaiting COO confirmation; the letter carrying it
-    # is pf_bridge/notes_to_chief/20260829_2356_LANE-B-ASK-COO-declined-
-    # ledger-ceiling-vs-wipe.md]
+    # ~~[LANE-B assumption - awaiting COO confirmation; the letter carrying
+    # it is pf_bridge/notes_to_chief/20260829_2356_LANE-B-ASK-COO-declined-
+    # ledger-ceiling-vs-wipe.md]~~ RULED, round qf83nz: COO-DECISION
+    # 2026-08-30T00:45+07:00 (pf_bridge/notes_to_chief/20260830_0045_COO-
+    # DECISION-refused-ledger-composes-at-ceiling-and-announces.md) affirms
+    # path (a) for BOTH cases this admission call can now produce -- a
+    # ledger the admission itself declines, and a ledger that disagrees
+    # with the death register -- as shipped: compose at the ceiling and
+    # announce loudly, never refuse into the one-entry world-wipe frame.
+    # The condition COO attached is that "loud" stays MEASURABLE, not a
+    # comment: the composed-at-ceiling states must stay out of
+    # ``STATE_COMPOSED`` and stay distinguishable in the log, which is
+    # exactly what ``test_the_healing_record_is_still_sendable`` and
+    # ``test_the_recompose_path_measures_the_death_register`` pin (COO's
+    # ruling names both tests by that exact name and forbids removing
+    # them) -- so this label is retired, not the check.
     admission = mob_ledger_admission.require_ledger_for_recompose(
         scene_id, ledger, roster=roster, register=register,
     )
