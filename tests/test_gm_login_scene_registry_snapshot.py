@@ -962,8 +962,15 @@ class TheConfigRefusalNamesTheCallersReadingTests(_ConfigFixture):
                 login_scene_override.load_login_scene_overrides(
                     self.scene_path, scene_registry=snapshot
                 )
+        # `load_login_scene_overrides` reads the GM-gated (single-use) map,
+        # so its own way out is `single_use_stageable_scene_ids`, not the
+        # plain `stageable_scene_ids` -- they have differed by one scene
+        # (126) since round R249 landed lane A's row (chief, gate-red
+        # repair of `pirate-force-server#332`, `CORE-REQUEST-GM-038`).
         expected = str(
-            login_scene_admission.stageable_scene_ids(scene_registry=snapshot)
+            login_scene_admission.single_use_stageable_scene_ids(
+                scene_registry=snapshot
+            )
         )
         self.assertIn(expected, str(caught.exception))
         console = buffer.getvalue()
@@ -1112,10 +1119,19 @@ class TheChatCommandCarriesItAllTheWayDownTests(_ConfigFixture):
             for part in printed.strip("()").replace(",", " ").split()
         }
         self.assertNotIn(ADMISSIBLE_ON_DISK, ids)
+        # `/warp` writes the GM-gated (single-use) map, so its way out is
+        # `single_use_stageable_scene_ids`, not the plain
+        # `stageable_scene_ids` -- they have differed by one scene (126)
+        # since round R249 landed lane A's row (chief, gate-red repair of
+        # `pirate-force-server#332`, `CORE-REQUEST-GM-038`).  Computed
+        # against the SAME snapshot passed to `self.warp` above, since the
+        # printed line and the refusal must come from one reading.
         self.assertEqual(
-            set(login_scene_admission.stageable_scene_ids()) - {
-                ADMISSIBLE_ON_DISK
-            },
+            set(
+                login_scene_admission.single_use_stageable_scene_ids(
+                    scene_registry=_registry_without_scene(ADMISSIBLE_ON_DISK)
+                )
+            ),
             ids,
         )
 
