@@ -19,6 +19,7 @@ from . import mob_drop_presence
 from . import mob_loot
 from . import mob_pickup
 from . import mob_scene_recompose
+from . import scene_admission_gate
 from . import trace_path
 from . import world_density
 from . import world_face_frame
@@ -6641,7 +6642,71 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                      self.arena_scenario.reapply_ms / 1000.0),
                 ]
 
+            # COO-DECISION 2026-08-29T09:41+07:00 item 2 / scene_admission_
+            # gate.py.  Snapshot the four fields the inherited P0/P30/P91
+            # branch (v141:4292-4312) latches, so that if the gate refuses
+            # the scene this session's row names, the branch can be undone
+            # whole rather than half.  Read BEFORE super() runs because
+            # that is the only moment their pre-branch values still exist.
+            _frozen_pop_before = (
+                self.npc_spawn_sent,
+                self.npc_idle_action_sent,
+                self.population_indices,
+                self.population_refresh_anchor,
+            )
             actions = super().dispatch(parsed)
+            # The frozen branch is the "fifth line" -- it queues
+            # scene-1-shaped actors without reading what scene the session
+            # is in.  It cannot be edited (v141 is pinned) and cannot be
+            # disarmed before dispatch (it reads runtime_ack_sent after the
+            # same call sets it), so it is allowed to run and then withheld.
+            #
+            # WITHHELD, NOT MERELY STRIPPED (pf-adversary, this round, D2 --
+            # MEASURED).  Dropping the two frames while leaving the latched
+            # state behind left population_indices attesting to three actors
+            # this gate had just stopped the client from receiving -- and
+            # the ChooseNPC answerer below reads exactly that field as its
+            # evidence the client has the actor.  It also left the branch
+            # latched off for good (v141:4308), so a session withheld once
+            # while away could never populate its home scene afterwards.
+            # Restoring the snapshot makes this, to every reader, a frame on
+            # which the branch did not fire: nothing shipped, nothing
+            # latched, still armed for a scene the gate admits.
+            #
+            # NOT the only place actions is appended to after this line (the
+            # travel handoff and the census both add their own further
+            # down); it is only the point at which THIS branch's output is
+            # first visible. The census refusal fallback re-emits these same
+            # two labels, and is deliberately not gated here -- it is
+            # reachable only inside the home-scene branch, which the gate
+            # admits by definition.
+            if (
+                not scene_admission_gate.admits_frozen_legacy_population(
+                    self.foundation.selected.position.scene_id
+                    if self.foundation.selected is not None else None
+                )
+                and scene_admission_gate.contains_frozen_legacy_population(
+                    actions
+                )
+            ):
+                actions = (
+                    scene_admission_gate.without_frozen_legacy_population(
+                        actions
+                    )
+                )
+                (
+                    self.npc_spawn_sent,
+                    self.npc_idle_action_sent,
+                    self.population_indices,
+                    self.population_refresh_anchor,
+                ) = _frozen_pop_before
+                self.events.append(
+                    "frozen_legacy_population_withheld_scene_"
+                    + str(
+                        self.foundation.selected.position.scene_id
+                        if self.foundation.selected is not None else "none"
+                    )
+                )
             # CORE-REQUEST from LANE-A (2026-08-29T01:46+07:00), answered
             # here rather than in the frozen builder that carries the defect:
             # `current/pf_login_game_server_v141.py` is pinned immutable by
