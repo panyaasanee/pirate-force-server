@@ -30,7 +30,7 @@ and the pinned constants FROM that tool.  There is exactly ONE copy of the byte
 template and ONE acceptance gate in the project, and this tool refuses to print
 a single census row until that gate passes - identically to its sibling.
 
-🔴 THE CIRCULARITY - WHY NOTHING HERE IS ADMITTED TO THE NAMES TABLE
+!! THE CIRCULARITY - WHY NOTHING HERE IS ADMITTED TO THE NAMES TABLE
 --------------------------------------------------------------------
 docs/PF_VITAL_NAMES.json rule (4) admits a name on TWO conditions:
     (a) wire_id(name) == id
@@ -108,7 +108,7 @@ EXPECT_THUNK_LITERALS_IDENT = 519      # ...and identifier-shaped
 EXPECT_COVERED_BY_TSV = 310            # thunks whose literal is a tsv candidate
 EXPECT_CENSUS = 209                    # the remainder - this file's subject
 EXPECT_CENSUS_IN_TABLE = 17            # census names docs/PF_VITAL_NAMES.json holds
-EXPECT_CENSUS_ADMITTED = 0             # 🔴 admitted to the table by this round
+EXPECT_CENSUS_ADMITTED = 0             # !! admitted to the table by this round
 EXPECT_CENSUS_ID_CLASH_CROSS_NAME = 0  # census id == a table id under another name
 # What the tsv's filter ACTUALLY was.  Its header says "Non-AV names only", but
 # the sets say something narrower and completely mechanical: every tsv name
@@ -232,7 +232,7 @@ def artifact_payload(image: Image, census, longs, thunk_total, covered_n):
             "NAMES-FOLD-003 half (ข) - the registration thunks in the client image that",
             "pf_bridge/VITAL_REGISTRY_FROM_CLIENT_BINARY_20260817.tsv never listed.",
             "",
-            "🔴 THIS IS NOT A NAME TABLE.  docs/PF_VITAL_NAMES.json is the project's only",
+            "!! THIS IS NOT A NAME TABLE.  docs/PF_VITAL_NAMES.json is the project's only",
             "name table.  NOTHING in this file has been admitted to it, and nothing here may",
             "be quoted as a project name for a wire id.  Every row satisfies condition (b) of",
             "rule (4) by construction (it is a thunk), but condition (a) is vacuous for these",

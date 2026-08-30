@@ -23,6 +23,7 @@ from . import scene_admission_gate
 from . import trace_path
 from . import world_density
 from . import world_face_frame
+from . import world_m2_crossing_handoff
 from . import world_population
 from . import world_population_bg0002
 from . import world_population_handoff
@@ -5019,6 +5020,20 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 )
                                 else None
                             ),
+                            # CORE-REQUEST (LANE-A, round czoo9t): the
+                            # one-token flip columbus_quest_dispatch.py's own
+                            # docstring names -- unconditional True is safe
+                            # AT THIS CALL SITE ONLY because
+                            # resolve_columbus_arrival always targets the
+                            # fixed COLUMBUS_DEST_SCENE_ID (17) with a
+                            # well-formed synthetic Position, so a successful
+                            # dispatch here always composes a readable
+                            # KIND_CLEAR handoff with sends_a_frame=True
+                            # (pf-adversary, this round: confirmed by
+                            # reading resolve_columbus_arrival and by a live
+                            # probe).  The else-branch below always queues
+                            # the frame this promises, in the same edit.
+                            crossing_handoff_dispatched=True,
                         )
                     except columbus_quest_dispatch.ColumbusDispatchRefused as error:
                         for reason in error.reasons:
@@ -5035,12 +5050,88 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         tp_pc, tp_frame = legacy.make_login_teleport(
                             *entry.teleport_fields
                         )
-                        actions.append((
+                        # CORE-REQUEST (LANE-A, round czoo9t): this crossing
+                        # sent TeleportVital alone -- the actor collection
+                        # the client got at login (up to 115 actors;
+                        # WORLD_POP_STOWAWAYS and RE-162 Job 4 independently
+                        # found the same gap) was still standing in the
+                        # water after the player sailed out.
+                        #
+                        # NO SECOND PRINT HERE (pf-adversary, this round,
+                        # caught the first draft doing one): the dispatch
+                        # call above already composed and reported this
+                        # exact handoff through its own ``emit`` -- printing
+                        # AND recording it once, correctly, in
+                        # ``self.events`` -- now that
+                        # ``crossing_handoff_dispatched=True`` makes that
+                        # report true.  A second bare ``print`` here would
+                        # bypass ``self.events`` and put a second,
+                        # unrecorded line on the console for one crossing.
+                        # Composed again here via this lane's own wrapper
+                        # (world_m2_crossing_handoff.crossing_handoff, not
+                        # the seam directly, so tests/
+                        # test_world_population_bg0015.py's one-call-per-
+                        # blessed-file census stays satisfied) ONLY to read
+                        # back the bytes/slot/reset this block needs to
+                        # queue -- composing a 27-byte CLEAR twice costs
+                        # nothing today (world_m2_crossing_handoff.py's own
+                        # docstring).  Mirrors the travel-gate call site
+                        # above (runtime.py:7146) for dispatch_slot and
+                        # reapply_ms: read from the handoff, never
+                        # hardcoded.
+                        handoff = world_m2_crossing_handoff.crossing_handoff(
+                            legacy, entry,
+                        )
+                        crossing_actions = [(
                             "CORE_REQUEST_014_COLUMBUS_Q3021_TELEPORT_SCENE17_ONCE",
                             tp_pc, tp_frame, 0.0,
-                        ))
+                        )]
+                        if handoff.sends_a_frame:
+                            handoff_actions = [(
+                                handoff.label, handoff.pc, handoff.frame,
+                                0.0,
+                            )]
+                            if handoff.reapply_ms is not None:
+                                handoff_actions.append((
+                                    handoff.label + "_REAPPLY",
+                                    handoff.pc, handoff.frame,
+                                    handoff.reapply_ms / 1000.0,
+                                ))
+                            if (
+                                handoff.dispatch_slot
+                                == world_population_handoff
+                                .SLOT_BEFORE_TELEPORT
+                            ):
+                                crossing_actions = (
+                                    handoff_actions + crossing_actions
+                                )
+                            else:
+                                crossing_actions = (
+                                    crossing_actions + handoff_actions
+                                )
+                        for action in crossing_actions:
+                            actions.append(action)
+                        # BOTH frozen-state membership fields together
+                        # (MembershipReset's docstring), read AFTER the
+                        # handoff is composed above, not before: the
+                        # console line and WORLD_POP_STOWAWAYS both report
+                        # world_census_indices, and resetting first would
+                        # make both print 0 in the boot where they should
+                        # report the real count (k882hm-D3).
+                        reset = handoff.membership_reset
+                        self.population_indices = reset.population_indices
+                        self.population_refresh_anchor = (
+                            reset.population_refresh_anchor
+                        )
+                        self.world_census_indices = (
+                            reset.population_indices
+                        )
                         self.events.append(
                             "core_request_014_columbus_scene17_teleport_sent"
+                        )
+                        self.events.append(
+                            "world_m2_crossing_handoff_"
+                            f"{handoff.kind}_scene_{handoff.scene_id}"
                         )
                 elif (
                     not self.columbus_quest3205_dispatch_attempted
