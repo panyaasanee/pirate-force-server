@@ -474,6 +474,18 @@ class SessionSurfaceTests(_Case):
         "events",
         "foundation",
         "gm_last_warp_target",
+        # CORE-REQUEST-GM-040, round `dm8o4l`.  READ then WRITTEN, and the
+        # read is not incidental: we look first so that an unfired pairing
+        # left by an earlier frame is NAMED before we overwrite it
+        # (`EVENT_QUEUED_CONFIRM_OVERWROTE_PENDING`).  The value is a
+        # `(action, callback)` pair; chief's append site in `runtime.py` is
+        # the only reader and the only thing that clears it.  Underscore-
+        # prefixed because it is a handshake between two lanes' code on one
+        # session object, not part of the session's public shape.  It shows
+        # up in `seen_session` through the watcher's `__setattr__` (its
+        # `__getattribute__` skips underscore names), so this entry is
+        # earning its place on the WRITE, which is the half that matters.
+        "_gm_action_queued_confirm",
     }
     ALLOWED_ON_SELECTED = {"position", "id"}
 
@@ -761,6 +773,25 @@ class EventNameContractTests(_Case):
         # otherwise read as the same silence.
         "EVENT_CONSOLE_WRITE_FAILED_PREFIX": (
             "gm_chat_action_console_write_failed_"
+        ),
+        # Round `dm8o4l`, CORE-REQUEST-GM-040: the four ways the `queued`
+        # confirmation can fail to reach the ndjson.  Pinned for the same
+        # reason as the audit names above -- an attended run that finds a
+        # command with a `composed` row and no `queued` row has to be able
+        # to grep the console for WHICH of the four happened, because they
+        # mean very different things (never armed / overwritten / append
+        # happened but the row would not write / someone called us twice).
+        "EVENT_QUEUED_CONFIRM_NOT_ARMED_PREFIX": (
+            "gm_chat_action_queued_confirm_not_armed_"
+        ),
+        "EVENT_QUEUED_CONFIRM_OVERWROTE_PENDING": (
+            "gm_chat_action_queued_confirm_overwrote_pending"
+        ),
+        "EVENT_QUEUED_CONFIRM_WRITE_FAILED_PREFIX": (
+            "gm_chat_action_queued_confirm_write_failed_"
+        ),
+        "EVENT_QUEUED_CONFIRM_FIRED_TWICE": (
+            "gm_chat_action_queued_confirm_fired_twice"
         ),
     }
 

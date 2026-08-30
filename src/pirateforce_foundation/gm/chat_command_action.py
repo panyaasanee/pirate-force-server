@@ -279,6 +279,13 @@ from .commands import (
     OUTCOME_STAGED_LOGIN_SCENE_COORDS_IGNORED,
     OUTCOME_WITHHELD_PREFIX,
     log_gm_command_outcome,
+    # CORE-REQUEST-GM-040.  Imported by NAME, and note what is NOT imported
+    # beside it: `OUTCOME_QUEUED`.  The writer takes no outcome parameter and
+    # hard-codes the word, so this module never names it -- which keeps
+    # `QueuedIsReservedTests`' AST scan over the lane's source both green and
+    # honest ("no lane file outside the definition site names the reserved
+    # word") on the very round the word became writable.
+    log_gm_command_queued,
 )
 from .say_wire import make_say_broadcast_frame
 from .warp_executor import (
@@ -589,6 +596,44 @@ EVENT_OUTCOME_STALE_TARGET_NOT_CLEARED = (
     "gm_chat_action_outcome_stale_warp_target_not_cleared"
 )
 
+# CORE-REQUEST-GM-040, this lane's half.  Four names, because four different
+# things can go wrong on the road between "we handed an action back" and
+# "the ndjson says it was appended", and a single name would let a reader
+# conclude the wrong one.
+#
+# ..._not_armed_<ExcType>: the pairing could not be stored on the session at
+# all (a session object that refuses the attribute).  The command still
+# goes out; only its `queued` row is lost, and this says so rather than
+# leaving a silent gap that reads like "the frame was never appended".
+EVENT_QUEUED_CONFIRM_NOT_ARMED_PREFIX = "gm_chat_action_queued_confirm_not_armed_"
+# ..._overwrote_pending: we armed while a pairing from an EARLIER frame was
+# still sitting on the session unfired.  By construction that earlier action
+# was composed and then never appended, which should not happen on any route
+# this module has today -- so it is an anomaly worth a name, not a routine
+# event.  We overwrite deliberately (the stale pairing can never fire again
+# anyway: chief's check is `is`, and that object is not coming back), but a
+# reader has to be able to see that a command's `queued` row went missing
+# for this reason and not because the append failed.
+EVENT_QUEUED_CONFIRM_OVERWROTE_PENDING = (
+    "gm_chat_action_queued_confirm_overwrote_pending"
+)
+# ..._write_failed_<ExcType>: the append really happened, chief's hook really
+# fired us, and the `queued` row still could not be appended (a full disk, a
+# permission change mid-run).  NOTHING IS WITHHELD HERE, and that asymmetry
+# with `_log_outcome` is deliberate: by the time this runs the action is
+# already in runtime.py's action list, so there is nothing left to take
+# back.  The honest report is "it went out and we failed to record that",
+# which is what this event says.
+EVENT_QUEUED_CONFIRM_WRITE_FAILED_PREFIX = (
+    "gm_chat_action_queued_confirm_write_failed_"
+)
+# ..._fired_twice: the callback was invoked a second time for the same
+# command.  Chief's hook clears the pairing before it calls, so this cannot
+# come from that path; it would mean some OTHER caller got hold of the
+# callback.  Refused rather than written, because two `queued` rows for one
+# record_id would read like two appends.
+EVENT_QUEUED_CONFIRM_FIRED_TWICE = "gm_chat_action_queued_confirm_fired_twice"
+
 # Audit outcomes this route can write, spelled once here so the ndjson value
 # and the console event stay one decision.  The gate names are the ones the
 # RE tickets use, so a reader of the audit file can go straight to the open
@@ -754,7 +799,12 @@ def make_gm_chat_command_action(
     was for).  WRITES `.gm_last_warp_target` on an accepted warp only --
     `warp_target_record`'s parked destination, for `runtime.py` to compare a
     later position row against; a session that cannot hold it still gets its
-    warp.
+    warp.  READS AND WRITES `._gm_action_queued_confirm` whenever an action
+    is returned (CORE-REQUEST-GM-040): the `(action, callback)` pair chief's
+    append site in `runtime.py` fires to confirm the action really reached
+    the action list.  A session that cannot hold that one still gets its
+    command -- only the `queued` audit row is lost, and the loss is named
+    on `.events` rather than left as a silent gap.
 
     `legacy` is the loaded `pf_login_game_server_v141` module, the same seam
     `state_wire`/`teleport_wire` already take from their wiring caller rather
@@ -969,7 +1019,92 @@ def _make_action(
     _announce_console_outcome(
         session, token, command, verdict, audited=audited, sent=action is not None
     )
+    # CORE-REQUEST-GM-040.  LAST, and only for an action we are really
+    # returning.  Arming earlier would pair a callback with an object one of
+    # the branches above can still throw away (`audited` False sets `action`
+    # to None), and chief's `is` check would then hold a pairing for a frame
+    # that was deliberately withheld -- inert, but it would sit on the
+    # session until the next command overwrote it, which is exactly the
+    # state `EVENT_QUEUED_CONFIRM_OVERWROTE_PENDING` exists to report as an
+    # anomaly.  Arming here means "armed" and "returned" are the same
+    # decision, taken once.
+    if action is not None:
+        _arm_queued_confirm(
+            session, action, command, token, outcome.record_id, log_path
+        )
     return action
+
+
+def _arm_queued_confirm(
+    session: object,
+    action: tuple,
+    command: object,
+    account_name: str,
+    record_id: str | None,
+    log_path: str | None,
+) -> None:
+    """Park `(action, callback)` for chief's append site to fire.
+
+    CORE-REQUEST-GM-040, the half `gm/` owns.  Chief's half is at
+    `runtime.py`'s `actions = actions + [gm_action]`: right after the
+    append it reads `session._gm_action_queued_confirm`, checks
+    `pending[0] is gm_action`, clears the slot, and calls `pending[1]()`.
+    So the object we store MUST be the exact tuple `_make_action` returns --
+    an equal-but-not-identical copy would never match, and would fail
+    SILENTLY (no append, no row, no event), which is the one failure shape
+    this function must not have.
+
+    Never raises.  This runs on the listener thread, and the command it
+    belongs to has already been authorized, composed and audited; a failure
+    to arm a confirmation must cost that command its `queued` row and
+    nothing else.
+    """
+    if not isinstance(record_id, str) or not record_id:
+        # `_log_outcome` has already refused and reported this same case
+        # (EVENT_OUTCOME_NO_RECORD_ID), and `audited` False means we are not
+        # reached with an action anyway.  Belt and braces: a `queued` row
+        # whose id closes no issued row is the one row worse than no row.
+        return
+
+    fired = []
+
+    def _confirm_appended() -> None:
+        # Chief's hook clears the pairing BEFORE calling this, so a second
+        # call cannot come from him.  If one arrives anyway, something else
+        # is holding this closure, and two `queued` rows for one record_id
+        # would read like the command was appended twice.
+        if fired:
+            _note(session, EVENT_QUEUED_CONFIRM_FIRED_TWICE)
+            return
+        fired.append(True)
+        try:
+            if log_path is None:
+                log_gm_command_queued(command, account_name, record_id=record_id)
+            else:
+                log_gm_command_queued(
+                    command, account_name, record_id=record_id, log_path=log_path
+                )
+        except Exception as error:  # noqa: BLE001 - OSError and any encoder
+            # Type name only: an exception message can carry the GM's typed
+            # text, same rule as every other refusal in this module.  Chief's
+            # hook also wraps us (`gm_action_queued_confirm_failed_<Type>`),
+            # but relying on that would name the failure in HIS vocabulary
+            # for a write that is entirely ours.
+            _note(
+                session,
+                f"{EVENT_QUEUED_CONFIRM_WRITE_FAILED_PREFIX}{type(error).__name__}",
+            )
+
+    try:
+        if getattr(session, "_gm_action_queued_confirm", None) is not None:
+            _note(session, EVENT_QUEUED_CONFIRM_OVERWROTE_PENDING)
+        session._gm_action_queued_confirm = (action, _confirm_appended)
+    except Exception as error:  # noqa: BLE001 - a session that refuses the
+        # attribute (slots, a read-only proxy) must still get its command.
+        _note(
+            session,
+            f"{EVENT_QUEUED_CONFIRM_NOT_ARMED_PREFIX}{type(error).__name__}",
+        )
 
 
 def _log_outcome(

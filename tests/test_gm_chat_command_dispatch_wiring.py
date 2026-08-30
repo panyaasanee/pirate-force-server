@@ -71,6 +71,8 @@ from pirateforce_foundation.gm import (  # noqa: E402
 )
 from pirateforce_foundation.gm import chat_command  # noqa: E402
 from pirateforce_foundation.gm import chat_command_action  # noqa: E402
+from pirateforce_foundation.gm import commands  # noqa: E402
+from pirateforce_foundation.gm import teleport_wire  # noqa: E402
 from pirateforce_foundation.gm.dispatch import (  # noqa: E402
     reset_rate_limit_state_for_tests,
 )
@@ -831,6 +833,111 @@ class ActionQueuedConfirmHookTests(ChatCommandDispatchWiringTests):
             ):
                 self._say(state, "/warp 2")
         self.assertEqual(calls, ["first", "rearmed"])
+
+
+class QueuedRowLandsEndToEndTests(ChatCommandDispatchWiringTests):
+    """CORE-REQUEST-GM-040, BOTH halves, with nothing mocked between them.
+
+    `ActionQueuedConfirmHookTests` above proves chief's half by handing the
+    hook a fake action and a fake callback -- which is the right shape for
+    proving the hook, and cannot prove the feature: every one of its tests
+    replaces `make_gm_chat_command_action` with a stub, so the real GM lane
+    never runs and no real audit row is ever written.  Round `dm8o4l` (this
+    lane's half) makes the composed pairing real, so the two halves can
+    finally be measured TOGETHER:
+
+        a GM types /warp -> the real lane authorizes, composes, audits and
+        ARMS -> the real runtime appends and FIRES -> a real `queued` row
+        lands in the real ndjson.
+
+    Nothing here patches `chat_command_action`.  The only patch is the
+    ForcePos version gate, which is `None` on the shipped tree (RE-129
+    unanswered) and without which the lane composes nothing to append --
+    the same patch `test_gm_chat_command_action.py` has always used, and
+    `NoBytesWentOutTests` still pins that the SHIPPED constant is `None`.
+
+    Scene 1, not scene 2: `_login_and_start` places the character at
+    `Position(1, ...)`, and `/warp <own scene> x y` is the same-scene
+    ForcePos half.  A cross-scene warp stages a login scene and returns no
+    action at all, so it would prove nothing about the append site.
+    """
+
+    def _rows(self):
+        # The harness chdir'd into its own temp dir, so gm/commands.py's
+        # repo-relative DEFAULT_LOG_PATH lands there and not in the checkout.
+        path = Path(self.tmp.name) / "capture" / "gm_command_log.ndjson"
+        if not path.exists():
+            return []
+        return [
+            json.loads(line)
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+
+    def _warp_in_place(self, token="gm_runner"):
+        path = self._config([token])
+        with mock.patch.dict(
+            gm_accounts.os.environ, {gm_accounts.ENV_OVERRIDE: str(path)},
+        ):
+            with mock.patch.object(
+                teleport_wire, "FORCE_POS_VITAL_VERSION_CONFIRMED", 7,
+            ):
+                state = self._login_and_start(token)
+                return state, self._say(state, "/warp 1 100 200")
+
+    def test_the_lane_arms_the_runtime_fires_and_the_queued_row_lands(self):
+        state, actions = self._warp_in_place()
+        self.assertIn(
+            chat_command_action.WARP_ACTION_LABEL, self._labels(actions),
+            "fixture must really compose an action, or this proves nothing",
+        )
+        outcomes = [
+            row["outcome"] for row in self._rows()
+            if row["record"] == commands.AUDIT_RECORD_OUTCOME
+        ]
+        self.assertEqual(
+            outcomes, [commands.OUTCOME_COMPOSED, commands.OUTCOME_QUEUED],
+        )
+        # Cleared by the append site, so nothing is left to misfire against
+        # the next frame -- the property chief's hook owns, re-measured here
+        # against a REAL pairing rather than a hand-built one.
+        self.assertIsNone(getattr(state, "_gm_action_queued_confirm", "MISSING"))
+
+    def test_all_three_rows_belong_to_the_one_command(self):
+        self._warp_in_place()
+        rows = self._rows()
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(len({row["record_id"] for row in rows}), 1)
+        self.assertEqual(
+            [row["record"] for row in rows],
+            [
+                commands.AUDIT_RECORD_ISSUED,
+                commands.AUDIT_RECORD_OUTCOME,
+                commands.AUDIT_RECORD_OUTCOME,
+            ],
+        )
+
+    def test_a_line_the_lane_withholds_never_reaches_the_queued_word(self):
+        # The control, and the one that would catch an arming that fired on
+        # composition instead of on the append: same route, same GM, gate
+        # SHUT (the shipped state), so nothing is appended and the audit
+        # must stop at the withheld word.
+        path = self._config(["gm_runner"])
+        with mock.patch.dict(
+            gm_accounts.os.environ, {gm_accounts.ENV_OVERRIDE: str(path)},
+        ):
+            state = self._login_and_start("gm_runner")
+            actions = self._say(state, "/warp 1 100 200")
+        self.assertNotIn(
+            chat_command_action.WARP_ACTION_LABEL, self._labels(actions)
+        )
+        outcomes = [
+            row["outcome"] for row in self._rows()
+            if row["record"] == commands.AUDIT_RECORD_OUTCOME
+        ]
+        self.assertEqual(len(outcomes), 1)
+        self.assertNotEqual(outcomes[0], commands.OUTCOME_QUEUED)
+        self.assertFalse(hasattr(state, "_gm_action_queued_confirm"))
 
 
 if __name__ == "__main__":
