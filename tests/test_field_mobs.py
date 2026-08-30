@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from pf_preconditions import BRIDGE_GAMEDATA
 from pirateforce_foundation import (
+    field_mob_ai_tables,
     field_mob_tables,
     field_mob_tables_bg0002,
     field_mob_tables_bg0015,
@@ -1190,6 +1191,95 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
         self.assertNotEqual(lines[0], zero_lines[0])
 
 
+class SelfAggroPlacementSurveyTests(unittest.TestCase):
+    """The small, not-urgent hunt COO-DECISION 2026-08-30T13:51+07:00
+    (``banned-placements-filter-ratified``, answering this lane's own
+    ``20260829_1605_LANE-B-ASK-COO-owner-refused-block-shrinks-the-roster``)
+    asked for: is there a wander-11 (self-initiating aggro) placement this
+    lane could ship today that is NOT inside the owner-refused n_id 101-104
+    block?  COO ruled the absence of any self-initiating monster is a known,
+    tracked gap and NOT a block on M4 -- this answers the question with the
+    tables already committed instead of leaving it open for a future round
+    to re-derive by hand.
+
+    ``11`` is not a magic literal here: :data:`field_mob_ai_tables
+    .AI_WANDER_ROWS` (mined from the bridge clone, ``n_ID`` 11) is the one
+    row in that table with BOTH ``n_OFFESIVE`` and a nonzero ``n_AGGRO``
+    radius -- the two columns that make a monster start a fight on its own
+    rather than only answering one. ``AI_WANDER_ROWS[16]`` (the everyday
+    "does not attack first" row most placements in every scene use) has
+    ``n_OFFESIVE=0``; the first assertion below pins that so the "11 means
+    aggressive" reading stays checkable against the mined table rather than
+    trusted by eye.
+
+    RESULT, measured here rather than left as an open question:
+    ``bg0001`` ships zero hostile placements at all (Port Royal is the
+    town), so it has no self-aggro row to be either banned or not; ``Bg0002``
+    -- the only OTHER scene :func:`field_mobs.load_roster` can load today --
+    ships self-aggro rows ONLY at the same Orc Chief (n_ID 103) placements
+    the owner's refusal already covers.  ``Bg0015`` (mined, committed, still
+    COO-gated dormant per COO-DECISION 2026-08-26T12:46+07:00 pending lane
+    A's second travel gate) DOES carry un-banned self-aggro rows -- so a
+    real candidate exists for the day that gate opens, and this is not it
+    today.
+    """
+
+    def _wander_ids_are_self_aggro_and_not(self) -> None:
+        offensive, aggro = field_mob_ai_tables.AI_WANDER_ROWS[11][2:4]
+        self.assertEqual((offensive, aggro), (1, 1200))
+        everyday_offensive = field_mob_ai_tables.AI_WANDER_ROWS[16][2]
+        self.assertEqual(everyday_offensive, 0)
+
+    def _wander_11_placements(self, module) -> tuple[int, ...]:
+        return tuple(
+            row[0] for row in module.HOSTILE_PLACEMENTS if row[9] == 11
+        )
+
+    def test_ai_wander_11_is_the_self_aggro_row_16_is_not(self) -> None:
+        self._wander_ids_are_self_aggro_and_not()
+
+    def test_bg0001_ships_no_hostile_placement_at_all_so_none_can_self_aggro(
+            self) -> None:
+        # Port Royal (bg0001) is the town: GT-078/RE-128 leave its
+        # HOSTILE_PLACEMENTS empty (only the four practice-dummy town
+        # targets ship there), so it has nothing to survey -- checked
+        # explicitly rather than silently skipped, so a future round that
+        # adds a bg0001 hostile row is the one that makes this test start
+        # exercising the real comparison below.
+        self.assertEqual(field_mob_tables.HOSTILE_PLACEMENTS, [])
+        self.assertEqual(self._wander_11_placements(field_mob_tables), ())
+
+    def test_every_wired_scenes_self_aggro_row_is_owner_refused(self) -> None:
+        # bg0001 is excluded on purpose -- see the test above for why it has
+        # nothing to compare.
+        for module in (field_mob_tables_bg0002,):
+            wander_11 = set(self._wander_11_placements(module))
+            self.assertTrue(wander_11, "scene %r has no wander-11 row to "
+                             "check any more -- re-run the survey" %
+                             (module.SCENE,))
+            refused = set(field_mobs.owner_refused_placements(module.SCENE))
+            leftover = wander_11 - refused
+            self.assertFalse(
+                leftover,
+                "scene %r ships a self-aggro (wander-11) placement outside "
+                "the owner-refused block: %r -- this is NEW information "
+                "(a shippable self-aggro monster may exist now), not a "
+                "test failure to silence" % (module.SCENE, leftover),
+            )
+
+    def test_bg0015_carries_a_self_aggro_row_not_covered_by_any_refusal(
+            self) -> None:
+        # Bg0015 has no entry in OWNER_REFUSED_PLACEMENTS at all today (the
+        # dict only carries 'Bg0002') -- these rows are unbanned, only
+        # unwired (COO-DECISION 2026-08-26T12:46+07:00, see the class
+        # docstring).  This is the candidate the small ticket found.
+        wander_11 = set(self._wander_11_placements(field_mob_tables_bg0015))
+        self.assertTrue(
+            wander_11,
+            "Bg0015's mined table no longer carries a wander-11 row -- the "
+            "candidate this survey recorded is gone; re-run the hunt",
+        )
+        self.assertNotIn("Bg0015", field_mobs.OWNER_REFUSED_PLACEMENTS)
 
 
 @BRIDGE_GAMEDATA.skip_unless_present()
