@@ -59,9 +59,11 @@ from pirateforce_foundation.gm import login_scene_stage  # noqa: E402
 from pirateforce_foundation.gm import teleport_wire  # noqa: E402
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 
-# Not the real one -- RE-129 has not authorized any version to go out.  Only
-# the audit-failure case patches it in, because that case needs a frame to
-# exist before it can be dropped.
+# Not the real one -- RE-129's measured byte is 0, which is now the SHIPPED
+# constant (COO-DECISION 20260830_1645/1742).  This value only ever opens the
+# gate to some OTHER version for the audit-failure case, which needs a frame
+# to exist before it can be dropped, and must never be readable later as
+# evidence about the real client's accepted version.
 UNPROVEN_TEST_VERSION = 7
 
 TOKEN = chat_command_action.WITHHELD_CONSOLE_TOKEN
@@ -152,6 +154,16 @@ class _Case(unittest.TestCase):
     def lines(self, stderr: str, token: str):
         return [ln for ln in stderr.splitlines() if ln.startswith(token)]
 
+    def close_the_version_gate(self):
+        """Force the ForcePos gate shut. Since COO-DECISION
+        20260830_1645/1742 the shipped constant is `0`, not `None`, so a test
+        that means to walk the withheld `/warp` branch must patch this in
+        explicitly rather than getting it for free.
+        """
+        return mock.patch.object(
+            teleport_wire, "FORCE_POS_VITAL_VERSION_CONFIRMED", None
+        )
+
 
 class TheSixSilentCommandsTests(_Case):
     """Each accepted command that sends nothing prints exactly one line."""
@@ -169,7 +181,12 @@ class TheSixSilentCommandsTests(_Case):
         for typed, name, why in self.CASES:
             with self.subTest(typed=typed):
                 gm_dispatch.reset_rate_limit_state_for_tests()
-                action, err = self.act(typed)
+                # /warp's own gate is forced shut -- shipped at 0 since
+                # COO-DECISION 20260830_1645/1742, so every one of these six
+                # cases must stay silent even though /warp itself now
+                # composes when unpatched. Harmless for the other five.
+                with self.close_the_version_gate():
+                    action, err = self.act(typed)
                 self.assertIsNone(action, "no bytes may go out for any of these")
                 said = self.lines(err, TOKEN)
                 self.assertEqual(len(said), 1, err)
@@ -188,7 +205,9 @@ class TheSixSilentCommandsTests(_Case):
     def test_the_blocker_is_the_one_that_belongs_to_that_outcome(self):
         # A mutant that prints one hardcoded sentence for every command
         # passes the test above and is useless to the operator it is for.
-        _, warp_err = self.act("/warp 2 100 200")
+        # /warp's gate forced shut for the same reason as the test above.
+        with self.close_the_version_gate():
+            _, warp_err = self.act("/warp 2 100 200")
         gm_dispatch.reset_rate_limit_state_for_tests()
         _, say_err = self.act("/say hello")
         gm_dispatch.reset_rate_limit_state_for_tests()

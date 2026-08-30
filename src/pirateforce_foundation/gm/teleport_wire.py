@@ -148,7 +148,7 @@ TELEPORT_VITAL_ID = 0x25A2
 # state_wire.GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED.  Unit tests and
 # decoders pass their own explicit version and are unaffected -- this
 # constant gates SENDING, not composing.
-FORCE_POS_VITAL_VERSION_CONFIRMED = None
+FORCE_POS_VITAL_VERSION_CONFIRMED = 0
 
 # --- RE-129 RESULT, RECORDED BUT DELIBERATELY INERT ------------------------
 # Source: pf_bridge/notes_to_chief/20260828_2009_RE-129-RESULT-VERSION-ZERO-

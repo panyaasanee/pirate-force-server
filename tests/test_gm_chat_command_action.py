@@ -4,18 +4,25 @@
 authorized, decoded and audited, and a non-GM's is not.  This file proves the
 SEND half, which is the one that decides whether anything happens on screen:
 
-1. THE SAFETY GATE IS REAL, NOT DECORATIVE.  With
-   `FORCE_POS_VITAL_VERSION_CONFIRMED = None` (today, RE-129 open) a valid
-   `/warp` from a real GM must produce NO action and a named event.  GT-101
-   measured what an unproven vital version does to a real client -- modal
-   error, connection halted, socket closed -- so "we composed the frame
-   anyway and someone will notice later" is the failure this file exists to
-   make impossible.
-2. THE PATH ACTUALLY WORKS once that one byte is known.  With the constant
-   patched to a value, the same chat line must yield a real
+1. THE SAFETY GATE IS REAL, NOT DECORATIVE.  COO-DECISION 20260830_1645
+   (reaffirmed 20260830_1742) lifted the earlier lock and set
+   `FORCE_POS_VITAL_VERSION_CONFIRMED = 0` on the shipped tree -- RE-129's
+   measured byte, sent now that runtime.py's confirmed-write point is real.
+   The withheld path this point (1) is about did not go away: with the gate
+   forced SHUT (`open_the_version_gate`'s sibling below patches it back to
+   `None`), a valid `/warp` from a real GM must still produce NO action and a
+   named event.  GT-101 measured what an unproven vital version does to a
+   real client -- modal error, connection halted, socket closed -- so "we
+   composed the frame anyway and someone will notice later" is the failure
+   this file exists to make impossible, and it must stay impossible whether
+   the gate is shut by the shipped constant or by a test forcing it shut.
+2. THE PATH ACTUALLY WORKS now that the byte is shipped.  On the unpatched
+   constant, the same chat line must yield a real
    `(label, pc, frame, delay)` action whose bytes are the ForcePos frame the
-   pinned composer builds -- so the day RE-129 answers, the change is that
-   constant and nothing else.
+   pinned composer builds.  `open_the_version_gate` below still patches in
+   `UNPROVEN_TEST_VERSION` for every test that only needs SOME open gate and
+   must not be read as evidence about the real client's accepted version --
+   the shipped value itself is pinned separately, in `VersionGateTests`.
 3. NOTHING ESCAPES.  The call site is chief's dispatch on the game-listener
    thread, shared by every player.  Every hostile session shape below must
    come back as None plus an event, never as an exception.
@@ -166,17 +173,37 @@ class _Case(unittest.TestCase):
             UNPROVEN_TEST_VERSION,
         )
 
+    def close_the_version_gate(self):
+        """The sibling of `open_the_version_gate`, for the tests that prove
+        the withheld path.  RE-129's byte shipped (COO-DECISION 20260830_1645
+        / 20260830_1742), so the shipped constant no longer withholds
+        anything on its own -- a test that means to exercise the withheld
+        branch must say so explicitly, by patching the gate SHUT itself,
+        instead of relying on what used to be the default.
+        """
+        return mock.patch.object(
+            teleport_wire, "FORCE_POS_VITAL_VERSION_CONFIRMED", None
+        )
+
 
 class VersionGateTests(_Case):
-    def test_the_shipped_constant_is_still_none_so_no_bytes_can_go_out(self):
-        # If this ever fails without RE-129 being answered and cited in
-        # teleport_wire.py's own comment, someone guessed the byte GT-101
-        # measured as session-killing.
-        self.assertIsNone(teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED)
+    def test_the_shipped_constant_is_confirmed_at_the_re129_value(self):
+        # If this ever fails without a COO-DECISION superseding
+        # 20260830_1645/20260830_1742 and cited in teleport_wire.py's own
+        # comment, someone changed the shipped release gate by hand.  The
+        # value itself -- 0 -- is RE-129's measured byte, and it is written
+        # here as a literal so a drift in either direction (back to None, or
+        # to some other byte) goes red instead of silently matching whatever
+        # the source currently says.
+        self.assertEqual(teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED, 0)
 
-    def test_a_valid_gm_warp_yields_no_action_while_the_version_is_unknown(self):
+    def test_a_valid_gm_warp_yields_no_action_while_the_gate_is_shut(self):
+        # The shipped constant no longer withholds by itself (COO-DECISION
+        # 20260830_1645/1742), so this test forces the gate shut to prove the
+        # withheld branch still exists and still refuses to compose.
         session = FakeSession(position=FakePosition(scene_id=2))
-        action = self.act(session, "/warp 2 100 200")
+        with self.close_the_version_gate():
+            action = self.act(session, "/warp 2 100 200")
         self.assertIsNone(action)
         self.assertIn(
             chat_command_action.EVENT_WARP_WITHHELD_NO_VERSION, session.events
@@ -184,9 +211,11 @@ class VersionGateTests(_Case):
 
     def test_the_line_is_still_authorized_and_audited_while_withheld(self):
         # The audit half must not regress just because the send half is
-        # gated: GT-127 is decided on this log.
+        # gated: GT-127 is decided on this log.  Gate forced shut for the
+        # same reason as the test above.
         session = FakeSession(position=FakePosition(scene_id=2))
-        self.act(session, "/warp 2 100 200")
+        with self.close_the_version_gate():
+            self.act(session, "/warp 2 100 200")
         records = self.log_records()
         # Two rows since CORE-REQUEST-GM-032: the issued row this test has
         # always checked, plus the outcome row that says the frame was
@@ -534,10 +563,12 @@ class WarpTargetRecordingTests(_Case):
         self.assertEqual(bytes(frame), bytes(expected))
 
     def test_a_withheld_warp_parks_nothing(self):
-        # The shipped state today (RE-129 open): no bytes, so no destination
-        # for a later position row to be measured against.
+        # Gate forced shut (COO-DECISION 20260830_1645/1742 lifted the
+        # shipped lock, so this is no longer the default): no bytes, so no
+        # destination for a later position row to be measured against.
         session = self.session_with_character()
-        self.assertIsNone(self.act(session, "/warp 2 100 200"))
+        with self.close_the_version_gate():
+            self.assertIsNone(self.act(session, "/warp 2 100 200"))
         self.assertIsNone(warp_target_record.take_warp_target(session, 41))
 
     def test_a_refused_warp_parks_nothing(self):
@@ -1291,11 +1322,18 @@ class ProductionCallShapeTests(_Case):
 
     def test_the_default_argument_call_authorizes_and_audits(self):
         session = FakeSession(position=FakePosition(scene_id=2))
-        action = chat_command_action.make_gm_chat_command_action(
-            session, make_chat_payload("/warp 2 100 200"), self.legacy
-        )
-        # Version gate still shut, so no action -- but the audit half must
-        # work through the production path, because that is GT-127's verdict.
+        # Gate forced shut: this test's own subject is the withheld outcome
+        # row through the default-argument path, not the version gate, but
+        # since COO-DECISION 20260830_1645/1742 the shipped constant no
+        # longer withholds by itself -- so the withheld state it asserts on
+        # below has to be established explicitly.
+        with self.close_the_version_gate():
+            action = chat_command_action.make_gm_chat_command_action(
+                session, make_chat_payload("/warp 2 100 200"), self.legacy
+            )
+        # Version gate forced shut above, so no action -- but the audit half
+        # must work through the production path, because that is GT-127's
+        # verdict.
         self.assertIsNone(action)
         landed = self.tmp / "capture" / "gm_command_log.ndjson"
         self.assertTrue(

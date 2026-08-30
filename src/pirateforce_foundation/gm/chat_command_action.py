@@ -131,14 +131,19 @@ WHAT IT DOES NOT DO
   answers, "shortest path" ranks the blockers; it does not promise a pixel.
 * It does not broadcast.  `say` returns a per-connection action like every
   other action in this file; the GM sees his own line.  See `_say_action`.
-* !! It does not put a single ForcePos byte on the wire today, because
-  `teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED` is None.  ~~(RE-129
+* ~~!! It does not put a single ForcePos byte on the wire today, because
+  `teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED` is None.~~ ~~(RE-129
   open)~~ RE-129 ANSWERED on 2026-08-28T20:09+07:00 -- the byte is 0 -- and
-  the constant is still None on purpose: COO-DECISION 21:30 locks it there
-  until chief's confirmed-position write point is on main (CORE-REQUEST-GM-030).
-  See that constant's block and `test_gm_force_pos_version_lock.py` -- and note
-  that release day edits TWO test files: `VersionGateTests` in this module's
-  own suite asserts the constant is None unconditionally.
+  ~~the constant is still None on purpose: COO-DECISION 21:30 locks it there
+  until chief's confirmed-position write point is on main (CORE-REQUEST-GM-030).~~
+  That write point (`GM_WARP_POSITION_CONFIRMED`, `runtime.py`) landed on
+  main, and COO-DECISION 20260830_1645/1742 lifted the lock: the constant is
+  now `0` and `/warp` (same-scene) composes real wire actions by default.
+  See that constant's block and `test_gm_force_pos_version_lock.py` -- ~~and
+  note that release day edits TWO test files: `VersionGateTests` in this
+  module's own suite asserts the constant is None unconditionally.~~ that
+  release day did edit both test files; `VersionGateTests` now asserts the
+  constant equals `0`.
   The rest of that constant's comment still holds: the vital version byte is
   per-vital (0x5A19 -> 0, ForcePos -> 0, TeleportVital -> 4 from the client's
   own constructors; SelectActor -> 10 from the legacy server source -- four

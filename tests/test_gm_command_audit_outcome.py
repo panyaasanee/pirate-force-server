@@ -19,7 +19,15 @@ two states write DIFFERENT values, that a pair of rows is tied by one
 the day CORE-REQUEST-GM-032 item 3 lands (chief reporting back from
 `actions = actions + [gm_action]`), and `test_queued_is_unreachable_until_the
 _append_site_reports_back` fails the moment any lane file tries to write it
-first.  Nothing here claims a byte reached a client; both gates are shut.
+first.  Nothing here claims a byte reached a client, even on the composed
+side: `composed` still only means the frame exists and was handed back.
+
+SINCE COO-DECISION 20260830_1645/1742.  The warp gate shipped at `0` (RE-129's
+measured byte); the say gate is still `None` (RE-132 unanswered).  The
+"withheld" half of every warp comparison in this file therefore has to force
+the gate shut itself now -- `open_the_warp_gate`'s sibling `close_the_warp_gate`
+does that -- rather than getting it for free from the shipped constant the
+way it used to.
 """
 from __future__ import annotations
 
@@ -166,6 +174,16 @@ class _Case(unittest.TestCase):
             UNPROVEN_TEST_VERSION,
         )
 
+    def close_the_warp_gate(self):
+        """The sibling of `open_the_warp_gate`, for the withheld side of the
+        comparison this file exists for. COO-DECISION 20260830_1645/1742 set
+        the shipped constant to `0`, so the withheld state is no longer the
+        default -- a test proving it has to force the gate shut itself.
+        """
+        return mock.patch.object(
+            teleport_wire, "FORCE_POS_VITAL_VERSION_CONFIRMED", None
+        )
+
 
 class TheTwoStatesAreDistinguishableTests(_Case):
     """Item 2, stated as the thing that was missing: same typed line, two
@@ -179,7 +197,11 @@ class TheTwoStatesAreDistinguishableTests(_Case):
             with self.open_the_warp_gate():
                 action = self.act(session, self.LINE)
         else:
-            action = self.act(session, self.LINE)
+            # Shut explicitly: COO-DECISION 20260830_1645/1742 set the
+            # shipped constant to 0, so the withheld state this branch is
+            # for is no longer the default and must be forced.
+            with self.close_the_warp_gate():
+                action = self.act(session, self.LINE)
         rows = self.outcome_rows()
         self.assertEqual(len(rows), 1, f"audit log: {self.log_records()}")
         return action, rows[0]["outcome"]
@@ -391,11 +413,12 @@ class AuditFailureIsFailClosedTests(_Case):
         )
 
     def test_a_withheld_command_still_reports_the_audit_failure(self):
-        # Nothing left to withhold (the gate already withheld it), but the
-        # trail must not go quiet: "no outcome row" and "no command" look
-        # identical in the file otherwise.
+        # Nothing left to withhold (the gate already withheld it -- forced
+        # shut here, since COO-DECISION 20260830_1645/1742 means that is no
+        # longer the shipped state), but the trail must not go quiet: "no
+        # outcome row" and "no command" look identical in the file otherwise.
         session = FakeSession(position=FakePosition(scene_id=2))
-        with mock.patch.object(
+        with self.close_the_warp_gate(), mock.patch.object(
             chat_command_action,
             "log_gm_command_outcome",
             side_effect=OSError("disk full"),
@@ -749,11 +772,15 @@ class QueuedIsReservedTests(unittest.TestCase):
 
 
 class NoBytesWentOutTests(unittest.TestCase):
-    def test_both_gates_are_still_shut_on_the_shipped_constants(self):
-        # Every "composed" row in these tests came from a PATCHED gate.  If
-        # this fails without an RE result and a COO-DECISION behind it,
-        # someone opened a door while adding an audit field.
-        self.assertIsNone(teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED)
+    def test_the_shipped_constants_match_their_own_locks(self):
+        # Every "composed" `warp` row and every withheld `say` row in these
+        # tests came from a gate this file patched itself, open or shut. If
+        # either assertion below fails without an RE result and a
+        # COO-DECISION behind it, someone changed a release gate while
+        # adding an audit field.  The warp gate's shipped value is 0
+        # (COO-DECISION 20260830_1645/1742, RE-129's measured byte); the say
+        # gate's is still None (RE-132 unanswered).
+        self.assertEqual(teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED, 0)
         self.assertIsNone(say_wire.GM_GLOBAL_MESSAGE_VITAL_VERSION_CONFIRMED)
 
 

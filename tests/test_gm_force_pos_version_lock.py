@@ -18,6 +18,19 @@ event is the first `TargetPos` after the frame. It then locked this lane: do
 not change `FORCE_POS_VITAL_VERSION_CONFIRMED` from None until that confirmed
 write point is on `main` -- EVEN THOUGH RE-129 has already answered.
 
+THE LOCK IS LIFTED.  COO-DECISION 20260830_1645 (reaffirmed 20260830_1742)
+found precondition (a) below satisfied -- `runtime.py` carries a live
+`GM_WARP_POSITION_CONFIRMED` write point, not a comment promising one -- and
+ordered `FORCE_POS_VITAL_VERSION_CONFIRMED` set to the literal `0` RE-129
+measured.  That is done.  This file's own job does not change with it: the
+checks below are still about BYTES, not about which value currently sits in
+the constant, so they keep working whether the switch is on or off. What
+changed is which state is normal: `ConfirmedWritePointTests` below returns
+early forever now unless the constant is reverted, and the shipped-value lock
+itself lives in `tests/test_gm_chat_command_action.py::VersionGateTests::
+test_the_shipped_constant_is_confirmed_at_the_re129_value`, pinned at `0`
+rather than at `None`.
+
 WHAT THE FIRST VERSION OF THIS FILE GOT WRONG (pf-adversary, round `fo2lgh`)
 ----------------------------------------------------------------------------
 It guarded a NAME. COO's order is about BYTES. The adversary put four working
@@ -56,12 +69,15 @@ ENFORCED IN ONE DIRECTION ONLY, DELIBERATELY
 Landing the write point does NOT force the constant on. Lifting the lock is
 COO's call, not a mechanical consequence of a grep.
 
-!! RELEASE DAY NEEDS TWO FILES, NOT ONE. `tests/test_gm_chat_command_action.py`
-::VersionGateTests::test_the_shipped_constant_is_still_none_so_no_bytes_can_go_out
-asserts `assertIsNone` UNCONDITIONALLY and predates this file. Whoever lifts
-the lock must edit that test too, or get three unexplained reds. It is named
-here because the adversary found the release sequence documented in
-`teleport_wire.py` and `docs/GM_LANE.md` did not mention it at all.
+!! RELEASE DAY NEEDED TWO FILES, NOT ONE, AND GOT THEM.
+`tests/test_gm_chat_command_action.py::VersionGateTests::
+test_the_shipped_constant_is_confirmed_at_the_re129_value` used to assert
+`assertIsNone` UNCONDITIONALLY and predates this file; COO-DECISION
+20260830_1645/1742 is why it now asserts `== 0` instead. This paragraph stays
+as the record of the trap (the adversary found the release sequence
+documented in `teleport_wire.py` and `docs/GM_LANE.md` did not mention that
+second file at all) so the NEXT lock -- on whatever constant is next --
+remembers to name every file it touches, not just its own.
 
 WHAT IT DOES NOT CLAIM
 ----------------------
