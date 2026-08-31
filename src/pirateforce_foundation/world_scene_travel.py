@@ -94,9 +94,23 @@ from .model import Position
 from .population import SCENE_ID, SCENE_SEQUENCE
 
 
-# Convention marker only.  Nothing in this tree branches on it.  Until
-# runtime.py - the chief's file, not this lane's - calls into this module, a
-# player logs in exactly where they logged in yesterday.
+# Convention marker only.  Nothing in this tree branches on it.
+# ~~Until runtime.py - the chief's file, not this lane's - calls into this
+# module, a player logs in exactly where they logged in yesterday.~~  STRUCK,
+# MEASURED FALSE AT HEAD (LANE-A, round this-round, 2026-09-01 - the sibling
+# correction to ``world_scene_entry.py``'s own stale "nothing calls it yet",
+# found while checking whether this file's matching claim about itself was
+# still true).  ``runtime.py`` reads this module DIRECTLY, by name, at three
+# call sites (``is_position_persist_allowed``, and ``spawn_position``/
+# ``destination`` together at a second site) and INDIRECTLY at several more,
+# through ``world_scene_entry.resolve_entry`` (which itself calls
+# ``destination``, ``entry_fields`` and ``home_return_position``) and through
+# ``gm/login_scene_admission.py``'s ``stageable_scene_ids``/
+# ``_target_is_admissible``, all on the flagless default boot.  This
+# paragraph was true the round it was written, before any of those call
+# sites existed; it is not true today.  ``runtime.py`` and
+# ``app.py`` remain the chief's files and this lane still does not edit them
+# - that half was never the part that went stale.
 production_allowed = True
 test_only = False
 
