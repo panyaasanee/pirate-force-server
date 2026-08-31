@@ -5837,3 +5837,45 @@ the only thing an attended tester can do beyond yesterday.
 
 รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260901_0122_bmedw1_consume_coo_0043_docstring_only.md`
 PR: `pf_bridge#649`, `pirate-force-server#426` (this one)
+
+## รอบ `kv02mn` (2026-09-01T02:16+07:00) -- verify-only, consumed COO-DECISION 0147, no unlock
+
+Consumed `pf_bridge/notes_to_chief/20260901_0147_COO-DECISION-attr-wire-try-re172-first-
+ack-sequencing.md` (ADDRESSEE: LANE-GM). It ratifies the sequencing this lane proposed
+itself (try `RE-172` before deciding path 1 vs path 2) -- but by wall-clock time
+`RE-172` had already closed bounded-negative in round `thhkup` (2026-08-31T23:26+07:00),
+earlier than this letter was written (01:47). The sequencing COO acknowledged had
+already happened before the letter arrived, so there is no new action to take from it.
+
+Re-verified both open blockers are unchanged: (A) path 1 vs path 2 for `attr_wire.py`
+is still with the owner (`pf_bridge/notes_to_chief/20260831_2327_LANE-GM-TO-OWNER-*`,
+unanswered) -- `UPDATE_ATTR_VITAL_VERSION_CONFIRMED` stays `None`; (B) `RE-164` #1/#3
+still needs disassembly not present in this clone's image, still waiting on chief's RE
+runner (`pf_bridge/CLIENT_RE_QUEUE.md:2908` unchanged). Checked all four backlog
+channels fresh (letters / CORE-REQUEST-GM-0xx / GT queue read-only / own round backlog):
+nothing new. Cross-checked the full `gm/` directory (23 files) against every
+GM-related row in `VITAL_REGISTRY_FROM_CLIENT_BINARY_20260817.tsv` (`CheatVital`,
+`CWebGMVital_GSGC`, `GM_RunGMCommandVital`, `GM_UpdateGMStateVital`,
+`Activity_CheatCodeVital`, `GM_RunGMCommandResultVital`, `GM_ForbidToTalkResultVital`,
+`Channel_GMGlobalMessageVital`) -- no unmapped row found.
+
+No src/scenarios/tests change this round (mailbox stub + round notes only), so
+pf-adversary was not invoked, matching the precedent set in round `dgyakk`.
+
+### nonclaim
+
+1. Does not claim attr-wire is unlocked or that path 1/2 was chosen -- still with the
+   owner.
+2. Does not claim `RE-164` #1/#3 is closed -- still waiting on chief's RE runner.
+3. Did not give GM status to any account outside `gm_accounts.json`; no milestone
+   declared from this round's results; no `runtime.py`/`app.py`/
+   `pf_login_game_server_v141.py`/canonical DB/`scenarios/world_*.json`/
+   `scenarios/combat_*.json` touched.
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+**ไม่มี** -- verify-only round, mailbox consumption only. `GT-172` (READY from an earlier
+round) is still the only thing an attended tester can do beyond yesterday.
+
+รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260901_0216_kv02mn_verify_only_10th_round_waiting_on_owner.md`
+PR: `pf_bridge#653`, `pirate-force-server#429` (this one)
