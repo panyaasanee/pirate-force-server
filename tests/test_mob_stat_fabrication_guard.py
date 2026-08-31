@@ -63,6 +63,13 @@ LANE_B_MODULES = (
     "loot_roll.py",
     "mob_aggro.py",
     "mob_ai_control.py",
+    # ROUND 256rvs: the deterministic, per-session caller mob_ai_control's
+    # own header names as still missing (mob_ai_control.tick_step had no
+    # production caller anywhere in this tree). No player stat of any kind
+    # -- it reads a mob's own HP off the combat ledger and the ONE player
+    # position a per-session driver already owns. Listed in the same commit
+    # as the module, same reason every other entry on this tuple gives.
+    "mob_ai_scheduler.py",
     # ROUND wmomy7: the scene-scoped hostile census override, and the
     # census-backing check that found five roster rows with no body.
     "mob_census_hostility.py",
