@@ -955,20 +955,25 @@ guard("make_remote_actor_entry" in _v141,
 # new encoder (same legacy.make_npc_attr/make_remote_actor_entry/
 # make_runtime_remote_actors this file's own SRC_ACTOR_ENTRY_SITES already
 # counts everywhere else).
-guard(SRC_ACTOR_ENTRY_SITES == 24,
-      "src/ builds actor entries at exactly 24 call sites (4 spawns + the "
+# Round 78zayw re-pin (LANE-A), 24 -> 25 and 33 -> 34 and 23 -> 24.
+# world_population_bg0007.py, the Bg0007 (Voodoo Island) census (seventh
+# door of the same COO-DECISION 2026-08-30T14:41+07:00 sequence), builds one
+# entry and sends one carrier, the same shape as bg0003 before it -- also
+# wired and door-opened in the same round it was built.
+guard(SRC_ACTOR_ENTRY_SITES == 25,
+      "src/ builds actor entries at exactly 25 call sites (4 spawns + the "
       "round-86 death re-send + the round-96 remote-player probe + the "
       "round-99 hostile spawn + the round-111 NPC HP ladder + the "
       "HYP-PF-038 hostile HP link + the lane-B production modules + the "
       "GT-114 multi-object diagnostic + the lane-A bg0002, bg0015, bg0004, "
-      "bg0010, bg0005, bg0006, bg0008 and bg0003 censuses + the jqxe6v "
-      "Bg0015 hostile-splice proof's civilian entry)")
+      "bg0010, bg0005, bg0006, bg0008, bg0003 and bg0007 censuses + the "
+      "jqxe6v Bg0015 hostile-splice proof's civilian entry)")
 # ROUND y9s0xo (lane B): 25 -> 26.  mob_scene_recompose.py re-encodes the
 # collection when it splices a scene's roster override into a recompose --
 # the same encoder, one more call site, and no new actor ENTRY builder.
-guard(SRC_ACTOR_STREAM_SITES == 33,
-      "src/ sends the actor-entry carrier at exactly 33 call sites")
-guard(SRC_MODULES_WITH_ACTOR_ENTRY == 23
+guard(SRC_ACTOR_STREAM_SITES == 34,
+      "src/ sends the actor-entry carrier at exactly 34 call sites")
+guard(SRC_MODULES_WITH_ACTOR_ENTRY == 24
       and SRC_MODULES_WITH_ACTOR_ENTRY_NAMES == (
           "field_mob_hostile_bg0015.py",
           "field_mobs.py",
@@ -985,10 +990,11 @@ guard(SRC_MODULES_WITH_ACTOR_ENTRY == 23
           "world_population_bg0004.py",
           "world_population_bg0005.py",
           "world_population_bg0006.py",
+          "world_population_bg0007.py",
           "world_population_bg0008.py",
           "world_population_bg0010.py",
           "world_population_bg0015.py"),
-      "23 named src/ modules build actor entries %s"
+      "24 named src/ modules build actor entries %s"
       % (SRC_MODULES_WITH_ACTOR_ENTRY_NAMES,))
 # Round 97 re-pin, 4 -> 5.  DAMAGE-HP-LINK-001 added the fifth mention:
 # damage_hp_link_hypothesis.py names bit 0x0080 because its two lethal frames

@@ -400,9 +400,15 @@ class TestTheAnswer(unittest.TestCase):
         # layer-1 unlock) builds one synthetic civilian actor entry per
         # Bg0015 placement for its own splice-proof function -- same
         # encoder, no new runtime.py call site.
-        self.assertEqual(counts["src_actor_stream_call_sites"], 33)
-        self.assertEqual(counts["src_actor_entry_call_sites"], 24)
-        self.assertEqual(counts["src_modules_building_actor_entries"], 23)
+        # 33 -> 34, 24 -> 25, 23 -> 24 on 2026-08-31 (LANE-A, round 78zayw):
+        # world_population_bg0007.py, the Bg0007 (Voodoo Island) census
+        # (seventh door of the same COO-DECISION 2026-08-30T14:41+07:00
+        # sequence), the same single-module move.  Also wired AND its
+        # scene's door opened in the same round that built it, same shape
+        # as bg0003.
+        self.assertEqual(counts["src_actor_stream_call_sites"], 34)
+        self.assertEqual(counts["src_actor_entry_call_sites"], 25)
+        self.assertEqual(counts["src_modules_building_actor_entries"], 24)
         self.assertIn(
             "npc_hostile_hypothesis.py",
             counts["src_modules_building_actor_entries_names"],

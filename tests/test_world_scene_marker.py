@@ -601,13 +601,19 @@ class Scene14RegistryTests(unittest.TestCase):
         ``test_scene_8_opened_separately_and_that_is_a_different_round``
         below.
 
-        UPDATED this round: scene 3 left this set the same way, sixth of
+        UPDATED round p7wm17: scene 3 left this set the same way, sixth of
         the ten doors this lane has opened -- built, wired and opened in
         one round, same compressed shape as scenes 5's, 6's and 8's.  See
         ``test_scene_3_opened_separately_and_that_is_a_different_round``
         below.
+
+        UPDATED this round: scene 7 left this set the same way, seventh of
+        the ten doors this lane has opened -- built, wired and opened in
+        one round, same compressed shape as scenes 5's, 6's, 8's and 3's.
+        See ``test_scene_7_opened_separately_and_that_is_a_different_round``
+        below.
         """
-        for scene_id in (7, 9, 11, 130):
+        for scene_id in (9, 11, 130):
             with self.subTest(scene_id=scene_id):
                 target = world_scene_travel.destination(
                     scene_id, self.registry)
@@ -679,7 +685,7 @@ class Scene14RegistryTests(unittest.TestCase):
         self.assertTrue(world_faction_admission.admits(8, self.registry))
 
     def test_scene_3_opened_separately_and_that_is_a_different_round(self):
-        """ADDED this round: the sixth scene removed from the tuple above.
+        """ADDED round p7wm17: the sixth scene removed from the tuple above.
 
         Same reasoning as scenes 4's, 10's, 5's, 6's and 8's sibling tests.
         Like scenes 5, 6 and 8, scene 3 (Spice Paradise Island) does NOT
@@ -689,6 +695,19 @@ class Scene14RegistryTests(unittest.TestCase):
         target = world_scene_travel.destination(3, self.registry)
         self.assertTrue(target.login_entry_allowed)
         self.assertTrue(world_faction_admission.admits(3, self.registry))
+
+    def test_scene_7_opened_separately_and_that_is_a_different_round(self):
+        """ADDED this round (78zayw): the seventh scene removed from the
+        tuple above.
+
+        Same reasoning as scenes 4's, 10's, 5's, 6's, 8's and 3's sibling
+        tests.  Like scenes 5, 6, 8 and 3, scene 7 (Voodoo Island) does NOT
+        carry the elevated landing-geometry flag (``the_two_interiors``) --
+        checked, not assumed, in ``world_bg0007_identity``'s own docstring.
+        """
+        target = world_scene_travel.destination(7, self.registry)
+        self.assertTrue(target.login_entry_allowed)
+        self.assertTrue(world_faction_admission.admits(7, self.registry))
 
     def test_a_non_login_caller_still_lands_on_the_marker_and_says_so(self):
         # The door being shut to logins does not make the pin untestable:

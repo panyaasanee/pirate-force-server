@@ -115,6 +115,7 @@ OCEAN_WALLED_CITY_SCENE_ID = 6
 SILVER_HARBOUR_SCENE_ID = 8
 DEEP_SEA_TEMPLE_SCENE_ID = 10
 SPICE_PARADISE_SCENE_ID = 3
+VOODOO_ISLAND_SCENE_ID = 7
 MEASURED_SCENE_IDS = (1, 2)
 CENSUS_SCENE_ID = SCENE_ID
 CENSUS_SOURCE = "bg0001_census"
@@ -191,11 +192,20 @@ CENSUS_SOURCE = "bg0001_census"
 # rounds ``l03cgh``/``fx0007``/``p4wire`` set for scenes 5, 6 and 8; see
 # ``scenarios/world_scene_registry_001.json``'s own
 # ``login_entry_allowed_because`` on this row for the D1/D2/D3 check.
+# WIDENED 2026-08-31 (round 78zayw, LANE-A) with the tenth composer this
+# lane has shipped: "bg0007_roster" is ``world_population_bg0007.py``'s own
+# name for itself, the seventh door of the ten surveyed in round ``12lyda``
+# (68 native placements, the highest of the four still shut after scenes 4,
+# 5, 6, 8, 10 and 3 opened).  Same compressed build+wire+open-in-one-pass
+# shape rounds ``l03cgh``/``fx0007``/``p4wire``/``p7wm17`` set for scenes 5,
+# 6, 8 and 3; see ``scenarios/world_scene_registry_001.json``'s own
+# ``login_entry_allowed_because`` on this row for the D1/D2/D3 check.
 CENSUS_SOURCES = {
     CENSUS_SCENE_ID: CENSUS_SOURCE,
     PRISON_EXILE_SCENE_ID: "bg0002_roster",
     HELL_VOLCANO_SCENE_ID: "bg0015_roster",
     SPICE_PARADISE_SCENE_ID: "bg0003_roster",
+    VOODOO_ISLAND_SCENE_ID: "bg0007_roster",
     SLAVE_MARKET_SCENE_ID: "bg0004_roster",
     EVIL_PORT_SCENE_ID: "bg0005_roster",
     OCEAN_WALLED_CITY_SCENE_ID: "bg0006_roster",
