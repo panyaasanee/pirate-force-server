@@ -576,6 +576,52 @@ class MobLootTests(unittest.TestCase):
             commit_drops(ledger, colliding, base_generation=ledger.generation, kill_token=1)
         self.assertEqual(caught.exception.args[0], "ledger_stale")
 
+    def test_a_kill_token_that_moves_backward_for_the_same_identity_is_refused_the_same_way_a_replay_is(
+            self):
+        """The exact boundary ``DropLedger.looted`` depends on, pinned.
+
+        ROUND `h40iwu`, naming the risk
+        `pf_bridge/notes_to_chief/20260901_0106_LANE-B-STATUS-bg0015-combat-
+        ledger-gap-measured-*.md` recorded but left unfixed: ``looted`` has
+        NO scene term, only ``actor_identity``.  It stays safe today only
+        because ``kill_token`` counts up forever across every scene and
+        the guard in :func:`commit_drops` is genuinely ``previous >=
+        kill_token`` -- refuse anything NOT strictly increasing -- not
+        merely ``previous == kill_token`` -- refuse only an exact replay.
+        Every OTHER test in this file exercises kill_token 1 then 1 (an
+        exact replay) or 1 then 2 (a genuine respawn); neither tells the
+        two guards apart.  This one does, with a token that goes DOWN --
+        exactly what a future per-scene-scoped or per-scene-reset token
+        would hand this ledger the day two live scenes' identity ranges
+        ever collide (see the field's own comment in ``mob_loot.py`` for
+        the two facts that keep this safe today).  If this test ever goes
+        red because the guard loosened to ``!=``, that is the day this
+        module needs a scene term of its own.
+        """
+        identity = self.mob.actor_identity
+        ledger = commit_drops(
+            DropLedger(), (), base_generation=0, kill_token=5,
+            mob_identity=identity)
+        self.assertEqual(ledger.looted, ((identity, 5),))
+        with self.assertRaises(MobLootContractError) as caught:
+            commit_drops(
+                ledger, (), base_generation=ledger.generation, kill_token=3,
+                mob_identity=identity)
+        self.assertEqual(caught.exception.args[0], "mob_already_looted")
+        # The boundary is exactly ">=": one token HIGHER than what is
+        # already recorded is accepted (a genuine respawn)...
+        accepted = commit_drops(
+            ledger, (), base_generation=ledger.generation, kill_token=6,
+            mob_identity=identity)
+        self.assertEqual(accepted.looted, ((identity, 6),))
+        # ...and the SAME token as what is already recorded is refused,
+        # the exact replay case this guard exists for.
+        with self.assertRaises(MobLootContractError) as caught:
+            commit_drops(
+                accepted, (), base_generation=accepted.generation,
+                kill_token=6, mob_identity=identity)
+        self.assertEqual(caught.exception.args[0], "mob_already_looted")
+
     def test_the_next_key_follows_the_highest_key_ever_issued(self):
         _roll, _record, drops = self._one_kill()
         ledger = commit_drops(DropLedger(), drops, base_generation=0, kill_token=1)
