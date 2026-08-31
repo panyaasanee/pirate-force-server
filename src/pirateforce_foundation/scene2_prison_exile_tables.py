@@ -13,8 +13,50 @@ placement 63 from MOBS 360 per RE-173's BUILD_IMPACT (id, level range, walk
 speed, derived max_hp - outfit/name/title/rank/AI/drops are unchanged,
 RE-173 confirmed those columns match between MOBS 36 and 360).  RE-173 did
 NOT re-audit the other 96 known placements' Mob-Set-number-as-n_ID
-assumption - that stays an open question for a future round/ticket, not
-something this fix answers.
+assumption - that stayed an open question for a future round/ticket, not
+something that fix answered.  RE-188 (below) is that audit.
+
+RE-188 AUDIT (round this-round, static, no client) - the other 96 known
+placements, closed with a mix of confirm and a genuine new open question.
+Applying RE-173's own method (scene 2's ``n_CLINE_TYPE=2``, key
+``(2, NN)`` in ``CONSTDATA_TH__CLINE.tsv`` -> ``n_LEADER_BK1``) to every
+Mob-Set NN this table uses: all 96 keys resolve to SOME row in the type-2
+CLINE table (none unresolved), and 92 of them resolve to themselves
+(``n_LEADER_BK1 == NN``, no ambiguity - BK2/BK3/crew columns all zero for
+every key checked) - consistent with the NN-as-``MOBS.n_ID`` hypothesis,
+same as before, not newly proven, just not contradicted either.
+
+FOUR keys do NOT resolve to themselves, the same shape of mismatch RE-173
+found for placement 63: NN 38 -> 231, NN 39 -> 742, NN 40 -> 743, NN 41 ->
+914 (placements 64, 67, 68, 91; ``CONSTDATA_TH__CLINE.tsv`` rows 352-354 and
+357, all unambiguous - BK2/BK3/crew zero, same check as placement 63's row
+350).  UNLIKE placement 63, this table's NOT regenerating these four rows
+from the CLINE-resolved ID, because the corroborating evidence RE-173 had
+(same name, same outfit, both literally "Columbus") is ABSENT here and
+partly CONTRADICTED: NN 38 "Reyna" (Spice Merchant, outfit
+``P_FEMALE_001_001_RENA``) resolves to MOBS 231 "Navy Bulletin Board"
+(outfit ``BULLETIN_BOARD``, ``s_TITLE`` empty unlike Reyna's "Spice
+Merchant", flavor text describing a physical board) - an object, not a
+person.  NN 39/40/41 (Mo Yuzi / Carle / Martin, each a named NPC with a
+sensible title) resolve to MOBS 742/743/914, three entirely different named
+characters with different outfits and no evident relation to the
+placements' current identities.  Regenerating from these IDs the way
+placement 63 was would very likely REPLACE four working, correctly-named
+NPCs with wrong (in one case non-NPC) actors - the same shape of risk this
+project's two-layer-evidence discipline (``G1``-``G8``, ``G-OBS``,
+CHARTER-01) exists to catch, and the same shape of risk ``RE-170`` (still
+OPEN as of this writing, see ``CLIENT_RE_QUEUE.md``) is separately
+investigating for a different table - not cited here as a closed precedent,
+only as a sibling case of "a raw table value and the data already on record
+disagree, and picking one without more evidence is a guess."  This table
+keeps NN 38/39/40/41 exactly as measured (Mob-Set number used directly, the
+same as it did before this audit) until RE-188 explains why scene 2's
+type-2 CLINE table maps these four keys somewhere that contradicts every
+other source, or confirms the mismatch is real and these four instances
+need a different fix than "regenerate from the CLINE leader".  See
+``notes_to_chief/CLIENT_RE_QUEUE.md`` RE-188 in ``pf_bridge`` for the full
+evidence and pass criteria.  Opened by LANE-A, consumed by LANE-A (this
+table is this lane's own file).
 
 HAND-ASSEMBLED THIS ROUND, NOT MACHINE-GENERATED.  ``field_mob_tables.py`` is
 written by ``tools/pf_mine_scene_mob_roster.py``, which lives in ``tools/`` -
