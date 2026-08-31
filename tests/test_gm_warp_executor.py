@@ -1,6 +1,7 @@
 """CORE-REQUEST-011: same-scene warp execution via ForcePos."""
 from __future__ import annotations
 
+import struct
 import sys
 import unittest
 from pathlib import Path
@@ -17,7 +18,9 @@ from pirateforce_foundation.gm.teleport_wire import (
 )
 from pirateforce_foundation.gm.warp_executor import (
     WarpExecutorError,
+    WarpTarget,
     make_warp_force_pos_frame,
+    make_warp_teleport_frame_with_target,
 )
 
 
@@ -275,6 +278,102 @@ class WarpExecutorArgsShapeTests(unittest.TestCase):
         bad = GmCommand("warp", EvilTuple((1, 2.0, 3.0)), "warp 1 2 3")
         with self.assertRaises(WarpExecutorError) as ctx:
             make_warp_force_pos_frame(self.legacy, 1, bad, 1, 0.0)
+        self.assertNotIsInstance(ctx.exception, KeyError)
+
+
+class WarpTeleportCrossSceneTests(unittest.TestCase):
+    """CORE-REQUEST: cross-scene warp via legacy.make_login_teleport.
+
+    COO-DECISION 2026-08-31T14:41+07:00 (pf_bridge/notes_to_chief/
+    20260831_1441_COO-DECISION-warp-cross-scene-opens-gt106r2-passed.md)
+    authorizes this. Scene 17 is the one destination GT-106-R2 measured a
+    real client rendering; scene 278 is used elsewhere in this codebase's
+    own gm/login_scene_stage tests as a plain, catalog-known, non-
+    sanctioned scene, so it doubles as a second known-good id here without
+    inventing a new fixture value.
+    """
+
+    def setUp(self):
+        self.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+
+    def test_builds_the_exact_bytes_make_login_teleport_would(self):
+        command = parse_gm_command("warp 278 100 200")
+        pc, frame, _target = make_warp_teleport_frame_with_target(
+            self.legacy, command, 30.0
+        )
+        expected_pc, expected_frame = self.legacy.make_login_teleport(
+            278, 0, 100.0, 200.0, 30.0
+        )
+        self.assertEqual(pc, expected_pc)
+        self.assertEqual(frame, expected_frame)
+
+    def test_scene_seq_is_always_the_shared_scene_sequence_constant(self):
+        # population.SCENE_SEQUENCE is 0 -- "the only value ever measured, at
+        # scene 1 and at scene 2 alike" per that module's own docstring.
+        # Reused here rather than re-derived so a future correction fixes
+        # this module for free.
+        from pirateforce_foundation.population import SCENE_SEQUENCE
+
+        self.assertEqual(SCENE_SEQUENCE, 0)
+        command = parse_gm_command("warp 17 834 -598")
+        pc, _frame, target = make_warp_teleport_frame_with_target(
+            self.legacy, command, 0.0
+        )
+        expected_pc, _ = self.legacy.make_login_teleport(
+            17, SCENE_SEQUENCE, 834.0, -598.0, 0.0
+        )
+        self.assertEqual(pc, expected_pc)
+        self.assertEqual(target.scene_id, 17)
+
+    def test_the_target_carries_the_wire_binary32_values_not_the_python_floats(self):
+        command = parse_gm_command("warp 278 11865.7 6147")
+        _, _, target = make_warp_teleport_frame_with_target(
+            self.legacy, command, -3.25
+        )
+        self.assertIsInstance(target, WarpTarget)
+        expected_x = struct.unpack("<f", struct.pack("<f", 11865.7))[0]
+        self.assertEqual(target.x, expected_x)
+        self.assertNotEqual(target.x, 11865.7)  # the whole point of the test
+        self.assertEqual(target.y, 6147.0)
+        self.assertEqual(target.z, -3.25)
+        self.assertEqual(target.scene_id, 278)
+
+    def test_refuses_a_non_warp_command(self):
+        command = parse_gm_command("lv 60")
+        with self.assertRaises(WarpExecutorError):
+            make_warp_teleport_frame_with_target(self.legacy, command, 0.0)
+
+    def test_refuses_the_coordinate_less_form(self):
+        # There is still no position for TeleportVital to carry either --
+        # this shape stays gm/login_scene_stage.py's job.
+        command = parse_gm_command("warp 278")
+        with self.assertRaises(WarpExecutorError) as ctx:
+            make_warp_teleport_frame_with_target(self.legacy, command, 0.0)
+        self.assertIn("stages", str(ctx.exception))
+
+    def test_refuses_an_unknown_scene_id_rather_than_composing_blind(self):
+        command = parse_gm_command("warp 999999 0 0")
+        with self.assertRaises(WarpExecutorError) as ctx:
+            make_warp_teleport_frame_with_target(self.legacy, command, 0.0)
+        self.assertIn("999999", str(ctx.exception))
+
+    def test_refuses_non_finite_coordinates(self):
+        command = parse_gm_command("warp 278 100 200")
+        with self.assertRaises(WarpExecutorError):
+            make_warp_teleport_frame_with_target(
+                self.legacy, command, float("nan")
+            )
+        bad = GmCommand("warp", ("278", "nan", "1"), "warp 278 nan 1")
+        with self.assertRaises(WarpExecutorError):
+            make_warp_teleport_frame_with_target(self.legacy, bad, 0.0)
+
+    def test_refuses_a_non_tuple_args_container_same_as_the_force_pos_path(self):
+        # Both composers share `_require_args_tuple`; one regression test
+        # here is enough to prove the sharing, not a second full sweep of
+        # every shape WarpExecutorArgsShapeTests already covers.
+        bad = GmCommand("warp", {0: 278, 1: 100.0, 2: 200.0}, "warp 278 100 200")
+        with self.assertRaises(WarpExecutorError) as ctx:
+            make_warp_teleport_frame_with_target(self.legacy, bad, 0.0)
         self.assertNotIsInstance(ctx.exception, KeyError)
 
 

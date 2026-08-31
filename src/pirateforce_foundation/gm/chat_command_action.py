@@ -85,17 +85,21 @@ WHAT IT DOES NOT DO
   authenticated `session.token`, before it decodes a byte -- one
   authorization point for this lane, not two (the mistake this module would
   make by re-checking the allowlist "to be safe").
-* It does not cross scenes.  `ForcePos` carries no scene id at all (RE-090);
-  `gm/warp_executor.py` refuses a cross-scene `warp` rather than send an
-  in-scene hop that misrepresents what happened.  Cross-scene warp needs
-  `TeleportVital`, whose target/aux fields RE-090 leaves unproven.
-  STILL TRUE OF THE WIRE, and now only of the wire (round `gejldf`): a
-  cross-scene `/warp` no longer dead-ends in a refusal, it STAGES the
-  account's next login scene through `gm/login_scene_stage.py` -- a config
-  write, not a frame.  Nothing crosses a scene while the GM is logged in;
-  the GM has to log out and back in, and every report that uses it has to
-  say so.  See `_warp_action`'s routing rule for which half a given command
-  takes.
+* `ForcePos` does not cross scenes, and never will -- it carries no scene id
+  at all (RE-090); `gm/warp_executor.py` refuses to send an in-scene hop for
+  a command that asked to leave the scene, because that would misrepresent
+  what happened.  ~~So this module does not cross scenes.~~ NO LONGER TRUE
+  OF THE WHOLE MODULE, only of that one composer (round `gejldf` first, this
+  round further): a cross-scene `/warp` with coordinates now DOES cross a
+  scene, live, mid-session, via `legacy.make_login_teleport` -- the SAME
+  encoder `runtime.py`'s own call sites already send, proven by GT-106-R2 to
+  move a real client's screen (COO-DECISION 2026-08-31T14:41+07:00).  A
+  cross-scene `/warp` with NO coordinates still cannot cross anything mid-
+  session (neither composer has a position for that shape) and still STAGES
+  the account's next login scene through `gm/login_scene_stage.py` instead
+  -- a config write, not a frame; the GM has to log out and back in, and
+  every report that uses it has to say so.  See `_warp_action`'s routing
+  rule for which of the three shapes a given command takes.
 * It does not send anything for `npc`/`item`/`lv`/`spawn`.  Those
   parse and audit exactly as before and return no action -- naming them here
   as "not wired yet" by event is the difference between a lane that is
@@ -194,6 +198,17 @@ composes a frame and does not checkpoint.  A future round that adds a
 one option COO explicitly struck out.  The gap that remains is not in this
 file; it is the missing confirmed write point in runtime.py.
 
+THE SAME RULE, APPLIED TO THE CROSS-SCENE TELEPORT PATH WITHOUT RE-ASKING
+IT.  `_warp_teleport_action`'s `TeleportVital` frame is a REQUEST in the
+identical sense a `ForcePos` frame is -- GT-106-R2 proved the mechanism
+moves a real client's screen, which is a stronger fact than anything ever
+measured about `ForcePos`, but it is still not per-frame confirmation, and
+`WarpTarget`'s own docstring says so explicitly.  `_warp_teleport_action`
+therefore composes and parks exactly the way `_warp_action`'s ForcePos
+branch does, and does not checkpoint either -- the three-line ruling above
+was never scoped to one vital id, and this module does not narrow it to one
+just because a second composer arrived.
+
 THE QUESTION AS IT WAS ASKED (kept, not deleted)
 ------------------------------------------------
 pf-adversary (round `gr2q9j`) asked the question that design did not answer:
@@ -270,6 +285,7 @@ from . import (
     npc_switch_catalog,
     say_wire,
     teleport_wire,
+    warp_executor,
 )
 from .chat_command import (
     TYPED_COMMAND_REFUSAL_PREFIXES,
@@ -303,6 +319,7 @@ from .commands import (
 from .say_wire import make_say_broadcast_frame
 from .warp_executor import (
     make_warp_force_pos_frame_with_target,
+    make_warp_teleport_frame_with_target,
     warp_command_has_coordinates,
     warp_command_scene_id,
 )
@@ -334,6 +351,31 @@ from .warp_target_record import (
 # prevent.  A test pins this substring against that call site; do not rename
 # this constant without reading it.
 WARP_ACTION_LABEL = "LANE_GM_CHAT_WARP_TELEPORT_FORCE_POS"
+
+# The action label for a GM `/warp <scene_id> x y` that crosses scenes and
+# fires LIVE (COO-DECISION 2026-08-31T14:41+07:00) instead of staging.
+#
+# !! THE SAME "SUBSTRING `TELEPORT` IS LOAD-BEARING" RULE AS
+# `WARP_ACTION_LABEL` ABOVE APPLIES HERE, MORE LITERALLY THAN IT DOES THERE.
+# `WARP_ACTION_LABEL` carries `TELEPORT` even though its frame is a
+# `ForcePos`, because `runtime.py`'s `_move_authority_note_server_moves`
+# keys on the substring, not on which vital actually went out.  This
+# label's frame genuinely IS a `TeleportVital`, so the same requirement
+# applies for the same reason and for an even more literal one: a GM who
+# crosses scenes is exactly the case where a stale move-authority baseline
+# (still holding the pre-warp scene's coordinates) would refuse the very
+# next position report the new scene sends.  A test pins this substring
+# against the same call site `WARP_ACTION_LABEL`'s own test does; do not
+# rename this constant without reading that one first.
+#
+# Deliberately NOT `WARP_ACTION_LABEL` reused for both frame shapes: this
+# label's own name says `FORCE_POS`, which would be a lie on the console for
+# a `TeleportVital` send, and an attended tester reading `[G>] <label>` off
+# the server console (see GT-106-R2's own wire log) needs to be able to
+# tell which mechanism actually fired without opening this file.
+WARP_CROSS_SCENE_TELEPORT_ACTION_LABEL = (
+    "LANE_GM_CHAT_WARP_CROSS_SCENE_TELEPORT_VITAL"
+)
 
 # The action label for a GM `say`.
 #
@@ -1181,7 +1223,17 @@ def _make_action(
             # would delete a live comparison because an unrelated chat line
             # could not be audited, which is a second bug wearing the first
             # one's clothes.  `say` parks nothing, so it has nothing to undo.
-            if action[0] == WARP_ACTION_LABEL:
+            #
+            # BOTH WARP LABELS, not just the ForcePos one: the cross-scene
+            # TeleportVital path (`WARP_CROSS_SCENE_TELEPORT_ACTION_LABEL`)
+            # parks a target through the same `record_warp_target` call
+            # (`_warp_teleport_action`), so a withheld cross-scene warp has
+            # exactly the same stale-target hazard this branch exists to
+            # close for the same-scene one.
+            if action[0] in (
+                WARP_ACTION_LABEL,
+                WARP_CROSS_SCENE_TELEPORT_ACTION_LABEL,
+            ):
                 if not clear_warp_target(session):
                     _note(session, EVENT_OUTCOME_STALE_TARGET_NOT_CLEARED)
             _note(session, EVENT_OUTCOME_NOT_AUDITED_ACTION_WITHHELD)
@@ -1339,29 +1391,44 @@ def _warp_action(
     login_scene_config_path: str | None,
     scene_registry=None,
 ) -> _Verdict:
-    """`/warp`'s two halves -- see `_make_action`'s single write point.
+    """`/warp`'s three shapes -- see `_make_action`'s single write point.
 
-    THE ROUTING RULE, IN ONE SENTENCE: `warp <scene_id> x y` inside the scene
-    the connection is already in is the ForcePos half (frozen shut by
+    THE ROUTING RULE, IN ONE SENTENCE, UPDATED BY COO-DECISION
+    2026-08-31T14:41+07:00: `warp <scene_id> x y` inside the scene the
+    connection is already in is the ForcePos half (frozen shut by
     COO-DECISION 20260829_0041 until chief's confirmation token compares
-    against the commanded point); EVERYTHING ELSE -- a different scene, or
-    the bare `warp <scene_id>` form that carries no coordinates for ForcePos
-    to put in a frame -- stages the account's next login scene instead of
-    being refused outright.
+    against the commanded point); `warp <scene_id> x y` naming a DIFFERENT
+    scene is now the live cross-scene TeleportVital half
+    (`_warp_teleport_action`, gated on
+    `warp_executor.WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED`); and the bare
+    `warp <scene_id>` form -- with no coordinates, whichever scene it names
+    -- still stages the account's next login scene, because neither
+    composer has a position to put in a frame for that shape.
+
+    ~~EVERYTHING ELSE ... stages the account's next login scene instead of
+    being refused outright.~~ That was true from round `gejldf` (which
+    replaced an outright refusal with staging) through COO-DECISION
+    20260830_2048 (which held the live cross-scene case shut pending
+    `GT-106-R2`).  GT-106-R2 came back PASS and COO-DECISION 1441 lifted the
+    lock, so "a different scene" is no longer folded into "everything else
+    that stages" -- it is its own branch now, and only when it ALSO carries
+    coordinates.  A different scene with NO coordinates still has nothing
+    for either composer to send and still stages, unchanged.
 
     THE ORDER CHANGED, AND IT MATTERS TO A READER OF THE AUDIT FILE.  The
-    version gate used to be the first thing this function read, so with the
-    gate shut EVERY warp wrote `withheld_force_pos_vital_version`.  It is now
-    read only on the branch it actually governs.  A cross-scene warp never
-    touches it and never claims to have been withheld by it -- the old word
-    named a gate that had nothing to do with why that command did nothing.
-    `GT-127`'s criteria were rewritten in the same round, per the owner's
-    stale-entry ruling (PANYA-RULING 20260829_0127).
+    ForcePos version gate used to be the first thing this function read, so
+    with the gate shut EVERY warp wrote `withheld_force_pos_vital_version`.
+    It is now read only on the branch it actually governs.  A cross-scene
+    warp -- staged OR live -- never touches that gate and never claims to
+    have been withheld by it: the ForcePos version byte has nothing to do
+    with why either cross-scene branch does what it does.  `GT-127`'s
+    criteria were rewritten in round `gejldf`, per the owner's stale-entry
+    ruling (PANYA-RULING 20260829_0127); this round does not reopen that.
     """
     position = _current_position(session)
     if position is None:
         # Read before the routing decision, not after: without a current
-        # scene this function cannot tell its two halves apart, so it must
+        # scene this function cannot tell its shapes apart, so it must
         # refuse rather than guess which one the GM meant.
         _note(session, EVENT_WARP_NO_POSITION)
         return _Verdict(None, OUTCOME_WARP_NO_POSITION)
@@ -1370,10 +1437,17 @@ def _warp_action(
         target_scene_id = warp_command_scene_id(command)
         has_coordinates = warp_command_has_coordinates(command)
     except Exception as error:  # noqa: BLE001 - includes WarpExecutorError
-        # A malformed `args` shape cannot be routed either way.  Type name
+        # A malformed `args` shape cannot be routed at all. Type name
         # only, same reasoning as every other refusal here.
         _note(session, f"{EVENT_WARP_REFUSED_PREFIX}{type(error).__name__}")
         return _Verdict(None, f"{OUTCOME_REFUSED_PREFIX}warp_{type(error).__name__}")
+
+    if (
+        target_scene_id != position.scene_id
+        and has_coordinates
+        and warp_executor.WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED
+    ):
+        return _warp_teleport_action(session, command, legacy, position.z)
 
     if target_scene_id != position.scene_id or not has_coordinates:
         return _stage_action(
@@ -1407,26 +1481,94 @@ def _warp_action(
             None, f"{OUTCOME_REFUSED_PREFIX}warp_{type(error).__name__}"
         )
 
-    # Park the destination for the reader of the NEXT position report.  After
-    # the frame was built, never before: a refusal above leaves no bytes on
-    # the wire, so it must leave no target either -- a parked target that no
-    # frame corresponds to would let chief's confirmation token measure a
-    # position row against a warp that never went out.
-    #
-    # Nothing is claimed by the parking itself, and no event is emitted for
-    # it: `EVENT_ACCEPTED_PREFIX` above already names the accepted command
-    # once, and a second line per warp saying only "the module remembered
-    # where it sent you" is console noise that reads, wrongly, like an extra
-    # step succeeding.  The consumer is `runtime.py`; the round's
-    # CORE-REQUEST is what asks for it to be read.
-    if not record_warp_target(session, target, current_character_id(session)):
-        # A session that cannot hold the record loses the comparison, not the
-        # warp: the frame is real and is still returned.  Named so a missing
-        # confirmation line has a reason in the trail instead of looking like
-        # the warp itself failing.
+    if not _park_warp_target(session, target):
         _note(session, EVENT_WARP_TARGET_NOT_RECORDED)
 
     return _Verdict((WARP_ACTION_LABEL, pc, frame, 0.0), OUTCOME_COMPOSED)
+
+
+def _park_warp_target(session: object, target) -> bool:
+    """Park the destination for the reader of the NEXT position report.
+
+    Shared by both composing branches of `/warp` (same-scene ForcePos and
+    live cross-scene TeleportVital) so the rule stays written once: called
+    AFTER the frame exists, never before -- a refusal leaves no bytes on the
+    wire, so it must leave no target either, or chief's confirmation token
+    (CORE-REQUEST-GM-031) could measure a position row against a warp that
+    never went out.
+
+    Nothing is claimed by the parking itself, and no event is emitted for
+    success: `EVENT_ACCEPTED_PREFIX` above already names the accepted
+    command once, and a second line per warp saying only "the module
+    remembered where it sent you" is console noise that reads, wrongly,
+    like an extra step succeeding.  The caller names the FAILURE case,
+    because a session that could not hold the record still gets its warp
+    and that loss deserves a reason in the trail.
+    """
+    return record_warp_target(session, target, current_character_id(session))
+
+
+def _warp_teleport_action(
+    session: object,
+    command: object,
+    legacy: object,
+    z: float,
+) -> _Verdict:
+    """The cross-scene half of `/warp` WITH coordinates: a live TeleportVital.
+
+    COO-DECISION 2026-08-31T14:41+07:00 (`pf_bridge/notes_to_chief/
+    20260831_1441_COO-DECISION-warp-cross-scene-opens-gt106r2-passed.md`)
+    lifted the stage-only lock `COO-DECISION 20260828_2130`/`20260830_2048`
+    held for exactly this shape, once `GT-106-R2` (OBSERVER_CONFIRMED
+    2026-08-31T10:0x+07:00) proved a real client renders the destination
+    scene when `legacy.make_login_teleport` fires mid-session.  See
+    `warp_executor.WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED` for the gate
+    this function's only caller (`_warp_action`) checks before routing here,
+    and why it is a named boolean rather than a version constant -- this
+    function does not re-check it, the same way `_stage_action` does not
+    re-check the allowlist its own caller already checked.
+
+    THE BARE `warp <scene_id>` FORM (no x/y) NEVER REACHES THIS FUNCTION --
+    `_warp_action` only calls it when `warp_command_has_coordinates` is
+    True.  There is no position here to put on the wire for that shape, and
+    this lane does not invent a spawn point (see
+    `warp_executor.make_warp_teleport_frame_with_target`'s own refusal, kept
+    as a second, independent guard in case that routing is ever wrong).
+
+    NO SEND MECHANISM IS NEW HERE, ON PURPOSE.  This returns a
+    `(label, pc, frame, delay)` tuple through the exact same `_Verdict` ->
+    `_make_action` -> `make_gm_chat_command_action` -> `runtime.py` action-
+    list pipe every other command in this module already uses -- the same
+    pipe `WARP_ACTION_LABEL`'s ForcePos frame has used since RE-129's byte
+    shipped.  No new call site in `runtime.py` was needed to land this
+    (checked before writing this function: chief's zone was not touched).
+
+    NONCLAIM, same shape as `_warp_action`'s own G-OBS rule.  Composing and
+    returning this frame is evidence bytes went out correctly-shaped; it is
+    not evidence any particular destination renders.  GT-106-R2 confirmed
+    scene 17 through a DIFFERENT call site (`_dispatch_columbus_quest3021`,
+    fixed X=834 Y=-598) -- this is `/warp`'s FIRST live cross-scene send,
+    never itself attended-tested.  Every destination this command can now
+    reach needs its own attended, client-observable pass before anyone
+    calls it PASS.  RE-162 also found the destination scene's census/actor
+    frame does not follow a mid-session TeleportVital -- not even chief's
+    own Columbus dispatch sends one -- and this path inherits that exact
+    gap, does not close it, and does not claim to.
+    """
+    try:
+        pc, frame, target = make_warp_teleport_frame_with_target(legacy, command, z)
+    except Exception as error:  # noqa: BLE001 - includes WarpExecutorError
+        # Same reasoning as every other refusal here: type name only, never
+        # the exception message, which can embed the GM's typed arguments.
+        _note(session, f"{EVENT_WARP_REFUSED_PREFIX}{type(error).__name__}")
+        return _Verdict(None, f"{OUTCOME_REFUSED_PREFIX}warp_{type(error).__name__}")
+
+    if not _park_warp_target(session, target):
+        _note(session, EVENT_WARP_TARGET_NOT_RECORDED)
+
+    return _Verdict(
+        (WARP_CROSS_SCENE_TELEPORT_ACTION_LABEL, pc, frame, 0.0), OUTCOME_COMPOSED
+    )
 
 
 def _one_line(text: str) -> str:

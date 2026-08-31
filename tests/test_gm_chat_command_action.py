@@ -53,6 +53,7 @@ from pirateforce_foundation.gm import chat_command_action  # noqa: E402
 from pirateforce_foundation.gm import commands  # noqa: E402
 from pirateforce_foundation.gm import dispatch as gm_dispatch  # noqa: E402
 from pirateforce_foundation.gm import teleport_wire  # noqa: E402
+from pirateforce_foundation.gm import warp_executor  # noqa: E402
 from pirateforce_foundation.gm import warp_target_record  # noqa: E402
 from pirateforce_foundation.gm.commands import GmCommand  # noqa: E402
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
@@ -271,23 +272,79 @@ class WarpActionTests(_Case):
         )
         self.assertEqual(bytes(frame), bytes(expected))
 
-    def test_a_cross_scene_warp_puts_no_frame_on_the_wire_and_stages_instead(self):
-        # ForcePos carries no scene id (RE-090).  Sending an in-scene hop for
-        # "go to scene 3" would look like a working warp that went nowhere.
-        # ~~So it was refused outright~~ -- round `gejldf` replaced the
-        # refusal with the ONLY cross-scene mechanism this project has that
-        # is already wired and proven: the next-login scene override.  The
-        # invariant this test guards is unchanged and is the important half:
-        # NO ACTION, no frame, nothing on the wire, even with the version
-        # gate patched open.
+    def test_a_cross_scene_warp_with_coordinates_now_fires_a_live_teleport(self):
+        # ForcePos carries no scene id (RE-090), and that has not changed --
+        # `WarpActionTests` above still proves ForcePos never crosses scenes.
+        # What changed (round `fftpji`, COO-DECISION 2026-08-31T14:41+07:00,
+        # `GT-106-R2` PASS) is which mechanism a CROSS-SCENE `/warp` WITH
+        # coordinates uses: ~~it stages the next login~~ -- it now fires a
+        # live `TeleportVital` via `legacy.make_login_teleport`, the same
+        # encoder `runtime.py`'s own call sites already send.  Nothing is
+        # staged for this shape any more; a real action goes out.
+        session = FakeSession(position=FakePosition(scene_id=2, z=30.0))
+        action = self.act(session, "/warp 278 100 200")
+        self.assertIsNotNone(action)
+        label, pc, frame, delay = action
+        self.assertEqual(
+            label, chat_command_action.WARP_CROSS_SCENE_TELEPORT_ACTION_LABEL
+        )
+        self.assertIn("TELEPORT", label)
+        self.assertEqual(delay, 0.0)
+        expected_pc, expected_frame = self.legacy.make_login_teleport(
+            278, 0, 100.0, 200.0, 30.0
+        )
+        self.assertEqual(bytes(pc), bytes(expected_pc))
+        self.assertEqual(bytes(frame), bytes(expected_frame))
+        # No config entry -- this is the one form of the old sentence that
+        # really did stop being true: nothing is staged when the live path
+        # fires.
+        self.assertEqual({}, self.staged_login_scenes())
+
+    def test_a_cross_scene_warp_fires_even_with_the_force_pos_gate_shut(self):
+        # The two composers are gated on two different things.  ForcePos's
+        # RE-129 byte has nothing to do with whether legacy.make_login_teleport
+        # (already proven live by GT-106-R2, unconditionally version-4 inside
+        # that constructor) may compose -- a regression that made the cross-
+        # scene path depend on the ForcePos constant would silently reopen
+        # the stage-only behaviour COO-DECISION 1441 replaced.
+        session = FakeSession(position=FakePosition(scene_id=2, z=30.0))
+        with self.close_the_version_gate():
+            action = self.act(session, "/warp 278 100 200")
+        self.assertIsNotNone(action)
+        self.assertEqual(
+            action[0], chat_command_action.WARP_CROSS_SCENE_TELEPORT_ACTION_LABEL
+        )
+
+    def test_the_authorization_flag_is_a_named_true_citing_coo_decision_1441(self):
+        self.assertIs(
+            warp_executor.WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED, True
+        )
+
+    def test_flipping_the_authorization_flag_off_falls_back_to_staging(self):
+        # The kill switch this constant exists to be: with it False, a
+        # cross-scene warp with coordinates must fall back to EXACTLY the
+        # pre-1441 behaviour (stage, no frame) rather than to a refusal or a
+        # crash -- the same graceful degradation the version gates above use.
         session = FakeSession(position=FakePosition(scene_id=2))
-        with self.open_the_version_gate():
+        with mock.patch.object(
+            warp_executor, "WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED", False
+        ):
             action = self.act(session, "/warp 278 100 200")
         self.assertIsNone(action)
         self.assertIn(
             f"{chat_command_action.EVENT_WARP_STAGED_PREFIX}278", session.events
         )
         self.assertEqual({self.GM_ACCOUNT: 278}, self.staged_login_scenes())
+
+    def test_an_unknown_cross_scene_destination_is_refused_not_composed(self):
+        session = FakeSession(position=FakePosition(scene_id=2, z=30.0))
+        action = self.act(session, "/warp 999999 100 200")
+        self.assertIsNone(action)
+        self.assertIn(
+            f"{chat_command_action.EVENT_WARP_REFUSED_PREFIX}WarpExecutorError",
+            session.events,
+        )
+        self.assertEqual({}, self.staged_login_scenes())
 
     def test_scene_only_warp_with_no_coordinates_stages_and_sends_nothing(self):
         # ~~Refused~~ (round `gejldf`): the bare form carries no coordinates
@@ -697,9 +754,13 @@ class WarpTargetRecordingTests(_Case):
         self.assertIsNone(warp_target_record.take_warp_target(session, 41))
 
     def test_a_refused_warp_parks_nothing(self):
+        # Scene 278 is a real cross-scene destination since this round (see
+        # WarpActionTests below), so this case now needs a scene id the
+        # catalog genuinely does not name to stay a REFUSAL rather than a
+        # composed live teleport.
         session = self.session_with_character()
         with self.open_the_version_gate():
-            self.assertIsNone(self.act(session, "/warp 278 100 200"))
+            self.assertIsNone(self.act(session, "/warp 999999 100 200"))
         self.assertIsNone(warp_target_record.take_warp_target(session, 41))
 
     def test_a_gm_with_no_selected_character_parks_nothing(self):
@@ -1146,6 +1207,9 @@ class EventNameContractTests(_Case):
     # `runtime.py` reads one of them as a substring.  Same pin, same reason.
     EXPECTED_LABELS = {
         "WARP_ACTION_LABEL": "LANE_GM_CHAT_WARP_TELEPORT_FORCE_POS",
+        "WARP_CROSS_SCENE_TELEPORT_ACTION_LABEL": (
+            "LANE_GM_CHAT_WARP_CROSS_SCENE_TELEPORT_VITAL"
+        ),
         "SAY_ACTION_LABEL": "LANE_GM_CHAT_SAY_GM_GLOBAL_MESSAGE",
         "GMPROBE_ACTION_LABEL": "LANE_GM_CHAT_GMPROBE_STATE_VITAL",
     }
@@ -1511,6 +1575,15 @@ class ContractTests(_Case):
         # which is exactly the kind that rots silently; pin it.
         self.assertIn("TELEPORT", chat_command_action.WARP_ACTION_LABEL)
 
+    def test_the_cross_scene_teleport_label_carries_TELEPORT_too(self):
+        # The same contract, more literally true here: this frame really is
+        # a TeleportVital, and a GM crossing scenes is exactly the case
+        # where a stale move-authority baseline would refuse the new
+        # scene's first position report.
+        self.assertIn(
+            "TELEPORT", chat_command_action.WARP_CROSS_SCENE_TELEPORT_ACTION_LABEL
+        )
+
     def test_the_move_authority_gate_still_keys_on_that_substring(self):
         # The other half of the contract: if runtime.py ever stops keying on
         # "TELEPORT", this file should fail rather than keep asserting a rule
@@ -1536,6 +1609,22 @@ class ContractTests(_Case):
             chat_command_action.WARP_ACTION_LABEL,
             chat_command_action.WARP_ACTION_LABEL.encode("ascii").decode(),
         )
+
+    def test_the_cross_scene_teleport_label_is_ascii_too(self):
+        label = chat_command_action.WARP_CROSS_SCENE_TELEPORT_ACTION_LABEL
+        self.assertEqual(label, label.encode("ascii").decode())
+
+    def test_the_cross_scene_teleport_action_shape_matches_what_runtime_appends(self):
+        session = FakeSession(position=FakePosition(scene_id=2, z=30.0))
+        action = self.act(session, "/warp 278 1 2")
+        self.assertIsInstance(action, tuple)
+        self.assertEqual(len(action), 4)
+        self.assertEqual(
+            action[0], chat_command_action.WARP_CROSS_SCENE_TELEPORT_ACTION_LABEL
+        )
+        self.assertIsInstance(action[1], (bytes, bytearray))
+        self.assertIsInstance(action[2], (bytes, bytearray))
+        self.assertIsInstance(action[3], float)
 
 
 if __name__ == "__main__":  # pragma: no cover

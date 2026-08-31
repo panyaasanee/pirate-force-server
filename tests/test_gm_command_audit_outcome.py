@@ -51,6 +51,7 @@ from pirateforce_foundation.gm import dispatch as gm_dispatch  # noqa: E402
 from pirateforce_foundation.gm import login_scene_stage  # noqa: E402
 from pirateforce_foundation.gm import say_wire  # noqa: E402
 from pirateforce_foundation.gm import teleport_wire  # noqa: E402
+from pirateforce_foundation.gm import warp_executor  # noqa: E402
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 
 # Same disclaimer as every other file in this lane that opens a gate: NOT the
@@ -539,8 +540,16 @@ class StagedLoginSceneRowTests(_Case):
         self.assertEqual({"GM_ONE": 278}, self.staged_login_scenes())
 
     def test_coordinates_that_cannot_be_honoured_get_their_own_word(self):
+        # Since round `fftpji` (COO-DECISION 2026-08-31T14:41+07:00) this
+        # exact chat line fires a LIVE teleport by default -- the word this
+        # test is about only applies when the live path is unauthorized (the
+        # kill switch back to the pre-1441 stage-only behaviour), so that is
+        # forced here on purpose.
         session = FakeSession(position=FakePosition(scene_id=1))
-        self.assertIsNone(self.act(session, "/warp 278 100 200"))
+        with mock.patch.object(
+            warp_executor, "WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED", False
+        ):
+            self.assertIsNone(self.act(session, "/warp 278 100 200"))
         rows = self.outcome_rows()
         self.assertEqual(1, len(rows))
         self.assertEqual("staged_login_scene_coords_ignored", rows[0]["outcome"])
