@@ -250,8 +250,11 @@ class OnlyScenesTheLoginPathCanEnterTests(_Case):
         # (scene_admission_gate.py, R236, confirmed by COO-DECISION
         # 20260830_1351) and the door opened after.  The other nine of the
         # original ten are UNCHANGED and this tuple otherwise still says so.
+        # IT GREW A SECOND TIME, ROUND 3t75jw.  Scene 10 (Deep Sea Temple
+        # floor 1) opened second, same queue, same condition.
         self.assertEqual(
-            (1, 2, 4, 14, 278, 997), login_scene_stage.stageable_scene_ids()
+            (1, 2, 4, 10, 14, 278, 997),
+            login_scene_stage.stageable_scene_ids()
         )
         for scene_id in login_scene_stage.stageable_scene_ids():
             with self.subTest(scene_id=scene_id):

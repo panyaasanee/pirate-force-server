@@ -90,12 +90,14 @@ RULE_1_SCENES_ADDED_THIS_ROUND = (3, 4, 5, 6, 7, 8, 9, 10, 11, 130)
 
 # ADDED round bq4mst (LANE-A): of the ten above, scene 4 (Slave Market
 # Island) opened this round (COO-DECISION 20260830_1441 + this round's own
-# safety case on the registry row).  The nine below are UNCHANGED and still
-# carry login_entry_allowed false -- used by every ADMISSION test in
-# ``TheDoorIsShutAndThisIsTheLoadBearingTest``, which would otherwise assert
-# something false of scene 4 and fail for the right reason.
+# safety case on the registry row).  UPDATED round 3t75jw: scene 10 (Deep
+# Sea Temple floor 1) opened second, same basis.  The eight below are
+# UNCHANGED and still carry login_entry_allowed false -- used by every
+# ADMISSION test in ``TheDoorIsShutAndThisIsTheLoadBearingTest``, which
+# would otherwise assert something false of scenes 4/10 and fail for the
+# right reason.
 RULE_1_SCENES_STILL_SHUT = tuple(
-    n_id for n_id in RULE_1_SCENES_ADDED_THIS_ROUND if n_id != 4)
+    n_id for n_id in RULE_1_SCENES_ADDED_THIS_ROUND if n_id not in (4, 10))
 
 # The three marker scenes that were already pinned, each by its own ruling.
 MARKER_SCENES_ALREADY_PINNED = (1, 2, 14)
@@ -333,6 +335,33 @@ class TheDoorIsShutAndThisIsTheLoadBearingTest(unittest.TestCase):
         )
         self.assertEqual(result.destination.n_id, 4)
         self.assertEqual(result.position.scene_id, 4)
+
+    def test_the_second_scene_that_opened_is_no_longer_in_this_set(self):
+        """Scene 10's own half of the pair, ADDED round 3t75jw.
+
+        Same shape as ``test_the_one_scene_that_opened_is_no_longer_in_
+        this_set`` above, driven at scene 10 (Deep Sea Temple floor 1),
+        the second of the ten doors this lane has opened.  The elevated
+        landing-geometry flag on this row (``the_two_interiors``) is not
+        this file's concern -- this file owns the admission layer, not
+        the landing point, and GT-166 is where that risk is tracked.
+        """
+        self.assertNotIn(10, RULE_1_SCENES_STILL_SHUT)
+        rows = _raw_rows()
+        self.assertIs(rows[10]["login_entry_allowed"], True)
+        self.assertIs(
+            world_scene_travel.destination(
+                10, self.registry).login_entry_allowed,
+            True)
+        self.assertTrue(login_scene_stage.login_entry_is_pinned(10))
+        self.assertIn(10, login_scene_stage.stageable_scene_ids())
+        result = world_scene_entry.resolve_entry(
+            self._stored_row(10),
+            registry=self.registry,
+            emit=lambda line: None,
+        )
+        self.assertEqual(result.destination.n_id, 10)
+        self.assertEqual(result.position.scene_id, 10)
 
     def test_a_scene_with_no_marker_and_no_ruling_is_refused_differently(self):
         # The control: rule 1 reached the marker scenes and NOTHING else, and

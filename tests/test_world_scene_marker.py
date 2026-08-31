@@ -577,8 +577,13 @@ class Scene14RegistryTests(unittest.TestCase):
         ``test_scene_4_opened_separately_and_that_is_a_different_round``
         below for the assertion that replaces it, so a reader of THIS test
         does not have to infer why the tuple below shrank by one.
+
+        UPDATED round 3t75jw: scene 10 left this set the same way, second
+        of the ten doors this lane has opened.  See
+        ``test_scene_10_opened_separately_and_that_is_a_different_round``
+        below.
         """
-        for scene_id in (3, 5, 6, 7, 8, 9, 10, 11, 130):
+        for scene_id in (3, 5, 6, 7, 8, 9, 11, 130):
             with self.subTest(scene_id=scene_id):
                 target = world_scene_travel.destination(
                     scene_id, self.registry)
@@ -597,6 +602,20 @@ class Scene14RegistryTests(unittest.TestCase):
         target = world_scene_travel.destination(4, self.registry)
         self.assertTrue(target.login_entry_allowed)
         self.assertTrue(world_faction_admission.admits(4, self.registry))
+
+    def test_scene_10_opened_separately_and_that_is_a_different_round(self):
+        """ADDED round 3t75jw: the second scene removed from the tuple above.
+
+        Same reasoning as scene 4's sibling test.  Scene 10 (Deep Sea
+        Temple floor 1) carries an elevated landing-geometry flag
+        (``the_two_interiors``) this file does not otherwise track -- see
+        ``tests/test_world_scene_registry_rule_1_scenes.py`` and GT-166 for
+        that half of the story; this file only asks the admission
+        predicate.
+        """
+        target = world_scene_travel.destination(10, self.registry)
+        self.assertTrue(target.login_entry_allowed)
+        self.assertTrue(world_faction_admission.admits(10, self.registry))
 
     def test_a_non_login_caller_still_lands_on_the_marker_and_says_so(self):
         # The door being shut to logins does not make the pin untestable:
