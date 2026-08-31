@@ -382,11 +382,13 @@ class GmLoginSceneOverridePositionResyncTests(unittest.TestCase):
         # joined it in round bq4mst (COO-DECISION 20260830_1441); 10 joined
         # it in round 3t75jw, second door in the same queue; 5 joined it in
         # round l03cgh, third door, built+wired+opened in one round; 6
-        # joined it in round fx0007, fourth door, same shape.
+        # joined it in round fx0007, fourth door, same shape; 8 joined it in
+        # round p4wire, fifth door, same shape; 3 joined it this round,
+        # sixth door, same shape.
         # Scene 17, the id this test actually drives, is still barred and
         # still refused either way.
         self.assertIn(
-            "stageable=(1, 2, 4, 5, 6, 8, 10, 14, 126, 278, 997)", console)
+            "stageable=(1, 2, 3, 4, 5, 6, 8, 10, 14, 126, 278, 997)", console)
 
         # And the operator's file is untouched: refusing to ACT on an entry
         # is not licence to edit it.

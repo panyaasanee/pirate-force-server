@@ -89,7 +89,12 @@ from pirateforce_foundation.model import Position  # noqa: E402
 # third door in the same queue -- built, wired and opened in one round.
 # ADDED round fx0007 (LANE-A): scene 6 (Ocean Walled City) joined the same
 # way, fourth door in the same queue -- built, wired and opened in one round.
-ADMISSIBLE_TODAY = (1, 2, 4, 5, 6, 8, 10, 14, 278, 997)
+# ADDED round p4wire (LANE-A): scene 8 (Silver Harbour) joined the same
+# way, fifth door in the same queue -- built, wired and opened in one round.
+# ADDED this round (LANE-A): scene 3 (Spice Paradise Island) joined the
+# same way, sixth door in the same queue -- built, wired and opened in one
+# round.
+ADMISSIBLE_TODAY = (1, 2, 3, 4, 5, 6, 8, 10, 14, 278, 997)
 # The GM-gated (single-use) map's own way out, which is wider than the
 # plain set above by exactly one scene since round R249 (chief, gate-red
 # repair of `pirate-force-server#332`): lane A landed the scene-126
@@ -102,8 +107,11 @@ HOME = 1
 # In the client's name catalog (so it passes the older check) and pinned
 # `login_entry_allowed: false` -- the exact entry that locked an account out.
 BARRED_AT_LOGIN = 17
-# Named in the client's catalog, absent from lane A's registry entirely.
-NAMED_BUT_UNPINNED = 3
+# Named in the client's catalog and pinned `login_entry_allowed: false`.
+# MOVED this round from scene 3 (Spice Paradise Island, which opened this
+# round -- see ADMISSIBLE_TODAY above) to scene 7 (Voodoo Island), still
+# one of the four doors this lane has not yet opened.
+NAMED_BUT_UNPINNED = 7
 
 
 class ThePredicateTests(unittest.TestCase):
@@ -361,10 +369,10 @@ class TheAdmissibleSetIsAlsoNamedTests(unittest.TestCase):
             offered = login_scene_admission.stageable_scene_ids()
         self.assertNotIn(self.UNNAMED, offered)
         # 14 joined the set in LANE-A round vvy6q7, 4 in round bq4mst, 10 in
-        # round 3t75jw, 5 in round l03cgh, 6 in round fx0007; 997 is the row
-        # this test bends into UNNAMED, which is why it is the one id
-        # missing here.
-        self.assertEqual((1, 2, 4, 5, 6, 8, 10, 14, 278), offered)
+        # round 3t75jw, 5 in round l03cgh, 6 in round fx0007, 8 in round
+        # p4wire, 3 this round; 997 is the row this test bends into
+        # UNNAMED, which is why it is the one id missing here.
+        self.assertEqual((1, 2, 3, 4, 5, 6, 8, 10, 14, 278), offered)
 
 
 class TheConsoleLineNeverAltersDispatchTests(unittest.TestCase):
