@@ -60,6 +60,7 @@ from pirateforce_foundation.gm import (  # noqa: E402
     login_scene_consume,
     login_scene_override,
     login_scene_stage,
+    warp_executor,
 )
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 
@@ -764,7 +765,14 @@ class TheStagingSideHonoursItTooTests(_ConfigFixture):
         gm_dispatch.reset_rate_limit_state_for_tests()
         session = _FakeSession(self.ACCOUNT)
         log_path = Path(self._tmp.name) / "capture" / "log.ndjson"
+        # GM-A (R278, round jd4jqp): ADMISSIBLE_ON_DISK (scene 2) is
+        # marker-backed, so a bare `/warp 2` now fires live instead of
+        # staging -- this test's subject is the STAGE-side undo path
+        # specifically, so the live short-circuit is turned off, same
+        # isolation as the other GM-A-adjacent test fixes this round.
         with mock.patch.object(
+            warp_executor, "WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED", False
+        ), mock.patch.object(
             chat_command_action, "_log_outcome", lambda *a, **k: False
         ):
             with contextlib.redirect_stderr(io.StringIO()):
@@ -1068,6 +1076,17 @@ class TheChatCommandCarriesItAllTheWayDownTests(_ConfigFixture):
 
     def warp(self, session, scene_id, scene_registry=None):
         buffer = io.StringIO()
+        # GM-A (R278, round jd4jqp): every test in this class exercises the
+        # snapshot-gated STAGE mechanism specifically (via bare `/warp`,
+        # some using ADMISSIBLE_ON_DISK == scene 2, which is marker-backed
+        # and would otherwise now fire live) -- the live short-circuit is
+        # turned off for the one call site every test in this class shares,
+        # so none of them has to know about GM-A's unrelated new branch.
+        self.enterContext(
+            mock.patch.object(
+                warp_executor, "WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED", False
+            )
+        )
         with contextlib.redirect_stderr(buffer):
             chat_command_action.make_gm_chat_command_action(
                 session,

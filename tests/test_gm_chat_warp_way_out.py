@@ -43,6 +43,7 @@ from pirateforce_foundation.gm import dispatch as gm_dispatch  # noqa: E402
 from pirateforce_foundation.gm import login_scene_admission  # noqa: E402
 from pirateforce_foundation.gm import login_scene_override  # noqa: E402
 from pirateforce_foundation.gm import login_scene_stage  # noqa: E402
+from pirateforce_foundation.gm import warp_executor  # noqa: E402
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 
 
@@ -269,7 +270,18 @@ class OnlyTheReasonsADifferentDestinationWouldFixTests(_Case):
             scene for scene in stageable
             if scene != session.foundation.selected.position.scene_id
         )
-        action, console = self.act(session, f"/warp {target}")
+        # GM-A (R278, round jd4jqp): a bare cross-scene `/warp` to a
+        # MARKER-BACKED scene now fires live instead of staging, and
+        # `stageable` can hand back one of those (e.g. scene 2). This
+        # test's subject is the STAGE mechanism's own console/way-out
+        # behaviour, so the live short-circuit is turned off to keep
+        # `target` on the stage path -- see
+        # `warp_executor.WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED`'s own
+        # kill-switch precedent.
+        with mock.patch.object(
+            warp_executor, "WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED", False
+        ):
+            action, console = self.act(session, f"/warp {target}")
         self.assertIsNone(action, "a cross-scene warp stages, it does not send")
         # THE NAME HAS TO BE EARNED.  pf-adversary D10: both assertions below
         # are equally true of a `config_unreadable` REFUSAL -- nothing staged,

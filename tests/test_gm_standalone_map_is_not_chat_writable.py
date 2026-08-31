@@ -119,6 +119,7 @@ from pirateforce_foundation.gm import login_scene_consume  # noqa: E402
 from pirateforce_foundation.gm import login_scene_override  # noqa: E402
 from pirateforce_foundation.gm import say_wire  # noqa: E402
 from pirateforce_foundation.gm import teleport_wire  # noqa: E402
+from pirateforce_foundation.gm import warp_executor  # noqa: E402
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 
 # Not the real accepted version -- RE-129 is open and GT-101 measured what an
@@ -649,7 +650,15 @@ class ChatCommandsCannotWriteTheStandaloneMapTests(_Case):
         # This is the control: the same run that leaves the standalone map
         # alone DOES put an entry in the GM-gated one, so the door was shut
         # against a command that was genuinely writing to disk.
-        self._drive(["/warp 2"])
+        # GM-A (R278, round jd4jqp): scene 2 (Prison Exile Island) is
+        # marker-backed, so a bare `/warp 2` now fires live instead of
+        # staging -- but this control's whole point is proving the STAGE
+        # write happened at all, so the live short-circuit is turned off
+        # to keep it on that path.
+        with mock.patch.object(
+            warp_executor, "WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED", False
+        ):
+            self._drive(["/warp 2"])
         self.assertTrue(
             self.login_scene_config_path.exists(),
             "the cross-scene warp staged nothing, so this file proved nothing",

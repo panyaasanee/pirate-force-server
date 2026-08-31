@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from pirateforce_foundation import world_scene_travel
 from pirateforce_foundation.legacy_bridge import load_legacy
 from pirateforce_foundation.gm.commands import GmCommand, parse_gm_command
 from pirateforce_foundation.gm.teleport_wire import (
@@ -20,7 +21,9 @@ from pirateforce_foundation.gm.warp_executor import (
     WarpExecutorError,
     WarpTarget,
     make_warp_force_pos_frame,
+    make_warp_teleport_frame_no_coords_with_target,
     make_warp_teleport_frame_with_target,
+    warp_no_coords_live_target,
 )
 
 
@@ -375,6 +378,82 @@ class WarpTeleportCrossSceneTests(unittest.TestCase):
         with self.assertRaises(WarpExecutorError) as ctx:
             make_warp_teleport_frame_with_target(self.legacy, bad, 0.0)
         self.assertNotIsInstance(ctx.exception, KeyError)
+
+
+class WarpNoCoordsLiveTargetTests(unittest.TestCase):
+    """GM-A (`R278`, round jd4jqp): `warp_no_coords_live_target`'s own gate."""
+
+    def test_a_marker_backed_scene_returns_its_destination(self):
+        target = warp_no_coords_live_target(4)
+        self.assertIsNotNone(target)
+        self.assertEqual(target.n_id, 4)
+        self.assertTrue(target.has_authored_entry)
+
+    def test_scenes_gt182_names_as_examples_all_qualify(self):
+        # GT-182's own objective text: "pick one already opened by LANE-A,
+        # e.g. scene 4/5/6/8/10". One assertion per id, not a loop that
+        # hides which one broke.
+        for scene_id in (4, 5, 6, 8, 10):
+            with self.subTest(scene_id=scene_id):
+                self.assertIsNotNone(warp_no_coords_live_target(scene_id))
+
+    def test_a_markerless_scene_with_a_pinned_spawn_still_returns_none(self):
+        # Scene 278: n_MARKER == 0, but world_scene_travel DOES carry a
+        # pinned (native-placement, "authored" evidence tier) spawn for it.
+        # GT-182 nonclaim 4 says this scene keeps the OLD stage-only rule --
+        # the point of this test is that "has a spawn" alone would get this
+        # wrong; the gate has to be `has_authored_entry`, not `spawn is not
+        # None`.
+        target = world_scene_travel.destination(278)
+        self.assertIsNotNone(target.spawn)
+        self.assertFalse(target.has_authored_entry)
+        self.assertIsNone(warp_no_coords_live_target(278))
+
+    def test_a_scene_id_not_in_the_registry_at_all_returns_none(self):
+        self.assertIsNone(warp_no_coords_live_target(999999))
+
+    def test_a_malformed_scene_id_still_raises(self):
+        with self.assertRaises(WarpExecutorError):
+            warp_no_coords_live_target("not-an-int")
+
+
+class WarpTeleportFrameNoCoordsTests(unittest.TestCase):
+    def setUp(self):
+        self.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+
+    def test_builds_a_live_teleport_at_the_pinned_marker_spawn(self):
+        target = world_scene_travel.destination(4)
+        x, y, z = world_scene_travel.spawn_position(target)
+        pc, frame, wire_target = make_warp_teleport_frame_no_coords_with_target(
+            self.legacy, 4
+        )
+        expected_pc, expected_frame = self.legacy.make_login_teleport(
+            4, 0, x, y, z
+        )
+        self.assertEqual(bytes(pc), bytes(expected_pc))
+        self.assertEqual(bytes(frame), bytes(expected_frame))
+        self.assertEqual(wire_target.scene_id, 4)
+        self.assertEqual((wire_target.x, wire_target.y, wire_target.z), (x, y, z))
+
+    def test_the_z_comes_from_the_marker_not_from_a_caller_argument(self):
+        # This function takes no z parameter at all -- GT-172's F-2 (old
+        # scene's z carried over) cannot reproduce here because there is no
+        # caller-supplied z to carry.
+        import inspect
+
+        params = inspect.signature(
+            make_warp_teleport_frame_no_coords_with_target
+        ).parameters
+        self.assertEqual(set(params), {"legacy", "scene_id"})
+
+    def test_refuses_a_markerless_destination(self):
+        with self.assertRaises(WarpExecutorError) as ctx:
+            make_warp_teleport_frame_no_coords_with_target(self.legacy, 278)
+        self.assertIn("278", str(ctx.exception))
+
+    def test_refuses_an_unknown_scene_id(self):
+        with self.assertRaises(WarpExecutorError):
+            make_warp_teleport_frame_no_coords_with_target(self.legacy, 999999)
 
 
 if __name__ == "__main__":
