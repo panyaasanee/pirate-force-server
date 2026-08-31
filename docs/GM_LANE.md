@@ -5213,3 +5213,41 @@ early-return) **ตอบได้แล้ว** จากสองใบที�
 - `pirate-force-server#373` (draft ต้นรอบ ปิดท้ายรอบนี้เป็น ready + retitle + wake-gate commit)
 
 — สาย GM รอบ `szmgeh`
+
+## รอบ `oykcib` (2026-08-31T10:1x+07:00) — verify-only, backlog สี่ทางว่างเหมือนรอบ `szmgeh`
+
+### สรุป
+
+ตรวจกล่องจดหมาย + backlog สี่ทางสดใหม่ (ไม่เชื่อผลรอบก่อน): ไม่มีจดหมาย `ADDRESSEE: LANE-GM` ค้าง, ไม่มี
+CORE-REQUEST/COO-DECISION ใหม่อ้างเลข `GM-0xx`, `GT-164` ปิดหัวใบแล้วไม่มีใบ GT อื่นของสาย GM ค้าง, ไม่มี
+technical debt ใหม่ใน `gm/` (`grep TODO/FIXME/XXX/HACK` สดรอบนี้ = สองรายการเดิมที่ไม่ใช่ debt จริง)
+`RE-164` ข้อ 1/3 ยังบล็อกด้วยเหตุผลเดียวกับที่ `COO-DECISION 20260831_0745` วินิจฉัยไปแล้วว่าเป็นบล็อกนอกเขต
+(ต้องการ client binary image ระดับ VA หรือเซสชัน attended จริง) ตามคำสั่ง COO ("ไม่ต้องยื่นใบใหม่จนกว่า
+สภาพเปลี่ยน") รอบนี้จึงไม่เปิด ASK-COO ซ้ำ เขียนใบ STATUS แทน
+
+ไม่มีไฟล์ `src/`/`tests/`/`scenarios/` เปลี่ยนรอบนี้ทั้งสอง repo — รายละเอียดเต็มอยู่ที่ `pf_bridge`
+`rounds/GM_20260831_1018_verify_only_backlog_still_empty_re164_external_blockers_unchanged.md`
+
+### เขียว
+
+`pytest tests/test_gm_*.py -q` (HEAD ปัจจุบัน, รันจริงรอบนี้): 1089 passed, 500 subtests เขียว(cloud
+sanity) — ตัวเลขเดียวกับรอบ `szmgeh` ไม่มี drift
+
+### nonclaim
+
+ไม่ได้ยิงเฟรมใด ๆ ใส่ client จริงรอบนี้ ไม่มีจอ/client image ในสภาพแวดล้อมนี้ `RE-164` ข้อ 1/3 ยังไม่ปิด
+ไม่มีความคืบหน้าใหม่ (verify-only ตามเจตนา) ไม่แตะ `runtime.py`/`app.py`/`pf_login_game_server_v141.py`/
+`scenarios/world_*.json`/`scenarios/combat_*.json` ไม่ให้สถานะ GM กับบัญชีที่ไม่อยู่ใน `gm_accounts` ไม่มี
+การประกาศ milestone จากผลที่ได้ด้วย GM `gm/attr_wire.py` ยัง shelve ตาม `COO-DECISION 20260831_0350`
+เหมือนเดิม
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+**ไม่มี** — รอบ verify-only ล้วน ไม่มีจุดเสียบใหม่ ไม่มี behavior เปลี่ยนจากตอนจบรอบ `szmgeh`
+
+### PR
+
+- `pf_bridge#585` (draft ต้นรอบ ปิดท้ายรอบนี้เป็น ready + retitle)
+- `pirate-force-server#376` (draft ต้นรอบ ปิดท้ายรอบนี้เป็น ready + retitle + wake-gate commit)
+
+— สาย GM รอบ `oykcib`
