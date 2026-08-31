@@ -246,6 +246,8 @@ from typing import Any, Callable
 # would take it as evidence this module still composes scene 2.  The module
 # is still NAMED in this docstring and in LOGIN_OWNED_SOURCES, which is where
 # the relationship now lives.
+from . import field_mob_hostile_bg0015
+from . import mob_scene_recompose
 from . import world_population_bg0003
 from . import world_population_bg0004
 from . import world_population_bg0005
@@ -983,6 +985,33 @@ def _roster_handoff(
                 if actor_count == composer.full_roster_count
                 else composer.caller_count_source
             ),
+        )
+    # CHECKED BEFORE ANY SPLICE, NOT ONLY AFTER.  ``splice_identity_override``
+    # ignores the ``frame`` it is handed and re-encodes a fresh one from
+    # ``pc`` alone, via the legacy actor-stream encoder, so a composer that
+    # already produced a foreign pc/frame pair would have that
+    # corruption silently re-encoded into a self-consistent one below - the
+    # exact mutant ``test_a_roster_frame_is_checked_against_its_own_pc``
+    # exists to catch (found by running it red before this fix).  Validating
+    # the composer's OWN output here, before it is touched, keeps that
+    # detection; the second call below (unchanged) covers drift the splice
+    # itself might introduce.
+    _require_pair(legacy, generation.pc, generation.frame, composer.source)
+    if composer.source == "bg0015_roster":
+        # CORE-REQUEST (LANE-A round 78zayw + LANE-B round jqxe6v, confirmed
+        # together in notes_to_chief/20260831_2151_LANE-A-TO-CHIEF-...): the
+        # only chokepoint where scene 14's arrival census is ever built is
+        # this branch, so splicing the hostile override here covers both the
+        # login and the M2 crossing callers without a second call site.  Uses
+        # lane B's own tested reimplementation (``mob_scene_recompose.
+        # splice_identity_override``), not a third copy of the algorithm;
+        # ``dataclasses.replace`` inside it preserves ``placement_indices``
+        # and every other field untouched, so ``composer.membership_of``
+        # below still reads the same 81 indices - only the 12 overridden
+        # actors' own entry bytes change from civilian to hostile.
+        generation = mob_scene_recompose.splice_identity_override(
+            legacy, generation,
+            field_mob_hostile_bg0015.scene14_hostile_overrides(legacy),
         )
     _require_pair(legacy, generation.pc, generation.frame, composer.source)
     membership = composer.membership_of(generation)

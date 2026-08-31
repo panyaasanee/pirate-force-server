@@ -41,6 +41,8 @@ from pirateforce_foundation.world_population import (  # noqa: E402
 )
 from pirateforce_foundation import world_density  # noqa: E402
 from pirateforce_foundation import (  # noqa: E402
+    field_mob_hostile_bg0015,
+    mob_scene_recompose,
     world_population_bg0002,
     world_population_bg0015,
 )
@@ -301,8 +303,24 @@ class HandoffTests(unittest.TestCase):
                         world_population_bg0015.COUNT_SOURCE_FULL_ROSTER
                     ),
                 )
-                self.assertEqual(handoff.pc, direct.pc)
-                self.assertEqual(handoff.frame, direct.frame)
+                # CORE-REQUEST landed this round (chief, notes_to_chief/
+                # 20260831_2151_LANE-A-TO-CHIEF-...): scene 14's arrival is
+                # no longer the bare civilian census byte-for-byte - the
+                # handoff now splices in the 12-actor hostile override the
+                # same way ``field_mob_hostile_bg0015.
+                # scene14_civilian_then_hostile_splice_proof`` already
+                # proved end to end, so ``direct`` (never spliced) must be
+                # compared against the SAME splice, not against ``handoff``
+                # raw.
+                expected = mob_scene_recompose.splice_identity_override(
+                    self.legacy, direct,
+                    field_mob_hostile_bg0015.scene14_hostile_overrides(
+                        self.legacy
+                    ),
+                )
+                self.assertEqual(handoff.pc, expected.pc)
+                self.assertEqual(handoff.frame, expected.frame)
+                self.assertNotEqual(handoff.pc, direct.pc)
                 self.assertEqual(
                     handoff.membership, tuple(direct.placement_indices))
                 self.assertEqual(
