@@ -82,7 +82,8 @@ mutation-proof ข้างบน (ข) อ่าน `git diff` ทุก hunk �
 ## เทส
 
 ```
-เฉพาะไฟล์ที่แก้: tests/test_mob_loot.py -> 97 passed, 12 subtests passed (0.50s)
+เฉพาะไฟล์ที่แก้: tests/test_mob_loot.py -> ~~97 passed~~ 96 passed, 1 skipped (skip เดิม ไม่เกี่ยวรอบนี้), 12 subtests passed (0.50s)
+(แก้ไข หลัง pf-adversary รีวิวรอบ h40iwu จับได้ว่านับ skip ปนกับ pass -- ยืนยันด้วยการรันจริงซ้ำ)
 mutation-proof: guard == แทน >= -> เทสใหม่แดง 1 ใบ (AssertionError) -> revert -> เขียวหมดอีกครั้ง
 สวีตเต็มก่อนแก้ (HEAD เดิม): 6149 passed, 327 skipped, 13142 subtests passed, 0 failed (148.48s)
 สวีตเต็มหลังแก้: 6150 passed, 327 skipped, 13142 subtests passed, 0 failed (143.11s)
