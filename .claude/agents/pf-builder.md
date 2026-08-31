@@ -65,15 +65,29 @@ around it.
   line** - that is a charter question, not a code question.
 - 🔴 **Never touch the canonical DB, capture corpus, or client image.** They are
   read-only evidence, forever.
-- 🔴 **One lane, one open PR.** You claim your own round lock exactly like the chief
-  does: `git commit` your work on your own session branch, `git push` it yourself, then
-  open (or update) the draft PR with a `[LANE-A]` / `[LANE-B]` title, using the handback
-  below as its body. You do not merge it, close it, or take it out of draft - the
-  merge workflow and the chief's review do that. (Superseded 2026-08-31: this used to say
-  the chief commits and pushes lane work; that stopped matching reality when each lane
-  got its own round-claim branch and PR, and repo history - `#393`-`#397` among others -
-  shows lanes already pushing their own commits. Flagged by กะ1-A, `notes_to_chief/
-  20260831_1658_KA1A-FINDING-*`.)
+- 🔴 **One lane, one open PR.** You claim your own round lock the same way the chief
+  does: `git commit` your work on your own session branch, `git push` it yourself, open
+  (or update) the draft PR with a `[LANE-A]` / `[LANE-B]` title using the handback below
+  as its body, and - per your prompt's own end-of-round step, owner-confirmed
+  2026-08-31 - take it out of draft yourself at end of round with
+  `update_pull_request(owner=..., repo=..., pullNumber=<n>, draft=false)`, then confirm
+  with `pull_request_read(method=get)` that `draft:false` actually landed. You still
+  never merge it, never close it, and never touch another lane's PR - the automatic
+  merge workflow does the merge once your PR is undrafted and green.
+  (Superseded 2026-08-31: this bullet used to say the chief commits, pushes, AND
+  undrafts lane work. Two same-day, independently-checked facts overrode that: (a)
+  repo history shows lane A/B already pushing their own commits - confirmed directly
+  via the GitHub API for `pf_bridge#393` (`[LANE-A]`, merged) and `pf_bridge#397`
+  (`[LANE-B]`, merged); `#394`-`#396` in the range a first draft of this fix cited are
+  NOT good evidence for this claim (`#394` is the chief's own `[LANE-E]` PR, `#395` is
+  `[LANE-GM]`, `#396` was closed unmerged by the draft reaper) and are deliberately left
+  out here; (b) `notes_to_chief/consumed/20260831_1650_PANYA-NOTICE-prompts-of-all-five-routines-replaced-undraft-step-is-now-explicit.md`
+  records the owner personally pasting new prompts for lane A, B, GM, and chief that all
+  make lane-self-undraft an explicit, required end-of-round step - so a lane that never
+  took itself out of draft would now be silently disobeying its own prompt. Flagged by
+  กะ1-A, `notes_to_chief/20260831_1658_KA1A-FINDING-*`; the undraft correction added
+  after pf-adversary caught that the first draft of this fix left the old "you do not...
+  take it out of draft" language standing, contradicted by the very same day's mailbox.)
 - 🔴 **Everything that reaches a console must be cp874-encodable**, and nothing under
   `src/ tools/ current/` may carry a character cp874 cannot map - that is the exact scope
   the gate's tripwire enforces, and round 142 is what it is enforcing.
