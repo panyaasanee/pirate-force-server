@@ -76,19 +76,25 @@ NONCLAIMS -- read these before using one symbol from this file
      ``.claim(character_id, self.foundation.backpack)`` unconditionally in
      the character-select/StartGame branch (also exercised incidentally by
      the general test suite, e.g. tests that reach
-     ``start_game_res_scene_identity_sent``).  [MEASURED by call-site
-     reading, NOT by an executed test -- no test in ``tests/`` references
-     ``mob_pickup_registry``/``mob_pickup_bag_cell``] the sole
-     ``.release(...)`` call site sits in ``runtime.py``'s
-     ``close_connection`` wrapper, which every ordinary disconnect reaches
-     (unlike the opt-in logout-hypothesis scenario, which closes the inner
-     foundation object directly and relies on the listener's own teardown
-     to reach the wrapper afterward).  Left standing because it is still
-     true for every OTHER symbol here: ``resolve_claim``, ``place_in_bag``
-     and ``BagCell.commit_pickup`` -- the actual ground-drop-to-bag
-     transaction -- have no call site anywhere, because "ON AN INBOUND
-     PICKUP REQUEST" stays unwired pending RE-082's vital id.  No player
-     has picked anything up.
+     ``start_game_res_scene_identity_sent``).
+     ~~[MEASURED by call-site reading, NOT by an executed test -- no test in
+     ``tests/`` references ``mob_pickup_registry``/``mob_pickup_bag_cell``]~~
+     IS STRUCK (LANE-B round p3olrt): ``tests/test_mob_pickup_registry_
+     wiring.py`` now drives the real ``make_state_class`` dispatch (login ->
+     create -> StartGame) and proves, by execution rather than reading, that
+     the claim is server-wide shared state (a second session on the same
+     character is refused ``mob_pickup_claim_refused_bag_already_claimed``
+     while the first's claim survives untouched) and that ``.release()``
+     frees the character for the next session.  The sole ``.release(...)``
+     call site sits in ``runtime.py``'s ``close_connection`` wrapper, which
+     every ordinary disconnect reaches (unlike the opt-in logout-hypothesis
+     scenario, which closes the inner foundation object directly and relies
+     on the listener's own teardown to reach the wrapper afterward) -- that
+     release path is now pinned by the same file too.  What remains true for
+     every OTHER symbol here: ``resolve_claim``, ``place_in_bag`` and
+     ``BagCell.commit_pickup`` -- the actual ground-drop-to-bag transaction --
+     have no call site anywhere, because "ON AN INBOUND PICKUP REQUEST" stays
+     unwired pending RE-082's vital id.  No player has picked anything up.
   2. THE OBJECT REFERENCE WAS AN ASSUMPTION; RE-082 CONFIRMED IT AT THE
      STATIC LAYER, AND THIS MODULE'S GUARD DOES NOT RELAX BECAUSE OF THAT.
      [LANE-B ASSUMPTION - CONFIRMED by RE-082, 2026-08-26 10:17 +07:00,
