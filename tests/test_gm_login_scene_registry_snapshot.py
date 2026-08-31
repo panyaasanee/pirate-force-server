@@ -70,8 +70,9 @@ from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 # opened Hell Volcano Island at login); see test_gm_login_scene_stage.py for
 # the gate that had to arrive with it.  Scene 4 joined it round bq4mst
 # (COO-DECISION 20260830_1441).  Scene 10 joined it round 3t75jw, second
-# door in the same queue.
-ADMISSIBLE_ON_DISK_TODAY = (1, 2, 4, 10, 14, 278, 997)
+# door in the same queue.  Scene 5 joined it round l03cgh, third door,
+# built+wired+opened in one round.
+ADMISSIBLE_ON_DISK_TODAY = (1, 2, 4, 5, 10, 14, 278, 997)
 # Named in the client's scene table (Spice Paradise) and pinned
 # `login_entry_allowed: false`, so the disk reading refuses it.
 BARRED_ON_DISK = 3

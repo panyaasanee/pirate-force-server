@@ -247,6 +247,7 @@ from typing import Any, Callable
 # is still NAMED in this docstring and in LOGIN_OWNED_SOURCES, which is where
 # the relationship now lives.
 from . import world_population_bg0004
+from . import world_population_bg0005
 from . import world_population_bg0010
 from . import world_population_bg0015
 from .world_population import (
@@ -438,6 +439,22 @@ ROSTER_COMPOSERS: dict[str, _SceneComposer] = {
         report_of=world_population_bg0010.dispatch_report,
         generation_type=world_population_bg0010.Bg0010PopulationGeneration,
         full_roster_count=world_population_bg0010.DEFAULT_ACTOR_COUNT,
+    ),
+    # ADDED ROUND l03cgh (2026-08-31, LANE-A), build+wire+open in one round
+    # for the third door (scene 5, Evil Port) - same shape as bg0004's and
+    # bg0010's entries above.  NOT covered by the LOGIN_OWNED_SOURCES
+    # exclusion below: scene 5 has no login-path populator today before this
+    # round (no runtime.py branch dedicated to it), so this entry is not
+    # composing over anything.
+    "bg0005_roster": _SceneComposer(
+        source="bg0005_roster",
+        build=world_population_bg0005.build_bg0005_population,
+        full_roster_count_source=world_population_bg0005.COUNT_SOURCE_FULL_ROSTER,
+        membership_of=lambda generation: tuple(generation.placement_indices),
+        caller_count_source=world_population_bg0005.COUNT_SOURCE_CALLER,
+        report_of=world_population_bg0005.dispatch_report,
+        generation_type=world_population_bg0005.Bg0005PopulationGeneration,
+        full_roster_count=world_population_bg0005.DEFAULT_ACTOR_COUNT,
     ),
 }
 

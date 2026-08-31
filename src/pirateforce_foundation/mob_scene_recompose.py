@@ -247,6 +247,29 @@ ACKNOWLEDGED_WITHOUT_COMPOSER = {
         "because of this entry; acknowledged now so the tripwire does not "
         "fire silently the day the door opens."
     ),
+    # ADDED ROUND l03cgh (LANE-A), same shape as the scene 4 and scene 10
+    # entries above: scene 5 entered ``world_scene_travel.CENSUS_SOURCES``
+    # this round (built, wired AND opened in one round, unlike scenes 4/10's
+    # own three-round split).  Verified rather than assumed:
+    # ``field_mobs.scene_for_scene_id(5)`` also returns ``None`` -- scene 5
+    # is in neither of field_mobs' two tables either, so the identical
+    # reasoning applies verbatim.  UNLIKE scenes 4/10's entries at the time
+    # they were written, THIS composer IS live the same round: scene 5's
+    # login_entry_allowed is true as of this commit, so a player CAN reach
+    # this scene's arrival census -- they still reach no combat roster and
+    # no strike, because none exists for this scene in field_mobs, the same
+    # fact the other two entries record.  LANE-B/chief: please review and
+    # correct the wording if this table's convention expects more than the
+    # bare fact for a new entry.
+    5: (
+        "Bg0005 -- lane A's arrival census composes it (lane_hooks/"
+        "lane_a_scene_census.py, registered and opened round l03cgh); "
+        "field_mobs names no scene 5 at all, so it has no combat roster and "
+        "no strike can reach a recompose.  This composer IS live (scene 5's "
+        "login_entry_allowed is true), so a player can reach the arrival "
+        "census; there is simply nothing in field_mobs for it to recompose "
+        "against yet."
+    ),
 }
 
 

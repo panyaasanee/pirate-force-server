@@ -136,6 +136,7 @@ from typing import Any
 from .. import lane_hooks
 from .. import mob_census_hostility
 from .. import world_population_bg0004
+from .. import world_population_bg0005
 from .. import world_population_bg0010
 from .. import world_population_bg0015
 from .. import world_population_handoff
@@ -192,6 +193,21 @@ _CONSOLE_LINES_OF = {
         (world_population_bg0010.census_console_line(generation),)
         + world_population_bg0010.actor_lines(generation)
         + world_population_bg0010.unresolved_lines()
+    ),
+    # ADDED round l03cgh (2026-08-31, LANE-A): the second table this scene
+    # needs a row in, per "HOW A SCENE GETS ADDED" above.  Registered here
+    # AND in ``world_scene_travel.CENSUS_SOURCES`` in the same commit, so
+    # neither table can be true without the other for even one round.
+    # Unlike bg0004's and bg0010's own build/wire/open split across three
+    # separate rounds, this round also flips scene 5's registry row in the
+    # same pass (see ``scenarios/world_scene_registry_001.json``'s own
+    # ``login_entry_allowed_because`` for the D1/D2/D3 check this round ran
+    # against THIS scene) - so THE ADMISSION CHECK above now ADMITS calls
+    # this composer receives in production.
+    "bg0005_roster": lambda generation: (
+        (world_population_bg0005.census_console_line(generation),)
+        + world_population_bg0005.actor_lines(generation)
+        + world_population_bg0005.unresolved_lines()
     ),
 }
 

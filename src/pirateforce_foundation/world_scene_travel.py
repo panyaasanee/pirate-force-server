@@ -110,6 +110,7 @@ TEST_STAGE_SCENE_ID = 278
 PRISON_EXILE_SCENE_ID = 2
 HELL_VOLCANO_SCENE_ID = 14
 SLAVE_MARKET_SCENE_ID = 4
+EVIL_PORT_SCENE_ID = 5
 DEEP_SEA_TEMPLE_SCENE_ID = 10
 MEASURED_SCENE_IDS = (1, 2)
 CENSUS_SCENE_ID = SCENE_ID
@@ -151,16 +152,25 @@ CENSUS_SOURCE = "bg0001_census"
 # for itself (built, verified, NOT wired round u3jo4g; this round is the
 # wiring half of that pair, same split bg0004's own history shows -- build
 # u3jo4g, wire c42axq).  Scene 10's registry row still reads
-# ``login_entry_allowed: false`` (unchanged this round -- opening the door is
-# a later round's judgment call, same as scene 4's), so this row is inert on
-# ``main`` the same way scene 4's row was inert between its own build and
+# ``login_entry_allowed: false`` at that point (opened later the same round
+# sequence, round 3t75jw), so this row was inert on ``main`` between those
+# two rounds the same way scene 4's row was inert between its own build and
 # open rounds: registered, refused by the admission check in
 # ``lane_hooks/lane_a_scene_census.py``, never invoked in production.
+# WIDENED 2026-08-31 (round l03cgh, LANE-A) with the sixth composer this
+# lane has shipped: "bg0005_roster" is ``world_population_bg0005.py``'s own
+# name for itself, the third door of the ten surveyed in round ``12lyda``
+# (92 native placements, the highest of the eight still shut after scenes 4
+# and 10 opened).  This round builds, wires AND -- after the same D1/D2/D3
+# check every earlier door had -- opens scene 5's door in one pass; see
+# ``scenarios/world_scene_registry_001.json``'s own
+# ``login_entry_allowed_because`` on this row for that check.
 CENSUS_SOURCES = {
     CENSUS_SCENE_ID: CENSUS_SOURCE,
     PRISON_EXILE_SCENE_ID: "bg0002_roster",
     HELL_VOLCANO_SCENE_ID: "bg0015_roster",
     SLAVE_MARKET_SCENE_ID: "bg0004_roster",
+    EVIL_PORT_SCENE_ID: "bg0005_roster",
     DEEP_SEA_TEMPLE_SCENE_ID: "bg0010_roster",
 }
 CLIENT_REGISTERED_SCENE_COUNT = 271

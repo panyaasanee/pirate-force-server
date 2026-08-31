@@ -926,13 +926,13 @@ guard("make_remote_actor_entry" in _v141,
 # sequence), builds one entry and sends one carrier, the same shape as
 # bg0004/bg0015/bg0002 before it.  Not wired to any player-reachable path
 # this round either (see that module's own "NOT WIRED" docstring paragraph).
-# Round pynass re-pin (LANE-A), 19 -> 20 and 28 -> 29 and
-# 18 -> 19.  world_population_bg0005.py, the Bg0005 (Evil Port) census
-# (third door of the same COO-DECISION 2026-08-30T14:41+07:00 sequence),
-# builds one entry and sends one carrier, the same shape as
-# bg0004/bg0010/bg0015/bg0002 before it.  Not wired to any player-reachable
-# path this round either (see that module's own "NOT WIRED, DOOR SHUT"
-# docstring paragraph).
+# Round l03cgh re-pin (LANE-A), 19 -> 20 and 28 -> 29 and 18 -> 19.
+# world_population_bg0005.py, the Bg0005 (Evil Port) census (third door of
+# the same COO-DECISION 2026-08-30T14:41+07:00 sequence), builds one entry
+# and sends one carrier, the same shape as bg0004/bg0010/bg0015/bg0002
+# before it.  UNLIKE those four, this module IS wired to a player-reachable
+# path THIS round (built, wired and door-opened in one round rather than
+# three -- see that module's own docstring).
 guard(SRC_ACTOR_ENTRY_SITES == 20,
       "src/ builds actor entries at exactly 20 call sites (4 spawns + the "
       "round-86 death re-send + the round-96 remote-player probe + the "

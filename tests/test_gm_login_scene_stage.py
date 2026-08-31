@@ -252,8 +252,10 @@ class OnlyScenesTheLoginPathCanEnterTests(_Case):
         # original ten are UNCHANGED and this tuple otherwise still says so.
         # IT GREW A SECOND TIME, ROUND 3t75jw.  Scene 10 (Deep Sea Temple
         # floor 1) opened second, same queue, same condition.
+        # IT GREW A THIRD TIME, ROUND l03cgh.  Scene 5 (Evil Port) opened
+        # third, same queue, built+wired+opened in one round.
         self.assertEqual(
-            (1, 2, 4, 10, 14, 278, 997),
+            (1, 2, 4, 5, 10, 14, 278, 997),
             login_scene_stage.stageable_scene_ids()
         )
         for scene_id in login_scene_stage.stageable_scene_ids():

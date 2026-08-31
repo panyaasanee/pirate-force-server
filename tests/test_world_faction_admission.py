@@ -87,6 +87,10 @@ SCENE_2 = 2
 VOLCANO = 14
 # ADDED round bq4mst (LANE-A): opened the same round this constant was added.
 SLAVE_MARKET = 4
+# ADDED round l03cgh (LANE-A): opened the same round this constant was added,
+# third of the ten doors, built+wired+opened in one round -- no elevated
+# landing-geometry flag on this row (checked, not assumed).
+EVIL_PORT = 5
 # ADDED round 3t75jw (LANE-A): opened the same round this constant was added,
 # second of the ten doors -- carries an elevated landing-geometry flag
 # (registry's own the_two_interiors) this file does not track; see GT-166.
@@ -146,13 +150,15 @@ class ThePredicateOnTheRealRegistryTests(unittest.TestCase):
         # follows the registry rather than a list somebody wrote once.
         # UPDATED round 3t75jw: scene 10 (DEEP_SEA_TEMPLE) opened second,
         # same basis, and also carries n_SAVE 1.
+        # UPDATED round l03cgh: scene 5 (EVIL_PORT) opened third, same
+        # basis, also n_SAVE 1.
         self.assertEqual(
-            (HOME, SCENE_2, SLAVE_MARKET, DEEP_SEA_TEMPLE, VOLCANO),
+            (HOME, SCENE_2, SLAVE_MARKET, EVIL_PORT, DEEP_SEA_TEMPLE, VOLCANO),
             wfa.admitted_scene_ids())
 
     def test_each_admitted_scene_says_yes_one_at_a_time(self):
-        for scene_id in (HOME, SCENE_2, SLAVE_MARKET, DEEP_SEA_TEMPLE,
-                          VOLCANO):
+        for scene_id in (HOME, SCENE_2, SLAVE_MARKET, EVIL_PORT,
+                          DEEP_SEA_TEMPLE, VOLCANO):
             with self.subTest(scene_id=scene_id):
                 self.assertTrue(wfa.admits(scene_id))
 
@@ -188,15 +194,19 @@ class ThePredicateOnTheRealRegistryTests(unittest.TestCase):
         # UPDATED round 3t75jw: the base registry this opens ON TOP OF now
         # already admits scene 10 (DEEP_SEA_TEMPLE), so the expected string
         # grew a digit that is not the one this test opens.
+        # UPDATED round l03cgh: the base registry now also already admits
+        # scene 5 (EVIL_PORT), one more digit that is not the one this test
+        # opens.
         with tempfile.TemporaryDirectory() as work:
             opened, _ = _registry_with_door(
                 Path(work), SHUT_AT_LOGIN, allowed=True)
             line = wfa.console_line(opened)
             self.assertIn(
                 f"WORLD_FACTION_ADMISSION scenes=1,2,{SHUT_AT_LOGIN},4,"
-                f"{DEEP_SEA_TEMPLE},14",
+                f"{EVIL_PORT},{DEEP_SEA_TEMPLE},14",
                 line)
-            self.assertNotIn(f"scenes=1,2,4,{DEEP_SEA_TEMPLE},14 ", line)
+            self.assertNotIn(
+                f"scenes=1,2,4,{EVIL_PORT},{DEEP_SEA_TEMPLE},14 ", line)
 
 
 class TheTwoConditionsTests(unittest.TestCase):
