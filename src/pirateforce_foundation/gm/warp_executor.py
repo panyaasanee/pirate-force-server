@@ -14,9 +14,58 @@ whose `target`/`aux` sub-objects still carry several positional-only
 fields RE-090 leaves unproven (`field_0x10`, `field_0x11`, `field_0x18`,
 `field_0x20`, `field_0x22`, and every `TeleportAux` field except `text`).
 Inventing values for those here would be exactly the guess this lane's
-rules forbid (docs/GM_LANE.md, nonclaim rule) -- so this module builds the
-same-scene case only, via `ForcePos`, and refuses (`WarpExecutorError`)
-rather than silently mis-executing anything else.
+rules forbid (docs/GM_LANE.md, nonclaim rule) -- so `gm/teleport_wire.py`'s
+own parameterized `TeleportVital` builder (`make_teleport_vital_frame`) is
+never used here for that reason, and stays unused today.
+
+CROSS-SCENE WARP, RESOLVED A DIFFERENT WAY (COO-DECISION
+2026-08-31T14:41+07:00, `pf_bridge/notes_to_chief/20260831_1441_COO-
+DECISION-warp-cross-scene-opens-gt106r2-passed.md`).  The positional-field
+gap above is real and unchanged -- nobody has proven what `field_0x10`/
+`field_0x18`/the `TeleportAux` fields mean, and this module still will not
+guess them.  But `legacy.make_login_teleport`
+(`current/pf_login_game_server_v141.py:2431`) is a SEPARATE, narrower
+encoder that never asks for those fields at all: it hardcodes
+`TeleportVital`'s `target` present and `aux` absent, and every
+positional-only field to the same constructor-default value the client's
+own `TeleportVital` prototype writes (RE-129) -- the identical bytes
+`runtime.py` already sends LIVE, mid-session, from three call sites this
+lane does not own or write -- NO LINE NUMBERS FOR A FILE THIS LANE DOES NOT
+OWN (this module's own docstring convention; `gm/chat_command_action.py`
+names why: chief's file rots a pinned number silently, twice in one day the
+one round this lane tried it): the Columbus dispatch (`_dispatch_columbus_
+quest3021`), the world-travel-gate crossing (`departure.confirmed_fields()`
+feeding the same `legacy.make_login_teleport` call, right after `self.
+foundation.checkpoint(departure.arrival)`), and the scene-load path (the
+`SCENE2_LOAD_ONLY_TELEPORT_MARKER2_ONCE`/`V113_TELEPORT_SCENE1_STABLE_
+ZERO_TARGET_ONCE` action labels).  Grep those, not a line number.  RE-162 measured
+that mechanism as really wired on main; GT-106-R2 (OBSERVER_CONFIRMED
+2026-08-31T10:0x+07:00, `pf_bridge/notes_to_chief/20260831_1036_GT106R2-
+RESULT-PASS-*.md`) measured a real client rendering the destination scene
+when it fires mid-session rather than only at login (scene 17, X=834
+Y=-598, via the Columbus-dispatch call site above -- not through this
+lane's `/warp` command, which had never fired it before this round).  So
+this module now has a SECOND way to honor `warp <scene_id> x y`'s
+cross-scene half that needs no unproven field at all: reuse that exact
+encoder, exactly as chief's own call sites already call it, rather than
+compose a `TeleportVital` from scratch through `teleport_wire.py`'s general
+builder.  See `make_warp_teleport_frame_with_target` and
+`WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED` below.
+
+WHAT THIS DOES NOT CLOSE.  The bare `warp <scene_id>` form (no x/y) still
+has no position for either composer to carry -- this module does not
+invent a spawn point, and `gm/login_scene_stage.py`'s stage-for-next-login
+remains the only honest answer for that shape (see
+`gm/chat_command_action.py::_warp_action`'s routing rule).  RE-162 also
+found that the destination scene's census/actor population does not
+follow a mid-session `TeleportVital` -- not even chief's own Columbus
+dispatch sends one -- and this module inherits that exact gap rather than
+fixing it; fixing it is outside a wire-builder's zone.  And per the G-OBS
+rule this lane has held since before this round, every destination beyond
+scene 17 still needs its own attended, client-observable pass before this
+lane or anyone else calls it PASS -- GT-106-R2 answers the MECHANISM
+("does a mid-session TeleportVital move the client's screen at all"), not
+every scene id in the catalog.
 
 `pf-adversary` (this round) found that a `GmCommand` handed to this module
 is not guaranteed to have gone through `parse_gm_command`'s own
@@ -83,33 +132,82 @@ wire-builder in this package (see docs/GM_LANE.md, CORE-REQUEST-011).
 from __future__ import annotations
 
 import math
+import struct
 from dataclasses import dataclass
 
+from ..population import SCENE_SEQUENCE
 from .commands import GmCommand
+from .scene_catalog import is_known_scene_id
 from .teleport_wire import make_force_pos_frame_with_body
+
+# COO-DECISION 2026-08-31T14:41+07:00 (pf_bridge/notes_to_chief/
+# 20260831_1441_COO-DECISION-warp-cross-scene-opens-gt106r2-passed.md)
+# authorizes this module to compose a LIVE, mid-session cross-scene warp via
+# legacy.make_login_teleport, replacing the stage-only policy COO-DECISION
+# 20260828_2130/20260830_2048 held for exactly this shape: `/warp <scene_id>
+# x y` naming a scene the connection is NOT already in.
+#
+# UNLIKE `teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED` ABOVE THIS
+# MODULE'S OWN ForcePos PATH, this is not a byte waiting on RE proof --
+# TeleportVital v4 built by `legacy.make_login_teleport` is the SAME encoder
+# `runtime.py` already sends live, mid-session, on main today (see the
+# module docstring's "CROSS-SCENE WARP, RESOLVED A DIFFERENT WAY" section),
+# and GT-106-R2 proved a real client renders the destination scene when that
+# exact mechanism fires mid-session.  What stayed shut until this round was
+# POLICY, not an unmeasured byte: COO-DECISION 20260830_2048 held it shut
+# pending that result, on this lane's own G-OBS principle (do not ship an
+# unproven mid-session behaviour), and lifted it once the result was PASS.
+#
+# So this is a named boolean, not a None-until-RE constant -- a future
+# revocation flips it back to False, and `tests/test_gm_warp_executor.py`
+# pins both the value and this citation, the same discipline
+# `FORCE_POS_VITAL_VERSION_CONFIRMED`'s own history holds for its constant.
+WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED = True
 
 
 class WarpExecutorError(ValueError):
-    """A `warp` command cannot be executed via `ForcePos` as given."""
+    """A `warp` command cannot be executed via `ForcePos`/`TeleportVital` as
+    given.
+    """
 
 
 @dataclass(frozen=True)
 class WarpTarget:
     """Where one accepted `warp` actually sent the connection, in wire terms.
 
-    Every field is the value the ForcePos frame CARRIES, not the value the GM
-    typed: `x`/`y`/`z` are read back out of the built payload, so they are
-    IEEE binary32 (see `teleport_wire.make_force_pos_frame_with_body`), and
-    `scene_id` is the scene the frame is valid in -- which
-    `make_warp_force_pos_frame` has already proven equal to the connection's
-    current scene, because ForcePos carries no scene id and this module
-    refuses to cross scenes.
+    Every field is the value the OUTBOUND FRAME CARRIES, not the value the GM
+    typed: `x`/`y`/`z` are IEEE binary32, read back out of the built payload
+    for the ForcePos composer (`teleport_wire.make_force_pos_frame_with_body`)
+    or reproduced by the identical binary32 round trip for the TeleportVital
+    composer (`make_warp_teleport_frame_with_target`, which does not get a
+    payload handed back to decode -- see that function's own comment).
+
+    `scene_id` means one of two things depending on WHICH composer built this
+    target, and that is a real difference in kind, not just in value:
+      * `make_warp_force_pos_frame_with_target` -- the connection's CURRENT
+        scene, proven equal to it, because ForcePos carries no scene id at
+        all and this module refuses to use it to cross scenes.
+      * `make_warp_teleport_frame_with_target` -- the DESTINATION scene the
+        TeleportVital frame names, which DOES carry a scene id (RE-090).
+    A reader comparing this against a later position report does not need to
+    know which composer built it first: `warp_target_record.distance_to_target`
+    already treats a reported position in a different scene as NOT
+    COMPARABLE rather than as a mismatch, which is exactly the right answer
+    for both cases -- a same-scene target the GM never reached, and a
+    cross-scene target the client has not yet confirmed by arriving.
 
     !! WHAT A `WarpTarget` IS EVIDENCE OF, AND IT IS ONE THING.  It says
-    "these bytes went out".  It is not evidence that the client moved: RE-129
-    measured the client's registered ForcePos handler as `mov al,1; ret 4`.
-    Comparing a later durable position row against this target is exactly how
-    a reader tells those two apart, which is why chief asked this lane to
+    "these bytes went out".  It is not evidence that the client moved THIS
+    CHARACTER TO THIS EXACT POINT: RE-129 measured the client's registered
+    ForcePos handler as `mov al,1; ret 4` -- ForcePos targets carry no such
+    thing.  A TeleportVital target is a different case in one respect and
+    the same case in the one that matters here: GT-106-R2 measured that the
+    MECHANISM moves a real client's screen, but that is a fact about the
+    mechanism, not about any one `WarpTarget` value -- it is not a per-frame
+    delivery receipt, and this dataclass still does not become one just
+    because the composer that built it is now proven live.  Comparing a
+    later durable position row against this target is exactly how a reader
+    tells "sent" from "arrived" apart, which is why chief asked this lane to
     expose it (`CHIEF-REPLY 20260828_2301`, appendix item 5) -- not so that a
     match can be assumed.
     """
@@ -200,17 +298,116 @@ def make_warp_force_pos_frame_with_target(
     return pc, frame, WarpTarget(scene_id, body.x, body.y, body.z)
 
 
+def make_warp_teleport_frame_with_target(
+    legacy,
+    command: GmCommand,
+    z: float,
+) -> tuple[bytes, bytes, WarpTarget]:
+    """Build a server->client `TeleportVital` frame for a cross-scene `warp`.
+
+    See the module docstring's "CROSS-SCENE WARP, RESOLVED A DIFFERENT WAY"
+    section for why this is safe to compose without any of the unproven
+    `TeleportVital` fields `teleport_wire.py`'s general builder would need:
+    `legacy.make_login_teleport` hardcodes every one of them to the same
+    constructor-default value the client's own prototype writes, so this
+    function only ever supplies the four fields `warp`'s own grammar and the
+    connection's own state can honestly provide -- `scene_id`, `x`, `y` from
+    the command, `z` from the caller (same reason
+    `make_warp_force_pos_frame_with_target` takes it as a parameter: the
+    `warp` grammar carries no elevation at all).
+
+    `scene_seq` is NOT a parameter, on purpose, and it is not a guess either:
+    `SCENE_SEQUENCE` (`population.py`) is the same `0` every scene-crossing
+    call site in this project already sends, cited there as "the only value
+    ever measured, at scene 1 and at scene 2 alike" -- reused here rather
+    than re-derived, so a future correction to that constant fixes this
+    module for free instead of leaving a second copy to drift.
+
+    ONLY THE `warp <scene_id> x y` FORM REACHES THIS FUNCTION.  The bare
+    `warp <scene_id>` form has no x/y for a `TeleportVital` target to carry
+    either, exactly the same refusal `make_warp_force_pos_frame_with_target`
+    raises for that shape -- this module does not invent a spawn point for
+    either composer.  (Routing which form reaches which function at all is
+    `gm/chat_command_action.py::_warp_action`'s job, not this one's; this
+    function refuses the coordinate-less shape itself too, so a caller
+    mistake in that routing fails closed here rather than composing a
+    frame from missing data.)
+
+    `scene_id` IS RE-CHECKED AGAINST THE SCENE CATALOG, unlike the
+    same-scene ForcePos path (which never needs to, because its `scene_id`
+    is proven equal to the connection's own current scene by the refusal
+    two lines up in that function).  A cross-scene target is NOT already
+    known to be a real scene, and `scene_catalog.is_known_scene_id` is the
+    one check this lane has always applied before letting a GM name a
+    destination at all (`gm/login_scene_stage.py` applies the identical
+    check before staging).  Deliberately NOT the heavier
+    `login_scene_admission` check that gates STAGING: that table is about
+    whether the LOGIN path can enter a scene at boot, a different
+    mechanism this live mid-session frame does not go anywhere near, and
+    scene 17 -- the one destination GT-106-R2 actually measured working
+    live -- is proof the two checks disagree: `is_known_scene_id(17)` is
+    True, `login_scene_admission.single_use_entry_is_admissible(17)` is
+    False.  Gating this function on the wrong table would refuse the one
+    destination this round can cite evidence for.
+
+    Every numeric field is re-validated here regardless of whether
+    `command` came from `parse_gm_command`, same as
+    `make_warp_force_pos_frame_with_target` -- see this module's docstring,
+    pf-adversary note.
+    """
+    if command.name != "warp":
+        raise WarpExecutorError(
+            f"make_warp_teleport_frame_with_target only applies to warp "
+            f"commands, got {command.name!r}"
+        )
+    args = _require_args_tuple(command)
+    if len(args) != 3:
+        raise WarpExecutorError(
+            "cross-scene warp <scene_id> with no x/y has no position for "
+            "TeleportVital to carry either; that form still stages the "
+            "next login instead -- see gm/login_scene_stage.py"
+        )
+    raw_scene_id, raw_x, raw_y = args[0], args[1], args[2]
+    scene_id = _require_int(raw_scene_id, "scene_id")
+    if not is_known_scene_id(scene_id):
+        raise WarpExecutorError(
+            f"scene_id {scene_id} is not a scene gm/scene_catalog.py names; "
+            "refusing rather than sending a TeleportVital frame at an "
+            "unknown destination"
+        )
+    x = _require_finite_float(raw_x, "x")
+    y = _require_finite_float(raw_y, "y")
+    z = _require_finite_float(z, "z")
+    pc, frame = legacy.make_login_teleport(scene_id, SCENE_SEQUENCE, x, y, z)
+    # No payload comes back to decode the way `make_force_pos_frame_with_body`
+    # hands one back -- `legacy.make_login_teleport` is a fixed constructor,
+    # not a builder this module composes a payload for.  Its `x`/`y`/`z`
+    # still land on the wire through `f32tag`, the identical IEEE-754
+    # single-precision encode `teleport_wire._read_tag_f32` would decode back
+    # out, so redoing that exact round trip here reproduces the wire's own
+    # values byte-for-byte without needing to parse the frame this function
+    # already built -- see WarpTarget's own docstring for why this has to be
+    # the wire's value and not the Python float argument.
+    wire_x = struct.unpack("<f", struct.pack("<f", x))[0]
+    wire_y = struct.unpack("<f", struct.pack("<f", y))[0]
+    wire_z = struct.unpack("<f", struct.pack("<f", z))[0]
+    return pc, frame, WarpTarget(scene_id, wire_x, wire_y, wire_z)
+
+
 def warp_command_scene_id(command: GmCommand) -> int:
     """The scene_id a parsed `warp` command names, validated once, here.
 
     `gm/chat_command_action.py` has to know WHICH scene a warp asks for
-    before it can decide between the two halves of `/warp`: the same-scene
-    half this module composes a ForcePos for, and the cross-scene half
-    `gm/login_scene_stage.py` stages for the next login.  It reads the
-    scene_id through this function rather than indexing `command.args`
-    itself, so the shape checks that protect the frame builder protect the
-    decision too -- a hand-built `GmCommand` whose `args[0].__int__` returns
-    a different number on each call cannot route one way and stage another.
+    before it can decide between `/warp`'s halves: the same-scene half this
+    module composes a `ForcePos` for, the cross-scene-with-coordinates half
+    this module now composes a live `TeleportVital` for
+    (`make_warp_teleport_frame_with_target`, COO-DECISION 1441), and the
+    cross-scene-with-no-coordinates half `gm/login_scene_stage.py` still
+    stages for the next login.  It reads the scene_id through this function
+    rather than indexing `command.args` itself, so the shape checks that
+    protect the frame builders protect the decision too -- a hand-built
+    `GmCommand` whose `args[0].__int__` returns a different number on each
+    call cannot route one way and act on another.
     """
     if command.name != "warp":
         raise WarpExecutorError(

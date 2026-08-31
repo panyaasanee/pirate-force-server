@@ -5423,3 +5423,99 @@ GT-106-R2/warp cross-scene gate) ที่อ้างถึงบล็อก�
 - `pirate-force-server#393` (เดียวกัน + wake-gate commit ท้ายรอบ)
 
 — สาย GM รอบ `xxsulh`
+
+## รอบ `fftpji` (2026-08-31T16:40+07:00) — ปลดล็อก `/warp` ข้ามฉากยิง live teleport ตาม COO-DECISION 1441
+
+### สรุป
+
+กล่องจดหมายมีงานจริง: `20260831_1441_COO-DECISION-warp-cross-scene-opens-gt106r2-passed.md` (ตัดสินตรง)
+กับ `20260831_1555_KA1A-TO-LANE-GM-*` (ใบเตือนว่ารอบ `xxsulh` ค้นไม่เจอเพราะขอบเขตการค้นผูกกับหัวข้อเดิม
+สามอัน — `1441` เป็นหัวข้อที่สี่) `GT-106-R2` ผ่านจริง (`OBSERVER_CONFIRMED 2026-08-31T10:0x+07:00`, scene
+17, X=834 Y=-598) และ COO เปิดทางเลือก 1: เปลี่ยน `/warp` ข้ามฉาก (ที่มีพิกัด) จาก stage-รอ-login-หน้า
+ไปยิง `legacy.make_login_teleport` จริงกลางเซสชัน
+
+**โค้ดที่เปลี่ยน** (ทั้งสามไฟล์อยู่ในเขตสาย GM ล้วน ไม่แตะ `runtime.py`/`app.py`/
+`pf_login_game_server_v141.py` เลย — ตรวจเส้นทางส่งจริงก่อนเขียนโค้ดแล้วพบว่า `chat_command_action.py`
+มีท่อส่ง `(label, pc, frame, delay)` -> `runtime.py`'s action list อยู่แล้วสำหรับทุกคำสั่ง GM จึงไม่ต้องขอ
+CORE-REQUEST-GM-044 ใด ๆ):
+
+1. `gm/warp_executor.py` — เพิ่ม `make_warp_teleport_frame_with_target` (คอมโพสเซอร์ใหม่ ยิงผ่าน
+   `legacy.make_login_teleport(scene_id, population.SCENE_SEQUENCE, x, y, z)` ตัวเดียวกับที่
+   `runtime.py` ใช้จริงอยู่แล้วสามจุด — Columbus dispatch, world-travel-gate crossing, scene-load path
+   — ไม่แตะ field ที่ยังไม่พิสูจน์ของ `teleport_wire.py`'s general TeleportVital builder เลย) เพิ่ม
+   `WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED = True` (ธงนโยบายที่อ้าง COO-DECISION 1441 ตรง ๆ
+   ไม่ใช่ธงรอ RE เหมือน `FORCE_POS_VITAL_VERSION_CONFIRMED`) เกตด้วย `scene_catalog.is_known_scene_id`
+   เท่านั้น (ไม่ใช้ `login_scene_admission` ซึ่งเป็นกฎของกลไก login คนละกลไก — วัดแล้วว่าฉาก 17 เอง
+   `is_known_scene_id`=True แต่ `single_use_entry_is_admissible`=False ถ้าเกตผิดตารางจะปฏิเสธปลายทาง
+   เดียวที่มีหลักฐานจริงของรอบนี้) อัปเดต docstring ของ `WarpTarget` ให้ระบุว่า `scene_id` หมายถึงฉาก
+   ปัจจุบัน (ForcePos) หรือฉากปลายทาง (TeleportVital) แล้วแต่คอมโพสเซอร์ไหนสร้าง
+2. `gm/chat_command_action.py` — `_warp_action` เพิ่มกิ่งที่สาม: ข้ามฉาก + มีพิกัด + ธงเปิด ->
+   `_warp_teleport_action` (ฟังก์ชันใหม่ คืน action label ใหม่ `WARP_CROSS_SCENE_TELEPORT_ACTION_LABEL =
+   "LANE_GM_CHAT_WARP_CROSS_SCENE_TELEPORT_VITAL"` มีคำว่า TELEPORT ตามกฎ move-authority substring เดิม)
+   ข้ามฉาก + ไม่มีพิกัด ยังคง stage เหมือนเดิมทุกประการ (ไม่มีกลไกไหนมีตำแหน่งให้ส่งสำหรับรูปแบบนี้)
+   จุดพัก warp target (`record_warp_target`) และจุดล้าง target เมื่อ audit row เขียนไม่สำเร็จ ครอบทั้งสอง
+   label แล้ว
+3. `gm/login_scene_stage.py` — แก้ป้าย `[สมมติของสาย GM - รอ COO ยืนยัน]` ที่ "THE IDENTITY LIMIT" ตาม
+   แบบ `login_scene_admission.py` (ขีดฆ่า + อ้าง COO-DECISION 1441) แตะเฉพาะป้ายนั้น เนื้อหาที่เหลือของ
+   ย่อหน้าไม่เปลี่ยน (ช่องโหว่ identity เดิมยังเปิดอยู่ตามที่ใบนั้นยืนยัน)
+
+**สิ่งที่ยังไม่เปลี่ยน (ตั้งใจ)**: `warp <scene_id>` ไม่มีพิกัดยัง stage เหมือนเดิม, `ForcePos` (same-scene)
+ยังทำงานเหมือนเดิมทุกประการ, ไม่มีการเช็ค census/actor ของฉากปลายทาง (ช่องโหว่เดิมของ RE-162 ที่แม้แต่
+Columbus dispatch เองก็ไม่ปิด), ไม่มีการเช็ค range พิกัด (ช่องโหว่เดิมที่ระบุไว้ใน `chat_command_action.py`
+อยู่แล้วก่อนรอบนี้)
+
+### pf-adversary
+
+**Agent tool ไม่มีในสภาพแวดล้อมนี้จริง** — ตรวจด้วย `ToolSearch` หลายคำค้น (`Agent`, `Task`,
+`pf-adversary`) และ `ListAgents` แล้วไม่พบเครื่องมือสำหรับ spawn subagent ชนิดนี้เลย ไม่ใช่การเลือกข้าม
+ทำ **self-adversarial review แทน** อย่างจริงจังต่อ diff จริงของรอบนี้ (ไม่ใช่แค่ตรวจเอกสารเหมือนรอบ
+verify-only ก่อนหน้า) พบและแก้ 1 ข้อ ก่อน commit:
+
+- **line-number rot** — ร่างแรกของ docstring `warp_executor.py` อ้าง `runtime.py:5050`/`:7223`/
+  `:6643`/`:6647` ตรง ๆ ขัดกับกฎที่ `chat_command_action.py` เขียนไว้เองแล้ว ("!! NO LINE NUMBERS FOR
+  FILES THIS LANE DOES NOT OWN" — เคยรอบ 5107->5168/5173 ผิดสองครั้งในวันเดียว) แก้เป็นอ้าง anchor text
+  ที่ grep เจอแทน (`_dispatch_columbus_quest3021`, `departure.confirmed_fields()`,
+  `SCENE2_LOAD_ONLY_TELEPORT_MARKER2_ONCE`/`V113_TELEPORT_SCENE1_STABLE_ZERO_TARGET_ONCE`)
+- เพิ่มเทสคู่ ASCII/TELEPORT-substring ให้ label ใหม่ (`ContractTests` ใน
+  `test_gm_chat_command_action.py`) หลังตรวจว่ามีคู่ของ `WARP_ACTION_LABEL` อยู่แล้วแต่ label ใหม่ยังไม่
+  มีคู่เดียวกัน
+- ตรวจ routing order, WarpTarget cross-scene semantics ผ่าน `distance_to_target`'s scene-mismatch
+  handling (ออกแบบมารองรับ cross-scene อยู่แล้วโดยไม่ต้องแก้ `warp_target_record.py`), และ two-read
+  args threat model (เหมือนที่ ForcePos path มีอยู่แล้ว ไม่ใช่ช่องโหว่ใหม่) — ไม่พบข้อบกพร่องเพิ่ม
+
+### เขียว
+
+`python3 -m pytest tests/test_gm_*.py -q`: **1104 passed, 509 subtests** เขียว (จาก 1089/504 ก่อนรอบ —
+เพิ่ม 15 เทสใหม่: 7 ใน `test_gm_warp_executor.py`, ที่เหลือใน `test_gm_chat_command_action.py`/
+`test_gm_chat_no_bytes_line.py`/`test_gm_command_audit_outcome.py` ที่ต้องแก้ให้ตรงพฤติกรรมใหม่)
+
+`python3 -m pytest tests/ -q` (ทั้ง repo): **5754 passed, 327 skipped, 10709 subtests** เขียว ไม่มี
+ไฟล์อื่นนอกเขตพัง
+
+### nonclaim
+
+1. **ไม่อ้าง client-observable PASS ของ `/warp` เอง** — สภาพแวดล้อมนี้ไม่มี client เกม หลักฐานที่มีคือ
+   proof เชิงเฟรม (headless): bytes ที่ `_warp_teleport_action` คืนตรงกับ `legacy.make_login_teleport`
+   ทุกไบต์ และ label/ท่อส่งเดียวกับที่ ForcePos ใช้อยู่แล้ว — พิสูจน์ว่า bytes ออกไปถูกรูปถูกท่อ ไม่ใช่ว่า
+   client เห็นอะไร
+2. `GT-106-R2` พิสูจน์ฉาก 17 ผ่าน call site อื่น (`_dispatch_columbus_quest3021`, พิกัดคงที่) ไม่ใช่ผ่าน
+   `/warp` — นี่เป็นครั้งแรกที่ `/warp` เองยิง live cross-scene ปลายทางทุกปลาย **รวมฉาก 17** ยังไม่เคยผ่าน
+   การเทส attended จริงผ่านคำสั่งนี้เอง ตามกฎ G-OBS ทุกปลายทางใหม่ต้องเทส attended ก่อนประกาศ PASS
+3. ไม่ปิดช่องว่าง census/actor ของฉากปลายทางที่ RE-162 พบ (ไม่มีเจ้าของ ไม่ใช่งานของ wire-builder)
+4. ไม่แตะ `runtime.py`/`app.py`/`pf_login_game_server_v141.py` เลย ไม่ต้องเปิด CORE-REQUEST-GM-044
+   (ตรวจแล้วว่าท่อส่งเดิมพอ)
+5. ไม่ปลด `RE-164` ข้อ 1/3, `GM-042`, หรือ `attr_wire.py` — ยังติดเหตุผลเดิมทั้งสาม ไม่ใช่ขอบเขตรอบนี้
+6. ไม่ให้สถานะ GM กับบัญชีที่ไม่อยู่ใน `gm_accounts.json` — allowlist check เดิมไม่เปลี่ยน
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+`/warp <scene_id> x y` ที่ตั้งชื่อฉากอื่น (ไม่ใช่ฉากปัจจุบัน) และฉากนั้นอยู่ใน `scene_catalog.py` จะยิง
+`TeleportVital` จริงกลางเซสชันแทนการ stage รอ login หน้า — ยังไม่มีใครยืนยัน client-observable ว่าจอ
+เปลี่ยนจริงผ่านคำสั่งนี้ (ดู nonclaim ข้อ 2) คิวเทส attended ใหม่อยู่ที่ `pf_bridge/GAME_TEST_QUEUE.md`
+
+### PR
+
+- `pf_bridge#613` (ล็อกรอบเดิม ปิดท้ายรอบนี้เป็น ready ด้วย MCP `update_pull_request` + retitle)
+- `pirate-force-server#398` (เดียวกัน + wake-gate commit ท้ายรอบ)
+
+— สาย GM รอบ `fftpji`

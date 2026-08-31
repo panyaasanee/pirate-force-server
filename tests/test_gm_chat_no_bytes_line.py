@@ -57,6 +57,7 @@ from pirateforce_foundation.gm import commands as gm_commands  # noqa: E402
 from pirateforce_foundation.gm import dispatch as gm_dispatch  # noqa: E402
 from pirateforce_foundation.gm import login_scene_stage  # noqa: E402
 from pirateforce_foundation.gm import teleport_wire  # noqa: E402
+from pirateforce_foundation.gm import warp_executor  # noqa: E402
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 
 # Not the real one -- RE-129's measured byte is 0, which is now the SHIPPED
@@ -365,7 +366,15 @@ class ThingsThatMustStaySilentTests(_Case):
         self.assertEqual(staged[self.GM_ACCOUNT], 278)
 
     def test_a_staged_warp_that_carried_coordinates_is_also_silent(self):
-        action, err = self.act("/warp 278 100 200")
+        # Since round `fftpji` (COO-DECISION 2026-08-31T14:41+07:00), a
+        # cross-scene warp WITH coordinates fires live instead of staging --
+        # so reaching the stage-with-coordinates shape this test is about
+        # needs the authorization flag off, the kill-switch path back to
+        # the pre-1441 behaviour this test still guards.
+        with mock.patch.object(
+            warp_executor, "WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED", False
+        ):
+            action, err = self.act("/warp 278 100 200")
         self.assertIsNone(action)
         self.assertEqual(self.lines(err, TOKEN), [], err)
 
@@ -419,10 +428,16 @@ class TheStagedWarpTests(_Case):
 
     def test_it_says_when_the_typed_coordinates_were_dropped(self):
         # The fact that lived nowhere a human would look.  `ForcePos` cannot
-        # cross scenes, so `/warp 278 100 200` stages the scene and discards
-        # the two numbers -- and before this line the only record of that was
-        # the ndjson word.
-        action, err = self.act("/warp 278 100 200")
+        # cross scenes, so `/warp 278 100 200` used to stage the scene and
+        # discard the two numbers -- and before this line the only record of
+        # that was the ndjson word.  Since round `fftpji` this shape fires
+        # live by default (COO-DECISION 1441), so this test forces the
+        # authorization flag off to keep exercising the coords-ignored
+        # staging path it is about.
+        with mock.patch.object(
+            warp_executor, "WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED", False
+        ):
+            action, err = self.act("/warp 278 100 200")
         self.assertIsNone(action)
         said = self.lines(err, self.STAGED)
         self.assertEqual(len(said), 1, err)

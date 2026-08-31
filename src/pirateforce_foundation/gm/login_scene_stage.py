@@ -41,7 +41,19 @@ only for an account `gm/accounts.py` already lists.  Both halves matter:
   (catalog-known) scene on their next login.  It grants no status, no command,
   and no frame.
 
-THE IDENTITY LIMIT, SAID BEFORE ANYONE ASKS.  [สมมติของสาย GM - รอ COO ยืนยัน]
+THE IDENTITY LIMIT, SAID BEFORE ANYONE ASKS.  ~~[สมมติของสาย GM - รอ COO
+ยืนยัน]~~ RULED, COO-DECISION 2026-08-31T14:41+07:00
+(`pf_bridge/notes_to_chief/20260831_1441_COO-DECISION-warp-cross-scene-
+opens-gt106r2-passed.md`): that letter authorizes this lane to change
+`/warp`'s cross-scene half from staging (this module) to a live mid-session
+teleport (`gm/warp_executor.make_warp_teleport_frame_with_target`) for the
+one shape that now carries coordinates, WITH this exact identity gap
+unchanged and named in the letter this module already cites below -- COO
+ruled knowing `session.token` is the process-wide `--token`, not a
+per-connection login, and opened the door anyway.  The gap itself is not
+closed by that ruling, and this module's own behaviour for the bare
+`warp <scene_id>` form is unchanged by it either; only whether the identity
+limit stays labelled a question still awaiting COO is.
 `runtime.py` hands this lane `session.token`, the process-wide `--token` CLI
 value, not a per-connection authenticated login (see `chat_command_action.py`'s
 IDENTITY, STATED HONESTLY block, and reports/PF_MULTIPLAYER_READINESS_AUDIT001
