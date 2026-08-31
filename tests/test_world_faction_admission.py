@@ -111,19 +111,24 @@ SPICE_PARADISE = 3
 # added, seventh of the ten doors, built+wired+opened in one round -- no
 # elevated landing-geometry flag on this row (checked, not assumed).
 VOODOO_ISLAND = 7
-# ADDED this round (LANE-A, ir0lpw): opened the same round this constant
-# was added, eighth of the ten doors, built+wired+opened in one round --
-# no elevated landing-geometry flag on this row (checked, not assumed).
+# ADDED round ir0lpw (LANE-A): opened the same round this constant was
+# added, eighth of the ten doors, built+wired+opened in one round -- no
+# elevated landing-geometry flag on this row (checked, not assumed).
 DEATH_CITY_SEA = 9
+# ADDED this round (LANE-A, 68mm02): opened the same round this constant
+# was added, ninth of the ten doors, built+wired+opened in one round --
+# DOES carry an elevated landing-geometry flag (the_two_interiors), shared
+# only with scene 10 -- see GT-179.
+DEEP_SEA_TEMPLE_FLOOR2 = 11
 # Open at login and n_SAVE 0: the stage that proves the second condition is
 # doing work rather than decorating the sentence.
 STAGE_OPEN_BUT_NOT_A_HOME = 278
 # Pinned, shut at login: one of the ten marker scenes round ga91m5
-# addressed.  MOVED this round from scene 9 (Death City Sea, which opened
-# this round -- see DEATH_CITY_SEA above) to scene 11 (Deep Sea Temple
-# floor 2), still one of the two doors this lane has not yet opened
-# (11, 130).
-SHUT_AT_LOGIN = 11
+# addressed.  MOVED this round from scene 11 (Deep Sea Temple floor 2,
+# which opened this round -- see DEEP_SEA_TEMPLE_FLOOR2 above) to scene 130
+# (Navy Training Camp), the only door of the ten this lane has not yet
+# opened.
+SHUT_AT_LOGIN = 130
 
 
 def _legacy():
@@ -184,19 +189,22 @@ class ThePredicateOnTheRealRegistryTests(unittest.TestCase):
         # basis, also n_SAVE 1.
         # UPDATED round 78zayw: scene 7 (VOODOO_ISLAND) opened seventh,
         # same basis, also n_SAVE 1.
-        # UPDATED this round (ir0lpw): scene 9 (DEATH_CITY_SEA) opened
-        # eighth, same basis, also n_SAVE 1.
+        # UPDATED round ir0lpw: scene 9 (DEATH_CITY_SEA) opened eighth,
+        # same basis, also n_SAVE 1.
+        # UPDATED this round (68mm02): scene 11 (DEEP_SEA_TEMPLE_FLOOR2)
+        # opened ninth, same basis, also n_SAVE 1 -- the elevated-risk row
+        # (the_two_interiors, shared only with scene 10).
         self.assertEqual(
             (HOME, SCENE_2, SPICE_PARADISE, SLAVE_MARKET, EVIL_PORT,
              OCEAN_WALLED_CITY, VOODOO_ISLAND, SILVER_HARBOUR,
-             DEATH_CITY_SEA, DEEP_SEA_TEMPLE, VOLCANO),
+             DEATH_CITY_SEA, DEEP_SEA_TEMPLE, DEEP_SEA_TEMPLE_FLOOR2, VOLCANO),
             wfa.admitted_scene_ids())
 
     def test_each_admitted_scene_says_yes_one_at_a_time(self):
         for scene_id in (HOME, SCENE_2, SPICE_PARADISE, SLAVE_MARKET,
                           EVIL_PORT, OCEAN_WALLED_CITY, VOODOO_ISLAND,
                           SILVER_HARBOUR, DEATH_CITY_SEA, DEEP_SEA_TEMPLE,
-                          VOLCANO):
+                          DEEP_SEA_TEMPLE_FLOOR2, VOLCANO):
             with self.subTest(scene_id=scene_id):
                 self.assertTrue(wfa.admits(scene_id))
 
@@ -249,28 +257,34 @@ class ThePredicateOnTheRealRegistryTests(unittest.TestCase):
         # admits scene 7 (VOODOO_ISLAND), one more digit that is not the
         # one this test opens -- and SHUT_AT_LOGIN itself moved from scene
         # 7 to scene 9 (Death City Sea, still shut) for the same reason.
-        # UPDATED this round (ir0lpw): the base registry now also already
+        # UPDATED round ir0lpw: the base registry now also already
         # admits scene 9 (DEATH_CITY_SEA), one more digit that is not the
         # one this test opens -- and SHUT_AT_LOGIN itself moved from scene
         # 9 to scene 11 (Deep Sea Temple floor 2, still shut) for the same
         # reason.
+        # UPDATED this round (68mm02): the base registry now also already
+        # admits scene 11 (DEEP_SEA_TEMPLE_FLOOR2), one more digit that is
+        # not the one this test opens -- and SHUT_AT_LOGIN itself moved
+        # from scene 11 to scene 130 (Navy Training Camp, still shut) for
+        # the same reason.
         with tempfile.TemporaryDirectory() as work:
             opened, _ = _registry_with_door(
                 Path(work), SHUT_AT_LOGIN, allowed=True)
             line = wfa.console_line(opened)
-            # SHUT_AT_LOGIN is now 11, which sorts AFTER DEEP_SEA_TEMPLE
-            # (10) and BEFORE VOLCANO (14) -- unlike scene 9's own former
-            # slot between SILVER_HARBOUR and DEEP_SEA_TEMPLE.
+            # SHUT_AT_LOGIN is now 130, which sorts AFTER VOLCANO (14) --
+            # unlike scene 11's own former slot between DEEP_SEA_TEMPLE
+            # and VOLCANO.
             self.assertIn(
                 f"WORLD_FACTION_ADMISSION scenes=1,2,{SPICE_PARADISE},4,"
                 f"{EVIL_PORT},{OCEAN_WALLED_CITY},{VOODOO_ISLAND},"
                 f"{SILVER_HARBOUR},{DEATH_CITY_SEA},{DEEP_SEA_TEMPLE},"
-                f"{SHUT_AT_LOGIN},14",
+                f"{DEEP_SEA_TEMPLE_FLOOR2},14,{SHUT_AT_LOGIN}",
                 line)
             self.assertNotIn(
                 f"scenes=1,2,{SPICE_PARADISE},4,{EVIL_PORT},"
                 f"{OCEAN_WALLED_CITY},{VOODOO_ISLAND},{SILVER_HARBOUR},"
-                f"{DEATH_CITY_SEA},{DEEP_SEA_TEMPLE},14 ", line)
+                f"{DEATH_CITY_SEA},{DEEP_SEA_TEMPLE},{DEEP_SEA_TEMPLE_FLOOR2},"
+                f"14 ", line)
 
 
 class TheTwoConditionsTests(unittest.TestCase):

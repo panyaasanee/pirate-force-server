@@ -613,14 +613,23 @@ class Scene14RegistryTests(unittest.TestCase):
         See ``test_scene_7_opened_separately_and_that_is_a_different_round``
         below.
 
-        UPDATED this round (ir0lpw): scene 9 left this set the same way,
-        eighth of the ten doors this lane has opened -- built, wired and
-        opened in one round, same compressed shape as scenes 5's, 6's,
-        8's, 3's and 7's.  See
+        UPDATED round ir0lpw: scene 9 left this set the same way, eighth of
+        the ten doors this lane has opened -- built, wired and opened in
+        one round, same compressed shape as scenes 5's, 6's, 8's, 3's and
+        7's.  See
         ``test_scene_9_opened_separately_and_that_is_a_different_round``
         below.
+
+        UPDATED this round (68mm02): scene 11 left this set the same way,
+        ninth of the ten doors this lane has opened -- built, wired and
+        opened in one round, same compressed shape as scenes 5's, 6's,
+        8's, 3's, 7's and 9's, EXCEPT that this row DOES carry the
+        elevated landing-geometry flag (``the_two_interiors``, shared only
+        with scene 10) -- checked, not assumed.  See
+        ``test_scene_11_opened_separately_and_that_is_a_different_round``
+        below.
         """
-        for scene_id in (11, 130):
+        for scene_id in (130,):
             with self.subTest(scene_id=scene_id):
                 target = world_scene_travel.destination(
                     scene_id, self.registry)
@@ -717,8 +726,8 @@ class Scene14RegistryTests(unittest.TestCase):
         self.assertTrue(world_faction_admission.admits(7, self.registry))
 
     def test_scene_9_opened_separately_and_that_is_a_different_round(self):
-        """ADDED this round (ir0lpw): the eighth scene removed from the
-        tuple above.
+        """ADDED round ir0lpw: the eighth scene removed from the tuple
+        above.
 
         Same reasoning as scenes 4's, 10's, 5's, 6's, 8's, 3's and 7's
         sibling tests.  Like scenes 5, 6, 8, 3 and 7, scene 9 (Death City
@@ -729,6 +738,22 @@ class Scene14RegistryTests(unittest.TestCase):
         target = world_scene_travel.destination(9, self.registry)
         self.assertTrue(target.login_entry_allowed)
         self.assertTrue(world_faction_admission.admits(9, self.registry))
+
+    def test_scene_11_opened_separately_and_that_is_a_different_round(self):
+        """ADDED this round (68mm02): the ninth scene removed from the
+        tuple above.
+
+        Same reasoning as scenes 4's, 10's, 5's, 6's, 8's, 3's, 7's and 9's
+        sibling tests.  UNLIKE scenes 5, 6, 8, 3, 7 and 9, scene 11 (Deep
+        Sea Temple floor 2) DOES carry the elevated landing-geometry flag
+        (``the_two_interiors``) -- checked, not assumed, in
+        ``world_bg0011_identity``'s own docstring; shared only with scene
+        10, already open on ``COO-DECISION 20260831T10:42+07:00``'s own
+        precedent.
+        """
+        target = world_scene_travel.destination(11, self.registry)
+        self.assertTrue(target.login_entry_allowed)
+        self.assertTrue(world_faction_admission.admits(11, self.registry))
 
     def test_a_non_login_caller_still_lands_on_the_marker_and_says_so(self):
         # The door being shut to logins does not make the pin untestable:
