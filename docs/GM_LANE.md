@@ -5772,4 +5772,25 @@ regressions).
 เมื่อวาน
 
 รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260831_2330_thhkup_re172_closed_plus_cheat_wire_codec.md`
-PR: `pf_bridge#<TBD>`, `pirate-force-server#<TBD>` (this one)
+PR: `pf_bridge#641`, `pirate-force-server#420` (merged)
+
+## รอบ `dgyakk` (2026-09-01T00:18+07:00) -- verify-only, mailbox hygiene, no src change
+
+Checked every channel fresh (mailbox / CORE-REQUEST-GM-0xx / GT queue read-only / own backlog): no
+new `gm/` work available. `RE-164` items #1/#3 still need disassembly this clone doesn't have; the
+carrier for that -- the RE runner -- was just reported idle 30h by
+`pf_bridge/notes_to_chief/20260831_2325_KA1A-ROOTCAUSE-*` (a category-tag regression, chief's queue
+territory, not this lane's to fix) so re-requesting it now would duplicate chief's own open item.
+`attr_wire.py`/`/lv` stays shelved per `COO-DECISION 1244` plus `RE-172`'s negative result -- both
+live paths wait on the owner's answer to `pf_bridge#20260831_2327_LANE-GM-TO-OWNER-*`, which that
+letter itself says is not urgent (path 3, current fail-closed state, carries no new risk while
+unanswered). Added the one missing `.CONSUMED.txt` stub for `COO-DECISION 1244` (already acted on
+in rounds 1425/1523/1736, just never stubbed) -- mailbox hygiene only, no new decision made.
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+**ไม่มี** -- verify-only round. `GT-172` (READY from an earlier round) is still the only thing an
+attended tester can do beyond yesterday.
+
+รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260901_0018_dgyakk_verify_only_mailbox_hygiene_all_fronts_external.md`
+PR: `pf_bridge#645`, `pirate-force-server#423` (this one)
