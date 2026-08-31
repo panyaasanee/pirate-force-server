@@ -118,7 +118,7 @@ DEATH_CITY_SEA = 9
 # ADDED this round (LANE-A, 68mm02): opened the same round this constant
 # was added, ninth of the ten doors, built+wired+opened in one round --
 # DOES carry an elevated landing-geometry flag (the_two_interiors), shared
-# only with scene 10 -- see GT-178.
+# only with scene 10 -- see GT-179.
 DEEP_SEA_TEMPLE_FLOOR2 = 11
 # Open at login and n_SAVE 0: the stage that proves the second condition is
 # doing work rather than decorating the sentence.
