@@ -66,6 +66,21 @@ exception, client re-draws with no relog. See `observed_button_visible` /
 `guaranteed_visible_variant_ids` / `guaranteed_hidden_variant_ids` below.
 Visibility is still not click-success: do not read those helpers as
 answering any of the four suspects.
+
+CODEX EVIDENCE ADDED (2026-09-01, pf_bridge notes_to_chief
+20260901_0344_CODEX-CORRECTION-GM-EVIDENCE-BOUNDARY.md, the authoritative
+version replacing its own two earlier drafts 0254/0321 -- this module reads
+only the 0344 text, since those two are explicitly withdrawn by it): a fifth
+question, not wire-constructible either, has surfaced from Codex's static RE
+of the client's `GameMaster.dll` loader path -- see
+`GM_PLUGIN_MODEL_KEY_SUSPECT` below. This is NOT a resolution of any of the
+four suspects above and does not change `SUSPECT_STUBS`' "three input
+suspects, one outcome suspect" shape claim -- it is a fifth, separate
+question about which on-disk `.model` resource the click's downstream
+factory would even find, sitting upstream of all four. Read that stub's own
+`why_not_wired_this_round` before citing it anywhere: Codex's own letter
+hedges this as a "PROPOSED compatible binding", explicitly NOT a proven
+original-DLL return value.
 """
 from __future__ import annotations
 
@@ -379,10 +394,46 @@ CURRENT_UI_OBJECT_KEY_SUSPECT = SuspectHypothesisStub(
     ),
 )
 
+GM_PLUGIN_MODEL_KEY_SUSPECT = SuspectHypothesisStub(
+    suspect_id="gm-plugin-model-key",
+    question=(
+        "Codex's static RE of the `GameMaster.dll` / `CreateGameMaster` loader "
+        "path (pf_bridge notes_to_chief 20260901_0344) found direct-call slot "
+        "+0x04 consumed as a GUI model basename composing "
+        "`.\\Data\\GUI\\Model\\<key>.model`, and that the client's 534-file "
+        ".model corpus has NO `GMUI_BASIC.model` under any case variant -- but "
+        "`GMUI.project` declares a `GMUI_1` entry whose own `.model` has root "
+        "`GMUI_1` with child `GMUI_BASIC`. Is `L\"GMUI_1\"` the key this slot "
+        "actually resolves to at runtime (making `GMUI_BASIC` reachable only "
+        "as a child/tab of that panel), or is the true original-DLL return "
+        "value something this corpus scan has not found at all?"
+    ),
+    why_not_wired_this_round=(
+        "this is a client-side resource-name resolution question inside a "
+        "DLL loader this lane's server code never runs or calls -- no vital "
+        "payload this module can compose varies which .model basename the "
+        "client resolves, so there is no frame variant to add. Codex's own "
+        "letter is explicit that `GMUI_1` is a 'PROPOSED compatible binding', "
+        "reconstructed from which .model file exists on disk, not a proven "
+        "original DLL return value -- and that the three artifact files "
+        "backing this claim (`external/pf_rederive_gm_plugin_gate.py`, "
+        "`PF_GM_PLUGIN_GATE.tsv`, `PF_GM_PLUGIN_GATE.md`) are local-only, "
+        "git-ignored on the machine Codex ran on, and not yet packaged for "
+        "other clones (this session's clone included) to read directly -- "
+        "so this stub is deliberately bounded to what the letter's own prose "
+        "states, nothing pulled from the unavailable artifacts themselves. "
+        "Runtime acceptance (does opening a `GMUI_1` panel actually reach a "
+        "`GMUI_BASIC` tab, does it shut down clean) is explicitly still owed "
+        "and is an attended, client-observable question for RE-164/a future "
+        "GT entry -- not something this stub or any code in this file proves."
+    ),
+)
+
 SUSPECT_STUBS: tuple[SuspectHypothesisStub, ...] = (
     CONNECTION_CONTEXT_SUSPECT,
     QUERY_GATE_VALUE_AT_CLICK_TIME_SUSPECT,
     CURRENT_UI_OBJECT_KEY_SUSPECT,
+    GM_PLUGIN_MODEL_KEY_SUSPECT,
 )
 
 
@@ -399,6 +450,7 @@ __all__ = [
     "CONNECTION_CONTEXT_SUSPECT",
     "QUERY_GATE_VALUE_AT_CLICK_TIME_SUSPECT",
     "CURRENT_UI_OBJECT_KEY_SUSPECT",
+    "GM_PLUGIN_MODEL_KEY_SUSPECT",
     "SUSPECT_STUBS",
     "GM_UPDATE_GM_STATE_VITAL_ID",
     "VARIANTS_BY_ID",

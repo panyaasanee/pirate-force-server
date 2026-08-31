@@ -6005,3 +6005,77 @@ pipe) -- flagged `[สมมติของสาย GM - รอ COO ยืน�
 
 รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260901_0444_jd4jqp_gm-a-live-warp-built-p3-retag-p2-finding.md`
 PR: `pf_bridge` / `pirate-force-server` (numbers filled in once opened)
+
+## รอบ `vsopwk` (2026-09-01T06:17+07:00) -- P-3: fifth hypothesis stub from Codex's GameMaster.dll finding; GM-A merged confirmed; GM-B/attr-wire still correctly blocked
+
+Round-lock opened FIRST this round (draft PR in both repos, before any code) -- correcting the
+protocol deviation the previous round (`jd4jqp`) logged against itself.
+
+**Mailbox**: two letters addressed `LANE-GM` still lacked a `.CONSUMED.txt` at round start:
+`20260901_0444_COO-DECISION-attr-wire-raw-block-proceed-path0-defer-1-vs-2.md` and the (already
+chief-consumed, but not yet LANE-GM-consumed) trio `20260901_0254`/`0321`/`0344` CODEX-CORRECTION
+letters on the `GameMaster.dll` GM-plugin loader. Both consumed this round -- see the STATUS
+letter and the four `.CONSUMED.txt` append-notes for detail.
+
+**GM-A**: confirmed merged (`pirate-force-server#440`, merged 2026-08-31T21:57:48Z / 04:57+07:00
+Sep 1) -- `GT-182` is unblocked on this lane's side; the queue header itself is not this lane's
+write zone, so no edit made there, only noted.
+
+**P-3 -- new hypothesis stub, not a wire fix**: `20260901_0344_CODEX-CORRECTION-GM-EVIDENCE-
+BOUNDARY.md` (authoritative, supersedes withdrawn drafts 0254/0321) found the client's
+`GameMaster.dll` loader's direct-call slot `+0x04` is consumed as a GUI model basename
+(`.\Data\GUI\Model\<key>.model`); the 534-file `.model` corpus has no `GMUI_BASIC.model` under
+any case, but `GMUI.project` declares `GMUI_1`, whose own `.model` roots `GMUI_1` with child
+`GMUI_BASIC`. Added `GM_PLUGIN_MODEL_KEY_SUSPECT` to `gm/bt_gm_probe.py`'s `SUSPECT_STUBS`
+(now 4, up from 3) carrying this letter's own hedged wording verbatim (`L"GMUI_1"` is a
+PROPOSED compatible binding, explicitly NOT a proven original-DLL return value) -- no wire
+variant added, because this is a client-side resource-name question this lane's server code
+never touches, not something a vital payload can vary. Searched `pf_bridge/external/` for the
+three backing artifact files the letter names (`pf_rederive_gm_plugin_gate.py`,
+`PF_GM_PLUGIN_GATE.tsv`, `PF_GM_PLUGIN_GATE.md`) -- ค้นแล้ว: ไม่เจอ (git-ignored/local-only per
+the letter's own "Delivery blocker" section, not yet packaged for other clones). The stub is
+built only from the letter's own prose, nothing pulled from those files. Test file
+`tests/test_gm_bt_gm_probe.py` updated to match (28 tests, two new ones pin the hedged wording
+so a future edit cannot silently drop it). Full suite เขียว(cloud sanity) -- `pytest tests/` =
+6156 passed, 323 skipped, 0 failed; `tools/verify_hypothesis_ledger.py` PASS entries=47,
+`tools/verify_functional_coverage.py` PASS domains=8, no drift versus last round.
+
+**GM-B**: still correctly blocked. `RE-172` (already negative, prior round) plus the follow-up
+owner-ask `20260831_2327` (unanswered) mean the path-1-vs-path-2 choice remains open; the newly
+consumed `COO-DECISION 0444` turned out to answer an OLDER, now-superseded ask (`1825`, before
+`RE-172` landed) and does not decide anything new -- noted, not re-litigated. This is an
+irreversible-write-with-no-backup question (path 1 could zero live character fields with no
+way to recover the pre-write value) -- category (b) of the "getting stuck" rule, correctly
+left for the owner rather than guessed at by this lane. No code change to `gm/attr_wire.py`.
+
+**pf-adversary**: no Agent/Task tool available this session either (re-checked via ToolSearch).
+Self-adversarial review before commit: (1) checked no other module imports `SUSPECT_STUBS` or
+the three named stub constants with a hardcoded count assumption -- grepped clean; (2) the new
+stub is a frozen dataclass literal, no new mutable state, no new code path in any dispatch
+function; (3) verified the stub's wording does not overclaim in either direction (neither
+"GMUI_1 proven" nor "GMUI_BASIC proven not-original") by direct quote-check against the source
+letter; (4) confirmed `write zone` compliance -- only `gm/bt_gm_probe.py` and
+`tests/test_gm_bt_gm_probe.py` touched, no `runtime.py`/`app.py`/
+`pf_login_game_server_v141.py`/canonical DB/`scenarios/world_*.json`/`scenarios/combat_*.json`.
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+**ไม่มี** -- this round is a documentation/hypothesis-stub change plus mailbox hygiene, no new
+wire behaviour, no new chat command, nothing an attended tester can exercise that they could
+not exercise yesterday.
+
+### nonclaim
+
+1. `GM_PLUGIN_MODEL_KEY_SUSPECT` does not resolve, confirm, or refute any of RE-164's four
+   original suspects -- it is a fifth, separate, upstream question, explicitly labelled as such
+   in the module docstring.
+2. Does not claim the three Codex artifact files are inaccessible forever -- only that this
+   session's fresh clone does not have them, per the letter's own stated delivery blocker.
+3. Did not give GM status to any account outside `gm_accounts.json`; no milestone declared
+   (still paused); no `runtime.py`/`app.py`/`pf_login_game_server_v141.py`/canonical DB/
+   `scenarios/world_*.json`/`scenarios/combat_*.json`/`gm/attr_wire.py` touched.
+4. Did not delete any history -- consumption notes appended to existing `.CONSUMED.txt` stubs,
+   never overwritten; originals untouched.
+
+รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260901_0617_vsopwk_gmui1-hypothesis-stub-plus-mailbox.md`
+PR: `pf_bridge` #673 / `pirate-force-server` #446

@@ -24,6 +24,7 @@ from pirateforce_foundation.gm.state_wire import (
 from pirateforce_foundation.gm.bt_gm_probe import (
     CONNECTION_CONTEXT_SUSPECT,
     CURRENT_UI_OBJECT_KEY_SUSPECT,
+    GM_PLUGIN_MODEL_KEY_SUSPECT,
     HYPOTHESIS_LABEL,
     QUERY_GATE_VALUE_AT_CLICK_TIME_SUSPECT,
     StateVitalBitVariant,
@@ -194,10 +195,14 @@ class SuspectHypothesisStubTests(unittest.TestCase):
     """These stubs carry no frame, no bytes, no wire behaviour -- only
     verify their metadata shape, never their "truth" (there is none yet)."""
 
-    def test_exactly_three_suspect_stubs(self):
-        # suspect 4 (create-path/factory called) is the OUTCOME the click
-        # test observes, not an input variant -- see module docstring.
-        self.assertEqual(len(SUSPECT_STUBS), 3)
+    def test_exactly_four_suspect_stubs(self):
+        # suspect 4 named in the module docstring (create-path/factory
+        # called) is the OUTCOME the click test observes, not an input
+        # variant, so it never gets its own stub here. The fourth stub in
+        # this tuple (gm-plugin-model-key) is a DIFFERENT, fifth question
+        # added 2026-09-01 from Codex's GameMaster.dll loader RE -- see
+        # module docstring "CODEX EVIDENCE ADDED".
+        self.assertEqual(len(SUSPECT_STUBS), 4)
 
     def test_suspect_ids_match_the_order_letters_named_suspects(self):
         ids = {s.suspect_id for s in SUSPECT_STUBS}
@@ -207,6 +212,7 @@ class SuspectHypothesisStubTests(unittest.TestCase):
                 "connection-context",
                 "query-0x25-gate-value-at-click-time",
                 "current-ui-object-key-condition",
+                "gm-plugin-model-key",
             },
         )
 
@@ -223,19 +229,36 @@ class SuspectHypothesisStubTests(unittest.TestCase):
         with self.assertRaises(Exception):
             CONNECTION_CONTEXT_SUSPECT.suspect_id = "different"  # type: ignore[misc]
 
-    def test_named_stub_constants_are_exactly_the_three_in_the_tuple(self):
+    def test_named_stub_constants_are_exactly_the_four_in_the_tuple(self):
         self.assertEqual(
             set(SUSPECT_STUBS),
             {
                 CONNECTION_CONTEXT_SUSPECT,
                 QUERY_GATE_VALUE_AT_CLICK_TIME_SUSPECT,
                 CURRENT_UI_OBJECT_KEY_SUSPECT,
+                GM_PLUGIN_MODEL_KEY_SUSPECT,
             },
         )
 
     def test_stub_type_is_the_documented_dataclass(self):
         for stub in SUSPECT_STUBS:
             self.assertIsInstance(stub, SuspectHypothesisStub)
+
+    def test_gm_plugin_model_key_suspect_cites_codex_0344_not_the_withdrawn_drafts(self):
+        # This stub must trace to the AUTHORITATIVE letter (0344), never to
+        # the two withdrawn drafts (0254/0321) it explicitly supersedes.
+        self.assertIn("20260901_0344", GM_PLUGIN_MODEL_KEY_SUSPECT.question)
+        self.assertNotIn("20260901_0254", GM_PLUGIN_MODEL_KEY_SUSPECT.question)
+        self.assertNotIn("20260901_0321", GM_PLUGIN_MODEL_KEY_SUSPECT.question)
+
+    def test_gm_plugin_model_key_suspect_hedges_as_proposed_not_proven(self):
+        # Codex's own letter withdrew the absolute "not the DLL's original
+        # return value" claim -- this stub must not overclaim in either
+        # direction (neither "proven compat" nor "proven original").
+        reason = GM_PLUGIN_MODEL_KEY_SUSPECT.why_not_wired_this_round.lower()
+        self.assertIn("proposed", reason)
+        question = GM_PLUGIN_MODEL_KEY_SUSPECT.question.lower()
+        self.assertNotIn("proven original-dll", question)
 
 
 if __name__ == "__main__":
