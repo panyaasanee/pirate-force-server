@@ -12,13 +12,30 @@ flagless path that picks the destination from the character's position row.
 The other two are what this module is FOR - and read the next paragraph before
 believing it delivers them.
 
-    NOTHING IN THIS FILE REACHES A PLAYER UNTIL SOMETHING CALLS IT, AND
-    NOTHING CALLS IT YET.  ``runtime.py``, ``app.py`` and ``session.py`` are
-    the chief's files and this lane does not edit them.  Two rounds of this
-    lane have already shipped capabilities nobody called; saying so at the top
-    of the third is the least this file can do.  What is here is a call the
-    wiring can make in one line, and a written request for it - not a
-    delivered deliverable.
+    ~~NOTHING IN THIS FILE REACHES A PLAYER UNTIL SOMETHING CALLS IT, AND
+    NOTHING CALLS IT YET.~~  STRUCK, MEASURED FALSE AT HEAD (LANE-A, round
+    this-round, 2026-09-01, re-derived from the tree rather than trusted from
+    this paragraph).  ``runtime.py``'s production login path calls
+    ``resolve_entry`` twice today - once, silenced (``emit=lambda _line:
+    None``), as the probe that decides whether a GM login-scene override may
+    be applied at all, and once for real, for whichever row (the character's
+    own, or the override) survives that probe - at the two call sites a
+    reader can find by name: ``world_scene_entry.resolve_entry(`` appears
+    twice in ``runtime.py``, both inside the login handler, both reachable
+    on the flagless default boot for any account whose stored or
+    GM-overridden scene id resolves through this module.  Tests exercise the
+    wiring directly rather than asking this docstring to be believed:
+    ``tests/test_gm_login_scene_override_wiring.py`` and
+    ``tests/test_gm_login_scene_registry_wiring_in_runtime.py`` both drive
+    ``runtime.py`` itself, not a mock of it.  The struck sentence was true
+    when this module's first two rounds shipped it (hence "two rounds of
+    this lane have already shipped capabilities nobody called" below, which
+    stays - it is a true sentence about the PAST, not a claim about HEAD);
+    it stopped being true once a later round (not this lane's - ``runtime.py``
+    is the chief's file) wired the call in.  ``runtime.py``, ``app.py`` and
+    ``session.py`` remain the chief's files and this lane still does not
+    edit them - that half of the paragraph was never the part that went
+    stale.
 
 * **The console line, printed BEFORE the character is placed.**  The ticket's
   words are "no line = do not boot", so a run without it is not a run.
