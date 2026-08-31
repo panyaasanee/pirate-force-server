@@ -594,8 +594,14 @@ class Scene14RegistryTests(unittest.TestCase):
         one round, same compressed shape as scene 5's.  See
         ``test_scene_6_opened_separately_and_that_is_a_different_round``
         below.
+
+        UPDATED round p4wire: scene 8 left this set the same way, fifth of
+        the ten doors this lane has opened -- built, wired and opened in
+        one round, same compressed shape as scenes 5's and 6's.  See
+        ``test_scene_8_opened_separately_and_that_is_a_different_round``
+        below.
         """
-        for scene_id in (3, 7, 8, 9, 11, 130):
+        for scene_id in (3, 7, 9, 11, 130):
             with self.subTest(scene_id=scene_id):
                 target = world_scene_travel.destination(
                     scene_id, self.registry)
@@ -652,6 +658,19 @@ class Scene14RegistryTests(unittest.TestCase):
         target = world_scene_travel.destination(6, self.registry)
         self.assertTrue(target.login_entry_allowed)
         self.assertTrue(world_faction_admission.admits(6, self.registry))
+
+    def test_scene_8_opened_separately_and_that_is_a_different_round(self):
+        """ADDED round p4wire: the fifth scene removed from the tuple above.
+
+        Same reasoning as scene 4's, scene 10's, scene 5's and scene 6's
+        sibling tests.  Like scenes 5 and 6, scene 8 (Silver Harbour) does
+        NOT carry the elevated landing-geometry flag (``the_two_interiors``)
+        -- checked, not assumed, in ``world_bg0008_identity``'s own
+        docstring.
+        """
+        target = world_scene_travel.destination(8, self.registry)
+        self.assertTrue(target.login_entry_allowed)
+        self.assertTrue(world_faction_admission.admits(8, self.registry))
 
     def test_a_non_login_caller_still_lands_on_the_marker_and_says_so(self):
         # The door being shut to logins does not make the pin untestable:

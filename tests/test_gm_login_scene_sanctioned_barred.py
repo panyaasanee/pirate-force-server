@@ -63,7 +63,7 @@ from pirateforce_foundation.model import Position  # noqa: E402
 # joined it round 3t75jw, second door in the same queue.  Scene 5 joined it
 # round l03cgh, third door, built+wired+opened in one round.  Scene 6
 # joined it round fx0007, fourth door, same shape.
-ADMISSIBLE_TODAY = (1, 2, 4, 5, 6, 10, 14, 278, 997)
+ADMISSIBLE_TODAY = (1, 2, 4, 5, 6, 8, 10, 14, 278, 997)
 # The one scene a chief letter sanctions today.
 SANCTIONED = 126
 # Pinned, named, and barred at login -- the shape scene 126 will have once
