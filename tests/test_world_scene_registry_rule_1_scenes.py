@@ -98,16 +98,17 @@ RULE_1_SCENES_ADDED_THIS_ROUND = (3, 4, 5, 6, 7, 8, 9, 10, 11, 130)
 # Walled City) opened fourth, same basis, same compressed shape.  UPDATED
 # round p4wire: scene 8 (Silver Harbour) opened fifth, same basis, same
 # compressed shape.  UPDATED round p7wm17: scene 3 (Spice Paradise Island)
-# opened sixth, same basis, same compressed shape.  UPDATED this round
-# (78zayw): scene 7 (Voodoo Island) opened seventh, same basis, same
-# compressed shape.  The three below are UNCHANGED and still carry
-# login_entry_allowed false -- used by every ADMISSION test in
-# ``TheDoorIsShutAndThisIsTheLoadBearingTest``, which would otherwise
-# assert something false of scenes 3/4/5/6/7/8/10 and fail for the right
-# reason.
+# opened sixth, same basis, same compressed shape.  UPDATED round 78zayw:
+# scene 7 (Voodoo Island) opened seventh, same basis, same compressed
+# shape.  UPDATED this round (ir0lpw): scene 9 (Death City Sea) opened
+# eighth, same basis, same compressed shape.  The two below are UNCHANGED
+# and still carry login_entry_allowed false -- used by every ADMISSION
+# test in ``TheDoorIsShutAndThisIsTheLoadBearingTest``, which would
+# otherwise assert something false of scenes 3/4/5/6/7/8/9/10 and fail for
+# the right reason.
 RULE_1_SCENES_STILL_SHUT = tuple(
     n_id for n_id in RULE_1_SCENES_ADDED_THIS_ROUND
-    if n_id not in (3, 4, 5, 6, 7, 8, 10))
+    if n_id not in (3, 4, 5, 6, 7, 8, 9, 10))
 
 # The three marker scenes that were already pinned, each by its own ruling.
 MARKER_SCENES_ALREADY_PINNED = (1, 2, 14)
@@ -508,6 +509,35 @@ class TheDoorIsShutAndThisIsTheLoadBearingTest(unittest.TestCase):
         )
         self.assertEqual(result.destination.n_id, 7)
         self.assertEqual(result.position.scene_id, 7)
+
+    def test_the_eighth_scene_that_opened_is_no_longer_in_this_set(self):
+        """Scene 9's own half of the pair, ADDED this round (ir0lpw).
+
+        Same shape as the seven tests above, driven at scene 9 (Death City
+        Sea), the eighth of the ten doors this lane has opened -- built,
+        wired and opened in one round, same compressed shape as scenes
+        5's, 6's, 8's, 3's and 7's.  This row does NOT carry the elevated
+        ``the_two_interiors`` landing-geometry flag (checked, not assumed,
+        in the module that built it), and its marker point IS inside its
+        own placement extents (see MARKER_POINT_INSIDE_PLACEMENT_BOUNDS
+        above -- an address-only geometry fact, unaffected by the door).
+        """
+        self.assertNotIn(9, RULE_1_SCENES_STILL_SHUT)
+        rows = _raw_rows()
+        self.assertIs(rows[9]["login_entry_allowed"], True)
+        self.assertIs(
+            world_scene_travel.destination(
+                9, self.registry).login_entry_allowed,
+            True)
+        self.assertTrue(login_scene_stage.login_entry_is_pinned(9))
+        self.assertIn(9, login_scene_stage.stageable_scene_ids())
+        result = world_scene_entry.resolve_entry(
+            self._stored_row(9),
+            registry=self.registry,
+            emit=lambda line: None,
+        )
+        self.assertEqual(result.destination.n_id, 9)
+        self.assertEqual(result.position.scene_id, 9)
 
     def test_a_scene_with_no_marker_and_no_ruling_is_refused_differently(self):
         # The control: rule 1 reached the marker scenes and NOTHING else, and
