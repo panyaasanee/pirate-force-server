@@ -1,1 +1,1 @@
-{"sha":"f61ae0c9280a8baee3859695ace6dd5e0ab68d50","conclusion":"success","event":"push","ref":"refs/heads/claude/determined-brown-p05wire","run_id":"33429221534","utc":"2026-08-31T19:21:19Z"}
+{"sha":"f61ae0c9280a8baee3859695ace6dd5e0ab68d50","conclusion":"success","event":"pull_request","ref":"refs/pull/430/merge","run_id":"33429660523","utc":"2026-08-31T19:23:34Z"}
