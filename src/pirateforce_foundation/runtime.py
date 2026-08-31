@@ -49,11 +49,14 @@ from .gm.login_scene_consume import (
     consume_login_scene_override,
 )
 from .gm.warp_target_record import (
+    SESSION_ATTRIBUTE as GM_WARP_TARGET_SESSION_ATTRIBUTE,
+    WarpTargetRecord,
     current_character_id,
     distance_to_target,
     position_matches_target,
     take_warp_target_with_reason,
 )
+from .gm.warp_executor import WarpTarget
 
 from .model import Position
 from .inventory import (
@@ -5302,13 +5305,107 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     if self.gm_warp_position_pending:
                         # Two warps before one write: the trail must not read
                         # like one warp that armed twice.
+                        #
+                        # CORE-REQUEST-GM-045 (pf-adversary, this round).
+                        # record_warp_target unconditionally overwrites
+                        # gm_last_warp_target on every new /warp -- by the
+                        # time this branch runs, the record already parked
+                        # is the SECOND warp's, not the first's. Skipping the
+                        # resync here (as an early draft did) left
+                        # selected.position.scene_id stuck on the FIRST
+                        # warp's destination for the rest of the chain,
+                        # reproducing CORE-REQUEST-GM-045's own measured
+                        # symptom one warp later. The pending flag and
+                        # character are deliberately NOT re-armed (the
+                        # comment above is unchanged, and still true for the
+                        # confirm-window/token side of this) -- only the
+                        # scene label, which has nothing to do with which
+                        # warp gets to open a confirm window.
                         self.events.append("gm_warp_position_pending_rearmed")
+                        self._gm_warp_resync_selected_scene(
+                            self.foundation.selected,
+                        )
                         return
                     selected = self.foundation.selected
                     self.gm_warp_position_pending = True
                     self.gm_warp_pending_character = getattr(selected, "id", None)
                     self.events.append("gm_warp_position_pending_armed")
+                    self._gm_warp_resync_selected_scene(selected)
                     return
+
+        def _gm_warp_resync_selected_scene(self, selected) -> None:
+            """CORE-REQUEST-GM-045: name the destination scene immediately.
+
+            IN-MEMORY ONLY, the same shape as the login-scene-override resync
+            (CORE-REQUEST-GM-033 / CHIEF-DECISION 20260829_0520 option A,
+            above in ``dispatch``): a cross-scene warp is queued entirely
+            inside ``gm/chat_command_action.py`` without ever touching
+            ``runtime.py`` (its own docstring says so -- CORE-REQUEST-GM-045's
+            letter quotes it), so nothing before this point has told
+            ``self.foundation.selected.position`` it is no longer in the
+            departure scene. WORLD-CENSUS-001 (later in this same dispatch)
+            reads exactly that field to decide which scene's roster to
+            compose -- GT-172 measured it composing the OLD scene's census
+            while the client stood in the new one, four times, no exceptions.
+
+            SCENE_ID ONLY, x/y/z/heading untouched, and this is deliberate,
+            not an oversight: WORLD-CENSUS-001's anchor comes from
+            ``last_target_pos`` (or the destination's own pinned spawn, when
+            no TargetPosVital has arrived yet), never from
+            ``selected.position``'s coordinates -- see that block's own
+            comment. Only the scene label was ever wrong. Leaving x/y/z at
+            the departure scene's last known row also keeps
+            ``_checkpoint_exact_target``'s own change detection honest: that
+            method treats an unchanged ``candidate`` as "nothing to write",
+            and the first real TargetPos after a warp is expected to differ
+            from the OLD row in x/y at least (RE-129's grace window exists
+            for exactly that jump) -- resyncing x/y/z here as well would let
+            a report that happens to echo the warp's own target look like no
+            movement at all, silently skipping both the durable write and
+            CORE-REQUEST-GM-030's own confirm token. Scene alone carries no
+            such risk: it is compared as part of the same ``Position``
+            equality either way, so a corrected scene_id still shows up as a
+            change the moment a real report's x/y differs from the stale row
+            (the overwhelmingly common case) and costs nothing when it does
+            not.
+
+            No durable write here, on purpose: ``_checkpoint_exact_target``
+            still owns that (gated on move authority, the persist-allowed
+            table, and the confirm window armed just above), unchanged. This
+            only relabels the in-memory row so the very next frame -- the
+            census dispatch included -- reads a scene the player is actually
+            in, exactly as the override resync already does for a different
+            GM entry path.
+
+            Reads the just-parked ``WarpTargetRecord`` without consuming it:
+            ``_gm_warp_open_confirm_window`` still needs to ``take`` the same
+            record, unclaimed, on the next TargetPos report. Never raises and
+            never disarms anything armed above -- a bad record here costs
+            only this resync, not the confirm window or the durable write it
+            guards.
+            """
+            try:
+                record = getattr(
+                    self, GM_WARP_TARGET_SESSION_ATTRIBUTE, None,
+                )
+            except Exception:  # noqa: BLE001 - see docstring
+                return
+            if not isinstance(record, WarpTargetRecord):
+                return
+            target = record.target
+            if not isinstance(target, WarpTarget):
+                return
+            if target.scene_id == selected.position.scene_id:
+                # Same-scene warp (the ForcePos form, RE-090): nothing to
+                # relabel, and this method is about the cross-scene case.
+                return
+            self.foundation.selected = replace(
+                self.foundation.selected,
+                position=replace(selected.position, scene_id=target.scene_id),
+            )
+            self.events.append(
+                f"gm_warp_selected_scene_resynced_{target.scene_id}"
+            )
 
         def _dispatch_with_lanes(self, parsed):
             nested_id = parsed.nested_id
