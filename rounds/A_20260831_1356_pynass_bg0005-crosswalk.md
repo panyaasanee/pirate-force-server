@@ -57,13 +57,18 @@ examined). 87 of the 92 placements ship; 5 are dropped, one each.
 
 **Control 2 gap, measured and stated rather than silently repeated.**
 `world_bg0015_identity.SCENE_LEVEL_CONTROL['BG0005']` cites `(5, 60, 68.0, 35.0)` from an
-earlier round's survey. Re-measuring BOTH medians this round over the 87 shippable
-placements gives **70**, not 68 (CLINE-reading median), and **31**, not 35 (set-number
-median, checked three independent ways - all agree at 31). This is the weak, non-blocking
-control every sibling module's own docstring already discounts (monotone-in-level, so any
-permutation reproduces a similar number) - recorded because the earlier citation's own
-number does not reproduce independently, not because it changes anything this round ships.
-Opened to lane C (see below) rather than investigated further this round.
+earlier round's survey. Re-measuring this round over the 87 shippable placements gives
+**70**, not 68 (CLINE-reading median, checked three independent ways - all three agree at
+70). The set-number median does NOT agree across the same three countings: per-distinct-
+resolved-set and per-CLINE-row-with-a-MOBS-entry both give **31**, not 35, but per-placement
+(the same repeat-weighted counting used for the 70 above) gives **38** instead. (This
+round's first draft claimed "checked three ways, all agree at 31" - wrong; pf-adversary
+caught the mismatch on independent re-derivation before push, corrected here.) This is the
+weak, non-blocking control every sibling module's own docstring already discounts
+(monotone-in-level, so any permutation reproduces a similar number) - recorded because the
+earlier citation's own number does not reproduce independently, not because it changes
+anything this round ships. Opened to lane C (see below) rather than investigated further
+this round.
 
 Ten sets carry a `;`-separated multi-variant outfit; shipped first-variant only, same
 [LANE-A ASSUMPTION] carried over from all three sibling crosswalks. Unlike bg0010's
@@ -178,8 +183,9 @@ identity-table + census-composer construction and test coverage only.
   round of this same multi-round order, same shape as scene 4's `2jdde8` and scene 10's
   `c42axq`.
 - The landing-geometry note above - a future door-opening round's job, not this one's.
-- The Control-2 median gap (68->70, 35->31 measured vs. cited) - opened to lane C rather
-  than chased down this round; see ticket below.
+- The Control-2 median gap (68->70 measured vs. cited on CLINE-reading; set-number median
+  35 cited, 31 or 38 measured depending on counting convention - see below) - opened to
+  lane C rather than chased down this round; see ticket below.
 
 ## Numbers measured this round
 
@@ -187,11 +193,14 @@ Placements: 92 total, 87 shippable, 5 unshippable (1 no-MOBS-row + 4 empty-outfi
 Mob-Set numbers: 64 distinct used (CLINE type 5's entire key range), 59 resolved, 5
 unresolved. Multi-variant outfits: 10 sets, 38 of 87 shippable placements affected.
 Targeted regression (2 new test files): 28 passed, 362 subtests. Full test suite (this
-repo, `python3 -m pytest -q`): **5676 passed, 383 skipped, 10592 subtests passed, 0
-failed** (~116s) - up from this round's own directly-measured baseline (stashed this
-round's changes and re-ran clean: 5648 passed / 383 skipped / 10228 subtests). Delta: +28
-tests, +364 subtests (28 from the two new files standalone; the remaining 2 are
-additional subtests inside the shared verifier tests whose tuples grew by one entry).
+repo, `python3 -m pytest -q`): **5676 passed, 383 skipped, 10596 subtests passed, 0
+failed** (~116s; corrected from 10592 in this round's first draft - pf-adversary reran
+twice and reproduced 10596 both times, not 10592) - up from this round's own
+directly-measured baseline (stashed this round's changes and re-ran clean: 5648 passed /
+383 skipped / 10228 subtests). Delta: +28 tests, +368 subtests (362 from the two new files
+standalone; the remaining 6 appear elsewhere in the pre-existing suite merely from the two
+new files existing in the tree - not traced to a specific test, reproducible but
+unexplained).
 `python3 tools/verify_hypothesis_ledger.py`: `PASS entries=47` (unchanged).
 `python3 tools/verify_functional_coverage.py`: `OPEN DOMAINS: 8` (unchanged).
 `git diff --stat` on `runtime.py`/`app.py`/`current/pf_login_game_server_v141.py`: empty
@@ -216,6 +225,9 @@ irreversible fork").
   SCENE_LEVEL_CONTROL['BG0005']`'s cited `(68.0, 35.0)` reproduce under a DIFFERENT
   counting convention than this round used (per-placement over 87 shippable rows), or is
   it simply wrong and due a correction in that module's own table? This round's own
-  measurement (70, 31) is believed correct for the counting convention stated in this
-  round's docstring, but the earlier citation's own convention was not independently
-  re-derived, only compared against.
+  measurement for the CLINE-reading median (70) is believed correct and agrees across all
+  three counting conventions; the set-number median does NOT agree across those same three
+  conventions (31 per-distinct-set/per-CLINE-row, 38 per-placement - the round's first
+  draft wrongly claimed all three gave 31, corrected before push), so which of 31 or 38 is
+  the right comparison to the cited 35 depends on which convention the earlier citation
+  used, and that convention was not independently re-derived, only compared against.

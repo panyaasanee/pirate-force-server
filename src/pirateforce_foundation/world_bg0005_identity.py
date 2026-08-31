@@ -55,9 +55,13 @@ set-number median 35.0.  Re-measuring BOTH medians this round, over the 87
 shippable placements (per-placement, not per-distinct-set, the same counting
 bg0004's and bg0010's own modules used): the CLINE-reading median is **70**,
 not 68 (a 2-point gap, wider than bg0004's 1-point gap and unlike bg0010's
-exact match); the set-number median is **31**, not 35 (checked three ways -
-per-placement, per-distinct-resolved-set, and per-CLINE-row-with-a-MOBS-
-entry - all three give 31, not 35).  Still read as WEAK evidence for the
+exact match); the set-number median does NOT agree across the three
+countings the way the CLINE-reading median does (checked three ways:
+per-distinct-resolved-set and per-CLINE-row-with-a-MOBS-entry both give
+**31**, not 35, but per-placement -- the same repeat-weighted counting used
+for the CLINE-reading median above -- gives **38** instead; pf-adversary
+caught the mismatch, corrected here rather than silently picking the
+convenient number). Still read as WEAK evidence for the
 PAIRING, same caveat every sibling module's docstring already gives (the
 reading is monotone in level across the whole project, so an exact median
 match is expected of ANY permutation of the same rows, not specific to this
@@ -222,7 +226,9 @@ SCENE_CLINE_TYPE = 5
 # SCENE_NAME.n_SCENE_LV for this scene.  world_bg0015_identity's own control 2
 # table carries the declared level (60) correctly; see this module's
 # docstring for why the two MEDIAN readings do NOT reproduce from this
-# module's own count (68->70, 35->31), unlike bg0010's exact match.
+# module's own count (68->70; 35->31 per-distinct-set/per-CLINE-row but
+# 35->38 per-placement -- the two countings disagree, see docstring),
+# unlike bg0010's exact match.
 SCENE_DECLARED_LEVEL = 60
 
 SOURCE_SHA256 = {
