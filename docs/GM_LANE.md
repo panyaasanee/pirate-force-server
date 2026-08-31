@@ -5383,3 +5383,43 @@ sanity) — ตัวเลขเดียวกับรอบ `x9wq3r` ไม�
 - `pirate-force-server#389` (เดียวกัน + wake-gate commit ท้ายรอบ)
 
 — สาย GM รอบ `u2ulkl`
+
+## รอบ `xxsulh` (2026-08-31T15:23+07:00) — verify-only ครั้งที่ 7 ติดกัน
+
+### สรุป
+
+ตรวจกล่องจดหมาย + backlog สี่ทางสดใหม่: สภาพยังเหมือนรอบ `u2ulkl` ทุกประการ — `RE-164` ข้อ 1/3 ยังบล็อก
+นอกเขต, `GM-042` รอคำตัดสินระดับเจ้าของสองข้อตาม `CHIEF-REPLY 20260831_0204`, `gm/attr_wire.py` shelved
+ยืนยันซ้ำ ไม่มีเงื่อนไขใหม่
+
+เจอใบสองฉบับของสาย E ใหม่กว่ารอบก่อน (`20260831_1435_KA1A-NOTE-*`, `20260831_1436_KA1A-ASK-COO-*` เรื่อง
+GT-106-R2/warp cross-scene gate) ที่อ้างถึงบล็อกสามเรื่องของสาย GM เป็น nonclaim ของสาย E เอง — อ่านแล้ว
+ยืนยันว่าไม่ใช่คำตัดสินใหม่ที่ปลดบล็อกสาย GM แต่อย่างใด
+
+ไม่มีไฟล์ `src/`/`tests/` เปลี่ยนรอบนี้ — รายละเอียดเต็มอยู่ที่ `pf_bridge`
+`rounds/GM_20260831_1523_verify_only_7th_round_no_new_conditions.md`
+
+### เขียว
+
+`pytest tests/test_gm_*.py -q` (origin/main สด HEAD `2d890aa1`, รันจริงรอบนี้): 1089 passed, 504 subtests
+เขียว(cloud sanity) — ตัวเลขเดียวกับรอบ `u2ulkl` ไม่มี drift
+
+### nonclaim
+
+ไม่ได้ยิงเฟรมใด ๆ ใส่ client จริงรอบนี้ ไม่มีจอ/client image ในสภาพแวดล้อมนี้ `RE-164` ข้อ 1/3 ยังไม่ปิด
+ไม่มีความคืบหน้าใหม่ (verify-only ตามเจตนา) ไม่แตะ `runtime.py`/`app.py`/`pf_login_game_server_v141.py`/
+`scenarios/world_*.json`/`scenarios/combat_*.json` ไม่ให้สถานะ GM กับบัญชีที่ไม่อยู่ใน `gm_accounts` ไม่มี
+การประกาศ milestone จากผลที่ได้ด้วย GM ใบสองฉบับของสาย E ที่อ้างถึงบล็อกสาย GM ไม่ถือเป็นเงื่อนไขใหม่
+(ใบทั้งสองระบุ nonclaim ของตัวเองตรง ๆ ว่าไม่ปลดบล็อกสาย GM)
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+**ไม่มี** — รอบ verify-only ล้วน ไม่มีจุดเสียบใหม่ ไม่มี behavior เปลี่ยนจากตอนจบรอบ `u2ulkl`
+
+### PR
+
+- `pf_bridge#608` (draft ต้นรอบ ปิดท้ายรอบนี้เป็น ready ด้วย MCP `update_pull_request(draft=false)` +
+  retitle)
+- `pirate-force-server#393` (เดียวกัน + wake-gate commit ท้ายรอบ)
+
+— สาย GM รอบ `xxsulh`
