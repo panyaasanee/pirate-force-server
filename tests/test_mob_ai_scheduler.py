@@ -207,13 +207,22 @@ class WiringLineTests(unittest.TestCase):
         self.assertIn("runtime.py", line)
         self.assertIn("mob_ai_scheduler.tick_session", line)
 
-    def test_the_scheduler_has_no_importer_yet(self):
+    def test_the_scheduler_has_exactly_the_one_ready_importer(self):
         # Mirrors test_mob_ai_control.py's own "exactly runtime.py imports
-        # this lane" check, inverted: this module names its own NONCLAIM
-        # that nothing calls it yet, and this makes that claim mechanical
-        # instead of prose a future round could leave stale.
+        # this lane" check.  ROUND iok5z1: this used to assert ZERO
+        # importers; that went stale the moment
+        # lane_hooks/lane_b_mob_ai_tick.py was built as the option-(b)
+        # wrapper a future runtime.py call site reaches (see that module's
+        # own docstring for the exact line it names).  WIDENED from
+        # ``SRC_ROOT.glob("*.py")`` to ``SRC_ROOT.rglob("*.py")`` in the
+        # same round: the flat glob would have missed a real importer
+        # living in the lane_hooks/ subpackage entirely, which is exactly
+        # the kind of gap this project's own charter warns against (a
+        # count that quietly excludes the row that matters). runtime.py
+        # itself is still NOT in this list -- that is the separate claim
+        # tests/test_lane_b_mob_ai_tick.py pins directly.
         importers = []
-        for path in SRC_ROOT.glob("*.py"):
+        for path in SRC_ROOT.rglob("*.py"):
             if path.name == "mob_ai_scheduler.py":
                 continue
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=path.name)
@@ -225,13 +234,14 @@ class WiringLineTests(unittest.TestCase):
                     names = [node.module or ""] + [
                         alias.name for alias in node.names]
                 if any("mob_ai_scheduler" in name for name in names):
-                    importers.append(path.name)
+                    importers.append(str(path.relative_to(SRC_ROOT)))
         self.assertEqual(
-            sorted(set(importers)), [],
-            "mob_ai_scheduler now has an importer in src/ -- if that is "
-            "runtime.py picking up MOB_AI_SCHEDULER_WIRING, update this "
-            "test AND the module docstring's 'WHAT THE PLAYER WILL SEE "
-            "DIFFERENTLY' section, which currently says 'nothing today'")
+            sorted(set(importers)), ["lane_hooks/lane_b_mob_ai_tick.py"],
+            "mob_ai_scheduler now has a DIFFERENT importer set than round "
+            "iok5z1 measured -- if runtime.py itself is in this list, "
+            "update this test AND the module docstring's 'WHAT THE PLAYER "
+            "WILL SEE DIFFERENTLY' section, which currently says "
+            "'nothing today'")
 
 
 if __name__ == "__main__":
