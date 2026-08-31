@@ -327,6 +327,61 @@ class PickupPersistTests(unittest.TestCase):
         self.assertIn("is not this character's next free identity",
                       str(caught.exception.__cause__))
 
+    def test_without_the_precheck_every_later_pickup_keeps_failing_the_same_way(self):
+        """``mob_pickup.py`` NONCLAIM 16's "forever" claim, pinned by execution.
+
+        ``BagCell.commit_pickup`` advances ``_issued_through`` in memory on
+        EVERY take, whether or not the store write that follows succeeds.
+        NONCLAIM 16 says the consequence for a caller that skips this
+        module's precheck (the deprecated two-step recipe
+        ``MOB_PICKUP_WIRING`` keeps on record, precisely so nobody follows it
+        again) is that "EVERY later pickup in that session is refused by
+        identity - each one having already taken its drop off the ground".
+        ``test_without_the_precheck_the_same_drift_destroys_the_drop`` proves
+        this happens ONCE, from a drift that predates any take.  It does not
+        prove "forever": a store that is merely BEHIND (as that test's
+        stranger-write drift is) can, in principle, be caught up by a single
+        failed attempt, since this cell's own mark advances by exactly one
+        each time too.  A store that never comes back (this test mocks
+        ``commit_acquired_backpack_item`` to fail EVERY call, the shape a
+        real outage or a held lock actually has) cannot: the column never
+        moves, the cell's mark only grows, and the gap between them widens on
+        every attempt instead of closing.  Three attempts running, still
+        never a different failure mode, still never a write that lands.
+        """
+        cell = self._claim_cell()
+        boom = sqlite3.OperationalError("database is locked")
+        before_rows = self._rows()
+        minted = []
+        with mock.patch.object(
+                self.store, "commit_acquired_backpack_item", side_effect=boom):
+            for key_offset in (0, 1, 2):
+                ground = a_ground_cell(a_drop(key_offset))
+                outcome = mob_pickup.dispatch_pickup_request(
+                    cell, ground, self.legacy, KILLER, DROP_AT[0], DROP_AT[1],
+                    DROP_AT[2], mob_loot.DROP_KEY_BASE + key_offset, 0,
+                )
+                self.assertEqual(
+                    ground.ledger.drops, (),
+                    "attempt %d did not take its drop" % key_offset)
+                with self.assertRaises(MobPickupPersistError) as caught:
+                    mob_pickup_persist.persist_pickup(
+                        self.store, self.sid, self.character.id, outcome,
+                        echo=False)
+                self.assertEqual(
+                    caught.exception.reason,
+                    mob_pickup_persist.REFUSE_WRITE_FAILED_AFTER_THE_TAKE,
+                    "attempt %d did not fail the same way" % key_offset)
+                self.assertIs(caught.exception.__cause__, boom)
+                minted.append(outcome.item.identity)
+        # a mark that advanced on every take mints a DIFFERENT identity every
+        # time -- three attempts, three distinct identities, all of them lost
+        self.assertEqual(len(set(minted)), 3)
+        self.assertEqual(minted, sorted(minted), "the mark only ever grows")
+        # and none of the three ever reached the table: the column the store
+        # holds never moved either, because every write was refused outright
+        self.assertEqual(self._rows(), before_rows)
+
     def test_a_cell_belonging_to_another_character_is_refused(self):
         other = self.store.create_character(
             self.account_id, "PickupPersistTwo", "pickuppersisttwo",
