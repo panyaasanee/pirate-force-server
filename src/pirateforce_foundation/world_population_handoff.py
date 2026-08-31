@@ -248,6 +248,7 @@ from typing import Any, Callable
 # the relationship now lives.
 from . import world_population_bg0004
 from . import world_population_bg0005
+from . import world_population_bg0006
 from . import world_population_bg0010
 from . import world_population_bg0015
 from .world_population import (
@@ -455,6 +456,22 @@ ROSTER_COMPOSERS: dict[str, _SceneComposer] = {
         report_of=world_population_bg0005.dispatch_report,
         generation_type=world_population_bg0005.Bg0005PopulationGeneration,
         full_roster_count=world_population_bg0005.DEFAULT_ACTOR_COUNT,
+    ),
+    # ADDED ROUND fx0007 (2026-08-31, LANE-A), build+wire+open in one round
+    # for the fourth door (scene 6, Ocean Walled City) - same shape as
+    # bg0005's entry above.  NOT covered by the LOGIN_OWNED_SOURCES
+    # exclusion below: scene 6 has no login-path populator today before this
+    # round (no runtime.py branch dedicated to it), so this entry is not
+    # composing over anything.
+    "bg0006_roster": _SceneComposer(
+        source="bg0006_roster",
+        build=world_population_bg0006.build_bg0006_population,
+        full_roster_count_source=world_population_bg0006.COUNT_SOURCE_FULL_ROSTER,
+        membership_of=lambda generation: tuple(generation.placement_indices),
+        caller_count_source=world_population_bg0006.COUNT_SOURCE_CALLER,
+        report_of=world_population_bg0006.dispatch_report,
+        generation_type=world_population_bg0006.Bg0006PopulationGeneration,
+        full_roster_count=world_population_bg0006.DEFAULT_ACTOR_COUNT,
     ),
 }
 

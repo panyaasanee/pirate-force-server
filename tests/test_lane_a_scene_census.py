@@ -85,6 +85,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from pirateforce_foundation import lane_hooks  # noqa: E402
 from pirateforce_foundation import world_population_bg0004  # noqa: E402
 from pirateforce_foundation import world_population_bg0005  # noqa: E402
+from pirateforce_foundation import world_population_bg0006  # noqa: E402
 from pirateforce_foundation import world_population_bg0010  # noqa: E402
 from pirateforce_foundation import world_population_bg0015  # noqa: E402
 from pirateforce_foundation import world_population_handoff  # noqa: E402
@@ -127,6 +128,12 @@ DEEP_SEA_TEMPLE_ROSTER_COUNT = 94
 # for the test that pins that fact.
 EVIL_PORT = 5
 EVIL_PORT_ROSTER_COUNT = 87
+# ADDED round fx0007 (LANE-A): bg0006's own scene id and roster size, built,
+# wired AND OPENED in one round (COO-DECISION 20260830_1441's queue, fourth
+# door) -- same compressed shape round l03cgh used for scene 5 -- see
+# ``OceanWalledCityRegistrationTests`` below for the test that pins that fact.
+OCEAN_WALLED_CITY = 6
+OCEAN_WALLED_CITY_ROSTER_COUNT = 66
 
 
 def _legacy():
@@ -1181,6 +1188,89 @@ class EvilPortRegistrationTests(unittest.TestCase):
             self.assertEqual(
                 len(unshipped),
                 len(world_population_bg0005.unresolved_lines()))
+            for line in result.console_lines:
+                with self.subTest(line=line[:40]):
+                    line.encode("ascii")
+
+
+class OceanWalledCityRegistrationTests(unittest.TestCase):
+    """Scene 6's own half of this round: built, wired AND OPENED, round fx0007.
+
+    ADDED round fx0007 (LANE-A), same shape as ``EvilPortRegistrationTests``
+    (round l03cgh): build/wire/open all land in this one round -- see this
+    round's own round file for why (the existing generic
+    ``ComposerContractTests`` already assumed every wired scene in this lane
+    is open, since scenes 4/5/10/14 all were by the time this round
+    started).
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.legacy = _legacy()
+        cls.anchor = world_scene_travel.spawn_position(
+            world_scene_travel.destination(OCEAN_WALLED_CITY))
+        cls._work = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls._work.cleanup)
+
+    def test_the_module_registered_a_composer_for_scene_6(self):
+        composer = lane_hooks.scene_census_composer(OCEAN_WALLED_CITY)
+        self.assertIsNotNone(composer)
+        self.assertEqual(composer.module, lane_a.__name__)
+
+    def test_the_real_registry_now_composes_and_that_is_the_round(self):
+        """WHAT THE FILE ON MAIN DOES TODAY, STATED AS AN ASSERTION.
+
+        Same reasoning as ``EvilPortRegistrationTests``'s own version of this
+        test: a silent revert of this boolean should be caught by a red
+        test, not discovered in an attended round that boots into a
+        refusal.
+        """
+        destination = world_scene_travel.destination(
+            OCEAN_WALLED_CITY, world_scene_travel.load_scene_registry())
+        self.assertTrue(destination.login_entry_allowed)
+        result = lane_a._compose_for_scene(OCEAN_WALLED_CITY)(
+            legacy=self.legacy,
+            anchor=self.anchor,
+            scene_id=OCEAN_WALLED_CITY,
+            scene_entry_registry=world_scene_travel.load_scene_registry(),
+        )
+        self.assertIsNotNone(result)
+        self.assertEqual(result.actor_count, OCEAN_WALLED_CITY_ROSTER_COUNT)
+
+    def test_opened_in_a_temp_registry_it_composes_the_full_roster(self):
+        """The other half: the wiring itself works once a door opens.
+
+        Never against the repository's file (see the module above this
+        test file borrows its temp-registry pattern from) - this proves the
+        PLUMBING is sound, driven independently of what the real registry
+        file happens to say this round.
+        """
+        with tempfile.TemporaryDirectory() as work:
+            registry, _ = _registry_with_door_open(
+                Path(work), OCEAN_WALLED_CITY)
+            result = lane_a._compose_for_scene(OCEAN_WALLED_CITY)(
+                legacy=self.legacy,
+                anchor=self.anchor,
+                scene_id=OCEAN_WALLED_CITY,
+                scene_entry_registry=registry,
+            )
+            self.assertIsNotNone(result)
+            self.assertEqual(
+                result.actor_count, OCEAN_WALLED_CITY_ROSTER_COUNT)
+            self.assertTrue(
+                result.console_lines[0].startswith(
+                    "WORLD_POP_HANDOFF scene=6 "),
+                result.console_lines[0])
+            self.assertTrue(
+                any(line.startswith("WORLD_CENSUS_BG0006 ")
+                    for line in result.console_lines))
+            unshipped = [
+                line for line in result.console_lines
+                if line.startswith("BG0006_UNSHIPPED ")
+            ]
+            self.assertEqual(
+                len(unshipped),
+                len(world_population_bg0006.unresolved_lines()))
             for line in result.console_lines:
                 with self.subTest(line=line[:40]):
                     line.encode("ascii")
