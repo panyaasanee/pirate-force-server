@@ -1,1 +1,1 @@
-{"sha":"35e65b94c5dbc65e6d0ed371a64c64a6a89a6cf4","conclusion":"success","event":"push","ref":"refs/heads/claude/trusting-mendel-lperai","run_id":"33440658596","utc":"2026-08-31T21:24:57Z"}
+{"sha":"35e65b94c5dbc65e6d0ed371a64c64a6a89a6cf4","conclusion":"success","event":"pull_request","ref":"refs/pull/438/merge","run_id":"33440662843","utc":"2026-08-31T21:26:19Z"}
