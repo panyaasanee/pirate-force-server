@@ -1,1 +1,1 @@
-{"sha":"4c24bc9495ff15f46591355115d914320be87bcd","conclusion":"success","event":"push","ref":"refs/heads/claude/determined-brown-h40iwu","run_id":"33448534852","utc":"2026-08-31T23:04:33Z"}
+{"sha":"4c24bc9495ff15f46591355115d914320be87bcd","conclusion":"success","event":"pull_request","ref":"refs/pull/443/merge","run_id":"33448537627","utc":"2026-08-31T23:05:43Z"}
