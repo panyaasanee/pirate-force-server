@@ -588,8 +588,14 @@ class Scene14RegistryTests(unittest.TestCase):
         one round rather than three.  See
         ``test_scene_5_opened_separately_and_that_is_a_different_round``
         below.
+
+        UPDATED round fx0007: scene 6 left this set the same way, fourth of
+        the ten doors this lane has opened -- built, wired and opened in
+        one round, same compressed shape as scene 5's.  See
+        ``test_scene_6_opened_separately_and_that_is_a_different_round``
+        below.
         """
-        for scene_id in (3, 6, 7, 8, 9, 11, 130):
+        for scene_id in (3, 7, 8, 9, 11, 130):
             with self.subTest(scene_id=scene_id):
                 target = world_scene_travel.destination(
                     scene_id, self.registry)
@@ -634,6 +640,18 @@ class Scene14RegistryTests(unittest.TestCase):
         target = world_scene_travel.destination(5, self.registry)
         self.assertTrue(target.login_entry_allowed)
         self.assertTrue(world_faction_admission.admits(5, self.registry))
+
+    def test_scene_6_opened_separately_and_that_is_a_different_round(self):
+        """ADDED round fx0007: the fourth scene removed from the tuple above.
+
+        Same reasoning as scene 4's, scene 10's and scene 5's sibling
+        tests.  Like scene 5, scene 6 (Ocean Walled City) does NOT carry
+        the elevated landing-geometry flag (``the_two_interiors``) --
+        checked, not assumed, in ``world_bg0006_identity``'s own docstring.
+        """
+        target = world_scene_travel.destination(6, self.registry)
+        self.assertTrue(target.login_entry_allowed)
+        self.assertTrue(world_faction_admission.admits(6, self.registry))
 
     def test_a_non_login_caller_still_lands_on_the_marker_and_says_so(self):
         # The door being shut to logins does not make the pin untestable:

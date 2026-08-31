@@ -377,9 +377,15 @@ class TestTheAnswer(unittest.TestCase):
         # door of the same COO-DECISION 2026-08-30T14:41+07:00 sequence),
         # the same single-module move.  UNLIKE bg0004/bg0010, this module is
         # wired AND its scene's door opened in the same round that built it.
-        self.assertEqual(counts["src_actor_stream_call_sites"], 29)
-        self.assertEqual(counts["src_actor_entry_call_sites"], 20)
-        self.assertEqual(counts["src_modules_building_actor_entries"], 19)
+        # 29 -> 30, 20 -> 21, 19 -> 20 on 2026-08-31 (LANE-A round fx0007):
+        # world_population_bg0006.py, the Bg0006 (Ocean Walled City) census
+        # (fourth door of the same COO-DECISION 2026-08-30T14:41+07:00
+        # sequence), the same single-module move.  Also wired AND its
+        # scene's door opened in the same round that built it, same shape
+        # as bg0005.
+        self.assertEqual(counts["src_actor_stream_call_sites"], 30)
+        self.assertEqual(counts["src_actor_entry_call_sites"], 21)
+        self.assertEqual(counts["src_modules_building_actor_entries"], 20)
         self.assertIn(
             "npc_hostile_hypothesis.py",
             counts["src_modules_building_actor_entries_names"],
