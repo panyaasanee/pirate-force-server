@@ -5251,3 +5251,43 @@ sanity) — ตัวเลขเดียวกับรอบ `szmgeh` ไม�
 - `pirate-force-server#376` (draft ต้นรอบ ปิดท้ายรอบนี้เป็น ready + retitle + wake-gate commit)
 
 — สาย GM รอบ `oykcib`
+
+## รอบ `qy8vln` (2026-08-31T11:18+07:00) — verify-only, backlog สี่ทางว่างเหมือนรอบ `oykcib`
+
+### สรุป
+
+ตรวจกล่องจดหมาย + backlog สี่ทางสดใหม่ (ไม่เชื่อผลรอบก่อน แม้ห่างกันแค่ ~1 ชั่วโมง): ไม่มีจดหมาย
+`ADDRESSEE: LANE-GM` ค้าง (RE-088..091 มี `.CONSUMED.txt` ครบแล้ว), ไม่มี CORE-REQUEST/COO-DECISION ใหม่
+อ้างเลข `GM-0xx` ที่ยังไม่บริโภค (3 ไฟล์ที่ grep เจอเป็น cc FYI ถึง COO/ATTENDED เนื้อหา `GM-042` consume
+ไปแล้ว), `GT-164` ปิดหัวใบแล้วไม่มีใบ GT อื่นของสาย GM ค้าง, ไม่มี technical debt ใหม่ใน `gm/` (`grep
+TODO/FIXME/XXX/HACK` สดรอบนี้ = สองรายการเดิมที่ไม่ใช่ debt จริง) `RE-164` ข้อ 1/3 ยังบล็อกด้วยเหตุผลเดียว
+กับที่ `COO-DECISION 20260831_0745` วินิจฉัยไปแล้วว่าเป็นบล็อกนอกเขต (ต้องการ client binary image ระดับ VA
+หรือเซสชัน attended จริง) ตามคำสั่ง COO ("ไม่ต้องยื่นใบใหม่จนกว่าสภาพเปลี่ยน") รอบนี้จึงไม่เปิด ASK-COO ซ้ำ
+เขียนใบ STATUS แทน
+
+ไม่มีไฟล์ `src/`/`tests/`/`scenarios/` เปลี่ยนรอบนี้ทั้งสอง repo — รายละเอียดเต็มอยู่ที่ `pf_bridge`
+`rounds/GM_20260831_1118_verify_only_backlog_still_empty_matches_oykcib.md`
+
+### เขียว
+
+`pytest tests/test_gm_*.py -q` (HEAD ปัจจุบัน, รันจริงรอบนี้): 1089 passed, 500 subtests เขียว(cloud
+sanity) — ตัวเลขเดียวกับรอบ `oykcib` ไม่มี drift
+
+### nonclaim
+
+ไม่ได้ยิงเฟรมใด ๆ ใส่ client จริงรอบนี้ ไม่มีจอ/client image ในสภาพแวดล้อมนี้ `RE-164` ข้อ 1/3 ยังไม่ปิด
+ไม่มีความคืบหน้าใหม่ (verify-only ตามเจตนา) ไม่แตะ `runtime.py`/`app.py`/`pf_login_game_server_v141.py`/
+`scenarios/world_*.json`/`scenarios/combat_*.json` ไม่ให้สถานะ GM กับบัญชีที่ไม่อยู่ใน `gm_accounts` ไม่มี
+การประกาศ milestone จากผลที่ได้ด้วย GM `gm/attr_wire.py` ยัง shelve ตาม `COO-DECISION 20260831_0350`
+เหมือนเดิม
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+**ไม่มี** — รอบ verify-only ล้วน ไม่มีจุดเสียบใหม่ ไม่มี behavior เปลี่ยนจากตอนจบรอบ `oykcib`
+
+### PR
+
+- `pf_bridge#588` (draft ต้นรอบ ปิดท้ายรอบนี้เป็น ready + retitle)
+- `pirate-force-server#378` (draft ต้นรอบ ปิดท้ายรอบนี้เป็น ready + retitle + wake-gate commit)
+
+— สาย GM รอบ `qy8vln`
