@@ -49,14 +49,19 @@ WHAT IS DIFFERENT FROM BG0004, NAMED RATHER THAN LEFT IMPLICIT.
   stand.  Recorded here because a future round that wires this composer into
   a real login path must read that registry block first, before flipping
   ``login_entry_allowed``.
-* NOT WIRED, DOOR STILL SHUT.  Unlike bg0004 at this point in its own
-  history, this module is NOT YET registered in
-  ``world_scene_travel.CENSUS_SOURCES`` or
-  ``world_population_handoff.ROSTER_COMPOSERS`` - that is deliberately left
-  for a later round (the same one-composer-module-per-round granularity
-  bg0004's own three-round history used: build, then wire, then open).
-  Scene 10's ``login_entry_allowed`` still reads ``false`` and nothing in
-  this file changes that.  A player sees exactly what they saw yesterday.
+* WIRED, ROUND c42axq, DOOR STILL SHUT.  This module is now registered in
+  ``world_scene_travel.CENSUS_SOURCES`` and
+  ``world_population_handoff.ROSTER_COMPOSERS`` (the same two-table change
+  ``world_population_bg0004`` needed at round 2jdde8, and
+  ``lane_hooks/lane_a_scene_census.py`` reads its console lines the same
+  way).  Scene 10's ``login_entry_allowed`` STILL reads ``false`` (opening
+  the door is a later round's judgment call, same as scene 4's own
+  three-round history: build u3jo4g, wire c42axq, open TBD), and the
+  admission check in ``lane_hooks/lane_a_scene_census.py`` declines every
+  call this composer receives on the real registry today.  A player sees
+  exactly what they saw yesterday because of this file, same as the round
+  scene 4's composer was wired and still sat behind a shut door for a
+  round.
 """
 
 from __future__ import annotations
@@ -75,9 +80,10 @@ from .population import (
 
 
 # Convention marker only: nothing chief-owned (runtime.py/app.py) imports
-# this module directly, and - unlike bg0004 at the round it was built -
-# nothing under this lane's own world_scene_travel/world_population_handoff
-# imports it yet either.  See the module docstring's "NOT WIRED" paragraph.
+# this module directly.  It IS imported from this lane's own
+# world_population_handoff.py and lane_hooks/lane_a_scene_census.py since
+# round c42axq - see the module docstring's "WIRED, DOOR STILL SHUT"
+# paragraph for why that import does not make this live today.
 production_allowed = True
 test_only = False
 
