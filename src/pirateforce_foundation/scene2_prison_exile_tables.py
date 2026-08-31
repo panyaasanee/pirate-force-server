@@ -1,5 +1,21 @@
 """Bg0002 (Prison Exile Island) placement roster - LANE-A build order M1-P.
 
+RE-173 CORRECTION (round yfbqmg->this round, RE result 2026-09-01T03:03+07:00).
+Placement 63 ("Columbus", ``MOBSET_36 01``) was originally built by taking its
+Mob-Set number (36) directly as ``MOBS.n_ID``, the same rule every other row
+in this table uses.  RE-173's CLINE crosswalk (scene 2's ``n_CLINE_TYPE=2``,
+key ``(2,36)`` in ``CONSTDATA_TH__CLINE.tsv``) resolves that Mob-Set number to
+``n_LEADER_BK1=360``, a DIFFERENT, real ``MOBS.n_ID`` row (also named
+Columbus, same outfit) that ``world_m2_sea_destination.COLUMBUS_ROUTES``
+already named for this home scene - the two tables were pointing at two
+different real rows for the same island's Columbus.  This round regenerates
+placement 63 from MOBS 360 per RE-173's BUILD_IMPACT (id, level range, walk
+speed, derived max_hp - outfit/name/title/rank/AI/drops are unchanged,
+RE-173 confirmed those columns match between MOBS 36 and 360).  RE-173 did
+NOT re-audit the other 96 known placements' Mob-Set-number-as-n_ID
+assumption - that stays an open question for a future round/ticket, not
+something this fix answers.
+
 HAND-ASSEMBLED THIS ROUND, NOT MACHINE-GENERATED.  ``field_mob_tables.py`` is
 written by ``tools/pf_mine_scene_mob_roster.py``, which lives in ``tools/`` -
 outside this lane's write zone this round.  Rather than touch that directory
@@ -125,9 +141,9 @@ MATCH below for what this lane could actually confirm from that photo.
   as the already-accepted Columbus-Navy-Transfer pairing below.  SUPPORTIVE
   (numeric proximity + visual co-location in one frame), not a tight match -
   no HUD reading is legible in this frame either.
-* Columbus (36) near Navy Transfer (1): 3935 units apart, both in the harbor
-  quadrant - CONSISTENT, not a tight match; recorded as SUPPORTIVE, not
-  CONFIRMED.
+* Columbus (Mob-Set 36, MOBS n_id 360 since RE-173) near Navy Transfer (1):
+  3935 units apart, both in the harbor quadrant - CONSISTENT, not a tight
+  match; recorded as SUPPORTIVE, not CONFIRMED.
 * Navy Transfer (1) sits 1147 units from the scene registry's ALREADY PINNED
   scene-2 arrival spawn (26905, 21185, 1680 -
   ``scenarios/world_scene_registry_001.json``) - SUPPORTIVE of "at the dock
@@ -253,7 +269,11 @@ KNOWN_PLACEMENTS = [
     (60, 3, 34, 21421.005859375, 9277.1123046875, 590.6787719726562, 'M025_001_000_N', False, 'Fighting Fish soldier', '', 25, 27, 1, 16, 350, 100, 3138, 2701001, 5400001, 2802264),
     (61, 1, 35, 19111.2265625, -1607.8365478515625, 716.8709716796875, 'M025_001_000_BOSS', False, 'Fighting Fish Sergeant', '', 27, 27, 1, 16, 352, 100, 3857, 2701001, 5400001, 2802264),
     (62, 2, 32, -1726.652587890625, -19164.966796875, 564.5496826171875, 'M006_000_000_SP1', True, 'Rock turtle', '', 23, 25, 1, 16, 164, 100, 2525, 2701001, 5400001, 2802228),
-    (63, 1, 36, 29414.7890625, 22476.69921875, 766.94921875, 'M055_000_000_N', False, 'Columbus', 'Marine Transport Station', 35, 35, 0, 2, 0, 150, 7980, 0, 0, 0),
+    # RE-173 CORRECTION: n_id 36->360, level 35/35->10/20, speed_walk
+    # 150->400, max_hp 7980->421 - MOBS 360 is the CLINE-resolved row, not
+    # the raw Mob-Set number.  Outfit/name/title/rank/AI/drops unchanged
+    # (RE-173 confirmed those columns match between MOBS 36 and 360).
+    (63, 1, 360, 29414.7890625, 22476.69921875, 766.94921875, 'M055_000_000_N', False, 'Columbus', 'Marine Transport Station', 10, 20, 0, 2, 0, 400, 421, 0, 0, 0),
     (64, 1, 38, 17218.734375, 17678.404296875, 2492.981689453125, 'P_FEMALE_001_001_RENA', False, 'Reyna', 'Spice Merchant', 35, 35, 0, 1, 0, 150, 7980, 0, 0, 0),
     (66, 5, 3, 16001.2880859375, 14566.0546875, 2515.841064453125, 'P_MALE_002_000_SP1', True, 'Navy soldier', '', 20, 20, 0, 1, 0, 150, 1771, 0, 0, 0),
     (67, 1, 39, -10690.4873046875, -4295.1767578125, 5658.3505859375, 'M015_000_000_SP2', False, 'Mo Yuzi', 'Naval Communications Bureau', 35, 35, 0, 2, 0, 150, 7980, 0, 0, 0),
@@ -377,6 +397,26 @@ def _require_int(value: Any, label: str, low: int, high: int) -> int:
     return value
 
 
+# CLINE-resolved MOBS ids that fall outside the default 1..41 Mob-Set number
+# range this table's other 96 rows use directly (see the module docstring's
+# "RE-173 CORRECTION" section).  Currently only placement 63 (Columbus)
+# needs this - a future row that needs the same CLINE resolution should be
+# added here one at a time, with its own citation.  This is deliberately
+# NOT done by widening the range bound itself: RE-123's own fabrication
+# guard (see ``test_scene2_prison_exile_tables.py``'s Mirage Reel tests,
+# n_id 230) depends on the range staying tight for every row that has not
+# been individually re-derived through the CLINE crosswalk.
+CLINE_RESOLVED_N_IDS = frozenset({360})
+
+
+def _require_n_id(value: Any) -> int:
+    if type(value) is not int or type(value) is bool:
+        raise Scene2TableError("n_id must be an integer in [1,41] or a CLINE-resolved id")
+    if 1 <= value <= 41 or value in CLINE_RESOLVED_N_IDS:
+        return value
+    raise Scene2TableError("n_id must be an integer in [1,41] or a CLINE-resolved id")
+
+
 def load_known_placements() -> tuple[Bg0002Placement, ...]:
     """Type-check and return the 97 resolved placements.  No file is read."""
     if len(KNOWN_PLACEMENTS) != KNOWN_COUNT:
@@ -402,7 +442,7 @@ def load_known_placements() -> tuple[Bg0002Placement, ...]:
         out.append(Bg0002Placement(
             placement_index=idx,
             mm_instance=_require_int(mm, "mm instance", 1, 0xFFFF),
-            n_id=_require_int(n_id, "n_id", 1, 41),
+            n_id=_require_n_id(n_id),
             x=_require_float32(x, "placement x"),
             y=_require_float32(y, "placement y"),
             z=_require_float32(z, "placement z"),
@@ -475,7 +515,10 @@ MOUNTAIN_DEER_N_ID = 27
 MOUNTAIN_DEER_CLUSTER_MM = 2
 CLUSTER_RADIUS_UNITS = 1700.0
 
-COLUMBUS_N_ID = 36
+# RE-173: the CLINE-resolved MOBS id (360), not the raw Mob-Set number (36)
+# every other anchor in this file still uses directly - see the module
+# docstring's "RE-173 CORRECTION" section and CLINE_RESOLVED_N_IDS above.
+COLUMBUS_N_ID = 360
 NAVY_TRANSFER_N_ID = 1
 COLUMBUS_NAVY_TRANSFER_MAX_UNITS = 5000.0
 
