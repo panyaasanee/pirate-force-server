@@ -29,8 +29,11 @@ default) -- the guard is a no-op today by design, not a behaviour change.
 
 Importing field_mob_tables_bg0015 here does not trip
 test_field_mob_tables_bg0015.py's own
-test_nothing_under_src_imports_the_bg0015_module guard, which scans only
-src/pirateforce_foundation/**/*.py -- this file lives under tests/.
+test_only_the_approved_hostile_composer_imports_the_bg0015_module guard
+(renamed this round from test_nothing_under_src_imports_the_bg0015_module,
+same round COO-DECISION 2026-08-31T16:48+07:00 unlocked one approved
+importer under src/), which scans only src/pirateforce_foundation/**/*.py
+-- this file lives under tests/.
 field_mob_tables_bg0002 IS imported under src/ this round (by field_mobs.py
 and mob_death.py, both loading it deliberately), so it carries no such
 guard test of its own -- see test_field_mob_tables_bg0002.py instead, whose

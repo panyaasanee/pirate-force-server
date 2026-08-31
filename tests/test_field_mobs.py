@@ -837,7 +837,20 @@ class FieldMobTests(unittest.TestCase):
             # than re-guessed).  IT DISPATCHES NOTHING: runtime.py does not
             # call it, and the two call sites that would are this round's
             # wiring ask (mob_scene_recompose.SCENE_RECOMPOSE_WIRING).
-            ["diag_multi_object_wiring.py", "mob_ai_control.py",
+            # ROUND jqxe6v adds field_mob_hostile_bg0015.py: COO-DECISION
+            # 2026-08-31T16:48+07:00 unlocked layer 1 (import into src/ is
+            # allowed for exactly this one module -- see
+            # tests/test_field_mob_tables_bg0015.py's own AST-walk guard,
+            # which now allowlists it by name).  It reads Bg0015's own
+            # HOSTILE_PLACEMENTS through field_mobs' own row parser and reuses
+            # hostile_actor_entry/FIELD_MOB_FACTION unmodified to build
+            # dict[actor_identity, entry_bytes] for chief's still-unwired
+            # runtime.py:7501 branch.  IT DISPATCHES NOTHING: not in
+            # _SCENE_TABLE_MODULES, not called from runtime.py/app.py (grepped
+            # for both, zero hits) -- wiring it into a live scene is layer 2/3,
+            # a separate CORE-REQUEST this round does not send.
+            ["diag_multi_object_wiring.py", "field_mob_hostile_bg0015.py",
+             "mob_ai_control.py",
              "mob_census_hostility.py",
              "mob_combat.py", "mob_death.py",
              "mob_diag_multi_object.py",

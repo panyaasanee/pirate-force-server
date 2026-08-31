@@ -1,20 +1,28 @@
-"""LANE-B: Bg0015's hostile roster is mined and PREPARED, not wired in.
+"""LANE-B: Bg0015's hostile roster is mined and PREPARED, imported by exactly
+one approved lane-B module, not made a live scene.
 
 COO-DECISION 2026-08-26 12:46 (pf_bridge, notes_to_chief) confirmed ``Bg0015``
 (Hell Volcanic Island) as the real ``M3`` monster map and gave lane B one
 instruction: prepare ``field_mob_tables`` regenerated pointed at Bg0015, but do
 NOT wire it in for real until lane A confirms its second travel gate and the
-geometry/reachability check passes.  bg0001 (Port Royal) stays the live/default
-roster this round; ``field_mob_tables_bg0015.py`` sits beside it, generated the
-same way, imported by nothing.
+geometry/reachability check passes.  ``COO-DECISION 2026-08-31T16:48+07:00``
+found that condition met (lane A's login-entry door merged, ``GT-134``
+measured a monster on a real screen) and unlocked "layer 1": one lane-B
+module, ``field_mob_hostile_bg0015.py``, may now import this table to build
+hostile entry bytes for it.  bg0001 (Port Royal) stays the live/default
+roster; ``field_mob_tables_bg0015.py`` is not registered in
+``field_mobs._SCENE_TABLE_MODULES`` and ``load_roster(scene="Bg0015")`` still
+refuses -- layer 2/3 (making it an actually-loadable scene) is a separate,
+still-gated CORE-REQUEST to chief's ``runtime.py``.
 
 The three tests that matter most, of the ten in this file, are these:
 
-``test_nothing_under_src_imports_the_bg0015_module`` is the one that matters
-most: it is the guard that this round did not accidentally wire BUILD-004's
-prep work into a live path ahead of lane A's gate.  A grep for the literal
-module name would be fooled by a comment; this walks the AST of every module
-under ``src/pirateforce_foundation/`` and checks actual import statements.
+``test_only_the_approved_hostile_composer_imports_the_bg0015_module`` is the
+one that matters most: it is the guard that this round's unlock did not
+accidentally wire BUILD-004's prep work into MORE of a live path than the one
+approved composer.  A grep for the literal module name would be fooled by a
+comment; this walks the AST of every module under
+``src/pirateforce_foundation/`` and checks actual import statements.
 
 ``test_regenerating_reproduces_the_committed_module_byte_for_byte`` is the
 same discipline ``field_mob_tables.py`` and ``field_drop_tables.py`` are
@@ -145,8 +153,27 @@ class Bg0015PrepShapeTests(unittest.TestCase):
             module.PREDICATE_CENSUS["rank_and_ai_combat"], EXPECTED_HOSTILE_COUNT
         )
 
-    def test_nothing_under_src_imports_the_bg0015_module(self) -> None:
-        """This round's prep must stay exactly as inert as bg0001's own pin.
+    def test_only_the_approved_hostile_composer_imports_the_bg0015_module(
+            self) -> None:
+        """Layer 1 unlocked (COO-DECISION 2026-08-31T16:48+07:00): this
+        round's prep is no longer required to stay universally inert -- one
+        named lane-B module may import it.  Everything else still must not.
+
+        RENAMED from ``test_nothing_under_src_imports_the_bg0015_module``,
+        not merely edited in place: the old name asserted "nothing", which
+        stopped being true the moment ``field_mob_hostile_bg0015.py`` landed,
+        and a stale name asserting a withdrawn claim is worse than a renamed
+        one that says what is actually being checked now.  ``COO-DECISION
+        2026-08-26 12:46+07:00``'s condition ("until lane A's second travel
+        gate and geometry/reachability check pass") is met: lane A's
+        login-entry door for scene 14 merged
+        (``pirate-force-server#290``) and ``GT-134`` measured a monster
+        there with a real client on screen
+        (``pf_bridge/notes_to_chief/20260830_1731_GT127-GT134-RESULT-...``).
+        ``COO-DECISION 2026-08-31T16:48+07:00`` (answering lane B's own
+        ``20260831_1547`` status letter) is the decision that reads those two
+        facts together and says so explicitly: lane B may unlock layer 1
+        (import ``field_mob_tables_bg0015`` under ``src/``).
 
         Walks the AST of every .py file under src/ rather than grepping text,
         so a docstring or comment that merely mentions the module name cannot
@@ -165,7 +192,20 @@ class Bg0015PrepShapeTests(unittest.TestCase):
         non-trivial number of files: an empty ``rglob`` would make either
         check vacuously green, which is exactly the "green because it never
         got there" shape this project has already shipped once.
+
+        WHAT STILL MUST STAY TRUE, EVEN AFTER THE UNLOCK.  ``field_mobs.py``
+        itself -- the module that owns ``_SCENE_TABLE_MODULES``,
+        ``live_scenes()`` and every pinned assertion the other 182
+        references across six test files depend on meaning "two scenes
+        shipped so far" -- is deliberately NOT on the approved list. Layer 1
+        is "an importer may exist"; making Bg0015 a live, loadable scene
+        (layer 2/3) is chief's ``runtime.py:7501`` CORE-REQUEST, still gated,
+        and a stray ``field_mobs.py`` import would be the exact silent
+        drift this guard exists to catch before a human notices on screen.
         """
+        approved_importers = {
+            str(SRC / "pirateforce_foundation" / "field_mob_hostile_bg0015.py"),
+        }
         py_files = sorted(SRC.rglob("*.py"))
         # A hard floor well under the real count (66 measured 2026-08-26),
         # so a path typo that returns zero or a near-empty tree is a loud
@@ -178,7 +218,7 @@ class Bg0015PrepShapeTests(unittest.TestCase):
 
         offenders = []
         for path in py_files:
-            if path == MODULE_PATH:
+            if path == MODULE_PATH or str(path) in approved_importers:
                 continue
             text = path.read_text(encoding="utf-8")
 
@@ -202,18 +242,32 @@ class Bg0015PrepShapeTests(unittest.TestCase):
             # Layer 2: literal-string sweep, catches importlib.import_module
             # and any other reference an AST Import/ImportFrom check cannot
             # see (this is deliberately broader than "an import" -- ANY
-            # mention outside this test file and the module itself is
-            # suspicious enough to fail loudly and be looked at by a human,
-            # not silently ignored).
+            # mention outside this test file, the module itself, and the one
+            # approved importer is suspicious enough to fail loudly and be
+            # looked at by a human, not silently ignored).
             if "field_mob_tables_bg0015" in text:
                 offenders.append(str(path))
 
         offenders = sorted(set(offenders))
         self.assertEqual(
             offenders, [],
-            "field_mob_tables_bg0015 must stay unwired until lane A's second "
-            "gate + geometry check passes (COO-DECISION 2026-08-26 12:46); "
-            "found a reference in: %s" % offenders,
+            "field_mob_tables_bg0015 must stay unimported outside the one "
+            "approved lane-B hostile composer (COO-DECISION "
+            "2026-08-31T16:48+07:00 unlocked layer 1 for that module only); "
+            "found an extra reference in: %s" % offenders,
+        )
+
+        approved_path = SRC / "pirateforce_foundation" / "field_mob_hostile_bg0015.py"
+        self.assertTrue(
+            approved_path.is_file(),
+            "the one approved importer this test expects does not exist -- "
+            "the allowlist above is stale",
+        )
+        approved_text = approved_path.read_text(encoding="utf-8")
+        self.assertIn(
+            "field_mob_tables_bg0015", approved_text,
+            "the approved importer no longer references the module it was "
+            "allowlisted for -- the allowlist is stale, not the guard",
         )
 
     def test_field_mob_tables_bg0001_is_untouched_by_this_round(self) -> None:

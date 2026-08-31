@@ -948,20 +948,29 @@ guard("make_remote_actor_entry" in _v141,
 # (sixth door of the same COO-DECISION 2026-08-30T14:41+07:00 sequence),
 # builds one entry and sends one carrier, the same shape as bg0008 before it
 # -- also wired and door-opened in the same round it was built.
-guard(SRC_ACTOR_ENTRY_SITES == 23,
-      "src/ builds actor entries at exactly 23 call sites (4 spawns + the "
+# Round jqxe6v re-pin (lane B), 23 -> 24 and 32 -> 33 and 22 -> 23.
+# field_mob_hostile_bg0015.py (COO-DECISION 2026-08-31T16:48+07:00 layer-1
+# unlock) builds a synthetic civilian actor entry per Bg0015 placement, for
+# its own splice-proof function only -- not a runtime.py call site, not a
+# new encoder (same legacy.make_npc_attr/make_remote_actor_entry/
+# make_runtime_remote_actors this file's own SRC_ACTOR_ENTRY_SITES already
+# counts everywhere else).
+guard(SRC_ACTOR_ENTRY_SITES == 24,
+      "src/ builds actor entries at exactly 24 call sites (4 spawns + the "
       "round-86 death re-send + the round-96 remote-player probe + the "
       "round-99 hostile spawn + the round-111 NPC HP ladder + the "
       "HYP-PF-038 hostile HP link + the lane-B production modules + the "
       "GT-114 multi-object diagnostic + the lane-A bg0002, bg0015, bg0004, "
-      "bg0010, bg0005, bg0006, bg0008 and bg0003 censuses)")
+      "bg0010, bg0005, bg0006, bg0008 and bg0003 censuses + the jqxe6v "
+      "Bg0015 hostile-splice proof's civilian entry)")
 # ROUND y9s0xo (lane B): 25 -> 26.  mob_scene_recompose.py re-encodes the
 # collection when it splices a scene's roster override into a recompose --
 # the same encoder, one more call site, and no new actor ENTRY builder.
-guard(SRC_ACTOR_STREAM_SITES == 32,
-      "src/ sends the actor-entry carrier at exactly 32 call sites")
-guard(SRC_MODULES_WITH_ACTOR_ENTRY == 22
+guard(SRC_ACTOR_STREAM_SITES == 33,
+      "src/ sends the actor-entry carrier at exactly 33 call sites")
+guard(SRC_MODULES_WITH_ACTOR_ENTRY == 23
       and SRC_MODULES_WITH_ACTOR_ENTRY_NAMES == (
+          "field_mob_hostile_bg0015.py",
           "field_mobs.py",
           "hostile_hp_link_hypothesis.py",
           "mob_combat.py", "mob_death.py",
@@ -979,7 +988,7 @@ guard(SRC_MODULES_WITH_ACTOR_ENTRY == 22
           "world_population_bg0008.py",
           "world_population_bg0010.py",
           "world_population_bg0015.py"),
-      "22 named src/ modules build actor entries %s"
+      "23 named src/ modules build actor entries %s"
       % (SRC_MODULES_WITH_ACTOR_ENTRY_NAMES,))
 # Round 97 re-pin, 4 -> 5.  DAMAGE-HP-LINK-001 added the fifth mention:
 # damage_hp_link_hypothesis.py names bit 0x0080 because its two lethal frames
