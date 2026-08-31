@@ -7402,6 +7402,53 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             # the scene's own pinned spawn as the anchor when no
             # TargetPosVital has arrived yet.  A player who does move first
             # still gets last_target_pos as the anchor, unchanged.
+            #
+            # WIDENED FROM bg0002-ONLY TO "EVERY SCENE BUT HOME", chief round
+            # `4w5j25`, on PANYA-ORDER 20260901_0215 section 4: "the server
+            # must send NPCs itself before I have to start walking ... no
+            # round should ever again require me to walk just to make spawn
+            # call up NPCs."  The disjunct below now reads "not home" where it
+            # read "== SCENE2_N_ID", so scenes 3..11, 14 and 130 (LANE-A's
+            # world scenes -- every one of them pinned in
+            # scene_entry_registry AND carrying a registered,
+            # production-allowed census composer) compose on arrival exactly
+            # as scene 2 has since CORE-REQUEST-026.  Nothing else moves: the
+            # anchor fallback below was already scene-agnostic (it asks the
+            # registry for whatever scene_id THIS session is in, never a
+            # bg0002 path) and already fails closed for a scene with no
+            # pinned spawn, which is why generalizing the trigger needed no
+            # second selector.  A scene with no census composer (278, 997)
+            # still reaches the same send-nothing latch it reached before,
+            # only sooner.  A lane composer's own ADMISSION CHECK
+            # (lane_a_scene_census.scene_is_open_to_players) is unchanged and
+            # still decides whether a roster ships at all; this only decides
+            # WHEN it is asked.
+            #
+            # HOME (bg0001) IS DELIBERATELY NOT WIDENED, and the reason is a
+            # MEASURED uncaught crash rather than parity taste.  The bg0001
+            # arm far below is the only census arm that arms
+            # ``self.population_indices`` with no lane_hooks ChooseNPC
+            # responder standing in front of it: the bg0002 arm sets those
+            # fields on purpose never (see its own comment), and the lane arm
+            # sets them only when the scene's responder is BOTH registered and
+            # production_allowed -- and such a scene never reaches
+            # ``super().dispatch(parsed)`` for TARGET_VITAL/CHOOSE_NPC at all
+            # (the responder branch above returns its own actions instead).
+            # v141:4395-4416 loops over every chosen identity whenever
+            # ``population_indices is not None`` and unpacks
+            # ``x,y,_z,_heading=self.last_target_pos`` for any index it finds
+            # there, with NO None check.  Composing the home census on arrival
+            # would therefore leave a session that has not yet sent a
+            # TargetPosVital exactly one NPC click away from a TypeError out
+            # of the listener thread (v141:7440 has no except) -- a dead
+            # connection instead of a slow one, which is a worse answer to the
+            # order than the walk it removes.  It is not fixable from this
+            # disjunct: it needs either a deferred install of
+            # population_indices at the first TargetPosVital, or a runtime.py
+            # ChooseNPC guard for scene 1 shaped like the one
+            # lane_hooks/lane_a_choose_npc_scene14.py already has for its own
+            # scene.  Named in this round's handback as the follow-up rather
+            # than smuggled in behind a trigger widening.
             census_actions = []
             if (
                 world_census_enabled
@@ -7414,7 +7461,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 and (
                     self.last_target_pos is not None
                     or self.foundation.selected.position.scene_id
-                    == world_population_bg0002.SCENE2_N_ID
+                    != world_population.SCENE_ID
                 )
             ):
                 scene_id = self.foundation.selected.position.scene_id
@@ -7422,14 +7469,20 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     x, y, z, _heading = self.last_target_pos
                     anchor = (float(x), float(y), float(z))
                 else:
-                    # Only reachable here for bg0002 (the disjunct above),
+                    # Reachable for ANY scene but home (the disjunct above,
+                    # widened in round `4w5j25`; bg0002-only before that),
                     # before any TargetPosVital has set last_target_pos.
+                    # This call was always scene-agnostic -- it asks the
+                    # registry for THIS session's scene_id and never took a
+                    # bg0002 path -- so the widening needed no second
+                    # selector here, only a wider set of scenes allowed to
+                    # arrive at it.
                     # spawn_position() refuses rather than inventing a
                     # position for a scene with no pinned spawn -- but
                     # unlike a genuinely transient read, scene_entry_registry
                     # is loaded exactly once at boot (make_state_class /
                     # app.py) and never reloaded, so a missing/unpinned
-                    # bg0002 spawn here is a deterministic, permanent fact
+                    # spawn here is a deterministic, permanent fact
                     # for the rest of this process's life, not a condition
                     # that could clear on the next poll.  Retrying it would
                     # mean re-raising and re-logging the identical failure on
@@ -7437,6 +7490,18 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     # (pf-adversary, round confident-ride-sf9kel).  Latch it
                     # exactly like the sibling population-build refusal a
                     # few lines below, instead.
+                    #
+                    # THE LATCH COSTS NOTHING A WIDER TRIGGER USED TO BUY
+                    # (round `4w5j25`, checked rather than assumed): a scene
+                    # that cannot answer this call is one the registry does
+                    # not pin, and every census composer registered today
+                    # refuses such a scene anyway -- lane_a_scene_census's
+                    # own ADMISSION CHECK reads the same registry row and
+                    # declines when it is missing, and the runtime's other
+                    # two arms are for scenes 1 and 2, which are pinned.  So
+                    # a refusal here can only replace a send-nothing skip
+                    # that would have happened after the player moved, never
+                    # a census that would have shipped.
                     try:
                         anchor = world_scene_travel.spawn_position(
                             world_scene_travel.destination(
@@ -7445,9 +7510,19 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         )
                     except Exception as error:
                         self.world_census_refused = True
+                        # RENAMED in round `4w5j25` from the
+                        # ``world_census_bg0002_arrival_anchor_refused_*``
+                        # spelling this line carried while the trigger was
+                        # bg0002-only: the string now has to be able to name
+                        # scene 7 as honestly as scene 2, and a fixed
+                        # "bg0002" in a line that can fire for another scene
+                        # is a log that lies.  The scene id is IN the event
+                        # for the same reason the sibling arms carry their
+                        # own suffixes (pf-adversary: a shared spelling
+                        # leaves the log unable to say which branch latched).
                         self.events.append(
-                            "world_census_bg0002_arrival_anchor_refused_"
-                            f"{type(error).__name__}"
+                            "world_census_arrival_anchor_refused_scene_"
+                            f"{scene_id}_{type(error).__name__}"
                         )
                         anchor = None
                 if anchor is None:
@@ -7685,14 +7760,33 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     # "skipped, not home" latch below, i.e. scenes that
                     # send NOTHING.
                     #
-                    # Same trigger as every sibling branch: for a lane
+                    # ~~Same trigger as every sibling branch: for a lane
                     # scene, `anchor` can only be last_target_pos (the
                     # arrival-trigger disjunct above is bg0002-only), so a
                     # lane census fires on the first TargetPosVital after
                     # the runtime ack -- the bg0001 requirement, not the
                     # bg0002 relaxation.  A lane that needs
                     # trigger-on-arrival for its scene opens a follow-up
-                    # letter; widening the trigger is not smuggled in here.
+                    # letter; widening the trigger is not smuggled in
+                    # here.~~  STALE as of chief round `4w5j25` -- the
+                    # follow-up that paragraph asked for is the owner's own
+                    # order (PANYA-ORDER 20260901_0215 section 4) and it
+                    # landed in the disjunct above, not here.  A lane census
+                    # now fires on ARRIVAL (teleport_sent + runtime_ack_sent,
+                    # first RuntimeProtocolReq), with the scene's pinned
+                    # spawn as `anchor`, and on the first TargetPosVital only
+                    # when the player somehow moved before that poll.  This
+                    # branch itself is UNCHANGED: `anchor` is an (x, y, z)
+                    # tuple either way, and every composer this table can
+                    # reach uses it for nearest-first ORDER over its own
+                    # table-absolute placements (world_population_bg0003.
+                    # census_order and its siblings), never as the origin the
+                    # actors are placed relative to -- and with
+                    # `actor_count=None` (handoff_for_arrival's default,
+                    # which lane_a_scene_census does not override) the WHOLE
+                    # roster ships, so which anchor was used cannot change
+                    # WHICH actors a player receives, only the order they are
+                    # listed in.
                     # EVERYTHING that touches the composer's return value
                     # stays inside this one try.  pf-adversary (round
                     # 73fhoc) measured two escapes from a draft that only
@@ -7846,6 +7940,29 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             # the ChooseNPC-recomposes-the-old-town
                             # failure the seam's MembershipReset exists
                             # to make unwritable.
+                            #
+                            # SAFE UNDER THE ARRIVAL TRIGGER (round
+                            # `4w5j25`, checked because this is the one
+                            # write that could have made it unsafe): from
+                            # this round these fields can be armed while
+                            # ``last_target_pos`` is still None, which is
+                            # exactly the state v141:4395-4416 unpacks
+                            # without a None check.  It cannot reach that
+                            # code: ``lane_membership`` is non-None only
+                            # when the scene's ChooseNPC responder is
+                            # registered AND production_allowed, and such a
+                            # scene's TARGET_VITAL/CHOOSE_NPC frames are
+                            # answered by the responder branch far above
+                            # WITHOUT calling ``super().dispatch(parsed)``
+                            # at all.  The responder itself declines on a
+                            # None ``last_target_pos``
+                            # (lane_a_choose_npc_scene14.respond), so the
+                            # pre-movement click is a named decline and no
+                            # frame, never a crash.  A future responder
+                            # that is allowed but does NOT claim the vital
+                            # family would break that chain -- which is why
+                            # it is written down here rather than left to
+                            # be re-derived.
                             if lane_membership is not None:
                                 self.population_indices = (
                                     lane_member_indices
@@ -8019,6 +8136,16 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         # click frame may be corrected to agree with it.
                         self.world_census_identity_resolved = True
                         self.npc_idle_action_sent = False
+                        # THE FIELD THAT KEEPS HOME OFF THE ARRIVAL TRIGGER
+                        # (round `4w5j25`): reached only with a real
+                        # last_target_pos, because the disjunct at the top of
+                        # this block still requires one for
+                        # world_population.SCENE_ID.  v141:4395-4416 unpacks
+                        # last_target_pos for any chosen identity found in
+                        # this tuple and has no None check, and no lane
+                        # responder claims scene 1's clicks -- see the
+                        # widening comment above for the two ways to fix that
+                        # and why neither belongs in a trigger change.
                         self.population_indices = generation.indices
                         self.population_refresh_anchor = generation.anchor
                         self.world_census_actor_count = generation.actor_count
