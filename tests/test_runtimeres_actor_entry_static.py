@@ -372,9 +372,14 @@ class TestTheAnswer(unittest.TestCase):
         # census (second door of the same COO-DECISION 2026-08-30T14:41+07:00
         # sequence), the same single-module move.  Not wired to any
         # player-reachable path this round either.
-        self.assertEqual(counts["src_actor_stream_call_sites"], 28)
-        self.assertEqual(counts["src_actor_entry_call_sites"], 19)
-        self.assertEqual(counts["src_modules_building_actor_entries"], 18)
+        # 28 -> 29, 19 -> 20, 18 -> 19 on 2026-08-31 (LANE-A round pynass):
+        # world_population_bg0005.py, the Bg0005 (Evil Port) census (third
+        # door of the same COO-DECISION 2026-08-30T14:41+07:00 sequence), the
+        # same single-module move.  Not wired to any player-reachable path
+        # this round either.
+        self.assertEqual(counts["src_actor_stream_call_sites"], 29)
+        self.assertEqual(counts["src_actor_entry_call_sites"], 20)
+        self.assertEqual(counts["src_modules_building_actor_entries"], 19)
         self.assertIn(
             "npc_hostile_hypothesis.py",
             counts["src_modules_building_actor_entries_names"],
