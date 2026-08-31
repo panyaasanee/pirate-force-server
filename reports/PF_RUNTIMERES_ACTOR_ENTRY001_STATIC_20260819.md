@@ -673,3 +673,34 @@ The test named above,
 `test_world_population_bg0004.py`'s own equivalent test went through at round `2jdde8`. Scene 10's
 `login_entry_allowed` still reads `false`: this round wires the composer into both seam tables without
 opening the door, same as bg0004's own wiring round left it.
+
+## NOTE — round l03cgh (2026-08-31, LANE-A): three live-mirror counts move for the Bg0005 census, built+wired+opened in one round
+
+Third door of the same `COO-DECISION 2026-08-30T14:41+07:00` sequence: of the eight doors still shut
+after scenes 4 and 10 opened, scene 5 (Bg0005, "Evil Port", 92 native placements) is the highest by
+native placement count. `world_population_bg0005.py`, the census half of that pair
+(`world_bg0005_identity.py` is the identity half and builds no actor entries itself), builds one entry
+and sends one carrier — the same single-module move `world_population_bg0010.py` made at round
+`u3jo4g`.
+
+`src_actor_entry_call_sites` moves **19 -> 20**, `src_actor_stream_call_sites` moves **28 -> 29**, and
+`src_modules_building_actor_entries` moves **18 -> 19** (the new name sorts in alphabetically between
+`world_population_bg0004.py` and `world_population_bg0010.py`). This is a NOTE rather than an erratum
+because no published sentence was wrong — the three moved numbers live in the `RUNTIMERES_COUNTS`
+block, a live mirror of a tool run that is expected to move when we write code; all three are re-pinned
+in the tool (`tools/pf_runtimeres_actor_entry_static.py`) and in the bridge-only test module
+(`tests/test_runtimeres_actor_entry_static.py`) in the same round, and the `guards` total stays **152**
+(three values re-pinned, no guard added or removed).
+
+**Wired AND opened, same round, unlike bg0004/bg0010's own three-round split.** Registering
+`world_scene_travel.CENSUS_SOURCES`, `world_population_handoff.ROSTER_COMPOSERS`, and
+`lane_hooks/lane_a_scene_census.py`'s console reader, and flipping scene 5's registry row
+`login_entry_allowed: true`, all land in this same round. Why: by the time this round started, the
+existing generic test (`tests/test_lane_a_scene_census.py::ComposerContractTests`) already assumed
+every scene this lane composes a census for is also open at login, since scenes 4, 10 and 14 all were;
+registering scene 5 wired-but-shut would have broken that generic test for the first time rather than
+leaving it green, so this round completed the pipeline instead of leaving an intermediate state. See
+`scenarios/world_scene_registry_001.json`'s own `login_entry_allowed_because` on the scene-5 row for
+the D1/D2/D3 safety check this round ran, and this lane's own round file
+(`rounds/A_20260831_..._l03cgh.md`) for the full account. Scene 5 does not carry the elevated
+landing-geometry flag (`the_two_interiors`) scene 10's own row carries — checked, not assumed.

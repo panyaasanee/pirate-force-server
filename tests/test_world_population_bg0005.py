@@ -195,14 +195,32 @@ class Bg0005Census(unittest.TestCase):
                 count_source=census.COUNT_SOURCE_FULL_ROSTER)
         self.assertEqual(self._build().actor_count, census.ROSTER_COUNT)
 
-    def test_nothing_under_src_imports_this_module_yet(self) -> None:
-        # AST-walk, not a text search, the same tripwire pattern
-        # world_population_bg0004.py's own pre-wiring test used (round
-        # bq4mst's ancestor), and world_population_bg0010.py's own
-        # pre-wiring test used before its own wiring round.  This is
-        # deliberately a NEGATIVE test: it must fail the day a future round
-        # wires this module in, so that round has to touch this line rather
-        # than silently drift past it.
+    def test_only_the_population_seam_imports_this_module(self) -> None:
+        # ~~test_nothing_under_src_imports_this_module_yet~~ -- renamed and
+        # widened round l03cgh (LANE-A), deliberately and in the same round
+        # as the change that made it fail, mirroring exactly what
+        # ``test_world_population_bg0004.py``'s own history of this test
+        # required (round 2jdde8) and ``test_world_population_bg0010.py``'s
+        # own history required (round c42axq).  This tripwire's own
+        # docstring said it must fail the day this module gets wired in
+        # "so that round has to touch this line rather than silently drift
+        # past it" -- this is that round touching it.
+        #
+        # WHAT CHANGED, AND WHAT DID NOT.  ``world_population_handoff`` now
+        # imports this module, because the arrival seam composes THIS
+        # roster for a scene-5 arrival.  ``lane_hooks/lane_a_scene_census.py``
+        # also imports it, for its console readers only
+        # (census_console_line / actor_lines / unresolved_lines) - the
+        # roster itself still comes from the seam.  What has NOT changed:
+        # ``runtime.py`` still does not import either.  UNLIKE bg0004's and
+        # bg0010's own widening rounds, this round ALSO flips scene 5's
+        # registry row to ``login_entry_allowed: true`` in the same pass, so
+        # (unlike those two rounds) a player CAN now reach this roster --
+        # see ``world_scene_travel.CENSUS_SOURCES`` and this scene's own
+        # ``login_entry_allowed_because``. An AST walk, not a text search:
+        # this module's NAME appears in sibling docstrings on purpose
+        # (world_bg0005_identity points at it), and a grep would call that
+        # wiring.
         import ast
 
         importers = []
@@ -221,7 +239,12 @@ class Bg0005Census(unittest.TestCase):
                 if any("world_population_bg0005" in name for name in names):
                     importers.append(path.name)
                     break
-        self.assertEqual(importers, [])
+        # EXACT SET, not "contains" - a third importer, or the seam being
+        # swapped for a direct runtime.py import, both fail here and have to
+        # be argued for in a round of their own.
+        self.assertEqual(
+            sorted(importers),
+            ["lane_a_scene_census.py", "world_population_handoff.py"])
 
 
 if __name__ == "__main__":  # pragma: no cover

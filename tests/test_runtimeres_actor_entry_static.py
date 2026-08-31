@@ -372,11 +372,11 @@ class TestTheAnswer(unittest.TestCase):
         # census (second door of the same COO-DECISION 2026-08-30T14:41+07:00
         # sequence), the same single-module move.  Not wired to any
         # player-reachable path this round either.
-        # 28 -> 29, 19 -> 20, 18 -> 19 on 2026-08-31 (LANE-A round pynass):
+        # 28 -> 29, 19 -> 20, 18 -> 19 on 2026-08-31 (LANE-A round l03cgh):
         # world_population_bg0005.py, the Bg0005 (Evil Port) census (third
-        # door of the same COO-DECISION 2026-08-30T14:41+07:00 sequence), the
-        # same single-module move.  Not wired to any player-reachable path
-        # this round either.
+        # door of the same COO-DECISION 2026-08-30T14:41+07:00 sequence),
+        # the same single-module move.  UNLIKE bg0004/bg0010, this module is
+        # wired AND its scene's door opened in the same round that built it.
         self.assertEqual(counts["src_actor_stream_call_sites"], 29)
         self.assertEqual(counts["src_actor_entry_call_sites"], 20)
         self.assertEqual(counts["src_modules_building_actor_entries"], 19)
