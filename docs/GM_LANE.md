@@ -5633,3 +5633,20 @@ groundwork ล้วน (composer + cache + เทส) ตามที่ COO �
 - `pirate-force-server#401` (โมดูลนี้ + เทส + wake-gate commit ท้ายรอบ)
 
 — สาย GM รอบ `rawblk`
+
+## รอบ `1gia62` (2026-08-31T18:25+07:00) -- GM-044 ตอบลบ, เปิด ASK-COO นโยบาย + RE-172, ไม่มีการแก้ src รอบนี้
+
+`CORE-REQUEST-GM-044` ตอบแล้ว: `characters.actor_wire` (`CreateActorDataEx`) เป็น `AvatarAttr` คนละคลาส
+กับ `ActorAttr`/`BasicAttr` ที่ `gm/attr_wire.py::FIELDS` ใช้ (tag/width ต่างกันสามทาง, ตรวจข้าม 3 แหล่ง
+อิสระ) -- ไม่มีแหล่ง "บล็อกดิบปัจจุบันจริง" ให้ `RawBlockCache` seed ได้วันนี้ ตามที่ round `rawblk`
+ประกาศไว้ล่วงหน้าว่าจะทำถ้าคำตอบเป็นลบ: เปิด `pf_bridge/notes_to_chief/20260831_1825_LANE-GM-ASK-COO-
+attr-wire-raw-block-source-policy-after-gm044-negative.md` (สามทาง: หาแหล่งดิบอื่น / ยอมรับความเสี่ยง
+เคลียร์ฟิลด์ไม่รู้จัก / จำกัดถาวรเฉพาะฟิลด์มีชื่อ) และ `pf_bridge/CLIENT_RE_QUEUE.md` `RE-172` (ถามหา
+แหล่งดิบอื่นก่อนเคาะนโยบาย ตามข้อเสนอของ chief เอง)
+
+**ไม่มีการแก้ `attr_wire.py`/`chat_command_action.py`/โค้ดอื่นในเขต `gm/` รอบนี้.** `build_named_field_update`
+ยัง fail-closed เหมือนรอบ `rawblk` ทิ้งไว้ (ไม่มี seed = ไม่มีอะไรส่งได้) -- ไม่ใช่ช่องโหว่ เป็นเพดานที่
+ตั้งใจไว้แล้ว รอบนี้จึงไม่มีอะไรให้ผู้เทสทำต่างจากเมื่อวาน
+
+รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260831_1825_1gia62_gm044_negative_ask_coo_policy.md`
+PR: `pf_bridge#621`, `pirate-force-server#404` (นี้)
