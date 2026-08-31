@@ -5091,3 +5091,60 @@ diff เดียวคือ docstring 12 บรรทัดใหม่ ไม
 - `pirate-force-server#361` (draft ต้นรอบ ปิดท้ายรอบนี้เป็น ready + retitle + wake-gate commit)
 
 — สาย GM รอบ `gm-20260831-0517`
+
+## รอบ `1q7nxu` (2026-08-31T08:2x+07:00) — RE-164 ปิดสองใน สี่ผู้ต้องสงสัยด้วย static synthesis
+
+### สรุป
+
+ไม่มีจอ ไม่มี client image ในสภาพแวดล้อมนี้เหมือนทุกรอบ — แต่พบว่า `RE-164` suspect ข้อ 2
+(query-0x25 gate ถูกเรียกซ้ำตอนคลิกหรือไม่) และข้อ 4 (factory `0x007280D0` ถูกเรียกไหมหรือมี
+early-return) **ตอบได้แล้ว** จากสองใบที่ commit อยู่ก่อน `RE-164` จะเปิดด้วยซ้ำ (`RE-104`, `RE-118`)
+แค่ไม่มีใครเอามา cross-reference กับ `RE-164` ตอนเปิดใบ ไม่ใช่หลักฐานใหม่ เป็นช่องว่างของการสังเคราะห์
+รายละเอียด/บรรทัดอ้างอิงเต็มอยู่ใน `pf_bridge/CLIENT_RE_QUEUE.md` RE-164 (แก้ tag เป็น
+`[PARTIAL — 2/4 CLOSED STATIC, 2/4 NEEDS-ATTENDED-CAPTURE]`)
+
+ข้อ 1 (connection context ตรง session ไหม) กับข้อ 3 (current-UI object-key เงื่อนไขจริง) ยังปิดไม่ได้
+— ทั้งคู่ต้องไล่ disassembly ต่อจากจุดที่ `RE-118` หยุดไว้ (write-site ของ `[0x01032EC4]` / vfunc chain
+ต่อจาก `[0x008946C0,0x008946EA)`) ไม่มีในอิมเมจของ clone นี้ ยังคง tag `[NEEDS-ATTENDED-CAPTURE]`
+
+### ที่ทำรอบนี้
+
+1. ยืนยัน round-lock ว่าง (ไม่มี PR `[LANE-GM]` เปิดค้างทั้งสอง repo) ก่อนเริ่ม
+2. Addendum A: ตรวจ `pf_bridge#573`/`pirate-force-server#367` (รอบ `rob5s4` ก่อนหน้า) ด้วย
+   `pull_request_read` โดยตรง — `merged=true` ทั้งคู่ (⚠️ `list_pull_requests` คืน `merged:false` ผิด
+   สำหรับ PR เดียวกัน ตามที่ใบ `1936` เคยเตือนไว้ — ใช้ `pull_request_read` เท่านั้น) ไม่มีงานหาย
+3. บริโภคจดหมาย `20260831_0723_KA1A-CORRECTION-*` (แก้คำวินิจฉัยของกะ1-A สองข้อ ไม่ต้องดำเนินการเพิ่ม
+   `gm/attr_wire.py` ยัง shelve ตาม COO-DECISION 0350) — วาง stub + สำเนาไป `consumed/`
+4. มอบหมาย `pf-static-re` agent ไล่สี่ผู้ต้องสงสัยของ `RE-164` จาก artifact ที่ commit แล้วเท่านั้น
+   (ไม่แตะ client) พบว่าข้อ 2/4 มีคำตอบอยู่แล้วในใบเก่า แก้ `CLIENT_RE_QUEUE.md` ให้สะท้อนสถานะจริง
+5. ไม่มีโค้ดเปลี่ยนในเขต `src/pirateforce_foundation/gm/` รอบนี้ — งานเป็นเอกสาร/คิวล้วน
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+**ไม่มี** — ไม่มีจุดเสียบใหม่ ไม่มี behavior เปลี่ยน `GT-164` ยังรอกะ1-A คลิกจริงเหมือนเดิมทุกประการ
+รอบนี้แค่ทำให้ `RE-164` มีสถานะที่ถูกต้อง (ครึ่งหนึ่งปิดแล้ว) แทนที่จะเขียนว่า "ยังไม่มีใครตอบสักข้อ"
+ซึ่งผิดตั้งแต่ตอนเปิดใบ
+
+### เขียว
+
+`pytest tests/test_gm_*.py -q` (`pirate-force-server` HEAD ปัจจุบัน): 1085 passed, 500 subtests
+เขียว(cloud sanity) — ไม่มี drift เพราะไม่มีการแก้ไฟล์ `src/`/`tests/`
+
+### nonclaim
+
+1. ไม่ได้ยิงเฟรมใด ๆ ใส่ client จริงรอบนี้ ไม่ได้เปิด client ไม่มีจอในสภาพแวดล้อมนี้ — สอง suspect ที่
+   ปิดคือการอ่าน artifact เก่าใหม่ ไม่ใช่หลักฐานใหม่จากไบนารี
+2. ข้อ 1 กับ 3 ของ `RE-164` ยังไม่ปิด ห้ามอ้างว่า RE-164 ปิดครบ — เปิด CORE-REQUEST/ใบขอ RE runner แทนถ้า
+   จะไล่ต่อทาง static (ต้องมี client image) หรือรอ attended capture
+3. ไม่แตะ `runtime.py`/`app.py`/`pf_login_game_server_v141.py`/`scenarios/world_*.json`/
+   `scenarios/combat_*.json` เลยรอบนี้ ไม่ให้สถานะ GM กับบัญชีที่ไม่อยู่ใน `gm_accounts` ไม่มีการประกาศ
+   milestone จากผลที่ได้ด้วย GM
+4. ไม่ได้แก้ `bt_gm_probe.py` หรือเทสใด ๆ รอบนี้ — เขตโค้ดของ `pirate-force-server` ไม่มีการเปลี่ยนแปลง
+
+### PR
+
+- `pf_bridge#578` (draft ต้นรอบ ปิดท้ายรอบนี้เป็น ready + retitle)
+- `pirate-force-server#370` (draft ต้นรอบ ปิดท้ายรอบนี้เป็น ready + retitle + wake-gate commit;
+  ไม่มีไฟล์ `src/` เปลี่ยนรอบนี้)
+
+— สาย GM รอบ `1q7nxu`
