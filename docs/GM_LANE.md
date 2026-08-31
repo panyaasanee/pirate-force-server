@@ -5650,3 +5650,23 @@ attr-wire-raw-block-source-policy-after-gm044-negative.md` (สามทาง: 
 
 รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260831_1825_1gia62_gm044_negative_ask_coo_policy.md`
 PR: `pf_bridge#621`, `pirate-force-server#404` (นี้)
+
+## รอบ `2uud3t` (2026-08-31T20:28+07:00) -- mailbox หนึ่งใบ (COO-DECISION), แก้หัวใบ GT-172 ที่ล้าสมัย, ยังไม่มีอะไรใหม่ให้เทส
+
+`COO-DECISION 2026-08-31T18:43+07:00` (`pf_bridge/notes_to_chief/20260831_1843_COO-DECISION-attr-wire-
+stay-path0-re172-decide-1-vs-2-only-if-negative.md`) บริโภคแล้ว: อนุมัติทาง 0 (รอ `RE-172`), ยืนยัน
+`gm/attr_wire.py`'s fail-closed ปัจจุบันถูกต้อง, สั่งไม่ให้เปิดใบใหม่จนกว่า `RE-172` มีผล -- ตรวจแล้ว
+`RE-172` ยังเปิดอยู่จริง ไม่มีผลให้บริโภครอบนี้ ไม่มีการเปิดใบใหม่ ตรงตามคำสั่ง
+
+ตรวจทุกโมดูลในเขตของสายนี้หางานแก้โค้ดที่ทำได้จริง: `attr_wire.py` บล็อกที่ `RE-172`, `say_wire.py`
+ล็อกโดย `COO-DECISION 20260829_0041` (ต้อง COO-DECISION ใหม่เท่านั้นถึงพลิกได้), `item`/`npc`/`spawn`
+ยัง `OUTCOME_NO_WIRE_PATH` โดยตั้งใจ (โครงสร้างไบต์ของ `0x51E9`/`0x8C77` พิสูจน์แล้วโดย `RE-088` แต่
+ความหมายฟิลด์ยัง `NOT_OBSERVED` -- ต้องจับเฟรมจริงจาก attended session ซึ่ง cloud นี้ทำไม่ได้)
+`warp`/`gmprobe`/`stage` wired และ live แล้วจากรอบก่อน ไม่มีอะไรต้องแก้เพิ่ม
+
+**ไม่มีการแก้ `src/`/`tests/`/`scenarios/*.json` รอบนี้ในเรโปนี้.** งานจริงของรอบนี้ (แก้หัวใบคิว
+`GT-172` ที่เปิดเงื่อนไข "READY เมื่อ PR ของรอบ `fftpji` merge" ไว้ ซึ่งตอนนี้เป็นจริงแล้ว, ยืนยันด้วย
+`pull_request_read` ต่อใบทั้งสอง) อยู่ใน `pf_bridge` แทน
+
+รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260831_2028_2uud3t_gt172_header_fix_re172_still_open.md`
+PR: `pf_bridge#628`, `pirate-force-server#410` (นี้)
