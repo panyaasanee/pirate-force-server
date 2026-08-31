@@ -235,12 +235,18 @@ class FoundationPopulationEmitsNoGaitTests(_LegacyCase):
     tests below cover (``population.py`` / ``world_population.py``, neither
     touched this round) -- so the two byte-level tests below are unchanged
     and still pass, and only the blanket whole-``src/``-tree source sweep
-    below is narrowed to name its three known, now-legitimate exceptions
+    below is narrowed to name its known, now-legitimate exceptions
     rather than silently going green for the wrong reason.
+
+    WIDENED round jqxe6v: ``field_mob_hostile_bg0015.py`` calls
+    ``field_mobs.hostile_actor_entry`` for the same reason ``field_mobs.py``
+    itself is already named here -- one more scene's hostile composer, same
+    mined ``n_SPEED_WALK`` field, not a new gait mechanism.
     """
 
     KNOWN_GAIT_REQUESTING_MODULES = (
-        "field_mobs.py", "mob_death.py", "mob_diag_multi_object.py",
+        "field_mob_hostile_bg0015.py", "field_mobs.py", "mob_death.py",
+        "mob_diag_multi_object.py",
     )
 
     def test_initial_population_carries_no_walk_speed_field(self):

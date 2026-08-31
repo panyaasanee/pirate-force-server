@@ -395,15 +395,24 @@ class TestTheAnswer(unittest.TestCase):
         # sequence), the same single-module move.  Also wired AND its
         # scene's door opened in the same round that built it, same shape
         # as bg0008.
-        self.assertEqual(counts["src_actor_stream_call_sites"], 32)
-        self.assertEqual(counts["src_actor_entry_call_sites"], 23)
-        self.assertEqual(counts["src_modules_building_actor_entries"], 22)
+        # 32 -> 33, 23 -> 24, 22 -> 23 on 2026-08-31 (LANE-B, round jqxe6v):
+        # field_mob_hostile_bg0015.py (COO-DECISION 2026-08-31T16:48+07:00
+        # layer-1 unlock) builds one synthetic civilian actor entry per
+        # Bg0015 placement for its own splice-proof function -- same
+        # encoder, no new runtime.py call site.
+        self.assertEqual(counts["src_actor_stream_call_sites"], 33)
+        self.assertEqual(counts["src_actor_entry_call_sites"], 24)
+        self.assertEqual(counts["src_modules_building_actor_entries"], 23)
         self.assertIn(
             "npc_hostile_hypothesis.py",
             counts["src_modules_building_actor_entries_names"],
         )
         self.assertIn(
             "npc_hp_link_hypothesis.py",
+            counts["src_modules_building_actor_entries_names"],
+        )
+        self.assertIn(
+            "field_mob_hostile_bg0015.py",
             counts["src_modules_building_actor_entries_names"],
         )
         # gap 2 is the one worth keeping a test on.  The round-85 measure -

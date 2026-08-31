@@ -169,7 +169,10 @@ class Bg0002ShapeTests(unittest.TestCase):
         """The opposite of test_field_mob_tables_bg0015.py's own guard.
 
         Walks the same AST-plus-string-sweep shape that file's
-        test_nothing_under_src_imports_the_bg0015_module uses, but asserts
+        test_only_the_approved_hostile_composer_imports_the_bg0015_module
+        (renamed this round; was test_nothing_under_src_imports_the_bg0015_
+        module before COO-DECISION 2026-08-31T16:48+07:00 unlocked one
+        approved importer) uses, but asserts
         the module name IS referenced somewhere under src/ -- pf-adversary
         precedent (that file, this same round) says a vacuous scan (an
         empty rglob) makes either direction of this kind of check pass for

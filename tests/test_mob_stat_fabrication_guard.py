@@ -56,6 +56,12 @@ SRC = ROOT / "src" / "pirateforce_foundation"
 LANE_B_MODULES = (
     "field_drop_tables.py",
     "field_mob_ai_tables.py",
+    # ROUND jqxe6v: the Bg0015 (scene 14) hostile entry-byte composer, built
+    # against COO-DECISION 2026-08-31T16:48+07:00's layer-1 unlock.  No
+    # player stat of any kind -- it reads MOBS-table rows the same validated
+    # way every other scene's roster does. Listed in the same commit as the
+    # module, same reason every other entry on this tuple gives.
+    "field_mob_hostile_bg0015.py",
     "field_mob_tables.py",
     "field_mob_tables_bg0002.py",
     "field_mob_tables_bg0015.py",
