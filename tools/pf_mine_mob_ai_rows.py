@@ -180,14 +180,26 @@ def load_roster_modules(repo_root: Path) -> tuple:
     loads, then fails ``profile_of`` with "ai_row_missing".  The AI rows are
     keyed by global n_ID like the drop sets are, so the union is a superset
     and never a merge of disagreeing rows.
+
+    ROUND n8kq4r: added ``field_mob_tables_bg0015`` to the union.  Bg0015 is
+    NOT registered in ``field_mobs._SCENE_TABLE_MODULES`` (that gate stays
+    shut -- this tool does not touch it and neither does this round), so
+    widening the union here changes nothing a player can reach today.  It
+    only stops the FIRST swing a future registration would take from
+    unwinding the listener thread with ``MobAiControlError: ai_row_missing``
+    (measured end to end in ``mob_combat_bg0015_gates.py``, round 6cm6ry):
+    Bg0015's 12 hostile rows want ``AI_COMBAT`` ids 102/134/273/301/323/333/
+    472 and placement 87 wants ``AI_WANDER`` 22, none of which the
+    bg0001+Bg0002-only union ever asked the bridge tables for.
     """
     sys.path.insert(0, str(repo_root / "src"))
     try:
         from pirateforce_foundation import field_mob_tables
         from pirateforce_foundation import field_mob_tables_bg0002
+        from pirateforce_foundation import field_mob_tables_bg0015
     finally:
         sys.path.pop(0)
-    return (field_mob_tables, field_mob_tables_bg0002)
+    return (field_mob_tables, field_mob_tables_bg0002, field_mob_tables_bg0015)
 
 
 def mine(gamedata: Path, repo_root: Path,

@@ -44,7 +44,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import (  # noqa: E402
     field_mob_ai_tables, field_mob_tables, field_mob_tables_bg0002,
-    field_mobs, mob_aggro, mob_ai_control, mob_death,
+    field_mob_tables_bg0015, field_mobs, mob_aggro, mob_ai_control, mob_death,
 )
 from pirateforce_foundation.mob_ai_control import (  # noqa: E402
     MobAiControlError, MobAiRegister, MobAiRow, MobAiStep, commit_step,
@@ -66,6 +66,9 @@ AI_WANDER_OFFENSIVE_ROW = 11
 AI_WANDER_PASSIVE_ROW = 16
 # Round szdkgs: the practice dummy's wander row, mined for the first time.
 AI_WANDER_DUMMY_ROW = 21
+# Round n8kq4r: Bg0015's row, mined for the first time -- see the class-level
+# note on test_the_links_table_agrees_with_the_roster.
+AI_WANDER_BG0015_ROW = 22
 MINED_AGGRO_RADIUS = 1200
 # ROUND 8ftmbx: ~~(58, 63, 132)~~ -> ().  All three were bg0001 rows
 # COO-DECISION 2026-08-29T00:41+07:00 withdrew, and what the town still ships
@@ -143,20 +146,42 @@ class MinedRowTests(unittest.TestCase):
         # keeps placements 92-96 out of the second set.  The difference is
         # asserted by name rather than the equality being dropped, so an
         # unexplained divergence still fails this test.
-        table = sorted(field_mob_ai_tables.PLACEMENT_AI_LINKS)
-        self.assertEqual(
-            sorted(set(table) - set(derived)),
-            sorted((index, 11, 332) for index in (92, 93, 94, 95, 96)),
+        #
+        # ROUND n8kq4r: the mined union widened to cover
+        # ``field_mob_tables_bg0015`` too (see ``tools/pf_mine_mob_ai_rows.py``
+        # -- registering Bg0015 was raising ``MobAiControlError:
+        # ai_row_missing`` on the first swing because the mined table never
+        # asked the bridge tables for the rows it needs).  Bg0015 is NOT in
+        # ``field_mobs._SCENE_TABLE_MODULES`` (that gate is untouched by this
+        # round), so ``field_mobs.load_roster`` still never returns a Bg0015
+        # row -- every one of its twelve placements shows up here as an
+        # EXTRA link, derived off the roster module directly rather than
+        # hand-typed, same as the owner-refused five above.
+        bg0015_links = sorted(
+            (row[0], row[9], row[10])
+            for row in field_mob_tables_bg0015.SHIPPED_PLACEMENTS
         )
+        table = sorted(field_mob_ai_tables.PLACEMENT_AI_LINKS)
+        expected_extra = sorted(
+            [(index, 11, 332) for index in (92, 93, 94, 95, 96)]
+            + bg0015_links
+        )
+        self.assertEqual(sorted(set(table) - set(derived)), expected_extra)
         self.assertEqual(sorted(set(derived) - set(table)), [])
 
     def test_the_two_wander_rows_are_the_ones_this_round_read(self):
         rows = field_mob_ai_tables.AI_WANDER_ROWS
         # ~~two rows~~ three from round szdkgs: the practice dummy points at
         # AI_WANDER 21, mined here for the first time.
+        # ~~three rows~~ four from round n8kq4r: AI_WANDER 22 is what
+        # Bg0015's placement 87 wants (see the class-level ROUND n8kq4r
+        # note on ``test_the_links_table_agrees_with_the_roster``).  It is
+        # mined and correct, but nothing on the live roster reads it today
+        # -- Bg0015 is not in ``field_mobs._SCENE_TABLE_MODULES``.
         self.assertEqual(sorted(rows), [AI_WANDER_OFFENSIVE_ROW,
                                         AI_WANDER_PASSIVE_ROW,
-                                        AI_WANDER_DUMMY_ROW])
+                                        AI_WANDER_DUMMY_ROW,
+                                        AI_WANDER_BG0015_ROW])
         _script, _faction, offensive, aggro = rows[AI_WANDER_OFFENSIVE_ROW]
         self.assertEqual((offensive, aggro), (1, MINED_AGGRO_RADIUS))
         _script, _faction, offensive, aggro = rows[AI_WANDER_PASSIVE_ROW]
@@ -168,6 +193,8 @@ class MinedRowTests(unittest.TestCase):
         # at the branch; here we pin what the TABLE says, unresolved.
         _script, _faction, offensive, aggro = rows[AI_WANDER_DUMMY_ROW]
         self.assertEqual((offensive, aggro), (1, 3000))
+        _script, _faction, offensive, aggro = rows[AI_WANDER_BG0015_ROW]
+        self.assertEqual((offensive, aggro), (1, 5000))
 
     def test_no_wander_row_is_offensive_with_no_radius(self):
         # THE ONE DIRECTION THE TABLE SUPPORTS.  An earlier version of this

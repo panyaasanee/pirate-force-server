@@ -2,9 +2,23 @@
 
 What each test is for, and what it deliberately does NOT claim:
 
-``test_registering_bg0015_unwinds_the_first_swing`` is the headline: it
+~~``test_registering_bg0015_unwinds_the_first_swing`` is the headline: it
 registers Bg0015 in-process and drives one real ActionVital in scene 14,
-and the dispatch RAISES. That is a dropped connection, not a refusal.
+and the dispatch RAISES. That is a dropped connection, not a refusal.~~
+WITHDRAWN as of round n8kq4r: ``tools/pf_mine_mob_ai_rows.py`` now mines
+Bg0015 into the union it writes ``field_mob_ai_tables.py`` from (the AI
+table it was reading from was simply never asked for these rows -- nothing
+about the raise was inherent). ``open_register`` no longer refuses any
+Bg0015 row, so this call no longer raises. The test below is renamed
+``test_registering_bg0015_clears_the_ai_table_gate_but_the_swing_is_still_
+inert`` and pins what is ACTUALLY measured now: no raise, the roster syncs,
+and the one real packet this file already used to probe with (action code
+0, historically called a "wield" capture in the v141 event vocabulary)
+still produces no combat reply -- because it was never a strike packet,
+only ever the thing this file already had lying around that reached
+``_sync_combat_scene_state``. This test does NOT claim a real hit or a
+real kill has been driven; it does not have a strike packet to drive one
+with, and inventing one is exactly what this lane's charter forbids.
 
 ``test_the_backing_check_reports_exactly_the_identities_it_is_not_given``
 exercises the production cross-check with a set that is missing eleven of
@@ -87,22 +101,35 @@ class Bg0015MeasurementTests(unittest.TestCase):
     def setUp(self) -> None:
         self.legacy = _legacy()
 
-    # ---- the cause of the unwind ------------------------------------
+    # ---- the AI-table gate, closed round n8kq4r ----------------------
 
-    def test_open_register_refuses_every_bg0015_row(self) -> None:
-        self.assertEqual(
-            gates.open_register_refusal_for_scene14(), "ai_row_missing")
-        with self.assertRaises(mob_ai_control.MobAiControlError):
-            mob_ai_control.open_register(
-                hostile_bg0015.scene14_hostile_roster())
+    def test_open_register_no_longer_refuses_any_bg0015_row(self) -> None:
+        # ~~open_register_refusal_for_scene14() == "ai_row_missing"~~
+        # WITHDRAWN round n8kq4r: ``tools/pf_mine_mob_ai_rows.py`` now mines
+        # ``field_mob_tables_bg0015`` into the union, so every AI_COMBAT/
+        # AI_WANDER id Bg0015's rows cite resolves. The refusal this test
+        # used to pin is gone; it does not claim anything past that.
+        self.assertIsNone(gates.open_register_refusal_for_scene14())
+        mob_ai_control.open_register(hostile_bg0015.scene14_hostile_roster())
 
     def test_the_missing_ai_rows_are_named_not_summarised(self) -> None:
+        # ~~missing_combat/missing_wander name seven and one ids~~
+        # WITHDRAWN round n8kq4r: both are now empty -- see the test above.
+        # ``mined_combat``/``mined_wander`` are asserted as SUPERSETS of
+        # what Bg0015 wants rather than pinned to an exact tuple, so a
+        # later scene's mining widening this same union does not make this
+        # test lie about what Bg0015 specifically needs.
         report = gates.ai_rows_missing_for_scene14()
-        self.assertEqual(report["mined_combat"], (214, 332, 350, 352))
+        self.assertEqual(report["missing_combat"], ())
+        self.assertEqual(report["missing_wander"], ())
         self.assertEqual(
-            report["missing_combat"], (102, 134, 273, 301, 323, 333, 472))
-        self.assertEqual(report["mined_wander"], (11, 16, 21))
-        self.assertEqual(report["missing_wander"], (22,))
+            report["wanted_combat"],
+            (102, 134, 273, 301, 323, 333, 472))
+        self.assertEqual(report["wanted_wander"], (11, 16, 22))
+        self.assertTrue(
+            set(report["wanted_combat"]).issubset(set(report["mined_combat"])))
+        self.assertTrue(
+            set(report["wanted_wander"]).issubset(set(report["mined_wander"])))
 
     # ---- the other measured preconditions ---------------------------
 
@@ -335,9 +362,40 @@ class Bg0015WiredPathTests(unittest.TestCase):
             [e for e in state.events if e.startswith("mob_combat_")].count(
                 gates.WIRED_ANSWER_FOR_A_TABLELESS_SCENE), 15)
 
-    def test_registering_bg0015_unwinds_the_first_swing(self) -> None:
-        """THE HEADLINE. Registration alone does not give unkillable
-        monsters -- it drops the connection on the first swing."""
+    def test_registering_bg0015_clears_the_ai_table_gate_but_the_swing_is_still_inert(
+            self) -> None:
+        """~~Registration alone does not give unkillable monsters -- it
+        drops the connection on the first swing.~~ WITHDRAWN round n8kq4r:
+        the AI-table gap that raise came from is mined now (see
+        ``tools/pf_mine_mob_ai_rows.py``'s Bg0015 union). Registering no
+        longer raises. What is measured below and NOTHING MORE: no raise,
+        the roster syncs and the ledger fills with Bg0015's twelve real
+        identities, and the one packet this file already had on hand
+        (action code 0) still comes back as a no-reply "wield" capture, not
+        a strike -- so this test still cannot and does not claim a hit or a
+        kill was driven. Other gates this lane has already measured and not
+        touched stay exactly where they were:
+        :func:`templates_without_a_death_ruling` is non-empty (owner-only)
+        and :func:`recompose_status` still reports no scene-14 composer
+        (``has_composer`` is ``False`` -- re-verified live this round).
+
+        ~~the recompose reply is
+        ``mob_combat_bar_census_compose_skipped_no_population_anchor``~~ IS
+        STRUCK, round n8kq4r addendum (post-merge, unrelated to this lane's
+        own edits): chief's already-merged R278 work widened the eager NPC
+        census disjunct from bg0002-only to every scene but home
+        (``runtime.py``, commit ``b69071f6``), so scene 14 now gets an
+        arrival-census anchor (``last_target_pos``-equivalent) WITHOUT this
+        test's helper ever sending a ``TargetPosVital`` -- a real improvement,
+        not a regression.  The "attack before any anchor exists" branch this
+        test used to land in (``runtime.py``'s ``else`` arm,
+        ``no_population_anchor``) is therefore no longer reached; the swing
+        now reaches the recompose call itself, which still refuses because
+        scene 14 has no registered composer (``has_composer=False``, same
+        gate :func:`recompose_status` already named) -- so the event this
+        test now measures is ``no_composer_for_scene``, one gate further
+        along than before, and this file did not move that gate.
+        """
         # Imported plainly by name: the approved-importer guard sweeps
         # src/**/*.py only, and tests/test_field_mob_hostile_bg0015.py
         # already imports this table the same way. No string-splitting
@@ -349,15 +407,28 @@ class Bg0015WiredPathTests(unittest.TestCase):
         registry[module.SCENE] = module
         self.addCleanup(registry.pop, module.SCENE, None)
 
-        state = self._state_in_scene_14("bg0015_gates_unwind")
-        with self.assertRaises(mob_ai_control.MobAiControlError) as ctx:
-            self._attack(state, 0x2017)
-        self.assertEqual(ctx.exception.reason, "ai_row_missing")
-        self.assertIn("AI_COMBAT 301", str(ctx.exception))
-        # Nothing on the dispatch path catches it: this is an unwind out of
-        # dispatch(), i.e. a dropped connection, not an appended event.
-        self.assertNotIn(
-            gates.WIRED_ANSWER_FOR_A_TABLELESS_SCENE, state.events[-1:])
+        state = self._state_in_scene_14("bg0015_gates_cleared")
+        # No raise: the earlier ``assertRaises(MobAiControlError)`` this
+        # test used is gone on purpose. If it starts raising again this
+        # assertion turns red, which is exactly the coverage this file
+        # wants -- a silent regression back to the mining gap.
+        self._attack(state, 0x2017)
+        self.assertEqual(state.mob_combat_scene_folder, gates.BG0015_FOLDER)
+        self.assertEqual(
+            state.mob_combat_ledger.identities(),
+            tuple(sorted(gates.splice_identities(self.legacy))))
+        # The one reply this specific (non-strike) packet produces today,
+        # measured rather than assumed: a "no composer for scene" note on
+        # the recompose path -- the still-open composer gate named above,
+        # not the ai-table gate this test used to exercise.  ROUND n8kq4r
+        # ADDENDUM (post-merge): this used to be
+        # "..._skipped_no_population_anchor" -- see the docstring above for
+        # why the merge moved this test one gate further along without this
+        # file touching runtime.py.
+        self.assertIn(
+            "mob_combat_bar_census_compose_skipped_no_composer_for_scene",
+            state.events)
+        self.assertFalse(gates.recompose_status()["has_composer"])
 
 
 if __name__ == "__main__":
