@@ -1135,10 +1135,18 @@ class ContainmentTests(unittest.TestCase):
                         alias.name for alias in node.names]
                 if any("mob_ai_control" in name for name in names):
                     importers.append(path.name)
+        # WIDENED round 6cm6ry: mob_combat_bg0015_gates.py imports this
+        # module to CALL open_register on Bg0015's roster and report the
+        # refusal reason it gives (ai_row_missing) -- the raise that unwinds
+        # dispatch if Bg0015 is ever registered. It is a measurement, not a
+        # third dispatcher: it mutates no register, composes no frame, and
+        # runtime.py does not import it (that module's own test pins that).
         self.assertEqual(
-            sorted(set(importers)), ["mob_ai_scheduler.py", "runtime.py"],
-            "exactly runtime.py and mob_ai_scheduler.py should import this "
-            "lane")
+            sorted(set(importers)),
+            ["mob_ai_scheduler.py", "mob_combat_bg0015_gates.py",
+             "runtime.py"],
+            "exactly runtime.py, mob_ai_scheduler.py and the Bg0015 gate "
+            "measurement module should import this lane")
         app_body = (SRC_ROOT / "app.py").read_text(encoding="utf-8")
         self.assertNotIn("mob_ai_control", app_body,
                          "runtime.py owns this wiring, not app.py")

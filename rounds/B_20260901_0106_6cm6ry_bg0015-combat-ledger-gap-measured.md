@@ -4,6 +4,48 @@
 `claude/determined-brown-6cm6ry` (repo นี้), `claude/wonderful-gauss-6cm6ry`
 (pf_bridge)
 
+## ADDENDUM 6cm6ry-3 (2026-09-01T02:45+07:00) -- pf-adversary รอบสอง: ของจริงคือ "คอนเนกชันหลุด"
+
+**อ่านหัวข้อนี้ก่อนทุกหัวข้อ รวมทั้งก่อน ADDENDUM 6cm6ry-2 ด้านล่าง.** รีวิวรอบสองพบว่า 14 จุดใน
+รอบแก้แรกยังผิด และรูปแบบของความผิดคือ *การแก้สร้างความผิดชนิดเดียวกับที่กำลังแก้* รอบนี้จึงไม่เพิ่ม
+การวิเคราะห์ แต่**ตัดพื้นที่ของข้ออ้างลง** ให้เหลือเฉพาะสิ่งที่วัดเองที่ HEAD
+
+**ของจริงที่ควรเป็นพาดหัวตั้งแต่แรก**: ลงทะเบียน Bg0015 แล้ว **สวิงแรกในฉาก 14 raise ออกจาก
+`dispatch`** = คอนเนกชันผู้เล่นหลุด ไม่ใช่ "มอนตายไม่ได้" วัด end-to-end เองแล้ว (ลงทะเบียนในโปรเซส
++ login -> StartGame -> ฉาก 14 -> ActionVital):
+
+```
+runtime.py:4156  _dispatch_mob_combat: roster = self._sync_combat_scene_state()
+runtime.py:4103  _sync_combat_scene_state: mob_ai_control.open_register(...)
+mob_ai_control.py:403
+MobAiControlError: ai_row_missing: placement 22 points at AI_COMBAT 301,
+which is not in the mined rows: regenerate field_mob_ai_tables
+```
+
+ไม่มีใครจับ: `_sync_combat_scene_state` ไม่มี `try` เลย และบรรทัด 4156 อยู่เหนือ `except` ทุกตัวใน
+`_dispatch_mob_combat` (ตัวแรก 4214) ทั้ง 12 แถวชี้ `AI_COMBAT` ที่ตารางขุดไม่มี (มี
+`214,332,350,352` ต้องการ `102,134,273,301,323,333,472`) และ placement 87 ต้องการ `AI_WANDER 22`
+(มี `11,16,21`) **แก้ได้ทางเดียวคือ regenerate `field_mob_ai_tables` = miner run กับ gamedata บน
+บริดจ์ ไม่ใช่การแก้โค้ดจากทรีนี้** -- ไม่มีเอกสารไหนของรอบนี้เคยระบุเงื่อนไขนี้มาก่อน
+
+**สิ่งที่ถอนเพิ่มในรอบแก้นี้** (ทุกข้อวัดเอง ไม่ใช่รับมาเชื่อ):
+
+| # | ข้ออ้างในรอบแก้ที่ 2 | ที่วัดได้จริง |
+|---|---|---|
+| ประตู 2 | "guard ห้าม `field_mobs.py` โดยระบุชื่อ ทั้ง AST และ literal sweep / สาย B ทำเองไม่ได้เลย / เป็นคำตัดสิน COO" | **ผิด** -- โค้ดของ guard เป็น allowlist พาธเดียว ชื่อ `field_mobs.py` อยู่ใน**ดอกสตริง**เท่านั้น (บรรทัด 184/196/203) กันแบบ "ไม่อยู่ในลิสต์" เหมือนไฟล์อื่นทั้งหมด -- ถ้าส่ง COO ไปขยับ allowlist นี้คือส่งไปขยับของที่ไม่เคยกั้น |
+| ประตู 4 | "composer ฉาก 14 สาย B สร้างเองได้เลย" | **ผิด** -- `ACKNOWLEDGED_WITHOUT_COMPOSER[14]` เขียนเองว่า compose "ในรอบเดียวกับที่ roster row แรกลง" = อยู่หลังการลงทะเบียน และ `recompose_gate_open()` เดิมอ่านแค่ `composer_scene_ids()` ไม่เคยอ่าน acknowledgement เลย |
+| `closed_gates()` | รายงานประตู 2 | รายงานผ่าน state ที่ประตู 2 ไม่ได้ควบคุม (ต่อท้ายทุกครั้งที่ roster ปิด) -- **ตัดทิ้งทั้งฟังก์ชันและ `GATE_OWNERS`** |
+| ราคา | "35 failed / 6056 passed" | **6056 มาจากทรีก่อนเปลี่ยนชื่อไฟล์เทส** วัดที่ HEAD ได้ **35 failed / 6062 passed** = 11 FAILED + 24 subtest failure |
+| splice | "เปลี่ยนแค่หน้าตา 12 ตัว" (อ้างจากจดหมายสาย A) | จดหมายนั้นเขียนเองว่ายังไม่เคยมีเทสขับ -- **รันเองแล้ว**: 81 identity คงครบ, 12 entry เปลี่ยน, frame 14879 -> 15035 มีเทสปักแล้ว |
+| เทส | "เทสกลายพันธุ์กันการปลอม placement" | เทสนั้น**ไม่เคยเรียกฟังก์ชันจริง** -- stub ให้คืน `()` แล้วยังเขียว 12/13 แก้ให้เรียกจริงและพิสูจน์ด้วยการ stub แล้ว (แดง 1 ใบตามต้องการ) และบันทึกตรง ๆ ว่าการเลื่อน `+1` **จับไม่ได้** (สาย A ส่ง 81 จาก 91 placement) สิ่งที่จับได้จริงคือ pin เลข 12 ตัวที่พิมพ์มือ |
+| "independent" | "สาย A วัด 12 เลขนี้อย่างอิสระจากสายนี้" | จดหมายสาย A เขียนตรงข้าม ("12 placement index **ที่สาย B ระบุ**") -- สิ่งที่อิสระจริงคือ **โค้ดสองเส้นทาง** (`world_bg0015_identity._PLACEMENT_ROWS` กับ `HOSTILE_PLACEMENTS`) ที่ไม่ import กัน แก้ถ้อยคำแล้ว |
+| เทส wired | "ยืนยันสำหรับ 12 identity ของ Bg0015" | จำนวนเต็มอะไรก็ได้ให้ผลเหมือนกัน -- สิ่งที่มันปักจริงคือ "ฉาก 14 resolve เป็นโฟลเดอร์ Bg0015 บน roster ว่าง" เขียนใหม่ให้ตรง และเพิ่ม assertion ที่ยิง `0xDEADBEEF/0x1/0xFFFF` ให้เห็นคาตา |
+| pin ที่หาย | รอบแก้ที่ 2 อ้างว่าไฟล์ใหม่ยืนยันความต่างของ scene tag | การเปลี่ยนชื่อไฟล์ทำ pin นั้นหายไปเฉย ๆ -- **กู้กลับมาแล้ว** เป็นเทสของตัวเอง |
+
+**การตัดสินใจเชิงกระบวนการ**: เลิกส่ง "แผนที่ความเป็นเจ้าของ" ให้ chief -- เดาผิดสองรอบติดใน
+เอกสารที่มีไว้กันคนอื่นทำของพัง ต่อไปนี้ส่งข้อเท็จจริงที่วัดได้ + ระบุว่าอะไรเป็น inference + ส่ง
+**คำถาม** ให้ chief/COO ตอบ (ดูหัวข้อ "รายการนี้ยังไม่ครบ" ท้ายไฟล์)
+
 ## ADDENDUM 6cm6ry-2 (2026-09-01T02:10+07:00) -- pf-adversary หักล้างข้อสรุปหลักของรอบนี้ แก้แล้ว
 
 **อ่านหัวข้อนี้ก่อนเชื่ออะไรด้านล่าง.** pf-adversary รีวิว PR ก่อน undraft และวัดหักล้างข้ออ้างหลัก
@@ -72,9 +114,12 @@ CORE-REQUEST ที่ส่งไปแล้ว (รอบ jqxe6v/78zayw) พ�
 ไล่โค้ดจริงพบว่า `_dispatch_mob_combat`'s call site ที่ต่อสายแล้ว (`damage_step`/`death_step`)
 ดึง ledger ผ่าน `self._sync_combat_scene_state()` (`runtime.py:4027`) ซึ่ง **scene-generic เต็มรูป
 แบบอยู่แล้ว**: เปิด `field_mobs.load_roster(folder)` เมื่อ `folder in field_mobs.live_scenes()`
-เท่านั้น ไม่งั้นเปิด roster ว่าง `field_mobs._SCENE_TABLE_MODULES` (รอบ jqxe6v วัดไว้แล้วว่ามี
+เท่านั้น ไม่งั้นเปิด roster ว่าง `field_mobs._SCENE_TABLE_MODULES` ~~(รอบ jqxe6v วัดไว้แล้วว่ามี
 182 assertion ปักอยู่ทั่วหกไฟล์เทสที่หมายถึง "สองฉากที่ ship แล้ว" -- **ตั้งใจเลื่อนการลงทะเบียนฉาก
-ที่สามไปให้ chief ประสานงานเอง ไม่ทำเป็นผลข้างเคียง**) ยังมีแค่ bg0001/Bg0002 ที่ HEAD ของรอบนี้
+ที่สามไปให้ chief ประสานงานเอง ไม่ทำเป็นผลข้างเคียง**)~~ **[ถอนตัวเลข: "182 assertion ใน 6 ไฟล์"
+รับช่วงมาจากรอบ jqxe6v ไม่ได้วัดที่ HEAD -- วัดเองที่ HEAD ได้ 35 failed / 6062 passed = 11 บรรทัด
+FAILED + 24 subtest failure, เป็นเทสที่ไม่ใช่ของรอบนี้ 10 ใบ ใน 5 ไฟล์]** ยังมีแค่ bg0001/Bg0002
+ที่ HEAD ของรอบนี้
 
 ~~ผลคือ: **แม้ chief ต่อสาย CORE-REQUEST ของ census/splice สำเร็จ 100% ตามที่ขอ ผู้เล่นก็ยังคลิกตี 12
 ตัวที่ดูเป็นสีแดง/hostile นั้นไม่ได้เลย** -- ทุกจังหวะตีจะถูกปฏิเสธด้วย
@@ -116,12 +161,17 @@ CORE-REQUEST ที่ส่งไปแล้ว (รอบ jqxe6v/78zayw) พ�
 | 3. owner ruling ให้ 7 template ของ Bg0015 | ปิด -- `mob_death.ruling_for` ปฏิเสธทั้ง 12 แถวด้วย `target_outside_the_sanctioned_scope` (343/345/348/350/353/355/924) → มอนจะโดนตีแต่ **ตายไม่ได้** | เจ้าของเท่านั้น (`WIDENING_RULINGS` รับเฉพาะจดหมายเจ้าของ) |
 | 4. composer ของ `mob_scene_recompose` สำหรับฉาก 14 | ปิด (`composer_scene_ids() = (1, 2)`) → สวิงแรกจะส่งเฟรมหนึ่ง-entry ที่ RE-092 พิสูจน์แล้วว่าลบ actor อีก 80 ตัวออกจากจอ | **สาย B สร้างเองได้เลย** |
 
-สิ่งที่โมดูลนี้ให้ (ทุกอย่างวัดจากข้อมูลจริง ไม่ใช่ลิสต์ที่พิมพ์มือ): `roster_gate_open()`,
-`templates_without_a_death_ruling()`, `recompose_gate_open()`, `closed_gates()` + `GATE_OWNERS`,
-`WIRED_ANSWER_FOR_A_TABLELESS_SCENE` (สตริง event จริง), `splice_identities(legacy)` (อ่านจากทาง
-"ภาพ" จริงคือ `scene14_hostile_overrides`), `splice_identities_missing_from(...)` (ตรวจไขว้กับชุด
-identity ที่มาจาก **นอกสายนี้**), `owner_refused_placements_for_scene14()`,
-`live_cross_scene_collisions_today()`, `bg0002_bg0015_identity_collisions()`
+~~สิ่งที่โมดูลนี้ให้ ... `recompose_gate_open()`, `closed_gates()` + `GATE_OWNERS` ...~~
+**[แก้รอบที่ 3]** `GATE_OWNERS` และ `closed_gates()` **ตัดออกทั้งคู่** (`closed_gates()` รายงาน
+ประตู 2 ผ่าน state ที่ประตู 2 ไม่ได้ควบคุมเลย; `GATE_OWNERS` คือแผนที่เจ้าของที่เดาผิดสองรอบ) และ
+`recompose_gate_open()` เปลี่ยนเป็น `recompose_status()` ที่อ่าน **ทั้งสองครึ่ง**
+(`composer_scene_ids()` + `ACKNOWLEDGED_WITHOUT_COMPOSER` + `scene_is_accounted_for`)
+สิ่งที่โมดูลให้ตอนนี้ ทุกตัวคือหนึ่งการวัด: `ai_rows_missing_for_scene14()`,
+`open_register_refusal_for_scene14()` (พาดหัว), `roster_gate_open()`,
+`scene14_roster_size_today()`, `templates_without_a_death_ruling()`, `recompose_status()`,
+`splice_identities(legacy)`, `splice_identities_missing_from(...)`,
+`owner_refused_placements_for_scene14()`, `live_cross_scene_collisions_today()`,
+`bg0002_bg0015_identity_collisions()`, `ENUMERATION_PROCEDURE` (ขั้นตอนที่ใช้หา + ขีดจำกัดของมัน)
 
 ~~1. `bg0015_registration_would_line_up_with_the_visual_splice()` -- ถ้าลงทะเบียน Bg0015 จริง ledger
    ที่เปิดได้จะมี identity ตรงกับ 12 ตัวที่ splice ไว้เป๊ะ~~
@@ -149,11 +199,21 @@ identity ปลอม 11 ตัว) **ตัดทิ้งแล้ว** แท
 **[แก้ตาม D5]** ลูปนั้นไม่ได้พิสูจน์อะไรเกี่ยวกับ Bg0015 เลย -- `open_ledger_for_scene_id(14)
 .balance_of(x)` โยน `target_not_in_ledger` ให้ `0xDEADBEEF`, `0x1`, `0xFFFF` เหมือนกันหมด มันมีค่า
 เท่ากับ `assertEqual(ledger.identities(), ())` ใบเดียว **ตัดทิ้งแล้ว** แทนด้วยเทส end-to-end จริง
-(`Bg0015WiredAnswerTests`) ที่ขับ dispatch จริงในฉาก 14 แล้ววัด event ที่ออกมาจริง ๆ พร้อม
+(`Bg0015WiredPathTests`) ที่ขับ dispatch จริงในฉาก 14 แล้ววัด event ที่ออกมาจริง ๆ พร้อม
 assertion ว่า `target_not_in_ledger` ต้อง **ไม่โผล่เลย** ในทุก event ของเซสชันนั้น
-(ส่วนที่ยังถูก: ความต่างของ scene tag ระหว่าง `open_ledger_for_scene_id(14)` = `None` กับที่
-`_sync_combat_scene_state` เปิดจริง = `"Bg0015"` -- ยังจริง และเทสในไฟล์ใหม่ยังยืนยันว่าเซสชัน
-จริงอยู่ฉาก 14 ผ่าน `state.mob_combat_scene_folder`)
+
+**[แก้อีกชั้น รอบที่ 3 -- เทสนั้นปักน้อยกว่าที่เคยเขียนไว้]** เทส end-to-end ใบนั้นแยก identity ของ
+Bg0015 ออกจากจำนวนเต็มอะไรก็ได้**ไม่ได้**: `0xDEADBEEF`, `0x1`, `0xFFFF` ให้ event/โฟลเดอร์/ledger
+ว่างชุดเดียวกันเป๊ะ สิ่งที่มันปักจริงคือ "**ฉาก 14 resolve เป็นโฟลเดอร์ Bg0015 บน roster ว่าง**"
+เขียนใหม่ให้ตรงแล้ว และเพิ่ม assertion ที่ยิงสามเลขนั้นเข้าไปในเทสเอง เพื่อให้คนอ่านเห็นข้อจำกัด
+ไม่ใช่ต้องเชื่อคำอธิบาย
+
+~~(ส่วนที่ยังถูก: ... เทสในไฟล์ใหม่ยังยืนยันความต่างของ scene tag)~~ **ผิด**: การเปลี่ยนชื่อไฟล์
+รอบแก้ที่ 2 ทำให้ pin ตัวนั้น (`test_open_ledger_for_scene_id_vs_sync_combat_scene_state_scene_
+tag`) **หายไปเฉย ๆ** ขณะที่ประโยคนี้ยังอ้างว่ามีอยู่ -- **กู้กลับมาแล้ว** เป็นเทสของตัวเอง
+(`test_the_two_scene_tag_readers_disagree_and_that_is_pinned`) ปักครบทั้งสามข้อเดิม
+(`scene_folder_for_scene_id(14) == "Bg0015"`, `field_mobs.scene_for_scene_id(14) is None`,
+ledger สองใบไม่เท่ากันแต่ identities ว่างเท่ากัน)
 
 ## ของแถมที่พบระหว่างตรวจ (เขตสาย B, BUILD-006) -- `DropLedger.looted` ไม่มี scene term
 
@@ -197,7 +257,11 @@ src/pirateforce_foundation/mob_combat_bg0015_gates.py : 1 ไฟล์ (เป�
 
 ราคาจริงของการลงทะเบียน Bg0015 (วัดเอง: แก้ field_mobs.py ชั่วคราว รันสวีตเต็ม แล้ว
 git checkout คืน -- ไม่ commit)                                                        <- D2/D8
-  35 failed, 6056 passed, 327 skipped, 13166 subtests (139.78s)
+  ~~35 failed, 6056 passed, 327 skipped, 13166 subtests (139.78s)~~ <- 6056 มาจากทรีก่อนเปลี่ยน
+    ชื่อไฟล์เทส (รอบแก้ที่ 3 วัดซ้ำที่ HEAD)
+  35 failed, 6062 passed, 327 skipped, 13166 subtests (141.37s)
+    แยกส่วนที่ร่างก่อนรวบเป็นตัวเลขเดียว: 11 บรรทัด FAILED (3 ในนั้นคือเทสของรอบนี้เองที่ยืนยัน
+    ว่าเงื่อนไขยังปิดอยู่) + 24 subtest failure (2 ใบ ใบละ 12 identity)
   ในนั้นเป็นเทสที่ไม่ใช่ของรอบนี้ 10 ใบ ใน 5 ไฟล์:
     tests/test_field_mob_tables_bg0015.py (guard ผู้ import ที่ได้รับอนุมัติ) 1
     tests/test_field_mobs.py 1 · tests/test_field_mobs_scene_binding.py 4
@@ -208,19 +272,31 @@ git checkout คืน -- ไม่ commit)                                     
 สวีตเต็ม pirate-force-server (pytest tests -q):
   baseline ก่อนรอบนี้ทั้งรอบ (git stash -u, วัดตอนต้นรอบ):
     0 failed, 6060 passed, 327 skipped, 13092 subtests passed (136.58s)
-  หลังแก้ตาม pf-adversary (ทรีปัจจุบัน):
-    0 failed, 6073 passed, 327 skipped, 13094 subtests passed (139.44s)
-  เดลต้าสุทธิ vs baseline: +13 passed, +0 skipped, +2 subtests, 0 failed -- ตรงกับ 13 เทสใหม่
+  ~~หลังแก้ตาม pf-adversary รอบแรก: 0 failed, 6073 passed, 13094 subtests (139.44s)~~
+  หลังแก้ตาม pf-adversary รอบสอง (ทรีที่ commit จริง):
+    0 failed, 6077 passed, 327 skipped, 13094 subtests passed
+    ระหว่างทางแดง 1 ใบตามคาดแล้วแก้: tests/test_mob_ai_control.py::ContainmentTests::
+    test_exactly_runtime_dispatches_this_lane_now (โมดูลนี้ import mob_ai_control เพื่อเรียก
+    open_register จริง = importer ตัวที่สาม) เพิ่มชื่อในลิสต์พร้อมเหตุผลว่าไม่ใช่ dispatcher
+
+acceptance criterion ของ pf-adversary (ทำจริง ไม่ใช่รับปาก):
+  stub `splice_identities_missing_from` -> `return ()` แล้วรันไฟล์เทสของโมดูลนี้
+    ก่อนแก้ : 12/13 เขียว (เทสที่ควรจับกลับไม่เรียกฟังก์ชันเลย)
+    หลังแก้ : `test_the_backing_check_reports_exactly_the_identities_it_is_not_given` **แดง**
+  ~~เดลต้า +13 passed~~ เดลต้าสุทธิ vs baseline: +17 passed, +0 skipped, +2 subtests, 0 failed
+    -- ตรงกับ 17 เทสใหม่
     ในไฟล์เทสของโมดูลนี้เป๊ะ ไม่มีอะไรอื่นขยับ
 git diff --check: silent
 cp874 sweep: src/pirateforce_foundation/mob_combat_bg0015_gates.py ผ่าน,
   tests/test_mob_combat_bg0015_gates.py ผ่าน (ขอบเขตกฎคือ src/ tools/ current/ -- ไฟล์รอบ/จดหมาย
   ไม่อยู่ในขอบเขตนั้น และไฟล์นี้เองมี U+2460 อยู่จริง)
-ไฟล์ที่แตะรอบนี้ (pirate-force-server) รวม 6:
-  src/pirateforce_foundation/mob_combat_bg0015_gates.py [ใหม่; เปลี่ยนชื่อจาก ..._gap.py]
-  tests/test_mob_combat_bg0015_gates.py [ใหม่; เปลี่ยนชื่อ + เขียนใหม่]
+~~ไฟล์ที่แตะรอบนี้ (pirate-force-server) รวม 6~~ -> รวม **7** หลังรอบแก้ที่ 3:
+  src/pirateforce_foundation/mob_combat_bg0015_gates.py [ใหม่; เปลี่ยนชื่อจาก ..._gap.py; เขียนใหม่
+    ทั้งไฟล์รอบแก้ที่ 3 -- ตัด GATE_OWNERS/closed_gates, เพิ่มการวัด ai_row_missing]
+  tests/test_mob_combat_bg0015_gates.py [ใหม่; เปลี่ยนชื่อ + เขียนใหม่สองครั้ง; 17 ใบ]
   tests/test_field_mobs.py [ลิสต์ importer ปัก]
   tests/test_mob_stat_fabrication_guard.py [LANE_B_MODULES]
+  tests/test_mob_ai_control.py [ContainmentTests: importer ตัวที่สามพร้อมเหตุผล -- ใหม่รอบแก้ที่ 3]
   rounds/B_20260901_0106_6cm6ry_bg0015-combat-ledger-gap-measured.md [ไฟล์นี้]
   rounds/B_20260901_0106_6cm6ry_CLAIM.md  <- D9: ไฟล์ที่ลืมนับในรายการเดิม
 ```
@@ -251,9 +327,29 @@ cp874 sweep: src/pirateforce_foundation/mob_combat_bg0015_gates.py ผ่าน,
 ไม่ใช่กิ่งของฉาก 2 -- เรื่องนี้แจ้ง chief/สาย A ในจดหมายรอบนี้ (ไม่ใช่คำขอใหม่จากสายนี้ แต่เป็นการ
 แก้ที่อยู่ของคำขอเดิมที่ทั้งสองสายเขียนไว้ผิด)
 
+## รายการเงื่อนไขนี้ยังไม่ครบ -- ตอบคำถามปิดท้ายของ pf-adversary ตรง ๆ
+
+คำถาม: ทุก "ประตู" ที่รายงานมาคือ predicate ที่อ่านได้อยู่แล้ว ไม่มีข้อไหนเกิดจากการเดินเส้นทางที่
+คำสั่งจริงเดิน -- แล้วอะไรทำให้เชื่อว่ารายการจบที่ห้าหรือหก
+
+**ตอบ: ไม่มีอะไรทำให้เชื่ออย่างนั้น และรายการนี้ไม่ควรถูกใช้ตั้งงบ** เหตุผลที่ raise ของ
+`mob_ai_control.open_register` หลุดสองรอบติดคือขั้นตอนที่ใช้ตอนนั้นอ่าน predicate อย่างเดียว
+ทั้งที่ raise อยู่ต่ำกว่าบรรทัดที่ตัวเองยกมาแค่สองบรรทัด ขั้นตอนที่ใช้จริงรอบนี้ (บันทึกไว้ในโมดูล
+ชื่อ `ENUMERATION_PROCEDURE` ให้รอบหน้ารันซ้ำได้):
+
+1. อ่าน predicate ที่เกี่ยวข้อง -- เจอเฉพาะสิ่งที่มีคนเคยตั้งชื่อไว้
+2. แก้บนทรีทดลอง + รันสวีตเต็ม -- เจอเฉพาะสิ่งที่สวีตปักไว้
+3. **แก้แล้วขับคำขอจริงหนึ่งใบผ่าน dispatch จริง แล้วอ่าน traceback** -- ข้อ 3 เท่านั้นที่เจอข้อ 5
+
+**ขีดจำกัดของขั้นตอนนี้เอง**: มันเดินคำขอหนึ่งใบไปถึงความล้มเหลว**ครั้งแรก** และความล้มเหลวครั้งแรก
+บังทุกอย่างถัดจากนั้น เส้นทาง ฆ่า/ลูท/ซาก/สร้าง census ใหม่ ในฉาก 14 ยังไม่เคยถูกขับเลย เพราะเซสชัน
+ตายก่อน -- ข้อ 6 (census rebuild ไม่มี `_apply_mob_death_census_override` ในกิ่งของฉาก 14) จึงยัง
+เป็น **inference จากการอ่านโค้ด ไม่ใช่การวัด** และถูกติดป้ายแบบนั้นทั้งในโมดูลและในจดหมาย
+
 ## เปิดใบให้สาย C
 
-ไม่มี -- ไม่มีคำถามที่ต้องรอคำตอบจากภายนอกโปรเจกต์รอบนี้
+ไม่มี -- ไม่มีคำถามที่ต้องรอคำตอบจากภายนอกโปรเจกต์รอบนี้ (คำถามเรื่องใคร regenerate
+`field_mob_ai_tables` เป็นคำถามภายในถึง chief/COO ไม่ใช่ใบ RE ของไคลเอนต์)
 
 ## nonclaim
 
