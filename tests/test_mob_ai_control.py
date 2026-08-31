@@ -1111,9 +1111,17 @@ class ContainmentTests(unittest.TestCase):
         # CORE-REQUEST-007 wired this module into runtime.py.  This used to
         # be a tripwire asserting the OPPOSITE (nothing imports it); now that
         # the chief has written the call, the tripwire is on the other side:
-        # exactly ONE file imports it, and it is the one MOB_AI_CONTROL_
-        # WIRING named.  A second importer, or app.py picking it up directly,
-        # would mean the request was answered twice or in the wrong file.
+        # exactly the expected files import it.  A THIRD importer, or app.py
+        # picking it up directly, would mean the request was answered twice
+        # or in the wrong file.
+        #
+        # WIDENED round 256rvs: mob_ai_scheduler.py imports this module too
+        # -- it is the caller mob_ai_control's own header names as missing
+        # (a driver for tick_step), not a second dispatcher.  It composes no
+        # frame and is itself not imported by runtime.py yet (see that
+        # module's own containment test), so runtime.py stays the only
+        # PRODUCTION dispatch path; mob_ai_scheduler is a library call
+        # runtime.py may adopt later per MOB_AI_SCHEDULER_WIRING.
         importers = []
         for path in sorted(SRC_ROOT.glob("*.py")):
             if path.name == "mob_ai_control.py":
@@ -1127,8 +1135,10 @@ class ContainmentTests(unittest.TestCase):
                         alias.name for alias in node.names]
                 if any("mob_ai_control" in name for name in names):
                     importers.append(path.name)
-        self.assertEqual(sorted(set(importers)), ["runtime.py"],
-                         "exactly runtime.py should import this lane")
+        self.assertEqual(
+            sorted(set(importers)), ["mob_ai_scheduler.py", "runtime.py"],
+            "exactly runtime.py and mob_ai_scheduler.py should import this "
+            "lane")
         app_body = (SRC_ROOT / "app.py").read_text(encoding="utf-8")
         self.assertNotIn("mob_ai_control", app_body,
                          "runtime.py owns this wiring, not app.py")

@@ -643,6 +643,15 @@ class ContainmentTests(unittest.TestCase):
         # the promotion: exactly ONE importer, the controller, and the damage
         # driver's wiring line STILL does not name this module - because if it
         # did, the argument-shaped edge would be back.
+        #
+        # WIDENED round 256rvs: mob_ai_scheduler.py is a SECOND importer, and
+        # it is not a second controller -- it owns no AI_STATE mutation, it
+        # only calls mob_ai_control.tick_step/commit_step (the one controller
+        # this comment already names) and imports mob_aggro solely to build
+        # the MobObservation/PlayerObservation inputs those calls need.  The
+        # invariant this test defends ("one controller") still holds; what
+        # changed is that a controller can now have more than one CALLER, the
+        # same relationship mob_ai_control already has with runtime.py.
         self.assertIs(ma.production_allowed, True)
         self.assertIs(ma.MOB_AGGRO_IMPORTED_BY_A_PRODUCTION_MODULE, True)
         # Dispatch reachability is still False and that is still honest: the
@@ -667,8 +676,12 @@ class ContainmentTests(unittest.TestCase):
                     continue
                 if any("mob_aggro" in name for name in names):
                     importers.append(path.name)
-        self.assertEqual(importers, [ma.MOB_AGGRO_IMPORTER + ".py"])
-        self.assertEqual(mentions, ["mob_ai_control.py", "mob_combat.py"])
+        self.assertEqual(
+            sorted(importers),
+            sorted([ma.MOB_AGGRO_IMPORTER + ".py", "mob_ai_scheduler.py"]))
+        self.assertEqual(
+            sorted(mentions),
+            ["mob_ai_control.py", "mob_ai_scheduler.py", "mob_combat.py"])
         # The edge that must NOT come back: the damage driver's wiring line
         # still passes None, so threat never arrives through an argument the
         # scan above cannot see.  It arrives through the importer named on the
